@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest something Native Intelligence should do. Ideas feed the public roadmap.
+title: "[Idea]: "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Short and plain is fine. Others can vote on it with 👍 or 👎.
+        See what is already planned at https://dial8.ai/roadmap before you post.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What is hard, slow or missing today?
+      placeholder: When I finish a meeting, I have to copy the action items into my task app by hand.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like
+      description: What should Native Intelligence do about it?
+      placeholder: Send the action items to my task app when the meeting ends.
+    validations:
+      required: true
+  - type: textarea
+    id: audience
+    attributes:
+      label: Who it's for
+      description: Who would use this, and how often?
+      placeholder: Me and the five people on my team, after every client call.
+    validations:
+      required: false
+  - type: textarea
+    id: other
+    attributes:
+      label: Anything else
+      description: Links, screenshots, or how another tool does it.
+    validations:
+      required: false
