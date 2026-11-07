@@ -28,9 +28,9 @@ function SocialLinks() {
   return (
     <div className="flex items-center gap-4">
       <Link
-        href="https://github.com/liamadsr/dial8-open-source"
+        href="https://github.com/liamadsr/native-intelligence"
         target="_blank"
-        aria-label="View Dial8 on GitHub"
+        aria-label="View the source on GitHub"
         className="text-foreground data-hover:text-muted-foreground"
       >
         <SocialIconGitHub className="size-5" />

@@ -26,4 +26,6 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: ${{ github.server_url }}/${{ github.repository }}/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: liamadsr,bot*
+          # claude: the Co-Authored-By account of commits made with Claude Code. An AI co-author
+          # can't sign; the person who opens the pull request signs for their contribution.
+          allowlist: liamadsr,claude,bot*
