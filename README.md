@@ -1,19 +1,144 @@
+<div align="center">
+
 # Native Intelligence
 
-Native Intelligence is a workspace with an AI agent in the middle of it. It captures
-your meetings and calls, keeps your email, calendar, projects and customers in one
-place, and the agent works across all of it: in chat, by text and over the phone.
+**One workspace for all of your work, with an always-on agent that learns it and takes it over.**
+
+[Hosted app](https://dial8.ai) · [Docs](https://dial8.ai/docs) · [Discord](https://discord.gg/sHtYGtkWga) · [Contribute](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+</div>
+
+<br />
+
+Native Intelligence puts your email, calendar, meetings, conversations, customers,
+prospecting, tasks and documents in one connected workspace, so they stop being
+separate apps. You can @mention anything and work with all of it in one place.
+
+At the center is an agent that doesn't wait to be asked. It's always on: it watches the
+work happen, learns how you and your team like things done, and takes care of more of
+it over time. When it needs you, it texts you. The longer your team uses it, the more it does on its own, and the more your people get to
+spend on the work that matters.
+
+<br />
+
+# Why Native Intelligence
+
+Most teams run on a dozen apps that don't know about each other: one for email, one for
+the calendar, one for meeting notes, one for chat, one for the CRM, one for prospecting,
+one for tasks. People end up as the glue, copying context from one tool to the next.
+The AI built into those tools is a chatbot that waits for you to ask it something.
+
+Native Intelligence is both halves of the fix:
+
+1. **One connected workspace.** Every email, meeting, contact, company, task and document
+   is a record that links to the others. A meeting knows its attendees, their company,
+   the emails before it and the tasks that came out of it.
+2. **An agent that works in it, all the time.** Because the agent sees the same
+   connected workspace you do, it has the context to do real work: prepare you for a
+   meeting, draft the follow-up, update the customer record, chase the open task. It
+   learns your preferences as it goes, and the goal is simple: hand it more of your work
+   until it runs most of it for you.
+
+<br />
+
+# What's in the workspace
+
+| Part | What it does | Docs |
+| --- | --- | --- |
+| Email | Gmail and Outlook in one inbox, with replies the agent drafts in your voice and threads linked to the people in them. | [Email &rarr;](https://dial8.ai/docs/features/email) |
+| Calendar | Google and Microsoft calendars together, with every meeting linked to its notes, people and follow-ups. | [Calendar &rarr;](https://dial8.ai/docs/features/calendar) |
+| Meetings | The desktop and iPhone apps record and transcribe your meetings, then pull out the actions, decisions and commitments. | [Captures &rarr;](https://dial8.ai/docs/features/captures) |
+| Tasks and projects | Tasks with custom workflows and team identifiers (`ENG-42`), grouped into projects, milestones, cycles and initiatives. | [Actions &rarr;](https://dial8.ai/docs/features/actions) |
+| Documents | Rich documents you and the agent write together, with @mentions to anything in the workspace. | [Documents &rarr;](https://dial8.ai/docs/features/documents) |
+| CRM | Contacts, companies and their whole history, built from your email, calendar and meetings, including who said what on a call. | [CRM &rarr;](https://dial8.ai/docs/features/contacts-and-crm) |
+| Prospecting | Find prospects, build lists, and run outreach sequences, with the agent writing each message. | |
+| Search and views | Full-text and semantic search across everything, and saved views as lists or boards. | [Search &rarr;](https://dial8.ai/docs/features/search) |
+| The agent | Chat, automations, skills, memory and approvals, everywhere you are. More below. | [AI assistant &rarr;](https://dial8.ai/docs/features/ai-assistant) |
+
+<br />
+
+# @mention anything
+
+Every record in the workspace links to the others. @mention a person, company, meeting,
+email thread, document or task from a chat, a document or a task, and you, your team and
+the agent can all follow the link. Ask the agent about "@Acme" and it reads the emails,
+meetings and tasks behind it, not just the name.
+
+<br />
+
+# An agent that's always on
+
+The agent isn't a chat window bolted onto the side. It lives in the workspace, works in
+the background, and reaches you wherever you are.
+
+- **Talk to it anywhere.** In the app, on your Mac, on your iPhone or Apple Watch, or by
+  plain text message. It texts you back, and when something needs you, it texts you
+  first.
+- **It does the work, not just the talking.** It drafts and sends email, schedules
+  meetings, writes documents, updates records, creates and closes tasks, researches
+  companies, and runs a browser of its own for anything on the web.
+- **It runs on its own.** Automations run on a schedule or when something happens: a
+  meeting ends, an email arrives, a task changes. Skills teach it a process once, so you
+  never explain it twice.
+- **It learns.** It builds a memory of your workspace from your meetings, documents and
+  conversations: facts, decisions, commitments and preferences, each with where it came
+  from. Every task it takes on starts from that context.
+- **It earns autonomy.** Anything risky, like sending outside your team or deleting
+  something, goes through a reviewer and waits for your yes: a tap in the app, or "yes"
+  by text. Everything else is done with an undo. As it proves itself, more of your work
+  goes through without asking.
+- **It works with your tools.** Linear, Jira, Asana, HubSpot, GitHub and more. And it's
+  open the other way too: point Claude Code or any MCP client at your workspace.
+
+  ```bash
+  claude mcp add --transport http dial8 https://dial8.ai/api/mcp
+  ```
+
+- **It can run a business by text.** For an owner on the go, it sends quotes, books
+  jobs and even changes the company's website, each one waiting for a "yes" by text.
+
+<br />
+
+# Apps
 
 | Folder | What's in it |
 | --- | --- |
-| [`web/`](web/) | The web app (Next.js): the dashboard, its API, the AI agents, the database migrations (Supabase), the marketing site and the docs. [`web/CLAUDE.md`](web/CLAUDE.md) walks through the code. |
-| [`desktop/`](desktop/) | The desktop app (Tauri, Rust): it opens the web app and adds audio capture, meeting detection, on-device transcription and read-aloud. [`desktop/README.md`](desktop/README.md) covers building it. |
-| [`ios/`](ios/) | The iPhone and Apple Watch apps (Swift, SwiftUI): captures with on-device transcription, chat with the agent, widgets and a Live Activity, and one-press recording on the watch. [`ios/README.md`](ios/README.md) covers building it. |
+| [`web/`](web/) | The web app (Next.js): the workspace, its API, the agents, the database migrations (Supabase), the marketing site and the docs. [`web/CLAUDE.md`](web/CLAUDE.md) walks through the code. |
+| [`desktop/`](desktop/) | The desktop app (Tauri, Rust) for Mac, with Windows on the way: meeting detection and audio capture, on-device transcription, dictation, read-aloud, and an agent that works on your Mac with your permission. [`desktop/README.md`](desktop/README.md) covers building it. |
+| [`ios/`](ios/) | The iPhone and Apple Watch apps (Swift, SwiftUI): meeting capture with on-device transcription, chat with the agent, widgets and a Live Activity, and one-press recording on the watch. [`ios/README.md`](ios/README.md) covers building it. |
 
-## Getting started
+<br />
 
-The web app needs Node 24 (`web/.nvmrc`), a Supabase project, and service keys in
-`web/.env.local`.
+# Roadmap
+
+Where it's going next:
+
+- **Team chat.** Channels and direct messages inside the workspace, with the agent as a
+  member of the team, so conversations live next to the work they're about.
+- **A full CRM.** Deals with stages, values and pipelines, custom fields, and boards, all
+  kept up to date from your conversations instead of by hand.
+- **The agent takes your calls.** It calls you when something's urgent, joins a meeting
+  for you, speaks for you, and texts you if it needs you.
+- **Your customers reach your agent.** Customers who call or text your business number
+  talk to your agent, matched to their history.
+- **More imports.** Bring customers in from email tools, accounting and payment apps,
+  and other CRMs.
+- **Windows.** Everything the Mac app does, on Windows.
+- **More autonomy.** The agent takes over recurring work as it earns your trust, until
+  it runs most of the day-to-day on its own.
+
+<br />
+
+# Getting started
+
+**Use the hosted app.** [Sign up](https://dial8.ai), connect your Gmail or Outlook
+account, and the agent starts learning your workspace. The
+[quick start](https://dial8.ai/docs/getting-started/quick-start) walks through the rest.
+
+**Run it yourself.** The web app needs Node 24 (`web/.nvmrc`), a Supabase project, and
+service keys in `web/.env.local` ([`web/.env.example`](web/.env.example) lists them).
+[`web/README.md`](web/README.md) covers the whole setup, including building the database
+from empty.
 
 ```bash
 cd web
@@ -27,29 +152,39 @@ the top of the repo, `GIT_LFS_SKIP_SMUDGE=1 git submodule update --init`.
 
 The iOS app builds in Xcode (`ios/Dial8.xcodeproj`); a Simulator build needs no signing.
 
-## One repo, older names
+<br />
 
-Native Intelligence used to be called Dial8, and `web/`, `desktop/` and `ios/` started
-as three repos, `dial8-website`, `dial8-desktop` and `dial8-ios`. Code, comments and scripts still use those
-names in places. Where `desktop/README.md` says `cd ../dial8-website`, it's `cd ../web`
-here. The desktop's `scripts/local-agent-bundle.sh` looks for the website beside it: run
-it from `desktop/` with `DIAL8_WEB_DIR=../web`.
+# One repo, older names
+
+Native Intelligence used to be called Dial8, and the hosted app still lives at
+[dial8.ai](https://dial8.ai) while it moves. `web/`, `desktop/` and `ios/` started as
+three repos, `dial8-website`, `dial8-desktop` and `dial8-ios`. Code, comments and
+scripts still use those names in places. Where `desktop/README.md` says
+`cd ../dial8-website`, it's `cd ../web` here. The desktop's `scripts/local-agent-bundle.sh`
+looks for the website beside it: run it from `desktop/` with `DIAL8_WEB_DIR=../web`.
 
 Comments in the code sometimes point to notes under `web/docs/` (`docs/plans/...` and
 the like) that aren't in this repo. They were the team's internal working notes. The
 developer guides in `web/docs/` are the ones that ship.
 
-## Contributing
+<br />
+
+# Contributing
 
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first: everyone signs
-our [Contributor License Agreement](CLA.md) once, on their first pull request.
+our [Contributor License Agreement](CLA.md) once, on their first pull request. Ideas and
+questions are welcome on [Discord](https://discord.gg/sHtYGtkWga).
 
-## Security
+<br />
+
+# Security
 
 Found a security problem? Don't open an issue: report it privately, as
 [SECURITY.md](SECURITY.md) explains.
 
-## License
+<br />
+
+# License
 
 Native Intelligence is source-available under the [Business Source License 1.1](LICENSE),
 which isn't an open-source license. You can read the code, change it, test it, contribute
@@ -74,3 +209,10 @@ Some files aren't covered by that license and keep their own:
   bot-avatars and React, under the MIT License: see `ios/THIRD_PARTY_NOTICES.md`.
 
 The license doesn't cover the Native Intelligence name or logo.
+
+<br />
+
+# Star us on GitHub
+
+If Native Intelligence is useful or interesting to you, give the repo a star at the top
+of this page. It's how most people find us.
