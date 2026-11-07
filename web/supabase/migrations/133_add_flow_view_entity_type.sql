@@ -1,0 +1,12 @@
+-- Add 'flow' to view_entity_type enum.
+-- Fixes: "invalid input value for enum view_entity_type: flow"
+--
+-- The Flows feature uses the shared views system (UnifiedViewLayout with
+-- entityType="flow"), so GET /api/account/views?entity_type=flow filters the
+-- `view` table on this enum. Without the value, that query 500s and saving a
+-- flow fails. Mirrors migration 077 (which added 'project') and 045 ('initiative').
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — run as its own
+-- standalone migration statement.
+ALTER TYPE public.view_entity_type ADD VALUE IF NOT EXISTS 'flow';

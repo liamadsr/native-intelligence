@@ -1,0 +1,21 @@
+-- 188: capture_chunks.project_id — drop the legacy NOT NULL (PROD-only drift).
+--
+-- capture_chunks predates the tracked migration history (created as
+-- note_chunks before migration 014). On PROD its project_id column carries a
+-- NOT NULL constraint; on DEV it is nullable — classic pre-history drift. The
+-- /api/ai/index-content route passes the CLIENT-supplied project_id straight
+-- through, so any capture indexed without one (project-less capture, or a
+-- client payload that simply omits the field) fails the whole insert with
+-- 23502 on PROD only:
+--   "null value in column project_id of relation capture_chunks violates
+--    not-null constraint"
+-- 4 occurrences since 2026-03, most recently 2026-07-09 17:29 UTC — that one
+-- cost a real meeting its embeddings entirely (and, before the index-content
+-- route also became the claim-extraction trigger, would have stranded
+-- extraction too, since the route 500s before anything downstream runs).
+--
+-- A chunk without a project is legitimate — captures are not required to have
+-- one — so the constraint is simply wrong. Dropping NOT NULL is a no-op on DEV
+-- (already nullable) and idempotent everywhere.
+
+ALTER TABLE public.capture_chunks ALTER COLUMN project_id DROP NOT NULL;

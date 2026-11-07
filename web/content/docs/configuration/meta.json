@@ -1,0 +1,9 @@
+{
+  "title": "Configuration",
+  "pages": [
+    "workspace-settings",
+    "merge-workspaces",
+    "integrations",
+    "labels-and-workflows"
+  ]
+}

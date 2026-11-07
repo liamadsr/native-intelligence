@@ -1,0 +1,93 @@
+---
+title: Integrations
+description: Connect email, calendar and other apps, and MCP servers, from Settings → Connectors.
+---
+
+Dial8 integrates with external email and calendar providers to bring your communication and scheduling data into your workspace.
+
+## Connecting an Account
+
+Go to **Settings → Connectors**. What you've connected is under **Your connectors**; **Discover** lists the rest, with a search and an **Integrations / MCP servers** filter. Click **Connect** on the provider you want:
+
+### Google
+
+Connects **Gmail** and **Google Calendar** via OAuth. You'll be redirected to Google to grant access, then returned to Dial8.
+
+**Capabilities provided:**
+- Email inbox sync (Gmail threads, messages, attachments)
+- Calendar sync (events, attendees, conference links)
+- Send emails via Gmail
+- Create and update Google Calendar events
+
+### Microsoft
+
+Connects **Outlook** and **Outlook Calendar** via OAuth. You'll be redirected to Microsoft to grant access.
+
+**Capabilities provided:**
+- Email inbox sync (Outlook threads, messages, attachments)
+- Calendar sync (events, attendees, conference links)
+- Send emails via Outlook
+- Create and update Outlook Calendar events
+
+### Local Exchange
+
+Access Exchange calendars stored in macOS Calendar.app through the desktop app. No OAuth required — uses the macOS EventKit framework.
+
+**Capabilities provided:**
+- Read Exchange calendar events
+- Create, update, and delete events
+- Access attendee information
+
+## Multi-Account Support
+
+You can connect multiple accounts across different providers. Each account:
+
+- Syncs independently
+- Has its own visibility preferences
+- Can be enabled/disabled without disconnecting
+
+## Account Preferences
+
+### Email Preferences
+
+Per account, configure:
+- **Visibility** — Show/hide this account's emails in the unified inbox
+- **Notifications** — Enable/disable email notifications for this account
+
+### Calendar Preferences
+
+Per account, configure:
+- **Visibility** — Show/hide this account's calendars
+- **Per-calendar settings** — Show/hide individual calendars within the account
+
+## Disconnecting
+
+To disconnect an account:
+
+1. Go to **Settings → Connectors**
+2. Open the connector under **Your connectors** and find the account
+3. Click **Disconnect**
+
+This revokes Dial8's access and stops syncing. Existing synced data remains in your workspace.
+
+## MCP servers
+
+Integrations sync your data into Dial8. An **MCP server** gives the agent an app's own tools instead, so some services appear twice in Discover: **Linear** (the integration: push action items and keep their state in sync) and **Linear** labelled **MCP** (Linear's tools for the agent). They are separate connectors; connect either or both.
+
+Discover lists MCP servers Dial8 has vetted: each is run by the vendor on its own domain, listed in Anthropic's Connectors Directory or the official MCP Registry under the vendor's own domain, and you sign in at the vendor. Browse them by category (Projects & docs, Sales & marketing, Engineering & data, and so on).
+
+To add a server that isn't listed, click **Add custom connector** and enter its name and remote MCP server URL (a bearer token goes under **Advanced settings**).
+
+Open a connected MCP server to set its **Tool permissions**. Its tools are grouped into **Read-only** and **Write & delete**, and each tool, or a whole group, is one of:
+
+- **Always allow** — the agent runs it without asking
+- **Needs approval** — every call waits for your approval
+- **Blocked** — the agent can't see it
+
+Tools that can change something start as **Needs approval**. A tool the server adds later stays blocked until you choose a permission for it.
+
+To use Dial8 itself from Claude Code, Cursor or another MCP client, see **Settings → Dial8 MCP**.
+
+## OAuth Tokens
+
+Dial8 securely stores OAuth tokens for each connected account. Tokens are refreshed automatically when they expire. If a refresh fails, you'll be prompted to reconnect the account.

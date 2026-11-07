@@ -1,0 +1,24 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Kept out of `git archive`, so out of the open-source copy (scripts/open-source/export.sh).
+# Internal docs: plans, strategy, marketing, security reviews, evaluations. Only the
+# developer guides go out.
+/docs/** export-ignore
+/docs/DEV_SETUP.md -export-ignore
+/docs/E2E_TESTING_AND_DEPLOYMENT.md -export-ignore
+/docs/TESTING.md -export-ignore
+/PROMPT_MULTI_ACCOUNT_EMAIL_CALENDAR.md export-ignore
+# The Supabase CLI's cache of the linked project
+/supabase/.temp export-ignore
+# Local Claude Code permissions
+/.claude/settings.local.json export-ignore
+# The workflows deploy and test this project's own Vercel and Supabase setup, with its
+# secrets. In the public repo they'd sit in web/.github, where GitHub never runs them.
+/.github export-ignore
+# Tailwind UI's license and the "Radiant" template's demo content: theirs, not the project's
+/LICENSE.md export-ignore
+/seed.tar.gz export-ignore
+# What builds the copy: the export, the private-name list it checks against, and the
+# top-level files it adds
+/scripts/open-source export-ignore

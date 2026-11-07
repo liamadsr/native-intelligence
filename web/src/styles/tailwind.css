@@ -1,0 +1,1101 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+/*
+  ---break---
+*/
+@custom-variant dark (&:is(.dark *));
+/* Only on devices that actually have a hover-capable pointer. Used to gate
+   controls that hide until hovered (the HUD ears): on touch there is no hover,
+   so an unqualified `opacity-0` would make them permanently invisible. */
+@custom-variant hover-hover (@media (hover: hover));
+
+@source '../../node_modules/fumadocs-ui/dist/**/*.js';
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-heading: "Noto Serif", ui-serif, Georgia, serif;
+
+  /* Selection island entrance (keyframes further down in this block). `both`
+     holds the first frame until the animation starts, so the island never
+     flashes at full opacity before it moves. */
+  --animate-island-in: island-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  --radius-4xl: 2rem;
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+}
+
+/* Title bars fill the window edge to edge, with the frame clipping their top
+   corners. Its background never intercepts page actions or window controls. */
+[data-window-header] {
+  isolation: isolate;
+  cursor: grab;
+  /* Give the tabs and toolbars below each title bar a little breathing room. */
+  margin-bottom: 8px;
+}
+[data-window-header]:active {
+  cursor: grabbing;
+}
+[data-window-header]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-bottom: 1px solid hsl(var(--foreground) / 0.05);
+  background: hsl(var(--muted) / 0.45);
+  pointer-events: none;
+}
+
+/* Tiptap / Novel editor base text size */
+.ProseMirror {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+/* Tiptap / Novel editor placeholder — only show on the first empty paragraph
+   when the editor is empty, never inside list items or task items */
+.ProseMirror.is-editor-empty > .is-empty::before {
+  content: attr(data-placeholder) !important;
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
+/* Tiptap / Novel editor tables.
+   The typography plugin isn't loaded, so tables are styled explicitly to match
+   the app's bordered, muted-header look (and the read-only markdown renderer). */
+.ProseMirror .tableWrapper {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+.ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+.ProseMirror table td,
+.ProseMirror table th {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 6rem;
+  padding: 0.5rem 0.75rem;
+  vertical-align: top;
+  border: 1px solid hsl(var(--border));
+}
+.ProseMirror table th {
+  font-weight: 600;
+  text-align: left;
+  background: hsl(var(--muted) / 0.5);
+}
+.ProseMirror table p {
+  margin: 0;
+}
+/* Selected-cell overlay */
+.ProseMirror table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: hsl(var(--primary) / 0.12);
+  pointer-events: none;
+}
+/* Column resize handle */
+.ProseMirror table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 20;
+  background: hsl(var(--primary));
+  pointer-events: none;
+}
+.ProseMirror.resize-cursor {
+  cursor: ew-resize;
+  cursor: col-resize;
+}
+
+/* Remove focus rings globally — preserve decorative shadows (shadow-sm etc.) */
+*:focus-visible,
+*:focus {
+  outline: none !important;
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
+/* Flatten button elevation in both themes. Resets ONLY Tailwind v4's
+   elevation layer (--tw-shadow); borders and every ring layer are untouched.
+   In v4, box-shadow composes five vars — inset-shadow, inset-ring, ring-offset,
+   ring, and --tw-shadow — so zeroing --tw-shadow cannot affect a focus ring or
+   a border. The `inline-flex.rounded-*` selectors also catch button-styled
+   <a>/Slot CTAs (shadcn Button asChild, marketing CTAs) that a bare `button`
+   selector would miss. */
+button,
+[type="button"],
+[type="submit"],
+[role="button"],
+.inline-flex.rounded-md,
+.inline-flex.rounded-full,
+.inline-flex.rounded-lg {
+  --tw-shadow: 0 0 #0000;
+}
+
+/* Global Lucide icon refinements — thinner strokes, muted by default */
+.lucide {
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+button:hover .lucide,
+a:hover .lucide,
+[data-state="active"] .lucide,
+.lucide.text-foreground {
+  opacity: 0.9;
+}
+
+/* NOT inside `@layer utilities`.
+   Tailwind v4 treats a class defined in that layer as a CANDIDATE and only
+   emits it when its scanner recognises the name in the source. `hud-surface-
+   shadow` survived that check, but its dark-mode partner is a DESCENDANT
+   selector (`:is(.dark *) .hud-surface-shadow`), which the utility layer does
+   not emit — and with the pair split the whole rule was dropped from the built
+   stylesheet, so every HUD card computed `box-shadow: none` and rendered flat.
+   At top level it is plain CSS that always ships. It still lands after
+   Tailwind's own utilities, so a `shadow-*` class on the same element wins,
+   which is the precedence this recipe wants. */
+/* The floating HUD surfaces (attention deck cards, the calendar widget, and
+   their ears) share one elevation recipe.
+   It replaces `shadow-xl shadow-black/[0.07] ring-1 ring-black/5`, which read
+   as a hard rim rather than a soft hue: that stacked a spread-only `ring`
+   (a crisp 1px band) on top of a `border`, and Tailwind's xl shadow uses
+   NEGATIVE spread (-5px / -6px), which pulls the blur back toward the edge so
+   the darkness concentrates in a tight line instead of diffusing.
+   Here the layers are all zero-or-positive spread and each is roughly twice
+   the blur of the one before, so the falloff is gradual and even all the way
+   around — an ambient hue, not an outline.
+   Every layer must fall to imperceptible (under ~0.004 alpha, one 8-bit
+   level) BEFORE it reaches anything that clips it, or it gets cut to zero in
+   a single pixel and that step reads as a faint box around the HUD — the very
+   thing a soft falloff is meant to avoid.
+   The tight constraint is SIDEWAYS. These cards dock against the window
+   edges, so the outer side has only the ~16px page gutter before the app
+   shell clips at the viewport — no wrapper padding can buy more. Hence the
+   negative spread on every layer: it pulls each one's horizontal reach in
+   while the positive y-offset keeps the downward pool, so the shadow is
+   effectively spent within ~14px to the sides but still fades for ~60px
+   below, where there's room for it.
+   The near-edge layers stay faint too — those are what make a shadow read as
+   a pronounced outline hugging the card. */
+.hud-surface-shadow {
+  box-shadow:
+    0 2px 5px -1px rgb(0 0 0 / 0.02),
+    0 5px 12px -2px rgb(0 0 0 / 0.024),
+    0 11px 26px -5px rgb(0 0 0 / 0.028),
+    0 20px 46px -10px rgb(0 0 0 / 0.026),
+    0 32px 72px -18px rgb(0 0 0 / 0.018);
+}
+
+/* Dark mode leans on deeper, wider layers: the surfaces sit on a near-black
+   page, so a light-mode-strength shadow would be invisible. Still no ring —
+   the border carries the edge definition on its own. */
+:is(.dark *) .hud-surface-shadow,
+.dark .hud-surface-shadow {
+  box-shadow:
+    0 2px 5px -1px rgb(0 0 0 / 0.15),
+    0 5px 12px -2px rgb(0 0 0 / 0.18),
+    0 11px 26px -5px rgb(0 0 0 / 0.2),
+    0 20px 46px -10px rgb(0 0 0 / 0.18),
+    0 32px 72px -18px rgb(0 0 0 / 0.13);
+}
+
+@layer utilities {
+
+  .scrollbar-hide {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+    &::-webkit-scrollbar {
+      display: none !important;
+    }
+  }
+
+  .scrollbar-hide-deep {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+    &::-webkit-scrollbar {
+      display: none !important;
+    }
+    & * {
+      -ms-overflow-style: none !important;
+      scrollbar-width: none !important;
+      &::-webkit-scrollbar {
+        display: none !important;
+      }
+    }
+  }
+
+  /* Header pill elevation. The global button-flatten rule above zeroes
+     --tw-shadow on <button> and .inline-flex.rounded-* elements, so Tailwind's
+     `shadow-sm` produces no shadow on the header's button-based / inline-flex
+     pills (Capture·All, Activity, History, Getting started) while the div-based
+     pills (Workspace, Intelligence) keep theirs — an inconsistent look. This
+     sets an explicit `box-shadow` (not the --tw-shadow var the reset touches),
+     matching Tailwind's `shadow-sm` token, so every header pill carries the
+     same soft elevation in light mode. Flattened in dark mode, matching the
+     pills' `dark:shadow-none`. */
+  .pill-shadow {
+    box-shadow:
+      0 1px 3px 0 rgb(0 0 0 / 0.1),
+      0 1px 2px -1px rgb(0 0 0 / 0.1);
+  }
+  .dark .pill-shadow {
+    box-shadow: none;
+  }
+
+  @keyframes move-x {
+    0% {
+      transform: translateX(var(--move-x-from));
+    }
+    100% {
+      transform: translateX(var(--move-x-to));
+    }
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  /* The selection island (views bulk actions) rising into place from just
+     below its resting spot — consumed by `--animate-island-in`, declared with
+     the other theme variables at the top of this block (Lightning CSS refuses
+     a declaration that follows a nested rule such as these keyframes). */
+  @keyframes island-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  /* Indeterminate progress sweep — a segment that travels left→right, used for
+     "working…" bars (upload progress, live AI generation). The bar element is
+     ~1/3 width; this slides it across the full track and back to the start. */
+  @keyframes indeterminate {
+    0% {
+      transform: translateX(-150%);
+    }
+    100% {
+      transform: translateX(400%);
+    }
+  }
+
+  /* Flow-canvas edge: a stream of dots travelling trigger → action, giving an
+     n8n-style "data flowing" cue. Applied to an SVG <path> with dasharray
+     "1 9" — one dot per 10-unit cycle; the offset animates one cycle. */
+  @keyframes flow-edge-march {
+    to {
+      stroke-dashoffset: -10;
+    }
+  }
+
+  .flow-edge-animate {
+    animation: flow-edge-march 0.9s linear infinite;
+  }
+}
+
+/* Tighten Fumadocs docs layout — eliminate left gutter so sidebar hugs the edge */
+#nd-docs-layout {
+  --fd-sidebar-width: 220px;
+  grid-template-columns: 0px var(--fd-sidebar-col) minmax(0, calc(var(--fd-layout-width, 97rem) - var(--fd-sidebar-width) - var(--fd-toc-width))) var(--fd-toc-width) minmax(min-content, 1fr) !important;
+}
+
+/* The app's default scrollbars, in the base layer so a utility on an element
+   overrides them: `[scrollbar-width:none]` (with `[&::-webkit-scrollbar]:hidden`)
+   hides one. Unlayered, `* { scrollbar-width: thin }` beat every utility (an
+   unlayered rule outranks any layered one, whatever its specificity), so a row
+   meant to scroll with no bar showed a thin one, and WebKit, given a
+   scrollbar-width, ignores the ::-webkit-scrollbar rules too (Liam, 10-19: the
+   HUD's speaker row). */
+@layer base {
+  /* Thin, subtle native scrollbars (Firefox + Chrome/Edge) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--foreground) / 0.08) transparent;
+  }
+  /* Only elements that can own a scrollbar answer :hover. `*:hover` looked the same — `*` above sets the
+     resting colour on every element, so nothing ever inherits a hovered ancestor's — but `scrollbar-color`
+     is an inherited property, so every hover change re-resolved the style of the whole hovered subtree
+     (a window, the chat) for a colour nothing in it painted. The list is generous on purpose: anything
+     that scrolls by class, by inline style, or by its own nature. */
+  :is(
+    html,
+    body,
+    textarea,
+    pre,
+    iframe,
+    table,
+    [class*='overflow-'],
+    [style*='overflow'],
+    .ProseMirror,
+    .tableWrapper,
+    [data-radix-scroll-area-viewport],
+    [cmdk-list],
+    [role='listbox'],
+    [role='menu'],
+    [role='dialog'],
+    [role='tree'],
+    [role='grid']
+  ):hover {
+    scrollbar-color: hsl(var(--foreground) / 0.15) transparent;
+  }
+
+  /* Chrome/Edge/Safari */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.08);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.18);
+  }
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: hsl(var(--border));
+  }
+
+  /* Paint the root element with the app background too (not just <body>), so
+     that during a desktop live-resize the area exposed before layout catches
+     up matches the theme instead of flashing the webview's default fill. The
+     native Tauri window background (window_helper.m) is the primary defense;
+     this backstops the web compositor. */
+  html {
+    background-color: hsl(var(--background));
+  }
+
+  /* Baseline palette = "Neutral" (clean grayscale). This is the default the
+     app ships with, applied to everything (landing page + app) before any JS
+     runs, so there is no first-paint flash. Other themes (Midnight, Paper,
+     etc.) layer CSS-variable overrides on top of this via src/lib/themes.ts. */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 5%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 5%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 5%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 96%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 3.9%;
+    --radius: 0.5rem;
+    --sidebar-background: 0 0% 96%;
+    --sidebar-foreground: 0 0% 40%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 92%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 89%;
+    --sidebar-ring: 0 0% 3.9%;
+  }
+  .dark {
+    color-scheme: dark;
+    --background: 0 0% 6%;
+    --foreground: 0 0% 93%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 93%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 93%;
+    --primary: 0 0% 93%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 93%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 55%;
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 93%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 93%;
+    --border: 0 0% 9%;
+    --input: 0 0% 15%;
+    --ring: 0 0% 83.9%;
+    --sidebar-background: 0 0% 3%;
+    --sidebar-foreground: 0 0% 62%;
+    --sidebar-primary: 0 0% 93%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 0 0% 13%;
+    --sidebar-accent-foreground: 0 0% 86%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 0 0% 83.9%;
+  }
+}
+
+/* App background preference (Preferences → Background). The dashboard shell
+   stacks background layers behind the header + chat strip; which show depends
+   on `data-app-bg` on <html> (set by app-background.ts + theme-script.tsx):
+     - default / 'none' → nothing (flat `bg-sidebar` surface shows through)
+     - 'custom'         → user-uploaded `.app-bg-custom` layers
+
+   Deliberately UNLAYERED: the layers use Tailwind's `dark:block` / `dark:hidden`
+   utilities (in @layer utilities), and unlayered rules always win over any
+   @layer, so these visibility toggles reliably override the utilities in both
+   light and dark mode regardless of source order.
+
+   The custom layers pull their image from CSS vars set by the upload flow. When
+   a var is unset (that mode has no uploaded image) `background-image: var(--…)`
+   is invalid → no image paints → the flat surface shows, so a light-only or
+   dark-only upload degrades cleanly. */
+
+/* Custom layers: hidden by default; only the active mode's layer shows under
+   'custom'. `dark:hidden`/`dark:block` on the layers already restrict each to
+   its mode, so we just re-enable them here (overriding the base `hidden`). */
+.app-bg-custom {
+  display: none;
+}
+html[data-app-bg='custom'] .app-bg-custom-light {
+  background-image: var(--app-bg-custom-light);
+}
+html[data-app-bg='custom'] .app-bg-custom-dark {
+  background-image: var(--app-bg-custom-dark);
+}
+html[data-app-bg='custom']:not(.dark) .app-bg-custom-light {
+  display: block;
+}
+html[data-app-bg='custom'].dark .app-bg-custom-dark {
+  display: block;
+}
+
+/* Glass (Preferences → Background, desktop only): the desktop window is
+   see-through (lib/window-backdrop.ts), so the page's own base surfaces (html,
+   body, the dashboard's app root) go transparent and the chat and every page
+   float over the desktop. Set only once the desktop confirmed, so a page never
+   goes transparent over a window that stayed opaque. The shell's flat surface
+   carries a tint of the app's background colour (`--window-tint`, the Opacity
+   slider). Unlayered, like the rules above, so it beats
+   `bg-background` / `bg-sidebar`. */
+html[data-glass-window],
+html[data-glass-window] body,
+html[data-glass-window] [data-dial8-app-root] {
+  background: transparent;
+}
+html[data-glass-window] [data-shell-backdrop] {
+  background-color: hsl(var(--background) / var(--window-tint, 0));
+}
+/* The live agent's HUD window on Glass: its sheet sits on the desktop's frosted
+   layer, so its near-solid fill gives way to the same tint. */
+html[data-glass-window] [data-desktop-bubble-card] {
+  background-color: hsl(var(--background) / var(--window-tint, 0));
+}
+
+/* Pending comment selection highlight (before comment is submitted) */
+mark[data-pending-comment] {
+  background-color: rgba(250, 204, 21, 0.35);
+  border-bottom: 2px solid rgba(250, 204, 21, 0.6);
+  border-radius: 2px;
+}
+.dark mark[data-pending-comment] {
+  background-color: rgba(250, 204, 21, 0.2);
+  border-bottom-color: rgba(250, 204, 21, 0.5);
+}
+
+/* Inline comment highlight marks */
+mark[data-comment-id] {
+  background-color: rgba(250, 204, 21, 0.25);
+  border-bottom: 2px solid rgba(250, 204, 21, 0.5);
+  cursor: pointer;
+  transition: background-color 150ms;
+  border-radius: 2px;
+}
+mark[data-comment-id]:hover {
+  background-color: rgba(250, 204, 21, 0.4);
+}
+mark[data-comment-id].active {
+  background-color: rgba(250, 204, 21, 0.5);
+  border-bottom-color: rgba(250, 204, 21, 1);
+}
+.dark mark[data-comment-id] {
+  background-color: rgba(250, 204, 21, 0.15);
+  border-bottom-color: rgba(250, 204, 21, 0.4);
+}
+.dark mark[data-comment-id]:hover {
+  background-color: rgba(250, 204, 21, 0.25);
+}
+.dark mark[data-comment-id].active {
+  background-color: rgba(250, 204, 21, 0.3);
+  border-bottom-color: rgba(250, 204, 21, 0.7);
+}
+
+/* Comment highlights inside Tiptap editors (ProseMirror decorations) */
+.comment-highlight {
+  background-color: rgba(250, 204, 21, 0.25);
+  border-bottom: 2px solid rgba(250, 204, 21, 0.5);
+  cursor: pointer;
+  transition: background-color 150ms;
+  border-radius: 2px;
+}
+.comment-highlight:hover {
+  background-color: rgba(250, 204, 21, 0.4);
+}
+.comment-highlight-active {
+  background-color: rgba(250, 204, 21, 0.5);
+  border-bottom-color: rgba(250, 204, 21, 1);
+}
+.dark .comment-highlight {
+  background-color: rgba(250, 204, 21, 0.15);
+  border-bottom-color: rgba(250, 204, 21, 0.4);
+}
+.dark .comment-highlight:hover {
+  background-color: rgba(250, 204, 21, 0.25);
+}
+.dark .comment-highlight-active {
+  background-color: rgba(250, 204, 21, 0.3);
+  border-bottom-color: rgba(250, 204, 21, 0.7);
+}
+
+/* Live action-identifier decorations inside Tiptap editors (GEN-297, …).
+   Pure ProseMirror decorations over resolved identifiers — the text is
+   unchanged; only the rendering gains an underline + pointer. */
+.entity-ref-decoration {
+  border-bottom: 1px dashed hsl(var(--muted-foreground) / 0.6);
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background-color 150ms;
+}
+.entity-ref-decoration:hover {
+  background-color: hsl(var(--muted-foreground) / 0.12);
+  border-bottom-color: hsl(var(--muted-foreground));
+}
+
+/* Note attribution highlights (user notes woven into AI summary) */
+.note-attribution {
+  border-left: 2px solid rgba(251, 191, 36, 0.6);
+  padding-left: 4px;
+  margin-left: -6px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.note-attribution:hover,
+.note-attribution-active {
+  background-color: rgba(251, 191, 36, 0.12);
+}
+.dark .note-attribution {
+  border-left-color: rgba(251, 191, 36, 0.4);
+}
+.dark .note-attribution:hover,
+.dark .note-attribution-active {
+  background-color: rgba(251, 191, 36, 0.08);
+}
+
+/* Read-aloud: the markdown section being read (the hover "play this section"
+   button on a heading). Rendered markdown marks its blocks with
+   [data-read-aloud-reading] (components/ui/markdown-sections.tsx), the note
+   editor with .read-aloud-reading (components/editor/read-aloud-sections-
+   extension.ts). A quiet 2px accent bar down each block's left edge, 3px short
+   of its top and bottom: an outer box-shadow (spread -3px, shifted 5px left),
+   so nothing moves and no ::before is taken (prose and the editor use those).
+   The section paused most recently keeps a dimmer bar:
+   [data-read-aloud-reading="paused"] / .read-aloud-paused (a block of the
+   section being read as well shows that one's). */
+[data-read-aloud-reading],
+.read-aloud-reading {
+  box-shadow: -5px 0 0 -3px hsl(var(--primary) / 0.5);
+}
+.dark [data-read-aloud-reading],
+.dark .read-aloud-reading {
+  box-shadow: -5px 0 0 -3px hsl(var(--primary) / 0.45);
+}
+[data-read-aloud-reading="paused"],
+.read-aloud-paused:not(.read-aloud-reading) {
+  box-shadow: -5px 0 0 -3px hsl(var(--primary) / 0.2);
+}
+.dark [data-read-aloud-reading="paused"],
+.dark .read-aloud-paused:not(.read-aloud-reading) {
+  box-shadow: -5px 0 0 -3px hsl(var(--primary) / 0.2);
+}
+
+/* Sonner toasts must sit above dialog overlays and remain interactive
+   even when Radix Dialog sets pointer-events:none on <body> */
+[data-sonner-toaster] {
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+}
+
+/* Toast styling — match global border-radius and move close button to top-right */
+[data-sonner-toast] {
+  border-radius: var(--radius) !important;
+}
+[data-sonner-toast] [data-button] {
+  border-radius: calc(var(--radius) - 4px) !important;
+  cursor: pointer !important;
+}
+[data-sonner-toast] [data-close-button] {
+  left: unset !important;
+  right: 0 !important;
+  top: 0 !important;
+  border-radius: 9999px !important;
+  cursor: pointer !important;
+}
+
+/* Email content is now rendered inside Shadow DOM — see email-content.tsx */
+
+/* Floating chat — animated border glow */
+@property --glow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@property --glow-hue {
+  syntax: "<number>";
+  initial-value: 230;
+  inherits: false;
+}
+
+@keyframes glow-rotate {
+  0%   { --glow-angle: 0deg; }
+  100% { --glow-angle: 360deg; }
+}
+
+@keyframes glow-hue-shift {
+  0%   { --glow-hue: 230; }
+  25%  { --glow-hue: 255; }
+  50%  { --glow-hue: 210; }
+  75%  { --glow-hue: 260; }
+  100% { --glow-hue: 230; }
+}
+
+.glow-border {
+  --glow-angle: 0deg;
+  --glow-hue: 230;
+  will-change: transform;
+  animation:
+    glow-rotate 5s linear infinite,
+    glow-hue-shift 8s ease-in-out infinite;
+  background: conic-gradient(
+    from var(--glow-angle),
+    transparent 0%,
+    transparent 8%,
+    hsla(var(--glow-hue), 45%, 72%, 0.4) 16%,
+    hsla(var(--glow-hue), 50%, 70%, 0.6) 24%,
+    hsla(var(--glow-hue), 55%, 78%, 0.8) 32%,
+    hsla(var(--glow-hue), 60%, 88%, 0.95) 40%,
+    hsla(var(--glow-hue), 55%, 78%, 0.75) 48%,
+    hsla(var(--glow-hue), 50%, 72%, 0.55) 56%,
+    hsla(var(--glow-hue), 45%, 70%, 0.35) 64%,
+    transparent 75%,
+    transparent 100%
+  );
+}
+
+/* The call's glow on the HUD's chat box under reduced motion
+   (components/live-chat/call-glow.tsx): instead of the audio-reactive beam,
+   a gentle still tint of the beam's 'colorful' palette along the bottom
+   edge. Nothing here animates. */
+.hud-audio-glow-still {
+  position: absolute;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    radial-gradient(ellipse 22% 80% at 22% 100%, rgb(126 196 255 / 0.55), transparent 70%),
+    radial-gradient(ellipse 22% 85% at 50% 100%, rgb(255 201 21 / 0.55), transparent 70%),
+    radial-gradient(ellipse 22% 80% at 78% 100%, rgb(235 100 160 / 0.5), transparent 70%);
+}
+.dark .hud-audio-glow-still {
+  background:
+    radial-gradient(ellipse 22% 80% at 22% 100%, rgb(60 190 255 / 0.45), transparent 70%),
+    radial-gradient(ellipse 22% 85% at 50% 100%, rgb(255 70 120 / 0.5), transparent 70%),
+    radial-gradient(ellipse 22% 80% at 78% 100%, rgb(175 70 255 / 0.45), transparent 70%);
+}
+
+/* The chat message column + input sit in a centered 634px reading measure
+   over the full-width chat strip, with `margin:auto` centring it (Liam tried
+   880px, 704px and 564px on 10-09, then settled 10% under 704px).
+   NOTE: keep this in sync with CHAT_READING_COLUMN_MAX in picker-popover.tsx —
+   the skill/agent picker and question popovers clamp to the same measure. */
+:root {
+  /* The column's cap, and the width of what sits inside it at that cap (the
+     cards and messages, inset by the column's px-5). The tab island in the
+     top bar never grows past the latter (top-bar/top-bar.tsx), so it's never
+     wider than the chat beneath it. */
+  --chat-reading-max: 634px;
+  --chat-content-max: calc(var(--chat-reading-max) - 2.5rem);
+  /* The column's width as a token, so what stands BESIDE the column can follow
+     it too. The percentage is of the box the token is used in. */
+  --chat-reading-width: min(90%, var(--chat-reading-max));
+}
+/* Ink for what sits right on the app's sky (the chat's day lines, a
+   message's time, a reply's hook and its Copy / Read aloud / thumbs: Liam,
+   10-18). The theme alone can't say what's behind them (the sky is the
+   weather: in the light theme light by day and deep blue at night; in the
+   dark theme exposed for the dark), so the ink follows the sky's own tone,
+   which its controller marks on <html> (src/lib/sky/sky-tone.ts); with no
+   sky, the theme's muted foreground. An HSL triplet, used as
+   hsl(var(--sky-ink) / alpha). */
+:root {
+  --sky-ink: var(--muted-foreground);
+}
+html[data-sky-tone='light'] {
+  --sky-ink: 222 28% 24%;
+}
+html[data-sky-tone='dark'] {
+  --sky-ink: 220 40% 96%;
+}
+/* What a reply leaves straight on the sky with no bubble behind it (its
+   Copy / Read aloud / thumbs, "via", "Stopped": data-on-sky, marked only in
+   the main chat, components/sky/on-sky.ts) takes the same plain ink as the
+   day line's times. Unlayered, so it wins over their text-muted-foreground;
+   a ghost button's hover still sets its own colour on its chip. */
+html[data-sky-tone] [data-on-sky] {
+  color: hsl(var(--sky-ink) / 0.7);
+}
+.chat-reading-col {
+  /* The reading column is `min(90% of the chat strip, 634px)`. The strip is
+     always the full width of the window, so on most windows the 634px cap wins
+     → the chat holds its reading width instead of sprawling edge-to-edge; on a
+     narrow window 90% wins and the chat keeps a margin on either side. The
+     width is a plain `min()` with no transition of its own, so the column
+     tracks the strip frame-for-frame as the window resizes. */
+  width: var(--chat-reading-width);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* The agent's line about a card rides the card's bottom edge (Liam, 10-18,
+   docs/plans/chat-ui-polish.md Phase 2: like a comment on it). A panel in a
+   reply carries `data-chat-panel` while it draws OPEN (a page card's frame,
+   never its pill; the email draft; the long reply's document); what may ride
+   one carries `.chat-panel-attachment` (every reply bubble, chat-message.tsx).
+   Only the one right after an open panel moves: up over its edge, set in from
+   its left, above it. The panel grows by the overlap at its foot, so nothing
+   of its own is covered. All CSS, so a card that folds to its pill lets its
+   line drop back with no re-render and no measuring. The message column's
+   gap-2 (0.5rem) sits between them, so the pull is that plus the overlap. */
+:root {
+  --chat-panel-overlap: 18px;
+  --chat-panel-inset: 1.5rem;
+}
+[data-chat-panel] + .chat-panel-attachment {
+  position: relative;
+  z-index: 10;
+  margin-top: calc(-0.5rem - var(--chat-panel-overlap));
+  margin-left: var(--chat-panel-inset);
+  /* Clear of a page card's round buttons over its bottom-right corner: the
+     card is 125% of the message column (show-tool-card.tsx). */
+  max-width: min(calc(100% - var(--chat-panel-inset)), calc(125% - 8rem));
+  box-shadow: 0 6px 18px -6px rgb(0 0 0 / 0.18), 0 1px 3px rgb(0 0 0 / 0.06);
+}
+/* The email draft keeps its own my-2 under it. */
+[data-chat-panel='draft'] + .chat-panel-attachment {
+  margin-top: calc(-1rem - var(--chat-panel-overlap));
+}
+[data-chat-panel]:has(+ .chat-panel-attachment) {
+  padding-bottom: var(--chat-panel-overlap);
+}
+[data-chat-panel='document']:has(+ .chat-panel-attachment) {
+  padding-bottom: calc(0.5rem + var(--chat-panel-overlap));
+}
+/* A report's deliverable card tied to its words sits in from the column (ml-9,
+   its hook's room: teammate-report-chip.tsx), so what rides it (a prep's goal
+   box) sets in from the card's own edge. */
+[data-chat-panel='deliverable'][data-joined] + .chat-panel-attachment {
+  margin-left: calc(2.25rem + var(--chat-panel-inset));
+  max-width: calc(100% - 2.25rem - var(--chat-panel-inset));
+}
+
+/* A kept page waits out of sight (show-tool-card.tsx, data-card-parked): its
+   animations hold still until it is on screen again. */
+[data-card-parked] *,
+[data-card-parked] *::before,
+[data-card-parked] *::after {
+  animation-play-state: paused !important;
+}
+
+/* A full-screen card's backdrop: the whole window behind the card goes soft
+   and grey under a veil of the app's own background colour, so the card is the
+   one thing in focus. Blur and desaturate rather than darken, and no tint of
+   its own (a blue wash read as a blue frame around the app). */
+.card-focus-backdrop {
+  isolation: isolate;
+}
+/* A layer of its own under the card: a backdrop-filter on the card's parent
+   would blur the card's own glass with it. */
+.card-focus-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+.card-focus-backdrop::before {
+  background: hsl(var(--background) / 0.5);
+  -webkit-backdrop-filter: blur(10px) saturate(0.35);
+  backdrop-filter: blur(10px) saturate(0.35);
+  animation: card-focus-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes card-focus-in {
+  from { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-focus-backdrop::before { animation: none; }
+}
+
+/* Chat scroller METRICS. The top fade that used to mask content behind the
+   floating HUDs is gone — messages now pass behind the attention deck / widget
+   dock and stay readable, with the cards' own heavier shadow providing the
+   separation. `--chat-turn-anchor` outlives it: `.chat-response-runway` reads it
+   from the scroller to size a freshly submitted turn's scroll range, so it stays
+   declared here, always on. */
+.chat-top-fade-metrics {
+  --chat-turn-anchor: 340px;
+}
+
+/* Space below a freshly submitted turn lets that user message sit near the fade's
+   lower edge while the agent streams into the open viewport beneath it. Using the
+   viewport rather than content height guarantees enough scroll range even for a
+   one-line conversation. */
+.chat-response-runway {
+  height: max(160px, calc(100dvh - var(--chat-turn-anchor)));
+}
+
+/* ── Desktop (Tauri) native feel ──────────────────────────────────────────────
+   `data-desktop` is stamped on <html> before first paint (theme-script.tsx)
+   whenever the app runs inside the Tauri shell. Native macOS apps never let
+   you rubber-band-select their chrome and show an arrow cursor over labels,
+   so the desktop baseline is select-none + default cursor, with selection
+   explicitly re-enabled on real content. `user-select` is not inherited, but
+   `auto` resolves to the parent's used value — one rule on <html> reaches
+   everything, and any opted-in ancestor re-enables its whole subtree.
+   Tailwind's `select-text` utility is the per-element opt-in hook. */
+html[data-desktop] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* Content surfaces keep native text behavior: selection + I-beam. `.email-body`
+   wraps a shadow root (email-content.tsx) — user-select's auto-chain crosses
+   the shadow boundary, so opting in the wrapper covers the email HTML too.
+   `pre`/`code` cover log panes, terminals, and identifiers generically;
+   `[data-annotated-content]` covers every inline-comment surface (selecting
+   text there IS the feature) by construction. KEEP IN SYNC with
+   CONTEXT_MENU_ALLOWED in desktop-native-feel.tsx — an opt-in added to one
+   list but not the other silently loses selection or right-click Copy. */
+html[data-desktop] :is(
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable='false']),
+  .ProseMirror,
+  .prose,
+  .email-body,
+  pre,
+  code,
+  [data-annotated-content],
+  .select-text
+) {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+}
+
+/* Links inside content read as links; chrome buttons keep the arrow. */
+html[data-desktop] :is(.prose, .email-body) a[href] {
+  cursor: pointer;
+}
+
+/* No ghost-image drags — a translucent avatar following the cursor is a
+   webview tell. Doesn't affect HTML5 DnD on ancestors (react-dnd cards). */
+html[data-desktop] img {
+  -webkit-user-drag: none;
+}
+
+/* Inner scrollers stop dead at their edges instead of chaining the scroll
+   into a parent scroller, matching AppKit scroll views. Targets Tailwind's
+   emitted utility classes so all ~90 existing scrollers are covered. */
+html[data-desktop] :is(.overflow-y-auto, .overflow-auto, .overflow-x-auto) {
+  overscroll-behavior: contain;
+}
+
+/* ── Shimmer text (components/ui/shimmer-text.tsx) ───────────────────────────
+   A band of light sweeping across muted text: the chat's "Thinking" line and a
+   running tool's label. The text is painted by the gradient (background-clip:
+   text, transparent fill): the muted foreground, with a softer band of the
+   foreground at moderate strength in the middle, so it reads in both themes.
+   The background is 250% wide; background-position 100% puts the band just off
+   the left edge and 0% just off the right, so the sweep runs left to right in
+   2 s and then rests 0.5 s. The resting frame (100%) is plain muted text.
+   TRANSIENT STATES ONLY: the component drops this class the moment the state
+   ends, in a hidden chat tab and under reduced motion. */
+@keyframes shimmer-text-sweep {
+  0% {
+    background-position: 100% 0;
+  }
+  80%,
+  100% {
+    background-position: 0% 0;
+  }
+}
+
+.shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    hsl(var(--muted-foreground)) 0%,
+    hsl(var(--muted-foreground)) 40%,
+    hsl(var(--foreground) / 0.8) 50%,
+    hsl(var(--muted-foreground)) 60%,
+    hsl(var(--muted-foreground)) 100%
+  );
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-text-sweep 2.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+  }
+}
+
+/* ── Sky pages ────────────────────────────────────────────────────────────
+   Every public page has the live sky behind it (components/sky/public-sky.tsx,
+   mounted once from the root providers; the signed-in app has its own). It
+   is a fixed layer at z -10 in the root stacking context, so <body>'s own
+   fill (bg-background, and fumadocs' base rule on the blog and docs) would
+   paint over it: transparent while it's mounted, with <html>'s background
+   still under the sky.
+
+   Text sits right on the sky, which is washed toward the page background
+   (lib/sky/marketing-sky.ts MARKETING_SKY_WASH) so it holds 4.5:1. The
+   muted grey can't on its own (it is tuned for a flat white or near-black
+   page), so on these pages it is a stronger grey and the wash does the rest:
+   25% in the light theme, 80% in the dark one, for the site's own colours
+   and fumadocs' alike. Tailwind's `--color-*` are computed on :root, so the
+   override is on them. */
+body:has([data-marketing-sky]) {
+  background-color: transparent;
+  --color-muted-foreground: hsl(0 0% 25%);
+  --color-fd-muted-foreground: hsl(0 0% 25%);
+}
+.dark body:has([data-marketing-sky]) {
+  --color-muted-foreground: hsl(0 0% 80%);
+  --color-fd-muted-foreground: hsl(0 0% 80%);
+}
+/* fumadocs sets the dark sidebar's own muted grey on its id (neutral.css). */
+.dark body:has([data-marketing-sky]) #nd-sidebar {
+  --color-fd-muted-foreground: hsl(0 0% 80%);
+}
+/* Docs: the open sidebar is a column of the page, so the sky shows through
+   it like the rest (no vertical band); its text holds 4.5:1 on the washed
+   sky with the greys above. A collapsed sidebar that slides out over the
+   page on hover, the mobile drawer, and the sticky header the page scrolls
+   under keep their own fills: they cover content, so they stay chrome. */
+body:has([data-marketing-sky]) #nd-sidebar[data-collapsed='false'] {
+  background-color: transparent;
+}
+
+/* The chat box sizes itself to its text (PromptInputTextarea, data-autosize):
+   the browser's own sizing, so nothing measures the field on each keystroke
+   (a measure settles every pending style and layout change in the page, inside
+   the key). Empty, it stays one row: a long placeholder that wraps never grows
+   it, as the measure made sure. Browsers without it keep the measure. */
+@supports (field-sizing: content) {
+  textarea[data-autosize] {
+    field-sizing: content;
+  }
+  textarea[data-autosize]:placeholder-shown {
+    field-sizing: fixed;
+  }
+}

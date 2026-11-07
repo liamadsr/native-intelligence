@@ -1,0 +1,13 @@
+-- Add 'sequence' to view_entity_type enum.
+--
+-- The Sequences list page moves onto the shared views system
+-- (UnifiedViewLayout with entityType="sequence"), so GET
+-- /api/account/views?entity_type=sequence filters the `view` table on this
+-- enum. Without the value, that query 500s and saving a sequence view fails.
+-- Mirrors migration 133 (which added 'flow') and the unmerged 228 ('deal' on
+-- feat/deals — 228/229 are claimed by that branch, hence 230 here).
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — run as its own
+-- standalone migration statement.
+ALTER TYPE public.view_entity_type ADD VALUE IF NOT EXISTS 'sequence';

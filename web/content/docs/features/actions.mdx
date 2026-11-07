@@ -1,0 +1,98 @@
+---
+title: Actions
+description: Track tasks and issues with team-scoped identifiers, custom workflows, priorities, and assignees.
+---
+
+Actions are the core work items in Dial8 — similar to issues in Linear or tickets in Jira. Every action belongs to a team and gets a unique identifier like `ENG-42`.
+
+## Creating Actions
+
+Create actions from multiple places:
+
+- **Chat** — Ask Dial8 to create one, in your own words
+- **Sub-actions** — Open any action and add a sub-action
+- **From captures** — AI automatically extracts action items from meeting recordings
+- **From email** — Convert email threads into trackable actions
+- **Bulk creation** — Create multiple actions at once
+
+## Action Properties
+
+Each action has a rich set of properties:
+
+| Property | Description |
+|----------|-------------|
+| **Identifier** | Auto-generated from team prefix + counter (e.g., `ENG-42`) |
+| **Title** | Short description of the work |
+| **Description** | Rich-text details and context |
+| **Status** | Current workflow state (e.g., Todo, In Progress, Done) |
+| **Priority** | Urgent, High, Medium, Low, or No Priority |
+| **Assignee** | Team member responsible for the work |
+| **Due date** | When the action should be completed |
+| **Effort estimate** | Estimated size of the work |
+| **Project** | Optional project association |
+| **Milestone** | Optional milestone within a project |
+| **Cycle** | Optional sprint/iteration assignment |
+| **Labels** | Workspace-level tags for categorization |
+| **Parent action** | For creating sub-tasks |
+
+## Workflow States
+
+Actions move through workflow states defined by their team. States are organized into categories:
+
+- **Backlog** — Not yet planned
+- **Unstarted** — Planned but not started
+- **Started** — Work in progress
+- **Completed** — Successfully finished
+- **Canceled** — Decided not to do
+
+Each team can customize their states. See [Workspaces & Teams](/docs/getting-started/workspaces-and-teams) for setup details.
+
+## Action Relations
+
+Link actions together to express dependencies:
+
+- **Blocks** / **Blocked by** — One action prevents another from starting
+- **Related** — Actions are connected but independent
+- **Duplicate** — One action duplicates another
+
+## Sub-Tasks
+
+Create child actions under a parent to break work into smaller pieces. Sub-tasks inherit the team of their parent and can have their own status, assignee, and properties.
+
+## Labels
+
+Apply workspace-level labels to categorize actions across teams. Labels are managed in **Settings → Labels** and can be applied to actions, projects, and initiatives.
+
+## Filtering and Sorting
+
+The actions view supports powerful filtering:
+
+- Filter by status, assignee, priority, label, project, cycle, due date, and more
+- Sort by any property
+- Group by status, assignee, priority, project, or label
+- Switch between **list** and **board** (kanban) layouts
+
+Save your preferred filters as a [custom view](/docs/features/views-and-filters).
+
+## Comments
+
+Add comments to any action for discussion. Comments support:
+
+- Rich text formatting
+- Threaded replies
+- @mentions of team members (triggers notifications)
+
+## Cycles (Sprints)
+
+Organize work into time-boxed cycles — sprints or iterations — for focused team planning.
+
+- Create a cycle with a name, start date, and end date for a specific team
+- Assign actions to a cycle to define the sprint scope
+- Track cycle progress on the [dashboard](/docs/features/dashboard) as actions move through workflow states
+- After a cycle ends, move unfinished actions to the next cycle or back to the backlog
+
+Filter by cycle in the actions view to see only work assigned to a specific iteration.
+
+## Bulk Operations
+
+Select multiple actions to perform bulk updates — change status, assignee, priority, labels, or project in one operation.

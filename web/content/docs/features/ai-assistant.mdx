@@ -1,0 +1,135 @@
+---
+title: AI Assistant
+description: Context-aware AI chat with 22+ workspace tools — manages actions, drafts emails, processes captures, and queries your data.
+---
+
+Dial8 includes an AI assistant powered by Claude that has deep access to your workspace. It can read, search, create, and update your data through 22+ integrated tools.
+
+## Chat Interface
+
+Open the AI assistant from the sidebar chat panel. Conversations are saved so you can pick up where you left off.
+
+The assistant uses Claude Sonnet for complex tasks and Claude Haiku for lighter queries.
+
+### Search with `/`, attach with `@`
+
+Both menus find the same things: people, companies, actions, docs, projects, initiatives, captures and skills. Search also finds pages and agents. What you type searches every kind, and the best match is on top.
+
+**Search (`/`) opens what you pick.** Press `/` anywhere outside a text field, press `⌘K`, or click the search button next to Home. The search panel opens in the middle of the screen. Picking an action, doc, person or page opens it. Picking a skill arms it for your next message.
+
+- Type an action's ID, like `GEN-42`, to jump straight to it.
+- Press `/` again, `Esc` or `⌘K` to close the panel.
+
+**Attach (`@`) adds what you pick to your message.** Type `@` in any chat box. Picking a person, company, capture, action, doc, project or initiative attaches it, so the assistant reads it with your message (`@GEN-42 what's left on this?`). Picking a skill arms it for the message. In a chat box, `/` is just a character (`/compact` on its own is the one exception: see below).
+
+- `↑` `↓` move, `Enter` picks, `Esc` closes (what you typed stays in the box).
+- `Tab` and `Shift+Tab` switch between the kinds that found something.
+
+### Context and compacting
+
+The **Context** card in the side panel (`⌘\`) shows how much of the conversation's room the assistant is using: the share used, and how it splits between your messages, the assistant's instructions, its tools, your skills and what it remembers about you. The figures update after each reply.
+
+Long conversations compact on their own: once a conversation passes 150k and you pause, the assistant summarizes it, and your next message starts from the summary. Your messages stay in the chat; only what the assistant re-reads gets shorter.
+
+To compact now, click **Compact now** on the card, or send `/compact` on its own in the chat box. It runs between replies, not while one is being written.
+
+## Workspace Tools
+
+The AI has access to tools organized across your workspace:
+
+### Captures & Meetings
+- List, search, and read captures (text and semantic search)
+- Create and update captures
+- Process captures to extract actions and decisions
+- Get extracted items from processed captures
+- Edit capture content
+
+### Actions & Tasks
+- List, create, update, and complete actions
+- Get AI-suggested actions from captures
+- Confirm or dismiss AI-suggested actions
+- Batch-create multiple actions at once
+
+### Projects & Milestones
+- List projects with context (description, members, milestones)
+- Create and update projects
+- List, create, and update milestones
+
+### Documents
+- List, search, read, create, and update documents
+- Edit document content directly
+
+### Email
+- List and read email threads
+- Search emails (with workspace context enrichment)
+- Create and manage email drafts
+- Generate AI-drafted replies using meeting and contact context
+- Get email summaries (unread counts, needs-reply, pending drafts)
+
+### Contacts & CRM
+- Search and list contacts
+- Get detailed contact profiles with interaction history
+- Get company overviews
+- Create and update contacts
+
+### Calendar
+- Get calendar events
+- Create, update, and delete events
+- Sync calendars
+- Get upcoming meetings and meeting prep context
+- Create captures from calendar events
+- Draft follow-up emails from meetings
+
+### Decisions
+- List, create, confirm, and dismiss decisions extracted from captures
+
+### Dashboard & Search
+- Get a dashboard summary (assigned actions, overdue items, active cycles, project health)
+- Unified search across all entity types
+
+## Skills
+
+Customize the AI's behavior with **Skills** — saved configurations that change how the assistant responds.
+
+### What Skills Control
+- **System prompt** — Custom instructions for the AI's behavior
+- **Tool access** — Enable all tools, disable all, or select specific ones
+- **Response style** — Format, tone, citation preferences
+- **Standing instructions** — Persistent rules the AI follows
+
+### Using Skills
+Pick a skill with `@` in any chat box (e.g., `@project manager`), or from search (`/` or `⌘K`). It arms your next message, which goes out with the skill's playbook.
+
+### Built-in Meeting Types
+Capture processing uses **Meeting Types** to customize extraction:
+- **Meeting** — General meetings (actions, decisions, summary)
+- **Brainstorm** — Idea sessions (ideas, next steps)
+- **Standup** — Daily standups (updates, blockers, commitments)
+- **Sales Call** — Customer conversations (objections, commitments, follow-ups)
+- **Idea** — Quick thought capture
+
+Create custom Skills, Agents, and Meeting Types from the **Library** tab in the dashboard.
+
+## Capture Processing
+
+When a capture is processed, the AI:
+
+1. Analyzes the transcript using the capture's Meeting Type
+2. Extracts **action items** with titles, descriptions, and suggested assignees
+3. Extracts **decisions** — statements where the group agreed on something
+4. High-confidence extractions (≥80%) are auto-confirmed
+5. Lower-confidence items are flagged for human review in the [dashboard](/docs/features/dashboard)
+
+## Email Drafting
+
+The AI generates contextual email drafts by pulling from:
+- The email thread being replied to
+- Related captures and meeting transcripts
+- Contact and company information
+- Relevant actions and projects
+
+Drafts are always saved for review — the AI never sends emails automatically.
+
+## Chat History
+
+Conversations are persisted and accessible from the chat panel. Each conversation maintains its full message history and context.

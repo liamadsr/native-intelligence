@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "default": "tana",
+  "voices": [
+    {
+      "id": "aba",
+      "name": "Aba",
+      "description": "",
+      "source": null,
+      "sourceSha256": "a4077de3f29125ccf4de4ef4ec5ec288f708ff7d1137ecf23d5cdd99480737d1",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice, recorded 2026-09-26",
+      "embedding": "aba.emb",
+      "embeddingSha256": "3d56b7563cafefa58503fee4cf862bb63fde74c9d19f2bf92cfba1530fd34e7b"
+    },
+    {
+      "id": "cha",
+      "name": "Cha",
+      "description": "",
+      "source": null,
+      "sourceSha256": "679c9874e24afe3b41ec9c43eafb07a9b5d3fdcf888a11404c6d83e78aae2261",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice, recorded 2026-09-26",
+      "embedding": "cha.emb",
+      "embeddingSha256": "8f2ffed9316deacd63116196f13790e0a5f68091ad14daf808d723767ccf1f75"
+    },
+    {
+      "id": "ush",
+      "name": "Ush",
+      "description": "",
+      "source": null,
+      "sourceSha256": "332f530dc55e09fa5604a1f4d905b270077cc2db840b61b28999fcc03b776298",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice, recorded 2026-09-26",
+      "embedding": "ush.emb",
+      "embeddingSha256": "3becd4f324c3aa74afbcbb08def0d86900d3d1a3339b3439a302eab652988e36"
+    },
+    {
+      "id": "chichi",
+      "name": "Chichi",
+      "description": "",
+      "source": null,
+      "sourceSha256": "16a79c57cb904f2f536da9d79ba770c84af13277c4fd718d7a9d16a12c51725e",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice (effects), recorded 2026-09-26",
+      "embedding": "chichi.emb",
+      "embeddingSha256": "cd70a45ac4d96e078ceb456691970226a1c66ccd6fe7835d0e2d9036f8a01ec4"
+    },
+    {
+      "id": "lori",
+      "name": "Lori",
+      "description": "",
+      "source": null,
+      "sourceSha256": "1bfcbee24136b8703745f88098952c645811f7552ef91f99e6aea7a737e27039",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice (effects), recorded 2026-09-26",
+      "embedding": "lori.emb",
+      "embeddingSha256": "9017639f7749f621f8fa90f3cdc39fcaaee9bdbc770c0668cccab126a64765e1"
+    },
+    {
+      "id": "lowli",
+      "name": "Lowli",
+      "description": "",
+      "source": null,
+      "sourceSha256": "22f9aef8843ff9dd4383e15038adfe0ebce0d54ffe7a4226419b370d85da3b2c",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice (effects), recorded 2026-09-26",
+      "embedding": "lowli.emb",
+      "embeddingSha256": "4e95d1c5919dffc4d332fac79a1e7072c6005f12b08d09291bf4ea0720b1121b"
+    },
+    {
+      "id": "tana",
+      "name": "Tana",
+      "description": "",
+      "source": null,
+      "sourceSha256": "92b58fa3eb45f847d2ebd842e06490ec65a944cb83c9bf053c08516183b47db6",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice (effects), recorded 2026-09-26",
+      "embedding": "tana.emb",
+      "embeddingSha256": "6f8cd55c4963530cec1d0ab83b6cd96988806f77d3ad41f64f2c1903f5217302"
+    },
+    {
+      "id": "milton",
+      "name": "Milton",
+      "description": "",
+      "source": null,
+      "sourceSha256": "4421980c6081b8e41bc16e2f935ff876c4b5195d43b026fb10b48f96266ca5ed",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice, recorded 2026-09-27",
+      "embedding": "milton.emb",
+      "embeddingSha256": "25d68fc6e7c8182fc1eaf16eeddccea837146e8c8662d119a3c1cfb277814daa"
+    },
+    {
+      "id": "nilo",
+      "name": "Nilo",
+      "description": "",
+      "source": null,
+      "sourceSha256": "5c0ca39ab5c514b134f62087b1e76eba2a81175bdd670831f4bc915b2fef5fe6",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice (ElevenLabs clone), 2026-10-22",
+      "embedding": "nilo.emb",
+      "embeddingSha256": "46539a99bc3f28fb4ed8a83d7868e2ad1268bc764e91b82118ab5a3b4dd1c627"
+    },
+    {
+      "id": "ava",
+      "name": "Ava",
+      "description": "",
+      "source": null,
+      "sourceSha256": "add783ada3160eba50c49e79f841df49025892da1764d3374385eada0c25261a",
+      "licence": null,
+      "attribution": null,
+      "consent": "Liam Alizadeh — own voice, recorded 2026-10-22",
+      "embedding": "ava.emb",
+      "embeddingSha256": "8be5de1c295d706bde4ab15d4b12958bf3fe4a599096f48b609126b090c9a6f0"
+    }
+  ]
+}

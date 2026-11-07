@@ -1,0 +1,11 @@
+{
+  "entries": [
+    {
+      "artifact": {},
+      "nodeId": "__root__",
+      "providerName": "dial8-host-folder"
+    }
+  ],
+  "kind": "eve-sandbox-prepared-artifacts",
+  "version": 2
+}

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Runs the leak check (.github/guard.sh) on each commit being pushed, and stops the push
+# if it fails. Turn it on once per clone: git config core.hooksPath .githooks
+set -eo pipefail
+zero=0000000000000000000000000000000000000000
+guard="$(git rev-parse --show-toplevel)/.github/guard.sh"
+while read -r local_ref local_sha _remote_ref _remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue # deleting a branch: nothing to check
+  if ! "$guard" "$local_sha"; then
+    echo "pre-push: the leak check failed for $local_ref, so nothing was pushed." >&2
+    exit 1
+  fi
+done

@@ -1,0 +1,8 @@
+[submodule "desktop/src-tauri/sidecars/local-stt/upstream"]
+	path = desktop/src-tauri/sidecars/local-stt/upstream
+	url = https://github.com/NVIDIA/NeMo-Speech.cpp.git
+	ignore = dirty
+[submodule "desktop/src-tauri/sidecars/local-tts/upstream"]
+	path = desktop/src-tauri/sidecars/local-tts/upstream
+	url = https://github.com/VolgaGerm/PocketTTS.cpp.git
+	ignore = dirty

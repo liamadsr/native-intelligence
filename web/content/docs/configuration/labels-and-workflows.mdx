@@ -1,0 +1,78 @@
+---
+title: Labels & Workflows
+description: Customize workspace labels and team workflow states to match how your team works.
+---
+
+Labels and workflow states are the building blocks for organizing and tracking work in Dial8.
+
+## Labels
+
+Labels are workspace-wide tags you can apply to actions, projects, and initiatives for categorization.
+
+### Managing Labels
+
+Go to **Settings → Labels** to:
+
+- **Create labels** — Add a new label with a name and optional color
+- **Edit labels** — Rename or recolor existing labels
+- **Delete labels** — Remove labels (they'll be removed from all tagged entities)
+
+### Using Labels
+
+Apply labels from any entity's detail view or through bulk operations. Labels are useful for:
+
+- Cross-team categorization (e.g., "bug", "feature", "tech-debt")
+- Priority tagging beyond the built-in priority field
+- Domain marking (e.g., "frontend", "backend", "infrastructure")
+- Workflow stages that don't fit into status (e.g., "needs-review", "blocked-external")
+
+### Filtering by Label
+
+All entity views support filtering by label. Combine label filters with other properties to create powerful [custom views](/docs/features/views-and-filters).
+
+Labels also appear on email threads — apply workspace labels to email threads for organization alongside your other work.
+
+## Workflow States
+
+Workflow states define how actions move through your process. Each team has its own set of states.
+
+### State Categories
+
+Every workflow state belongs to one of five categories:
+
+| Category | Meaning | Default States |
+|----------|---------|---------------|
+| **Backlog** | Not yet planned | Backlog |
+| **Unstarted** | Planned but not begun | Todo |
+| **Started** | Currently being worked on | In Progress |
+| **Completed** | Successfully finished | Done |
+| **Canceled** | Decided not to do | Canceled |
+
+### Customizing States
+
+Go to **Settings → Teams → [Team Name]** to customize workflow states:
+
+- **Add states** — Create new states within any category
+- **Rename states** — Change state names to match your terminology
+- **Reorder states** — Drag to reorder states within a category
+- **Remove states** — Delete states (actions in that state will need to be reassigned)
+
+### Examples
+
+A software team might use:
+- Backlog → Triage, Backlog
+- Unstarted → Ready, Todo
+- Started → In Progress, In Review, QA
+- Completed → Done, Shipped
+- Canceled → Won't Fix
+
+A sales team might use:
+- Backlog → New Lead
+- Unstarted → Qualified
+- Started → In Negotiation, Proposal Sent
+- Completed → Closed Won
+- Canceled → Closed Lost
+
+### Board View
+
+Workflow states map directly to columns in the [board (kanban) layout](/docs/features/views-and-filters). Moving an action between columns changes its status.

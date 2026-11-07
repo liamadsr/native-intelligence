@@ -1,0 +1,1229 @@
+[
+  {
+    "name": "flight_form_first_unfinished_trip_type",
+    "provenance": "Public preceding legacy read reconstructed as a synthetic native observation. Not an exact production snapshot. New York is not proof of JFK; only the first trip-type click is expected.",
+    "input": {
+      "task": {
+        "goal": "On the Google Flights homepage form: the \"Where from?\" field already has \"New York\" (JFK). 1) Switch the trip type dropdown from \"Round trip\" to \"One way\". 2) Type \"Los Angeles\" into the \"Where to?\" destination field and select the LAX airport result. 3) In the \"Departure\" date field, select tomorrow: Tuesday, October 6, 2026. 4) Click the search / \"Done\" button to run the flight search. Then report the list of flights departing around 6:00 PM with departure and arrival times, airline, flight number, and price. Research only — do not book.",
+        "startUrl": "https://www.google.com/travel/flights",
+        "bindings": [
+          {
+            "name": "destination",
+            "value": "Los Angeles"
+          },
+          {
+            "name": "date",
+            "value": "Oct 6, 2026"
+          }
+        ],
+        "completion": [
+          {
+            "kind": "text",
+            "value": "Los Angeles"
+          }
+        ],
+        "maxSteps": 24,
+        "timeoutMs": 45000
+      },
+      "observation": {
+        "protocol": "dial8-browser-decision-v1",
+        "documentId": "synthetic-public-flights",
+        "observationId": 1,
+        "interactionEpoch": 0,
+        "observedAt": 0,
+        "url": "https://www.google.com/travel/flights",
+        "title": "Find Cheap Flights Worldwide & Book Your Ticket - Google Flights",
+        "text": "Explore\nFlights\nHotels\nVacation rentals\nSign in\nFlights\nRound trip\n1\nEconomy\nNew York\nExplore\nFind and book cheap flights worldwide and track prices\nNew York\nLos Angeles\nNov 5 — Nov 11\n1 stop\nfrom $278\nNew York\nLondon\nNew York\nSan Francisco",
+        "readyState": "complete",
+        "loading": false,
+        "evidence": {
+          "headings": [
+            {
+              "name": "Flights",
+              "level": 1
+            }
+          ],
+          "dialogs": [],
+          "dialogsComplete": true
+        },
+        "elements": [
+          {
+            "ref": "e1",
+            "role": "button",
+            "name": "Main menu",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e2",
+            "role": "link",
+            "name": "Google",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "/"
+          },
+          {
+            "ref": "e128",
+            "role": "button",
+            "name": "Skip to main content",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e129",
+            "role": "button",
+            "name": "Accessibility feedback",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e3",
+            "role": "link",
+            "name": "Explore",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e4",
+            "role": "link",
+            "name": "Flights",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e5",
+            "role": "link",
+            "name": "Hotels",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e6",
+            "role": "link",
+            "name": "Vacation rentals",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e7",
+            "role": "button",
+            "name": "Change appearance",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e8",
+            "role": "button",
+            "name": "Google apps",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/intl/en/about/products"
+          },
+          {
+            "ref": "e9",
+            "role": "link",
+            "name": "Sign in",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://accounts.google.com/ServiceLogin?service=searchanda…"
+          },
+          {
+            "ref": "e10",
+            "role": "combobox",
+            "name": "Round trip",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e11",
+            "role": "button",
+            "name": "1 passenger, change number of passengers.",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e12",
+            "role": "combobox",
+            "name": "Economy",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e13",
+            "role": "combobox",
+            "name": "Where from?",
+            "value": "New York",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e130",
+            "role": "button",
+            "name": "Swap origin and destination.",
+            "value": "",
+            "canType": false,
+            "disabled": true,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e14",
+            "role": "combobox",
+            "name": "Where to?",
+            "value": "",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e15",
+            "role": "textbox",
+            "name": "Departure",
+            "value": "",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e16",
+            "role": "textbox",
+            "name": "Return",
+            "value": "",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e17",
+            "role": "button",
+            "name": "Explore destinations",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e18",
+            "role": "button",
+            "name": "Explore deals with AI",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e119",
+            "role": "button",
+            "name": "Learn more about this section",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e120",
+            "role": "tab",
+            "name": "New York",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e121",
+            "role": "tab",
+            "name": "Chicago",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e122",
+            "role": "tab",
+            "name": "Dallas",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e123",
+            "role": "tab",
+            "name": "Atlanta",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e124",
+            "role": "button",
+            "name": "Find flights from New York (LGA) to Los Angeles (LAX) from $278. Operated by So…",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e125",
+            "role": "button",
+            "name": "Find flights from New York (EWR) to London (LGW) from $428. Operated by Tap Air…",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e126",
+            "role": "button",
+            "name": "Find flights from New York (LGA) to San Francisco (SFO) from $282. Operated by …",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e127",
+            "role": "button",
+            "name": "Explore more destinations from New York",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e131",
+            "role": "tab",
+            "name": "Find the cheapest days to flyThe Date grid and Price graph make it easy to find…",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e132",
+            "role": "tab",
+            "name": "Know when to book with price insightsPrice history and trend data show you the …",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e133",
+            "role": "tab",
+            "name": "Track flight prices for a tripNot ready to book yet? Observe price changes for …",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e134",
+            "role": "tab",
+            "name": "Explore the best flight deals with AIDescribe your ideal trip and let Google Fl…",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e135",
+            "role": "tabpanel",
+            "name": "Find the cheapest days to flyThe Date grid and Price graph make it easy to find…",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e136",
+            "role": "link",
+            "name": "Washington",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-washington…"
+          },
+          {
+            "ref": "e137",
+            "role": "link",
+            "name": "Chicago",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-chicago.ht…"
+          },
+          {
+            "ref": "e138",
+            "role": "link",
+            "name": "New York",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-new-york.h…"
+          },
+          {
+            "ref": "e139",
+            "role": "link",
+            "name": "Dallas",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-dallas.html"
+          },
+          {
+            "ref": "e140",
+            "role": "link",
+            "name": "Houston",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-houston.ht…"
+          },
+          {
+            "ref": "e141",
+            "role": "link",
+            "name": "Las Vegas",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-las-vegas.…"
+          },
+          {
+            "ref": "e142",
+            "role": "link",
+            "name": "Phoenix",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-phoenix.ht…"
+          },
+          {
+            "ref": "e143",
+            "role": "link",
+            "name": "Denver",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-denver.html"
+          },
+          {
+            "ref": "e144",
+            "role": "link",
+            "name": "Orlando",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-orlando.ht…"
+          },
+          {
+            "ref": "e145",
+            "role": "link",
+            "name": "Los Angeles",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-to-los-angele…"
+          },
+          {
+            "ref": "e146",
+            "role": "div",
+            "name": "What are some good flight destinations from United States?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e147",
+            "role": "button",
+            "name": "What are some good flight destinations from United States?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e148",
+            "role": "div",
+            "name": "How can I find last-minute flight deals?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e149",
+            "role": "button",
+            "name": "How can I find last-minute flight deals?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e150",
+            "role": "div",
+            "name": "How can I find cheap flights for a weekend getaway?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e151",
+            "role": "button",
+            "name": "How can I find cheap flights for a weekend getaway?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e152",
+            "role": "div",
+            "name": "How can I find flight deals if my travel plans are flexible?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e153",
+            "role": "button",
+            "name": "How can I find flight deals if my travel plans are flexible?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e154",
+            "role": "div",
+            "name": "How can I find cheap flights to anywhere?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e155",
+            "role": "button",
+            "name": "How can I find cheap flights to anywhere?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e156",
+            "role": "div",
+            "name": "How can I get flight alerts for my trip?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e157",
+            "role": "button",
+            "name": "How can I get flight alerts for my trip?",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e158",
+            "role": "tab",
+            "name": "Flights from cities in United States",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e159",
+            "role": "tab",
+            "name": "Domestic flights in United States",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e160",
+            "role": "link",
+            "name": "Flights from New York",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-from-new-york…"
+          },
+          {
+            "ref": "e161",
+            "role": "link",
+            "name": "Flights from Washington",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-from-washingt…"
+          },
+          {
+            "ref": "e162",
+            "role": "link",
+            "name": "Flights from Los Angeles",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-from-los-ange…"
+          },
+          {
+            "ref": "e163",
+            "role": "link",
+            "name": "Flights from Chicago",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-from-chicago.…"
+          },
+          {
+            "ref": "e164",
+            "role": "link",
+            "name": "Flights from Houston",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-from-houston.…"
+          },
+          {
+            "ref": "e165",
+            "role": "link",
+            "name": "Flights from San Francisco",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/travel/flights/flights-from-san-fran…"
+          },
+          {
+            "ref": "e166",
+            "role": "button",
+            "name": "Language​English (United States)",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e167",
+            "role": "button",
+            "name": "Location​United States",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e168",
+            "role": "button",
+            "name": "Currency USD",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e169",
+            "role": "link",
+            "name": "Learn more about currencies",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://www.google.com/googlefinance/disclaimer?hl=en-US&gl…"
+          },
+          {
+            "ref": "e170",
+            "role": "link",
+            "name": "About Google Travel",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://about.google/?hl=en-US"
+          },
+          {
+            "ref": "e171",
+            "role": "link",
+            "name": "Privacy",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://policies.google.com/privacy?hl=en-US"
+          },
+          {
+            "ref": "e172",
+            "role": "link",
+            "name": "Terms",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://policies.google.com/terms?hl=en-US"
+          },
+          {
+            "ref": "e173",
+            "role": "link",
+            "name": "Join user studies",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://google.qualtrics.com/jfe/form/SV_3NMIMtX0F2zkakR?re…"
+          },
+          {
+            "ref": "e174",
+            "role": "link",
+            "name": "Feedback",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "./#0"
+          },
+          {
+            "ref": "e175",
+            "role": "link",
+            "name": "Help Center",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "https://support.google.com/travel/?hl=en-US#topic=2475360"
+          },
+          {
+            "ref": "e176",
+            "role": "button",
+            "name": "International sites",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e177",
+            "role": "button",
+            "name": "Explore flights",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          }
+        ]
+      },
+      "history": []
+    },
+    "expected": {
+      "operation": "click",
+      "ref": "e10"
+    }
+  },
+  {
+    "name": "flight_destination_exact_airport",
+    "provenance": "Approximate public destination modal based on observed Los Angeles and LAX suggestions. Not an exact production snapshot.",
+    "input": {
+      "task": {
+        "goal": "On the Google Flights form (origin already shows \"New York\"), set the destination to Los Angeles: click the \"Where to?\" field, type \"Los Angeles\", and choose the suggestion for Los Angeles (LAX). Do NOT change the origin or the trip type. Then report the text now shown in the destination field.",
+        "bindings": [
+          {
+            "name": "destination",
+            "value": "Los Angeles"
+          }
+        ],
+        "completion": [
+          {
+            "kind": "text",
+            "value": "Los Angeles"
+          }
+        ],
+        "maxSteps": 16,
+        "timeoutMs": 45000
+      },
+      "observation": {
+        "protocol": "dial8-browser-decision-v1",
+        "documentId": "synthetic-public-flights",
+        "observationId": 2,
+        "interactionEpoch": 0,
+        "observedAt": 0,
+        "url": "https://www.google.com/travel/flights",
+        "title": "Find Cheap Flights Worldwide & Book Your Ticket - Google Flights",
+        "text": "Flights\nRound trip\nNew York\nWhere to?\nLos Angeles\nLos Angeles\nCalifornia, United States\nLos Angeles International Airport\nLAX\nDone",
+        "readyState": "complete",
+        "loading": false,
+        "evidence": {
+          "headings": [
+            {
+              "name": "Flights",
+              "level": 1
+            }
+          ],
+          "dialogs": [
+            {
+              "name": "Where to?",
+              "visible": true
+            }
+          ],
+          "dialogsComplete": true
+        },
+        "elements": [
+          {
+            "ref": "e13",
+            "role": "combobox",
+            "name": "Where from?",
+            "value": "New York",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e14",
+            "role": "combobox",
+            "name": "Where to?",
+            "value": "Los Angeles",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "",
+            "dialog": "Where to?"
+          },
+          {
+            "ref": "e20",
+            "role": "option",
+            "name": "Los Angeles",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "City, California, United States; all airports",
+            "destination": "",
+            "dialog": "Where to?"
+          },
+          {
+            "ref": "e21",
+            "role": "option",
+            "name": "Los Angeles International Airport",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "LAX airport, Los Angeles, California, United States",
+            "destination": "",
+            "dialog": "Where to?"
+          },
+          {
+            "ref": "e22",
+            "role": "button",
+            "name": "Done",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "",
+            "dialog": "Where to?"
+          }
+        ]
+      },
+      "history": [
+        "Filled combobox \"Where to?\" with binding 0."
+      ]
+    },
+    "expected": {
+      "operation": "click",
+      "ref": "e21"
+    }
+  },
+  {
+    "name": "flight_destination_all_airports",
+    "provenance": "Synthetic counterexample using the same approximate modal with an explicit city/all-airports goal.",
+    "input": {
+      "task": {
+        "goal": "On the Google Flights form, set the destination to Los Angeles, California, all airports. The search field already contains Los Angeles. Select the broader Los Angeles city/all-airports group, not a single airport such as LAX. Do NOT change the origin or trip type. Then report the selected destination.",
+        "bindings": [
+          {
+            "name": "destination",
+            "value": "Los Angeles"
+          }
+        ],
+        "completion": [
+          {
+            "kind": "text",
+            "value": "Los Angeles"
+          }
+        ],
+        "maxSteps": 16,
+        "timeoutMs": 45000
+      },
+      "observation": {
+        "protocol": "dial8-browser-decision-v1",
+        "documentId": "synthetic-public-flights",
+        "observationId": 2,
+        "interactionEpoch": 0,
+        "observedAt": 0,
+        "url": "https://www.google.com/travel/flights",
+        "title": "Find Cheap Flights Worldwide & Book Your Ticket - Google Flights",
+        "text": "Flights\nRound trip\nNew York\nWhere to?\nLos Angeles\nLos Angeles\nCalifornia, United States\nLos Angeles International Airport\nLAX\nDone",
+        "readyState": "complete",
+        "loading": false,
+        "evidence": {
+          "headings": [
+            {
+              "name": "Flights",
+              "level": 1
+            }
+          ],
+          "dialogs": [
+            {
+              "name": "Where to?",
+              "visible": true
+            }
+          ],
+          "dialogsComplete": true
+        },
+        "elements": [
+          {
+            "ref": "e13",
+            "role": "combobox",
+            "name": "Where from?",
+            "value": "New York",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": ""
+          },
+          {
+            "ref": "e14",
+            "role": "combobox",
+            "name": "Where to?",
+            "value": "Los Angeles",
+            "canType": true,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "",
+            "dialog": "Where to?"
+          },
+          {
+            "ref": "e20",
+            "role": "option",
+            "name": "Los Angeles",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "City, California, United States; all airports",
+            "destination": "",
+            "dialog": "Where to?"
+          },
+          {
+            "ref": "e21",
+            "role": "option",
+            "name": "Los Angeles International Airport",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "LAX airport, Los Angeles, California, United States",
+            "destination": "",
+            "dialog": "Where to?"
+          },
+          {
+            "ref": "e22",
+            "role": "button",
+            "name": "Done",
+            "value": "",
+            "canType": false,
+            "disabled": false,
+            "sensitive": false,
+            "forbidden": false,
+            "context": "",
+            "destination": "",
+            "dialog": "Where to?"
+          }
+        ]
+      },
+      "history": [
+        "Filled combobox \"Where to?\" with binding 0."
+      ]
+    },
+    "expected": {
+      "operation": "click",
+      "ref": "e20"
+    }
+  }
+]

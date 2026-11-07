@@ -1,0 +1,85 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+node_modules/
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.next-preview/
+/out/
+
+# eve (agent build/discovery artifacts + generated output + local session state)
+/.eve/
+/.output/
+# Per-agent-root artifacts for the multi-agent mount (agents/*).
+/agents/*/.eve/
+/agents/*/.workflow-data/
+/agents/*/.output/
+# eve eval run artifacts (one eval root per agent, evals/<agent>/), and the runner's token.
+/evals/*/.eve/
+.env.evals
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env files
+.env
+.env*.local
+.env.production
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# local scratch / eval harnesses (not for commit)
+scratch/
+
+# workspace package build output
+packages/*/dist/
+
+# design-sync staged scripts + build output (durable inputs under .design-sync/ ARE committed)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules/
+
+# fumadocs
+.source/
+
+# Sentry Config File
+.env.sentry-build-plugin
+.env*
+!.env.example
+
+# Eve cache
+.claude/.eve/
+
+# Python bytecode (scripts/sounds/make-sounds.py)
+__pycache__/
+*.pyc
+
+# The cloud browser relay bundle (scripts/cloud-browser/build-relay.mjs), built before next build
+/public/cloud-browser/
+
+# ONNX Runtime's wasm runtime for voice ID (scripts/copy-ort-runtime.mjs), copied before next dev/build
+/public/ort/

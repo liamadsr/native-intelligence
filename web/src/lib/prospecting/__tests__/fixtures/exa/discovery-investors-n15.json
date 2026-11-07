@@ -1,0 +1,1331 @@
+{
+  "request": {
+    "query": "Venture funds that led seed or Series A rounds in sales-tech, revenue-intelligence or AI meeting-notetaker startups such as Gong, Clari, Attio, Granola or Fireflies",
+    "type": "deep",
+    "category": "company",
+    "numResults": 15,
+    "additionalQueries": [
+      "investors in Attio and Granola seed rounds",
+      "VC firms backing AI sales tools 2025 2026"
+    ],
+    "systemPrompt": "Prospecting investors for the source company. Source: Dial8 (dial8.ai): AI workspace for sales teams — records and transcribes customer meetings, extracts actions and decisions, keeps a CRM with web enrichment and email sequences. $99 per seat.\nReturn UP TO 15 DISTINCT venture funds, one per entry, each with its primary website domain and portfolio evidence naming the comparable companies they backed.",
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "companies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Fund name"
+              },
+              "domain": {
+                "type": "string",
+                "description": "Fund website domain"
+              },
+              "oneLiner": {
+                "type": "string",
+                "description": "What the fund does"
+              },
+              "whyMatch": {
+                "type": "string",
+                "description": "Portfolio evidence naming comparable companies"
+              },
+              "signal": {
+                "type": "string",
+                "description": "Recent relevant investments with dates"
+              },
+              "employeeRange": {
+                "type": "string",
+                "description": "Fund size or stage focus"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "requestId": "b8ca7d5859440471439a03444ea21ea8",
+    "resolvedSearchType": "",
+    "results": [
+      {
+        "id": "https://exa.ai/library/organization/n8asvvfjt5h",
+        "title": "Lumenfold Ventures",
+        "url": "https://lumenfoldstudio.vc/",
+        "publishedDate": "2026-06-04T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE5qos5klhk86i/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/n8asvvfjt5h",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Lumenfold Ventures",
+              "foundedYear": 2024,
+              "description": "Lumenfold Ventures is a first-cheque (Pre-Seed and Seed) fund for revenue intelligence software sold to sales and marketing buyers.",
+              "workforce": {
+                "total": 2
+              },
+              "headquarters": {
+                "address": "San Jose, United States",
+                "city": "San Jose",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/vbvvmqj3mt5",
+        "title": "Tessellate Ventures",
+        "url": "https://tessellateventures.com/",
+        "publishedDate": "2026-06-23T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEuhyktyr18mxk/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/vbvvmqj3mt5",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Tessellate Ventures",
+              "foundedYear": 1996,
+              "description": "Tessellate Ventures is a global venture firm that backs founders from seed to IPO.",
+              "workforce": {
+                "total": 92
+              },
+              "headquarters": {
+                "address": "London, United Kingdom",
+                "city": "London",
+                "postalCode": null,
+                "country": "United Kingdom"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 114563,
+                "countryRank": 176240,
+                "avgDurationSeconds": 49,
+                "history": [
+                  {
+                    "value": 124902,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 114056,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 114056,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 99668,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 99668,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 114563,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/8ae8ak4skny",
+        "title": "Ortolan VC",
+        "url": "https://ortolan.vc/",
+        "publishedDate": "2026-06-20T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEjwq6uxp3gkor/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/8ae8ak4skny",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Ortolan VC",
+              "foundedYear": 2023,
+              "description": "Ortolan VC is a venture fund backing AI-powered B2B startups at Seed and Series A.",
+              "workforce": {
+                "total": 11
+              },
+              "headquarters": {
+                "address": "Wilmington, United States",
+                "city": "Wilmington",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 7474,
+                "countryRank": 1522975,
+                "avgDurationSeconds": 3,
+                "history": [
+                  {
+                    "value": 2761,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 3336,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 8013,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 8140,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 7561,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 7474,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/yq3m32t2k8z",
+        "title": "Larchmont Ventures",
+        "url": "https://larchmontvc.com/",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEezkxtuu41q9l/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/yq3m32t2k8z",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Larchmont Ventures",
+              "foundedYear": 1976,
+              "description": "Larchmont Ventures is an early-stage and growth venture firm focused on enterprise AI software.",
+              "workforce": {
+                "total": 81
+              },
+              "headquarters": {
+                "address": "Menlo Park, United States",
+                "city": "Menlo Park",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 25000000,
+                "fundingTotal": null,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 130602,
+                "countryRank": 207992,
+                "avgDurationSeconds": 36,
+                "history": [
+                  {
+                    "value": 138333,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 137350,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 127737,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 109413,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 109413,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 130602,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/a19lcr03va3",
+        "title": "Funnelworks Ventures",
+        "url": "https://funnelworks.com/ventures",
+        "publishedDate": "2026-06-25T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEj4hy3dhmp2b4/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/a19lcr03va3",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Funnelworks Ventures",
+              "foundedYear": null,
+              "description": "Funnelworks Ventures invests in early- and growth-stage software companies that build on the Funnelworks ecosystem.",
+              "workforce": {
+                "total": 5
+              },
+              "headquarters": {
+                "address": "boston, United States",
+                "city": "boston",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/9c0d0fl8sy7",
+        "title": "TACK",
+        "url": "https://tackmv.vc/",
+        "publishedDate": "2026-06-25T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLExg2g90c1pi29/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/9c0d0fl8sy7",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "TACK",
+              "foundedYear": 2020,
+              "description": "TACK is a pre-seed investor that pairs funding with structured go-to-market training for technical founders.",
+              "workforce": {
+                "total": 5
+              },
+              "headquarters": {
+                "address": "darnestown, United States",
+                "city": "darnestown",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 336,
+                "countryRank": null,
+                "avgDurationSeconds": 0,
+                "history": [
+                  {
+                    "value": 1437,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 3341,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 2376,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1223,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1223,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 336,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/qges3t094wu",
+        "title": "Solenne Ventures",
+        "url": "https://solennevc.co/",
+        "publishedDate": "2026-06-24T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEv6eivd1xcfn0/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/qges3t094wu",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Solenne Ventures",
+              "foundedYear": 2022,
+              "description": "Solenne Ventures is an early-stage VC firm (inception through seed) investing in AI-native enterprise software workflows.",
+              "workforce": {
+                "total": 4
+              },
+              "headquarters": {
+                "address": "New York, United States",
+                "city": "New York",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 2566,
+                "countryRank": 2140571,
+                "avgDurationSeconds": 21,
+                "history": [
+                  {
+                    "value": 834,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 1585,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1585,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1459,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1459,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 2566,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/xues63ie513",
+        "title": "Contactory",
+        "url": "https://contactory.com/",
+        "publishedDate": "2026-06-25T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEpeci0i9kff7p/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/xues63ie513",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Contactory",
+              "foundedYear": 2019,
+              "description": "Contactory is a CRM for modern companies.",
+              "workforce": {
+                "total": 151
+              },
+              "headquarters": {
+                "address": "London, United Kingdom",
+                "city": "London",
+                "postalCode": null,
+                "country": "United Kingdom"
+              },
+              "financials": {
+                "revenueAnnual": 15500000,
+                "fundingTotal": null,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 1159567,
+                "countryRank": 14862,
+                "avgDurationSeconds": 384,
+                "history": [
+                  {
+                    "value": 672348,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 829116,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 920024,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1113980,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1056320,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1159567,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/yufwu0xwgq7",
+        "title": "Trailmix",
+        "url": "https://trailmixproducts.com/",
+        "publishedDate": "2026-06-17T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEf6dvopppufx8/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/yufwu0xwgq7",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Trailmix",
+              "foundedYear": 2012,
+              "description": "Trailmix makes outdoor gear for casual hikers and campers.",
+              "workforce": {
+                "total": 18
+              },
+              "headquarters": {
+                "address": "Seattle, United States",
+                "city": "Seattle",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 390,
+                "countryRank": null,
+                "avgDurationSeconds": 83,
+                "history": [
+                  {
+                    "value": 906,
+                    "dateFrom": "2026-01",
+                    "dateTo": "2026-01"
+                  },
+                  {
+                    "value": 906,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 1626,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 1031,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1001,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 390,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/8x7dind3p3k",
+        "title": "vistaro GmbH",
+        "url": "https://vistaro.de/",
+        "publishedDate": "2026-06-18T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEwmxtzrreplkv/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/8x7dind3p3k",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "vistaro GmbH",
+              "foundedYear": 2016,
+              "description": "vistaro is a software company that visualizes service and production information for technicians using 3D models and augmented reality.",
+              "workforce": {
+                "total": 4
+              },
+              "headquarters": {
+                "address": "Hamburg, Germany",
+                "city": "Hamburg",
+                "postalCode": null,
+                "country": "Germany"
+              },
+              "financials": {
+                "revenueAnnual": 1500000,
+                "fundingTotal": null,
+                "fundingLatestRound": null
+              },
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/uaur1dhwyd1",
+        "title": "emissio",
+        "url": "https://emissio.com/",
+        "publishedDate": "2026-06-28T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEvf7eybele2cp/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/uaur1dhwyd1",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "emissio",
+              "foundedYear": null,
+              "description": "emissio helps natural gas companies measure, manage and report methane emissions.",
+              "workforce": {
+                "total": 32
+              },
+              "headquarters": {
+                "address": "Hamburg, Germany",
+                "city": "Hamburg",
+                "postalCode": null,
+                "country": "Germany"
+              },
+              "financials": {
+                "revenueAnnual": 3000000,
+                "fundingTotal": null,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 2150,
+                "countryRank": 434499,
+                "avgDurationSeconds": 25,
+                "history": [
+                  {
+                    "value": 2364,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 6620,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 2357,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 2357,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 2638,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 2150,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/l4i3y7k72n3",
+        "title": "Loopsy",
+        "url": "https://loopsy.com/",
+        "publishedDate": "2026-06-22T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEifs1dz2bi8i6/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/l4i3y7k72n3",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Loopsy",
+              "foundedYear": 2020,
+              "description": "Loopsy is a data-driven platform for sourcing, evaluating and managing mobile assets.",
+              "workforce": {
+                "total": 123
+              },
+              "headquarters": {
+                "address": "Tel Aviv, Israel",
+                "city": "Tel Aviv",
+                "postalCode": null,
+                "country": "Israel"
+              },
+              "financials": {
+                "revenueAnnual": 5684000,
+                "fundingTotal": 22050000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 21863,
+                "countryRank": 1495102,
+                "avgDurationSeconds": 11,
+                "history": [
+                  {
+                    "value": 20312,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 22404,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 9540,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 9540,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 28855,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 21863,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/a6y0sfjycxj",
+        "title": "Andreessen Horowitz",
+        "url": "https://a16z.com/",
+        "publishedDate": "2026-06-27T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE39iz0gp19e3o/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/a6y0sfjycxj",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Andreessen Horowitz",
+              "foundedYear": 2009,
+              "description": "Founded in 2009 by Marc Andreessen and Ben Horowitz, Andreessen Horowitz (known as \"a16z\") is a venture capital firm that backs bold entrepreneurs building the future through technology. We are stage agnostic: We invest in seed to late-stage technology companies, across the consumer, enterprise, bio/healthcare, crypto, fintech and games spaces.\n\na16z is defined by respect for the entrepreneur and the entrepreneurial company building process; we know what it’s like to be in the founder’s shoes. The firm is led by general partners, many of whom are former founders/operators, CEOs, or CTOs of successful technology companies, and who have domain expertise ranging from biology to crypto to distributed systems to security to marketplaces to financial services.\n\nWe aim to connect entrepreneurs, investors, executives, engineers, academics, industry experts, and others in the technology ecosystem. We have built a network of experts including technical and executive talent; top media and marketing resources; Fortune 500/Global 2000 companies; as well as other technology decision makers, influencers, and key opinion leaders. a16z uses this network as part of our commitment to help our portfolio companies grow their business, so our operating teams provide entrepreneurs with access to expertise and insights across the entire spectrum of company building.\n\nhttps://a16z.com/portfolio/ \nhttps://a16z.com/podcasts/ \nhttps://a16z.com/videos/ \nhttp://a16z.com/subscribe \n\nSee Disclosures: https://a16z.com/disclosures/",
+              "workforce": {
+                "total": 684
+              },
+              "headquarters": {
+                "address": "Menlo Park, United States",
+                "city": "Menlo Park",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 150000000,
+                "fundingTotal": null,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 1257666,
+                "countryRank": 18900,
+                "avgDurationSeconds": 86,
+                "history": [
+                  {
+                    "value": 896679,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 960812,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 960812,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1112203,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1112203,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1257666,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      }
+    ],
+    "searchTime": 5890.7,
+    "costDollars": {
+      "total": 0.015
+    },
+    "output": {
+      "content": {
+        "companies": [
+          {
+            "name": "Lumenfold Ventures",
+            "whyMatch": "Focus on revenue intelligence startups comparable to Gong/Clari space.",
+            "employeeRange": "Pre-Seed and Seed",
+            "domain": "lumenfoldstudio.vc",
+            "signal": "Actively invests in early-stage revenue intelligence SaaS.",
+            "oneLiner": "Focuses on investing in product-led founders building front-office SaaS products, particularly revenue intelligence for sales and marketing."
+          },
+          {
+            "employeeRange": "Seed to IPO",
+            "whyMatch": "Portfolio includes meeting AI/note-taking tools like Granola.",
+            "name": "Tessellate Ventures",
+            "oneLiner": "Global VC firm with deep focus on AI-driven productivity and workflow tools.",
+            "domain": "tessellateventures.com",
+            "signal": "Led Quillmark's $13M seed round (2026); also active in AI meeting-notetakers."
+          },
+          {
+            "employeeRange": "Seed to Series A",
+            "signal": "Led Forgehand's $11.5M Seed round (2024); participated in $25M Series A (2025).",
+            "domain": "ortolan.vc",
+            "oneLiner": "Backs AI-powered B2B startups across the US, UK, Europe, and Israel.",
+            "name": "Ortolan VC",
+            "whyMatch": "Backs AI-powered sales tools and autonomous sales agents."
+          },
+          {
+            "domain": "larchmontvc.com",
+            "signal": "Active in AI-native SaaS including sales-related tools.",
+            "employeeRange": "Seed to Growth Stage",
+            "oneLiner": "Early-stage and growth venture capital firm with a strong focus on enterprise AI.",
+            "whyMatch": "Focus on enterprise AI software, comparable to the revenue intelligence and sales automation category.",
+            "name": "Larchmont Ventures"
+          },
+          {
+            "employeeRange": "Early- and Growth-stage",
+            "whyMatch": "Focuses on go-to-market/sales AI tools that integrate with CRM ecosystems.",
+            "name": "Funnelworks Ventures",
+            "domain": "funnelworks.com",
+            "signal": "Participated in Ventrix's $10M Series A (2026); backed Forgehand (2025).",
+            "oneLiner": "Corporate venture arm investing in software companies that integrate with the Funnelworks ecosystem."
+          },
+          {
+            "employeeRange": "Pre-Seed",
+            "oneLiner": "Pre-seed investor focusing on technical founders building sales/GTM systems.",
+            "domain": "tackmv.vc",
+            "signal": "Active investment in early-stage GTM-focused startups.",
+            "name": "TACK Momentum",
+            "whyMatch": "Focuses on helping technical founders move from early wins to repeatable B2B sales systems."
+          },
+          {
+            "domain": "solennevc.co",
+            "signal": "Active in AI-native B2B workflow and enterprise software.",
+            "whyMatch": "Focus on \"workflows without work\" in enterprise, aligning with revenue intelligence trends.",
+            "name": "Solenne Ventures",
+            "oneLiner": "Early-stage VC investing in AI-native enterprise workflows.",
+            "employeeRange": "Inception to Seed"
+          }
+        ]
+      },
+      "grounding": [
+        {
+          "field": "companies[0].name",
+          "citations": [
+            {
+              "url": "https://lumenfoldstudio.vc",
+              "title": "Lumenfold Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].whyMatch",
+          "citations": [
+            {
+              "url": "https://lumenfoldstudio.vc",
+              "title": "Lumenfold Ventures"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[0].employeeRange",
+          "citations": [
+            {
+              "url": "https://lumenfoldstudio.vc",
+              "title": "Lumenfold Ventures"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[0].domain",
+          "citations": [
+            {
+              "url": "https://lumenfoldstudio.vc",
+              "title": "Lumenfold Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].signal",
+          "citations": [
+            {
+              "url": "https://lumenfoldstudio.vc",
+              "title": "Lumenfold Ventures"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[0].oneLiner",
+          "citations": [
+            {
+              "url": "https://lumenfoldstudio.vc",
+              "title": "Lumenfold Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].employeeRange",
+          "citations": [
+            {
+              "url": "https://tessellateventures.com",
+              "title": "Tessellate Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].whyMatch",
+          "citations": [
+            {
+              "url": "https://tessellateventures.com",
+              "title": "Tessellate Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].name",
+          "citations": [
+            {
+              "url": "https://tessellateventures.com",
+              "title": "Tessellate Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].oneLiner",
+          "citations": [
+            {
+              "url": "https://tessellateventures.com",
+              "title": "Tessellate Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].domain",
+          "citations": [
+            {
+              "url": "https://tessellateventures.com",
+              "title": "Tessellate Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].signal",
+          "citations": [
+            {
+              "url": "https://tessellateventures.com",
+              "title": "Tessellate Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].employeeRange",
+          "citations": [
+            {
+              "url": "https://ortolan.vc",
+              "title": "Ortolan VC"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].signal",
+          "citations": [
+            {
+              "url": "https://ortolan.vc",
+              "title": "Ortolan VC"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].domain",
+          "citations": [
+            {
+              "url": "https://ortolan.vc",
+              "title": "Ortolan VC"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].oneLiner",
+          "citations": [
+            {
+              "url": "https://ortolan.vc",
+              "title": "Ortolan VC"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].name",
+          "citations": [
+            {
+              "url": "https://ortolan.vc",
+              "title": "Ortolan VC"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].whyMatch",
+          "citations": [
+            {
+              "url": "https://ortolan.vc",
+              "title": "Ortolan VC"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].domain",
+          "citations": [
+            {
+              "url": "https://larchmontvc.com/",
+              "title": "Larchmont Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].signal",
+          "citations": [
+            {
+              "url": "https://larchmontvc.com/",
+              "title": "Larchmont Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].employeeRange",
+          "citations": [
+            {
+              "url": "https://larchmontvc.com/",
+              "title": "Larchmont Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].oneLiner",
+          "citations": [
+            {
+              "url": "https://larchmontvc.com/",
+              "title": "Larchmont Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].whyMatch",
+          "citations": [
+            {
+              "url": "https://larchmontvc.com/",
+              "title": "Larchmont Ventures"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[3].name",
+          "citations": [
+            {
+              "url": "https://larchmontvc.com/",
+              "title": "Larchmont Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].employeeRange",
+          "citations": [
+            {
+              "url": "https://funnelworks.com/ventures",
+              "title": "Funnelworks Ventures"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[4].whyMatch",
+          "citations": [
+            {
+              "url": "https://funnelworks.com/ventures",
+              "title": "Funnelworks Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].name",
+          "citations": [
+            {
+              "url": "https://funnelworks.com/ventures",
+              "title": "Funnelworks Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].domain",
+          "citations": [
+            {
+              "url": "https://funnelworks.com/ventures",
+              "title": "Funnelworks Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].signal",
+          "citations": [
+            {
+              "url": "https://funnelworks.com/ventures",
+              "title": "Funnelworks Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].oneLiner",
+          "citations": [
+            {
+              "url": "https://funnelworks.com/ventures",
+              "title": "Funnelworks Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[5].employeeRange",
+          "citations": [
+            {
+              "url": "https://tackmv.vc",
+              "title": "TACK"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[5].oneLiner",
+          "citations": [
+            {
+              "url": "https://tackmv.vc",
+              "title": "TACK"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[5].domain",
+          "citations": [
+            {
+              "url": "https://tackmv.vc",
+              "title": "TACK"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[5].signal",
+          "citations": [
+            {
+              "url": "https://tackmv.vc",
+              "title": "TACK"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[5].name",
+          "citations": [
+            {
+              "url": "https://tackmv.vc",
+              "title": "TACK"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[5].whyMatch",
+          "citations": [
+            {
+              "url": "https://tackmv.vc",
+              "title": "TACK"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[6].domain",
+          "citations": [
+            {
+              "url": "https://solennevc.co",
+              "title": "Solenne Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[6].signal",
+          "citations": [
+            {
+              "url": "https://solennevc.co",
+              "title": "Solenne Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[6].whyMatch",
+          "citations": [
+            {
+              "url": "https://solennevc.co",
+              "title": "Solenne Ventures"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "companies[6].name",
+          "citations": [
+            {
+              "url": "https://solennevc.co",
+              "title": "Solenne Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[6].oneLiner",
+          "citations": [
+            {
+              "url": "https://solennevc.co",
+              "title": "Solenne Ventures"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[6].employeeRange",
+          "citations": [
+            {
+              "url": "https://solennevc.co",
+              "title": "Solenne Ventures"
+            }
+          ],
+          "confidence": "high"
+        }
+      ]
+    }
+  }
+}

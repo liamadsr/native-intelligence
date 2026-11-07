@@ -1,0 +1,124 @@
+@import 'tailwindcss';
+
+/*
+  Static stylesheet for @dial8/ui.
+
+  Tailwind v4 generates utilities by scanning source. We point @source at the
+  app components this package re-exports so the compiled dist/styles.css carries
+  every class they use, plus the design tokens below. This is the portable
+  stylesheet design-sync ships to claude.ai/design (cfg.cssEntry).
+*/
+@source '../../../src/components/ui/**/*.tsx';
+@source '../../../src/components/*.tsx';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-heading: 'Noto Serif', ui-serif, Georgia, serif;
+
+  --radius-4xl: 2rem;
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+}
+
+@layer base {
+  :root {
+    --background: 225 30% 98%;
+    --foreground: 228 30% 14%;
+    --card: 225 30% 99%;
+    --card-foreground: 228 30% 14%;
+    --popover: 225 30% 99%;
+    --popover-foreground: 228 30% 14%;
+    --primary: 228 40% 22%;
+    --primary-foreground: 225 30% 97%;
+    --secondary: 225 20% 94%;
+    --secondary-foreground: 228 30% 14%;
+    --muted: 225 20% 94%;
+    --muted-foreground: 225 20% 26%;
+    --accent: 225 20% 94%;
+    --accent-foreground: 228 30% 14%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 225 30% 97%;
+    --border: 225 15% 91%;
+    --input: 225 15% 89%;
+    --ring: 228 40% 22%;
+    --radius: 0.5rem;
+    --sidebar-background: 225 22% 95%;
+    --sidebar-foreground: 225 20% 22%;
+    --sidebar-primary: 228 40% 22%;
+    --sidebar-primary-foreground: 225 30% 97%;
+    --sidebar-accent: 225 18% 90%;
+    --sidebar-accent-foreground: 228 30% 14%;
+    --sidebar-border: 225 12% 88%;
+    --sidebar-ring: 228 40% 22%;
+  }
+  .dark {
+    color-scheme: dark;
+    --background: 230 30% 6%;
+    --foreground: 220 15% 85%;
+    --card: 230 25% 8%;
+    --card-foreground: 220 15% 85%;
+    --popover: 230 25% 8%;
+    --popover-foreground: 220 15% 85%;
+    --primary: 220 15% 85%;
+    --primary-foreground: 230 30% 6%;
+    --secondary: 230 20% 13%;
+    --secondary-foreground: 220 15% 85%;
+    --muted: 230 20% 13%;
+    --muted-foreground: 220 12% 74%;
+    --accent: 230 20% 13%;
+    --accent-foreground: 220 15% 85%;
+    --destructive: 0 62% 30%;
+    --destructive-foreground: 220 15% 85%;
+    --border: 230 18% 10%;
+    --input: 230 18% 15%;
+    --ring: 220 15% 78%;
+    --sidebar-background: 230 30% 4%;
+    --sidebar-foreground: 220 12% 78%;
+    --sidebar-primary: 220 15% 85%;
+    --sidebar-primary-foreground: 230 30% 6%;
+    --sidebar-accent: 230 20% 12%;
+    --sidebar-accent-foreground: 220 12% 80%;
+    --sidebar-border: 230 18% 13%;
+    --sidebar-ring: 0 0% 83.9%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+}

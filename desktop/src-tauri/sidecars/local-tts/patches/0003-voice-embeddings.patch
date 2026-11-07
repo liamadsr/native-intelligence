@@ -1,0 +1,262 @@
+Subject: [PATCH 3/4] Voices from precomputed embeddings; load the Mimi encoder
+ only when needed
+
+An app that ships fixed voices needs only their embeddings (the Mimi
+encoder's output for each clip), not the clips and not the encoder: the
+encoder is what clones a voice, so leaving it out of a product is a
+feature, and it saves ~40 MB of download.
+
+- PocketTTS::add_voice(name, embedding) and the C API ptt_add_voice()
+  register a voice from an in-memory embedding ([1, frames, dim] or
+  [frames, dim], float32). It is then used by name like a WAV voice
+  (the BOS embedding, if the bundle has one, is prepended as usual).
+- mimi_encoder.onnx is loaded on first use, i.e. the first time a WAV
+  voice has to be encoded, and may be absent otherwise. Asking for a WAV
+  voice without it is an error that says so.
+- ptt_encode_voice(encoder, audio, emb_path, threads) encodes a clip
+  exactly as a WAV voice is encoded at runtime (mono, 24 kHz, at most
+  30 s) and writes the .emb cache format, for making embeddings ahead of
+  time. It needs only the encoder.
+- The voice-conditioned KV snapshot is kept per voice (keyed by
+  voice_hash) instead of only for the last voice, so switching between
+  voices doesn't redo the conditioning pass each time. Voices from
+  add_voice() never touch the disk caches (there is no file next to
+  which to write them).
+---
+ pocket_tts.cpp | 128 ++++++++++++++++++++++++++++++++++++++-----------
+ 1 file changed, 101 insertions(+), 27 deletions(-)
+
+diff --git a/pocket_tts.cpp b/pocket_tts.cpp
+index aa70b3b..e97017b 100644
+--- a/pocket_tts.cpp
++++ b/pocket_tts.cpp
+@@ -76,6 +76,7 @@
+ #include <string>
+ #include <thread>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <vector>
+ 
+ namespace pocket_tts {
+@@ -1471,7 +1472,7 @@ public:
+         
+         auto opts_full = make_opts(threads_full);
+         auto opts_ar = make_opts(threads_ar);
+-        auto opts_enc = make_opts_no_arena(threads_full);
++        enc_opts_ = make_opts_no_arena(threads_full);
+         auto opts_dec = make_opts_no_arena(threads_dec);
+         
+         if (cfg_.verbose) {
+@@ -1491,7 +1492,6 @@ public:
+         auto& env = get_ort_env();
+         std::string sfx = cfg_.precision == "int8" ? "_int8" : "";
+         
+-        enc_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/mimi_encoder.onnx", opts_enc, "mimi_encoder", &run_opts_);
+         txt_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/text_conditioner.onnx", opts_full, "text_conditioner", &run_opts_);
+         main_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_main" + sfx + ".onnx", opts_ar, "flow_lm_main" + sfx, &run_opts_);
+         flow_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_flow" + sfx + ".onnx", opts_ar, "flow_lm_flow" + sfx, &run_opts_);
+@@ -1605,13 +1605,36 @@ public:
+             }
+         }
+         
+-        auto a = load_audio(path);
++        // The encoder is only needed for WAV voices, so it loads on first use
++        // and may be absent when every voice is a precomputed embedding.
++        if (!enc_) {
++            std::string enc_path = cfg_.models_dir + "/mimi_encoder.onnx";
++            struct stat st;
++            if (stat(enc_path.c_str(), &st) != 0)
++                throw std::runtime_error("WAV voices need " + enc_path + ", which does not exist (or use add_voice with a precomputed embedding)");
++            enc_ = std::make_unique<OrtSession>(get_ort_env(), enc_path, enc_opts_, "mimi_encoder", &run_opts_);
++        }
++        Tensor r = run_encoder(*enc_, load_audio(path), cfg_.verbose);
++        
++        if (cfg_.voice_cache) {
++            std::string cache_path = cache::get_cache_path(cfg_.voices_dir, path);
++            if (cache::save_embedding(cache_path, r.shape, r.data)) {
++                if (cfg_.verbose) {
++                    std::cerr << "  Saved embedding cache: " << cache_path << "\n";
++                }
++            }
++        }
+         
++        return r;
++    }
++    
++    // Mimi encoder over a voice clip: at most 30 s, output [1, frames, dim].
++    static Tensor run_encoder(OrtSession& enc, AudioData a, bool verbose = false) {
+         // Truncate to 30 seconds max — matches Python, prevents OOM on long samples
+         static constexpr size_t MAX_VOICE_SAMPLES = 30 * SR;  // 720000 at 24kHz
+         if (a.samples.size() > MAX_VOICE_SAMPLES) {
+             a.samples.resize(MAX_VOICE_SAMPLES);
+-            if (cfg_.verbose) std::cerr << "  Voice truncated to 30s\n";
++            if (verbose) std::cerr << "  Voice truncated to 30s\n";
+         }
+         
+         Tensor t({1, 1, int64_t(a.samples.size())});
+@@ -1621,7 +1644,7 @@ public:
+         std::vector<Ort::Value> in;
+         in.push_back(Ort::Value::CreateTensor<float>(m, t.ptr(), t.numel(), t.shape.data(), t.shape.size()));
+         
+-        auto out = enc_->run(in);
++        auto out = enc.run(in);
+         auto sh = out[0].GetTensorTypeAndShapeInfo().GetShape();
+         size_t n = 1;
+         for (auto d : sh) n *= d;
+@@ -1631,19 +1654,22 @@ public:
+         
+         while (r.shape.size() > 3) r = r.squeeze(0);
+         if (r.shape.size() < 3) r.reshape({1, r.shape[0], r.shape[1]});
+-        
+-        if (cfg_.voice_cache) {
+-            std::string cache_path = cache::get_cache_path(cfg_.voices_dir, path);
+-            if (cache::save_embedding(cache_path, r.shape, r.data)) {
+-                if (cfg_.verbose) {
+-                    std::cerr << "  Saved embedding cache: " << cache_path << "\n";
+-                }
+-            }
+-        }
+-        
+         return r;
+     }
+     
++    // Registers a voice from a precomputed embedding (the Mimi encoder's
++    // output for a clip, [1, frames, dim] or [frames, dim]) under `name`, for
++    // stream() and generate(): no WAV and no encoder needed. Its KV snapshot
++    // stays in memory; nothing is written to disk. Call it before streaming.
++    void add_voice(const std::string& name, Tensor embedding) {
++        if (embedding.shape.size() == 2) embedding.shape.insert(embedding.shape.begin(), 1);
++        if (embedding.shape.size() != 3 || embedding.shape[0] != 1 || embedding.shape[1] <= 0 ||
++            embedding.shape[2] <= 0 || embedding.numel() != calc_numel(embedding.shape))
++            throw std::runtime_error("voice embedding for '" + name + "' must be [1, frames, dim]");
++        vcache_[name] = prepend_bos(std::move(embedding));
++        mem_voices_.insert(name);
++    }
++    
+     // ── Public API ──────────────────────────────────────────────────────────
+     
+     AudioData generate(const std::string& text, const std::string& voice, int max_frames = 500) {
+@@ -1678,6 +1704,7 @@ public:
+ private:
+     Config cfg_;
+     Ort::RunOptions run_opts_;  // every session runs with these (declared before the sessions)
++    Ort::SessionOptions enc_opts_;  // enc_ loads on the first WAV voice
+     std::unique_ptr<OrtSession> enc_, txt_, main_, flow_, dec_;
+     std::unique_ptr<Tokenizer> tok_;
+     std::unique_ptr<StatefulRunner> main_runner_;
+@@ -1685,6 +1712,7 @@ private:
+     std::vector<std::pair<float, float>> st_values_;
+     float dt_;
+     std::unordered_map<std::string, Tensor> vcache_;
++    std::unordered_set<std::string> mem_voices_;  // add_voice() names: never cached on disk
+     std::vector<float> bos_;  // bos_before_voice.npy; empty when the bundle has none
+ 
+     // ── Voice Resolution ────────────────────────────────────────────────────
+@@ -1931,8 +1959,7 @@ private:
+     
+     using VoiceKVSnapshot = LatentGen::Snapshot;
+     
+-    std::unique_ptr<VoiceKVSnapshot> voice_kv_snap_;
+-    uint64_t voice_kv_hash_ = 0;
++    std::unordered_map<uint64_t, VoiceKVSnapshot> voice_kv_snaps_;  // one per voice, by voice_hash
+     std::string voice_kv_path_;
+     
+     // Hashes the whole embedding: with a BOS embedding in front, every voice
+@@ -1953,33 +1980,35 @@ private:
+         uint64_t vh = voice_hash(v);
+         
+         // Tier 1: in-memory cache hit
+-        if (voice_kv_snap_ && voice_kv_hash_ == vh) {
+-            return LatentGen(*this, *voice_kv_snap_, t, max, eos_extra);
++        auto hit = voice_kv_snaps_.find(vh);
++        if (hit != voice_kv_snaps_.end()) {
++            return LatentGen(*this, hit->second, t, max, eos_extra);
+         }
+         
++        // add_voice() voices have no file to cache next to
++        bool disk = cfg_.voice_cache && !voice_kv_path_.empty() && !mem_voices_.count(voice_kv_path_);
++        
+         // Tier 2: disk cache hit
+-        if (cfg_.voice_cache && !voice_kv_path_.empty()) {
++        if (disk) {
+             std::string kv_path = cache::get_cache_path(cfg_.voices_dir, voice_kv_path_, "kv");
+             std::string resolved = resolve_voice_path(voice_kv_path_);
+             StateBufferIO::DiskSnapshot ds;
+             if (cache::is_cache_valid(resolved, kv_path) && ds.load_from_disk(kv_path)) {
+                 if (cfg_.verbose) std::cerr << "  Loaded KV cache: " << kv_path << "\n";
+                 main_runner_->restore_from_disk(ds);
+-                voice_kv_snap_ = std::make_unique<VoiceKVSnapshot>(main_runner_->take_snapshot());
+-                voice_kv_hash_ = vh;
+-                return LatentGen(*this, *voice_kv_snap_, t, max, eos_extra);
++                auto& snap = voice_kv_snaps_[vh] = main_runner_->take_snapshot();
++                return LatentGen(*this, snap, t, max, eos_extra);
+             }
+         }
+         
+         // Tier 3: full voice conditioning
+         VoiceKVSnapshot snap;
+         auto gen = LatentGen(*this, v, t, max, eos_extra, &snap);
+-        voice_kv_snap_ = std::make_unique<VoiceKVSnapshot>(std::move(snap));
+-        voice_kv_hash_ = vh;
++        auto& stored = voice_kv_snaps_[vh] = std::move(snap);
+         
+-        if (cfg_.voice_cache && !voice_kv_path_.empty()) {
++        if (disk) {
+             std::string kv_path = cache::get_cache_path(cfg_.voices_dir, voice_kv_path_, "kv");
+-            auto ds = main_runner_->snapshot_to_disk(*voice_kv_snap_);
++            auto ds = main_runner_->snapshot_to_disk(stored);
+             if (ds.save_to_disk(kv_path)) {
+                 if (cfg_.verbose) std::cerr << "  Saved KV cache: " << kv_path << "\n";
+             }
+@@ -2688,6 +2717,51 @@ void ptt_destroy(void* handle) {
+     delete static_cast<pocket_tts::PocketTTS*>(handle);
+ }
+ 
++// ── Voices from precomputed embeddings ─────────────────────────────────────
++
++// Registers a voice from a precomputed embedding under `name`, for
++// ptt_stream_start: the Mimi encoder's output for a voice clip, float32,
++// shape [1, frames, dim] (ndims 3) or [frames, dim] (ndims 2), e.g. the data
++// of a .emb file from ptt_encode_voice. Needs no WAV and no
++// mimi_encoder.onnx, and writes nothing to disk. Call it before starting
++// streams. Returns 0 on success.
++int ptt_add_voice(void* handle, const char* name, const float* data, const int64_t* shape, int ndims) {
++    if (!handle || !name || !data || !shape || ndims < 2 || ndims > 3) return -1;
++    try {
++        std::vector<int64_t> sh(shape, shape + ndims);
++        for (auto d : sh) if (d <= 0) return -1;
++        size_t n = pocket_tts::calc_numel(sh);
++        static_cast<pocket_tts::PocketTTS*>(handle)->add_voice(name, pocket_tts::Tensor(std::vector<float>(data, data + n), sh));
++        return 0;
++    } catch (const std::exception& e) {
++        std::cerr << "[pocket-tts] add_voice error: " << e.what() << "\n";
++        return -1;
++    }
++}
++
++// Encodes a voice clip (WAV, MP3 or FLAC) with mimi_encoder.onnx the way a
++// WAV voice is encoded at runtime (mono, resampled to 24 kHz, at most 30 s)
++// and writes the embedding to emb_path in the .emb cache format ("EMB1",
++// without the BOS). For making voice embeddings ahead of time; needs no
++// other model. Returns 0 on success.
++int ptt_encode_voice(const char* encoder_path, const char* audio_path, const char* emb_path, int num_threads) {
++    if (!encoder_path || !audio_path || !emb_path) return -1;
++    try {
++        Ort::SessionOptions opts;
++        opts.SetIntraOpNumThreads(num_threads > 0 ? num_threads : 2);
++        opts.SetInterOpNumThreads(1);
++        opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
++        pocket_tts::OrtSession enc(pocket_tts::get_ort_env(), encoder_path, opts, "mimi_encoder");
++        auto r = pocket_tts::PocketTTS::run_encoder(enc, pocket_tts::PocketTTS::load_audio(audio_path));
++        if (!pocket_tts::cache::save_embedding(emb_path, r.shape, r.data))
++            throw std::runtime_error(std::string("cannot write ") + emb_path);
++        return 0;
++    } catch (const std::exception& e) {
++        std::cerr << "[pocket-tts] encode_voice error: " << e.what() << "\n";
++        return -1;
++    }
++}
++
+ // ── Streaming API ───────────────────────────────────────────────────────────
+ 
+ struct ptt_stream_ctx {

@@ -1,0 +1,15 @@
+Voice activity detection model (Silero VAD), built into the main executable
+
+Ships as:
+  Contents/MacOS/dial8-desktop (the model's bytes are embedded in the main
+  executable; it runs on the ONNX Runtime the local-tts module ships, whose
+  notices are in Licenses/local-tts/)
+
+These files contain the open-source components below. License paths are
+relative to this folder.
+
+Silero VAD v6.2.3, silero_vad_16k_op15.onnx (model weights), commit 5cd7945676eb
+  https://github.com/snakers4/silero-vad
+  Copyright (c) 2020-present Silero Team
+  License: MIT (LICENSE-silero-vad.txt)
+  Unmodified.

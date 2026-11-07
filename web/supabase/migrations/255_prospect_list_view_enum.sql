@@ -1,0 +1,29 @@
+-- Add 'prospect_list' to view_entity_type enum.
+--
+-- THIS REVERSES A DELIBERATE DECISION. Migration 249 registered
+-- 'prospect_list_entry' and wrote, in the same file: "`prospect_list` itself is
+-- deliberately NOT registered: the list-of-lists is a small bespoke card index
+-- that will never need saved views or board layout."
+--
+-- That held while a workspace had two or three lists. It stops holding as soon
+-- as it has a dozen: the card index has no sort, no filter, no saved views and
+-- no way to say "show me the investor lists that ran this week" — every other
+-- collection of records in the product does. So the Prospecting index moves
+-- onto the shared views system (UnifiedViewLayout with
+-- entityType="prospect_list") and becomes a list of lists you can sort, filter
+-- and save named views over, with a list's entries nested one click inside it.
+--
+-- Concretely: GET /api/account/views?entity_type=prospect_list filters the
+-- `view` table on this enum, so without the value that query 500s and saving a
+-- view over the list index fails with 22P02. Mirrors 249 ('prospect_list_entry'),
+-- 230 ('sequence') and 133 ('flow').
+--
+-- NOT the same thing as migration 250, which added 'prospect_list' to the
+-- view SCOPE check (`view.scope_type`) — that value means "a view scoped to one
+-- list" and belongs to the ENTRIES view. The two enums are independent; 250
+-- needs no change.
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — run as its own
+-- standalone migration statement.
+ALTER TYPE public.view_entity_type ADD VALUE IF NOT EXISTS 'prospect_list';

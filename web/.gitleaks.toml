@@ -1,0 +1,13 @@
+title = "Dial8"
+
+[extend]
+useDefault = true
+
+# Fake keys in tests are there on purpose. trufflehog still checks every file,
+# tests included, for keys that are live (scripts/open-source/export.sh).
+[[allowlists]]
+description = "Test files and fixtures"
+paths = [
+  '''(^|/)__tests__/''',
+  '''\.test\.[cm]?[jt]sx?$''',
+]

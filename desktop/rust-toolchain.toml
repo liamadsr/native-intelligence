@@ -1,0 +1,8 @@
+# Every build of this repo (dev.sh, build.sh, release.sh, cargo) uses this exact
+# compiler, whatever the machine's default is. rustup installs it on first use.
+# 1.98.1 since 2026-09-26: the chat-voice echo canceller (aec3) needs >= 1.88;
+# the app built, tested and released cleanly on it (was 1.87.0).
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

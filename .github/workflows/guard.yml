@@ -1,0 +1,34 @@
+# The leak check (.github/guard.sh) on every push and pull request: gitleaks, plus the
+# private names list from the DENYLIST secret (the list's text, one pattern per line).
+# A pull request from a fork gets no secrets, so it runs gitleaks only; the full check
+# runs again once it's merged.
+name: Guard
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install gitleaks 8.30.1
+        run: |
+          curl -sSfL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP/bin" gitleaks
+          rm gitleaks.tar.gz
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Check
+        env:
+          DENYLIST: ${{ secrets.DENYLIST }}
+        run: |
+          if [ -n "$DENYLIST" ]; then printf '%s\n' "$DENYLIST" > "$RUNNER_TEMP/denylist.txt"; fi
+          DENYLIST_FILE="$RUNNER_TEMP/denylist.txt" .github/guard.sh HEAD

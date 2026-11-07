@@ -1,0 +1,21 @@
+-- Add 'graph' to view_layout enum.
+--
+-- `view_layout` has been ('list', 'board') since migration 039 because every
+-- entity the views system covered was tabular. A claim is not: its natural
+-- reading is the knowledge map — a WebGL canvas of claims clustered around the
+-- captures, documents and projects they came from (docs/KNOWLEDGE_MAP_ARCHITECTURE.md).
+--
+-- So `layout` grows a third value rather than the Knowledge page growing a
+-- second, parallel notion of "how am I looking at this". One saved view, one
+-- filter set, three ways to read it: the canvas, a list, or a board. Flipping
+-- the layout toggle on "Open questions, last 30 days" swaps the renderer and
+-- keeps the filters — which is the whole point of putting claims on this system.
+--
+-- UnifiedViewLayout's render branches on this value (list | board | graph); the
+-- graph branch skips the row query entirely and drives the tile API instead, so
+-- a graph view never paginates claims it will not draw.
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — run as its own
+-- standalone migration statement. Same reason 274 is a separate file.
+ALTER TYPE public.view_layout ADD VALUE IF NOT EXISTS 'graph';

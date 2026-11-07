@@ -1,0 +1,15 @@
+-- Add 'prospect_list_entry' to view_entity_type enum.
+--
+-- The Prospecting list-detail page moves onto the shared views system
+-- (UnifiedViewLayout with entityType="prospect_list_entry"), so GET
+-- /api/account/views?entity_type=prospect_list_entry filters the `view` table
+-- on this enum. Without the value, that query 500s and saving a prospecting
+-- view fails. Mirrors migration 230 (which added 'sequence') and 133 ('flow').
+--
+-- `prospect_list` itself is deliberately NOT registered: the list-of-lists is a
+-- small bespoke card index that will never need saved views or board layout.
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — run as its own
+-- standalone migration statement.
+ALTER TYPE public.view_entity_type ADD VALUE IF NOT EXISTS 'prospect_list_entry';

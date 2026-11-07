@@ -1,0 +1,68 @@
+/**
+ * What the retired WebKit browser left in this window's storage (cloud browser
+ * C5): its profiles, the owner and cleanup marks, saved tabs and their routing,
+ * the old bookmarks, and each profile's library database (history, imported
+ * Chrome/Safari history, bookmarks). Nothing reads any of it now, and it is the
+ * person's browsing, so it goes once a session.
+ */
+import { isProfileId } from './ids'
+
+const KEYS = [
+  'dial8-browser-profiles',
+  'dial8-browser-tabs-owner',
+  'dial8-browser-shared-data-cleared',
+  'dial8-browser-library-legacy-owner',
+  'dial8-browser-bookmarks',
+]
+/** `dial8-tabs-browser`, `dial8-tabs-browser:<window>` and `dial8-tabs-browser-routing:<workspace>`. */
+const TABS_PREFIX = 'dial8-tabs-browser'
+/** The shared library before profiles, and `<it>:<profileId>` after. */
+const LIBRARY_DB = 'dial8-browser-library'
+const PROFILES_KEY = 'dial8-browser-profiles'
+
+let dropped = false
+
+export async function dropRetiredBrowserData(): Promise<void> {
+  if (dropped) return
+  dropped = true
+  const names = new Set([LIBRARY_DB])
+  try {
+    // The profile ids name their databases; read them before the registry goes.
+    const registry: unknown = JSON.parse(localStorage.getItem(PROFILES_KEY) ?? '{}')
+    if (registry && typeof registry === 'object') {
+      for (const id of Object.keys(registry)) if (isProfileId(id)) names.add(`${LIBRARY_DB}:${id}`)
+    }
+  } catch {
+    // Unreadable: the database listing below still finds them where it can.
+  }
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (KEYS.includes(key) || key === TABS_PREFIX || key.startsWith(`${TABS_PREFIX}:`) || key.startsWith(`${TABS_PREFIX}-routing:`)) {
+        localStorage.removeItem(key)
+      }
+    }
+  } catch {
+    // Storage blocked: nothing there to delete.
+  }
+  const idb = globalThis.indexedDB
+  if (!idb) return
+  try {
+    for (const db of (await idb.databases?.()) ?? []) {
+      if (db.name === LIBRARY_DB || db.name?.startsWith(`${LIBRARY_DB}:`)) names.add(db.name)
+    }
+  } catch {
+    // No listing in this engine: the names from the registry are all we know.
+  }
+  for (const name of names) {
+    try {
+      idb.deleteDatabase(name)
+    } catch {
+      // Blocked: try again next session.
+    }
+  }
+}
+
+/** Tests only: run the sweep again. */
+export function __resetRetiredBrowserDataForTests(): void {
+  dropped = false
+}

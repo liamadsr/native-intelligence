@@ -1,0 +1,43 @@
+diff --git a/node_modules/voice-glow/dist/index.es.js b/node_modules/voice-glow/dist/index.es.js
+index 046c35e..c8bdf8e 100644
+--- a/node_modules/voice-glow/dist/index.es.js
++++ b/node_modules/voice-glow/dist/index.es.js
+@@ -618,7 +618,11 @@ function Qa(n) {
+ }
+ const Xe = /* @__PURE__ */ new Set();
+ let $e = null, ut = 0;
+-const Za = 1e3 / 60 - 2, en = 22, tn = 500, an = 4e3;
++// Dial8 patch: 30 frames a second, not 60 (the 2 ms slack keeps a 60 or
++// 120 Hz display on every second or fourth frame). The motion is time-based,
++// so it moves at the same speed; each frame restyles and repaints the whole
++// beam, so this halves its CPU and GPU cost in WebKit.
++const Za = 1e3 / 30 - 2, en = 22, tn = 500, an = 4e3;
+ let Ve = 0, bt = !1, qe = !1, me = 0, ga = 0;
+ const Ma = Math.PI * 2, nn = 5, on = 1.7, rn = [
+   [80, 300],
+@@ -691,10 +695,14 @@ function Mn(n, e, a) {
+   const s = 1 + Math.max(fn, pn / a), o = n.filter;
+   o.setAttribute("x", `${-va * 100}%`), o.setAttribute("width", `${(1 + 2 * va) * 100}%`), o.setAttribute("y", `${(t * 100).toFixed(0)}%`), o.setAttribute("height", `${((s - t) * 100).toFixed(1)}%`);
+ }
+-function Sn(n, e, a) {
++function Sn(n, e, a, vbWidth, vbHeight) {
+   const { canvas: r, ctx: t, el: s, config: o } = n;
+   if (!r || !t) return;
+-  const i = s.clientWidth, u = s.clientHeight;
++  // Dial8 patch: the size the frame loop read before this frame's style
++  // writes. Reading clientWidth here, after them, forced a whole style
++  // recalc and layout of the beam mid-frame, on top of the one the frame
++  // does anyway (WebKit: a fifth of the beam's main-thread time).
++  const i = vbWidth, u = vbHeight;
+   if (!i || !u) return;
+   const l = Math.min(ln, typeof window < "u" && window.devicePixelRatio || 1), p = Math.round(i * l), b = Math.round(u * l);
+   (r.width !== p || r.height !== b) && (r.width = p, r.height = b), t.setTransform(l, 0, 0, l, 0, 0), t.clearRect(0, 0, i, u);
+@@ -791,7 +799,7 @@ function ka(n) {
+     const ye = o.warp, V = a.displace != null && ye < bn;
+     if (V !== a.warpOff && (a.warpOff = V, V ? r.setAttribute("data-voice-warp", "off") : r.removeAttribute("data-voice-warp")), T && O && (a.ctx || a.displace)) {
+       const f = xn(t, x, T, O);
+-      (a.displace && !V || t.coreLight > 0) && yn(r, t.id, f, T, O), a.filter && !V && un && Mn(a, f, O), a.ctx && Sn(a, x, f);
++      (a.displace && !V || t.coreLight > 0) && yn(r, t.id, f, T, O), a.filter && !V && un && Mn(a, f, O), a.ctx && Sn(a, x, f, T, O);
+     }
+     if (a.displace && !V) {
+       const f = t.reducedMotion ? 0 : t.distortion * 120 * t.scale * (0.15 + 0.85 * I) * ye;

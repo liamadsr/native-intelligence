@@ -1,0 +1,72 @@
+---
+title: Do you need both an AI notetaker and a project tracker?
+description: Most teams run an AI notetaker and a separate tracker, with a human copying between them. Here's what that gap actually costs — and when one system should replace two.
+author: Liam Alizadeh
+date: 2026-07-12
+---
+
+If you run a team in 2026, you probably have a stack that looks like this: an AI notetaker joins your calls — Granola, Fathom, Otter, Fireflies, take your pick — and produces a clean summary with a list of action items. Then a tracker holds the actual work: Linear, or Notion, or Jira if you've earned that particular scar. Both tools are genuinely good at their jobs.
+
+And in between them, there's a person. Usually you.
+
+That person's job is to read the summary, decide which action items are real, figure out who owns each one, translate them into tickets, add the context the summary dropped, and file them in the tracker. Every meeting. It's such a normal part of the workflow that most people don't even see it as work — it's just what you do after a call.
+
+I want to argue that this middle step — the human courier — is the actual product gap in this category, and that it's worth asking whether you should be running two tools at all.
+
+## What breaks when notes and tasks live in different tools?
+
+The failure isn't dramatic. Nothing crashes. The tools do exactly what they promise. The problem is the seam between them, and seams fail quietly.
+
+**Action items die in the summary.** A notetaker is very good at producing "Liam to send the pricing deck by Friday." But that line lives in a document nobody opens again. It is not a task. It has no owner in a system, no due date that fires a reminder, no status. It's a well-formatted observation. The gap between "the AI noticed a commitment" and "the commitment is being tracked" is entirely manual, and it's exactly where things get dropped — not because anyone is lazy, but because the translation step is friction and friction loses.
+
+**Tickets get written hours later, stripped of context.** By the time you sit down to turn the summary into tickets, the meeting is cold. You remember *that* you agreed to something but not the three sentences of reasoning behind it. So the ticket says "redo onboarding flow" and loses the *why* — the customer quote, the objection that prompted it, the two options you rejected. The context existed. It was said out loud. It's sitting in a transcript. It just didn't make the jump.
+
+**The tracker is always a little stale.** Because updating it is a separate act of will, it always lags reality. Decisions made in a call don't show up until someone types them in. Anyone who opens the tracker to understand "where are we" is looking at a slightly out-of-date snapshot, and everyone quietly knows it, which erodes trust in the tool that's supposed to be the source of truth.
+
+**You pay for context twice.** This is the one that actually bothers me. The context was fully present in the meeting — every constraint, every decision, every owner. It gets compressed into a summary, and then a human re-expands it back into tickets by hand. You capture it once and re-enter it once. That second pass is pure toil, and it's toil a machine is now completely capable of doing.
+
+None of these is fatal on its own. Together they're a tax you pay on every meeting, and the tax scales with how many meetings you run.
+
+## Why keep them separate, then?
+
+I don't want to strawman the two-tool stack, because there are real reasons it's the default, and they're not dumb.
+
+**Best-of-breed is a real advantage.** A dedicated notetaker has spent years on one problem: turning speech into an accurate, well-structured summary. A dedicated tracker has spent even longer on issue hierarchies, workflows, cycles, and keyboard-driven speed. Any single tool trying to do both starts out worse at each than the specialist it's replacing. That's a genuine cost, not a talking point.
+
+**Your team already lives in the tracker.** Linear isn't just where tickets go — it's muscle memory, keyboard shortcuts, saved views, integrations, a way of thinking your engineers already share. "Just switch tools" ignores that the switching cost is mostly social, and social costs are the expensive kind.
+
+**Notetakers are actually great at notes.** This is worth saying plainly. The summaries are good. The transcription is good. If all you need is a searchable record of what was said, the current generation of tools has basically solved that. There is nothing embarrassing about the state of the art here.
+
+So the honest position isn't "these tools are bad." They're good. The question is whether "good at each half" is the ceiling, or whether the interesting work has moved to the seam between them.
+
+## Is better summarization even the right goal anymore?
+
+Here's where I think the category's framing is stuck. Most of the roadmap energy in AI notetakers goes toward *better summaries* — more accurate, better formatted, smarter at spotting action items. That's real progress, but it's progress on the wrong axis. A perfect summary that a human still has to hand-carry into a tracker hasn't removed the courier. It's just handed them a nicer package to carry.
+
+The interesting question isn't "can the system write a better summary." It's "can the system close the loop" — carry a commitment from *conversation* to *tracked work* to *executed work* without a person retyping it at every boundary. That's a different kind of product. Summarization is a text problem. Closing the loop is a systems problem: the thing that hears the commitment has to be the same thing that owns the task, updates the project, and can act on it.
+
+Once you frame it that way, the two-tool stack looks less like a best-of-breed choice and more like an architecture that structurally *cannot* close the loop, because the two halves don't share a brain. The notetaker doesn't know your project states. The tracker never heard the meeting. The only thing that spans both is the human in the middle — which is precisely the thing we should be trying to remove from the hot path.
+
+## What would a converged system actually have to do?
+
+It's easy to say "just merge them." It's harder to say what merging actually requires, so let me be concrete about the bar. A single system that earns the right to replace two would have to:
+
+**Capture without a bot in the room.** If the price of capture is a third participant awkwardly joining the call, you've added social cost to buy convenience. Capture should be ambient — it runs where you already are, not as a guest that everyone can see recording them.
+
+**Extract actions with owners and context attached.** Not "here's a bullet list of action items" but a real task, with an owner resolved to an actual person, a due date, and the surrounding *why* linked back to the moment in the conversation where it came from. The context and the task have to travel together or you've rebuilt the same gap inside one app.
+
+**Keep projects current from the conversation itself.** When a decision gets made on a call, the project should reflect it without anyone opening the tracker to type it in. The conversation is the input; the up-to-date project is the output; the human isn't the pump in between.
+
+**Let agents actually execute.** The last mile is doing the work, not just tracking it — drafting the follow-up email, opening the pull request, updating the doc. Once capture, extraction, and tracking share one system, execution is the natural next step rather than a fourth tool bolted on.
+
+Hit that bar and the "do you need both" question dissolves, because the seam that made two tools necessary is gone. Miss it — build a mediocre tracker stapled to a mediocre notetaker — and you've made things worse, because now you have one tool that's bad at two jobs instead of two tools that are each good at one. The convergence thesis only pays off if the integration is the *point*, not an afterthought.
+
+## So — do you need both?
+
+If your honest answer to "how much does the courier step cost me" is *not much* — you run few meetings, the handoff is quick, your team lives happily in a tracker they love — then keep the two-tool stack. It's a legitimate setup and the specialists are excellent. Don't let anyone talk you into churn for its own sake.
+
+But if you feel the tax — if action items evaporate, if your tracker is perpetually a few days behind reality, if you keep paying for the same context twice — then the two-tool stack isn't a permanent state of the art. It's a transitional one, waiting for a system that treats capture, tracking, and execution as one loop instead of three products with a human stapling them together.
+
+I'm building [Dial8](/) exactly because I kept paying that tax and got tired of it. Rather than "notetaker plus tracker plus me," it's one system where the conversation *becomes* the tracked work and agents can pick it up from there — the argument in this post, turned into a product. If that's the itch you have too, the comparison with [Granola](/vs/granola) and the fuller pitch for the [AI work environment](/ai-work-environment) are the places to poke at whether I've actually cleared the bar I set above.
+
+You should be able to read all of this, disagree with my conclusion, and still walk away with a sharper way to reason about your own stack. The question worth keeping isn't "which notetaker" or "which tracker." It's "how many times does a piece of context get re-entered by a human before it turns into work" — and whether you're comfortable with that number.

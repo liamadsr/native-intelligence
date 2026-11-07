@@ -1,0 +1,24 @@
+-- Add 'claim' to view_entity_type enum.
+--
+-- The Knowledge page moves onto the shared views system. Until now it was the
+-- one collection in the product with no saved views: the graph had a bespoke
+-- five-control filter bar (knowledge-filter-bar.tsx) whose settings lived only
+-- in component state, so "open questions from the last 30 days on Project X"
+-- had to be rebuilt by hand every visit and could not be named, pinned, or
+-- shared with a teammate. Registering the entity type is what gives claims the
+-- same apparatus every other collection already has.
+--
+-- Concretely: GET /api/account/views?entity_type=claim filters the `view` table
+-- on this enum, so without the value that query 500s and saving a view over the
+-- graph fails with 22P02. Mirrors 255 ('prospect_list'), 249
+-- ('prospect_list_entry'), 230 ('sequence') and 133 ('flow').
+--
+-- Scope note: this registers the CLAIM. The Knowledge Library (workspace brief
+-- + project rollups + packages) is deliberately NOT a views surface — it is not
+-- a list of claims, and it has no row entity for filters to act on. It keeps its
+-- own layout under the same page header.
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — run as its own
+-- standalone migration statement.
+ALTER TYPE public.view_entity_type ADD VALUE IF NOT EXISTS 'claim';

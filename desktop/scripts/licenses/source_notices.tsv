@@ -1,0 +1,21 @@
+# Notices written inside a linked crate's source files that the crate's own
+# license files don't carry: code or text the crate took from elsewhere, under
+# that notice's terms. Also notice files a crate ships under a name
+# rust_crates.py doesn't take for a license file (aec3's PATENT, Google's
+# WebRTC patent grant). rust_crates.py copies each block unchanged to
+# <crate>-<version>/<file>.notice.txt and cites it in the crate's entry.
+#
+# Tab-separated: crate, version, file (relative to the crate's folder), lines
+# (first-last, counted from 1), marker (text that must be inside those lines,
+# so a different block is never copied), evidence.
+#
+# rust_crates.py also scans every linked crate's compiled source files for
+# license grants whose conditions bind binary copies (SOURCE_GRANTS: MIT, ISC,
+# BSD's binary-form clause, W3C). A grant the crate's license texts don't
+# carry must be inside a block listed here, or the notices fail to build — so
+# a crate update that adds one can't slip through. Rows name an exact version:
+# after an update, check the new version's file and update the row.
+futures-channel	0.3.32	src/mpsc/queue.rs	1-26	Dmitry Vyukov	BSD-2-Clause-style notice for Dmitry Vyukov's intrusive MPSC queue, which the file is based on; the crate's license files are MIT and Apache-2.0
+tao	0.34.6	src/keyboard.rs	7-74	W3C	W3C Software and Document License and W3C short notice for the UI Events KeyboardEvent key and code values that the Key and KeyCode enums are derived from; tao's license files don't carry them
+aec3	0.4.0	PATENT	1-22	Additional IP Rights Grant (Patents)	Google's WebRTC patent grant, which aec3 (a Rust port of WebRTC AEC3) ships in its own PATENT file beside its LICENSE; that file name is not one rust_crates.py picks up as a license file, so this row copies it out whole
+earshot	1.2.2	src/fft/mod.rs	1-2	Jan Teske	Attribution for the FFT earshot vendors from Jan Teske's microfft-rs (MIT; the tables in src/fft/tables.rs belong to it); earshot ships no license file, so the notice would otherwise be lost. holders.tsv also names Jan Teske in the MIT text generated for earshot

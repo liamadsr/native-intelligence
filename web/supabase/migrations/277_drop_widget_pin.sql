@@ -1,0 +1,22 @@
+-- Migration 277: drop widget_pin (created by migration 169).
+--
+-- widget_pin held the dashboard widgets each member had pinned to the collapsed
+-- dashboard's widget dock. The widget picker and its use-widget-pins hook — the
+-- only callers of /api/account/widget-pins — were removed on 2026-07-05, the
+-- day the dock shipped; from then on the dock always showed the calendar and
+-- nothing read or wrote pins. That route is deleted alongside this migration,
+-- and the dock itself is being retired — today's calendar now opens under the
+-- Capture button.
+--
+-- Dropping the table takes all of 169's objects with it: the primary key, the
+-- workspace/member foreign keys, widget_pin_member_position_idx, the four
+-- widget_pin_own_* RLS policies and the widget_pin_updated_at trigger. Nothing
+-- outside the table depends on it (no views, inbound foreign keys, functions or
+-- publication membership — checked on DEV and PRD), so `cascade` removes
+-- nothing else. The shared update_updated_at() trigger function (migration 013)
+-- is used by other tables and stays.
+--
+-- Destructive: any leftover pins are discarded. Nothing has read them since the
+-- picker was removed.
+
+drop table if exists public.widget_pin cascade;

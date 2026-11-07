@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "isolatedModules": false,
+    "verbatimModuleSyntax": false
+  },
+  "include": [
+    "../playwright.config.ts",
+    "**/*.ts"
+  ],
+  "exclude": []
+}

@@ -1,0 +1,73 @@
+---
+title: Email
+description: Unified email management with Gmail and Outlook integration, AI-drafted replies, and contact linking.
+---
+
+Dial8 brings your email into your workspace with a unified inbox that connects threads to contacts, actions, and projects.
+
+## Connected Accounts
+
+Connect one or more email accounts from **Settings → Connectors**:
+
+- **Gmail** — Full inbox sync via Google OAuth
+- **Outlook** — Full inbox sync via Microsoft OAuth
+
+Each connected account syncs independently. You can configure visibility and notification preferences per account in **Settings → Email & CRM**.
+
+## Email Threads
+
+Emails are organized as threads, matching the conversation threading from your email provider. Each thread shows:
+
+- **Subject and participants**
+- **All messages** in the conversation with full bodies
+- **Attachments** with metadata and download links
+- **Labels** — Apply workspace labels to threads for organization
+- **Status indicators** — Unread, starred, needs reply
+
+## Inbox Management
+
+The email view supports standard inbox operations:
+
+- **Read / Unread** — Mark threads as read or unread
+- **Star** — Flag important threads
+- **Archive** — Remove from inbox without deleting
+- **Trash** — Move to trash
+- **Labels** — Categorize with workspace labels
+- **Folders** — Browse by folder (Inbox, Sent, Drafts, etc.)
+
+## Search
+
+Search across all your email messages with full-text search. Results show highlighted matches within message bodies.
+
+## AI-Drafted Emails
+
+Dial8 can generate email drafts using AI, with context pulled from your workspace:
+
+- **Reply drafts** — Click **Reply All** on a thread (or the reply button on one message) and the assistant drafts a reply in the chat, based on the thread and related workspace data
+- **New drafts** — Compose emails with AI assistance
+- **Context sources** — AI references relevant captures, actions, contacts, and projects when drafting
+
+Drafts are saved for review before sending. Edit, approve, or discard them. A draft waiting in a thread (an agent's reply, for example) shows a **Draft** tag with **Send**, which sends it exactly as you reviewed it; **Edit**, which lets you change the recipients, subject and text before sending; and **Discard**, which deletes it from your mailbox once you confirm. An edited draft goes out as plain text, and a draft with attachments can only be sent as it is.
+
+## Contact Linking
+
+Email messages are automatically linked to workspace contacts based on email addresses. This means:
+
+- Viewing a contact shows their email history
+- Viewing an email thread shows linked contact profiles
+- Email interactions contribute to the contact's interaction timeline
+
+## Action Linking
+
+Link email messages to specific actions to maintain a clear trail from conversation to task.
+
+## Sync
+
+Email syncing happens automatically in the background. Each account tracks its sync progress independently using provider-specific mechanisms (Gmail history IDs, Outlook delta links). You can also trigger a manual sync from the settings.
+
+### Webhooks
+
+Dial8 supports push notifications from email providers for real-time updates:
+
+- **Gmail** — Webhook push notifications for new messages
+- **Outlook** — Subscription-based change notifications

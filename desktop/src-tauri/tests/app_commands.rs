@@ -1,0 +1,385 @@
+//! Fails the build if the `AppManifest` command list drifts from the commands
+//! actually registered with `tauri::generate_handler!`.
+//!
+//! WHY: `build.rs`'s `APP_COMMANDS` is what turns on Tauri's per-origin ACL for
+//! the app's own commands (see the security note there). A command registered in
+//! `generate_handler!` but missing from `APP_COMMANDS` is dispatched for EVERY
+//! origin again — silently re-opening the exact hole the manifest closes. This
+//! test is the tripwire: it parses both lists straight from the source files and
+//! asserts they are identical, so adding a command without listing it fails
+//! `cargo test` (and the release build, which runs the tests).
+//!
+//! Both lists are parsed as text rather than imported, because `APP_COMMANDS`
+//! lives in `build.rs` (a separate crate compiled by Cargo, not linkable here)
+//! and the `generate_handler!` invocation is a macro body.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::Path;
+
+/// A source file as text with LF line ends: a Windows checkout has CRLF
+/// (`* text=auto`), and these tests match on multi-line source.
+fn read_source<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
+    fs::read_to_string(path).map(|s| s.replace("\r\n", "\n"))
+}
+
+/// Pull the command identifiers out of the single `tauri::generate_handler![...]`
+/// invocation in `src/lib.rs`: the last `::`-separated segment of every path
+/// entry inside the brackets, ignoring `//` comments.
+fn handler_commands(lib_rs: &str) -> BTreeSet<String> {
+    let start = lib_rs
+        .find("generate_handler![")
+        .expect("generate_handler![ not found in src/lib.rs");
+    let after = &lib_rs[start + "generate_handler![".len()..];
+    let end = after
+        .find("])")
+        .expect("closing ]) of generate_handler not found");
+    let block = &after[..end];
+
+    let mut out = BTreeSet::new();
+    for raw_line in block.lines() {
+        // Drop line comments.
+        let line = match raw_line.find("//") {
+            Some(i) => &raw_line[..i],
+            None => raw_line,
+        };
+        for token in line.split(',') {
+            let token = token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            // token looks like `commands::recording::start_recording`
+            let name = token.rsplit("::").next().unwrap_or(token).trim();
+            if !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                out.insert(name.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// Pull the string literals out of the `const APP_COMMANDS: &[&str] = &[ ... ];`
+/// array in `build.rs`.
+fn manifest_commands(build_rs: &str) -> BTreeSet<String> {
+    let decl = build_rs
+        .find("APP_COMMANDS")
+        .expect("APP_COMMANDS not found in build.rs");
+    // Start at the array initializer (`= &[ ... ]`), NOT the `[` in the type
+    // annotation `&[&str]` that precedes it.
+    let eq = build_rs[decl..]
+        .find('=')
+        .expect("`=` after APP_COMMANDS not found")
+        + decl;
+    let bracket = build_rs[eq..]
+        .find('[')
+        .expect("opening [ of APP_COMMANDS initializer not found")
+        + eq;
+    let end = build_rs[bracket..]
+        .find(']')
+        .expect("closing ] of APP_COMMANDS not found")
+        + bracket;
+    let block = &build_rs[bracket + 1..end];
+
+    let mut out = BTreeSet::new();
+    for token in block.split(',') {
+        let token = token.trim().trim_matches('"');
+        if !token.is_empty() {
+            out.insert(token.to_string());
+        }
+    }
+    out
+}
+
+#[test]
+fn app_commands_match_handler() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let lib_rs = read_source(dir.join("src/lib.rs")).expect("read src/lib.rs");
+    let build_rs = read_source(dir.join("build.rs")).expect("read build.rs");
+
+    let handler = handler_commands(&lib_rs);
+    let manifest = manifest_commands(&build_rs);
+
+    // Sanity: we actually parsed something, so a parser bug can't make this pass
+    // vacuously.
+    assert!(
+        handler.len() > 50,
+        "parsed only {} commands from generate_handler! — parser likely broke",
+        handler.len()
+    );
+
+    let missing_from_manifest: Vec<_> = handler.difference(&manifest).collect();
+    let extra_in_manifest: Vec<_> = manifest.difference(&handler).collect();
+
+    assert!(
+        missing_from_manifest.is_empty() && extra_in_manifest.is_empty(),
+        "APP_COMMANDS in build.rs is out of sync with generate_handler! in src/lib.rs.\n  \
+         Registered but NOT in APP_COMMANDS (these are exposed to every origin!): {missing_from_manifest:?}\n  \
+         In APP_COMMANDS but not registered (harmless, remove them): {extra_in_manifest:?}"
+    );
+}
+
+/// Every app command the capability grants (`allow-<command>`, no plugin
+/// prefix) is one APP_COMMANDS still declares. A grant for a removed command
+/// builds only while its stale, gitignored permissions/autogenerated file is on
+/// disk: a clean checkout fails with "Permission allow-... not found".
+#[test]
+fn granted_app_commands_exist() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = manifest_commands(&read_source(dir.join("build.rs")).expect("read build.rs"));
+    let default: serde_json::Value =
+        serde_json::from_str(&read_source(dir.join("capabilities/default.json")).unwrap()).unwrap();
+    let granted: Vec<String> = default["permissions"]
+        .as_array()
+        .expect("permissions array")
+        .iter()
+        .filter_map(|p| p.as_str())
+        .filter_map(|p| p.strip_prefix("allow-").filter(|_| !p.contains(':')))
+        .map(|name| name.replace('-', "_"))
+        .collect();
+    assert!(granted.len() > 50, "parsed only {} app grants: parser likely broke", granted.len());
+    let unknown: Vec<_> = granted.iter().filter(|name| !manifest.contains(*name)).collect();
+    assert!(unknown.is_empty(), "capabilities/default.json grants commands APP_COMMANDS doesn't declare: {unknown:?}");
+}
+
+/// The app's commands are granted to the Dial8 origins in the capability's
+/// `remote` allowlist, and to no other page. Exactly dial8.ai, no subdomain
+/// wildcard (security review 2026-10-31, P0-3; tests/capability_policy.rs).
+/// The local dev server is a debug build's alone (capabilities/dev.json).
+#[test]
+fn app_commands_are_granted_to_dial8_origins_only() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let read = |file: &str| -> serde_json::Value {
+        serde_json::from_str(&read_source(dir.join("capabilities").join(file)).unwrap()).unwrap()
+    };
+    assert_eq!(read("default.json")["remote"]["urls"], serde_json::json!(["https://dial8.ai/*"]));
+    assert_eq!(read("dev.json")["remote"]["urls"], serde_json::json!(["http://localhost:3000/*"]));
+}
+
+/// The HUD's back-to-the-capture button: the recording window raises itself
+/// with `focus_own_window` (never the core:window focus / show / unminimize
+/// permissions, which let a page target any window). Granted to the dashboard
+/// capability only.
+#[test]
+fn focus_own_window_is_granted_to_dashboard_windows_only() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let default: serde_json::Value =
+        serde_json::from_str(&read_source(dir.join("capabilities/default.json")).unwrap())
+            .unwrap();
+    let permissions = default["permissions"].as_array().unwrap();
+    assert!(permissions.contains(&serde_json::json!("allow-focus-own-window")));
+    for core in [
+        "core:window:allow-set-focus",
+        "core:window:allow-show",
+        "core:window:allow-unminimize",
+    ] {
+        assert!(!permissions.contains(&serde_json::json!(core)), "{core}");
+    }
+    let windows = default["windows"].as_array().unwrap();
+    assert!(windows.contains(&serde_json::json!("main")));
+    assert!(windows.contains(&serde_json::json!("workspace-*")));
+}
+
+/// Presence (the always-on agent texts the person when they're away): the
+/// web asks `presence_state` whether they're at this Mac. It's granted like
+/// every app command, takes nothing from the page, answers only
+/// `{ idleSeconds, locked }`, and never reads the lid (a closed lid with an
+/// external display still means they're there).
+#[test]
+fn presence_state_is_granted_and_takes_nothing_from_the_page() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let default: serde_json::Value =
+        serde_json::from_str(&read_source(dir.join("capabilities/default.json")).unwrap())
+            .unwrap();
+    let permissions = default["permissions"].as_array().unwrap();
+    assert!(permissions.contains(&serde_json::json!("allow-presence-state")));
+    let handler = handler_commands(&read_source(dir.join("src/lib.rs")).unwrap());
+    let manifest = manifest_commands(&read_source(dir.join("build.rs")).unwrap());
+    assert!(handler.contains("presence_state"), "presence_state missing from generate_handler!");
+    assert!(manifest.contains("presence_state"), "presence_state missing from APP_COMMANDS");
+
+    let src = read_source(dir.join("src/commands/system.rs")).unwrap();
+    let command = &src[src.find("#[tauri::command]\npub fn presence_state(").expect("presence_state command")..];
+    let signature = command[..command.find('{').unwrap()].split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(signature, "#[tauri::command] pub fn presence_state() -> Result<PresenceState, String>");
+
+    let state = &src[src.find("pub struct PresenceState {").expect("PresenceState")..];
+    let fields: Vec<_> = state[..state.find('}').unwrap()]
+        .lines()
+        .skip(1)
+        .map(str::trim)
+        .filter(|l| l.starts_with("pub "))
+        .collect();
+    assert_eq!(fields, ["pub idle_seconds: f64,", "pub locked: bool,"]);
+
+    for banned in ["lid::", "clamshell"] {
+        assert!(!src.to_lowercase().contains(banned), "system.rs reads the lid ({banned})");
+    }
+}
+
+/// The files that may define `local_agent_*` commands: commands.rs, and
+/// workers.rs (none there today; one added later is pinned like the rest).
+fn local_agent_command_sources(dir: &Path) -> String {
+    ["src/local_agent/commands.rs", "src/local_agent/workers.rs"]
+        .iter()
+        .map(|f| read_source(dir.join(f)).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The model this Mac's local agents use, and the person's yes to a worker,
+/// are native only, like the off switch (teammate-agent L4): no command sets
+/// them (`local_agent_status` only says whether the model is local). Outside
+/// workers.rs only the tray's menus set them, and nothing builds the actor's
+/// L4 messages or reads the L4 view by hand.
+#[test]
+fn the_local_agent_model_and_workers_are_set_from_the_tray_only() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workers = read_source(dir.join("src/local_agent/workers.rs")).unwrap();
+    assert!(!workers.contains("#[tauri::command]"), "workers.rs defines no command");
+    let mut found: BTreeSet<(String, &str)> = BTreeSet::new();
+    let mut stack = vec![dir.join("src")];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).unwrap().flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|e| e == "rs") && !p.ends_with("local_agent/workers.rs") {
+                let src = read_source(&p).unwrap();
+                // `/` on every platform (Windows displays `\\`).
+                let file = p.strip_prefix(dir).unwrap().display().to_string().replace('\\', "/");
+                for needle in [".set_model(", ".allow_worker(", "Cmd::Set {", "Cmd::Allow {", ".models("] {
+                    if src.contains(needle) {
+                        found.insert((file.clone(), needle));
+                    }
+                }
+            }
+        }
+    }
+    let tray = |n| ("src/tray.rs".to_string(), n);
+    assert_eq!(found, BTreeSet::from([tray(".set_model("), tray(".allow_worker(")]));
+}
+
+/// Local agents (dial8-website l0-contract §4, l1-contract C): every
+/// `local_agent_*` command is granted to the dashboard capability. And the
+/// grant invariant (plan §1, invariant 3) as a tripwire: the folder picker
+/// takes no argument from the page at all, and start / resume name a grant
+/// or a job, never a path; nothing takes a URL (the model relay's comes from
+/// the app's own origin, l1-contract C3).
+#[test]
+fn local_agent_commands_are_granted_and_never_take_a_path() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let default: serde_json::Value =
+        serde_json::from_str(&read_source(dir.join("capabilities/default.json")).unwrap())
+            .unwrap();
+    let permissions = default["permissions"].as_array().unwrap();
+    let commands = [
+        "local_agent_status",
+        "local_agent_pick_folder",
+        "local_agent_remove_grant",
+        "local_agent_start",
+        "local_agent_send",
+        "local_agent_stop",
+        "local_agent_resume",
+        "local_agent_events",
+        "local_agent_device",
+        "local_agent_set_model_token",
+    ];
+    let lib_rs = read_source(dir.join("src/lib.rs")).unwrap();
+    let build_rs = read_source(dir.join("build.rs")).unwrap();
+    let handler = handler_commands(&lib_rs);
+    let manifest = manifest_commands(&build_rs);
+    for name in commands {
+        let grant = format!("allow-{}", name.replace('_', "-"));
+        assert!(
+            permissions.contains(&serde_json::json!(grant)),
+            "{grant} missing from default.json"
+        );
+        assert!(
+            handler.contains(name),
+            "{name} missing from generate_handler!"
+        );
+        assert!(manifest.contains(name), "{name} missing from APP_COMMANDS");
+    }
+
+    let src = local_agent_command_sources(dir);
+    let params = |name: &str| -> String {
+        let start = src
+            .find(&format!("pub async fn {name}("))
+            .unwrap_or_else(|| panic!("{name} not found"));
+        let rest = &src[start..];
+        rest[..rest.find(") ->").expect("signature end")].to_string()
+    };
+    let picker = params("local_agent_pick_folder");
+    let picker_args = picker[picker.find('(').unwrap() + 1..]
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let picker_args = picker_args.trim_end_matches(',');
+    assert_eq!(
+        picker_args, "app: AppHandle, svc: State<'_, LocalAgentService>",
+        "local_agent_pick_folder must take nothing from the page"
+    );
+    for name in commands {
+        let p = params(name).to_lowercase();
+        for banned in ["path", "folder", "dir", "cwd", "url"] {
+            assert!(
+                !p.split(['(', ',']).skip(1).any(|a| a.contains(banned)),
+                "{name} takes a {banned}: {p}"
+            );
+        }
+    }
+}
+
+/// Every `local_agent_*` command in commands.rs is one of the pinned ones:
+/// a new command can't skip the list above (and its path check).
+#[test]
+fn every_local_agent_command_is_pinned() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let src = local_agent_command_sources(dir);
+    let defined: BTreeSet<String> = src
+        .match_indices("pub async fn local_agent_")
+        .map(|(i, m)| {
+            let rest = &src[i + m.len() - "local_agent_".len()..];
+            rest[..rest.find('(').unwrap()].to_string()
+        })
+        .collect();
+    let pinned: BTreeSet<String> = [
+        "local_agent_device",
+        "local_agent_status",
+        "local_agent_pick_folder",
+        "local_agent_remove_grant",
+        "local_agent_start",
+        "local_agent_set_model_token",
+        "local_agent_send",
+        "local_agent_stop",
+        "local_agent_resume",
+        "local_agent_events",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect();
+    assert_eq!(defined, pinned);
+}
+
+/// The quit-path fix (l1-contract C8): Cmd+Q raises only `RunEvent::Exit`,
+/// so the local agents' shutdown (which saves `interrupted`) must run there,
+/// not only in the `ExitRequested` arm. The Exit arm calls `quit::run`, and
+/// that stops them (quit.rs's own tests pin both arms).
+#[test]
+fn local_agents_stop_on_the_exit_event_cmd_q_raises() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let lib_rs = read_source(dir.join("src/lib.rs")).unwrap();
+    let arm = lib_rs
+        .find("if let tauri::RunEvent::Exit = event {")
+        .expect("lib.rs has no RunEvent::Exit arm");
+    let body = &lib_rs[arm..arm + 200.min(lib_rs.len() - arm)];
+    assert!(body.contains("quit::run(app_handle"), "{body}");
+
+    let quit_rs = read_source(dir.join("src/quit.rs")).unwrap();
+    let run = &quit_rs[quit_rs.find("pub fn run(").expect("quit.rs has no run")..];
+    let run = &run[..run.find("#[cfg(test)]").unwrap_or(run.len())];
+    assert!(
+        run.contains("LocalAgentService") && run.contains("agents.shutdown()"),
+        "{run}"
+    );
+}

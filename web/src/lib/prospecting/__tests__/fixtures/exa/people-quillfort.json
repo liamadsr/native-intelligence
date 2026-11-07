@@ -1,0 +1,1048 @@
+{
+  "request": {
+    "query": "Current VP Sales, Head of Revenue Operations, Sales Enablement, CRO at Quillfort AI (quillfort.ai)",
+    "type": "deep",
+    "category": "people",
+    "numResults": 10,
+    "includeDomains": [
+      "quillfort.ai"
+    ],
+    "systemPrompt": "Find people who CURRENTLY work at the company whose website is quillfort.ai. Verify the employer from the profile itself; exclude people at other companies with similar names. One entry per person.",
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "people": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fullName": {
+                "type": "string",
+                "description": "Full name"
+              },
+              "jobTitle": {
+                "type": "string",
+                "description": "Current title"
+              },
+              "linkedinUrl": {
+                "type": "string",
+                "description": "LinkedIn profile URL"
+              },
+              "seniority": {
+                "type": "string",
+                "description": "C-level, VP, Director, Manager, IC"
+              },
+              "whyRelevant": {
+                "type": "string",
+                "description": "Why this person matters for a sales-tooling purchase"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "requestId": "c201958e392939213e593b8a5c1662b6",
+    "resolvedSearchType": "",
+    "results": [
+      {
+        "id": "https://exa.ai/library/person/brwo854921j",
+        "title": "Person One",
+        "url": "https://www.linkedin.com/in/person-one",
+        "publishedDate": "2026-08-29T03:22:35.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE8dzlbgvumbbp/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/brwo854921j",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person One",
+              "firstName": "Person",
+              "lastName": "One",
+              "location": "Salt Lake City Metropolitan Area",
+              "workHistory": [
+                {
+                  "title": "Vice President, Global Midmarket Sales",
+                  "location": null,
+                  "dates": {
+                    "from": "2024-05-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                },
+                {
+                  "title": "Director of Inside Sales",
+                  "location": null,
+                  "dates": {
+                    "from": "2019-09-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort Security"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "1992",
+                    "to": "1996"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/zn6b1m7xeh5",
+        "title": "Person Two",
+        "url": "https://www.linkedin.com/in/person-two",
+        "publishedDate": "2026-08-22T07:37:27.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEhe4hhuc603de/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/zn6b1m7xeh5",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Two",
+              "firstName": "Person",
+              "lastName": "Two",
+              "location": "United States",
+              "workHistory": [
+                {
+                  "title": "Senior Director, Sales",
+                  "location": null,
+                  "dates": {
+                    "from": "2024-09-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort-AI"
+                  }
+                },
+                {
+                  "title": "Chief Revenue Officer (CRO)",
+                  "location": null,
+                  "dates": {
+                    "from": "2023-03-01",
+                    "to": "2023-11-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/1o9wikrnki1",
+                    "name": "Clearcloud"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "2002",
+                    "to": "2004"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/bnxwr79hbbw",
+        "title": "Person Three",
+        "url": "https://www.linkedin.com/in/person-three",
+        "publishedDate": "2026-08-22T06:18:58.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEws9wjst7gvw8/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/bnxwr79hbbw",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Three",
+              "firstName": "Person",
+              "lastName": "Three",
+              "location": "San Francisco, California, United States",
+              "workHistory": [
+                {
+                  "title": "SVP, Global Enterprise Sales",
+                  "location": null,
+                  "dates": {
+                    "from": "2026-01-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                },
+                {
+                  "title": "Vice President, Americas Sales",
+                  "location": null,
+                  "dates": {
+                    "from": "2022-05-01",
+                    "to": "2026-02-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "2005",
+                    "to": "2009"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/pgtt0grmrag",
+        "title": "Person Four",
+        "url": "https://www.linkedin.com/in/person-four",
+        "publishedDate": "2026-08-22T08:15:47.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEcjksasci5lo4/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/pgtt0grmrag",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Four",
+              "firstName": "Person",
+              "lastName": "Four",
+              "location": "Greater Boston",
+              "workHistory": [
+                {
+                  "title": "VP, Worldwide Channel Sales",
+                  "location": null,
+                  "dates": {
+                    "from": "2023-12-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort-AI"
+                  }
+                },
+                {
+                  "title": "VP, Global Channels",
+                  "location": null,
+                  "dates": {
+                    "from": "2023-06-01",
+                    "to": "2023-12-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/rz7unlazhrd",
+                    "name": "KEYLESS | The Passwordless Company"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "1996",
+                    "to": "2000"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/1pyovrd4dhp",
+        "title": "Person Five",
+        "url": "https://www.linkedin.com/in/person-five",
+        "publishedDate": "2026-08-07T11:14:15.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEms826wo629nt/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/1pyovrd4dhp",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Five",
+              "firstName": "Person",
+              "lastName": "Five",
+              "location": "Folsom, California, United States",
+              "workHistory": [
+                {
+                  "title": "Area Vice President - US SLED",
+                  "location": null,
+                  "dates": {
+                    "from": "2025-03-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                },
+                {
+                  "title": "Director - US SLED",
+                  "location": null,
+                  "dates": {
+                    "from": "2022-09-01",
+                    "to": "2025-03-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "1997",
+                    "to": "2000"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/njdjj2l0mmo",
+        "title": "Person Six",
+        "url": "https://www.linkedin.com/in/person-six",
+        "publishedDate": "2026-08-22T06:11:18.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEa88qizwl55m8/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/njdjj2l0mmo",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Six",
+              "firstName": "Person",
+              "lastName": "Six",
+              "location": "Dubuque, Iowa, United States",
+              "workHistory": [
+                {
+                  "title": "Sr. Director Marketing Operations",
+                  "location": null,
+                  "dates": {
+                    "from": "2025-06-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                },
+                {
+                  "title": "Director of Demand Operations",
+                  "location": null,
+                  "dates": {
+                    "from": "2023-03-01",
+                    "to": "2025-05-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/3pcubrywvvh",
+                    "name": "Strikewell"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "2013",
+                    "to": "2015"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/6g922pbakpx",
+        "title": "Person Seven",
+        "url": "https://www.linkedin.com/in/person-seven",
+        "publishedDate": "2026-08-22T07:26:25.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE0koir4100zsv/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/6g922pbakpx",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Seven",
+              "firstName": "Person",
+              "lastName": "Seven",
+              "location": "Chicago, Illinois, United States",
+              "workHistory": [
+                {
+                  "title": "Senior Sales Enablement Manager",
+                  "location": null,
+                  "dates": {
+                    "from": "2024-09-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                },
+                {
+                  "title": "Sales Enablement Program Manager",
+                  "location": null,
+                  "dates": {
+                    "from": "2022-08-01",
+                    "to": "2024-09-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "2013",
+                    "to": "2017"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/cvhdb6gox8g",
+        "title": "Person Eight",
+        "url": "https://www.linkedin.com/in/person-eight",
+        "publishedDate": "2026-08-28T03:22:53.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEssw3m0u2598p/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/cvhdb6gox8g",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Eight",
+              "firstName": "Person",
+              "lastName": "Eight",
+              "location": "San Francisco, California, United States",
+              "workHistory": [
+                {
+                  "title": "Vice President of Revenue Operations",
+                  "location": null,
+                  "dates": {
+                    "from": "2026-03-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/06zewnipztq",
+                    "name": "Foxglove"
+                  }
+                },
+                {
+                  "title": "Vice President, Revenue Operations and Enablement",
+                  "location": null,
+                  "dates": {
+                    "from": "2022-05-01",
+                    "to": "2026-03-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort AI"
+                  }
+                }
+              ],
+              "educationHistory": [],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/1d2lyosk5qc",
+        "title": "Person Nine",
+        "url": "https://www.linkedin.com/in/person-nine",
+        "publishedDate": "2026-08-29T04:08:47.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEw9dsxpbdsxmm/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/1d2lyosk5qc",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Nine",
+              "firstName": "Person",
+              "lastName": "Nine",
+              "location": "San Jose, California, United States",
+              "workHistory": [
+                {
+                  "title": "Sr Director of Digital Marketing",
+                  "location": null,
+                  "dates": {
+                    "from": "2025-01-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/7xwsq4sp6gg",
+                    "name": "Quillfort Security"
+                  }
+                },
+                {
+                  "title": "Revenue Ops and Demand Generation",
+                  "location": null,
+                  "dates": {
+                    "from": "2024-12-01",
+                    "to": "2025-01-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/tte3w7n3zrj",
+                    "name": "Metafield"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": {
+                    "from": "2004",
+                    "to": "2007"
+                  },
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/person/fowot6smhxi",
+        "title": "Person Ten",
+        "url": "https://www.linkedin.com/in/person-ten",
+        "publishedDate": "2026-08-22T07:38:23.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEz4f4etdb85fb/profile-displayphoto-shrink_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/person/fowot6smhxi",
+            "type": "person",
+            "version": 1,
+            "properties": {
+              "name": "Person Ten",
+              "firstName": "Person",
+              "lastName": "Ten",
+              "location": "Salt Lake City Metropolitan Area",
+              "workHistory": [
+                {
+                  "title": "VP, Marketing Operations",
+                  "location": null,
+                  "dates": {
+                    "from": "2025-08-01",
+                    "to": null
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/t8q7p6bbryj",
+                    "name": "Axiomly"
+                  }
+                },
+                {
+                  "title": "Sr. Director Marketing Operations, Analytics, and Business Development",
+                  "location": null,
+                  "dates": {
+                    "from": "2024-07-01",
+                    "to": "2025-08-01"
+                  },
+                  "company": {
+                    "id": "https://exa.ai/library/organization/t8q7p6bbryj",
+                    "name": "Axiomly"
+                  }
+                }
+              ],
+              "educationHistory": [
+                {
+                  "degree": "B.A. Business Administration",
+                  "dates": null,
+                  "institution": {
+                    "id": null,
+                    "name": "State University"
+                  }
+                }
+              ],
+              "research": null
+            }
+          }
+        ]
+      }
+    ],
+    "searchTime": 5770.3,
+    "costDollars": {
+      "total": 0.012
+    },
+    "output": {
+      "content": {
+        "people": [
+          {
+            "fullName": "Person One",
+            "seniority": "VP",
+            "jobTitle": "Vice President, Global Midmarket Sales",
+            "linkedinUrl": "https://www.linkedin.com/in/person-one",
+            "whyRelevant": "Leads Global Midmarket Sales; critical for sales-tooling engagement."
+          },
+          {
+            "jobTitle": "Senior Director, Sales",
+            "seniority": "Director",
+            "fullName": "Person Two",
+            "linkedinUrl": "https://www.linkedin.com/in/person-two",
+            "whyRelevant": "Senior leader in the sales organization."
+          },
+          {
+            "jobTitle": "SVP, Global Enterprise Sales",
+            "whyRelevant": "SVP overseeing Global Enterprise sales, high-level decision maker for sales tools.",
+            "linkedinUrl": "https://www.linkedin.com/in/person-three",
+            "seniority": "VP",
+            "fullName": "Person Three"
+          },
+          {
+            "seniority": "VP",
+            "jobTitle": "VP, Worldwide Channel Sales",
+            "fullName": "Person Four",
+            "linkedinUrl": "https://www.linkedin.com/in/person-four",
+            "whyRelevant": "Leads Worldwide Channel Sales, key decision maker for channel sales strategy and tooling."
+          },
+          {
+            "fullName": "Person Five",
+            "linkedinUrl": "https://www.linkedin.com/in/person-five",
+            "whyRelevant": "Leads US SLED sales operations.",
+            "seniority": "VP",
+            "jobTitle": "Area Vice President - US SLED"
+          },
+          {
+            "whyRelevant": "Senior leader in Marketing Operations; critical for revenue operations/sales enablement tool integration.",
+            "linkedinUrl": "https://www.linkedin.com/in/person-six",
+            "jobTitle": "Sr. Director Marketing Operations",
+            "fullName": "Person Six",
+            "seniority": "Director"
+          },
+          {
+            "jobTitle": "Senior Sales Enablement Manager",
+            "seniority": "Manager",
+            "whyRelevant": "Key decision maker/influencer for sales enablement tooling.",
+            "linkedinUrl": "https://www.linkedin.com/in/person-seven",
+            "fullName": "Person Seven"
+          }
+        ]
+      },
+      "grounding": [
+        {
+          "field": "people[0].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-one",
+              "title": "Person One"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[0].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-one",
+              "title": "Person One"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[0].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-one",
+              "title": "Person One"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[0].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-one",
+              "title": "Person One"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[0].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-one",
+              "title": "Person One"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[1].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-two",
+              "title": "Person Two"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[1].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-two",
+              "title": "Person Two"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[1].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-two",
+              "title": "Person Two"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[1].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-two",
+              "title": "Person Two"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[1].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-two",
+              "title": "Person Two"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[2].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-three",
+              "title": "Person Three"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[2].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-three",
+              "title": "Person Three"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[2].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-three",
+              "title": "Person Three"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[2].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-three",
+              "title": "Person Three"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[2].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-three",
+              "title": "Person Three"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[3].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-four",
+              "title": "Person Four"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[3].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-four",
+              "title": "Person Four"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[3].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-four",
+              "title": "Person Four"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[3].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-four",
+              "title": "Person Four"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[3].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-four",
+              "title": "Person Four"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[4].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-five",
+              "title": "Person Five"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[4].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-five",
+              "title": "Person Five"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[4].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-five",
+              "title": "Person Five"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[4].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-five",
+              "title": "Person Five"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[4].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-five",
+              "title": "Person Five"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[5].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-six",
+              "title": "Person Six"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[5].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-six",
+              "title": "Person Six"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[5].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-six",
+              "title": "Person Six"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[5].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-six",
+              "title": "Person Six"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[5].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-six",
+              "title": "Person Six"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[6].jobTitle",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-seven",
+              "title": "Person Seven"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[6].seniority",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-seven",
+              "title": "Person Seven"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[6].whyRelevant",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-seven",
+              "title": "Person Seven"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[6].linkedinUrl",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-seven",
+              "title": "Person Seven"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "people[6].fullName",
+          "citations": [
+            {
+              "url": "https://www.linkedin.com/in/person-seven",
+              "title": "Person Seven"
+            }
+          ],
+          "confidence": "high"
+        }
+      ]
+    }
+  }
+}

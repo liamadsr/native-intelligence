@@ -1,0 +1,251 @@
+Subject: [PATCH 5/5] Generation options from upstream pocket-tts, and a
+ cut-off count
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Upstream pocket-tts (Python, 3.3.0 and later) changed several generation
+details after this port was written. Each is now an option, off by
+default so the port's behaviour is unchanged unless asked for:
+
+- min_frames_before_eos: ignore EOS on the first N frames (upstream: 6,
+  pocket-tts #319). Some voices' EOS logit crosses the threshold in the
+  leading pause, ending short texts before the word.
+- max_gen_by_tokens: cap a sentence at tokens / 3 + 2 s instead of the
+  fixed max_frames (upstream _estimate_max_gen_len), so a missed EOS
+  babbles for at most a couple of seconds, not 40.
+- greedy_decode: the decoder takes every queued frame (at most
+  max_chunk_frames) instead of waiting for max_chunk_frames after the
+  first, so audio follows the generator from the first frame (upstream
+  #300). Without it the first chunk (one frame, 80 ms) is followed by a
+  wait of ~0.3 s for fifteen more frames.
+- fade_in_samples: fade in the first samples of each sentence; a fresh
+  Mimi decoder state starts with a small step heard as a click (upstream
+  #332, 5 ms).
+- full_terminal_punct: a trailing , ; : - – — becomes a period and any
+  other ending without . ! ? … gets one after its closing quotes or
+  brackets (upstream #296); only text ending in a letter or digit got
+  one before. Without one the last word is often mispronounced or
+  repeated.
+
+ptt_set_option(handle, name, value) sets them (and temperature,
+eos_threshold, eos_extra_frames, first/max_chunk_frames) by name.
+ptt_last_stats(handle, &sentences, &capped) reports how many sentences
+the last stream generated and how many of them ran to their frame cap
+without the model ending them.
+---
+ pocket_tts.cpp | 118 +++++++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 110 insertions(+), 8 deletions(-)
+
+diff --git a/pocket_tts.cpp b/pocket_tts.cpp
+index 721c660..fcee7ee 100644
+--- a/pocket_tts.cpp
++++ b/pocket_tts.cpp
+@@ -175,6 +175,13 @@ struct Config {
+     float noise_clamp = 0.0f;
+     int lsd_steps = 1, num_threads = 0, first_chunk_frames = 1, max_chunk_frames = 15;
+     int eos_extra_frames = -1;  // -1 = auto-calculate from text length
++    // Generation options, matching upstream pocket-tts (3.3.0 and later) when
++    // set; the defaults keep this port's behaviour.
++    int min_frames_before_eos = 0;   // upstream: 6 (ignore EOS in the leading pause)
++    bool max_gen_by_tokens = false;  // upstream: cap a sentence at tokens / 3 + 2 s
++    bool greedy_decode = false;      // upstream: decode every queued frame, the first never waits
++    int fade_in_samples = 0;         // upstream: 120 (5 ms) at each sentence start
++    bool full_terminal_punct = false;  // upstream: , ; : - become a period; ) ] % get one
+     bool verbose = false;
+     bool voice_cache = true;
+ };
+@@ -315,9 +322,43 @@ static int count_words(const std::string& text) {
+     return count;
+ }
+ 
++// Upstream's _ensure_terminal_punctuation (pocket-tts #296): the model is
++// trained on sentences ending in . ! ? and, without one, often mispronounces
++// or repeats the last word. A trailing , ; : - – — becomes a period; any
++// other ending that isn't . ! ? … gets one after its closing quotes or
++// brackets.
++static std::string ensure_terminal_punct(const std::string& text) {
++    static const char* const closers[] = {"\"", "'", ")", "]", "\xc2\xbb", "\xe2\x80\x9d", "\xe2\x80\x99"};  // » ” ’
++    auto ends = [](const std::string& s, const char* suf) {
++        size_t n = strlen(suf);
++        return s.size() >= n && s.compare(s.size() - n, n, suf) == 0;
++    };
++    std::string core = text;
++    for (bool more = true; more;) {
++        more = false;
++        while (!core.empty() && core.back() == ' ') { core.pop_back(); more = true; }
++        for (const char* c : closers)
++            if (ends(core, c)) { core.erase(core.size() - strlen(c)); more = true; }
++    }
++    std::string tail = text.substr(core.size());
++    tail.erase(std::remove(tail.begin(), tail.end(), ' '), tail.end());
++    if (core.empty() || core.back() == '.' || core.back() == '!' || core.back() == '?' || ends(core, "\xe2\x80\xa6"))
++        return text;
++    bool weak = false;
++    for (bool more = true; more;) {
++        more = false;
++        while (!core.empty() && (core.back() == ',' || core.back() == ';' || core.back() == ':' || core.back() == '-' ||
++                                 core.back() == ' ')) { core.pop_back(); more = weak = true; }
++        for (const char* d : {"\xe2\x80\x93", "\xe2\x80\x94"})  // – —
++            if (ends(core, d)) { core.erase(core.size() - 3); more = weak = true; }
++    }
++    if (weak) return core + "." + tail;
++    return text + ".";
++}
++
+ // Prepare text for synthesis and compute frames_after_eos.
+ // Returns {prepared_text, eos_extra_frames}.
+-static std::pair<std::string, int> prepare_text(const std::string& raw, int cfg_eos_extra) {
++static std::pair<std::string, int> prepare_text(const std::string& raw, int cfg_eos_extra, bool full_punct = false) {
+     std::string text = raw;
+     
+     // Strip characters the model can't speak
+@@ -363,7 +404,9 @@ static std::pair<std::string, int> prepare_text(const std::string& raw, int cfg_
+         text[0] = std::toupper((unsigned char)text[0]);
+     
+     // Ensure ends with punctuation
+-    if (!text.empty() && std::isalnum((unsigned char)text.back()))
++    if (full_punct)
++        text = ensure_terminal_punct(text);
++    else if (!text.empty() && std::isalnum((unsigned char)text.back()))
+         text += '.';
+     
+     // Pad short text — model doesn't perform well with very few tokens
+@@ -1698,6 +1741,10 @@ public:
+     // wait for them. Call it after setting stream()'s cancel flag.
+     void interrupt() { run_opts_.SetTerminate(); }
+     const Config& config() const { return cfg_; }
++    Config& mutable_config() { return cfg_; }
++    // The last stream(): sentences generated, and how many of them ran to
++    // their frame cap without the model ending them (cut off mid-speech).
++    int last_sentences_ = 0, last_capped_ = 0;
+     
+     double warmup() {
+         auto start = std::chrono::high_resolution_clock::now();
+@@ -1908,7 +1955,7 @@ private:
+                 eos_logit = outputs[1].GetTensorData<float>()[0];
+             }
+             
+-            if (!eos_ && eos_logit > tts.cfg_.eos_threshold) {
++            if (!eos_ && idx_ >= tts.cfg_.min_frames_before_eos && eos_logit > tts.cfg_.eos_threshold) {
+                 eos_ = true;
+                 eos_frame_ = idx_;
+             }
+@@ -2103,16 +2150,22 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+                        const std::atomic<bool>* cancel) try {
+     auto cancelled = [cancel] { return cancel && cancel->load(); };
+     run_opts_.UnsetTerminate();
++    last_sentences_ = last_capped_ = 0;
+     
+     auto sentences = split_sentences(text);
+     if (sentences.empty()) sentences.push_back(text);
+     
+     for (size_t si = 0; si < sentences.size(); ++si) {
+         if (cancelled()) return;
+-        auto [prepared, eos_extra] = prepare_text(sentences[si], cfg_.eos_extra_frames);
++        auto [prepared, eos_extra] = prepare_text(sentences[si], cfg_.eos_extra_frames, cfg_.full_terminal_punct);
+         if (prepared.empty()) continue;
+-        auto gen = make_gen(voice, tokenize(prepared), max_frames, eos_extra);
++        auto tokens = tokenize(prepared);
++        int cap = max_frames;
++        if (cfg_.max_gen_by_tokens)  // upstream _estimate_max_gen_len: tokens / 3 + 2 s at 12.5 Hz
++            cap = std::min(max_frames, int(std::ceil((double(tokens.numel()) / 3.0 + 2.0) * 12.5)));
++        auto gen = make_gen(voice, tokens, cap, eos_extra);
+         dec_runner_->reset_state();  // zero existing buffers, no reallocation
++        int fade_left = cfg_.fade_in_samples;
+         
+         // Pipelined: generator thread produces latent frames into a queue,
+         // decoder (main thread) consumes them in chunks. The two ONNX sessions
+@@ -2169,7 +2222,10 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+         bool first = true;
+         
+         while (true) {
+-            int want = first ? cfg_.first_chunk_frames : cfg_.max_chunk_frames;
++            // greedy_decode: decode whatever is queued (at least one frame,
++            // at most max_chunk_frames), so audio follows the generator from
++            // the first frame instead of waiting for a full chunk.
++            int want = (first || cfg_.greedy_decode) ? cfg_.first_chunk_frames : cfg_.max_chunk_frames;
+             
+             std::vector<Tensor> batch;
+             {
+@@ -2177,7 +2233,9 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+                 cv.wait(lock, [&]{ return (int)queue.size() >= want || gen_done || aborted; });
+                 if (aborted || cancelled()) break;
+                 
+-                int take = gen_done ? (int)queue.size() : std::min((int)queue.size(), want);
++                int take = gen_done ? (int)queue.size()
++                         : cfg_.greedy_decode ? std::min((int)queue.size(), cfg_.max_chunk_frames)
++                         : std::min((int)queue.size(), want);
+                 for (int i = 0; i < take; ++i) {
+                     batch.push_back(std::move(queue.front()));
+                     queue.pop_front();
+@@ -2197,7 +2255,18 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+                 size_t n = 1;
+                 for (auto d : shape) n *= d;
+                 
+-                if (cancelled() || !cb(outputs[0].GetTensorData<float>(), n)) {
++                const float* audio = outputs[0].GetTensorData<float>();
++                std::vector<float> faded;
++                if (fade_left > 0) {
++                    // A fresh decoder state starts with a small step (a click):
++                    // fade the first samples of the sentence in (pocket-tts #332).
++                    faded.assign(audio, audio + n);
++                    int len = cfg_.fade_in_samples;
++                    for (int i = len - fade_left; i < len && size_t(i) < n; ++i) faded[i] *= float(i) / len;
++                    fade_left = 0;
++                    audio = faded.data();
++                }
++                if (cancelled() || !cb(audio, n)) {
+                     std::lock_guard<std::mutex> lock(mtx);
+                     aborted = true;
+                     break;
+@@ -2209,6 +2278,8 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+         if (gen_thread.joinable()) {
+             gen_thread.join();
+         }
++        last_sentences_++;
++        if (gen.eos_frame() < 0 && gen.frame_idx() >= cap) last_capped_++;
+         if (gen_error) std::rethrow_exception(gen_error);
+         if (aborted || cancelled()) return;
+     }
+@@ -2752,6 +2823,37 @@ double ptt_warmup(void* handle) {
+     }
+ }
+ 
++// Generation options by name (see Config): temperature, eos_threshold,
++// eos_extra_frames, min_frames_before_eos, max_gen_by_tokens, greedy_decode,
++// fade_in_samples, full_terminal_punct, first_chunk_frames, max_chunk_frames.
++// 0 on success, -1 for an unknown name. Not while a stream runs.
++int ptt_set_option(void* handle, const char* name, double value) {
++    if (!handle || !name) return -1;
++    auto& c = static_cast<pocket_tts::PocketTTS*>(handle)->mutable_config();
++    std::string n = name;
++    if (n == "temperature") c.temperature = float(value);
++    else if (n == "eos_threshold") c.eos_threshold = float(value);
++    else if (n == "eos_extra_frames") c.eos_extra_frames = int(value);
++    else if (n == "min_frames_before_eos") c.min_frames_before_eos = int(value);
++    else if (n == "max_gen_by_tokens") c.max_gen_by_tokens = value != 0;
++    else if (n == "greedy_decode") c.greedy_decode = value != 0;
++    else if (n == "fade_in_samples") c.fade_in_samples = int(value);
++    else if (n == "full_terminal_punct") c.full_terminal_punct = value != 0;
++    else if (n == "first_chunk_frames") c.first_chunk_frames = std::max(1, int(value));
++    else if (n == "max_chunk_frames") c.max_chunk_frames = std::max(1, int(value));
++    else return -1;
++    return 0;
++}
++
++// The last finished stream: sentences generated, and how many ran to their
++// frame cap without the model ending them. Call after ptt_stream_end.
++void ptt_last_stats(void* handle, int* sentences, int* capped) {
++    if (!handle) return;
++    auto* t = static_cast<pocket_tts::PocketTTS*>(handle);
++    if (sentences) *sentences = t->last_sentences_;
++    if (capped) *capped = t->last_capped_;
++}
++
+ void ptt_free_audio(float* samples) {
+     free(samples);
+ }
+-- 
+2.42.0
+

@@ -1,0 +1,26 @@
+# The baseline cut. schema.sql and seed.sql are the database as of this migration number;
+# scripts/db-bootstrap.sh applies them to an empty database, then every migration numbered
+# after the cut, in file-name order.
+#
+# Rules (src/lib/__tests__/db-baseline.test.ts holds them):
+# - A new migration is always numbered after the cut. It applies on top of the baseline, and
+#   on existing databases as before. Never add a file numbered at or below the cut.
+# - Never edit schema.sql or seed.sql by hand. Regenerate them with
+#   scripts/db-baseline-regenerate.mjs from DEV, read-only, and prove the result with
+#   scripts/db-bootstrap.sh on an empty local stack. Do it when convenient: before a release,
+#   or once a few dozen migrations sit past the cut. Migrations after the cut keep working
+#   either way.
+# - The baseline is the code's truth, not DEV's: what DEV holds that no migration makes and
+#   no code uses is cut (EXCLUDE_* in scripts/db-baseline-exclude.mjs), and what DEV lacks
+#   is applied on top in a scratch stack before the baseline is taken (DEV_GAPS, same file).
+#
+# Known drift (11-07), recorded so nobody "fixes" the baseline toward one database:
+# - DEV still lacks 237's replace_user_voice_profile(jsonb, uuid) (it has a three-argument
+#   experiment instead) and 160's grant_credits body: both are DEV_GAPS.
+# - devices.trial_started_at and trial_expires_at were made by hand on PROD; migration 470
+#   adds them everywhere else (after the cut, so the bootstrap applies it).
+# - get_note_attachment_size(uuid) is SECURITY DEFINER on PROD and invoker on DEV. No
+#   migration defines its body (193 only revokes it) and no code calls it: the baseline
+#   keeps DEV's invoker version.
+# - PROD lacks 082 (capture_participant.source and its index).
+469

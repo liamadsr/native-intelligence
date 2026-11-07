@@ -1,0 +1,301 @@
+{
+  "request": {
+    "query": "Company profile of quoteleaf.com: headcount, headquarters, funding stage, total raised, growth signals, technology stack, products, key people",
+    "type": "deep",
+    "category": "company",
+    "numResults": 5,
+    "includeDomains": [
+      "quoteleaf.com"
+    ],
+    "systemPrompt": "Research this company for the source company's sales team and explain why it would buy. Source: Dial8 (dial8.ai): AI workspace for sales teams — records and transcribes customer meetings, extracts actions and decisions, keeps a CRM with web enrichment and email sequences. $99 per seat.",
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "employeeCount": {
+          "type": "string",
+          "description": "Headcount or range"
+        },
+        "headquarters": {
+          "type": "string",
+          "description": "City, state, country"
+        },
+        "fundingStage": {
+          "type": "string",
+          "description": "Bootstrapped, Seed, Series A/B/C, Growth, Public"
+        },
+        "totalRaised": {
+          "type": "string",
+          "description": "Total funding raised"
+        },
+        "growthSignals": {
+          "type": "string",
+          "description": "Recent hiring, funding or product signals with dates"
+        },
+        "techStack": {
+          "type": "string",
+          "description": "Notable technologies in use"
+        },
+        "products": {
+          "type": "string",
+          "description": "Products and services"
+        },
+        "keyPeople": {
+          "type": "string",
+          "description": "Founders and executives, name — title"
+        },
+        "whyFit": {
+          "type": "string",
+          "description": "Why this company would buy the source company's product"
+        }
+      },
+      "required": []
+    }
+  },
+  "status": 200,
+  "response": {
+    "requestId": "b44fed409d276829d6f5b7ff16c43cba",
+    "resolvedSearchType": "",
+    "results": [
+      {
+        "id": "https://exa.ai/library/organization/xtuexzy2una",
+        "title": "Quoteleaf",
+        "url": "https://quoteleaf.com/",
+        "publishedDate": "2026-06-23T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEdy6d91vdr0mp/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/xtuexzy2una",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Quoteleaf",
+              "foundedYear": 2014,
+              "description": "Quoteleaf is document software for creating, managing, tracking and e-signing sales documents.",
+              "workforce": {
+                "total": 664
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 41200000,
+                "fundingTotal": 58400000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 5998334,
+                "countryRank": 3143,
+                "avgDurationSeconds": 228,
+                "history": [
+                  {
+                    "value": 4957477,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 5340856,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 5252161,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 5988275,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 5903218,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 5998334,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://www.quoteleaf.com/press/quoteleaf-announces-series-c-financing-round-at-one-billion-valuation/",
+        "title": "Quoteleaf Gets $1 Billion Valuation with Series C Financing Round",
+        "url": "https://www.quoteleaf.com/press/quoteleaf-announces-series-c-financing-round-at-one-billion-valuation/",
+        "publishedDate": "2021-09-22T00:00:00.000Z",
+        "image": "https://images.ctfassets.net/a4zep9yar86b/4viIt7UGxFfVKZMiST6rOm/a902536c56390845ffadab1086b4edd1/opengraph-quoteleaf-1-1.png",
+        "favicon": "https://www.quoteleaf.com/favicon.ico?favicon.0hplvhjssgw-1.ico"
+      },
+      {
+        "id": "https://www.quoteleaf.com/press/",
+        "title": "Quoteleaf Press Center: News, Publications, Reports",
+        "url": "https://www.quoteleaf.com/press/",
+        "publishedDate": "2026-03-18T19:22:10.000Z",
+        "image": "https://images.ctfassets.net/a4zep9yar86b/5OFRKzXjtDfSY3sZjYrFtF/32ee29289404ddd1f786f50853c27577/ColorPurple-Light-1-1.png",
+        "favicon": "https://www.quoteleaf.com/favicon.ico?favicon.0hplvhjssgw-1.ico"
+      },
+      {
+        "id": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+        "title": "Quoteleaf Announces Leadership Transition to Accelerate Product Innovation for Small Businesses. - Quoteleaf",
+        "url": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+        "publishedDate": "2026-01-07T00:00:00.000Z",
+        "image": "https://images.ctfassets.net/a4zep9yar86b/1T96uvbabc2nIZR3fvaRkZ/429f9dd4de1c77808d603ee9159b5493/opengraph-quoteleaf-1-1.png",
+        "favicon": "https://www.quoteleaf.com/favicon.ico?favicon.0hplvhjssgw-1.ico"
+      },
+      {
+        "id": "https://www.quoteleaf.com/press/quoteleaf-raises-30m-to-disrupt-the-esignature-market/",
+        "title": "Quoteleaf raises $30M to disrupt the eSignature market - Quoteleaf",
+        "url": "https://www.quoteleaf.com/press/quoteleaf-raises-30m-to-disrupt-the-esignature-market/",
+        "publishedDate": "2020-08-04T00:00:00.000Z",
+        "image": "https://images.ctfassets.net/a4zep9yar86b/4viIt7UGxFfVKZMiST6rOm/a902536c56390845ffadab1086b4edd1/opengraph-quoteleaf-1-1.png",
+        "favicon": "https://www.quoteleaf.com/favicon.ico?favicon.0hplvhjssgw-1.ico"
+      }
+    ],
+    "searchTime": 4918.3,
+    "costDollars": {
+      "total": 0.012
+    },
+    "output": {
+      "content": {
+        "totalRaised": "$58.4M",
+        "techStack": "Integrates with major CRM and sales systems including HubSpot, Salesforce, and Pipedrive.",
+        "products": "Document management, eSignature, workflow automation, and CPQ (Configure, Price, Quote) solutions for sales teams.",
+        "headquarters": "San Francisco, California, United States",
+        "keyPeople": "Wes Halloran — CEO, Nikolai Brandt — Co-founder & Chief Product Officer, Pavel Orlov — CTO",
+        "whyFit": "Quoteleaf's focus on accelerating sales cycles and optimizing revenue workflows directly aligns with Dial8's capabilities. Dial8 could provide Quoteleaf's sales team with AI-driven meeting intelligence, action item extraction, and CRM enrichment, helping their representatives manage the complex, high-velocity agreement workflows that Quoteleaf sells.",
+        "fundingStage": "Growth (Series C)",
+        "growthSignals": "Announced leadership transition in January 2026; focused on AI-native product advancements and CPQ suite expansion in 2026.",
+        "employeeCount": "700+ employees"
+      },
+      "grounding": [
+        {
+          "field": "totalRaised",
+          "citations": [
+            {
+              "url": "https://quoteleaf.com",
+              "title": "Quoteleaf"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "techStack",
+          "citations": [
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-series-c-financing-round-at-one-billion-valuation/",
+              "title": "Quoteleaf Gets $1 Billion Valuation with Series C Financing Round"
+            }
+          ],
+          "confidence": "medium"
+        },
+        {
+          "field": "products",
+          "citations": [
+            {
+              "url": "https://quoteleaf.com",
+              "title": "Quoteleaf"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/",
+              "title": "Quoteleaf Press Center: News, Publications, Reports"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-series-c-financing-round-at-one-billion-valuation/",
+              "title": "Quoteleaf Gets $1 Billion Valuation with Series C Financing Round"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "headquarters",
+          "citations": [
+            {
+              "url": "https://quoteleaf.com",
+              "title": "Quoteleaf"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+              "title": "Quoteleaf Announces Leadership Transition to Accelerate Product Innovation for Small Businesses. - Quoteleaf"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "keyPeople",
+          "citations": [
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+              "title": "Quoteleaf Announces Leadership Transition to Accelerate Product Innovation for Small Businesses. - Quoteleaf"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "whyFit",
+          "citations": [
+            {
+              "url": "https://www.quoteleaf.com/press/",
+              "title": "Quoteleaf Press Center: News, Publications, Reports"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+              "title": "Quoteleaf Announces Leadership Transition to Accelerate Product Innovation for Small Businesses. - Quoteleaf"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-raises-30m-to-disrupt-the-esignature-market/",
+              "title": "Quoteleaf raises $30M to disrupt the eSignature market - Quoteleaf"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "fundingStage",
+          "citations": [
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-series-c-financing-round-at-one-billion-valuation/",
+              "title": "Quoteleaf Gets $1 Billion Valuation with Series C Financing Round"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "growthSignals",
+          "citations": [
+            {
+              "url": "https://www.quoteleaf.com/press/",
+              "title": "Quoteleaf Press Center: News, Publications, Reports"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+              "title": "Quoteleaf Announces Leadership Transition to Accelerate Product Innovation for Small Businesses. - Quoteleaf"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "employeeCount",
+          "citations": [
+            {
+              "url": "https://www.quoteleaf.com/press/quoteleaf-announces-leadership-transition/",
+              "title": "Quoteleaf Announces Leadership Transition to Accelerate Product Innovation for Small Businesses. - Quoteleaf"
+            },
+            {
+              "url": "https://www.quoteleaf.com/press/wes-halloran-named-president-of-quoteleaf/",
+              "title": "Wes Halloran Named President of Quoteleaf After High-Performing Tenure as Chief Revenue Officer"
+            }
+          ],
+          "confidence": "high"
+        }
+      ]
+    }
+  }
+}

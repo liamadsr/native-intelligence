@@ -1,0 +1,250 @@
+{
+  "driver": "desktop@963862752",
+  "recordedAt": "2026-10-23T00:59:44.692Z",
+  "cases": [
+    {
+      "id": "same-origin-frame-form",
+      "steps": [
+        {
+          "do": "type",
+          "name": "Guests",
+          "inFrame": true,
+          "found": true,
+          "ok": true,
+          "code": null
+        },
+        {
+          "do": "click",
+          "name": "Book",
+          "inFrame": true,
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/same-origin",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "A:/form book:true:4"
+      ]
+    },
+    {
+      "id": "cross-site-frame-button",
+      "steps": [
+        {
+          "do": "type",
+          "name": "Guests",
+          "inFrame": true,
+          "found": true,
+          "ok": true,
+          "code": null
+        },
+        {
+          "do": "click",
+          "name": "Book",
+          "inFrame": true,
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/cross",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "B:/form book:true:2"
+      ]
+    },
+    {
+      "id": "nested-cross-site-frames",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Book inner",
+          "inFrame": true,
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/nested",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "C:/form-inner inner:true"
+      ]
+    },
+    {
+      "id": "open-shadow-picker",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Day 2",
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/shadow",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "A:/shadow pick:Day 2:true"
+      ]
+    },
+    {
+      "id": "native-select",
+      "steps": [
+        {
+          "do": "select",
+          "name": "Size",
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/select",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "A:/select size:Large"
+      ]
+    },
+    {
+      "id": "covered-button",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Continue",
+          "found": false
+        },
+        {
+          "do": "click",
+          "name": "Help",
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/covered",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "A:/covered help:true"
+      ]
+    },
+    {
+      "id": "sensitive-submit",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Place order",
+          "found": true,
+          "ok": false,
+          "code": "approval_required"
+        },
+        {
+          "do": "click",
+          "name": "Place order",
+          "approved": true,
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/sensitive",
+      "notices": [],
+      "opened": [],
+      "page": [
+        "A:/sensitive order:true"
+      ]
+    },
+    {
+      "id": "redirect-into-blocked-site",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Continue to partner",
+          "found": true,
+          "ok": true,
+          "code": null
+        },
+        {
+          "do": "click",
+          "name": "Open partner",
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/redirect-start",
+      "notices": [
+        {
+          "kind": "agent-navigation-blocked",
+          "site": "localhost"
+        },
+        {
+          "kind": "agent-navigation-blocked",
+          "site": "localhost"
+        }
+      ],
+      "opened": [],
+      "page": []
+    },
+    {
+      "id": "download-link",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Get the file",
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/download",
+      "notices": [
+        {
+          "kind": "download-unsupported"
+        }
+      ],
+      "opened": [],
+      "page": []
+    },
+    {
+      "id": "popup",
+      "steps": [
+        {
+          "do": "click",
+          "name": "Open details",
+          "found": true,
+          "ok": true,
+          "code": null
+        },
+        {
+          "do": "click",
+          "name": "Open partner window",
+          "found": true,
+          "ok": true,
+          "code": null
+        }
+      ],
+      "url": "A:/popup",
+      "notices": [
+        {
+          "kind": "agent-navigation-blocked",
+          "site": "localhost"
+        }
+      ],
+      "opened": [
+        "A:/details"
+      ],
+      "page": [
+        "A:/popup open:true:window",
+        "A:/details details-loaded",
+        "A:/popup open-partner:true:none"
+      ]
+    }
+  ]
+}

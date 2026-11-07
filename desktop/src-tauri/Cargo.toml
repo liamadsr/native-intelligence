@@ -1,0 +1,165 @@
+[package]
+name = "dial8-desktop"
+version = "0.2.103"
+description = "Dial8 Desktop — Cross-platform audio capture and transcription"
+authors = ["Dial8"]
+edition = "2021"
+
+[lib]
+name = "dial8_desktop_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+cc = "1"
+
+[features]
+# The automation bridge (src/automation) in a build that isn't a debug build,
+# e.g. an optimized build for the content-machine recorder:
+# `cargo tauri build --features automation-bridge`. Debug builds always have
+# it; release.sh never passes it, so a released app has no bridge.
+automation-bridge = []
+
+[dependencies]
+# No "devtools" feature: release builds get no Web Inspector (debug builds
+# always have it), so nothing can inspect the page that holds the app's IPC.
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png", "protocol-asset"] }
+tauri-plugin-shell = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Decodes the bot's still the web sends for a native banner image
+# (notifications.rs). Already in the tree transitively. MIT OR Apache-2.0.
+base64 = "0.22"
+cpal = "0.15"
+hound = "3.5"          # WAV file reading/writing
+# local-tts playback: 24 kHz speech → the output device's rate, and a
+# lock-free SPSC queue between the sidecar reader and the audio callback.
+rubato = "0.16"
+ringbuf = "0.4"
+# local-tts text normalization ("$4.2M" → "four point two million dollars"):
+# FluidInference's Rust port of NVIDIA NeMo text processing, Apache-2.0.
+text-processing-rs = { git = "https://github.com/FluidInference/text-processing-rs", rev = "46ebddcea5e1ff673c2cb5256a1b6b0e6c4ff527" }
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+tauri-plugin-single-instance = { version = "2.4.0", features = ["deep-link"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+sha2 = "0.10"
+# Local-module asset hashing (modules/assets.rs): ARMv8 SHA instructions, so
+# the 806 MB STT model hashes in ~0.35 s instead of sha2's ~2.3 s (M2 Max).
+# Already in the tree through rustls and browser-exit. Apache-2.0 AND ISC.
+ring = "0.17"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "process", "io-util", "sync", "macros", "net"] }
+# read-selection sentence splitting (src/read_selection/split.rs); already in
+# the tree (tauri-utils, bindgen). MIT OR Apache-2.0.
+regex = "1"
+# The automation bridge's loopback HTTP/1.1 server (src/automation/server.rs).
+# hyper, hyper-util, http-body-util and bytes are already in the tree through
+# reqwest; the server half adds only httpdate. All MIT (httpdate MIT OR Apache-2.0).
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-updater = "2"
+# The update install's own version check (src/app_update.rs): read the
+# signed bundle's Info.plist before installing. All four are already in the
+# tree through tauri-plugin-updater / tauri-utils. flate2, tar and plist MIT OR
+# Apache-2.0 (plist MIT), semver MIT OR Apache-2.0.
+flate2 = "1"
+tar = "0.4"
+plist = "1"
+semver = "1"
+tauri-plugin-process = "2"
+tauri-plugin-store = "2"
+dirs = "5"
+# Chat voice (dial8-website docs/plans/chat-voice.md §3.3a), all pinned exactly:
+# - aec3: pure-Rust port of WebRTC's AEC3 echo canceller (RubyBit/aec3-rs),
+#   MIT OR BSD-3-Clause, plus Google's WebRTC patent grant (its PATENTS file,
+#   wired into the notices through source_notices.tsv). Needs rustc >= 1.88.
+# - ort: ONNX Runtime bindings for the Silero VAD, loaded at run time
+#   (load-dynamic) from the libonnxruntime local-tts already ships in
+#   Contents/Frameworks — never downloaded, never linked. api-23 = the C API of
+#   ONNX Runtime 1.23 (local-tts's ORT_VERSION). MIT OR Apache-2.0.
+# - earshot: pure-Rust VAD, the fallback when ONNX Runtime can't load.
+aec3 = "=0.4.0"
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "api-23"] }
+earshot = "=1.2.2"
+# The Mac exit for the agent's cloud browser (dial8-website docs/plans/cloud-browser.md, C4):
+# its own crate so its tests build without the app.
+browser-exit = { path = "crates/browser-exit" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+# CFString / CFBoolean, to read the IOKit lid state (audio/lid.rs). Already in
+# the tree through tao.
+core-foundation = "0.10"
+# Native OS notifications with real click/activation callbacks. Tauri's own
+# notification plugin can only show a banner on desktop — it has no click event
+# at all (tauri-apps/plugins-workspace#2150, open since 2022), so "click the
+# notification → focus the app → open that item" is impossible with it.
+# We therefore drive UNUserNotificationCenter ourselves through the objc2
+# bindings: UNNotificationContent.userInfo round-trips our payload across a
+# click, including a click on a notification delivered before the app restarted.
+# All four crates are permissively licensed (Zlib OR Apache-2.0 OR MIT), which
+# is what a statically-linked proprietary binary needs. objc2/objc2-foundation/
+# block2 are already in the tree transitively (via tauri/winit); naming them
+# here makes the direct dependency explicit.
+objc2-user-notifications = "0.3.2"
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = "0.3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The update install's own version check on Windows (src/app_update.rs): the
+# VERSIONINFO inside the signed NSIS installer, the counterpart of the Mac's
+# Info.plist read. Its own crate (pelite, MIT) so the Windows workflow runs the
+# same check on each installer it builds.
+installer-version = { path = "crates/installer-version" }
+# System audio on Windows (audio/system_capture.rs): WASAPI process loopback
+# that leaves out Dial8's own process tree, as the Mac's Core Audio tap
+# excludes its own PID (so read-aloud never echoes into a recording). MIT.
+wasapi = "0.26"
+# WinRT toast notifications with an Activated callback (the Windows half of the
+# same story as objc2-user-notifications above). MIT OR Apache-2.0. Maintained
+# by the Tauri org, which is also what tauri-plugin-notification uses underneath.
+tauri-winrt-notification = "0.8.1"
+windows = { version = "0.58", features = [
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_Foundation",
+    # Free disk space before a local-module download (modules/assets.rs).
+    "Win32_Storage_FileSystem",
+    # Meeting detection's process list (meeting_detection.rs windows_detect).
+    "Win32_System_Diagnostics_ToolHelp",
+    # Sleep/wake and keep-awake (power.rs, sleep_guard.rs).
+    "Win32_System_Power",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    # Presence and system info (commands/system.rs).
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+    "Wdk_System_SystemServices",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# SHA-256 of ~800 MB of local-module models is painfully slow unoptimized;
+# keep dev builds usable.
+[profile.dev.package.sha2]
+opt-level = 3
+
+# Chat voice DSP runs in real time on 10 ms frames; unoptimized, AEC3 and the
+# earshot VAD are an order of magnitude slower. Dev builds (and the tests) get
+# them optimized, like the release build.
+[profile.dev.package.aec3]
+opt-level = 3
+[profile.dev.package.rustfft]
+opt-level = 3
+[profile.dev.package.earshot]
+opt-level = 3

@@ -1,0 +1,10 @@
+{
+  "serverInfo": {
+    "name": "Dial8",
+    "version": "1.0.0"
+  },
+  "authentication": {
+    "required": true,
+    "schemes": ["oauth2"]
+  }
+}

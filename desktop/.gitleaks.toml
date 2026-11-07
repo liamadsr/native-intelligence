@@ -1,0 +1,14 @@
+title = "Dial8 desktop"
+
+[extend]
+useDefault = true
+
+# Fake keys in tests are there on purpose. trufflehog still checks every file,
+# tests included, for keys that are live (dial8-website's scripts/open-source/export.sh,
+# which builds one public repo from both).
+[[allowlists]]
+description = "Test files"
+paths = [
+  '''(^|/)tests\.rs$''',
+  '''(^|/)tests/''',
+]

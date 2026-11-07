@@ -1,0 +1,13 @@
+[package]
+name = "installer-version"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The version inside a Windows installer (dial8-desktop src/app_update.rs's update check)"
+
+# Its own crate so the Windows workflow runs the exact check the app makes on
+# the installer it just built, in seconds, without building the app:
+#   cargo run --manifest-path src-tauri/crates/installer-version/Cargo.toml -- <setup.exe> <X.Y.Z>
+[dependencies]
+# Pure-Rust PE parser. MIT.
+pelite = { version = "0.10", default-features = false, features = ["std", "derive_pod"] }

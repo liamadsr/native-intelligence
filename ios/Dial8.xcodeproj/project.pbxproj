@@ -1,0 +1,747 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		13CE8A4D9B285959C382A6A6 /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = ECB4788E8098761910DCDC3B /* Auth */; };
+		1C43094BCEC45B5F68645C75 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 16522D4FD9008508BADA8A28 /* MarkdownUI */; };
+		20DEA7959D9FEEE25E85FAA6 /* Dial8 Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E1F5EEEE6BD3A7F4F6F11100 /* Dial8 Watch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2435D9774FF5E0CA8563CF96 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 0114FCD90C1B1AB9210703D4 /* Supabase */; };
+		4D293C0A66C1EC8FD8375240 /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = EBC8FC3989BBFB29D59AE292 /* Functions */; };
+		504D30CA180B2DC0F2AE3FED /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 5AF89E5FEA81A0224798260C /* PostgREST */; };
+		AFE2E45FC30A2F4A493581E4 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 105D426C53F652D817605E48 /* PostHog */; };
+		B60A399D2882A8451C957BCE /* Dial8Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D984D9000A66A42C71C89FB5 /* Dial8Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D832955234D6D52F69AD6048 /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 1D3DE47F3422A903EAF2B9E1 /* Realtime */; };
+		ED8205727F5BE50653B87AC0 /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 9525C7C9E75CEDEAEF59AFFC /* Storage */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		68E1F9EC979523BD2E800B1C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D6901689B27811AA89F683B8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FB91E5DEEA24507B5ACDDB74;
+			remoteInfo = Dial8Widgets;
+		};
+		81B6AE495C5D5039EF790183 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D6901689B27811AA89F683B8 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 91A3DC039F9E6F8E4662857E;
+			remoteInfo = "Dial8 Watch";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		684133B28A194C66FD4DA92F /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				20DEA7959D9FEEE25E85FAA6 /* Dial8 Watch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7250E70A2B9123882063A9ED /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B60A399D2882A8451C957BCE /* Dial8Widgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		D984D9000A66A42C71C89FB5 /* Dial8Widgets.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = Dial8Widgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E1F5EEEE6BD3A7F4F6F11100 /* Dial8 Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dial8 Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E3399BDE7AF100D613B9B94D /* Dial8.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Dial8.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		0F959C779E8E1FC0B87A5624 /* Watch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Watch;
+			sourceTree = "<group>";
+		};
+		22A3D088EE545567FFFD8BD0 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4C5C990EEF92C3DA511F4F61 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		85C4D4FB728A176E47288004 /* Core */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		9C392BE63F5A9398F8F28495 /* Widgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		16464FAEFAEB25CE0981BA18 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				13CE8A4D9B285959C382A6A6 /* Auth in Frameworks */,
+				4D293C0A66C1EC8FD8375240 /* Functions in Frameworks */,
+				504D30CA180B2DC0F2AE3FED /* PostgREST in Frameworks */,
+				D832955234D6D52F69AD6048 /* Realtime in Frameworks */,
+				ED8205727F5BE50653B87AC0 /* Storage in Frameworks */,
+				2435D9774FF5E0CA8563CF96 /* Supabase in Frameworks */,
+				AFE2E45FC30A2F4A493581E4 /* PostHog in Frameworks */,
+				1C43094BCEC45B5F68645C75 /* MarkdownUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		3FDBCD93C06E761FA7A61C58 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E1F5EEEE6BD3A7F4F6F11100 /* Dial8 Watch.app */,
+				E3399BDE7AF100D613B9B94D /* Dial8.app */,
+				D984D9000A66A42C71C89FB5 /* Dial8Widgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		B47E883E6B5C13FDFF79E0E1 = {
+			isa = PBXGroup;
+			children = (
+				22A3D088EE545567FFFD8BD0 /* App */,
+				85C4D4FB728A176E47288004 /* Core */,
+				4C5C990EEF92C3DA511F4F61 /* Shared */,
+				0F959C779E8E1FC0B87A5624 /* Watch */,
+				9C392BE63F5A9398F8F28495 /* Widgets */,
+				3FDBCD93C06E761FA7A61C58 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		91A3DC039F9E6F8E4662857E /* Dial8 Watch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9B2F911ECE4DCE98FACE1EE1 /* Build configuration list for PBXNativeTarget "Dial8 Watch" */;
+			buildPhases = (
+				4A40A7EDEE52DEFD28169913 /* Sources */,
+				9B09EE701AC86F1F15291823 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0F959C779E8E1FC0B87A5624 /* Watch */,
+			);
+			name = "Dial8 Watch";
+			packageProductDependencies = (
+			);
+			productName = "Dial8 Watch";
+			productReference = E1F5EEEE6BD3A7F4F6F11100 /* Dial8 Watch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C7E0707C5B9F1DA803565C85 /* Dial8 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2844CCA376E6404660707798 /* Build configuration list for PBXNativeTarget "Dial8" */;
+			buildPhases = (
+				3466781A1031F2B1952F968F /* Sources */,
+				88F9F4CDE0AB98378BB89FA3 /* Resources */,
+				16464FAEFAEB25CE0981BA18 /* Frameworks */,
+				7250E70A2B9123882063A9ED /* Embed Foundation Extensions */,
+				684133B28A194C66FD4DA92F /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5BB1B0726942A5AD4DD7F551 /* PBXTargetDependency */,
+				051997046B16884378630475 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				22A3D088EE545567FFFD8BD0 /* App */,
+				85C4D4FB728A176E47288004 /* Core */,
+				4C5C990EEF92C3DA511F4F61 /* Shared */,
+			);
+			name = Dial8;
+			packageProductDependencies = (
+				ECB4788E8098761910DCDC3B /* Auth */,
+				EBC8FC3989BBFB29D59AE292 /* Functions */,
+				5AF89E5FEA81A0224798260C /* PostgREST */,
+				1D3DE47F3422A903EAF2B9E1 /* Realtime */,
+				9525C7C9E75CEDEAEF59AFFC /* Storage */,
+				0114FCD90C1B1AB9210703D4 /* Supabase */,
+				105D426C53F652D817605E48 /* PostHog */,
+				16522D4FD9008508BADA8A28 /* MarkdownUI */,
+			);
+			productName = Dial8;
+			productReference = E3399BDE7AF100D613B9B94D /* Dial8.app */;
+			productType = "com.apple.product-type.application";
+		};
+		FB91E5DEEA24507B5ACDDB74 /* Dial8Widgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C41AED08647FACE85458DF3B /* Build configuration list for PBXNativeTarget "Dial8Widgets" */;
+			buildPhases = (
+				32DBE0C4BE899D23A048AE61 /* Sources */,
+				AF13B728BB9803B2060536CC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4C5C990EEF92C3DA511F4F61 /* Shared */,
+				9C392BE63F5A9398F8F28495 /* Widgets */,
+			);
+			name = Dial8Widgets;
+			packageProductDependencies = (
+			);
+			productName = Dial8Widgets;
+			productReference = D984D9000A66A42C71C89FB5 /* Dial8Widgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D6901689B27811AA89F683B8 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					91A3DC039F9E6F8E4662857E = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					C7E0707C5B9F1DA803565C85 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					FB91E5DEEA24507B5ACDDB74 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 9F2EFA3021208A7D816E9714 /* Build configuration list for PBXProject "Dial8" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = B47E883E6B5C13FDFF79E0E1;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1AABE03B97045D43C5FAFB50 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				D71BB38AC50F3B7AC80EEADB /* XCRemoteSwiftPackageReference "posthog-ios" */,
+				CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 3FDBCD93C06E761FA7A61C58 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C7E0707C5B9F1DA803565C85 /* Dial8 */,
+				91A3DC039F9E6F8E4662857E /* Dial8 Watch */,
+				FB91E5DEEA24507B5ACDDB74 /* Dial8Widgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		88F9F4CDE0AB98378BB89FA3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9B09EE701AC86F1F15291823 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF13B728BB9803B2060536CC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		32DBE0C4BE899D23A048AE61 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3466781A1031F2B1952F968F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4A40A7EDEE52DEFD28169913 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		051997046B16884378630475 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 91A3DC039F9E6F8E4662857E /* Dial8 Watch */;
+			targetProxy = 81B6AE495C5D5039EF790183 /* PBXContainerItemProxy */;
+		};
+		5BB1B0726942A5AD4DD7F551 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FB91E5DEEA24507B5ACDDB74 /* Dial8Widgets */;
+			targetProxy = 68E1F9EC979523BD2E800B1C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1C7B1041D76A1B7AD8BB390F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				INFOPLIST_FILE = "Config/Widgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = dial8Widgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.dial8-iOS-26.dial8Widgets";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		35E6E0354437A79734E3A292 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "Config/App-Info.plist";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 needs microphone access to record voice notes and transcribe audio.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -DPRODUCTION";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.dial8-iOS-26";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		3CB67D9662624BA3F46ABC84 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Release;
+		};
+		3F9E734AE62BAC29E647267E /* Development */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "Config/App-Info.plist";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 needs microphone access to record voice notes and transcribe audio.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -DDEVELOPMENT";
+				PRODUCT_BUNDLE_IDENTIFIER = "com.dial8-iOS-26";
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Development;
+		};
+		4907E4565438FF162188C143 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "Config/Watch-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Dial8;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 records your in-person meetings so it can turn them into notes.";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.dial8-iOS-26";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.dial8-iOS-26.watchkitapp";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+		913D1D718EC2E8BD3B59B9ED /* Development */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				INFOPLIST_FILE = "Config/Widgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = dial8Widgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.dial8-iOS-26.dial8Widgets";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Development;
+		};
+		ADF6B0A3AA84CB06E0D12723 /* Development */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ENABLE_PREVIEWS = YES;
+				INFOPLIST_FILE = "Config/Watch-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Dial8;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 records your in-person meetings so it can turn them into notes.";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.dial8-iOS-26";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.dial8-iOS-26.watchkitapp";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Development;
+		};
+		B89927ECDB6883AC4C95ECE3 /* Development */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 11.0;
+			};
+			name = Development;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2844CCA376E6404660707798 /* Build configuration list for PBXNativeTarget "Dial8" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3F9E734AE62BAC29E647267E /* Development */,
+				35E6E0354437A79734E3A292 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Development;
+		};
+		9B2F911ECE4DCE98FACE1EE1 /* Build configuration list for PBXNativeTarget "Dial8 Watch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ADF6B0A3AA84CB06E0D12723 /* Development */,
+				4907E4565438FF162188C143 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Development;
+		};
+		9F2EFA3021208A7D816E9714 /* Build configuration list for PBXProject "Dial8" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B89927ECDB6883AC4C95ECE3 /* Development */,
+				3CB67D9662624BA3F46ABC84 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Development;
+		};
+		C41AED08647FACE85458DF3B /* Build configuration list for PBXNativeTarget "Dial8Widgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				913D1D718EC2E8BD3B59B9ED /* Development */,
+				1C7B1041D76A1B7AD8BB390F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Development;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1AABE03B97045D43C5FAFB50 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
+		CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+		D71BB38AC50F3B7AC80EEADB /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.41.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0114FCD90C1B1AB9210703D4 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+		105D426C53F652D817605E48 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D71BB38AC50F3B7AC80EEADB /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
+		};
+		16522D4FD9008508BADA8A28 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1AABE03B97045D43C5FAFB50 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+		1D3DE47F3422A903EAF2B9E1 /* Realtime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Realtime;
+		};
+		5AF89E5FEA81A0224798260C /* PostgREST */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = PostgREST;
+		};
+		9525C7C9E75CEDEAEF59AFFC /* Storage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Storage;
+		};
+		EBC8FC3989BBFB29D59AE292 /* Functions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Functions;
+		};
+		ECB4788E8098761910DCDC3B /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = D6901689B27811AA89F683B8 /* Project object */;
+}

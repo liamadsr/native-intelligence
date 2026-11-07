@@ -1,0 +1,21 @@
+# Copyright holders for the standard license texts rust_crates.py generates
+# (<crate>-<version>/LICENSE-<id>.generated.txt), for a crate that ships no
+# text of a license it is used under AND whose Cargo `authors` are not (all)
+# its copyright holders. Consulted before `authors`.
+#
+# Columns, tab-separated: crate, license (the SPDX id of the generated text,
+# or * for any), holders (what follows "Copyright (c) " in the text; " | "
+# between holders gives each its own copyright line), evidence (the file on
+# disk that names them, as a path in the local Cargo registry,
+# ~/.cargo/registry/src/index.crates.io-*/, with the words that show it).
+# A row for a crate that is no longer linked, or that now ships the text
+# itself, is reported as unused and can go.
+#
+# crate	license	holders	evidence
+alloc-stdlib	BSD-3-Clause	2016 Dropbox, Inc.	alloc-no-stdlib-2.0.4/LICENSE: "Copyright (c) 2016 Dropbox, Inc." — alloc-stdlib ships no license file and is published from the same repository (Cargo.toml: repository = "https://github.com/dropbox/rust-alloc-no-stdlib"), whose LICENSE this is
+brotli	BSD-3-Clause	2016 Dropbox, Inc.	brotli-decompressor-5.0.0/LICENSE: "Copyright (c) 2016 Dropbox, Inc." — brotli ships only the Brotli Authors' MIT text (LICENSE.MIT); its BSD-3-Clause half is Dropbox's code, whose license brotli-decompressor (same authors, github.com/dropbox) carries
+objc2	MIT	Steven Sheldon | Mads Marquart <mads@marquart.dk>	objc-0.2.7/LICENSE.txt: "Copyright (c) Steven Sheldon" — objc2-0.6.4/CHANGELOG.md: "Forked the project, so the crate name is now `objc2`" (a fork of objc)
+block2	MIT	Steven Sheldon | Mads Marquart <mads@marquart.dk>	block-0.1.6/Cargo.toml: authors = ["Steven Sheldon"], license = "MIT" — block2-0.6.2/CHANGELOG.md: "Forked the project, so it is now available under the name `block2`" (a fork of block)
+objc2-encode	MIT	Steven Sheldon | Mads Marquart <mads@marquart.dk>	objc-0.2.7/LICENSE.txt: "Copyright (c) Steven Sheldon" — objc2-encode-4.1.0/CHANGELOG.md: "Forked the project, so it is now available under the name `objc2-encode`" (a fork of Steven Sheldon's objc-encode, whose 0.0.1–1.1.0 releases it lists)
+siphasher	MIT	2012-2016 The Rust Project Developers | 2016-2026 Frank Denis	siphasher-1.0.2/COPYING: "Copyright 2012-2016 The Rust Project Developers." / "Copyright 2016-2026 Frank Denis." — the crate ships that notice but no MIT text
+earshot	*	Carson M <carson@pyke.io> | 2020-2024 Jan Teske	earshot-1.2.2/src/fft/mod.rs: "From https://gitlab.com/teskje/microfft-rs" / "Copyright (c) 2020-2024 Jan Teske, MIT license" — earshot ships no license file (Cargo.toml: authors = ["Carson M <carson@pyke.io>"], license = "MIT OR Apache-2.0"), and its FFT (src/fft/mod.rs, with the tables in src/fft/tables.rs) is Jan Teske's microfft-rs code under MIT, so the generated MIT text names both

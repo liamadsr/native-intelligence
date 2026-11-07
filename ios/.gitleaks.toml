@@ -1,0 +1,11 @@
+title = "Dial8 iOS"
+
+[extend]
+useDefault = true
+
+# The Supabase anon keys are public client keys by design (row-level security
+# protects the data). trufflehog still checks every file for live keys.
+[[allowlists]]
+description = "Supabase anon keys"
+targetRules = ["jwt"]
+paths = ['''^Core/Config/SupabaseConfig\.swift$''']

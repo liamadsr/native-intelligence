@@ -1,0 +1,255 @@
+# The desktop app for Windows (desktop/): every PR that touches it is checked and
+# tested on a Windows runner, and desktop/release.sh dispatches the release build
+# here (a Mac can't build for Windows). The build makes the NSIS installer only; the updater signature is
+# made on the Mac by release.sh with the key that never leaves it. A PR
+# labelled `windows-installer` builds the installer too, to try it before
+# merging (the run's `dial8-windows-x64` artifact).
+name: Windows
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths: ['desktop/**', '.github/workflows/windows.yml']
+  push:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (X.Y.Z). Empty: a test build of tauri.conf.json's version."
+        required: false
+        type: string
+
+concurrency:
+  # A label's installer build never cancels the push's tests (or the reverse).
+  group: windows-${{ github.event_name }}-${{ github.event.action }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Every action is pinned to a commit, not a tag: release.sh signs what the
+# build job makes for every Windows user's updater, so nothing here may change
+# under us. (actions/checkout v4.4.0, Swatinem/rust-cache v2.9.3,
+# actions/upload-artifact v4.6.2.)
+
+env:
+  CARGO_TERM_COLOR: always
+  # The sidecars' upstream submodules are big and LFS-backed, and the Windows
+  # sidecars aren't built yet: never fetch them here.
+  GIT_LFS_SKIP_SMUDGE: "1"
+
+jobs:
+  test:
+    name: Check and test
+    # A dispatched release build is of a commit main's push already tested;
+    # labelling a PR builds its installer, the tests already ran on its push.
+    if: github.event_name != 'workflow_dispatch' && github.event.action != 'labeled'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop/src-tauri
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # rust-toolchain.toml pins the compiler; this installs it.
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: desktop/src-tauri
+          shared-key: windows-debug
+          # Keep what compiled even when a later step fails, so the next push
+          # doesn't start from a cold build.
+          cache-on-failure: true
+      - name: cargo check
+        run: cargo check --locked --all-targets
+      - name: cargo test
+        run: cargo test --locked
+      - name: browser-exit tests
+        working-directory: desktop/src-tauri/crates/browser-exit
+        run: cargo test --locked
+      - name: installer-version tests
+        working-directory: desktop/src-tauri/crates/installer-version
+        run: cargo test --locked
+
+  build:
+    name: Build installer
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'windows-installer'))
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      # Azure sign-in (OIDC) for Artifact Signing: no secret is stored.
+      id-token: write
+    env:
+      # Authenticode-sign a release build once the signing account is set up
+      # (docs/WINDOWS_SIGNING.md: the repository variables below). A PR's
+      # test installer stays unsigned: Azure trusts only main's token.
+      SIGN: ${{ github.event_name == 'workflow_dispatch' && vars.ARTIFACT_SIGNING_ACCOUNT != '' }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: rustup show active-toolchain || rustup toolchain install
+        working-directory: desktop/src-tauri
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          workspaces: desktop/src-tauri
+          shared-key: windows-release
+      # From crates.io source with its lockfile, not a prebuilt binary
+      # (rust-cache keeps it between runs).
+      - name: Install tauri-cli
+        run: command -v cargo-tauri >/dev/null || cargo install tauri-cli --version 2.10.1 --locked
+      - name: Set the version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad version: $VERSION"; exit 1; }
+          python - <<'PY'
+          import json, os, re
+          v = os.environ["VERSION"]
+          p = "src-tauri/tauri.conf.json"
+          conf = json.load(open(p, encoding="utf-8"))
+          conf["version"] = v
+          json.dump(conf, open(p, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+          t = "src-tauri/Cargo.toml"
+          s = open(t, encoding="utf-8").read()
+          s = re.sub(r'(?m)^version = ".*"$', f'version = "{v}"', s, count=1)
+          open(t, "w", encoding="utf-8").write(s)
+          # And the lockfile's own entry, as the Mac's build refreshes it:
+          # the --locked cargo calls below refuse a lock behind Cargo.toml.
+          k = "src-tauri/Cargo.lock"
+          s = open(k, encoding="utf-8", newline="").read()
+          s, n = re.subn(r'(name = "dial8-desktop"\r?\nversion = ")[^"]+(")', rf'\g<1>{v}\g<2>', s, count=1)
+          assert n == 1, "Cargo.lock has no dial8-desktop entry"
+          open(k, "w", encoding="utf-8", newline="").write(s)
+          PY
+      - name: Third-party notices
+        # scripts/licenses.sh, as the Mac bundle's: the Windows crate graph,
+        # the Rust standard library and the resources' notices, into one
+        # THIRD_PARTY_NOTICES.txt the installer carries (tray → Open Source
+        # Licenses). Plain cargo output: the scripts read it.
+        env:
+          CARGO_TERM_COLOR: never
+          # UTF-8 for Python's files and pipes: Windows' default (cp1252)
+          # can't read cargo's JSON.
+          PYTHONUTF8: "1"
+        run: |
+          rustup component add rust-docs
+          cargo fetch --locked --manifest-path src-tauri/Cargo.toml
+          python3() { python "$@"; }
+          TAURI_DIR="$PWD/src-tauri"
+          source scripts/licenses.sh
+          licenses_stage_into "$PWD/src-tauri/target/windows-licenses" release
+          test -s src-tauri/target/windows-licenses/THIRD_PARTY_NOTICES.txt
+      - name: Build config
+        # The installer carries the notices; the updater artifacts are signed
+        # on the Mac (release.sh), so none are made here. When signing,
+        # Tauri runs SignTool with Microsoft's Artifact Signing dlib on every
+        # executable it bundles (Dial8.exe, the installer, the uninstaller),
+        # pinned NuGet packages checked by hash.
+        shell: pwsh
+        env:
+          ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = @{
+            createUpdaterArtifacts = $false
+            resources = @{ 'target/windows-licenses/THIRD_PARTY_NOTICES.txt' = 'Licenses/THIRD_PARTY_NOTICES.txt' }
+          }
+          if ($env:SIGN -eq 'true') {
+            $tools = "$env:RUNNER_TEMP\signing"
+            New-Item -ItemType Directory -Force $tools | Out-Null
+            $packages = @(
+              @{ id = 'microsoft.artifactsigning.client'; version = '1.0.146'; sha256 = '7761e5d8f31e54b764da21d33cd8b0a2940e1b05526c7dfcb5e94b0431426f70' },
+              @{ id = 'microsoft.windows.sdk.buildtools'; version = '10.0.28000.2705'; sha256 = '8bfdfb6ca2633f531cf80b5fa22512ba61a394d7988f0970db83baadc67929ed' }
+            )
+            foreach ($p in $packages) {
+              $zip = "$tools\$($p.id).zip"
+              Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/$($p.id)/$($p.version)/$($p.id).$($p.version).nupkg" -OutFile $zip
+              $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+              if ($hash -ne $p.sha256) { throw "$($p.id) $($p.version): sha256 $hash, expected $($p.sha256)" }
+              Expand-Archive $zip "$tools\$($p.id)" -Force
+            }
+            $dlib = "$tools\microsoft.artifactsigning.client\bin\x64\Azure.CodeSigning.Dlib.dll"
+            $signtool = (Get-ChildItem "$tools\microsoft.windows.sdk.buildtools\bin" -Recurse -Filter signtool.exe | Where-Object { $_.DirectoryName -like '*\x64' } | Select-Object -First 1).FullName
+            if (-not (Test-Path $dlib) -or -not $signtool) { throw "signing tools not found" }
+            # Only the azure/login session (Azure CLI) signs.
+            @{
+              Endpoint = $env:ENDPOINT
+              CodeSigningAccountName = $env:ACCOUNT
+              CertificateProfileName = $env:PROFILE
+              ExcludeCredentials = @(
+                'EnvironmentCredential', 'ManagedIdentityCredential', 'WorkloadIdentityCredential',
+                'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential',
+                'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential'
+              )
+            } | ConvertTo-Json | Set-Content "$tools\metadata.json" -Encoding utf8
+            $bundle.windows = @{
+              signCommand = @{
+                cmd = $signtool
+                args = @('sign', '/v', '/fd', 'SHA256', '/tr', 'http://timestamp.acs.microsoft.com', '/td', 'SHA256',
+                         '/dlib', $dlib, '/dmdf', "$tools\metadata.json", '%1')
+              }
+            }
+          }
+          @{ bundle = $bundle } | ConvertTo-Json -Depth 8 | Set-Content src-tauri/target/windows-build.json -Encoding utf8
+          Get-Content src-tauri/target/windows-build.json
+      # Compile first, sign in to Azure after: GitHub's OIDC assertion lives
+      # 5-10 minutes and the Azure CLI can't renew it, so a sign-in before
+      # the compile would expire before the first signature
+      # (Azure/azure-cli#28708). Bundling (and signing) takes a minute or two.
+      - name: Compile
+        run: cargo tauri build --no-bundle --config src-tauri/target/windows-build.json
+      - name: Azure sign-in (Artifact Signing)
+        if: env.SIGN == 'true'
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Artifact Signing token
+        # Taken now, while the sign-in is fresh; the dlib's Azure CLI
+        # credential then reuses it (about an hour).
+        if: env.SIGN == 'true'
+        run: az account get-access-token --resource https://codesigning.azure.net --output none
+      - name: Bundle
+        run: cargo tauri bundle --bundles nsis --config src-tauri/target/windows-build.json
+      - name: The installer is signed
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $signature = Get-AuthenticodeSignature "src-tauri/target/release/bundle/nsis/Dial8_${version}_x64-setup.exe"
+          Write-Host "$($signature.Status): $($signature.SignerCertificate.Subject)"
+          if ($signature.Status -ne 'Valid') { throw "the installer isn't validly signed ($($signature.Status))" }
+      - name: The installer says its version
+        # app_update.rs installs an update only if the installer's own
+        # VERSIONINFO is the manifest's version: run that same check
+        # (crates/installer-version) on this installer.
+        run: |
+          version=$(python -c "import json; print(json.load(open('src-tauri/tauri.conf.json', encoding='utf-8'))['version'])")
+          cargo run --quiet --locked --manifest-path src-tauri/crates/installer-version/Cargo.toml -- \
+            "src-tauri/target/release/bundle/nsis/Dial8_${version}_x64-setup.exe" "$version"
+      - name: Collect
+        run: |
+          set -euo pipefail
+          version=$(python -c "import json; print(json.load(open('src-tauri/tauri.conf.json', encoding='utf-8'))['version'])")
+          mkdir -p out
+          cp "src-tauri/target/release/bundle/nsis/Dial8_${version}_x64-setup.exe" out/
+          (cd out && sha256sum *.exe > SHA256SUMS)
+          cat out/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dial8-windows-x64
+          path: desktop/out/
+          if-no-files-found: error
+          retention-days: 14

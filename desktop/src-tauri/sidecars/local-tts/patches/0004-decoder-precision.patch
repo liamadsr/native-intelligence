@@ -1,0 +1,113 @@
+Subject: [PATCH 4/4] Name each model file explicitly, to mix precisions
+
+`precision` picks one suffix for every model, so the int8 transformer
+(flow_lm_main_int8.onnx, flow_lm_flow_int8.onnx) can't be combined with
+the full-precision mimi_decoder.onnx. That combination is worth having:
+the int8 transformer is ~4x smaller and faster, while decoder
+quantization errors compound over a sentence (Kyutai keep the decoder
+unquantized too), and in a listening test the full-precision decoder
+sounded slightly better at little cost.
+
+- Config gains text_conditioner_path, flow_lm_main_path,
+  flow_lm_flow_path, mimi_decoder_path, mimi_encoder_path and bos_path.
+  Empty (the default) keeps today's <models_dir>/<model>[_int8].onnx
+  and the optional <models_dir>/bos_before_voice.npy; an explicit
+  bos_path must be readable.
+- C API ptt_create_from_files() takes each file's path. The encoder
+  (only needed for WAV voices) and the BOS file may be NULL, and are
+  then looked for next to flow_lm_main.
+---
+ pocket_tts.cpp | 55 ++++++++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 49 insertions(+), 6 deletions(-)
+
+diff --git a/pocket_tts.cpp b/pocket_tts.cpp
+index e97017b..721c660 100644
+--- a/pocket_tts.cpp
++++ b/pocket_tts.cpp
+@@ -164,6 +164,12 @@ struct Config {
+     std::string models_dir = "models", tokenizer_path = "models/tokenizer.model";
+     std::string voices_dir = "voices";
+     std::string precision = "int8";
++    // Explicit model files, e.g. to mix precisions (the int8 flow_lm models
++    // with the full-precision Mimi decoder). Empty: <models_dir>/<model>.onnx,
++    // with the _int8 suffix when precision is "int8", and
++    // <models_dir>/bos_before_voice.npy if it exists.
++    std::string text_conditioner_path, flow_lm_main_path, flow_lm_flow_path;
++    std::string mimi_decoder_path, mimi_encoder_path, bos_path;
+     float temperature = 0.7f;
+     float eos_threshold = -4.0f;
+     float noise_clamp = 0.0f;
+@@ -1492,15 +1498,19 @@ public:
+         auto& env = get_ort_env();
+         std::string sfx = cfg_.precision == "int8" ? "_int8" : "";
+         
+-        txt_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/text_conditioner.onnx", opts_full, "text_conditioner", &run_opts_);
+-        main_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_main" + sfx + ".onnx", opts_ar, "flow_lm_main" + sfx, &run_opts_);
+-        flow_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_flow" + sfx + ".onnx", opts_ar, "flow_lm_flow" + sfx, &run_opts_);
+-        dec_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/mimi_decoder" + sfx + ".onnx", opts_dec, "mimi_decoder" + sfx, &run_opts_);
++        auto model = [&](const std::string& explicit_path, const std::string& stem) {
++            return explicit_path.empty() ? cfg_.models_dir + "/" + stem + ".onnx" : explicit_path;
++        };
++        txt_ = std::make_unique<OrtSession>(env, model(cfg_.text_conditioner_path, "text_conditioner"), opts_full, "text_conditioner", &run_opts_);
++        main_ = std::make_unique<OrtSession>(env, model(cfg_.flow_lm_main_path, "flow_lm_main" + sfx), opts_ar, "flow_lm_main" + sfx, &run_opts_);
++        flow_ = std::make_unique<OrtSession>(env, model(cfg_.flow_lm_flow_path, "flow_lm_flow" + sfx), opts_ar, "flow_lm_flow" + sfx, &run_opts_);
++        dec_ = std::make_unique<OrtSession>(env, model(cfg_.mimi_decoder_path, "mimi_decoder" + sfx), opts_dec, "mimi_decoder" + sfx, &run_opts_);
+         
+         main_runner_ = std::make_unique<StatefulRunner>(*main_);
+         dec_runner_ = std::make_unique<StatefulRunner>(*dec_);
+ 
+-        bos_ = load_npy_f32(cfg_.models_dir + "/bos_before_voice.npy");
++        if (cfg_.bos_path.empty()) bos_ = load_npy_f32(cfg_.models_dir + "/bos_before_voice.npy");
++        else if ((bos_ = load_npy_f32(cfg_.bos_path)).empty()) throw std::runtime_error("Cannot read " + cfg_.bos_path);
+ 
+         dt_ = 1.0f / cfg_.lsd_steps;
+         st_values_.reserve(cfg_.lsd_steps);
+@@ -1608,7 +1618,7 @@ public:
+         // The encoder is only needed for WAV voices, so it loads on first use
+         // and may be absent when every voice is a precomputed embedding.
+         if (!enc_) {
+-            std::string enc_path = cfg_.models_dir + "/mimi_encoder.onnx";
++            std::string enc_path = cfg_.mimi_encoder_path.empty() ? cfg_.models_dir + "/mimi_encoder.onnx" : cfg_.mimi_encoder_path;
+             struct stat st;
+             if (stat(enc_path.c_str(), &st) != 0)
+                 throw std::runtime_error("WAV voices need " + enc_path + ", which does not exist (or use add_voice with a precomputed embedding)");
+@@ -2699,6 +2709,39 @@ void* ptt_create(const char* models_dir, const char* voices_dir,
+     }
+ }
+ 
++// Like ptt_create, with every model file named explicitly, so precisions can
++// be mixed (e.g. flow_lm_main_int8.onnx and flow_lm_flow_int8.onnx with the
++// full-precision mimi_decoder.onnx). mimi_encoder (only needed for WAV
++// voices) and bos_before_voice may be NULL: they are then looked for next to
++// flow_lm_main.
++void* ptt_create_from_files(const char* text_conditioner, const char* flow_lm_main,
++                            const char* flow_lm_flow, const char* mimi_decoder,
++                            const char* mimi_encoder, const char* tokenizer_path,
++                            const char* bos_before_voice,
++                            float temperature, int lsd_steps, int num_threads) {
++    if (!text_conditioner || !flow_lm_main || !flow_lm_flow || !mimi_decoder || !tokenizer_path) return nullptr;
++    try {
++        pocket_tts::Config cfg;
++        std::string main_path = flow_lm_main;
++        size_t slash = main_path.find_last_of("/\\");
++        cfg.models_dir = slash == std::string::npos ? "." : main_path.substr(0, slash);
++        cfg.text_conditioner_path = text_conditioner;
++        cfg.flow_lm_main_path = main_path;
++        cfg.flow_lm_flow_path = flow_lm_flow;
++        cfg.mimi_decoder_path = mimi_decoder;
++        if (mimi_encoder) cfg.mimi_encoder_path = mimi_encoder;
++        if (bos_before_voice) cfg.bos_path = bos_before_voice;
++        cfg.tokenizer_path = tokenizer_path;
++        cfg.temperature = temperature;
++        cfg.lsd_steps = lsd_steps;
++        cfg.num_threads = num_threads;
++        return new pocket_tts::PocketTTS(cfg);
++    } catch (const std::exception& e) {
++        std::cerr << "[pocket-tts] init error: " << e.what() << "\n";
++        return nullptr;
++    }
++}
++
+ double ptt_warmup(void* handle) {
+     if (!handle) return -1;
+     try {

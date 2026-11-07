@@ -1,0 +1,131 @@
+{
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "**": false
+    }
+  },
+  "ignoreCommand": "bash scripts/vercel-ignore-build.sh",
+  "crons": [
+    {
+      "path": "/api/cron/email-management",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/drip-campaign",
+      "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/in-app-campaigns",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/renew-email-watches",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/mcp-cleanup",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/reset-ai-usage-plans",
+      "schedule": "5 0 * * *"
+    },
+    {
+      "path": "/api/cron/wiki-maintenance",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/weave",
+      "schedule": "15 9 * * *"
+    },
+    {
+      "path": "/api/cron/memory-learning",
+      "schedule": "20 6 * * *"
+    },
+    {
+      "path": "/api/cron/flow-schedule",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sequence-dispatch",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/triage-reconciler",
+      "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-subscriptions",
+      "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-deepgram",
+      "schedule": "45 1 * * *"
+    },
+    {
+      "path": "/api/cron/billing-reconciliation",
+      "schedule": "0 3 * * 1"
+    },
+    {
+      "path": "/api/cron/inngest-sync",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/proposal-age-out",
+      "schedule": "50 2 * * *"
+    },
+    {
+      "path": "/api/cron/index-reconciler",
+      "schedule": "40 * * * *"
+    },
+    {
+      "path": "/api/cron/crm-sync",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/asana-sync",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/jira-sync",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/linear-sync",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/prospecting-watchdog",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/prospecting-prune",
+      "schedule": "0 4 * * 0"
+    },
+    {
+      "path": "/api/cron/browser-command-reaper",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cloud-browser-idle",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cloud-browser-reconcile",
+      "schedule": "40 3 * * *"
+    },
+    {
+      "path": "/api/cron/approval-expiry",
+      "schedule": "25 * * * *"
+    },
+    {
+      "path": "/api/cron/notification-purge",
+      "schedule": "20 3 * * *"
+    },
+    {
+      "path": "/api/cron/local-agent-purge",
+      "schedule": "40 3 * * *"
+    }
+  ]
+}

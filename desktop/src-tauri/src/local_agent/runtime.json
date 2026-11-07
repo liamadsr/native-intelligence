@@ -1,0 +1,15 @@
+{
+  "comment": "The Node the packaged local agent runs on, downloaded on first use from nodejs.org and pinned here (compiled into the app). tarball: SHA-256 from nodejs.org's SHASUMS256.txt. binary: bin/node inside it, checked again before every launch's first use. Signed by the OpenJS Foundation (team HX7739G8FX). Bump: docs/plans/local-agents.md, Packaging.",
+  "version": "v24.22.1",
+  "tarball": {
+    "file": "node-v24.22.1-darwin-arm64.tar.xz",
+    "url": "https://nodejs.org/dist/v24.22.1/node-v24.22.1-darwin-arm64.tar.xz",
+    "sha256": "654ba79de6155647e22321932b45f2a1ccb705976cc337c9b8e278beb085a628",
+    "size": 27518756,
+    "prefix": "node-v24.22.1-darwin-arm64"
+  },
+  "binary": {
+    "sha256": "6f32069480ec14d52b6d7b1f3c7124cfbbc46203abf5ddf5c65b127435f3f329",
+    "size": 122545856
+  }
+}

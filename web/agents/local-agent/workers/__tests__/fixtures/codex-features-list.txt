@@ -1,0 +1,13 @@
+shell_tool                      stable        true
+unified_exec                    stable        true
+shell_snapshot                  stable        true
+multi_agent                     stable        true
+personality                     stable        true
+skill_mcp_dependency_install    stable        true
+undo                            stable        false
+codex_git_commit                stable        false
+hooks                           stable        false
+memories                        stable        false
+apps                            experimental  false
+web_search                      deprecated    false
+apply_patch_freeform            removed       false

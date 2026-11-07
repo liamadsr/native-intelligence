@@ -1,0 +1,57 @@
+diff --git a/node_modules/metal-fx/dist/index.es.js b/node_modules/metal-fx/dist/index.es.js
+index 5602e03..048180d 100644
+--- a/node_modules/metal-fx/dist/index.es.js
++++ b/node_modules/metal-fx/dist/index.es.js
+@@ -957,10 +957,51 @@ function Er(t) {
+ function Sn(t, e) {
+   !ie || !x || !t.visible || t.paused || x.glowQueue.includes(t) && (t.glowFast = !!ie(t, e));
+ }
++let mfxKeptCanvas = null;
+ function cn(t) {
+   t.dpr = typeof window < "u" && window.devicePixelRatio || 1;
+   const e = t.overscan, n = Math.max(1, Math.round((t.cssWidth + 2 * e) * t.dpr)), o = Math.max(1, Math.round((t.cssHeight + 2 * e) * t.dpr));
+-  t.canvas.width !== n && (t.canvas.width = n), t.canvas.height !== o && (t.canvas.height = o);
++  // Dial8 patch: setting a canvas's size wipes it, and the ring is only drawn
++  // again on the engine's next frame (up to ~33 ms on), so a box that grows
++  // (Dictate anywhere's card, as the words come) blinked its ring on every
++  // step. The last frame is carried over into the new size instead, drawn in
++  // nine pieces (the corners as they were, the edges and middle stretched) so
++  // the ring keeps its exact shape until the real frame replaces it.
++  if (t.canvas.width !== n || t.canvas.height !== o) {
++    const w0 = t.canvas.width, h0 = t.canvas.height;
++    let kept = null;
++    if (w0 > 1 && h0 > 1 && t.ctx) {
++      kept = mfxKeptCanvas || (mfxKeptCanvas = document.createElement("canvas"));
++      kept.width = w0, kept.height = h0;
++      const k = kept.getContext("2d");
++      k && k.drawImage(t.canvas, 0, 0);
++    }
++    t.canvas.width = n, t.canvas.height = o;
++    if (kept && t.ctx) {
++      const c = Math.min(Math.ceil((Math.max(t.cornerRadius || 0, 0) + 2 * e + 2) * t.dpr), Math.floor(Math.min(w0, h0, n, o) / 2));
++      if (c > 0) {
++        const sw = w0 - 2 * c, sh = h0 - 2 * c, dw = n - 2 * c, dh = o - 2 * c;
++        const piece = (sx, sy, sW, sH, dx, dy, dW, dH) => {
++          sW > 0 && sH > 0 && dW > 0 && dH > 0 && t.ctx.drawImage(kept, sx, sy, sW, sH, dx, dy, dW, dH);
++        };
++        piece(0, 0, c, c, 0, 0, c, c), piece(w0 - c, 0, c, c, n - c, 0, c, c);
++        piece(0, h0 - c, c, c, 0, o - c, c, c), piece(w0 - c, h0 - c, c, c, n - c, o - c, c, c);
++        piece(c, 0, sw, c, c, 0, dw, c), piece(c, h0 - c, sw, c, c, o - c, dw, c);
++        piece(0, c, c, sh, 0, c, c, dh), piece(w0 - c, c, c, sh, n - c, c, c, dh);
++        piece(c, c, sw, sh, c, c, dw, dh);
++      } else t.ctx.drawImage(kept, 0, 0, n, o);
++    }
++    // And the ring drawn for real at the new size now, from the engine's
++    // latest frame, rather than at the engine's next turn (it renders about
++    // 15 times a second): a growing box's ring keeps up with it every frame.
++    if (x && !x.contextLost && w0 > 1 && h0 > 1) {
++      try {
++        un(t);
++      } catch (_) {
++        /* the carried-over frame stays until the engine's next */
++      }
++    }
++  }
+   const a = t.canvas.style;
+   e > 0 ? (a.left = `${-e}px`, a.top = `${-e}px`, a.width = `calc(100% + ${2 * e}px)`, a.height = `calc(100% + ${2 * e}px)`, a.borderRadius = "0") : a.left !== "" && (a.left = "", a.top = "", a.width = "100%", a.height = "100%", a.borderRadius = "");
+ }

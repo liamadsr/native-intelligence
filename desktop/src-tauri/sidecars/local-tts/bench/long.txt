@@ -1,0 +1,8 @@
+I looked through the proposal this morning, and overall it reads well, but the pricing section still needs work before we send it to the client on Monday.
+When you get a chance, could you pull together the notes from yesterday's call, add the action items we agreed on, and share them with the whole team so everyone knows what they own?
+The new onboarding flow is live for about a third of new users, and so far the early numbers suggest people are finishing setup faster, although it is still too soon to say whether they stick around longer.
+Before we commit to the launch date, I want to make sure support has the help articles ready, sales has the updated deck, and engineering is comfortable with the rollback plan if something goes wrong.
+She mentioned that the conference in Lisbon was smaller than last year, but the conversations were much better, and she came back with three warm introductions that could turn into real partnerships.
+If the weather holds up this weekend, we are planning to drive up to the lake on Saturday morning, spend the afternoon on the water, and come back late on Sunday evening after dinner with friends.
+Honestly, the hardest part of the migration was not the code itself, it was untangling years of small exceptions that nobody remembered adding, and figuring out which of them still mattered to anyone.
+Let me know whether Thursday or Friday works better for the review, because I would rather move it than rush through it, and I think we need at least an hour to go through every open question properly.

@@ -1,0 +1,76 @@
+---
+title: Workspaces & Teams
+description: Understand how workspaces and teams organize your work in Dial8 — roles, permissions, and team workflows.
+---
+
+Workspaces and teams are the organizational foundation of Dial8. Everything you create — actions, projects, captures, contacts — belongs to a workspace, and teams provide scoping within it.
+
+## Workspaces
+
+A workspace is a shared environment for your organization. Each workspace has:
+
+- **Members** with role-based access (Owner, Admin, Member, Guest)
+- **Teams** that organize work into logical groups
+- **Settings** for labels, workflow states, integrations, and preferences
+- **A plan** (Free, Pro, or Enterprise) that determines available features
+
+### Workspace Settings
+
+Access workspace settings from the sidebar gear icon:
+
+- **General** — Name, logo, and workspace-level preferences
+- **Members** — Invite, remove, and manage member roles
+- **Teams** — Create and configure teams
+- **Labels** — Define workspace-wide labels for actions, projects, and initiatives
+- **Connectors** — Connect email, calendar and other apps, and MCP servers
+- **Library** — Browse and manage your Skills, Agents, and Meeting Types (lives at the dashboard level, not in settings)
+
+### Switching Workspaces
+
+If you belong to multiple workspaces, use the workspace switcher in the sidebar to move between them. Each workspace has its own data, members, and settings.
+
+Two workspaces that should be one can be merged if you own both: everything in one moves into the other, and nothing of yours is lost. See [Merge Workspaces](/docs/configuration/merge-workspaces).
+
+## Teams
+
+Teams are groups within a workspace that scope work. Each team has:
+
+- **An issue prefix** — A short code (like `ENG`, `SALES`, `DESIGN`) used in action identifiers
+- **Members** — Workspace members assigned to the team, with a lead or member role
+- **Workflow states** — Custom statuses that define how work moves through your process
+- **An action counter** — Automatically increments to generate identifiers like `ENG-42`
+
+### Creating a Team
+
+1. Go to **Settings → Teams**
+2. Click **Create Team**
+3. Set a name and issue prefix
+4. Add team members and assign a team lead
+5. Customize workflow states if needed
+
+### Workflow States
+
+Each team has its own set of workflow states organized into categories:
+
+| Category | Purpose | Examples |
+|----------|---------|----------|
+| **Backlog** | Work not yet planned | Backlog, Triage |
+| **Unstarted** | Planned but not begun | Todo, Ready |
+| **Started** | Actively being worked on | In Progress, In Review |
+| **Completed** | Successfully finished | Done, Shipped |
+| **Canceled** | Decided not to do | Canceled, Won't Do |
+
+Teams come with sensible defaults, but you can add, rename, reorder, or remove states to match your workflow.
+
+### Team Roles
+
+| Role | Capabilities |
+|------|-------------|
+| **Lead** | Full team management, assign work, manage workflow states |
+| **Member** | Create and work on actions within the team |
+
+## Invitations
+
+Invite people to your workspace from **Settings → Workspace → Members**. Invitations are sent via email with a unique token link. Pending invitations can be resent or revoked.
+
+When someone accepts an invite, they become a workspace member and can be added to any team.

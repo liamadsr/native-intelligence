@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./tsconfig.build.tsbuildinfo"
+  },
+  "exclude": [
+    "node_modules",
+    "supabase/functions",
+    "e2e",
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "vitest.config.mts",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/fixtures/**",
+    "src/test/**",
+    "scripts/**",
+    "evals/**"
+  ]
+}

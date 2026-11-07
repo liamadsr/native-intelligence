@@ -1,0 +1,50 @@
+---
+title: Search
+description: Find anything across your workspace with full-text and AI-powered semantic search.
+---
+
+Dial8's search helps you find anything in your workspace — actions, captures, contacts, companies, projects, documents, and decisions.
+
+## Unified Search
+
+Search across all entity types from a single search bar. Results are grouped by type and ranked by relevance.
+
+### Searchable Content
+
+| Entity | What's searched |
+|--------|----------------|
+| **Actions** | Title and description |
+| **Captures** | Transcriptions, summaries, and metadata |
+| **Contacts** | Name, email, phone, notes |
+| **Companies** | Name, domain, description |
+| **Projects** | Name and description |
+| **Documents** | Full document content |
+| **Decisions** | Decision text from captures |
+
+## Full-Text Search
+
+Standard text search uses full-text search with ranking. It handles:
+
+- Word stemming (e.g., "running" matches "run")
+- Relevance ranking
+- Highlighted matches in results
+
+## Semantic Search (AI-Powered)
+
+For captures, Dial8 also supports **semantic search** using vector embeddings. This means you can search by meaning, not just exact words:
+
+- "What did we decide about the pricing model?" finds relevant capture segments even if those exact words weren't used
+- Powered by pgvector with 1536-dimensional embeddings
+- Searches across capture chunks for granular results
+
+## Email Search
+
+Email messages have their own search with:
+
+- Full-text search across message bodies and subjects
+- Highlighted match previews
+- Filtering by account and folder
+
+## Filtering Results
+
+Narrow search results by entity type to focus on specific categories — show only actions, only contacts, or only captures.

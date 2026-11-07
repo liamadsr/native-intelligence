@@ -1,0 +1,78 @@
+---
+title: Merge Workspaces
+description: Fold a workspace you own into another one you own. People, teams, work, contacts, mail, loops and knowledge move together, and nothing of yours is lost.
+---
+
+If you ended up with two workspaces that should be one, merge them. Everything in the workspace you fold in moves into the one you keep, in a single step, and the folded workspace is removed once it is empty. Repeat it to bring several workspaces down to one.
+
+You need to be the **owner of both** workspaces. A merge is one-way: a snapshot of the folded workspace's data is stored first, but there is no undo button, so start with the workspace that matters least.
+
+## Before you merge
+
+- Nothing can be running in the workspace you are folding in: a capture still recording, an agent run that is working (on the server or on someone's Mac), a loop run waiting on an approval card, or a background job that is running. The review names what to stop; finish, approve or cancel them first. Things that are only waiting come over and carry on in the merged workspace: an agent run waiting for your answer or with an open pull request, a job waiting for your review, and an old capture that never ended.
+- Both workspaces are checked for consistency first. If one fails the check, the review says so and nothing changes. This is rare: contact us and we run the repair, then merge again.
+- Stop any recording in the workspace you are keeping too. The merge reloads your window when it finishes.
+
+## How to merge
+
+1. Open **Settings → Workspace** in the workspace you are **keeping**.
+2. In the **Danger Zone**, choose **Merge…** on the **Merge Another Workspace Into This One** row and pick the workspace to fold in. Only workspaces you own are offered.
+3. Read the review. It shows what comes over, how many people join and with which role, what each team becomes, which integrations move, and where the two workspaces overlap.
+4. For each team of the folded workspace, decide: **its own team** here (the default) or **fold into** one of your existing teams. Every change re-plans the review.
+5. Type the folded workspace's name and confirm. The merge runs as one step; keep the tab open. It usually takes seconds, and a few minutes for a large workspace. If anything stops it, it rolls back and nothing changes.
+6. You land in the merged workspace. Everyone else in it is told by the agent.
+
+## What moves, and how
+
+### People
+
+Every member comes along. Someone already in the workspace you keep stays one person, with the higher of their two roles. You stay the owner: the workspace you keep has a single owner. Pending invites move; one for someone who is already a member here, or already invited here, is dropped, and so are expired ones.
+
+Everyone from the folded workspace becomes a member here, and everyone here sees the folded workspace's shared work. Private documents, private captures and private teams stay private to the people who had them. Folding a private team into one of yours opens its work to that team's members.
+
+### Teams and identifiers
+
+By default each team arrives as **its own team**, with its statuses, cycles, views, loops and members unchanged. A team whose name is already taken here is renamed: the folded workspace's first team takes that workspace's name (so Coherix's General becomes the team "Coherix"), and any other becomes "Name (Coherix)". When a team's prefix changes, its action identifiers change with it (`GEN-12` becomes `COH-12`, the number kept unless that one is taken here) and the old identifier still finds the action in search.
+
+**Folding a team** into one of yours moves its actions onto that team. Statuses map by name, then by kind, then to the team's default status. Identifiers are kept when they are free, even with their old prefix, and renumbered only when they collide. Cycles move too and continue after that team's last cycle; if both teams have an active cycle, the folded one becomes upcoming.
+
+### Labels
+
+Labels join by name. A label that does not exist here is created; one that does is reused, so nothing is relabelled.
+
+### Actions, projects, documents, captures
+
+They all come over whole: assignees, comments, relations, attachments, revisions, transcripts, decisions, linked pull requests and agent runs. A document with the same canonical role here (your product document, say) stays here as the canonical one; the folded copy becomes an ordinary document titled "… (from Coherix)". A document, view, skill or package whose link address is already taken here gets a new one; the review lists how many. Public share links keep working.
+
+### Contacts and companies
+
+A contact with the same email as one here is folded into it, keeping the fields here and filling the empty ones; interactions, meetings, mail and voice enrollments follow. Companies fold by domain the same way, and the folded workspace's own company becomes an ordinary company. Everything else comes over as it is.
+
+### Mail, calendar, connected accounts
+
+Connected mail and calendar accounts come over with their sign-ins. A mail thread that both workspaces already index becomes one. Calendar events are read live from the account, so nothing is lost.
+
+### Integrations
+
+An integration only the folded workspace had comes over whole. When both workspaces have the same task tool (Linear, Jira or Asana), the workspace you keep stays connected and the folded workspace's connection is dropped; its linked tasks keep their links as plain URLs. When both have HubSpot, this workspace's portal stays and the folded workspace's synced records are unlinked from HubSpot. GitHub, MCP servers and cloud environments always come over. The review lists each case with its count.
+
+### Agents, loops and knowledge
+
+Skills, loops, bots, run history, claims and knowledge packages come over. The built-in teammates are the same ones here, so their work carries on under this workspace's. A seeded loop that exists here already (Triage) is dropped in favour of this workspace's; its run history stays. The folded workspace's loops now follow this workspace's autonomy and edition.
+
+### Chats
+
+Your conversations come over. If you already have a home chat here, the folded workspace's home chat becomes an ordinary conversation named "Home · Coherix"; a second chat with the same built-in teammate becomes an ordinary conversation the same way.
+
+## What is not carried
+
+- The agent's memory of you in the folded workspace. Each moved conversation picks up from its saved summary when you continue it.
+- That workspace's settings (edition, autonomy, feature switches). They are kept on the merge record but not applied; only the HubSpot logging switches carry over, and only when this workspace had no HubSpot of its own.
+- The agent's browser for that workspace (its sign-ins). Sign in again, in this workspace's agent browser, to the sites you used there.
+- The compiled knowledge brief of that workspace. It is rebuilt from the moved claims within a day.
+- Duplicates of per-person records that already exist here (a pending reminder on the same item, a meeting goal, agent logs), and an active sequence enrollment for a contact already enrolled here, which ends.
+- The folded workspace's connection to a task tool or HubSpot that this workspace also has (above).
+
+## Afterwards
+
+Other tabs and devices that were open in the folded workspace are answered from the merged one from their next request; reload a tab to see everything at once. The snapshot stays with the merge record, so if one rule did the wrong thing we can put it right by hand without touching anything else. A workspace that was merged away cannot be opened again: if you need it back, create a new one.

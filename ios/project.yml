@@ -1,0 +1,155 @@
+# The Xcode project is generated from this file: edit it here, then run `xcodegen`.
+# Folders are synchronized, so adding or removing a Swift file needs no change here.
+name: Dial8
+
+options:
+  deploymentTarget:
+    iOS: "26.2"
+    watchOS: "11.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+configs:
+  Development: debug
+  Release: release
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    GENERATE_INFOPLIST_FILE: YES
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    majorVersion: 2.5.1
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios
+    majorVersion: 3.41.1
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    majorVersion: 2.4.1
+
+targets:
+  Dial8:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        type: syncedFolder
+      - path: Core
+        type: syncedFolder
+      - path: Shared
+        type: syncedFolder
+    dependencies:
+      - package: Supabase
+        products: [Auth, Functions, PostgREST, Realtime, Storage, Supabase]
+      - package: PostHog
+      - package: MarkdownUI
+      - target: Dial8Widgets
+      - target: Dial8 Watch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dial8-iOS-26
+        INFOPLIST_FILE: Config/App-Info.plist
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Dial8 needs microphone access to record voice notes and transcribe audio.
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIRequiresFullScreen: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+        ENABLE_PREVIEWS: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks"]
+      configs:
+        Development:
+          OTHER_SWIFT_FLAGS: "$(inherited) -DDEVELOPMENT"
+        Release:
+          OTHER_SWIFT_FLAGS: "$(inherited) -DPRODUCTION"
+
+  Dial8Widgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widgets
+        type: syncedFolder
+      - path: Shared
+        type: syncedFolder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dial8-iOS-26.dial8Widgets
+        INFOPLIST_FILE: Config/Widgets-Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: dial8Widgets
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME: WidgetBackground
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+        SWIFT_APPROACHABLE_CONCURRENCY: YES
+        SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"]
+
+  Dial8 Watch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Watch
+        type: syncedFolder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dial8-iOS-26.watchkitapp
+        INFOPLIST_FILE: Config/Watch-Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Dial8
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Dial8 records your in-person meetings so it can turn them into notes.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.dial8-iOS-26
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: YES
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks"]
+
+schemes:
+  Dial8:
+    build:
+      targets:
+        Dial8: all
+    run:
+      config: Development
+    test:
+      config: Development
+    profile:
+      config: Release
+    analyze:
+      config: Development
+    archive:
+      config: Release
+  Dial8 Watch:
+    build:
+      targets:
+        Dial8 Watch: all
+    run:
+      config: Release
+    test:
+      config: Development
+    profile:
+      config: Release
+    analyze:
+      config: Development
+    archive:
+      config: Release

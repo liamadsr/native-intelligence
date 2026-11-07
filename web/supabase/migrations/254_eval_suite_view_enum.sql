@@ -1,0 +1,11 @@
+-- Add 'eval_suite' to view_entity_type enum.
+--
+-- The Evals index moves onto the shared views system (UnifiedViewLayout with
+-- entityType="eval_suite"), so GET /api/account/views?entity_type=eval_suite
+-- filters the `view` table on this enum. Without the value that query 500s and
+-- saving an eval view fails. Mirrors 230 (sequence) and 249 (prospect_list_entry).
+--
+-- Note: ALTER TYPE ... ADD VALUE cannot run inside a transaction block and the
+-- new value isn't usable in the same transaction it's added — this file holds
+-- nothing else on purpose.
+ALTER TYPE public.view_entity_type ADD VALUE IF NOT EXISTS 'eval_suite';

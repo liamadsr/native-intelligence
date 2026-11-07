@@ -1,0 +1,51 @@
+{
+  "id": "local-tts",
+  "sidecar": "dial8-local-tts",
+  "protocol": 1,
+  "minMacos": "13.4",
+  "assetsVersion": "2026-09-26",
+  "assets": [
+    {
+      "name": "flow_lm_main",
+      "file": "flow_lm_main_int8.onnx",
+      "url": "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/58a6d00cf13d239b6748cb0769f35c580a8f606c/onnx/english_2026-04/flow_lm_main_int8.onnx",
+      "sha256": "f9bd8106b79a0192c1c43399ab938fb24900a95c1c599870d75a884e99000116",
+      "size": 76341079
+    },
+    {
+      "name": "flow_lm_flow",
+      "file": "flow_lm_flow_int8.onnx",
+      "url": "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/58a6d00cf13d239b6748cb0769f35c580a8f606c/onnx/english_2026-04/flow_lm_flow_int8.onnx",
+      "sha256": "3dd781ee5abee9e195320bf0106bebd6372a852b3b36352524ee78b40554635d",
+      "size": 9962530
+    },
+    {
+      "name": "mimi_decoder",
+      "file": "mimi_decoder.onnx",
+      "url": "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/58a6d00cf13d239b6748cb0769f35c580a8f606c/onnx/english_2026-04/mimi_decoder.onnx",
+      "sha256": "86f038caa02a96a0ff9c25526a0ff43a4906c418197ed72d3e30f720ac7ce802",
+      "size": 41471926
+    },
+    {
+      "name": "text_conditioner",
+      "file": "text_conditioner.onnx",
+      "url": "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/58a6d00cf13d239b6748cb0769f35c580a8f606c/onnx/english_2026-04/text_conditioner.onnx",
+      "sha256": "4ecee995fb69f85c7a7493d11f7b5ee15d9950facc7ab3f5c9c49ef1e03847bb",
+      "size": 16388344
+    },
+    {
+      "name": "tokenizer",
+      "file": "tokenizer.model",
+      "url": "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/58a6d00cf13d239b6748cb0769f35c580a8f606c/onnx/english_2026-04/tokenizer.model",
+      "sha256": "d461765ae179566678c93091c5fa6f2984c31bbe990bf1aa62d92c64d91bc3f6",
+      "size": 59339
+    },
+    {
+      "name": "bos_before_voice",
+      "file": "bos_before_voice.npy",
+      "url": "https://huggingface.co/KevinAHM/pocket-tts-onnx/resolve/58a6d00cf13d239b6748cb0769f35c580a8f606c/onnx/english_2026-04/bos_before_voice.npy",
+      "sha256": "f46edf4f7007b7ba4ea58831f49d003e59e167b4641c44bb3addfe9231a780b1",
+      "size": 4224
+    }
+  ]
+}

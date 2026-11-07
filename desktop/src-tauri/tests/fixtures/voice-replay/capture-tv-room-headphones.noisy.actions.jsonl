@@ -1,0 +1,116 @@
+{"a":{"echo":"converging","state":"starting","t":"state"},"c":0,"k":"action","w":2}
+{"a":{"echo":"converging","state":"listening","t":"state"},"c":0,"k":"action","w":48}
+{"a":{"echo":"converging","state":"muted","t":"state"},"c":0,"k":"action","w":124}
+{"a":{"echo":"converging","state":"agent_speaking","t":"state"},"c":0,"k":"action","w":1841}
+{"a":{"echo":"converging","state":"listening","t":"state"},"c":0,"k":"action","w":3454}
+{"a":{"echo":"converging","state":"user_speaking","t":"state"},"c":0,"k":"action","w":3800}
+{"a":{"final":false,"t":"transcript","text":"w2 w3","turn":"t1"},"c":0,"k":"action","w":5113}
+{"a":{"final":true,"t":"transcript","text":"w2 w3 w4","turn":"t1"},"c":0,"k":"action","w":5657}
+{"a":{"final":false,"t":"transcript","text":"w2 w3 w4 w6","turn":"t1"},"c":0,"k":"action","w":7353}
+{"a":{"final":false,"t":"transcript","text":"w2 w3 w4 w6 w7","turn":"t1"},"c":0,"k":"action","w":7900}
+{"a":{"final":true,"t":"transcript","text":"w2 w3 w4 w6 w7 w9","turn":"t1"},"c":0,"k":"action","w":8468}
+{"a":{"seq":1,"t":"finalize"},"c":0,"k":"action","w":11674}
+{"a":{"echo":"converging","state":"processing","t":"state"},"c":0,"k":"action","w":11674}
+{"a":{"t":"turn","text":"w2 w3 w4 w6 w7 w9","turn":"t1"},"c":0,"k":"action","w":14708}
+{"a":{"echo":"converging","state":"user_speaking","t":"state"},"c":0,"k":"action","w":14708}
+{"a":{"seq":2,"t":"finalize"},"c":0,"k":"action","w":16312}
+{"a":{"echo":"converging","state":"processing","t":"state"},"c":0,"k":"action","w":16312}
+{"a":{"final":false,"t":"transcript","text":"w2","turn":"t3"},"c":0,"k":"action","w":19359}
+{"a":{"echo":"converging","state":"user_speaking","t":"state"},"c":0,"k":"action","w":19359}
+{"a":{"final":false,"t":"transcript","text":"w2 w4 w10","turn":"t3"},"c":0,"k":"action","w":19675}
+{"a":{"final":false,"t":"transcript","text":"w2 w4 w10 w11","turn":"t3"},"c":0,"k":"action","w":20221}
+{"a":{"seq":3,"t":"finalize"},"c":0,"k":"action","w":20973}
+{"a":{"echo":"converging","state":"processing","t":"state"},"c":0,"k":"action","w":20973}
+{"a":{"t":"turn","text":"w2 w4 w10 w11","turn":"t3"},"c":0,"k":"action","w":24010}
+{"a":{"echo":"converging","state":"listening","t":"state"},"c":0,"k":"action","w":24010}
+{"a":{"echo":"converging","state":"agent_speaking","t":"state"},"c":0,"k":"action","w":31801}
+{"a":{"echo":"headphones","state":"agent_speaking","t":"state"},"c":0,"k":"action","w":39886}
+{"a":{"t":"interrupted","turn":"t4"},"c":0,"k":"action","w":42680}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":42680}
+{"a":{"final":false,"t":"transcript","text":"w13 w14","turn":"t4"},"c":0,"k":"action","w":43560}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16","turn":"t4"},"c":0,"k":"action","w":44671}
+{"a":{"final":true,"t":"transcript","text":"w13 w14 w15 w16 w17","turn":"t4"},"c":0,"k":"action","w":45221}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19","turn":"t4"},"c":0,"k":"action","w":45800}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5","turn":"t4"},"c":0,"k":"action","w":46343}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22","turn":"t4"},"c":0,"k":"action","w":47462}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23","turn":"t4"},"c":0,"k":"action","w":48026}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25","turn":"t4"},"c":0,"k":"action","w":48579}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26","turn":"t4"},"c":0,"k":"action","w":49143}
+{"a":{"final":true,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26 w27","turn":"t4"},"c":0,"k":"action","w":49703}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26 w27 w28 w29","turn":"t4"},"c":0,"k":"action","w":50832}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26 w27 w28 w29 w30 w24","turn":"t4"},"c":0,"k":"action","w":51390}
+{"a":{"final":false,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26 w27 w28 w29 w30 w24 w32 w33","turn":"t4"},"c":0,"k":"action","w":51945}
+{"a":{"final":true,"t":"transcript","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26 w27 w28 w29 w30 w24 w32 w33 w34","turn":"t4"},"c":0,"k":"action","w":53057}
+{"a":{"seq":4,"t":"finalize"},"c":0,"k":"action","w":53322}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":53322}
+{"a":{"t":"turn","text":"w13 w14 w15 w16 w17 w18 w19 w3 w20 w5 w6 w21 w22 w23 w24 w11 w25 w26 w27 w28 w29 w30 w24 w32 w33 w34","turn":"t4"},"c":0,"k":"action","w":56365}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":56365}
+{"a":{"echo":"headphones","state":"agent_speaking","t":"state"},"c":0,"k":"action","w":60889}
+{"a":{"t":"interrupted","turn":"t5"},"c":0,"k":"action","w":62676}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":62676}
+{"a":{"seq":5,"t":"finalize"},"c":0,"k":"action","w":64078}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":64078}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":67125}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":84526}
+{"a":{"final":false,"t":"transcript","text":"w42 w43","turn":"t6"},"c":0,"k":"action","w":85911}
+{"a":{"final":false,"t":"transcript","text":"w42 w43 w44 w9 w10","turn":"t6"},"c":0,"k":"action","w":86463}
+{"a":{"final":false,"t":"transcript","text":"w42 w43 w44 w9 w10 w46","turn":"t6"},"c":0,"k":"action","w":87575}
+{"a":{"final":false,"t":"transcript","text":"w42 w43 w44 w9 w10 w46 w18 w28","turn":"t6"},"c":0,"k":"action","w":88143}
+{"a":{"final":false,"t":"transcript","text":"w42 w43 w44 w9 w10 w46 w18 w28 w47","turn":"t6"},"c":0,"k":"action","w":88715}
+{"a":{"seq":6,"t":"finalize"},"c":0,"k":"action","w":89514}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":89514}
+{"a":{"t":"turn","text":"w42 w43 w44 w9 w10 w46 w18 w28 w47","turn":"t6"},"c":0,"k":"action","w":92532}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":92532}
+{"a":{"echo":"headphones","state":"agent_speaking","t":"state"},"c":0,"k":"action","w":98157}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":103582}
+{"a":{"echo":"headphones","state":"muted","t":"state"},"c":0,"k":"action","w":142788}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":151609}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":152767}
+{"a":{"final":false,"t":"transcript","text":"w1 w89","turn":"t7"},"c":0,"k":"action","w":153823}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48","turn":"t7"},"c":0,"k":"action","w":154387}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17","turn":"t7"},"c":0,"k":"action","w":154940}
+{"a":{"final":true,"t":"transcript","text":"w1 w89 w48 w17 w10","turn":"t7"},"c":0,"k":"action","w":155504}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33","turn":"t7"},"c":0,"k":"action","w":156060}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92","turn":"t7"},"c":0,"k":"action","w":156624}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92 w69","turn":"t7"},"c":0,"k":"action","w":157174}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92 w69 w10","turn":"t7"},"c":0,"k":"action","w":157744}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92 w69 w10 w93","turn":"t7"},"c":0,"k":"action","w":158291}
+{"a":{"seq":7,"t":"finalize"},"c":0,"k":"action","w":158754}
+{"a":{"echo":"headphones","state":"muted","t":"state"},"c":0,"k":"action","w":158754}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":160168}
+{"a":{"t":"turn","text":"w1 w89 w48 w17 w10 w90 w33 w92 w69 w10 w93","turn":"t7"},"c":0,"k":"action","w":161793}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":161793}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":162064}
+{"a":{"final":false,"t":"transcript","text":"w1 w89","turn":"t8"},"c":0,"k":"action","w":162786}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17","turn":"t8"},"c":0,"k":"action","w":163356}
+{"a":{"final":true,"t":"transcript","text":"w1 w89 w48 w17 w10","turn":"t8"},"c":0,"k":"action","w":163901}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90","turn":"t8"},"c":0,"k":"action","w":165023}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33","turn":"t8"},"c":0,"k":"action","w":165588}
+{"a":{"final":false,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92","turn":"t8"},"c":0,"k":"action","w":166140}
+{"a":{"final":true,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92 w10","turn":"t8"},"c":0,"k":"action","w":166709}
+{"a":{"final":true,"t":"transcript","text":"w1 w89 w48 w17 w10 w90 w33 w92 w10 w93","turn":"t8"},"c":0,"k":"action","w":167824}
+{"a":{"seq":8,"t":"finalize"},"c":0,"k":"action","w":168484}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":168484}
+{"a":{"t":"turn","text":"w1 w89 w48 w17 w10 w90 w33 w92 w10 w93","turn":"t8"},"c":0,"k":"action","w":171492}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":171492}
+{"a":{"echo":"headphones","state":"muted","t":"state"},"c":0,"k":"action","w":184589}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":199506}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":200780}
+{"a":{"final":false,"t":"transcript","text":"w99 w100","turn":"t9"},"c":0,"k":"action","w":201325}
+{"a":{"final":false,"t":"transcript","text":"w99 w100 w101 w48 w102","turn":"t9"},"c":0,"k":"action","w":201891}
+{"a":{"final":false,"t":"transcript","text":"w99 w100 w101 w48 w102 w94","turn":"t9"},"c":0,"k":"action","w":202440}
+{"a":{"final":true,"t":"transcript","text":"w99 w100 w101 w48 w102 w94 w103","turn":"t9"},"c":0,"k":"action","w":203002}
+{"a":{"seq":9,"t":"finalize"},"c":0,"k":"action","w":203355}
+{"a":{"echo":"headphones","state":"muted","t":"state"},"c":0,"k":"action","w":203355}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":205550}
+{"a":{"t":"turn","text":"w99 w100 w101 w48 w102 w94 w103","turn":"t9"},"c":0,"k":"action","w":206369}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":206369}
+{"a":{"echo":"headphones","state":"user_speaking","t":"state"},"c":0,"k":"action","w":206958}
+{"a":{"final":false,"t":"transcript","text":"w99 w100 w101","turn":"t10"},"c":0,"k":"action","w":207490}
+{"a":{"final":false,"t":"transcript","text":"w99 w100 w101 w48 w102","turn":"t10"},"c":0,"k":"action","w":208040}
+{"a":{"seq":10,"t":"finalize"},"c":0,"k":"action","w":209801}
+{"a":{"echo":"headphones","state":"processing","t":"state"},"c":0,"k":"action","w":209801}
+{"a":{"t":"turn","text":"w99 w100 w101 w48 w102","turn":"t10"},"c":0,"k":"action","w":212818}
+{"a":{"echo":"headphones","state":"listening","t":"state"},"c":0,"k":"action","w":212818}
+{"a":{"echo":"headphones","state":"muted","t":"state"},"c":0,"k":"action","w":216884}
+{"a":{"error":null,"reason":"stopped","t":"end","text":null},"c":0,"k":"action","w":224323}

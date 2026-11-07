@@ -1,0 +1,83 @@
+-- 295: when the owner opened a work item since it last started waiting on them
+-- (docs/plans/bot-characters.md, "Step 3: faces of teammates", item 4: what's
+-- new).
+--
+-- Applied by hand, from this file: to DEV before its PR merges (done
+-- 2026-09-30), and to PROD, then the row read at the end of this file, BEFORE
+-- the PR whose code reads and writes the column merges (PR 6b,
+-- claude/bots-opened-and-filter) or runs against PROD anywhere. That PR
+-- contains this file's commit (PR 6a, claude/bots-opened-at-migration), so
+-- merging it alone lands both in one deploy: the column goes on PROD first.
+-- Nothing in this file's PR reads it, and the change is additive (one
+-- nullable column, no default, no rewrite), safe ahead of the code.
+--
+-- Every reader and writer of the column (all in PR 6b), and what each does on
+-- a database without it:
+--   the light open-rows read (src/lib/work/queries.ts listOpenWorkInWorkspaces,
+--     LIGHT_WORK_ITEM_SELECT; GET /api/account/agent-work?light=1, the shell's
+--     always-on counts) names it: the read fails and the route is a 500;
+--   the work recorder (src/lib/work/recorder.ts) clears it with a separate,
+--     best-effort write right after a move into needs_input or needs_review:
+--     the re-arm is skipped quietly (one log line), and the status moves and
+--     their pushes are unaffected (the status write never names the column);
+--   markOpened (src/lib/work/resolve.ts; PATCH /api/account/activity/[id]
+--     { action: 'opened' }, which WorkItemDetailPanel calls) stamps it and
+--     filters on it: the write fails, it returns false, and the route answers
+--     changed: false, a quiet no-op;
+--   the select('*') reads (the full Agents feed, the item route, the Activity
+--     feed, the review cards) and the realtime payloads just lack it (a row
+--     reads as not opened). The pending cards' run-row read
+--     (listPendingCardRows, CARD_RUN_ROW_SELECT) does not name it.
+--
+-- What lands:
+--   tracked_job.opened_at  when the row's owner opened the item's detail panel
+--                  since it last started waiting on them; NULL = not opened
+--                  since. Stamped only when empty, by the owner only, by
+--                  PATCH /api/account/activity/[id] { action: 'opened' }
+--                  (service role, fenced on the row's member and on opened_at
+--                  IS NULL, so a second open never moves it). Cleared by the
+--                  work recorder right after every move into needs_input or
+--                  needs_review (its own UPDATE, fenced on that status and on
+--                  opened_at IS NOT NULL), so the next open stamps it anew; a
+--                  needs_review row is never re-entered, so it keeps its
+--                  stamp.
+--
+-- Why: a teammate's bot jumps for what is NEW for you: its rows waiting on
+-- you (needs_review, needs_input) that you haven't opened since they started
+-- waiting, plus its pending cards (countByOwner's `beckoning`,
+-- src/lib/work/agent-work-lanes.ts). Once you've opened an item it is not new,
+-- whatever its status, until it waits on you again (a question answered and a
+-- draft back is a new wait), and its bot stops calling for it until then.
+--
+-- No index: nothing filters on it in the database. The reads that use it (the
+-- shell's light read, the Agents page's feed) select the open rows by
+-- workspace and status as before and drop the opened ones on the client; the
+-- stamp and the clear are UPDATEs by primary key.
+--
+-- Realtime: tracked_job is in supabase_realtime with REPLICA IDENTITY FULL
+-- (migration 272) and no column list or row filter (read on DEV and PROD,
+-- 2026-09-30), so an UPDATE carries the new column with no change there: the
+-- stamp and the clear reach the shell's ledger channel, and the bot stops, or
+-- calls again, at once.
+--
+-- RLS is unchanged: the owner reads their own rows (migration 170), and every
+-- write stays service-role.
+--
+-- Idempotent (ADD COLUMN IF NOT EXISTS; COMMENT replaces).
+
+alter table public.tracked_job
+  add column if not exists opened_at timestamptz null;
+
+comment on column public.tracked_job.opened_at is
+  'When the row''s owner opened the item''s detail panel since it last started waiting on them; NULL = not opened since (it may make its teammate''s bot call for you). Stamped only when empty; cleared on every move into needs_input or needs_review.';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- After applying it on PROD: the row read
+-- ═══════════════════════════════════════════════════════════════════════════
+-- The column is there, nullable, and nothing has stamped it yet. This must
+-- return one row: opened_at | timestamp with time zone | YES | 0
+--
+--   select c.column_name, c.data_type, c.is_nullable,
+--          (select count(*) from public.tracked_job where opened_at is not null) as stamped
+--   from information_schema.columns c
+--   where c.table_schema = 'public' and c.table_name = 'tracked_job' and c.column_name = 'opened_at';

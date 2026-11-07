@@ -1,0 +1,113 @@
+---
+title: Desktop App
+description: Native companion app for automatic meeting detection, high-fidelity audio capture, and system tray integration.
+---
+
+The Dial8 desktop app is a native companion that enhances the web experience with capabilities that require system-level access — audio recording, meeting detection, and local calendar integration.
+
+## Overview
+
+The desktop app wraps the Dial8 web application in a native window and adds:
+
+- **Automatic meeting detection** — Knows when you join a video/audio call
+- **Dual-stream audio recording** — Captures microphone and system audio separately
+- **Live transcription** — Real-time transcript powered by Deepgram
+- **System tray** — Shows upcoming meetings with countdown
+- **Local calendar access** — Reads Exchange calendars from macOS Calendar.app
+
+The full Dial8 UI runs inside the app — everything you can do on the web works identically in the desktop app, plus the native features above.
+
+## Installation
+
+1. Download the desktop app from [dial8.ai](https://dial8.ai)
+2. Open the `.dmg` and drag Dial8 to your Applications folder
+3. Launch and sign in with your existing Dial8 account
+
+### Permissions
+
+On first launch, the app will request:
+
+| Permission | Why |
+|-----------|-----|
+| **Screen Capture** | Required for system audio recording |
+| **Microphone** | Required for voice recording |
+| **Speech Recognition** | Optional, for enhanced transcription |
+| **Calendar** | Optional, for local Exchange calendar access |
+
+Grant permissions in **System Settings → Privacy & Security** if prompted.
+
+### Requirements
+
+- macOS 13.0 or later
+- Apple Silicon or Intel Mac
+
+## Meeting Detection
+
+The desktop app monitors which applications are using the microphone to detect when you've joined a meeting.
+
+### Supported Apps
+
+Zoom, Google Meet, Microsoft Teams, Slack Huddles, and other audio/video conferencing apps are detected automatically.
+
+### How It Works
+
+1. **Monitoring** — The app periodically checks which apps are using the microphone
+2. **Detection** — When a conferencing app starts using the mic for more than 5 seconds, a meeting is detected
+3. **Recording** — If auto-record is enabled, recording starts automatically. Otherwise, you'll see a notification with the option to start recording
+4. **End detection** — When the conferencing app stops using the mic for ~60 seconds, the meeting is considered ended
+
+### Configuration
+
+- **Enable/disable** meeting detection
+- **Auto-record** — Automatically start recording when a meeting is detected
+- Configure detection thresholds if needed
+
+## Audio Recording
+
+### Dual-Stream Capture
+
+The app records two separate audio streams:
+
+- **Microphone** — Your voice from the selected input device
+- **System audio** — What's coming through your speakers (other participants, shared audio)
+
+This separation produces better transcription results because each speaker's audio is cleaner.
+
+### Audio Levels
+
+Real-time audio level meters show you that recording is working, with ~10Hz updates for both microphone and system audio.
+
+### Controls
+
+- **Start / Stop** recording
+- **Pause / Resume** during a recording
+- Select your preferred **input device**
+
+### Sleep Prevention
+
+While recording, the app prevents your Mac from going to sleep to avoid interrupted captures.
+
+## System Tray
+
+The system tray icon shows:
+
+- **Next meeting** title and countdown timer
+- **Today's remaining meetings** in the dropdown
+- **Tomorrow's meetings** for planning ahead
+- Quick actions: Open Dial8, Settings, Quit
+
+Calendar data refreshes every 5 minutes.
+
+## Local Calendar Integration
+
+Access Exchange/Outlook calendars stored in macOS Calendar.app:
+
+- Read events with attendees, locations, and conference URLs
+- Create, update, and delete events
+- Sync with the Dial8 calendar view
+
+This is useful when your organization uses Exchange and you want calendar data without connecting via Microsoft OAuth.
+
+## Authentication
+
+The desktop app uses the same account as the web app. OAuth flows (Google, Microsoft) open in your system browser and redirect back to the app automatically.

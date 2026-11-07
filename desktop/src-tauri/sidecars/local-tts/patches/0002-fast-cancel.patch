@@ -1,0 +1,301 @@
+Subject: [PATCH 2/4] Stop a cancelled stream within a frame, not after the
+ next chunk
+
+ptt_stream_end() only took effect when the stream thread next called the
+chunk callback, i.e. after the next decoded chunk: the decoder waits for
+max_chunk_frames (15) latent frames and decodes them in one call, which
+with the full-precision Mimi decoder on one thread is ~100-140 ms. A stop
+landing mid-sentence took ~120 ms on average.
+
+- PocketTTS::stream() takes an optional cancel flag. The generator thread
+  checks it before every frame, the decode loop checks it before waiting
+  for a chunk and before the callback, and it is checked between
+  sentences.
+- PocketTTS::interrupt() sets RunOptions terminate on a RunOptions object
+  every session now runs with, so an ONNX Runtime call in flight (a
+  15-frame decode, a conditioning pass) returns at once instead of
+  finishing. An interrupted call throws; stream() treats that as the
+  cancellation, and any other exception still reaches the caller. The
+  generator thread now catches exceptions (one used to std::terminate)
+  and the decode loop joins it before an exception leaves.
+- C API: ptt_stream_cancel(ctx) stops a stream from any thread and returns
+  at once; ptt_stream_read() returns 0 once it is cancelled; and
+  ptt_stream_end() cancels, so it returns within about a frame too.
+
+Measured through the Dial8 sidecar (2 threads, lsd_steps 8, int8
+flow_lm, full-precision decoder, M2 Max), stopping 300 ms after the
+first audio: before, ~123 ms; after, under 5 ms (median 0.5 ms over 5
+stops), with no CPU used after the stop.
+---
+ pocket_tts.cpp | 130 ++++++++++++++++++++++++++++++++++++-------------
+ 1 file changed, 97 insertions(+), 33 deletions(-)
+
+diff --git a/pocket_tts.cpp b/pocket_tts.cpp
+index 61fd73a..aa70b3b 100644
+--- a/pocket_tts.cpp
++++ b/pocket_tts.cpp
+@@ -608,10 +608,12 @@ class OrtSession {
+     std::vector<std::vector<int64_t>> in_shapes_;
+     std::vector<ONNXTensorElementDataType> in_types_;
+     std::string name_;
++    const Ort::RunOptions* run_opts_;  // shared by the engine's sessions; terminates runs on cancel
+     
+ public:
+-    OrtSession(Ort::Env& env, const std::string& path, const Ort::SessionOptions& opts, const std::string& name = "")
+-        : sess_(env, to_ort_path(path).c_str(), opts), name_(name.empty() ? path : name) {
++    OrtSession(Ort::Env& env, const std::string& path, const Ort::SessionOptions& opts, const std::string& name = "",
++               const Ort::RunOptions* run_opts = nullptr)
++        : sess_(env, to_ort_path(path).c_str(), opts), name_(name.empty() ? path : name), run_opts_(run_opts) {
+         Ort::AllocatorWithDefaultOptions alloc;
+         
+         size_t num_in = sess_.GetInputCount();
+@@ -638,12 +640,14 @@ public:
+     
+     std::vector<Ort::Value> run(const std::vector<Ort::Value>& in) {
+         auto _ = g_prof.time("run:" + name_);
+-        return sess_.Run(Ort::RunOptions{nullptr}, in_ptrs_.data(), in.data(), in.size(), out_ptrs_.data(), out_ptrs_.size());
++        Ort::RunOptions none{nullptr};
++        return sess_.Run(run_opts_ ? *run_opts_ : none, in_ptrs_.data(), in.data(), in.size(), out_ptrs_.data(), out_ptrs_.size());
+     }
+     
+     void run_with_binding(Ort::IoBinding& binding) {
+         auto _ = g_prof.time("run:" + name_);
+-        sess_.Run(Ort::RunOptions{nullptr}, binding);
++        Ort::RunOptions none{nullptr};
++        sess_.Run(run_opts_ ? *run_opts_ : none, binding);
+     }
+     
+     void print_info() const {
+@@ -1487,11 +1491,11 @@ public:
+         auto& env = get_ort_env();
+         std::string sfx = cfg_.precision == "int8" ? "_int8" : "";
+         
+-        enc_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/mimi_encoder.onnx", opts_enc, "mimi_encoder");
+-        txt_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/text_conditioner.onnx", opts_full, "text_conditioner");
+-        main_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_main" + sfx + ".onnx", opts_ar, "flow_lm_main" + sfx);
+-        flow_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_flow" + sfx + ".onnx", opts_ar, "flow_lm_flow" + sfx);
+-        dec_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/mimi_decoder" + sfx + ".onnx", opts_dec, "mimi_decoder" + sfx);
++        enc_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/mimi_encoder.onnx", opts_enc, "mimi_encoder", &run_opts_);
++        txt_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/text_conditioner.onnx", opts_full, "text_conditioner", &run_opts_);
++        main_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_main" + sfx + ".onnx", opts_ar, "flow_lm_main" + sfx, &run_opts_);
++        flow_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/flow_lm_flow" + sfx + ".onnx", opts_ar, "flow_lm_flow" + sfx, &run_opts_);
++        dec_ = std::make_unique<OrtSession>(env, cfg_.models_dir + "/mimi_decoder" + sfx + ".onnx", opts_dec, "mimi_decoder" + sfx, &run_opts_);
+         
+         main_runner_ = std::make_unique<StatefulRunner>(*main_);
+         dec_runner_ = std::make_unique<StatefulRunner>(*dec_);
+@@ -1647,8 +1651,16 @@ public:
+     }
+     
+     AudioData generate(const std::string& text, const Tensor& voice, int max_frames = 500);
+-    void stream(const std::string& text, const std::string& voice, StreamCallback cb, int max_frames = 500);
+-    void stream(const std::string& text, const Tensor& voice, StreamCallback cb, int max_frames = 500);
++    // cancel (optional): set it from any thread, then call interrupt(), and
++    // stream() returns within about a frame without calling cb again.
++    void stream(const std::string& text, const std::string& voice, StreamCallback cb, int max_frames = 500,
++                const std::atomic<bool>* cancel = nullptr);
++    void stream(const std::string& text, const Tensor& voice, StreamCallback cb, int max_frames = 500,
++                const std::atomic<bool>* cancel = nullptr);
++    // Makes the ONNX Runtime calls in flight return at once (e.g. decoding a
++    // 15-frame chunk, ~100 ms on one thread), so a cancelled stream() doesn't
++    // wait for them. Call it after setting stream()'s cancel flag.
++    void interrupt() { run_opts_.SetTerminate(); }
+     const Config& config() const { return cfg_; }
+     
+     double warmup() {
+@@ -1665,6 +1677,7 @@ public:
+ 
+ private:
+     Config cfg_;
++    Ort::RunOptions run_opts_;  // every session runs with these (declared before the sessions)
+     std::unique_ptr<OrtSession> enc_, txt_, main_, flow_, dec_;
+     std::unique_ptr<Tokenizer> tok_;
+     std::unique_ptr<StatefulRunner> main_runner_;
+@@ -2037,15 +2050,26 @@ AudioData PocketTTS::generate(const std::string& text, const Tensor& voice, int
+     return {std::move(all_samples), SR};
+ }
+ 
+-void PocketTTS::stream(const std::string& text, const std::string& voice, StreamCallback cb, int max_frames) {
+-    stream(text, get_voice(voice), cb, max_frames);
++void PocketTTS::stream(const std::string& text, const std::string& voice, StreamCallback cb, int max_frames,
++                       const std::atomic<bool>* cancel) {
++    run_opts_.UnsetTerminate();  // an earlier cancelled stream may have left it set
++    stream(text, get_voice(voice), cb, max_frames, cancel);
+ }
+ 
+-void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallback cb, int max_frames) {
++// Cancellation: the generator checks the flag every frame, and interrupt()
++// makes the ONNX Runtime call in flight return, so neither side waits for the
++// next decoded chunk (up to max_chunk_frames). An interrupted call throws;
++// when cancelled, that is the normal way out.
++void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallback cb, int max_frames,
++                       const std::atomic<bool>* cancel) try {
++    auto cancelled = [cancel] { return cancel && cancel->load(); };
++    run_opts_.UnsetTerminate();
++    
+     auto sentences = split_sentences(text);
+     if (sentences.empty()) sentences.push_back(text);
+     
+     for (size_t si = 0; si < sentences.size(); ++si) {
++        if (cancelled()) return;
+         auto [prepared, eos_extra] = prepare_text(sentences[si], cfg_.eos_extra_frames);
+         if (prepared.empty()) continue;
+         auto gen = make_gen(voice, tokenize(prepared), max_frames, eos_extra);
+@@ -2060,21 +2084,30 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+         std::deque<Tensor> queue;
+         bool gen_done = false;
+         bool aborted = false;
++        std::exception_ptr gen_error;
+         
+         std::thread gen_thread([&]() {
+-            while (gen.has_next()) {
+-                {
+-                    std::lock_guard<std::mutex> lock(mtx);
+-                    if (aborted) return;
+-                }
+-                auto f = gen.next();
+-                if (f.numel() == 0) break;
+-                {
+-                    std::lock_guard<std::mutex> lock(mtx);
+-                    if (aborted) return;
+-                    queue.push_back(std::move(f));
++            try {
++                while (gen.has_next()) {
++                    {
++                        std::lock_guard<std::mutex> lock(mtx);
++                        if (aborted) return;
++                    }
++                    if (cancelled()) {
++                        interrupt();  // also stop a decode in flight
++                        break;
++                    }
++                    auto f = gen.next();
++                    if (f.numel() == 0) break;
++                    {
++                        std::lock_guard<std::mutex> lock(mtx);
++                        if (aborted) return;
++                        queue.push_back(std::move(f));
++                    }
++                    cv.notify_one();
+                 }
+-                cv.notify_one();
++            } catch (...) {
++                gen_error = std::current_exception();  // e.g. interrupted
+             }
+             {
+                 std::lock_guard<std::mutex> lock(mtx);
+@@ -2083,6 +2116,17 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+             cv.notify_one();
+         });
+         
++        // If decoding throws, stop and join the generator before the
++        // exception leaves this scope.
++        struct JoinGuard {
++            std::thread& t; std::mutex& m; bool& aborted;
++            ~JoinGuard() {
++                if (!t.joinable()) return;
++                { std::lock_guard<std::mutex> lock(m); aborted = true; }
++                t.join();
++            }
++        } join_guard{gen_thread, mtx, aborted};
++        
+         bool first = true;
+         
+         while (true) {
+@@ -2092,7 +2136,7 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+             {
+                 std::unique_lock<std::mutex> lock(mtx);
+                 cv.wait(lock, [&]{ return (int)queue.size() >= want || gen_done || aborted; });
+-                if (aborted) break;
++                if (aborted || cancelled()) break;
+                 
+                 int take = gen_done ? (int)queue.size() : std::min((int)queue.size(), want);
+                 for (int i = 0; i < take; ++i) {
+@@ -2114,7 +2158,7 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+                 size_t n = 1;
+                 for (auto d : shape) n *= d;
+                 
+-                if (!cb(outputs[0].GetTensorData<float>(), n)) {
++                if (cancelled() || !cb(outputs[0].GetTensorData<float>(), n)) {
+                     std::lock_guard<std::mutex> lock(mtx);
+                     aborted = true;
+                     break;
+@@ -2126,8 +2170,12 @@ void PocketTTS::stream(const std::string& text, const Tensor& voice, StreamCallb
+         if (gen_thread.joinable()) {
+             gen_thread.join();
+         }
+-        if (aborted) return;
++        if (gen_error) std::rethrow_exception(gen_error);
++        if (aborted || cancelled()) return;
+     }
++} catch (const Ort::Exception&) {
++    if (cancel && cancel->load()) return;  // interrupted: cancelled as asked
++    throw;
+ }
+ 
+ // ════════════════════════════════════════════════════════════════════════════
+@@ -2649,12 +2697,15 @@ struct ptt_stream_ctx {
+     std::deque<std::pair<float*, size_t>> chunks;
+     bool done = false;
+     bool aborted = false;
++    pocket_tts::PocketTTS* tts = nullptr;
++    std::atomic<bool> cancel{false};
+ };
+ 
+ void* ptt_stream_start(void* handle, const char* text, const char* voice) {
+     if (!handle || !text || !voice) return nullptr;
+     auto* tts = static_cast<pocket_tts::PocketTTS*>(handle);
+     auto* ctx = new ptt_stream_ctx();
++    ctx->tts = tts;
+ 
+     ctx->thread = std::thread([tts, t = std::string(text), v = std::string(voice), ctx]() {
+         try {
+@@ -2669,7 +2720,7 @@ void* ptt_stream_start(void* handle, const char* text, const char* voice) {
+                 }
+                 ctx->cv.notify_one();
+                 return true;
+-            });
++            }, 500, &ctx->cancel);
+         } catch (const std::exception& e) {
+             std::cerr << "[pocket-tts] stream error: " << e.what() << "\n";
+         }
+@@ -2688,9 +2739,9 @@ int ptt_stream_read(void* stream_ctx, float** out_samples, int* out_len) {
+     auto* ctx = static_cast<ptt_stream_ctx*>(stream_ctx);
+ 
+     std::unique_lock<std::mutex> lock(ctx->mtx);
+-    ctx->cv.wait(lock, [ctx]{ return !ctx->chunks.empty() || ctx->done; });
++    ctx->cv.wait(lock, [ctx]{ return !ctx->chunks.empty() || ctx->done || ctx->aborted; });
+ 
+-    if (!ctx->chunks.empty()) {
++    if (!ctx->aborted && !ctx->chunks.empty()) {
+         auto [ptr, len] = ctx->chunks.front();
+         ctx->chunks.pop_front();
+         *out_samples = ptr;
+@@ -2700,14 +2751,27 @@ int ptt_stream_read(void* stream_ctx, float** out_samples, int* out_len) {
+     return 0;
+ }
+ 
+-void ptt_stream_end(void* stream_ctx) {
++// Stops a stream from any thread and returns at once: generation stops within
++// about a frame, and ptt_stream_read returns 0 from now on. The reading thread
++// still calls ptt_stream_end.
++void ptt_stream_cancel(void* stream_ctx) {
+     if (!stream_ctx) return;
+     auto* ctx = static_cast<ptt_stream_ctx*>(stream_ctx);
++    ctx->cancel = true;
++    bool running;
+     {
+         std::lock_guard<std::mutex> lock(ctx->mtx);
+         ctx->aborted = true;
++        running = !ctx->done;
+     }
++    if (running) ctx->tts->interrupt();
+     ctx->cv.notify_all();
++}
++
++void ptt_stream_end(void* stream_ctx) {
++    if (!stream_ctx) return;
++    auto* ctx = static_cast<ptt_stream_ctx*>(stream_ctx);
++    ptt_stream_cancel(ctx);  // a running stream now stops within about a frame
+     if (ctx->thread.joinable()) ctx->thread.join();
+     for (auto& [ptr, len] : ctx->chunks) free(ptr);
+     delete ctx;

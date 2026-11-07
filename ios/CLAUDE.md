@@ -1,0 +1,31 @@
+# CLAUDE.md
+
+Guidance for Claude Code in this repository. `README.md` has the layout and build steps.
+
+## Building
+
+- Simulator builds need no signing, so verify every change with one:
+  ```sh
+  xcodebuild -project Dial8.xcodeproj -scheme Dial8 -configuration Development \
+    -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+  ```
+  The `Dial8` scheme also builds the watch app and the widgets.
+- To RUN it in the Simulator, sign it ad hoc instead (`CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual
+  DEVELOPMENT_TEAM=`): an unsigned app can't use the Keychain, so Supabase can't store the PKCE code
+  verifier and Google sign-in fails with "both auth code and code verifier should be non-empty".
+- On-device transcription (`SpeechTranscriber`) isn't available in the Simulator; test voice notes on a device.
+- Device builds, archives and uploads need Liam's signing identity: leave those to him.
+- `project.yml` is the source of truth for the Xcode project. Never hand-edit
+  `Dial8.xcodeproj/project.pbxproj`; change `project.yml`, run `xcodegen`, commit both.
+  Adding or removing a Swift file needs neither (synchronized folders).
+- `Scripts/test-eve-chat.sh` runs the Eve chat contract tests.
+
+## Code
+
+- iOS and watchOS only. There is no macOS target; don't add `#if os(macOS)` branches.
+- `Shared/` is compiled into both the app and the widget extension. Keep it to what the widgets need.
+- The watch app has no package dependencies and talks to the phone only through WatchConnectivity
+  (`Watch/WatchSync.swift` ↔ `App/Services/WatchConnectivityService.swift`).
+- Chat runs on the web app's Eve chat agent; the contract is in `docs/ios-eve-chat.md`. The app
+  never calls a model provider directly.
+- New fixtures and examples use made-up names, never real people, customers or companies.

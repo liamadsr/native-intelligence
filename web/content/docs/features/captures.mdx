@@ -1,0 +1,89 @@
+---
+title: Captures
+description: Record meetings and brainstorms with AI-powered transcription, action item extraction, and decision tracking.
+---
+
+Captures are the meeting intelligence layer of Dial8. Record any conversation — a team standup, a sales call, a brainstorm — and let AI extract the important parts.
+
+## What is a Capture?
+
+A capture is a recorded session with:
+
+- **Transcription** — Full text of what was said
+- **AI-generated summary** — Key points and takeaways
+- **Extracted actions** — Tasks identified by AI, ready to be converted to workspace actions
+- **Decisions** — Key decisions made during the conversation
+- **Participants** — Who was in the meeting, with optional speaker identification
+
+## Meeting Types
+
+Dial8 processes captures differently based on their **Meeting Type**:
+
+| Meeting Type | Purpose |
+|--------------|---------|
+| **Meeting** | General team meetings — extracts actions, decisions, and summary |
+| **Brainstorm** | Idea sessions — focuses on capturing ideas and next steps |
+| **Standup** | Daily standups — extracts updates, blockers, and commitments |
+| **Sales Call** | Customer conversations — highlights objections, commitments, and follow-ups |
+| **Idea** | Quick thought capture — lightweight processing |
+
+You can also create custom Meeting Types from the **Library** tab in the dashboard.
+
+## Recording
+
+Recording is handled by the [Dial8 desktop app](/docs/desktop-app) — the web app manages and displays captures, but audio recording requires the native desktop companion.
+
+### How Recording Works
+
+1. The desktop app detects when you join a meeting (Zoom, Teams, Google Meet, etc.)
+2. If auto-record is enabled, it starts recording automatically — or you can start manually
+3. **Dual-stream audio** captures your microphone and system audio separately for cleaner transcription
+4. **Live transcription** shows a real-time transcript powered by Deepgram
+5. When the meeting ends, the capture is synced to your workspace for AI processing
+
+### Calendar Integration
+
+Captures can be linked to calendar events. When a calendar event with 2+ attendees starts, the desktop app can automatically begin recording if auto-capture is enabled. This creates a pending capture that's associated with the right event, attendees, and context.
+
+## Participants
+
+Each capture tracks who was involved:
+
+- **Organizer** — Who scheduled or started the capture
+- **Attendee** — Active participants
+- **Observer** — Passive listeners
+
+### Speaker Identification (Voice ID)
+
+With the desktop app's Voice ID feature, Dial8 can identify speakers by their voice and link them to workspace contacts. This uses voice embeddings stored per contact, with a progressive trust system that improves accuracy over time.
+
+## Decisions
+
+AI extracts decisions from captures — statements where the group agreed on a course of action. Each decision can be:
+
+- **Confirmed** — Verified by a team member
+- **Rejected** — Marked as incorrect extraction
+- Linked to related actions or projects
+
+## Draft Follow-up Actions
+
+After processing, AI suggests follow-up actions from the capture. You can:
+
+- Accept a suggestion to create a real workspace action
+- Edit the suggestion before accepting
+- Dismiss irrelevant suggestions
+
+## Comments
+
+Add comments to captures to annotate specific parts of the discussion. Comments support threading and @mentions.
+
+## Sharing
+
+Share captures with people outside your workspace using share links. Shared captures support:
+
+- **View access** — Read-only access to the capture
+- **Comment access** — External viewers can leave comments
+
+## Cross-References
+
+Captures can reference each other, creating a network of related conversations. This is useful for tracking how discussions evolve across multiple meetings.

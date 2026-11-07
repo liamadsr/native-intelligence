@@ -1,0 +1,44 @@
+diff --git a/include/nemo_speech/asr.h b/include/nemo_speech/asr.h
+index 70ceace..9b59c2b 100644
+--- a/include/nemo_speech/asr.h
++++ b/include/nemo_speech/asr.h
+@@ -1,5 +1,6 @@
+ // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ // SPDX-License-Identifier: Apache-2.0
++// Modified by Dial8 (2026-09): adds interim_word_offsets to the C API recognition options.
+ // nemo-speech: stable C ABI for ASR.
+ //
+ // This is the installed binary contract: opaque handles, POD structs, explicit
+@@ -189,6 +190,11 @@ typedef struct nemo_speech_asr_recognition_options {
+     // Sortformer model (four speakers for V2, eight for supported V3).
+     bool enable_speaker_diarization;
+     int32_t max_speaker_count;
++    // Streaming only: interim (non-final) results also carry word time offsets
++    // (when enable_word_time_offsets is set) and speaker tags (when
++    // enable_speaker_diarization is set). Default false: interims carry only
++    // the transcript text.
++    bool interim_word_offsets;
+ } nemo_speech_asr_recognition_options;
+ 
+ // Zero-initialized structs with `size` set to the current sizeof, holding the
+diff --git a/src/asr/c_api.cpp b/src/asr/c_api.cpp
+index 1ea3997..875c5f7 100644
+--- a/src/asr/c_api.cpp
++++ b/src/asr/c_api.cpp
+@@ -1,5 +1,6 @@
+ // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ // SPDX-License-Identifier: Apache-2.0
++// Modified by Dial8 (2026-09): honours interim_word_offsets from the C API recognition options.
+ // Maps the nemo_speech_asr_* C ABI onto the C++ recognizer. Exceptions become status
+ // codes and thread-local errors; no C++ types cross the boundary.
+ #include <cstddef>
+@@ -325,6 +326,9 @@ nemo_speech_asr_streaming_recognize(
+     return guard([&] {
+         auto h = std::make_unique<nemo_speech_asr_stream>();
+         h->impl = recognizer->impl->streaming_recognize(to_options(options), lang_of(options));
++        if (HAS_FIELD(options, nemo_speech_asr_recognition_options, interim_word_offsets) &&
++            options->interim_word_offsets)
++            h->impl->set_interim_words(true);
+         *out = h.release();
+         return NEMO_SPEECH_ASR_OK;
+     });

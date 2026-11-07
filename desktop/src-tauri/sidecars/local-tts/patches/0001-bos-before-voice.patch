@@ -1,0 +1,128 @@
+Subject: [PATCH 1/4] Prepend bos_before_voice.npy to the voice conditioning
+
+Bundles from english_2026-04 on (bundle.json "insert_bos_before_voice":
+true, "bos_before_voice_file": "bos_before_voice.npy") expect a BOS
+embedding in front of the voice embedding when the voice conditions the
+transformer. Without it the model produces noise instead of speech.
+
+Load <models_dir>/bos_before_voice.npy once at construction when the
+bundle has one (a small float32 .npy reader; older bundles have no such
+file and are unchanged) and prepend it to each voice embedding when the
+voice is first resolved. The on-disk .emb cache still holds the encoder
+output alone.
+
+voice_hash() now hashes the whole embedding: it hashed the first 16
+floats, which with the BOS in front are the same for every voice, so a
+second voice would have reused the first voice's KV snapshot.
+---
+ pocket_tts.cpp | 64 +++++++++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 56 insertions(+), 8 deletions(-)
+
+diff --git a/pocket_tts.cpp b/pocket_tts.cpp
+index 6b6b48a..61fd73a 100644
+--- a/pocket_tts.cpp
++++ b/pocket_tts.cpp
+@@ -366,6 +366,37 @@ static std::pair<std::string, int> prepare_text(const std::string& raw, int cfg_
+     return {text, eos_extra};
+ }
+ 
++// ── .npy loading ────────────────────────────────────────────────────────────
++// Reads a little-endian float32, C-order .npy file into a flat vector.
++// Returns an empty vector when the file does not exist.
++
++static std::vector<float> load_npy_f32(const std::string& path) {
++    std::vector<char> raw;
++    FILE* f = std::fopen(path.c_str(), "rb");
++    if (!f) return {};
++    char buf[4096];
++    size_t got;
++    while ((got = std::fread(buf, 1, sizeof buf, f)) > 0) raw.insert(raw.end(), buf, buf + got);
++    std::fclose(f);
++
++    if (raw.size() < 10 || std::memcmp(raw.data(), "\x93NUMPY", 6) != 0)
++        throw std::runtime_error("Not a .npy file: " + path);
++    size_t off = raw[6] == 1 ? 10 : 12;
++    if (raw.size() < off) throw std::runtime_error("Truncated .npy file: " + path);
++    size_t hlen = uint8_t(raw[8]) | (size_t(uint8_t(raw[9])) << 8);
++    if (off == 12) hlen |= (size_t(uint8_t(raw[10])) << 16) | (size_t(uint8_t(raw[11])) << 24);
++    if (off + hlen > raw.size()) throw std::runtime_error("Truncated .npy file: " + path);
++    std::string header(raw.data() + off, hlen);
++    if (header.find("'<f4'") == std::string::npos || header.find("'fortran_order': False") == std::string::npos)
++        throw std::runtime_error("Unsupported .npy (need little-endian float32, C order): " + path);
++    size_t bytes = raw.size() - off - hlen;
++    if (bytes == 0 || bytes % sizeof(float) != 0) throw std::runtime_error("Bad .npy data size: " + path);
++
++    std::vector<float> out(bytes / sizeof(float));
++    std::memcpy(out.data(), raw.data() + off + hlen, bytes);
++    return out;
++}
++
+ // ════════════════════════════════════════════════════════════════════════════
+ // Profiler
+ // ════════════════════════════════════════════════════════════════════════════
+@@ -1464,7 +1495,9 @@ public:
+         
+         main_runner_ = std::make_unique<StatefulRunner>(*main_);
+         dec_runner_ = std::make_unique<StatefulRunner>(*dec_);
+-        
++
++        bos_ = load_npy_f32(cfg_.models_dir + "/bos_before_voice.npy");
++
+         dt_ = 1.0f / cfg_.lsd_steps;
+         st_values_.reserve(cfg_.lsd_steps);
+         for (int j = 0; j < cfg_.lsd_steps; ++j) {
+@@ -1639,21 +1672,34 @@ private:
+     std::vector<std::pair<float, float>> st_values_;
+     float dt_;
+     std::unordered_map<std::string, Tensor> vcache_;
+-    
++    std::vector<float> bos_;  // bos_before_voice.npy; empty when the bundle has none
++
+     // ── Voice Resolution ────────────────────────────────────────────────────
+-    
++
+     std::string resolve_voice_path(const std::string& p) const {
+         if (!p.empty() && p[0] == '/') return p;
+         return cfg_.voices_dir + "/" + p;
+     }
+-    
++
+     const Tensor& get_voice(const std::string& p) {
+         voice_kv_path_ = p;
+         auto it = vcache_.find(p);
+         if (it != vcache_.end()) return it->second;
+-        
++
+         std::string resolved = resolve_voice_path(p);
+-        return vcache_[p] = encode_voice(resolved);
++        return vcache_[p] = prepend_bos(encode_voice(resolved));
++    }
++
++    // Bundles from english_2026-04 on (bundle.json insert_bos_before_voice)
++    // expect a BOS embedding in front of the voice conditioning; without it
++    // the output is noise. Older bundles ship no bos_before_voice.npy.
++    Tensor prepend_bos(Tensor v) const {
++        if (bos_.empty()) return v;
++        int64_t dim = v.shape.back();
++        if (dim <= 0 || bos_.size() % size_t(dim) != 0)
++            throw std::runtime_error("bos_before_voice.npy does not match the voice embedding size");
++        Tensor bos(bos_, {1, int64_t(bos_.size()) / dim, dim});
++        return Tensor::concat({bos, v}, 1);
+     }
+     
+     // ── Tokenization ────────────────────────────────────────────────────────
+@@ -1876,10 +1922,12 @@ private:
+     uint64_t voice_kv_hash_ = 0;
+     std::string voice_kv_path_;
+     
++    // Hashes the whole embedding: with a BOS embedding in front, every voice
++    // starts with the same values, so a prefix can't tell voices apart.
+     static uint64_t voice_hash(const Tensor& v) {
+         uint64_t h = 14695981039346656037ull;
+-        int n = std::min(16, int(v.data.size()));
+-        for (int i = 0; i < n; ++i) {
++        size_t n = v.data.size();
++        for (size_t i = 0; i < n; ++i) {
+             uint32_t bits;
+             memcpy(&bits, &v.data[i], sizeof(bits));
+             h ^= bits;

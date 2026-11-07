@@ -1,0 +1,1814 @@
+{
+  "request": {
+    "query": "B2B software companies with fast-growing sales teams (20-300 reps) that would buy an AI meeting-capture and CRM tool",
+    "type": "deep",
+    "category": "company",
+    "numResults": 25,
+    "additionalQueries": [
+      "SaaS companies hiring account executives and SDRs 2026 mid-market",
+      "series B and C software companies scaling go-to-market teams",
+      "companies with large inside sales teams that run many customer calls per week"
+    ],
+    "systemPrompt": "Prospecting for the source company. Source: Dial8 (dial8.ai): AI workspace for sales teams — records and transcribes customer meetings, extracts actions and decisions, keeps a CRM with web enrichment and email sequences. $99 per seat.\nReturn UP TO 20 DISTINCT companies, one entry per company, each with its primary website domain. Skip anything without a clear domain. NEVER include any of these already-known domains: quillfort.ai, quoteleaf.com, tallyhire.com, roamwise.ai, replyforge.com, forecastly.com, sequencely.io, cadenceloop.com, leadvault.io, contactgrid.com, hubspot.com, chimewell.io.",
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "companies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Company name"
+              },
+              "domain": {
+                "type": "string",
+                "description": "Primary website domain, no scheme"
+              },
+              "oneLiner": {
+                "type": "string",
+                "description": "What the company does, one sentence"
+              },
+              "whyMatch": {
+                "type": "string",
+                "description": "Why this company fits the described buyer"
+              },
+              "signal": {
+                "type": "string",
+                "description": "A recent hiring, funding or product signal, if any, with dates"
+              },
+              "employeeRange": {
+                "type": "string",
+                "description": "Headcount range"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "status": 200,
+  "response": {
+    "requestId": "692d481e20fd13d8ae3b51cfecc3fec4",
+    "resolvedSearchType": "",
+    "results": [
+      {
+        "id": "https://exa.ai/library/organization/gwv39dnyd5q",
+        "title": "Tallyhire",
+        "url": "https://tallyhire.com/",
+        "publishedDate": "2026-06-26T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE03026iot6fij/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/gwv39dnyd5q",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Tallyhire",
+              "foundedYear": 2018,
+              "description": "Tallyhire helps scaling companies hit their hiring goals. Teams of every size run a fast, well-organized hiring process on it, from sourcing to offer.",
+              "workforce": {
+                "total": 316
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 42000000,
+                "fundingTotal": 141635755,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 17617760,
+                "countryRank": 1163,
+                "avgDurationSeconds": 231,
+                "history": [
+                  {
+                    "value": 16085663,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 15869690,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 18072634,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 17736402,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 17736402,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 17617760,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/ehh4zg81jyi",
+        "title": "Ticketry",
+        "url": "https://useticketry.com/",
+        "publishedDate": "2026-06-21T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEouh2ct4yd3xi/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/ehh4zg81jyi",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Ticketry",
+              "foundedYear": null,
+              "description": "Ticketry is a support platform built for B2B teams: ticketing, shared channels, an AI knowledge base, AI agents and account intelligence in one place.",
+              "workforce": {
+                "total": 105
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 2333333,
+                "fundingTotal": 51325000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 351658,
+                "countryRank": 44444,
+                "avgDurationSeconds": 306,
+                "history": [
+                  {
+                    "value": 210112,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 284298,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 364083,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 403319,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 403319,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 351658,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/qfy5m9ap736",
+        "title": "Cadencio",
+        "url": "https://cadencio.ai/",
+        "publishedDate": "2026-06-28T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEnpjusfbbg2xf/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/qfy5m9ap736",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Cadencio",
+              "foundedYear": 2020,
+              "description": "Cadencio is an AI-native sales engagement platform. CadencioOne puts rep outreach and AI prospecting agents in a single workflow.",
+              "workforce": {
+                "total": 71
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 1444444,
+                "fundingTotal": 50800000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 52457,
+                "countryRank": 80413,
+                "avgDurationSeconds": 19,
+                "history": [
+                  {
+                    "value": 38974,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 35986,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 32550,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 36870,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 52614,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 52457,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/2tqq9ku18rf",
+        "title": "Marketlift",
+        "url": "https://marketlift.io/",
+        "publishedDate": "2026-06-21T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEhspcm1wssj7d/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/2tqq9ku18rf",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Marketlift",
+              "foundedYear": 2023,
+              "description": "Marketlift helps software companies list, co-sell and reconcile revenue on the major cloud marketplaces from one platform.",
+              "workforce": {
+                "total": 47
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": null,
+                "fundingTotal": 14000000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 19075,
+                "countryRank": 768119,
+                "avgDurationSeconds": 55,
+                "history": [
+                  {
+                    "value": 9719,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 11574,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 11429,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 15280,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 18245,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 19075,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/2s8v5shrren",
+        "title": "Rivalscope",
+        "url": "https://rivalscope.co/",
+        "publishedDate": "2026-06-23T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEskewk839y2a0/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/2s8v5shrren",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Rivalscope",
+              "foundedYear": 2015,
+              "description": "Rivalscope is a competitive enablement platform that watches the market and the deal desk, then tells sales teams what they need to win head-to-head deals.",
+              "workforce": {
+                "total": 54
+              },
+              "headquarters": {
+                "address": "Boston, United States",
+                "city": "Boston",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 8425000,
+                "fundingTotal": 38100000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 76842,
+                "countryRank": 237280,
+                "avgDurationSeconds": 43,
+                "history": [
+                  {
+                    "value": 83612,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 80214,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 86723,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 94007,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 94007,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 76842,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/r6hru1ph58c",
+        "title": "Roamwise",
+        "url": "https://roamwise.ai/",
+        "publishedDate": "2026-06-24T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE0ukgy2bkdfkg/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/r6hru1ph58c",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Roamwise",
+              "foundedYear": 2020,
+              "description": "Roamwise is a coaching companion for field sales teams. It records in-person sales conversations and turns them into coaching and pipeline insight.",
+              "workforce": {
+                "total": 96
+              },
+              "headquarters": {
+                "address": "New York, United States",
+                "city": "New York",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": null,
+                "fundingTotal": 73020000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 29997,
+                "countryRank": 214569,
+                "avgDurationSeconds": 178,
+                "history": [
+                  {
+                    "value": 35193,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 40429,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 40429,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 25225,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 25225,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 29997,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/jvdsfpccn0s",
+        "title": "Chimewell",
+        "url": "https://chimewell.io/",
+        "publishedDate": "2026-06-28T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEe8w9rzj9qppa/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/jvdsfpccn0s",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Chimewell",
+              "foundedYear": 2015,
+              "description": "Chimewell is a revenue AI platform that brings customer conversations, deal data and workflows together for revenue teams.",
+              "workforce": {
+                "total": 1594
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 37500000,
+                "fundingTotal": 586000000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 2101007,
+                "countryRank": 7346,
+                "avgDurationSeconds": 383,
+                "history": [
+                  {
+                    "value": 1715893,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 2101014,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 2060681,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 2364096,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 2192399,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 2101007,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/6j94whho0st",
+        "title": "Forecastly",
+        "url": "https://forecastly.com/",
+        "publishedDate": "2026-06-26T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLElbvlle0oianp/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/6j94whho0st",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Forecastly",
+              "foundedYear": 2012,
+              "description": "Forecastly is a revenue platform for forecasting and pipeline inspection, built for sales leaders who need to call the quarter.",
+              "workforce": {
+                "total": 420
+              },
+              "headquarters": {
+                "address": "Sunnyvale, United States",
+                "city": "Sunnyvale",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 53700000,
+                "fundingTotal": 496000000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 670241,
+                "countryRank": 21554,
+                "avgDurationSeconds": 248,
+                "history": [
+                  {
+                    "value": 771744,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 779938,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 790282,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 790282,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 712515,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 670241,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/ppz6m5fhnrb",
+        "title": "Replyforge AI",
+        "url": "https://replyforge.com/",
+        "publishedDate": "2026-06-23T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLExdqk69ds4g9x/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/ppz6m5fhnrb",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Replyforge AI",
+              "foundedYear": 2014,
+              "description": "Replyforge gives sellers AI copilots for the inbox, meetings and engagement, pulling context from email, calendar and CRM.",
+              "workforce": {
+                "total": 38
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 10800000,
+                "fundingTotal": 13350000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 316420,
+                "countryRank": 42168,
+                "avgDurationSeconds": 126,
+                "history": [
+                  {
+                    "value": 247989,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 291317,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 334667,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 293838,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 293838,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 316420,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/t31o2j1ukjk",
+        "title": "Sequencely",
+        "url": "https://sequencely.ai/",
+        "publishedDate": "2026-06-17T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLElqde3au04asc/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/t31o2j1ukjk",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Sequencely",
+              "foundedYear": 2014,
+              "description": "Sequencely is a sales execution platform for revenue teams: sequences, conversation intelligence and forecasting in one product.",
+              "workforce": {
+                "total": 775
+              },
+              "headquarters": {
+                "address": "Seattle, United States",
+                "city": "Seattle",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 154700000,
+                "fundingTotal": 489000000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/u3td0g3077y",
+        "title": "Pipewright",
+        "url": "https://pipewright.io/",
+        "publishedDate": "2026-06-24T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEfufdy0i0tatm/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/u3td0g3077y",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Pipewright",
+              "foundedYear": 2017,
+              "description": "Pipewright is an outsourced sales development company that embeds SDR teams into its clients' go-to-market under their brand.",
+              "workforce": {
+                "total": 72
+              },
+              "headquarters": {
+                "address": "Argentina",
+                "city": null,
+                "postalCode": null,
+                "country": "Argentina"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 79,
+                "countryRank": null,
+                "avgDurationSeconds": 0,
+                "history": [
+                  {
+                    "value": 2059,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 1306,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 1521,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1521,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 47,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 79,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/petc3wkipyk",
+        "title": "Callcrest",
+        "url": "https://callcrest.io/",
+        "publishedDate": "2026-06-26T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEgzihjon73plc/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/petc3wkipyk",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Callcrest",
+              "foundedYear": 2012,
+              "description": "Callcrest runs outsourced inside sales teams for software companies, from pipeline generation to closing.",
+              "workforce": {
+                "total": 150
+              },
+              "headquarters": {
+                "address": "Burlington, United States",
+                "city": "Burlington",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 14900000,
+                "fundingTotal": null,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 3876,
+                "countryRank": 1343431,
+                "avgDurationSeconds": 32,
+                "history": [
+                  {
+                    "value": 3524,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 2557,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 3016,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1880,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1880,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 3876,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/9tcstt01q0g",
+        "title": "Pitchleaf",
+        "url": "https://pitchleaf.com/",
+        "publishedDate": "2026-06-26T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE5s0ebs8lwulw/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/9tcstt01q0g",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Pitchleaf",
+              "foundedYear": 2012,
+              "description": "Pitchleaf is proposal software that helps sales teams create, send, track and e-sign proposals and contracts.",
+              "workforce": {
+                "total": 57
+              },
+              "headquarters": {
+                "address": "Halifax, Canada",
+                "city": "Halifax",
+                "postalCode": null,
+                "country": "Canada"
+              },
+              "financials": {
+                "revenueAnnual": 8200000,
+                "fundingTotal": 12609474,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 265458,
+                "countryRank": 63354,
+                "avgDurationSeconds": 285,
+                "history": [
+                  {
+                    "value": 308320,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 270694,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 287268,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 267658,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 267658,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 265458,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/zqckkfdxi0m",
+        "title": "Subscribely",
+        "url": "https://subscribely.com/",
+        "publishedDate": "2026-06-28T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE9ci17ebj28v1/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/zqckkfdxi0m",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Subscribely",
+              "foundedYear": 2009,
+              "description": "Subscribely is a B2B subscription commerce platform that connects technology providers, advisors and buyers.",
+              "workforce": {
+                "total": 763
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": 281000000,
+                "fundingTotal": 754502250,
+                "fundingLatestRound": null
+              },
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/6cqivmd9l39",
+        "title": "VERITANE",
+        "url": "https://veritane.ai/",
+        "publishedDate": "2026-06-26T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE0tdkog8zdis5/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/6cqivmd9l39",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "VERITANE",
+              "foundedYear": 2023,
+              "description": "Veritane is a sales intelligence platform that maps buyer pain points to product capabilities for enterprise sales teams.",
+              "workforce": {
+                "total": 6
+              },
+              "headquarters": {
+                "address": "Sunnyvale, United States",
+                "city": "Sunnyvale",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": {
+                "revenueAnnual": null,
+                "fundingTotal": 9000000,
+                "fundingLatestRound": null
+              },
+              "webTraffic": {
+                "visitsMonthly": 3089,
+                "countryRank": 1607580,
+                "avgDurationSeconds": 32,
+                "history": [
+                  {
+                    "value": 1432,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 2857,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 6337,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 4822,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1315,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 3089,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/ya48ej9kux8",
+        "title": "B2B SaaS Hub",
+        "url": "https://linkedin.com/company/b2b-saas-hub",
+        "publishedDate": "2026-06-09T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEbk11fosyus2p/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/ya48ej9kux8",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "B2B SaaS Hub",
+              "foundedYear": null,
+              "description": "B2B SaaS Hub publishes strategy guides, industry trends and practical playbooks for B2B software companies.",
+              "workforce": {
+                "total": 43
+              },
+              "headquarters": {
+                "address": "Bangalore, India",
+                "city": "Bangalore",
+                "postalCode": null,
+                "country": "India"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/csnk4bczrcp",
+        "title": "LaunchSDR",
+        "url": "https://launchsdr.ai/",
+        "publishedDate": "2026-04-29T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE0wnyat22sde1/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/csnk4bczrcp",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "LaunchSDR",
+              "foundedYear": 2024,
+              "description": "LaunchSDR is an AI sales agent platform from Zestly that helps B2B teams scale personalized outbound outreach.",
+              "workforce": {
+                "total": 11
+              },
+              "headquarters": {
+                "address": "Wilmington, United States",
+                "city": "Wilmington",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/8mktjjdjjdg",
+        "title": "SaaS Talent Bridge",
+        "url": "https://linkedin.com/company/saas-talent-bridge",
+        "publishedDate": "2026-06-10T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEjzkzn54dzrvd/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/8mktjjdjjdg",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "SaaS Talent Bridge",
+              "foundedYear": 2025,
+              "description": "SaaS Talent Bridge offers recruitment services for technical and non-technical roles, from sourcing to offer.",
+              "workforce": null,
+              "headquarters": {
+                "address": "India",
+                "city": null,
+                "postalCode": null,
+                "country": "India"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/pzhgmdrts8f",
+        "title": "Remy",
+        "url": "https://getremy.ai/",
+        "publishedDate": "2026-06-28T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE7p4o3berm78p/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/pzhgmdrts8f",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Remy",
+              "foundedYear": 2026,
+              "description": "Remy is an AI account executive that reads every active deal across your CRM, calls and inbox, then proposes the next move.",
+              "workforce": {
+                "total": 6
+              },
+              "headquarters": {
+                "address": "London, United Kingdom",
+                "city": "London",
+                "postalCode": null,
+                "country": "United Kingdom"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 1602,
+                "countryRank": 785036,
+                "avgDurationSeconds": 54,
+                "history": [
+                  {
+                    "value": 1600,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 846,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1575,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1292,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1292,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1602,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/3iuiqjf1ma5",
+        "title": "B2B Growth Partners, LLC.",
+        "url": "https://linkedin.com/company/growthpdx",
+        "publishedDate": "2026-06-08T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEc26896e9mdqw/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/3iuiqjf1ma5",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "B2B Growth Partners, LLC.",
+              "foundedYear": null,
+              "description": "B2B Growth Partners is a business development and customer success consultancy for B2B software companies.",
+              "workforce": null,
+              "headquarters": {
+                "address": "Portland, United States",
+                "city": "Portland",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/p5zg6cpiira",
+        "title": "scale up sales",
+        "url": "https://scaleupsales.net/",
+        "publishedDate": "2026-06-27T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE2by4gr8fw3cw/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/p5zg6cpiira",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "scale up sales",
+              "foundedYear": 1998,
+              "description": "",
+              "workforce": {
+                "total": 2
+              },
+              "headquarters": {
+                "address": "Dallas, United States",
+                "city": "Dallas",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/jf7a3lalklm",
+        "title": "Scale Sales Co",
+        "url": "https://linkedin.com/company/scalesalesco",
+        "publishedDate": "2026-06-24T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEb7etpautc5f5/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/jf7a3lalklm",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Scale Sales Co",
+              "foundedYear": 2023,
+              "description": "Scale Sales Co works with B2B businesses on marketing, sales strategy and tooling.",
+              "workforce": null,
+              "headquarters": {
+                "address": "trondheim, Norway",
+                "city": "trondheim",
+                "postalCode": null,
+                "country": "Norway"
+              },
+              "financials": null,
+              "webTraffic": null,
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/baec9af9woa",
+        "title": "Desert Sales Reps",
+        "url": "https://dsrepaz.net/",
+        "publishedDate": "2026-06-24T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEkmzlgzbim9rn/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/baec9af9woa",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Desert Sales Reps",
+              "foundedYear": null,
+              "description": "Independent sales agency serving the plumbing and HVAC industry.",
+              "workforce": {
+                "total": 6
+              },
+              "headquarters": {
+                "address": "Mesa, United States",
+                "city": "Mesa",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 1347,
+                "countryRank": 2962385,
+                "avgDurationSeconds": 59,
+                "history": [
+                  {
+                    "value": 2057,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 455,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 875,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 1599,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1599,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 1347,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/km60nur4lhs",
+        "title": "Series B Builders",
+        "url": "https://seriesbbuilders.com/",
+        "publishedDate": "2026-06-21T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLE8b2amyov6m45/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/km60nur4lhs",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "Series B Builders",
+              "foundedYear": 2018,
+              "description": "Series B Builders is a consultancy that helps growing organizations scale their operations and strategy.",
+              "workforce": {
+                "total": 2
+              },
+              "headquarters": {
+                "address": "San Francisco, United States",
+                "city": "San Francisco",
+                "postalCode": null,
+                "country": "United States"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": 869,
+                "countryRank": null,
+                "avgDurationSeconds": 0,
+                "history": [
+                  {
+                    "value": 348,
+                    "dateFrom": "2026-02",
+                    "dateTo": "2026-02"
+                  },
+                  {
+                    "value": 872,
+                    "dateFrom": "2026-03",
+                    "dateTo": "2026-03"
+                  },
+                  {
+                    "value": 647,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 647,
+                    "dateFrom": "2026-04",
+                    "dateTo": "2026-04"
+                  },
+                  {
+                    "value": 453,
+                    "dateFrom": "2026-05",
+                    "dateTo": "2026-05"
+                  },
+                  {
+                    "value": 869,
+                    "dateFrom": "2026-06",
+                    "dateTo": "2026-06"
+                  }
+                ]
+              },
+              "research": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "https://exa.ai/library/organization/8ropx9tsdfu",
+        "title": "B Series Staffing Group",
+        "url": "https://linkedin.com/showcase/b-series-staffing-group",
+        "publishedDate": "2026-06-10T00:00:00.000Z",
+        "image": "https://media.licdn.com/dms/image/v2/EXAMPLEggeopqr6trfq/company-logo_200_200/0/1700000000000?e=2147483647&v=beta&t=example",
+        "entities": [
+          {
+            "id": "https://exa.ai/library/organization/8ropx9tsdfu",
+            "type": "company",
+            "version": 1,
+            "properties": {
+              "name": "B Series Staffing Group",
+              "foundedYear": null,
+              "description": "The B Series Staffing Group includes Barrow Recruitment and Bellmont Recruitment.",
+              "workforce": null,
+              "headquarters": {
+                "address": "Brisbane, Australia",
+                "city": "Brisbane",
+                "postalCode": null,
+                "country": "Australia"
+              },
+              "financials": null,
+              "webTraffic": {
+                "visitsMonthly": null,
+                "countryRank": 0,
+                "avgDurationSeconds": null,
+                "history": []
+              },
+              "research": null
+            }
+          }
+        ]
+      }
+    ],
+    "searchTime": 7560.3,
+    "costDollars": {
+      "total": 0.027
+    },
+    "output": {
+      "content": {
+        "companies": [
+          {
+            "oneLiner": "Tallyhire is an AI-native talent platform that helps scaling companies run fast and efficient hiring processes.",
+            "employeeRange": "316",
+            "whyMatch": "They are a rapidly growing B2B SaaS company that deeply understands the needs of other scaling GTM teams.",
+            "name": "Tallyhire",
+            "signal": "Raised $48M Series D in July 2025 to scale AI-native hiring infrastructure.",
+            "domain": "tallyhire.com"
+          },
+          {
+            "domain": "useticketry.com",
+            "oneLiner": "Ticketry provides a modern support platform optimized for B2B companies, including ticketing, AI agents, and account intelligence.",
+            "whyMatch": "Their focus on B2B support and account intelligence makes them an ideal user for AI meeting-capture and CRM enrichment tools.",
+            "name": "Ticketry",
+            "employeeRange": "105",
+            "signal": "Raised $29M Series B in October 2025 and is actively hiring GTM roles like Account Executives."
+          },
+          {
+            "name": "Cadencio",
+            "signal": "Raised $27M Series B in March 2025 to scale their AI platform.",
+            "whyMatch": "As a B2B sales technology company, they are a strong candidate for tools that enhance CRM data and meeting insights.",
+            "oneLiner": "Cadencio is an AI-driven sales engagement platform that unites human and agentic prospecting in one workflow.",
+            "employeeRange": "71",
+            "domain": "cadencio.ai"
+          },
+          {
+            "employeeRange": "47",
+            "name": "Marketlift",
+            "domain": "marketlift.io",
+            "oneLiner": "Marketlift is a cloud sales acceleration platform that helps SaaS companies scale revenue on major cloud marketplaces.",
+            "signal": "Raised $9M Series A in May 2024 to modernize SaaS sales across cloud marketplaces.",
+            "whyMatch": "They focus on streamlining cloud sales journeys, which aligns perfectly with AI-driven CRM and deal-capture tools."
+          },
+          {
+            "signal": "Strong competitive position with $36M total funding and long-standing focus on sales enablement.",
+            "name": "Rivalscope",
+            "employeeRange": "54",
+            "whyMatch": "They work with market-leading B2B companies and value deep competitive and deal-level intelligence.",
+            "oneLiner": "Rivalscope is a competitive enablement platform that monitors market data to help sales teams win competitive deals.",
+            "domain": "rivalscope.co"
+          }
+        ]
+      },
+      "grounding": [
+        {
+          "field": "companies[0].oneLiner",
+          "citations": [
+            {
+              "url": "https://tallyhire.com",
+              "title": "Tallyhire"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].employeeRange",
+          "citations": [
+            {
+              "url": "https://tallyhire.com",
+              "title": "Tallyhire"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].whyMatch",
+          "citations": [
+            {
+              "url": "https://tallyhire.com",
+              "title": "Tallyhire"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].name",
+          "citations": [
+            {
+              "url": "https://tallyhire.com",
+              "title": "Tallyhire"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].signal",
+          "citations": [
+            {
+              "url": "https://tallyhire.com",
+              "title": "Tallyhire"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[0].domain",
+          "citations": [
+            {
+              "url": "https://tallyhire.com",
+              "title": "Tallyhire"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].domain",
+          "citations": [
+            {
+              "url": "https://useticketry.com",
+              "title": "Ticketry"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].oneLiner",
+          "citations": [
+            {
+              "url": "https://useticketry.com",
+              "title": "Ticketry"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].whyMatch",
+          "citations": [
+            {
+              "url": "https://useticketry.com",
+              "title": "Ticketry"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].name",
+          "citations": [
+            {
+              "url": "https://useticketry.com",
+              "title": "Ticketry"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].employeeRange",
+          "citations": [
+            {
+              "url": "https://useticketry.com",
+              "title": "Ticketry"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[1].signal",
+          "citations": [
+            {
+              "url": "https://useticketry.com",
+              "title": "Ticketry"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].name",
+          "citations": [
+            {
+              "url": "https://cadencio.ai",
+              "title": "Cadencio"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].signal",
+          "citations": [
+            {
+              "url": "https://cadencio.ai",
+              "title": "Cadencio"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].whyMatch",
+          "citations": [
+            {
+              "url": "https://cadencio.ai",
+              "title": "Cadencio"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].oneLiner",
+          "citations": [
+            {
+              "url": "https://cadencio.ai",
+              "title": "Cadencio"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].employeeRange",
+          "citations": [
+            {
+              "url": "https://cadencio.ai",
+              "title": "Cadencio"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[2].domain",
+          "citations": [
+            {
+              "url": "https://cadencio.ai",
+              "title": "Cadencio"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].employeeRange",
+          "citations": [
+            {
+              "url": "https://marketlift.io",
+              "title": "Marketlift"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].name",
+          "citations": [
+            {
+              "url": "https://marketlift.io",
+              "title": "Marketlift"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].domain",
+          "citations": [
+            {
+              "url": "https://marketlift.io",
+              "title": "Marketlift"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].oneLiner",
+          "citations": [
+            {
+              "url": "https://marketlift.io",
+              "title": "Marketlift"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].signal",
+          "citations": [
+            {
+              "url": "https://marketlift.io",
+              "title": "Marketlift"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[3].whyMatch",
+          "citations": [
+            {
+              "url": "https://marketlift.io",
+              "title": "Marketlift"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].signal",
+          "citations": [
+            {
+              "url": "https://rivalscope.co",
+              "title": "Rivalscope"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].name",
+          "citations": [
+            {
+              "url": "https://rivalscope.co",
+              "title": "Rivalscope"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].employeeRange",
+          "citations": [
+            {
+              "url": "https://rivalscope.co",
+              "title": "Rivalscope"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].whyMatch",
+          "citations": [
+            {
+              "url": "https://rivalscope.co",
+              "title": "Rivalscope"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].oneLiner",
+          "citations": [
+            {
+              "url": "https://rivalscope.co",
+              "title": "Rivalscope"
+            }
+          ],
+          "confidence": "high"
+        },
+        {
+          "field": "companies[4].domain",
+          "citations": [
+            {
+              "url": "https://rivalscope.co",
+              "title": "Rivalscope"
+            }
+          ],
+          "confidence": "high"
+        }
+      ]
+    }
+  }
+}
