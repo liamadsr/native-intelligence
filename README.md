@@ -41,6 +41,37 @@ Native Intelligence is both halves of the fix:
 
 <br />
 
+# Model, harness, context
+
+How well an agent works, and how good it is to work with, comes down to three layers:
+
+1. **The model:** the intelligence that does the work.
+2. **The harness:** what the model can see and what it can do. Its tools, its memory,
+   and the rules around it.
+3. **The context:** what it knows about you, your work and your business.
+
+Get one of them wrong and the agent disappoints, however good the other two are.
+Native Intelligence brings all three together in one platform:
+
+- **Context.** Your email, calendar, meetings, messages, customers and documents live in
+  one workspace, and so does everything you tell the agent along the way: a text asking
+  it to remind you about something, or to take care of it. It's all captured, connected
+  and remembered.
+- **Harness.** More than 250 tools across the workspace, a memory of facts, decisions and
+  preferences with where each one came from, skills, automations, and a reviewer that
+  holds anything risky for your yes.
+- **Models.** The system picks the right model for each job. The main agent, the
+  always-on one in charge, orchestrates the work: when it hands something off, it starts
+  a helper, picks a model to fit the task (a fast, inexpensive one to draft an email, a
+  stronger one for harder work), and gives that helper just the context and skills it
+  needs, like an email-writing skill. You can also run it on your own ChatGPT plan.
+
+Models, harnesses and context all keep getting better. Because all three meet in one
+place, every improvement compounds: the agent keeps learning your business, or your life,
+with all its complexity, until it simply does things for you the way you expect.
+
+<br />
+
 # What's in the workspace
 
 | Part | What it does | Docs |
@@ -124,6 +155,10 @@ Where it's going next:
 - **More imports.** Bring customers in from email tools, accounting and payment apps,
   and other CRMs.
 - **Windows.** Everything the Mac app does, on Windows.
+- **Choose your agent's model.** Pick the model your main agent runs on, while it keeps
+  choosing the right model for each helper.
+- **Call your agent.** Phone it to ask for something or set a reminder, like texting it
+  today.
 - **More autonomy.** The agent takes over recurring work as it earns your trust, until
   it runs most of the day-to-day on its own.
 
