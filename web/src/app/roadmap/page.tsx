@@ -4,7 +4,7 @@ import { Footer } from '@/components/footer'
 import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { RoadmapTimeline } from '@/components/roadmap/roadmap-timeline'
-import { ROADMAP_ISSUES_URL, ROADMAP_SUGGEST_URL } from '@/lib/roadmap/constants'
+import { ROADMAP_ISSUES_URL, ROADMAP_PROJECT_URL, ROADMAP_SUGGEST_URL } from '@/lib/roadmap/constants'
 import { getRoadmap } from '@/lib/roadmap/fetch'
 
 // Rebuilt at most every five minutes, like the GitHub fetch it shows
@@ -63,6 +63,15 @@ export default async function RoadmapPage() {
                 className="inline-flex items-center justify-center gap-2 py-3 px-6 text-base rounded-full border border-border whitespace-nowrap font-medium text-foreground hover:bg-accent transition-colors"
               >
                 View on GitHub
+                <ArrowUpRight className="h-4 w-4" aria-hidden />
+              </a>
+              <a
+                href={ROADMAP_PROJECT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 py-3 px-6 text-base rounded-full border border-border whitespace-nowrap font-medium text-foreground hover:bg-accent transition-colors"
+              >
+                Timeline on GitHub
                 <ArrowUpRight className="h-4 w-4" aria-hidden />
               </a>
             </div>

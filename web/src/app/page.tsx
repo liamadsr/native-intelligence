@@ -7,6 +7,7 @@ import { redirect } from 'next/navigation'
 // the original landing page — the dashboard holds at 0%. Sales is also what
 // every unresolved state renders (SSR, flag not loaded, unknown key).
 import { LandingVariantSwitch } from './landing-variant-switch'
+import { HomeRoadmapSlot } from '@/components/roadmap/home-roadmap'
 import {
   StructuredData,
   organizationSchema,
@@ -44,7 +45,11 @@ export default async function Home() {
       <StructuredData
         data={[organizationSchema, websiteSchema, softwareApplicationSchema]}
       />
-      <LandingVariantSwitch />
+      {/* The roadmap section is a server component: GitHub is read here, on
+          the server and through its five-minute cache, never from the
+          browser. It streams in behind its own Suspense boundary, so the
+          page never waits on it. */}
+      <LandingVariantSwitch roadmap={<HomeRoadmapSlot />} />
     </>
   )
 }

@@ -13,6 +13,9 @@ export const ROADMAP_IDEAS_URL = `${ROADMAP_REPO_URL}/issues?q=is%3Aissue%20labe
 /** Opens the feature request form (`.github/ISSUE_TEMPLATE/feature_request.yml`). */
 export const ROADMAP_SUGGEST_URL = `${ROADMAP_REPO_URL}/issues/new?template=feature_request.yml`
 
+/** The same issues as a timeline, in the public GitHub Project. */
+export const ROADMAP_PROJECT_URL = 'https://github.com/users/liamadsr/projects/2'
+
 export const ROADMAP_API_URL = `https://api.github.com/repos/${ROADMAP_REPO}/issues?labels=roadmap&state=all&per_page=100`
 
 /** How long Next caches the GitHub response, in seconds. */
