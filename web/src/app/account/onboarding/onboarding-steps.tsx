@@ -33,6 +33,8 @@ import { Input } from '@/components/ui/input'
 import { isDesktopApp } from '@/lib/platform'
 import { ActivityIcon } from './research-companion'
 import type { ResearchCompanion } from './use-research-companion'
+import { useVisitorPlatform } from '@/components/download-link'
+import { downloadHref, platformName } from '@/lib/app-download'
 
 // ─── Step: Prime ─────────────────────────────────────────────
 //
@@ -561,6 +563,7 @@ export function WorkingStep({
 // capture is native and the download tile would be noise.
 
 export function DesktopDownloadTile() {
+  const platform = useVisitorPlatform()
   const [isDesktop, setIsDesktop] = useState(false)
 
   useEffect(() => {
@@ -586,7 +589,7 @@ export function DesktopDownloadTile() {
           />
         </div>
         <div className="text-left">
-          <div className="font-semibold">Dial8 for macOS</div>
+          <div className="font-semibold">Dial8 for {platformName(platform)}</div>
           <div className="text-sm text-muted-foreground">
             Auto-capture meetings, extract actions
           </div>
@@ -609,11 +612,11 @@ export function DesktopDownloadTile() {
       </div>
 
       <a
-        href="/api/download"
+        href={downloadHref(platform)}
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 text-sm font-medium text-background transition-opacity hover:opacity-90"
       >
         <Download className="h-4 w-4" />
-        Download for macOS
+        Download for {platformName(platform)}
       </a>
     </motion.div>
   )

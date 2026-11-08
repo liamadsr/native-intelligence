@@ -4,7 +4,6 @@ import { Footer } from '@/components/footer'
 import { Navbar } from '@/components/navbar'
 import { PageLayout, type Section } from '@/components/page-layout'
 import { Screenshot } from '@/components/screenshot'
-import { EarlyAccessForm } from '@/components/early-access-form'
 // HeroWaveform is intentionally not rendered in the hero anymore (replaced by the
 // hero image), but the component is kept at @/components/landing/hero-waveform for
 // reuse elsewhere. Re-import and render it when needed.
@@ -13,7 +12,7 @@ import { ActionStreamDemo, CaptureDemo, ChatDemo, ExecutionDemo, LiveAgentDemo }
 import { isDesktopApp } from '@/lib/platform'
 import { clsx } from 'clsx'
 import { motion } from 'framer-motion'
-import { usePostHog } from 'posthog-js/react'
+import { DownloadLink } from '@/components/download-link'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
@@ -129,8 +128,6 @@ function FloatingChatDemo() {
 
 // Section 1: Hero
 function Hero() {
-  const posthog = usePostHog()
-
   return (
     <section id="hero" className="relative min-h-[85vh] flex flex-col">
       {/* Navbar self-positions as a `fixed z-50` header — don't wrap it in a
@@ -176,26 +173,18 @@ function Hero() {
                 transition={{ duration: 0.6, delay: 0.35 }}
                 className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-center lg:items-start gap-2 sm:gap-3"
               >
-                <a
-                  href="/api/download"
-                  onClick={() => {
-                    posthog?.capture('cta_clicked', { location: 'hero', type: 'download_macos' })
-                  }}
+                {/* The visitor's platform first, the other beside it. */}
+                <DownloadLink
+                  location="hero"
                   className="inline-flex items-center justify-center gap-2 py-2.5 px-5 text-sm sm:py-3 sm:px-6 sm:text-base rounded-full border border-transparent bg-primary shadow-md whitespace-nowrap font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  <svg className="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                  Download for macOS
-                </a>
-                <a
-                  href="#cta"
-                  onClick={() => {
-                    posthog?.capture('cta_clicked', { location: 'hero', type: 'windows_waitlist' })
-                  }}
+                  iconClassName="h-4 w-4 sm:h-5 sm:w-5"
+                />
+                <DownloadLink
+                  platform="other"
+                  location="hero"
                   className="inline-flex items-center justify-center gap-2 py-2.5 px-5 text-sm sm:py-3 sm:px-6 sm:text-base rounded-full border border-border bg-background shadow-sm whitespace-nowrap font-medium text-foreground hover:bg-accent transition-colors"
-                >
-                  <svg className="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
-                  Join Windows Waitlist
-                </a>
+                  iconClassName="h-4 w-4 sm:h-5 sm:w-5"
+                />
               </motion.div>
             </div>
 
@@ -496,28 +485,18 @@ function CTASection() {
             Your action items should come with everything an agent needs to execute.
             That&rsquo;s Dial8.
           </p>
-          <div className="mt-10 flex flex-col items-center gap-6">
-            <a
-              href="/api/download"
+          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <DownloadLink
+              location="cta"
               className="inline-flex items-center justify-center gap-2 py-3 px-6 text-base rounded-full border border-transparent bg-primary shadow-md whitespace-nowrap font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-              Download for macOS
-            </a>
-            <div className="w-full max-w-md">
-              <div className="flex items-center gap-2 justify-center mb-3">
-                <svg className="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
-                <p className="text-sm text-muted-foreground">
-                  Windows coming soon — join the waitlist
-                </p>
-              </div>
-              <EarlyAccessForm
-                source="windows_waitlist"
-                buttonText="Join Waitlist"
-                successMessage="You're on the Windows waitlist!"
-                successDetail="We'll notify you as soon as the Windows app is ready."
-              />
-            </div>
+              iconClassName="h-5 w-5"
+            />
+            <DownloadLink
+              platform="other"
+              location="cta"
+              className="inline-flex items-center justify-center gap-2 py-3 px-6 text-base rounded-full border border-border bg-background shadow-sm whitespace-nowrap font-medium text-foreground hover:bg-accent transition-colors"
+              iconClassName="h-5 w-5"
+            />
           </div>
         </motion.div>
       </div>
