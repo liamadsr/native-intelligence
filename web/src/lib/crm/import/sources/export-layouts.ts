@@ -27,7 +27,13 @@ export type ExportApp = (typeof EXPORT_APPS)[number] & ImportSource
 
 export interface ExportLayout extends LayoutColumns {
   app: ExportApp
-  /** The file's people, when no column says: a billing, payments or field-service tool's are customers; a CRM's or a mailing list's are not all. */
+  /**
+   * The file's people, when no column says. A billing, payments or
+   * field-service tool's client list is customers, as anyone's own customer
+   * spreadsheet is (a lead there is the exception, and a spend column of zero
+   * still makes one a lead); a CRM's or a mailing list's are not all. A
+   * campaign to them only ever starts on the owner's yes, audience shown.
+   */
   relationship: ImportRelationship | null
   /** A row that is not a person (a report's totals or its printed-at line). */
   skipRow?: (row: string[]) => boolean
@@ -66,7 +72,8 @@ const skip = (...keys: string[]): Record<string, MappedTarget> => Object.fromEnt
 function reportFooter(row: string[]): boolean {
   const cells = row.map((c) => c.trim()).filter(Boolean)
   if (cells.length === 0) return true
-  if (/^total\b/i.test(cells[0])) return true
+  // Exactly "TOTAL": a customer named "Total Fitness" is a customer.
+  if (/^total$/i.test(cells[0])) return true
   return cells.length === 1 && /\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)\b/i.test(cells[0]) && /\b(?:gmt|utc)|\d{4}\b/i.test(cells[0])
 }
 
@@ -75,6 +82,7 @@ const LAYOUTS: LayoutSpec[] = [
     app: 'stripe',
     relationship: 'customer',
     signals: ['createdutc', 'cardid', 'cardlast4', 'cardbrand', 'delinquent', 'totalspend', 'paymentcount', 'refundedvolume', 'disputelosses', 'businessvatid', 'accountbalance', 'cardfingerprint'],
+    anyOf: ['cardid', 'cardlast4', 'cardfingerprint', 'delinquent', 'disputelosses', 'refundedvolume'],
     min: 3,
     fileName: /unified_customers|^customers.*\.csv$/i,
     columns: {
@@ -107,12 +115,15 @@ const LAYOUTS: LayoutSpec[] = [
     ],
     // "gate_code (metadata)" reads "gate_code" in notes.
     label: (header) => header.replace(/\s*\(metadata\)\s*$/i, ''),
+    // Only a Stripe customer id links: the same id the direct import uses.
+    cell: { external_id: (value) => (/^cus_[A-Za-z0-9]+$/.test(value) ? value : '') },
   },
   {
     app: 'square',
     relationship: 'customer',
     signals: ['squarecustomerid', 'creationsource', 'firstvisit', 'lastvisit', 'transactioncount', 'lifetimespend', 'transactiontotal', 'emailsubscriptionstatus', 'instantprofile', 'referenceid'],
     decisive: ['squarecustomerid'],
+    anyOf: ['instantprofile', 'creationsource'],
     min: 3,
     columns: {
       squarecustomerid: 'external_id',
@@ -133,8 +144,10 @@ const LAYOUTS: LayoutSpec[] = [
       lifetimespend: 'spend',
       transactiontotal: 'spend',
       emailsubscriptionstatus: 'email_opt_out',
+      emailunsubscribed: 'email_opt_out',
+      smssubscriptionstatus: 'sms_opt_out',
       groups: 'tags',
-      ...skip('referenceid', 'birthday', 'creationsource', 'firstvisit', 'instantprofile', 'blocked', 'smssubscriptionstatus', 'emailunsubscribed'),
+      ...skip('referenceid', 'birthday', 'creationsource', 'firstvisit', 'instantprofile', 'blocked'),
     },
   },
   {
@@ -144,6 +157,8 @@ const LAYOUTS: LayoutSpec[] = [
     decisive: ['marketingcontactstatus'],
     anyOf: ['recordid', 'contactid', 'contactowner'],
     min: 3,
+    // A HubSpot record id is a number.
+    cell: { external_id: (value) => (/^\d+$/.test(value) ? value : '') },
     columns: {
       recordid: 'external_id',
       contactid: 'external_id',
@@ -189,6 +204,7 @@ const LAYOUTS: LayoutSpec[] = [
     // "Person - Name", "Person - Email - Work": every column carries the entity.
     key: (header) => headerKey(header.replace(/^\s*person\s*-\s*/i, '')),
     label: (header) => header.replace(/^\s*person\s*-\s*/i, ''),
+    cell: { external_id: (value) => (/^\d+$/.test(value) ? value : '') },
     columns: {
       id: 'external_id',
       name: 'full_name',
@@ -222,6 +238,7 @@ const LAYOUTS: LayoutSpec[] = [
     app: 'mailchimp',
     relationship: null,
     signals: ['memberrating', 'optintime', 'optinip', 'confirmtime', 'confirmip', 'latitude', 'longitude', 'gmtoff', 'dstoff', 'timezone', 'lastchanged', 'leid', 'euid', 'unsubtime', 'cleantime'],
+    anyOf: ['memberrating', 'optintime', 'optinip', 'confirmtime', 'confirmip', 'leid', 'euid', 'gmtoff', 'dstoff'],
     min: 3,
     // subscribed_members_export_<id>.csv, and since 2025 subscribed_email_audience_export_<id>.csv (and the unsubscribed, cleaned, nonsubscribed ones).
     fileName: /(?:(?:non|un)?subscribed|cleaned)_(?:members|email_audience)_export/i,
@@ -275,14 +292,14 @@ const LAYOUTS: LayoutSpec[] = [
     // "CFS[Gate code]", a custom field, reads "Gate code" in notes.
     label: (header) => header.replace(/^\s*CFS\[(.*)\]\s*$/i, '$1'),
     // "J-ID" is "<client>_<property>": every row of one client is that client.
-    cell: { external_id: (value) => value.split('_')[0] },
+    cell: { external_id: (value) => (/^\d+(?:_\d+)?$/.test(value) ? value.split('_')[0] : '') },
   },
   {
     app: 'housecall_pro',
     relationship: 'customer',
     // Customers → Export: the list's chosen columns, an address set per address ("Address_1 Street Line 1"…).
     signals: ['address1streetline1', 'address1streetline2', 'address1city', 'address1state', 'address1postalcode', 'address1billing', 'address1notes', 'mobilenumber', 'worknumber', 'homenumber', 'lifetimevalue', 'lastservicedate', 'displayname'],
-    anyOf: ['address1streetline1', 'address1billing', 'address1notes', 'lifetimevalue'],
+    anyOf: ['address1streetline1', 'address1billing', 'address1notes'],
     min: 3,
     columns: {
       id: 'external_id',
@@ -320,7 +337,12 @@ const LAYOUTS: LayoutSpec[] = [
       'openbalance', 'attachments', 'attachment', 'salestax', 'customertype', 'balance', 'phonenumbers', 'billingaddress', 'shippingaddress',
       'activestatus', 'billto1', 'shipto1', 'mrms', 'resalenum', 'creditlimit', 'mainphone', 'mainemail', 'altphone', 'balancetotal',
     ],
-    anyOf: ['openbalance', 'attachments', 'attachment', 'salestax', 'phonenumbers', 'billto1', 'mrms', 'resalenum', 'mainemail'],
+    anyOf: ['openbalance', 'salestax', 'billto1', 'mrms', 'resalenum', 'balancetotal'],
+    // The Customer Contact List: these three together, whatever else it has.
+    mark: (headers) => {
+      const keys = new Set(headers.map(headerKey))
+      return keys.has('customer') && keys.has('phonenumbers') && keys.has('fullname')
+    },
     min: 2,
     columns: {
       customer: 'display_name',

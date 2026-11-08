@@ -173,7 +173,7 @@ export function normalizeEmail(value: unknown): string | null {
  */
 export function normalizePhone(value: unknown): string | null {
   // What Excel does to a number it was handed: a leading ' (stored as text) or a trailing .0 (stored as a number).
-  const s = cleanText(value, 40)?.replace(/^'+/, '').replace(/\.0+$/, '') || null
+  const s = cleanText(value, 40)?.replace(/^'+/, '').replace(/^(\+?\d{7,15})\.0+$/, '$1') || null
   if (!s) return null
   const main = s.split(/\s*(?:ext\.?|x|#)\s*\d+$/i)[0] ?? s
   const e164 = normalizeE164(main.replace(/^tel:/i, ''))

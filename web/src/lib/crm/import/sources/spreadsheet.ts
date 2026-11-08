@@ -23,6 +23,7 @@ import {
   parseMoneyCents,
   splitTags,
   UNSUBSCRIBED_EMAIL_TAG,
+  UNSUBSCRIBED_SMS_TAG,
   type ImportContactRecord,
   type ImportPastJob,
   type ImportRelationship,
@@ -57,6 +58,8 @@ export const COLUMN_TARGETS = [
   'spend',
   /** Says they unsubscribed from email (a yes, a date, "Unsubscribed"): never emailed by outreach. */
   'email_opt_out',
+  /** Says they unsubscribed from texts: never texted by outreach. */
+  'sms_opt_out',
   'note',
   'skip',
 ] as const
@@ -66,12 +69,11 @@ export type ColumnTarget = (typeof COLUMN_TARGETS)[number]
  * What a column can map to: a field, or (only from a recognised export's
  * layout, never an answer) the app's own id for the row, which links the
  * contact so a second import of the same app finds it (a plain spreadsheet's
- * "ID" column names nothing outside that one file), a yes/no column that
- * says the row is a lead, or one line of an address written over several
- * columns (QuickBooks Desktop's "Bill to 1" to "Bill to 5", where a line may
- * be the customer's own name).
+ * "ID" column names nothing outside that one file), or one line of an
+ * address written over several columns (QuickBooks Desktop's "Bill to 1" to
+ * "Bill to 5", where a line may be the customer's own name).
  */
-export type MappedTarget = ColumnTarget | 'external_id' | 'lead_flag' | 'address_line'
+export type MappedTarget = ColumnTarget | 'external_id' | 'address_line'
 
 export function isColumnTarget(value: unknown): value is ColumnTarget {
   return typeof value === 'string' && (COLUMN_TARGETS as readonly string[]).includes(value)
@@ -142,7 +144,7 @@ export function parseCsv(input: string, delimiter = detectDelimiter(input)): She
       field = ''
       if (row.some((c) => c.trim() !== '')) records.push(row)
       row = []
-      if (records.length > MAX_SHEET_ROWS + 1) break
+      if (records.length > MAX_SHEET_ROWS + 1 + MAX_TITLE_ROWS) break
     } else field += ch
   }
   row.push(field)
@@ -266,7 +268,7 @@ export async function readXlsx(bytes: Uint8Array): Promise<Sheet> {
       row[index] = value
     }
     if (row.some((cell) => cell.trim() !== '')) records.push(row)
-    if (records.length > MAX_SHEET_ROWS + 1) break
+    if (records.length > MAX_SHEET_ROWS + 1 + MAX_TITLE_ROWS) break
   }
   return toSheet(records)
 }
@@ -432,13 +434,14 @@ export function addressFromCell(value: string): string | null {
 }
 
 /**
- * A cell that says they unsubscribed from email: yes or true (an
- * "Unsubscribed" column), "Unsubscribed" or "Opted out" (a status), "No
- * consent", or a date (when they left: Mailchimp's UNSUB_TIME). "Subscribed",
- * "No", "Not subscribed" and blanks are not.
+ * A cell that says they unsubscribed (from email or texts, by its column):
+ * yes or true (an "Unsubscribed" column), "Unsubscribed" or "Opted out" (a
+ * status), "No consent" (Pipedrive's no_consent too), or a date (when they
+ * left: Mailchimp's UNSUB_TIME). "Subscribed", "No", "Not subscribed" and
+ * blanks are not.
  */
-export function isEmailOptOut(value: string | null | undefined): boolean {
-  const v = (value ?? '').trim().toLowerCase()
+export function isOptOut(value: string | null | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase().replace(/_/g, ' ')
   if (!v || /^(false|no|n|0|subscribed|opted ?in|active|pending|unknown|none|n\/a|-)$/.test(v) || /^not\b/.test(v)) return false
   if (/unsub|opt(?:ed)?[ -]?out|no consent|do not|cleaned|bounced|^(true|yes|y|1)$/.test(v)) return true
   return normalizeDate(v) !== null
@@ -513,9 +516,7 @@ export function rowsToRecords(
     }
     const lastContacts = values('last_contact').map((v) => normalizeDate(v, nowMs)).filter((d): d is string => !!d)
     const lastContact = lastContacts.length ? lastContacts.reduce((a, b) => (a > b ? a : b)) : history.length ? null : normalizeDate(jobDate, nowMs)
-    const lead = values('lead_flag').some((v) => /^(true|yes|y|1|lead)$/i.test(v))
-    const relationship =
-      relationshipFromCell(first('relationship')) ?? (history.length || spent ? 'customer' : lead || neverBought ? 'lead' : (opts.relationship ?? null))
+    const relationship = relationshipFromCell(first('relationship')) ?? (history.length || spent ? 'customer' : neverBought ? 'lead' : (opts.relationship ?? null))
 
     // A tool's display name is the person when nothing else names them, else
     // their business when it names someone else ("Fernhill Cleaning" for Ana Ruiz).
@@ -527,7 +528,8 @@ export function rowsToRecords(
     else if (display && personName && !companyName && !sharesWord(display, personName)) companyName = display
 
     const tags = values('tags').flatMap(splitTags)
-    if (values('email_opt_out').some(isEmailOptOut)) tags.push(UNSUBSCRIBED_EMAIL_TAG)
+    if (values('email_opt_out').some(isOptOut)) tags.push(UNSUBSCRIBED_EMAIL_TAG)
+    if (values('sms_opt_out').some(isOptOut)) tags.push(UNSUBSCRIBED_SMS_TAG)
     return {
       kind: 'contact' as const,
       externalId: first('external_id'),

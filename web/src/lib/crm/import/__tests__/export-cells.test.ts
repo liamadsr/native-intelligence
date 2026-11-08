@@ -5,8 +5,8 @@
  * above its header and its totals below. Made-up people only.
  */
 import { describe, expect, it } from 'vitest'
-import { splitTags, UNSUBSCRIBED_EMAIL_TAG } from '../record'
-import { addressFromCell, autoMapColumns, headerRowIndex, isEmailOptOut, parseCsv, rowsToRecords, splitPhones, type Sheet } from '../sources/spreadsheet'
+import { normalizePhone, splitTags, UNSUBSCRIBED_EMAIL_TAG, UNSUBSCRIBED_SMS_TAG } from '../record'
+import { addressFromCell, autoMapColumns, headerRowIndex, isOptOut, parseCsv, rowsToRecords, splitPhones, type Sheet } from '../sources/spreadsheet'
 
 const NOW = Date.UTC(2026, 10, 8)
 
@@ -25,8 +25,15 @@ describe('cells', () => {
   })
 
   it('knows an opt-out when it says so, and only then', () => {
-    for (const yes of ['true', 'Yes', '1', 'Unsubscribed', 'unsubscribed', 'Opted out', 'No consent', '2025-03-01 12:04:11']) expect(isEmailOptOut(yes), yes).toBe(true)
-    for (const no of ['', 'false', 'No', 'Subscribed', 'subscribed', 'Not subscribed', 'Opted in', 'Unknown', null]) expect(isEmailOptOut(no), String(no)).toBe(false)
+    for (const yes of ['true', 'Yes', '1', 'Unsubscribed', 'unsubscribed', 'Opted out', 'No consent', 'no_consent', '2025-03-01 12:04:11']) expect(isOptOut(yes), yes).toBe(true)
+    for (const no of ['', 'false', 'No', 'Subscribed', 'subscribed', 'Not subscribed', 'Opted in', 'Unknown', null]) expect(isOptOut(no), String(no)).toBe(false)
+  })
+
+  it("undoes what Excel does to a number, and only that (a dotted number keeps its last group)", () => {
+    expect(normalizePhone("'+16265550103")).toBe('+16265550103')
+    expect(normalizePhone('6265550104.0')).toBe('+16265550104')
+    expect(normalizePhone('626.555.0000')).toBe('+16265550000')
+    expect(normalizePhone('1.800.555.0000')).toBe('+18005550000')
   })
 
   it("takes the quotes off a tag (Mailchimp's TAGS cell)", () => {
@@ -79,11 +86,11 @@ describe('rows', () => {
     expect(ben).toMatchObject({ relationship: 'lead', notes: null })
   })
 
-  it('an opt-out column tags them unsubscribed (outreach never emails them)', () => {
-    const s = sheet(['Email', 'Unsubscribed from all email'], ['ana@example.com', 'true'], ['ben@example.com', 'false'])
-    const [ana, ben] = rowsToRecords(s, autoMapColumns(s, { 'unsubscribed from all email': 'email_opt_out' }), { nowMs: NOW })
+  it('an opt-out column tags them unsubscribed on its channel (outreach never emails or texts them there)', () => {
+    const s = sheet(['Email', 'Unsubscribed from all email', 'SMS status'], ['ana@example.com', 'true', 'subscribed'], ['ben@example.com', 'false', 'unsubscribed'])
+    const [ana, ben] = rowsToRecords(s, autoMapColumns(s, { 'unsubscribed from all email': 'email_opt_out', 'sms status': 'sms_opt_out' }), { nowMs: NOW })
     expect(ana.tags).toEqual([UNSUBSCRIBED_EMAIL_TAG])
-    expect(ben.tags).toEqual([])
+    expect(ben.tags).toEqual([UNSUBSCRIBED_SMS_TAG])
   })
 
   it('the latest of several last-contact columns wins', () => {

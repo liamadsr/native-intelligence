@@ -89,11 +89,12 @@ describe('Stripe customers as records', () => {
       history: [job],
       relationship: 'customer',
     })
-    // No address of their own: the shipping one.
-    expect(stripeCustomerToRecord(customer({ id: 'cus_b', shipping: { name: 'Ben Ode', phone: '626-555-0102', address: { line1: '9 Oak Ave', city: 'Pasadena' } } as never }))).toMatchObject({
-      fullName: 'Ben Ode',
-      phones: ['626-555-0102'],
-      address: '9 Oak Ave, Pasadena',
+    // Shipping details may be a gift's recipient: never taken as the customer's.
+    expect(stripeCustomerToRecord(customer({ id: 'cus_b', email: 'ben@example.com', shipping: { name: 'Cy Lane', phone: '626-555-0103', address: { line1: '9 Oak Ave', city: 'Pasadena' } } as never }))).toMatchObject({
+      fullName: null,
+      emails: ['ben@example.com'],
+      phones: [],
+      address: null,
     })
     expect(stripeGuestToRecord({ email: 'cy@example.com', name: null, phone: null, address: null, jobs: [] })).toMatchObject({ emails: ['cy@example.com'], relationship: 'customer' })
   })

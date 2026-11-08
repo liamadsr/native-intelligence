@@ -242,8 +242,8 @@ export const contactImportBrevo = inngest.createFunction(
   },
 )
 
-/** Customer pages one Stripe import reads (100 a page). */
-const MAX_STRIPE_PAGES = 100
+/** Customer pages one Stripe import reads (100 a page): as many people as one file holds (MAX_SHEET_ROWS). */
+const MAX_STRIPE_PAGES = 200
 
 export const contactImportStripe = inngest.createFunction(
   {

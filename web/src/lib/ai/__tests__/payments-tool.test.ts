@@ -81,11 +81,13 @@ describe('exactly one money tool', () => {
   })
 
   it('the Stripe customer import only lists: no create, update, delete, refund or payout, and only on the connected account', () => {
-    const source = readFileSync(join(process.cwd(), 'src/lib/crm/import/sources/stripe.ts'), 'utf8')
-    const calls = [...source.matchAll(/\bstripe\.(\w+)\.(\w+)\(/g)].map((m) => `${m[1]}.${m[2]}`)
-    expect(calls.sort()).toEqual(['charges.list', 'customers.list'])
-    // Every call names the owner's account, never the platform's own.
-    expect(source.match(/\{ stripeAccount \}\)/g)).toHaveLength(2)
+    // Every file on the import's way to Stripe: any Stripe resource called through any name must be a list.
+    const RESOURCE = /\.(customers|charges|refunds|payouts|transfers|paymentIntents|setupIntents|paymentMethods|paymentLinks|invoices|subscriptions|accounts|checkout|balance|prices|products|coupons|promotionCodes|topups|issuing|treasury|disputes)\.(\w+)/g
+    const files = ['src/lib/crm/import/sources/stripe.ts', 'src/lib/crm/import/connected.ts', 'src/lib/inngest/contact-import-functions.ts', 'src/lib/ai/tools/contact-import.ts']
+    const calls = files.flatMap((f) => [...readFileSync(join(process.cwd(), f), 'utf8').matchAll(RESOURCE)].map((m) => `${f}: ${m[1]}.${m[2]}`))
+    expect(calls.sort()).toEqual(['src/lib/crm/import/sources/stripe.ts: charges.list', 'src/lib/crm/import/sources/stripe.ts: customers.list'])
+    // Both name the owner's account, never the platform's own.
+    expect(readFileSync(join(process.cwd(), 'src/lib/crm/import/sources/stripe.ts'), 'utf8').match(/\{ stripeAccount \}\)/g)).toHaveLength(2)
   })
 
   it('no other tool module reaches Stripe or the payments code, statically or dynamically', () => {

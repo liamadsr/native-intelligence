@@ -17,7 +17,7 @@
  * import of one account find the same contacts.
  */
 import type Stripe from 'stripe'
-import { formatAddress, MAX_HISTORY, normalizeEmail, type ImportContactRecord, type ImportPastJob } from '../record'
+import { cleanText, formatAddress, MAX_HISTORY, MAX_NAME_CHARS, normalizeEmail, type ImportContactRecord, type ImportPastJob } from '../record'
 
 /** Customers or charges one list call returns (Stripe's most). */
 export const STRIPE_PAGE = 100
@@ -53,7 +53,8 @@ export function chargeToJob(charge: Stripe.Charge): ImportPastJob | null {
   if (cents <= 0) return null
   return {
     kind: 'invoice',
-    title: charge.description?.trim() || 'Stripe payment',
+    // Capped: the payments travel as one step's output, which has a size limit.
+    title: cleanText(charge.description, 200) ?? 'Stripe payment',
     occurredAt: new Date(charge.created * 1000).toISOString(),
     amountCents: cents,
     currency: charge.currency ?? null,
@@ -79,8 +80,9 @@ export function foldCharges(into: { byCustomer: Map<string, ImportPastJob[]>; gu
     if (!email) continue
     const guest = into.guests.get(email) ?? { email, name: null, phone: null, address: null, jobs: [] }
     // Charges come newest first: the first name, phone and address seen are the latest.
-    guest.name ??= billing?.name?.trim() || null
-    guest.phone ??= billing?.phone?.trim() || null
+    // A guest's billing details are what they typed at checkout: their own.
+    guest.name ??= cleanText(billing?.name, MAX_NAME_CHARS)
+    guest.phone ??= cleanText(billing?.phone, 40)
     guest.address ??= addressOf(billing?.address)
     if (guest.jobs.length < MAX_HISTORY) guest.jobs.push(job)
     into.guests.set(email, guest)
@@ -115,16 +117,18 @@ export async function listStripeCustomers(stripe: Stripe, stripeAccount: string,
 /**
  * A Stripe customer as an import record, with their payments: a customer of
  * the business when they paid, a lead when every payment was read and none
- * is theirs (a quote, an abandoned checkout), else a customer.
+ * is theirs (a quote, an abandoned checkout), else a customer. The shipping
+ * details are left out, as the export file's are: they may be a gift's
+ * recipient, not the customer.
  */
 export function stripeCustomerToRecord(customer: Stripe.Customer, jobs: ImportPastJob[] = [], opts: { allPaymentsRead?: boolean } = {}): ImportContactRecord {
   return {
     kind: 'contact',
     externalId: customer.id,
-    fullName: customer.name ?? customer.shipping?.name ?? null,
+    fullName: customer.name ?? null,
     emails: customer.email ? [customer.email] : [],
-    phones: [customer.phone, customer.shipping?.phone].filter((p): p is string => !!p),
-    address: addressOf(customer.address) ?? addressOf(customer.shipping?.address),
+    phones: customer.phone ? [customer.phone] : [],
+    address: addressOf(customer.address),
     notes: customer.description ?? null,
     history: jobs,
     relationship: jobs.length === 0 && opts.allPaymentsRead ? 'lead' : 'customer',

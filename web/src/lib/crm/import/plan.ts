@@ -257,9 +257,15 @@ export function withProvenance(metadata: Record<string, unknown> | null | undefi
 // New rows
 // ---------------------------------------------------------------------------
 
-/** Where an import's contact rows say they came from (contact.source_provider). HubSpot keeps its sync's own value. */
-export function sourceProvider(source: ImportSource): string {
-  return source
+/**
+ * Where an import's contact rows say they came from (contact.source_provider).
+ * A connected HubSpot keeps its sync's own value; a HubSpot export file,
+ * read with no portal connected, is 'hubspot_export': its record ids name a
+ * portal nobody connected, so nothing that writes to HubSpot by id (the
+ * meeting log, the sync) may take its contacts for that portal's.
+ */
+export function sourceProvider(source: ImportSource, connected = true): string {
+  return source === 'hubspot' && !connected ? 'hubspot_export' : source
 }
 
 /**
@@ -276,8 +282,11 @@ export function contactInsert(args: {
   dropEmails?: readonly string[]
   /** The batch and item writing it: a retry after a crash finds its own row (./batch.ts). */
   stamp?: { batchId: string; itemId: string }
+  /** Read from a connected account (false: a file). */
+  connected?: boolean
 }): Record<string, unknown> {
   const { record, source } = args
+  const hubspotSync = source === 'hubspot' && args.connected !== false
   const drop = new Set(args.dropEmails ?? [])
   const emails = (record.emails ?? []).filter((e) => !drop.has(e))
   const [email, ...secondary] = emails
@@ -304,9 +313,9 @@ export function contactInsert(args: {
     tags: [sourceTag(source), ...(record.tags ?? []).filter((t) => t !== sourceTag(source))],
     relationship_type: record.relationship ?? 'contact',
     last_interaction_at: record.lastContactAt ?? null,
-    source: source === 'hubspot' ? 'hubspot_sync' : 'import',
-    source_provider: sourceProvider(source),
-    provider_contact_id: record.externalId ?? null,
+    source: hubspotSync ? 'hubspot_sync' : 'import',
+    source_provider: sourceProvider(source, args.connected !== false),
+    provider_contact_id: source === 'hubspot' && !hubspotSync ? null : (record.externalId ?? null),
     // Imported customers are the business's, seen by its whole workspace.
     visibility: 'workspace',
     created_by_member_id: args.createdByMemberId,

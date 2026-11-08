@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { contactFilePreview, contactFileRecords, readContactFile } from '../file'
-import { UNSUBSCRIBED_EMAIL_TAG, normalizeContactRecord } from '../record'
+import { UNSUBSCRIBED_EMAIL_TAG, UNSUBSCRIBED_SMS_TAG, normalizeContactRecord } from '../record'
 import { detectExportLayout } from '../sources/export-layouts'
 
 const NOW = Date.UTC(2026, 10, 8)
@@ -79,7 +79,7 @@ describe('the people in each export', () => {
       lastContactAt: '2025-03-01T00:00:00.000Z',
       relationship: 'customer',
     })
-    expect(dee).toMatchObject({ phones: ['+16265550104'], company: { name: 'Moss Bakery' }, tags: [UNSUBSCRIBED_EMAIL_TAG], relationship: 'lead' })
+    expect(dee).toMatchObject({ phones: ['+16265550104'], company: { name: 'Moss Bakery' }, tags: [UNSUBSCRIBED_EMAIL_TAG, UNSUBSCRIBED_SMS_TAG], relationship: 'lead' })
   })
 
   it("HubSpot: the record id (HubSpot's own, like its connected import), the lifecycle stage, an opt-out", async () => {
@@ -155,6 +155,22 @@ describe('the people in each export', () => {
     expect(people[2]).toMatchObject({ fullName: 'Pia Grant', company: { name: 'Oak & Ash Cafe' } })
   })
 
+  it('a QuickBooks customer whose name starts with "Total" is a customer, not the totals line', async () => {
+    const csv = ['Fernhill Cleaning Co', 'Customer Contact List', '', ',Customer,Phone Numbers,Email,Full Name,Billing Address', ',Total Fitness LLC,Phone: (626) 555-0124,desk@totalfit.example.com,Wyn Ash,', ',TOTAL,,,,'].join('\n')
+    const file = await readContactFile(new TextEncoder().encode(csv), 'contacts.csv')
+    if (!file.ok || file.format !== 'spreadsheet') throw new Error('not read')
+    expect(file.source).toBe('quickbooks')
+    expect(contactFileRecords(file).map((r) => r.company?.name)).toEqual(['Total Fitness LLC'])
+  })
+
+  it("only an app's own id links: a Stripe export's id column that isn't a customer id names nobody", async () => {
+    const csv = ['id,Email,Name,Created (UTC),Delinquent,Card Last4,Total Spend', '7,ana@example.com,Ana Ruiz,2024-05-02 18:20:11,false,4242,10.00'].join('\n')
+    const file = await readContactFile(new TextEncoder().encode(csv), 'customers.csv')
+    if (!file.ok || file.format !== 'spreadsheet') throw new Error('not read')
+    expect(file.source).toBe('stripe')
+    expect(contactFileRecords(file)[0].externalId).toBeNull()
+  })
+
   it("QuickBooks Desktop: the bill-to lines as the address (without the name line), the job's row the customer's own", async () => {
     const [una, patio] = (await read('quickbooks-desktop-customers.csv')).people
     expect(una).toMatchObject({ fullName: 'Una Bell', firstName: 'Una', lastName: 'Bell', phones: ['+16265550121', '+16265550122'], address: '4 Vine St, Pasadena, CA 91104', notes: 'Balance: 85.00' })
@@ -188,6 +204,12 @@ describe("anyone's own spreadsheet", () => {
     [['Display Name', 'Email', 'Mobile Number', 'Notes']],
     [['Name', 'Email', 'Phone', 'Billing Address', 'Shipping Address']],
     [['Name', 'Email', 'Lifecycle Stage', 'Lead Status', 'Create Date']],
+    // The review's: each once taken for an app's export.
+    [['Name', 'Email', 'Phone', 'Address', 'Latitude', 'Longitude', 'Timezone', 'Gate code']],
+    [['Name', 'Email', 'Phone', 'First Visit', 'Last Visit', 'Lifetime Spend']],
+    [['ID', 'Name', 'Email', 'Mobile Number', 'Home Number', 'Lifetime value']],
+    [['Name', 'Phone Numbers', 'Email', 'Balance']],
+    [['ID', 'Name', 'Email', 'Phone', 'Total Spend', 'Payment Count']],
   ])('%j is nobody\'s export: its unknown columns are still asked about', (headers) => {
     expect(detectExportLayout(headers, 'customers.csv')).toBeNull()
   })
