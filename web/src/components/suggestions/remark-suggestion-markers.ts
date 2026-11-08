@@ -20,9 +20,12 @@
 const MARKER_RE = /<!--\s*proposal:([a-zA-Z0-9-]+)\s*-->/g
 /** Non-global, for .test() (a global regex keeps lastIndex between calls). */
 const HAS_MARKER_RE = /<!--\s*proposal:[a-zA-Z0-9-]+\s*-->/
-const ONLY_MARKERS_RE = /^(\s*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->\s*)+$/
-/** An html node that is nothing but comments (any comment, proposal markers included). */
-const ONLY_COMMENTS_RE = /^(\s*<!--[\s\S]*?-->\s*)+$/
+/**
+ * An html node that is nothing but comments (any comment, proposal markers
+ * included). Each comment's body can't contain `-->`, so a failed match can't
+ * re-split the input: linear, not exponential, on long replies.
+ */
+const ONLY_COMMENTS_RE = /^\s*(?:<!--(?:(?!-->)[\s\S])*-->\s*)+$/
 
 export const SUGGESTION_ELEMENT = 'dial8-suggestion'
 
@@ -49,9 +52,23 @@ export function markerIdsIn(markdown: string): string[] {
   return idsIn(markdown)
 }
 
-/** Remove markers, and any other HTML comment, from text meant for plain display (copy, read-aloud, previews). */
+/**
+ * Remove markers, and any other one-line HTML comment, from text meant for plain
+ * display (copy, read-aloud, previews). Code is left as written: fenced blocks
+ * and `code spans` keep their comments. A comment must open and close on one
+ * line, so a literal `<!--` in prose never eats the text after it.
+ */
 export function stripSuggestionMarkers(markdown: string): string {
-  return markdown.replace(/[ \t]*<!--[\s\S]*?-->[ \t]*\n?/g, '')
+  return markdown
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part
+            .replace(/[ \t]*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->[ \t]*\n?/g, '')
+            .replace(/[ \t]*<!--[^\n]*?-->[ \t]*\n?/g, ''),
+    )
+    .join('')
 }
 
 function transform(parent: MdNode): void {
@@ -59,43 +76,24 @@ function transform(parent: MdNode): void {
   if (!children) return
   for (let i = 0; i < children.length; i++) {
     const node = children[i]
-    // A block-level marker (its own html node, only markers in it).
-    if (node.type === 'html' && typeof node.value === 'string' && ONLY_MARKERS_RE.test(node.value)) {
+    // A block that is only comments: proposal markers become cards, any other
+    // comment (a stray `<!-- card:2 -->`) is dropped.
+    if (node.type === 'html' && typeof node.value === 'string' && ONLY_COMMENTS_RE.test(node.value)) {
       const replacement = idsIn(node.value).map(suggestionNode)
       children.splice(i, 1, ...replacement)
       i += replacement.length - 1
       continue
     }
-    // Any other comment-only block (a stray `<!-- card:2 -->`): drop it.
-    if (node.type === 'html' && typeof node.value === 'string' && ONLY_COMMENTS_RE.test(node.value)) {
-      children.splice(i, 1)
-      i -= 1
-      continue
-    }
-    // A paragraph carrying inline comments that aren't markers: drop them.
-    if (
-      node.type === 'paragraph' &&
-      node.children?.some((c) => c.type === 'html' && ONLY_COMMENTS_RE.test(c.value ?? '') && !HAS_MARKER_RE.test(c.value ?? ''))
-    ) {
-      node.children = node.children.filter(
-        (c) => !(c.type === 'html' && ONLY_COMMENTS_RE.test(c.value ?? '') && !HAS_MARKER_RE.test(c.value ?? '')),
-      )
-      while (node.children.length && node.children[node.children.length - 1].type === 'break') node.children.pop()
-      const tail = node.children[node.children.length - 1]
-      if (tail?.type === 'text' && typeof tail.value === 'string') tail.value = tail.value.replace(/\s+$/, '')
-      if (node.children.length === 0) {
-        children.splice(i, 1)
-        i -= 1
-        continue
-      }
-    }
-    // A paragraph carrying inline markers: lift them out to after it.
-    if (node.type === 'paragraph' && node.children?.some((c) => c.type === 'html' && HAS_MARKER_RE.test(c.value ?? ''))) {
+    // A paragraph carrying inline markers or comments: lift the markers out to
+    // after it as cards, and drop the comments.
+    const isComment = (c: MdNode) => c.type === 'html' && typeof c.value === 'string' && ONLY_COMMENTS_RE.test(c.value)
+    const hasMarker = (c: MdNode) => c.type === 'html' && HAS_MARKER_RE.test(c.value ?? '')
+    if (node.type === 'paragraph' && node.children?.some((c) => hasMarker(c) || isComment(c))) {
       const lifted: MdNode[] = []
       node.children = node.children.filter((c) => {
         if (c.type !== 'html' || typeof c.value !== 'string') return true
         const ids = idsIn(c.value)
-        if (ids.length === 0) return true
+        if (ids.length === 0 && !isComment(c)) return true
         lifted.push(...ids.map(suggestionNode))
         return false
       })

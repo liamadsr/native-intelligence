@@ -102,8 +102,41 @@ describe('remarkSuggestionMarkers: other HTML comments', () => {
   })
 })
 
+describe('remarkSuggestionMarkers: markers and comments together', () => {
+  it('keeps the card when a marker shares its line with a stray comment', () => {
+    expect(shape(toHast('<!-- proposal:aa11 --> <!-- card:1 -->'))).toEqual(['card:aa11'])
+  })
+
+  it('keeps the card when the shared line follows a paragraph', () => {
+    const tree = toHast('Close it.\n<!-- proposal:aa11 --> <!-- card:1 -->')
+    expect(shape(tree)).toEqual(['p', 'card:aa11'])
+    expect(text(tree)).not.toContain('card:1')
+  })
+
+  it('stays fast on a long run of comments that does not match', () => {
+    const md = '<!-- a --> '.repeat(40) + 'x'
+    const t0 = performance.now()
+    toHast(md)
+    expect(performance.now() - t0).toBeLessThan(200)
+  })
+})
+
 describe('stripSuggestionMarkers: other comments', () => {
-  it('removes any comment from plain text', () => {
+  it('removes a one-line comment from plain text', () => {
     expect(stripSuggestionMarkers('Done.\n<!-- card:2 -->\n')).toBe('Done.\n')
+  })
+
+  it('keeps comments inside code', () => {
+    const md = 'See:\n```html\n<!-- header -->\n<p>hi</p>\n```\nand `<!-- x -->`.'
+    expect(stripSuggestionMarkers(md)).toBe(md)
+  })
+
+  it('never eats prose after a literal <!--', () => {
+    const md = 'Type <!-- to start a comment.\nThe arrow --> closes it.'
+    expect(stripSuggestionMarkers(md)).toBe(md)
+  })
+
+  it('still removes proposal markers', () => {
+    expect(stripSuggestionMarkers('Close it. <!-- proposal:aa11 -->')).toBe('Close it.')
   })
 })
