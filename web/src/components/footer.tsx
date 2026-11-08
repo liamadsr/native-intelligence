@@ -59,6 +59,9 @@ function Copyright() {
   return (
     <div className="flex items-center gap-4 text-sm/6 text-muted-foreground">
       <span>&copy; {new Date().getFullYear()} Bridgebound Studio.</span>
+      <Link href="/roadmap" className="hover:text-foreground">
+        Roadmap
+      </Link>
       <Link href="/terms" className="hover:text-foreground">
         Terms
       </Link>

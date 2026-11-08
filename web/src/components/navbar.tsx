@@ -81,6 +81,9 @@ function DesktopLinks() {
       <Link href="/docs" className="rounded-full px-3 py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:text-foreground hover:bg-foreground/5">
         Docs
       </Link>
+      <Link href="/roadmap" className="rounded-full px-3 py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:text-foreground hover:bg-foreground/5">
+        Roadmap
+      </Link>
     </nav>
   )
 }
@@ -169,6 +172,9 @@ function MobileMenu() {
             </Link>
             <Link href="/docs" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent">
               Docs
+            </Link>
+            <Link href="/roadmap" onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-accent">
+              Roadmap
             </Link>
           </div>
 
