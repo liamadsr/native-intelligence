@@ -246,6 +246,6 @@ describe("the customer's own tools", () => {
 
 describe('the reminder row', () => {
   it('reads what the table holds, unknown values safely', () => {
-    expect(toReminder({ ...(tables.customer_reminder[0] as never), status: 'odd', answer: 'odd' } as never)).toMatchObject({ status: 'failed', answer: null, subjectType: 'booking' })
+    expect(toReminder({ ...tables.customer_reminder[0], status: 'odd', answer: 'odd' } as never)).toMatchObject({ status: 'failed', answer: null, subjectType: 'booking' })
   })
 })
