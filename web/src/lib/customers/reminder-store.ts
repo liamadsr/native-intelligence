@@ -1,5 +1,5 @@
 /**
- * The reminder rows (migration 471, customer_reminder), read and written with
+ * The reminder rows (migration 472, customer_reminder), read and written with
  * the service role: one per subject (a booking, or a calendar event) and
  * phone, claimed before its text goes (./reminders.ts), and what the customer
  * answered (./reminder-replies.ts). Every function takes the workspace and

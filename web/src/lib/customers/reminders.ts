@@ -4,7 +4,7 @@
  * customer a reminder they can confirm, move, or stop.
  *
  *   1. Hourly (src/lib/inngest/customer-reminders.ts), every business with a
- *      profile, reminders on (business_profile.reminders, migration 471: on
+ *      profile, reminders on (business_profile.reminders, migration 472: on
  *      unless the owner turns them off) and a live business number, whose own
  *      zone reads REMINDER_LOCAL_HOUR, gets ONE request for that local date
  *      (each later hour until REMINDER_SEND_UNTIL_HOUR asks again, a

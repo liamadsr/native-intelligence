@@ -1,4 +1,4 @@
--- 471: reminders and confirmations (roadmap issue #11).
+-- 472: reminders and confirmations (roadmap issue #11).
 --
 -- The day before a booked job, or a meeting with a customer, the business's
 -- number texts that customer a reminder (src/lib/customers/reminders.ts).
@@ -50,7 +50,7 @@ create table if not exists public.customer_reminder (
 );
 
 comment on table public.customer_reminder is
-  'A reminder texted to a customer the day before a booked job or a meeting (471). Claimed before it is sent: one per subject and phone.';
+  'A reminder texted to a customer the day before a booked job or a meeting (472). Claimed before it is sent: one per subject and phone.';
 
 alter table public.customer_reminder drop constraint if exists customer_reminder_subject_type_check;
 alter table public.customer_reminder
@@ -89,7 +89,7 @@ create index if not exists customer_reminder_phone_idx
 alter table public.customer_booking add column if not exists customer_confirmed_at timestamptz null;
 
 comment on column public.customer_booking.customer_confirmed_at is
-  'The customer confirmed the booking (a yes to its reminder, or the time they moved it to), 471.';
+  'The customer confirmed the booking (a yes to its reminder, or the time they moved it to), 472.';
 
 -- ------------------------------------------------------------
 -- 3. business_profile: reminders on unless turned off
@@ -98,7 +98,7 @@ comment on column public.customer_booking.customer_confirmed_at is
 alter table public.business_profile add column if not exists reminders boolean not null default true;
 
 comment on column public.business_profile.reminders is
-  'Text customers a reminder the day before a booked job or meeting (471). On by default; the owner turns it off through their agent.';
+  'Text customers a reminder the day before a booked job or meeting (472). On by default; the owner turns it off through their agent.';
 
 -- ------------------------------------------------------------
 -- 4. RLS and grants

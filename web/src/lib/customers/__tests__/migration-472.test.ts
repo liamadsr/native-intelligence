@@ -1,5 +1,5 @@
 /**
- * Migration 471: reminders and confirmations (issue #11). Pins the file to
+ * Migration 472: reminders and confirmations (issue #11). Pins the file to
  * the app: the values the app writes, one reminder per subject and phone,
  * the two new columns (reminders on by default), RLS on the new table,
  * idempotence, and no backslash.
@@ -9,14 +9,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { REMINDER_ANSWERS, REMINDER_STATUSES, REMINDER_SUBJECTS } from '../reminder-store'
 
-const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/471_customer_reminders.sql'), 'utf8')
+const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/472_customer_reminders.sql'), 'utf8')
 const BODY = SQL.split('\n')
   .filter((l) => !l.trim().startsWith('--'))
   .join('\n')
   .replace(/\s+/g, ' ')
 const list = (values: readonly string[]) => values.map((v) => `'${v}'`).join(', ')
 
-describe('migration 471', () => {
+describe('migration 472', () => {
   it('holds no backslash (one MCP transport decodes escapes)', () => {
     expect(SQL).not.toContain('\\')
   })
