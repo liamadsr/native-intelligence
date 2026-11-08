@@ -9,7 +9,7 @@ import { answered, callsOf, writeTrapStubs } from '../safety/shared.js'
  * cards note; the chat never draws it (src/components/chat-cards/show-tool-card.tsx).
  * So a reply that shows a board says what the board shows, never "the board
  * is card 4" or "here it is again as card 3" (agents/chat-agent/instructions.md,
- * "Each card has a number for the conversation").
+ * "A card's `card_number`").
  *
  * show is stubbed with a stamped result (the chat-agent's show proxy adds
  * card_number, lib/card-numbers.ts; a stub replaces that proxy, so the stub

@@ -187,11 +187,9 @@ Showing things:
   skill). The cards section says where the user went inside one.
 - To change what is shown ("now group by project"), `show` again: a new card.
   Never describe an old card as changed.
-- Each card has a number for the conversation: the `card_number` its `show`
-  result came back with. The number is for you (`read_card`, the `cards`
-  section); the user never sees it. Don't name a card's number in a reply
-  ("card 3", "the board is card 4") unless the user used it first: say what
-  the card shows ("the board above", "your week"). The user can
+- A card's `card_number` (from `show`) is for `read_card` and the `cards`
+  section; the user never sees it. Say what a card shows ("the board above"),
+  not "card 3", unless they used the number first. The user can
   change a card by hand. A `cards` turn-context section tells you when they
   did (`you changed: before → after`, with the count and the first rows),
   which card is full screen, and a record they opened inside one. Answer about
