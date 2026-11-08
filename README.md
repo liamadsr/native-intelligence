@@ -10,7 +10,7 @@
 
 <br />
 
-![Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what stands out](.github/readme/chat-view.jpg)
+![The Mac app on a fresh workspace: a greeting, the local weather and one box to talk to the agent](.github/readme/desktop-home.jpg)
 
 <div align="center"><sub>Every screenshot here is a made-up demo workspace. You can load it into your own install: see <a href="#getting-started">Getting started</a>.</sub></div>
 
@@ -84,7 +84,7 @@ with all its complexity, until it simply does things for you the way you expect.
 | --- | --- | --- |
 | Email | Gmail and Outlook in one inbox, with replies the agent drafts in your voice and threads linked to the people in them. | [Email &rarr;](https://dial8.ai/docs/features/email) |
 | Calendar | Google and Microsoft calendars together, with every meeting linked to its notes, people and follow-ups. | [Calendar &rarr;](https://dial8.ai/docs/features/calendar) |
-| Meetings | The desktop and iPhone apps record and transcribe your meetings, then pull out the actions, decisions and commitments. | [Captures &rarr;](https://dial8.ai/docs/features/captures) |
+| Meetings | The desktop, iPhone and Apple Watch apps record and transcribe your meetings, then pull out the actions, decisions and commitments. | [Captures &rarr;](https://dial8.ai/docs/features/captures) |
 | Tasks and projects | Tasks with custom workflows and team identifiers (`ENG-42`), grouped into projects, milestones, cycles and initiatives. | [Actions &rarr;](https://dial8.ai/docs/features/actions) |
 | Documents | Rich documents you and the agent write together, with @mentions to anything in the workspace. | [Documents &rarr;](https://dial8.ai/docs/features/documents) |
 | CRM | Contacts, companies and their whole history, built from your email, calendar and meetings, including who said what on a call. | [CRM &rarr;](https://dial8.ai/docs/features/contacts-and-crm) |
@@ -140,6 +140,8 @@ Ask for something and the agent puts the real page in the conversation: a live l
 board, a record, your calendar, a mail thread. It's doing the work, so most of the time a
 glance is all you need. When you want to dig in, open it full screen.
 
+![Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what's left](.github/readme/chat-view.jpg)
+
 ![The same task board opened full screen, with its columns from backlog to done](.github/readme/chat-view-fullscreen.jpg)
 
 ## Its own browser
@@ -151,14 +153,29 @@ sites for you while you watch it live, and you can take over whenever you want.
 
 ## On your calls
 
-Start a capture and the agent listens with you. The transcript fills in as people talk,
-and you can put a name to each voice. Set a goal for the meeting, and ask the live agent
-anything while the call is still going. Afterwards you get the notes, the
-decisions and the tasks, linked to everyone who was there.
+Start a capture and a small call window opens beside your meeting. It puts names to the
+voices it knows, keeps the meeting's goal in view, lists what it's picking up as people
+talk (one click turns an item into a task), and answers anything you ask while the call
+is still going. It's hidden from screen share, so the other side never sees it.
+Afterwards you get the notes, the decisions and the tasks, linked to everyone who was
+there.
 
-![A live capture: the transcript filling in on the left; on the right, the meeting's goal, the live agent answering "What should we lock in before we hang up?" and a suggestion it raised on its own](.github/readme/live-capture.jpg)
+<p align="center"><img src=".github/readme/live-call.jpg" width="440" alt="The call window during a meeting: the speakers, the meeting's goal, three items it captured with an Add button, and the live assistant answering &quot;What should we lock in before we hang up?&quot;" /></p>
 
 ![The finished meeting's notes: overview, goals and discussion, with the date, length, project and participants beside them](.github/readme/meeting-notes.jpg)
+
+## On your iPhone and Apple Watch
+
+The iPhone app puts your day, your tasks and the agent in your pocket, and records
+in-person meetings. On the Apple Watch, one press starts a recording.
+
+<p align="center">
+  <img src=".github/readme/iphone-home.jpg" width="230" alt="The iPhone app's home: open tasks with their due dates and today's meeting" />
+  &nbsp;
+  <img src=".github/readme/iphone-chat.jpg" width="230" alt="The agent on iPhone answering what's left before a launch: milestones, what's done, what stands out" />
+  &nbsp;
+  <img src=".github/readme/watch-recording.png" width="200" alt="The Apple Watch app recording a meeting after one press" />
+</p>
 
 ## What it knows
 
@@ -231,7 +248,8 @@ screenshots, and prints a one-time link that signs you in to it.
 The desktop app runs against that dev server. Its speech engines are submodules: from
 the top of the repo, `GIT_LFS_SKIP_SMUDGE=1 git submodule update --init`.
 
-The iOS app builds in Xcode (`ios/Dial8.xcodeproj`); a Simulator build needs no signing.
+The iPhone and Apple Watch apps build in Xcode (`ios/Dial8.xcodeproj`, schemes `Dial8` and
+`Dial8 Watch`); a Simulator build needs no signing.
 
 <br />
 
