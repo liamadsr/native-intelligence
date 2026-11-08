@@ -65,6 +65,8 @@ export function stripSuggestionMarkers(markdown: string): string {
       i % 2 === 1
         ? part
         : part
+            // A comment between two words leaves one space, so they don't run together.
+            .replace(/(\S)[ \t]*<!--[^\n]*?-->[ \t]*(?=\S)/g, '$1 ')
             .replace(/[ \t]*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->[ \t]*\n?/g, '')
             .replace(/[ \t]*<!--[^\n]*?-->[ \t]*\n?/g, ''),
     )

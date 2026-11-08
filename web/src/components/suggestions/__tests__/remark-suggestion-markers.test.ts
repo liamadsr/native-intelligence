@@ -136,6 +136,10 @@ describe('stripSuggestionMarkers: other comments', () => {
     expect(stripSuggestionMarkers(md)).toBe(md)
   })
 
+  it('keeps one space where a comment sat between two words', () => {
+    expect(stripSuggestionMarkers('Here is the board <!-- card:1 --> for you.')).toBe('Here is the board for you.')
+  })
+
   it('still removes proposal markers', () => {
     expect(stripSuggestionMarkers('Close it. <!-- proposal:aa11 -->')).toBe('Close it.')
   })
