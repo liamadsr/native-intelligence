@@ -399,10 +399,13 @@ async function postToGuestSlack(target: GuestSlackTarget, body: string): Promise
   // Server-only Slack calls, loaded here so this module stays importable from tests without Connect.
   const { openSlackDm, slackTurnSlack } = await import('@/lib/slack/deps')
   const { markdownToSlack } = await import('@/lib/slack/format')
+  const text = markdownToSlack(body)
+  // Nothing left once its HTML comments go, as textGuest says for a text.
+  if (!text) return { sent: false, reason: 'empty' }
   const channel = await openSlackDm(target.installationId, target.slackUserId).catch(() => null)
   if (!channel) return { sent: false, reason: 'no_dm' }
   const sent = await slackTurnSlack(target.installationId)
-    .post({ channel, text: markdownToSlack(body) })
+    .post({ channel, text })
     .catch(() => ({ ok: false as const, error: 'request_failed' }))
   return sent.ok ? { sent: true } : { sent: false, reason: sent.error }
 }

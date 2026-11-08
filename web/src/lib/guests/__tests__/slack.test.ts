@@ -257,5 +257,18 @@ describe('the guest’s Slack turn and answers', () => {
     text.mockClear()
     expect(await messageGuest(lastWas('slack-in:T1:D1:1.2'), args, { text, slack: down })).toEqual({ sent: false, reason: 'no_dm' })
     expect(text).not.toHaveBeenCalled()
+
+    // An answer that was only an HTML comment: nothing to post, and the DM isn't even opened.
+    const openSlackDm = vi.fn(async () => 'D1')
+    const post = vi.fn(async () => ({ ok: true as const }))
+    vi.doMock('@/lib/slack/deps', () => ({ openSlackDm, slackTurnSlack: () => ({ post }) }))
+    try {
+      const onlyComment = { ...args, body: '<!-- card:4 -->' }
+      expect(await messageGuest(lastWas('slack-in:T1:D1:1.2'), onlyComment, { text })).toEqual({ sent: false, reason: 'empty' })
+      expect(openSlackDm).not.toHaveBeenCalled()
+      expect(post).not.toHaveBeenCalled()
+    } finally {
+      vi.doUnmock('@/lib/slack/deps')
+    }
   })
 })

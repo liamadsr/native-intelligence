@@ -730,9 +730,14 @@ struct iOSChatSurface: View {
                     }
                 }
 
-                Markdown(content)
-                    .font(.body)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // HTML comments never reach the screen, nor one still arriving
+                // (`<!-- card:4` before its `-->`): ChatReplyText.
+                let shown = ChatReplyText.strippingComments(content, streaming: true)
+                if !shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Markdown(shown)
+                        .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

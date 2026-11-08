@@ -93,6 +93,13 @@ describe('plainSmsText: HTML comments never reach the phone', () => {
     expect(plainSmsText('Your board <!-- card:1 --> is ready.', ORIGIN)).toBe('Your board is ready.')
   })
 
+  it('keeps the line break after a comment that ends a line or a list item', () => {
+    expect(plainSmsText('Moved it to Friday. <!-- card:4 -->\nWant me to text Sam?', ORIGIN)).toBe('Moved it to Friday.\nWant me to text Sam?')
+    expect(plainSmsText('Your options:\n- Tuesday 9am <!-- card:1 -->\n- Friday 10am <!-- card:2 -->', ORIGIN)).toBe(
+      'Your options:\n- Tuesday 9am\n- Friday 10am',
+    )
+  })
+
   it('drops a proposal marker', () => {
     expect(plainSmsText('Close it?\n<!-- proposal:3f2a-91 -->\nSay yes.', ORIGIN)).toBe('Close it?\nSay yes.')
   })

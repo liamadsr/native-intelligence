@@ -36,8 +36,19 @@ describe('markdownToSlack: HTML comments', () => {
     expect(markdownToSlack('Run <!-- card:2 --> `npm test` now.')).toBe('Run `npm test` now.')
   })
 
+  it('keeps the line break after a comment that ends a line or a list item', () => {
+    expect(markdownToSlack('Moved it to Friday. <!-- card:4 -->\nWant me to text Sam?')).toBe('Moved it to Friday.\nWant me to text Sam?')
+    expect(markdownToSlack('Your options:\n- Tuesday 9am <!-- card:1 -->\n- Friday 10am <!-- card:2 -->')).toBe(
+      'Your options:\n• Tuesday 9am\n• Friday 10am',
+    )
+  })
+
   it('drops a proposal marker', () => {
     expect(markdownToSlack('Close it?\n<!-- proposal:3f2a-91 -->\nSay yes.')).toBe('Close it?\nSay yes.')
+  })
+
+  it('is empty when the reply was only a comment', () => {
+    expect(markdownToSlack('<!-- card:4 -->')).toBe('')
   })
 
   it('keeps a comment inside code, escaped like the rest of it', () => {

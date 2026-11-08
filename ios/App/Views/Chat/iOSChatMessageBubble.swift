@@ -64,7 +64,8 @@ struct iOSChatMessageBubble: View {
     // MARK: - Assistant Message
 
     /// The reply as shown and copied: HTML comments (`<!-- card:4 -->`, proposal
-    /// markers) never reach the screen. Cheap enough to run on every streamed token.
+    /// markers) never reach the screen. The live reply's own bubble
+    /// (`iOSAIChatView.streamingBubble`) strips them as it streams.
     private var shownContent: String {
         ChatReplyText.strippingComments(message.content)
     }
@@ -86,7 +87,7 @@ struct iOSChatMessageBubble: View {
             }
 
             let shown = shownContent
-            if !shown.isEmpty {
+            if !shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Markdown(shown)
                     .font(.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
