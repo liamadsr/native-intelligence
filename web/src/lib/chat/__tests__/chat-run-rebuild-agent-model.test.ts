@@ -9,9 +9,11 @@
  *  - Auto (nothing saved) is today's thread, byte for byte;
  *  - a premium pick needs a paid plan (Auto otherwise); an inexpensive one
  *    doesn't;
+ *  - a premium pick runs Auto while the Strong kill switch is on;
  *  - never on the person's ChatGPT plan (the plan's model), a device ask
- *    (its fixed model) or a teammate's chat (MAIN_MODEL), and those two
- *    never read the account.
+ *    (its fixed model), a teammate's chat or a phone call's turn (MAIN_MODEL),
+ *    or the Mac body (its own model), and the last four never read the
+ *    account.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -176,12 +178,31 @@ describe('rebuildChatSpec — the model the person picked for their main agent',
     expect(spec.modelRoute?.signals).not.toContain('agent_model')
   })
 
-  it('never on a device ask or a teammate\'s chat, which never read the account', async () => {
+  it('never on a device ask, a teammate\'s chat, a phone call\'s turn or the Mac body, which never read the account', async () => {
     state.saved = 'claude-opus-5-5'
     const device = await rebuildChatSpec(claims({ surface: 'device_ask' }), {}, SPLIT)
     expect(device.model).toBe('deepseek/deepseek-v4-flash')
     const bot = await rebuildChatSpec(claims({ teammateId: 'tm-1' }), {}, SPLIT)
     expect(bot.model).toBe('anthropic/claude-haiku-5.5')
+    // Someone is on the line: the call's speaking budget can't wait on a strong or thinking model.
+    const call = await rebuildChatSpec(claims({ server: 'channel_turn', surface: 'call' }), {}, SPLIT)
+    expect(call.model).toBe('anthropic/claude-haiku-5.5')
+    expect(call.systemPrompt).toContain('a fast, inexpensive model (Claude Haiku 5.5)')
+    // The Mac body runs the relay's model (its route passes callerModel).
+    const mac = await rebuildChatSpec(claims(), {}, { ...SPLIT, callerModel: true })
+    expect(mac.model).toBe('anthropic/claude-haiku-5.5')
     expect(state.readSavedAgentModel).not.toHaveBeenCalled()
+  })
+
+  it('runs Auto for a premium pick while the Strong kill switch is on, but keeps an inexpensive one', async () => {
+    vi.stubEnv('AUTO_MODEL_ESCALATION', 'off')
+    try {
+      state.saved = 'claude-opus-5-5'
+      expect((await rebuildChatSpec(claims(), {}, SPLIT)).model).toBe('anthropic/claude-haiku-5.5')
+      state.saved = 'deepseek-v4-flash'
+      expect((await rebuildChatSpec(claims(), {}, SPLIT)).model).toBe('deepseek/deepseek-v4-flash')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

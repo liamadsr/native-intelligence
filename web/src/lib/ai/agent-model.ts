@@ -10,16 +10,25 @@
  * and the server turns, relays and check-ins in their home thread
  * (src/lib/chat/chat-run-rebuild.ts reads it each turn). Nowhere else: a
  * teammate's chat is the teammate's, a guest texting the business runs its
- * own cheap model (src/lib/guests/guest-spec.ts), and the device ask (the
- * ESP32 hardware) keeps its fixed quick model. Helpers keep their own: the
- * main agent still picks each helper's model from HELPER_MODELS.
+ * own cheap model (src/lib/guests/guest-spec.ts), the device ask (the ESP32
+ * hardware) keeps its fixed quick model, a phone call's turns run Auto
+ * (someone is on the line, and a strong or thinking model can spend the
+ * call's speaking budget alone), and the Mac body runs the relay's model.
+ * Helpers keep their own: the main agent still picks each helper's model
+ * from HELPER_MODELS.
  *
  * Only models the AI Gateway already serves, priced and run with the chat's
  * tools: the helper roster's (HELPER_MODELS), each a CHAT_MODELS entry with
  * an ai_model_costs row (migrations 345, 439, 245), so usage metering bills
  * a picked model like a helper on it. The roster's strong models are premium
  * here too: paid plans only. On an unpaid plan a saved premium pick runs Auto
- * (agentModelForTurn), and the setting says so.
+ * (agentModelForTurn), and the setting says so; so does every premium pick
+ * while the Strong kill switch is on (AUTO_MODEL_ESCALATION=off, a cost
+ * incident). Premium helpers' daily cap doesn't apply: it bounds what the
+ * agent starts on its own, while this is the person's own choice, which their
+ * monthly allowance meters like any other turn. Credits on the default plan
+ * don't make a plan paid (check_ai_usage_limit's is_paid_plan), as for
+ * premium helpers.
  *
  * On the free tier (the person's own ChatGPT plan) every turn runs the plan's
  * model, never a Gateway one, so there is nothing to pick: the setting is
@@ -111,12 +120,13 @@ export function parseAgentModelChoice(raw: unknown): AgentModelChoice | null {
 
 /**
  * The model a turn of the person's main agent runs on, from what they saved
- * and their plan: their pick, or null (Auto, MAIN_MODEL) when they saved none
- * or saved a premium model without a paid plan.
+ * and whether a premium model may run (a paid plan, and the Strong kill
+ * switch off): their pick, or null (Auto, MAIN_MODEL) when they saved none or
+ * saved a premium model that may not run.
  */
-export function agentModelForTurn(saved: unknown, isPaidPlan: boolean): AgentModelId | null {
+export function agentModelForTurn(saved: unknown, premiumAllowed: boolean): AgentModelId | null {
   const model = parseAgentModel(saved)
   if (!model) return null
-  if (isPremiumAgentModel(model) && !isPaidPlan) return null
+  if (isPremiumAgentModel(model) && !premiumAllowed) return null
   return model
 }

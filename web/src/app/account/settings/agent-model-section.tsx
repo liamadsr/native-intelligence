@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BrainCircuit, Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { oneAtATime } from '@/lib/account-setting'
 import {
   AGENT_MODEL_OPTIONS,
   AUTO_AGENT_MODEL,
@@ -115,11 +116,15 @@ export function AgentModelSection() {
       setError(null)
       setSaved(null)
       try {
-        const res = await fetch(AGENT_MODEL_URL, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: next }),
-        })
+        // In line with the name's and the look's saves: each rewrites the
+        // account's metadata, so two at once could undo each other.
+        const res = await oneAtATime(() =>
+          fetch(AGENT_MODEL_URL, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: next }),
+          }),
+        )
         if (!res.ok) throw new Error(String(res.status))
         setSaved(next)
       } catch {
@@ -231,7 +236,9 @@ export function AgentModelSection() {
       )}
       {!error && !heldBack && saved && (
         <p className="-mt-2 flex items-center gap-1 px-5 pb-4 text-xs text-muted-foreground">
-          <Check className="h-3.5 w-3.5 text-emerald-500" /> Saved. Your assistant runs on {choiceLabel(saved)} from its next reply.
+          <Check className="h-3.5 w-3.5 text-emerald-500" /> Saved. Your assistant runs on {choiceLabel(saved)} from its next reply
+          {/* The plan couldn't be read: a premium pick runs only on a paid plan. */}
+          {loaded?.plan !== 'paid' && saved !== AUTO_AGENT_MODEL && isPremiumAgentModel(saved) ? ', on a paid plan.' : '.'}
         </p>
       )}
     </div>

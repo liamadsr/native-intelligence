@@ -8,7 +8,7 @@
  *  • PUT saves `auto` (as null) or a pick through the ADMIN API keyed on the
  *    verified user, touching only `agent_model`; anything else is a 400 and
  *    writes nothing; a failed save is a 500.
- *  • Signed out: 401, nothing read or written.
+ *  • Signed out: 401; a device token (the hardware's): 403. Nothing read or written.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildRequest, readJson } from '@/test/integration'
@@ -29,7 +29,9 @@ vi.mock('@/lib/admin', () => ({
 
 const { GET, PUT } = await import('@/app/api/account/agent-model/route')
 
-const put = (body: unknown) => PUT(buildRequest({ url: 'http://localhost/api/account/agent-model', method: 'PUT', body }))
+const URL_ = 'http://localhost/api/account/agent-model'
+const put = (body: unknown, headers: Record<string, string> = {}) => PUT(buildRequest({ url: URL_, method: 'PUT', body, headers }))
+const get = (headers: Record<string, string> = {}) => GET(buildRequest({ url: URL_, method: 'GET', headers }))
 
 beforeEach(() => {
   hoisted.user = { id: 'user-1', user_metadata: {} }
@@ -42,7 +44,7 @@ beforeEach(() => {
 describe('GET /api/account/agent-model', () => {
   it('reports the saved pick and a paid plan, from the chat\'s own usage check', async () => {
     hoisted.user!.user_metadata = { agent_model: 'claude-opus-5-5', assistant_name: 'Mary' }
-    const res = await GET()
+    const res = await get()
     expect(res.status).toBe(200)
     expect(await readJson(res)).toEqual({ model: 'claude-opus-5-5', plan: 'paid', planModel: null })
     expect(hoisted.rpc).toHaveBeenCalledWith('check_ai_usage_limit', { p_user_id: 'user-1', p_chatgpt_plan: true })
@@ -51,25 +53,30 @@ describe('GET /api/account/agent-model', () => {
   it('reports auto when nothing (or not a pick) is saved', async () => {
     for (const saved of [undefined, null, 'claude-haiku-5-5', 'gpt-6.1-sol']) {
       hoisted.user!.user_metadata = saved === undefined ? {} : { agent_model: saved }
-      expect(((await readJson(await GET())) as { model: string }).model, String(saved)).toBe('auto')
+      expect(((await readJson(await get())) as { model: string }).model, String(saved)).toBe('auto')
     }
   })
 
   it('names the plan model on the ChatGPT plan, and says unpaid or unknown otherwise', async () => {
     hoisted.rpc.mockResolvedValue({ data: [{ allowed: true, reason: 'chatgpt_plan_exhausted', is_paid_plan: false }], error: null })
-    expect(await readJson(await GET())).toEqual({ model: 'auto', plan: 'chatgpt', planModel: 'GPT-6.1 Sol' })
+    expect(await readJson(await get())).toEqual({ model: 'auto', plan: 'chatgpt', planModel: 'GPT-6.1 Sol' })
     hoisted.rpc.mockResolvedValue({ data: [{ allowed: false, reason: 'subscription_required', is_paid_plan: false }], error: null })
-    expect(await readJson(await GET())).toMatchObject({ plan: 'unpaid' })
+    expect(await readJson(await get())).toMatchObject({ plan: 'unpaid' })
     // Over the limit is still a paid plan.
     hoisted.rpc.mockResolvedValue({ data: [{ allowed: false, reason: 'cost_limit_exceeded', is_paid_plan: true }], error: null })
-    expect(await readJson(await GET())).toMatchObject({ plan: 'paid' })
+    expect(await readJson(await get())).toMatchObject({ plan: 'paid' })
     hoisted.rpc.mockResolvedValue({ data: [], error: { message: 'down' } })
-    expect(await readJson(await GET())).toMatchObject({ plan: null, planModel: null })
+    expect(await readJson(await get())).toMatchObject({ plan: null, planModel: null })
   })
 
   it('is a 401 signed out', async () => {
     hoisted.user = null
-    expect((await GET()).status).toBe(401)
+    expect((await get()).status).toBe(401)
+    expect(hoisted.rpc).not.toHaveBeenCalled()
+  })
+
+  it('refuses a device token (the hardware\'s): it is no signed-in session', async () => {
+    expect((await get({ Authorization: 'Bearer d8d_made_up_token' })).status).toBe(403)
     expect(hoisted.rpc).not.toHaveBeenCalled()
   })
 })
@@ -101,6 +108,11 @@ describe('PUT /api/account/agent-model', () => {
     hoisted.user = null
     hoisted.updateUserById.mockClear()
     expect((await put({ model: 'claude-opus-5-5' })).status).toBe(401)
+    expect(hoisted.updateUserById).not.toHaveBeenCalled()
+  })
+
+  it('refuses a device token, writing nothing: a pick can raise the person\'s spend', async () => {
+    expect((await put({ model: 'claude-opus-5-5' }, { Authorization: 'Bearer d8d_made_up_token' })).status).toBe(403)
     expect(hoisted.updateUserById).not.toHaveBeenCalled()
   })
 })

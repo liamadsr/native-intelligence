@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getServiceClient } from '@/lib/admin'
 import { requireUser } from '@/lib/api-auth'
-import { badRequest, serverError } from '@/lib/api-errors'
+import { badRequest, forbidden, serverError } from '@/lib/api-errors'
+import { isDeviceToken } from '@/lib/device-tokens'
 import { AGENT_MODEL_FIELD, AUTO_AGENT_MODEL, parseAgentModel, parseAgentModelChoice } from '@/lib/ai/agent-model'
 import { readAgentModelPlan, saveAgentModel } from '@/lib/ai/agent-model-store'
 import { PLAN_MAIN_MODEL, planModelLabel } from '@/lib/chatgpt/plan-models'
@@ -19,8 +20,17 @@ import { PLAN_MAIN_MODEL, planModelLabel } from '@/lib/chatgpt/plan-models'
  *  • PUT `{ model }`: `auto` or one of AGENT_MODEL_IDS, saved through the
  *    admin API keyed on the verified user (as the profile PATCH saves the
  *    agent's name). The plan isn't checked here: each turn applies it.
+ *  • A device token (the ESP32 hardware's `d8d_…`) is refused: it is no
+ *    signed-in session, and a pick can raise the person's spend.
  */
-export async function GET() {
+function deviceTokenRefusal(request: Request): Response | null {
+  const header = request.headers.get('authorization') ?? ''
+  return header.startsWith('Bearer ') && isDeviceToken(header.slice(7).trim()) ? forbidden('The model is set from a signed-in session') : null
+}
+
+export async function GET(request: Request) {
+  const refused = deviceTokenRefusal(request)
+  if (refused) return refused
   const auth = await requireUser()
   if (auth instanceof Response) return auth
   const { user } = auth
@@ -34,6 +44,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const refused = deviceTokenRefusal(request)
+  if (refused) return refused
   const auth = await requireUser()
   if (auth instanceof Response) return auth
   const { user } = auth

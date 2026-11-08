@@ -650,12 +650,19 @@ export function renderHelperModelRoster(dailyCap: number, chosen?: RosterMainMod
   const self = chosen
     ? `${chosen.premium ? 'a strong model' : 'a fast, inexpensive model'} the person chose for you (${chosen.name})`
     : 'a fast, inexpensive model (Claude Haiku 5.5)'
+  // On a strong pick the case for a helper is the cost, not the model: there
+  // is no stronger model to hand a hard task to, or barely one.
+  const strong = chosen?.premium === true
+  const helperFor = strong ? 'or routine work a cheaper model does as well as you' : 'or work that needs a stronger model than yours'
+  const lastWord = strong
+    ? '- You run on a strong model: do hard judgment yourself unless it splits into parallel parts, and hand routine, high-volume work to a cheaper helper rather than spend your own steps on it.'
+    : '- When a task is beyond you, hand it to a stronger model rather than guess: a careful answer from `sonnet` costs less than a wrong one.'
   return [
     '## Models for helpers',
     '',
     `For the main agent (a helper does its own task itself): you run on ${self}, so you do most of the work yourself. ` +
       'A helper pays for a big batch that splits cleanly (`helpers`, several in parallel in this turn), a long job that runs while you keep talking (`start_helper`), ' +
-      'or work that needs a stronger model than yours. Choose each task\'s model with its `model` field. ' +
+      `${helperFor}. Choose each task's model with its \`model\` field. ` +
       'Every helper has the same tools and limits whatever its model; only the model differs.',
     '',
     'Which model for which job:',
@@ -672,7 +679,7 @@ export function renderHelperModelRoster(dailyCap: number, chosen?: RosterMainMod
     `- ${premium.join(', ')} are premium: paid plans only, and at most ${dailyCap} premium helpers a day per person. ` +
       `Past that, or on an unpaid plan, the task runs on \`${HELPER_MODEL_FALLBACK}\` instead; each result names the model it ran on.`,
     '- Leave `model` out and the app picks from the task itself.',
-    '- When a task is beyond you, hand it to a stronger model rather than guess: a careful answer from `sonnet` costs less than a wrong one.',
+    lastWord,
   ].join('\n')
 }
 

@@ -135,6 +135,15 @@ describe('AgentModelSection', () => {
     expect(text()).toContain('Your assistant runs on your ChatGPT plan’s model, GPT-6.1 Sol. You can pick another model on a Dial8 plan.')
   })
 
+  it('says a premium pick needs a paid plan when the plan couldn\'t be read', async () => {
+    state.get = { model: 'auto', plan: null, planModel: null }
+    await mount()
+    await click(trigger()!)
+    expect(option('Claude Opus 5.5').disabled).toBe(false)
+    await click(option('Claude Opus 5.5'))
+    expect(text()).toContain('Saved. Your assistant runs on Claude Opus 5.5 from its next reply, on a paid plan.')
+  })
+
   it('stays put when the setting can\'t be read', async () => {
     fetchMock.mockImplementationOnce(async () => new Response('{}', { status: 500 }))
     await mount()

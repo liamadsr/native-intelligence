@@ -51,6 +51,8 @@ export async function GET(request: Request) {
       includeSkills: params.get('skills') === '1',
       includeSchemas,
       splitTurnContext: params.get('turnContext') === '1',
+      // The Mac runs the relay's model (or its own), never the person's pick.
+      callerModel: true,
     })
   } catch (err) {
     // checkUsageLimits throws a Response on 429/503 (usage/billing): as is.

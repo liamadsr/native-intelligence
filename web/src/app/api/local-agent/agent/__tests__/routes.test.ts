@@ -214,7 +214,8 @@ describe('GET /api/local-agent/agent/spec', () => {
     const [claims, turn, opts] = m.rebuildChatSpec.mock.calls[0]
     expect(claims).toEqual({ conversationId: CONV, workspaceId: WS, userId: USER, exp: expect.any(Number) })
     expect(turn).toEqual({})
-    expect(opts).toEqual({ includeSkills: true, includeSchemas: true, splitTurnContext: true })
+    // The Mac runs its own model: the person's pick for their main agent isn't read.
+    expect(opts).toEqual({ includeSkills: true, includeSchemas: true, splitTurnContext: true, callerModel: true })
     const body = await res.json()
     expect(body.host).toBe('mac')
     expect(body.localModel).toBe(false)

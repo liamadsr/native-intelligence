@@ -62,7 +62,13 @@ const registered = new Set<Registered>()
 let lastProfile: Record<string, unknown> | null = null
 let saveChain: Promise<unknown> = Promise.resolve()
 
-function oneAtATime<R>(task: () => Promise<R>): Promise<R> {
+/**
+ * Run a save to the account's `user_metadata` after every other one this
+ * window started (see the header: two at once can undo each other). The
+ * settings here use it, and so does the model setting, which saves through
+ * its own route (app/account/settings/agent-model-section.tsx).
+ */
+export function oneAtATime<R>(task: () => Promise<R>): Promise<R> {
   const run = saveChain.then(task, task)
   saveChain = run.catch(() => undefined)
   return run

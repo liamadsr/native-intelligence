@@ -547,7 +547,15 @@ describe('the helper roster (HELPER_MODELS: the main agent picks each helper\'s 
     expect(opus).not.toContain('Claude Haiku 5.5),')
     const luna = renderHelperModelRoster(10, { name: 'GPT-5.6 Luna', premium: false })
     expect(luna).toContain('you run on a fast, inexpensive model the person chose for you (GPT-5.6 Luna)')
-    // Only the opening changes: the roster itself is the same for every pick.
-    expect(opus.split('\n').slice(3)).toEqual(renderHelperModelRoster(10).split('\n').slice(3))
+    // An inexpensive pick changes only the opening; the roster is the same.
+    const auto = renderHelperModelRoster(10).split('\n')
+    expect(luna.split('\n').slice(3)).toEqual(auto.slice(3))
+    // A strong pick has no stronger model to hand hard work to: a helper is
+    // for cheaper routine work, and the last word says so.
+    expect(opus).toContain('or routine work a cheaper model does as well as you.')
+    expect(opus).not.toContain('a stronger model than yours')
+    expect(opus).not.toContain('hand it to a stronger model')
+    expect(opus.split('\n').at(-1)).toMatch(/^- You run on a strong model: do hard judgment yourself/)
+    expect(opus.split('\n').slice(3, -1)).toEqual(auto.slice(3, -1))
   })
 })

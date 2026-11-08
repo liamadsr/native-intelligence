@@ -74,7 +74,7 @@ describe('agentModelForTurn', () => {
     expect(agentModelForTurn('not-a-model', true)).toBeNull()
   })
 
-  it('runs Auto for a premium pick without a paid plan, but an inexpensive pick as saved', () => {
+  it('runs Auto for a premium pick that may not run (no paid plan, or the kill switch), but an inexpensive pick as saved', () => {
     for (const premium of ['claude-opus-5-5', 'claude-sonnet-5-5', 'gpt-5.6-terra']) expect(agentModelForTurn(premium, false), premium).toBeNull()
     expect(agentModelForTurn('gpt-5.6-luna', false)).toBe('gpt-5.6-luna')
     expect(agentModelForTurn('deepseek-v4-flash', false)).toBe('deepseek-v4-flash')
