@@ -25,6 +25,7 @@ const PROFILE: BusinessProfile = {
   horizonDays: 14,
   bookingKind: 'pickup',
   bookingSlug: 'bright-loom',
+  reminders: true,
 }
 const SLOT = { start: '2026-11-02T15:00:00.000Z', end: '2026-11-02T16:00:00.000Z' }
 

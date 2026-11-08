@@ -16,7 +16,9 @@
  *                        unique live-slot key keeps two from one start), its
  *                        calendar event moves with it, and the customer
  *                        confirmed it by picking it. A calendar that refuses
- *                        puts the booking back. The owner is told where they
+ *                        puts the booking back (or, when its old time was
+ *                        taken meanwhile, leaves it moved and tells the owner
+ *                        to move the event). The owner is told where they
  *                        are: who, from when, to when. A meeting is never
  *                        moved here: its invite is the owner's (others may be
  *                        on it), so the agent passes the customer's times on
@@ -40,9 +42,9 @@ import { updateCalendarEvent } from '@/lib/integrations/calendar'
 import { cleanText } from './intake'
 import { answerReminder, getReminder, openRemindersForPhone, reminderAt, type CustomerReminder } from './reminder-store'
 import { dayAndTime, reminderZone, reportToOwner, type OwnerReportDeps } from './reminders'
-import { openSlotAt, slotLabel } from './slots'
-import { BOOKING_SELECT, getBooking, toBooking } from './store'
-import type { CustomerBooking } from './types'
+import { openSlotAt, slotLabel, type FindOpenSlotsDeps } from './slots'
+import { BOOKING_SELECT, expireStaleBookings, getBooking, toBooking } from './store'
+import { BOOKING_REQUEST_TTL_MS, type CustomerBooking } from './types'
 
 type ToolOutput = Record<string, unknown>
 
@@ -51,6 +53,7 @@ export interface ReminderReplyDeps extends OwnerReportDeps {
   now?: () => number
   timeZone?: (business: { workspaceId: string; ownerUserId: string }) => Promise<string>
   openSlotAt?: typeof openSlotAt
+  listEvents?: FindOpenSlotsDeps['listEvents']
   moveEvent?: (ownerUserId: string, eventId: string, slot: { start: string; end: string }) => Promise<unknown>
 }
 
@@ -67,9 +70,18 @@ export function confirmedReport(reminder: Pick<CustomerReminder, 'customerName' 
   return `${name(reminder)} confirmed their ${reminder.kind} on ${whenLabel(at, timeZone)}.`
 }
 
+/** Where the booking's calendar event ended up after a move. */
+export type CalendarAfterMove = 'moved' | 'none' | 'stuck'
+
 /** The owner's line when a customer moved their booking. Pure. */
-export function movedReport(reminder: Pick<CustomerReminder, 'customerName' | 'kind'>, from: string, to: string, timeZone: string, calendarMoved: boolean): string {
-  return `${name(reminder)} moved their ${reminder.kind} from ${whenLabel(from, timeZone)} to ${whenLabel(to, timeZone)}${calendarMoved ? ". It's moved on your calendar too." : '.'} Tell me if you want it back.`
+export function movedReport(reminder: Pick<CustomerReminder, 'customerName' | 'kind'>, from: string, to: string, timeZone: string, calendar: CalendarAfterMove): string {
+  const where =
+    calendar === 'moved'
+      ? " It's moved on your calendar too."
+      : calendar === 'stuck'
+        ? ` Your calendar wouldn't move, so it still shows ${whenLabel(from, timeZone)}: move that event yourself.`
+        : ''
+  return `${name(reminder)} moved their ${reminder.kind} from ${whenLabel(from, timeZone)} to ${whenLabel(to, timeZone)}.${where} Tell me if you want it back.`
 }
 
 /** The owner's line when a customer said STOP to their reminder. Pure. */
@@ -186,9 +198,16 @@ export async function moveAppointment(
     return { success: true, status: 'unchanged', when: slotLabel(booking.startsAt, zone), message: "That's the time it's already booked for. Ask whether they meant another time." }
   }
 
+  // A request the owner never answered still holds its slot's key until it is marked expired (as requestBooking does first).
+  await expireStaleBookings(supabase, booking.workspaceId, new Date(now - BOOKING_REQUEST_TTL_MS).toISOString())
   let open: Awaited<ReturnType<typeof openSlotAt>>
   try {
-    open = await (deps.openSlotAt ?? openSlotAt)(supabase, business, args.start, { now: () => now })
+    // The booking itself, and its own calendar event, never block its new time (a 2-hour job moving an hour later).
+    open = await (deps.openSlotAt ?? openSlotAt)(supabase, business, args.start, {
+      now: () => now,
+      ...(deps.listEvents ? { listEvents: deps.listEvents } : {}),
+      except: { bookingId: booking.id, eventId: booking.calendarEventId },
+    })
   } catch (err) {
     console.warn('[reminders] slot check failed:', err instanceof Error ? err.message : String(err))
     return { success: false, code: 'CALENDAR_UNAVAILABLE', message: "I can't check the calendar right now. Ask them to try again in a little while, or pass their time to the owner with message_owner." }
@@ -200,22 +219,29 @@ export async function moveAppointment(
   if (moved === 'taken') return { success: false, code: 'SLOT_TAKEN', message: 'Someone just took that time. Offer others from find_open_slots.' }
   if (!moved) return { success: false, code: 'CHANGED', message: 'That booking just changed. Pass their new time to the owner with message_owner.' }
 
-  // The owner's calendar event follows the booking; a calendar that refuses puts the booking back.
-  let calendarMoved = false
+  // The owner's calendar event follows the booking; a calendar that refuses puts the booking back. When the
+  // old time was taken meanwhile (another customer's request), it can't go back: it stays moved, and the owner
+  // is told their calendar still shows the old time.
+  let calendar: CalendarAfterMove = 'none'
   if (booking.calendarEventId) {
     try {
       await (deps.moveEvent ?? ((userId, eventId, s) => updateCalendarEvent(userId, eventId, { start: s.start, end: s.end })))(booking.ownerUserId, booking.calendarEventId, slot)
-      calendarMoved = true
+      calendar = 'moved'
     } catch (err) {
       console.warn('[reminders] calendar move failed:', err instanceof Error ? err.message : String(err))
-      const { error } = await supabase
+      const { data: back, error } = await supabase
         .from('customer_booking')
         .update({ starts_at: booking.startsAt, ends_at: booking.endsAt, customer_confirmed_at: booking.customerConfirmedAt, updated_at: nowIso })
         .eq('workspace_id', booking.workspaceId)
         .eq('id', booking.id)
         .eq('starts_at', slot.start)
-      if (error) console.warn('[reminders] booking not put back:', error.message)
-      return { success: false, code: 'CALENDAR_FAILED', message: "I couldn't move it on the calendar just now, so it stays at the old time. Pass their new time to the owner with message_owner." }
+        .select('id')
+        .maybeSingle()
+      if (!error && back) {
+        return { success: false, code: 'CALENDAR_FAILED', message: "I couldn't move it on the calendar just now, so it stays at the old time. Pass their new time to the owner with message_owner." }
+      }
+      console.warn('[reminders] booking not put back:', error?.message ?? 'it changed')
+      calendar = 'stuck'
     }
   }
 
@@ -228,7 +254,7 @@ export async function moveAppointment(
         workspaceId: args.workspaceId,
         userId: booking.ownerUserId,
         messageId: `customer-reminder:${reminder.id}:moved:${slot.start}`,
-        text: movedReport(reminder, from, slot.start, zone, calendarMoved),
+        text: movedReport(reminder, from, slot.start, zone, calendar),
         routes: true,
       },
       deps,

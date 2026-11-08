@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CalendarEvent } from '@/lib/integrations/calendar'
 import { routeOf } from '@/lib/reach/route-policy'
 import { memoryDb } from '@/test/memory-db'
+import { textBookingCustomer } from '../booking'
 import { ensureCustomerGuest } from '../customer-guests'
 import { CUSTOMER_REMINDER_MESSAGE_KIND, CUSTOMER_REMINDER_ROUTES_KEY } from '../reminder-message'
 import {
@@ -138,12 +139,18 @@ function deps(over: Partial<RemindersDeps> = {}) {
 }
 
 describe("10 o'clock in the business's own zone", () => {
-  it('one request per business whose zone reads 10, dated by its own day', () => {
-    const at = (iso: string) => planReminders([{ workspaceId: 'ws-c', ownerUserId: 'u', timeZone: CHICAGO }, { workspaceId: 'ws-a', ownerUserId: 'u', timeZone: 'Pacific/Auckland' }], Date.parse(iso))
-    expect(at('2026-11-04T16:00:00Z')).toEqual([{ id: 'customer-reminders:ws-c:2026-11-04', name: REMINDERS_EVENT, data: { workspaceId: 'ws-c', localDate: '2026-11-04' } }])
-    // 21:00Z on Nov 3 is 10:00 on Nov 4 in Auckland (NZDT, UTC+13).
-    expect(at('2026-11-03T21:00:00Z')).toEqual([{ id: 'customer-reminders:ws-a:2026-11-04', name: REMINDERS_EVENT, data: { workspaceId: 'ws-a', localDate: '2026-11-04' } }])
-    expect(at('2026-11-04T17:00:00Z')).toEqual([])
+  it('one request per business from 10 in its own zone, dated by its own day; each later hour until 8 pm asks again under the same id', () => {
+    const plan = (iso: string, timeZone: string) => planReminders([{ workspaceId: 'ws-1', ownerUserId: 'u', timeZone }], Date.parse(iso)).map((r) => r.id)
+    const request = (date: string) => [`customer-reminders:ws-1:${date}`]
+    expect(planReminders([{ workspaceId: 'ws-1', ownerUserId: 'u', timeZone: CHICAGO }], NOW)).toEqual([{ id: 'customer-reminders:ws-1:2026-11-04', name: REMINDERS_EVENT, data: { workspaceId: 'ws-1', localDate: '2026-11-04' } }])
+    // 21:00Z on Nov 3 is 10:00 on Nov 4 in Auckland (NZDT, UTC+13): its own date, not UTC's.
+    expect(plan('2026-11-03T21:00:00Z', 'Pacific/Auckland')).toEqual(request('2026-11-04'))
+    // A catch-up at 7 PM in Chicago (a missed pass): the same request, so Inngest keeps one.
+    expect(plan('2026-11-05T01:00:00Z', CHICAGO)).toEqual(request('2026-11-04'))
+    // Before 10, and from 8 PM on: nothing.
+    expect(plan('2026-11-04T15:00:00Z', CHICAGO)).toEqual([])
+    expect(plan('2026-11-05T02:00:00Z', CHICAGO)).toEqual([])
+    expect(plan('2026-11-04T16:00:00Z', 'Not/AZone')).toEqual([])
   })
 
   it('only businesses with reminders on and a live number', async () => {
@@ -199,17 +206,53 @@ describe("one business's day", () => {
     expect(route).toHaveBeenCalledWith({ userId: OWNER, workspaceId: WS, conversationId: '11111111-1111-4111-8111-111111111111' }, 'customer-reminders:ws-brightside:2026-11-04')
   })
 
-  it('never twice for one booking: a second run (a retry, a second request) texts no one and says nothing', async () => {
-    await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, deps().d)
+  it('never twice for one booking: a second run (a retry, a second request) texts no one, and its report is the same message', async () => {
+    const first = deps()
+    await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, first.d)
     const again = deps()
-    expect(await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, again.d)).toEqual({ outcome: 'done', sent: 0, skipped: 5, failed: 0, reported: false })
+    expect(await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, again.d)).toMatchObject({ outcome: 'done', sent: 0, skipped: 5, failed: 0 })
     expect(again.texts).toEqual([])
-    expect(again.append).not.toHaveBeenCalled()
     expect(tables.customer_reminder).toHaveLength(3)
+    // The same message id: the home thread's unique index keeps it to one.
+    expect(again.append.mock.calls[0][1].messageId).toBe(first.append.mock.calls[0][1].messageId)
+  })
+
+  it('a run cut short after its texts still tells the owner on its retry, as the first day', async () => {
+    const cut = deps({ append: vi.fn(async () => Promise.reject(new Error('timed out'))) as never })
+    expect(await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, cut.d)).toMatchObject({ sent: 3, reported: false })
+    const retry = deps()
+    expect(await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, retry.d)).toMatchObject({ sent: 0, reported: true })
+    expect(retry.texts).toEqual([])
+    const text = (retry.append.mock.calls[0][1].parts[0] as { text: string }).text
+    expect(text).toMatch(/^I texted 3 reminders for tomorrow: Dana Ruiz \(visit, 9:00 AM\), Kim Park \(meeting, 1:30 PM\) and Lee Chan \(meeting, 4:00 PM\)\./)
+    expect(text).toContain('This is new')
+    expect(retry.route).toHaveBeenCalledTimes(1)
+  })
+
+  it('a number that said STOP (the SMS ledger itself) is never texted', async () => {
+    tables.sms_message = [{ phone_e164: DANA, direction: 'in', kind: 'stop', created_at: '2026-10-01T12:00:00Z' }]
+    const { d, texts } = deps({ optedOut: undefined })
+    await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, d)
+    expect(texts.map((t) => t.to)).not.toContain(DANA)
+    expect(texts.map((t) => t.to)).toContain(KIM)
+    expect(tables.customer_reminder.some((r) => r.phone_e164 === DANA)).toBe(false)
+  })
+
+  it('tomorrow is the business’s own day, across the fall-back change (a 25-hour day)', async () => {
+    // Sat Oct 31, 10:00 AM in Chicago (CDT); Sun Nov 1 runs 05:00Z to Nov 2 06:00Z.
+    tables.customer_booking.push(
+      { ...tables.customer_booking[0], id: 'b-late', starts_at: '2026-11-02T05:30:00.000Z', ends_at: '2026-11-02T06:00:00.000Z', customer_name: 'Late Sunday', customer_phone: '+13125550135', calendar_event_id: null },
+      { ...tables.customer_booking[0], id: 'b-monday', starts_at: '2026-11-02T06:30:00.000Z', ends_at: '2026-11-02T07:00:00.000Z', customer_name: 'Early Monday', customer_phone: '+13125550136', calendar_event_id: null },
+      { ...tables.customer_booking[0], id: 'b-sat', starts_at: '2026-11-01T04:30:00.000Z', ends_at: '2026-11-01T05:00:00.000Z', customer_name: 'Saturday Night', customer_phone: '+13125550137', calendar_event_id: null },
+    )
+    const { d, texts } = deps({ now: () => Date.parse('2026-10-31T15:00:00Z'), listEvents: vi.fn(async () => []) })
+    await sendDayReminders(db, { workspaceId: WS, localDate: '2026-10-31' }, d)
+    expect(texts.map((t) => t.to)).toEqual(['+13125550135'])
+    expect(texts[0].body).toContain('tomorrow (Sun, Nov 1) at 11:30 PM')
   })
 
   it('after the first day the owner’s line stays in their thread', async () => {
-    tables.customer_reminder.push({ id: 'old', workspace_id: WS, subject_type: 'booking', subject_id: 'b-old', phone_e164: DANA, status: 'sent' })
+    tables.customer_reminder.push({ id: 'old', workspace_id: WS, subject_type: 'booking', subject_id: 'b-old', phone_e164: DANA, status: 'sent', starts_at: '2026-11-02T15:00:00.000Z' })
     const { d, append, route } = deps()
     await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, d)
     expect(append.mock.calls[0][1].metadata).toEqual({ kind: CUSTOMER_REMINDER_MESSAGE_KIND, [CUSTOMER_REMINDER_ROUTES_KEY]: false })
@@ -295,5 +338,16 @@ describe("the owner's report", () => {
   it('a write that fails is reported, never thrown', async () => {
     const append = vi.fn(async () => Promise.reject(new Error('down')))
     expect(await reportToOwner(db, { workspaceId: WS, userId: OWNER, messageId: 'm-3', text: 'x', routes: true }, { append: append as never })).toBe(false)
+  })
+})
+
+describe('the ledger', () => {
+  it("a reminder is logged as a notice even to a customer with a row: never the global auto-reply cap's kinds", async () => {
+    tables.sms_message = []
+    const send = vi.fn(async () => ({ ok: true as const, sid: 'SM-r1' }))
+    const guestId = (tables.agent_guest[0] as { id: string }).id
+    expect(await textBookingCustomer(db, { workspaceId: WS, customerPhone: KIM, guestId }, 'Reminder.', { send: send as never, kind: 'notice' })).toBe(true)
+    expect(send).toHaveBeenCalledWith(KIM, 'Reminder.', { from: '+13125550100' })
+    expect(tables.sms_message.map((r) => [r.kind, r.guest_id])).toEqual([['notice', guestId]])
   })
 })

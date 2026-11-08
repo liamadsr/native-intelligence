@@ -144,11 +144,40 @@ export async function markReminderSent(supabase: SupabaseClient, workspaceId: st
   if (error) throw new Error(`customer_reminder update failed: ${error.message}`)
 }
 
-/** Whether the business ever sent a reminder before (its first day's report says what reminders are). Throws on a failed read. */
-export async function hasSentReminders(supabase: SupabaseClient, workspaceId: string): Promise<boolean> {
-  const { count, error } = await supabase.from('customer_reminder').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('status', 'sent')
+/**
+ * Whether the business sent a reminder for any day before `beforeIso` (its
+ * first day's report says what reminders are; a retry of that day still
+ * reads as the first). Throws on a failed read.
+ */
+export async function sentRemindersBefore(supabase: SupabaseClient, workspaceId: string, beforeIso: string): Promise<boolean> {
+  const { count, error } = await supabase
+    .from('customer_reminder')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'sent')
+    .lt('starts_at', beforeIso)
   if (error) throw new Error(`customer_reminder count failed: ${error.message}`)
   return (count ?? 0) > 0
+}
+
+/**
+ * The reminders sent for jobs and meetings in [fromIso, toIso), soonest
+ * first: the owner's report reads them from the table, so a run cut short
+ * after its texts (and its retry, which sends nothing) still reports them.
+ * Throws on a failed read.
+ */
+export async function sentRemindersBetween(supabase: SupabaseClient, workspaceId: string, fromIso: string, toIso: string): Promise<CustomerReminder[]> {
+  const { data, error } = await supabase
+    .from('customer_reminder')
+    .select(REMINDER_SELECT)
+    .eq('workspace_id', workspaceId)
+    .eq('status', 'sent')
+    .gte('starts_at', fromIso)
+    .lt('starts_at', toIso)
+    .order('starts_at', { ascending: true })
+    .limit(200)
+  if (error) throw new Error(`customer_reminder read failed: ${error.message}`)
+  return ((data ?? []) as ReminderRow[]).map(toReminder)
 }
 
 /** One reminder of the workspace's, or null. Throws on a failed read. */
@@ -160,9 +189,12 @@ export async function getReminder(supabase: SupabaseClient, workspaceId: string,
 }
 
 /**
- * The reminders texted to this number lately (inside the answer window)
- * whose job or meeting is still ahead, soonest first: what the customer's
- * agent can act on, and what a STOP opts out of. Throws on a failed read.
+ * The reminders texted to this number lately (claimed inside the answer
+ * window) whose job or meeting is still ahead, soonest first: what the
+ * customer's agent can act on, and what a STOP opts out of. A reminder
+ * still `claimed` counts: a run cut short between the text and its stamp
+ * may well have sent it, and the customer's yes must still land. Throws on
+ * a failed read.
  */
 export async function openRemindersForPhone(supabase: SupabaseClient, workspaceId: string, phone: string, now: number = Date.now()): Promise<CustomerReminder[]> {
   const { data, error } = await supabase
@@ -170,8 +202,8 @@ export async function openRemindersForPhone(supabase: SupabaseClient, workspaceI
     .select(REMINDER_SELECT)
     .eq('workspace_id', workspaceId)
     .eq('phone_e164', phone)
-    .eq('status', 'sent')
-    .gte('sent_at', new Date(now - REMINDER_ANSWER_WINDOW_MS).toISOString())
+    .in('status', ['sent', 'claimed'])
+    .gte('created_at', new Date(now - REMINDER_ANSWER_WINDOW_MS).toISOString())
     .order('starts_at', { ascending: true })
     .limit(10)
   if (error) throw new Error(`customer_reminder read failed: ${error.message}`)

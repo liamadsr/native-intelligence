@@ -152,6 +152,53 @@ describe('another time: move_appointment', () => {
     expect(append).not.toHaveBeenCalled()
   })
 
+  it('a calendar that refuses after the old time was taken meanwhile: the booking stays moved, and the owner is told to move the event', async () => {
+    const { d, append, route } = deps({
+      moveEvent: vi.fn(async () => {
+        // Another customer's request takes the freed 9:00 before the rollback.
+        tables.customer_booking.push({ ...tables.customer_booking[0], id: 'other', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T15:00:00.000Z', created_at: '2026-11-04T18:00:00Z' })
+        throw new Error('403')
+      }),
+    })
+    expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: NEW_SLOT.start }, d)).toMatchObject({ success: true, status: 'moved' })
+    expect(await getBooking(db, WS, B_DANA)).toMatchObject({ startsAt: NEW_SLOT.start })
+    expect(append.mock.calls[0][1].parts[0].text).toBe(
+      "Dana Ruiz moved their visit from Thu, Nov 5 at 9:00 AM to Fri, Nov 6 at 10:00 AM. Your calendar wouldn't move, so it still shows Thu, Nov 5 at 9:00 AM: move that event yourself. Tell me if you want it back.",
+    )
+    expect(route).toHaveBeenCalledTimes(1)
+  })
+
+  describe('over the real slot finder', () => {
+    beforeEach(() => {
+      tables.business_profile = [{ workspace_id: WS, owner_user_id: OWNER, business_name: 'Brightside', customer_facts: null, time_zone: CHICAGO, booking_days: [1, 2, 3, 4, 5], booking_start: '08:00', booking_end: '17:00', slot_minutes: 60, lead_hours: 12, horizon_days: 21, booking_kind: 'visit', booking_slug: null, reminders: true }]
+    })
+    // The booking's own event on the owner's calendar: 9:00 to 10:30 on Thu, Nov 5.
+    const ownEvent = { id: 'evt-dana', title: 'Visit: Dana Ruiz', start: '2026-11-05T15:00:00.000Z', end: '2026-11-05T16:30:00.000Z' }
+    const real = (over: Partial<ReminderReplyDeps> = {}) => deps({ openSlotAt: undefined, listEvents: vi.fn(async () => [ownEvent]), ...over })
+
+    it('the booking and its own event never block its new time: a 90-minute visit moves an hour later', async () => {
+      const { d, moveEvent } = real()
+      const out = await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-05T16:00:00.000Z' }, d)
+      expect(out).toMatchObject({ success: true, status: 'moved', when: 'Thu, Nov 5, 10:00 AM' })
+      expect(moveEvent).toHaveBeenCalledWith(OWNER, 'evt-dana', { start: '2026-11-05T16:00:00.000Z', end: '2026-11-05T17:00:00.000Z' })
+    })
+
+    it("a request the owner never answered doesn't hold its slot: it is expired first, and the move takes the time", async () => {
+      tables.customer_booking.push({ ...tables.customer_booking[0], id: 'stale', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', calendar_event_id: null, created_at: '2026-11-01T12:00:00Z' })
+      const { d } = real()
+      expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-05T17:00:00.000Z' }, d)).toMatchObject({ success: true, status: 'moved' })
+      expect(tables.customer_booking.find((b) => b.id === 'stale')?.state).toBe('expired')
+    })
+
+    it('another confirmed booking, or a time outside the hours, is not open', async () => {
+      tables.customer_booking.push({ ...tables.customer_booking[0], id: 'taken', customer_phone: '+13125550199', starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', calendar_event_id: null })
+      const { d } = real()
+      expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-05T17:00:00.000Z' }, d)).toMatchObject({ code: 'SLOT_TAKEN' })
+      expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-06T01:00:00.000Z' }, d)).toMatchObject({ code: 'SLOT_TAKEN' })
+      expect(tables.customer_booking[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
+    })
+  })
+
   it("a meeting is the owner's to move: nothing changes, and the agent is told to pass it on", async () => {
     const { d, moveEvent } = deps()
     expect(await moveAppointment(db, { ...business, phone: LEE, reminderId: R_LEE, start: NEW_SLOT.start }, d)).toMatchObject({ success: false, code: 'OWNER_MOVES_MEETINGS' })

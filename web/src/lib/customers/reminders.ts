@@ -6,9 +6,10 @@
  *   1. Hourly (src/lib/inngest/customer-reminders.ts), every business with a
  *      profile, reminders on (business_profile.reminders, migration 471: on
  *      unless the owner turns them off) and a live business number, whose own
- *      zone reads REMINDER_LOCAL_HOUR, gets ONE request for that local date.
- *      The Inngest event id `customer-reminders:<workspace>:<YYYY-MM-DD>`
- *      dedupes it.
+ *      zone reads REMINDER_LOCAL_HOUR, gets ONE request for that local date
+ *      (each later hour until REMINDER_SEND_UNTIL_HOUR asks again, a
+ *      catch-up for a missed pass). The Inngest event id
+ *      `customer-reminders:<workspace>:<YYYY-MM-DD>` keeps it to one.
  *   2. The request reminds about TOMORROW in the business's zone. Skipped
  *      whole: reminders off, no live number, the profile's owner no longer an
  *      owner or admin, the agent paused, or a run that lands outside
@@ -31,14 +32,17 @@
  *      REMINDERS_PER_DAY_MAX in a day.
  *   4. Each reminder is CLAIMED before its text goes (customer_reminder,
  *      unique per subject and phone: ./reminder-store.ts), then texted from
- *      the business's number (./booking.ts textBookingCustomer) in Dial8's
+ *      the business's number (./booking.ts textBookingCustomer, logged as a
+ *      `notice`: never the global auto-reply cap's) in Dial8's
  *      words (reminderText): the business, what, when, where, "Reply YES to
  *      confirm, or tell us a better time", and the opt-out. A crash between
  *      the claim and the text sends nothing again: at most once.
  *   5. The owner hears what went out: one line in their home thread
- *      (remindersSentReport). The first day a business ever reminds anyone
- *      it reaches them where they are (the reach router) and says how to turn
- *      reminders off; after that it stays in the thread.
+ *      (remindersSentReport), read back from the table for tomorrow, so a run
+ *      cut short after its texts still reports them on its retry. The first
+ *      day a business ever reminds anyone it reaches them where they are (the
+ *      reach router) and says how to turn reminders off; after that it stays
+ *      in the thread.
  *
  * Their answers (./reminder-replies.ts) go to the customer's own agent:
  * confirm_appointment and move_appointment, and STOP from the inbound
@@ -63,7 +67,7 @@ import { cleanText } from './intake'
 import { activeBusinessNumber } from './numbers'
 import { withoutLinks } from './quote-reply-input'
 import { CUSTOMER_REMINDER_MESSAGE_KIND, CUSTOMER_REMINDER_ROUTES_KEY } from './reminder-message'
-import { claimReminder, hasSentReminders, markReminderSent, type ReminderSubjectType } from './reminder-store'
+import { claimReminder, markReminderSent, sentRemindersBefore, sentRemindersBetween, type ReminderSubjectType } from './reminder-store'
 import { zonedTime } from './slots'
 import { businessName, getBusinessProfile, listBookings } from './store'
 import type { CustomerBooking } from './types'
@@ -99,12 +103,17 @@ export function remindersEventId(workspaceId: string, localDateKey: string): str
   return `customer-reminders:${workspaceId}:${localDateKey}`
 }
 
-/** One request per business whose zone reads REMINDER_LOCAL_HOUR at `now`. Pure. */
+/**
+ * One request per business whose zone reads REMINDER_LOCAL_HOUR or later
+ * (before REMINDER_SEND_UNTIL_HOUR) at `now`. Each later hour is a catch-up
+ * for a pass that was skipped or failed: the event id dedupes it to one per
+ * local date. Pure.
+ */
 export function planReminders(businesses: readonly ReminderBusiness[], now: number): RemindersRequest[] {
   const out: RemindersRequest[] = []
   for (const b of businesses) {
     const clock = localClock(now, b.timeZone)
-    if (!clock || clock.hour !== REMINDER_LOCAL_HOUR) continue
+    if (!clock || clock.hour < REMINDER_LOCAL_HOUR || clock.hour >= REMINDER_SEND_UNTIL_HOUR) continue
     out.push({ id: remindersEventId(b.workspaceId, clock.date), name: REMINDERS_EVENT, data: { workspaceId: b.workspaceId, localDate: clock.date } })
   }
   return out
@@ -449,10 +458,9 @@ export async function sendDayReminders(
   const subjects = mergeSubjects(fromBookings, fromMeetings).slice(0, REMINDERS_PER_DAY_MAX)
   if (!subjects.length) return { outcome: 'done', sent: 0, skipped: 0, failed: 0, reported: false }
 
-  const first = !(await hasSentReminders(supabase, args.workspaceId))
   const name = await businessName(supabase, args.workspaceId)
   const optedOut = deps.optedOut ?? ((phone: string) => unlinkedNumberOptedOut(supabase, phone))
-  const text = deps.text ?? ((to: { workspaceId: string; customerPhone: string; guestId: string | null }, body: string) => textBookingCustomer(supabase, to, body))
+  const text = deps.text ?? ((to: { workspaceId: string; customerPhone: string; guestId: string | null }, body: string) => textBookingCustomer(supabase, to, body, { kind: 'notice' }))
   const sent: ReminderSubject[] = []
   let skipped = 0
   let failed = 0
@@ -493,14 +501,18 @@ export async function sendDayReminders(
     }
   }
 
-  const reported = sent.length
+  // Everything sent for tomorrow, this run's or a run cut short before its report (the message id keeps it to one).
+  const fromIso = new Date(window.from).toISOString()
+  const all = await sentRemindersBetween(supabase, args.workspaceId, fromIso, new Date(window.to).toISOString())
+  const first = all.length > 0 && !(await sentRemindersBefore(supabase, args.workspaceId, fromIso))
+  const reported = all.length
     ? await reportToOwner(
         supabase,
         {
           workspaceId: args.workspaceId,
           userId: profile.ownerUserId,
           messageId: remindersEventId(args.workspaceId, args.localDate),
-          text: remindersSentReport({ sent: sent.map((s) => ({ name: s.customerName, kind: s.kind, startsAt: s.startsAt })), timeZone, first }),
+          text: remindersSentReport({ sent: all.map((r) => ({ name: r.customerName, kind: r.kind, startsAt: r.startsAt })), timeZone, first }),
           routes: first,
         },
         deps,

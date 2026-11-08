@@ -255,8 +255,19 @@ export function bookingDeclinedText(business: string, booking: Pick<CustomerBook
   return `${business}: sorry, we can't do the ${booking.kind} at ${label}. Text us here and we'll find another time.`
 }
 
-/** Text a booking's customer from the business's number (never the Dial8 one). Never throws; whether it went. */
-export async function textBookingCustomer(supabase: SupabaseClient, booking: Pick<CustomerBooking, 'workspaceId' | 'customerPhone' | 'guestId'>, body: string, deps: { send?: typeof sendSms } = {}): Promise<boolean> {
+/**
+ * Text a booking's customer from the business's number (never the Dial8 one).
+ * The ledger row is a `guest_notice` for a customer with a row, else a
+ * `notice`; `kind` overrides it (a reminder is a `notice` either way, so a
+ * day's reminders never spend the global auto-reply cap or count as the
+ * customer's daily-limit notice). Never throws; whether it went.
+ */
+export async function textBookingCustomer(
+  supabase: SupabaseClient,
+  booking: Pick<CustomerBooking, 'workspaceId' | 'customerPhone' | 'guestId'>,
+  body: string,
+  deps: { send?: typeof sendSms; kind?: 'notice' } = {},
+): Promise<boolean> {
   try {
     const to = booking.customerPhone
     if (!to || !isNanpNumber(to) || (await unlinkedNumberOptedOut(supabase, to))) return false
@@ -267,7 +278,7 @@ export async function textBookingCustomer(supabase: SupabaseClient, booking: Pic
       const result = await (deps.send ?? sendSms)(to, text, { from: number.phone })
       if (!result.ok) break
       sent = true
-      await recordOutbound(supabase, { phone: to, kind: booking.guestId ? 'guest_notice' : 'notice', sid: result.sid, guestId: booking.guestId })
+      await recordOutbound(supabase, { phone: to, kind: deps.kind ?? (booking.guestId ? 'guest_notice' : 'notice'), sid: result.sid, guestId: booking.guestId })
     }
     return sent
   } catch {

@@ -183,6 +183,8 @@ export function slotWindow(range: { fromDate?: string | null; days?: number }, s
 export interface FindOpenSlotsDeps {
   listEvents?: typeof listCalendarEventsUnified
   now?: () => number
+  /** What a move leaves behind: the booking being moved and its own calendar event never block its new time. */
+  except?: { bookingId?: string | null; eventId?: string | null }
 }
 
 /**
@@ -211,8 +213,9 @@ export async function findOpenSlots(
   ])
   // A request the owner never answered lapses with its approval: its slot is open again.
   const staleBefore = now - BOOKING_REQUEST_TTL_MS
-  const live = bookings.filter((b) => b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore)
-  const slots = openSlots({ rules: setup.rules, timeZone: setup.timeZone, now, busy: busyBlocks(events, timeMin, timeMax), bookings: live, ...range })
+  const live = bookings.filter((b) => b.id !== deps.except?.bookingId && (b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore))
+  const busy = busyBlocks(deps.except?.eventId ? events.filter((e) => e.id !== deps.except?.eventId) : events, timeMin, timeMax)
+  const slots = openSlots({ rules: setup.rules, timeZone: setup.timeZone, now, busy, bookings: live, ...range })
   return { slots, timeZone: setup.timeZone, rules: setup.rules }
 }
 
