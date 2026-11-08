@@ -294,12 +294,13 @@ Found a security problem? Don't open an issue: report it privately, as
 # License
 
 Native Intelligence is source-available under the [Business Source License 1.1](LICENSE),
-which isn't an open-source license. You can read the code, change it, test it, contribute
-to it, and run your own instance of it for your personal use, as long as you don't charge
-anyone for it. Running it for a company, or charging for it, takes a commercial license
-from us: [get in touch](https://nativeintelligence.dev/contact).
+which isn't an open-source license. You can read the code, change it, contribute to it,
+and run it in production, for yourself or for your company's own work. What it doesn't
+allow is offering Native Intelligence to others as a hosted or managed service that
+competes with ours, paid or free. That takes a commercial license from us:
+[get in touch](https://nativeintelligence.dev/contact).
 
-Four years after each version is published, that version moves to the Apache License
+Two years after each version is published, that version moves to the Apache License
 2.0.
 
 Some files aren't covered by that license and keep their own:
