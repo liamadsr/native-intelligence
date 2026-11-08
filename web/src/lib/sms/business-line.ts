@@ -24,7 +24,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { activeBusinessNumber } from '@/lib/customers/numbers'
-import { FROM_EMAIL, getResend } from '@/lib/email'
+import { sendEmail } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { appOrigin } from '@/lib/twilio/config'
 import { maskPhone } from '@/lib/twilio/phone'
@@ -91,8 +91,7 @@ export async function sendBusinessLineNotice(args: { to: string; phone: string }
     .split('\n\n')
     .map((p) => `<p style="color: #333; line-height: 1.6;">${escapeHtml(p)}</p>`)
     .join('')
-  const { error } = await getResend().emails.send({
-    from: FROM_EMAIL,
+  const { error } = await sendEmail({
     to: args.to,
     subject,
     text,

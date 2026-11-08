@@ -4,6 +4,7 @@
 
 import * as Sentry from '@sentry/nextjs'
 import {
+  getSentryDsn,
   getSentryEnvironment,
   isSentryEnabled,
   SENTRY_IGNORE_ERRORS,
@@ -11,10 +12,11 @@ import {
   shouldDropSentryEvent,
 } from '@/lib/sentry-env'
 
-// Only report from production — dev/preview events are noise.
+// Only report from production, and only when NEXT_PUBLIC_SENTRY_DSN is set:
+// dev/preview events are noise, and a copy without a DSN has no Sentry.
 if (isSentryEnabled()) {
   Sentry.init({
-    dsn: 'https://a26853a25b5e2e6f5912e7a6f251b3f0@o4510925258948608.ingest.us.sentry.io/4510925351944192',
+    dsn: getSentryDsn(),
 
     environment: getSentryEnvironment(),
 

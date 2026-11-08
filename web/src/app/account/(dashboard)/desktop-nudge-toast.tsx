@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { Download, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { hasDownload } from '@/lib/app-download'
 import { isDesktopApp } from '@/lib/platform'
 import { MESSAGE_ICON_CHIP, MESSAGE_LABEL } from '../in-app-message-meta'
 
@@ -33,7 +34,8 @@ export function DesktopNudgeToast() {
   const firedRef = useRef(false)
 
   useEffect(() => {
-    if (firedRef.current || isDesktopApp()) return
+    // No nudge inside the desktop app, or when this deployment offers no download.
+    if (firedRef.current || isDesktopApp() || !hasDownload()) return
     try {
       if (localStorage.getItem(DISMISS_KEY) === '1') return
     } catch {

@@ -1,15 +1,15 @@
 /**
  * Who is an admin (lib/admin.ts, security review 2026-10-31): a named
- * allowlist, never the @dial8.ai domain, and the second-factor check that
- * switches on with ADMIN_REQUIRES_MFA.
+ * allowlist from ADMIN_EMAILS, never a whole domain, and the second-factor
+ * check that switches on with ADMIN_REQUIRES_MFA.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
 vi.mock('next/headers', () => ({ cookies: vi.fn() }))
 
-import { ADMIN_EMAILS, ADMIN_REQUIRES_MFA, hasAdminAssurance, isAuthorizedAdmin } from '../admin'
+import { ADMIN_REQUIRES_MFA, adminEmails, hasAdminAssurance, isAuthorizedAdmin } from '../admin'
 
 /** A client whose assurance read answers `level` (or fails). */
 function client(level: 'aal1' | 'aal2' | null, error: unknown = null) {
@@ -21,20 +21,33 @@ function client(level: 'aal1' | 'aal2' | null, error: unknown = null) {
 }
 
 describe('isAuthorizedAdmin', () => {
-  it('names admins one by one', () => {
-    expect([...ADMIN_EMAILS]).toEqual(['liam@dial8.ai'])
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('names admins one by one, from ADMIN_EMAILS', () => {
+    vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai')
+    expect([...adminEmails()]).toEqual(['liam@dial8.ai'])
     expect(isAuthorizedAdmin('liam@dial8.ai')).toBe(true)
     expect(isAuthorizedAdmin(' Liam@Dial8.AI ')).toBe(true)
   })
 
   it('no longer lets in any other @dial8.ai address', () => {
+    vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai')
     expect(isAuthorizedAdmin('toby@dial8.ai')).toBe(false)
     expect(isAuthorizedAdmin('new-hire@dial8.ai')).toBe(false)
     expect(isAuthorizedAdmin('liam@dial8.ai.evil.example')).toBe(false)
     expect(isAuthorizedAdmin('liam+x@dial8.ai')).toBe(false)
   })
 
+  it('has nobody when ADMIN_EMAILS is unset or empty', () => {
+    vi.stubEnv('ADMIN_EMAILS', '')
+    expect(isAuthorizedAdmin('liam@dial8.ai')).toBe(false)
+    delete process.env.ADMIN_EMAILS
+    expect(adminEmails().size).toBe(0)
+    expect(isAuthorizedAdmin('liam@dial8.ai')).toBe(false)
+  })
+
   it('refuses no email at all', () => {
+    vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai')
     expect(isAuthorizedAdmin(undefined)).toBe(false)
     expect(isAuthorizedAdmin('')).toBe(false)
   })

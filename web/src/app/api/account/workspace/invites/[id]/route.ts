@@ -1,4 +1,4 @@
-import { getResend, BASE_URL, FROM_EMAIL } from '@/lib/email'
+import { sendEmail, BASE_URL } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse, type NextRequest } from 'next/server'
@@ -51,8 +51,7 @@ export async function POST(
 
   try {
     // The Resend SDK reports a refused send in `error` rather than throwing.
-    const { error: sendError } = await getResend().emails.send({
-      from: FROM_EMAIL,
+    const { error: sendError } = await sendEmail({
       to: invite.email,
       subject: `Reminder: You've been invited to join ${workspaceName} on Dial8`,
       html: `

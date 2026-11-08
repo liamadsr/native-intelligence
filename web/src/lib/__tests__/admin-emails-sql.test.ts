@@ -1,13 +1,26 @@
 /**
  * check_ai_usage_limit's staff exemption (the database's twin of
- * lib/billing/access.ts) names the same people as ADMIN_EMAILS
- * (lib/admin-emails.ts), never a domain (security review 2026-10-31,
- * migration 468). Follows the function forward: the newest migration that
- * defines it is the one checked, so a later redefinition is held to it too.
+ * lib/billing/access.ts) names people by address, never a domain (security
+ * review 2026-10-31, migration 468). Follows the function forward: the newest
+ * migration that defines it is the one checked, so a later redefinition is
+ * held to it too.
+ *
+ * The app reads its admins from the ADMIN_EMAILS env var
+ * (lib/admin-emails.ts), so a self-hosted copy names its own. The SQL list is
+ * the hosted service's and stays as migration 468 wrote it. It is pinned here
+ * to HOSTED_ADMIN_EMAILS, the hosted admins as documented: the hosted
+ * deployment's ADMIN_EMAILS must name exactly these people, or its app and
+ * its database disagree about who is exempt from billing. Changing who the SQL
+ * exempts means a new migration, this list, and the hosted env var together.
  */
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { latestDefinition, migrationsInOrder } from '@/test/migration-sql'
-import { ADMIN_EMAILS } from '../admin-emails'
+import { parseAdminEmails } from '../admin-emails'
+
+/** The hosted service's admins: what its ADMIN_EMAILS holds and what 468's SQL exempts. Used only here. */
+const HOSTED_ADMIN_EMAILS = 'liam@dial8.ai'
 
 const TWO_ARG = 'CREATE OR REPLACE FUNCTION public.check_ai_usage_limit(p_user_id uuid, p_chatgpt_plan boolean)'
 
@@ -30,11 +43,18 @@ describe('check_ai_usage_limit staff exemption', () => {
     expect(Number.parseInt(file, 10)).toBeGreaterThanOrEqual(468)
   })
 
-  it('exempts exactly ADMIN_EMAILS, by address', () => {
+  it('exempts exactly the hosted admins, by address', () => {
     const m = block.match(/lower\(btrim\(u\.email\)\) IN \(([^)]*)\)/)
     expect(m).not.toBeNull()
     const listed = [...m![1].matchAll(/'([^']+)'/g)].map((v) => v[1]).sort()
-    expect(listed).toEqual([...ADMIN_EMAILS].map((e) => e.trim().toLowerCase()).sort())
+    expect(listed).toEqual([...parseAdminEmails(HOSTED_ADMIN_EMAILS)].sort())
+  })
+
+  it('the app names no admin in code: they come from ADMIN_EMAILS', () => {
+    const source = readFileSync(path.join(__dirname, '..', 'admin-emails.ts'), 'utf8')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    expect(code).toContain('process.env.ADMIN_EMAILS')
+    expect(code).not.toMatch(/['"`][^'"`\s]*@[^'"`\s]+['"`]/)
   })
 
   it('has no domain match left', () => {

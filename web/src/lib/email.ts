@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Resend } from 'resend'
+import { Resend, type CreateEmailOptions, type CreateEmailResponse } from 'resend'
 import { getServiceClient } from '@/lib/admin'
 import { getPostHogServerClient, serverDefaultProperties } from '@/lib/posthog'
 
@@ -17,7 +17,36 @@ export const BASE_URL = process.env.NODE_ENV === 'production'
   ? 'https://dial8.ai'
   : 'http://localhost:3000'
 
-export const FROM_EMAIL = 'Liam from Dial8 <liam@dial8.ai>'
+/**
+ * The From line of every email the app sends: EMAIL_FROM, e.g.
+ * `Your Name <you@your-domain.com>`, on a domain verified in Resend. Null when
+ * unset: there is no built-in sender to fall back to.
+ */
+export function emailFrom(): string | null {
+  return process.env.EMAIL_FROM?.trim() || null
+}
+
+/** Resend's send options, minus `from` (sendEmail sets it). */
+export type AppEmail = CreateEmailOptions extends infer T ? (T extends unknown ? Omit<T, 'from'> : never) : never
+
+/**
+ * Send one email through Resend, from EMAIL_FROM. Every email the app sends
+ * goes through here. Without EMAIL_FROM nothing is sent: it logs one line and
+ * answers what Resend answers for a send it refuses (`{ data: null, error }`),
+ * which every caller already handles.
+ */
+export async function sendEmail(email: AppEmail): Promise<CreateEmailResponse> {
+  const from = emailFrom()
+  if (!from) {
+    console.warn('[email] not sent: EMAIL_FROM is unset (set it to a sender on a domain verified in Resend)')
+    return {
+      data: null,
+      error: { name: 'missing_required_field', message: 'EMAIL_FROM is not set', statusCode: null },
+      headers: null,
+    }
+  }
+  return getResend().emails.send({ ...email, from } as CreateEmailOptions)
+}
 
 // --- Unsubscribe token ---
 
@@ -107,8 +136,7 @@ export async function sendCampaignEmail({
     throw new Error(`Email template "${step}" not found in database`)
   }
 
-  const { data, error: sendError } = await getResend().emails.send({
-    from: FROM_EMAIL,
+  const { data, error: sendError } = await sendEmail({
     to,
     subject: template.subject,
     html: template.html,

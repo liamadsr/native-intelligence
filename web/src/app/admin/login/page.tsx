@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
+import { adminEmailDomain } from '@/lib/admin-emails'
 import { isGoogleSignInEnabled } from '@/lib/auth/google-sign-in'
 import { LoginForm } from './login-form'
 
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 export default function AdminLoginPage() {
   return (
     <Suspense>
-      <LoginForm googleOnDial8={isGoogleSignInEnabled()} />
+      <LoginForm googleOnDial8={isGoogleSignInEnabled()} adminDomain={adminEmailDomain()} />
     </Suspense>
   )
 }

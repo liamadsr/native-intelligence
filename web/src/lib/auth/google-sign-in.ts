@@ -27,14 +27,12 @@
  * clears it.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { adminEmailDomain } from '@/lib/admin-emails'
 import { decryptCredential, encryptCredential } from '@/lib/crypto/credentials'
 
 export const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
 export const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 export const GOOGLE_SCOPES = 'openid email profile'
-/** Admin sign-in asks Google for a dial8.ai account (a hint only; the
- *  callback's ADMIN_EMAILS check is the gate). */
-export const ADMIN_HOSTED_DOMAIN = 'dial8.ai'
 
 export const GOOGLE_TRANSACTION_COOKIE = 'google_auth_tx'
 export const GOOGLE_TRANSACTION_PATH = '/auth/google'
@@ -139,7 +137,10 @@ export function googleAuthorizeUrl(client: GoogleSignInClient, tx: GoogleSignInT
     code_challenge: createHash('sha256').update(tx.verifier).digest('base64url'),
     code_challenge_method: 'S256',
   })
-  if (tx.mode === 'admin') params.set('hd', ADMIN_HOSTED_DOMAIN)
+  // Admin sign-in asks Google for an account on the admins' domain when they
+  // share one (a hint only; the callback's ADMIN_EMAILS check is the gate).
+  const adminDomain = tx.mode === 'admin' ? adminEmailDomain() : null
+  if (adminDomain) params.set('hd', adminDomain)
   return `${GOOGLE_AUTHORIZE_URL}?${params}`
 }
 

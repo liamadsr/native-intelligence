@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, getAdminServiceClient } from '@/lib/admin'
-import { getResend, getUnsubscribeUrl, getEmailTemplate, getEmailCampaignBySlug, BASE_URL, FROM_EMAIL } from '@/lib/email'
+import { sendEmail, getUnsubscribeUrl, getEmailTemplate, getEmailCampaignBySlug, BASE_URL } from '@/lib/email'
 
 export async function POST(request: Request) {
   try {
@@ -13,7 +13,6 @@ export async function POST(request: Request) {
   const batchSize = Math.min(Math.max(body.batchSize ?? 10, 1), 100)
 
   const supabase = await getAdminServiceClient()
-  const resend = getResend()
 
   // Look up the early-access campaign and its first email step for the template
   console.log('[send-invites] Looking up early-access campaign...')
@@ -87,9 +86,8 @@ export async function POST(request: Request) {
         continue
       }
 
-      console.log(`[send-invites] Sending to ${user.email} via Resend (from: ${FROM_EMAIL})...`)
-      const { data, error: sendError } = await resend.emails.send({
-        from: FROM_EMAIL,
+      console.log(`[send-invites] Sending to ${user.email} via Resend...`)
+      const { data, error: sendError } = await sendEmail({
         to: user.email,
         subject: template.subject,
         html: template.html,

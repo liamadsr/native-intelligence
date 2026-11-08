@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, getAdminServiceClient } from '@/lib/admin'
-import { getResend, getUnsubscribeUrl, getEmailTemplate, getEmailCampaignBySlug, BASE_URL, FROM_EMAIL } from '@/lib/email'
+import { sendEmail, getUnsubscribeUrl, getEmailTemplate, getEmailCampaignBySlug, BASE_URL } from '@/lib/email'
 
 export async function POST(request: Request) {
   try {
@@ -21,7 +21,6 @@ export async function POST(request: Request) {
   }
 
   const supabase = await getAdminServiceClient()
-  const resend = getResend()
   let success = 0
   let failed = 0
   let skipped = 0
@@ -90,9 +89,8 @@ export async function POST(request: Request) {
             continue
           }
 
-          console.log(`[bulk-action/send-invite] Sending to ${user.email} via Resend (from: ${FROM_EMAIL})...`)
-          const { data, error: sendError } = await resend.emails.send({
-            from: FROM_EMAIL,
+          console.log(`[bulk-action/send-invite] Sending to ${user.email} via Resend...`)
+          const { data, error: sendError } = await sendEmail({
             to: user.email,
             subject: template.subject,
             html: template.html,
@@ -134,7 +132,7 @@ export async function POST(request: Request) {
     }
 
     case 'extend-trial': {
-      const { days, sendEmail } = body as { days: number; sendEmail: boolean }
+      const { days, sendEmail: emailUsers } = body as { days: number; sendEmail: boolean }
 
       if (!days || typeof days !== 'number' || days < 1 || days > 365) {
         return NextResponse.json({ error: 'Invalid days (1-365)' }, { status: 400 })
@@ -144,7 +142,7 @@ export async function POST(request: Request) {
       let wbTemplateSlug: string | null = null
       let wbCampaignId: string | null = null
 
-      if (sendEmail) {
+      if (emailUsers) {
         const wbCampaign = await getEmailCampaignBySlug('win-back', supabase)
         if (wbCampaign) {
           wbCampaignId = wbCampaign.id
@@ -191,7 +189,7 @@ export async function POST(request: Request) {
             continue
           }
 
-          if (sendEmail && user.email && wbTemplateSlug) {
+          if (emailUsers && user.email && wbTemplateSlug) {
             try {
               const unsubscribeUrl = getUnsubscribeUrl(user.email)
               const downloadUrl = `${BASE_URL}/api/download`
@@ -211,8 +209,7 @@ export async function POST(request: Request) {
               if (template) {
                 // The Resend SDK reports a refused send in `error` rather than
                 // throwing: no campaign-log row for a mail that never left.
-                const { data: sent, error: sendError } = await resend.emails.send({
-                  from: FROM_EMAIL,
+                const { data: sent, error: sendError } = await sendEmail({
                   to: user.email,
                   subject: template.subject,
                   html: template.html,

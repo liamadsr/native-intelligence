@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getResend, BASE_URL, FROM_EMAIL } from '@/lib/email'
+import { sendEmail, BASE_URL } from '@/lib/email'
 
 /**
  * Admin-issued signup invites — the allow-list that lets a named address
@@ -150,8 +150,7 @@ export async function sendSignupInviteEmail(
   invite: Pick<SignupInviteRow, 'email' | 'token' | 'note'> & Partial<Pick<SignupInviteRow, 'skip_payment'>>,
 ) {
   const { subject, html } = renderSignupInviteEmail(invite)
-  const { error } = await getResend().emails.send({
-    from: FROM_EMAIL,
+  const { error } = await sendEmail({
     to: invite.email,
     subject,
     html,

@@ -30,6 +30,7 @@ import {
 import { OrbLoader } from '@/components/ui/loader'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { hasDownload } from '@/lib/app-download'
 import { isDesktopApp } from '@/lib/platform'
 import { ActivityIcon } from './research-companion'
 import type { ResearchCompanion } from './use-research-companion'
@@ -567,8 +568,8 @@ export function DesktopDownloadTile() {
     setIsDesktop(isDesktopApp())
   }, [])
 
-  // Already on desktop → nothing to download.
-  if (isDesktop) return null
+  // Already on desktop, or no download on this deployment → nothing to offer.
+  if (isDesktop || !hasDownload()) return null
 
   return (
     <motion.div

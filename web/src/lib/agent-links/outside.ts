@@ -27,7 +27,7 @@
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { BASE_URL, FROM_EMAIL, getResend } from '@/lib/email'
+import { BASE_URL, sendEmail } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { endLinkForWorkspace, outsideLinksAllowed, requestLink, type LinkResult, type RequestLinkInput } from './store'
 
@@ -405,8 +405,7 @@ export async function sendLinkRequestEmail(input: { to: string; requesterName: s
   const name = input.requesterName.trim() || 'Someone'
   const nameHtml = escapeHtml(name)
   try {
-    const { error } = await getResend().emails.send({
-      from: FROM_EMAIL,
+    const { error } = await sendEmail({
       to: input.to,
       subject: `${name} wants their Dial8 agent to talk to yours`,
       html: `

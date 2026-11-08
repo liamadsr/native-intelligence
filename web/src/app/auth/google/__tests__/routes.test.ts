@@ -113,9 +113,17 @@ describe('GET /auth/google', () => {
     expect(setCookie).toMatch(/Secure/i)
   })
 
-  it('asks for a dial8.ai account for the admin panel', async () => {
+  it("asks for an account on the admins' domain for the admin panel (ADMIN_EMAILS)", async () => {
+    vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai')
     const { authorize } = await begin('?admin=1')
     expect(authorize.searchParams.get('hd')).toBe('dial8.ai')
+  })
+
+  it('sends no domain hint when ADMIN_EMAILS names no one, or more than one domain', async () => {
+    vi.stubEnv('ADMIN_EMAILS', '')
+    expect((await begin('?admin=1')).authorize.searchParams.has('hd')).toBe(false)
+    vi.stubEnv('ADMIN_EMAILS', 'ops@example.com, owner@example.org')
+    expect((await begin('?admin=1')).authorize.searchParams.has('hd')).toBe(false)
   })
 
   it('moves the browser to the callback host before setting the cookie', async () => {
