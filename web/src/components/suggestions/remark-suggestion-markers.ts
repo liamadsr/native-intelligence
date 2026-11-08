@@ -53,25 +53,11 @@ export function markerIdsIn(markdown: string): string[] {
 }
 
 /**
- * Remove markers, and any other one-line HTML comment, from text meant for plain
- * display (copy, read-aloud, previews). Code is left as written: fenced blocks
- * and `code spans` keep their comments. A comment must open and close on one
- * line, so a literal `<!--` in prose never eats the text after it.
+ * Markers, and any other one-line HTML comment, out of text meant for plain
+ * display (copy, read-aloud, previews). It lives in src/lib, beside the SMS and
+ * Slack formatting that use it too.
  */
-export function stripSuggestionMarkers(markdown: string): string {
-  return markdown
-    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
-    .map((part, i) =>
-      i % 2 === 1
-        ? part
-        : part
-            // A comment between two words leaves one space, so they don't run together.
-            .replace(/(\S)[ \t]*<!--[^\n]*?-->[ \t]*(?=\S)/g, '$1 ')
-            .replace(/[ \t]*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->[ \t]*\n?/g, '')
-            .replace(/[ \t]*<!--[^\n]*?-->[ \t]*\n?/g, ''),
-    )
-    .join('')
-}
+export { stripHtmlComments as stripSuggestionMarkers } from '@/lib/chat/strip-comments'
 
 function transform(parent: MdNode): void {
   const children = parent.children

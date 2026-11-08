@@ -18,7 +18,8 @@ Guidance for Claude Code in this repository. `README.md` has the layout and buil
 - `project.yml` is the source of truth for the Xcode project. Never hand-edit
   `Dial8.xcodeproj/project.pbxproj`; change `project.yml`, run `xcodegen`, commit both.
   Adding or removing a Swift file needs neither (synchronized folders).
-- `Scripts/test-eve-chat.sh` runs the Eve chat contract tests.
+- `Scripts/test-eve-chat.sh` runs the Eve chat contract tests; `Scripts/test-chat-reply-text.sh`
+  runs the chat bubble's comment-stripping tests (`Core/Models/ChatReplyText.swift`).
 
 ## Code
 

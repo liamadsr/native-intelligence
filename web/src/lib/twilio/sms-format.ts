@@ -8,6 +8,8 @@
  * paragraph, a line, a sentence or a word.
  */
 
+import { stripHtmlComments } from '@/lib/chat/strip-comments'
+
 /** The segments one text may take (Twilio sends it as one concatenated message; 10 stays deliverable on every US carrier). */
 export const SMS_MESSAGE_SEGMENTS = 10
 /** Characters per segment of a multi-part text: GSM-7, and UCS-2 when any character is outside it. */
@@ -61,7 +63,8 @@ function absoluteLink(url: string, origin: string): string {
 
 /** Markdown → plain text for a phone. Exported for the tests. */
 export function stripMarkdown(markdown: string, origin: string): string {
-  let text = markdown.replace(/\r\n?/g, '\n')
+  // HTML comments (`<!-- proposal:… -->`, a stray `<!-- card:4 -->`) are never read; code keeps its own.
+  let text = stripHtmlComments(markdown.replace(/\r\n?/g, '\n'))
   // Fenced code: keep what is inside.
   text = text.replace(/```[^\n]*\n([\s\S]*?)```/g, (_m, body: string) => body.trimEnd())
   // Images: their alt text. Links: "text (url)", or the url alone when they match.

@@ -82,3 +82,27 @@ describe('formatSmsReply: never cut, long replies go as several texts', () => {
     expect(formatSmsReply('🎉', { origin: ORIGIN })).toEqual([])
   })
 })
+
+describe('plainSmsText: HTML comments never reach the phone', () => {
+  it('drops a trailing comment', () => {
+    expect(formatSmsReply('Moved it to Friday.\n\n<!-- card:4 -->', { origin: ORIGIN })).toEqual(['Moved it to Friday.'])
+    expect(formatSmsReply('Moved it to Friday. <!-- card:4 -->', { origin: ORIGIN })).toEqual(['Moved it to Friday.'])
+  })
+
+  it('keeps one space where a comment sat between two words', () => {
+    expect(plainSmsText('Your board <!-- card:1 --> is ready.', ORIGIN)).toBe('Your board is ready.')
+  })
+
+  it('drops a proposal marker', () => {
+    expect(plainSmsText('Close it?\n<!-- proposal:3f2a-91 -->\nSay yes.', ORIGIN)).toBe('Close it?\nSay yes.')
+  })
+
+  it('keeps a comment inside code', () => {
+    const md = 'Add `<!-- x -->` to the page:\n```html\n<!-- header -->\n<p>hi</p>\n```'
+    expect(plainSmsText(md, ORIGIN)).toBe('Add <!-- x --> to the page:\n<!-- header -->\n<p>hi</p>')
+  })
+
+  it('sends nothing when the reply is only a comment', () => {
+    expect(formatSmsReply('<!-- card:4 -->', { origin: ORIGIN })).toEqual([])
+  })
+})

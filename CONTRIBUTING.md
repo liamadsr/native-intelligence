@@ -28,7 +28,7 @@ That covers all your future contributions too.
   Watch apps in `ios/`: see the [README](README.md) for getting each one running.
 - Keep a pull request to one change, with tests where the code has them
   (`npm test` in `web/`, `cargo test` in `desktop/src-tauri/`, `Scripts/test-eve-chat.sh`
-  in `ios/`).
+  and `Scripts/test-chat-reply-text.sh` in `ios/`).
 - Test data uses made-up people, companies and phone numbers (`555-01xx`), never real
   ones.
 - Don't commit keys or other secrets, even fake-looking ones outside tests. Turn on the
