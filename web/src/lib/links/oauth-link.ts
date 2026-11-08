@@ -46,7 +46,7 @@ import { phoneServesWorkspace, sendingLine } from '@/lib/sms/workspace-line'
 import { sendSms, type SendSmsResult } from '@/lib/twilio/client'
 import { agentSender } from '@/lib/sms/agent-number'
 import { maskPhone } from '@/lib/twilio/phone'
-import { FROM_EMAIL, getResend } from '@/lib/email'
+import { sendEmail } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { createOneTimeLink, type CreateLinkResult, type OneTimeLink } from './one-time'
 
@@ -319,8 +319,7 @@ export function connectedNoticeEmail(args: { to: string; provider: TextConnectPr
 async function sendConnectedNotice(args: { to: string; provider: TextConnectProvider; maskedPhone: string | null }): Promise<boolean> {
   if (!process.env.RESEND_API_KEY || !args.to.includes('@') || args.to.endsWith('@unknown')) return false
   const { subject, text } = connectedNoticeEmail(args)
-  const { error } = await getResend().emails.send({
-    from: FROM_EMAIL,
+  const { error } = await sendEmail({
     to: args.to,
     subject,
     text,

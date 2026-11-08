@@ -201,6 +201,19 @@ for (const flag of [
   'EVE_EVAL_WORKSPACE_ID',
   'EVE_EVAL_CONVERSATION_ID',
   'EVE_EVAL_AUTH_TOKEN',
+  // The hosted service's own settings, also injected into the build env.
+  // Each turns a feature on (Sentry, the email sender, the admins, the
+  // desktop download); unset is the self-hosted default, and the tests that
+  // need one set it per-test.
+  'NEXT_PUBLIC_SENTRY_DSN',
+  'SENTRY_ORG',
+  'SENTRY_PROJECT',
+  'EMAIL_FROM',
+  'ADMIN_EMAILS',
+  'APP_DOWNLOAD_URL',
+  'APP_DOWNLOAD_URL_WINDOWS',
+  'NEXT_PUBLIC_HAS_MAC_DOWNLOAD',
+  'NEXT_PUBLIC_HAS_WINDOWS_DOWNLOAD',
 ]) {
   delete process.env[flag]
 }

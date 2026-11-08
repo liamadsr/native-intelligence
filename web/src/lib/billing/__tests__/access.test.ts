@@ -1,12 +1,14 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { classifyBillingAccess, daysUntil, isDial8Staff } from '../access'
-import { ADMIN_EMAILS } from '@/lib/admin-emails'
+import { adminEmails } from '@/lib/admin-emails'
 
 // lib/admin's server imports, unused by isAuthorizedAdmin.
 vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
 vi.mock('next/headers', () => ({ cookies: vi.fn() }))
 const { isAuthorizedAdmin } = await import('@/lib/admin')
 import type { SubscriptionRow } from '@/app/api/billing/status/pick-subscription'
+
+afterEach(() => vi.unstubAllEnvs())
 
 const now = new Date('2026-09-02T12:00:00Z')
 const future = '2026-09-09T12:00:00Z'
@@ -91,6 +93,8 @@ describe('classifyBillingAccess', () => {
 })
 
 describe('classifyBillingAccess — Dial8 staff', () => {
+  beforeEach(() => vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai'))
+
   it('exempts the named admins (ADMIN_EMAILS) regardless of subscription rows', () => {
     const a = classifyBillingAccess(null, { invitedByAdmin: false, email: 'Liam@Dial8.ai' }, now)
     expect(a.staff).toBe(true)
@@ -100,7 +104,7 @@ describe('classifyBillingAccess — Dial8 staff', () => {
   })
 
   it('exempts exactly the people isAuthorizedAdmin lets in', () => {
-    for (const email of [...ADMIN_EMAILS, 'toby@dial8.ai', 'new-hire@dial8.ai', 'x@gmail.com']) {
+    for (const email of [...adminEmails(), 'toby@dial8.ai', 'new-hire@dial8.ai', 'x@gmail.com']) {
       expect(isDial8Staff(email)).toBe(isAuthorizedAdmin(email))
     }
   })
@@ -115,6 +119,13 @@ describe('classifyBillingAccess — Dial8 staff', () => {
     for (const email of ['a@dial8.ai.evil.com', 'a@notdial8.ai', 'dial8.ai@gmail.com', 'liam@dial8.ai.evil.com']) {
       expect(classifyBillingAccess(null, { invitedByAdmin: false, email }, now).staff).toBe(false)
     }
+  })
+
+  it('exempts nobody when ADMIN_EMAILS is unset', () => {
+    vi.stubEnv('ADMIN_EMAILS', '')
+    const a = classifyBillingAccess(null, { invitedByAdmin: false, email: 'liam@dial8.ai' }, now)
+    expect(a.staff).toBe(false)
+    expect(a.allowed).toBe(false)
   })
 })
 
@@ -159,6 +170,7 @@ describe('classifyBillingAccess — the ChatGPT free tier', () => {
   })
 
   it('leaves staff as they are', () => {
+    vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai')
     const a = classifyBillingAccess(null, { invitedByAdmin: false, email: 'liam@dial8.ai', chatgptPlan: 'exhausted' }, now)
     expect(a.state).toBe('active')
     expect(a.staff).toBe(true)

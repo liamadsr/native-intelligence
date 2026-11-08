@@ -191,30 +191,50 @@ end-to-end tests, and how the hosted project's deploy pipeline is planned.
   `src/app/api/cron/` that needs `Authorization: Bearer $CRON_SECRET`. Off Vercel,
   nothing calls them unless you schedule them yourself.
 
+## Settings you set in your environment
+
+The hosted service turns these on with its own environment variables. A copy without
+them leaves the feature off. Each one is in `.env.example`.
+
+- **Error reporting (Sentry).** `NEXT_PUBLIC_SENTRY_DSN` turns Sentry on for
+  production builds (`src/lib/sentry-env.ts`). With `SENTRY_ORG`, `SENTRY_PROJECT` and
+  `SENTRY_AUTH_TOKEN` too, the build uploads source maps. Without a DSN the build
+  doesn't load Sentry's plugin and uploads nothing.
+- **The sender of the app's email.** `EMAIL_FROM`, e.g. `Your Name <you@your-domain.com>`,
+  on a domain you've verified in Resend. Every email the app sends goes through
+  `sendEmail` in `src/lib/email.ts`. Without `EMAIL_FROM` nothing is sent: each send
+  logs one line and fails the way a send Resend refused does.
+- **Who gets the admin panel.** `ADMIN_EMAILS`, a comma-separated list of addresses
+  (spaces and case don't matter). Admins also skip the app's billing wall. Unset, nobody
+  is an admin (`src/lib/admin-emails.ts`). The admin sign-in asks Google for an account
+  on your admins' domain when they all share one. The database's AI usage gate
+  (`check_ai_usage_limit`, migration 468) exempts the hosted service's admins by address
+  in SQL, not yours, so give your admins a subscription from the admin panel. On the
+  hosted service `ADMIN_EMAILS` must name the same people as that SQL
+  (`src/lib/__tests__/admin-emails-sql.test.ts`).
+- **The desktop download.** `APP_DOWNLOAD_URL` (macOS) and `APP_DOWNLOAD_URL_WINDOWS`.
+  `/api/download` redirects to the first, or to the second for `?platform=windows`, and
+  answers 404 when that one is unset (`src/lib/app-download.ts`). Every download button
+  and link renders nothing when its file isn't set. They're decided at build time, so
+  set the variables before you build.
+
 ## Settings that still point at the hosted service
 
 The code has some values for the hosted service built in. Change them for your own
 deployment:
 
-- **Sentry.** The DSN, org and project are hardcoded in `sentry.server.config.ts`,
-  `sentry.edge.config.ts`, `src/instrumentation-client.ts` and `next.config.mjs`.
-  Production builds report to it, self-hosted ones included (`src/lib/sentry-env.ts`).
 - **PostHog.** The `/ingest` rewrites in `next.config.mjs` go to PostHog's US cloud.
-- **The sender of the app's email.** `FROM_EMAIL` in `src/lib/email.ts` is the hosted
-  service's address. Resend refuses a domain you haven't verified, so change it, or
-  no email goes out.
-- **Who gets the admin panel.** `src/lib/admin-emails.ts` lists the hosted service's
-  admins.
 - **Stripe Checkout's return address.** It falls back to the hosted domain unless
   `NEXT_PUBLIC_SITE_URL` is set (`src/lib/stripe.ts`).
 - **The cloud browser's relay.** On a Vercel production deploy it defaults to the
   hosted relay (`src/lib/cloud-browser/config.ts`), and `RELAY_HOST_REDIRECT` in
   `next.config.mjs` points at the hosted domain.
-- **The desktop download.** `/api/download` and `src/lib/app-download.ts` default to
-  the hosted download links unless `APP_DOWNLOAD_URL` and `APP_DOWNLOAD_URL_WINDOWS`
-  are set.
 - **The app's domain.** Some code falls back to the hosted domain when
-  `NEXT_PUBLIC_APP_URL` is empty, so always set it.
+  `NEXT_PUBLIC_APP_URL` is empty, so always set it. Some uses it whatever you set: the
+  links in the app's emails (`BASE_URL` in `src/lib/email.ts`, in production), and the
+  marketing pages' canonical URLs, sitemap and `llms.txt`.
+- **The Scribe page's download.** `src/app/scribe/page.tsx` links to the hosted Scribe
+  app's file.
 
 ## Project layout
 

@@ -144,3 +144,27 @@ describe('SystemAudioWarning — grant flow', () => {
     }
   })
 })
+
+describe('SystemAudioWarning — on the web', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  async function mountWeb() {
+    await act(async () => {
+      root.render(h(SystemAudioWarning, { status: null, platform: 'web' }))
+    })
+  }
+
+  it('points to the desktop app when the deployment offers its download', async () => {
+    vi.stubEnv('NEXT_PUBLIC_HAS_MAC_DOWNLOAD', '1')
+    await mountWeb()
+    expect(host.textContent).toContain('Recording your mic only.')
+    expect(host.querySelector('a[href="/api/download"]')?.textContent).toBe('download the desktop app')
+  })
+
+  it('says only "mic only" when there is no download (APP_DOWNLOAD_URL unset)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_HAS_MAC_DOWNLOAD', '')
+    await mountWeb()
+    expect(host.textContent?.trim()).toBe('Recording your mic only.')
+    expect(host.querySelector('a')).toBeNull()
+  })
+})

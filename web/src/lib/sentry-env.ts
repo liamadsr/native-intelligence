@@ -8,7 +8,8 @@
 //
 // We resolve the environment from Vercel's own signal (`VERCEL_ENV` server-side,
 // `NEXT_PUBLIC_VERCEL_ENV` client-side, since only NEXT_PUBLIC_* vars are
-// available in the browser bundle) and only report events from production.
+// available in the browser bundle) and only report events from production, to
+// the DSN in NEXT_PUBLIC_SENTRY_DSN. No DSN, no Sentry.
 
 import { isInBrowserSurface } from '@/lib/platform'
 
@@ -25,12 +26,23 @@ export function getSentryEnvironment(): string {
 }
 
 /**
- * Whether Sentry should report events. Only production traffic is worth
- * tracking — preview/dev events are noise. Skipping init entirely when this is
- * false keeps that noise out of Sentry at the source.
+ * The deployment's Sentry DSN (NEXT_PUBLIC_SENTRY_DSN), or undefined when it
+ * has none. NEXT_PUBLIC_ so the browser bundle gets it too: Next inlines this
+ * exact `process.env.NEXT_PUBLIC_SENTRY_DSN` read at build time, so keep it a
+ * literal member access. A DSN is public (every browser sees it).
+ */
+export function getSentryDsn(): string | undefined {
+  return process.env.NEXT_PUBLIC_SENTRY_DSN?.trim() || undefined
+}
+
+/**
+ * Whether Sentry should report events: production traffic only (preview/dev
+ * events are noise), and only with a DSN. Without NEXT_PUBLIC_SENTRY_DSN, as on
+ * a self-hosted copy that hasn't set one, Sentry stays off. Skipping init
+ * entirely when this is false keeps that noise out of Sentry at the source.
  */
 export function isSentryEnabled(): boolean {
-  return getSentryEnvironment() === 'production'
+  return getSentryEnvironment() === 'production' && !!getSentryDsn()
 }
 
 // Even from production, a large share of client events are not real bugs:

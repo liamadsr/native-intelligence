@@ -1,7 +1,7 @@
 import { createClient as createSupabaseClient, type SupabaseClient, type User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
-import { ADMIN_EMAILS, isAdminEmail } from './admin-emails'
+import { adminEmails, isAdminEmail } from './admin-emails'
 
 export type AdminEnv = 'development' | 'production'
 
@@ -16,8 +16,8 @@ const SUPABASE_CONFIGS = {
   },
 } as const
 
-/** The admins, by address (./admin-emails.ts, a leaf billing reads too). */
-export { ADMIN_EMAILS }
+/** The admins, by address: ADMIN_EMAILS (./admin-emails.ts, a leaf billing reads too). */
+export { adminEmails }
 
 /**
  * Whether admin also needs a second factor: a session at AAL2 (Supabase MFA).

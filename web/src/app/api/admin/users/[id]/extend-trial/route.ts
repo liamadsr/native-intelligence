@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin, getAdminServiceClient } from '@/lib/admin'
-import { getResend, getUnsubscribeUrl, getEmailTemplate, getEmailCampaignBySlug, BASE_URL, FROM_EMAIL } from '@/lib/email'
+import { sendEmail, getUnsubscribeUrl, getEmailTemplate, getEmailCampaignBySlug, BASE_URL } from '@/lib/email'
 
 export async function POST(
   request: Request,
@@ -14,7 +14,7 @@ export async function POST(
 
   const { id } = await params
   const body = await request.json()
-  const { days, sendEmail } = body as { days: number; sendEmail?: boolean }
+  const { days, sendEmail: emailUser } = body as { days: number; sendEmail?: boolean }
 
   if (!days || typeof days !== 'number' || days < 1 || days > 365) {
     return NextResponse.json({ error: 'Invalid days (1-365)' }, { status: 400 })
@@ -52,7 +52,7 @@ export async function POST(
 
   // Send win-back email if requested and user has an email
   let emailSent = false
-  if (sendEmail && user.email) {
+  if (emailUser && user.email) {
     try {
       const unsubscribeUrl = getUnsubscribeUrl(user.email)
       const downloadUrl = `${BASE_URL}/api/download`
@@ -72,8 +72,7 @@ export async function POST(
       if (template) {
         // The Resend SDK reports a refused send in `error` rather than
         // throwing; throw it so the catch below skips the log and email_sent.
-        const { data: sent, error: sendError } = await getResend().emails.send({
-          from: FROM_EMAIL,
+        const { data: sent, error: sendError } = await sendEmail({
           to: user.email,
           subject: template.subject,
           html: template.html,

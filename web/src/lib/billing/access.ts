@@ -19,12 +19,12 @@ import { isAdminEmail } from '@/lib/admin-emails'
  * `subscriptions` is per USER (auth.users.id); seats are per person, so a
  * teammate joining a paying workspace still needs their own trial.
  *
- * DIAL8 STAFF (the admins named in lib/admin-emails.ts's ADMIN_EMAILS, the
+ * STAFF (the admins the ADMIN_EMAILS env var names, lib/admin-emails.ts, the
  * list isAuthorizedAdmin reads; never a whole domain: security review
  * 2026-10-31) are exempt: they never see the wall. Employees do not buy seats
- * in their own product. The SQL gate exempts the same people by address
- * (check_ai_usage_limit, migration 468; src/lib/__tests__/admin-emails-sql.test.ts
- * keeps its list equal to ADMIN_EMAILS).
+ * in their own product. On the hosted service the SQL gate exempts the same
+ * people by address (check_ai_usage_limit, migration 468;
+ * src/lib/__tests__/admin-emails-sql.test.ts pins its list).
  *
  * The AI usage gate (check_ai_usage_limit, migration 243) enforces the same
  * rule for every API path — desktop, MCP, cron — with `subscription_required`.

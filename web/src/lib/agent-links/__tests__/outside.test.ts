@@ -16,7 +16,7 @@ vi.mock('../store', () => ({
   endLinkForWorkspace: (s: unknown, i: { linkId: string; byUserId: string }) => endLinkForWorkspace(s, i),
 }))
 const send = vi.fn(async (_m: unknown) => ({ error: null as unknown }))
-vi.mock('@/lib/email', () => ({ BASE_URL: 'https://dial8.ai', FROM_EMAIL: 'Dial8 <x@dial8.ai>', getResend: () => ({ emails: { send } }) }))
+vi.mock('@/lib/email', () => ({ BASE_URL: 'https://dial8.ai', sendEmail: (m: unknown) => send(m) }))
 
 import {
   EMAIL_REQUESTS_PER_DAY,

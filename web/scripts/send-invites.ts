@@ -10,6 +10,7 @@
  *   SUPABASE_SERVICE_ROLE_KEY
  *   RESEND_API_KEY
  *   UNSUBSCRIBE_SECRET
+ *   EMAIL_FROM       the sender, e.g. `Your Name <you@your-domain.com>`
  *
  * Optional:
  *   INVITE_BASE_URL  link origin in the emails (default https://dial8.ai;
@@ -30,11 +31,11 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY!
 const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET!
 // Default to prod: these emails go to real people, so a localhost link must be an explicit opt-in.
 const BASE_URL = (process.env.INVITE_BASE_URL || 'https://dial8.ai').replace(/\/+$/, '')
-const FROM_EMAIL = 'Liam from Dial8 <liam@dial8.ai>'
+const FROM_EMAIL = process.env.EMAIL_FROM?.trim() ?? ''
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !RESEND_API_KEY || !UNSUBSCRIBE_SECRET) {
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !RESEND_API_KEY || !UNSUBSCRIBE_SECRET || !FROM_EMAIL) {
   console.error('Missing required environment variables. Check .env.local')
-  console.error('Required: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY, UNSUBSCRIBE_SECRET')
+  console.error('Required: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY, UNSUBSCRIBE_SECRET, EMAIL_FROM')
   process.exit(1)
 }
 

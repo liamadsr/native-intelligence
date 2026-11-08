@@ -5,6 +5,7 @@ import { MicOff } from 'lucide-react'
 import type { SystemAudioStatus } from '@/lib/tauri-bridge'
 import { requestSystemAudioWithFallback } from '@/hooks/use-audio-permissions'
 import { trackRecordingEvent } from '@/lib/recording-telemetry'
+import { hasDownload } from '@/lib/app-download'
 import { cn } from '@/lib/utils'
 import { useDesktopOS } from '@/components/desktop-titlebar'
 
@@ -87,15 +88,20 @@ export function SystemAudioWarning({
       >
         <MicOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <div className="min-w-0 flex-1 leading-snug">
-          Recording your mic only. To capture the other side of meetings (system
-          audio),{' '}
-          <a
-            href="/api/download"
-            className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
-          >
-            download the desktop app
-          </a>
-          .
+          Recording your mic only.
+          {hasDownload() && (
+            <>
+              {' '}
+              To capture the other side of meetings (system audio),{' '}
+              <a
+                href="/api/download"
+                className="font-medium text-foreground underline underline-offset-2 hover:no-underline"
+              >
+                download the desktop app
+              </a>
+              .
+            </>
+          )}
         </div>
       </div>
     )

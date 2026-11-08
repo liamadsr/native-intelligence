@@ -19,10 +19,14 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 export function LoginForm({
   googleOnDial8 = false,
+  adminDomain = null,
 }: {
   /** Sign in through Dial8's own Google flow (lib/auth/google-sign-in,
    *  decided by the page) instead of Supabase's. */
   googleOnDial8?: boolean
+  /** The domain every admin's address shares (ADMIN_EMAILS), if one: Google's
+   *  account-chooser hint. */
+  adminDomain?: string | null
 } = {}) {
   const searchParams = useSearchParams()
   const callbackError = searchParams.get('error')
@@ -45,9 +49,7 @@ export function LoginForm({
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/admin/auth/callback`,
-        queryParams: {
-          hd: 'dial8.ai',
-        },
+        ...(adminDomain ? { queryParams: { hd: adminDomain } } : {}),
       },
     })
 
@@ -67,7 +69,9 @@ export function LoginForm({
             </Link>
           </div>
           <CardTitle className="mt-4">Admin Sign In</CardTitle>
-          <CardDescription>Sign in with your @dial8.ai Google account.</CardDescription>
+          <CardDescription>
+            {adminDomain ? `Sign in with your @${adminDomain} Google account.` : 'Sign in with your admin Google account.'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {error && (

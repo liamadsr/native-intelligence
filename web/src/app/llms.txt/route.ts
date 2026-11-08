@@ -4,6 +4,7 @@
 // the same Fumadocs loaders that feed the sitemap, so new content appears
 // automatically instead of drifting out of date.
 
+import { hasDownload } from '@/lib/app-download'
 import { blog, source } from '@/lib/source'
 
 const BASE = 'https://dial8.ai'
@@ -78,8 +79,7 @@ ${blogSection()}
 
 ## Get started
 
-- [Download for macOS](${BASE}/api/download): Native desktop app.
-- [Sign up](${BASE}): Create a workspace and start capturing meetings.
+${hasDownload() ? `- [Download for macOS](${BASE}/api/download): Native desktop app.\n` : ''}- [Sign up](${BASE}): Create a workspace and start capturing meetings.
 
 ## Links
 

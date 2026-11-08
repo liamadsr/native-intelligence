@@ -1,4 +1,4 @@
-import { getResend, BASE_URL, FROM_EMAIL } from '@/lib/email'
+import { sendEmail, BASE_URL } from '@/lib/email'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
@@ -135,8 +135,7 @@ export async function POST(request: NextRequest) {
   // both paths land in emailSent = false.
   let emailSent = false
   try {
-    const { error: sendError } = await getResend().emails.send({
-      from: FROM_EMAIL,
+    const { error: sendError } = await sendEmail({
       to: invite.email,
       subject: `You've been invited to join ${workspaceName} on Dial8`,
       html: `

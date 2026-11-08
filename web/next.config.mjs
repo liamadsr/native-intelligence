@@ -92,6 +92,20 @@ export async function headers() {
   return headers
 }
 
+/**
+ * Which desktop downloads this deployment offers, as build-time flags the
+ * browser bundle can read: '1' when APP_DOWNLOAD_URL (macOS) or
+ * APP_DOWNLOAD_URL_WINDOWS is set, else ''. /api/download reads the URLs
+ * themselves (src/lib/app-download.ts).
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function downloadFlags(env = process.env) {
+  return {
+    NEXT_PUBLIC_HAS_MAC_DOWNLOAD: env.APP_DOWNLOAD_URL?.trim() ? '1' : '',
+    NEXT_PUBLIC_HAS_WINDOWS_DOWNLOAD: env.APP_DOWNLOAD_URL_WINDOWS?.trim() ? '1' : '',
+  }
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Allow an isolated build dir so a second `next dev` on this repo can run
@@ -117,6 +131,9 @@ const nextConfig = {
     // The commit itself, for the desktop automation bridge's info().buildId
     // (src/lib/automation): empty off Vercel.
     NEXT_PUBLIC_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA ?? '',
+    // Whether each desktop download is set, for the buttons and links that
+    // offer it (src/lib/app-download.ts hides one whose file isn't).
+    ...downloadFlags(),
   },
   headers,
   async redirects() {
@@ -166,43 +183,63 @@ const nextConfig = {
 
 const withMDX = createMDX()
 
-const sentryWrapped = withSentryConfig(withMDX(nextConfig), {
-  // For all available options, see:
-  // https://www.npmjs.com/package/@sentry/webpack-plugin#options
+/**
+ * Sentry's build plugin (source-map upload, Vercel cron monitors), only when
+ * the deployment reports to a Sentry: NEXT_PUBLIC_SENTRY_DSN set. Without a
+ * DSN the config is left as it is, so the build neither needs Sentry nor
+ * uploads anything. Source maps go up only with SENTRY_ORG and SENTRY_PROJECT
+ * too (and SENTRY_AUTH_TOKEN, which the plugin reads itself).
+ * @template {object} C
+ * @param {C} config
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function withSentry(config, env = process.env) {
+  if (!env.NEXT_PUBLIC_SENTRY_DSN?.trim()) return config
+  const org = env.SENTRY_ORG?.trim() || undefined
+  const project = env.SENTRY_PROJECT?.trim() || undefined
+  return withSentryConfig(config, {
+    // For all available options, see:
+    // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
-  org: 'dial8',
+    org,
 
-  project: 'javascript-nextjs',
+    project,
 
-  // Only print logs for uploading source maps in CI
-  silent: !process.env.CI,
+    // No org or project: nowhere to upload source maps to.
+    sourcemaps: { disable: !org || !project },
 
-  // For all available options, see:
-  // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
+    // Only print logs for uploading source maps in CI
+    silent: !env.CI,
 
-  // Upload a larger set of source maps for prettier stack traces (increases build time)
-  widenClientFileUpload: true,
+    // For all available options, see:
+    // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
 
-  // Uncomment to route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
-  // This can increase your server load as well as your hosting bill.
-  // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
-  // side errors will fail.
-  // tunnelRoute: "/monitoring",
+    // Upload a larger set of source maps for prettier stack traces (increases build time)
+    widenClientFileUpload: true,
 
-  webpack: {
-    // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
-    // See the following for more information:
-    // https://docs.sentry.io/product/crons/
-    // https://vercel.com/docs/cron-jobs
-    automaticVercelMonitors: true,
+    // Uncomment to route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
+    // This can increase your server load as well as your hosting bill.
+    // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
+    // side errors will fail.
+    // tunnelRoute: "/monitoring",
 
-    // Tree-shaking options for reducing bundle size
-    treeshake: {
-      // Automatically tree-shake Sentry logger statements to reduce bundle size
-      removeDebugLogging: true,
+    webpack: {
+      // Enables automatic instrumentation of Vercel Cron Monitors. (Does not yet work with App Router route handlers.)
+      // See the following for more information:
+      // https://docs.sentry.io/product/crons/
+      // https://vercel.com/docs/cron-jobs
+      automaticVercelMonitors: true,
+
+      // Tree-shaking options for reducing bundle size
+      treeshake: {
+        // Automatically tree-shake Sentry logger statements to reduce bundle size
+        removeDebugLogging: true,
+      },
     },
-  },
-})
+  })
+}
+
+const sentryWrapped = withSentry(withMDX(nextConfig))
 
 // Mount the eve agents into this Next app: same origin, one dev server, one
 // Vercel deploy. In dev, withEve boots an eve dev server per agent alongside
