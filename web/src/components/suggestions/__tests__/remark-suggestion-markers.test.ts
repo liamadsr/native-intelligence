@@ -70,3 +70,40 @@ describe('marker helpers', () => {
     expect(stripSuggestionMarkers('Line one.\n<!-- proposal:x1 -->\nLine two.')).toBe('Line one.\nLine two.')
   })
 })
+
+describe('remarkSuggestionMarkers: other HTML comments', () => {
+  it('drops a stray comment on its own line', () => {
+    const tree = toHast('The board is up.\n\n<!-- card:2 -->')
+    expect(shape(tree)).toEqual(['p'])
+    expect(text(tree)).not.toContain('card:2')
+  })
+
+  it('drops a stray comment on the line right after a paragraph', () => {
+    const tree = toHast('Nothing is overdue.\n<!-- card:2 -->')
+    expect(shape(tree)).toEqual(['p'])
+    expect(text(tree)).toBe('Nothing is overdue.')
+  })
+
+  it('drops a comment inside a paragraph and keeps the words around it', () => {
+    const tree = toHast('Here is the board <!-- card:1 --> for you.')
+    expect(text(tree)).not.toContain('<!--')
+    expect(text(tree)).toContain('Here is the board')
+    expect(text(tree)).toContain('for you.')
+  })
+
+  it('still turns proposal markers into cards next to a stray comment', () => {
+    const tree = toHast('Close it.\n\n<!-- proposal:aa11 -->\n\n<!-- card:3 -->')
+    expect(shape(tree)).toEqual(['p', 'card:aa11'])
+  })
+
+  it('leaves other HTML alone', () => {
+    const tree = toHast('<div>kept</div>')
+    expect(JSON.stringify(tree)).toContain('kept')
+  })
+})
+
+describe('stripSuggestionMarkers: other comments', () => {
+  it('removes any comment from plain text', () => {
+    expect(stripSuggestionMarkers('Done.\n<!-- card:2 -->\n')).toBe('Done.\n')
+  })
+})

@@ -11,13 +11,18 @@
  *   • a marker inside a paragraph ("…close it. <!-- proposal:… -->") is moved
  *     to just after that paragraph, since a card is a block and can't sit
  *     inside a <p>.
- * Every other HTML node is left alone.
+ * Any other HTML comment (`<!-- card:2 -->`, `<!-- note -->`: the model
+ * sometimes copies the marker shape for things that aren't proposals) is
+ * dropped: a comment is never meant to be seen, and react-markdown would
+ * otherwise print it as literal text. Every other HTML node is left alone.
  */
 
 const MARKER_RE = /<!--\s*proposal:([a-zA-Z0-9-]+)\s*-->/g
 /** Non-global, for .test() (a global regex keeps lastIndex between calls). */
 const HAS_MARKER_RE = /<!--\s*proposal:[a-zA-Z0-9-]+\s*-->/
 const ONLY_MARKERS_RE = /^(\s*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->\s*)+$/
+/** An html node that is nothing but comments (any comment, proposal markers included). */
+const ONLY_COMMENTS_RE = /^(\s*<!--[\s\S]*?-->\s*)+$/
 
 export const SUGGESTION_ELEMENT = 'dial8-suggestion'
 
@@ -44,9 +49,9 @@ export function markerIdsIn(markdown: string): string[] {
   return idsIn(markdown)
 }
 
-/** Remove markers from text meant for plain display (copy, read-aloud, previews). */
+/** Remove markers, and any other HTML comment, from text meant for plain display (copy, read-aloud, previews). */
 export function stripSuggestionMarkers(markdown: string): string {
-  return markdown.replace(/[ \t]*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->[ \t]*\n?/g, '')
+  return markdown.replace(/[ \t]*<!--[\s\S]*?-->[ \t]*\n?/g, '')
 }
 
 function transform(parent: MdNode): void {
@@ -60,6 +65,29 @@ function transform(parent: MdNode): void {
       children.splice(i, 1, ...replacement)
       i += replacement.length - 1
       continue
+    }
+    // Any other comment-only block (a stray `<!-- card:2 -->`): drop it.
+    if (node.type === 'html' && typeof node.value === 'string' && ONLY_COMMENTS_RE.test(node.value)) {
+      children.splice(i, 1)
+      i -= 1
+      continue
+    }
+    // A paragraph carrying inline comments that aren't markers: drop them.
+    if (
+      node.type === 'paragraph' &&
+      node.children?.some((c) => c.type === 'html' && ONLY_COMMENTS_RE.test(c.value ?? '') && !HAS_MARKER_RE.test(c.value ?? ''))
+    ) {
+      node.children = node.children.filter(
+        (c) => !(c.type === 'html' && ONLY_COMMENTS_RE.test(c.value ?? '') && !HAS_MARKER_RE.test(c.value ?? '')),
+      )
+      while (node.children.length && node.children[node.children.length - 1].type === 'break') node.children.pop()
+      const tail = node.children[node.children.length - 1]
+      if (tail?.type === 'text' && typeof tail.value === 'string') tail.value = tail.value.replace(/\s+$/, '')
+      if (node.children.length === 0) {
+        children.splice(i, 1)
+        i -= 1
+        continue
+      }
     }
     // A paragraph carrying inline markers: lift them out to after it.
     if (node.type === 'paragraph' && node.children?.some((c) => c.type === 'html' && HAS_MARKER_RE.test(c.value ?? ''))) {
