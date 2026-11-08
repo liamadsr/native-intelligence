@@ -41,7 +41,13 @@ export function adminEmails(): ReadonlySet<string> {
 
 /** Whether `email` is one of adminEmails() (trimmed, case-insensitive). */
 export function isAdminEmail(email: string | null | undefined): boolean {
-  return !!email && adminEmails().has(email.trim().toLowerCase())
+  if (!email) return false
+  const address = email.trim()
+  // Printable ASCII only. toLowerCase folds some Unicode letters onto ASCII ones
+  // (the Kelvin sign U+212A becomes "k"), so a lookalike address must never
+  // match an admin's.
+  if (!/^[\x21-\x7e]+$/.test(address)) return false
+  return adminEmails().has(address.toLowerCase())
 }
 
 /**

@@ -47,6 +47,13 @@ describe('isAdminEmail', () => {
     expect(isAdminEmail('other@example.com')).toBe(true)
   })
 
+  it('refuses a lookalike address that lower-cases onto an admin (Kelvin sign)', () => {
+    vi.stubEnv('ADMIN_EMAILS', 'kim@example.com')
+    expect('\u212Aim@example.com'.toLowerCase()).toBe('kim@example.com')
+    expect(isAdminEmail('\u212Aim@example.com')).toBe(false)
+    expect(isAdminEmail('Kim@Example.com')).toBe(true)
+  })
+
   it('has no admins when ADMIN_EMAILS is unset', () => {
     delete process.env.ADMIN_EMAILS
     expect(adminEmails().size).toBe(0)
