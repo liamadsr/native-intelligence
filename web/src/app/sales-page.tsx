@@ -690,7 +690,10 @@ function CTASection() {
   )
 }
 
-export default function SalesPage() {
+// `roadmap` is the "What we're building" section, rendered on the server by
+// page.tsx and passed down through LandingVariantSwitch. It sits after the FAQ,
+// just before the closing CTA, and renders nothing when there is nothing to show.
+export default function SalesPage({ roadmap }: { roadmap?: React.ReactNode }) {
   const router = useRouter()
 
   // Desktop-shell users get redirected into the app — identical to the other
@@ -711,6 +714,7 @@ export default function SalesPage() {
         <DesktopSection />
         <IntegrationsSection />
         <FaqSection />
+        {roadmap}
         <CTASection />
       </main>
       <Footer />

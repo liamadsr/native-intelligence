@@ -28,7 +28,7 @@ import LandingPage from './landing-page'
  *
  * EVERY other state — no flag, PostHog blocked or not yet loaded, SSR, or a
  * variant key added in the dashboard that this build does not ship — renders
- * DEFAULT_VARIANT, the sales page. That is the one deliberate departure from
+ * the default branch, the sales page. That is the one deliberate departure from
  * the pre-pivot switch, whose fallback was meeting-notes: the fallback is what
  * crawlers and first paint get, so it is the homepage's own pitch.
  *
@@ -37,7 +37,7 @@ import LandingPage from './landing-page'
  * each renders its full marketing HTML on the server regardless.
  *
  * ADDING AN ARM is two edits, and the second is easy to forget: an entry in
- * VARIANTS below, AND the variant key in `LIVE_VARIANTS` in
+ * VARIANTS below (or the default branch), AND the variant key in `LIVE_VARIANTS` in
  * `@/components/signup-href` (plus its edition in VARIANT_EDITIONS if new).
  * Without the second, the new pitch renders while its signups attribute to
  * `sales`.
@@ -59,8 +59,9 @@ import LandingPage from './landing-page'
  */
 
 /**
- * The arms this build can render, as already-constructed elements keyed by
- * `landing-page-variant` value.
+ * The arms other than the default, as already-constructed elements keyed by
+ * `landing-page-variant` value. `sales` is not in this table: it is the
+ * default branch below, built in render because it takes the `roadmap` slot.
  *
  * ELEMENTS, NOT COMPONENT REFERENCES, on purpose. Selecting a component type
  * into a local and rendering `<Variant />` trips the React compiler's "Cannot
@@ -70,25 +71,27 @@ import LandingPage from './landing-page'
  */
 const VARIANTS: Record<string, React.ReactElement> = {
   'note-taker': <MeetingNotesPage />,
-  sales: <SalesPage />,
   'company-brain': <CompanyBrainPage />,
   classic: <LandingPage />,
 }
 
-/** What every unresolved, unknown, or retired key renders. */
-const DEFAULT_VARIANT = <SalesPage />
-
-export function LandingVariantSwitch() {
+/**
+ * `roadmap` is the homepage's "What we're building" section, rendered on the
+ * server by `page.tsx` (it reads GitHub) and passed in as a ready node. Only
+ * the sales page, the live arm, places it; the 0% arms ignore it.
+ */
+export function LandingVariantSwitch({ roadmap }: { roadmap?: React.ReactNode }) {
   const variant = useFeatureFlagVariantKey('landing-page-variant')
   const edition = editionForVariant(variant)
 
   // Own-property lookup only: a flag value like `toString` must not resolve to
-  // something off Object.prototype.
+  // something off Object.prototype. `sales` itself, and every unresolved,
+  // unknown, or retired key, renders the sales page.
   const rendered =
     typeof variant === 'string' &&
     Object.prototype.hasOwnProperty.call(VARIANTS, variant)
       ? VARIANTS[variant]
-      : DEFAULT_VARIANT
+      : <SalesPage roadmap={roadmap} />
 
   return <SignupEditionProvider edition={edition}>{rendered}</SignupEditionProvider>
 }
