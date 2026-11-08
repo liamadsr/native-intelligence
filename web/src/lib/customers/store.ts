@@ -27,7 +27,7 @@ import {
 // ── Business profile ────────────────────────────────────────────────────────
 
 const PROFILE_SELECT =
-  'workspace_id, owner_user_id, business_name, customer_facts, time_zone, booking_days, booking_start, booking_end, slot_minutes, lead_hours, horizon_days, booking_kind, booking_slug'
+  'workspace_id, owner_user_id, business_name, customer_facts, time_zone, booking_days, booking_start, booking_end, slot_minutes, lead_hours, horizon_days, booking_kind, booking_slug, reminders'
 
 interface ProfileRow {
   workspace_id: string
@@ -43,6 +43,7 @@ interface ProfileRow {
   horizon_days: number
   booking_kind: string | null
   booking_slug: string | null
+  reminders?: boolean | null
 }
 
 export function toProfile(row: ProfileRow): BusinessProfile {
@@ -60,6 +61,7 @@ export function toProfile(row: ProfileRow): BusinessProfile {
     horizonDays: row.horizon_days,
     bookingKind: row.booking_kind?.trim() || 'pickup',
     bookingSlug: row.booking_slug,
+    reminders: row.reminders !== false,
   }
 }
 
@@ -90,6 +92,7 @@ export interface BusinessProfilePatch {
   horizonDays?: number
   bookingKind?: string
   bookingSlug?: string | null
+  reminders?: boolean
 }
 
 export type ProfileWriteResult = { ok: true; profile: BusinessProfile } | { ok: false; reason: 'slug_taken' | 'invalid' | 'failed'; error?: string }
@@ -119,6 +122,7 @@ export async function upsertBusinessProfile(
   if (patch.horizonDays !== undefined) row.horizon_days = patch.horizonDays
   if (patch.bookingKind !== undefined) row.booking_kind = patch.bookingKind.trim()
   if (patch.bookingSlug !== undefined) row.booking_slug = patch.bookingSlug?.trim().toLowerCase() || null
+  if (patch.reminders !== undefined) row.reminders = patch.reminders
 
   const existing = await getBusinessProfile(supabase, args.workspaceId)
   if (!existing && !row.business_name) return { ok: false, reason: 'invalid', error: 'A new business profile needs the business name.' }
@@ -339,7 +343,7 @@ export async function updateQuote(supabase: SupabaseClient, workspaceId: string,
 // ── Bookings ────────────────────────────────────────────────────────────────
 
 export const BOOKING_SELECT =
-  'id, workspace_id, owner_user_id, quote_id, contact_id, guest_id, source, kind, starts_at, ends_at, customer_name, customer_phone, address, note, state, approval_id, calendar_event_id, created_at'
+  'id, workspace_id, owner_user_id, quote_id, contact_id, guest_id, source, kind, starts_at, ends_at, customer_name, customer_phone, address, note, state, approval_id, calendar_event_id, customer_confirmed_at, created_at'
 
 interface BookingRow {
   id: string
@@ -359,6 +363,7 @@ interface BookingRow {
   state: string
   approval_id: string | null
   calendar_event_id: string | null
+  customer_confirmed_at?: string | null
   created_at: string
 }
 
@@ -381,6 +386,7 @@ export function toBooking(row: BookingRow): CustomerBooking {
     state: (BOOKING_STATES as readonly string[]).includes(row.state) ? (row.state as BookingState) : 'cancelled',
     approvalId: row.approval_id,
     calendarEventId: row.calendar_event_id,
+    customerConfirmedAt: row.customer_confirmed_at ? new Date(row.customer_confirmed_at).toISOString() : null,
     createdAt: row.created_at,
   }
 }

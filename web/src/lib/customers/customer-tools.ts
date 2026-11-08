@@ -1,7 +1,9 @@
 /**
  * The tool route's answer to a business customer's own tools (roadmap B2/B4;
- * ./customer-tools-list.ts): get_my_quotes, find_open_slots and
- * request_booking. guestToolCall (src/lib/guests/guest-tools.ts) has already
+ * ./customer-tools-list.ts): get_my_quotes, find_open_slots,
+ * request_booking, and their answers to a reminder (issue #11,
+ * ./reminder-replies.ts): confirm_appointment and move_appointment.
+ * guestToolCall (src/lib/guests/guest-tools.ts) has already
  * re-read the customer's row live (active, this thread, this owner) and
  * checked the tool is in their ceiling; everything here is scoped to that
  * one customer and that one business, and nothing here runs a registry tool.
@@ -18,11 +20,12 @@ import { requestBooking } from './booking'
 import { upsertCustomerContact } from './contacts'
 import { linkCustomerContact } from './customer-guests'
 import { quoteForCustomerAgent } from './customer-spec'
+import { confirmAppointment, moveAppointment } from './reminder-replies'
 import { findOpenSlots, slotLabel } from './slots'
 import { quotesForCustomer } from './store'
 
 /** The customer-only tools this route answers (message_owner and remember_about_guest are the guest route's own). */
-export const CUSTOMER_ROUTE_TOOLS: ReadonlySet<string> = new Set(['get_my_quotes', 'find_open_slots', 'request_booking'])
+export const CUSTOMER_ROUTE_TOOLS: ReadonlySet<string> = new Set(['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment'])
 
 export const findOpenSlotsInputSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -35,6 +38,15 @@ export const requestBookingInputSchema = z.object({
   address: z.string().max(300).optional(),
   quote_id: z.string().uuid().optional(),
   note: z.string().max(1000).optional(),
+})
+
+export const confirmAppointmentInputSchema = z.object({
+  reminder_id: z.string().uuid(),
+})
+
+export const moveAppointmentInputSchema = z.object({
+  reminder_id: z.string().uuid(),
+  start: z.string().min(10).max(40),
 })
 
 function invalid(error: z.ZodError): Response {
@@ -99,6 +111,19 @@ export async function customerToolCall(
           message: `Held ${result.label} and asked the owner by text. Nothing is booked until they say yes: tell the customer that, and that they'll get a confirmation text. Don't call request_booking again for this slot.`,
         },
       })
+    }
+
+    // Their answer to a reminder: only one texted to the number they text from (the live guest row's).
+    if (toolName === 'confirm_appointment' || toolName === 'move_appointment') {
+      if (!guest.phone) return NextResponse.json({ output: { success: false, code: 'NOT_FOUND', message: 'No reminder went to this customer. Answer from what you know, or pass it to the owner with message_owner.' } })
+      if (toolName === 'confirm_appointment') {
+        const input = confirmAppointmentInputSchema.safeParse(body.input ?? {})
+        if (!input.success) return invalid(input.error)
+        return NextResponse.json({ output: await confirmAppointment(supabase, { ...business, phone: guest.phone, reminderId: input.data.reminder_id }) })
+      }
+      const input = moveAppointmentInputSchema.safeParse(body.input ?? {})
+      if (!input.success) return invalid(input.error)
+      return NextResponse.json({ output: await moveAppointment(supabase, { ...business, phone: guest.phone, reminderId: input.data.reminder_id, start: input.data.start }) })
     }
   } catch (err) {
     console.error(`[customer-tool] ${toolName} failed:`, err instanceof Error ? err.message : String(err))

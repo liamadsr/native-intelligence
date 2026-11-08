@@ -105,8 +105,10 @@ describe("the customer agent's prompt", () => {
   })
 
   it('advertises a real schema for each of its own tools', () => {
-    expect(CUSTOMER_TOOLS).toEqual(['get_my_quotes', 'find_open_slots', 'request_booking', 'message_owner', 'remember_about_guest'])
+    expect(CUSTOMER_TOOLS).toEqual(['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'message_owner', 'remember_about_guest'])
     expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.request_booking.required).toEqual(['start', 'name'])
+    expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.confirm_appointment.required).toEqual(['reminder_id'])
+    expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.move_appointment.required).toEqual(['reminder_id', 'start'])
   })
 })
 

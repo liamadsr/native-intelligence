@@ -103,18 +103,18 @@ export async function findDailyJobsBusinesses(supabase: SupabaseClient): Promise
 }
 
 export interface DailyJob {
-  booking: Pick<CustomerBooking, 'startsAt' | 'customerName' | 'address' | 'customerPhone' | 'kind'>
+  booking: Pick<CustomerBooking, 'startsAt' | 'customerName' | 'address' | 'customerPhone' | 'kind'> & { customerConfirmedAt?: string | null }
   quote: Pick<CustomerQuote, 'items' | 'service' | 'totalCents' | 'currency'> | null
 }
 
-/** One job's line: time, name, address, phone, what. Pure. */
+/** One job's line: time, name (and "confirmed" when they answered their reminder yes), address, phone, what. Pure. */
 export function dailyJobLine(job: DailyJob, timeZone: string): string {
   const time = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' }).format(new Date(job.booking.startsAt))
   const summary = job.quote ? quoteSummary(job.quote) : null
   const what = summary && summary !== 'a quote request' ? cleanText(summary, DAILY_JOB_WHAT_MAX) : cleanText(job.booking.kind, 40)
   return [
     time,
-    cleanText(job.booking.customerName, 40) ?? 'Customer',
+    `${cleanText(job.booking.customerName, 40) ?? 'Customer'}${job.booking.customerConfirmedAt ? ' (confirmed)' : ''}`,
     cleanText(job.booking.address, 80),
     job.booking.customerPhone ? formatE164ForDisplay(job.booking.customerPhone) : null,
     what,

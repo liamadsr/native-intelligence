@@ -192,7 +192,7 @@ describe('never routes', () => {
   })
 
   it('the router queries exactly the kinds that can route', () => {
-    expect([...ROUTED_MESSAGE_KINDS].sort()).toEqual(['ask_card', 'guest_message', 'guest_request', 'home_turn', 'look_ahead'])
+    expect([...ROUTED_MESSAGE_KINDS].sort()).toEqual(['ask_card', 'customer_reminder', 'guest_message', 'guest_request', 'home_turn', 'look_ahead'])
   })
 })
 

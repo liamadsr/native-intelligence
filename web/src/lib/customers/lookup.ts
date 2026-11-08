@@ -19,6 +19,7 @@ import { isE164 } from '@/lib/twilio/phone'
 import type { AgentGuest } from '@/lib/guests/store'
 import { findContactByEmailOrPhone } from './contacts'
 import { findCustomerGuest } from './customer-guests'
+import { openRemindersForPhone, type CustomerReminder } from './reminder-store'
 import { BOOKING_SELECT, quotesForCustomer, toBooking } from './store'
 import type { CustomerBooking, CustomerQuote } from './types'
 
@@ -32,6 +33,8 @@ export interface CustomerByPhone {
   quotes: CustomerQuote[]
   /** Requested or confirmed, from now on, soonest first. */
   bookings: CustomerBooking[]
+  /** Reminders the business texted them lately whose job or meeting is still ahead (issue #11), soonest first. */
+  reminders: CustomerReminder[]
   /** A one-line greeting hint a voice or text agent can open with, or null. */
   openingLine: string | null
 }
@@ -60,15 +63,16 @@ export async function findCustomerByPhone(
   now: number = Date.now(),
 ): Promise<CustomerByPhone> {
   const phone = args.phone.trim()
-  const empty: CustomerByPhone = { workspaceId: args.workspaceId, phone, contact: null, guest: null, quotes: [], bookings: [], openingLine: null }
+  const empty: CustomerByPhone = { workspaceId: args.workspaceId, phone, contact: null, guest: null, quotes: [], bookings: [], reminders: [], openingLine: null }
   if (!isE164(phone)) return empty
   const [contactRow, guest] = await Promise.all([findContactByEmailOrPhone(supabase, args.workspaceId, { email: null, phone }), findCustomerGuest(supabase, args.workspaceId, phone)])
-  const [quotes, bookings] = await Promise.all([
+  const [quotes, bookings, reminders] = await Promise.all([
     quotesForCustomer(supabase, args.workspaceId, phone),
     upcomingBookings(supabase, args.workspaceId, { guestId: guest?.id ?? null, phone }, new Date(now).toISOString()),
+    openRemindersForPhone(supabase, args.workspaceId, phone, now),
   ])
   const contact = contactRow ? { id: contactRow.id, fullName: contactRow.full_name, email: contactRow.email } : null
-  return { ...empty, contact, guest, quotes, bookings, openingLine: openingLine(contact, quotes, bookings) }
+  return { ...empty, contact, guest, quotes, bookings, reminders, openingLine: openingLine(contact, quotes, bookings) }
 }
 
 /** What a channel can open with: their booking, else their newest quote, else nothing. Pure. */

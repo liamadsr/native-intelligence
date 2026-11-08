@@ -90,6 +90,8 @@ export interface BusinessProfile {
   /** The job word customers see: "pickup", "visit", "walk". */
   bookingKind: string
   bookingSlug: string | null
+  /** Text customers a reminder the day before a booked job or meeting (migration 471). On unless the owner turns it off. */
+  reminders: boolean
 }
 
 export interface CustomerBooking {
@@ -110,6 +112,8 @@ export interface CustomerBooking {
   state: BookingState
   approvalId: string | null
   calendarEventId: string | null
+  /** The customer said yes to its reminder, or picked the time it moved to (migration 471). */
+  customerConfirmedAt: string | null
   createdAt: string
 }
 

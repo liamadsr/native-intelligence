@@ -16,7 +16,9 @@
  *      number matches one), past their daily cap one notice a day, and the
  *      text goes to their thread with a text turn carrying their `guestId`.
  *      Their first text also gets a short welcome at once, naming the
- *      business, with the opt-out. Only a US or Canadian number becomes a
+ *      business, with the opt-out, unless it answers a reminder the
+ *      business just texted them (./reminders.ts: that text named the
+ *      business and the opt-out already). Only a US or Canadian number becomes a
  *      customer: anything else is refused in silence (no turn, no text).
  *
  * Every reply here answers a number nobody verified: NANP only and the global
@@ -32,6 +34,7 @@ import { isNanpNumber } from '@/lib/twilio/phone'
 import { findContactByEmailOrPhone } from './contacts'
 import { ensureCustomerGuest } from './customer-guests'
 import type { BusinessNumber } from './numbers'
+import { openRemindersForPhone } from './reminder-store'
 import { businessName, getBusinessProfile } from './store'
 
 const DAY_MS = 24 * 60 * 60_000
@@ -58,6 +61,8 @@ export interface BusinessTextDeps {
   noticedSince(phone: string, sinceMs: number): Promise<boolean>
   autoReply(phone: string, kind: 'guest_welcome' | 'guest_notice', text: string, guestId: string | null): Promise<string | null>
   deliver(args: { guest: AgentGuest; text: string; sid: string }): Promise<void>
+  /** Whether the business texted this number a reminder lately (their first text answers it: no welcome). */
+  wasReminded?(workspaceId: string, phone: string): Promise<boolean>
 }
 
 export function customerWelcomeReply(business: string, kind: string): string {
@@ -117,6 +122,7 @@ export async function handleBusinessText(
   await deps.markInbound(sid, 'guest_text', guest.id)
   await deps.deliver({ guest, text, sid })
   if (!created) return { outcome: 'customer_queued', reply: null }
+  if (await deps.wasReminded?.(number.workspaceId, phone).catch(() => false)) return { outcome: 'customer_queued', reply: null }
   const [name, kind] = await Promise.all([deps.businessName(number.workspaceId), deps.bookingKind(number.workspaceId)])
   const reply = await deps.autoReply(phone, 'guest_welcome', customerWelcomeReply(name, kind), guest.id)
   return { outcome: reply ? 'customer_welcomed' : 'customer_queued', reply }
@@ -148,5 +154,6 @@ export function supabaseBusinessTextDeps(
       await deliverGuestText(supabase, { guest, text, sid })
       await touchGuestInbound(supabase, guest.id)
     },
+    wasReminded: async (workspaceId, phone) => (await openRemindersForPhone(supabase, workspaceId, phone)).length > 0,
   }
 }

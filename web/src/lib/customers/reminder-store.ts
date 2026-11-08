@@ -1,0 +1,200 @@
+/**
+ * The reminder rows (migration 471, customer_reminder), read and written with
+ * the service role: one per subject (a booking, or a calendar event) and
+ * phone, claimed before its text goes (./reminders.ts), and what the customer
+ * answered (./reminder-replies.ts). Every function takes the workspace and
+ * touches only its rows.
+ *
+ * Server only.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+export const REMINDER_SUBJECTS = ['booking', 'meeting'] as const
+export type ReminderSubjectType = (typeof REMINDER_SUBJECTS)[number]
+
+export const REMINDER_ANSWERS = ['confirmed', 'moved', 'opted_out'] as const
+export type ReminderAnswer = (typeof REMINDER_ANSWERS)[number]
+
+export const REMINDER_STATUSES = ['claimed', 'sent', 'failed'] as const
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number]
+
+/** How long after its text a reminder can still be answered (by its own agent) or opted out of. */
+export const REMINDER_ANSWER_WINDOW_MS = 3 * 24 * 60 * 60_000
+
+export const REMINDER_SELECT =
+  'id, workspace_id, owner_user_id, subject_type, subject_id, contact_id, phone_e164, customer_name, kind, starts_at, ends_at, status, answer, answered_at, moved_to, sent_at, created_at'
+
+interface ReminderRow {
+  id: string
+  workspace_id: string
+  owner_user_id: string
+  subject_type: string
+  subject_id: string
+  contact_id: string | null
+  phone_e164: string
+  customer_name: string
+  kind: string
+  starts_at: string
+  ends_at: string
+  status: string
+  answer: string | null
+  answered_at: string | null
+  moved_to: string | null
+  sent_at: string | null
+  created_at: string
+}
+
+export interface CustomerReminder {
+  id: string
+  workspaceId: string
+  ownerUserId: string
+  subjectType: ReminderSubjectType
+  subjectId: string
+  contactId: string | null
+  phone: string
+  customerName: string
+  kind: string
+  /** When it was when the reminder went (a move keeps it: `movedTo` is the new time). */
+  startsAt: string
+  endsAt: string
+  status: ReminderStatus
+  answer: ReminderAnswer | null
+  answeredAt: string | null
+  movedTo: string | null
+  sentAt: string | null
+  createdAt: string
+}
+
+const iso = (value: string | null): string | null => (value ? new Date(value).toISOString() : null)
+
+export function toReminder(row: ReminderRow): CustomerReminder {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    ownerUserId: row.owner_user_id,
+    subjectType: row.subject_type === 'meeting' ? 'meeting' : 'booking',
+    subjectId: row.subject_id,
+    contactId: row.contact_id,
+    phone: row.phone_e164,
+    customerName: row.customer_name,
+    kind: row.kind,
+    startsAt: new Date(row.starts_at).toISOString(),
+    endsAt: new Date(row.ends_at).toISOString(),
+    status: (REMINDER_STATUSES as readonly string[]).includes(row.status) ? (row.status as ReminderStatus) : 'failed',
+    answer: (REMINDER_ANSWERS as readonly string[]).includes(row.answer ?? '') ? (row.answer as ReminderAnswer) : null,
+    answeredAt: iso(row.answered_at),
+    movedTo: iso(row.moved_to),
+    sentAt: iso(row.sent_at),
+    createdAt: row.created_at,
+  }
+}
+
+/** When the reminder's job or meeting is now: the time it moved to, else its own. Pure. */
+export function reminderAt(reminder: Pick<CustomerReminder, 'startsAt' | 'movedTo'>): string {
+  return reminder.movedTo ?? reminder.startsAt
+}
+
+export interface NewReminder {
+  workspaceId: string
+  ownerUserId: string
+  subjectType: ReminderSubjectType
+  subjectId: string
+  contactId: string | null
+  phone: string
+  customerName: string
+  kind: string
+  startsAt: string
+  endsAt: string
+}
+
+/**
+ * Claim one reminder before its text goes. `taken` when this subject and
+ * phone already had one (never twice). Throws on any other failed write.
+ */
+export async function claimReminder(supabase: SupabaseClient, reminder: NewReminder): Promise<{ ok: true; id: string } | { ok: false; reason: 'taken' }> {
+  const { data, error } = await supabase
+    .from('customer_reminder')
+    .insert({
+      workspace_id: reminder.workspaceId,
+      owner_user_id: reminder.ownerUserId,
+      subject_type: reminder.subjectType,
+      subject_id: reminder.subjectId,
+      contact_id: reminder.contactId,
+      phone_e164: reminder.phone,
+      customer_name: reminder.customerName,
+      kind: reminder.kind,
+      starts_at: reminder.startsAt,
+      ends_at: reminder.endsAt,
+      status: 'claimed',
+    })
+    .select('id')
+    .single<{ id: string }>()
+  if (error?.code === '23505') return { ok: false, reason: 'taken' }
+  if (error || !data) throw new Error(`customer_reminder claim failed: ${error?.message ?? 'no row'}`)
+  return { ok: true, id: data.id }
+}
+
+/** Stamp a claimed reminder sent (or failed). Throws on a failed write. */
+export async function markReminderSent(supabase: SupabaseClient, workspaceId: string, id: string, sent: boolean, nowIso: string): Promise<void> {
+  const { error } = await supabase
+    .from('customer_reminder')
+    .update(sent ? { status: 'sent', sent_at: nowIso, updated_at: nowIso } : { status: 'failed', updated_at: nowIso })
+    .eq('workspace_id', workspaceId)
+    .eq('id', id)
+  if (error) throw new Error(`customer_reminder update failed: ${error.message}`)
+}
+
+/** Whether the business ever sent a reminder before (its first day's report says what reminders are). Throws on a failed read. */
+export async function hasSentReminders(supabase: SupabaseClient, workspaceId: string): Promise<boolean> {
+  const { count, error } = await supabase.from('customer_reminder').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('status', 'sent')
+  if (error) throw new Error(`customer_reminder count failed: ${error.message}`)
+  return (count ?? 0) > 0
+}
+
+/** One reminder of the workspace's, or null. Throws on a failed read. */
+export async function getReminder(supabase: SupabaseClient, workspaceId: string, id: string): Promise<CustomerReminder | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null
+  const { data, error } = await supabase.from('customer_reminder').select(REMINDER_SELECT).eq('workspace_id', workspaceId).eq('id', id).maybeSingle<ReminderRow>()
+  if (error) throw new Error(`customer_reminder read failed: ${error.message}`)
+  return data ? toReminder(data) : null
+}
+
+/**
+ * The reminders texted to this number lately (inside the answer window)
+ * whose job or meeting is still ahead, soonest first: what the customer's
+ * agent can act on, and what a STOP opts out of. Throws on a failed read.
+ */
+export async function openRemindersForPhone(supabase: SupabaseClient, workspaceId: string, phone: string, now: number = Date.now()): Promise<CustomerReminder[]> {
+  const { data, error } = await supabase
+    .from('customer_reminder')
+    .select(REMINDER_SELECT)
+    .eq('workspace_id', workspaceId)
+    .eq('phone_e164', phone)
+    .eq('status', 'sent')
+    .gte('sent_at', new Date(now - REMINDER_ANSWER_WINDOW_MS).toISOString())
+    .order('starts_at', { ascending: true })
+    .limit(10)
+  if (error) throw new Error(`customer_reminder read failed: ${error.message}`)
+  return ((data ?? []) as ReminderRow[]).map(toReminder).filter((r) => Date.parse(reminderAt(r)) > now)
+}
+
+/**
+ * Record the customer's answer, fenced on the answers it may replace (a
+ * retried call, or two texts at once, records it once). The reminder as it
+ * now is, or null when it wasn't in one of `from`. Throws on a failed write.
+ */
+export async function answerReminder(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; id: string; answer: ReminderAnswer; from: ReadonlyArray<ReminderAnswer | null>; movedTo?: string; nowIso: string },
+): Promise<CustomerReminder | null> {
+  const patch: Record<string, unknown> = { answer: args.answer, answered_at: args.nowIso, updated_at: args.nowIso }
+  if (args.movedTo !== undefined) patch.moved_to = args.movedTo
+  let query = supabase.from('customer_reminder').update(patch).eq('workspace_id', args.workspaceId).eq('id', args.id)
+  const answers = args.from.filter((a): a is ReminderAnswer => a !== null)
+  const ors = [...(args.from.includes(null) ? ['answer.is.null'] : []), ...answers.map((a) => `answer.eq.${a}`)]
+  if (!ors.length) return null
+  query = query.or(ors.join(','))
+  const { data, error } = await query.select(REMINDER_SELECT).maybeSingle<ReminderRow>()
+  if (error) throw new Error(`customer_reminder update failed: ${error.message}`)
+  return data ? toReminder(data) : null
+}

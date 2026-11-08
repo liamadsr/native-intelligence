@@ -36,6 +36,7 @@ import {
   type GuestChannel,
 } from '@/lib/guests/chat-parts'
 import { LOOK_AHEAD_MESSAGE_KIND } from '@/lib/look-ahead/message-kind'
+import { CUSTOMER_REMINDER_MESSAGE_KIND, CUSTOMER_REMINDER_ROUTES_KEY } from '@/lib/customers/reminder-message'
 import { lookAheadTextKey } from '@/lib/look-ahead/message'
 import { isIsoInstant, isUuid } from '@/lib/presence/presence'
 import type { ReachRefType } from './notice'
@@ -56,7 +57,7 @@ export const ROUTED_HOME_TURN_REASONS: ReadonlySet<HomeTurnReason> = new Set<Hom
  * query. Everything else in the thread (report chips, guest activity lines,
  * batched suggestions, an approval's result) never routes.
  */
-export const ROUTED_MESSAGE_KINDS = [HOME_TURN_KIND, LOOK_AHEAD_MESSAGE_KIND, GUEST_MESSAGE_KIND, GUEST_REQUEST_KIND, ASK_MESSAGE_KIND] as const
+export const ROUTED_MESSAGE_KINDS = [HOME_TURN_KIND, LOOK_AHEAD_MESSAGE_KIND, GUEST_MESSAGE_KIND, GUEST_REQUEST_KIND, ASK_MESSAGE_KIND, CUSTOMER_REMINDER_MESSAGE_KIND] as const
 
 /** The home-turn reasons whose writer already put a notification on the face (agent_digest, agent_check_in): no banner of the router's. */
 const NOTIFYING_REASONS: ReadonlySet<string> = new Set(['digest', 'check_in'])
@@ -81,7 +82,7 @@ export interface RouteRow {
   ui_message: { id?: unknown; parts?: unknown; metadata?: Record<string, unknown> | null } | null
 }
 
-export type RouteKind = 'home_turn' | 'look_ahead' | 'guest_message' | 'guest_request' | 'approval_ask'
+export type RouteKind = 'home_turn' | 'look_ahead' | 'guest_message' | 'guest_request' | 'approval_ask' | 'customer_reminder'
 
 /** What a message is claimed under in reach_notice: one send per thing and channel. */
 export interface RouteRef {
@@ -244,6 +245,14 @@ export function routeOf(row: RouteRow, userId: string, nowMs: number = Date.now(
         approvalIds: [approvalId],
         urgentBy,
       }
+    }
+    case CUSTOMER_REMINDER_MESSAGE_KIND: {
+      // A customer's answer to their reminder (src/lib/customers/reminders.ts): only the ones that need the owner route.
+      if (meta[CUSTOMER_REMINDER_ROUTES_KEY] !== true) return NEVER
+      const line = Array.isArray(parts) ? (parts as Array<{ type?: unknown; text?: unknown }>).find((p) => p?.type === 'text' && typeof p.text === 'string') : undefined
+      const text = typeof line?.text === 'string' ? line.text.trim() : ''
+      if (!text) return NEVER
+      return { routes: true, kind: 'customer_reminder', ref: { type: 'home_message', id: row.id }, text, textable: true, notifies: false, approvalIds: [], urgentBy: null }
     }
     default:
       return NEVER

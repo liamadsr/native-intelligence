@@ -21,6 +21,7 @@ import { neutralizeInformationTags } from '@/lib/ai/information-fence'
 import type { GuestMemoryItem } from '@/lib/guests/guest-turn'
 import type { AgentGuest } from '@/lib/guests/store'
 import { findCustomerByPhone, type CustomerByPhone } from './lookup'
+import { reminderAt, type CustomerReminder } from './reminder-store'
 import { getBusinessProfile } from './store'
 import { formatCents, quoteSummary, type BusinessProfile, type CustomerBooking, type CustomerQuote } from './types'
 
@@ -83,6 +84,7 @@ export function buildCustomerWhoYouAre(input: {
     `- Their own quotes: get_my_quotes. Look before you answer about their quote, and read them its items and price from there.`,
     `- Booking a ${kind}: find_open_slots, then offer two or three of the open times in one short sentence. When they pick one, make sure you have their name and the address for the ${kind}, then call request_booking once with that slot's exact start. ` +
       `It holds the slot and asks ${o} by text: tell them ${o} will confirm by text shortly. Never say it's booked before then.`,
+    `- A reminder we texted them (in their bookings section, with its id): when they say yes, confirm_appointment. When they want another time for a booked ${kind}, find_open_slots, offer two or three, then move_appointment with the one they pick. A meeting is ${o}'s to move: ask what suits them and pass it on with message_owner.`,
     `- Anything else for ${o} (a question you can't answer, a complaint, a special request): message_owner, in their words. Mark it urgent only when it is.`,
     `- When they tell you something worth knowing next time (how to reach them, their building's doorman, that the rug is silk), keep it with remember_about_guest.`,
     '',
@@ -126,16 +128,40 @@ function when(iso: string, timeZone: string): string {
  * own words (sizes, price, status, times), their form's free text left to
  * get_my_quotes, inside the untrusted fence. Null when there is nothing. Pure.
  */
-export function customerRecordSection(customerName: string, quotes: readonly CustomerQuote[], bookings: readonly CustomerBooking[], timeZone: string): string | null {
-  if (!quotes.length && !bookings.length) return null
+export function customerRecordSection(
+  customerName: string,
+  quotes: readonly CustomerQuote[],
+  bookings: readonly CustomerBooking[],
+  timeZone: string,
+  reminders: readonly CustomerReminder[] = [],
+): string | null {
+  if (!quotes.length && !bookings.length && !reminders.length) return null
   const lines = [`## ${customerName}'s quotes and bookings`]
   for (const b of bookings.slice(0, 3)) {
-    lines.push(`- ${b.kind.charAt(0).toUpperCase()}${b.kind.slice(1)} ${b.state === 'confirmed' ? 'booked' : "asked for, waiting on the owner's OK"}: ${when(b.startsAt, timeZone)}.`)
+    const confirmed = b.state === 'confirmed' && b.customerConfirmedAt ? ', and they confirmed it' : ''
+    lines.push(`- ${b.kind.charAt(0).toUpperCase()}${b.kind.slice(1)} ${b.state === 'confirmed' ? 'booked' : "asked for, waiting on the owner's OK"}: ${when(b.startsAt, timeZone)}${confirmed}.`)
+  }
+  for (const r of reminders.slice(0, 3)) {
+    lines.push(`- We texted them a reminder for their ${r.kind} on ${when(reminderAt(r), timeZone)}: ${reminderAnswerWords(r)} [reminder ${r.id}]`)
   }
   for (const q of quotes.slice(0, 3)) {
     lines.push(`- Quote from ${when(q.createdAt, timeZone)} (${q.status}): ${quoteSummary(q)}. [quote ${q.id}]`)
   }
   return lines.join('\n')
+}
+
+/** Where a reminder stands, for the customer's agent. Pure. */
+function reminderAnswerWords(reminder: Pick<CustomerReminder, 'answer' | 'subjectType'>): string {
+  switch (reminder.answer) {
+    case 'confirmed':
+      return 'they confirmed it.'
+    case 'moved':
+      return 'they moved it to this time.'
+    case 'opted_out':
+      return 'they said STOP, then texted again.'
+    default:
+      return reminder.subjectType === 'meeting' ? "they haven't answered (a meeting: only the owner moves it)." : "they haven't answered."
+  }
 }
 
 /** One quote as get_my_quotes returns it to the customer's agent: their free text fenced. Pure. */

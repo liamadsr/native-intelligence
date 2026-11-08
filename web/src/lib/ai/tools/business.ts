@@ -170,7 +170,7 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
 
     update_business_profile: tool({
       description:
-        "Change what the business's customers are told and when jobs can be booked: business_name, customer_facts (services, prices, area, FAQ: the customers' assistant knows only this), time_zone, booking_days, booking_start / booking_end, slot_minutes, lead_hours, horizon_days, booking_kind (\"pickup\") and booking_slug (the public booking link). Only what the person told you. Give only the fields that change.",
+        "Change what the business's customers are told and when jobs can be booked: business_name, customer_facts (services, prices, area, FAQ: the customers' assistant knows only this), time_zone, booking_days, booking_start / booking_end, slot_minutes, lead_hours, horizon_days, booking_kind (\"pickup\"), booking_slug (the public booking link) and reminders (the day-before reminder texts to customers, on by default). Only what the person told you. Give only the fields that change.",
       inputSchema: z.object({
         business_name: z.string().optional(),
         customer_facts: z.string().max(8000).optional().describe('The whole text customers may be told; replaces the old one'),
@@ -183,6 +183,7 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
         horizon_days: z.number().int().optional().describe('How far out jobs can be booked, in days'),
         booking_kind: z.string().optional().describe('The job word customers see: "pickup", "visit"'),
         booking_slug: z.string().nullable().optional().describe('The booking link: /book/<slug>. null turns the link off'),
+        reminders: z.boolean().optional().describe("false: stop texting customers a reminder the day before their job or meeting; true: start again"),
         make_booking_link: z.boolean().optional().describe('true: make a booking link from the business name when it has none'),
       }),
       execute: async (input) => {
@@ -246,7 +247,7 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
     }),
 
     list_bookings: tool({
-      description: "The business's customer bookings from a day on (default today), soonest first: who, when, where, and whether each is confirmed or still waiting for the owner's yes.",
+      description: "The business's customer bookings from a day on (default today), soonest first: who, when, where, whether each is confirmed or still waiting for the owner's yes, and whether the customer confirmed it (their reminder).",
       inputSchema: z.object({
         from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('From this ISO date (default today)'),
         state: z.enum(BOOKING_STATES).optional(),
@@ -269,6 +270,7 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
             phone: b.customerPhone,
             address: b.address,
             quote_id: b.quoteId,
+            customer_confirmed: b.customerConfirmedAt !== null,
             // The customer's own words.
             note: wrapUntrusted(b.note, 'WEB'),
           })),
