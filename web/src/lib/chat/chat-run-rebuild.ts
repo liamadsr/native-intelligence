@@ -61,9 +61,12 @@
  * only the persona's closing conversation note says it is in the main chat.
  *
  * ── The model (src/lib/ai/model-route.ts) ───────────────────────────────────
- * Nobody picks a model. The thread runs MAIN_MODEL (Haiku 5.5) on every turn
- * but a device ask (Flash) and a turn on the person's own ChatGPT plan (their
- * plan's model): chatThreadModel. Each turn's tier still comes from
+ * The thread runs MAIN_MODEL (Haiku 5.5), or the model the person picked for
+ * their main agent (src/lib/ai/agent-model.ts, read from their account each
+ * turn, premium picks on paid plans only), on every turn but a device ask
+ * (Flash), a teammate's chat (MAIN_MODEL: the pick is the person's own
+ * agent's) and a turn on the person's own ChatGPT plan (their plan's model):
+ * chatThreadModel. Each turn's tier still comes from
  * routeChatTurn over the message's signals (the ctx's `route`), pure and
  * synchronous, and labels its usage row (Fast or Think; a device ask's tier
  * is its Flash level). Where the rules can't tell, Jev's model.tier answers
@@ -76,12 +79,15 @@
  * the thread is the strongest model, and it chooses.
  */
 import { getServiceClient } from '@/lib/admin'
+import { agentModelForTurn, agentModelName, isPremiumAgentModel } from '@/lib/ai/agent-model'
+import { readSavedAgentModel } from '@/lib/ai/agent-model-store'
 import {
   gatewayModelSlug,
   helperModelSpecs,
   modelIdentityNote,
   renderHelperModelRoster,
   type ChatModelPolicy,
+  type RosterMainModel,
   type HelperModelKey,
   type HelperModelSpec,
 } from '@/lib/ai/models'
@@ -733,6 +739,11 @@ export async function rebuildChatSpec(
   // The device ask too: its turn is a chat turn like any other, its token
   // carries the plan claim (device-ask-eve.ts) and its route bills the plan.
   const usageLoad = checkUsageLimits(claims.userId, undefined, { chatgptPlan: true })
+  // The model the person picked for their main agent (agent-model.ts), read
+  // from their account beside the usage check: every turn of their own main
+  // agent, whatever the surface. Never a device ask's (its model is fixed) or
+  // a teammate's chat (the teammate's, not the person's agent).
+  const savedAgentModelLoad = isDevice || claims.teammateId ? Promise.resolve(null) : readSavedAgentModel(supabase, claims.userId)
   // Enforce mode only (JEV_TIER_MODE): Jev runs beside the loads, under its
   // own deadline, so it adds at most a short grace after them. Never for a
   // turn on the person's ChatGPT plan: Jev is a Dial8-paid call.
@@ -830,16 +841,24 @@ export async function rebuildChatSpec(
   // slug for the same model (the agent's turn-scope guard and the logs); no
   // Gateway attribution, since no Gateway call is made.
   const chatgptPlan: ChatGptPlanSpec | null = isChatGptPlanUsage(usageRow) ? chatGptPlanSpec(route.tier) : null
-  const modelId = chatThreadModel(route.tier, { device: isDevice })
+  // The person's pick, where it applies: never on their ChatGPT plan (the
+  // plan's model runs), and a premium pick only on a paid plan (Auto otherwise).
+  const savedAgentModel = await savedAgentModelLoad
+  const chosen = chatgptPlan ? null : agentModelForTurn(savedAgentModel, usageRow?.is_paid_plan === true)
+  const threadOpts = { device: isDevice, chosen }
+  const modelId = chatThreadModel(route.tier, threadOpts)
   const model = chatgptPlan ? `openai/${chatgptPlan.model}` : gatewayModelSlug(modelId)
   const modelPolicy: ChatModelPolicy = chatgptPlan
     ? { contextWindowTokens: PLAN_CONTEXT_WINDOW_TOKENS, reasoning: chatgptPlan.reasoning }
-    : chatThreadPolicy(route.tier, { device: isDevice })
+    : chatThreadPolicy(route.tier, threadOpts)
   // A plan turn's row names the plan's reasoning, not the Gateway tier's; an
-  // Haiku turn's, adaptive thinking.
+  // Haiku turn's, adaptive thinking. A turn on the person's pick says so
+  // (`agent_model`): its row's model is the one they picked.
+  const routeMetadata = modelRouteMetadata(route)
   const modelRoute = {
-    ...modelRouteMetadata(route),
-    reasoning: chatgptPlan ? chatgptPlan.reasoning : chatThreadReasoning(route.tier, { device: isDevice }),
+    ...routeMetadata,
+    ...(chosen ? { signals: [...routeMetadata.signals, 'agent_model'].slice(-12) } : {}),
+    reasoning: chatgptPlan ? chatgptPlan.reasoning : chatThreadReasoning(route.tier, threadOpts),
   }
   // The helper roster's calls (helperModels), for the quick helpers' sessions.
   // Not on the person's ChatGPT plan: there every helper runs the plan's model.
@@ -966,7 +985,9 @@ export async function rebuildChatSpec(
   // Slack or SMS turn in the home thread get it too (helpersGate still
   // refuses quick helpers on those; the roster just stays put).
   // Not a check-in's either: its one helper's model is fixed in code (light).
-  const helperRoster = !chatgptPlan && !isDevice && !claims.teammateId && !checkIn ? `${renderHelperModelRoster(STRONG_DAILY_CAP)}\n\n` : ''
+  // It names the model the agent runs on: the person's pick, or Auto's.
+  const rosterMain: RosterMainModel | null = chosen ? { name: agentModelName(chosen), premium: isPremiumAgentModel(chosen) } : null
+  const helperRoster = !chatgptPlan && !isDevice && !claims.teammateId && !checkIn ? `${renderHelperModelRoster(STRONG_DAILY_CAP, rosterMain)}\n\n` : ''
   const systemPromptWithIdentity = `${identityNote}\n\n${helperRoster}${surfacePrompt}`
 
   // Advertised proxy surface. inherit-all (null) enumerates the whole registry

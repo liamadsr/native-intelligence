@@ -13,10 +13,12 @@
  *
  * Max (`xhigh`) is never picked automatically.
  *
- * The main chat's thread (Liam, 2026-10-27) runs MAIN_MODEL (Haiku 5.5) at
- * either tier (chatThreadModel), a device ask excepted, and NEVER changes
- * model: the tier only labels the turn's usage row. Switching the thread
- * would re-read the whole history uncached on a model with its own cache.
+ * The main chat's thread (Liam, 2026-10-27) runs MAIN_MODEL (Haiku 5.5), or
+ * the model the person picked for their main agent (./agent-model.ts), at
+ * either tier (chatThreadModel), a device ask excepted, and the tier NEVER
+ * changes its model: it only labels the turn's usage row. Switching the
+ * thread would re-read the whole history uncached on a model with its own
+ * cache, which only the person's own pick does, once.
  *
  * Helpers: the main agent picks each one's model from HELPER_MODELS
  * (src/lib/ai/models.ts), and the rules below pick only when it names none.
@@ -133,26 +135,42 @@ export function tierReasoning(tier: ModelTier): string {
 // ── The main chat's thread (MAIN_MODEL) ─────────────────────────────────────
 
 /**
- * The model a main-chat turn runs on: MAIN_MODEL (Haiku 5.5) for every turn
- * but a device ask, which keeps its tier's model (Flash: a quick answer
- * someone waits on). The tier still decides the level and the usage row.
+ * How a main-chat turn picks its model: a device ask, or the model the person
+ * picked for their main agent (./agent-model.ts agentModelForTurn: null is
+ * Auto, MAIN_MODEL).
+ */
+export interface ChatThreadModelOpts {
+  device?: boolean
+  chosen?: ChatModelId | null
+}
+
+/**
+ * The model a main-chat turn runs on: MAIN_MODEL (Haiku 5.5), or the model
+ * the person picked, for every turn but a device ask, which keeps its tier's
+ * model (Flash: a quick answer someone waits on) whatever they picked.
+ * The tier still decides the level and the usage row.
  * A device ask is the one chat call to DeepSeek with thinking off: its route
  * has 60 s (/api/device/ask maxDuration) for up to 12 steps, which a step's
  * reasoning (up to 5-8K tokens at ~100 tokens/s) can spend alone.
  */
-export function chatThreadModel(tier: ModelTier, opts: { device?: boolean } = {}): ChatModelId {
-  return opts.device ? tierModel(tier) : (MAIN_MODEL as ChatModelId)
+export function chatThreadModel(tier: ModelTier, opts: ChatThreadModelOpts = {}): ChatModelId {
+  if (opts.device) return tierModel(tier)
+  return opts.chosen ?? (MAIN_MODEL as ChatModelId)
 }
 
 /** How a main-chat turn's model is called (window, thinking, hosts). */
-export function chatThreadPolicy(tier: ModelTier, opts: { device?: boolean } = {}): ChatModelPolicy {
+export function chatThreadPolicy(tier: ModelTier, opts: ChatThreadModelOpts = {}): ChatModelPolicy {
   const model = chatThreadModel(tier, opts)
   return (opts.device && deepseekSurfacePolicy(model, 'off')) || chatModelPolicy(model, tierLevel(tier))
 }
 
-/** The reasoning a main-chat turn runs at, for the usage log: Haiku 5.5 thinks adaptively. */
-export function chatThreadReasoning(tier: ModelTier, opts: { device?: boolean } = {}): string {
-  return opts.device ? (chatThreadPolicy(tier, opts).reasoning ?? 'adaptive') : 'adaptive'
+/**
+ * The reasoning a main-chat turn runs at, for the usage log: its policy's,
+ * else 'adaptive' (the Claude 5.5 models, Haiku 5.5 among them, think
+ * adaptively when sent none).
+ */
+export function chatThreadReasoning(tier: ModelTier, opts: ChatThreadModelOpts = {}): string {
+  return chatThreadPolicy(tier, opts).reasoning ?? 'adaptive'
 }
 
 // ── A helper's model (HELPER_MODELS) ────────────────────────────────────────

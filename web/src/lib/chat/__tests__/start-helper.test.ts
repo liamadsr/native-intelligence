@@ -147,7 +147,7 @@ describe('start_helper', () => {
     const out = await startChatHelper(f.client as never, claims, at('eve-call'), { ...input, model: 'haiku' }, { send, decideTier })
     expect(decideTier).toHaveBeenCalledWith(f.client, expect.objectContaining({ requested: 'haiku', defaultTier: 'think' }))
     expect(upd.update).toHaveBeenCalledWith({ model_tier: 'fast', model_tier_by: 'agent', helper_model: 'haiku' })
-    expect(out).toMatchObject({ status: 'started', model: 'haiku', model_name: "Claude Haiku 5.5, the main chat's own model" })
+    expect(out).toMatchObject({ status: 'started', model: 'haiku', model_name: 'Claude Haiku 5.5' })
   })
 
   it('before migration 439 it stores the tier alone (no helper_model column, no agent decider)', async () => {

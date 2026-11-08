@@ -538,4 +538,16 @@ describe('the helper roster (HELPER_MODELS: the main agent picks each helper\'s 
     expect(roster).toBe(renderHelperModelRoster(10))
     expect(roster).not.toMatch(/\d{4}-\d{2}-\d{2}/)
   })
+
+  it('opens with the model the main agent runs on: Auto\'s, or the one the person picked', () => {
+    expect(renderHelperModelRoster(10)).toContain('you run on a fast, inexpensive model (Claude Haiku 5.5), so you do most of the work yourself.')
+    expect(renderHelperModelRoster(10, null)).toBe(renderHelperModelRoster(10))
+    const opus = renderHelperModelRoster(10, { name: 'Claude Opus 5.5', premium: true })
+    expect(opus).toContain('you run on a strong model the person chose for you (Claude Opus 5.5), so you do most of the work yourself.')
+    expect(opus).not.toContain('Claude Haiku 5.5),')
+    const luna = renderHelperModelRoster(10, { name: 'GPT-5.6 Luna', premium: false })
+    expect(luna).toContain('you run on a fast, inexpensive model the person chose for you (GPT-5.6 Luna)')
+    // Only the opening changes: the roster itself is the same for every pick.
+    expect(opus.split('\n').slice(3)).toEqual(renderHelperModelRoster(10).split('\n').slice(3))
+  })
 })

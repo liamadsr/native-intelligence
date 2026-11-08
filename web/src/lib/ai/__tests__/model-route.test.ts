@@ -209,6 +209,22 @@ describe('model-route: the main chat\'s thread runs MAIN_MODEL', () => {
     expect(chatThreadPolicy('fast', { device: true })).not.toEqual(FLASH_CHAT_POLICY)
     expect(chatThreadReasoning('fast', { device: true })).toBe('none')
   })
+
+  it('runs the model the person picked instead, at the tier\'s level, except on a device ask', () => {
+    expect(chatThreadModel('fast', { chosen: 'claude-opus-5-5' })).toBe('claude-opus-5-5')
+    expect(chatThreadPolicy('think', { chosen: 'claude-opus-5-5' })).toEqual({ contextWindowTokens: 1_000_000 })
+    expect(chatThreadReasoning('think', { chosen: 'claude-opus-5-5' })).toBe('adaptive')
+    expect(chatThreadPolicy('fast', { chosen: 'gpt-5.6-terra' })).toEqual(chatModelPolicy('gpt-5.6-terra', 'light'))
+    expect(chatThreadReasoning('fast', { chosen: 'gpt-5.6-terra' })).toBe('low')
+    expect(chatThreadReasoning('think', { chosen: 'gpt-5.6-terra' })).toBe('medium')
+    expect(chatThreadPolicy('fast', { chosen: 'deepseek-v4-flash' })).toEqual(FLASH_CHAT_POLICY)
+    expect(chatThreadReasoning('fast', { chosen: 'deepseek-v4-flash' })).toBe('high')
+    // Null is Auto.
+    expect(chatThreadModel('fast', { chosen: null })).toBe(MAIN_MODEL)
+    // A device ask keeps its fixed quick model whatever the person picked.
+    expect(chatThreadModel('fast', { device: true, chosen: 'claude-opus-5-5' })).toBe('deepseek-v4-flash')
+    expect(chatThreadPolicy('fast', { device: true, chosen: 'claude-opus-5-5' })).toEqual(deepseekSurfacePolicy('deepseek-v4-flash', 'off'))
+  })
 })
 
 describe('model-route: a helper\'s model', () => {
