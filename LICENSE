@@ -6,10 +6,20 @@ Licensor:             Liam Alizadeh
 Licensed Work:        Native Intelligence. The Licensed Work is (c) 2026
                       Liam Alizadeh.
 Additional Use Grant: You may make production use of the Licensed Work,
-                      including running your own instance of it, for your own
-                      personal use, provided you do not charge anyone for that
-                      use or for access to it.
-Change Date:          Four years from the date the version of the Licensed Work
+                      including use by a company or other organization in
+                      its own business, provided that you do not offer the
+                      Licensed Work to third parties as a Competing Hosted
+                      Service.
+
+                      A "Competing Hosted Service" is a hosted or managed
+                      service, run by you or on your behalf, that gives
+                      third parties access to a substantial set of the
+                      features or functionality of the Licensed Work and
+                      competes with a product or service that the Licensor
+                      or its affiliates offer, whether or not you charge for
+                      it. Your own employees, contractors and affiliates are
+                      not third parties for this purpose.
+Change Date:          Two years from the date the version of the Licensed Work
                       is published.
 Change License:       Apache License, Version 2.0
 
