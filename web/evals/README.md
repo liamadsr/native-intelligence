@@ -52,6 +52,10 @@ evals/
       now/*.eval.ts            the person's Now file (ids: now/<name>;
                                docs/plans/now-file.md evals 1-6): when the
                                agent changes its notes and when it doesn't
+      cards/*.eval.ts          pages in the chat (ids: cards/<name>): a reply
+                               says what a card shows, never its number
+                               ("card 3"), which the chat doesn't draw
+                               (no-card-numbers)
 ```
 
 Why the nesting: `eve eval --url` checks that the agent answering at the URL has
