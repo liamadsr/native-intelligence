@@ -37,7 +37,7 @@ function buildLlmsTxt(): string {
 
 > Dial8 is the end-to-end AI sales platform. It turns everything a sales team knows — playbooks, product knowledge, competitors, pricing, deal history — into intelligence every rep can use live on the call, in a heads-up display only their side can see. No bot joins the meeting. Afterwards the CRM updates itself, follow-ups are queued, and what the call taught goes back into the team's shared context.
 
-Dial8 combines live call intelligence, a self-updating CRM (contacts, companies, deals, interaction history), email sequences, meeting capture, Linear-style project management, and AI execution in one workspace (web app + native macOS and iOS apps, Windows waitlist). Live agents listen to calls and update deals, actions, and the knowledge base in real time. Every action item carries the full context of why it exists — the call it came from, the decision behind it, and who is responsible — so agents can execute with no prompt engineering. Syncs two-way with HubSpot, Attio, and Affinity for teams keeping their existing CRM. The entire workspace is exposed over the Model Context Protocol (MCP), so external agents and tools can read and act on your work. Free 7-day trial (card required); Pro is $99 per user/month; every teammate gets their own 7-day trial, then their seat is paid. Teams and enterprises via sales for volume pricing.
+Dial8 combines live call intelligence, a self-updating CRM (contacts, companies, deals, interaction history), email sequences, meeting capture, Linear-style project management, and AI execution in one workspace (web app + native macOS, Windows and iOS apps). Live agents listen to calls and update deals, actions, and the knowledge base in real time. Every action item carries the full context of why it exists — the call it came from, the decision behind it, and who is responsible — so agents can execute with no prompt engineering. Syncs two-way with HubSpot, Attio, and Affinity for teams keeping their existing CRM. The entire workspace is exposed over the Model Context Protocol (MCP), so external agents and tools can read and act on your work. Free 7-day trial (card required); Pro is $99 per user/month; every teammate gets their own 7-day trial, then their seat is paid. Teams and enterprises via sales for volume pricing.
 
 ## Key concepts
 
@@ -78,7 +78,8 @@ ${blogSection()}
 
 ## Get started
 
-- [Download for macOS](${BASE}/api/download): Native desktop app.
+- [Download for macOS](${BASE}/api/download?platform=mac): Native desktop app.
+- [Download for Windows](${BASE}/api/download?platform=windows): Native desktop app.
 - [Sign up](${BASE}): Create a workspace and start capturing meetings.
 
 ## Links

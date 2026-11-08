@@ -6,9 +6,10 @@ import { Download, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isDesktopApp } from '@/lib/platform'
 import { MESSAGE_ICON_CHIP, MESSAGE_LABEL } from '../in-app-message-meta'
+import { downloadHref, platformFromUserAgent } from '@/lib/app-download'
 
 /**
- * A dismissible "Get the Mac app" nudge, rendered as the same persistent
+ * A dismissible "Get the Mac app" (or Windows app) nudge, rendered as the same persistent
  * lower-right banner the admin in-app messages use (see
  * in-app-message-toaster.tsx) so it reads as one notification surface, not a
  * second style of floating chrome.
@@ -61,6 +62,8 @@ function persistDismiss() {
 }
 
 function showDesktopNudgeToast() {
+  // The desktop app for the computer this browser is on.
+  const platform = platformFromUserAgent(navigator.userAgent)
   toast.custom(
     (t) => (
       <div
@@ -69,14 +72,14 @@ function showDesktopNudgeToast() {
         onClick={() => {
           persistDismiss()
           toast.dismiss(t)
-          window.location.assign('/api/download')
+          window.location.assign(downloadHref(platform))
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             persistDismiss()
             toast.dismiss(t)
-            window.location.assign('/api/download')
+            window.location.assign(downloadHref(platform))
           }
         }}
         className="group relative flex w-[356px] cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground shadow-lg transition-colors hover:bg-accent/40"
@@ -86,10 +89,12 @@ function showDesktopNudgeToast() {
         </span>
         <div className="min-w-0 flex-1">
           <p className={MESSAGE_LABEL}>Desktop app</p>
-          <p className="mt-0.5 truncate text-sm font-medium">Get the Mac app</p>
+          <p className="mt-0.5 truncate text-sm font-medium">
+            {platform === 'windows' ? 'Get the Windows app' : 'Get the Mac app'}
+          </p>
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            Native meeting capture from your menu bar — Dial8 detects calls and
-            starts recording the moment they begin.
+            Native meeting capture from your {platform === 'windows' ? 'system tray' : 'menu bar'} — Dial8
+            detects calls and starts recording the moment they begin.
           </p>
         </div>
         <button

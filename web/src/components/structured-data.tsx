@@ -65,7 +65,7 @@ export const softwareApplicationSchema = {
   '@type': 'SoftwareApplication',
   name: 'Dial8',
   applicationCategory: 'BusinessApplication',
-  operatingSystem: 'macOS, Web',
+  operatingSystem: 'macOS, Windows, Web',
   url: BASE_URL,
   description:
     'Capture meetings, keep projects updated automatically, and let AI agents execute the work. Meeting capture, project management, and AI execution in one system.',
@@ -84,7 +84,7 @@ export const scribeSoftwareApplicationSchema = {
   '@type': 'SoftwareApplication',
   name: 'Dial8 Scribe',
   applicationCategory: 'UtilitiesApplication',
-  operatingSystem: 'macOS',
+  operatingSystem: 'macOS, Windows',
   url: `${BASE_URL}/scribe`,
   description:
     'Hold a hotkey, speak, release — your words appear as text anywhere on your Mac. Powered by Whisper, running locally. Free and open source.',
