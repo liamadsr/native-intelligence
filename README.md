@@ -10,7 +10,7 @@
 
 <br />
 
-![The Mac app on a fresh workspace: a greeting, the local weather and one box to talk to the agent](.github/readme/desktop-home.jpg)
+![The Mac app on a fresh workspace: a greeting, the local weather and one box to talk to the agent](.github/readme/desktop-home.webp)
 
 <div align="center"><sub>Every screenshot here is a made-up demo workspace. You can load it into your own install: see <a href="#getting-started">Getting started</a>.</sub></div>
 
@@ -140,16 +140,16 @@ Ask for something and the agent puts the real page in the conversation: a live l
 board, a record, your calendar, a mail thread. It's doing the work, so most of the time a
 glance is all you need. When you want to dig in, open it full screen.
 
-![Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what's left](.github/readme/chat-view.jpg)
+![Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what's left](.github/readme/chat-view.webp)
 
-![The same task board opened full screen, with its columns from backlog to done](.github/readme/chat-view-fullscreen.jpg)
+![The same task board opened full screen, with its columns from backlog to done](.github/readme/chat-view-fullscreen.webp)
 
 ## Its own browser
 
 The agent has a browser of its own, in the cloud. It searches, reads and works through
 sites for you while you watch it live, and you can take over whenever you want.
 
-![The agent's browser on the Shopify Help Center, looking up how selling product subscriptions works, with a Take over button above it](.github/readme/agent-browser.jpg)
+![The agent's browser on the Shopify Help Center, looking up how selling product subscriptions works, with a Take over button above it](.github/readme/agent-browser.webp)
 
 ## On your calls
 
@@ -160,9 +160,9 @@ is still going. It's hidden from screen share, so the other side never sees it.
 Afterwards you get the notes, the decisions and the tasks, linked to everyone who was
 there.
 
-<p align="center"><img src=".github/readme/live-call.jpg" width="440" alt="The call window during a meeting: the speakers, the meeting's goal, three items it captured with an Add button, and the live assistant answering &quot;What should we lock in before we hang up?&quot;" /></p>
+<p align="center"><img src=".github/readme/live-call.webp" width="440" alt="The call window during a meeting: the speakers, the meeting's goal, three items it captured with an Add button, and the live assistant answering &quot;What should we lock in before we hang up?&quot;" /></p>
 
-![The finished meeting's notes: overview, goals and discussion, with the date, length, project and participants beside them](.github/readme/meeting-notes.jpg)
+![The finished meeting's notes: overview, goals and discussion, with the date, length, project and participants beside them](.github/readme/meeting-notes.webp)
 
 ## On your iPhone and Apple Watch
 
@@ -170,11 +170,11 @@ The iPhone app puts your day, your tasks and the agent in your pocket, and recor
 in-person meetings. On the Apple Watch, one press starts a recording.
 
 <p align="center">
-  <img src=".github/readme/iphone-home.jpg" width="230" alt="The iPhone app's home: open tasks with their due dates and today's meeting" />
+  <img src=".github/readme/iphone-home.webp" width="230" alt="The iPhone app's home: open tasks with their due dates and today's meeting" />
   &nbsp;
-  <img src=".github/readme/iphone-chat.jpg" width="230" alt="The agent on iPhone answering what's left before a launch: milestones, what's done, what stands out" />
+  <img src=".github/readme/iphone-chat.webp" width="230" alt="The agent on iPhone answering what's left before a launch: milestones, what's done, what stands out" />
   &nbsp;
-  <img src=".github/readme/watch-recording.png" width="200" alt="The Apple Watch app recording a meeting after one press" />
+  <img src=".github/readme/watch-recording.webp" width="200" alt="The Apple Watch app recording a meeting after one press" />
 </p>
 
 ## What it knows
@@ -183,7 +183,7 @@ Everything the agent learns goes into a knowledge graph: facts, decisions, open 
 and who committed to what, each linked to the meeting, document, person or task it came
 from. Watch your workspace's context build up as your team works.
 
-![The knowledge graph: what the workspace knows, clustered around its clients, people, meetings, documents and tasks](.github/readme/knowledge-graph.jpg)
+![The knowledge graph: what the workspace knows, clustered around its clients, people, meetings, documents and tasks](.github/readme/knowledge-graph.webp)
 
 <br />
 
