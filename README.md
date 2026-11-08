@@ -10,6 +10,12 @@
 
 <br />
 
+![Asked for the open tasks on a project, the agent puts the live task board right in the chat and sums up what stands out](.github/readme/chat-view.jpg)
+
+<div align="center"><sub>Every screenshot here is a made-up demo workspace. You can load it into your own install: see <a href="#getting-started">Getting started</a>.</sub></div>
+
+<br />
+
 Native Intelligence puts your email, calendar, meetings, conversations, customers,
 prospecting, tasks and documents in one connected workspace, so they stop being
 separate apps. You can @mention anything and work with all of it in one place.
@@ -128,6 +134,33 @@ the background, and reaches you wherever you are.
 - **It can run a business by text.** For an owner on the go, it sends quotes, books
   jobs and even changes the company's website, each one waiting for a "yes" by text.
 
+## It shows you, right in the chat
+
+Ask for something and the agent puts the real page in the conversation: a live list or
+board, a record, your calendar, a mail thread. It's doing the work, so most of the time a
+glance is all you need. When you want to dig in, open it full screen.
+
+![The same task board opened full screen, with its columns from backlog to done](.github/readme/chat-view-fullscreen.jpg)
+
+## On your calls
+
+Start a capture and the agent listens with you. The transcript fills in as people talk,
+and you can put a name to each voice. Set a goal for the meeting, and ask the live agent
+anything while the call is still going. Afterwards you get the notes, the
+decisions and the tasks, linked to everyone who was there.
+
+![A live capture: the transcript filling in on the left; on the right, the meeting's goal, the live agent answering "What should we lock in before we hang up?" and a suggestion it raised on its own](.github/readme/live-capture.jpg)
+
+![The finished meeting's notes: overview, goals and discussion, with the date, length, project and participants beside them](.github/readme/meeting-notes.jpg)
+
+## What it knows
+
+Everything the agent learns goes into a knowledge graph: facts, decisions, open questions
+and who committed to what, each linked to the meeting, document, person or task it came
+from. Watch your workspace's context build up as your team works.
+
+![The knowledge graph: what the workspace knows, clustered around its clients, people, meetings, documents and tasks](.github/readme/knowledge-graph.jpg)
+
 <br />
 
 # Apps
@@ -181,6 +214,12 @@ npm install
 npm run dev     # http://localhost:3000
 npm test
 ```
+
+To look around with made-up data, build a local Supabase (`web/scripts/db-bootstrap.sh`),
+put its URL and service-role key in `web/.env.local`, start the dev server, and run
+`node node_modules/.bin/tsx scripts/demo-workspace.ts --link` from `web/` (add
+`--port=N` if the dev server isn't on 3000). It fills a demo workspace, the one in the
+screenshots, and prints a one-time link that signs you in to it.
 
 The desktop app runs against that dev server. Its speech engines are submodules: from
 the top of the repo, `GIT_LFS_SKIP_SMUDGE=1 git submodule update --init`.
