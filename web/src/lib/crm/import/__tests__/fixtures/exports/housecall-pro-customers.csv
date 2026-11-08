@@ -1,0 +1,4 @@
+First Name,Last Name,Display Name,Mobile Number,Home Number,Email,Company,Job Title,Work Number,Tags,Notes,ID,Address_1 Street Line 1,Address_1 Street Line 2,Address_1 City,Address_1 State,Address_1 Postal Code,Address_1 Billing?,Address_1 Notes,Address_2 Street Line 1,Address_2 City,Lifetime value,Last service date
+Max,Ng,Max Ng,626-555-0111,,max.ng@example.com,,,,"repeat, dog in yard",Side gate,cus_hcp_0001,77 Birch St,,Pasadena,CA,91106,true,Gate code 0142,5 Rose Ct,Altadena,"$2,400.00",2025-04-18
+Nia,Cole,Cole Plumbing,,626-555-0112,nia.cole@example.com,Cole Plumbing,Owner,,,,cus_hcp_0002,,,,,,,,,,$0.00,
+(626) 555-0120,,(626) 555-0120,626-555-0120,,,,,,,,cus_hcp_0003,,,,,,,,,,$0.00,

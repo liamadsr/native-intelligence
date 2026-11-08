@@ -543,7 +543,7 @@ export function createTools(
     ...createTextSetupTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, textTurn: options?.textTurn === true }),
     ...createWebsiteTools(userId, supabase, workspaceId, { unattended: options?.unattended === true, remoteTurn: options?.remoteTurn === true }),
     // Bringing existing customers in (roadmap track G, docs/plans/customer-import.md): read_contact_file,
-    // import_contact_file, list_contact_imports, undo_contact_import. Each write refuses an unattended turn.
+    // import_contact_file, import_stripe_customers, list_contact_imports, undo_contact_import. Each write refuses an unattended turn.
     ...createContactImportTools(userId, supabase, workspaceId, { unattended: options?.unattended === true }),
     // Pages in the chat: show puts a filtered page or a record in the chat;
     // read_card reads what a card shows the person now. See ./show.ts.

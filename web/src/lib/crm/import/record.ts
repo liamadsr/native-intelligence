@@ -16,8 +16,12 @@
  */
 import { normalizeE164 } from '@/lib/twilio/phone'
 
-/** Where an import's records come from (migration 462's batch source check). */
-export const IMPORT_SOURCES = ['spreadsheet', 'vcard', 'google_contacts', 'hubspot', 'brevo'] as const
+/**
+ * Where an import's records come from (the batch source check: 462, widened by
+ * 471 with the apps). An export file recognised as one app's
+ * (./sources/export-layouts.ts) imports as that app, like its direct import.
+ */
+export const IMPORT_SOURCES = ['spreadsheet', 'vcard', 'google_contacts', 'hubspot', 'brevo', 'quickbooks', 'stripe', 'pipedrive', 'mailchimp', 'jobber', 'housecall_pro', 'square'] as const
 export type ImportSource = (typeof IMPORT_SOURCES)[number]
 
 export function isImportSource(value: unknown): value is ImportSource {
@@ -31,6 +35,13 @@ export const IMPORT_SOURCE_LABEL: Record<ImportSource, string> = {
   google_contacts: 'Google Contacts',
   hubspot: 'HubSpot',
   brevo: 'Brevo',
+  quickbooks: 'QuickBooks',
+  stripe: 'Stripe',
+  pipedrive: 'Pipedrive',
+  mailchimp: 'Mailchimp',
+  jobber: 'Jobber',
+  housecall_pro: 'Housecall Pro',
+  square: 'Square',
 }
 
 /** The tag every imported record carries: where it came from. */
@@ -157,10 +168,12 @@ export function normalizeEmail(value: unknown): string | null {
 /**
  * A phone number: E.164 when it can be one (US/Canada without a country code
  * read as +1), else the digits with a leading + kept, when there are at least
- * seven of them. Extensions ("x204") are dropped. Null otherwise.
+ * seven of them. Extensions ("x204") are dropped, and so is what Excel adds
+ * to a number it saved ("'+16265550101", "6265550101.0"). Null otherwise.
  */
 export function normalizePhone(value: unknown): string | null {
-  const s = cleanText(value, 40)
+  // What Excel does to a number it was handed: a leading ' (stored as text) or a trailing .0 (stored as a number).
+  const s = cleanText(value, 40)?.replace(/^'+/, '').replace(/\.0+$/, '') || null
   if (!s) return null
   const main = s.split(/\s*(?:ext\.?|x|#)\s*\d+$/i)[0] ?? s
   const e164 = normalizeE164(main.replace(/^tel:/i, ''))
@@ -240,11 +253,14 @@ export function parseMoneyCents(value: unknown): number | null {
   return Math.round(amount * 100)
 }
 
-/** Split a tag cell: "vip; repeat, persian" → ["vip", "repeat", "persian"]. */
+/** Split a tag cell: "vip; repeat, persian" → ["vip", "repeat", "persian"]. Quotes around a tag go (Mailchimp writes `"VIP","Repeat"`). */
 export function splitTags(value: unknown): string[] {
   const s = cleanText(value, 2000)
   if (!s) return []
-  return s.split(/[;,|]/).map((t) => cleanText(t, MAX_TAG_CHARS)).filter((t): t is string => !!t)
+  return s
+    .split(/[;,|]/)
+    .map((t) => cleanText(t.trim().replace(/^["']+|["']+$/g, ''), MAX_TAG_CHARS))
+    .filter((t): t is string => !!t)
 }
 
 /** Address parts on one line: "12 Elm St, Apt 3, Pasadena, CA 91101, US". */
@@ -283,11 +299,14 @@ function normalizePastJob(job: ImportPastJob, nowMs: number): ImportPastJob | nu
 export function normalizeContactRecord(record: ImportContactRecord, nowMs: number = Date.now()): ImportContactRecord | null {
   const emails = distinct((record.emails ?? []).map(normalizeEmail).filter((e): e is string => !!e)).slice(0, MAX_EMAILS)
   const phones = distinct((record.phones ?? []).map(normalizePhone).filter((p): p is string => !!p)).slice(0, MAX_PHONES)
-  let firstName = cleanText(record.firstName, MAX_NAME_CHARS)
-  let lastName = cleanText(record.lastName, MAX_NAME_CHARS)
-  let fullName = cleanText(record.fullName, MAX_NAME_CHARS)
-  // A "name" that is just the email or a phone number names nobody.
-  if (fullName && (normalizeEmail(fullName) || /^[+\d\s().-]+$/.test(fullName))) fullName = null
+  // A "name" that is just the email or a phone number names nobody (a lead a tool saved by its number).
+  const aName = (value: unknown) => {
+    const name = cleanText(value, MAX_NAME_CHARS)
+    return name && !normalizeEmail(name) && !/^[+\d\s().-]+$/.test(name) ? name : null
+  }
+  let firstName = aName(record.firstName)
+  let lastName = aName(record.lastName)
+  let fullName = aName(record.fullName)
   if (!fullName && (firstName || lastName)) fullName = [firstName, lastName].filter(Boolean).join(' ')
   if (fullName && !firstName && !lastName) {
     const split = splitName(fullName)

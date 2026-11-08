@@ -2,6 +2,7 @@
  * The importer's Inngest functions (roadmap track G): apply runs a batch's
  * chunks then finishes it (the owner's text) or hands on to a fresh run;
  * Google Contacts reads every page into the batch, then asks for apply; a
+ * connected Stripe's payments and customers are read the same way (#10); a
  * source that can't be read fails the batch and tells the owner how to try
  * again. One batch per workspace at a time.
  */
@@ -25,6 +26,11 @@ const hoisted = vi.hoisted(() => ({
   google: {
     listGoogleContactGroups: vi.fn(async () => ({})),
     listGoogleConnections: vi.fn(),
+  },
+  stripeAccount: vi.fn(async (): Promise<{ stripeAccountId: string; status: string } | null> => ({ stripeAccountId: 'acct_1', status: 'ready' })),
+  stripe: {
+    charges: { list: vi.fn() },
+    customers: { list: vi.fn() },
   },
 }))
 
@@ -50,6 +56,8 @@ vi.mock('@/lib/crm/import/batch', () => hoisted.batch)
 vi.mock('@/lib/crm/import/finish', () => hoisted.finish)
 vi.mock('@/lib/crm/import/undo', () => hoisted.undo)
 vi.mock('@/lib/crm/import/sources/google-contacts', async (orig) => ({ ...(await orig<object>()), ...hoisted.google }))
+vi.mock('@/lib/payments/accounts', () => ({ getConnectedAccount: hoisted.stripeAccount }))
+vi.mock('@/lib/stripe', () => ({ getStripe: () => hoisted.stripe }))
 
 await import('../contact-import-functions')
 
@@ -64,7 +72,7 @@ beforeEach(() => {
 describe('registration', () => {
   it('one batch per workspace at a time, for every function', () => {
     // One key for all four (scope env): an apply, an undo and a source read never overlap in one workspace.
-    for (const id of ['contact-import-apply', 'contact-import-undo', 'contact-import-google-contacts', 'contact-import-brevo']) {
+    for (const id of ['contact-import-apply', 'contact-import-undo', 'contact-import-google-contacts', 'contact-import-brevo', 'contact-import-stripe']) {
       expect(hoisted.configs[id].concurrency).toEqual([{ limit: 1, key: '"contact-import:" + event.data.workspaceId', scope: 'env' }])
       expect(hoisted.configs[id].onFailure).toEqual(expect.any(Function))
     }
@@ -124,5 +132,64 @@ describe('undo', () => {
     const step = createStepMock()
     expect(await hoisted.handlers['contact-import-undo']({ event: EVENT, step })).toEqual({ status: 'undone' })
     expect(hoisted.finish.tellUndo).toHaveBeenCalledWith(expect.anything(), { id: 'b' }, { removed: 1, restored: 0, kept: 0 })
+  })
+})
+
+describe('Stripe', () => {
+  const STRIPE_BATCH = { id: 'b-1', status: 'staging', source: 'stripe', account_id: null, total: 0 }
+  const paid = (id: string, customer: string | null, email?: string) => ({
+    id,
+    status: 'succeeded',
+    paid: true,
+    amount: 48_000,
+    amount_refunded: 0,
+    currency: 'usd',
+    created: 1_740_787_200,
+    description: 'Rug wash',
+    customer,
+    billing_details: { email: email ?? null, name: 'Ben Ode' },
+  })
+
+  beforeEach(() => {
+    hoisted.batch.loadImportBatch.mockResolvedValue(STRIPE_BATCH)
+    hoisted.stripeAccount.mockResolvedValue({ stripeAccountId: 'acct_1', status: 'ready' })
+    hoisted.stripe.charges.list.mockResolvedValue({ data: [paid('ch_1', 'cus_ana'), paid('ch_2', null, 'ben@example.com')], has_more: false })
+    hoisted.stripe.customers.list
+      .mockResolvedValueOnce({ data: [{ id: 'cus_ana', name: 'Ana Ruiz', email: 'ana@example.com' }], has_more: true })
+      .mockResolvedValueOnce({ data: [{ id: 'cus_cy', name: 'Cy Lane', email: 'cy@example.com' }], has_more: false })
+  })
+
+  it('reads payments, then every page of customers with theirs, then the guests; then asks for apply', async () => {
+    const step = createStepMock()
+    expect(await hoisted.handlers['contact-import-stripe']({ event: EVENT, step })).toEqual({ status: 'staged' })
+    // Every call on the connected account, never the platform's own.
+    for (const call of [...hoisted.stripe.charges.list.mock.calls, ...hoisted.stripe.customers.list.mock.calls]) expect(call[1]).toEqual({ stripeAccount: 'acct_1' })
+    expect(hoisted.stripe.customers.list.mock.calls.map((c) => c[0])).toEqual([{ limit: 100 }, { limit: 100, starting_after: 'cus_ana' }])
+    const staged = hoisted.batch.stageRecords.mock.calls.map((c) => c[2] as Array<{ externalId?: string; emails: string[]; history: unknown[]; relationship: string }>)
+    expect(staged.map((page) => page.map((r) => r.externalId ?? r.emails[0]))).toEqual([['cus_ana'], ['cus_cy'], ['ben@example.com']])
+    expect(staged[0][0]).toMatchObject({ history: [expect.any(Object)], relationship: 'customer' })
+    // Every payment was read and none is Cy's: a lead.
+    expect(staged[1][0]).toMatchObject({ history: [], relationship: 'lead' })
+    expect(staged[2][0]).toMatchObject({ relationship: 'customer' })
+    expect(step.sendEvent).toHaveBeenCalledWith('apply', { name: 'crm/import.apply', data: EVENT.data })
+  })
+
+  it('Stripe disconnected since: the batch fails and the owner hears how to try again; nothing is read', async () => {
+    hoisted.stripeAccount.mockResolvedValue({ stripeAccountId: 'acct_1', status: 'disconnected' })
+    const step = createStepMock()
+    expect(await hoisted.handlers['contact-import-stripe']({ event: EVENT, step })).toEqual({ status: 'failed' })
+    expect(hoisted.batch.failImportBatch).toHaveBeenCalledWith(expect.anything(), 'b-1', 'Stripe is not connected')
+    expect(hoisted.finish.tellOwner).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.stringContaining('Connect Stripe again'), 'contact-import-failed-b-1')
+    expect(hoisted.stripe.charges.list).not.toHaveBeenCalled()
+    expect(step.sendEvent).not.toHaveBeenCalled()
+  })
+
+  it('a Stripe error fails the batch (what came in stays undoable); another source\'s batch is left alone', async () => {
+    hoisted.stripe.charges.list.mockRejectedValue(new Error('rate limited'))
+    const step = createStepMock()
+    expect(await hoisted.handlers['contact-import-stripe']({ event: EVENT, step })).toEqual({ status: 'failed' })
+    expect(hoisted.batch.failImportBatch).toHaveBeenCalledWith(expect.anything(), 'b-1', 'rate limited')
+    hoisted.batch.loadImportBatch.mockResolvedValue({ ...STRIPE_BATCH, source: 'brevo' })
+    expect(await hoisted.handlers['contact-import-stripe']({ event: EVENT, step: createStepMock() })).toEqual({ status: 'skipped' })
   })
 })

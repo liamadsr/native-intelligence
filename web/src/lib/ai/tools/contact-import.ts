@@ -18,12 +18,20 @@ import { importedPeople } from '@/lib/crm/import/summary'
  *                          (chat upload, texted file, or an attachment of
  *                          an email in their mailbox) and map its columns;
  *                          returns the columns it could not map, the only
- *                          ones to ask about.
+ *                          ones to ask about. The customer export of a tool
+ *                          it knows (QuickBooks, Stripe, HubSpot, Pipedrive,
+ *                          Mailchimp, Jobber, Housecall Pro, Square) maps
+ *                          every column itself: nothing to ask.
  *   import_contact_file    import it through the one importer: deduped
  *                          against the CRM, never over their own edits,
  *                          undoable as a whole. Small files finish in the
  *                          call; large ones run in the background and the
  *                          owner gets a text when done.
+ *   import_stripe_customers
+ *                          the customers of the Stripe account they
+ *                          connected for payments, with their payments on
+ *                          their timelines: read and imported in the
+ *                          background, the owner texted when done.
  *   list_contact_imports   their recent imports: status, counts, the
  *                          contacts to check.
  *   undo_contact_import    take one import back as a whole.
@@ -75,6 +83,7 @@ export function createContactImportTools(userId: string, supabase: SupabaseClien
       description:
         'Read a spreadsheet (CSV or Excel .xlsx) or phone contacts file (.vcf) the person sent you or emailed (an attachment read_email lists), to bring their existing customers into the CRM. ' +
         'Returns how many rows, each column\'s field, and `unmapped`: the only columns to ask them about (show a sample value; ask in one short message). ' +
+        'The customer export of QuickBooks, Stripe, HubSpot, Pipedrive, Mailchimp, Jobber, Housecall Pro or Square is recognised (`app`) and maps every column itself. ' +
         'When nothing is unmapped, call import_contact_file straight away; there is nothing to confirm.',
       inputSchema: z.object(fileInput),
       execute: async (input) => {
@@ -96,7 +105,9 @@ export function createContactImportTools(userId: string, supabase: SupabaseClien
             : { sample: preview.sample.map((c) => ({ name: fence(c.name), emails: c.emails, phones: (c.phones ?? []).map(fence) })) }),
           message: preview.unmapped.length
             ? 'Ask them, in one message, what each unmapped column is (or whether to keep it in notes), then call import_contact_file with their answers in `columns`, keyed by column number ("#3").'
-            : 'Every column is mapped: call import_contact_file now.',
+            : preview.app
+              ? `A ${preview.app} export: every column is mapped. Call import_contact_file now.`
+              : 'Every column is mapped: call import_contact_file now.',
         }
       },
     }),
@@ -111,13 +122,15 @@ export function createContactImportTools(userId: string, supabase: SupabaseClien
         relationship: z
           .enum(['customer', 'lead', 'contact'])
           .optional()
-          .describe('What the people in the file are to the business. A spreadsheet defaults to customer (an owner\'s list is almost always their customers); phone contacts to none (they are mixed). Lead for prospects.'),
+          .describe(
+            'What the people in the file are to the business, when they say. Defaults: their own spreadsheet, customer; a QuickBooks, Stripe, Square, Jobber or Housecall Pro export, customer; a CRM or mailing list export, what its columns say; phone contacts, none (mixed). Lead for prospects.',
+          ),
       }),
       execute: async ({ relationship, ...input }) => {
         if (opts.unattended) return unattendedRefusal
         const read_ = await read(input)
         if (!read_.ok) return { success: false, error: read_.error }
-        const records = contactFileRecords(read_.file, relationship ?? (read_.file.format === 'spreadsheet' ? 'customer' : undefined))
+        const records = contactFileRecords(read_.file, relationship)
         const out = await runImport(supabase, { workspaceId, userId, source: read_.file.source, label: read_.name, records })
         if (out.status === 'failed') return { success: false, error: `The import failed: ${out.error}` }
         if (out.status === 'running') {
@@ -141,9 +154,31 @@ export function createContactImportTools(userId: string, supabase: SupabaseClien
       },
     }),
 
+    import_stripe_customers: tool({
+      description:
+        'Bring their customers in from the Stripe account they connected for payments (no sign-in of its own): every Stripe customer, and anyone who paid without one, with their payments on their timelines. ' +
+        'Deduped against the CRM like a file, never over their edits, undoable as a whole (undo_contact_import); nothing is sent, nobody is enriched, nothing in Stripe changes. ' +
+        'Runs in the background: they get a text with the summary when it is done. Do it when they ask; nothing to confirm. Stripe not connected: they can export their customers from Stripe and send the file instead.',
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (opts.unattended) return unattendedRefusal
+        const { startStripeImport } = await import('@/lib/crm/import/connected')
+        const started = await startStripeImport(supabase, { userId, workspaceId })
+        if (!started.ok) return { success: false, error: started.error }
+        return {
+          success: true,
+          status: 'running',
+          batch_id: started.batchId,
+          message: started.alreadyRunning
+            ? 'Their Stripe import is already running. Tell them in one line; they get a text when it is done.'
+            : 'Importing their Stripe customers in the background. Tell them in one line; they get a text with the summary when it is done.',
+        }
+      },
+    }),
+
     list_contact_imports: tool({
       description:
-        'Their own recent imports of existing customers (spreadsheets, phone contacts, Google Contacts, HubSpot, Brevo): status, counts and summary. With batch_id, also the new contacts to check (each may be someone they already have).',
+        'Their own recent imports of existing customers (files and app exports, phone contacts, Google Contacts, HubSpot, Brevo, Stripe): status, counts and summary. With batch_id, also the new contacts to check (each may be someone they already have).',
       inputSchema: z.object({
         batch_id: z.string().uuid().optional().describe('One import, for its contacts to check.'),
       }),

@@ -65,6 +65,35 @@ describe('contact import tools', () => {
     expect(await call(tools, 'read_contact_file', { storage_path: `${USER}/chat-uploads/../../x.csv` })).toMatchObject({ success: false })
   })
 
+  it("a known tool's export is recognised: nothing to ask, imported as that app", async () => {
+    const stripePath = `${USER}/chat-uploads/9c1d.csv`
+    const stripeCsv = [
+      'id,Description,Email,Name,Created (UTC),Card ID,Card Last4,Card Brand,Delinquent,Total Spend,Payment Count,Notes (metadata)',
+      'cus_ana,,ana@example.com,Ana Ruiz,2024-05-02 18:20:11,card_1,4242,Visa,false,480.00,1,Gate code 0142',
+      'cus_ben,,ben@example.com,Ben Ode,2024-06-11 09:02:45,card_2,1881,Visa,false,0.00,0,',
+    ].join('\n')
+    const { client, db } = setup({ [stripePath]: stripeCsv })
+    const tools = createContactImportTools(USER, client, WS)
+    const read = await call(tools, 'read_contact_file', { storage_path: stripePath, file_name: 'unified_customers.csv' })
+    expect(read).toMatchObject({ success: true, app: 'Stripe', rows: 2, unmapped: [], message: expect.stringContaining('A Stripe export') })
+    const out = await call(tools, 'import_contact_file', { storage_path: stripePath, file_name: 'unified_customers.csv' })
+    expect(out.summary).toBe('2 customers imported from Stripe: 1 matched ones you had. Nothing was sent to anyone. Text "undo import" to take it all back.')
+    const ben = db.tables.contact.find((c) => c.full_name === 'Ben Ode')!
+    expect(ben).toMatchObject({ email: 'ben@example.com', relationship_type: 'lead', source_provider: 'stripe', provider_contact_id: 'cus_ben', notes: null })
+    expect(ben.tags).toEqual(['from Stripe'])
+    expect(db.tables.contact.find((c) => c.id === 'c-ana')!.notes).toBe('Notes: Gate code 0142\nTotal Spend: 480.00\nPayment Count: 1')
+  })
+
+  it('import_stripe_customers starts the Stripe import, or says how to send an export instead', async () => {
+    const { client, db } = setup()
+    const tools = createContactImportTools(USER, client, WS)
+    expect(await call(tools, 'import_stripe_customers', {})).toMatchObject({ success: false, error: expect.stringContaining('export their customers from Stripe') })
+    db.tables.stripe_connect_account = [{ workspace_id: WS, stripe_account_id: 'acct_1', linked_via: 'oauth', livemode: true, status: 'ready' }]
+    expect(await call(tools, 'import_stripe_customers', {})).toMatchObject({ success: true, status: 'running', batch_id: expect.any(String) })
+    expect(db.tables.contact_import_batch).toEqual([expect.objectContaining({ source: 'stripe', status: 'staging' })])
+    expect(await call(createContactImportTools(USER, client, WS, { unattended: true }), 'import_stripe_customers', {})).toMatchObject({ success: false })
+  })
+
   it('an unattended turn imports and undoes nothing', async () => {
     const { client, db } = setup()
     const tools = createContactImportTools(USER, client, WS, { unattended: true })

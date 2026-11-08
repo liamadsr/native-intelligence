@@ -1,0 +1,2 @@
+Email Address,First Name,Last Name,Address,Phone Number,Birthday,Company,MEMBER_RATING,OPTIN_TIME,OPTIN_IP,CONFIRM_TIME,CONFIRM_IP,LATITUDE,LONGITUDE,GMTOFF,DSTOFF,TIMEZONE,CC,REGION,LAST_CHANGED,LEID,EUID,NOTES,TAGS
+ivy.reed@example.com,Ivy,Reed,"9 Pine Rd  Apt 2  Pasadena  CA  91104  US",626-555-0108,04/12,Reed Tile,4,2024-01-05 10:00:00,,2024-01-05 10:01:00,,34.15,-118.14,-8,-7,America/Los_Angeles,US,CA,2024-06-01 09:00:00,112233,a1b2c3d4e5,,"""Customer"",""VIP"""

@@ -2,7 +2,9 @@
  * The agent's one money tool (roadmap C2): send_payment_link. Exactly one
  * tool touches payments, it only makes payment links, it never runs without
  * the owner's approval once Stripe is ready, and before that it reaches only
- * the owner (their setup link).
+ * the owner (their setup link). The one other tool that names Stripe,
+ * import_stripe_customers (roadmap #10), only reads it: list calls on the
+ * connected account's customers and charges, into the CRM importer.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -62,16 +64,28 @@ import { memDb, type MemDb } from '@/lib/payments/__tests__/mem-db'
 const MONEY_WORDS = new Set(['pay', 'payment', 'payments', 'refund', 'refunds', 'stripe', 'charge', 'charges', 'invoice', 'invoices', 'payout', 'payouts', 'funds', 'balance', 'money', 'billing', 'subscription', 'checkout'])
 const MONEY = { test: (name: string) => name.toLowerCase().split(/[_-]/).some((word) => MONEY_WORDS.has(word)) }
 
+/** Names Stripe but moves no money: it reads the connected account's customers into the CRM (roadmap #10). */
+const STRIPE_READER = 'import_stripe_customers'
+
 describe('exactly one money tool', () => {
-  it('the registry has one payments tool, send_payment_link, an external write', () => {
+  it('the registry has one payments tool, send_payment_link, an external write; the Stripe reader only writes the CRM', () => {
     const money = TOOL_CATEGORIES.flatMap((c) => c.tools).filter((t) => MONEY.test(t.name))
-    expect(money.map((t) => t.name)).toEqual(['send_payment_link'])
+    expect(money.map((t) => t.name).sort()).toEqual([STRIPE_READER, 'send_payment_link'])
     expect(TOOL_REGISTRY_MAP.get('send_payment_link')?.tool.sideEffect).toBe('external-write')
+    expect(TOOL_REGISTRY_MAP.get(STRIPE_READER)?.tool).toMatchObject({ sideEffect: 'internal-write', writeTarget: 'crm' })
   })
 
   it('the assembled tool set has it and nothing else that touches money', () => {
     const keys = Object.keys(createTools('u', {} as unknown as SupabaseClient, 'w'))
-    expect(keys.filter((k) => MONEY.test(k))).toEqual(['send_payment_link'])
+    expect(keys.filter((k) => MONEY.test(k)).sort()).toEqual([STRIPE_READER, 'send_payment_link'])
+  })
+
+  it('the Stripe customer import only lists: no create, update, delete, refund or payout, and only on the connected account', () => {
+    const source = readFileSync(join(process.cwd(), 'src/lib/crm/import/sources/stripe.ts'), 'utf8')
+    const calls = [...source.matchAll(/\bstripe\.(\w+)\.(\w+)\(/g)].map((m) => `${m[1]}.${m[2]}`)
+    expect(calls.sort()).toEqual(['charges.list', 'customers.list'])
+    // Every call names the owner's account, never the platform's own.
+    expect(source.match(/\{ stripeAccount \}\)/g)).toHaveLength(2)
   })
 
   it('no other tool module reaches Stripe or the payments code, statically or dynamically', () => {

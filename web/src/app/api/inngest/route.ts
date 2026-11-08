@@ -58,7 +58,7 @@ import {
 import { hubspotLogCapture } from '@/lib/inngest/hubspot-log-capture'
 import { hubspotPushContact } from '@/lib/inngest/hubspot-push-contact'
 import { hubspotPushSweep } from '@/lib/inngest/hubspot-push-sweep'
-import { contactImportApply, contactImportBrevo, contactImportGoogle, contactImportUndo } from '@/lib/inngest/contact-import-functions'
+import { contactImportApply, contactImportBrevo, contactImportGoogle, contactImportStripe, contactImportUndo } from '@/lib/inngest/contact-import-functions'
 import { websiteChangeMerged, websitePrOpened } from '@/lib/inngest/website-functions'
 import { sequenceStepSend } from '@/lib/inngest/sequence-functions'
 import { campaignRollingPass, reviewRequestOnJob } from '@/lib/inngest/outreach-functions'
@@ -156,6 +156,7 @@ export const { GET, POST, PUT } = serve({
     contactImportUndo,
     contactImportGoogle,
     contactImportBrevo,
+    contactImportStripe,
     crmEnrichContactManual,
     crmEnrichCompanyManual,
     hubspotLogCapture,

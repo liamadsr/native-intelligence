@@ -176,12 +176,12 @@ export const APPROVAL_RESULT_TOOL_NAMES: string[] = ['get_tool_approval_result']
  * that carries a contacts file or asks to import or undo one. Still fenced by
  * the ceiling.
  */
-export const CONTACT_IMPORT_TOOL_NAMES: string[] = ['read_contact_file', 'import_contact_file', 'list_contact_imports', 'undo_contact_import']
+export const CONTACT_IMPORT_TOOL_NAMES: string[] = ['read_contact_file', 'import_contact_file', 'import_stripe_customers', 'list_contact_imports', 'undo_contact_import']
 
 const TEXTED_CONTACT_FILE = /\[They texted [^\]]*storage_path /
 const CONTACT_FILE_PATH = /storage_path\s+\S+\.(?:csv|tsv|xlsx|vcf)\b/i
 const IMPORT_ASK = /\b(?:import|undo (?:the |that |my )?import|bring (?:in|over))\b/i
-const PEOPLE_WORD = /\b(?:customers?|clients?|contacts?|spreadsheet|csv|excel|list|hubspot|brevo)\b/i
+const PEOPLE_WORD = /\b(?:customers?|clients?|contacts?|spreadsheet|csv|excel|list|audience|hubspot|brevo|stripe|quickbooks|square|jobber|housecall(?: pro)?|mailchimp|pipedrive)\b/i
 
 /** Does a turn's text carry a contacts file, or ask to import (or undo an import of) people? Pure. */
 export function mentionsContactImport(text: unknown): boolean {

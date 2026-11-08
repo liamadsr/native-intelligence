@@ -20,6 +20,7 @@ export const CONTACT_IMPORT_APPLY = 'crm/import.apply' as const
 export const CONTACT_IMPORT_UNDO = 'crm/import.undo' as const
 export const CONTACT_IMPORT_GOOGLE = 'crm/import.google-contacts' as const
 export const CONTACT_IMPORT_BREVO = 'crm/import.brevo' as const
+export const CONTACT_IMPORT_STRIPE = 'crm/import.stripe' as const
 
 export interface ContactImportEventData {
   batchId: string
