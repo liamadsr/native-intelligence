@@ -70,3 +70,77 @@ describe('marker helpers', () => {
     expect(stripSuggestionMarkers('Line one.\n<!-- proposal:x1 -->\nLine two.')).toBe('Line one.\nLine two.')
   })
 })
+
+describe('remarkSuggestionMarkers: other HTML comments', () => {
+  it('drops a stray comment on its own line', () => {
+    const tree = toHast('The board is up.\n\n<!-- card:2 -->')
+    expect(shape(tree)).toEqual(['p'])
+    expect(text(tree)).not.toContain('card:2')
+  })
+
+  it('drops a stray comment on the line right after a paragraph', () => {
+    const tree = toHast('Nothing is overdue.\n<!-- card:2 -->')
+    expect(shape(tree)).toEqual(['p'])
+    expect(text(tree)).toBe('Nothing is overdue.')
+  })
+
+  it('drops a comment inside a paragraph and keeps the words around it', () => {
+    const tree = toHast('Here is the board <!-- card:1 --> for you.')
+    expect(text(tree)).not.toContain('<!--')
+    expect(text(tree)).toContain('Here is the board')
+    expect(text(tree)).toContain('for you.')
+  })
+
+  it('still turns proposal markers into cards next to a stray comment', () => {
+    const tree = toHast('Close it.\n\n<!-- proposal:aa11 -->\n\n<!-- card:3 -->')
+    expect(shape(tree)).toEqual(['p', 'card:aa11'])
+  })
+
+  it('leaves other HTML alone', () => {
+    const tree = toHast('<div>kept</div>')
+    expect(JSON.stringify(tree)).toContain('kept')
+  })
+})
+
+describe('remarkSuggestionMarkers: markers and comments together', () => {
+  it('keeps the card when a marker shares its line with a stray comment', () => {
+    expect(shape(toHast('<!-- proposal:aa11 --> <!-- card:1 -->'))).toEqual(['card:aa11'])
+  })
+
+  it('keeps the card when the shared line follows a paragraph', () => {
+    const tree = toHast('Close it.\n<!-- proposal:aa11 --> <!-- card:1 -->')
+    expect(shape(tree)).toEqual(['p', 'card:aa11'])
+    expect(text(tree)).not.toContain('card:1')
+  })
+
+  it('stays fast on a long run of comments that does not match', () => {
+    const md = '<!-- a --> '.repeat(40) + 'x'
+    const t0 = performance.now()
+    toHast(md)
+    expect(performance.now() - t0).toBeLessThan(200)
+  })
+})
+
+describe('stripSuggestionMarkers: other comments', () => {
+  it('removes a one-line comment from plain text', () => {
+    expect(stripSuggestionMarkers('Done.\n<!-- card:2 -->\n')).toBe('Done.\n')
+  })
+
+  it('keeps comments inside code', () => {
+    const md = 'See:\n```html\n<!-- header -->\n<p>hi</p>\n```\nand `<!-- x -->`.'
+    expect(stripSuggestionMarkers(md)).toBe(md)
+  })
+
+  it('never eats prose after a literal <!--', () => {
+    const md = 'Type <!-- to start a comment.\nThe arrow --> closes it.'
+    expect(stripSuggestionMarkers(md)).toBe(md)
+  })
+
+  it('keeps one space where a comment sat between two words', () => {
+    expect(stripSuggestionMarkers('Here is the board <!-- card:1 --> for you.')).toBe('Here is the board for you.')
+  })
+
+  it('still removes proposal markers', () => {
+    expect(stripSuggestionMarkers('Close it. <!-- proposal:aa11 -->')).toBe('Close it.')
+  })
+})

@@ -11,13 +11,21 @@
  *   • a marker inside a paragraph ("…close it. <!-- proposal:… -->") is moved
  *     to just after that paragraph, since a card is a block and can't sit
  *     inside a <p>.
- * Every other HTML node is left alone.
+ * Any other HTML comment (`<!-- card:2 -->`, `<!-- note -->`: the model
+ * sometimes copies the marker shape for things that aren't proposals) is
+ * dropped: a comment is never meant to be seen, and react-markdown would
+ * otherwise print it as literal text. Every other HTML node is left alone.
  */
 
 const MARKER_RE = /<!--\s*proposal:([a-zA-Z0-9-]+)\s*-->/g
 /** Non-global, for .test() (a global regex keeps lastIndex between calls). */
 const HAS_MARKER_RE = /<!--\s*proposal:[a-zA-Z0-9-]+\s*-->/
-const ONLY_MARKERS_RE = /^(\s*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->\s*)+$/
+/**
+ * An html node that is nothing but comments (any comment, proposal markers
+ * included). Each comment's body can't contain `-->`, so a failed match can't
+ * re-split the input: linear, not exponential, on long replies.
+ */
+const ONLY_COMMENTS_RE = /^\s*(?:<!--(?:(?!-->)[\s\S])*-->\s*)+$/
 
 export const SUGGESTION_ELEMENT = 'dial8-suggestion'
 
@@ -44,9 +52,25 @@ export function markerIdsIn(markdown: string): string[] {
   return idsIn(markdown)
 }
 
-/** Remove markers from text meant for plain display (copy, read-aloud, previews). */
+/**
+ * Remove markers, and any other one-line HTML comment, from text meant for plain
+ * display (copy, read-aloud, previews). Code is left as written: fenced blocks
+ * and `code spans` keep their comments. A comment must open and close on one
+ * line, so a literal `<!--` in prose never eats the text after it.
+ */
 export function stripSuggestionMarkers(markdown: string): string {
-  return markdown.replace(/[ \t]*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->[ \t]*\n?/g, '')
+  return markdown
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part
+            // A comment between two words leaves one space, so they don't run together.
+            .replace(/(\S)[ \t]*<!--[^\n]*?-->[ \t]*(?=\S)/g, '$1 ')
+            .replace(/[ \t]*<!--\s*proposal:[a-zA-Z0-9-]+\s*-->[ \t]*\n?/g, '')
+            .replace(/[ \t]*<!--[^\n]*?-->[ \t]*\n?/g, ''),
+    )
+    .join('')
 }
 
 function transform(parent: MdNode): void {
@@ -54,20 +78,24 @@ function transform(parent: MdNode): void {
   if (!children) return
   for (let i = 0; i < children.length; i++) {
     const node = children[i]
-    // A block-level marker (its own html node, only markers in it).
-    if (node.type === 'html' && typeof node.value === 'string' && ONLY_MARKERS_RE.test(node.value)) {
+    // A block that is only comments: proposal markers become cards, any other
+    // comment (a stray `<!-- card:2 -->`) is dropped.
+    if (node.type === 'html' && typeof node.value === 'string' && ONLY_COMMENTS_RE.test(node.value)) {
       const replacement = idsIn(node.value).map(suggestionNode)
       children.splice(i, 1, ...replacement)
       i += replacement.length - 1
       continue
     }
-    // A paragraph carrying inline markers: lift them out to after it.
-    if (node.type === 'paragraph' && node.children?.some((c) => c.type === 'html' && HAS_MARKER_RE.test(c.value ?? ''))) {
+    // A paragraph carrying inline markers or comments: lift the markers out to
+    // after it as cards, and drop the comments.
+    const isComment = (c: MdNode) => c.type === 'html' && typeof c.value === 'string' && ONLY_COMMENTS_RE.test(c.value)
+    const hasMarker = (c: MdNode) => c.type === 'html' && HAS_MARKER_RE.test(c.value ?? '')
+    if (node.type === 'paragraph' && node.children?.some((c) => hasMarker(c) || isComment(c))) {
       const lifted: MdNode[] = []
       node.children = node.children.filter((c) => {
         if (c.type !== 'html' || typeof c.value !== 'string') return true
         const ids = idsIn(c.value)
-        if (ids.length === 0) return true
+        if (ids.length === 0 && !isComment(c)) return true
         lifted.push(...ids.map(suggestionNode))
         return false
       })
