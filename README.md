@@ -142,6 +142,13 @@ glance is all you need. When you want to dig in, open it full screen.
 
 ![The same task board opened full screen, with its columns from backlog to done](.github/readme/chat-view-fullscreen.jpg)
 
+## Its own browser
+
+The agent has a browser of its own, in the cloud. It searches, reads and works through
+sites for you while you watch it live, and you can take over whenever you want.
+
+![The agent's browser on the Shopify Help Center, looking up how selling product subscriptions works, with a Take over button above it](.github/readme/agent-browser.jpg)
+
 ## On your calls
 
 Start a capture and the agent listens with you. The transcript fills in as people talk,
