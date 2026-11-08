@@ -103,7 +103,7 @@ export interface SettleCardBody {
   /**
    * Where a work card's Start runs (the card's picker, work-place.ts): one of
    * the person's own shared Mac folders, or a shared cloud environment of the
-   * card's workspace on a project's repo. Absent: a Dial8 work run, as
+   * card's workspace on a project's repo. Absent: a Native Intelligence work run, as
    * always. Only on start, only from the person's own click: the model never
    * picks the person's Mac.
    */
@@ -672,14 +672,14 @@ function alreadyResolved() {
  * first, as every Start claims it; anything that doesn't start puts it back
  * (and takes back the action it filed), with the sentence the person reads.
  *
- *   mac    the card's tracked action (fileTrackedAction, as a Dial8 run files
+ *   mac    the card's tracked action (fileTrackedAction, as a Native Intelligence run files
  *          it), then a job in their folder on their Mac (startWorkOnMac:
  *          their own folder, online, unattended, the title and task fenced);
  *   cloud  a coding run in the cloud environment, on the project's repo
  *          (startCardCodingRun files the action in the project, as the chat's
  *          coding run does). Never on a person's own ChatGPT plan.
  *
- * The backing proposal is marked applied once it started, as a Dial8 run's is.
+ * The backing proposal is marked applied once it started, as a Native Intelligence run's is.
  */
 async function startWorkCardIn(
   supabase: SupabaseClient,
@@ -690,7 +690,7 @@ async function startWorkCardIn(
   runIn: WorkRunPlace,
 ) {
   const workspaceId = card.workspace_id
-  // A coding run is Dial8-paid compute in a cloud sandbox (start-agent's rule).
+  // A coding run is NI-paid compute in a cloud sandbox (start-agent's rule).
   if (runIn.kind === 'cloud' && (await chatgptPlanFor(userId))) {
     return NextResponse.json({ error: CHATGPT_PLAN_NO_CODING_REASON, code: 'CHATGPT_PLAN_NO_CODING' }, { status: 403 })
   }

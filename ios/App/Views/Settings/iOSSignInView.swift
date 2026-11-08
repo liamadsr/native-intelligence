@@ -22,7 +22,7 @@ struct iOSSignInView: View {
                         .font(.system(size: 64))
                         .foregroundStyle(.tint)
 
-                    Text("Dial8")
+                    Text("Native Intelligence")
                         .font(.largeTitle.bold())
 
                     Text("Sign in to access your data")

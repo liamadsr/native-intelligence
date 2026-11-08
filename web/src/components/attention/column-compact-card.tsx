@@ -168,7 +168,7 @@ function CompactAttention({
   const model: CompactModel = {
     id: item.id,
     copy,
-    // No place picker on the compact card: a Dial8 run (Edit… shows the full card, which has one).
+    // No place picker on the compact card: a Native Intelligence run (Edit… shows the full card, which has one).
     act: item.kind === 'work_proposal' ? () => verbs.handleStart(null) : () => verbs.handleAccept(),
     busy: verbs.busy,
     rows: [

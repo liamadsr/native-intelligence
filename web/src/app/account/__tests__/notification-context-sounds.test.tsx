@@ -164,7 +164,7 @@ describe('NotificationProvider UI sounds', () => {
     expect(hoisted.announce).not.toHaveBeenCalled()
   })
 
-  it('desktop: when the native side skips the banner (a Dial8 window is frontmost), the toast plays the sound', async () => {
+  it('desktop: when the native side skips the banner (a Native Intelligence window is frontmost), the toast plays the sound', async () => {
     hoisted.desktop = true
     hoisted.showNative.mockImplementation(async () => false)
     vi.spyOn(document, 'hasFocus').mockReturnValue(false)

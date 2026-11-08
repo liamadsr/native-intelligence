@@ -16,7 +16,7 @@ import { isWebSearchToolDefinition } from 'eve/tools/web_search'
  * disableTool() there would silently strip the agent of its whole coding
  * surface), rather than asserting sentinels.
  *
- * WEB IS NOW LIVE TOO. web_search + web_fetch are ALWAYS ON for every Dial8 agent
+ * WEB IS NOW LIVE TOO. web_search + web_fetch are ALWAYS ON for every Native Intelligence agent
  * (no toggle — matching how Anthropic's own agents browse). BOTH slugs were
  * disableTool() sentinels justified as parity with the legacy sandbox CLI
  * runner's hardcoded Bash/Read/Edit/Write/Glob/Grep allowlist. That argument no

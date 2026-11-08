@@ -105,7 +105,7 @@ export const CARD_PAGES: readonly CardPage[] = [
   },
   { slug: 'captures', label: 'Captures', description: 'Your meetings and notes', kind: 'list', view: 'captures', keywords: ['meetings', 'notes', 'recordings'], spec: list('Captures', 'capture') },
   { slug: 'docs', label: 'Docs', description: 'Every doc', kind: 'list', view: 'docs', keywords: ['documents'], spec: list('Docs', 'document') },
-  { slug: 'knowledge', label: 'Knowledge', description: 'What Dial8 knows', kind: 'knowledge', view: 'knowledge', keywords: ['claims', 'graph'], spec: page('knowledge', 'Knowledge') },
+  { slug: 'knowledge', label: 'Knowledge', description: 'What Native Intelligence knows', kind: 'knowledge', view: 'knowledge', keywords: ['claims', 'graph'], spec: page('knowledge', 'Knowledge') },
   { slug: 'initiatives', label: 'Initiatives', description: 'Every initiative', kind: 'list', view: 'initiatives', spec: list('Initiatives', 'initiative') },
   { slug: 'projects', label: 'Projects', description: 'Every project', kind: 'list', view: 'projects', spec: list('Projects', 'project') },
   { slug: 'flows', label: 'Flows', description: 'Your automations', kind: 'flows', view: 'flows', keywords: ['automations', 'loops'], spec: page('flows', 'Flows') },

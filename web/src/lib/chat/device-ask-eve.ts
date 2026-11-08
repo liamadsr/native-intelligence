@@ -310,7 +310,7 @@ export async function runDeviceAskViaEve(args: {
   /**
    * The person runs on their own ChatGPT plan (the free tier): the token says
    * so, as the browser mint's does, so the turn stays on their plan even when
-   * the chat agent can't read its spec, never Dial8's fallback model.
+   * the chat agent can't read its spec, never Native Intelligence's fallback model.
    */
   chatgptPlan?: boolean
   timeoutMs: number

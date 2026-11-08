@@ -221,7 +221,7 @@ describe('getPlanAccessToken', () => {
     await connect()
     await setConnectionStatus(svc.client, 'u1', 'exhausted', 'usage limit', NOW)
     expect(svc.rows.get('u1')).toMatchObject({ status: 'exhausted', last_error: 'usage limit' })
-    // Out of plan credits still tries: the retry costs Dial8 nothing.
+    // Out of plan credits still tries: the retry costs Native Intelligence nothing.
     expect(await getPlanAccessToken(svc.client, 'u1', () => NOW)).toEqual({ ok: true, accessToken: 'at-1', status: 'exhausted' })
     await setConnectionStatus(svc.client, 'u1', 'revoked', 'invalid_grant', NOW)
     expect(await getPlanAccessToken(svc.client, 'u1', () => NOW)).toEqual({ ok: false, reason: 'revoked' })

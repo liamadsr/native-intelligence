@@ -24,7 +24,7 @@
  *      no dev key; ai_usage_logs gets feature local_agent).
  *   C4 a person steer through the person route lands mid-turn.
  *   C5 finish → waiting; the turn's tracked_job settles.
- *   C6 the report lands in the chat; the Dial8 agent's home turn runs (needs
+ *   C6 the report lands in the chat; the Native Intelligence agent's home turn runs (needs
  *      the Inngest dev server; SKIP without it).
  *   C7 the app is killed, relaunched; a person message resumes the same eve
  *      session on a new run and is answered.
@@ -84,7 +84,7 @@ const NEXT_LOG = resolve(arg('--next-log') ?? join(dirname(LOG_PATH), 'e2e-next.
 const PROD_REF = 'bzfthjzyzevjokbuhqci'
 const FIXTURE_EMAIL = 'local-agent-e2e@dial8-evals.test'
 const FIXTURE_NAME = 'Ada Fixture'
-const WORKSPACE_NAME = 'Dial8 Local Agent E2E (fixture)'
+const WORKSPACE_NAME = 'Native Intelligence Local Agent E2E (fixture)'
 const INNGEST_DEV = 'http://127.0.0.1:8288'
 
 /** Bugs found outside this script, by the checks they break (Part A's report). */

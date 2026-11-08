@@ -13,7 +13,7 @@ import {
  * Web-research agent: Exa's deep search, on a free user's own ChatGPT plan
  * (docs/plans/chatgpt-free-tier-handoff.md, 3g). Prospecting, CRM
  * enrichment and the ICP card search the web through Exa (src/lib/exa/
- * deep-search.ts), which Dial8 pays for and so never runs for a free user.
+ * deep-search.ts), which Native Intelligence pays for and so never runs for a free user.
  * For them the app sends the same query and card schema here
  * (src/lib/web-research/plan-deep-search.ts), and this agent answers it with
  * OpenAI's own web search on their plan, a citation per field, in Exa's shape.
@@ -29,7 +29,7 @@ import {
  * search model through the plan proxy, which eve reads as OpenAI's own, so
  * tools/web_search.ts is OpenAI's hosted search. Both resolvers throw for a
  * spec that isn't this agent's or isn't on the plan (webResearchPlan), which
- * eve turns into a failed session: nothing here can run on Dial8's models.
+ * eve turns into a failed session: nothing here can run on Native Intelligence's models.
  * The step resolver also holds the kind's step ceiling.
  *
  * Its steps are named `openai/<plan model>`; nothing reads them. The app logs

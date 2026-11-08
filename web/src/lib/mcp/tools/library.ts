@@ -40,8 +40,8 @@ import { AGENT_FACE_RESERVED_ERROR, agentFaceRefused } from '@/lib/bots/agent-fa
  * MCP tools for managing Skills, Agents, and Meeting Types over the wire.
  *
  * Lets external Claude / OpenAI clients (Claude Desktop, Claude Code, the
- * OpenAI Responses API, etc.) list and author Dial8 library items as if
- * they were local. A user can say "Claude, create a skill in Dial8 that
+ * OpenAI Responses API, etc.) list and author Native Intelligence library items as if
+ * they were local. A user can say "Claude, create a skill in Native Intelligence that
  * summarizes my Friday status report" and have it land in their workspace.
  *
  * Underlying storage is the `recipe` table (kept that name for blast-radius

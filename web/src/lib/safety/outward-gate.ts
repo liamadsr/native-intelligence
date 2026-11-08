@@ -1,6 +1,6 @@
 /**
  * The outward gate (always-on safety fixes, 2026-10-15): DETERMINISTIC holds
- * for calls that reach people or services outside Dial8, applied at every door
+ * for calls that reach people or services outside Native Intelligence, applied at every door
  * beside the reviewer (action-review.ts gateRiskyCall) and holding whether or
  * not the reviewer is enforced.
  *
@@ -183,17 +183,17 @@ async function unsubscribeHold(check: OutwardCheck): Promise<OutwardHold> {
   const quoted = (text: string) => `"${text.replace(/\s+/g, ' ').trim().slice(0, 120)}${text.length > 120 ? '…' : ''}"`
   const does =
     method?.kind === 'one_click'
-      ? `Dial8 will use the sender's one-click unsubscribe link (${host ?? 'their site'}).`
+      ? `Native Intelligence will use the sender's one-click unsubscribe link (${host ?? 'their site'}).`
       : method?.kind === 'mailto'
-        ? `Dial8 will send an unsubscribe email from ${mailbox} to ${method.to}, subject ${quoted(method.subject)}${method.body === 'unsubscribe' ? '' : `, saying ${quoted(method.body)}`}.`
+        ? `Native Intelligence will send an unsubscribe email from ${mailbox} to ${method.to}, subject ${quoted(method.subject)}${method.body === 'unsubscribe' ? '' : `, saying ${quoted(method.body)}`}.`
         : method?.kind === 'link'
           ? 'This sender only offers a web page: accepting gets you its link to open yourself, and nothing is sent.'
-          : "Dial8 will use the sender's unsubscribe link, or send an unsubscribe email from your mailbox, whichever the list offers."
+          : "Native Intelligence will use the sender's unsubscribe link, or send an unsubscribe email from your mailbox, whichever the list offers."
   return {
     reason: 'unsubscribe',
     card: {
       title: `Unsubscribe from ${sender ?? 'this mailing list'}?`,
-      why: `${does} It leaves Dial8 and can't be undone here. It runs once, with exactly the inputs below, when you accept.`,
+      why: `${does} It leaves Native Intelligence and can't be undone here. It runs once, with exactly the inputs below, when you accept.`,
     },
     refusal:
       'Nothing was sent. unsubscribe_thread only ever runs on the person\'s own approval card, and nobody is here to give it. ' +
@@ -374,7 +374,7 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
       reason: 'mcp_write',
       card: {
         title: `Approve ${check.toolName}?`,
-        why: `This runs a tool on ${server} that can change something outside Dial8. It runs once, with exactly the inputs below, when you accept. You can let this tool run without asking in Settings > Connectors, on this app's page.`,
+        why: `This runs a tool on ${server} that can change something outside Native Intelligence. It runs once, with exactly the inputs below, when you accept. You can let this tool run without asking in Settings > Connectors, on this app's page.`,
       },
       refusal:
         `Nothing ran. ${check.toolName} changes something in ${server}, which needs the person's approval, and nobody is here to give it. ` +

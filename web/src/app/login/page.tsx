@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation'
 import { LoginForm } from './login-form'
 
 export const metadata = {
-  title: 'Sign In – Dial8',
+  title: 'Sign In',
   robots: { index: false, follow: false },
 }
 

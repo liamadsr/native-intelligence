@@ -26,7 +26,7 @@ import {
 
 const NOW = Date.parse('2026-10-27T18:00:00.000Z')
 const COMPLETED = '2026-10-27T15:00:00.000Z'
-const SEEDED = { research: { status: 'done', seededSummary: { projectName: 'Dial8 Launch', actionCount: 3 } } }
+const SEEDED = { research: { status: 'done', seededSummary: { projectName: 'Native Intelligence Launch', actionCount: 3 } } }
 
 const db = {
   member: null as Record<string, unknown> | null,
@@ -34,7 +34,7 @@ const db = {
   captures: [] as Array<Record<string, unknown>>,
   capturesError: null as string | null,
   calendars: 0,
-  skill: 'You walk a person through Dial8 for the first time.' as string | null,
+  skill: 'You walk a person through Native Intelligence for the first time.' as string | null,
   rpcError: null as string | null,
   firstRunRefs: [] as string[],
 }
@@ -64,7 +64,7 @@ beforeEach(() => {
   db.captures = []
   db.capturesError = null
   db.calendars = 0
-  db.skill = 'You walk a person through Dial8 for the first time.'
+  db.skill = 'You walk a person through Native Intelligence for the first time.'
   db.rpcError = null
   db.firstRunRefs = []
 })
@@ -78,7 +78,7 @@ describe('gettingStartedFrom', () => {
     expect(gettingStartedFrom(db.member, NOW)).toEqual({
       completedAt: COMPLETED,
       name: 'Liam',
-      starter: { projectName: 'Dial8 Launch', actionCount: 3 },
+      starter: { projectName: 'Native Intelligence Launch', actionCount: 3 },
     })
     const lastMoment = Date.parse(COMPLETED) + GETTING_STARTED_WINDOW_MS
     expect(gettingStartedFrom(db.member, lastMoment)).not.toBeNull()
@@ -109,10 +109,10 @@ describe('the section', () => {
 
   it('says where they are: the starter project, their captures, the calendar', () => {
     expect(renderGettingStartedStatus(state, { captures: { count: 0, latest: null }, calendarConnected: false })).toBe(
-      'Where they are: starter project “Dial8 Launch” (3 first actions). Captures since signing up: none. Calendar: not connected.',
+      'Where they are: starter project “Native Intelligence Launch” (3 first actions). Captures since signing up: none. Calendar: not connected.',
     )
     expect(renderGettingStartedStatus(state, { captures: { count: 1, latest: { id: 'cap-1', title: 'Talking to myself', recording: true } }, calendarConnected: true })).toBe(
-      'Where they are: starter project “Dial8 Launch” (3 first actions). Captures since signing up: 1, “Talking to myself” [capture cap-1], recording now. Calendar: connected.',
+      'Where they are: starter project “Native Intelligence Launch” (3 first actions). Captures since signing up: 1, “Talking to myself” [capture cap-1], recording now. Calendar: connected.',
     )
     expect(
       renderGettingStartedStatus({ ...state, starter: null }, { captures: { count: 2, latest: { id: 'cap-2', title: null, recording: false } }, calendarConnected: false }),
@@ -122,7 +122,7 @@ describe('the section', () => {
   it('opens with who, names the finishing tool, keeps background updates to step 3, then carries the skill; no date', () => {
     const text = renderGettingStartedSection(state, { captures: { count: 0, latest: null }, calendarConnected: false }, { skillText: 'STEPS' })
     const lines = text.split('\n')
-    expect(lines[0]).toMatch(/^Getting started: Liam is new to Dial8\. /)
+    expect(lines[0]).toMatch(/^Getting started: Liam is new to Native Intelligence\. /)
     expect(lines[0]).toContain('call finish_getting_started')
     expect(lines[0]).toContain('On a background update only step 3 applies')
     expect(lines[0]).not.toMatch(/Oct \d/)
@@ -145,7 +145,7 @@ describe('gettingStartedForChatSpec', () => {
     expect(out.held).toBe(false)
     expect(out.section?.key).toBe(GETTING_STARTED_SECTION_KEY)
     expect(out.section?.markdown).toContain('Captures since signing up: 1, “Hello” [capture cap-1], recorded. Calendar: connected.')
-    expect(out.section?.markdown).toContain('You walk a person through Dial8 for the first time.')
+    expect(out.section?.markdown).toContain('You walk a person through Native Intelligence for the first time.')
 
     const [member] = reads('member')
     expect([eqValue(member, 'workspace_id'), eqValue(member, 'user_id')]).toEqual(['ws-1', 'user-1'])

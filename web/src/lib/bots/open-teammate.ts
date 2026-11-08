@@ -321,7 +321,7 @@ export interface KnownRow {
 /**
  * One work item, opened from anywhere (the bubble's Open, Answer and "Last
  * finished"; a bot page's row; a teammate's report in chat; a record's "Agent
- * activity"; the panel's handoff links; a notice; Open in Dial8): where the
+ * activity"; the panel's handoff links; a notice; Open in Native Intelligence): where the
  * rules above put it. The source places what it holds, by its word; otherwise
  * `known` does, when it knows the workspace and the teammate; otherwise the
  * nav's `lookup` says (`kind: 'looking'`, then it opens), for an id that could

@@ -96,7 +96,7 @@ export const cases: SkillEvalCase[] = [
     why: 'The history answers it; looking is not undoing.',
   },
   {
-    request: 'undo the last change Dial8 made to the onboarding guide',
+    request: 'undo the last change Native Intelligence made to the onboarding guide',
     loads: ['documents-playbook'],
     tools: ['search_tools', 'list_documents', 'list_document_revisions', 'restore_document_revision'],
     avoid: ['update_document', 'propose_document_edit', 'edit_document_content'],

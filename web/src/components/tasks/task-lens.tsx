@@ -4,13 +4,13 @@
  * THE PROPERTY LENS — an action's properties, seen through the provider it was
  * pushed to.
  *
- * Every action in Dial8 has a properties affordance (the Edit-properties pill on
+ * Every action in Native Intelligence has a properties affordance (the Edit-properties pill on
  * a capture's proposal cards, the Properties sidebar in the action detail panel)
- * and until now it always showed the same thing: Dial8's own fields. But an
- * action that was pushed to Jira has TWO sets of properties — Dial8's, and the
+ * and until now it always showed the same thing: Native Intelligence's own fields. But an
+ * action that was pushed to Jira has TWO sets of properties — Native Intelligence's, and the
  * ticket's — and they drift the moment someone edits the ticket in Jira. The
  * lens is the second set: open properties on a pushed action and you see the
- * LINKED TICKET'S live field values, with a switcher to flip between Dial8 and
+ * LINKED TICKET'S live field values, with a switcher to flip between Native Intelligence and
  * each provider the action is in.
  *
  * WHY THIS IS THE SAME CONTROLS, NOT NEW ONES. `compose-fields.tsx` already
@@ -29,7 +29,7 @@
  *    fact about a remote ticket, because the ticket does not exist yet.
  *  - THE LENS reads a linked ticket's ACTUAL current values on mount, and writes
  *    PER FIELD — picking an assignee in the Jira lens updates the Jira ticket
- *    immediately, exactly as a Dial8 chip saves immediately. There is no Save
+ *    immediately, exactly as a Native Intelligence chip saves immediately. There is no Save
  *    button because there is no form: these are properties, and properties in
  *    this app commit on change.
  *
@@ -57,7 +57,7 @@
  * hover. Drawing them matters: a lens that showed only the four writable fields
  * would answer "which Jira project is this in?" with silence, and that is the
  * first question anyone opening a lens has. Not writing them matters more:
- * status has an owner already (the Dial8→provider echo, whose CAS loop-breaker a
+ * status has an owner already (the Native Intelligence→provider echo, whose CAS loop-breaker a
  * second writer would race), and project/issue-type/team moves rewrite
  * identifiers and invalidate the team-scoped ids the destination config is
  * built from.
@@ -129,7 +129,7 @@ export function orderLensProviders(providers: string[]): string[] {
 /**
  * The lens the properties view opens on.
  *
- * ≥1 link → the first linked provider by rank. No links → Dial8, and the
+ * ≥1 link → the first linked provider by rank. No links → Native Intelligence, and the
  * switcher is not drawn at all, which is what makes this feature invisible to
  * every action that was never pushed.
  */
@@ -159,7 +159,7 @@ export function defaultLens(providers: string[]): string {
  * second pass through.
  *
  * A FAILED read reports NO providers rather than throwing: the honest fallback
- * for "we could not find out" is the Dial8 lens with no switcher, which is
+ * for "we could not find out" is the Native Intelligence lens with no switcher, which is
  * exactly what an unpushed action shows. A banner here would be a banner on a
  * feature the user has not asked for yet.
  *
@@ -263,13 +263,13 @@ function LensMark({ provider, className }: { provider: string; className?: strin
 }
 
 function lensDisplayName(provider: string): string {
-  return provider === 'dial8' ? 'Dial8' : providerDisplayName(provider)
+  return provider === 'dial8' ? 'Native Intelligence' : providerDisplayName(provider)
 }
 
 /**
  * The lens picker — a segmented row of MARKS, not a row of words.
  *
- * Marks because the names are long ("Dial8", "Asana", "Jira", "Linear" is 24
+ * Marks because the names are long ("Native Intelligence", "Asana", "Jira", "Linear" is 24
  * characters of chrome before a single property is drawn) and because the marks
  * are already this app's vocabulary for "which tracker": the same glyphs the
  * platform icon stacks on every row and board card. Someone who has seen the
@@ -594,7 +594,7 @@ function LensFailureBanner({
           </p>
           {!strip && (
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Dial8 can no longer use your stored {providerName} authorization, so it can&apos;t read
+              Native Intelligence can no longer use your stored {providerName} authorization, so it can&apos;t read
               the linked ticket.
             </p>
           )}

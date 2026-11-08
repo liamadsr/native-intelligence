@@ -215,7 +215,7 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
     file: 'src/lib/ai/tools/approval-results.ts',
     kind: 'TOOL',
     fence: ['approvalOutcomeForModel'],
-    note: "the result a held call returned once the person approved it: another service's text, or a Dial8 tool's output",
+    note: "the result a held call returned once the person approved it: another service's text, or a Native Intelligence tool's output",
   },
 }
 
@@ -227,12 +227,12 @@ export const OUTSIDE_TEXT_TOOLS: Readonly<Record<string, OutsideTextTool>> = {
 export const NOT_OUTSIDE_TEXT_TOOLS: Readonly<Record<string, string>> = {
   // A business's website (roadmap track E, src/lib/ai/tools/website.ts).
   list_website_repos: 'GitHub repo names (owner/repo shape only: no spaces, no prose), an origin and a date',
-  connect_website: "Dial8's own words about the repo; file paths and field names are shape-checked (no spaces) and quoted as data",
-  wire_website_form: "a write; returns Dial8's own status words",
-  change_website: "a write; returns Dial8's own status words",
-  undo_website_change: "a write; returns Dial8's own status words",
+  connect_website: "Native Intelligence's own words about the repo; file paths and field names are shape-checked (no spaces) and quoted as data",
+  wire_website_form: "a write; returns Native Intelligence's own status words",
+  change_website: "a write; returns Native Intelligence's own status words",
+  undo_website_change: "a write; returns Native Intelligence's own status words",
   import_contact_file: 'a write; returns its own counts, summary and the contact ids to check (no file text)',
-  list_contact_imports: 'import batches: source, status, counts, the summary Dial8 wrote',
+  list_contact_imports: 'import batches: source, status, counts, the summary Native Intelligence wrote',
   undo_contact_import: 'a write; returns its own summary',
   get_email_summary: 'counts only (unread, needs reply, drafts)',
   get_email_drafts: "the agent's own drafts",

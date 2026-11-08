@@ -1,5 +1,5 @@
 /**
- * Voice focus: Dial8 answers the user, and people it recognises by voice;
+ * Voice focus: Native Intelligence answers the user, and people it recognises by voice;
  * a voice it doesn't know (a TV, people nearby) is ignored. The desktop hears
  * a turn by speech alone (./settings VOICE_NOISE_PROFILE), so without this any
  * voice in the room is taken as the user's.
@@ -103,12 +103,12 @@ export const VOICED = {
   PAD_MS: 100,
 }
 
-/** A contact this close is someone Dial8 knows: the floor a Voice ID vote
+/** A contact this close is someone Native Intelligence knows: the floor a Voice ID vote
  *  needs to count for a contact at all (voice-id-matching). */
 export const KNOWN_VOICE_THRESHOLD = VOTE_FLOOR_THRESHOLD
 
 /** What the composer says, briefly, for a dropped turn. */
-export const VOICE_FOCUS_IGNORED = 'Ignored a voice Dial8 doesn’t recognise'
+export const VOICE_FOCUS_IGNORED = 'Ignored a voice Native Intelligence doesn’t recognise'
 
 // ── The speech ─────────────────────────────────────────────────────────────
 
@@ -436,7 +436,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
  * One voice session's Voice focus: feed it every `voice://speech`
  * (onSpeech), and ask it about each `voice://turn` (judge) before acting on
  * the turn. judge resolves within VERDICT_WAIT_MS: `send` unless the turn is
- * a voice Dial8 doesn't know and Voice focus is on. Never rejects.
+ * a voice Native Intelligence doesn't know and Voice focus is on. Never rejects.
  */
 export class VoiceFocusGate {
   private readonly runs = new SpeechRuns()

@@ -4,7 +4,7 @@
 //! invariant 3: the webview runs code our server sends, so it can ask for the
 //! picker but never name a path). The person can still pick something far too
 //! wide, so these rules refuse the folders that would hand the agent the whole
-//! disk, a whole home, or Dial8's own data. All of them compare realpaths
+//! disk, a whole home, or Native Intelligence's own data. All of them compare realpaths
 //! ([`canonical_dir`] first), which is why `/tmp`, `/var` and `/etc` appear
 //! in their `/private/...` forms:
 //! - the contract's list: `/`, HOME itself, `/Users`, `/System`, `/Library`,
@@ -15,7 +15,7 @@
 //! - everything in `~/Library` (keychains, mail, browser profiles, other
 //!   apps' data), except iCloud Drive's `~/Library/Mobile Documents`;
 //! - the protected folders ([`super::Paths::protected`]: the app's data with
-//!   every job's eve session, its WebKit data with the Dial8 session cookie,
+//!   every job's eve session, its WebKit data with the Native Intelligence session cookie,
 //!   its caches, the jobs' temp root), anything inside them, and anything
 //!   that contains them (`~/Library/Application Support` holds the app data).
 //!
@@ -97,7 +97,7 @@ pub fn check_folder(real: &Path, home: &Path, protected: &[PathBuf]) -> Result<(
         return refuse("it is part of macOS");
     }
     if protected.iter().any(|p| real.starts_with(p) || p.starts_with(real)) {
-        return refuse("it holds Dial8's own data");
+        return refuse("it holds Native Intelligence's own data");
     }
     if real.starts_with(home.join("Library")) && !real.starts_with(home.join(ICLOUD_DRIVE)) {
         return refuse("your Library holds keychains, mail, browser and app data");
@@ -288,7 +288,7 @@ mod tests {
             "Library/Caches/ai.dial8.desktop",
         ] {
             let err = t.check(t.home.join(p)).unwrap_err();
-            assert!(err.contains("Dial8's own data"), "{p}: {err}");
+            assert!(err.contains("Native Intelligence's own data"), "{p}: {err}");
         }
         assert!(t.refused(t.base.join("T/dial8-local-agent/job")), "a job's temp folder");
         assert!(t.refused(t.base.join("T")), "contains the jobs' temp root");

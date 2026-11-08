@@ -9,7 +9,7 @@
  * (the outward gate's hold, the attended-only tools, who may approve a held
  * call, whose run a memory entry is recorded as) reads only that class:
  *
- *   person            the person themselves, in Dial8: the in-app chat, a
+ *   person            the person themselves, in Native Intelligence: the in-app chat, a
  *                     teammate chat or bot conversation with them, a follow-up
  *                     chat turn on a run, their own MCP connector, their own
  *                     click; a Slack DM from their linked Slack user (a
@@ -95,7 +95,7 @@ export type VerifiedPrincipal =
   | { kind: 'coding_run' }
   /** The live agent's run token: a turn on a live meeting, driven by what is said in it. */
   | { kind: 'live_agent' }
-  /** The person's own Dial8 MCP connector (an mcp_oauth_token row they authorised). */
+  /** The person's own Native Intelligence MCP connector (an mcp_oauth_token row they authorised). */
   | { kind: 'mcp_connector' }
   /** The person's own app session (Supabase auth): their own click. */
   | { kind: 'app_session' }
@@ -234,7 +234,7 @@ export function runAsUserFor(caller: CallerClass, ids: { ownerUserId: string; ca
  * What a call does, for the policy: the registry's class, 'unclassified' (an
  * external mcp__ tool or a name nobody classified), or 'outward': the outward
  * gate (outward-gate.ts) held this exact call, because it reaches people or
- * services outside Dial8 with no standing yes (a calendar invite to someone
+ * services outside Native Intelligence with no standing yes (a calendar invite to someone
  * outside the workspace, a connected app's write tool).
  */
 export type PolicyEffect = ToolSideEffect | 'unclassified' | 'outward'
@@ -295,7 +295,7 @@ export function policyEffectOf(toolName: string): PolicyEffect {
   return getToolSideEffect(name) ?? 'unclassified'
 }
 
-/** A Dial8 MCP name without its prefix (the registry's name). */
+/** A Native Intelligence MCP name without its prefix (the registry's name). */
 function bareToolName(toolName: string): string {
   return typeof toolName === 'string' ? toolName.replace(/^dial8_/, '') : ''
 }

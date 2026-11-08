@@ -4,7 +4,7 @@
  *
  * docs/plans/slack-connect.md §4 piece 3. GET answers `{ configured: false }`
  * when this deployment has no Slack connector, and the card hides. Otherwise
- * it lists the Slack workspaces bound to the current Dial8 workspace, the
+ * it lists the Slack workspaces bound to the current Native Intelligence workspace, the
  * person's own link in each, and whether they may add or remove one.
  *
  * Disconnect removes the installation from Vercel Connect (its bot token stops

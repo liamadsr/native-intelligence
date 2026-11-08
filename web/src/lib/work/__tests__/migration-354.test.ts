@@ -1,5 +1,5 @@
 /**
- * Migration 354: agents act by default, every workspace on Dial8's trust
+ * Migration 354: agents act by default, every workspace on Native Intelligence's trust
  * defaults (Liam, 2026-10-17). Pins: no backslash; a 5 s lock timeout; the
  * autonomy backfill never touches a workspace switched 'off' (the kill switch
  * is the one choice left) and keeps every other key; role teammates are NOT

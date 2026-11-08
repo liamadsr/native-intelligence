@@ -14,7 +14,7 @@ import type { AdminEvalCandidate } from './labels'
  * A candidate's evidence, drawn by kind: a chat turn (the request, the reply's
  * opening, the tool path with the failed steps marked, the skills it loaded),
  * a failed background job (its error, the flow's failed actions, the log's
- * end), a draft rewrite (a score and pointers only: Dial8 stores no mail, so
+ * end), a draft rewrite (a score and pointers only: Native Intelligence stores no mail, so
  * there is no text to show; the reviewer reads the thread live) or a
  * dismissed draft (its reason and pointers, likewise).
  */
@@ -169,7 +169,7 @@ function DraftRewrite({ evidence }: { evidence: DraftRewriteEvidence }) {
           <Stat label="Sent words" value={evidence.wordsAfter ?? '—'} />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          No text is kept: Dial8 stores no mail. Read the thread live from its pointers.
+          No text is kept: Native Intelligence stores no mail. Read the thread live from its pointers.
         </p>
       </Section>
       <Facts
@@ -203,7 +203,7 @@ function DraftDismissed({ evidence }: { evidence: DraftDismissedEvidence }) {
           <Stat label="By" value={evidence.by === 'person' ? 'The person' : 'The agent'} />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          No text is kept: Dial8 stores no mail. Read the thread live from its pointers.
+          No text is kept: Native Intelligence stores no mail. Read the thread live from its pointers.
         </p>
       </Section>
       <Facts

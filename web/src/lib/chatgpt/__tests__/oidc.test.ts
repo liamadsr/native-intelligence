@@ -79,7 +79,7 @@ describe('authorizeUrl', () => {
     ).searchParams
     expect(registering.get('client_id')).toBe(DYNAMIC_CLIENT_ID)
     expect(registering.get('ext_agent_host_id')).toBe('urn:uuid:host-1')
-    expect(registering.get('agent_name_hint')).toBe('Dial8')
+    expect(registering.get('agent_name_hint')).toBe('Native Intelligence')
 
     const issued = { ...selfServe, clientId: 'oaiapp_issued' }
     const returning = new URL(

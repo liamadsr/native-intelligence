@@ -56,7 +56,7 @@ function unsubscribePage(message: string, success: boolean): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Unsubscribe - Dial8</title>
+  <title>Unsubscribe - Native Intelligence</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -84,7 +84,7 @@ function unsubscribePage(message: string, success: boolean): string {
 <body>
   <div class="card">
     <h1 class="${success ? 'success' : 'error'}">${message}</h1>
-    ${success ? '<p>You won\'t receive any more emails from Dial8.</p>' : ''}
+    ${success ? '<p>You won\'t receive any more emails from Native Intelligence.</p>' : ''}
   </div>
 </body>
 </html>`

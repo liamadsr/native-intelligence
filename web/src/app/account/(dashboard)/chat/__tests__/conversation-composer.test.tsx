@@ -2,7 +2,7 @@
 /**
  * ConversationComposer — the main chat's composer for a conversation that
  * isn't the main chat (bots v4: a teammate's thread, a run's chat, in the
- * floating window Open in Dial8 opens). It IS ChatInput, fed by the shared
+ * floating window Open in Native Intelligence opens). It IS ChatInput, fed by the shared
  * composer state, so these pin what this host adds:
  *
  *   - the turn it hands `onSend`: the text, and its extras (the skill, the

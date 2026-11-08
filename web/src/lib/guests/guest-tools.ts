@@ -88,7 +88,7 @@ export function guestTextHold(guestName: string, via: GuestChannel = 'sms'): { r
   return {
     reason: 'guest_text',
     message:
-      "Nothing ran: this needs the owner's OK, and they now have a card for it in Dial8. It runs once they approve it there. " +
+      "Nothing ran: this needs the owner's OK, and they now have a card for it in Native Intelligence. It runs once they approve it there. " +
       `Tell ${guestName} you've asked and it isn't done yet. Do not call it again.`,
     cardWhy: `${guestName} asked for it ${guestVia(via)}, and nothing they ask for runs without your OK`,
   }

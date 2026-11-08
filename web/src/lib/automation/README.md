@@ -1,6 +1,6 @@
 # Automation API
 
-`window.__dial8Automation` lets a recorder (content-machine's product videos) drive the real Dial8 desktop app. The recorder runs JavaScript in the main web view through the desktop app's automation bridge (`dial8-desktop/src-tauri/src/automation`), and moves the real mouse and keyboard itself.
+`window.__dial8Automation` lets a recorder (content-machine's product videos) drive the real Native Intelligence desktop app. The recorder runs JavaScript in the main web view through the desktop app's automation bridge (`dial8-desktop/src-tauri/src/automation`), and moves the real mouse and keyboard itself.
 
 ## When it exists
 
@@ -18,7 +18,7 @@ The order that works from a cold launch:
 
 A script running when the page navigates answers `{"ok":false,"error":"Completion handler for function call is no longer reachable"}` (WebKit's own error). Retry it.
 
-While Dial8's window is covered by other windows, WebKit stops rendering it: `requestAnimationFrame` never fires, so a script that waits for a frame times out. Bring Dial8 to the front first, as the recording does anyway.
+While Native Intelligence's window is covered by other windows, WebKit stops rendering it: `requestAnimationFrame` never fires, so a script that waits for a frame times out. Bring Native Intelligence to the front first, as the recording does anyway.
 
 ## API (version 1)
 

@@ -38,7 +38,7 @@ export function renderFocusSection(area: AreaKey, pack: ChatPack | null): string
   const name = PACKS[area].name
   const lines = [
     FOCUS_HEADING,
-    `The person focused this conversation on ${name}. You are still Dial8's main agent, with every tool and the same limits: ` +
+    `The person focused this conversation on ${name}. You are still Native Intelligence's main agent, with every tool and the same limits: ` +
       `the focus only says where the work is. Lead with ${name}, and cross into other areas whenever the request does.`,
   ]
   if (pack) {

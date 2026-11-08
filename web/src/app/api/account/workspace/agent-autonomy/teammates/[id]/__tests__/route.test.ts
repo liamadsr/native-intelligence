@@ -100,7 +100,7 @@ describe('teammate role and autonomy', () => {
 })
 
 // bots-v4 B1, decision 12: owners and admins choose per bot between "Read only"
-// and "Read, and change Dial8 records"; never an outside write.
+// and "Read, and change Native Intelligence records"; never an outside write.
 describe('what a bot may change on its own', () => {
   it('an admin sets read and internal writes, or read only', async () => {
     let res = await patch({ allowed_side_effects: ['read', 'internal-write'] })

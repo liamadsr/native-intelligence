@@ -198,7 +198,7 @@ export function AppUpdater() {
       // No updates                                                
       if (manual) {
         toast.success('You\'re up to date', {
-          description: 'Dial8 is running the latest version.',
+          description: 'Native Intelligence is running the latest version.',
           duration: 3000,
         })
       }

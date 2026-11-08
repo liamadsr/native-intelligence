@@ -66,7 +66,7 @@ describe('backgroundExpertiseSection', () => {
     const section = await backgroundExpertiseSection(db(), { workspaceId: 'ws-1', userId: 'u-1', areas: ['mail'], workspaceSettings: full })
     expect(section).toContain('## Expertise: Mail\n\nMAIL PLAYBOOK TEXT')
     expect(section).not.toContain('CALENDAR')
-    expect(section.startsWith('How Dial8 does the areas this run works in')).toBe(true)
+    expect(section.startsWith('How Native Intelligence does the areas this run works in')).toBe(true)
   })
 
   it('says the playbook’s steps that need the person don’t apply here', async () => {

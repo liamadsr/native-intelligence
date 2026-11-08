@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
   // the last few seconds is a double click; refuse rather than spawn a second
   // DCR client at the provider (each creates a record there that they keep —
   // Atlassian and Linear both throttle per IP/account). An older live row is
-  // a flow the person walked away from (the browser's "Open Dial8?" prompt
+  // a flow the person walked away from (the browser's "Open Native Intelligence?" prompt
   // dismissed, the window reloaded and lost its claim, a denied consent): it
   // can never finish now, so it gives way to this one instead of blocking a
   // retry for the rest of its ten minutes.
@@ -91,10 +91,10 @@ export async function POST(req: NextRequest) {
   await svcForGuard.from('external_mcp_oauth_state').delete().eq('user_id', user.id).eq('server_url', body.server_url)
 
   // IMPORTANT: this URL must NOT be under /api/account/* — the routing
-  // middleware (src/proxy.ts) gates that prefix behind a Dial8 session,
+  // middleware (src/proxy.ts) gates that prefix behind a Native Intelligence session,
   // and the OAuth callback has to be reachable in a fresh browser tab
   // (especially in desktop mode, where the system browser may have no
-  // Dial8 cookies). The callback authenticates via the `state` param.
+  // Native Intelligence cookies). The callback authenticates via the `state` param.
   const redirectUri = `${getOrigin(req)}/api/mcp-oauth/callback`
 
   // Discover auth-server metadata.
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
   if (auth_server.registration_endpoint) {
     try {
       const reg = await registerClient(auth_server.registration_endpoint, redirectUri, {
-        client_name: 'Dial8',
+        client_name: 'Native Intelligence',
         scopes: discovered.scopes,
       })
       client_id = reg.client_id

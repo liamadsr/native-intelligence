@@ -60,7 +60,7 @@ impl Default for AppSettings {
             // On by default: the whole point of the desktop app is that
             // notifications, realtime, and in-progress recordings keep running
             // after the user clicks the red button. Quit is still one Cmd+Q or
-            // one tray "Quit Dial8" away.
+            // one tray "Quit Native Intelligence" away.
             close_to_tray_enabled: true,
             // On by default (chat-voice.md §3.5): on speakers, 80–90% of the
             // remote words are otherwise transcribed a second time as the user.

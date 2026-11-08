@@ -1,7 +1,7 @@
 /**
  * web_fetch — LIVE for the onboarding-researcher, wrapped for safety.
  *
- * Web access is always on for every Dial8 agent, and for this one it is the
+ * Web access is always on for every Native Intelligence agent, and for this one it is the
  * primary capability: the research protocol opens the new signup's own company
  * domain (instructions.md → "Business-domain research protocol"). This slot
  * previously had NO file at all, so the model got eve's RAW built-in web_fetch —
@@ -11,7 +11,7 @@
  *
  *   1. SSRF url-guard (lib/url-guard.ts) — every URL is validated before the
  *      fetch runs, blocking private / loopback / link-local IPs and cloud-
- *      metadata hostnames so a user-influenced URL can't turn Dial8 into an SSRF
+ *      metadata hostnames so a user-influenced URL can't turn Native Intelligence into an SSRF
  *      reflection point. Mirrors src/lib/mcp-client/url-guard.ts (agents can't
  *      import src/). This matters most here: the fetched host comes straight
  *      from the signup email's domain part.

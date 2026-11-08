@@ -21,7 +21,7 @@ import {
  * The whole category→bucket table is enumerated explicitly rather than
  * spot-checked, because it is the shared trunk EVERY provider adapter inherits:
  *  - backlog AND unstarted both fold to not_started (no provider models the
- *    Dial8 distinction).
+ *    Native Intelligence distinction).
  *  - an unknown/absent category degrades to not_started, never throws.
  *  - Asana: done AND canceled both write completed:true (Asana has no cancel).
  *  - the section half is independent of the completion half, and absent/blank
@@ -353,7 +353,7 @@ describe('linearBucketForStateType — the full 7-value fold', () => {
   /**
    * The one fold a reader is most likely to get wrong. An issue closed as a
    * duplicate is ABANDONED work, not finished work: folding it to `done` would
-   * complete the Dial8 action and tell the team the work shipped.
+   * complete the Native Intelligence action and tell the team the work shipped.
    */
   it('folds duplicate onto CANCELED, alongside canceled — not onto done', () => {
     expect(linearBucketForStateType('duplicate')).toBe('canceled')
@@ -537,8 +537,8 @@ describe('deriveLinearStateMap', () => {
   /**
    * `duplicate` is a legitimate READ signal (an issue someone closed as a
    * duplicate folds to canceled) but must NEVER be a write target: marking a
-   * Dial8 action's issue as a duplicate of nothing is a claim about the
-   * customer's backlog that Dial8 has no basis to make.
+   * Native Intelligence action's issue as a duplicate of nothing is a claim about the
+   * customer's backlog that Native Intelligence has no basis to make.
    */
   it('NEVER picks a duplicate-type state as a write target', () => {
     const withDuplicate = [

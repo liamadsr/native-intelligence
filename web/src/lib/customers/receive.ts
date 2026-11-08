@@ -10,7 +10,7 @@
  *      router texts it when they are away), and the workspace's
  *      quote_received loops fire.
  *
- * The event's title is Dial8's own words and numbers (who by the number's last
+ * The event's title is Native Intelligence's own words and numbers (who by the number's last
  * four digits, how many items, their sizes, the price); everything the
  * customer typed the agent reads with get_quote, inside the untrusted fence.
  *
@@ -37,7 +37,7 @@ export type ReceiveQuoteResult =
   | { ok: false; error: string }
 
 /**
- * The inbox event's title, in Dial8's own words and numbers only: "a quote
+ * The inbox event's title, in Native Intelligence's own words and numbers only: "a quote
  * from a customer ending 0173: 2 items (8x10 ft, 5x7 ft), $600". Nothing the
  * customer typed (their name, a service, a size in words) rides it into the
  * owner's turn: the agent reads those with get_quote, fenced. Pure.

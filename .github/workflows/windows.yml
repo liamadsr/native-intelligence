@@ -152,7 +152,7 @@ jobs:
         # The installer carries the notices; the updater artifacts are signed
         # on the Mac (release.sh), so none are made here. When signing,
         # Tauri runs SignTool with Microsoft's Artifact Signing dlib on every
-        # executable it bundles (Dial8.exe, the installer, the uninstaller),
+        # executable it bundles (Native Intelligence.exe, the installer, the uninstaller),
         # pinned NuGet packages checked by hash.
         shell: pwsh
         env:
@@ -228,7 +228,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $signature = Get-AuthenticodeSignature "src-tauri/target/release/bundle/nsis/Dial8_${version}_x64-setup.exe"
+          $signature = Get-AuthenticodeSignature "src-tauri/target/release/bundle/nsis/Native Intelligence_${version}_x64-setup.exe"
           Write-Host "$($signature.Status): $($signature.SignerCertificate.Subject)"
           if ($signature.Status -ne 'Valid') { throw "the installer isn't validly signed ($($signature.Status))" }
       - name: The installer says its version
@@ -238,13 +238,15 @@ jobs:
         run: |
           version=$(python -c "import json; print(json.load(open('src-tauri/tauri.conf.json', encoding='utf-8'))['version'])")
           cargo run --quiet --locked --manifest-path src-tauri/crates/installer-version/Cargo.toml -- \
-            "src-tauri/target/release/bundle/nsis/Dial8_${version}_x64-setup.exe" "$version"
+            "src-tauri/target/release/bundle/nsis/Native Intelligence_${version}_x64-setup.exe" "$version"
       - name: Collect
         run: |
           set -euo pipefail
           version=$(python -c "import json; print(json.load(open('src-tauri/tauri.conf.json', encoding='utf-8'))['version'])")
           mkdir -p out
-          cp "src-tauri/target/release/bundle/nsis/Dial8_${version}_x64-setup.exe" out/
+          # The installer is named after productName; the artifact keeps the name
+          # the release scripts and R2 (Dial8-setup.exe, the website's download) expect.
+          cp "src-tauri/target/release/bundle/nsis/Native Intelligence_${version}_x64-setup.exe" "out/Dial8_${version}_x64-setup.exe"
           (cd out && sha256sum *.exe > SHA256SUMS)
           cat out/SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

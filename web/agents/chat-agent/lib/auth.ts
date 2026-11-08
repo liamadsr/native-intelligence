@@ -648,7 +648,7 @@ export interface VerifiedChatRunClaims {
   /**
    * Absent → the in-app (browser) chat; 'device_ask' → the device one-shot;
    * 'slack' | 'sms' | 'call' → a message the person sent from an outside channel (a
-   * Slack message, a text to the Dial8 number, what they said on a call to it), only ever
+   * Slack message, a text to the Native Intelligence number, what they said on a call to it), only ever
    * together with `server: 'channel_turn'` (twin of ChatRunTokenClaims.surface).
    */
   surface?: 'device_ask' | 'slack' | 'sms' | 'call'

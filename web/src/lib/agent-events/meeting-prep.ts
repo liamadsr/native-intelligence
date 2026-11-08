@@ -350,7 +350,7 @@ export async function previousOccurrence(supabase: SupabaseClient, c: PrepCandid
  * of the main chat, which runs enrich_contact. Never the prep: its ceiling is
  * reads and drafts, and the spend is the person's to agree to.
  *
- * Dial8 picks the people, not the model: the pass reads them here, the brief
+ * Native Intelligence picks the people, not the model: the pass reads them here, the brief
  * carries their contact ids (ENRICH_LINE, read back by parsePrepTaskIds), and
  * the report re-checks them (enrichOfferFor) so someone enriched meanwhile is
  * not offered.
@@ -444,7 +444,7 @@ const EVENT_LINE = "Its calendar event id (get_meeting_prep's event_id): "
 const CAPTURE_LINE = 'A pending capture stands for it: '
 const END_LINE = 'It ends at '
 /** The context line naming the attendees the report offers to enrich (contact ids only: no calendar text). */
-const ENRICH_LINE = 'Not enriched yet (under your report, Dial8 offers the person to pull their details from the web): '
+const ENRICH_LINE = 'Not enriched yet (under your report, Native Intelligence offers the person to pull their details from the web): '
 
 /** What the brief is built from beyond the candidate: the person's zone and the series' previous meeting. */
 export interface PrepBriefFacts {
@@ -538,7 +538,7 @@ export function prepBrief(c: PrepCandidate, facts: PrepBriefFacts = {}): { input
 
 /**
  * The meeting's calendar event, pending capture and end a prep's stored task
- * names (prepBrief's own context lines, Dial8's words around provider ids
+ * names (prepBrief's own context lines, Native Intelligence's words around provider ids
  * and an ISO time), or nulls, and the contacts its report offers to enrich.
  * Pure.
  */

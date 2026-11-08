@@ -1,12 +1,12 @@
-//! Top-level navigation allowlist for every Dial8 webview.
+//! Top-level navigation allowlist for every Native Intelligence webview.
 //!
-//! WHY THIS EXISTS: a Dial8 window is the dial8.ai web app running with the
+//! WHY THIS EXISTS: a Native Intelligence window is the dial8.ai web app running with the
 //! Tauri IPC bridge injected into it. tauri injects `window.__TAURI_INTERNALS__`
 //! (carrying the invoke key) into the main frame of EVERY webview, and — as of
 //! the `AppManifest` added in build.rs — the app's native commands are granted
 //! only to the origins in `capabilities/default.json`'s `remote` allowlist. That
 //! ACL is the authoritative gate. This guard is the layer in front of it: it
-//! stops a Dial8 window from ever *reaching* a non-Dial8 origin in the first
+//! stops a Native Intelligence window from ever *reaching* a non-Dial8 origin in the first
 //! place, so a stray same-tab link in an AI reply, an email body, or a billing
 //! redirect can't repaint the window onto a third-party site (where the bridge
 //! would be injected and every native command would be refused by the ACL, but
@@ -20,7 +20,7 @@
 //! created in code (workspace popouts, HUDs) from one place — no
 //! per-window wiring, and no way to forget a new window.
 //!
-//! An http(s) destination that is NOT a Dial8 origin is handed to the system
+//! An http(s) destination that is NOT a Native Intelligence origin is handed to the system
 //! browser via the opener plugin and then cancelled, so external links still
 //! open — just not inside the app. Non-http(s) schemes the shell itself needs
 //! (`tauri:`, `ipc:`, `about:`, `blob:`, `data:`) are allowed through; any other
@@ -40,7 +40,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
-/// Hosts the Dial8 web app is served from. The main window loads
+/// Hosts the Native Intelligence web app is served from. The main window loads
 /// `https://dial8.ai` in release and `http://localhost:3000` in a debug build
 /// (see `tray::api_base_url`), and workspace/HUD windows load subpaths of the
 /// same. Kept in sync with `capabilities/default.json`'s `remote.urls` — that
@@ -76,7 +76,7 @@ fn is_internal_scheme(url: &Url) -> bool {
     matches!(url.scheme(), "tauri" | "ipc" | "about" | "blob" | "data")
 }
 
-/// Decide whether `url` may load in a Dial8 webview. Pure so it can be tested
+/// Decide whether `url` may load in a Native Intelligence webview. Pure so it can be tested
 /// without a running app (see the tests below).
 fn is_allowed(url: &Url) -> bool {
     is_dial8_host(url) || is_internal_scheme(url)
@@ -89,7 +89,7 @@ pub fn on_navigation<R: Runtime>(webview: &Webview<R>, url: &Url) -> bool {
         return true;
     }
 
-    // Not a Dial8 origin. If it's a normal web link, open it in the user's real
+    // Not a Native Intelligence origin. If it's a normal web link, open it in the user's real
     // browser (same destination the opener plugin sends `target="_blank"` links
     // to) so the click still does something; then cancel the in-app navigation.
     if matches!(url.scheme(), "http" | "https") {

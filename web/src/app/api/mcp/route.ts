@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       // cleanly). On our stateless Vercel/Next setup that per-request stream can
       // stall — the result is written but the stream never delivers/closes, so the
       // connected `claude` CLI sits forever on "Running…" (e.g. a plain
-      // dial8_list_workspaces never returns and the chat appears to die). Dial8 is
+      // dial8_list_workspaces never returns and the chat appears to die). Native Intelligence is
       // pure request/response — no server-initiated messages within a call — so the
       // SSE channel buys us nothing. JSON-response mode resolves a normal Promise
       // with the body and removes the hangable stream entirely. (Pairs with the
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
 
 /**
  * GET opens the Streamable-HTTP "standalone SSE stream" — a long-lived channel
- * the server uses to PUSH notifications to the client. The Dial8 MCP server is
+ * the server uses to PUSH notifications to the client. The Native Intelligence MCP server is
  * purely request/response (every result comes back on the POST that asked for
  * it); it never initiates a server→client message. Holding that idle stream open
  * gained us nothing and cost us everything: on Vercel the function eventually

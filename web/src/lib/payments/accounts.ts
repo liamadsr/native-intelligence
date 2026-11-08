@@ -4,7 +4,7 @@
  * into by direct charges.
  *
  * Two ways in (./onboarding.ts):
- *   created  Dial8 makes an Accounts v2 account (full Stripe Dashboard,
+ *   created  Native Intelligence makes an Accounts v2 account (full Stripe Dashboard,
  *            Stripe-owned fees and losses, the merchant configuration) and the
  *            owner fills in Stripe-hosted onboarding. An owner who already has
  *            Stripe can reuse their details there (networked onboarding), but
@@ -219,7 +219,7 @@ export async function syncConnectedAccount(supabase: SupabaseClient, stripeAccou
   }
 }
 
-/** The owner removed Dial8 from their Stripe account (account.application.deauthorized). */
+/** The owner removed Native Intelligence from their Stripe account (account.application.deauthorized). */
 export async function markDisconnected(supabase: SupabaseClient, stripeAccountId: string): Promise<string | null> {
   if (!isStripeAccountId(stripeAccountId)) return null
   const at = new Date().toISOString()

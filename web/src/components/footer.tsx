@@ -38,7 +38,7 @@ function SocialLinks() {
       <Link
         href="https://discord.gg/sHtYGtkWga"
         target="_blank"
-        aria-label="Join Dial8 Discord"
+        aria-label="Join Native Intelligence Discord"
         className="text-foreground data-hover:text-muted-foreground"
       >
         <SocialIconDiscord className="size-5" />
@@ -46,7 +46,7 @@ function SocialLinks() {
       <Link
         href="https://x.com/Dial8_ai"
         target="_blank"
-        aria-label="Follow Dial8 on X"
+        aria-label="Follow Native Intelligence on X"
         className="text-foreground data-hover:text-muted-foreground"
       >
         <SocialIconX className="size-4" />
@@ -82,8 +82,8 @@ export function Footer() {
             <div className="flex items-center gap-4">
               {/* Always the dark app icon — the light/marble variant is retired. */}
               <img
-                src="/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png"
-                alt="Dial8"
+                src="/brand/ni-app-icon.png"
+                alt="Native Intelligence"
                 className="h-9 w-9"
               />
               <Copyright />

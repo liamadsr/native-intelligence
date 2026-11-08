@@ -20,9 +20,9 @@ import {
 // The root title carries no "for Sales Teams" qualifier: at `/` the pitch is
 // the whole company's, not a segment page.
 export const metadata: Metadata = {
-  title: 'Dial8 — the end-to-end AI sales platform',
+  title: 'Native Intelligence — the end-to-end AI sales platform',
   description:
-    'Dial8 turns everything your sales team knows — playbooks, product knowledge, competitors, deal history — into intelligence every rep can use live on every call.',
+    'Native Intelligence turns everything your sales team knows — playbooks, product knowledge, competitors, deal history — into intelligence every rep can use live on every call.',
 }
 
 export default async function Home() {

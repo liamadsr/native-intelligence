@@ -2,13 +2,13 @@
  * The send path's flywheel hook: an agent draft the person rewrote heavily
  * before sending becomes a `draft_rewrite` candidate (./types.ts
  * DraftRewriteEvidence). A score, word counts, the draft's origin and
- * pointers only: Dial8 stores no mail, so neither the draft nor the sent text
+ * pointers only: Native Intelligence stores no mail, so neither the draft nor the sent text
  * is kept, logged or passed on; a reviewer reads the thread live.
  *
  * Wired into sendProviderDraft (src/lib/integrations/email.ts) in two halves,
  * so it can never delay or fail a send:
  *   1. `readDraftForRewrite`, started (not awaited) alongside the provider
- *      send when the person sent with edits: the Dial8 draft row's text, read
+ *      send when the person sent with edits: the Native Intelligence draft row's text, read
  *      before the send settles the row away. It never rejects.
  *   2. `deferDraftRewrite`, after the send succeeded: `noteDraftRewrite` runs
  *      after the response (Next's `after`, so a serverless invocation stays
@@ -16,7 +16,7 @@
  *      body (what the send put into the message), the draft's is the row's
  *      `body_text`. It swallows every error.
  * A draft sent without edits went out as the mailbox holds it, unchanged by
- * Dial8, so there is nothing to measure. A row the person saved edits into
+ * Native Intelligence, so there is nothing to measure. A row the person saved edits into
  * (status 'edited', PATCH /api/account/email/drafts/[id]) is measured from
  * those edits: the score can only come out higher, never a false candidate.
  */
@@ -45,7 +45,7 @@ export function draftOrigin(metadata: unknown): DraftRewriteEvidence['origin'] {
 }
 
 /**
- * Read the Dial8 draft row behind a send: the row whose provider draft id is
+ * Read the Native Intelligence draft row behind a send: the row whose provider draft id is
  * exactly the sent message's. The send also finds the thread's other rows
  * (draftRowsFor matches the thread too), and measuring against one of those
  * would score the person's text against a different draft, so no exact match

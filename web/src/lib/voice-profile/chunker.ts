@@ -1,5 +1,5 @@
 /**
- * Enrollment audio chunker — pure signal analysis for the "Teach Dial8 your
+ * Enrollment audio chunker — pure signal analysis for the "Teach Native Intelligence your
  * voice" flow. Given a passage's raw 16 kHz mono Float32 samples and the ambient
  * noise floor measured during mic-check, it:
  *

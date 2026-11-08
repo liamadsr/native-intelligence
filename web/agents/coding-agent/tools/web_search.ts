@@ -1,7 +1,7 @@
 /**
  * web_search — LIVE for the coding-agent, pinned to Exa.
  *
- * Web access is an ALWAYS-ON capability of every Dial8 agent. This file REPLACES
+ * Web access is an ALWAYS-ON capability of every Native Intelligence agent. This file REPLACES
  * a `disableTool()` sentinel whose rationale was parity with the legacy Claude-
  * Code-CLI runner's hardcoded Bash/Read/Edit/Write/Glob/Grep allowlist. That
  * parity argument no longer holds: an unattended coding run that hits an

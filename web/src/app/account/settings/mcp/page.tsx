@@ -1,7 +1,7 @@
 import { McpSettingsView } from './mcp-settings-view'
 
 export const metadata = {
-  title: 'Dial8 MCP – Settings – Dial8',
+  title: 'NI MCP – Settings',
 }
 
 export default function McpSettingsPage() {

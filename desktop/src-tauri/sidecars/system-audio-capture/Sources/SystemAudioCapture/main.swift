@@ -4,7 +4,7 @@ import ScreenCaptureKit
 import CATapHelperLib
 import EventKit
 
-/// system-audio-capture sidecar for Dial8 Tauri desktop app.
+/// system-audio-capture sidecar for Native Intelligence Tauri desktop app.
 ///
 /// Commands:
 ///   detect             — One-shot meeting detection (returns JSON to stdout)

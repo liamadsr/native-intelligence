@@ -106,7 +106,7 @@ class AIBackendService {
                             }
                         case .finished(let turn):
                             if !turn.requests.isEmpty {
-                                throw AIBackendError.serverError("This agent needs your input. Open the conversation in Dial8 chat to answer it.")
+                                throw AIBackendError.serverError("This agent needs your input. Open the conversation in Native Intelligence chat to answer it.")
                             }
                             if let failure = turn.failure { throw AIBackendError.serverError(failure) }
                             continuation.yield(.completed(AgentResponse(text: turn.text, toolUses: turn.tools.map { ToolUse(name: $0.name, input: $0.input) })))

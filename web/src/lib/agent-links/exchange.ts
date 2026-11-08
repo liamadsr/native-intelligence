@@ -470,7 +470,7 @@ export type LinkReplyResult = { recorded: true; messageId: string } | { recorded
 
 /**
  * The answering half's turn ended: its reply (kind 'answer'), or a note
- * Dial8 wrote when it couldn't answer ('note'), becomes the exchange's next
+ * Native Intelligence wrote when it couldn't answer ('note'), becomes the exchange's next
  * message, and the asker's agent gets it in an agent_answer turn. `rowId` is
  * the turn's home_turn row: a retried step records it once. Throws on a
  * failed read or write.

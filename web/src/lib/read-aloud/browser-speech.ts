@@ -17,7 +17,7 @@
  *   times, reactions, dividers, quotes or cards. Read as given.
  * - Outlook: the desktop gives the highlighted part of the open thread
  *   (`mail`): each message's sender and body HTML, and the subject when the
- *   highlight takes it in. A body reads through Dial8's own email reader
+ *   highlight takes it in. A body reads through Native Intelligence's own email reader
  *   (./email-speech: no quoted history, signature, footer), once Outlook's
  *   "x_" prefixes are off its markup. "From Ann, about the renewal. …" (with
  *   the subject) or "Ann wrote: …", then "Bob then wrote: …"; a collapsed

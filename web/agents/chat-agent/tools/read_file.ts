@@ -7,7 +7,7 @@
 // provisioned for these sessions.
 //
 // WEB IS NOT PART OF THIS LOCKDOWN. web_search/web_fetch are always on for every
-// Dial8 agent and sit OUTSIDE the ceiling mechanism (which filters workspace
+// Native Intelligence agent and sit OUTSIDE the ceiling mechanism (which filters workspace
 // proxies, not framework tools) — see tools/web_search.ts and tools/web_fetch.ts.
 //
 // THE MAC BODY (contract C2, ../lib/host.ts) is the exception: built with

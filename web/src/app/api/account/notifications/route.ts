@@ -6,7 +6,7 @@
  * (docs/plans/retire-notifications-page.md). The shell still holds the newest
  * page for their banners (taken down once read) and for an item opened again
  * to read its late notice. The rows are the plain notices: from people,
- * clocks and Dial8 itself (bots-v4 Phase 4c, decision 8). A notice whose row
+ * clocks and Native Intelligence itself (bots-v4 Phase 4c, decision 8). A notice whose row
  * names a teammate (`metadata.teammate_id`, bot-notice.ts) that the caller
  * can reach is its bot's and lives with the bot (its bubble's and its page's
  * Notices, GET /notifications/bot). One whose teammate the caller can't reach

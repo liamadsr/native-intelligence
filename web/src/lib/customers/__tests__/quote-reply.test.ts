@@ -100,7 +100,7 @@ describe('send_quote', () => {
 
     const out = await runSendQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(SEND_QUOTE_TOOL, { quote_id: QUOTE, price: 240 }) }, { quote_id: QUOTE, price: 240 }, deps())
     expect(out).toMatchObject({ success: true, sent_via: 'text', to: DANA, price: '$240' })
-    // From the business's own number, never the Dial8 one; the exact words the card showed.
+    // From the business's own number, never the Native Intelligence one; the exact words the card showed.
     expect(send).toHaveBeenCalledWith(DANA, text, { from: BUSINESS_NUMBER })
     expect(quote()).toMatchObject({ status: 'sent', total_cents: 24_000 })
     expect(tables.sms_message).toEqual([expect.objectContaining({ direction: 'out', kind: 'notice', phone_e164: DANA })])
@@ -135,7 +135,7 @@ describe('send_quote', () => {
     expect(hold?.card.why).toContain('Then the quote is marked sent. It runs once')
   })
 
-  it('with no business number it emails from the owner’s own mailbox (never a Dial8 number)', async () => {
+  it('with no business number it emails from the owner’s own mailbox (never a Native Intelligence number)', async () => {
     tables.business_phone_number[0].state = 'released'
     const input = { quote_id: QUOTE, price: '240' }
     const hold = await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input }, deps())

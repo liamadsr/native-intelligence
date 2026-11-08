@@ -7,7 +7,7 @@
  * desktop's native prompt; on yes, later commands of the job can read it.
  * Nothing is ever made writable. The answer is one line for the model.
  *
- * A Mac host slot (contract C2): the Mac build adds it to the Dial8 agent as
+ * A Mac host slot (contract C2): the Mac build adds it to the Native Intelligence agent as
  * tools/request_folder_access.ts (scripts/local-agent/mac-body.sh); the cloud
  * body has none.
  */

@@ -1,7 +1,7 @@
 /**
  * The agent tools see the WHOLE workspace, not just the rows the caller made.
  *
- * Dial8 is a workspace for many people. The tools used to scope shared tables
+ * Native Intelligence is a workspace for many people. The tools used to scope shared tables
  * to `.eq('user_id', userId)`, so a teammate's ENG-42 could not even be looked
  * up, let alone updated, from chat. They now match RLS instead:
  *   - actions: any member reads and updates; only an owner or admin deletes;

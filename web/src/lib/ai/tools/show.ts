@@ -153,8 +153,8 @@ function rowFields(row: Record<string, unknown> | undefined): string[] {
 /** Why a per-person card is refused here, naming what to use instead. */
 function personalRefusal(kind: PersonalCardKind): string {
   return kind === 'mail'
-    ? "kind 'mail' shows only in a Dial8 chat that can read mail. Here, use list_emails and read_email instead"
-    : "kind 'calendar' shows only in a Dial8 chat that can read the calendar. Here, use get_calendar_events instead"
+    ? "kind 'mail' shows only in a Native Intelligence chat that can read mail. Here, use list_emails and read_email instead"
+    : "kind 'calendar' shows only in a Native Intelligence chat that can read the calendar. Here, use get_calendar_events instead"
 }
 
 export function createShowTools(

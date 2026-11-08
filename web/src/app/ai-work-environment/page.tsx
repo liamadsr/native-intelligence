@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   description: DESCRIPTION,
   alternates: { canonical: '/ai-work-environment' },
   openGraph: {
-    title: `${TITLE} — Dial8`,
+    title: `${TITLE} — Native Intelligence`,
     description: DESCRIPTION,
     url: `${BASE_URL}/ai-work-environment`,
     type: 'article',
@@ -31,14 +31,14 @@ const articleSchema = {
     '@type': 'WebPage',
     '@id': `${BASE_URL}/ai-work-environment`,
   },
-  author: { '@type': 'Organization', name: 'Dial8', url: BASE_URL },
+  author: { '@type': 'Organization', name: 'Native Intelligence', url: BASE_URL },
   publisher: {
     '@type': 'Organization',
-    name: 'Dial8',
+    name: 'Native Intelligence',
     url: BASE_URL,
     logo: {
       '@type': 'ImageObject',
-      url: `${BASE_URL}/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png`,
+      url: `${BASE_URL}/brand/ni-app-icon.png`,
     },
   },
 }
@@ -206,14 +206,14 @@ export default function AiWorkEnvironmentPage() {
               </p>
             </section>
 
-            {/* How Dial8 implements it */}
+            {/* How Native Intelligence implements it */}
             <section className="relative py-16">
               <SectionDivider />
               <h2 className="text-2xl font-medium tracking-tight text-foreground sm:text-3xl">
-                How Dial8 implements it
+                How Native Intelligence implements it
               </h2>
               <p className="mt-6">
-                Dial8 is built as an AI work environment from the ground up, not
+                Native Intelligence is built as an AI work environment from the ground up, not
                 a notetaker with features bolted on. Capture is bot-free: the
                 macOS and iOS apps record meetings locally, and email and
                 calendar sync in, so context arrives without anyone joining a
@@ -231,7 +231,7 @@ export default function AiWorkEnvironmentPage() {
                 fact carrying the source it came from.
               </p>
               <p className="mt-4">
-                And the work gets done. Dial8 hands actions to AI agents that
+                And the work gets done. Native Intelligence hands actions to AI agents that
                 execute — writing code, opening pull requests, drafting
                 documents — with the full context of the meeting that created the
                 task. The whole workspace is exposed over MCP, so you can point
@@ -282,7 +282,7 @@ export default function AiWorkEnvironmentPage() {
                     href="/vs/granola"
                     className="block rounded-xl border border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
                   >
-                    Dial8 vs Granola
+                    Native Intelligence vs Granola
                   </Link>
                 </li>
                 <li>
@@ -290,7 +290,7 @@ export default function AiWorkEnvironmentPage() {
                     href="/vs/fathom"
                     className="block rounded-xl border border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
                   >
-                    Dial8 vs Fathom
+                    Native Intelligence vs Fathom
                   </Link>
                 </li>
                 <li>
@@ -298,7 +298,7 @@ export default function AiWorkEnvironmentPage() {
                     href="/vs/otter"
                     className="block rounded-xl border border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
                   >
-                    Dial8 vs Otter.ai
+                    Native Intelligence vs Otter.ai
                   </Link>
                 </li>
                 <li>
@@ -306,7 +306,7 @@ export default function AiWorkEnvironmentPage() {
                     href="/vs/fireflies"
                     className="block rounded-xl border border-border px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
                   >
-                    Dial8 vs Fireflies.ai
+                    Native Intelligence vs Fireflies.ai
                   </Link>
                 </li>
               </ul>

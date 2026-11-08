@@ -597,7 +597,7 @@ describe('findUserByEmail', () => {
   })
 
   /**
-   * No match is the EXPECTED outcome, not an error: the member's Dial8 email is
+   * No match is the EXPECTED outcome, not an error: the member's Native Intelligence email is
    * whatever they signed up with and need not be their address in the customer's
    * Linear org.
    */

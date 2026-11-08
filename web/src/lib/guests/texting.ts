@@ -1,6 +1,6 @@
 /**
  * A text from a number nobody linked (src/lib/sms/inbound.ts), when it is a
- * guest's (guest access). Guests always text first: Dial8 never texts a
+ * guest's (guest access). Guests always text first: Native Intelligence never texts a
  * guest who hasn't. In this order:
  *
  *   1. an active guest's text goes to their own agent: written into their

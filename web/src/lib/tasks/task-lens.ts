@@ -25,7 +25,7 @@
  * live has one moving part and cannot go stale.
  *
  * WHAT IS NOT HERE. Status/state is READ-ONLY in the lens and is never written.
- * It already has an owner — the Dial8→provider status echo (`*EchoStatus`) — and
+ * It already has an owner — the Native Intelligence→provider status echo (`*EchoStatus`) — and
  * a second write path racing it would fight the CAS loop-breaker the read-back
  * depends on. Project/issue-type/team moves are excluded for a different reason:
  * they rewrite identifiers, need field re-mapping wizards on Jira's side, and
@@ -146,7 +146,7 @@ export interface LensDetails {
  *    is gone (apply-remote-task-state's markTaskDeleted already treats it so).
  *  - `provider_error` — everything else, including a 429. See below for why a
  *    rate limit is reported rather than slept on.
- *  - `link_not_found` — no link row for this (action, provider). A Dial8-side
+ *  - `link_not_found` — no link row for this (action, provider). An NI-side
  *    fact, not a provider one.
  *  - `not_connected` / `not_configured` — the workspace never finished setup.
  *  - `field_not_editable` — Jira's editmeta says this field is not on the issue's

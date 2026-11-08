@@ -12,7 +12,7 @@
  *   - the message is written into their home thread as THEIR message (id
  *     `slack-in:<team>:<channel>:<ts>`: a retried event converges on one row),
  *     with where it came from in its metadata (the reply goes back there);
- *   - an 👀 reaction on their message says Dial8 is on it;
+ *   - an 👀 reaction on their message says Native Intelligence is on it;
  *   - `slack/turn.requested` is sent (its id is the message's, so a retry
  *     never starts a second turn).
  *
@@ -63,7 +63,7 @@ import { guestSlackTarget } from '@/lib/guests/slack'
 /** The Inngest event a Slack turn is requested with (home/turn.requested's data, reason 'slack'). */
 export const SLACK_TURN_REQUESTED_EVENT = 'slack/turn.requested' as const
 
-/** The reaction that says Dial8 is working on a message. */
+/** The reaction that says Native Intelligence is working on a message. */
 export const WORKING_REACTION = 'eyes'
 
 type Dm = Extract<SlackInbound, { kind: 'dm' }>
@@ -92,7 +92,7 @@ export interface SlackOrigin {
   /**
    * The person's own DM with the bot (conversations.open with their linked
    * Slack user): approval cards go here, never into a channel thread others
-   * read. Absent when it can't be opened (the cards wait in Dial8).
+   * read. Absent when it can't be opened (the cards wait in Native Intelligence).
    */
   dm_channel_id?: string
   /** The message the 👀 is on (a DM: a hint from the row, in their own DM; a thread: the server's own last_mention_ts). */
@@ -243,7 +243,7 @@ export { hydrateChannelPlan, plannedMessageIds, redactChannelPlan } from '@/lib/
  * workspace and the person must be linked in it; the DM is opened from their
  * linked Slack user (`openDm`, conversations.open; approval cards go there),
  * with the installation row's own id. Null when any of that fails (the reply
- * stays in Dial8). Never throws.
+ * stays in Native Intelligence). Never throws.
  */
 export async function replyOrigin(
   supabase: SupabaseClient,
@@ -407,7 +407,7 @@ export async function settleSlackTurn(
   const outcome = read.done && read.end !== 'completed' ? `${finished.outcome}:${read.end}` : finished.outcome
   if (!to) return { outcome, written: finished.written, posted: false, postReason: 'no_origin' }
   const { origin, slack } = to
-  // A guest is told in their own words: they have no Dial8 to look in.
+  // A guest is told in their own words: they have no Native Intelligence to look in.
   const notices = data.guestId ? GUEST_SLACK_TURN_NOTICES : SLACK_TURN_NOTICES
   if (!read.done) {
     await noticeToPerson(origin, slack, notices.unfinished())
@@ -416,7 +416,7 @@ export async function settleSlackTurn(
   await unreactCarried(origin, slack)
   const posted = await postSlackTurnReply(supabase, { ...data, rowId: row.id }, origin, slack, deps)
   // What the turn held for the person's yes goes to them where they are (piece 6).
-  // Never a guest's: what their turn held is the owner's to approve, in Dial8.
+  // Never a guest's: what their turn held is the owner's to approve, in Native Intelligence.
   const approvals = row.created_at && !data.guestId ? await postRaisedApprovals(supabase, { ...data, since: row.created_at }, origin, slack) : 0
   if (posted.posted) return { outcome, written: finished.written, posted: true, ...(approvals ? { approvals } : {}) }
   if (posted.reason === 'quiet' && (read.end === 'failed' || read.end === 'cancelled' || read.end === 'session_ended')) {
@@ -458,7 +458,7 @@ export async function postSlackTurnReply(
   }
   if (isQuietReply(text)) return { posted: false, reason: 'quiet' }
   if (!(await claimReply(supabase, args.rowId, deps.now))) return { posted: false, reason: 'already_sent' }
-  // A guest has no Dial8 to open: no "more in Dial8" link for them.
+  // A guest has no Native Intelligence to open: no "more in Native Intelligence" link for them.
   const body = markdownToSlack(text, args.guestId ? {} : { moreLink: `${deps.origin ?? appOrigin()}/account` })
   const sent = await slack.post({ channel: origin.channel_id, text: body, ...inThread(origin) }).catch(() => ({ ok: false as const, error: 'request_failed' }))
   return sent.ok ? { posted: true } : { posted: false, reason: sent.error }
@@ -510,15 +510,15 @@ async function claimReply(supabase: SupabaseClient, rowId: string, now?: () => n
 export function slackTurnSkipNotice(reason: HomeTurnSkip | 'busy' | 'failed' | 'unfinished'): string | null {
   switch (reason) {
     case 'question_pending':
-      return 'You have a question from me waiting in Dial8. Answer it there, then message me again.'
+      return 'You have a question from me waiting in Native Intelligence. Answer it there, then message me again.'
     case 'usage_limited':
-      return "You've reached your Dial8 usage limit, so I can't answer here right now. Check Settings > Billing in Dial8."
+      return "You've reached your Native Intelligence usage limit, so I can't answer here right now. Check Settings > Billing in Native Intelligence."
     case 'not_member':
     case 'no_conversation':
     case 'not_home':
       return SLACK_TURN_NOTICES.not_member()
     case 'busy':
-      return "I'm still busy with something else in Dial8. Message me again in a few minutes."
+      return "I'm still busy with something else in Native Intelligence. Message me again in a few minutes."
     case 'unfinished':
       return SLACK_TURN_NOTICES.unfinished()
     case 'failed':
@@ -565,7 +565,7 @@ export const GUEST_SLACK_TURN_NOTICES = {
 } as const
 
 export const SLACK_TURN_NOTICES = {
-  not_member: () => "Your Dial8 account isn't in the Dial8 workspace this Slack is connected to any more, so I can't answer here.",
-  unfinished: () => "That's taking me a while. I'll keep the answer in Dial8 for you.",
-  failed: () => "Sorry, I couldn't get to that just now. Try again in a minute, or open Dial8.",
+  not_member: () => "Your Native Intelligence account isn't in the Native Intelligence workspace this Slack is connected to any more, so I can't answer here.",
+  unfinished: () => "That's taking me a while. I'll keep the answer in Native Intelligence for you.",
+  failed: () => "Sorry, I couldn't get to that just now. Try again in a minute, or open Native Intelligence.",
 } as const

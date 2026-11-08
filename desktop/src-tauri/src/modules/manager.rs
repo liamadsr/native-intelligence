@@ -187,7 +187,7 @@ impl ModuleManager {
 
     /// Hash a module's assets once this app run, off the main thread
     /// ([`assets::recheck`]), before it's ready: its verified.json is the
-    /// user's to rewrite, so a file swapped while Dial8 was closed passes the
+    /// user's to rewrite, so a file swapped while Native Intelligence was closed passes the
     /// stamp check. A mismatch runs the job, which hashes the files where
     /// they are and downloads again only one that fails. ~0.35 s for
     /// local-stt; auto-record waits far longer (the main page's load, then

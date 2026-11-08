@@ -20,9 +20,9 @@ import { mailboxesForThread, type LiveMailbox } from './thread-mailbox'
  *   mailto     an email to the list's unsubscribe address, sent from the
  *              thread's own mailbox (the subject and body the link names, else
  *              "unsubscribe"). Nothing is logged to the CRM.
- *   link       only an https page: Dial8 never opens a sender's page, so the
+ *   link       only an https page: Native Intelligence never opens a sender's page, so the
  *              person gets the link to open themselves.
- * This leaves Dial8 (an HTTP call to the sender, or a sent email), so the tool
+ * This leaves Native Intelligence (an HTTP call to the sender, or a sent email), so the tool
  * that calls it waits for the person's approval card.
  */
 

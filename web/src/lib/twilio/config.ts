@@ -1,14 +1,14 @@
 /**
- * Twilio configuration (docs/plans/text-and-calling.md, Phase 1). One Dial8
+ * Twilio configuration (docs/plans/text-and-calling.md, Phase 1). One Native Intelligence
  * number per deployment, set through Vercel Connect / env:
  *
  *   TWILIO_ACCOUNT_SID              the account (AC…)
  *   TWILIO_AUTH_TOKEN               signs the webhooks we receive and
  *                                   authenticates the REST calls we make
- *   TWILIO_PHONE_NUMBER             the Dial8 number (E.164), the `From`
+ *   TWILIO_PHONE_NUMBER             the Native Intelligence number (E.164), the `From`
  *   TWILIO_MESSAGING_SERVICE_SID    optional (MG…): sends through a messaging
  *                                   service instead (10DLC campaigns attach
- *                                   there), From the Dial8 number when it is
+ *                                   there), From the Native Intelligence number when it is
  *                                   set (the pool holds agent numbers too:
  *                                   src/lib/sms/agent-number.ts)
  *   TWILIO_WEBHOOK_URL              optional: the exact public URL Twilio
@@ -49,7 +49,7 @@ export function twilioAuthToken(): string | null {
   return env('TWILIO_AUTH_TOKEN')
 }
 
-/** The Dial8 number people text, for copy ("text +1 555…"), or null. */
+/** The Native Intelligence number people text, for copy ("text +1 555…"), or null. */
 export function twilioPhoneNumber(): string | null {
   return env('TWILIO_PHONE_NUMBER')
 }
@@ -59,7 +59,7 @@ export function twilioWebhookUrlOverride(): string | null {
   return env('TWILIO_WEBHOOK_URL')
 }
 
-/** The SMS webhook every Dial8 number posts to (the Dial8 one, a business's, an agent's). */
+/** The SMS webhook every Native Intelligence number posts to (the Native Intelligence one, a business's, an agent's). */
 export function twilioSmsWebhookUrl(): string {
   return twilioWebhookUrlOverride() ?? `${appOrigin()}/api/twilio/sms`
 }

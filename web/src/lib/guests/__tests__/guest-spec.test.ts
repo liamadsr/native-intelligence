@@ -201,13 +201,13 @@ describe('what waits for the owner, per person', () => {
     expect(noDeletes).not.toContain('deletes something')
     expect(noDeletes).toContain('stops before it pays')
     const neither = guestWaitsLine('Liam', 'Sam', [])
-    expect(neither).toContain("Anything that sends something or changes something outside Dial8 waits for Liam's OK")
+    expect(neither).toContain("Anything that sends something or changes something outside Native Intelligence waits for Liam's OK")
     expect(neither).not.toContain('pays')
   })
 
   // The owner decides each tool (2026-11-02): the agent is told exactly which wait, so it never promises a card for a call that just runs.
   it('with the owner’s per-tool settings, names exactly what waits', () => {
-    expect(guestWaitsLine('Liam', 'Jess', ['payments'], ['delete_calendar_event'])).toMatch(/^These wait for Liam's OK in Dial8 and run once they approve it: .+\. The rest runs without waiting on Liam, unless a tool's answer says it is waiting\./)
+    expect(guestWaitsLine('Liam', 'Jess', ['payments'], ['delete_calendar_event'])).toMatch(/^These wait for Liam's OK in Native Intelligence and run once they approve it: .+\. The rest runs without waiting on Liam, unless a tool's answer says it is waiting\./)
     expect(guestWaitsLine('Liam', 'Jess', ['payments'], [])).toMatch(/^Your tools run without waiting on Liam, unless a tool's answer says it is waiting\./)
   })
 

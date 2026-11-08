@@ -60,7 +60,7 @@ describe('classifyCreateMeta — field presence', () => {
 describe('classifyCreateMeta — priority', () => {
   /**
    * createmeta's allowedValues is the ONLY in-scope source: /priority/search
-   * needs manage:jira-configuration, a scope Dial8 does not hold.
+   * needs manage:jira-configuration, a scope Native Intelligence does not hold.
    */
   it('lifts the priority options out of allowedValues', () => {
     const meta = classifyCreateMeta([

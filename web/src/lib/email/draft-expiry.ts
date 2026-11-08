@@ -18,7 +18,7 @@ import { resolveWorkForDeliverable } from '@/lib/work/resolve'
  * Dismissed as the person's dismiss does it, minus the "reviewed" stamp (this
  * isn't their activity): the row goes (only while still untouched), its hold
  * with it when no other draft rests on it, the draft in the mailbox by the id
- * Dial8 saved (an edit made in Gmail has a new id and stays), and its work
+ * Native Intelligence saved (an edit made in Gmail has a new id and stays), and its work
  * item stops waiting. A draft whose hold is mid-send is left alone. Drafts the
  * person asked for (chat, Generate) and their own are never swept.
  * Runs in the hourly `email-hold-expiry` (src/lib/inngest/email-functions.ts).

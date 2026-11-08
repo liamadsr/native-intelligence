@@ -15,7 +15,7 @@ export interface IEvent {
   title: string;
   color: TEventColor;
   description: string;
-  // Dial8-specific fields
+  // NI-specific fields
   htmlLink?: string;
   location?: string;
   conferenceUrl?: string;

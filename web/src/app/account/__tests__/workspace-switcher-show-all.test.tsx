@@ -60,7 +60,7 @@ function jsonRes(body: unknown) {
 }
 
 const TWO = [
-  { id: 'ws-1', name: 'Dial8', slug: 'dial8', logo_url: null, plan: 'pro', role: 'owner' },
+  { id: 'ws-1', name: 'Native Intelligence', slug: 'dial8', logo_url: null, plan: 'pro', role: 'owner' },
   { id: 'ws-2', name: 'Corvanne', slug: 'corvanne', logo_url: null, plan: 'pro', role: 'member' },
 ]
 
@@ -147,7 +147,7 @@ describe('Show all workspaces', () => {
 
   it('is not offered to someone with a single workspace', async () => {
     await mountWith(TWO.slice(0, 1))
-    expect(container.textContent).toContain('Dial8')
+    expect(container.textContent).toContain('Native Intelligence')
     expect(toggle()).toBeNull()
   })
 })

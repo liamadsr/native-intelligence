@@ -3618,7 +3618,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
           ) : (
             /* In the persistent strip with no messages yet, this spacer pushes
                the input to the bottom of the column instead of the top. What
-               Dial8 can do rotates in the composer's placeholder
+               Native Intelligence can do rotates in the composer's placeholder
                (composerSuggestions), not here. The main chat greets the
                person, with what it's like outside, centred above the
                composer (components/sky/conditions-line.tsx). */

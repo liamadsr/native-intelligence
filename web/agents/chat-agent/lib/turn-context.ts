@@ -85,7 +85,7 @@
  * outside any turn, and what it returned stays true.
  *
  * ── Fence ───────────────────────────────────────────────────────────────────
- * Bodies carry text Dial8 does not control: email threads, CRM cards,
+ * Bodies carry text Native Intelligence does not control: email threads, CRM cards,
  * transcripts, file names, editor selections. The block's closing tag carries
  * its id, a hash over everything inside it, and the standing contract says only
  * the closing tag with that id ends the block. A body cannot carry the hash of

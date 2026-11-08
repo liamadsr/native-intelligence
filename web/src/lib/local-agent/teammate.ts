@@ -3,10 +3,10 @@
  * client-safe: the store, the ledger, the chat tools and the Agents panel
  * share these.
  *
- * The Mac body is the Dial8 agent running on the person's Mac. The person
- * meets it as "Dial8 on <Mac name>", with its own thread (the session's
+ * The Mac body is the Native Intelligence agent running on the person's Mac. The person
+ * meets it as "Native Intelligence on <Mac name>", with its own thread (the session's
  * transcript), and it talks back with two teammate tools that C1's tool route
- * runs on the server: message_teammate (to Dial8 in the cloud, which answers
+ * runs on the server: message_teammate (to Native Intelligence in the cloud, which answers
  * from a home turn) and report_to_person (a note in its own thread).
  */
 
@@ -18,8 +18,8 @@ export function isMacTeammateTool(name: unknown): name is MacTeammateToolName {
   return typeof name === 'string' && (MAC_TEAMMATE_TOOL_NAMES as readonly string[]).includes(name)
 }
 
-/** "Dial8 on Liam's MacBook Pro"; "Dial8 on your Mac" when the Mac has no name. */
+/** "Native Intelligence on Liam's MacBook Pro"; "Native Intelligence on your Mac" when the Mac has no name. */
 export function macTeammateName(deviceName: string | null | undefined): string {
   const name = (deviceName ?? '').replace(/\s+/g, ' ').trim()
-  return name ? `Dial8 on ${name}` : 'Dial8 on your Mac'
+  return name ? `Native Intelligence on ${name}` : 'Native Intelligence on your Mac'
 }

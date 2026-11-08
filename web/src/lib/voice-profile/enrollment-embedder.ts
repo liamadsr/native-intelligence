@@ -1,5 +1,5 @@
 /**
- * Enrollment embedder — a PRIVATE WavLM worker for the "Teach Dial8 your voice"
+ * Enrollment embedder — a PRIVATE WavLM worker for the "Teach Native Intelligence your voice"
  * flow.
  *
  * The enrollment flow must NOT go through `VoiceIdService.preloadedWorker`: that

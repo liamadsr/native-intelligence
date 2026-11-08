@@ -1957,7 +1957,7 @@ export function createActionTools(
           }
           if (!outcome.ok) {
             // The claim was handed back with the error on the row, so it's
-            // visible in the Dial8 UI.
+            // visible in the Native Intelligence UI.
             return {
               success: false,
               error: outcome.error,

@@ -468,7 +468,7 @@ function parsePending(body: unknown): { start: PendingStart[]; messages: Pending
       sessionId,
       text: m.text,
       policy: m.policy === 'queue' ? 'queue' : 'steer',
-      // The column is NOT NULL; anything else is the Dial8 agent's (never the person's name on another's words).
+      // The column is NOT NULL; anything else is the Native Intelligence agent's (never the person's name on another's words).
       author: m.author === 'person' ? 'person' : 'agent',
     })
   }
@@ -1478,7 +1478,7 @@ export function createLocalAgentRelay(deps: RelayDeps): LocalAgentRelay {
  * Select folder…). Through the window's running relay when there is one, else
  * a one-off with the desktop bridge and this page's fetch. Null outside the
  * desktop, without local agents, or when the server didn't answer. `rejoin`
- * (the add-folder path): a Mac removed from Dial8 comes back.
+ * (the add-folder path): a Mac removed from Native Intelligence comes back.
  */
 export async function refreshLocalAgentDevice(
   deps?: Pick<RelayDeps, 'fetch' | 'bridge'>,

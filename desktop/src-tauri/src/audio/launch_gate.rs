@@ -1,8 +1,8 @@
-//! Hold Dial8's own launch-time CoreAudio work until the main window has
+//! Hold Native Intelligence's own launch-time CoreAudio work until the main window has
 //! painted.
 //!
-//! Why (2026-09-29, from the unified logs): the first time a Dial8 process
-//! starts CoreAudio, macOS reads Dial8's Mic Mode (Voice Isolation on Liam's
+//! Why (2026-09-29, from the unified logs): the first time a Native Intelligence process
+//! starts CoreAudio, macOS reads Native Intelligence's Mic Mode (Voice Isolation on Liam's
 //! Mac) and every audio client on the Mac re-syncs its mic modes, for a minute
 //! or more. At its first paint the web view connects to WebKit's GPU process,
 //! which starts CoreAudio on its main thread as part of that connection. Inside
@@ -96,7 +96,7 @@ pub fn arm() {
 }
 
 /// The main window finished loading `url`: open the gate [`GRACE`] later.
-/// Only a Dial8 page counts (a debug build first loads dial8.ai and is then
+/// Only a Native Intelligence page counts (a debug build first loads dial8.ai and is then
 /// sent to the dev server).
 pub fn main_page_loaded(url: &str) {
     if GATE.is_open() || !counts(url, crate::tray::api_base_url()) {

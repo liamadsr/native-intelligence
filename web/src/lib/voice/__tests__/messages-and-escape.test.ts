@@ -13,7 +13,7 @@ import { VoiceRefusedError } from '@/lib/tauri-bridge'
 import { voiceEndedMessage, voiceRefusalInfo, voiceRefusalMessage } from '../messages'
 import { isVoiceEscape } from '../escape'
 
-const VERSION = 'Voice isn’t available on this version of Dial8.'
+const VERSION = 'Voice isn’t available on this version of Native Intelligence.'
 
 describe('voiceRefusalInfo', () => {
   it('reads the code and the desktop detail from the bridge error', () => {
@@ -62,13 +62,13 @@ describe('voiceRefusalMessage', () => {
   })
 
   it('the other codes keep their own copy whatever the detail', () => {
-    expect(voiceRefusalMessage('busy', 'another window')).toBe('Voice is already in use in another Dial8 window.')
+    expect(voiceRefusalMessage('busy', 'another window')).toBe('Voice is already in use in another Native Intelligence window.')
     expect(voiceRefusalMessage('mic_denied')).toContain('Privacy & Security')
   })
 })
 
 describe('voiceEndedMessage', () => {
-  it('idle: silence, or, with a reply still coming, that Dial8 was still working', () => {
+  it('idle: silence, or, with a reply still coming, that Native Intelligence was still working', () => {
     expect(voiceEndedMessage('idle', 'conversation')).toBe('Voice mode ended after 5 minutes of silence.')
     const pending = voiceEndedMessage('idle', 'conversation', { replyPending: true })!
     expect(pending).not.toContain('silence')

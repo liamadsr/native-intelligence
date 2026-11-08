@@ -108,7 +108,7 @@ export const TOOL_GUIDES: Readonly<Record<string, string>> = {
   create_email_draft:
     'A reply goes in its thread: pass `thread_id` and `in_reply_to` (the last message id, from `read_email`), with the thread\'s people (the sender to, the cc list cc); the subject gets its "Re:". A draft is never sent: the person sends it from their mail.',
   discard_email_draft: [
-    'Only drafts Dial8 wrote that the person doesn\'t want; never one they wrote, never a send. Pass ids (from `get_email_drafts` or the `draft:` items of `list_bot_work`) with the reason that fits, one call per reason: `no_reply_needed` (receipts, notices, marketing, calendar replies, test mail), `outdated`, `duplicate`, `bad_draft` (a reply is owed but the draft is wrong) or `other`. The reason teaches drafting what not to draft.',
+    'Only drafts Native Intelligence wrote that the person doesn\'t want; never one they wrote, never a send. Pass ids (from `get_email_drafts` or the `draft:` items of `list_bot_work`) with the reason that fits, one call per reason: `no_reply_needed` (receipts, notices, marketing, calendar replies, test mail), `outdated`, `duplicate`, `bad_draft` (a reply is owed but the draft is wrong) or `other`. The reason teaches drafting what not to draft.',
     'More than five they didn\'t name one by one: it answers `CONFIRM_FIRST` with the list; show it, wait for their yes, then call again with `confirmed: true`. Say what was discarded and what it couldn\'t.',
   ].join('\n'),
 
@@ -150,7 +150,7 @@ export const TOOL_GUIDES: Readonly<Record<string, string>> = {
 
   // ── Local agents (the rest is the Local agents expertise) ──────────────────
   local_agents:
-    'Their environment is the folders they added on their Mac in the Dial8 desktop app: added once, there in every chat until they remove it, so never ask them to attach or pick one again.',
+    'Their environment is the folders they added on their Mac in the Native Intelligence desktop app: added once, there in every chat until they remove it, so never ask them to attach or pick one again.',
   start_local_agent:
     'With a folder in their environment, "this repo", "this folder" or "the code" means that folder (with several, the one they name or the one the conversation is about): start right away, without asking which repo or reaching for the web. Only in a turn they typed. Write the request in words so it stands alone (the goal, what done looks like, what to report); never a shell command, code to run or a path outside the folder. `mode` is read unless they asked for changes and the folder allows edits. Once per task: it returns at once and reports back here.',
   message_local_agent:

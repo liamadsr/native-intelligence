@@ -3,7 +3,7 @@ import type { SkillEvalCase } from '../types'
 /**
  * The Calendar core (325): it rides `get_calendar_events`, a core tool, or a
  * `search_tools` reveal of a calendar tool. Invites to other people ask
- * first; Dial8's own calendar never needs the browser.
+ * first; Native Intelligence's own calendar never needs the browser.
  */
 export const cases: SkillEvalCase[] = [
   {

@@ -8,7 +8,7 @@ export const maxDuration = 60
 /**
  * GET /api/cron/asana-sync
  *
- * Every 30 min, keeps the Asana→Dial8 read-back honest. Two events per
+ * Every 30 min, keeps the Asana→Native Intelligence read-back honest. Two events per
  * connected sync state, both idempotent and both cheaply no-op'd by their
  * function's own gate:
  *

@@ -218,7 +218,7 @@ Always loaded (your core kit):
 - **search_contacts** — Search CRM contacts by name or email
 - **list_workspace_members** — Get all workspace members to resolve assignees
 - **get_project_details** — Full project context with milestones and recent actions
-- **propose_change** — Stage a Dial8-internal workspace change (the USER's action item, decision, status update, email, assignment) for user review
+- **propose_change** — Stage an NI-internal workspace change (the USER's action item, decision, status update, email, assignment) for user review
 - **record_commitment** — Record that ANOTHER participant committed to doing something. Files it in the knowledge graph as a tracked commitment by that person, instead of adding a task to the user's own list. Use this for "X will do Y" when X is not the user.
 - **propose_mcp_call** — Stage a tool call to a connected external MCP server (Jira, Linear, Atlassian) for user review. Use ONLY when the user has the relevant server connected (see the "Connected external MCP servers" block in your context — if no such block exists, do not call this).
 - **edit_proposal** — Update an existing proposal when details change or more context emerges. Pass the proposal_id and only the fields to update.

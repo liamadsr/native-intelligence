@@ -153,7 +153,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // It files an action and starts a coding run, which opens a pull request.
       // Main chat only (CHAT_NATIVE_TOOL_NAMES): guest access (migration 429). Texts the guest who asked, so outward.
       { name: 'answer_guest', sideEffect: 'external-write', label: 'Answer a Guest', description: "In main chat, answer a question one of the person's guests asked through the agent the person set up for them; it is texted to that guest" },
-      { name: 'ask_agent', sideEffect: 'external-write', label: 'Ask Their Agent', description: "In main chat, ask or message another person's agent (a teammate's, or another Dial8 user's) for the person; the answer comes back to the chat on its own, and an unlinked name lists who is linked" },
+      { name: 'ask_agent', sideEffect: 'external-write', label: 'Ask Their Agent', description: "In main chat, ask or message another person's agent (a teammate's, or another Native Intelligence user's) for the person; the answer comes back to the chat on its own, and an unlinked name lists who is linked" },
       { name: 'start_cloud_coding_run', sideEffect: 'automation-write', label: 'Start a Cloud Coding Run', description: "In main chat, file an action in a project and start a coding run on its GitHub repository in this chat's cloud environment (or a shared one the person picks); it opens a pull request. Typed turns only; once per task" },
       { name: 'list_actions', sideEffect: 'read', label: 'List Actions', description: 'List and filter actions in the workspace' },
       { name: 'get_action', sideEffect: 'read', label: 'Get Action', description: 'Get full details for a single action by ID or identifier (e.g. ENG-42)' },
@@ -252,7 +252,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // revision. Reading it is a read; restoring one is an ordinary text write
       // (compare-and-swap, a new revision), for a person in the chat only
       // (ATTENDED_ONLY_TOOL_NAMES): an unattended run never rolls a document back.
-      { name: 'list_document_revisions', sideEffect: 'read', label: 'Document History', description: "List a document's version history: who changed it (a person or Dial8), what and when" },
+      { name: 'list_document_revisions', sideEffect: 'read', label: 'Document History', description: "List a document's version history: who changed it (a person or Native Intelligence), what and when" },
       { name: 'get_document_revision', sideEffect: 'read', label: 'Read Version', description: 'Read one version of a document and what that change did (a line diff)' },
       { name: 'restore_document_revision', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Restore Version', description: 'Put an earlier version of a document back, as a new revision (undo an edit)' },
       // Archive (GEN-1169): the soft delete, status 'archived', restorable with
@@ -302,7 +302,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'get_email_drafts', sideEffect: 'read', label: 'Get Drafts', description: 'List pending AI drafts for review' },
       { name: 'generate_email_drafts', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Generate Drafts', description: 'AI-generate batch draft replies for the inbox' },
       // Attended chat only (ATTENDED_ONLY_TOOL_NAMES): rewrites an unsent draft in place (the row and the mailbox's draft), never sends.
-      { name: 'revise_email_draft', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Revise Draft', description: 'Rewrite one of the person\'s own unsent email drafts in place, in Dial8 and in their mailbox, when they ask for a change; never sends' },
+      { name: 'revise_email_draft', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Revise Draft', description: 'Rewrite one of the person\'s own unsent email drafts in place, in Native Intelligence and in their mailbox, when they ask for a change; never sends' },
       // Attended chat only (ATTENDED_ONLY_TOOL_NAMES). internal-write: like a draft, it changes only the
       // person's OWN mailbox (a label, a folder, a read flag) and reaches nobody; every change is
       // reversible (the result's undo), and Trash / Spam are never touched (src/lib/email/thread-triage.ts).
@@ -310,8 +310,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // Attended chat only, and ALWAYS the person's approval card (src/lib/safety/outward-gate.ts): it
       // calls the sender's one-click link or sends an unsubscribe email from their mailbox.
       { name: 'unsubscribe_thread', sideEffect: 'external-write', label: 'Unsubscribe', description: 'Unsubscribe the person from the mailing list a thread came from (its one-click link, or an unsubscribe email), once they approve the card' },
-      // Attended chat only (ATTENDED_ONLY_TOOL_NAMES): hard-deletes Dial8's own draft rows and their mailbox drafts, never sends (GEN-1165).
-      { name: 'discard_email_draft', sideEffect: 'delete', label: 'Discard Drafts', description: 'Discard email drafts Dial8 wrote (one or many) from the person\'s mailbox and from Dial8, with why, when they ask; never touches a draft they wrote, never sends' },
+      // Attended chat only (ATTENDED_ONLY_TOOL_NAMES): hard-deletes Native Intelligence's own draft rows and their mailbox drafts, never sends (GEN-1165).
+      { name: 'discard_email_draft', sideEffect: 'delete', label: 'Discard Drafts', description: 'Discard email drafts Native Intelligence wrote (one or many) from the person\'s mailbox and from Native Intelligence, with why, when they ask; never touches a draft they wrote, never sends' },
     ],
   },
   {
@@ -507,7 +507,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // automation-write: re-aims or switches on an existing automation (switching one on needs confirmed_with_user;
       // a webhook loop switches on only from the person's verified card, and someone else's outward or acting loop
       // only from its owner's: F1 flow-approvals.ts). Attended only.
-      { name: 'update_flow', sideEffect: 'automation-write', label: 'Update Flow', description: 'Edit a loop: its trigger, actions, on/off state, agent, a skill step\'s report title or trust. Switching a loop on needs the person\'s yes; one with a webhook (http_post) step needs their approval card, and someone else\'s loop that acts outside Dial8 or on its own needs its owner\'s' },
+      { name: 'update_flow', sideEffect: 'automation-write', label: 'Update Flow', description: 'Edit a loop: its trigger, actions, on/off state, agent, a skill step\'s report title or trust. Switching a loop on needs the person\'s yes; one with a webhook (http_post) step needs their approval card, and someone else\'s loop that acts outside Native Intelligence or on its own needs its owner\'s' },
       // Attended only (ATTENDED_ONLY_TOOL_NAMES). Deletes only from the person's verified card (F1).
       { name: 'delete_flow', sideEffect: 'delete', label: 'Delete Flow', description: 'Delete a loop and its run history, once the person accepts the card it raises' },
       // automation-write: changes who an automation runs as (whose data and connections). Attended only;
@@ -618,7 +618,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // automation-write: rewrites the prompt act-mode flows execute. Attended only, as create_skill.
       { name: 'update_skill', sideEffect: 'automation-write', label: 'Update Skill', description: 'Edit an existing custom skill (system skills are read-only)' },
       // Attended chat only (ATTENDED_ONLY_TOOL_NAMES): a line of an area's memory (one-agent plan Part 3, migration 317), what the person said.
-      // An artifact write: the note is reviewed on its own surface (What Dial8 has learned) and undone from the chat's chip. Runs nothing.
+      // An artifact write: the note is reviewed on its own surface (What Native Intelligence has learned) and undone from the chat's chip. Runs nothing.
       { name: 'remember', sideEffect: 'internal-write', writeTarget: 'artifact', label: 'Remember', description: "Save a preference the person states or a correction they make: how they work to their profile (scope profile, every workspace, with a quote of their own words; unverified it waits as a suggestion), or what they work on to one area's memory in this workspace (personal by default; a workspace line from a non-admin waits for an admin)" },
       // Attended chat only (ATTENDED_ONLY_TOOL_NAMES): the person's Now file, the main agent's sketchpad (docs/plans/now-file.md).
       // An artifact write: the person's own private document, with its history and Restore. Runs nothing.
@@ -744,7 +744,7 @@ export const ALL_TOOL_NAMES = TOOL_CATEGORIES.flatMap((c) => c.tools.map((t) => 
  *                        retried call sends once;
  *   wait_for_bot_reply   waits for a reply send_bot_message handed off;
  *   local_agents, start_local_agent, message_local_agent, read_local_agent,
- *   stop_local_agent     the Dial8 agent manages local agents on the person's
+ *   stop_local_agent     the Native Intelligence agent manages local agents on the person's
  *                        Mac (docs/plans/local-agents.md): only the main chat
  *                        (and, for the reads, a stop and an answer to an open
  *                        question, its home turns: serverTurnMayCall) ever
@@ -798,7 +798,7 @@ export function isChatNativeTool(name: string): boolean {
  *                         (the attention-items PATCH, owner-only);
  *   revise_email_draft    rewrite an unsent draft in place (the row and the
  *                         mailbox's draft), never send;
- *   discard_email_draft   discard drafts Dial8 wrote (the rows and the
+ *   discard_email_draft   discard drafts Native Intelligence wrote (the rows and the
  *                         mailbox's drafts), one or many, with why; never one
  *                         the person wrote, never send (GEN-1165). No bot is
  *                         granted it;
@@ -1127,7 +1127,7 @@ export const REPORT_MODE_WRITE_ALLOWLIST = ['create_document', 'add_comment', 's
  *
  * `push_action_to_asana` is the first entry: it creates a task in an EXTERNAL
  * system (and a local link row), so a report-mode run must not reach it, but
- * `push_` isn't a Dial8 write verb and renaming it would misdescribe what it
+ * `push_` isn't a Native Intelligence write verb and renaming it would misdescribe what it
  * does. `push_action_to_jira` is its sibling for the same reason — every
  * `push_action_to_*` tool belongs here by construction.
  */
@@ -1155,15 +1155,15 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'push_action_to_jira',
   'push_action_to_linear',
   // Stages sequence enrollments (writes sequence_enrollment rows). `enroll_`
-  // isn't a Dial8 write verb and renaming would misdescribe the staging
+  // isn't a Native Intelligence write verb and renaming would misdescribe the staging
   // semantics, so it lives here.
   'enroll_contacts_in_sequence',
   // Outreach launches (roadmap D1/D2): each raises the person's launch card
-  // and, on their yes, arms sending. `launch_` is no Dial8 write verb.
+  // and, on their yes, arms sending. `launch_` is no Native Intelligence write verb.
   'launch_sequence',
   'launch_campaign',
   // A paid web search that fills the contact's empty columns; `enrich_` is no
-  // Dial8 write verb, and the name is the person's own word for it.
+  // Native Intelligence write verb, and the name is the person's own word for it.
   'enrich_contact',
   // Prospecting's three money-spending / CRM-writing tools whose names are
   // neither read- nor write-verb-shaped. `find_prospect_people` is the sharp
@@ -1195,7 +1195,7 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   'request_flow_takeover',
   // Runs a loop's skill steps (a paid run, F1). `test_` is not a write verb.
   'test_flow',
-  // Calls a server at a URL the model passes (F2). Neither verb is a Dial8 write verb.
+  // Calls a server at a URL the model passes (F2). Neither verb is a Native Intelligence write verb.
   'connect',
   // Removes a connection from the person's card (F2).
   'disconnect',

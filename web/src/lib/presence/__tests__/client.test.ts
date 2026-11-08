@@ -405,7 +405,7 @@ describe('the desktop', () => {
     expect(sendTimes[1] - sendTimes[0]).toBe(240_000)
   })
 
-  it("main window: the Mac being in use is not reading: no seen while Dial8 isn't focused", async () => {
+  it("main window: the Mac being in use is not reading: no seen while Native Intelligence isn't focused", async () => {
     env.label = 'main'
     env.reading = { idleSeconds: 1, locked: false }
     focused = false

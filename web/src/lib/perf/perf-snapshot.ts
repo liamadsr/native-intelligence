@@ -7,7 +7,7 @@
  * where they sit (pages parked out of sight, the chat thread, the capture
  * panels, what was left on <body>), the animations still running, the canvases,
  * the style sheets and their rules, the realtime channels. Read it in the
- * desktop app's Web Inspector (Safari ▸ Develop ▸ the Mac ▸ Dial8): the release
+ * desktop app's Web Inspector (Safari ▸ Develop ▸ the Mac ▸ Native Intelligence): the release
  * build is inspectable.
  *
  * Computed only when called (a walk of the DOM, a few ms to a few tens of ms on

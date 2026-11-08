@@ -1,4 +1,4 @@
-# design-sync NOTES — Dial8 Design System (@dial8/ui)
+# design-sync NOTES — Native Intelligence Design System (@dial8/ui)
 
 Repo-specific gotchas for future syncs. Read this first.
 

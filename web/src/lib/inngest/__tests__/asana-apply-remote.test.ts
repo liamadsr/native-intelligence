@@ -264,7 +264,7 @@ describe('asana-apply-remote — task read failures', () => {
   })
 })
 
-// ---- Completion (remote → Dial8) -------------------------------------------
+// ---- Completion (remote → Native Intelligence) -------------------------------------------
 
 describe('asana-apply-remote — task completed in Asana', () => {
   it('moves an active action to the team completed state and emits the change', async () => {

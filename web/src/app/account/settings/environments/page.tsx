@@ -1,7 +1,7 @@
 import { EnvironmentsView } from './environments-view'
 
 export const metadata = {
-  title: 'Environments – Settings – Dial8',
+  title: 'Environments – Settings',
 }
 
 export default function EnvironmentsPage() {

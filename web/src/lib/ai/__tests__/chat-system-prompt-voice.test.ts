@@ -22,7 +22,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const DIAL8_BASE = "You are Assistant, the user's always-on agent in Dial8, for them and their team. BASE_RULES"
+const DIAL8_BASE = "You are Assistant, the user's always-on agent in Native Intelligence, for them and their team. BASE_RULES"
 
 vi.mock('../system-prompt', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../system-prompt')>()),
@@ -184,7 +184,7 @@ describe('buildChatSystemPrompt — the assistant’s name (main chat)', () => {
     const text = base(built)
     expect(text.startsWith(assistantIdentityBlock('Mary-Jane'))).toBe(true)
     expect(text).toMatch(/^## Who you are\nYour name is Mary-Jane: the name the user gave their assistant/)
-    expect(text).toContain("You are Mary-Jane, the user's always-on agent in Dial8, for them and their team. BASE_RULES")
+    expect(text).toContain("You are Mary-Jane, the user's always-on agent in Native Intelligence, for them and their team. BASE_RULES")
     expect(text).not.toContain('You are Assistant,')
     // Still the first stable section.
     expect(built.stable[0].key).toBe('base')
@@ -211,7 +211,7 @@ describe('buildChatSystemPrompt — a teammate chat keeps its own name', () => {
     const built = await build({ voiceAsk: {}, assistantName: 'Joseph' }, { teammateId: 'tm-1' })
     expect(auth.getUserById).not.toHaveBeenCalled()
     const text = base(built)
-    expect(text).toContain("You are Ghostwriter, one of the user's AI teammates in Dial8.")
+    expect(text).toContain("You are Ghostwriter, one of the user's AI teammates in Native Intelligence.")
     expect(text).not.toContain('Your name is Joseph')
     expect(built.stable[0].key).toBe('agent')
     expect(built.stable[0].markdown).toMatch(/^## Who you are\nYour name is Ghostwriter\./)

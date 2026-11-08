@@ -263,7 +263,7 @@ describe('POST /api/account/onboarding/research', () => {
     expect(verifyAgentRunToken(sent['x-agent-run-token'])).toMatchObject({ userId: 'user-1', workspaceId: 'ws-1' })
   })
 
-  it("skips research when the person's plan can't be read: never Dial8's models for a free user", async () => {
+  it("skips research when the person's plan can't be read: never Native Intelligence's models for a free user", async () => {
     const { service } = makeService({ initialResearch: null, claimWins: true })
     hoisted.getServiceClient.mockReturnValue(service)
     const { supabase, rpc } = makeSupabase({

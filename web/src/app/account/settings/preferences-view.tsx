@@ -569,7 +569,7 @@ export function PreferencesView() {
               </div>
               <div>
                 <p className="text-sm font-medium">Style</p>
-                <p className="text-[13px] text-muted-foreground">Pick a visual style for Dial8</p>
+                <p className="text-[13px] text-muted-foreground">Pick a visual style for Native Intelligence</p>
               </div>
             </div>
             <div className="flex items-center gap-4 overflow-x-auto rounded-lg bg-muted/40 px-4 py-3">
@@ -645,12 +645,12 @@ export function PreferencesView() {
               <div className="mt-3 rounded-lg bg-muted/40 px-4 py-3">
                 {windowBackdropUnsupported ? (
                   <p className="text-[12px] text-muted-foreground">
-                    Update the Dial8 desktop app to see through the window. Until then it shows the Sky.
+                    Update the Native Intelligence desktop app to see through the window. Until then it shows the Sky.
                   </p>
                 ) : (
                   <>
                     <p className="mb-2 text-[12px] text-muted-foreground">
-                      What’s behind Dial8 shows through, frosted. Slide right for a more solid window.
+                      What’s behind Native Intelligence shows through, frosted. Slide right for a more solid window.
                     </p>
                     <div className="flex items-center gap-3">
                       <span className="text-[11px] font-medium text-muted-foreground">Opacity</span>
@@ -739,11 +739,11 @@ export function PreferencesView() {
                 </div>
                 <div>
                   <p className="text-sm font-medium">
-                    Keep Dial8 running in the background when the window is
+                    Keep Native Intelligence running in the background when the window is
                     closed
                   </p>
                   <p className="text-[13px] text-muted-foreground">
-                    Dial8 stays in the {windows ? 'system tray' : 'menu bar'} so
+                    Native Intelligence stays in the {windows ? 'system tray' : 'menu bar'} so
                     notifications keep arriving. Quit from the tray menu to
                     close it fully.
                   </p>

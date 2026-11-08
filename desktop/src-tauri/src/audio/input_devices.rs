@@ -1,8 +1,8 @@
-//! Input Device Priority: which microphone Dial8 opens.
+//! Input Device Priority: which microphone Native Intelligence opens.
 //!
-//! The user keeps an ordered list of every input device Dial8 has seen
+//! The user keeps an ordered list of every input device Native Intelligence has seen
 //! (Settings → Recording → Microphone). The highest one that is connected
-//! wins; while the list is not customised, Dial8 uses the system default
+//! wins; while the list is not customised, Native Intelligence uses the system default
 //! input exactly as before (the resolver answers `None`).
 //!
 //! Pieces:
@@ -18,7 +18,7 @@
 //!   one mic the user picked to use right now WITHOUT reordering the list.
 //!   In memory only (never saved); it beats the order and the system default
 //!   ([`pick_with_override`]) until it is cleared, its mic leaves the list,
-//!   or Dial8 quits;
+//!   or Native Intelligence quits;
 //! - the supervisor thread ([`start_supervisor`]): a CoreAudio listener on
 //!   the device list and the default input feeds it; it debounces 300 ms,
 //!   re-enumerates, merges into the store, emits [`EVENT`], flags a fault
@@ -1794,7 +1794,7 @@ impl Supervisor {
                 p.name,
                 p.device_id.as_deref().unwrap_or("uid unknown"),
                 if p.silent {
-                    "only exact zeros for 3 s since it opened: digital silence, nothing reaches Dial8"
+                    "only exact zeros for 3 s since it opened: digital silence, nothing reaches Native Intelligence"
                 } else {
                     "silence over (sound at last, or the capture moved on)"
                 }

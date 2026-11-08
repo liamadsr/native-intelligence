@@ -275,7 +275,7 @@ describe('GET task-details — error taxonomy', () => {
     },
   )
 
-  /** 502, not 500: the failure is UPSTREAM, and a 500 reads as a Dial8 bug. */
+  /** 502, not 500: the failure is UPSTREAM, and a 500 reads as a Native Intelligence bug. */
   it('maps provider_error to 502', async () => {
     hoistedLens.readJiraTaskDetails.mockResolvedValue({
       ok: false,

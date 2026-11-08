@@ -72,7 +72,7 @@ pub fn open_workspace_window(
 
     // macOS draws no title (the page sits under an overlay title bar, its
     // traffic lights over the tab bar); Windows has a native title bar.
-    let title = if cfg!(target_os = "macos") { "" } else { "Dial8" }.to_string();
+    let title = if cfg!(target_os = "macos") { "" } else { "Native Intelligence" }.to_string();
 
     // Offset the new window from the current one so they're visually distinct
     // and can be arranged side by side

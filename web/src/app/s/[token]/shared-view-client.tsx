@@ -141,7 +141,7 @@ export function SharedViewClient({
         <header className="border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
           <div className="mx-auto flex h-12 items-center justify-between px-4 max-w-3xl">
             <a href="https://dial8.ai" className="text-sm font-semibold">
-              Dial8
+              Native Intelligence
             </a>
             <a
               href="https://dial8.ai"

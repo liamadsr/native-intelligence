@@ -198,7 +198,7 @@ function UrlAppDetails({ card }: { card: Extract<Card, { kind: 'url_app' }> }) {
   return (
     <div data-connect-details="" className="border-t border-border/60 px-3 py-2 text-[12px] text-muted-foreground">
       <p>
-        <span className="text-foreground">{card.domain}</span> isn&apos;t in Dial8&apos;s catalog.{' '}
+        <span className="text-foreground">{card.domain}</span> isn&apos;t in Native Intelligence&apos;s catalog.{' '}
         {tools === null
           ? 'It asks you to sign in before it lists its tools. Anything that can change data will ask you first.'
           : tools.length === 0

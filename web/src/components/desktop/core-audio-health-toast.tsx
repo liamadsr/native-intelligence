@@ -11,7 +11,7 @@ const TOAST_ID = 'core-audio-health'
  * "macOS audio isn't responding": a persistent toast while the desktop app
  * reports macOS's audio daemon (coreaudiod) stuck (`audio://health`, see the
  * desktop's audio/health.rs). The daemon can deadlock (an Apple bug), and
- * then every app's audio stops and Dial8 can't record until it's restarted.
+ * then every app's audio stops and Native Intelligence can't record until it's restarted.
  * "Restart audio" does that: macOS asks for the Mac's password.
  *
  * Main window only, like the updater's binary half: a pop-out would stack a
@@ -62,7 +62,7 @@ function showStuck(description?: string) {
     id: TOAST_ID,
     description:
       description ??
-      "Your Mac's audio service has stopped responding, so Dial8 can't record. Restarting it takes a second and asks for your Mac's password.",
+      "Your Mac's audio service has stopped responding, so Native Intelligence can't record. Restarting it takes a second and asks for your Mac's password.",
     duration: Infinity,
     action: {
       label: 'Restart audio',
@@ -96,7 +96,7 @@ async function restart() {
     const message = err instanceof Error ? err.message : String(err)
     showStuck(
       message.includes('cancelled')
-        ? "Audio wasn't restarted. Dial8 can't record until it is."
+        ? "Audio wasn't restarted. Native Intelligence can't record until it is."
         : `Couldn't restart audio: ${message}`,
     )
   }

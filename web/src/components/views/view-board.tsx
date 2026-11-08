@@ -496,7 +496,7 @@ function BoardCards({
       ))}
       {/* The windowing tail. `data-card-sentinel` names it explicitly: its tests
           used to find it as "the only aria-hidden node on the board", which was
-          true until a decorative glyph appeared inside a card (the Dial8 mark is
+          true until a decorative glyph appeared inside a card (the Native Intelligence mark is
           aria-hidden because the button around it carries the real label). A
           presentational attribute is not an identity. */}
       {hasMore && <div ref={sentinelRef} aria-hidden data-card-sentinel="" className="h-1" />}

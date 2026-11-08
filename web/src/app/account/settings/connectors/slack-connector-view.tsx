@@ -1,19 +1,19 @@
 'use client'
 
 /**
- * Dial8's Slack app under Settings › Connectors (`connectors/slack`;
+ * Native Intelligence's Slack app under Settings › Connectors (`connectors/slack`;
  * docs/plans/slack-connect.md §4 piece 3), laid out like a connector's own page:
  *
  *   ← Your connectors
  *   [icon] Slack
  *   what it does
- *   Slack workspaces   each one bound to this Dial8 workspace: whether the
+ *   Slack workspaces   each one bound to this Native Intelligence workspace: whether the
  *                      person's own Slack account is linked there (Link my
  *                      account / Unlink me), and Disconnect for admins
  *   the code panel     a one-time code to send the bot in Slack
  *
- * An admin adds Dial8 to their Slack workspace, then sends the bot a code from
- * here: that binds the Slack workspace to this Dial8 workspace and links their
+ * An admin adds Native Intelligence to their Slack workspace, then sends the bot a code from
+ * here: that binds the Slack workspace to this Native Intelligence workspace and links their
  * own Slack account. Everyone else links theirs the same way, with their own
  * code. Slack's install comes back here with `?slack=installed`, and the code
  * is made at once.
@@ -58,7 +58,7 @@ interface LinkCode {
 
 const SLACK_ROW = { kind: 'app', provider: SLACK_APP_ENTRY.provider, capability: SLACK_APP_ENTRY.capability } as const
 
-/** Opens the Dial8 app's DM in Slack (Slack's own redirect). */
+/** Opens the Native Intelligence app's DM in Slack (Slack's own redirect). */
 function openInSlackHref(appId: string | null | undefined, teamId?: string): string | null {
   if (!appId) return null
   return `https://slack.com/app_redirect?app=${encodeURIComponent(appId)}${teamId ? `&team=${encodeURIComponent(teamId)}` : ''}`
@@ -98,7 +98,7 @@ export function useSlackConnector() {
   const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState(false)
   const [linkCode, setLinkCode] = useState<LinkCode | null>(null)
-  // The Slack workspace the code is for ("Open Dial8 in Slack" goes there); null for the install's first code.
+  // The Slack workspace the code is for ("Open Native Intelligence in Slack" goes there); null for the install's first code.
   const [codeTeam, setCodeTeam] = useState<string | null>(null)
   const [makingCode, setMakingCode] = useState(false)
   const [busyTeam, setBusyTeam] = useState<string | null>(null)
@@ -295,10 +295,10 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
               </h2>
               {state.canInstall ? (
                 <ol className="mt-3 space-y-4 text-sm">
-                  <SetupStep n={1} title="Make sure Dial8 is in your Slack">
+                  <SetupStep n={1} title="Make sure Native Intelligence is in your Slack">
                     {state.selfInstallOpen ? (
                       <>
-                        Look for Dial8 under Apps in Slack. Not there?{' '}
+                        Look for Native Intelligence under Apps in Slack. Not there?{' '}
                         <button
                           type="button"
                           onClick={() => void install()}
@@ -310,7 +310,7 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                       </>
                     ) : (
                       <>
-                        Look for Dial8 under Apps in Slack. Not there? Email{' '}
+                        Look for Native Intelligence under Apps in Slack. Not there? Email{' '}
                         <a href="mailto:liam@dial8.ai" className="text-foreground underline underline-offset-2">
                           liam@dial8.ai
                         </a>{' '}
@@ -324,13 +324,13 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                       Get my code
                     </Button>
                   </SetupStep>
-                  <SetupStep n={3} title="Send the code to Dial8">
-                    In Slack, open Dial8 and send it the code as a message. That&apos;s it: you can then message your agent there.
+                  <SetupStep n={3} title="Send the code to Native Intelligence">
+                    In Slack, open Native Intelligence and send it the code as a message. That&apos;s it: you can then message your agent there.
                   </SetupStep>
                 </ol>
               ) : (
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Someone who manages this Dial8 workspace sets up Slack first. Once they have, you can link your own
+                  Someone who manages this Native Intelligence workspace sets up Slack first. Once they have, you can link your own
                   Slack account here.
                 </p>
               )}
@@ -346,10 +346,10 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
           {linkCode && (
             <section aria-labelledby="slack-code" className={cn(compact ? 'mt-4' : 'mt-8', 'rounded-xl border p-4')}>
               <h2 id="slack-code" className="text-sm font-medium">
-                {connected ? 'In Slack, send Dial8 this code' : 'Last step: in Slack, send this code to Dial8'}
+                {connected ? 'In Slack, send Native Intelligence this code' : 'Last step: in Slack, send this code to Native Intelligence'}
               </h2>
               {!connected && (
-                <p className="mt-1 text-sm text-muted-foreground">Open Dial8 in Slack and send it this code as a message.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Open Native Intelligence in Slack and send it this code as a message.</p>
               )}
               <div className="mt-3 flex items-center gap-2">
                 <code className="flex-1 select-all rounded-md bg-muted px-2 py-1.5 text-center font-mono text-base tracking-widest">
@@ -375,7 +375,7 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                   <Button variant="outline" size="sm" className="h-7 shrink-0 px-3 text-xs" asChild>
                     <a href={slackHref} target="_blank" rel="noreferrer">
                       <ExternalLink aria-hidden className="mr-1.5 h-3 w-3" />
-                      Open Dial8 in Slack
+                      Open Native Intelligence in Slack
                     </a>
                   </Button>
                 )}
@@ -405,12 +405,12 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
                         </div>
                         {team.myLink && typeof team.myLink.alertsOn === 'boolean' && (
                           <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground" data-slack-alerts={team.teamId}>
-                            <span title="Dial8 DMs you here when it needs your OK and you're not in the app">DM me when Dial8 needs my OK</span>
+                            <span title="Native Intelligence DMs you here when it needs your OK and you're not in the app">DM me when Native Intelligence needs my OK</span>
                             <Switch
                               checked={team.myLink.alertsOn}
                               onCheckedChange={(v) => void setAlerts(team.teamId, v)}
                               disabled={busy}
-                              aria-label={`DM me in ${name} when Dial8 needs my OK`}
+                              aria-label={`DM me in ${name} when Native Intelligence needs my OK`}
                             />
                           </label>
                         )}
@@ -468,7 +468,7 @@ export function SlackConnectorContent({ compact = false }: { compact?: boolean }
           open
           onOpenChange={(open) => !open && setConfirmTeam(null)}
           title={`Disconnect ${confirmTeam.teamName}?`}
-          description="Dial8 stops answering in that Slack workspace, for everyone. Adding it again brings back everyone's links."
+          description="Native Intelligence stops answering in that Slack workspace, for everyone. Adding it again brings back everyone's links."
           confirmLabel="Disconnect"
           busy={busyTeam === confirmTeam.teamId}
           onConfirm={() => void disconnect(confirmTeam.teamId)}

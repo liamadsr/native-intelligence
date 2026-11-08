@@ -7,7 +7,7 @@ import type { Evaluation, Questions } from './contracts'
 /**
  * A Jev decision on a free user's own ChatGPT plan (the free tier,
  * docs/plans/chatgpt-free-tier.md). Jev (typesafe-ai/jev) runs on the AI
- * Gateway on Dial8's key, so it never runs for them; without an answer these
+ * Gateway on Native Intelligence's key, so it never runs for them; without an answer these
  * decisions escalate, and a free user got no automatic email drafts, no
  * `email.arrived` events and a browser agent that couldn't pick its steps.
  *

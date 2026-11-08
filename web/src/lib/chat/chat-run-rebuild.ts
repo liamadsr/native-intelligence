@@ -30,7 +30,7 @@
  *
  * A channel turn (`server: 'channel_turn'` with its channel's surface: the
  * person messaging from Slack, docs/plans/slack-connect.md, or texting the
- * Dial8 number, docs/plans/text-and-calling.md) rebuilds the
+ * Native Intelligence number, docs/plans/text-and-calling.md) rebuilds the
  * person's own spec with two deltas: the surface's exclusions (nothing that
  * needs a screen) and the `channel` turn-context line (channelTurnNote). It
  * runs Fast and bills as `ai_chat`, like any turn of theirs.
@@ -177,13 +177,13 @@ const NATIVE_TOOL_NAMES = new Set<string>(['search_tools', 'ask_user'])
  */
 export const SLACK_TURN_NOTE =
   '## They are messaging you from Slack\n' +
-  'The person sent this from Slack (the message says where: a direct message to the Dial8 app, or a mention in a channel thread), and your reply is posted back to them there. ' +
+  'The person sent this from Slack (the message says where: a direct message to the Native Intelligence app, or a mention in a channel thread), and your reply is posted back to them there. ' +
   'In a channel thread, other people read your reply: keep their private details (mail, calendar, contacts, documents) out of it unless they asked for exactly that there, and offer to send it in a DM instead. ' +
   'Answer like a Slack message: short and plain, a short list at most; no headings and no tables. ' +
   'There are no cards or pickers in Slack: never call show or ask_user; if you need them to choose, ask in one short sentence with the options in it. ' +
-  'You can act for them with your tools. Anything that sends or changes something outside Dial8 (mail, invites to other people, connected apps, a message to another person\'s agent) waits for their approval: when that happens, say it is waiting for them to approve. ' +
+  'You can act for them with your tools. Anything that sends or changes something outside Native Intelligence (mail, invites to other people, connected apps, a message to another person\'s agent) waits for their approval: when that happens, say it is waiting for them to approve. ' +
   'For a bigger job, start a background helper (start_helper), and to get an answer from someone they have linked agents with, ask that person\'s agent (ask_agent): what comes back is posted to them here in Slack. ' +
-  'If the full answer is long, give the gist and say the rest is in Dial8. ' +
+  'If the full answer is long, give the gist and say the rest is in Native Intelligence. ' +
   CHANNEL_REPLY_RULE
 
 /**
@@ -195,12 +195,12 @@ export const SLACK_TURN_NOTE =
  */
 export const SMS_TURN_NOTE =
   '## They are texting you\n' +
-  'The person sent this from their phone, by text message (SMS) to the Dial8 number, and your reply is texted back to them. ' +
+  'The person sent this from their phone, by text message (SMS) to the Native Intelligence number, and your reply is texted back to them. ' +
   'Answer in a few short plain sentences: no markdown, no headings, no tables, no bullet lists unless they asked for a list. ' +
   'There are no cards or pickers on a phone: never call show or ask_user; if you need them to choose, ask in one short sentence with the options in it. ' +
-  'You can act for them with your tools on their own Dial8 items. Anything that sends, deletes, or changes something outside Dial8 (mail, calendar, connected apps, a message to another person\'s agent) is held as an approval in the Dial8 app: when that happens, say "I\'ve put it in Dial8 for you to approve." ' +
+  'You can act for them with your tools on their own Native Intelligence items. Anything that sends, deletes, or changes something outside Native Intelligence (mail, calendar, connected apps, a message to another person\'s agent) is held as an approval in the Native Intelligence app: when that happens, say "I\'ve put it in Native Intelligence for you to approve." ' +
   'For a bigger job, start a background helper (start_helper), and to get an answer from someone they have linked agents with, ask that person\'s agent (ask_agent): what comes back is texted to them. ' +
-  'If the full answer is long, give the gist and say the rest is in Dial8. ' +
+  'If the full answer is long, give the gist and say the rest is in Native Intelligence. ' +
   `${CHANNEL_REPLY_RULE} ` +
   'Reply with exactly [quiet] only when nothing needs saying.'
 
@@ -212,12 +212,12 @@ export const SMS_TURN_NOTE =
  */
 export const CALL_TURN_NOTE =
   '## They are on a phone call with you\n' +
-  'The person called the Dial8 number from their phone. A voice assistant is talking with them live; it handed you what they just said, and it will say your reply aloud in its own words. ' +
+  'The person called the Native Intelligence number from their phone. A voice assistant is talking with them live; it handed you what they just said, and it will say your reply aloud in its own words. ' +
   'Answer in one to three short spoken sentences: plain words only, no markdown, no lists, no links or URLs, no emoji. ' +
   'Give names, numbers, dates and times exactly; never round them or leave them vague. ' +
   'There is no screen on a call: never call show or ask_user; if you need them to choose, ask in one short sentence with the options in it. ' +
-  'You can act for them with your tools on their own Dial8 items. Anything that sends, deletes, or changes something outside Dial8 (mail, calendar, connected apps, a message to another person\'s agent) is held as an approval in the Dial8 app: when that happens, say it\'s waiting in Dial8 for their OK. ' +
-  'If the full answer is long, give the gist and say the rest is in Dial8. ' +
+  'You can act for them with your tools on their own Native Intelligence items. Anything that sends, deletes, or changes something outside Native Intelligence (mail, calendar, connected apps, a message to another person\'s agent) is held as an approval in the Native Intelligence app: when that happens, say it\'s waiting in Native Intelligence for their OK. ' +
+  'If the full answer is long, give the gist and say the rest is in Native Intelligence. ' +
   `${CHANNEL_REPLY_RULE} ` +
   'Reply with exactly [quiet] only when nothing needs saying.'
 
@@ -231,12 +231,12 @@ export function channelTurnNote(claims: Pick<ChatRunTokenClaims, 'server' | 'sur
 }
 
 export const DEVICE_ASK_NOTE =
-  '## Answering a Dial8 device\n' +
-  'This question came from a Dial8 hardware device as a single, one-shot request. ' +
+  '## Answering a Native Intelligence device\n' +
+  'This question came from a Native Intelligence hardware device as a single, one-shot request. ' +
   'There is no interactive picker and no follow-up turn: never call ask_user. ' +
   'If something is ambiguous, state the assumption you made and answer. ' +
   'An external action marked "Approval required" cannot be done from the device: ' +
-  'say it needs the user\'s approval in the Dial8 app instead of attempting it. ' +
+  'say it needs the user\'s approval in the Native Intelligence app instead of attempting it. ' +
   'Reply in short plain text.'
 import { CONFIRM_TOOL_NAME, createExternalMcpTools } from '@/lib/mcp-client/adapter'
 import {
@@ -510,7 +510,7 @@ export async function rebuildChatSpec(
   const isDevice = claims.surface === 'device_ask'
   // The main agent's check-in (docs/plans/now-file.md "The check-in"): a fresh
   // session whose context is the standing instructions, its `now` section,
-  // Dial8's templated body and its allowed reads, nothing else (checkInSpec).
+  // Native Intelligence's templated body and its allowed reads, nothing else (checkInSpec).
   const checkIn = isCheckInClaims(claims)
   // Only the main chat draws cards and sends them (a bot's chat shows them as
   // pills, with nothing to read back); client-controlled, so checked here.
@@ -729,13 +729,13 @@ export async function rebuildChatSpec(
   const kind: TurnKind = isDevice ? 'device' : claims.server === 'channel_turn' ? 'channel' : claims.server ? 'server' : claims.relay ? 'relay' : 'person'
   const chatRoute = routeChatTurn(turn.route ?? null, kind)
   // The usage check opts in to the ChatGPT free tier (migration 409): a free
-  // user's turn then runs on their own plan (below), never on Dial8's models.
+  // user's turn then runs on their own plan (below), never on Native Intelligence's models.
   // The device ask too: its turn is a chat turn like any other, its token
   // carries the plan claim (device-ask-eve.ts) and its route bills the plan.
   const usageLoad = checkUsageLimits(claims.userId, undefined, { chatgptPlan: true })
   // Enforce mode only (JEV_TIER_MODE): Jev runs beside the loads, under its
   // own deadline, so it adds at most a short grace after them. Never for a
-  // turn on the person's ChatGPT plan: Jev is a Dial8-paid call.
+  // turn on the person's ChatGPT plan: Jev is an NI-paid call.
   const routeSignals = turn.route
   const jevTier =
     JEV_TIER_MODE === 'enforce' && chatRoute.askJev && routeSignals
@@ -846,7 +846,7 @@ export async function rebuildChatSpec(
   const helperModelsField = chatgptPlan ? {} : { helperModels: helperModelSpecs() }
   // Where the rules couldn't tell, Jev answers in shadow: after the spec is
   // built, off the turn's path, logged and changing nothing (JEV_TIER_MODE).
-  // Not for a plan turn: Jev is a Dial8-paid call.
+  // Not for a plan turn: Jev is an NI-paid call.
   if (JEV_TIER_MODE === 'shadow' && chatRoute.askJev && turn.route && !chatgptPlan) {
     shadowChatTier(claims, turn.route)
   }

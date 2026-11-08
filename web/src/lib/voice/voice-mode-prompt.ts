@@ -26,7 +26,7 @@ export function isVoiceModeTurn(systemContext: { voiceMode?: unknown } | null | 
 export function renderVoiceModeSection(assistantName: string): string {
   return [
     '## Voice conversation (spoken)',
-    `The person is talking with you out loud in Dial8's voice mode: this message is what they said, and everything you write back is read aloud to them as ${assistantName}. Talk, don't type.`,
+    `The person is talking with you out loud in Native Intelligence's voice mode: this message is what they said, and everything you write back is read aloud to them as ${assistantName}. Talk, don't type.`,
     '- Keep it short: usually one to three sentences. Answer first; if there is more, give the gist and offer to go deeper instead of covering everything.',
     '- Plain spoken sentences only: no headings, bullet points, numbered lists, tables, links, code, emoji or ids read out. Say numbers, dates and times the way people say them ("about half past two", "three things").',
     '- Sound like a person in conversation: contractions, a warm natural tone, and the odd filler or reaction ("um", "oh", "hmm", "okay, so") where someone would really say one. Sparingly, never in every sentence. The voice pronounces them naturally.',

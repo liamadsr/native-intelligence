@@ -16,7 +16,7 @@ vi.mock('node:crypto', async (importOriginal) => {
 })
 
 /**
- * Tests for POST /api/webhooks/linear — the Linear→Dial8 receiver.
+ * Tests for POST /api/webhooks/linear — the Linear→Native Intelligence receiver.
  *
  * The structural difference from the Jira sibling next door: this endpoint is
  * SIGNED. Linear hex-HMACs the raw request body with the app's signing secret
@@ -443,7 +443,7 @@ describe('linear receiver — only ids that already have a link are enqueued', (
    * not a reason to leak: an app-level signing secret is shared by every tenant
    * of the app, so anyone who can sign (including a Linear org that installed
    * the app legitimately) could otherwise enumerate which issue UUIDs have a
-   * Dial8 link ANYWHERE in the fleet.
+   * Native Intelligence link ANYWHERE in the fleet.
    */
   it('answers a LINKED and an UNLINKED id with a byte-identical body', async () => {
     hoisted.linkedIds = ['iss-1']

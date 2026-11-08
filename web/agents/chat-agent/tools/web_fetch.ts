@@ -9,7 +9,7 @@
  *
  *   1. SSRF url-guard (lib/url-guard.ts) — every URL is validated before the
  *      fetch runs, blocking private / loopback / link-local IPs and cloud-
- *      metadata hostnames so a user-influenced URL can't turn Dial8 into an SSRF
+ *      metadata hostnames so a user-influenced URL can't turn Native Intelligence into an SSRF
  *      reflection point. Mirrors src/lib/mcp-client/url-guard.ts (agents can't
  *      import src/).
  *   2. Per-conversation abuse cap (lib/web-fetch-cap.ts) — an invisible, generous

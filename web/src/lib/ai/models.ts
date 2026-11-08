@@ -366,7 +366,7 @@ export function appModelIdFromGatewaySlug(slug: unknown): string | null {
   if (!trimmed) return null
   // A step on the person's ChatGPT plan keeps (or gets back) its
   // `chatgpt-plan/` name, so usageProviderLabel bills it to the plan (nothing
-  // to Dial8). eve names a step on the plan's search model `openai/<model>`.
+  // to Native Intelligence). eve names a step on the plan's search model `openai/<model>`.
   const planModel = planModelOfStep(trimmed)
   if (planModel) return planModelSlug(planModel)
   const bySlug = CHAT_MODELS.find((m) => m.gatewayId === trimmed)

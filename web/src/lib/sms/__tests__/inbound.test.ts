@@ -288,15 +288,15 @@ describe('guests (a number no one linked)', () => {
 
 /**
  * The `To`-number rule, this side of it (roadmap track A): a stranger texting
- * the Dial8 number is signing up. A business's own number is track B's
+ * the Native Intelligence number is signing up. A business's own number is track B's
  * (businessLine / businessText, liamadsr/dial8-website#1012), which runs after
  * the shared compliance steps and before this, so signupText only ever sees
- * strangers on the Dial8 line.
+ * strangers on the Native Intelligence line.
  */
 describe('the line, by the number texted (`To`)', () => {
   const DIAL8 = '+19287698774'
 
-  it('a stranger texting the Dial8 number is a sign-up', async () => {
+  it('a stranger texting the Native Intelligence number is a sign-up', async () => {
     const stranger = fakeDeps({ linked: null })
     const signupText = vi.fn(async () => ({ outcome: 'signup_code_sent' as const, reply: 'CODE' }))
     expect(await handleInboundSms(sms('hi', { to: DIAL8 }), { ...stranger.deps, signupText })).toEqual({ outcome: 'signup_code_sent', reply: 'CODE' })

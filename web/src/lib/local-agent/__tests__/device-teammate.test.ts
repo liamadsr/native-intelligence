@@ -70,7 +70,7 @@ describe('a finish after its question to its teammate', () => {
   it('keeps the question standing: no turn end, the summary stays in the transcript', () => {
     const row = { status: 'running' as const, last_signal: 'ask' as const, last_signal_text: 'Which branch?', error: null, mode: 'edit' as const }
     const out = deriveFromEvents(row, [
-      { kind: 'finish', payload: { summary: 'Asked Dial8 which branch; done otherwise.' } },
+      { kind: 'finish', payload: { summary: 'Asked Native Intelligence which branch; done otherwise.' } },
       { kind: 'status', payload: { status: 'waiting' } },
     ], { serverAsk: true })
     expect(out.patch.last_signal).toBeUndefined()

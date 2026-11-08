@@ -296,7 +296,7 @@ describe('computeWorkRunCeiling', () => {
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',
-        // GEN-1165: discarding Dial8's drafts is a delete, attended-only.
+        // GEN-1165: discarding Native Intelligence's drafts is a delete, attended-only.
         'discard_email_draft',
         // Roadmap C2: a payment link to a customer, an external write, only on the owner's own card.
         'send_payment_link',

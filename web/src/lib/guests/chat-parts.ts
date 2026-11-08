@@ -48,7 +48,7 @@ export const GUEST_MESSAGE_MESSAGE_KIND = 'guest_message' as const
 /** `ui_message.metadata.kind` of an access request in the home thread (activity.ts writes it). */
 export const GUEST_REQUEST_MESSAGE_KIND = 'guest_request' as const
 
-/** How a guest reached the agent (by text, on Slack, or through their own Dial8 agent: migration 435). */
+/** How a guest reached the agent (by text, on Slack, or through their own Native Intelligence agent: migration 435). */
 export type GuestChannel = 'sms' | 'slack' | 'dial8'
 
 /**

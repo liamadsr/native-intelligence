@@ -5,7 +5,7 @@
  *   dial8:voice:pause     "short" | "normal" (absent = long, 1.2 s): how long a pause
  *                         ends the user's turn (voice_start's endSilenceMs)
  *   dial8:voice:focus     "on" (absent = off): Voice focus, only the user and
- *                         voices Dial8 recognises are answered (./voice-focus)
+ *                         voices Native Intelligence recognises are answered (./voice-focus)
  * Every access is wrapped: storage that throws or is full reads as defaults.
  *
  * There is no background-noise setting: every session asks for the quiet room
@@ -72,7 +72,7 @@ export function setVoicePause(pause: VoicePause): void {
   write(VOICE_PAUSE_KEY, pause === DEFAULT_VOICE_PAUSE ? null : pause)
 }
 
-/** Voice focus: turns in a voice Dial8 doesn't know are ignored (voice mode
+/** Voice focus: turns in a voice Native Intelligence doesn't know are ignored (voice mode
  *  and Interactive; never dictation). Off by default; read at each turn, so
  *  a change applies to a session already running. */
 export function getVoiceFocus(): boolean {

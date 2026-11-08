@@ -155,7 +155,7 @@ describe('applyCapture: the evidence rule', () => {
     expect(notes(db).find((n) => n.text === 'Chases Acme renewals on Fridays')).toMatchObject({ scope: 'personal', user_id: ME, status: 'active', source: 'learned', created_by: null })
     expect(notes(db).find((n) => n.text === 'The team triages bugs on Mondays')).toMatchObject({ scope: 'workspace', status: 'proposed', source: 'learned' })
 
-    // Ten lines Dial8 noticed already in the note: the eleventh is skipped.
+    // Ten lines Native Intelligence noticed already in the note: the eleventh is skipped.
     const full = setup()
     full.db.seed(
       'area_memory',

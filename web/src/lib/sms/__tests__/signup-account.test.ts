@@ -125,7 +125,7 @@ describe('createPhoneAccount', () => {
 })
 
 describe('the welcome', () => {
-  it('says what Dial8 is, carries the Google link, never asks for a password, and has the opt-out lines', () => {
+  it('says what Native Intelligence is, carries the Google link, never asks for a password, and has the opt-out lines', () => {
     const text = signupWelcomeText('https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12')
     expect(text).toContain("I'm your Dial8 agent")
     expect(text).toContain('connect your Google account so I can see your email and calendar: https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12 ')

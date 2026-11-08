@@ -39,7 +39,7 @@
  * workspaces" switch, as the provider hands them on (lib/workspace-span).
  *
  * A local agent's turn (`kind: 'local_agent'`) is listed like any helper,
- * titled "Dial8 on <Mac> · <folder>: …" by its ledger row, with a laptop mark; its
+ * titled "Native Intelligence on <Mac> · <folder>: …" by its ledger row, with a laptop mark; its
  * steer goes to its session (the steer route's local_agent branch) and its
  * Stop to the session's stop route (stopRouteOf).
  *
@@ -270,7 +270,7 @@ const AgentRow = memo(function AgentRow({
     <>
       <span className="flex min-w-0 items-start gap-1 text-[13px] font-medium leading-snug text-foreground">
         {child && <CornerDownRight className="mt-[3px] size-3 shrink-0 text-muted-foreground/60" aria-label="Handed off" />}
-        {/* A local agent (its title reads "Dial8 on <Mac> · <folder>: …"): the laptop says where it works. */}
+        {/* A local agent (its title reads "Native Intelligence on <Mac> · <folder>: …"): the laptop says where it works. */}
         {row.kind === 'local_agent' && (
           <Laptop data-agent-row-local="" className="mt-[3px] size-3 shrink-0 text-muted-foreground/70" aria-label="On your Mac" />
         )}

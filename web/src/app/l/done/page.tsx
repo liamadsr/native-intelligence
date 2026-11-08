@@ -1,7 +1,7 @@
 import { LINK_DONE_COPY, LinkCard } from '../link-card'
 
 export const metadata = {
-  title: 'Dial8',
+  title: { absolute: 'Native Intelligence' },
   robots: { index: false, follow: false },
 }
 

@@ -40,7 +40,7 @@ export default function Privacy() {
         <main className="pb-24">
           <ContentSection id="introduction" title="Introduction" isFirst>
             <p>
-              Dial8, operated by Bridgebound Studio (&quot;we,&quot; &quot;our,&quot; or
+              Native Intelligence (formerly Dial8), operated by Bridgebound Studio (&quot;we,&quot; &quot;our,&quot; or
               &quot;us&quot;), is committed to protecting your privacy. This Privacy Policy
               explains what information we collect when you use our website and applications, how
               we use it, who we share it with, and the choices you have.
@@ -137,17 +137,17 @@ export default function Privacy() {
 
           <ContentSection id="ai-processing" title="How We Use AI">
             <p>
-              Dial8 uses artificial intelligence to deliver core features. This means some of your
+              Native Intelligence uses artificial intelligence to deliver core features. This means some of your
               content is processed by AI systems:
             </p>
             <ul className="mt-4 space-y-4">
               <Bullet>
                 <strong className="text-gray-950 dark:text-white">Transcription:</strong> meeting
                 audio is transcribed to text by Deepgram in real time; we do not retain the audio
-                after transcription. When local transcription is turned on and ready in the Dial8
+                after transcription. When local transcription is turned on and ready in the Native Intelligence
                 desktop app, meeting audio is instead transcribed on your device and is not sent to
                 a transcription provider — unless on-device transcription is unavailable or stops
-                during a recording, in which case Dial8 switches to Deepgram and tells you.
+                during a recording, in which case Native Intelligence switches to Deepgram and tells you.
               </Bullet>
               <Bullet>
                 <strong className="text-gray-950 dark:text-white">Language models:</strong>{' '}
@@ -243,7 +243,7 @@ export default function Privacy() {
 
           <ContentSection id="third-parties" title="Third-Party Data Processors">
             <p>
-              We use a small set of third-party service providers (subprocessors) to run Dial8.
+              We use a small set of third-party service providers (subprocessors) to run Native Intelligence.
               Each receives only the data needed for its function:
             </p>
             <ul className="mt-4 space-y-4">
@@ -294,7 +294,7 @@ export default function Privacy() {
                 Google API Services disclosure
               </h3>
               <p className="mt-2">
-                Dial8&apos;s use and transfer of information received from Google APIs adheres to
+                Native Intelligence&apos;s use and transfer of information received from Google APIs adheres to
                 the{' '}
                 <a
                   href="https://developers.google.com/terms/api-services-user-data-policy"
@@ -334,7 +334,7 @@ export default function Privacy() {
               </Bullet>
               <Bullet>
                 <strong className="text-gray-950 dark:text-white">Protection of rights:</strong> to
-                protect and defend the rights, property, or safety of Dial8, our users, or others.
+                protect and defend the rights, property, or safety of Native Intelligence, our users, or others.
               </Bullet>
             </ul>
             <p className="mt-4">
@@ -392,7 +392,7 @@ export default function Privacy() {
                 <p className="mt-2">
                   When you disconnect a connected account (such as Gmail or Outlook), we stop
                   syncing and delete the associated OAuth tokens. You can additionally revoke
-                  Dial8&apos;s access from your Google or Microsoft account settings.
+                  Native Intelligence&apos;s access from your Google or Microsoft account settings.
                 </p>
               </div>
             </div>
@@ -476,7 +476,7 @@ export default function Privacy() {
             </p>
             <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-900/50">
               <p className="font-semibold text-gray-950 dark:text-white">
-                Bridgebound Studio (Dial8)
+                Bridgebound Studio (Native Intelligence)
               </p>
               <p className="mt-2">
                 Email:{' '}
@@ -499,7 +499,7 @@ export default function Privacy() {
             </div>
             <div className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-900/50">
               <p className="text-sm leading-6">
-                By using Dial8, you acknowledge that you have read, understood, and agree to be
+                By using Native Intelligence, you acknowledge that you have read, understood, and agree to be
                 bound by this Privacy Policy and our{' '}
                 <a
                   href="/terms"

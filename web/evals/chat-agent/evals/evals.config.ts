@@ -1,7 +1,7 @@
 /**
- * eve eval config for Dial8's deterministic evals (decision 19; evals/README.md).
+ * eve eval config for Native Intelligence's deterministic evals (decision 19; evals/README.md).
  *
- * The target is always a running Dial8 app: `npm run eval` points `eve eval
+ * The target is always a running Native Intelligence app: `npm run eval` points `eve eval
  * --url` at the chat agent mounted at /eve/chat-agent (EVE_EVAL_URL, default
  * http://localhost:3001/eve/chat-agent). The runner authenticates with
  * EVE_EVAL_AUTH_TOKEN (d8eval_<secret>), which the chat channel admits only on

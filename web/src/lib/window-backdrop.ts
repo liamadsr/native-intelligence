@@ -1,7 +1,7 @@
 /**
  * Glass (Preferences → Background, desktop only): the desktop window itself
  * turns see-through, so the chat and every page float over whatever is behind
- * Dial8.
+ * Native Intelligence.
  *
  * Two halves, both needed:
  *   - Native (dial8-desktop `set_window_backdrop`, window_backdrop.rs): the

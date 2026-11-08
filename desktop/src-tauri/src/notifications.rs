@@ -34,7 +34,7 @@
 //! ## Show policy: skip when the app is frontmost
 //!
 //! `show` returns `Result<bool, String>`: `Ok(true)` means a banner went up,
-//! `Ok(false)` means it was deliberately SKIPPED because some non-HUD Dial8
+//! `Ok(false)` means it was deliberately SKIPPED because some non-HUD Native Intelligence
 //! window is currently focused. The app being frontmost makes the in-app toast
 //! the right surface — the focused window either already toasted this same
 //! notification, or (cross-workspace) the sender's own toast is the status-quo
@@ -317,7 +317,7 @@ fn prune_image_dir(dir: &Path, now: SystemTime, max_age: Duration, keep: usize) 
 
 /// Windows: the AUMID toasts are attributed to. The NSIS installer already
 /// stamps this exact id onto the Start Menu / Desktop shortcuts, so toasts from
-/// an INSTALLED build resolve to the real Dial8 identity. An unbundled
+/// an INSTALLED build resolve to the real Native Intelligence identity. An unbundled
 /// `cargo run` has no such shortcut, so Windows refuses the toast — `show` maps
 /// that to an `Err`, and the web side falls back to an in-app toast.
 #[cfg(target_os = "windows")]
@@ -392,14 +392,14 @@ fn unmark_shown(id: &str) {
 }
 
 /// Labels that are floating overlays, not the app itself. Their focus does not
-/// mean the user is looking at Dial8's content, so it must not suppress a
+/// mean the user is looking at Native Intelligence's content, so it must not suppress a
 /// banner.
 ///
 /// The set has ONE owner (`crate::HUD_LABELS`); this is a re-export so the
 /// classification can never drift between subsystems.
 use crate::is_hud_label;
 
-/// Whether any non-HUD Dial8 webview window currently has OS focus.
+/// Whether any non-HUD Native Intelligence webview window currently has OS focus.
 ///
 /// This is the native-side half of the "don't banner while the app is
 /// frontmost" policy. The web side already refuses to call `show` when ITS OWN
@@ -525,16 +525,16 @@ pub fn web_may_use_id(id: &str) -> bool {
 /// A banner whose words are Rust's own, never the web's: the local agent's
 /// notices (a job a cloud agent or a loop started on this Mac, the hour's
 /// launches used up; `crate::local_agent`'s `starts`). Unlike [`show`] it
-/// isn't skipped while a Dial8 window is focused (the page in front runs code
+/// isn't skipped while a Native Intelligence window is focused (the page in front runs code
 /// the server sends, so its own toast can't be the only word), it isn't
 /// deduped (each `id` is new), and it carries no payload: a click opens the
 /// home thread, where a loop's job reports.
 ///
-/// It shows even while Dial8 is frontmost, when the delegate's `will_present`
+/// It shows even while Native Intelligence is frontmost, when the delegate's `will_present`
 /// keeps every other banner off screen, provided `id` starts `local-agent-`
 /// ([`shows_over_dial8`]). `Err` when this build has no backend (an unbundled
 /// dev binary) or the OS refused it.
-/// Whether a banner shows while Dial8 is frontmost: only [`show_native`]'s
+/// Whether a banner shows while Native Intelligence is frontmost: only [`show_native`]'s
 /// local-agent ones (see the delegate's `will_present`).
 fn shows_over_dial8(id: &str) -> bool {
     id.starts_with("local-agent-")
@@ -964,7 +964,7 @@ mod macos {
 
                 let id = dict_string(&user_info, USER_INFO_KEY_ID)
                     // Fall back to the request identifier, which we set to the
-                    // Dial8 row id in `show` anyway.
+                    // Native Intelligence row id in `show` anyway.
                     .unwrap_or_else(|| response.notification().request().identifier().to_string());
                 let payload = dict_string(&user_info, USER_INFO_KEY_PAYLOAD);
                 let origin_label = dict_string(&user_info, USER_INFO_KEY_WINDOW);
@@ -972,12 +972,12 @@ mod macos {
                 handle_click_parts(id, payload, origin_label);
             }
 
-            /// Called when a notification would arrive while Dial8 is FRONTMOST.
+            /// Called when a notification would arrive while Native Intelligence is FRONTMOST.
             /// Return EMPTY presentation options: no banner, no sound.
             ///
             /// This is the BACKSTOP for the skip-when-focused policy in
             /// `super::show`. That check runs at show time; the OS delivers a
-            /// moment later, and the user can cmd-tab back to Dial8 in between.
+            /// moment later, and the user can cmd-tab back to Native Intelligence in between.
             /// Without this the banner would land on top of the app the user is
             /// already looking at — where the in-app toast is the right surface.
             /// (An empty options set is also the macOS DEFAULT behaviour, so
@@ -985,7 +985,7 @@ mod macos {
             /// prevent a future edit from re-enabling the banner by accident.)
             ///
             /// The one exception: `super::show_native`'s local-agent banners
-            /// (`local-agent-…` ids) show even over Dial8, because the page in
+            /// (`local-agent-…` ids) show even over Native Intelligence, because the page in
             /// front runs code the server sends and can't be their only word
             /// (security review 2026-10-31).
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
@@ -1157,7 +1157,7 @@ mod macos {
                 content.setUserInfo(erased);
             };
 
-            // Identify the request by the Dial8 row id: showing the same id twice
+            // Identify the request by the Native Intelligence row id: showing the same id twice
             // then REPLACES the banner rather than stacking a duplicate, which
             // matches the dedupe intent one layer up.
             let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
@@ -1240,7 +1240,7 @@ mod macos {
     }
 
     /// Ask Notification Center to drop the delivered banner with request id
-    /// `id` (the Dial8 row id, see `show`). False when this build has no
+    /// `id` (the Native Intelligence row id, see `show`). False when this build has no
     /// center.
     pub fn remove_delivered(id: &str) -> bool {
         let Some(center) = center() else {
@@ -1345,7 +1345,7 @@ mod windows_impl {
     /// COLD-START LIMITATION (unchanged from the previous backend): the
     /// `on_activated` callback only exists while THIS process is alive. Clicking
     /// a toast sitting in the Action Center after the app has exited just
-    /// launches Dial8 via the shortcut's AUMID — it does not deliver the id or
+    /// launches Native Intelligence via the shortcut's AUMID — it does not deliver the id or
     /// payload, so the click lands on whatever the app opens by default.
     /// Wiring that up would mean routing toast activation through the
     /// `dial8desktop://` deep-link handler, i.e. a second divergent click path;

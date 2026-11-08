@@ -949,7 +949,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   // saved views; inline one pane (the list, or the open thread), full screen
   // the page's two panes.
   // `ph-no-capture` on both roots: PostHog session replay blocks the whole
-  // subtree (rrweb blockClass) and autocapture skips it. Dial8 never stores
+  // subtree (rrweb blockClass) and autocapture skips it. Native Intelligence never stores
   // mail text, and a replay would.
   if (isCard) {
     return (

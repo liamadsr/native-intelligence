@@ -141,7 +141,7 @@ export async function POST(
   }
   if (liveMac) {
     if (liveMac.userId === user.id) return NextResponse.json({ mode: 'mac', worker: 'local_agent', sessionId: liveMac.sessionId, reused: true })
-    return apiError('Dial8 is already working on this action on a teammate’s Mac.', { status: 409, code: 'ACTION_BUSY' })
+    return apiError('Native Intelligence is already working on this action on a teammate’s Mac.', { status: 409, code: 'ACTION_BUSY' })
   }
 
   // ── Work run on this action (every non-coding delegate) ──
@@ -234,7 +234,7 @@ export async function POST(
   }
 
   // Never a cloud run for a person on their own ChatGPT plan (the free tier):
-  // a coding run is Sonnet in a cloud sandbox, all Dial8-paid. agentRunRequested
+  // a coding run is Sonnet in a cloud sandbox, all NI-paid. agentRunRequested
   // refuses it too, for every other way a coding run starts. (A job on their
   // own Mac, above, carries the plan in its claim and model token.)
   if (await chatgptPlanFor(user.id)) {

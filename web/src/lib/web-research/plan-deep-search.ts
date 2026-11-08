@@ -17,7 +17,7 @@ import { runUtilityTask, type UtilityUsageReport } from '@/lib/eve/utility/run-u
 
 /**
  * Exa's deep search (src/lib/exa/deep-search.ts) on a free user's own ChatGPT
- * plan (docs/plans/chatgpt-free-tier-handoff.md, 3g). Exa bills Dial8, so it
+ * plan (docs/plans/chatgpt-free-tier-handoff.md, 3g). Exa bills Native Intelligence, so it
  * never runs for a person on their plan; for them prospecting, CRM
  * enrichment and the ICP card send the same query and card schema to the
  * web-research agent (agents/web-research, the `plan_web_search` kind), which
@@ -245,7 +245,7 @@ export async function planDeepSearch(args: DeepSearchArgs, searcher: PlanSearche
  * pages: the Mac body's `web_search` (src/lib/local-agent/web-tools.ts). A
  * plan deep search whose card is the result list. A hit is kept only with an
  * http(s) URL among the pages the answer relied on (its results, each checked
- * as planDeepSearchResult checks a citation). At no cost to Dial8.
+ * as planDeepSearchResult checks a citation). At no cost to Native Intelligence.
  */
 export const PLAN_WEB_SEARCH_CARD = {
   type: 'object',
@@ -296,7 +296,7 @@ export async function planWebSearch(
 /**
  * The deep search for work done for a person: their plan's when they run on
  * it, else Exa's. An unreadable plan check throws (read twice first): a job
- * that can't tell must not run a free user on Exa, which Dial8 pays for; the
+ * that can't tell must not run a free user on Exa, which Native Intelligence pays for; the
  * callers treat the throw as transient and try again later. No person (an
  * unattributed job) is Exa, as before.
  */

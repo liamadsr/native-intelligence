@@ -124,7 +124,7 @@ export function composeActionTaskPrompt(ctx: ActionTaskContext): string {
   const fenced = (text: string) => wrapUntrusted(defuseIssueTags(text), 'WORKSPACE') ?? ''
   const description = ctx.description ? capDescription(ctx.description) : null
   const lines = [
-    `Work on Dial8 issue ${ctx.identifierOrId}:`,
+    `Work on Native Intelligence issue ${ctx.identifierOrId}:`,
     ISSUE_UNTRUSTED_NOTE,
     `<issue identifier="${issueAttr(ctx.identifierOrId)}">`,
     `<title>${fenced(ctx.title)}</title>`,
@@ -255,13 +255,13 @@ export async function loadAgentPersonaFromRecipe(
 
 /**
  * The base workflow for a CLOUD (eve coding-agent) run. That agent has no
- * Dial8 MCP server and never opens the PR itself: it pushes its working branch
+ * Native Intelligence MCP server and never opens the PR itself: it pushes its working branch
  * and calls finish_run (again after a reviewer's changes, P10 F6), and the
  * system opens the PR and links it to the action (agents/coding-agent/instructions.md, /api/internal/agent-run/outcome).
  * The branch names are the spec's, so the PR's head/base match the clone.
  */
 function eveCodingWorkflowInstructions(branches: { baseBranch: string; branchName: string }): string {
-  return `You are an autonomous engineering agent working a task from Dial8. The repository is already cloned into your sandbox workspace and your working branch \`${branches.branchName}\` is checked out, forked from \`${branches.baseBranch}\`. You have a shell and file editing in that repository. You do NOT have Dial8 tools: you cannot read or update the action, link a PR, or search meeting notes.
+  return `You are an autonomous engineering agent working a task from Native Intelligence. The repository is already cloned into your sandbox workspace and your working branch \`${branches.branchName}\` is checked out, forked from \`${branches.baseBranch}\`. You have a shell and file editing in that repository. You do NOT have Native Intelligence tools: you cannot read or update the action, link a PR, or search meeting notes.
 
 ## Workflow
 1. Read the issue below and understand what needs to be done.
@@ -299,7 +299,7 @@ export function personaSections(persona: AgentPersona): string[] {
 
 /**
  * Compose the system prompt for a CLOUD eve coding run: the eve workflow (push,
- * finish_run once, no Dial8 tools, the spec's head/base), then the agent's
+ * finish_run once, no Native Intelligence tools, the spec's head/base), then the agent's
  * persona and skills sections.
  */
 export function composeEveCodingSystemPrompt(

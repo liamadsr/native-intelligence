@@ -1,15 +1,15 @@
 /**
  * A person's agent's own number (migration 465 agent_phone_number): a Twilio
- * number in Dial8's messaging service (the sender pool of the approved 10DLC
+ * number in Native Intelligence's messaging service (the sender pool of the approved 10DLC
  * campaign: docs/plans/text-and-calling-10dlc.md), theirs alone. Their agent
  * texts them from it, and they text it to reach their agent. Got on a button
  * in the agent panel's Phone tab, never on sign-up (Liam, 2026-11-02).
  * Production only: the Twilio account is shared, and another environment's
  * database would read PROD's numbers as free.
  *
- * The pool is the messaging service's numbers that carry one of Dial8's
+ * The pool is the messaging service's numbers that carry one of Native Intelligence's
  * names; nothing else in the service is ever handed out or released:
- *   {@link SPARE_NAME}           bought by Dial8, never held by anyone;
+ *   {@link SPARE_NAME}           bought by Native Intelligence, never held by anyone;
  *   {@link HELD_NAME}            handed out (renamed so when it is);
  *   "{@link FREE_PREFIX}<date>"  held once, free since that day.
  * A spare is one nobody holds now. Carriers register a number added to the
@@ -21,10 +21,10 @@
  *     With no spare it asks for one and says so (`none_ready`), and the
  *     Phone tab asks again shortly;
  *   - a text from it carries a status callback: one carriers refuse as not yet
- *     registered (30034 / 30035) is resent from the Dial8 number, and its
+ *     registered (30034 / 30035) is resent from the Native Intelligence number, and its
  *     texts go from there for {@link DIAL8_FALLBACK_MS} (./status.ts).
  *
- * A number costs Dial8 every month it is held (a US local one is about $1.15),
+ * A number costs Native Intelligence every month it is held (a US local one is about $1.15),
  * so daily:
  *   - a number whose person hasn't texted in {@link IDLE_RECLAIM_MS} goes back
  *     to the pool ({@link reclaimIdleAgentNumbers}), still registered, and they
@@ -33,7 +33,7 @@
  *     never-held one at once, a once-held one only {@link RELEASE_QUARANTINE_MS}
  *     after it was freed. A released number is Twilio's to sell on, and its
  *     old holder's phone may still text it.
- * A number handed on inside Dial8 is safe: a text to any Dial8 number is
+ * A number handed on inside Native Intelligence is safe: a text to any Native Intelligence number is
  * routed by who sent it (src/lib/sms/inbound.ts), never by the number texted,
  * so its old holder still reaches their own agent and never the new holder's.
  *
@@ -46,7 +46,7 @@ import { twilioConfig, twilioSmsWebhookUrl, type TwilioConfig } from '@/lib/twil
 import { isE164, isNanpNumber, normalizeE164 } from '@/lib/twilio/phone'
 import { TWILIO_MESSAGING_API, accountUrl, twilioRest } from '@/lib/twilio/rest'
 
-/** A number Dial8 bought for the pool that nobody has held: the only kind released at once. */
+/** A number Native Intelligence bought for the pool that nobody has held: the only kind released at once. */
 export const SPARE_NAME = 'Dial8 spare number'
 /** A number handed out to someone. */
 export const HELD_NAME = 'Dial8 agent number'
@@ -60,11 +60,11 @@ export const MAX_AGENT_NUMBERS = 100
 export const IDLE_RECLAIM_MS = 30 * 24 * 60 * 60_000
 /** A once-held spare is kept this long after it was freed before it may be released. */
 export const RELEASE_QUARANTINE_MS = 90 * 24 * 60 * 60_000
-/** After carriers refuse a text from a number as not yet registered, its texts go from the Dial8 number for this long. */
+/** After carriers refuse a text from a number as not yet registered, its texts go from the Native Intelligence number for this long. */
 export const DIAL8_FALLBACK_MS = 60 * 60_000
 /** The event that runs {@link balanceSpares}, one at a time. */
 export const AGENT_NUMBERS_BALANCE_EVENT = 'agent-numbers/pool.balance'
-/** The text a person gets when their number goes back to the pool (from the Dial8 number). */
+/** The text a person gets when their number goes back to the pool (from the Native Intelligence number). */
 export const RECLAIMED_TEXT =
   "Dial8: You haven't texted your agent's own number in 30 days, so it has gone back to Dial8. Texting this number still reaches your agent, and you can get it a new number in the Dial8 app."
 
@@ -95,7 +95,7 @@ export interface AgentNumberDeps {
   config?: TwilioConfig | null
   now?: () => number
   webhookUrl?: string
-  /** Whether this is Dial8's production deployment (VERCEL_ENV). */
+  /** Whether this is Native Intelligence's production deployment (VERCEL_ENV). */
   production?: boolean
   /** Ask for {@link balanceSpares} (an Inngest event). */
   requestBalance?: () => Promise<unknown>
@@ -103,14 +103,14 @@ export interface AgentNumberDeps {
 
 type PoolConfig = TwilioConfig & { messagingServiceSid: string; fromNumber: string }
 
-/** The config with a messaging service and the Dial8 number, on production; else null: no pool here. */
+/** The config with a messaging service and the Native Intelligence number, on production; else null: no pool here. */
 function poolConfig(deps: AgentNumberDeps): PoolConfig | null {
   if (!(deps.production ?? process.env.VERCEL_ENV === 'production')) return null
   const config = deps.config === undefined ? twilioConfig() : deps.config
   return config?.messagingServiceSid && config.fromNumber ? (config as PoolConfig) : null
 }
 
-/** Whether people can get a number here (production, with a messaging service and the Dial8 number). */
+/** Whether people can get a number here (production, with a messaging service and the Native Intelligence number). */
 export function agentNumbersAvailable(deps: AgentNumberDeps = {}): boolean {
   return poolConfig(deps) !== null
 }
@@ -135,8 +135,8 @@ export async function agentNumberForUser(supabase: SupabaseClient, userId: strin
 
 /**
  * The number to text the person from: their agent's, unless carriers lately
- * refused it as not yet registered; null for the Dial8 number. Never throws (a
- * failed read is the Dial8 number: a text is never lost to it).
+ * refused it as not yet registered; null for the Native Intelligence number. Never throws (a
+ * failed read is the Native Intelligence number: a text is never lost to it).
  */
 export async function agentSender(supabase: SupabaseClient, userId: string, now: number = Date.now()): Promise<string | null> {
   try {
@@ -161,7 +161,7 @@ interface PoolNumber {
 }
 
 interface Pool {
-  /** Every number of Dial8's names in the service, held or not. */
+  /** Every number of Native Intelligence's names in the service, held or not. */
   ours: PoolNumber[]
   /** Those people hold. */
   held: PoolNumber[]
@@ -171,8 +171,8 @@ interface Pool {
 
 /**
  * The pool, read from Twilio (the service's numbers, named from the account's)
- * and the holders' rows. Null when Twilio refused, or the Dial8 number isn't in
- * the service: every other Dial8 text is pinned to it (src/lib/twilio/client.ts),
+ * and the holders' rows. Null when Twilio refused, or the Native Intelligence number isn't in
+ * the service: every other Native Intelligence text is pinned to it (src/lib/twilio/client.ts),
  * so a service without it is not one to hand numbers out of. Throws on a
  * failed read of the rows.
  */
@@ -192,7 +192,7 @@ async function readPool(supabase: SupabaseClient, deps: AgentNumberDeps, config:
       : [],
   )
   if (!inService.some((n) => n.phone === config.fromNumber)) {
-    console.error('[agent-number] ALERT the Dial8 number is not in the messaging service: no agent numbers handed out or bought')
+    console.error('[agent-number] ALERT the Native Intelligence number is not in the messaging service: no agent numbers handed out or bought')
     return null
   }
   const own = new Set([config.fromNumber, process.env.TWILIO_SIGNUP_NUMBER].map((n) => normalizeE164(n)).filter(Boolean))
@@ -216,9 +216,9 @@ async function readPool(supabase: SupabaseClient, deps: AgentNumberDeps, config:
 }
 
 /**
- * The Dial8 number's voice setup (its SIP trunk, application or URL), to copy
+ * The Native Intelligence number's voice setup (its SIP trunk, application or URL), to copy
  * onto an agent number: a call to it then reaches the agent as one to the
- * Dial8 number does (calls are routed by the caller: src/lib/calls/caller.ts).
+ * Native Intelligence number does (calls are routed by the caller: src/lib/calls/caller.ts).
  * Empty when it has none, or Twilio didn't say.
  */
 async function dial8Voice(deps: AgentNumberDeps, config: PoolConfig): Promise<Record<string, string>> {
@@ -256,7 +256,7 @@ async function releaseNumber(deps: AgentNumberDeps, config: PoolConfig, sid: str
 }
 
 /**
- * Buy a US local number as a spare, wired as Dial8's, and add it to the
+ * Buy a US local number as a spare, wired as Native Intelligence's, and add it to the
  * messaging service (the campaign registers it from there). A number bought
  * but not added is released again: one outside the pool can't send.
  */
@@ -316,7 +316,7 @@ async function claim(supabase: SupabaseClient, userId: string, spare: PoolNumber
 
 /**
  * Give the person's agent its own number: the one it has, else the spare
- * longest in the pool, named as held and given the Dial8 number's webhooks.
+ * longest in the pool, named as held and given the Native Intelligence number's webhooks.
  * Asks for a replacement spare after taking one, and for a spare when there
  * is none (`none_ready`: ask again shortly). Refuses past {@link MAX_AGENT_NUMBERS}.
  * `fresh` when the number is new to them. Never buys, never throws.
@@ -354,7 +354,7 @@ export async function getAgentNumber(supabase: SupabaseClient, args: { userId: s
 
 // ── Keeping the pool ───────────────────────────────────────────────────────
 
-/** Carriers refused a text from `phone` as not yet registered: its texts go from the Dial8 number for a while. Throws on a failed write. */
+/** Carriers refused a text from `phone` as not yet registered: its texts go from the Native Intelligence number for a while. Throws on a failed write. */
 export async function holdAgentNumber(supabase: SupabaseClient, phone: string, now: number = Date.now()): Promise<boolean> {
   const { data, error } = await supabase
     .from('agent_phone_number')
@@ -366,7 +366,7 @@ export async function holdAgentNumber(supabase: SupabaseClient, phone: string, n
 }
 
 /**
- * Take back every number whose person hasn't texted a Dial8 number in
+ * Take back every number whose person hasn't texted a Native Intelligence number in
  * {@link IDLE_RECLAIM_MS} (counted from when they got it, so a number never
  * texted goes too): its row goes, and it is a spare again ({@link balanceSpares}
  * dates it). Returns whose were taken (to tell them). Throws on a failed read.

@@ -89,7 +89,7 @@ final class SpeechModelManager: ObservableObject {
         case .ready:
             return nil
         case .unsupportedDevice:
-            return "This iPhone can't transcribe on-device. Dial8 needs iPhone 12 or later."
+            return "This iPhone can't transcribe on-device. Native Intelligence needs iPhone 12 or later."
         case .unsupportedLanguage(let requested):
             let name = Self.languageDisplayName(requested)
             return "On-device transcription isn't available for \(name) yet."

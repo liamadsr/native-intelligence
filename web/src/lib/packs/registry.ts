@@ -1,7 +1,7 @@
 /**
  * The expertise-pack registry (docs/plans/one-agent-and-chat-pages.md, Part 3).
  *
- * One agent does everything; what it needs to be good at one area of Dial8 is
+ * One agent does everything; what it needs to be good at one area of Native Intelligence is
  * that area's pack: a playbook (a system skill tagged with the area), the
  * area's skills, and later what it has learned about the person (S2). A pack
  * never walls off tools. It only teaches.

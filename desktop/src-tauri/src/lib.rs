@@ -403,7 +403,7 @@ mod bundle_config_tests {
     /// deep-link plugin config (it doesn't merge). An http/https entry once
     /// silently dropped `dial8desktop`, which breaks desktop sign-in / OAuth
     /// callbacks. Every configured deep-link scheme must be declared in
-    /// Info.plist too, and http/https never are: Dial8 hands web links to the
+    /// Info.plist too, and http/https never are: Native Intelligence hands web links to the
     /// system browser and is never a default-browser choice.
     #[test]
     fn info_plist_declares_every_deep_link_scheme() {
@@ -422,7 +422,7 @@ mod bundle_config_tests {
             );
         }
         assert!(plist.contains("<string>dial8desktop</string>"), "Info.plist must declare dial8desktop");
-        // Dial8 must never offer itself as a web browser to the OS.
+        // Native Intelligence must never offer itself as a web browser to the OS.
         assert!(
             !plist.contains("<string>http</string>") && !plist.contains("<string>https</string>"),
             "Info.plist must not declare http/https URL schemes"
@@ -461,7 +461,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         // Top-level navigation allowlist for every webview (main, workspace
-        // popouts, HUDs). Keeps a Dial8 window from ever
+        // popouts, HUDs). Keeps a Native Intelligence window from ever
         // rendering a non-Dial8 origin; external web links are handed to the
         // system browser instead. Registered after the opener plugin because it
         // calls into it. See nav_guard.rs.
@@ -522,7 +522,7 @@ pub fn run() {
                     commands::hud::on_agent_hud_page_load_started();
                 }
             }
-            // The main window has painted: Dial8's own CoreAudio can start
+            // The main window has painted: Native Intelligence's own CoreAudio can start
             // (audio::launch_gate).
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
                 && webview.label() == "main"
@@ -534,7 +534,7 @@ pub fn run() {
             // CLOSE-TO-TRAY. Closing the MAIN window hides it instead of
             // destroying it: the process, tray, webview, realtime subscription,
             // and any in-flight recording all keep running. Quitting for real is
-            // Cmd+Q or the tray's "Quit Dial8" — see the RunEvent::ExitRequested
+            // Cmd+Q or the tray's "Quit Native Intelligence" — see the RunEvent::ExitRequested
             // arm at the bottom of this file for why the interception CANNOT
             // live there.
             //
@@ -703,14 +703,14 @@ pub fn run() {
 
             // Surface the MAIN window's focus state to the web app as
             // `main-focus-changed` (bool = focused). This is the reliable
-            // "user switched away from Dial8" signal for the live-agent HUD:
+            // "user switched away from Native Intelligence" signal for the live-agent HUD:
             // unlike the page Visibility API, WindowEvent::Focused fires on a
-            // plain cmd-tab to another app even when Dial8 stays partially on
+            // plain cmd-tab to another app even when Native Intelligence stays partially on
             // screen (the common case when the user is on their video call).
             //
             // SELF-FOCUS GUARD: focus handed to one of OUR OWN windows (the
             // agent HUD, meeting HUD, or a workspace popout) is NOT the user
-            // leaving Dial8 — e.g. dragging the draggable HUD steals key status
+            // leaving Native Intelligence — e.g. dragging the draggable HUD steals key status
             // from `main`. On a main-blur we consult the app's currently-focused
             // window and suppress the "backgrounded" report if it's one of ours,
             // so the HUD doesn't treat interacting with itself as a background.
@@ -1061,7 +1061,7 @@ pub fn run() {
                 // bar; Windows shows a native one, and the window's name in
                 // Alt-Tab and the taskbar.
                 #[cfg(not(target_os = "macos"))]
-                let _ = window.set_title("Dial8");
+                let _ = window.set_title("Native Intelligence");
                 // Point the main window at the right frontend. A *built* debug
                 // bundle (what dev.sh produces) does NOT honor tauri.conf.json's
                 // `devUrl` — that only applies under `tauri dev` — so the window
@@ -1132,7 +1132,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while running Dial8 desktop application")
+        .expect("error while running Native Intelligence desktop application")
         .run(|app_handle, event| {
             // On app exit, finalize recording, release the voice mic, stop
             // the read-aloud sidecar and the local agents before the process
@@ -1142,7 +1142,7 @@ pub fn run() {
             //
             // ⚠️ DO NOT ADD api.prevent_exit() HERE — not for close-to-tray, not
             // for anything. ExitRequested is the funnel for the tray's "Quit
-            // Dial8" (app.exit(0)), request_restart() and the last window
+            // Native Intelligence" (app.exit(0)), request_restart() and the last window
             // closing. They arrive as the same variant and are NOT
             // distinguishable here — the `code` field only separates
             // user-interaction (None) from programmatic (Some(_)) exits. A

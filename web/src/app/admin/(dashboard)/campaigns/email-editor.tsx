@@ -134,8 +134,8 @@ const DEFAULT_HTML = `<!DOCTYPE html>
     <div class="container">
       <!-- Header with logo -->
       <div class="header">
-        <img src="https://dial8.ai/screenshots/icon_128x128@2x%201.png" alt="Dial8" style="width:44px;height:44px;vertical-align:middle;" />
-        <span class="wordmark">ial8</span>
+        <img src="https://dial8.ai/brand/ni-mark.png" alt="Native Intelligence" style="width:44px;height:44px;vertical-align:middle;" />
+        <span class="wordmark">Native Intelligence</span>
       </div>
 
       <!-- Email body -->
@@ -153,10 +153,10 @@ const DEFAULT_HTML = `<!DOCTYPE html>
       <!-- Footer with small logo -->
       <div class="footer">
         <div class="footer-logo">
-          <img src="https://dial8.ai/screenshots/icon_128x128@2x%201.png" alt="Dial8" />
+          <img src="https://dial8.ai/brand/ni-mark.png" alt="Native Intelligence" />
         </div>
         <p>
-          Dial8 &middot; Your mind, extended.
+          Native Intelligence &middot; Your mind, extended.
           <br />
           <a href="{{unsubscribe_url}}">Unsubscribe</a>
         </p>

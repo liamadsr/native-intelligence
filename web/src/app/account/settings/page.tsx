@@ -1,7 +1,7 @@
 import { PreferencesView } from './preferences-view'
 
 export const metadata = {
-  title: 'Preferences – Settings – Dial8',
+  title: 'Preferences – Settings',
 }
 
 export default function SettingsPage() {

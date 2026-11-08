@@ -567,7 +567,7 @@ pub fn install_default_recovery<R: tauri::Runtime>(window: &tauri::WebviewWindow
         // the reload above already happened and does not depend on it.
         //
         // NOTE: `show` deliberately returns Ok(false) without a banner while any
-        // non-HUD Dial8 window is focused (its documented "app is frontmost"
+        // non-HUD Native Intelligence window is focused (its documented "app is frontmost"
         // policy). A renderer crash usually happens while the user IS looking at
         // the app, so the common outcome is a silent recovery plus the log line
         // above — which is the right behaviour: the window visibly reloads in
@@ -598,7 +598,7 @@ pub fn install_default_recovery<R: tauri::Runtime>(window: &tauri::WebviewWindow
             match crate::notifications::show(
                 &label_for_notify,
                 &id,
-                "Dial8 recovered",
+                "Native Intelligence recovered",
                 Some("The window ran out of memory and reloaded."),
                 None,
                 crate::notifications::BannerExtras::default(),
@@ -607,7 +607,7 @@ pub fn install_default_recovery<R: tauri::Runtime>(window: &tauri::WebviewWindow
             {
                 Ok(true) => {}
                 // Distinct from a delivered banner: `show` returns Ok(false)
-                // for its documented "a Dial8 window is focused" skip, which is
+                // for its documented "a Native Intelligence window is focused" skip, which is
                 // the COMMON outcome here (the user is usually looking at the
                 // window that just crashed). Logging it separately keeps a
                 // silent recovery distinguishable from a broken notifier.

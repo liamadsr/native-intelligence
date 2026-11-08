@@ -108,7 +108,7 @@ describe('one agent per folder', () => {
     expect(err).toBeInstanceOf(LocalAgentError)
     expect(err.code).toBe('conflict')
     expect(err.details).toMatchObject({ code: FOLDER_BUSY_CODE, reason: 'read_only', session: expect.objectContaining({ id: read.session.id }) })
-    expect(err.message).toContain('Dial8 on Liam’s MacBook is already working in dial8-website, read-only')
+    expect(err.message).toContain('Native Intelligence on Liam’s MacBook is already working in dial8-website, read-only')
     expect(db3.tables.local_agent_session).toHaveLength(1)
   })
 
@@ -932,11 +932,11 @@ describe('who a job acts for (isAttendedSession)', () => {
 })
 
 describe('the teammate’s name', () => {
-  it('is Dial8 on its Mac', () => {
-    expect(macTeammateName('Liam’s MacBook Pro')).toBe('Dial8 on Liam’s MacBook Pro')
-    expect(macTeammateName('  Studio\n Mac ')).toBe('Dial8 on Studio Mac')
-    expect(macTeammateName('')).toBe('Dial8 on your Mac')
-    expect(macTeammateName(null)).toBe('Dial8 on your Mac')
+  it('is Native Intelligence on its Mac', () => {
+    expect(macTeammateName('Liam’s MacBook Pro')).toBe('Native Intelligence on Liam’s MacBook Pro')
+    expect(macTeammateName('  Studio\n Mac ')).toBe('Native Intelligence on Studio Mac')
+    expect(macTeammateName('')).toBe('Native Intelligence on your Mac')
+    expect(macTeammateName(null)).toBe('Native Intelligence on your Mac')
   })
 })
 

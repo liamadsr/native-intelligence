@@ -51,7 +51,7 @@ import { getServiceClient } from '@/lib/supabase/service'
  *   only the server ever sends one, only to the account's verified number
  *   (never to the model, a web chat or MCP), once, for 15 minutes; the page
  *   names the masked number before its button; and the connected address is
- *   emailed which Dial8 account it joined. A link the owner forwards still
+ *   emailed which Native Intelligence account it joined. A link the owner forwards still
  *   connects whoever taps it: the residual risk this design accepts
  *   (roadmap track A, 2026-11-01), for the founder to weigh.
  *

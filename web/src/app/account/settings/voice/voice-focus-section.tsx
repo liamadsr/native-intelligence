@@ -2,7 +2,7 @@
 
 /**
  * Settings → Voice → Voice focus, under the voiceprint card: voice mode and
- * Interactive answer only the user and people Dial8 recognises by voice
+ * Interactive answer only the user and people Native Intelligence recognises by voice
  * (src/lib/voice/voice-focus.ts). Desktop only, and only on a build whose
  * `voice_status` says it sends speech audio (`speechAudio`); otherwise
  * nothing. Device-local (src/lib/voice/settings.ts `dial8:voice:focus`), off
@@ -42,7 +42,7 @@ export function VoiceFocusSection({ trained, onTrain }: { trained: boolean; onTr
             Voice focus
           </Label>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Only respond to you and people Dial8 recognises by voice. Voices it doesn’t know, like a TV or
+            Only respond to you and people Native Intelligence recognises by voice. Voices it doesn’t know, like a TV or
             people nearby, are ignored. Turn it off to hear everyone.
           </p>
         </div>
@@ -57,7 +57,7 @@ export function VoiceFocusSection({ trained, onTrain }: { trained: boolean; onTr
       </div>
       {!trained && (
         <div className="mt-3 flex items-center justify-between gap-4 border-t border-border/60 pt-3">
-          <p className="text-xs text-muted-foreground">Train your voice first so Dial8 knows it’s you.</p>
+          <p className="text-xs text-muted-foreground">Train your voice first so Native Intelligence knows it’s you.</p>
           <Button variant="outline" size="sm" className="shrink-0" onClick={onTrain}>
             <AudioWaveform className="mr-1.5 h-3.5 w-3.5" />
             Train your voice

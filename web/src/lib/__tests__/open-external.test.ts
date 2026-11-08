@@ -143,7 +143,7 @@ describe('keepsSystemBrowser', () => {
     'https://whereby.com/acme',
     'https://meet.jit.si/acme',
     'https://app.slack.com/huddle/T1/C1',
-    // Dial8's own pages: the app routes them, or they open as before.
+    // Native Intelligence's own pages: the app routes them, or they open as before.
     'https://dial8.ai/invite/abc',
     'https://app.dial8.ai/account',
     // Wrapped links are judged by the link inside.

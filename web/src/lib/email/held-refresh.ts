@@ -182,7 +182,7 @@ export async function refreshHeldThreads(
         result = await generate(input.userId, hold.workspace_id, {
           thread_ids: [threadId],
           max_drafts: 1,
-          // No tone: the draft writes the way the person does (what Dial8 learned).
+          // No tone: the draft writes the way the person does (what Native Intelligence learned).
           replyIntent: 'automatic',
           // One model call per re-draft: this loop runs over every held
           // thread inside one Inngest step, with no deadline of its own.

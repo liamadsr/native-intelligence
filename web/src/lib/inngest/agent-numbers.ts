@@ -5,7 +5,7 @@ import { inngest } from './client'
 
 /**
  * The agent-number pool (src/lib/sms/agent-number.ts). Every purchase and
- * release is {@link agentNumbersBalance}, one run at a time across Dial8, and
+ * release is {@link agentNumbersBalance}, one run at a time across Native Intelligence, and
  * at most one run every 30 s (a click asking again every 3 s asks once): a
  * run of clicks finds the spares already bought, and a purchase the service
  * keeps refusing costs one number a run, not one a click. Ids and counts only
@@ -31,8 +31,8 @@ export const agentNumbersBalance = inngest.createFunction(
  * Daily at 17:00 UTC (9am in California, noon in New York: the campaign
  * sends nothing between 9pm and 8am but urgent texts, and this is not one):
  * take back the numbers nobody has texted in 30 days, tell their people (from
- * the Dial8 number: theirs is gone), then balance the pool with release on (a
- * number costs Dial8 every month it is held).
+ * the Native Intelligence number: theirs is gone), then balance the pool with release on (a
+ * number costs Native Intelligence every month it is held).
  */
 export const agentNumbersDaily = inngest.createFunction(
   {

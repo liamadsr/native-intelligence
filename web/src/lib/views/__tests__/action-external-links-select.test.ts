@@ -90,13 +90,13 @@ describe('ACTION_VIEW_SELECT — external_links', () => {
 
 /**
  * REGRESSION (review finding: "Lazy-loaded subtask rows lack external_links —
- * icon claims Dial8-only for linked subtasks").
+ * icon claims NI-only for linked subtasks").
  *
  * Tree children in an ungrouped action list do NOT come from the view query
  * engine — they are fetched from GET /api/account/actions?parent_id=…, whose
  * own select never got the join. Child rows render through the identical
  * EntityRow → ActionPlatformCell path, where a missing `external_links` folds to
- * [] and the icon draws the AFFIRMATIVE Dial8 mark ("Dial8 action — send it to
+ * [] and the icon draws the AFFIRMATIVE Native Intelligence mark ("Native Intelligence action — send it to
  * a task app"). So a Jira-linked subtask sat directly under its correctly-marked
  * parent using the opposite convention for the same fact.
  *

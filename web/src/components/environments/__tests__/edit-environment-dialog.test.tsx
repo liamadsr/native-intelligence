@@ -191,7 +191,7 @@ describe('a Mac', () => {
   })
 
   it('Remove this Mac: a short confirm; MAC_BUSY is the server’s sentence', async () => {
-    const sentence = 'A Dial8 job is still open on this Mac. Stop it first, then remove the Mac.'
+    const sentence = 'A Native Intelligence job is still open on this Mac. Stop it first, then remove the Mac.'
     const f = await open(mac(), {
       routes: [{ method: 'DELETE', url: `/api/account/environments/macs/${THIS_MAC}`, reply: () => json({ error: sentence, code: 'MAC_BUSY' }, 409) }],
     })

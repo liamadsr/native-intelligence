@@ -437,8 +437,8 @@ export function PageLayout({ children, sections }: PageLayoutProps) {
             <Link href="/" title="Go to homepage">
               {/* Always the dark app icon — the light/marble variant is retired. */}
               <img
-                src="/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png"
-                alt="Dial8"
+                src="/brand/ni-app-icon.png"
+                alt="Native Intelligence"
                 className="w-20 h-20 hover:scale-105 transition-transform"
               />
             </Link>

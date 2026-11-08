@@ -659,7 +659,7 @@ def tree_digest(folder: str) -> str:
 def ships_as(target: str, binary: str) -> str:
     """Where the executable `binary` sits in what the app ships for `target`."""
     if "windows" in target:
-        return f"Dial8.exe (the {binary} executable, in the folder Dial8's installer installs)"
+        return f"Native Intelligence.exe (the {binary} executable, in the folder Native Intelligence's installer installs)"
     return f"Contents/MacOS/{binary}"
 
 
@@ -668,7 +668,7 @@ def header(count: int, target: str, bins: list) -> str:
         return textwrap.fill(" ".join(text.split()), width=78)
 
     return "\n\n".join([
-        f"Rust crates in the Dial8 app's main executable ({count} crates)",
+        f"Rust crates in the Native Intelligence app's main executable ({count} crates)",
         "Ships as:\n" + ("\n".join(f"  {ships_as(target, b)}" for b in bins) or "  (no binary target)"),
         para(f"The app's main executable is written in Rust. It statically links the {count} "
              f"third-party crates below: exactly the crates Cargo compiles into it for {target}, "

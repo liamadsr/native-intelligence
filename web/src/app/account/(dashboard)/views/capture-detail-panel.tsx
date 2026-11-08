@@ -639,7 +639,7 @@ export function CaptureDetailPanel({
 
   // The auto-accept policy — used to explain WHY a high-confidence proposal is
   // still pending (below threshold / not yours / external / inferred). Every
-  // workspace runs Dial8's tuned defaults (Liam, 2026-10-17: opinionated
+  // workspace runs Native Intelligence's tuned defaults (Liam, 2026-10-17: opinionated
   // platform, no configuration fatigue; the Trust page and its overrides are
   // gone, migration 354), so the card reads the default policy directly instead
   // of fetching it.

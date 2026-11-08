@@ -9,7 +9,7 @@
  * receipt, a booking, a delivery, an account notice, another automated
  * notice; never a conversation or a newsletter) that carries no trust mark
  * and sits in the inbox or the archive (EVIDENCE_FOLDERS: never spam, where
- * the provider files a sender that fails its checks, nor trash). Dial8 reads
+ * the provider files a sender that fails its checks, nor trash). Native Intelligence reads
  * no sender authentication of its own, so the provider's filing is the check.
  * Jev's action.done_by_email puts its newest messages beside the person's own
  * open to-dos and picks the one it clearly settles, or none (the bar is
@@ -21,7 +21,7 @@
  * created before the newest message (a to-do made from this very mail is not
  * settled by it); never one mail closed before (a to-do the person reopened,
  * by Undo or by hand, stays open), and never one linked to Linear, Jira or
- * Asana (their status echoes would carry the close out of Dial8, past Undo).
+ * Asana (their status echoes would carry the close out of Native Intelligence, past Undo).
  * And only while the person has a home thread: Undo lives there.
  *
  * Closing: one action_mail_done row first (unique per to-do: a retried pass
@@ -153,7 +153,7 @@ export async function readOpenTodos(supabase: SupabaseClient, scope: MailDoneSco
     if (!open.length) return []
     const ids = open.map((t) => t.id)
     // Never one mail closed before (also how a pass finds 450 missing), and never one
-    // linked to Linear, Jira or Asana: their echoes would carry the close out of Dial8.
+    // linked to Linear, Jira or Asana: their echoes would carry the close out of Native Intelligence.
     const [{ data: closed, error: closedError }, { data: linked, error: linkedError }] = await Promise.all([
       supabase.from(TABLE).select('action_id').in('action_id', ids),
       supabase.from('action_external_task').select('action_id').eq('workspace_id', scope.workspaceId).in('action_id', ids),

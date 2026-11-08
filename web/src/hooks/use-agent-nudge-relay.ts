@@ -5,10 +5,10 @@
  * for the WHOLE of a live capture on desktop, and relays the agent's
  * say_to_user nudges to it.
  *
- * Up for the whole call (Liam, 2026-10-10), not only while Dial8 is in the
+ * Up for the whole call (Liam, 2026-10-10), not only while Native Intelligence is in the
  * background as it used to be: Voice ID lives in the HUD during a live capture
  * (components/capture/voice-id-hud-publisher.tsx), and the transcript and tool
- * calls are to follow, so the HUD has to be reachable while you're in Dial8
+ * calls are to follow, so the HUD has to be reachable while you're in Native Intelligence
  * too. It opens when the capture starts and closes (window destroyed, Rust
  * buffer cleared) when it ends — the effect cleanup.
  *
@@ -122,7 +122,7 @@ export function useAgentNudgeRelay(captureId: string | null, liveModeEnabled: bo
         }
       })
     const heartbeat = setInterval(() => void ensureHud('heartbeat'), HUD_HEARTBEAT_MS)
-    // Back to Dial8 is where the user looks for a HUD that went missing.
+    // Back to Native Intelligence is where the user looks for a HUD that went missing.
     let unlistenFocus: (() => void) | undefined
     void enqueue(async () => {
       if (cancelled) return

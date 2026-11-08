@@ -1,6 +1,6 @@
 /**
  * The fetch of a client metadata document (client-metadata.ts says what one
- * is). The URL is the app's to choose, so Dial8 fetching it is an SSRF
+ * is). The URL is the app's to choose, so Native Intelligence fetching it is an SSRF
  * surface, and the draft's rules are kept tight:
  *
  *   - Public addresses only, checked AT THE DIAL: the request's own DNS

@@ -279,7 +279,7 @@ export function LocalExchangeDetailView() {
             <div className="rounded-lg border border-border p-6 text-center">
               <Monitor className="h-8 w-8 mx-auto text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground">
-                This integration is only available in the Dial8 desktop app.
+                This integration is only available in the Native Intelligence desktop app.
               </p>
             </div>
           )}
@@ -342,7 +342,7 @@ export function LocalExchangeDetailView() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Changes made to Exchange events in Dial8 are written back to macOS Calendar, which syncs them
+                  Changes made to Exchange events in Native Intelligence are written back to macOS Calendar, which syncs them
                   to your Exchange server. Your organization&apos;s policies still apply — if the server rejects a change,
                   it may revert.
                 </p>
@@ -408,7 +408,7 @@ export function LocalExchangeDetailView() {
                 {!status?.hasAccess && (
                   <div className="space-y-3">
                     <p className="text-sm text-muted-foreground">
-                      Grant Dial8 permission to read your macOS Calendar to get started.
+                      Grant Native Intelligence permission to read your macOS Calendar to get started.
                     </p>
                     <Button
                       onClick={handleConnect}

@@ -7,7 +7,7 @@ import { ImageResponse } from 'next/og'
 // for the same reason: it cannot fail the build.
 
 export const runtime = 'nodejs'
-export const alt = 'Dial8 — One brain. Every tool. Always in sync.'
+export const alt = 'Native Intelligence — One brain. Every tool. Always in sync.'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -49,7 +49,7 @@ export default function OpengraphImage() {
             lineHeight: 1,
           }}
         >
-          Dial8
+          Native Intelligence
         </div>
         <div
           style={{

@@ -101,7 +101,7 @@ fn replaced_mode(path: &Path) -> Option<u32> {
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn quarantine_value(now: SystemTime, event: uuid::Uuid) -> String {
     let secs = now.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    format!("0081;{secs:08x};Dial8;{}", event.hyphenated().to_string().to_uppercase())
+    format!("0081;{secs:08x};Native Intelligence;{}", event.hyphenated().to_string().to_uppercase())
 }
 
 /// The Mark-of-the-Web a browser writes on Windows: an NTFS alternate data
@@ -159,7 +159,7 @@ mod tests {
     fn the_mark_is_what_a_browser_writes() {
         let event = uuid::Uuid::parse_str("0f6e4a1c-2b3d-4e5f-8a9b-0c1d2e3f4a5b").unwrap();
         let at = UNIX_EPOCH + std::time::Duration::from_secs(0x6543_21ab);
-        assert_eq!(quarantine_value(at, event), "0081;654321ab;Dial8;0F6E4A1C-2B3D-4E5F-8A9B-0C1D2E3F4A5B");
+        assert_eq!(quarantine_value(at, event), "0081;654321ab;Native Intelligence;0F6E4A1C-2B3D-4E5F-8A9B-0C1D2E3F4A5B");
     }
 
     #[cfg(target_os = "macos")]
@@ -184,7 +184,7 @@ mod tests {
         let value = xattr(&path).expect("com.apple.quarantine set");
         let fields: Vec<&str> = value.split(';').collect();
         assert_eq!(fields.len(), 4, "{value}");
-        assert_eq!((fields[0], fields[2]), ("0081", "Dial8"));
+        assert_eq!((fields[0], fields[2]), ("0081", "Native Intelligence"));
         assert_eq!(fields[3].len(), 36);
 
         // Replacing an unmarked file the person picked marks it.

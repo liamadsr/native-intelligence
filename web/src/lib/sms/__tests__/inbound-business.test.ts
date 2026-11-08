@@ -3,11 +3,11 @@
  * migration 464's one phone, two accounts): a stranger texting a business's
  * own number is its customer (src/lib/customers/texting.ts), never the
  * unknown-number reply or a guest lookup; the business's own people (the
- * `businessPerson` row, a business-line row first) go on as by the Dial8
+ * `businessPerson` row, a business-line row first) go on as by the Native Intelligence
  * number, in the business's workspace whichever workspace their phone is
- * linked to; the Dial8 number reaches only the phone's Dial8-line account;
+ * linked to; the Native Intelligence number reaches only the phone's NI-line account;
  * STOP / START change only the texted number's account; HELP and START name
- * the business; and a text to the Dial8 number is unchanged.
+ * the business; and a text to the Native Intelligence number is unchanged.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { START_REPLY, handleInboundSms, unknownNumberReply, type InboundDeps, type InboundSms } from '../inbound'
@@ -21,7 +21,7 @@ const RUG = '+16465550173'
 const STRANGER = '+12125550199'
 const NUMBER: BusinessNumber = { id: 'bn-1', workspaceId: 'ws-rug', ownerUserId: 'user-owner', phone: RUG, twilioSid: 'PN1' }
 
-/** Account A: the phone's Dial8 line, their own workspace. Not one of Bright Loom's people. */
+/** Account A: the phone's Native Intelligence line, their own workspace. Not one of Bright Loom's people. */
 const ACCOUNT_A: LinkedPhone = { id: 'p-a', userId: 'user-a', workspaceId: 'ws-home', phone: STRANGER, optedOut: false, line: 'dial8' }
 /** Account B: Bright Loom's own account, the same phone on its business line. */
 const ACCOUNT_B: LinkedPhone = { id: 'p-b', userId: 'user-b', workspaceId: 'ws-rug', phone: STRANGER, optedOut: false, line: 'business' }
@@ -77,10 +77,10 @@ describe("a text to a business's number", () => {
     expect(f.outbound).toEqual([{ phone: STRANGER, kind: 'guest_welcome', guestId: 'g-1' }])
   })
 
-  it("the phone's Dial8-line account, when it isn't one of the business's people, is still its customer there", async () => {
+  it("the phone's NI-line account, when it isn't one of the business's people, is still its customer there", async () => {
     const f = fakeDeps({ linked: ACCOUNT_A, person: null })
     expect((await handleInboundSms(sms('How much for a runner?'), f.deps)).outcome).toBe('customer_welcomed')
-    // The Dial8 line is never read for a business's number: the number decides who is texting.
+    // The Native Intelligence line is never read for a business's number: the number decides who is texting.
     expect(f.deps.findLinkedPhone).not.toHaveBeenCalled()
     expect(f.deps.businessPerson).toHaveBeenCalledWith(STRANGER, 'ws-rug')
     expect(f.deps.deliverText).not.toHaveBeenCalled()
@@ -117,7 +117,7 @@ describe("a text to a business's number", () => {
     expect(f.deps.deliverText).not.toHaveBeenCalled()
   })
 
-  it("the opt-out is the business account's: its line said STOP, so its texts are ignored (the Dial8 line's state doesn't matter)", async () => {
+  it("the opt-out is the business account's: its line said STOP, so its texts are ignored (the Native Intelligence line's state doesn't matter)", async () => {
     const f = fakeDeps({ linked: ACCOUNT_A, person: { ...ACCOUNT_B, optedOut: true } })
     expect(await handleInboundSms(sms('hi'), f.deps)).toEqual({ outcome: 'opted_out', reply: null })
     const g = fakeDeps({ linked: { ...ACCOUNT_A, optedOut: true }, person: ACCOUNT_B })
@@ -132,13 +132,13 @@ describe("a text to a business's number", () => {
     expect(f.deps.guestText).not.toHaveBeenCalled()
   })
 
-  it('HELP and START name the business, not Dial8', async () => {
+  it('HELP and START name the business, not Native Intelligence', async () => {
     expect((await handleInboundSms(sms('HELP'), fakeDeps().deps)).reply).toBe(businessHelpReply('Bright Loom'))
     expect((await handleInboundSms(sms('START'), fakeDeps().deps)).reply).toBe(businessStartReply('Bright Loom'))
     expect(businessHelpReply('Bright Loom')).toContain('Reply STOP to opt out')
   })
 
-  it("STOP to it changes exactly the row it resolves to (account B's business line), never account A's Dial8 line; the customer path never runs", async () => {
+  it("STOP to it changes exactly the row it resolves to (account B's business line), never account A's Native Intelligence line; the customer path never runs", async () => {
     const f = fakeDeps({ linked: ACCOUNT_A, person: ACCOUNT_B })
     expect(await handleInboundSms(sms('STOP'), f.deps)).toEqual({ outcome: 'stop', reply: null })
     expect(f.deps.setPhoneRowOptOut).toHaveBeenCalledWith('p-b', true)
@@ -148,7 +148,7 @@ describe("a text to a business's number", () => {
     expect(f.deps.businessText).not.toHaveBeenCalled()
   })
 
-  it("a single-account owner (their Dial8-line row, a member there) is the row it resolves to: STOP and START there toggle it", async () => {
+  it("a single-account owner (their NI-line row, a member there) is the row it resolves to: STOP and START there toggle it", async () => {
     const owner: LinkedPhone = { id: 'p-o', userId: 'user-owner', workspaceId: 'ws-home', phone: STRANGER, optedOut: false, line: 'dial8' }
     const f = fakeDeps({ linked: owner, person: owner })
     await handleInboundSms(sms('STOP'), f.deps)
@@ -185,8 +185,8 @@ describe("a text to a business's number", () => {
   })
 })
 
-describe('the same phone texting the Dial8 number', () => {
-  it("reaches its Dial8-line account (A) in A's own workspace, never the business's account", async () => {
+describe('the same phone texting the Native Intelligence number', () => {
+  it("reaches its NI-line account (A) in A's own workspace, never the business's account", async () => {
     const f = fakeDeps({ linked: ACCOUNT_A, person: ACCOUNT_B })
     await handleInboundSms(sms("what's on tomorrow?", { to: DIAL8 }), f.deps)
     expect(f.deps.businessText).not.toHaveBeenCalled()
@@ -194,13 +194,13 @@ describe('the same phone texting the Dial8 number', () => {
     expect(f.deps.deliverText).toHaveBeenCalledWith(expect.objectContaining({ linked: ACCOUNT_A }))
   })
 
-  it("a business-line account is not reached there: with no Dial8-line holder, the phone is a stranger to the Dial8 number", async () => {
+  it("a business-line account is not reached there: with no NI-line holder, the phone is a stranger to the Native Intelligence number", async () => {
     const f = fakeDeps({ linked: null, person: ACCOUNT_B })
     expect(await handleInboundSms(sms('hello', { to: DIAL8 }), f.deps)).toEqual({ outcome: 'unknown_replied', reply: unknownNumberReply(ORIGIN) })
     expect(f.deps.deliverText).not.toHaveBeenCalled()
   })
 
-  it('STOP / START there change the Dial8 line only, never the business lines', async () => {
+  it('STOP / START there change the Native Intelligence line only, never the business lines', async () => {
     const f = fakeDeps({ linked: ACCOUNT_A })
     expect(await handleInboundSms(sms('STOP', { to: DIAL8 }), f.deps)).toEqual({ outcome: 'stop', reply: null })
     expect(f.deps.setPhoneOptOut).toHaveBeenCalledWith(STRANGER, true)
@@ -212,7 +212,7 @@ describe('the same phone texting the Dial8 number', () => {
 })
 
 describe('the real lookup never costs a STOP or a text', () => {
-  it('a failed business-number read is taken as the Dial8 line, never thrown', async () => {
+  it('a failed business-number read is taken as the Native Intelligence line, never thrown', async () => {
     const { supabaseInboundDeps } = await import('../inbound')
     const failing = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'down' } }) }) }) }) }) }
     const deps = supabaseInboundDeps(failing as never, { origin: ORIGIN, deliverText: async () => {} })
@@ -223,7 +223,7 @@ describe('the real lookup never costs a STOP or a text', () => {
   })
 })
 
-describe('a text to the Dial8 number (track A owns its strangers)', () => {
+describe('a text to the Native Intelligence number (track A owns its strangers)', () => {
   it('never asks the customer path; a stranger gets the unknown-number reply as before', async () => {
     const f = fakeDeps()
     expect(await handleInboundSms(sms('hello', { to: DIAL8 }), f.deps)).toEqual({ outcome: 'unknown_replied', reply: unknownNumberReply(ORIGIN) })
@@ -231,7 +231,7 @@ describe('a text to the Dial8 number (track A owns its strangers)', () => {
     expect(f.deps.guestText).toHaveBeenCalled()
   })
 
-  it('no To at all reads as the Dial8 number', async () => {
+  it('no To at all reads as the Native Intelligence number', async () => {
     const f = fakeDeps()
     expect((await handleInboundSms(sms('START', { to: undefined }), f.deps)).reply).toBe(START_REPLY)
     expect(f.deps.businessLine).not.toHaveBeenCalled()

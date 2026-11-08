@@ -4,7 +4,7 @@
  * "Add to Slack" (docs/plans/slack-connect.md §4 piece 3): a workspace admin
  * gets the URL that adds our Slack app to their Slack workspace (Slack's own
  * install, run by Vercel Connect). Slack sends them back to Settings. The
- * Slack workspace is bound to this Dial8 workspace when the admin then sends
+ * Slack workspace is bound to this Native Intelligence workspace when the admin then sends
  * the bot their link code (src/lib/slack/inbound.ts): the install alone binds
  * nothing, so a Slack team is never tied to a workspace on a redirect's word.
  */
@@ -15,13 +15,13 @@ import { SlackInstallUnavailableError, startSlackInstall } from '@/lib/slack/con
 import { INSTALLING_ROLES } from '@/lib/slack/store'
 
 /** Shown on Slack's settings page while Connect can't take new installs. */
-const SLACK_INSTALL_UNAVAILABLE = "Adding Dial8 to a new Slack workspace isn't open yet. We're turning it on soon."
+const SLACK_INSTALL_UNAVAILABLE = "Adding Native Intelligence to a new Slack workspace isn't open yet. We're turning it on soon."
 
 export async function POST() {
   if (!slackConfigured()) return notFound('Slack is not set up')
   const auth = await requireWorkspaceMember({ select: 'id, role' })
   if (auth instanceof Response) return auth
-  if (!INSTALLING_ROLES.has(auth.member.role ?? 'member')) return forbidden('Only a workspace admin can add Dial8 to Slack')
+  if (!INSTALLING_ROLES.has(auth.member.role ?? 'member')) return forbidden('Only a workspace admin can add Native Intelligence to Slack')
   try {
     const url = await startSlackInstall(`${appOrigin()}${SLACK_SETTINGS_PATH}?slack=installed`)
     return Response.json({ url })

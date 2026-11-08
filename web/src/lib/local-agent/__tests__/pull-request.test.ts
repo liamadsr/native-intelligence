@@ -1,6 +1,6 @@
 /**
  * C5's server half (teammate plan, WS-C): what a pull request for a local
- * agent's branch may name, and the server opening it with the person's Dial8
+ * agent's branch may name, and the server opening it with the person's Native Intelligence
  * GitHub sign-in (open-pull-request.ts), the way the agent-run outcome route
  * does: only the session's own branch, github.com only, replay-safe.
  */

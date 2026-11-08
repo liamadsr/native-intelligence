@@ -6,7 +6,7 @@
  * against ONE workspace — the request's. That was always fine, because a
  * selection could only ever come from one list of one workspace's rows. In the
  * My Actions list's "All workspaces" scope it isn't: the checkbox is on every
- * row, so a user can tick an action in Dial8 and one in Acme and hit Complete.
+ * row, so a user can tick an action in Native Intelligence and one in Acme and hit Complete.
  * Sent as a single request, the ids from the other workspace simply aren't
  * found there — a silent partial failure, the worst kind.
  *

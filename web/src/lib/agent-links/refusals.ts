@@ -10,7 +10,7 @@ export function linkRefusal(reason: LinkRefusalReason): Response {
     case 'bad_name':
       return badRequest('Give them a name (up to 80 characters).')
     case 'bad_email':
-      return badRequest('Enter the email they sign in to Dial8 with.')
+      return badRequest('Enter the email they sign in to Native Intelligence with.')
     case 'bad_preset':
       return badRequest('Pick Household or Colleague.')
     case 'self':

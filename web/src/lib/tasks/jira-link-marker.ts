@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 /**
  * The `action_external_task.last_push_error` marker vocabulary for JIRA links.
  *
- * Shared by the three paths that can fail against one issue — the Dial8→Jira
+ * Shared by the three paths that can fail against one issue — the Native Intelligence→Jira
  * echo (src/lib/inngest/jira-echo-status.ts), the webhook read-back
  * (jira-apply-remote.ts) and the reconcile sweep (jira-reconcile.ts) — so a
  * marker one of them writes means the same thing to the other two.

@@ -183,7 +183,7 @@ describe('picks', () => {
     expect(pickedPermission(picks, 'c')).toBe('blocked')
   })
 
-  it('a whole section on Always allow turns everything on, but leaves what sends, changes outside Dial8 or deletes on Needs approval', () => {
+  it('a whole section on Always allow turns everything on, but leaves what sends, changes outside Native Intelligence or deletes on Needs approval', () => {
     const next = withSectionPicked({ tools: [], askTools: [], askBefore: ['payments', 'deletes'] }, ['get_calendar_events', 'create_calendar_event', 'delete_calendar_event'], 'allow')
     expect(next.tools).toEqual(['get_calendar_events', 'create_calendar_event', 'delete_calendar_event'])
     expect(next.askTools).toEqual(['create_calendar_event', 'delete_calendar_event'])
@@ -296,7 +296,7 @@ describe('the People tab', () => {
     expect(q('[data-people-guest="g-new"]')).not.toBeNull()
   })
 
-  it('Add a person on Slack only: no number asked for, and the invite says what to DM the Dial8 app', async () => {
+  it('Add a person on Slack only: no number asked for, and the invite says what to DM the Native Intelligence app', async () => {
     await show()
     await click(q('[data-people-add]')!)
     await type(q('[data-people-name]') as HTMLInputElement, 'Marco Ruiz')
@@ -313,11 +313,11 @@ describe('the People tab', () => {
     const post = calls.find((c) => c.method === 'POST' && c.url === '/api/account/agent-guests')!.body as Record<string, unknown>
     expect(post).toMatchObject({ channels: ['slack'], phone: null })
     expect(q('[data-people-invite-channel="sms"]')).toBeNull()
-    expect(q('[data-people-invite-channel="slack"]')!.textContent).toContain('the Dial8 app in Acme')
+    expect(q('[data-people-invite-channel="slack"]')!.textContent).toContain('the Native Intelligence app in Acme')
     expect(q('[data-people-guest="g-new"]')!.textContent).toContain('Slack · invited, hasn’t messaged yet')
   })
 
-  it('Slack can’t be picked until Dial8 is in a Slack workspace, and Set up Slack opens its tab', async () => {
+  it('Slack can’t be picked until Native Intelligence is in a Slack workspace, and Set up Slack opens its tab', async () => {
     slackInstalls = []
     const onOpenTab = vi.fn()
     await act(async () => root.render(<PeoplePanel name="Joseph" active onOpenTab={onOpenTab} />))
@@ -470,7 +470,7 @@ describe('the People tab', () => {
     await until(() => !!q('[data-people-sent="email"]'))
     expect(calls.find((c) => c.method === 'POST' && c.url === '/api/account/agent-links')!.body).toMatchObject({ email: 'dana@northwind.com', displayName: 'Dana Kim' })
     expect(q('[data-people-sent]')!.textContent).toContain('Request sent')
-    expect(q('[data-people-sent]')!.textContent).not.toMatch(/not found|isn.t on Dial8/i)
+    expect(q('[data-people-sent]')!.textContent).not.toMatch(/not found|isn.t on Native Intelligence/i)
   })
 
   it('Add a person’s agent by a connect link: the link, shown once to copy', async () => {

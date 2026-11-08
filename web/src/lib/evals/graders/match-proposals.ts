@@ -201,7 +201,7 @@ async function decideMatches(
       .join('\n\n')
     let object: z.infer<typeof DecisionSchema>
     if (args.plan) {
-      // On the starter's own ChatGPT plan: never Dial8's models.
+      // On the starter's own ChatGPT plan: never Native Intelligence's models.
       const decided = await judgeOnPlan(args.plan, { instructions: DECIDER_INSTRUCTIONS, prompt, schema: DecisionSchema })
       usage = decided.usage
       object = decided.object

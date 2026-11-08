@@ -1,5 +1,5 @@
 /**
- * The CI fix loop on Dial8's own pull requests (P10; eve-templates-lessons.md
+ * The CI fix loop on Native Intelligence's own pull requests (P10; eve-templates-lessons.md
  * F7, Foreman's "red CI on its own PR").
  *
  * The GitHub webhook (src/app/api/webhooks/github/route.ts, signature checked
@@ -214,7 +214,7 @@ export function prNumberOf(prUrl: string, repoFullName: string): number | null {
 
 /**
  * GitHub's view of the PR: open, from this repo (not a fork), at this head,
- * and the repo private (decision 2: Dial8 never pushes agent work into a
+ * and the repo private (decision 2: Native Intelligence never pushes agent work into a
  * public repo on its own). Null when it is ours; else why not.
  */
 async function prIsOurs(args: { repoFullName: string; prUrl: string; headSha: string; token: string; fetchImpl: typeof fetch }): Promise<string | null> {
@@ -408,7 +408,7 @@ function checkName(name: string): string {
  * The notice: "CI is still red on ENG-42", once per PR (the claim reports
  * once; the message id is the run's too), as the agent's message in the
  * run starter's home thread (P13: a notice is a chat message, never a For
- * you card). Dial8's own words around the action's identifier, the checks'
+ * you card). Native Intelligence's own words around the action's identifier, the checks'
  * names and the PR link (a github.com pull request, or none).
  */
 async function reportStillRed(

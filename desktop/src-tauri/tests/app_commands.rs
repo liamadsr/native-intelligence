@@ -141,7 +141,7 @@ fn granted_app_commands_exist() {
     assert!(unknown.is_empty(), "capabilities/default.json grants commands APP_COMMANDS doesn't declare: {unknown:?}");
 }
 
-/// The app's commands are granted to the Dial8 origins in the capability's
+/// The app's commands are granted to the Native Intelligence origins in the capability's
 /// `remote` allowlist, and to no other page. Exactly dial8.ai, no subdomain
 /// wildcard (security review 2026-10-31, P0-3; tests/capability_policy.rs).
 /// The local dev server is a debug build's alone (capabilities/dev.json).

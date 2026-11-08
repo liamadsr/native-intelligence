@@ -26,7 +26,7 @@ import {
 } from '@/lib/tasks/apply-remote-task-state'
 
 // =====================================================================
-// Jira → Dial8 reconciliation sweep (the safety net)
+// Jira → Native Intelligence reconciliation sweep (the safety net)
 //
 // Jira retries a failed delivery — 5 attempts over 5–15 minutes, then once per
 // interval — which is better than Asana's at-most-once. It is still not enough

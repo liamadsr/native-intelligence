@@ -196,7 +196,7 @@ describe('a link code', () => {
     expect(posts.at(-1)?.text).toBe(SLACK_REPLIES.tooManyCodes())
   })
 
-  it('from a Dial8 admin binds a new team only when the sender also runs the Slack workspace', async () => {
+  it('from a Native Intelligence admin binds a new team only when the sender also runs the Slack workspace', async () => {
     store.getInstallation.mockResolvedValue(null)
     store.redeemLinkCode.mockResolvedValue({ userId: USER, workspaceId: WS })
     store.memberRole.mockResolvedValue('owner')

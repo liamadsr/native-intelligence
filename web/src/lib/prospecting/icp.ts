@@ -120,7 +120,7 @@ export function splitBlobList(raw: string | null | undefined): string[] {
  * does land in the same blob at high confidence. Production: dial8.ai's blob
  * carried `products_and_services: "Cocktail bar and event space"` cited to
  * hotelvarenne.com, beside a `description` from the company's own site
- * reading "Dial8 is an agentic workspace and sales intelligence platform".
+ * reading "Native Intelligence is an agentic workspace and sales intelligence platform".
  * Seeding `what_we_sell` from the first of those pointed every ICP, every
  * angle and every search in the workspace at the wrong business.
  *

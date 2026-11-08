@@ -90,7 +90,7 @@ describe('classifyBillingAccess', () => {
   })
 })
 
-describe('classifyBillingAccess — Dial8 staff', () => {
+describe('classifyBillingAccess — Native Intelligence staff', () => {
   it('exempts the named admins (ADMIN_EMAILS) regardless of subscription rows', () => {
     const a = classifyBillingAccess(null, { invitedByAdmin: false, email: 'Liam@Dial8.ai' }, now)
     expect(a.staff).toBe(true)

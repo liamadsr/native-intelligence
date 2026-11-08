@@ -54,9 +54,9 @@ beforeEach(() => {
 
 describe('approvalBlocks', () => {
   it('shows what it would do, Approve and Decline carrying the card id, and the reply code', () => {
-    const out = approvalBlocks({ approvalId: APPROVAL, cardId: CARD, title: 'Send <email> to Ana', why: 'Mail goes outside Dial8 & needs your yes' })
+    const out = approvalBlocks({ approvalId: APPROVAL, cardId: CARD, title: 'Send <email> to Ana', why: 'Mail goes outside Native Intelligence & needs your yes' })
     const [section, actions, context] = out.blocks as Array<Record<string, any>>
-    expect(section.text.text).toBe('*Send &lt;email&gt; to Ana*\nMail goes outside Dial8 &amp; needs your yes')
+    expect(section.text.text).toBe('*Send &lt;email&gt; to Ana*\nMail goes outside Native Intelligence &amp; needs your yes')
     expect(actions.elements.map((e: Record<string, unknown>) => [e.action_id, e.value])).toEqual([
       [APPROVE_ACTION, CARD],
       [DECLINE_ACTION, CARD],

@@ -16,8 +16,8 @@ export async function generateMetadata({
   const meta = getIntegration(provider, capability)
   return {
     title: meta
-      ? `${meta.name} – Connectors – Dial8`
-      : 'Connector – Dial8',
+      ? `${meta.name} – Connectors`
+      : 'Connector',
   }
 }
 

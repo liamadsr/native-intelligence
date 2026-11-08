@@ -249,7 +249,7 @@ export function emailThreadRefsIn(toolName: string, input: unknown): string[] {
   return [...out]
 }
 
-/** A provider id: a non-empty string that is not a uuid (those are Dial8 rows). */
+/** A provider id: a non-empty string that is not a uuid (those are Native Intelligence rows). */
 const isProviderId = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0 && v.length <= 512 && !isUuid(v)
 
 /**

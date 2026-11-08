@@ -3,7 +3,7 @@
  * user's way.
  *
  * Signing up already fires a lot at once: the onboarding wizard, the guide, the
- * arrival dashboard. Piling a "teach Dial8 your voice" card on top of that
+ * arrival dashboard. Piling a "teach Native Intelligence your voice" card on top of that
  * competes with the flow the user is actually in. So the nudge waits until
  * they've come back a couple of times and the app is no longer brand new.
  *

@@ -258,7 +258,7 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
   // ── dial8_call_tool ───────────────────────────────────────────────────
   server.tool(
     'dial8_call_tool',
-    'Invoke any Dial8 tool by name, including one that is missing from your own tool list because your client cached its catalog before the tool shipped. `name` is the tool name (prefixed or bare) and `input` is its arguments — use dial8_search_tools with an exact `name` first if you need the argument schema. The result is identical to calling the tool directly.',
+    'Invoke any Native Intelligence tool by name, including one that is missing from your own tool list because your client cached its catalog before the tool shipped. `name` is the tool name (prefixed or bare) and `input` is its arguments — use dial8_search_tools with an exact `name` first if you need the argument schema. The result is identical to calling the tool directly.',
     {
       name: z.string().describe('Tool name, e.g. "list_prospect_lists" or "dial8_list_prospect_lists".'),
       input: z

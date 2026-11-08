@@ -6,7 +6,7 @@ import { isReadShapedName } from './read-names'
 
 /**
  * MCP guard — token-scope enforcement + audit logging for every tool exposed
- * by the Dial8 MCP server.
+ * by the Native Intelligence MCP server.
  *
  * The OAuth token table has carried a `scopes` field since migration 065, but
  * nothing ever enforced it: every token was full read-write over the whole

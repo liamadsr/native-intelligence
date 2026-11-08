@@ -10,7 +10,7 @@
  *     otherwise a proposal;
  *   - facts it INFERRED from how they behaved: `learned`, and live at once
  *     when they are the person's own (a profile fact, a personal line), marked
- *     "Dial8 noticed this" in What Dial8 has learned with a one-tap remove
+ *     "Native Intelligence noticed this" in What Native Intelligence has learned with a one-tap remove
  *     (Liam, 2026-10-17: learning on by default);
  *   - replacements and removals, only of facts it was SHOWN (short keys p1…,
  *     a1…, mapped back here: an id it was not shown can't be touched), each

@@ -8,7 +8,7 @@
  * slots (skills load through `eve__skill`, added only with a skill; task
  * control is `eve__task_*`, added only with a task-running tool), so this
  * skill-less, agent-less mount gets neither and has no file at either old
- * slug: one there would be an ordinary tool. Web is off here, unlike every other Dial8
+ * slug: one there would be an ordinary tool. Web is off here, unlike every other Native Intelligence
  * agent: these prompts are workspace data written back into the workspace, so
  * a fetched page could only be an injection vector.
  *

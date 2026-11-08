@@ -16,7 +16,7 @@
  *                          "Stop waiting", work/stale-questions.ts); a question
  *                          its run still waits on is refused (send_work_answer).
  *                          Dismiss on a Mail draft (`draft:<id>`, GEN-1165)
- *                          discards it from the mailbox and Dial8 with its
+ *                          discards it from the mailbox and Native Intelligence with its
  *                          reason (src/lib/email/discard-drafts.ts, exactly
  *                          discard_email_draft's path); Reviewed on one is
  *                          refused: a draft is settled by sending or
@@ -93,7 +93,7 @@ export interface SettledWorkItem extends ActedItem {
   /** False: it was already settled, and nothing changed. */
   changed: boolean
   outcome: 'reviewed' | 'dismissed'
-  /** A Mail draft's dismissal: whether its mailbox copy went too ('none': it had none; 'not_found': the mailbox no longer had it under Dial8's id). */
+  /** A Mail draft's dismissal: whether its mailbox copy went too ('none': it had none; 'not_found': the mailbox no longer had it under Native Intelligence's id). */
   mailbox?: 'deleted' | 'none' | 'not_found'
   /** Its status now. */
   status: string
@@ -240,7 +240,7 @@ export async function settleBotWorkItem(
 }
 
 /**
- * Dismiss on a Mail draft: discarded from the mailbox and Dial8, with its
+ * Dismiss on a Mail draft: discarded from the mailbox and Native Intelligence, with its
  * reason (discardEmailDrafts, the fence findOwnDraft's); Reviewed is refused.
  */
 async function settleDraft(
@@ -279,8 +279,8 @@ async function settleDraft(
           notices_read: 0,
           said:
             result.mailbox === 'not_found'
-              ? `Discarded ${whose(item)} in Dial8. ${result.note ?? ''} Nothing was sent.`.replace(/\s+/g, ' ')
-              : `Discarded ${whose(item)}${result.mailbox === 'deleted' ? ', in Dial8 and in their mailbox' : ' in Dial8'}. Nothing was sent.`,
+              ? `Discarded ${whose(item)} in Native Intelligence. ${result.note ?? ''} Nothing was sent.`.replace(/\s+/g, ' ')
+              : `Discarded ${whose(item)}${result.mailbox === 'deleted' ? ', in Native Intelligence and in their mailbox' : ' in Native Intelligence'}. Nothing was sent.`,
         },
       }
     }

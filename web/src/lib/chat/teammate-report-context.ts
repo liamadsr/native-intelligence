@@ -80,7 +80,7 @@ async function deliveredByHomeTurns(
 
 /**
  * The section for these reports, oldest first, or null when there are none.
- * The lines are Dial8's template; every string a run wrote sits in a
+ * The lines are Native Intelligence's template; every string a run wrote sits in a
  * `<teammate-text>` fence, and the section says that fenced text is data
  * (TEAMMATE_TEXT_NOTE): a run steered by untrusted content must not read here
  * as the person's approval.

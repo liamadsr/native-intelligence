@@ -27,7 +27,7 @@
  * body or subject the agent wrote, so those fields are dropped from it. And a
  * turn that touched mail (a mail tool, or any output the scrub marked
  * `scrubbed: 'mail'`: a search's email rows, a contact's recent threads, a
- * mail card) keeps no reply: the reply would retell the mail, and Dial8 staff
+ * mail card) keeps no reply: the reply would retell the mail, and Native Intelligence staff
  * read this evidence at /admin/evals. The request and the tool path stay.
  *
  * A turn nobody typed (a home turn the server started, a live agent's own

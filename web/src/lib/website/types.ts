@@ -199,7 +199,7 @@ export interface WebsiteApprovalContext {
    * the text: a change they never asked for (a spoofed number) stands out.
    */
   asked?: string
-  /** Outside hosts the change's diff adds (not Dial8's, not the site's): said on the card and in the text. */
+  /** Outside hosts the change's diff adds (not Native Intelligence's, not the site's): said on the card and in the text. */
   outside?: string[]
   /** A wiring that replaces what the form does today (stops its emails): said on the card and in the text. */
   replaces?: true

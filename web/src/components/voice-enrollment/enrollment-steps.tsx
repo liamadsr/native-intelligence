@@ -45,7 +45,7 @@ export function IntroStep({
         className="mt-6 text-3xl font-bold tracking-tight"
         tabIndex={-1}
       >
-        Teach Dial8 your voice
+        Teach Native Intelligence your voice
       </motion.h1>
 
       <motion.p
@@ -54,7 +54,7 @@ export function IntroStep({
         transition={{ delay: 0.3 }}
         className="mt-3 max-w-sm text-muted-foreground"
       >
-        Read a 60-second story out loud. Dial8 learns what you sound like, so it
+        Read a 60-second story out loud. Native Intelligence learns what you sound like, so it
         always knows which voice in a meeting is yours.
       </motion.p>
 
@@ -174,7 +174,7 @@ export function DoneStep({ onFinish }: { onFinish: () => void }) {
         className="mt-6 text-3xl font-bold tracking-tight"
         tabIndex={-1}
       >
-        Dial8 knows your voice now
+        Native Intelligence knows your voice now
       </motion.h1>
 
       <motion.p
@@ -183,8 +183,8 @@ export function DoneStep({ onFinish }: { onFinish: () => void }) {
         transition={{ delay: 0.25 }}
         className="mt-3 max-w-sm text-muted-foreground"
       >
-        From now on, whenever you’re in a meeting, Dial8 will know which voice is
-        yours — everywhere you use Dial8.
+        From now on, whenever you’re in a meeting, Native Intelligence will know which voice is
+        yours — everywhere you use Native Intelligence.
       </motion.p>
 
       <motion.div
@@ -194,7 +194,7 @@ export function DoneStep({ onFinish }: { onFinish: () => void }) {
         className="mt-8 w-full max-w-sm"
       >
         <Button onClick={onFinish} className="w-full" size="lg">
-          Back to Dial8
+          Back to Native Intelligence
         </Button>
       </motion.div>
     </div>

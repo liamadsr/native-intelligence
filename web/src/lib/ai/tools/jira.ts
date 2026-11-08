@@ -37,8 +37,8 @@ export function createJiraTools(
   return {
     push_action_to_jira: tool({
       description:
-        'Push a Dial8 action to the workspace\'s connected Jira project as an issue, ' +
-        'and link the two so later Dial8 status changes transition the Jira issue. ' +
+        'Push a Native Intelligence action to the workspace\'s connected Jira project as an issue, ' +
+        'and link the two so later Native Intelligence status changes transition the Jira issue. ' +
         'Accepts the action UUID or its identifier (e.g. ENG-42). ' +
         'Requires a Jira connection with a site, project and issue type chosen in ' +
         'Settings → Connectors → Jira.',

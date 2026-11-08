@@ -199,7 +199,7 @@ export async function PATCH(request: NextRequest): Promise<Response> {
     // same reason section gids are reset on a project switch.
     //
     // `include_dial8_attribution` deliberately SURVIVES: it is a preference
-    // about Dial8's own branding, not about where tasks land, so re-picking a
+    // about Native Intelligence's own branding, not about where tasks land, so re-picking a
     // project later must not silently re-brand tasks the user opted out of.
     config = { ...state.config }
     for (const key of DESTINATION_KEYS) delete config[key]

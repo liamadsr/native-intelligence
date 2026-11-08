@@ -93,7 +93,7 @@ const contacts: ContactMatch[] = [
     secondary_emails: ['sam@dial8.ai'],
     job_title: null,
     member_id: 'member-sam',
-    company: [{ name: 'Dial8' }],
+    company: [{ name: 'Native Intelligence' }],
   },
 ]
 

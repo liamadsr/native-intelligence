@@ -102,7 +102,7 @@ export function DevicesSettingsView() {
           <div>
             <h1 className="text-lg font-semibold">Devices</h1>
             <p className="text-sm text-muted-foreground">
-              Generate access tokens for hardware devices that connect to your Dial8 workspace.
+              Generate access tokens for hardware devices that connect to your Native Intelligence workspace.
             </p>
           </div>
         </div>

@@ -1,15 +1,15 @@
 # local-agent: the Mac host
 
-**The Mac body of the one Dial8 agent** (contract C2, `docs/plans/teammate-agent.md`):
+**The Mac body of the one Native Intelligence agent** (contract C2, `docs/plans/teammate-agent.md`):
 the main chat agent, `agents/chat-agent`, built with `DIAL8_AGENT_HOST=mac` and
 run **on the person's Mac**, in one folder they granted, as a teammate of the
 cloud body (`docs/plans/local-agents.md` for the history: L0 was the Mac-only
-spike, L1–L3 the Dial8 model relay with a per-session token, and **edit mode**:
+spike, L1–L3 the Native Intelligence model relay with a per-session token, and **edit mode**:
 a git worktree the desktop makes, writable except its `.git`, committed by the
 desktop on `finish`). This folder is no longer an agent of its own: it is the
 host that body runs in. It holds the launcher and its request guard, the fence
 (the sandbox), the model, the channel and the Mac-only tools; the agent's
-instructions, Dial8 tools, memory and hooks are the chat agent's.
+instructions, Native Intelligence tools, memory and hooks are the chat agent's.
 
 - **Built from one source.** `scripts/local-agent/mac-body.sh` copies
   `agents/chat-agent` and this folder into a throwaway stage, leaves out what
@@ -28,7 +28,7 @@ instructions, Dial8 tools, memory and hooks are the chat agent's.
   over 2 s old (`lib/mac-guard.ts`, so a Stop that lands mid-step is refused),
   `ask_user`, no tool-result images, the Mac instructions). The cloud build is
   unchanged.
-- **Its Dial8 tools come from the app** (C1): the spec and every tool call go
+- **Its Native Intelligence tools come from the app** (C1): the spec and every tool call go
   to `/api/local-agent/agent/{spec,tool}` with the session token, never the
   shared secret (`agents/chat-agent/lib/mac-host.ts`).
 

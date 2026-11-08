@@ -3,10 +3,10 @@
 /**
  * The rows of a local agent's transcript (contract G), drawn like the app's
  * chat (chat-message.tsx bubbles): the messages TO the local agent on the
- * right, labelled "Dial8 agent" or "You"; the local agent's own words on the
+ * right, labelled "Native Intelligence agent" or "You"; the local agent's own words on the
  * left; its tool calls as one collapsed line each (open one for its input and
  * output); `report`, `ask` and `finish` highlighted (the Mac body's
- * message_teammate reads "To Dial8"); an edit job's branch as its card, and
+ * message_teammate reads "To Native Intelligence"); an edit job's branch as its card, and
  * its pull request as a link; a native question on the Mac as one line that
  * follows its answer; a message that couldn't be delivered as a red line under
  * it; and only the statuses worth a line (stopped, failed, the Mac app
@@ -25,7 +25,7 @@ import { BranchCard } from './branch-card'
 
 /** Who wrote a message to the local agent. */
 export function authorLabel(author: 'agent' | 'person'): string {
-  return author === 'agent' ? 'Dial8 agent' : 'You'
+  return author === 'agent' ? 'Native Intelligence agent' : 'You'
 }
 
 const TOOL_TEXT_SHOWN = 4000
@@ -211,8 +211,8 @@ export const TranscriptRow = memo(function TranscriptRow({ item, live }: { item:
     case 'finish':
     case 'error': {
       const h = HIGHLIGHT[item.type]
-      // The Mac body's message_teammate: a question for Dial8 in the cloud, who answers here.
-      const label = item.type === 'ask' && item.teammate ? 'To Dial8' : h.label
+      // The Mac body's message_teammate: a question for Native Intelligence in the cloud, who answers here.
+      const label = item.type === 'ask' && item.teammate ? 'To Native Intelligence' : h.label
       return (
         <div
           data-local-agent-highlight={item.type}

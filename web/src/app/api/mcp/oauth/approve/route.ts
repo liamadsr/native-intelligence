@@ -10,7 +10,7 @@ import { grantedScopes } from '@/lib/mcp/scopes'
  * Generates an authorization code and redirects back to the MCP client.
  *
  * Auth: requireUser() (cookie OR `Authorization: Bearer` Supabase access token),
- * the same as every Dial8 API route. The browser consent page sends a cookie;
+ * the same as every Native Intelligence API route. The browser consent page sends a cookie;
  * the desktop app's webview carries no dial8.ai cookie, so a consent page
  * opened there authenticates with the Bearer header its fetch adds.
  */

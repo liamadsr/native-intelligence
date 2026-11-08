@@ -10,7 +10,7 @@
 //! ignores it):
 //!
 //! ```text
-//! osascript -e 'quit app "Dial8"'
+//! osascript -e 'quit app "Native Intelligence"'
 //! open --env DIAL8_VOICE_CAPTURE=1 src-tauri/target/debug/bundle/macos/Dial8.app
 //! ```
 //!

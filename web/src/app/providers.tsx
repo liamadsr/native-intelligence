@@ -26,7 +26,7 @@ function isDesktopReplayForced(): boolean {
   }
 }
 
-// HUD windows (/hud/*, the desktop app's overlays) aren't visits to Dial8, and
+// HUD windows (/hud/*, the desktop app's overlays) aren't visits to Native Intelligence, and
 // a texted single-use link's pages (/l/*) carry its token in the path, which
 // must never reach analytics (src/lib/links/one-time.ts).
 // (The agent browser's live view and computer card are not routes: their DOM —

@@ -47,7 +47,7 @@ vi.mock('@/app/account/(dashboard)/main-chat/main-chat-context', () => ({
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaces: () => ({
     workspaces: [
-      { id: 'ws-1', name: 'Dial8' },
+      { id: 'ws-1', name: 'Native Intelligence' },
       { id: 'ws-2', name: 'Acme Corp' },
     ],
     currentId: hoisted.currentId,
@@ -177,7 +177,7 @@ describe('ReviewCard', () => {
 
   it('shows no badge for a card in the active workspace', () => {
     mount(work({ workspace_id: 'ws-1' }))
-    expect(container.textContent).not.toContain('Dial8')
+    expect(container.textContent).not.toContain('Native Intelligence')
   })
 
   it('the primary button opens the draft on its surface, thread resolved through the item route', async () => {

@@ -161,7 +161,7 @@ export function LocalModuleRow({
         <p className="text-[11px] text-red-700 dark:text-red-400" title={error}>
           {describeModuleError(error)}
           {ownError && retryClass(error) !== 'never' && (
-            <span className="text-muted-foreground"> Dial8 also keeps trying in the background.</span>
+            <span className="text-muted-foreground"> Native Intelligence also keeps trying in the background.</span>
           )}
         </p>
       )}

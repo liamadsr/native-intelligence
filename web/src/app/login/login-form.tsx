@@ -46,7 +46,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   unverified_email:
     "Your ChatGPT account doesn't have a verified email yet. Verify it in ChatGPT, then try again.",
   email_unconfirmed:
-    'This email has a Dial8 account that was never confirmed. Reset its password with "Forgot password?", then continue with ChatGPT.',
+    'This email has a Native Intelligence account that was never confirmed. Reset its password with "Forgot password?", then continue with ChatGPT.',
   account_failed: "We couldn't set up your account. Please try again.",
   link_expired: 'That link has expired or was already used. Sign in again to get a new one.',
   other_browser:
@@ -57,8 +57,8 @@ const ERROR_MESSAGES: Record<string, string> = {
 type Mode = 'signin' | 'signup' | 'magic'
 
 /** What the desktop's sign-in window says for a page it doesn't list
- *  (dial8-desktop src-tauri/src/commands/auth_session.rs). */
-const REFUSED_SIGN_IN_PAGE = 'not a Dial8 sign-in page'
+ *  (dial8-desktop src-tauri/src/commands/auth_session.rs): builds before the rename say Dial8. */
+const REFUSED_SIGN_IN_PAGES = new Set(['not a Native Intelligence sign-in page', 'not a Dial8 sign-in page'])
 
 /** The login page's OAuth buttons. */
 type OAuthProvider = 'google' | 'chatgpt'
@@ -72,7 +72,7 @@ export function LoginForm({
   invitedEmail?: string | null
   /** Show "Continue with ChatGPT" (lib/chatgpt/config, decided by the page). */
   chatGptSignIn?: boolean
-  /** "Sign in with Google" runs Dial8's own flow on this origin
+  /** "Sign in with Google" runs Native Intelligence's own flow on this origin
    *  (lib/auth/google-sign-in, decided by the page); else Supabase's. */
   googleOnDial8?: boolean
 } = {}) {
@@ -226,7 +226,7 @@ export function LoginForm({
     try {
       session = await tauriBridge.authWebSession(authorizeUrl)
     } catch (err) {
-      if (onRefused && err instanceof Error && err.message === REFUSED_SIGN_IN_PAGE) {
+      if (onRefused && err instanceof Error && REFUSED_SIGN_IN_PAGES.has(err.message)) {
         await onRefused()
         return
       }
@@ -274,7 +274,7 @@ export function LoginForm({
   }
 
   /**
-   * "Sign in with Google". With `googleOnDial8` it runs Dial8's own flow
+   * "Sign in with Google". With `googleOnDial8` it runs Native Intelligence's own flow
    * (/auth/google), so the person never sees the Supabase project's URL: the
    * web navigates to it; the desktop runs it in the sign-in sheet, which ends
    * on a dial8desktop:// deep link carrying a one-time token bound to this
@@ -337,7 +337,7 @@ export function LoginForm({
   }
 
   /**
-   * "Continue with ChatGPT" runs Dial8's own OAuth flow (/auth/chatgpt), one
+   * "Continue with ChatGPT" runs Native Intelligence's own OAuth flow (/auth/chatgpt), one
    * consent for sign-in and ChatGPT plan usage. The web navigates to it; the
    * desktop runs it in the sign-in sheet, which ends on a dial8desktop://
    * deep link carrying a one-time token bound to this `bind`.
@@ -525,14 +525,14 @@ export function LoginForm({
           </CardTitle>
           <CardDescription>
             {mode === 'signup'
-              ? 'Sign up for Dial8 to start capturing your meetings and tracking action items.'
-              : 'Sign in to your Dial8 account to view your action items.'}
+              ? 'Sign up for Native Intelligence to start capturing your meetings and tracking action items.'
+              : 'Sign in to your Native Intelligence account to view your action items.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {invitedEmail && mode === 'signup' && (
             <div className="rounded-lg border px-3 py-2 text-sm text-muted-foreground">
-              You&apos;ve been invited to Dial8. Create your account with{' '}
+              You&apos;ve been invited to Native Intelligence. Create your account with{' '}
               <span className="font-medium text-foreground">{invitedEmail}</span> below.
             </div>
           )}

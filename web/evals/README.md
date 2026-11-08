@@ -1,6 +1,6 @@
 # Deterministic evals
 
-eve evals that drive a real Dial8 agent over HTTP and check **what it did**:
+eve evals that drive a real Native Intelligence agent over HTTP and check **what it did**:
 which tools it called, with what input, and what the server answered. They are
 the end-to-end check for approval gates and prompt injection (decision 19 in
 `docs/plans/eve-alignment.md`; F9 and P9 in `eve-templates-lessons.md`).

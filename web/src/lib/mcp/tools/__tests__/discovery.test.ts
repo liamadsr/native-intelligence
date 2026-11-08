@@ -36,7 +36,7 @@ function fakeServer() {
   return { server, handlers, descriptions }
 }
 
-const ACTIVE = { id: 'ws-1', name: 'Dial8' }
+const ACTIVE = { id: 'ws-1', name: 'Native Intelligence' }
 
 /** A bridged surface: one read tool, one write tool, one with no execute. */
 function aiToolsFixture(execute = vi.fn(async () => ({ success: true, companies: [] }))) {

@@ -244,7 +244,7 @@ const TRACK_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 /**
  * A track's id in the one spelling its item is stored under, so the
  * check-in's case-sensitive lookups find it and one item has one retry key:
- * an action's identifier upper case (ENG-42, as Dial8 writes them), every
+ * an action's identifier upper case (ENG-42, as Native Intelligence writes them), every
  * other id lower case (uuids, and owner/repo#12 as pr.changed writes it).
  * Pure.
  */

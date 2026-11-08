@@ -48,7 +48,7 @@ describe('repos', () => {
 describe('mergePull', () => {
   it('pins the merge to the approved head and squashes when allowed', async () => {
     const { fetchImpl, calls } = fakeFetch(() => ({ status: 200, body: { sha: 'b'.repeat(40), merged: true } }))
-    const out = await mergePull({ token: 't', fetchImpl }, 'jane/site', 7, SHA, 'Send website quote requests to Dial8')
+    const out = await mergePull({ token: 't', fetchImpl }, 'jane/site', 7, SHA, 'Send website quote requests to Native Intelligence')
     expect(out).toEqual({ ok: true, sha: 'b'.repeat(40), method: 'squash' })
     expect(calls[0]).toMatchObject({ url: 'https://api.github.com/repos/jane/site/pulls/7/merge', method: 'PUT', body: { sha: SHA, merge_method: 'squash' } })
   })

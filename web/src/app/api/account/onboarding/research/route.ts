@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
   //    an agent-run token the plan proxy verifies and pays with, rides the
   //    vouched session create below. When the plan can't be read, no research
   //    (the claim becomes 'skipped', the wizard's quiet line): a free user
-  //    never runs on Dial8's models. ───────────────────────────────────────
+  //    never runs on Native Intelligence's models. ───────────────────────────────────────
   let planToken: string | null = null
   try {
     if (await chatgptPlanFor(user.id, { attempts: 2, failClosed: true })) {

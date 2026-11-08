@@ -334,7 +334,7 @@ describe('email threads (row 12)', () => {
 
 describe('a draft the email tools made is recorded on its thread (provider ids)', () => {
   // create_email_draft returns the PROVIDER's ids (a Gmail message id here):
-  // no email_draft row exists, so the draft's Dial8 row is its thread's index
+  // no email_draft row exists, so the draft's Native Intelligence row is its thread's index
   // row, written by the tool before it returns.
   const NEW_THREAD = U(701)
   const REPLY_THREAD = U(702)

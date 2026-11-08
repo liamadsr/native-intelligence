@@ -17,7 +17,7 @@ const ME = { userId: 'u1', role: 'owner' }
 const change = (extra: Partial<WebsiteChange>) => ({ kind: 'edit', state: 'preparing', prUrl: null, previewUrl: 'https://p.vercel.app', error: null, ...extra }) as WebsiteChange
 
 describe('website view', () => {
-  it("flags a host's own address, and a form already posting to Dial8 has nothing to connect", () => {
+  it("flags a host's own address, and a form already posting to Native Intelligence has nothing to connect", () => {
     expect(siteView(SITE, ME)).toMatchObject({ hostAddress: true, hasForm: false, wired: false })
     expect(siteView(SITE, ME).found).not.toContain('live site is')
   })

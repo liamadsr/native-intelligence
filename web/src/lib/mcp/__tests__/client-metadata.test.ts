@@ -1,6 +1,6 @@
 /**
  * Client ID Metadata Documents (client-metadata.ts): which client_id URLs
- * Dial8 will fetch, what a document must say, and how long a good one is
+ * Native Intelligence will fetch, what a document must say, and how long a good one is
  * kept. The fetch is injected; nothing here touches the network.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -74,7 +74,7 @@ describe('client_id URLs', () => {
 })
 
 describe('the document', () => {
-  it('passes a public client naming itself, and keeps what Dial8 needs', () => {
+  it('passes a public client naming itself, and keeps what Native Intelligence needs', () => {
     const parsed = parseClientMetadata(ID, doc())
     expect(parsed).toEqual({
       ok: true,

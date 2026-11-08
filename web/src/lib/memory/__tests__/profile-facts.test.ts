@@ -123,12 +123,12 @@ describe('saveProfileFact', () => {
     // Proposals never block what the person says.
     expect(await saveProfileFact(c.sb, { userId: ME, text: 'Keep answers short', source: 'told' })).toMatchObject({ ok: true })
 
-    // What Dial8 noticed, live: at most 20, and never in the way of what the person says.
+    // What Native Intelligence noticed, live: at most 20, and never in the way of what the person says.
     const d = setup()
     seed(d.db, PROFILE_LEARNED_MAX, { source: 'learned' })
     const over = await saveProfileFact(d.sb, { userId: ME, text: 'one more guess', source: 'learned' })
     expect(over).toMatchObject({ ok: false, code: 'PROFILE_FULL' })
-    expect(!over.ok && over.error).toMatch(/Dial8 noticed/)
+    expect(!over.ok && over.error).toMatch(/Native Intelligence noticed/)
     expect(await saveProfileFact(d.sb, { userId: ME, text: 'Keep answers short', source: 'told' })).toMatchObject({ ok: true, fact: { status: 'active' } })
   })
 

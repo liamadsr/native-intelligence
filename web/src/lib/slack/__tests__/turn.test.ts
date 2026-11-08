@@ -448,11 +448,11 @@ describe('a guest on Slack (guest access, migration 434)', () => {
     expect(fx2.calls.at(-1)).toEqual(['post', 'D777', GUEST_SLACK_TURN_NOTICES.unfinished()])
   })
 
-  it("a guest's notices never point at Settings, Billing or Dial8", () => {
+  it("a guest's notices never point at Settings, Billing or Native Intelligence", () => {
     for (const reason of ['usage_limited', 'not_member', 'busy', 'unfinished', 'failed', 'question_pending'] as const) {
       const notice = guestSlackTurnSkipNotice(reason)
       expect(notice, reason).toBeTruthy()
-      expect(notice, reason).not.toMatch(/Settings|Billing|Dial8/i)
+      expect(notice, reason).not.toMatch(/Settings|Billing|Native Intelligence|Dial8/i)
     }
   })
 })

@@ -1,7 +1,7 @@
 import { RecordingSettingsView } from './recording-settings-view'
 
 export const metadata = {
-  title: 'Recording – Settings – Dial8',
+  title: 'Recording – Settings',
 }
 
 export default function RecordingSettingsPage() {

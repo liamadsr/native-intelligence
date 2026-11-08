@@ -3,7 +3,7 @@
  * `To` Twilio posts reaches handleInboundSms as `to`, with `from` and `body`.
  * `InboundSms.to` is optional, so a merge that dropped the line would still
  * typecheck while every text lost its line (a business's number would read
- * as the Dial8 one). The signature is checked before anything is read.
+ * as the Native Intelligence one). The signature is checked before anything is read.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -62,7 +62,7 @@ describe('POST /api/twilio/sms', () => {
     expect(h.inputs[0]).toMatchObject({ numMedia: 1, media: [{ url: 'https://api.twilio.com/2010-04-01/Accounts/AC1/Messages/SM4/Media/ME1', contentType: 'text/csv' }] })
   })
 
-  it('a post with no To hands on `to: null` (the Dial8 line)', async () => {
+  it('a post with no To hands on `to: null` (the Native Intelligence line)', async () => {
     await POST(twilioPost({ From: '+12125550199', Body: 'hi', MessageSid: 'SM2' }))
     expect(h.inputs).toHaveLength(1)
     expect(h.inputs[0]).toMatchObject({ from: '+12125550199', to: null, body: 'hi' })

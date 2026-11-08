@@ -27,7 +27,7 @@
  * me and I click on the action item page … it should jump to reading the
  * action item, and if I jump back to the capture page it should resume from
  * where it left off"): a target whose window comes to the front (another
- * window or tab clicked, or this Dial8 window coming back from another one,
+ * window or tab clicked, or this Native Intelligence window coming back from another one,
  * @/lib/read-aloud/app-focus) reads, resuming where it was paused, unless it
  * was already read to its end. What read elsewhere is paused by it, keeping
  * its place for when the user goes back. A short settle first, so flicking

@@ -1,5 +1,5 @@
 /**
- * Dial8 doesn't learn from mail (2026-10-15, migration 341): the agent's
+ * Native Intelligence doesn't learn from mail (2026-10-15, migration 341): the agent's
  * knowledge tools never return a claim learned from mail, never show an email
  * as a graph neighbour or label, and never take mail as a source.
  *

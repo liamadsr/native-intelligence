@@ -19,7 +19,7 @@
  *      phone, and what it is (items, sizes, price, from its quote).
  *
  * Every word but the customer's name, address and phone and the quote's own
- * summary is Dial8's; those are clipped to one short line each.
+ * summary is Native Intelligence's; those are clipped to one short line each.
  *
  * Server only; service role.
  */
@@ -130,7 +130,7 @@ export function dailyJobsText(args: { business: string; dayLabel: string; timeZo
   return [
     `${args.business}, today (${args.dayLabel}): ${args.jobs.length} booked`,
     ...shown.map((job) => dailyJobLine(job, args.timeZone)),
-    ...(more > 0 ? [`…and ${more} more in Dial8.`] : []),
+    ...(more > 0 ? [`…and ${more} more in Native Intelligence.`] : []),
   ].join('\n')
 }
 

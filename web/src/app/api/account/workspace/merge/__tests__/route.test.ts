@@ -66,12 +66,12 @@ const req = (body: unknown, headers: Record<string, string> = {}) =>
 
 const PLAN = { teams: [{ source_team_id: 't1', mode: 'own' }] }
 const NORMALISED = { teams: [{ source_team_id: 't1', mode: 'own', destination_team_id: null, name: 'Coherix', slug: 'coherix', prefix: 'COH' }] }
-const PREFLIGHT = { ok: true, blockers: [], source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Dial8' }, plan: NORMALISED }
+const PREFLIGHT = { ok: true, blockers: [], source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Native Intelligence' }, plan: NORMALISED }
 const SNAPSHOT = { bucket: 'workspace-merges', prefix: `${SRC}/snap`, snapshot_id: 'snap', manifest_path: `${SRC}/snap/manifest.json`, tables: [], total_rows: 10, total_pages: 2 }
 const MERGED = {
   merge_id: 'merge-1',
   source: { id: SRC, name: 'Coherix', slug: 'coherix' },
-  destination: { id: DST, name: 'Dial8', slug: 'dial8' },
+  destination: { id: DST, name: 'Native Intelligence', slug: 'dial8' },
   counts: {},
   rows_before: { actions: 2 },
   duration_ms: 1200,
@@ -141,7 +141,7 @@ describe('POST /api/account/workspace/merge', () => {
   })
 
   it('a typed name that is not the source’s name stops after the preflight', async () => {
-    const res = await POST(req({ ...GOOD, confirm_name: 'Dial8' }))
+    const res = await POST(req({ ...GOOD, confirm_name: 'Native Intelligence' }))
     expect(res.status).toBe(400)
     expect(rpcNames()).toEqual(['merge_workspace_preflight'])
     expect(hoisted.snapshotWorkspace).not.toHaveBeenCalled()
@@ -193,7 +193,7 @@ describe('POST /api/account/workspace/merge', () => {
     expect(hoisted.cookieSet).toHaveBeenCalledWith('workspace_id', DST, expect.objectContaining({ httpOnly: true, path: '/', sameSite: 'lax' }))
     expect(hoisted.createNotificationsForMany).toHaveBeenCalledWith(
       ['m-other'],
-      expect.objectContaining({ workspaceId: DST, type: 'workspace_merged', title: 'Coherix was merged into Dial8: 2 actions came over.', actorId: 'm-dst', groupKey: 'workspace_merged:merge-1' }),
+      expect.objectContaining({ workspaceId: DST, type: 'workspace_merged', title: 'Coherix was merged into Native Intelligence: 2 actions came over.', actorId: 'm-dst', groupKey: 'workspace_merged:merge-1' }),
     )
   })
 

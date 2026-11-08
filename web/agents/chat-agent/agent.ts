@@ -67,7 +67,7 @@ export default isMacHost()
   ? /**
      * The Mac body (contract C2, lib/host.ts): the same agent on the person's
      * Mac, built into the desktop bundle. Its model is the local agent's
-     * (agents/local-agent/lib/model.ts, imported unchanged): the Dial8 model
+     * (agents/local-agent/lib/model.ts, imported unchanged): the Native Intelligence model
      * relay with the session token (C1's spec names the same model), a model
      * on the Mac when the desktop chose one, or the dev key, resolved per
      * model step with its window (lib/mac-model.ts says why). Spend caps: a

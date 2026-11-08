@@ -102,7 +102,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   fake.log.length = 0
-  db.progress = { research: { status: 'done', seededSummary: { projectName: 'Dial8 Launch', actionCount: 3 } } }
+  db.progress = { research: { status: 'done', seededSummary: { projectName: 'Native Intelligence Launch', actionCount: 3 } } }
   db.memberError = null
 })
 
@@ -115,8 +115,8 @@ describe('rebuildChatSpec — the getting-started section', () => {
     const spec = await rebuildChatSpec(claims(), APP_TURN, SPLIT)
     expect(keys(spec)).toEqual(['time', 'now', 'getting-started', 'log', 'about'])
     const section = spec.turnContext?.find((s) => s.key === 'getting-started')
-    expect(section?.markdown).toContain('Getting started: Liam is new to Dial8.')
-    expect(section?.markdown).toContain('starter project “Dial8 Launch” (3 first actions)')
+    expect(section?.markdown).toContain('Getting started: Liam is new to Native Intelligence.')
+    expect(section?.markdown).toContain('starter project “Native Intelligence Launch” (3 first actions)')
     expect(section?.markdown).toContain('THE STEPS')
     expect(spec.systemPrompt).not.toContain('THE STEPS')
     expect(spec.coreToolNames).toContain('finish_getting_started')

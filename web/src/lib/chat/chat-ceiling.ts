@@ -80,7 +80,7 @@ import { resolveFollowThrough } from './follow-through'
  *   confirm tool, an approval-gated external tool keeps answering
  *   `awaiting_user_approval` (adapter.ts), so a prompt injection in a fetched
  *   page or an external-MCP result cannot get the model to confirm a gated
- *   write by itself. The user approves such actions in the Dial8 app.
+ *   write by itself. The user approves such actions in the Native Intelligence app.
  *   The attended-only tools (ATTENDED_ONLY_TOOL_NAMES: settle_card,
  *   revise_email_draft, undo_extraction_pass, the loop builders
  *   create_flow / update_flow / delete_flow, the skill writers create_skill /
@@ -106,7 +106,7 @@ const BROWSER_TOOLS: readonly string[] = TOOL_CATEGORIES.find((c) => c.id === 'b
 const JWT_TOOLS = ['generate_email_drafts', 'draft_followup_email']
 
 /**
- * The chat-native tools the person keeps when they text the Dial8 number or
+ * The chat-native tools the person keeps when they text the Native Intelligence number or
  * DM it on Slack (Liam, 2026-10-26): start and stop a background helper, and
  * message another person's agent. A helper's report and an agent's answer
  * come back to the channel they last used (the router's sticky channel,
@@ -151,7 +151,7 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    */
   slack: new Set(['mcp_confirm_call', 'helpers', ...CHANNEL_EXCLUDED_NATIVE, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
   /**
-   * A text the person sent the Dial8 number (docs/plans/text-and-calling.md):
+   * A text the person sent the Native Intelligence number (docs/plans/text-and-calling.md):
    * the device ask's set (no external-MCP confirm, no chat-native tool but
    * {@link CHANNEL_TURN_NATIVE_TOOLS}, none of the attended-only tools the trust authority denies the
    * person away from the app (caller.ts: a text from their verified phone is
@@ -163,14 +163,14 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    */
   sms: new Set(['mcp_confirm_call', ...CHANNEL_EXCLUDED_NATIVE, ...attendedOnlyToolsDeniedTo('person_remote'), ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
   /**
-   * Another Dial8 user's agent over an agent link (migration 435): always a
+   * Another Native Intelligence user's agent over an agent link (migration 435): always a
    * guest's turn, held to that guest's own ceiling by the tool route
    * (src/lib/guests/guest-tools.ts) before this set is ever read. It still
    * excludes everything the text set does, and every attended-only tool.
    */
   dial8: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
   /**
-   * What the person said on a call to the Dial8 number (the GPT-Live spike,
+   * What the person said on a call to the Native Intelligence number (the GPT-Live spike,
    * src/lib/calls/): the text set, and no helpers or chat-native tool at all.
    * Someone is on the line waiting, and a helper's report or another agent's
    * answer would come back by text or Slack (the router's sticky channel), not
@@ -227,7 +227,7 @@ export function isServerTurnTool(toolName: string): boolean {
 
 /**
  * The local-agent tools a HOME turn may call (docs/plans/local-agents.md,
- * decision 6): a local agent on the person's Mac reports to the Dial8 agent,
+ * decision 6): a local agent on the person's Mac reports to the Native Intelligence agent,
  * so its background update may read how they are doing, stop one, and answer
  * one's open question. message_local_agent is admitted here and refused by
  * its handler unless that session's last_signal is 'ask' (the chat tool
@@ -255,8 +255,8 @@ export const HOME_TURN_LOCAL_AGENT_TOOLS: ReadonlySet<string> = new Set([
  * ask_agent (agent links: held as the person's card, which alone sends it).
  * And since 2026-10-26 a home turn minted for an acting reason
  * ({@link HOME_TURN_ACTING_REASONS}: its token's `homeTurnReason`) acts on
- * its own ({@link homeTurnMayAct}): its Dial8 writes run, and the gate holds
- * anything that leaves Dial8 as the person's card. A helper's report never
+ * its own ({@link homeTurnMayAct}): its Native Intelligence writes run, and the gate holds
+ * anything that leaves Native Intelligence as the person's card. A helper's report never
  * starts a helper. Any other server turn stays read-only. The check-in has
  * its own, narrower set ({@link checkInMayCall}), decided before all of it.
  */
@@ -279,7 +279,7 @@ export function serverTurnMayCall(
   // Some home turns act on their own (Liam, 2026-10-26;
   // HOME_TURN_ACTING_REASONS): any registry tool or the person's
   // connected-app tools, minus what a server turn never holds. Their writes
-  // inside Dial8 run; everything that leaves Dial8 is held as the person's
+  // inside Native Intelligence run; everything that leaves Native Intelligence is held as the person's
   // card by the gate (action-review.ts, GateRequest.homeTurn).
   if (server === 'home_turn' && homeTurnActs(homeTurnReason) && homeTurnMayAct(toolName)) return true
   if (server === 'home_turn' && HOME_TURN_LOCAL_AGENT_TOOLS.has(toolName)) return true
@@ -313,7 +313,7 @@ export const CHECK_IN_REFUSED_READS: ReadonlySet<string> = new Set(['get_documen
  * the route's outside-text judgment uses: mail, find, search and anything
  * unlisted count as outside), minus {@link CHECK_IN_REFUSED_READS}. Never a
  * local-agent tool, answer_guest, ask_agent, an outward or connected-app
- * tool, or any other write: its context holds only the note, Dial8's body
+ * tool, or any other write: its context holds only the note, Native Intelligence's body
  * and these reads, so it may write the note.
  */
 export function checkInMayCall(toolName: string): boolean {
@@ -369,7 +369,7 @@ export const HOME_TURN_SETTLE_TOOLS: ReadonlySet<string> = new Set([
  * (`mcp__…`), except {@link SERVER_TURN_EXCLUDED_TOOLS} (the chat-native
  * relay and delegation, the attended-only tools, the external-MCP confirm,
  * the cards, the JWT tools and the browser) and {@link HOME_TURN_SETTLE_TOOLS}.
- * The gate holds what leaves Dial8.
+ * The gate holds what leaves Native Intelligence.
  */
 export function homeTurnMayAct(toolName: string): boolean {
   if (SERVER_TURN_EXCLUDED_TOOLS.has(toolName) || HOME_TURN_SETTLE_TOOLS.has(toolName)) return false

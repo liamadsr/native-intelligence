@@ -1,13 +1,13 @@
 /**
  * A guest on Slack (guest access, migration 434): someone the owner added,
  * with Slack among the channels they may reach their agent on, messaging the
- * Dial8 app in a Slack workspace bound to the owner's Dial8 workspace. The
+ * Native Intelligence app in a Slack workspace bound to the owner's Native Intelligence workspace. The
  * Slack twin of ./texting.ts.
  *
  * Who is speaking is decided from what Slack verified (the team, the user id)
- * and what Dial8 holds, never from the message's words. Called by
+ * and what Native Intelligence holds, never from the message's words. Called by
  * src/lib/slack/inbound.ts for a DM from a Slack user who is NOT linked to a
- * Dial8 account (a linked person always gets their own agent), in a team with
+ * Native Intelligence account (a linked person always gets their own agent), in a team with
  * a live installation, from that team's own members (Slack Connect outsiders
  * were turned away before this). In this order:
  *
@@ -193,8 +193,8 @@ export interface GuestSlackDeps {
 }
 
 export const GUEST_SLACK_REPLIES = {
-  welcome: (owner: string) => `You're set. This is ${owner}'s Dial8 agent: message me here anytime for help.`,
-  conflict: () => 'This Slack account already messages another Dial8 agent, so this invite can’t be used here. Ask whoever invited you.',
+  welcome: (owner: string) => `You're set. This is ${owner}'s Native Intelligence agent: message me here anytime for help.`,
+  conflict: () => 'This Slack account already messages another Native Intelligence agent, so this invite can’t be used here. Ask whoever invited you.',
   limited: (owner: string) => `That's the most messages ${owner}'s agent can answer today. Try again tomorrow.`,
   tooManyCodes: () => 'Too many wrong codes. Try again in an hour.',
   notMember: () => "I can only take an invite from a member of this Slack workspace.",

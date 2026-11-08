@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Dial8 is a cross-platform workspace combining meeting capture, project management, and CRM — think Linear meets Granola. This repository contains the web application (Next.js) which serves both the marketing site and the full SaaS dashboard.
+Native Intelligence is a cross-platform workspace combining meeting capture, project management, and CRM — think Linear meets Granola. This repository contains the web application (Next.js) which serves both the marketing site and the full SaaS dashboard.
 
 A companion desktop app (in `../dial8-desktop/`) provides native audio capture and meeting detection.
 
@@ -95,7 +95,7 @@ with `sharedWith` naming those env vars), `fallback` or `unset`, never a value.
 `src/lib/safety/action-review.ts` reviews every risky tool call (external-write, delete,
 automation-write, external MCP) at the chat and skill-run tool routes and the Mac body's
 tool route. Where it **blocks** is `ACTION_REVIEW_MODE`'s call (`src/lib/safety/review-mode.ts`):
-- **unset or `default`:** blocking for the Dial8 agent on the person's Mac only. That's every
+- **unset or `default`:** blocking for the Native Intelligence agent on the person's Mac only. That's every
   call it makes (`mustEnforce`, or an approval naming its job in `context.localAgent`),
   including the jobs loops start. Everything that runs today stays log-only, as on PROD: the
   person's own turns, relays, server turns, and loops and skill runs that don't use the Mac.

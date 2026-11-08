@@ -6,7 +6,7 @@
  * anywhere: the same voice reading text selected in any app, and voice mode:
  * talking with the chat. (The assistant's name is in Preferences.)
  *
- * NOT gated by isDesktopApp()/isLowerEnvironment(): teaching Dial8 your voice is
+ * NOT gated by isDesktopApp()/isLowerEnvironment(): teaching Native Intelligence your voice is
  * a real feature on every platform. Two states:
  *   • not enrolled → a hero-ish card that launches the enrollment flow.
  *   • enrolled     → status card (trained date + quality label) with Re-train
@@ -87,7 +87,7 @@ export function VoiceSettingsView() {
           <div>
             <h1 className="text-lg font-semibold">Voice</h1>
             <p className="text-sm text-muted-foreground">
-              Teach Dial8 your voice so it always knows which speaker in a meeting is you.
+              Teach Native Intelligence your voice so it always knows which speaker in a meeting is you.
             </p>
           </div>
         </div>
@@ -158,7 +158,7 @@ export function VoiceSettingsView() {
                   <AudioWaveform className="h-5 w-5 text-foreground" />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-medium">Teach Dial8 your voice</p>
+                  <p className="font-medium">Teach Native Intelligence your voice</p>
                   <p className="text-sm text-muted-foreground">
                     Read a 60-second story once. Takes about a minute.
                   </p>
@@ -169,7 +169,7 @@ export function VoiceSettingsView() {
                 onClick={train}
               >
                 <AudioWaveform className="mr-2 h-4 w-4" />
-                Teach Dial8 your voice
+                Teach Native Intelligence your voice
               </Button>
             </div>
 
@@ -198,7 +198,7 @@ export function VoiceSettingsView() {
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
         title="Remove your voice profile?"
-        description="Dial8 will stop recognizing your voice in meetings until you train it again. This can’t be undone, but you can always re-train."
+        description="Native Intelligence will stop recognizing your voice in meetings until you train it again. This can’t be undone, but you can always re-train."
         confirmLabel="Remove"
         busy={removing}
         onConfirm={handleRemove}
@@ -215,7 +215,7 @@ function VoiceExplainer() {
       <p className="flex items-start gap-2">
         <AudioWaveform className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          During a meeting, Dial8 compares each speaker against your voiceprint so
+          During a meeting, Native Intelligence compares each speaker against your voiceprint so
           it can label your turns as “You” — automatically.
         </span>
       </p>
@@ -228,7 +228,7 @@ function VoiceExplainer() {
       </p>
       <p className="flex items-start gap-2">
         <Globe className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>This works everywhere you use Dial8 — you only need to do it once.</span>
+        <span>This works everywhere you use Native Intelligence — you only need to do it once.</span>
       </p>
     </div>
   )

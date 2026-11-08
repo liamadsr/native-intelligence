@@ -1,5 +1,5 @@
 /**
- * The Dial8 agent's local-agent tools (src/lib/chat/local-agent-tools.ts,
+ * The Native Intelligence agent's local-agent tools (src/lib/chat/local-agent-tools.ts,
  * contract F3) over a faked library (src/lib/local-agent/store.ts and
  * transcript.ts, contract B):
  *   - start_local_agent: typed turns only, keyed on eve's ids (migration 332's
@@ -300,7 +300,7 @@ describe('read_local_agent', () => {
     expect(lib.readTranscript).toHaveBeenCalledWith(svc, 'user-1', SESSION_ID, { afterId: 4, compact: true })
     const items = out.items as Array<Record<string, unknown>>
     expect(items.map((i) => [i.kind, i.from ?? null])).toEqual([
-      ['message', 'you (the Dial8 agent)'],
+      ['message', 'you (the Native Intelligence agent)'],
       ['tool', null],
       ['message', 'the person'],
       ['reply', null],
@@ -379,21 +379,21 @@ describe('the teammate plan: one agent per folder, the offline fallback, the tea
   it('a start the folder’s agent takes as its next turn says so', async () => {
     lib.createSession.mockResolvedValue({ session: session({ status: 'running' }), created: false, deviceOnline: true, joined: true })
     const out = await startLocalAgent(svc, claims(), launch, { folder_id: FOLDER_ID, request: 'Now check the tests' })
-    expect(out).toMatchObject({ joined: true, session_id: SESSION_ID, teammate: "Dial8 on Liam's MacBook Pro" })
+    expect(out).toMatchObject({ joined: true, session_id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro" })
     expect(out.reused).toBeUndefined()
     expect(out.note).toContain('as its next turn (one agent per folder)')
   })
 
   it('a folder another chat’s agent holds is refused, naming it, with how to free it', async () => {
     lib.createSession.mockRejectedValue(
-      new LocalAgentError('conflict', "Dial8 on Liam's MacBook Pro is already working in dial8-website for another chat. One agent works in a folder at a time: wait for it to finish, or stop it first.", {
-        code: 'FOLDER_BUSY', reason: 'other_chat', session: { id: SESSION_ID, teammate: "Dial8 on Liam's MacBook Pro", folder: 'dial8-website', status: 'running', mode: 'read' },
+      new LocalAgentError('conflict', "Native Intelligence on Liam's MacBook Pro is already working in dial8-website for another chat. One agent works in a folder at a time: wait for it to finish, or stop it first.", {
+        code: 'FOLDER_BUSY', reason: 'other_chat', session: { id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro", folder: 'dial8-website', status: 'running', mode: 'read' },
       }),
     )
     const out = await startLocalAgent(svc, claims(), launch, { folder_id: FOLDER_ID, request: 'Fix it', mode: 'edit' })
     expect(out).toMatchObject({ status: 'refused', code: 'FOLDER_BUSY' })
     // Only what names it: another chat's request and words stay there.
-    expect(out.busy).toEqual({ session_id: SESSION_ID, teammate: "Dial8 on Liam's MacBook Pro", folder: 'dial8-website', status: 'running', mode: 'read' })
+    expect(out.busy).toEqual({ session_id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro", folder: 'dial8-website', status: 'running', mode: 'read' })
     expect(out.reason).toContain('stop_local_agent on that session_id')
   })
 
@@ -474,10 +474,10 @@ describe('the teammate plan: one agent per folder, the offline fallback, the tea
 
   it('a session reads as the teammate on its Mac, with its pull request', () => {
     expect(sessionView(session({ mode: 'edit', branch: 'dial8/x-1', prUrl: 'https://github.com/o/r/pull/3' }))).toMatchObject({
-      teammate: "Dial8 on Liam's MacBook Pro",
+      teammate: "Native Intelligence on Liam's MacBook Pro",
       pull_request: 'https://github.com/o/r/pull/3',
     })
-    expect(sessionView(session({ deviceName: '' })).teammate).toBe('Dial8 on your Mac')
+    expect(sessionView(session({ deviceName: '' })).teammate).toBe('Native Intelligence on your Mac')
     expect(sessionView(session()).pull_request).toBeUndefined()
   })
 })

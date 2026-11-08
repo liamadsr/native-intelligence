@@ -215,9 +215,9 @@ const MAX_TOKEN_BYTES: usize = 2 * 1024;
 /// accepts is never silently dropped there.
 const MIN_TOKEN_BYTES: usize = 16;
 /// A start or resume without a model relay token, where one is required.
-const NEEDS_TOKEN: &str = "local agents need a session from Dial8";
+const NEEDS_TOKEN: &str = "local agents need a session from Native Intelligence";
 /// Everything refused while the person has local agents turned off.
-pub const OFF: &str = "local agents are turned off on this Mac (Local Agents, in Dial8's menu bar menu, turns them back on)";
+pub const OFF: &str = "local agents are turned off on this Mac (the menu bar's Local Agents menu turns them back on)";
 /// Longest eve session id `resume` may name.
 const MAX_SESSION_ID: usize = 256;
 /// Largest single event kept and emitted. The launcher truncates tool input
@@ -441,7 +441,7 @@ impl Paths {
         let protected = vec![
             // state.json, dev.json and every job's eve session.
             canonical_or(data_dir.to_path_buf()),
-            // The webviews' cookies and localStorage: the Dial8 session. The
+            // The webviews' cookies and localStorage: the Native Intelligence session. The
             // bundled app keys them by bundle id, a bare dev binary by name.
             library.join("WebKit").join(identifier),
             library.join("WebKit/dial8-desktop"),
@@ -1457,7 +1457,7 @@ const MAX_ANSWERED: usize = 1_024;
 /// A fence path's realpath check, at most (a hung network volume).
 const FENCE_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 /// A push the app quit in the middle of.
-const QUIT_DURING_PUSH: &str = "Dial8 quit during the push; it may not have reached the remote, and no pull request \
+const QUIT_DURING_PUSH: &str = "Native Intelligence quit during the push; it may not have reached the remote, and no pull request \
                                 was opened from here. Ask again to push";
 
 /// "5 min", "30 s", "300 ms".
@@ -2026,7 +2026,7 @@ impl Actor {
             return Err(OFF.into());
         }
         if self.closing {
-            return Err("Dial8 is quitting".into());
+            return Err("Native Intelligence is quitting".into());
         }
         Ok(())
     }
@@ -2363,7 +2363,7 @@ impl Actor {
             return Err("stopped before it started".into());
         }
         if self.closing {
-            return Err("Dial8 is quitting".into());
+            return Err("Native Intelligence is quitting".into());
         }
         let grant = self.state.grant(&args.grant_id).cloned().ok_or("unknown folder")?;
         let grant_folder = self.recheck_grant(&grant)?;
@@ -2461,11 +2461,11 @@ impl Actor {
     }
 
     /// An edit job's worktree as it is now: a realpath that may be shared
-    /// (inside HOME, not Dial8's data).
+    /// (inside HOME, not Native Intelligence's data).
     fn recheck_worktree(&self, dir: &Path) -> Result<String, String> {
         let real = folder::canonical_dir(dir).map_err(|e| format!("the job's worktree: {e}"))?;
         if !real.starts_with(self.paths.worktrees()) {
-            return Err(format!("{} is not one of Dial8's worktrees", real.display()));
+            return Err(format!("{} is not one of Native Intelligence's worktrees", real.display()));
         }
         folder::check_folder(&real, &self.paths.home, &self.paths.protected)?;
         real.to_str()
@@ -3207,7 +3207,7 @@ impl Actor {
         let result = match kind {
             PromptKind::Push => self.on_push_prompt(job_id, &id, detail, timeout),
             PromptKind::Fence => self.on_fence_prompt(job_id, &id, detail, timeout),
-            PromptKind::Other(k) => Err(format!("this version of Dial8 can't ask about {k:?}")),
+            PromptKind::Other(k) => Err(format!("this version of Native Intelligence can't ask about {k:?}")),
         };
         if let Err(why) = result {
             self.drop_prompt(job_id, &id);
@@ -3318,7 +3318,7 @@ impl Actor {
         }
         let branch = job.branch.clone().ok_or("this job has no branch to push")?;
         if !push::is_job_branch(&branch) {
-            return Err(format!("{branch} isn't a branch Dial8 made"));
+            return Err(format!("{branch} isn't a branch Native Intelligence made"));
         }
         if self.pushes.contains_key(job_id) {
             return Err("this job's branch is being pushed already".into());
@@ -3823,7 +3823,7 @@ impl Actor {
         self.save();
         for (job_id, run_id, m) in cut {
             crate::log_to_file(&format!(
-                "[local-agent:{job_id}] Dial8 quit while pushing {}; reported as failed",
+                "[local-agent:{job_id}] Native Intelligence quit while pushing {}; reported as failed",
                 m.branch
             ));
             self.log.append(

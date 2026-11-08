@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Mac body (contract C2, docs/plans/teammate-agent.md): the one Dial8 agent,
+# The Mac body (contract C2, docs/plans/teammate-agent.md): the one Native Intelligence agent,
 # agents/chat-agent, built for the person's Mac. Sourced by build.sh (dev) and
 # bundle.sh (the desktop's bundle); not run on its own.
 #

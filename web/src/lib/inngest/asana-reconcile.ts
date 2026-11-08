@@ -15,12 +15,12 @@ import {
 } from '@/lib/tasks/apply-remote-task-state'
 
 // =====================================================================
-// Asana → Dial8 reconciliation sweep (the safety net)
+// Asana → Native Intelligence reconciliation sweep (the safety net)
 //
 // Asana webhook delivery is AT-MOST-ONCE with no replay: a delivery lost to a
 // deploy, a cold start, a 5xx or a brief network partition is gone for good.
 // That makes a poll MANDATORY, not a nice-to-have — without it a task completed
-// during a bad thirty seconds stays open in Dial8 forever, and the user has no
+// during a bad thirty seconds stays open in Native Intelligence forever, and the user has no
 // way to tell.
 //
 // It is the SLOW path by design. Webhooks handle seconds-latency; this walks

@@ -5,7 +5,7 @@
  * its Transcripts card risen out of the pill at its foot, as it opens in the
  * app. The speakers row is the product's VoiceIdCarousel and the lines are
  * its TranscriptView (components/capture/live-capture-header.tsx), on fixture
- * data: two voices Dial8 knows, and one it suggests ("Michael Chen (92%)")
+ * data: two voices Native Intelligence knows, and one it suggests ("Michael Chen (92%)")
  * that is accepted after a moment, relabelling every one of that voice's
  * lines in place. Content is FICTIONAL.
  */

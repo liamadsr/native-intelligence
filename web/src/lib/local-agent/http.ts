@@ -9,7 +9,7 @@ import { isDeviceToken } from '@/lib/device-tokens'
 import { LocalAgentError } from './store'
 
 /**
- * requireUser, minus Dial8 capture-device tokens (`Bearer d8d_…`): those are
+ * requireUser, minus Native Intelligence capture-device tokens (`Bearer d8d_…`): those are
  * pinned to a workspace for a hardware recorder and must never drive a local
  * agent on someone's Mac. The model relay has its own token and does not use
  * this. Precedent: eve-session's teammate threads refuse them the same way.

@@ -2,7 +2,7 @@
  * POST /api/slack/interactivity
  *
  * Slack's Interactivity request URL (docs/plans/slack-connect.md §4 piece 6):
- * the Approve / Decline buttons on a Dial8 approval posted in Slack
+ * the Approve / Decline buttons on a Native Intelligence approval posted in Slack
  * (src/lib/slack/approvals.ts). Slack posts `payload=<json>` (form-encoded),
  * type `block_actions`.
  *
@@ -14,7 +14,7 @@
  *      X-Slack-Signature, with SLACK_SIGNING_SECRET (src/lib/slack/signature.ts).
  *    Neither verifies: 401, nothing read.
  * 2. APP: api_app_id must be ours.
- * 3. WHO: the clicker is mapped to a Dial8 user only through their link in
+ * 3. WHO: the clicker is mapped to a Native Intelligence user only through their link in
  *    that Slack team, in a live installation; a Slack Connect outsider never
  *    is. The card is then settled as that person's own click
  *    (settleAttentionCard, actor 'person', channel 'slack'), fenced on their
@@ -83,13 +83,13 @@ export async function POST(request: Request) {
   return new Response(null, { status: 200 })
 }
 
-/** Map the clicker to their Dial8 user, then settle the card as theirs. Returns the line to show. Never throws. */
+/** Map the clicker to their Native Intelligence user, then settle the card as theirs. Returns the line to show. Never throws. */
 async function settleClick(click: SlackButtonClick): Promise<string> {
   const svc = getServiceClient()
   try {
     if (click.userTeamId !== click.teamId) return 'Only the person this is waiting for can answer it.'
     const installation = await getInstallation(svc, click.teamId)
-    if (!installation || installation.status !== 'active') return 'This Slack workspace is no longer connected to Dial8.'
+    if (!installation || installation.status !== 'active') return 'This Slack workspace is no longer connected to Native Intelligence.'
     const link = await linkForSlackUser(svc, click.teamId, click.userId)
     if (!link) return 'Only the person this is waiting for can answer it.'
     const memberId = await memberIdOf(svc, installation.workspace_id, link.user_id)
@@ -102,6 +102,6 @@ async function settleClick(click: SlackButtonClick): Promise<string> {
     })
     return settleLine(outcome)
   } catch {
-    return "That didn't work. Try again in Dial8."
+    return "That didn't work. Try again in Native Intelligence."
   }
 }

@@ -102,7 +102,7 @@ enum ClaudeModel: String, CaseIterable, Codable {
 
     var description: String {
         switch self {
-        case .auto:             return "Let Dial8 pick"
+        case .auto:             return "Let Native Intelligence pick"
         case .haiku45:          return "Fast & efficient"
         case .sonnet45:         return "Most capable"
         case .kimiK26:          return "Cheap & capable"

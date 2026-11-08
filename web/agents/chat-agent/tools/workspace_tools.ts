@@ -424,7 +424,7 @@ function buildSearchTools(runToken: string, turnCtx: string, role: ToolRole = 'r
         // description is returned whole, approval note included: with the
         // connected-MCP tools no longer listed in the prompt (chat-ttft P4), it
         // and `requiresApproval` are where the model learns a tool is gated.
-        // `requiresApproval` is Dial8's own field, set from the note the MCP
+        // `requiresApproval` is Native Intelligence's own field, set from the note the MCP
         // adapter appends after the fenced third-party text, so the gate does
         // not rest on text the prompt calls untrusted.
         tools: matches.map((m) => ({
@@ -597,7 +597,7 @@ export async function resolveAdvertised(
 }
 
 /** What a stubbed web tool tells the model in a check-in's session. */
-const CHECK_IN_WEB_OFF_DESCRIPTION = 'Not available in your check-in: it reads only Dial8’s own records. Do not call this tool.'
+const CHECK_IN_WEB_OFF_DESCRIPTION = 'Not available in your check-in: it reads only Native Intelligence’s own records. Do not call this tool.'
 
 /**
  * Refusal stubs for the native web tools (web_search, web_fetch), for the

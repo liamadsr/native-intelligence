@@ -126,7 +126,7 @@ describe('ReadAnywhereSection', () => {
   it('asks for the permission first and keeps the switch off without it', async () => {
     state.status = { ...base, accessibility: false, keystrokes: false }
     await render()
-    expect(container.textContent).toContain('Allow Dial8 to read your selection')
+    expect(container.textContent).toContain('Allow Native Intelligence to read your selection')
     expect(toggle()?.disabled).toBe(true)
   })
 

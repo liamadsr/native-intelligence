@@ -1,7 +1,7 @@
 /// C-callable wrapper to suppress macOS App Nap for this process.
 ///
 /// App Nap throttles/suspends background apps — pausing timers, the render
-/// loop, and JS execution in the WebView. For Dial8 that causes the window to
+/// loop, and JS execution in the WebView. For Native Intelligence that causes the window to
 /// freeze and then "catch up" (draining a backlog of reconnects/timers) when
 /// brought back to the foreground. We hold a process-lifetime activity
 /// assertion so the app keeps getting scheduled while backgrounded.

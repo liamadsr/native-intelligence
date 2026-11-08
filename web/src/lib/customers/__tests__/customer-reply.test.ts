@@ -1,6 +1,6 @@
 /**
  * A customer's reply goes out from the business number they texted, never
- * the Dial8 one (roadmap B2, src/lib/chat/text-turn-server.ts textGuest),
+ * the Native Intelligence one (roadmap B2, src/lib/chat/text-turn-server.ts textGuest),
  * and a customer whose business number is gone is not texted at all.
  * sendSms sets that `From` (src/lib/twilio/client.ts).
  */
@@ -38,7 +38,7 @@ describe("a customer's reply", () => {
     expect(tables.sms_message).toEqual([expect.objectContaining({ direction: 'out', kind: 'guest_reply', guest_id: 'g-sarah', phone_e164: SARAH })])
   })
 
-  it("an owner's own guest is still texted from the Dial8 number", async () => {
+  it("an owner's own guest is still texted from the Native Intelligence number", async () => {
     const send = vi.fn(async () => ({ ok: true as const, sid: 'SMout' }))
     await textGuest(db, { guestId: 'g-jess', ownerUserId: OWNER, body: 'He is free at 3.', kind: 'guest_reply' }, { send })
     expect(send).toHaveBeenCalledWith('+12125550111', 'He is free at 3.')
@@ -63,13 +63,13 @@ describe('sendSms from a business number', () => {
   const config = { accountSid: 'AC1', authToken: 't', fromNumber: '+18885550100', messagingServiceSid: null }
   const fetchOk = () => vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ sid: 'SM1' }), { status: 201 }))
 
-  it("sets that number as From instead of the Dial8 one", async () => {
+  it("sets that number as From instead of the Native Intelligence one", async () => {
     const fetch = fetchOk()
     await sendSms(SARAH, 'hi', { fetch: fetch as never, config, from: RUG })
     expect(new URLSearchParams(String(fetch.mock.calls[0][1].body)).get('From')).toBe(RUG)
   })
 
-  it("never through Dial8's messaging service, so Twilio can't pick a pool number for it (or it for Dial8)", async () => {
+  it("never through Native Intelligence's messaging service, so Twilio can't pick a pool number for it (or it for Native Intelligence)", async () => {
     const fetch = fetchOk()
     await sendSms(SARAH, 'hi', { fetch: fetch as never, config: { ...config, messagingServiceSid: 'MG1' }, from: RUG })
     const form = new URLSearchParams(String(fetch.mock.calls[0][1].body))
@@ -77,14 +77,14 @@ describe('sendSms from a business number', () => {
     expect(form.get('MessagingServiceSid')).toBeNull()
   })
 
-  it('without one, the Dial8 sender as before', async () => {
+  it('without one, the Native Intelligence sender as before', async () => {
     const fetch = fetchOk()
     await sendSms(SARAH, 'hi', { fetch: fetch as never, config })
     expect(new URLSearchParams(String(fetch.mock.calls[0][1].body)).get('From')).toBe('+18885550100')
     const viaService = fetchOk()
     await sendSms(SARAH, 'hi', { fetch: viaService as never, config: { ...config, messagingServiceSid: 'MG1' } })
     const form = new URLSearchParams(String(viaService.mock.calls[0][1].body))
-    // Pinned to the Dial8 number: the service's pool holds agent numbers too (src/lib/sms/agent-number.ts).
+    // Pinned to the Native Intelligence number: the service's pool holds agent numbers too (src/lib/sms/agent-number.ts).
     expect(form.get('From')).toBe('+18885550100')
     expect(form.get('MessagingServiceSid')).toBe('MG1')
   })

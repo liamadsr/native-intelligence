@@ -1,5 +1,5 @@
 /**
- * POST /api/presence: a Dial8 app saying its person is (or is not) at it, and
+ * POST /api/presence: a Native Intelligence app saying its person is (or is not) at it, and
  * optionally how far they have read their home thread
  * (docs/plans/reach-follows-you.md §1 and §2). Nothing reads these yet; the
  * router (part C) will, to choose between a banner and a text.

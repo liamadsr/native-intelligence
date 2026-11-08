@@ -273,7 +273,7 @@ describe('the registries', () => {
     expect(where).toContain('`start_cloud_coding_run`')
     expect(where).toContain('only when they ask in words')
     expect(where).toContain('ask where to run before you start work')
-    expect(where).toContain('A local agent is you, the Dial8 agent')
+    expect(where).toContain('A local agent is you, the Native Intelligence agent')
     // How rides the tools themselves (src/lib/ai/tool-guides.ts).
     const guides = [...LOCAL.map((n) => toolGuide(n) ?? ''), TOOL_FAMILIES.find((f) => f.key === 'local_agents')!.guide].join(' ')
     expect(guides).toContain('One agent per folder')
@@ -283,7 +283,7 @@ describe('the registries', () => {
     expect(guides).toContain('never paste it')
     expect(guides).toContain('`steer` (the default)')
     // The Mac body's own part is the Mac's alone (lib/mac-instructions.ts), never the cloud agent's prompt.
-    expect(md).not.toContain("When you are Dial8 on the person's Mac")
+    expect(md).not.toContain("When you are Native Intelligence on the person's Mac")
     const mac = `${MAC_HOST_INSTRUCTIONS}\n\n${macTalkBack(new Set(['message_teammate', 'report_to_person']))}`
     for (const name of ['message_teammate', 'report_to_person', 'finish']) expect(mac, name).toContain(`\`${name}\``)
     expect(mac).toContain('past a few an hour it is refused')

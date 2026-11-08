@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     '7-day free trial, then $99 per user per month for the full AI sales platform — bot-free call capture, live intelligence, and a CRM that updates itself. Teams and enterprises, talk to us about volume pricing.',
   alternates: { canonical: '/pricing' },
   openGraph: {
-    title: 'Pricing – Dial8',
+    title: 'Pricing – Native Intelligence',
     description:
       '7-day free trial, then $99 per user per month for the full AI sales platform — bot-free call capture, live intelligence, and a CRM that updates itself. Teams and enterprises, talk to us about volume pricing.',
     url: 'https://dial8.ai/pricing',

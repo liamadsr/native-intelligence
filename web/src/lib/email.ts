@@ -17,7 +17,7 @@ export const BASE_URL = process.env.NODE_ENV === 'production'
   ? 'https://dial8.ai'
   : 'http://localhost:3000'
 
-export const FROM_EMAIL = 'Liam from Dial8 <liam@dial8.ai>'
+export const FROM_EMAIL = 'Liam from Native Intelligence <liam@dial8.ai>'
 
 // --- Unsubscribe token ---
 

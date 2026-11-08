@@ -182,7 +182,7 @@ export interface CreateToolsOptions {
    */
   unattended?: boolean
   /**
-   * The person's own text to the Dial8 number (a channel turn, surface sms,
+   * The person's own text to the Native Intelligence number (a channel turn, surface sms,
    * no guest, relay or teammate: isPersonTextTurn in
    * src/lib/onboarding/text-setup.ts). Only then does connect_link make a
    * link, and it texts it to their verified number itself: a link handed to
@@ -191,7 +191,7 @@ export interface CreateToolsOptions {
    */
   textTurn?: boolean
   /**
-   * The person's own text OR call to the Dial8 number (both from a caller ID
+   * The person's own text OR call to the Native Intelligence number (both from a caller ID
    * that can be spoofed). The website tools (src/lib/ai/tools/website.ts)
    * keep what such a turn alone may change narrow: which repo is the site,
    * its address, and how long an edit request may be.

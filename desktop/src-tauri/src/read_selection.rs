@@ -6,7 +6,7 @@
 //! ([`crate::settings::ReadSelectionSettings`]); only then is the hotkey
 //! registered. The settings page asks for the Accessibility permission (its
 //! "Allow access", [`read_selection_request_access`]) and only lets the
-//! feature be turned on once it's granted; nothing else in Dial8 needs it.
+//! feature be turned on once it's granted; nothing else in Native Intelligence needs it.
 //!
 //! - The hotkey is a Carbon hotkey (`native/selection_helper.m`), which needs
 //!   no permission. macOS 15+ refuses Option-only and Option-Shift-only
@@ -195,8 +195,8 @@ mod sys {
             (None, -2) => Err("no Accessibility permission"),
             (None, -3) => Err("no Copy menu item, and ⌘C left the clipboard unchanged"),
             (None, -6) => Err("the app's Copy menu item is disabled (nothing selected)"),
-            (None, -7) => Err("no Copy menu item, and macOS refuses Dial8 posting ⌘C"),
-            (None, -9) => Err("Edit → Copy changed nothing, and macOS refuses Dial8 posting ⌘C"),
+            (None, -7) => Err("no Copy menu item, and macOS refuses Native Intelligence posting ⌘C"),
+            (None, -9) => Err("Edit → Copy changed nothing, and macOS refuses Native Intelligence posting ⌘C"),
             (None, -8) => Err("neither Edit → Copy nor ⌘C changed the clipboard"),
             (None, -4) => Err("the copy put no text on the clipboard"),
             (None, -5) => Err("the shortcut's keys were still held"),
@@ -273,7 +273,7 @@ fn register_now(current: &ReadSelectionSettings) -> Option<String> {
             return None;
         }
         crate::log_to_file(&format!("[read-selection] hotkey {label} not registered (no event tap)"));
-        return Some(format!("Dial8 couldn’t watch for {label}. Check the permission above, then pick it again."));
+        return Some(format!("Native Intelligence couldn’t watch for {label}. Check the permission above, then pick it again."));
     }
     let status = sys::register(keycode, modifiers, on_hotkey);
     if status == 0 {
@@ -393,7 +393,7 @@ const CONVERT_EVENT: &str = "read-selection://convert";
 /// as it would anywhere else (no window open, or an older web).
 const WEB_WAIT: std::time::Duration = std::time::Duration::from_millis(1200);
 /// The wait once a window has failed to answer, until one answers again: a
-/// press with no Dial8 page listening (signed out, a docs page, a web older
+/// press with no Native Intelligence page listening (signed out, a docs page, a web older
 /// than this build) shouldn't pause each time.
 const WEB_WAIT_UNANSWERED: std::time::Duration = std::time::Duration::from_millis(150);
 
@@ -537,7 +537,7 @@ pub struct Status {
     /// The Accessibility permission is granted (reading selections; the
     /// feature can't be turned on without it).
     accessibility: bool,
-    /// macOS lets Dial8 post key events: the ⌘C that reads terminals (Warp)
+    /// macOS lets Native Intelligence post key events: the ⌘C that reads terminals (Warp)
     /// and other apps that don't share their selection. The same System
     /// Settings switch grants it on macOS 27.
     keystrokes: bool,
@@ -595,7 +595,7 @@ pub async fn read_selection_set_enabled(app: AppHandle, enabled: bool) -> Result
     Ok(status(&app))
 }
 
-/// The settings page's "Allow access", the only place Dial8 asks:
+/// The settings page's "Allow access", the only place Native Intelligence asks:
 /// - no Accessibility yet: macOS's prompt (shown once ever), else the pane;
 /// - Accessibility but no key events: ask for those. A grant left from an
 ///   older build (pinned to that build's code hash, which no later build
@@ -633,7 +633,7 @@ fn reset_post_event_grant() {
     }
 }
 
-/// A grant made while Dial8 runs can need a relaunch before macOS honors it.
+/// A grant made while Native Intelligence runs can need a relaunch before macOS honors it.
 /// `request_restart`, not `restart`: a sync command runs on the main thread,
 /// where `restart()` skips the exit events, and with them the quit cleanup
 /// (quit.rs) that finalizes a recording.

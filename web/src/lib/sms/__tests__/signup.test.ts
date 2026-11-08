@@ -21,7 +21,7 @@ import { signupCodeText } from '../consent'
 import type { PhoneAccount } from '../signup-account'
 
 /**
- * Signing up by text: a number nobody linked texts the Dial8 number and gets
+ * Signing up by text: a number nobody linked texts the Native Intelligence number and gets
  * a code; the code texted back makes the account. Codes expire, sending and
  * guessing are both capped, and nothing says whether the number had an
  * account before.

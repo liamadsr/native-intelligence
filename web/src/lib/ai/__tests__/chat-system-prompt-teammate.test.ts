@@ -6,7 +6,7 @@
  *      are`), its own name, its persona recipe prompt and skills
  *      (loadAgentPersona) — never the "Active Agent" recipe layer (agentId is
  *      ignored); it is the FIRST stable section, and the base prompt's
- *      opening identity sentence names the teammate instead of Dial8;
+ *      opening identity sentence names the teammate instead of Native Intelligence;
  *   2. a system teammate speaks from its loop's built-in persona;
  *   3. the teammate's memory is the LAST stable section, loaded with the work
  *      runs' loader for this user, framed as context/data; no memory → none;
@@ -20,7 +20,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /** The base prompt's real opening identity sentence, then a stand-in for its rules. */
-const DIAL8_BASE = "You are Assistant, the user's always-on agent in Dial8, for them and their team. BASE_RULES"
+const DIAL8_BASE = "You are Assistant, the user's always-on agent in Native Intelligence, for them and their team. BASE_RULES"
 
 vi.mock('../system-prompt', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../system-prompt')>()),
@@ -154,7 +154,7 @@ describe('buildChatSystemPrompt — teammate chat', () => {
     teammateRow.value = { ...ROLE_ROW, name: 'Captures', is_system: true, system_key: 'captures', allowed_side_effects: ['read'] }
     personaState.value = { name: 'Captures', agentSystemPrompt: null, agentConfig: null, skills: [] }
     const agent = (await build()).stable.find((s) => s.key === 'agent')!.markdown
-    expect(agent).toContain("You speak for Dial8's background work in Captures.")
+    expect(agent).toContain("You speak for Native Intelligence's background work in Captures.")
   })
 
   it('memory is the LAST stable section, loaded for this user with the work runs’ loader, framed as data', async () => {
@@ -221,20 +221,20 @@ describe('buildChatSystemPrompt — teammate chat', () => {
     await expect(build()).rejects.toThrow(/teammate read failed/)
   })
 
-  it('the stable prompt opens with who the teammate is, and nothing in it says the model is Dial8', async () => {
+  it('the stable prompt opens with who the teammate is, and nothing in it says the model is Native Intelligence', async () => {
     const stable = joinStablePrompt((await build()).stable)
-    expect(stable.startsWith("## Who you are\nYour name is Ghostwriter. You are one of the user's AI teammates in Dial8.")).toBe(true)
+    expect(stable.startsWith("## Who you are\nYour name is Ghostwriter. You are one of the user's AI teammates in Native Intelligence.")).toBe(true)
     // The base prompt's rules stay, under the teammate's own identity sentence.
-    expect(stable).toContain("You are Ghostwriter, one of the user's AI teammates in Dial8. BASE_RULES")
+    expect(stable).toContain("You are Ghostwriter, one of the user's AI teammates in Native Intelligence. BASE_RULES")
     expect(stable).not.toContain('You are Assistant,')
-    expect(stable).not.toContain("the user's always-on agent in Dial8, for them and their team")
+    expect(stable).not.toContain("the user's always-on agent in Native Intelligence, for them and their team")
   })
 
   it('a system teammate: the same, from its area', async () => {
     teammateRow.value = { ...ROLE_ROW, name: 'Captures', is_system: true, system_key: 'captures', allowed_side_effects: ['read'] }
     const stable = joinStablePrompt((await build()).stable)
-    expect(stable).toMatch(/^## Who you are\nYour name is Captures\. You are one of the user's AI teammates in Dial8: you speak for Dial8's background work in Captures/)
-    expect(stable).toContain("You are Captures, one of the user's AI teammates in Dial8. BASE_RULES")
+    expect(stable).toMatch(/^## Who you are\nYour name is Captures\. You are one of the user's AI teammates in Native Intelligence: you speak for Native Intelligence's background work in Captures/)
+    expect(stable).toContain("You are Captures, one of the user's AI teammates in Native Intelligence. BASE_RULES")
     expect(stable).not.toContain('You are Assistant,')
   })
 
@@ -249,14 +249,14 @@ describe('buildChatSystemPrompt — teammate chat', () => {
     expect(stable).not.toMatch(/^## SYSTEM/m)
   })
 
-  it('a teammate that is gone keeps the base prompt’s own identity: the notice leads, and Dial8 says it', async () => {
+  it('a teammate that is gone keeps the base prompt’s own identity: the notice leads, and Native Intelligence says it', async () => {
     teammateRow.value = null
     const built = await build()
     expect(built.stable.map((s) => s.key)).toEqual(['agent', 'base', 'profile'])
     expect(built.stable.find((s) => s.key === 'base')!.markdown).toBe(DIAL8_BASE)
   })
 
-  it('an ordinary chat is unchanged: the base, with its Dial8 identity, leads', async () => {
+  it('an ordinary chat is unchanged: the base, with its Native Intelligence identity, leads', async () => {
     const ordinary = await buildChatSystemPrompt({ userId: 'user-1', supabase: supabase(), workspaceId: 'ws-1' })
     expect(ordinary.stable.map((s) => s.key)).toEqual(['base', 'profile'])
     expect(joinStablePrompt(ordinary.stable).startsWith(DIAL8_BASE)).toBe(true)
@@ -405,7 +405,7 @@ describe('buildChatSystemPrompt — a bot conversation (teammateIn: chat)', () =
     expect(agent).toMatch(/^## Who you are\nYour name is Ghostwriter\./)
     expect(agent).toContain('WRITER_RECIPE_PROMPT')
     expect(agent).toContain('### Release notes\nRELEASE_NOTES_SKILL')
-    expect(agent).toContain('in the main chat of the Dial8 app')
+    expect(agent).toContain('in the main chat of the Native Intelligence app')
     expect(agent).toContain('neither sees what was said in the other')
     expect(agent).not.toContain('small chat window')
     expect(built.stable.map((s) => s.key)).toEqual(['agent', 'base', 'profile', 'memory'])
@@ -419,6 +419,6 @@ describe('buildChatSystemPrompt — a bot conversation (teammateIn: chat)', () =
   it('its own thread keeps the small window’s note', async () => {
     const agent = (await build()).stable.find((s) => s.key === 'agent')!.markdown
     expect(agent).toContain('small chat window')
-    expect(agent).not.toContain('in the main chat of the Dial8 app')
+    expect(agent).not.toContain('in the main chat of the Native Intelligence app')
   })
 })

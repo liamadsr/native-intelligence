@@ -99,14 +99,14 @@ export const FENCE_TOOLS: readonly FenceToolDef[] = [
     name: 'report',
     description:
       'Report progress on the request: what you looked at, what you found, what you are about to do. ' +
-      'Call it as you go, in a sentence or two. The person and the Dial8 agent see it.',
+      'Call it as you go, in a sentence or two. The person and the Native Intelligence agent see it.',
     inputSchema: object({ text: str('The progress note.', { minLength: 1, maxLength: 4000 }) }, ['text']),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'ask_manager',
     description:
-      'Ask the Dial8 agent (your manager) one question when you are blocked and cannot find the answer in the folder. ' +
+      'Ask the Native Intelligence agent (your manager) one question when you are blocked and cannot find the answer in the folder. ' +
       'Then end your turn and wait: the answer arrives as your next message.',
     inputSchema: object({ question: str('One clear question.', { minLength: 1, maxLength: 2000 }) }, ['question']),
     annotations: { readOnlyHint: true, openWorldHint: false },
@@ -116,7 +116,7 @@ export const FENCE_TOOLS: readonly FenceToolDef[] = [
     description:
       'Finish the request: give a summary of what you found or did, including anything that was blocked. ' +
       'Call it once the request is done, then end your turn.',
-    inputSchema: object({ summary: str('What you found or did, for the person and the Dial8 agent.', { minLength: 1, maxLength: 8000 }) }, ['summary']),
+    inputSchema: object({ summary: str('What you found or did, for the person and the Native Intelligence agent.', { minLength: 1, maxLength: 8000 }) }, ['summary']),
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
 ]

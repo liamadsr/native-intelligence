@@ -475,7 +475,7 @@ describe('a loop run’s chat', () => {
     expect(deps.openSession).toHaveBeenCalledWith(expect.anything(), { chatgptPlan: true })
   })
 
-  it("on the person's own ChatGPT plan: the loop run's chat opens on the plan (never Dial8's models)", async () => {
+  it("on the person's own ChatGPT plan: the loop run's chat opens on the plan (never Native Intelligence's models)", async () => {
     const db = makeDb()
     ownItems.set(LOOP_ITEM, { kind: 'row', bot: BOT, row: { ...workRow().row, id: LOOP_ITEM, kind: 'flow_run', status: 'done', agent_run_id: null } })
     const record = {

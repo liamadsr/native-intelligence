@@ -76,11 +76,11 @@ describe('runLiveCall', () => {
   it('opens with the greeting once attached, as commentary with no delegation', async () => {
     const s = fakeSocket()
     const call = runLiveCall(
-      { sessionId: 'live_g', caller: CALLER, apiKey: 'k', greeting: "Hi Liam, it's your Dial8 agent. What can I do for you?" },
+      { sessionId: 'live_g', caller: CALLER, apiKey: 'k', greeting: "Hi Liam, it's your Native Intelligence agent. What can I do for you?" },
       { supabase: {} as SupabaseClient, connect: async () => s.socket, runTurn: async () => ({ kind: 'quiet', outcome: 'quiet' }), hangUp: async () => {}, sleep: async () => {} },
     )
     await flush()
-    expect(s.sent).toEqual([{ type: 'session.commentary.append', delegation_id: null, content: "Hi Liam, it's your Dial8 agent. What can I do for you?", event_id: 'dial8_1' }])
+    expect(s.sent).toEqual([{ type: 'session.commentary.append', delegation_id: null, content: "Hi Liam, it's your Native Intelligence agent. What can I do for you?", event_id: 'dial8_1' }])
     s.emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).types).toEqual({ 'session.closed': 1 })
   })
@@ -322,14 +322,14 @@ describe('runLiveCall', () => {
   })
 
   it('a notice is said like an answer', async () => {
-    const { emit, sent, call } = await startCall(async () => ({ kind: 'notice', text: "That needs your OK first. It's waiting for you in the Dial8 app.", outcome: 'written' }))
+    const { emit, sent, call } = await startCall(async () => ({ kind: 'notice', text: "That needs your OK first. It's waiting for you in the Native Intelligence app.", outcome: 'written' }))
     emit({ type: 'session.input_transcript.delta', delta: 'Email Dana.', start_ms: 0, end_ms: 400 })
     emit({ type: 'session.delegation.created', delegation: { id: 'del_1' } })
     await flush()
     await flush()
     emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).notices).toBe(1)
-    expect(sent[0]).toMatchObject({ type: 'session.commentary.append', content: "That needs your OK first. It's waiting for you in the Dial8 app." })
+    expect(sent[0]).toMatchObject({ type: 'session.commentary.append', content: "That needs your OK first. It's waiting for you in the Native Intelligence app." })
   })
 
   it('drops the answer of a turn that finished after the call ended, but waits for it', async () => {

@@ -17,10 +17,10 @@ describe('markdownToSlack', () => {
     expect(markdownToSlack('[a|b](https://x.y)')).toBe('<https://x.y|a/b>')
   })
 
-  it('cuts a long reply at a line, pointing to the rest in Dial8', () => {
+  it('cuts a long reply at a line, pointing to the rest in Native Intelligence', () => {
     const long = Array.from({ length: 400 }, (_, i) => `line ${i} with some words`).join('\n')
     const out = markdownToSlack(long, { moreLink: 'https://dial8.ai/account' })
     expect(out.length).toBeLessThanOrEqual(SLACK_REPLY_MAX_CHARS)
-    expect(out.endsWith('_The rest is in Dial8: <https://dial8.ai/account|open it>._')).toBe(true)
+    expect(out.endsWith('_The rest is in Native Intelligence: <https://dial8.ai/account|open it>._')).toBe(true)
   })
 })

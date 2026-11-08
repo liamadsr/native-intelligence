@@ -24,7 +24,7 @@ export function withoutMcpImage(result: unknown): unknown {
 /**
  * Merge `active_workspace: { id, name }` into the response of every tool call.
  *
- * Why: agents (Codex, Claude Code, the Dial8 live agent) routinely misroute
+ * Why: agents (Codex, Claude Code, the Native Intelligence live agent) routinely misroute
  * tool calls when they're unsure which workspace they're in. The server-level
  * `instructions` blob tells them once at connect; this injection acts as a
  * constant in-band reminder so the active workspace is visible on every

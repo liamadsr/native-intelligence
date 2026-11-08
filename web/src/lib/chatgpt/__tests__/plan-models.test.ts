@@ -24,8 +24,8 @@ describe('plan models', () => {
   })
 
   // planModelOfStep bills `openai/<plan model>` as the person's plan, at no
-  // cost. That is right only while no Gateway model Dial8 runs is one.
-  it('names no plan model among the Gateway models Dial8 runs', () => {
+  // cost. That is right only while no Gateway model Native Intelligence runs is one.
+  it('names no plan model among the Gateway models Native Intelligence runs', () => {
     const gateway = [
       ...CHAT_MODELS.flatMap((m) => [m.id, m.gatewayId, gatewayModelSlug(m.id)]),
       ...Object.values(SURFACE_MODELS).flatMap((id) => [id, gatewayModelSlug(id)]),

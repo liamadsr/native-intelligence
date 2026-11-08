@@ -374,7 +374,7 @@ export const UTILITY_KIND_SPECS: Record<UtilityKind, UtilityKindSpec> = {
   // The nightly memory pass for Mail (one-agent plan Part 3, "Memory";
   // src/lib/packs/memory-learning.ts): up to three tone and sign-off lines
   // from a person's recent sent mail (read live, kept nowhere), saved live as
-  // what Dial8 noticed (2026-10-17). Background, at most one
+  // what Native Intelligence noticed (2026-10-17). Background, at most one
   // call per person per day, under the pass's per-run cap; 'knowledge' like
   // the other background summarisers. Thinking off: three short lines need
   // none, and the cap below can't hold DeepSeek's reasoning.
@@ -496,7 +496,7 @@ export async function resolveUtilityModel(
 
 /**
  * The ChatGPT plan model a utility kind runs on for a person on their own plan
- * (the free tier): Sol where the surface is Dial8's strong model (document
+ * (the free tier): Sol where the surface is Native Intelligence's strong model (document
  * ingest), Luna for every other one-shot.
  */
 export function utilityPlanModel(kind: UtilityKind): string {

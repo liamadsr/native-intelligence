@@ -3,7 +3,7 @@ import type { SkillEvalCase } from '../types'
 /**
  * The Content core (384, content C0): posts for the person's own accounts.
  * The checks are revealed with `search_tools`; every draft is checked with
- * lint_post, and Dial8 never posts: the person posts from the link. A loop is
+ * lint_post, and Native Intelligence never posts: the person posts from the link. A loop is
  * built only when asked, and then it is on.
  */
 export const cases: SkillEvalCase[] = [
@@ -16,12 +16,12 @@ export const cases: SkillEvalCase[] = [
     why: 'The C0 outcome: cited from shipped work, linted, reviewed once, shown with the post link. Nothing posts.',
   },
   {
-    request: 'post this on X for me: we just crossed 1,000 teams on Dial8',
+    request: 'post this on X for me: we just crossed 1,000 teams on Native Intelligence',
     loads: ['content-playbook'],
     tools: ['search_tools', 'lint_post'],
     params: { lint_post: { surface: 'x' } },
     avoid: ['run_browser_task'],
-    why: 'Dial8 never posts for them: check it and hand back the post link; they post it on X.',
+    why: 'Native Intelligence never posts for them: check it and hand back the post link; they post it on X.',
   },
   {
     request: 'turn the onboarding rebuild project into a LinkedIn post',

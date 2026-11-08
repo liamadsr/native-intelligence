@@ -356,7 +356,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				INFOPLIST_FILE = "Config/Widgets-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = dial8Widgets;
+				INFOPLIST_KEY_CFBundleDisplayName = "NI Widgets";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -381,7 +381,8 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 needs microphone access to record voice notes and transcribe audio.";
+				INFOPLIST_KEY_CFBundleDisplayName = NI;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence needs microphone access to record voice notes and transcribe audio.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -474,7 +475,8 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 needs microphone access to record voice notes and transcribe audio.";
+				INFOPLIST_KEY_CFBundleDisplayName = NI;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence needs microphone access to record voice notes and transcribe audio.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -500,8 +502,8 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Config/Watch-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Dial8;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 records your in-person meetings so it can turn them into notes.";
+				INFOPLIST_KEY_CFBundleDisplayName = NI;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence records your in-person meetings so it can turn them into notes.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.dial8-iOS-26";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -522,7 +524,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				INFOPLIST_FILE = "Config/Widgets-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = dial8Widgets;
+				INFOPLIST_KEY_CFBundleDisplayName = "NI Widgets";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -545,8 +547,8 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Config/Watch-Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Dial8;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dial8 records your in-person meetings so it can turn them into notes.";
+				INFOPLIST_KEY_CFBundleDisplayName = NI;
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence records your in-person meetings so it can turn them into notes.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = "com.dial8-iOS-26";
 				LD_RUNPATH_SEARCH_PATHS = (

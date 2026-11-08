@@ -5,12 +5,12 @@
  *     the setup link, "payments are on", "<customer> paid $600".
  *   The customer, the payment link:
  *     by text, from the BUSINESS's own number (track B's
- *       business_phone_number), never the Dial8 one: a customer replying to
- *       the Dial8 number would land in sign-up, and the business's number is
+ *       business_phone_number), never the Native Intelligence one: a customer replying to
+ *       the Native Intelligence number would land in sign-up, and the business's number is
  *       the one whose 10DLC campaign covers its customers. No business number
  *       (track B not set up yet): no text, and the agent says so;
  *     by email, from the owner's own connected mailbox (sendEmail, which also
- *       logs it on the contact). Never from a Dial8 address.
+ *       logs it on the contact). Never from a Native Intelligence address.
  *   A number that said STOP is never texted.
  *
  * Server only. Never throws: every result is a value.
@@ -57,7 +57,7 @@ export interface CustomerTextDeps {
 async function sendFrom(to: string, body: string, from: string) {
   const config = twilioConfig()
   if (!config) return { ok: false as const, reason: 'not_configured' }
-  // From the business's number itself (not the Dial8 messaging service's pool).
+  // From the business's number itself (not the Native Intelligence messaging service's pool).
   return sendSms(to, body, { config: { ...config, fromNumber: from, messagingServiceSid: null } })
 }
 
@@ -86,7 +86,7 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-/** The customer's email, built from Dial8's template (only the description and names are the owner's words). Pure. */
+/** The customer's email, built from Native Intelligence's template (only the description and names are the owner's words). Pure. */
 export function paymentEmail(args: { businessName: string; description: string; amountCents: number; currency: string; url: string; customerName?: string | null }) {
   const amount = formatAmount(args.amountCents, args.currency)
   const greeting = args.customerName ? `Hi ${args.customerName.split(/\s+/)[0]},` : 'Hi,'

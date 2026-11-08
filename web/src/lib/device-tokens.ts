@@ -14,7 +14,7 @@
 import crypto from 'crypto'
 import { getServiceClient } from '@/lib/supabase/service'
 
-/** Prefix that identifies a Dial8 device token. */
+/** Prefix that identifies a Native Intelligence device token. */
 const DEVICE_TOKEN_PREFIX = 'd8d_'
 
 /** True if a bearer string looks like a device token (vs. a Supabase JWT). */

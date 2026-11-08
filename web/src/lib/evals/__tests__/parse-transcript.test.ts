@@ -146,7 +146,7 @@ describe('parseTranscriptText — timestamps', () => {
   })
 
   /**
-   * A timestamp on its OWN line, which is how most exports outside Dial8 wrap
+   * A timestamp on its OWN line, which is how most exports outside Native Intelligence wrap
    * a transcript. A bracketed timestamp carries no trailing space, so the
    * timestamp pattern has to claim it before the bracketed-label pattern does
    * — otherwise it mints a participant called "00:12" and an empty-text

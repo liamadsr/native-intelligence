@@ -408,7 +408,7 @@ export async function POST(request: Request) {
     const head = specHead
     headBranch = head
     const modelBase = pr && typeof pr.base === 'string' && pr.base.trim() ? pr.base.trim() : null
-    const title = pr && typeof pr.title === 'string' ? pr.title : summary || 'Dial8 agent PR'
+    const title = pr && typeof pr.title === 'string' ? pr.title : summary || 'Native Intelligence agent PR'
     const prBody = pr && typeof pr.body === 'string' ? pr.body : summary || ''
 
     if (modelHead && specHead && modelHead !== specHead) {

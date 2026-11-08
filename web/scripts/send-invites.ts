@@ -30,7 +30,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY!
 const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET!
 // Default to prod: these emails go to real people, so a localhost link must be an explicit opt-in.
 const BASE_URL = (process.env.INVITE_BASE_URL || 'https://dial8.ai').replace(/\/+$/, '')
-const FROM_EMAIL = 'Liam from Dial8 <liam@dial8.ai>'
+const FROM_EMAIL = 'Liam from Native Intelligence <liam@dial8.ai>'
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !RESEND_API_KEY || !UNSUBSCRIBE_SECRET) {
   console.error('Missing required environment variables. Check .env.local')

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Mac body (the Dial8 agent, agents/chat-agent, with
+# Build the Mac body (the Native Intelligence agent, agents/chat-agent, with
 # DIAL8_AGENT_HOST=mac; scripts/local-agent/mac-body.sh) into
 # agents/local-agent/.output, the self-hosted Nitro server the launcher starts
 # from LOCAL_AGENT_DIR=agents/local-agent in dev (dev.json, smoke.ts,

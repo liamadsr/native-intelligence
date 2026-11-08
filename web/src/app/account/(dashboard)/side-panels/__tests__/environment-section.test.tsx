@@ -148,7 +148,7 @@ describe('the Environment card', () => {
 
     render(card({ local: local({ canEdit: false, thisDeviceId: null }) }))
     expect(q('[data-environment-add]')).toBeNull()
-    expect(q('[data-environment-hint]')!.textContent).toBe("Add folders in Dial8 on Liam's MacBook Pro.")
+    expect(q('[data-environment-hint]')!.textContent).toBe("Add folders in Native Intelligence on Liam's MacBook Pro.")
     expect(container.querySelectorAll('[data-environment-remove]')).toHaveLength(0)
 
     // The desktop app on another Mac: the same.

@@ -59,5 +59,5 @@ export function crossSiteRefusal(request: Request): Response | null {
 }
 
 function refused(): Response {
-  return apiError('This request must come from Dial8 itself', { status: 403, code: CROSS_SITE_REQUEST })
+  return apiError('This request must come from Native Intelligence itself', { status: 403, code: CROSS_SITE_REQUEST })
 }

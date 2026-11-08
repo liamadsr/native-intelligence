@@ -29,7 +29,7 @@ window.addEventListener('dial8:open-card', onOpenCard)
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaces: () => ({
     workspaces: [
-      { id: 'ws-1', name: 'Dial8' },
+      { id: 'ws-1', name: 'Native Intelligence' },
       { id: 'ws-2', name: 'Acme' },
     ],
     currentId: 'ws-1',

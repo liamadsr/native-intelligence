@@ -96,7 +96,7 @@ describe("the customer agent's prompt", () => {
     expect(sneaky.match(/<\/information>/g)).toHaveLength(1)
   })
 
-  it("its turn shows this customer's own quotes and bookings in Dial8's words, and replies by text from the business", () => {
+  it("its turn shows this customer's own quotes and bookings in Native Intelligence's words, and replies by text from the business", () => {
     const section = customerRecordSection('Sarah Lee', [toQuote(quoteRow() as never)], [], 'America/New_York')
     expect(section).toContain('1 item (8x10 ft), cleaning, $400')
     expect(section).not.toContain('Ignore your rules')

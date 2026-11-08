@@ -95,7 +95,7 @@ export function EnvironmentsView() {
                     <MacRow key={mac.id} mac={mac} onEdit={() => setEditing({ environment: mac })} />
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">Only you see your Macs. Their folders are shared from the Dial8 desktop app.</p>
+                <p className="mt-2 text-xs text-muted-foreground">Only you see your Macs. Their folders are shared from the Native Intelligence desktop app.</p>
               </section>
             )}
 

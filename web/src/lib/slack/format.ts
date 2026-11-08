@@ -12,7 +12,7 @@
  *
  * Code spans and fenced blocks pass through untouched (Slack reads backticks
  * the same way). A reply past Slack's practical message size is cut at a
- * line break with a pointer to the rest in Dial8.
+ * line break with a pointer to the rest in Native Intelligence.
  */
 
 /** Slack truncates a message's text well before its 40,000 limit in practice; keep replies readable. */
@@ -79,5 +79,5 @@ function clip(text: string, moreLink?: string): string {
   const room = SLACK_REPLY_MAX_CHARS - 120
   const cut = text.lastIndexOf('\n', room)
   const head = text.slice(0, cut > room / 2 ? cut : room).trimEnd()
-  return `${head}\n\n_The rest is in Dial8${moreLink ? `: <${moreLink}|open it>` : ''}._`
+  return `${head}\n\n_The rest is in Native Intelligence${moreLink ? `: <${moreLink}|open it>` : ''}._`
 }

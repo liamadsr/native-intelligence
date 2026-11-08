@@ -1,5 +1,5 @@
 /**
- * The bridge between a call's GPT-Live session and Dial8 (the spike;
+ * The bridge between a call's GPT-Live session and Native Intelligence (the spike;
  * docs/plans/text-and-calling.md Phase 4). Once the webhook route accepts a
  * call, this attaches to the session's sideband WebSocket for the length of
  * the call:
@@ -166,13 +166,13 @@ export interface LiveCallDeps {
 /** How long a call that ended waits for turns still running (they finish writing the thread and let the lease go). */
 export const INFLIGHT_GRACE_MS = 150_000
 
-/** The silent note for a hand-off Dial8 has nothing to say to (it also cancels the waiting filler). */
-export const NOTHING_TO_ADD = 'Dial8 has nothing to add to this. Carry on with the caller.'
-/** The silent note for a hand-off that reached Dial8 with no new words from the caller. */
-export const NO_NEW_WORDS = "Dial8 didn't receive what the caller just asked. Ask them to say it again."
+/** The silent note for a hand-off Native Intelligence has nothing to say to (it also cancels the waiting filler). */
+export const NOTHING_TO_ADD = 'Native Intelligence has nothing to add to this. Carry on with the caller.'
+/** The silent note for a hand-off that reached Native Intelligence with no new words from the caller. */
+export const NO_NEW_WORDS = "Native Intelligence didn't receive what the caller just asked. Ask them to say it again."
 
 /**
- * Bridge one accepted call to Dial8 until it ends. Resolves with the call's
+ * Bridge one accepted call to Native Intelligence until it ends. Resolves with the call's
  * summary (and logs it); never rejects once attached. Rejects when the
  * attach itself fails.
  */

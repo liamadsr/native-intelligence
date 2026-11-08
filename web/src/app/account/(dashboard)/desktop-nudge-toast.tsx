@@ -88,7 +88,7 @@ function showDesktopNudgeToast() {
           <p className={MESSAGE_LABEL}>Desktop app</p>
           <p className="mt-0.5 truncate text-sm font-medium">Get the Mac app</p>
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            Native meeting capture from your menu bar — Dial8 detects calls and
+            Native meeting capture from your menu bar — Native Intelligence detects calls and
             starts recording the moment they begin.
           </p>
         </div>

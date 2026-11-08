@@ -18,7 +18,7 @@ import { bucketForCategory } from './lifecycle'
 import type { AsanaPushOverrides } from './push-overrides'
 
 /**
- * Push ONE Dial8 action to Asana as a task, and record the link.
+ * Push ONE Native Intelligence action to Asana as a task, and record the link.
  *
  * The single implementation behind all three push surfaces — the "Push to…"
  * menu (`PushToTrackerMenu`, in the action detail panel's toolbar and on a
@@ -99,7 +99,7 @@ function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
 }
 
-/** App origin for the "back to Dial8" deep link. */
+/** App origin for the "back to Native Intelligence" deep link. */
 function appBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
 }
@@ -119,8 +119,8 @@ export function actionDeepLink(actionId: string): string {
  * text) is the mutually-exclusive alternative; we send html_notes only, so the
  * deep link renders as a real anchor.
  *
- * `attribution` gates Dial8's two fingerprints — the identifier heading and the
- * "Pushed from Dial8" backlink — as ONE unit, because they are one idea: this
+ * `attribution` gates Native Intelligence's two fingerprints — the identifier heading and the
+ * "Pushed from Native Intelligence" backlink — as ONE unit, because they are one idea: this
  * task came from somewhere, and here is the way back. Defaulted to true so a
  * caller that forgets to thread it gets today's behaviour rather than silently
  * stripping provenance. With it off the notes are the action's own description
@@ -146,7 +146,7 @@ export function buildHtmlNotes(args: {
   }
   if (attribution) {
     parts.push(
-      `Pushed from Dial8: <a href="${escapeHtml(actionDeepLink(args.actionId))}">` +
+      `Pushed from Native Intelligence: <a href="${escapeHtml(actionDeepLink(args.actionId))}">` +
         `${escapeHtml(label)}</a>`,
     )
   }
@@ -190,7 +190,7 @@ interface ActionRow {
  * Best-effort assignee email.
  *
  * Asana's `assignee` field accepts a user gid OR a plain email address, and we
- * have no Asana gid for a Dial8 member — so the email is the only bridge. It
+ * have no Asana gid for a Native Intelligence member — so the email is the only bridge. It
  * lives on auth.users (member carries only display_name), which needs the
  * service client. Returns null on any failure: an unassigned Asana task is a far
  * better outcome than a failed push.
@@ -372,7 +372,7 @@ export async function pushActionToAsana(args: PushArgs): Promise<AsanaPushResult
   try {
     task = await createTask(resolvedToken.token, payload)
   } catch (err) {
-    // Covers BOTH assignee shapes: a resolved Dial8 email that isn't a member of
+    // Covers BOTH assignee shapes: a resolved Native Intelligence email that isn't a member of
     // the Asana workspace, and a picked gid that has since lost project access.
     // Either way the task matters more than who it lands on.
     //

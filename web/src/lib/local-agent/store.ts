@@ -291,7 +291,7 @@ export function isAttendedSession(r: Pick<DbSession, 'started_by' | 'idempotency
 
 /**
  * Its latest launch ran on a model on the Mac (Ollama, LM Studio), not the
- * Dial8 relay (migration 418, set at the claim). C1's routes narrow the tools
+ * Native Intelligence relay (migration 418, set at the claim). C1's routes narrow the tools
  * for such a session. False before the migration is applied.
  */
 export function sessionUsesLocalModel(r: Pick<DbSession, 'local_model'>): boolean {
@@ -517,7 +517,7 @@ export async function listDevices(svc: Svc, userId: string): Promise<DeviceRow[]
 
 /**
  * The person's live folders (non-revoked grants), across their Macs: their
- * environment. A folder in it is available to the Dial8 agent in every chat
+ * environment. A folder in it is available to the Native Intelligence agent in every chat
  * until the person removes it on their Mac; nothing is attached per chat.
  */
 export async function listFolders(svc: Svc, userId: string): Promise<FolderRow[]> {
@@ -639,10 +639,10 @@ export const FOLDER_HOLDING_STATUSES: readonly LocalAgentStatus[] = ['queued', '
 /** Migration 419's index; a unique violation naming it is a start that lost the race. */
 export const FOLDER_LIVE_INDEX = 'local_agent_session_one_live_per_folder'
 /** Why an idle agent ended when a start took its folder (the panel shows it), by who started: another chat, this chat, a loop. */
-export const REPLACED_REASON = 'Another chat started Dial8 in this folder.'
-export const REPLACED_BY_THIS_CHAT_REASON = 'A new request in this chat started Dial8 in this folder.'
-export const REPLACED_BY_LOOP_REASON = 'One of your loops started Dial8 in this folder.'
-export const REPLACED_BY_ACTION_REASON = 'One of your actions started Dial8 in this folder.'
+export const REPLACED_REASON = 'Another chat started Native Intelligence in this folder.'
+export const REPLACED_BY_THIS_CHAT_REASON = 'A new request in this chat started Native Intelligence in this folder.'
+export const REPLACED_BY_LOOP_REASON = 'One of your loops started Native Intelligence in this folder.'
+export const REPLACED_BY_ACTION_REASON = 'One of your actions started Native Intelligence in this folder.'
 /** The refusal's code (details.code), which the chat tools and the routes pass on. */
 export const FOLDER_BUSY_CODE = 'FOLDER_BUSY'
 /** addMessage's refusal when the session changed under it (ended, a stop asked, moved on): claimFolder decides again. */
@@ -1102,7 +1102,7 @@ async function sessionBaseBranch(svc: Svc, folder: DbFolder, mode: LocalAgentMod
 }
 
 /** Why a start on a removed Mac is refused (environments, "Remove this Mac"). */
-export const MAC_REMOVED_REASON = 'This Mac was removed from Dial8. Add a folder on it again to use it.'
+export const MAC_REMOVED_REASON = 'This Mac was removed from Native Intelligence. Add a folder on it again to use it.'
 
 function macRemoved(): LocalAgentError {
   return new LocalAgentError('conflict', MAC_REMOVED_REASON, { code: 'DEVICE_REMOVED' })
@@ -1260,7 +1260,7 @@ export async function createSession(
 }
 
 /**
- * A message to a local agent (`author`: the Dial8 agent or the person). It
+ * A message to a local agent (`author`: the Native Intelligence agent or the person). It
  * writes the message and its `inbound` transcript event and rings the
  * doorbell. With an `idempotencyKey` (`person:<requestId>`, `steer:<id>`,
  * `local-agent-msg:<conv>:session:…:call:<c>`), a retried send returns the
@@ -1774,7 +1774,7 @@ export async function askTeammate(
   if (record.status === 'capped') {
     throw new LocalAgentError(
       'conflict',
-      `You have messaged Dial8 ${TEAMMATE_CAP_WORDS[record.cap]}, the most it takes. Nothing was sent. Carry on with what you have, or finish and say in your summary what you still need.`,
+      `You have messaged Native Intelligence ${TEAMMATE_CAP_WORDS[record.cap]}, the most it takes. Nothing was sent. Carry on with what you have, or finish and say in your summary what you still need.`,
       { code: TEAMMATE_CAP_CODE },
     )
   }

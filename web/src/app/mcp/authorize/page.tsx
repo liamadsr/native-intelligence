@@ -71,7 +71,7 @@ function AuthorizeContent() {
   // Surface WHERE the authorization code will be sent. The register endpoint is
   // unauthenticated and accepts any client_name + redirect_uri, so a phishing
   // client can pick a trustworthy-looking name; showing the actual destination
-  // origin lets the user catch a mismatch. An origin that isn't a known Dial8
+  // origin lets the user catch a mismatch. An origin that isn't a known Native Intelligence
   // origin is flagged with a warning.
   //
   // Parsed ONCE. Native clients register custom schemes (cursor://, vscode://)
@@ -161,13 +161,14 @@ function AuthorizeContent() {
       <div className="w-full max-w-md space-y-6">
         {/* Logo */}
         <div className="flex justify-center">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <img
-              src="/screenshots/icon_128x128@2x 1.png"
-              alt="Dial8"
-              className="h-8 w-8 brightness-0 dark:invert"
+              src="/brand/ni-mark.png"
+              alt=""
+              aria-hidden
+              className="h-7 w-7 brightness-0 dark:invert"
             />
-            <span className="text-2xl font-semibold">ial8</span>
+            <span className="text-2xl font-semibold">Native Intelligence</span>
           </div>
         </div>
 
@@ -181,7 +182,7 @@ function AuthorizeContent() {
               </div>
               <h1 className="text-lg font-semibold">{info ? `Authorize ${clientName}` : infoFailed ? "This app can't be authorized" : 'Checking this app…'}</h1>
               <p className="text-sm text-muted-foreground">
-                <strong>{clientName}</strong> wants to access your Dial8 workspace
+                <strong>{clientName}</strong> wants to access your Native Intelligence workspace
               </p>
               {publisherHost && (
                 <p className="text-xs text-muted-foreground">
@@ -228,7 +229,7 @@ function AuthorizeContent() {
                   <p className="mt-1">
                     {isLocalApp
                       ? `That is an app on this computer, and any app here can call itself ${clientName}. Only continue if you just started connecting it yourself.`
-                      : 'This is not a Dial8 address. Only continue if you recognize and trust it.'}
+                      : 'This is not a Native Intelligence address. Only continue if you recognize and trust it.'}
                   </p>
                 )}
               </div>
@@ -250,7 +251,7 @@ function AuthorizeContent() {
             <div className="flex items-start gap-2 text-xs text-muted-foreground">
               <Shield className="h-3.5 w-3.5 shrink-0 mt-0.5" />
               <span>
-                You can revoke access at any time from Settings &rarr; Dial8 MCP.{' '}
+                You can revoke access at any time from Settings &rarr; NI MCP.{' '}
                 {clientName} will only access workspaces you&apos;re a member of.
               </span>
             </div>
@@ -280,7 +281,7 @@ function AuthorizeContent() {
 
         {/* Footer */}
         <p className="text-center text-xs text-muted-foreground">
-          By clicking Allow, you authorize this application to access your Dial8 account.
+          By clicking Allow, you authorize this application to access your Native Intelligence account.
         </p>
       </div>
     </div>

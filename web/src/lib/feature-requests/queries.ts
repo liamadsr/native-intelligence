@@ -2,7 +2,7 @@
  * Shared helpers for the feature-request board.
  *
  * The board is GLOBAL (cross-workspace): feature_requests / votes / comments
- * are keyed on auth.users, not on a workspace. Any authenticated Dial8 user
+ * are keyed on auth.users, not on a workspace. Any authenticated Native Intelligence user
  * sees the same board. So routes here use requireUser() rather than
  * requireWorkspace().
  *

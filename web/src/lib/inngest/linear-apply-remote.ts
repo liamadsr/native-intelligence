@@ -21,7 +21,7 @@ import {
 } from '@/lib/tasks/apply-remote-task-state'
 
 // =====================================================================
-// Linear → Dial8 read-back (webhook fast path)
+// Linear → Native Intelligence read-back (webhook fast path)
 //
 // Fired by the receiver (src/app/api/webhooks/linear/route.ts) with the issue
 // UUIDs named in one delivery.
@@ -46,7 +46,7 @@ import {
 // authorizing organization, so a delivery names an issue and an organization and
 // nothing else. The link table is therefore the router: `(provider,
 // external_id)` is indexed for exactly this, and one issue UUID may legitimately
-// match links in SEVERAL workspaces (two Dial8 workspaces connected to the same
+// match links in SEVERAL workspaces (two Native Intelligence workspaces connected to the same
 // Linear org). Each matched workspace resolves its OWN destination and token.
 //
 // FOLDING A STATE INTO THE SHARED CONTRACT. `applyRemoteTaskState` is shared
@@ -55,7 +55,7 @@ import {
 // arguments — but derived PURELY FROM `WorkflowState.type`, never from a name:
 //   - `remoteCompleted` from type `completed`;
 //   - `remoteHint.category`, so a reopen into a `started` state lands in a
-//     STARTED Dial8 state rather than the team default — and, because its mere
+//     STARTED Native Intelligence state rather than the team default — and, because its mere
 //     presence says the un-completion is unambiguous, so a CANCELLED action
 //     follows the issue back out;
 //   - `remoteCanceled` for types `canceled` and `duplicate`, which are
@@ -234,7 +234,7 @@ export const linearApplyRemote = inngest.createFunction(
       for (const [workspaceId, workspaceLinks] of byWorkspace) {
         const state = await loadLinearSyncState(workspaceId)
         if (!state) {
-          // Links survive a disconnect (they are Dial8 rows), so a workspace
+          // Links survive a disconnect (they are Native Intelligence rows), so a workspace
           // whose Linear account is gone is an ordinary outcome, not an error.
           skipped.push({ workspaceId, reason: 'no_sync_state' })
           continue

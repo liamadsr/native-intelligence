@@ -460,7 +460,7 @@ export function renderClaimSourceTranscript(rows: ReadonlyArray<{ role: unknown;
   let exchangeLines = 0
   const mailTurns = assistantTurnsThatReadMail(rows)
   for (const [i, r] of rows.entries()) {
-    // Dial8 doesn't learn from mail (migration 341): the assistant's words in
+    // Native Intelligence doesn't learn from mail (migration 341): the assistant's words in
     // a turn that read the person's mail are left out whole, whatever the
     // preamble says, because they retell that mail. That includes a helper's
     // report in that turn.

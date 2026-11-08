@@ -30,8 +30,8 @@ export interface AsanaDestinationConfig {
   project_name?: string
   section_map?: SectionMap
   /**
-   * Put Dial8's fingerprints on a pushed task's notes: the action identifier as
-   * a heading, and the "Pushed from Dial8" backlink at the bottom.
+   * Put Native Intelligence's fingerprints on a pushed task's notes: the action identifier as
+   * a heading, and the "Pushed from Native Intelligence" backlink at the bottom.
    *
    * ABSENT MEANS TRUE — every connection made before this setting existed keeps
    * behaving exactly as it did, byte for byte, without a backfill. Only an
@@ -40,14 +40,14 @@ export interface AsanaDestinationConfig {
    * and a settings change is not consent to edit its history.
    *
    * Provider-level, NOT destination-level — it survives a project switch and a
-   * destination clear, since "don't brand my tasks" is a preference about Dial8
+   * destination clear, since "don't brand my tasks" is a preference about Native Intelligence
    * rather than about where the tasks land.
    */
   include_dial8_attribution?: boolean
 }
 
 /**
- * Does this config want Dial8 attribution on pushed tasks?
+ * Does this config want Native Intelligence attribution on pushed tasks?
  *
  * The default-on rule lives HERE, in one place, so no caller can accidentally
  * turn an absent key into "off" by reading the raw field. Both this and the Jira

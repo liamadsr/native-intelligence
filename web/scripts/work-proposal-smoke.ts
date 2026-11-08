@@ -89,14 +89,14 @@ async function main() {
       workspace_id: workspaceId,
       member_id: memberId,
       kind: 'work_proposal',
-      title: 'Draft a launch-announcement doc for Dial8',
+      title: 'Draft a launch-announcement doc for Native Intelligence',
       why: 'You said in today’s sync you wanted announcement copy ready before Thursday.',
       payload: {
         task:
-          'Create a short launch-announcement document for Dial8, an AI meeting workspace that turns meetings into tracked work. ' +
+          'Create a short launch-announcement document for Native Intelligence, an AI meeting workspace that turns meetings into tracked work. ' +
           'Audience: existing waitlist subscribers. Tone: warm, direct, no corporate filler. ' +
-          'Structure: a 1-line hook, 3 short paragraphs (what Dial8 does, what changed with launch, how to get started at dial8.ai), and a closing line inviting replies. ' +
-          'Save it as a document titled "Dial8 Launch Announcement". When done, call finish_work with the document as a deliverable.',
+          'Structure: a 1-line hook, 3 short paragraphs (what Native Intelligence does, what changed with launch, how to get started at dial8.ai), and a closing line inviting replies. ' +
+          'Save it as a document titled "Native Intelligence Launch Announcement". When done, call finish_work with the document as a deliverable.',
         deliverable_hint: 'document',
         resources: [{ type: 'capture', label: "Today's sync" }],
         skill_name: 'Smoke Harness',

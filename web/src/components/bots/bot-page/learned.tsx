@@ -2,7 +2,7 @@
 
 /**
  * What I've learned, on an area face's page (one-agent plan, Part 3: "An
- * area's page also shows its memory"; Phase S3): what Dial8 has learned about
+ * area's page also shows its memory"; Phase S3): what Native Intelligence has learned about
  * you in the face's area, yours and the workspace's, with S2's own viewer
  * (WhatDial8Learned, `area`): edit, delete, accept or add a line there. One
  * card of the work column (bot-page-card.tsx).
@@ -36,7 +36,7 @@ export function Learned({ area, name, workspaceId }: { area: AreaKey; name: stri
         </div>
       ) : (
         <BotPageEmpty>
-          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Dial8 has learned about you in {areaName}.
+          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Native Intelligence has learned about you in {areaName}.
         </BotPageEmpty>
       )}
     </BotPageCard>
@@ -44,7 +44,7 @@ export function Learned({ area, name, workspaceId }: { area: AreaKey; name: stri
 }
 
 /**
- * What I've learned, on the agent's page (one face): what Dial8 has learned
+ * What I've learned, on the agent's page (one face): what Native Intelligence has learned
  * about you in one area at a time, the areas as a compact row of chips (a
  * radio group), the first picked to start. The same viewer as an area page
  * had (WhatDial8Learned, `area`).
@@ -80,7 +80,7 @@ export function AgentLearned({ name, workspaceId }: { name: string; workspaceId:
         </div>
       ) : (
         <BotPageEmpty>
-          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Dial8 has learned about you.
+          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Native Intelligence has learned about you.
         </BotPageEmpty>
       )}
     </BotPageCard>

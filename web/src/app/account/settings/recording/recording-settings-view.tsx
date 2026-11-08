@@ -701,7 +701,7 @@ export function RecordingSettingsView() {
         <div className="mx-auto max-w-4xl px-8 py-10">
           <h1 className="text-2xl font-bold">Recording</h1>
           <p className="mt-4 text-sm text-muted-foreground">
-            Recording settings are only available in the Dial8 desktop app.
+            Recording settings are only available in the Native Intelligence desktop app.
           </p>
         </div>
       </div>
@@ -733,7 +733,7 @@ export function RecordingSettingsView() {
             (Liam, 2026-10-08): whether a meeting records by itself. Detecting
             meetings is not a setting: it is always on (DesktopSetupMount
             turns it back on where an older switch turned it off), and with
-            Auto-record off Dial8 asks before recording. */}
+            Auto-record off Native Intelligence asks before recording. */}
         {showMeetingDetection && (
         <div className="mt-10">
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -751,7 +751,7 @@ export function RecordingSettingsView() {
                 <p className="text-xs text-muted-foreground">
                   Start recording on its own when you join a call on Zoom,
                   Teams, Slack, Discord, Google Meet or FaceTime. When off,
-                  Dial8 asks before it records.
+                  Native Intelligence asks before it records.
                 </p>
               </div>
               <Switch

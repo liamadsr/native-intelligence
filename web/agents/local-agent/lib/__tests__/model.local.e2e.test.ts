@@ -38,7 +38,7 @@ interface Seen {
 
 /** The spec C1 would send (as in launcher/__tests__/relay.test.ts): one workspace tool. */
 const SPEC = {
-  systemPrompt: 'SPEC-PROMPT-MARKER: you are the person’s Dial8 agent.',
+  systemPrompt: 'SPEC-PROMPT-MARKER: you are the person’s Native Intelligence agent.',
   model: 'anthropic/claude-sonnet-5.5',
   ceiling: ['list_actions'],
   ceilingTools: [{ name: 'list_actions', description: 'List the workspace actions.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }],

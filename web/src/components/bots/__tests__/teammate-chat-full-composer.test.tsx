@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * <TeammateChat composer="full"> (bots v4): the teammate's chat in a window of
- * its own (TeammateChatPage, the floating window Open in Dial8 opens) has the
+ * its own (TeammateChatPage, the floating window Open in Native Intelligence opens) has the
  * MAIN chat's composer instead of the bubble's pill. Pins:
  *   - it is ChatInput: skills from "/", the + menu, and the agent shown dimmed
  *     with why (the teammate is the agent); no model control (the server

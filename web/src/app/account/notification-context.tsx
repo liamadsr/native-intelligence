@@ -99,7 +99,7 @@ export interface NotificationMembership {
 interface NotificationContextValue {
   /**
    * The notices this window holds that aren't a reachable bot's: from people,
-   * clocks and Dial8 itself (bots-v4 Phase 4c, decision 8), and a bot's the
+   * clocks and Native Intelligence itself (bots-v4 Phase 4c, decision 8), and a bot's the
    * caller can't reach (an orphan: its teammate deleted, hidden, or behind a
    * private team they aren't on; the route says which,
    * `orphan_teammate_ids`). No list draws them: the notifications page went
@@ -209,7 +209,7 @@ export const UNKNOWN_TEAMMATE_REREAD_MS = 1_000
 /** Show `notification` as a native OS banner. Resolves false when the caller
  *  should toast instead — either the native path is unavailable (now or
  *  previously) or the native side deliberately skipped the banner because a
- *  Dial8 window is frontmost. Resolves true when a banner was shown. */
+ *  Native Intelligence window is frontmost. Resolves true when a banner was shown. */
 /**
  * What the OS banner for `notification` carries. A notice that names a
  * teammate (bots v3 1b, bot-notice.ts) speaks as its bot: the teammate's name
@@ -313,7 +313,7 @@ async function tryShowNativeNotification(notification: Notification, workspaceNa
   if (areNativeNotificationsDisabled()) return false
   try {
     const shown = await tauriBridge.showNativeNotification(nativeNotificationArgs(notification, { workspaceName }))
-    // EXACTLY false = the native side skipped the banner on purpose (a Dial8
+    // EXACTLY false = the native side skipped the banner on purpose (a Native Intelligence
     // window is focused, so the in-app toast is the right surface). That is a
     // skip, not a failure: leave nativeNotificationsDisabled alone so later
     // notifications — arriving when the app is NOT frontmost — still go native.
@@ -720,9 +720,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             //
             // `shown === false` now covers TWO cases, and the toast is right for
             // both: the native path was unavailable (failure), or the native side
-            // deliberately skipped the banner because a Dial8 window turned out to
+            // deliberately skipped the banner because a Native Intelligence window turned out to
             // be frontmost after all — this window's document.hasFocus() check and
-            // the native focus check can disagree (another Dial8 window, or focus
+            // the native focus check can disagree (another Native Intelligence window, or focus
             // regained in between). See tryShowNativeNotification.
             if (isNativeBannerPath()) {
               const workspaceName =

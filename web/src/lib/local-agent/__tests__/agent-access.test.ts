@@ -394,7 +394,7 @@ describe('localModelGate: on a model on the Mac, every risky call is the person�
       conversationId: CONV,
       reason: 'local_model',
       context: { tools: { strictWorkspace: true } },
-      card: expect.objectContaining({ why: expect.stringMatching(/Dial8 on Liam’s MacBook \(in dial8-website\)/) }),
+      card: expect.objectContaining({ why: expect.stringMatching(/Native Intelligence on Liam’s MacBook \(in dial8-website\)/) }),
     }))
   })
 

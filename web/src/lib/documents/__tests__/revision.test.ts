@@ -116,9 +116,9 @@ describe('restoreDocumentRevision', () => {
 
 describe('describeRevisionAuthor', () => {
   it('names who a change was for', () => {
-    expect(describeRevisionAuthor({ author_kind: 'agent', author_name: 'Ana' })).toBe('Dial8 (for Ana)')
+    expect(describeRevisionAuthor({ author_kind: 'agent', author_name: 'Ana' })).toBe('Native Intelligence (for Ana)')
     expect(describeRevisionAuthor({ author_kind: 'human', author_name: 'Ana' })).toBe('Ana')
-    expect(describeRevisionAuthor({ author_kind: 'system', author_name: null })).toBe('Dial8 (system)')
+    expect(describeRevisionAuthor({ author_kind: 'system', author_name: null })).toBe('Native Intelligence (system)')
     expect(describeRevisionAuthor({ author_kind: null, author_name: 'Ana' })).toBe('Ana (before history)')
   })
 })

@@ -18,7 +18,7 @@ import { isWebSearchToolDefinition } from 'eve/tools/web_search'
  * or stops being a disable sentinel.
  *
  * WEB IS THIS AGENT'S PRIMARY SURFACE, and now it is pinned structurally too.
- * web_search + web_fetch are ALWAYS ON for every Dial8 agent (no toggle —
+ * web_search + web_fetch are ALWAYS ON for every Native Intelligence agent (no toggle —
  * matching how Anthropic's own agents browse). Previously BOTH slugs had no file
  * at all: web_search inherited eve's framework default, and web_fetch was the
  * RAW built-in — this was the only agent with neither an SSRF guard nor an abuse

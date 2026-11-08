@@ -1,11 +1,11 @@
 //! URLs that reach the app from OUTSIDE the main web view, and where each goes.
 //!
 //! The deep-link plugin feeds this (launch URLs from `get_current()` and every
-//! `deep-link://new-url` event): the OS hands Dial8 its own `dial8desktop://`
+//! `deep-link://new-url` event): the OS hands Native Intelligence its own `dial8desktop://`
 //! callbacks (sign-in and integration OAuth).
 //!
 //! A `dial8desktop://…` URL is broadcast as `deep-link-auth` (the web app's
-//! DeepLinkHandler). Anything else is dropped: Dial8 is never a handler for
+//! DeepLinkHandler). Anything else is dropped: Native Intelligence is never a handler for
 //! http(s) links.
 
 use tauri::{AppHandle, Emitter, Runtime, Url};

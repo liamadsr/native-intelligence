@@ -13,7 +13,7 @@
  *     a meeting processed, for its owner only;
  *   • the capture pass (A2c): a `chat_checkpoint` line, through appendLogLine;
  *   • a canon section edit (decision 16, src/lib/documents/canon-edit.ts):
- *     "Dial8 updated Positioning in Product", for the person whose agent made
+ *     "Native Intelligence updated Positioning in Product", for the person whose agent made
  *     it (or who applied it from its card) and, the one exception to the rule
  *     below, for the document's owners (its creator, or the workspace's owners
  *     and admins): they answer for what every agent reads, so each gets the
@@ -154,7 +154,7 @@ export type LogEvent =
   /** Arriving mail marked a to-do done (`from`: its sender's domain), or (`undone`) the person reopened it. */
   | { type: 'action_done_from_mail'; identifier: string | null; title: string | null; from?: string | null; undone?: boolean }
 
-/** What a pull request's change is said with: Dial8's own values, never the PR's title or body. */
+/** What a pull request's change is said with: Native Intelligence's own values, never the PR's title or body. */
 export interface PrChangeWords {
   repo?: string | null
   number?: number | null
@@ -171,7 +171,7 @@ const PR_STATE_PHRASE: Readonly<Record<string, string>> = {
 }
 
 /**
- * A pull request's change in Dial8's words, "Pull request merged: acme/web#7
+ * A pull request's change in Native Intelligence's words, "Pull request merged: acme/web#7
  * (ENG-42)": a fixed phrase, the repo and number, and the action's
  * identifier. The log line, "while you were away" and the digest all say it
  * this way. Pure.
@@ -223,7 +223,7 @@ export function logLineFor(event: LogEvent): { kind: AgentLogKind; line: string 
       const section = clipLogText(event.section, LOG_TITLE_MAX) ?? 'a section'
       const doc = title(event.title, 'a document')
       const from = !event.reverted ? clipLogText(event.from ?? null, LOG_TITLE_MAX) : null
-      return { kind: 'doc_updated', line: capLine(event.reverted ? `Dial8 reverted an edit to ${section} in ${doc}` : `Dial8 updated ${section} in ${doc}${from ? ` (from ${from})` : ''}`) }
+      return { kind: 'doc_updated', line: capLine(event.reverted ? `Native Intelligence reverted an edit to ${section} in ${doc}` : `Native Intelligence updated ${section} in ${doc}${from ? ` (from ${from})` : ''}`) }
     }
     case 'pr_changed':
       return { kind: 'pr_changed', line: capLine(prChangeText(event)) }

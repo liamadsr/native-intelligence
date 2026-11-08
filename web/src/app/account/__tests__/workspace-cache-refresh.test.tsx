@@ -114,7 +114,7 @@ describe('useWorkspaceCacheRefresh', () => {
           workspaces: [
             {
               id: 'ws-1',
-              name: 'Dial8',
+              name: 'Native Intelligence',
               slug: 'dial8',
               logo_url: null,
               plan: 'pro',

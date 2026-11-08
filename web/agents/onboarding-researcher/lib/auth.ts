@@ -406,7 +406,7 @@ const AGENT_RUN_SECRET_HEADER = 'x-agent-run-secret'
  * without the app's internal secret: only the kickoff route
  * (src/app/api/account/onboarding/research/route.ts) starts research, after
  * its owner, once-per-workspace and ChatGPT free-tier checks. A signed-in
- * browser could otherwise create sessions directly, each one a run on Dial8's
+ * browser could otherwise create sessions directly, each one a run on Native Intelligence's
  * models and paid web search. Every other route answers false (an existing
  * session is gated by isSessionOwnedByOther). Fails closed: no secret
  * configured means no create is vouched for.

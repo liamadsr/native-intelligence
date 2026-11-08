@@ -5,7 +5,7 @@ import { inngest } from '@/lib/inngest/client'
 import { LINEAR_PROVIDER } from '@/lib/tasks/linear-config'
 
 /**
- * POST /api/webhooks/linear — Linear → Dial8 read-back receiver.
+ * POST /api/webhooks/linear — Linear → Native Intelligence read-back receiver.
  *
  * ONE global URL, like the Jira sibling — but for the opposite reason, and with
  * the opposite security posture.
@@ -227,7 +227,7 @@ export async function POST(request: Request): Promise<Response> {
   // ONE response shape, derived ENTIRELY from what the caller sent.
   //
   // Reporting the post-filter count would make this a cross-tenant oracle
-  // ("does this issue UUID have a Dial8 link anywhere?"), which the signature
+  // ("does this issue UUID have a Native Intelligence link anywhere?"), which the signature
   // does not prevent: the signing secret is app-level and shared by every
   // organization that installs the app. The filter's result stays internal,
   // where it gates the enqueue and nothing else.

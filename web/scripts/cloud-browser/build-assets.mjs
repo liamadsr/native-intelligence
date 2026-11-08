@@ -19,7 +19,7 @@ const result = await build({
   define: { 'process.env.CLOUD_BROWSER_RELAY_BUILD': JSON.stringify(version) },
   // ws reaches for optional native speedups the sandbox never has.
   external: ['bufferutil', 'utf-8-validate'],
-  banner: { js: `// Dial8 cloud browser relay ${version}\nimport { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);` },
+  banner: { js: `// Native Intelligence cloud browser relay ${version}\nimport { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);` },
   logLevel: 'warning', metafile: true,
 })
 // Nothing that only runs inside Next belongs in the sandbox.
@@ -35,7 +35,7 @@ await build({
   ...(novnc ? { alias: { '@novnc/novnc': novnc } } : {}),
   outfile: `${out}/rfb.mjs`,
   bundle: true, platform: 'browser', format: 'esm', target: 'es2020', minify: true,
-  banner: { js: '// noVNC 1.4.0 RFB core (MPL-2.0, https://github.com/novnc/noVNC), bundled for Dial8\'s live view' },
+  banner: { js: '// noVNC 1.4.0 RFB core (MPL-2.0, https://github.com/novnc/noVNC), bundled for Native Intelligence\'s live view' },
   logLevel: 'warning',
 }).catch(error => {
   throw new Error(`noVNC didn't bundle; is @novnc/novnc installed? (or set NOVNC_DIR to an unpacked @novnc/novnc@1.4.0): ${error.message}`)

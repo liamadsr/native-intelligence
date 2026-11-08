@@ -159,7 +159,7 @@ describe('the fence checks', () => {
 describe('claudeResultError', () => {
   it.each([
     [{ result: 'Not logged in · Please run /login', is_error: true }, /isn't signed in/],
-    // The 401 result Dial8's old Claude Code chat recorded (src/lib/claude-session, removed 2026-10).
+    // The 401 result Native Intelligence's old Claude Code chat recorded (src/lib/claude-session, removed 2026-10).
     [{ subtype: 'success', is_error: true, api_error_status: 401, error: 'authentication_failed', result: 'Failed to authenticate. API Error: 401 Invalid authentication credentials' }, /isn't signed in/],
     [{ result: 'Claude AI usage limit reached|1761000000', is_error: true }, /usage limit reached.*send a message to continue/],
     [{ subtype: 'error_max_turns', result: '' }, /Claude Code: error_max_turns/],

@@ -58,7 +58,7 @@ export function ReadAloudSection() {
           module={tts}
           testId="local-module-row-local-tts"
           title="Read aloud"
-          description="Reads Dial8's chat replies aloud on this Mac. Runs on-device, free and unlimited."
+          description="Reads Native Intelligence's chat replies aloud on this Mac. Runs on-device, free and unlimited."
           pendingNote="Read aloud and Interactive appear once it's ready."
           attribution={
             <>
@@ -183,7 +183,7 @@ function ReadAloudOptions() {
     try {
       await speechOutput.speak({
         id,
-        text: `Hi, I'm ${selected.name}. This is how Dial8 will read your replies.`,
+        text: `Hi, I'm ${selected.name}. This is how Native Intelligence will read your replies.`,
         voice: selected.id,
       })
     } catch (err) {

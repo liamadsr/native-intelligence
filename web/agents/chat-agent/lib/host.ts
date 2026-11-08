@@ -1,5 +1,5 @@
 /**
- * Which body of the one Dial8 agent this build is (contract C2,
+ * Which body of the one Native Intelligence agent this build is (contract C2,
  * docs/plans/teammate-agent.md): the same source, built twice.
  *
  *   - 'cloud': the Vercel build, as it has always been. The default: nothing

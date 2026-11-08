@@ -4,7 +4,7 @@ Dial8's Windows release builds are Authenticode-signed by **Azure Artifact Signi
 Signing), about $9.99/month for 5,000 signatures. The signing runs on the Windows workflow's runner
 (`.github/workflows/windows.yml`, "Build config" + "Build"):
 
-- Tauri runs SignTool with Microsoft's Artifact Signing dlib on everything it bundles: `Dial8.exe`, the
+- Tauri runs SignTool with Microsoft's Artifact Signing dlib on everything it bundles: `Native Intelligence.exe`, the
   installer and its uninstaller.
 - The packages are pinned NuGet versions, checked by SHA-256.
 - The runner signs in to Azure with GitHub's OIDC token (`azure/login`), so **no secret is stored

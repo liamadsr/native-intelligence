@@ -27,7 +27,7 @@ import { VOCABULARY_TERM_MAX_CHARS, allRows, automaticVocabulary, listVocabulary
  * (source_type meeting_extraction, or linked to a capture) and chat messages
  * (which may be dictated, and say nothing about it) are not read. Documents
  * the agent writes can't be told from typed ones, so a learned word that
- * sounds like a name Dial8 knows or a word someone added is taken for a
+ * sounds like a name Native Intelligence knows or a word someone added is taken for a
  * mishearing of it and left out (dropMishearings).
  */
 
@@ -161,7 +161,7 @@ export function dropMishearings(words: readonly HarvestedWord[], trusted: readon
 
 /**
  * The names and added words a harvest is checked against (dropMishearings): the
- * names Dial8 knows and the words people or the agent added. For the
+ * names Native Intelligence knows and the words people or the agent added. For the
  * workspace's harvest (userId null), only what every member sees.
  */
 export async function trustedTerms(

@@ -28,7 +28,7 @@ bool app_nap_disable(void) {
 
         gActivityToken = [processInfo
             beginActivityWithOptions:options
-                              reason:@"Dial8 keeps live meeting connections and timers responsive in the background"];
+                              reason:@"Native Intelligence keeps live meeting connections and timers responsive in the background"];
 
         if (gActivityToken != nil) {
             // Retain across autorelease pool drain for the process lifetime.

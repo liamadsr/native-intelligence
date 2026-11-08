@@ -253,7 +253,7 @@ describe('session fold (stored events)', () => {
     expect(t.items[6]).toMatchObject({ type: 'assistant', text: 'Running them.', open: true })
   })
 
-  it('labels the Dial8 agent and the person apart, and a steer splits the stream', () => {
+  it('labels the Native Intelligence agent and the person apart, and a steer splits the stream', () => {
     const t = session([
       ev(1, 'text', { delta: 'Reading' }),
       ev(2, 'inbound', { author: 'agent', text: 'Focus on auth', policy: 'steer' }),
@@ -428,7 +428,7 @@ describe('session helpers', () => {
     expect(sessionEndedText('expired', LOOP_EXPIRED_REASON)).toBe('Your Mac didn’t pick this up within 15 minutes.')
     expect(sessionEndedText('failed', 'boom')).toBe('This local agent failed.')
     expect(sessionEndedText('cancelled', null)).toBe('This local agent was stopped.')
-    expect(sessionEndedText('cancelled', 'Another chat started Dial8 in this folder.')).toBe('It ended: Another chat started Dial8 in this folder.')
+    expect(sessionEndedText('cancelled', 'Another chat started Native Intelligence in this folder.')).toBe('It ended: Another chat started Native Intelligence in this folder.')
     expect(sessionStatusText('waiting', 'ask')).toBe('Has a question')
     expect(sessionStatusText('waiting', 'finish')).toMatch(/Idle/)
     expect(sessionStatusText('queued', null)).toBe('Waiting for your Mac')
@@ -486,13 +486,13 @@ describe('the teammate plan in the thread', () => {
     const t = stored([
       ['pull_request', { ok: true, branch: 'dial8/x-1', url: 'https://github.com/o/r/pull/12', via: 'server' }],
       ['pull_request', { ok: false, branch: 'dial8/x-1', pushed: false, error: 'rejected' }],
-      ['pull_request', { ok: false, branch: 'dial8/x-1', pushed: null, error: 'Dial8 quit' }],
+      ['pull_request', { ok: false, branch: 'dial8/x-1', pushed: null, error: 'Native Intelligence quit' }],
       ['pull_request', { ok: true, branch: 'dial8/x-1', url: 'javascript:alert(1)' }],
     ])
     expect(t.items).toEqual([
       { type: 'pull_request', key: 'e1', ok: true, url: 'https://github.com/o/r/pull/12', branch: 'dial8/x-1', via: 'server', pushed: true, error: null },
       { type: 'pull_request', key: 'e2', ok: false, url: null, branch: 'dial8/x-1', via: null, pushed: false, error: 'rejected' },
-      { type: 'pull_request', key: 'e3', ok: false, url: null, branch: 'dial8/x-1', via: null, pushed: null, error: 'Dial8 quit' },
+      { type: 'pull_request', key: 'e3', ok: false, url: null, branch: 'dial8/x-1', via: null, pushed: null, error: 'Native Intelligence quit' },
       { type: 'pull_request', key: 'e4', ok: false, url: null, branch: 'dial8/x-1', via: null, pushed: null, error: null },
     ])
   })

@@ -415,7 +415,7 @@ function ToolImpl({ name, state, args, result, className, entityLinks, onEntityC
           <CollapsibleContent>
             {/* `ph-no-capture`: session replay blocks the raw tool input and
                 output (a mail tool's carries subjects, bodies and drafts, and
-                Dial8 never stores mail text). */}
+                Native Intelligence never stores mail text). */}
             <div className="ph-no-capture space-y-3 p-3">
               {args && Object.keys(args).length > 0 && (
                 <div>

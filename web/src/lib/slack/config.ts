@@ -30,7 +30,7 @@ export function slackConfigured(): boolean {
 }
 
 /**
- * True once people can add Dial8 to a new Slack workspace from Settings
+ * True once people can add Native Intelligence to a new Slack workspace from Settings
  * (`SLACK_SELF_INSTALL=1`): Connect's installation requests are feature-gated
  * per Vercel team, so until Vercel turns them on, workspaces are added from
  * the Connect dashboard and the page hides "Add to Slack".

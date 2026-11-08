@@ -68,7 +68,7 @@ beforeEach(() => {
 })
 
 describe('meeting notice', () => {
-  it('Dial8’s sentence around a clipped title; "prep is ready" only when it is', () => {
+  it('Native Intelligence’s sentence around a clipped title; "prep is ready" only when it is', () => {
     expect(meetingNoticeCopy(meetingRow(), NOW)).toEqual({
       title: '“Acme ‹sync›” starts in 20 min',
       sentence: '“Acme ‹sync›” starts in 20 minutes. Your prep is ready.',

@@ -4,7 +4,7 @@
  * the plan opt-in (check_ai_usage_limit(user, true), migration 409), read as
  * "on their plan" or not. A path that runs a model passes the answer on (e.g.
  * runUtilityTask's `chatgptPlan`), so a free user's call runs on their plan
- * and never on Dial8's models.
+ * and never on Native Intelligence's models.
  *
  * Background jobs use guardBackgroundUsageOnPlan (src/lib/inngest/usage-guard.ts).
  */
@@ -28,7 +28,7 @@ export async function usageOnPlan(userId: string, signal?: AbortSignal): Promise
  * logged, and the path then runs as before. `attempts`: how many times to
  * read before that (a caller whose answer lasts, like a local agent's token).
  * `failClosed`: throw instead, for a gate whose only job is keeping a free
- * user off Dial8's models (evals' graders).
+ * user off Native Intelligence's models (evals' graders).
  */
 export async function chatgptPlanFor(
   userId: string | null | undefined,

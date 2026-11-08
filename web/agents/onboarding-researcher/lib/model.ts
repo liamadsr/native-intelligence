@@ -78,7 +78,7 @@ export function researcherPlanProxy(planToken: string): PlanProxy {
  * A plan session's token, kept in durable session state from its start. The
  * session's principal is the create's, but a later message (the owning
  * browser may send one) brings a principal without it: the session stays on
- * the plan, never moves to Dial8's models.
+ * the plan, never moves to Native Intelligence's models.
  */
 const sessionPlanToken = defineState<string | null>('onboarding-research.plan-token', () => null)
 

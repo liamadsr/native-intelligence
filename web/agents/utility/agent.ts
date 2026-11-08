@@ -103,7 +103,7 @@ export default defineAgent({
     workflow: {
       // PRIVACY: keep no run data once a utility session ends. Utility prompts
       // carry workspace content, including mail bodies (memory_learn_mail_tone,
-      // email_draft_reply), and Dial8 never stores mail text. Without this, eve
+      // email_draft_reply), and Native Intelligence never stores mail text. Without this, eve
       // keeps the run input, history checkpoints, model-step payloads, the
       // reply tool input and the event stream in Workflow storage for the
       // plan's retention period (1–30 days) after the session ends. `0` deletes

@@ -5,7 +5,7 @@ import { isOrdinary, letters, type VocabularyEntry } from './sound-match'
 /**
  * Custom vocabulary storage (migration 430, docs/plans/custom-vocabulary.md
  * §10): the words a workspace and each person teach transcription, and the
- * names Dial8 adds automatically. The API route, the settings page, the agent
+ * names Native Intelligence adds automatically. The API route, the settings page, the agent
  * tools and the learning job all go through here.
  *
  * Ownership: a row with no user_id is the workspace's (every member may add,
@@ -22,7 +22,7 @@ export const AUTOMATIC_TERM_LIMIT = 2000
 
 export type VocabularyScope = 'workspace' | 'personal'
 export type VocabularyStatus = 'active' | 'dismissed'
-/** manual: a person added it; agent: Dial8 did, when asked; workspace: harvested from
+/** manual: a person added it; agent: Native Intelligence did, when asked; workspace: harvested from
  *  what the team writes (./harvest.ts); auto: a person turned an automatic name off. */
 export type VocabularySource = 'manual' | 'agent' | 'workspace' | 'auto'
 
@@ -364,7 +364,7 @@ const cleanName = (raw: unknown): string | null => {
 }
 
 /**
- * Names Dial8 already knows, live without setup (Liam, 2026-10-24: trusted
+ * Names Native Intelligence already knows, live without setup (Liam, 2026-10-24: trusted
  * sources go live automatically): teammates, projects, and the person's
  * workspace-visible or own contacts with their companies, most recently
  * active first. Never another member's private or team-only contact: the

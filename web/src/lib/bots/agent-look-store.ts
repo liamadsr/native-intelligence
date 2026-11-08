@@ -5,7 +5,7 @@
  * (lib/voice/assistant-name-store.ts), so each account has its own on every
  * device: `user_metadata.agent_look`, with a copy on this device in
  * localStorage (AGENT_LOOK_STORAGE_KEY) that is read synchronously, never
- * waited on (lib/account-setting.ts). Another Dial8 window adopting or saving
+ * waited on (lib/account-setting.ts). Another Native Intelligence window adopting or saving
  * a look arrives as a `storage` event. Wherever neither holds a look, the
  * default stands in (DEFAULT_AGENT_LOOK).
  */

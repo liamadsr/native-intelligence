@@ -5,7 +5,7 @@
  * server (the mark flips once per sign-in, and the key carries its instant).
  * The router makes it a home-thread turn (agent-events/router.ts): the agent
  * says so in a line and puts up the app's Reconnect card. Never a token or a
- * server's own text: Dial8's catalog name, else the name the person gave it.
+ * server's own text: Native Intelligence's catalog name, else the name the person gave it.
  */
 import { recordAgentEvents, type RecordAgentEventsDeps } from '@/lib/agent-events/record'
 import { agentEventKey } from '@/lib/agent-events/types'

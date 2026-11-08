@@ -9,7 +9,7 @@
 //! dev.sh builds) and builds with the `automation-bridge` cargo feature
 //! (`cargo tauri build --features automation-bridge`, an optimized build for
 //! the recorder; release.sh never passes it). In a released app the env vars
-//! below do nothing: any process of the same user could relaunch Dial8 with
+//! below do nothing: any process of the same user could relaunch Native Intelligence with
 //! them and run its own JavaScript in the page that holds the app's IPC
 //! (security review 2026-10-31).
 //!
@@ -26,13 +26,13 @@
 //! one line is logged: `automation bridge listening on 127.0.0.1:<port>`. The
 //! token is never logged.
 //!
-//! QUIT DIAL8 FIRST. The env vars only reach a NEW process. If Dial8 is
+//! QUIT DIAL8 FIRST. The env vars only reach a NEW process. If Native Intelligence is
 //! already running, Launch Services just activates it (env ignored), and a
 //! second process started some other way is told off by the single-instance
 //! plugin (its unix socket, /tmp/ai_dial8_desktop_si.sock) and exits before
 //! setup, so the bridge never starts. A fresh launch is unaffected: with no
 //! running instance the socket connect fails and this process becomes the
-//! instance, with its own env. So the recorder must quit Dial8 (a real quit,
+//! instance, with its own env. So the recorder must quit Native Intelligence (a real quit,
 //! not close-to-tray), wait for the process to be gone
 //! (`NSRunningApplication.isTerminated`), then launch it with the vars
 //! (`NSWorkspace.openApplication` with `OpenConfiguration.environment`), and

@@ -617,7 +617,7 @@ async fn grants_are_checked_deduped_and_kept_while_in_use() {
     assert!(rig.svc.add_grant(home.clone(), read).await.is_err(), "HOME itself");
     assert!(
         rig.svc.add_grant(rig.base.join("data"), read).await.is_err(),
-        "Dial8's own data"
+        "Native Intelligence's own data"
     );
     assert!(rig.svc.add_grant(rig.base.join("missing"), read).await.is_err());
     let a = rig.svc.add_grant(rig.folder.clone(), read).await.unwrap();
@@ -1784,14 +1784,14 @@ async fn starts_and_resumes_without_a_model_token_are_refused_unless_debug() {
     };
     assert_eq!(
         rig.svc.start(args(None)).await.unwrap_err(),
-        "local agents need a session from Dial8"
+        "local agents need a session from Native Intelligence"
     );
     assert_eq!(
         rig.svc
             .resume(uuid::Uuid::new_v4().to_string(), None, None, None)
             .await
             .unwrap_err(),
-        "local agents need a session from Dial8"
+        "local agents need a session from Native Intelligence"
     );
     // With one it goes on (here to the rig's unavailable setup).
     let err = rig.svc.start(args(Some("tok.0123456789abcdef"))).await.unwrap_err();
@@ -1946,7 +1946,7 @@ fn the_runtime_folder_can_never_be_granted() {
     for p in [&node, &paths.runtime_root(), &paths.root, &data] {
         let real = folder::canonical_dir(p).unwrap();
         let err = folder::check_folder(&real, &paths.home, &paths.protected).unwrap_err();
-        assert!(err.contains("Dial8's own data"), "{}: {err}", p.display());
+        assert!(err.contains("Native Intelligence's own data"), "{}: {err}", p.display());
     }
 }
 
@@ -2411,7 +2411,7 @@ async fn without_gh_the_server_opens_the_pr_with_the_session_token_and_never_a_c
         "{log}"
     );
     assert!(
-        log.contains("POST the pull request to Dial8 (ssh://github.com/o/r.git "),
+        log.contains("POST the pull request to Native Intelligence (ssh://github.com/o/r.git "),
         "{log}"
     );
     let events = serde_json::to_string(&rig.rec.of(&job_id).iter().map(|e| &e.event).collect::<Vec<_>>()).unwrap();
@@ -2661,7 +2661,7 @@ async fn quitting_mid_push_is_reported_at_the_next_launch() {
     assert_eq!(pr["commit"], sha.as_str());
     assert!(pr["error"].as_str().unwrap().contains("quit during the push"), "{pr}");
     assert_eq!(next.on_disk().job(&job_id).unwrap().push_running, None);
-    assert!(command_log(&next, &job_id).contains("Dial8 quit during the push"));
+    assert!(command_log(&next, &job_id).contains("Native Intelligence quit during the push"));
 }
 
 #[tokio::test]
@@ -2806,7 +2806,7 @@ async fn fence_prompts_are_checked_asked_once_per_path_and_never_become_grants()
     // Asked once: the first read. Writes are refused without an alert.
     let asked = rig.rec.asked.lock().unwrap().clone();
     assert_eq!(asked.len(), 1, "{asked:#?}");
-    assert_eq!(asked[0].title, format!("Let Dial8's agent read {}?", other.display()));
+    assert_eq!(asked[0].title, format!("Let Native Intelligence's agent read {}?", other.display()));
     assert!(asked[0].body.contains("to compare") && asked[0].warning);
     let why = |pid: &str| {
         prompt_states(&rig.rec, &id, pid)
@@ -2869,7 +2869,7 @@ async fn fence_prompts_are_checked_asked_once_per_path_and_never_become_grants()
     assert_eq!(answers_to(&rig.rec, &id, "f12"), 0);
     let log = command_log(&rig, &id);
     for needle in [
-        &format!("ask    fence f1: Let Dial8's agent read {}?", other.display()),
+        &format!("ask    fence f1: Let Native Intelligence's agent read {}?", other.display()),
         "you    fence f1 allowed",
         "dial8  fence f2 allowed: read ",
         "dial8  fence f3 refused: fence grants are read-only",
@@ -3724,9 +3724,9 @@ async fn a_jobs_first_launch_puts_up_a_banner_and_its_revivals_dont() {
     assert_eq!(
         rig.rec.notices.lock().unwrap().clone(),
         vec![(
-            "Dial8's agent started in project".to_string(),
-            "A Dial8 cloud agent or one of your loops started it, to read this folder. You can stop it from Dial8 \
-             in the menu bar."
+            "Agent started in project".to_string(),
+            "A Native Intelligence cloud agent or one of your loops started it, to read this folder. You can stop it from the menu bar's \
+             Local Agents menu."
                 .to_string()
         )]
     );
@@ -3738,7 +3738,7 @@ async fn a_jobs_first_launch_puts_up_a_banner_and_its_revivals_dont() {
     rig.rec.wait_exit(&id, 0).await;
     // The revival the person's next message causes: told nothing new.
     rig.resume(&id).await.unwrap();
-    assert_eq!(rig.rec.notice_titles(), vec!["Dial8's agent started in project"]);
+    assert_eq!(rig.rec.notice_titles(), vec!["Agent started in project"]);
     assert!(rig.on_disk().job(&id).unwrap().announced_at.is_some(), "kept in state.json");
     // A job this Mac has no record of, resumed from the server's: told.
     let other = uuid::Uuid::new_v4().to_string();
@@ -3756,7 +3756,7 @@ async fn a_jobs_first_launch_puts_up_a_banner_and_its_revivals_dont() {
     .unwrap();
     assert_eq!(
         rig.rec.notice_titles(),
-        vec!["Dial8's agent started in project", "Dial8's agent resumed in project"]
+        vec!["Agent started in project", "Agent resumed in project"]
     );
     // A start that doesn't launch is never announced.
     assert!(rig.start("no-such-grant").await.is_err());
@@ -3816,9 +3816,9 @@ async fn jobs_past_the_hours_cap_are_refused_and_the_person_told_once() {
     assert_eq!(
         rig.rec.notice_titles(),
         vec![
-            "Dial8's agent started in project",
-            "Dial8's agent started in project",
-            "Dial8 is refusing more local agents for now",
+            "Agent started in project",
+            "Agent started in project",
+            "Refusing more local agents for now",
         ],
         "told once, however many are refused"
     );
@@ -3875,7 +3875,7 @@ async fn a_repository_the_agent_makes_in_its_worktree_is_never_committed() {
         .await;
     let message = err.event["message"].as_str().unwrap();
     assert!(
-        message.contains("the changes hold a git repository of their own (vendor/sub/.GIT), and Dial8 never commits one")
+        message.contains("the changes hold a git repository of their own (vendor/sub/.GIT), and Native Intelligence never commits one")
             && message.contains("nothing was committed"),
         "{message}"
     );
@@ -3965,7 +3965,7 @@ async fn a_submodule_staged_anyway_is_unstaged_and_never_committed() {
     std::fs::write(dir.join("README.md"), "changed by the agent\n").unwrap();
     let err = g.commit(&dir, &git_dir, wt.base.as_deref(), "Sneak a submodule in").await.unwrap_err();
     assert!(
-        err.starts_with("the changes would add a git submodule (vendor/x), and Dial8 never commits one; nothing was committed"),
+        err.starts_with("the changes would add a git submodule (vendor/x), and Native Intelligence never commits one; nothing was committed"),
         "{err}"
     );
     assert_eq!(git(&dir, &["rev-parse", "HEAD"]), head, "no commit");
@@ -4047,7 +4047,7 @@ async fn a_job_told_of_over_a_day_ago_is_told_and_counted_again() {
     for id in [&old, &recent] {
         after.start_args(args(id, "something else")).await.unwrap();
     }
-    assert_eq!(after.rec.notice_titles(), vec!["Dial8's agent resumed in project"], "only the day-old one");
+    assert_eq!(after.rec.notice_titles(), vec!["Agent resumed in project"], "only the day-old one");
     let disk = after.on_disk();
     let counted: Vec<&str> = disk.starts.iter().map(|s| s.job_id.as_str()).collect();
     assert_eq!(counted, vec![old.as_str()]);

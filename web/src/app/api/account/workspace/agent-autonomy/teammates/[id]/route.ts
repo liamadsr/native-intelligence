@@ -10,7 +10,7 @@
  * ai-members route (where a team lead may edit) does not take them.
  *
  * `allowed_side_effects` is the editor's choice (decision 12): "Read only" or
- * "Read, and change Dial8 records" (internal writes, what Attempt mode
+ * "Read, and change Native Intelligence records" (internal writes, what Attempt mode
  * grants), exactly one of the two (parseBounds). Sending, publishing and every
  * other outside write is never set here. It bounds the bot in its chat, its
  * main-chat conversations and its unattended work (narrowToTeammate); a run a

@@ -82,7 +82,7 @@ const OPENING_LINE_MAX_WORDS = 5
  *   - it has the whole subject in it and at most three words more
  *     ("Q3 planning", "Product updates — September 2026");
  *   - or it is a heading that is mostly subject words and at least half the
- *     subject ("Product updates" under "Dial8 product updates: September").
+ *     subject ("Product updates" under "Native Intelligence product updates: September").
  * A text line needs the first rule, so a greeting that shares a subject's
  * first words ("Hi Liam," under "Hi Liam, quick question") stays.
  */
@@ -979,7 +979,7 @@ const NAME_WORD_RE = /^\p{Lu}[\p{L}\p{N}'’.-]*,?$/u
 const NAME_PARTICLE_RE = /^(?:of|the|and|at|from|team|de|del|della|di|da|van|von|der|den|le|la|du|dos|das|bin|al)$/
 
 /** A signature's name line: "Sarah", "Sarah Chen", "— Sarah", "Dr. Sarah
- *  Chen, PhD", "The Dial8 team". Not "Works for me", not "Revenue: $1.2M". */
+ *  Chen, PhD", "The Native Intelligence team". Not "Works for me", not "Revenue: $1.2M". */
 function isNameLine(text: string): boolean {
   const name = text
     .replace(/^[\s\-–—~]+/, '')

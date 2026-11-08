@@ -30,7 +30,7 @@ describe('composeActionTaskPrompt', () => {
       description: 'Build the widget.',
     })
     const expected = [
-      'Work on Dial8 issue ENG-42:',
+      'Work on Native Intelligence issue ENG-42:',
       ISSUE_UNTRUSTED_NOTE,
       '<issue identifier="ENG-42">',
       `<title>${fence('Add a widget')}</title>`,
@@ -63,7 +63,7 @@ describe('composeActionTaskPrompt', () => {
       description: null,
     })
     const expected = [
-      'Work on Dial8 issue GEN-7:',
+      'Work on Native Intelligence issue GEN-7:',
       ISSUE_UNTRUSTED_NOTE,
       '<issue identifier="GEN-7">',
       `<title>${fence('Minimal')}</title>`,

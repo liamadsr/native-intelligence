@@ -14,9 +14,9 @@ type Svc = SupabaseClient
 /** The test post's fields: a person's, so the intake parses it as a form, plus the nonce. Pure. */
 export function testSubmission(nonce: string): Record<string, string> {
   return {
-    name: 'Dial8 website check',
+    name: 'Native Intelligence website check',
     email: 'website-check@dial8.ai',
-    message: 'A test from Dial8 to check this website form reaches the business. Not a customer: please ignore.',
+    message: 'A test from Native Intelligence to check this website form reaches the business. Not a customer: please ignore.',
     [INTAKE_TEST_FIELD]: nonce,
   }
 }

@@ -11,7 +11,7 @@
  *     once only one kind is left to add; unfiltered, Discover sits under
  *     category headings, and a category chip narrows it to one;
  *   • with nothing connected there is no Your connectors section;
- *   • Dial8's Slack app opens its own page, to add or to manage.
+ *   • Native Intelligence's Slack app opens its own page, to add or to manage.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'

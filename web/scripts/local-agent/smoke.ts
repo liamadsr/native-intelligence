@@ -1,5 +1,5 @@
 /**
- * End-to-end smoke of the Mac body (the Dial8 agent built for the Mac,
+ * End-to-end smoke of the Mac body (the Native Intelligence agent built for the Mac,
  * contract C2) without the desktop (L0 contract §3; edit mode: L1 contract
  * D2/C5). It runs on the dev model path, with no session token, so the app
  * (C1) is out of reach: the agent has its fence's tools and `finish`, and its
@@ -122,7 +122,7 @@ const toolPath = [dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bi
 
 /** git on the desktop's side (outside the sandbox), deterministic: no global config, a fixed author. */
 function hostGit(gitArgs: string[]): string {
-  return execFileSync('git', ['-c', 'user.name=Dial8 smoke', '-c', 'user.email=smoke@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
+  return execFileSync('git', ['-c', 'user.name=Native Intelligence smoke', '-c', 'user.email=smoke@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
     encoding: 'utf8',
     // A built-from-scratch env: cast because Next's global types make ProcessEnv require NODE_ENV (never set here).
     env: { PATH: toolPath, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string> as NodeJS.ProcessEnv,

@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { VoiceEnrollmentFlow } from './voice-enrollment-flow'
 
 export const metadata = {
-  title: 'Teach Dial8 your voice',
+  title: { absolute: 'Teach Native Intelligence your voice' },
 }
 
 export default async function VoiceEnrollmentPage() {

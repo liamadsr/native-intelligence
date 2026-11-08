@@ -217,14 +217,14 @@ describe('account events', () => {
     expect(db.tables.stripe_connect_account[0]).toMatchObject({ status: 'onboarding', ready_notified_at: null })
   })
 
-  it('the owner removing Dial8 marks the account disconnected', async () => {
+  it('the owner removing Native Intelligence marks the account disconnected', async () => {
     const db = seed()
     const deps = connectWebhookDeps(db.client, fakeStripe() as never)
     expect(await handleConnectEvent(event('account.application.deauthorized', { id: 'ca_x' }), deps)).toBe('account_disconnected')
     expect(db.tables.stripe_connect_account[0]).toMatchObject({ status: 'disconnected', charges_enabled: false })
   })
 
-  it('an account Dial8 does not know is logged, not acted on', async () => {
+  it('an account Native Intelligence does not know is logged, not acted on', async () => {
     const db = seed()
     const deps = connectWebhookDeps(db.client, fakeStripe() as never)
     expect(await handleConnectEvent(event('account.updated', { id: 'acct_unknown1' }, { account: 'acct_unknown1' }), deps)).toBe('unknown_account')

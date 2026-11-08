@@ -1,6 +1,6 @@
-# Dial8 Desktop (Tauri v2)
+# Native Intelligence Desktop (Tauri v2)
 
-Cross-platform desktop app wrapping the Dial8 web app with native audio capture.
+Cross-platform desktop app wrapping the Native Intelligence web app with native audio capture.
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ crate's authors aren't the holders of that text, add a row to `scripts/licenses/
 Local modules (a sidecar + downloadable models + an on/off setting) are described
 in `dial8-website/docs/plans/local-modules.md`.
 
-The webview loads the Dial8 web app — `localhost:3000` in dev, `https://dial8.ai` in production.
+The webview loads the Native Intelligence web app — `localhost:3000` in dev, `https://dial8.ai` in production.
 
 ## Development
 
@@ -91,20 +91,20 @@ Deep links require a bundled `.app` installed on the system:
 cd dial8-desktop && cargo tauri build --debug
 
 # 3. Install to /Applications
-rm -rf /Applications/Dial8.app
-cp -r src-tauri/target/debug/bundle/macos/Dial8.app /Applications/
+rm -rf "/Applications/Native Intelligence.app"
+cp -r "src-tauri/target/debug/bundle/macos/Native Intelligence.app" /Applications/
 
 # 4. Start the Next.js dev server
 cd ../dial8-website && npm run dev
 
 # 5. Open the app
-open /Applications/Dial8.app
+open "/Applications/Native Intelligence.app"
 ```
 
 To see Rust-side logs (deep-link debug output), run from terminal:
 
 ```bash
-/Applications/Dial8.app/Contents/MacOS/Dial8
+"/Applications/Native Intelligence.app/Contents/MacOS/dial8-desktop"
 ```
 
 To verify the URL scheme is registered:
@@ -124,9 +124,9 @@ To verify the URL scheme is registered:
 cd dial8-desktop && cargo tauri build
 
 # 3. Output locations:
-#    macOS .app:  src-tauri/target/release/bundle/macos/Dial8.app
-#    macOS .dmg:  src-tauri/target/release/bundle/dmg/Dial8_0.1.0_aarch64.dmg
-#    Windows:     src-tauri/target/release/bundle/nsis/Dial8_0.1.0_x64-setup.exe
+#    macOS .app:  src-tauri/target/release/bundle/macos/Native Intelligence.app
+#    macOS .dmg:  src-tauri/target/release/bundle/dmg/Native Intelligence_<version>_aarch64.dmg
+#    Windows:     src-tauri/target/release/bundle/nsis/Native Intelligence_<version>_x64-setup.exe
 ```
 
 ## Windows

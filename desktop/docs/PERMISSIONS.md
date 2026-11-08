@@ -1,4 +1,4 @@
-# macOS Permissions & TCC — how Dial8 keeps microphone / audio grants stable
+# macOS Permissions & TCC — how Native Intelligence keeps microphone / audio grants stable
 
 This document exists because a permission-flow breakage was expensive to
 diagnose. Read it before touching anything that signs the app, changes the
@@ -27,7 +27,7 @@ re-evaluates the current binary's signature against the stored csreq; if it no
 longer satisfies it, the grant is treated as belonging to a *different* program
 and the user is prompted again.
 
-Two services matter for Dial8, and they are keyed differently:
+Two services matter for Native Intelligence, and they are keyed differently:
 
 | Service | TCC key | Grants persist as long as… |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ designated => identifier "ai.dial8.desktop" and anchor apple generic
 Because that DR references the team OU and not a specific hash, it is identical
 across versions — so a properly-signed update does **not** re-prompt.
 
-## Where Dial8 actually prompts (prompt origins in this codebase)
+## Where Native Intelligence actually prompts (prompt origins in this codebase)
 
 Only two TCC-gated capabilities are ever requested — microphone and Audio
 Capture — and both prompts originate in the **main process** (`dial8-desktop`),
@@ -222,7 +222,7 @@ Three facts, verified on macOS 27.0 in Sep 2026, decide how the app checks it:
      re-prompts.
 
    This is exactly what insidegui/AudioCap does. Private API use is acceptable
-   because Dial8 ships Developer ID + notarized, not through the App Store.
+   because Native Intelligence ships Developer ID + notarized, not through the App Store.
 3. **The Settings deep link is `Privacy_AudioCapture`:**
    `x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture`
    (anchor verified present in `SecurityPrivacyExtension.appex`; it opens the

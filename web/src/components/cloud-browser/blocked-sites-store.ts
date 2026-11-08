@@ -131,7 +131,7 @@ async function write(method: 'POST' | 'DELETE', site: string, optimistic: string
     return { ok: true }
   } catch {
     set(before)
-    return { ok: false, error: 'Couldn’t reach Dial8. Try again.' }
+    return { ok: false, error: 'Couldn’t reach Native Intelligence. Try again.' }
   }
 }
 

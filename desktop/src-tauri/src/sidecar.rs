@@ -21,7 +21,7 @@ pub fn path(name: &str) -> Option<PathBuf> {
     // Inside the app bundle, next to the main binary. Both the release bundle
     // and the dev bundle (build.sh/dev.sh stage sidecars there) use this
     // layout, so dev exercises the same resolution path that ships. On
-    // Windows the installer puts them next to Dial8.exe the same way.
+    // Windows the installer puts them next to Native Intelligence.exe the same way.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let bundled = dir.join(name);
@@ -50,7 +50,7 @@ fn exe_name(name: &str) -> String {
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Every child process the app starts runs without a console window. On
-/// Windows Dial8 is a GUI-subsystem exe with no console to share, so a
+/// Windows Native Intelligence is a GUI-subsystem exe with no console to share, so a
 /// console program it spawns (a sidecar, node, git) would otherwise flash a
 /// terminal window of its own. Elsewhere this does nothing.
 pub trait NoConsole {

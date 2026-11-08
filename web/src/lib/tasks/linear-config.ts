@@ -81,8 +81,8 @@ export interface LinearDestinationConfig {
    */
   state_map?: LinearStateMap
   /**
-   * Put Dial8's fingerprints on a pushed issue's description: the action
-   * identifier as a bold heading line, and the "Pushed from Dial8" backlink at
+   * Put Native Intelligence's fingerprints on a pushed issue's description: the action
+   * identifier as a bold heading line, and the "Pushed from Native Intelligence" backlink at
    * the bottom.
    *
    * ABSENT MEANS TRUE — every connection made before this setting existed keeps
@@ -97,7 +97,7 @@ export interface LinearDestinationConfig {
 }
 
 /**
- * Does this config want Dial8 attribution on pushed issues?
+ * Does this config want Native Intelligence attribution on pushed issues?
  *
  * The default-on rule lives HERE, in one place, so no caller can accidentally
  * turn an absent key into "off" by reading the raw field.

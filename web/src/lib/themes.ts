@@ -1,5 +1,5 @@
 /**
- * Theme definitions for Dial8.
+ * Theme definitions for Native Intelligence.
  *
  * Each theme provides light and dark CSS variable overrides.
  * Variables not specified in a theme fall back to the defaults in tailwind.css.

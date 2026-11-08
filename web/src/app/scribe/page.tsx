@@ -7,12 +7,12 @@ import { StructuredData, scribeSoftwareApplicationSchema } from '@/components/st
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Dial8 Scribe - Open Source Speech to Text for macOS',
+  title: { absolute: 'Native Intelligence Scribe - Open Source Speech to Text for macOS' },
   description:
     'Hold a hotkey, speak, release. Your words appear as text anywhere on your Mac. Powered by Whisper. Free and open source.',
   alternates: { canonical: '/scribe' },
   openGraph: {
-    title: 'Dial8 Scribe - Open Source Speech to Text for macOS',
+    title: 'Native Intelligence Scribe - Open Source Speech to Text for macOS',
     description:
       'Hold a hotkey, speak, release. Your words appear as text anywhere on your Mac. Powered by Whisper. Free and open source.',
     url: 'https://dial8.ai/scribe',
@@ -245,18 +245,18 @@ export default function ScribePage() {
           </div>
         </section>
 
-        {/* Scribe + Dial8 cross-sell */}
+        {/* Scribe + Native Intelligence cross-sell */}
         <section className="px-6 lg:px-8 pb-24 relative">
           <div className="absolute top-0 left-6 right-6 lg:left-8 lg:right-8">
             <div className="h-px bg-linear-to-r from-transparent via-border to-transparent" />
           </div>
           <div className="mx-auto max-w-4xl pt-24 text-center">
             <h2 className="text-2xl font-medium tracking-tight text-foreground sm:text-3xl">
-              Use Scribe alongside Dial8
+              Use Scribe alongside Native Intelligence
             </h2>
             <p className="mt-4 text-lg text-muted-foreground max-w-2xl mx-auto">
               Scribe handles quick dictation — typing messages, writing emails, jotting notes.
-              Dial8 handles the bigger picture — capturing meetings, managing projects, and executing work with AI.
+              Native Intelligence handles the bigger picture — capturing meetings, managing projects, and executing work with AI.
               They work great together.
             </p>
             <div className="mt-8">
@@ -264,7 +264,7 @@ export default function ScribePage() {
                 href="/"
                 className="inline-flex items-center justify-center gap-2 py-3 px-6 text-base rounded-full border border-border whitespace-nowrap font-medium text-foreground hover:bg-accent transition-colors"
               >
-                Learn about Dial8
+                Learn about Native Intelligence
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>

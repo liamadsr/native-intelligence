@@ -5,7 +5,7 @@
  * dynamic-client-registration, token endpoint, tools/call — needs to
  * be validated, otherwise an authenticated user can point us at
  * internal infrastructure (AWS IMDS, internal services on the
- * serverless network) and use Dial8 as a reflection point.
+ * serverless network) and use Native Intelligence as a reflection point.
  *
  * Two distinct surfaces:
  *

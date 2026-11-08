@@ -225,8 +225,8 @@ export function routeOf(row: RouteRow, userId: string, nowMs: number = Date.now(
       // Never the name they texted (anyone with the code can JOIN): the last four digits only.
       const last4 = typeof data.phone_last4 === 'string' && /^\d{4}$/.test(data.phone_last4) ? data.phone_last4 : null
       const text = last4
-        ? `Someone asked to text your agent from a number ending ${last4}. Allow or ignore them in Dial8.`
-        : 'Someone asked to text your agent. Allow or ignore them in Dial8.'
+        ? `Someone asked to text your agent from a number ending ${last4}. Allow or ignore them in Native Intelligence.`
+        : 'Someone asked to text your agent. Allow or ignore them in Native Intelligence.'
       return { routes: true, kind: 'guest_request', ref: { type: 'home_message', id: row.id }, text, textable: true, notifies: false, approvalIds: [], urgentBy: null }
     }
     case ASK_MESSAGE_KIND: {

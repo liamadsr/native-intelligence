@@ -215,7 +215,7 @@ describe('GET /auth/google/callback', () => {
   it('names a signup the work-email hook refused, on the web and the desktop', async () => {
     const refused: SignInResult = {
       data: { user: null },
-      error: { message: "Dial8 requires a business email to sign up. Personal addresses like Gmail or Yahoo aren't accepted." },
+      error: { message: "Native Intelligence requires a business email to sign up. Personal addresses like Gmail or Yahoo aren't accepted." },
     }
     hoisted.cookieSignIn.mockResolvedValueOnce(refused)
     let { cookie, state } = await begin()

@@ -1,7 +1,7 @@
 /**
  * The `environment` turn-context rider (docs/plans/environments.md §4 "The
  * turn context"; it replaces the `folders` rider): the chat's environment,
- * where the Dial8 agent sends work (src/lib/environments/chat.ts picks it).
+ * where the Native Intelligence agent sends work (src/lib/environments/chat.ts picks it).
  *
  *   its kind and name, the name as quoted data on one line (admins name
  *   shared environments, and those names reach every member's prompt);
@@ -84,7 +84,7 @@ export function renderEnvironmentSection(s: EnvironmentSnapshot): string {
   if (s.kind === 'mac') {
     lines.push(`This chat's environment, where you send work: the person's Mac ${macLine(s.mac)}.`)
     if (s.folders.length === 0) {
-      lines.push('It has no folder yet: the person adds one on that Mac, in the Dial8 desktop app.')
+      lines.push('It has no folder yet: the person adds one on that Mac, in the Native Intelligence desktop app.')
     } else {
       lines.push('Its folders, most recently used first (start_local_agent takes the folder_id):')
       for (const f of s.folders.slice(0, ENVIRONMENT_FOLDERS_MAX)) {

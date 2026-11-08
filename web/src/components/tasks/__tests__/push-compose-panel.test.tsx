@@ -343,7 +343,7 @@ async function clickCreate() {
 }
 
 /**
- * THE DATE CHIP, which in `strip` is Dial8's own `DateTimePicker` rather than
+ * THE DATE CHIP, which in `strip` is Native Intelligence's own `DateTimePicker` rather than
  * an `<input type="date">`.
  *
  * The field keeps its accessible name through a labelled group wrapper (the
@@ -717,7 +717,7 @@ describe('PushComposePanel — Jira fields follow compose-meta', () => {
     await render()
     expect(selectByLabel('Assignee')).toBeTruthy()
     expect(selectByLabel('Priority')).toBeTruthy()
-    // RE-TARGETED: the strip's date field is Dial8's `DateTimePicker` (a
+    // RE-TARGETED: the strip's date field is Native Intelligence's `DateTimePicker` (a
     // labelled group around a popover trigger), not an `<input type="date">`.
     // The claim — the field the create screen holds is rendered — is unchanged.
     expect(dateChip('Due date')).toBeTruthy()
@@ -745,7 +745,7 @@ describe('PushComposePanel — Jira fields follow compose-meta', () => {
   })
 
   it('takes its priorities from createmeta, never from a priority list', async () => {
-    // /priority/search needs manage:jira-configuration, a scope Dial8 doesn't
+    // /priority/search needs manage:jira-configuration, a scope Native Intelligence doesn't
     // hold — so the allowedValues on the priority field ARE the answer.
     installFetch({ ...BASE, jiraMeta: fullMeta() })
     await render()
@@ -972,7 +972,7 @@ describe('PushComposePanel — the required-field wall', () => {
     expect(onCreate).not.toHaveBeenCalled()
   })
 
-  // RE-TARGETED: the due date is picked through Dial8's own calendar rather
+  // RE-TARGETED: the due date is picked through Native Intelligence's own calendar rather
   // than typed into a native date input. Same claim — a required date holds
   // Create until answered — driven through the control the strip now renders.
   it('a required NATIVE also holds Create until it is answered', async () => {
@@ -1013,7 +1013,7 @@ describe('PushComposePanel — Asana', () => {
 
   /**
    * RE-TARGETED: "date-only" was asserted as `type="date"` on the native input,
-   * which is gone from `strip` — the field is now Dial8's own `DateTimePicker`.
+   * which is gone from `strip` — the field is now Native Intelligence's own `DateTimePicker`.
    * The CLAIM is the one that mattered and it is stated more directly: the
    * picker offers a day and NO time, which is what `due_on` (a calendar date)
    * requires. `granularity="day"` is what suppresses the time row, so its
@@ -1922,7 +1922,7 @@ describe('PushComposePanel — the sidebar (stack) variant', () => {
     await render({ layout: 'stack' })
     const wall = container.querySelector('[data-jira-blocking-wall]') as HTMLElement
     expect(wall.textContent).toContain('Sprint')
-    expect(wall.textContent).toContain('no values Dial8 can choose from')
+    expect(wall.textContent).toContain('no values Native Intelligence can choose from')
     expect(createButton().disabled).toBe(true)
   })
 })
@@ -2102,7 +2102,7 @@ describe('PushComposePanel — dependent fields are unpickable while loading', (
  * THE STRIP IS A ROW OF PROPERTY CHIPS, not a form.
  *
  * Liam's spec was always "the SAME property presentation the action already
- * has, populated with the provider's options" — Dial8 renders an action's
+ * has, populated with the provider's options" — Native Intelligence renders an action's
  * properties as compact outline pills (`PropertyPill` in proposal-card.tsx /
  * create-dialog.tsx / attention-card.tsx, `chipClass`/`cellTriggerClass` in
  * lib/views/property-options.ts), and the compose strip rendered a form
@@ -2281,7 +2281,7 @@ describe('PushComposePanel — the strip renders properties as chips', () => {
 })
 
 // ---------------------------------------------------------------------------
-// THE DATE CHIP — Dial8's own picker, and the wire format it must not move
+// THE DATE CHIP — Native Intelligence's own picker, and the wire format it must not move
 // ---------------------------------------------------------------------------
 
 /**
@@ -2449,7 +2449,7 @@ describe('PushComposePanel — the strip stops offering what the card already sa
 
   /**
    * The site caption is gone because it named a value v1 cannot change. Liam's
-   * own Jira site is called "dial8", so on a Dial8 screen "In dial8" read as
+   * own Jira site is called "dial8", so on a Native Intelligence screen "In dial8" read as
    * noise rather than as context — which is the fixture used here.
    */
   it('NO "In {site}" CAPTION — the site rides on the project chip instead', async () => {

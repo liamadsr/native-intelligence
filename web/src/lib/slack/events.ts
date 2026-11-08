@@ -9,7 +9,7 @@
  * Slack's signature: the team, the user id, the channel.
  */
 
-/** What an inbound Slack payload asks Dial8 to do. */
+/** What an inbound Slack payload asks Native Intelligence to do. */
 export type SlackInbound =
   | { kind: 'challenge'; challenge: string }
   | {
@@ -46,7 +46,7 @@ const TEAM_ID = /^T[A-Z0-9]{2,30}$/
 const USER_ID = /^[UW][A-Z0-9]{2,30}$/
 const CHANNEL_ID = /^[CDG][A-Z0-9]{2,30}$/
 const TS = /^[0-9]{1,12}\.[0-9]{1,8}$/
-/** The longest message text Dial8 keeps (Slack's own cap is 40,000). */
+/** The longest message text Native Intelligence keeps (Slack's own cap is 40,000). */
 export const SLACK_TEXT_MAX_CHARS = 8_000
 
 /** Message subtypes that are still a person typing to the bot (a file's caption included). */

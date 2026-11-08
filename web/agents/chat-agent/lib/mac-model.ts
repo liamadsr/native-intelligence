@@ -1,7 +1,7 @@
 /**
  * The Mac body's model (contract C2, docs/plans/teammate-agent.md), resolved
  * per model step. The model itself is the local agent's
- * (agents/local-agent/lib/model.ts, imported unchanged): the Dial8 model relay
+ * (agents/local-agent/lib/model.ts, imported unchanged): the Native Intelligence model relay
  * with the session token, a model on the Mac when the desktop chose one (L4,
  * F-web), or the dev key.
  *

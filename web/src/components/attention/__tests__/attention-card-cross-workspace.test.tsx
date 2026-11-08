@@ -43,7 +43,7 @@ window.addEventListener('dial8:open-card', (e) => opened.push((e as CustomEvent)
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaces: () => ({
     workspaces: [
-      { id: 'ws-1', name: 'Dial8' },
+      { id: 'ws-1', name: 'Native Intelligence' },
       { id: 'ws-2', name: 'Acme Corp' },
     ],
     currentId: 'ws-1',
@@ -135,7 +135,7 @@ describe('AttentionCard — cards from another workspace', () => {
   it('shows no badge on a card for the ACTIVE workspace', () => {
     renderCard(actionItem({ workspace_id: 'ws-1' }))
     expect(container.textContent).not.toContain('Acme Corp')
-    expect(container.textContent).not.toContain('Dial8')
+    expect(container.textContent).not.toContain('Native Intelligence')
   })
 
   it('shows no badge when the workspace cache cannot name the workspace', () => {

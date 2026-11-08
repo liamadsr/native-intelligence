@@ -16,7 +16,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 
 const sections: Section[] = [
-  { id: 'hero', label: 'Dial8' },
+  { id: 'hero', label: 'Native Intelligence' },
   { id: 'problem', label: 'The Problem' },
   { id: 'how-it-works', label: 'How It Works' },
   { id: 'system-of-record', label: 'System of Record' },
@@ -156,7 +156,7 @@ function Hero() {
                 className="mt-5 sm:mt-8"
               >
                 <p className="max-w-lg text-sm/6 text-muted-foreground sm:text-lg/7">
-                  Dial8 captures your meetings, turns them into action items, and pushes them
+                  Native Intelligence captures your meetings, turns them into action items, and pushes them
                   into Slack, Jira, Linear, or Asana &mdash; while staying the one place that
                   always knows what&rsquo;s true.
                 </p>
@@ -282,7 +282,7 @@ function ProblemSection() {
           className="mt-16"
         >
           <p className="text-xl font-medium text-foreground">
-            Dial8 stays the source of truth.
+            Native Intelligence stays the source of truth.
           </p>
           <p className="mt-3 text-lg text-muted-foreground">
             Captured live. Pushed to where work happens. Kept current by two-way sync.
@@ -324,7 +324,7 @@ function HowItWorksSection() {
                   </CheckItem>
                   <CheckItem>
                     <span className="font-medium text-foreground">Sync</span> &mdash; two-way;
-                    complete it in Jira and Dial8 updates automatically.
+                    complete it in Jira and Native Intelligence updates automatically.
                   </CheckItem>
                 </ul>
               </>
@@ -352,7 +352,7 @@ function SystemOfRecordSection() {
         badge="System of Record"
         title="Work lives everywhere. Your brain stays in sync."
         align="center"
-        description="Push work out to wherever it gets done. Dial8 stays the master copy — the one place that always knows the current state, because two-way sync pulls every change back the moment it happens elsewhere."
+        description="Push work out to wherever it gets done. Native Intelligence stays the master copy — the one place that always knows the current state, because two-way sync pulls every change back the moment it happens elsewhere."
       />
 
       {/* App rendering — theme-aware (light/dark variants) */}
@@ -364,12 +364,12 @@ function SystemOfRecordSection() {
       >
         <img
           src="/screenshots/dial8-conversation-shipped-work-light.png"
-          alt="Dial8 as the source of truth: an action item pushed out to a connected tool, kept current by two-way sync as it moves through to shipped work."
+          alt="Native Intelligence as the source of truth: an action item pushed out to a connected tool, kept current by two-way sync as it moves through to shipped work."
           className="w-full rounded-2xl dark:hidden"
         />
         <img
           src="/screenshots/dial8-conversation-shipped-work-dark.png"
-          alt="Dial8 as the source of truth: an action item pushed out to a connected tool, kept current by two-way sync as it moves through to shipped work."
+          alt="Native Intelligence as the source of truth: an action item pushed out to a connected tool, kept current by two-way sync as it moves through to shipped work."
           className="hidden w-full rounded-2xl dark:block"
         />
       </motion.div>
@@ -381,13 +381,13 @@ function SystemOfRecordSection() {
 function IntegrationsSection() {
   return (
     <SectionContainer id="integrations">
-      {/* TODO: copy review — headline candidates: "Push work out. Dial8 stays the
+      {/* TODO: copy review — headline candidates: "Push work out. Native Intelligence stays the
           source of truth." / "Work anywhere. Stay in sync." */}
       <SectionHeader
         badge="Integrations"
-        title="Push work out. Dial8 stays the source of truth."
+        title="Push work out. Native Intelligence stays the source of truth."
         align="center"
-        description="Send any action to Jira, Linear, or Asana in one click and keep working there. Dial8 stays connected to everything it pushes — as work moves in your tools, the record updates automatically, so one place always holds the current state."
+        description="Send any action to Jira, Linear, or Asana in one click and keep working there. Native Intelligence stays connected to everything it pushes — as work moves in your tools, the record updates automatically, so one place always holds the current state."
       />
       <motion.div
         initial={{ opacity: 0, y: 30 }}
@@ -574,7 +574,7 @@ function CTASection() {
           </h2>
           <p className="mt-6 text-xl text-muted-foreground max-w-2xl mx-auto">
             Captured live from the meeting. Pushed into the tools you already use. Kept true by
-            two-way sync. That&rsquo;s Dial8 &mdash; the one place that always knows what&rsquo;s
+            two-way sync. That&rsquo;s Native Intelligence &mdash; the one place that always knows what&rsquo;s
             current.
           </p>
           <div className="mt-10 flex flex-col items-center gap-6">

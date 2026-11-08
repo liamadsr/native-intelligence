@@ -25,7 +25,7 @@
 //!     install only STAGES the verified installer (a scheduled check must
 //!     never close the app mid-meeting) and this runs it: quit cleanup first
 //!     (the plugin's `on_before_exit`), then the installer, which reopens
-//!     Dial8 when it's done.
+//!     Native Intelligence when it's done.
 //!
 //! In debug builds the updater plugin isn't registered (lib.rs), so both
 //! commands answer an error, which the web treats as "no update".
@@ -167,7 +167,7 @@ pub async fn app_update_install(app: AppHandle, expected: String) -> Result<Stri
 
 /// The person's "Restart now" after an install. macOS: restart (the new app
 /// is already in place). Windows: run the staged installer, after the quit
-/// cleanup; it closes Dial8 and opens the new one, so this returns only when
+/// cleanup; it closes Native Intelligence and opens the new one, so this returns only when
 /// it couldn't start. One at a time with an install, like installs.
 #[tauri::command]
 pub async fn app_update_apply(app: AppHandle) -> Result<(), String> {

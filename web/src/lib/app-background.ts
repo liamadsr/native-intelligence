@@ -1,5 +1,5 @@
 /**
- * App background preference for Dial8.
+ * App background preference for Native Intelligence.
  *
  * The dashboard shell can paint a photo behind the header + chat strip (see
  * `dashboard-shell.tsx`). The default is no photo (the flat `bg-sidebar`

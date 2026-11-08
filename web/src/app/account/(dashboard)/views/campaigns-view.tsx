@@ -475,7 +475,7 @@ function CampaignEditor({
             </label>
 
             <p className="text-xs text-muted-foreground/80">
-              Nothing sends from here. Ask Dial8 to launch it: you approve every email and
+              Nothing sends from here. Ask Native Intelligence to launch it: you approve every email and
               recipient first, in the app or by text.
             </p>
           </div>

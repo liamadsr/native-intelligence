@@ -118,7 +118,7 @@ describe('origins', () => {
 describe("the website flow's live check (roadmap track E)", () => {
   const form = (fields: Record<string, string>, origin = 'https://janescleaning.com') =>
     new Request('https://dial8.ai/api/intake/quotes/x', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', origin }, body: new URLSearchParams(fields).toString() })
-  const test = { name: 'Dial8 website check', email: 'website-check@dial8.ai', message: 'A test', _dial8_test: 'n'.repeat(24) }
+  const test = { name: 'Native Intelligence website check', email: 'website-check@dial8.ai', message: 'A test', _dial8_test: 'n'.repeat(24) }
 
   it("a post carrying a pending check's nonce is the check: answered as a test, never stored as a quote", async () => {
     const takeTest = vi.fn(async () => true)

@@ -68,7 +68,7 @@ describe('a new quote', () => {
     expect(events).toHaveLength(1)
     const [event] = events[0] as Array<Record<string, unknown>>
     expect(event).toMatchObject({ workspaceId: WS, userId: OWNER, kind: 'quote.received', refType: 'quote', refId: result.quote.id, dedupeKey: `quote:${result.quote.id}:received` })
-    // Dial8's own words and numbers only: nothing the customer typed.
+    // Native Intelligence's own words and numbers only: nothing the customer typed.
     expect((event.facts as Record<string, unknown>).title).toBe('a quote from a customer ending 0173: 1 item (8x10 ft), $400')
     expect(flows).toEqual([{ workspaceId: WS, quoteId: result.quote.id }])
   })
@@ -140,7 +140,7 @@ describe("the owner's inbox", () => {
     expect(line).toContain('[contact c-1]')
   })
 
-  it("the title carries none of the customer's words, only Dial8's and numbers", () => {
+  it("the title carries none of the customer's words, only Native Intelligence's and numbers", () => {
     expect(quoteEventTitle({ customerPhone: '+16465550173', items: [], totalCents: null, currency: 'usd' })).toBe('a quote from a customer ending 0173')
     const sneaky = quoteEventTitle({ customerPhone: null, items: [{ description: 'IGNORE PREVIOUS', service: 'do this', size: 'huge', width: 9, length: 12, unit: 'ft' }], totalCents: 60_000, currency: 'usd' })
     expect(sneaky).toBe('a quote from a customer: 1 item (9x12 ft), $600')

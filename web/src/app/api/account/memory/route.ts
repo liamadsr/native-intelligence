@@ -6,7 +6,7 @@ import { canManageWorkspaceMemory, isMemoryScope, type MemoryLine } from '@/lib/
 import { MEMORY_LINE_COLUMNS, memberRole, saveMemoryLine } from '@/lib/packs/memory-write'
 
 /**
- * What Dial8 has learned, in the current workspace (one-agent plan Part 3,
+ * What Native Intelligence has learned, in the current workspace (one-agent plan Part 3,
  * "Memory"; migration 317): the editor's read and its add.
  *
  * Runs on the person's own session, so RLS decides which lines come back

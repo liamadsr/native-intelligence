@@ -255,7 +255,7 @@ export function bookingDeclinedText(business: string, booking: Pick<CustomerBook
   return `${business}: sorry, we can't do the ${booking.kind} at ${label}. Text us here and we'll find another time.`
 }
 
-/** Text a booking's customer from the business's number (never the Dial8 one). Never throws; whether it went. */
+/** Text a booking's customer from the business's number (never the Native Intelligence one). Never throws; whether it went. */
 export async function textBookingCustomer(supabase: SupabaseClient, booking: Pick<CustomerBooking, 'workspaceId' | 'customerPhone' | 'guestId'>, body: string, deps: { send?: typeof sendSms } = {}): Promise<boolean> {
   try {
     const to = booking.customerPhone
@@ -331,7 +331,7 @@ export async function confirmBooking(
 
     const quote = booking.quoteId ? await getQuote(supabase, booking.workspaceId, booking.quoteId).catch(() => null) : null
     const description = [
-      `${booking.kind.charAt(0).toUpperCase()}${booking.kind.slice(1)} booked through Dial8.`,
+      `${booking.kind.charAt(0).toUpperCase()}${booking.kind.slice(1)} booked through Native Intelligence.`,
       `Customer: ${booking.customerName}${booking.customerPhone ? ` (${booking.customerPhone})` : ''}`,
       booking.address ? `Address: ${booking.address}` : null,
       quote ? `Quote: ${quoteSummary(quote)}` : null,

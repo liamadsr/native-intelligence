@@ -13,7 +13,7 @@ import type { NudgeKind } from "./live-agent/nudge-channel";
 // The desktop owns an ordered list of every mic it has seen (settings.json
 // store). When `customised`, the highest connected entry is used; otherwise
 // the Mac's default input. A "for now" override (never saved) beats both
-// until it's cleared, its mic is unplugged, or Dial8 quits. The web only
+// until it's cleared, its mic is unplugged, or Native Intelligence quits. The web only
 // renders the list, reorders it and sets or clears the override.
 
 /** How an input device is connected (Rust `input_devices::Transport`). */
@@ -287,7 +287,7 @@ export interface SttFinishedPayload {
 // ── Read anywhere: the desktop's system-wide read-selection hotkey ──────
 // Select text in any app and press the hotkey to hear it in the local-tts
 // voice (dial8-desktop src-tauri/src/read_selection.rs). Off until turned on
-// in Settings → Voice → Read anywhere, which is also the only place Dial8 asks
+// in Settings → Voice → Read anywhere, which is also the only place Native Intelligence asks
 // for the Accessibility permission it needs (no other feature uses it).
 
 export interface ReadSelectionHotkey {
@@ -313,7 +313,7 @@ export interface DictateStatus {
   enabled: boolean;
   /** The Accessibility permission: watching right ⌥, reading the field. */
   accessibility: boolean;
-  /** macOS lets Dial8 post ⌘V. */
+  /** macOS lets Native Intelligence post ⌘V. */
   keystrokes: boolean;
   /** On, but right ⌥ can't be watched: "needs_permission" or "no_event_tap". */
   error: string | null;
@@ -351,7 +351,7 @@ export interface ReadSelectionStatus {
   /** macOS has granted the Accessibility permission: reading selections.
    *  The feature can't be turned on without it. */
   accessibility: boolean;
-  /** macOS lets Dial8 send ⌘C, which reads terminals like Warp. The same
+  /** macOS lets Native Intelligence send ⌘C, which reads terminals like Warp. The same
    *  System Settings switch grants it. */
   keystrokes: boolean;
   /** A preset id from `hotkeys`, or "custom" for the recorded shortcut. */
@@ -510,7 +510,7 @@ export interface LocalAgentJob {
    *  terminal status (`failed`), so Stop and send go by this, not by `status`. */
   live: boolean;
   /** The coding agent it runs on (`claude-code`, `codex`): its launches wait
-   *  for the person's yes on the Mac. Absent: Dial8's agent, or an older desktop. */
+   *  for the person's yes on the Mac. Absent: Native Intelligence's agent, or an older desktop. */
   worker?: string | null;
   /** Its coding agent's confirm is up on the Mac: another one's launch would
    *  be refused for now. */
@@ -584,7 +584,7 @@ export interface LocalAgentStatus {
   grants: LocalAgentGrant[];
   jobs: LocalAgentJob[];
   /** This Mac runs its jobs on a model on the Mac (Ollama, LM Studio), not the
-   *  Dial8 relay (teammate plan, L4). Absent: a desktop that doesn't say. The
+   *  Native Intelligence relay (teammate plan, L4). Absent: a desktop that doesn't say. The
    *  relay passes it with a claim; C1 narrows the tools by it. */
   localModel?: boolean;
   /** This desktop resolves an edit job's base branch itself (environments E3,
@@ -638,7 +638,7 @@ export type LocalAgentResult<T> =
   | { ok: true; value: T }
   | { ok: false; unavailable: boolean; error: string };
 
-export const LOCAL_AGENT_OFF_DESKTOP = "local agents run only in the Dial8 desktop app";
+export const LOCAL_AGENT_OFF_DESKTOP = "local agents run only in the Native Intelligence desktop app";
 
 const LOCAL_AGENT_JOB_STATUSES: readonly LocalAgentJobStatus[] = [
   "starting",
@@ -1356,7 +1356,7 @@ export async function presenceState(): Promise<DesktopPresence | null> {
 // ── macOS audio health + Mic Mode ───────────────────────────────
 
 /** Is macOS's audio daemon (coreaudiod) answering? It can deadlock (an Apple
- *  bug): every app's audio stops and Dial8 can't record until it's restarted.
+ *  bug): every app's audio stops and Native Intelligence can't record until it's restarted.
  *  The desktop probes it (audio/health.rs). `unknown` before the first
  *  verdict, and on desktop builds without the command. */
 export type AudioHealth = "unknown" | "responsive" | "unresponsive";
@@ -1396,8 +1396,8 @@ export function toAudioHealth(raw: unknown): AudioHealth | null {
     : null;
 }
 
-/** Dial8's macOS Mic Mode (Control Center → Mic Mode), which macOS applies to
- *  Dial8's mic. `unknown` on desktop builds without the command. */
+/** Native Intelligence's macOS Mic Mode (Control Center → Mic Mode), which macOS applies to
+ *  Native Intelligence's mic. `unknown` on desktop builds without the command. */
 export type MicMode = "standard" | "wide-spectrum" | "voice-isolation" | "unknown";
 
 export function toMicMode(raw: unknown): MicMode {
@@ -1465,7 +1465,7 @@ export const tauriBridge = {
     },
   },
 
-  /** Dial8's macOS Mic Mode (see MicMode). */
+  /** Native Intelligence's macOS Mic Mode (see MicMode). */
   micMode: {
     /** A preference read on the desktop, never the microphone. */
     get: async (): Promise<MicMode> => {
@@ -1476,7 +1476,7 @@ export const tauriBridge = {
         return "unknown";
       }
     },
-    /** Open macOS's Mic Mode menu. macOS lists Dial8 there only while it's
+    /** Open macOS's Mic Mode menu. macOS lists Native Intelligence there only while it's
      *  using the microphone, so offer it during a recording. */
     openPicker: () => invoke<void>("open_mic_mode_picker"),
   },
@@ -1598,7 +1598,7 @@ export const tauriBridge = {
   hideAgentHud: () => invoke<void>("hide_agent_hud"),
 
   /** Transiently hide the live-agent HUD WITHOUT destroying it — the "user
-   *  refocused Dial8" case. The webview + nudge buffer survive, so a later
+   *  refocused Native Intelligence" case. The webview + nudge buffer survive, so a later
    *  showAgentHud brings the same window back with its history, no reload. */
   hideAgentHudTransient: () => invoke<void>("hide_agent_hud_transient"),
 
@@ -1635,7 +1635,7 @@ export const tauriBridge = {
 
   /** Subscribe to the MAIN window's focus state (true = focused). Emitted by
    *  the Rust window-event handler; the reliable "user switched away from
-   *  Dial8" signal (fires on cmd-tab even when Dial8 stays partially visible,
+   *  Native Intelligence" signal (fires on cmd-tab even when Native Intelligence stays partially visible,
    *  unlike the page Visibility API), and it suppresses focus handed to our own
    *  HUD/popout windows. Returns an unlisten fn. */
   onMainFocusChanged: (cb: (focused: boolean) => void) =>
@@ -2084,7 +2084,7 @@ export const tauriBridge = {
   readSelectionRequestAccess: () =>
     invoke<ReadSelectionStatus>("read_selection_request_access"),
 
-  /** Quit and reopen Dial8, for a grant macOS honors only after a relaunch. */
+  /** Quit and reopen Native Intelligence, for a grant macOS honors only after a relaunch. */
   readSelectionRelaunch: () => invoke<void>("read_selection_relaunch"),
 
   // ── Dictate anywhere (dictate_*) ──────────────────────────────
@@ -2610,7 +2610,7 @@ export const tauriBridge = {
   /**
    * The person's "Restart now" after `install()`: Rust's `app_update_apply`.
    * macOS restarts into the new app already in place; Windows runs the
-   * verified installer, which closes Dial8 and opens the new one (its install
+   * verified installer, which closes Native Intelligence and opens the new one (its install
    * only staged it, so a scheduled check never closes the app mid-meeting).
    * A binary without the command restarts as before.
    */
@@ -2642,7 +2642,7 @@ export const tauriBridge = {
   // fall back to the in-app toast.
 
   /**
-   * Raise one native OS notification. `id` is the Dial8 notification row UUID —
+   * Raise one native OS notification. `id` is the Native Intelligence notification row UUID —
    * Rust dedupes on it (multi-window workspaces each run their own realtime
    * subscription and would otherwise each fire). `payload` is an opaque JSON
    * string echoed back by `onNotificationClicked`.
@@ -2650,7 +2650,7 @@ export const tauriBridge = {
    * RESOLVED VALUE (three cases, all non-error):
    * - `true`             — the banner was shown.
    * - `false`            — the native side deliberately SKIPPED it because a
-   *                        Dial8 window is currently focused (the app is
+   *                        Native Intelligence window is currently focused (the app is
    *                        frontmost, so an in-app toast is the right surface).
    *                        The caller MUST toast. This is not a failure and
    *                        must not disable the native path.
@@ -2774,7 +2774,7 @@ export const tauriBridge = {
 
   /**
    * Sign in through the desktop's web authentication session
-   * (ASWebAuthenticationSession): a sign-in sheet over the Dial8 window that
+   * (ASWebAuthenticationSession): a sign-in sheet over the Native Intelligence window that
    * hands the callback straight back. Resolves with the
    * `dial8desktop://auth/callback?…` URL it ended on, `'cancelled'` when the
    * user closed it, or `'unavailable'` on a build without the command.

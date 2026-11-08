@@ -2,7 +2,7 @@
  * The event turn's rows and the bridge's counts (src/lib/agent-events/
  * event-turn.ts, live-followups.ts).
  *
- * Pinned: an event turn names each thread or item with Dial8's phrase and
+ * Pinned: an event turn names each thread or item with Native Intelligence's phrase and
  * its pointer, never mail text, capped with "…and N more"; a turn marks the
  * rows it carried delivered (only routed, undelivered ones of the person); a
  * report turn delivers its work items' rows; the live agent's open asks and
@@ -16,10 +16,10 @@ import { captureLiveFollowups, isOpenAsk } from '../live-followups'
 
 const r = (over: Partial<EventTurnRow>): EventTurnRow => ({ id: '1', kind: 'email.drafted', facts: {}, occurs_at: '2026-10-14T10:00:00.000Z', ref_type: null, ref_id: null, ...over })
 
-describe('eventTurnLine: a reply Dial8 was unsure of (E3)', () => {
+describe('eventTurnLine: a reply Native Intelligence was unsure of (E3)', () => {
   it('tells the agent to ask the person, and to draft only on a yes', () => {
     expect(eventTurnLine(r({ kind: 'email.needs_reply', ref_type: 'email_thread', ref_id: 'p1', facts: { from: 'healy@vendor.example', reason: 'unsure', known: true } }))).toBe(
-      "- Maybe a reply from healy@vendor.example: Dial8 wasn't sure one is needed, so none was drafted. Ask the person whether they want a reply; draft one only if they say yes. [email_thread p1]",
+      "- Maybe a reply from healy@vendor.example: Native Intelligence wasn't sure one is needed, so none was drafted. Ask the person whether they want a reply; draft one only if they say yes. [email_thread p1]",
     )
   })
 })
@@ -54,7 +54,7 @@ describe('eventTurnLine: a meeting change (E4)', () => {
 })
 
 describe('eventTurnLine: the notices the notifications page used to hold', () => {
-  it('names each in Dial8’s phrase and points at what the notification points at, never the notification', () => {
+  it('names each in Native Intelligence’s phrase and points at what the notification points at, never the notification', () => {
     const notice = (over: Partial<EventTurnRow>): EventTurnRow => ({ id: '1', kind: 'mention', facts: {}, occurs_at: '2026-10-20T10:00:00.000Z', ref_type: 'notification', ref_id: 'n-1', ...over })
     expect(eventTurnLine(notice({ facts: { title: 'Dana replied on GEN-4', notificationType: 'comment_reply', targetType: 'action', targetId: 'a-1' } }))).toBe(
       '- A reply to your comment: “Dana replied on GEN-4”. [action a-1]',

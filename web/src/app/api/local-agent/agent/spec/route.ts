@@ -1,7 +1,7 @@
 /**
  * GET /api/local-agent/agent/spec — the Mac body's spec (docs/plans/teammate-agent.md C1).
  *
- * The Mac body (the main Dial8 agent running on the person's Mac) gets here
+ * The Mac body (the main Native Intelligence agent running on the person's Mac) gets here
  * what the cloud body gets from /api/internal/chat/spec, for its session's
  * conversation, as the MAIN chat: the system prompt, the model policy and the
  * tools, rebuilt from live state by the same rebuildChatSpec. Then narrowed

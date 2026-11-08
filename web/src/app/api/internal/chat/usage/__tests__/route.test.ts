@@ -423,7 +423,7 @@ describe('POST /api/internal/chat/usage', () => {
     expect(paramsOf(0)).toMatchObject({ model: 'claude-sonnet-5-5', provider: 'claude' })
     expect(paramsOf(1)).toMatchObject({ model: 'claude-haiku-5-5', provider: 'claude' })
     expect(paramsOf(2)).toMatchObject({ model: 'deepseek-v4-pro', provider: 'deepseek' })
-    // A Gateway OpenAI helper is billed to Dial8, never read as the ChatGPT plan.
+    // A Gateway OpenAI helper is billed to Native Intelligence, never read as the ChatGPT plan.
     expect(paramsOf(3)).toMatchObject({ model: 'gpt-5.6-terra', provider: 'openai' })
   })
 

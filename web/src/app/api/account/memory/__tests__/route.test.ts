@@ -1,5 +1,5 @@
 /**
- * The editor's routes for what Dial8 has learned (migration 317). On the
+ * The editor's routes for what Native Intelligence has learned (migration 317). On the
  * person's own session RLS decides the rows; these pin what the routes add:
  * the caller's standing for the editor, the add's scope rules (the same
  * saveMemoryLine the `remember` tool uses, as an edit), and errors that name

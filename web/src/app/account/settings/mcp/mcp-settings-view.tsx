@@ -4,7 +4,7 @@ import { Terminal } from 'lucide-react'
 import { InboundMcpSection } from './inbound-mcp-section'
 
 /**
- * Settings › Dial8 MCP: Dial8 as an MCP server, for Claude, ChatGPT, Cursor
+ * Settings › Native Intelligence MCP: Native Intelligence as an MCP server, for Claude, ChatGPT, Cursor
  * and the other AI apps to reach into the workspace.
  *
  * The other direction (MCP servers the agent connects to) is a connector
@@ -19,9 +19,9 @@ export function McpSettingsView() {
             <Terminal className="h-5 w-5 text-emerald-500" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">Dial8 MCP</h1>
+            <h1 className="text-lg font-semibold">Native Intelligence MCP</h1>
             <p className="text-sm text-muted-foreground">
-              Use your Dial8 workspace from Claude, ChatGPT, Cursor and your other AI apps.
+              Use your Native Intelligence workspace from Claude, ChatGPT, Cursor and your other AI apps.
             </p>
           </div>
         </div>

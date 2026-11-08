@@ -218,7 +218,7 @@ describe('GET /api/internal/agent-run/spec — shape + fail-open env', () => {
     expect(spec.systemPrompt).toContain('You are a careful engineer.')
 
     // Task text is the `<issue>` block, its title + description fenced as untrusted.
-    expect(spec.taskPrompt).toContain('Work on Dial8 issue ENG-42:')
+    expect(spec.taskPrompt).toContain('Work on Native Intelligence issue ENG-42:')
     expect(spec.taskPrompt).toContain('<issue identifier="ENG-42">')
     expect(spec.taskPrompt).toContain(`<title>${wrapUntrusted('Add a widget', 'WORKSPACE')}</title>`)
     expect(spec.taskPrompt).toContain('<status>In Progress</status>')

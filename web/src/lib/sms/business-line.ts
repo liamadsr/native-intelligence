@@ -1,23 +1,23 @@
 /**
- * A business's own account on a phone whose Dial8 line is another account's
+ * A business's own account on a phone whose Native Intelligence line is another account's
  * (migration 464, one phone, two accounts; Liam, 2026-11-01: "I wanna treat
  * it as a completely separate workspace. I should still be able to connect my
  * phone number to that workspace's agent"). Linking a phone
  * (./phone-verification.ts) adds it as the business's line, beside the other
- * account's Dial8 line, when the account linking it is a business's and the
- * Dial8-line account can be told (it has an email). This module holds what
+ * account's Native Intelligence line, when the account linking it is a business's and the
+ * NI-line account can be told (it has an email). This module holds what
  * that needs:
  *
  *   - isBusinessWorkspace: the workspace has a business profile or a live
  *     business number (roadmap B2, migration 458);
  *   - accountEmail: an account's deliverable email, or null (a phone-only
  *     account, made by a text sign-up). The recycled-number safeguard: a
- *     Dial8-line account with none can't be told its number was added
+ *     NI-line account with none can't be told its number was added
  *     elsewhere, so the number moves instead, as before 464. A text
  *     sign-up's release (./signup-account.ts) uses it too;
- *   - the welcome, texted from the business's own number (the Dial8 number's
+ *   - the welcome, texted from the business's own number (the Native Intelligence number's
  *     welcome would point them at the other account's agent);
- *   - the notice emailed to the Dial8-line account: what happened, that
+ *   - the notice emailed to the NI-line account: what happened, that
  *     nothing is needed if it was them, and how to take the number back in
  *     Settings › Phone if it wasn't. It never names the other account (the
  *     number may have changed hands). Best effort.
@@ -68,19 +68,19 @@ export function businessLineWelcomeText(business: string): string {
 export function businessLineNoticeEmail(args: { maskedPhone: string; origin: string }): { subject: string; text: string } {
   const settings = `${args.origin}/account/settings/phone`
   return {
-    subject: 'Your phone number was added to another Dial8 account',
+    subject: 'Your phone number was added to another Native Intelligence account',
     text:
-      `Your phone number ${args.maskedPhone} was just verified on another Dial8 account, with a code texted to it, as that account's business line. ` +
+      `Your phone number ${args.maskedPhone} was just verified on another Native Intelligence account, with a code texted to it, as that account's business line. ` +
       "That account's agent can now text this number from its own business number, and answers texts sent to that number. " +
-      'Your own Dial8 agent is unchanged: it still answers on the Dial8 number.\n\n' +
+      'Your own Native Intelligence agent is unchanged: it still answers on the Native Intelligence number.\n\n' +
       'If you did this yourself, for a business you run, there is nothing to do.\n\n' +
       "If you didn't, someone else may have this number now. If it is no longer yours, remove it in Settings › Phone and add your new one: " +
-      `${settings} . If it is still yours, remove it there and add it again: verifying it again with a new code takes it off every other Dial8 account.`,
+      `${settings} . If it is still yours, remove it there and add it again: verifying it again with a new code takes it off every other Native Intelligence account.`,
   }
 }
 
 /**
- * Email `to` (the Dial8-line account's address) that `phone` was also added
+ * Email `to` (the NI-line account's address) that `phone` was also added
  * as another account's business line. Best effort: returns whether Resend
  * took it.
  */

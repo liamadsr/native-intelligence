@@ -33,13 +33,13 @@ const OPTS = { toolCallId: 't', messages: [] } as never
 type Result = Record<string, unknown> & { success: boolean }
 const WS = 'ws-1'
 
-const CLEAN = 'We shipped voice notes this week.\n\nSay what you did after a call and Dial8 files the actions for you.'
+const CLEAN = 'We shipped voice notes this week.\n\nSay what you did after a call and Native Intelligence files the actions for you.'
 const BASE = {
   actions: [{ id: 'a1', workspace_id: WS }],
   company: [
     { name: 'Acme Corp', workspace_id: WS, is_workspace_company: false },
     { name: 'Linear', workspace_id: WS, is_workspace_company: false },
-    { name: 'Dial8', workspace_id: WS, is_workspace_company: true },
+    { name: 'Native Intelligence', workspace_id: WS, is_workspace_company: true },
   ],
   contact: [{ full_name: 'Dana Whitfield', workspace_id: WS }, { full_name: 'Liam Alizadeh', workspace_id: WS }],
   member: [{ display_name: 'Liam Alizadeh', workspace_id: WS }],
@@ -62,7 +62,7 @@ beforeEach(() => {
 
 describe('lint_post', () => {
   it('checks a cited post and hands back the compose link; our own company and team are fine to name', async () => {
-    const text = `${CLEAN} Liam Alizadeh built it at Dial8.`
+    const text = `${CLEAN} Liam Alizadeh built it at Native Intelligence.`
     const r = await run('lint_post', { surface: 'x', text, sources: SHIPPED })
     expect(r).toMatchObject({ success: true, ok: true, platform: 'X', public_safe: { ok: true } })
     expect(r.post_link).toBe(`https://x.com/intent/post?text=${encodeURIComponent(text)}`)
@@ -110,7 +110,7 @@ describe('lint_post', () => {
   })
 
   it('a price stands only on the product doc or a document a person wrote (review S4)', async () => {
-    const text = 'Dial8 Pro is now $20 a month.'
+    const text = 'Native Intelligence Pro is now $20 a month.'
     expect((await run('lint_post', { text, sources: SHIPPED })).post_link).toBeNull()
     const docs = {
       document: [

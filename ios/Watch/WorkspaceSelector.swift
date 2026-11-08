@@ -44,7 +44,7 @@ struct WorkspaceSelector: View {
         } else if let only = sync.workspaces.first {
             plainLabel(only.name)
         } else {
-            plainLabel("Dial8")
+            plainLabel("NI")
         }
     }
 

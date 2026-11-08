@@ -48,7 +48,7 @@ const build = (over: Partial<Parameters<typeof buildAwaySection>[1]> = {}) =>
   buildAwaySection(db as never, { ...ids, timeZone: 'UTC', nowMs: NOW, ...over })
 
 describe('awayLineFor / renderAwaySection', () => {
-  it('a reply Dial8 was unsure of reads as a question, not a missing draft (E3)', () => {
+  it('a reply Native Intelligence was unsure of reads as a question, not a missing draft (E3)', () => {
     expect(awayLineFor({ kind: 'email.needs_reply', facts: { from: 'healy@vendor.example', reason: 'unsure' } })).toBe('Might need a reply (want one drafted?): healy@vendor.example')
   })
 
@@ -74,7 +74,7 @@ describe('awayLineFor / renderAwaySection', () => {
     expect(awayLineFor({ kind: 'email.suspicious', facts: { from: 'x@phish.example' } })).toBe('Suspicious email (not drafted) from x@phish.example')
     expect(awayLineFor({ kind: 'mention', facts: { title: 'GEN-4', notificationType: 'comment_reply' } })).toBe('A reply to your comment: GEN-4')
     expect(awayLineFor({ kind: 'mention', facts: { title: 'Sam shared "Plan" with you', notificationType: 'capture_shared' } })).toBe('Shared with you: Sam shared "Plan" with you')
-    // The other notices' titles are already Dial8's sentence.
+    // The other notices' titles are already Native Intelligence's sentence.
     expect(awayLineFor({ kind: 'activity', facts: { title: 'Sam completed GEN-4' } })).toBe('Update: Sam completed GEN-4')
     expect(awayLineFor({ kind: 'reminder.due', facts: { title: 'Ship the deck' } })).toBe('Reminder you set: Ship the deck')
     expect(awayLineFor({ kind: 'contact.followup_due', facts: { title: 'Follow up with Jane' } })).toBe('Follow up with Jane')

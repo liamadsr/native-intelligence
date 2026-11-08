@@ -32,7 +32,7 @@ export function SingleCard() {
       <BentoCard
         eyebrow="Capture"
         title="Every meeting becomes work."
-        description="Dial8 records the conversation, then extracts the actions, decisions, and follow-ups — automatically routed to the right project."
+        description="Native Intelligence records the conversation, then extracts the actions, decisions, and follow-ups — automatically routed to the right project."
         graphic={<CaptureGraphic />}
         fade={['bottom']}
       />

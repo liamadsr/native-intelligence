@@ -163,7 +163,7 @@ struct iOSAgentPicker: View {
         HStack(spacing: 12) {
             iOSAgentThumbnail(agent: agent).frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 3) {
-                Text(agent?.name ?? "Dial8").font(.body.weight(.medium)).foregroundStyle(.primary)
+                Text(agent?.name ?? "Native Intelligence").font(.body.weight(.medium)).foregroundStyle(.primary)
                 Text(agent?.detail ?? "Your everyday assistant").font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer()

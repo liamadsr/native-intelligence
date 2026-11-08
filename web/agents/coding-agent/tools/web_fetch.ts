@@ -1,7 +1,7 @@
 /**
  * web_fetch — LIVE for the coding-agent, wrapped for safety.
  *
- * Web access is always on for every Dial8 agent. This file REPLACES a
+ * Web access is always on for every Native Intelligence agent. This file REPLACES a
  * `disableTool()` sentinel whose rationale was parity with the legacy Claude-
  * Code-CLI runner's hardcoded Bash/Read/Edit/Write/Glob/Grep allowlist. That
  * parity argument no longer holds: an unattended coding run that hits an
@@ -22,7 +22,7 @@
  *   1. SSRF url-guard (lib/url-guard.ts) — every URL is validated before the
  *      fetch runs, blocking private / loopback / link-local IPs and cloud-
  *      metadata hostnames, so a URL from the run's instructions or from a page
- *      the model read can't turn Dial8 into an SSRF reflection point. Mirrors
+ *      the model read can't turn Native Intelligence into an SSRF reflection point. Mirrors
  *      src/lib/mcp-client/url-guard.ts (agents can't import src/).
  *   2. Per-session abuse cap (lib/web-fetch-cap.ts) — an invisible, generous
  *      ceiling on fetches per eve session, as insurance against a runaway loop in

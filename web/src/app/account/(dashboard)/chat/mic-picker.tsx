@@ -33,7 +33,7 @@
  *    override, never saved, and the check moves to it while the order stays.
  *    The header's "Back to your order", or clicking the row the order would
  *    pick, ends it (so do
- *    unplugging it and quitting Dial8, on the desktop's side). Clicking an
+ *    unplugging it and quitting Native Intelligence, on the desktop's side). Clicking an
  *    unplugged row does nothing. On a desktop without the override command a
  *    click moves the row to #1, as before.
  *  - No reset button (Liam, 2026-09-26): the order is just dragged. A one-time

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import crypto from 'crypto'
 
 /**
- * Tests for POST /api/webhooks/asana/[syncStateId] — the Asana→Dial8 receiver.
+ * Tests for POST /api/webhooks/asana/[syncStateId] — the Asana→Native Intelligence receiver.
  *
  * Invariants locked in:
  *  - HANDSHAKE: the secret is stored ONLY inside a single-use pending window we

@@ -26,9 +26,9 @@ import {
 } from '@/lib/tasks/lifecycle'
 
 // =====================================================================
-// Dial8 → Jira status echo
+// Native Intelligence → Jira status echo
 //
-// The write half of two-way status sync: when a Dial8 action moves to a new
+// The write half of two-way status sync: when a Native Intelligence action moves to a new
 // workflow state, every Jira issue linked to it is transitioned to match.
 //
 // It rides the EXISTING `flow/entity.status_changed` event rather than minting
@@ -56,7 +56,7 @@ import {
 //     transition in the right statusCategory" then moves a Done issue to
 //     "Won't Do", or an In Progress issue to In Review, seconds after a user put
 //     it where they wanted it.
-//   - The read-back (jira-apply-remote) moves the Dial8 action, which emits
+//   - The read-back (jira-apply-remote) moves the Native Intelligence action, which emits
 //     `flow/entity.status_changed`, which wakes THIS function. Without the
 //     pre-check that round-trips a Jira-originated change straight back out and
 //     overwrites the user's choice. The pre-check can only do that job while the
@@ -252,7 +252,7 @@ export function resolutionForTransition(
  *
  * THE FIRST QUESTION EVERY ECHO ASKS (see the header). It decides between "leave
  * the customer's issue exactly where it is" and "transition it", and getting it
- * wrong in either direction is expensive: too lax and a Dial8 column nudge stops
+ * wrong in either direction is expensive: too lax and a Native Intelligence column nudge stops
  * mirroring at all; too strict and the echo bounces a status a human just set.
  *
  * Exactly two rules, and DELIBERATELY no third:
@@ -268,7 +268,7 @@ export function resolutionForTransition(
  * I leave the issue exactly where it is?", where a name mismatch inside the
  * right category is a reason to do NOTHING, not a licence to move something.
  * Enforcing the name rule here as well cost us both directions:
- *  - a Dial8 Done-column move against an issue a human had parked on "Won't Do"
+ *  - a Native Intelligence Done-column move against an issue a human had parked on "Won't Do"
  *    started fighting that cancellation, or stamped `no_transition` on a healthy
  *    link when no other done-category status was reachable;
  *  - and it broke this module's idempotency promise, because selectTransition

@@ -53,7 +53,7 @@ export function makeSyntheticEntity(
         kind: 'action',
         id: synthId,
         identifier: 'TEST-0',
-        title: 'Test fire from Dial8',
+        title: 'Test fire from Native Intelligence',
         status_id: statusValue,
         status_name: 'Test',
         status_category: 'started',
@@ -229,7 +229,7 @@ export async function runDryTestFire(args: {
         extras.capture = { id: capture.id, title: capture.title }
         real = true
       } else {
-        extras.capture = { id: SYNTH_ID, title: 'Test fire from Dial8' }
+        extras.capture = { id: SYNTH_ID, title: 'Test fire from Native Intelligence' }
       }
     }
   }

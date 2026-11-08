@@ -37,7 +37,7 @@ export interface WebResearchSpec {
 /**
  * The plan a spec runs on, or the Error both resolvers throw (eve fails the
  * session): this agent runs a call only when the spec is for it and on the
- * person's own plan. Anything else would be a web-enabled model on Dial8's
+ * person's own plan. Anything else would be a web-enabled model on Native Intelligence's
  * Gateway, or a utility kind (a prompt built from workspace data) given the
  * web.
  */
