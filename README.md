@@ -10,7 +10,7 @@
 
 <br />
 
-![The Mac app on a fresh workspace: a greeting and one box to talk to the agent, with the side panel showing the always-on agent, its own computer and the connected apps](.github/readme/desktop-home.webp)
+![The Mac app on a fresh workspace: a greeting and one box to talk to the agent, with the side panel showing the always-on agent, its own computer (not set up yet) and the connected apps](.github/readme/desktop-home.webp)
 
 <div align="center"><sub>Every screenshot here is a made-up demo workspace. You can load it into your own install: see <a href="#getting-started">Getting started</a>.</sub></div>
 
@@ -136,10 +136,11 @@ the background, and reaches you wherever you are.
 
 ## Text it, Slack it, share it
 
-Your agent has a phone number you can text, joins your Slack, and you decide who else
-can reach it: add the people you trust, or let them ask for access with a code.
+Your agent has a phone number you can text, links to your Slack with a one-time code,
+and you decide who else can reach it: add the people you trust, or let them ask for
+access with a code.
 
-![The agent's settings: a number to text it, a one-time code to link Slack, and the list of people who can reach it, with private numbers blurred](.github/readme/agent-controls.webp)
+![The agent's settings: a number to text it, a one-time code to link Slack, and the list of people who can reach it, with private numbers and names blurred](.github/readme/agent-controls.webp)
 
 ## It shows you, right in the chat
 
