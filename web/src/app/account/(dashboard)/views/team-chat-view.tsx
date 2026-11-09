@@ -16,8 +16,8 @@
  * RLS filters what arrives), resyncing on every (re)subscribe.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { AtSign, Bot, Hash, Lock, MessageSquare, Pencil, Plus, SendHorizontal, Trash2, Users } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { AtSign, Bot, ChevronLeft, Hash, Lock, MessageSquare, Pencil, Plus, SendHorizontal, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -45,6 +45,36 @@ interface MentionOption {
   label: string
   hint: string
   agent: boolean
+}
+
+/**
+ * Below this width the view shows one pane at a time (a phone, a narrow
+ * card): the list of channels, then the channel picked, with Back. At it and
+ * above, the two side by side, as they always were.
+ */
+export const TEAM_CHAT_TWO_PANE_MIN_PX = 576
+
+/**
+ * Is the view narrower than two panes need? Its own width, read by one
+ * ResizeObserver (it fires only on a resize, never at rest). Unmeasured (no
+ * layout yet, or no ResizeObserver): two panes, as before.
+ */
+function useNarrow(ref: RefObject<HTMLElement | null>): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => {
+      const width = el.clientWidth
+      setNarrow(width > 0 && width < TEAM_CHAT_TWO_PANE_MIN_PX)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+  return narrow
 }
 
 /** The id the person's own agent goes by in the picker (never a member id). */
@@ -86,6 +116,19 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
 
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedId
+  // One pane at a time when narrow (a phone): the list until the person opens
+  // a channel, then that channel, with Back to the list.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const narrow = useNarrow(rootRef)
+  const [opened, setOpened] = useState(false)
+  const showList = !narrow || !opened
+  const showChannel = !narrow || opened
+  // The channel on screen: the one read marks are for. The first channel is
+  // picked for the person when the list loads, but on a phone it isn't on
+  // screen until they open it, and its messages stay unread until then.
+  const onScreen = showChannel ? selectedId : null
+  const onScreenRef = useRef<string | null>(null)
+  onScreenRef.current = onScreen
   const meRef = useRef<string | null>(null)
   meRef.current = meId
   // Channels whose older messages haven't all been loaded (their last page was full).
@@ -107,7 +150,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       if (!res.ok) throw new Error('Could not load team chat')
       const json = (await res.json()) as { channels?: TeamChatChannel[]; memberId?: string }
       // The channel on screen is read (its read mark may still be on its way): never counted unread here.
-      const open = typeof document !== 'undefined' && document.visibilityState === 'visible' ? selectedRef.current : null
+      const open = typeof document !== 'undefined' && document.visibilityState === 'visible' ? onScreenRef.current : null
       const list = (Array.isArray(json.channels) ? json.channels : []).map((c) => (c.id === open ? { ...c, unread: 0, mentions: 0 } : c))
       setMeId(json.memberId ?? null)
       setChannels(list)
@@ -167,17 +210,20 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     }
   }, [workspaceId])
 
-  // Opening a channel loads it and marks it read.
+  // Picking a channel loads it; on screen, it is read.
   useEffect(() => {
     if (!selectedId) return
     void loadMessages(selectedId)
-    void markRead(selectedId)
-  }, [selectedId, loadMessages, markRead])
+  }, [selectedId, loadMessages])
+  useEffect(() => {
+    if (!onScreen) return
+    void markRead(onScreen)
+  }, [onScreen, markRead])
 
   // Coming back to the tab reads the channel on screen (what arrived while away was left unread).
   useEffect(() => {
     const onVisible = () => {
-      const open = selectedRef.current
+      const open = onScreenRef.current
       if (document.visibilityState === 'visible' && open) void markRead(open)
     }
     document.addEventListener('visibilitychange', onVisible)
@@ -210,7 +256,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
             return next
           })
         }
-        if (payload.eventType === 'INSERT' && row.channel_id === selectedRef.current && document.visibilityState === 'visible') {
+        if (payload.eventType === 'INSERT' && row.channel_id === onScreenRef.current && document.visibilityState === 'visible') {
           // A burst of messages is one read mark.
           if (readTimer) clearTimeout(readTimer)
           readTimer = setTimeout(() => void markRead(row.channel_id), 150)
@@ -284,10 +330,19 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       if (!res.ok) return
       const json = (await res.json()) as { id?: string }
       await loadChannels()
-      if (json.id) setSelectedId(json.id)
+      if (json.id) {
+        setSelectedId(json.id)
+        setOpened(true)
+      }
     },
     [loadChannels],
   )
+
+  // The person picks a channel (from the list): on a phone, it takes the screen.
+  const openChannel = useCallback((id: string) => {
+    setSelectedId(id)
+    setOpened(true)
+  }, [])
 
   const handleSent = useCallback((message: TeamChatMessage, calledAgent: boolean) => {
     setMessages((prev) => ({ ...prev, [message.channel_id]: upsertMessage(prev[message.channel_id], message) }))
@@ -299,8 +354,13 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   }, [])
 
   return (
-    <div className="flex h-full min-h-0">
-      <aside className={cn('flex shrink-0 flex-col border-r border-border', compact ? 'w-44' : 'w-60')}>
+    <div ref={rootRef} data-team-chat-panes={narrow ? (opened ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
+      <aside
+        className={cn(
+          'flex-col',
+          narrow ? (showList ? 'flex w-full' : 'hidden') : cn('flex shrink-0 border-r border-border', compact ? 'w-44' : 'w-60'),
+        )}
+      >
         <div className="flex h-12 shrink-0 items-center px-4">
           <h1 className="text-sm font-semibold text-foreground">Team chat</h1>
         </div>
@@ -318,20 +378,20 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
                 key={c.id}
                 channel={c}
                 title={channelTitle(c)}
-                active={c.id === selectedId}
+                active={c.id === onScreen}
                 privateTeam={!!c.team_id && !!teamsById.get(c.team_id)?.is_private}
-                onSelect={() => setSelectedId(c.id)}
+                onSelect={() => openChannel(c.id)}
               />
             ))
           )}
           <SectionHeading label="Direct messages" onAdd={() => setNewDmOpen(true)} addLabel="New message" className="mt-4" />
           {dmList.map((c) => (
-            <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === selectedId} onSelect={() => setSelectedId(c.id)} />
+            <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === onScreen} onSelect={() => openChannel(c.id)} />
           ))}
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className={cn('min-w-0 flex-1 flex-col', showChannel ? 'flex' : 'hidden')}>
         {error && !selected ? (
           <p className="py-10 text-center text-sm text-destructive">{error}</p>
         ) : !selected ? (
@@ -352,6 +412,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
             onLoadEarlier={(before) => loadEarlier(selected.id, before)}
             onSent={handleSent}
             onChanged={handleChanged}
+            onBack={narrow ? () => setOpened(false) : undefined}
           />
         )}
       </section>
@@ -363,7 +424,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
         onCreated={async (id) => {
           setNewChannelOpen(false)
           await loadChannels()
-          setSelectedId(id)
+          openChannel(id)
         }}
       />
       <NewDmDialog open={newDmOpen} onOpenChange={setNewDmOpen} members={members} meId={meId} onPick={openDm} />
@@ -469,6 +530,7 @@ function ChannelPane({
   onLoadEarlier,
   onSent,
   onChanged,
+  onBack,
 }: {
   channel: TeamChatChannel
   title: string
@@ -483,6 +545,8 @@ function ChannelPane({
   onLoadEarlier: (before: string) => Promise<void>
   onSent: (message: TeamChatMessage, calledAgent: boolean) => void
   onChanged: (message: TeamChatMessage) => void
+  /** One pane at a time (a phone): back to the list of channels. */
+  onBack?: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -531,8 +595,20 @@ function ChannelPane({
 
   return (
     <>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-5">
-        {channel.kind === 'channel' ? <Hash className="h-4 w-4 text-muted-foreground" /> : <Avatar name={title} small />}
+      <div className={cn('flex h-12 shrink-0 items-center gap-2 border-b border-border', onBack ? 'pl-2 pr-4' : 'px-5')}>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="All channels"
+            title="All channels"
+            data-team-chat-back=""
+            className="-ml-0.5 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
+        {channel.kind === 'channel' ? <Hash className="h-4 w-4 shrink-0 text-muted-foreground" /> : <Avatar name={title} small />}
         <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
         {teamName && (
           <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
