@@ -84,7 +84,7 @@ describe('For you’s toggle', () => {
 
   it('in the app rail’s header: round and flat like its other buttons, tinted while the column is hidden', () => {
     act(() => store.reportSpacePlan(false))
-    act(() => root.render(h(TooltipProvider, null, h(ForYouToggle, { variant: 'header' }))))
+    act(() => root.render(<TooltipProvider><ForYouToggle variant="header" /></TooltipProvider>))
     expect(toggle()?.getAttribute('data-variant')).toBe('header')
     expect(toggle()!.className.split(' ')).toContain('bg-foreground/[0.08]')
     // Round, as the rail's buttons (Liam, 11-09), with no border of its own (the bar's pill has it).
