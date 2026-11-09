@@ -977,15 +977,14 @@ export function WorkspaceSwitcher({
           aria-haspopup="menu"
           aria-label="Workspace and account menu"
           title={current.name}
-          className={cn(
-            'flex size-9 items-center justify-center rounded-lg transition-colors hover:bg-foreground/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-            open && 'bg-foreground/[0.08]',
-          )}
+          // No square behind the avatar (Liam, 11-09): the circle alone says
+          // hover (its edge darkens) and open (its ring).
+          className="group flex size-9 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span
             className={cn(
-              'grid size-7 place-items-center overflow-hidden rounded-full border bg-background text-[10px] font-semibold text-sidebar-foreground/70',
-              open ? 'border-primary/40 ring-2 ring-primary/15' : 'border-border/60',
+              'grid size-7 place-items-center overflow-hidden rounded-full border bg-background text-[10px] font-semibold text-sidebar-foreground/70 transition-colors motion-reduce:transition-none',
+              open ? 'border-primary/40 ring-2 ring-primary/15' : 'border-border/60 group-hover:border-foreground/30',
             )}
           >
             {showUserAvatar ? (
