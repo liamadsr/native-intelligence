@@ -130,6 +130,14 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   const rootRef = useRef<HTMLDivElement>(null)
   const narrow = useNarrow(rootRef, compact ? TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX : TEAM_CHAT_TWO_PANE_MIN_PX)
   const [opened, setOpened] = useState(false)
+  // Narrowing while a channel is on screen beside the list keeps that channel
+  // open (with Back), not the list: it stays as it was, its draft, an edit,
+  // where it was scrolled to. Set during render, so it never leaves the screen.
+  const [wasNarrow, setWasNarrow] = useState(narrow)
+  if (narrow !== wasNarrow) {
+    setWasNarrow(narrow)
+    if (narrow && selectedId && !opened) setOpened(true)
+  }
   // Opened, but its channel is gone (archived, or no longer readable): the list again, never an empty pane with no way back.
   const openedNow = opened && !!selectedId && !!channels?.some((c) => c.id === selectedId)
   const showList = !narrow || !openedNow
@@ -451,26 +459,29 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
 
   return (
     <div ref={rootRef} data-team-chat-panes={narrow ? (openedNow ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
-      {narrow ? (
-        // One pane at a time (a phone): no divider to drag.
-        <>
+      {/* The list and the messages split as Mail's are, by a line with a
+          grip that resizes them (Liam, 11-09: "the same type of divider that
+          we have for the main page"). Narrow (a phone), one pane at a time:
+          the other panel hidden (the `hidden` attribute, which the panel's
+          inline display can't override) and no divider. One tree either way,
+          so crossing the width keeps the open channel as it was: its draft,
+          an edit, where it was scrolled to, the focus. */}
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+        <ResizablePanel
+          id="team-chat-list"
+          hidden={narrow && !showList}
+          defaultSize={compact ? '32%' : '26%'}
+          minSize={compact ? '176px' : '18%'}
+          maxSize="45%"
+          className="flex min-h-0 flex-col"
+        >
           {list}
+        </ResizablePanel>
+        {!narrow && <ResizableHandle withHandle />}
+        <ResizablePanel id="team-chat-channel" hidden={narrow && !showChannel} minSize="40%" className="flex min-h-0 min-w-0 flex-col">
           {pane}
-        </>
-      ) : (
-        // Side by side: the list and the messages split as Mail's are, by a
-        // line with a grip that resizes them (Liam, 11-09: "the same type of
-        // divider that we have for the main page").
-        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel id="team-chat-list" defaultSize={compact ? '32%' : '26%'} minSize={compact ? '176px' : '18%'} maxSize="45%" className="flex min-h-0 flex-col">
-            {list}
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel id="team-chat-channel" minSize="40%" className="flex min-h-0 min-w-0 flex-col">
-            {pane}
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      )}
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <NewChannelDialog
         open={newChannelOpen}
@@ -619,12 +630,14 @@ function ChannelPane({
   onBack?: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
-  // Opened on a phone (it takes the screen): the focus starts on Back, the list's button it replaced being gone.
+  // Opened on a phone (it takes the screen): the focus starts on Back, the
+  // list's button it replaced being gone. Only as it opens: a channel already
+  // on screen when the view narrows keeps the focus where it was (its box).
   const backRef = useRef<HTMLButtonElement>(null)
-  const backFirst = !!onBack
+  const backFirst = useRef(!!onBack)
   useEffect(() => {
-    if (backFirst) backRef.current?.focus({ preventScroll: true })
-  }, [backFirst])
+    if (backFirst.current) backRef.current?.focus({ preventScroll: true })
+  }, [])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
 

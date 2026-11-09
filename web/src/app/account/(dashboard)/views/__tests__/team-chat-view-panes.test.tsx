@@ -45,6 +45,8 @@ const MESSAGES = [
 ]
 
 let reads: string[] = []
+// Every ResizeObserver's callback, so a test can say the view's width changed.
+const observers = new Set<(entries: unknown[]) => void>()
 let width = 390
 let channelsList: unknown[] = CHANNELS
 let channelsStatus = 200
@@ -68,7 +70,19 @@ beforeEach(() => {
     if (/\/messages/.test(url)) return new Response(JSON.stringify({ messages: url.includes('c-general') ? MESSAGES : [] }))
     return new Response('{}')
   }))
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  observers.clear()
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private cb: (entries: unknown[]) => void) {}
+      observe() {
+        observers.add(this.cb)
+      }
+      disconnect() {
+        observers.delete(this.cb)
+      }
+    },
+  )
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => width })
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -153,6 +167,37 @@ describe('team chat on a phone (narrower than two panes)', () => {
     await settle()
     expect(panes()).toBe('list')
     expect(container.textContent).toContain('Start your first channel')
+  })
+
+  it('keeps the open channel as it was (its draft) when the view crosses the width, both ways', async () => {
+    width = TEAM_CHAT_TWO_PANE_MIN_PX
+    await render()
+    expect(panes()).toBe('both')
+    const field = () => container.querySelector<HTMLTextAreaElement>('[data-team-chat-composer] textarea')!
+    const typed = field()
+    typed.focus()
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+      set.call(typed, 'Half a thought')
+      typed.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    width = 390
+    await act(async () => observers.forEach((cb) => cb([])))
+    await settle()
+    // Narrow now: the same channel stays open (it was on screen), the same box, the draft kept.
+    expect(panes()).toBe('channel')
+    expect(handle()).toBeNull()
+    expect(field()).toBe(typed)
+    expect(field().value).toBe('Half a thought')
+    // Still typing: the focus stays in the box (no jump to Back).
+    expect(document.activeElement).toBe(typed)
+    expect(back()).not.toBeNull()
+    width = TEAM_CHAT_TWO_PANE_MIN_PX
+    await act(async () => observers.forEach((cb) => cb([])))
+    await settle()
+    expect(panes()).toBe('both')
+    expect(field()).toBe(typed)
+    expect(field().value).toBe('Half a thought')
   })
 
   it('says so in the list when the channels could not be loaded', async () => {
