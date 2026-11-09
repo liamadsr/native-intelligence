@@ -68,11 +68,15 @@ describe('the app rail', () => {
     expect(container.querySelector('[data-app-rail-item="workspace"] [data-variant="rail"]')).not.toBeNull()
   })
 
-  it('is glass, as the panels are (their translucent fill and blur)', async () => {
+  it('is a panel like the others: a rounded floating card with their glass', async () => {
     await render()
-    const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
-    expect(nav.className).toContain('bg-background/70')
-    expect(nav.className).toContain('backdrop-blur-md')
+    const panel = container.querySelector<HTMLElement>('[data-app-rail-nav] [data-app-rail-panel]')!
+    expect(panel.className).toContain('rounded-3xl')
+    expect(panel.className).toContain('bg-background/70')
+    expect(panel.className).toContain('backdrop-blur-md')
+    expect(panel.className).toContain('border-border/60')
+    // Its items sit inside the panel.
+    expect(panel.querySelector('[data-app-rail-item="mail"]')).not.toBeNull()
   })
 
   it('leaves out a page that is off in the workspace', async () => {

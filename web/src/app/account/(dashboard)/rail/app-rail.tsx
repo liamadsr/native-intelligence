@@ -29,10 +29,14 @@
  * In the Mac app the window has no title bar: the rail's top is window drag
  * surface, with room for the traffic lights over it.
  *
- * Its surface is the panels' glass (Liam, 11-09: "match the glass effect of
- * the actual panels"): the page cards' and floating cards' own translucent
- * fill and blur (chat-cards/card-glass.tsx, attention/card-skin.ts), with
- * their fine edge. Like them it re-composites while the sky moves.
+ * It is a panel like the others (Liam, 11-09: "match the glass effect of the
+ * actual panels", "rounding out the edges … the same as the other panels and
+ * pages"): a floating card inset from the window's edges, with the pages'
+ * corners and the floating cards' glass (chat-cards/card-glass.tsx,
+ * attention/card-skin.ts COLUMN_CARD_SKIN): their translucent fill, blur,
+ * fine edge and soft shadow. Like them it re-composites while the sky moves.
+ * In the Mac app it starts under the traffic lights, the window-drag strip
+ * above it.
  *
  * Flat cost: no animation, no polling; it redraws when a card enters or leaves
  * full screen, or the workspace's edition changes.
@@ -48,6 +52,7 @@ import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { closeFrontCards, frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
@@ -176,19 +181,21 @@ export function AppRail() {
     <nav
       data-app-rail-nav=""
       aria-label="Pages"
-      className="absolute inset-y-0 left-0 z-30 hidden flex-col items-center bg-background/70 backdrop-blur-md md:flex"
+      className="absolute inset-y-0 left-0 z-30 hidden flex-col md:flex"
       style={{ width: 'var(--app-rail-w)' }}
     >
-      {/* Its edge, a hairline: in the Mac app from under the traffic lights
-          down, so it never runs between them (the third sits past the rail,
-          as in Liam's reference). */}
-      <div aria-hidden className={cn('pointer-events-none absolute bottom-0 right-0 w-px bg-border/60', trafficLights ? 'top-11' : 'top-0')} />
       {/* Window drag surface over the top (childless: Tauri drags only on
-          the attributed target), with room for the Mac's traffic lights. */}
-      <div data-tauri-drag-region="" aria-hidden className={cn('w-full shrink-0', trafficLights ? 'h-11' : 'h-1.5')} />
+          the attributed target): the gutter above the panel, and in the Mac
+          app the room for the traffic lights, which sit over it. */}
+      <div data-tauri-drag-region="" aria-hidden className={cn('w-full shrink-0', trafficLights ? 'h-11' : 'h-2')} />
+      {/* The panel: a floating card, inset from the window's edges. */}
+      <div
+        data-app-rail-panel=""
+        className={cn('mb-2 ml-2 flex min-h-0 w-12 flex-1 flex-col items-center overflow-hidden rounded-3xl border border-border/60', COLUMN_CARD_SKIN)}
+      >
       {mounted && (
         <TooltipProvider delayDuration={300}>
-          <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden pb-2.5 [scrollbar-width:none]">
+          <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden py-1.5 [scrollbar-width:none]">
             <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
               <Plus className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
@@ -231,6 +238,7 @@ export function AppRail() {
           </div>
         </TooltipProvider>
       )}
+      </div>
     </nav>
   )
 }

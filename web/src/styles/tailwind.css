@@ -938,8 +938,10 @@ html[data-sky-tone] [data-on-sky] {
   --app-rail-w: 0px;
 }
 @media (min-width: 48rem) {
+  /* The rail's floating panel (48px) with its gutter to the window's edge
+     (8px) and a breath before the content (4px). */
   [data-app-rail] {
-    --app-rail-w: 52px;
+    --app-rail-w: 60px;
   }
   /* A full-screen card beside the rail (show-tool-card.tsx, `.card-page-layer`)
      has no blurred veil: the page sits on the app's own background (the sky,
