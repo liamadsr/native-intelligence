@@ -28,7 +28,6 @@ import { memoryDb } from '@/test/memory-db'
 import { bookingConfirmedText, textBookingCustomer } from '../booking'
 import {
   bookQuoteCard,
-  localStartInstant,
   planBookQuote,
   quoteReplyCardHash,
   quoteReplyHold,
@@ -36,6 +35,7 @@ import {
   runSendQuote,
   type QuoteReplyDeps,
 } from '../quote-reply'
+import { localStartInstant } from '../slots'
 import { BOOK_QUOTE_TOOL, LINKISH, QUOTE_CARD_TITLE_MAX, QUOTE_CARD_WHY_MAX, SEND_QUOTE_TOOL } from '../quote-reply-input'
 import { CUSTOMER_TOOLS } from '../customer-tools-list'
 import { GUEST_NEVER_TOOLS, GUEST_OFFERABLE_TOOLS } from '@/lib/guests/presets'

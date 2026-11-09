@@ -4,7 +4,9 @@
  * of the workspace; any member reads; a non-member gets nothing. The owner's
  * answer to a quote (send_quote, book_quote, roadmap F3) runs only as the
  * replay of their own card (src/lib/customers/__tests__/quote-reply.test.ts
- * covers what it sends).
+ * covers what it sends). The owner's own move or cancel of a booking runs in
+ * their turn, never an unattended run's
+ * (src/lib/customers/__tests__/booking-changes.test.ts covers the rest).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -15,7 +17,13 @@ vi.mock('@/lib/admin', async () => {
   return { getServiceClient: () => memoryDb(db.tables) }
 })
 vi.mock('@/lib/safety/approvals', () => ({ createToolApproval: vi.fn() }))
-vi.mock('@/lib/integrations/calendar', () => ({ getCalendarProvider: vi.fn(async () => null), createCalendarEvent: vi.fn(), listCalendarEventsUnified: vi.fn(async () => []) }))
+vi.mock('@/lib/integrations/calendar', () => ({
+  getCalendarProvider: vi.fn(async () => null),
+  createCalendarEvent: vi.fn(),
+  updateCalendarEvent: vi.fn(async () => ({})),
+  deleteCalendarEvent: vi.fn(async () => {}),
+  listCalendarEventsUnified: vi.fn(async () => []),
+}))
 vi.mock('@/lib/crm/email-client', () => ({ sendEmail: vi.fn() }))
 vi.mock('@/lib/twilio/client', () => ({ sendSms: vi.fn(async (...args: unknown[]) => (db.sms.push(args), { ok: true, sid: 'SM1' })) }))
 
@@ -94,5 +102,49 @@ describe("the owner's answer to a quote (roadmap F3)", () => {
     expect(await tools.send_quote.execute(input, { toolCallId: 't', messages: [] })).toMatchObject({ success: true, sent_via: 'text' })
     expect(db.sms).toEqual([['+17205550177', expect.stringContaining('Northside Tutoring: here is your quote for algebra: $80. Reply here to pick a time.'), { from: '+17205550100' }]])
     expect(db.tables.customer_quote[0]).toMatchObject({ status: 'sent', total_cents: 8000 })
+  })
+})
+
+describe("the owner's own move or cancel of a booking (issue #11's follow-up)", () => {
+  const BOOKING = '44444444-4444-4444-8444-444444444444'
+  const seed = () => {
+    db.tables.business_profile = [{ workspace_id: WS, owner_user_id: 'user-owner', business_name: 'Northside Tutoring', customer_facts: null, time_zone: 'America/Denver', booking_days: [1, 2, 3, 4, 5], booking_start: '15:00', booking_end: '19:00', slot_minutes: 60, lead_hours: 12, horizon_days: 14, booking_kind: 'session', booking_slug: null, reminders: true }]
+    db.tables.business_phone_number = [{ id: 'bn-1', workspace_id: WS, owner_user_id: 'user-owner', phone_e164: '+17205550100', twilio_sid: 'PN1', state: 'active' }]
+    // Far ahead, so it is never in the past: Tue, Jan 8, 2030, 4:00 PM in Denver.
+    db.tables.customer_booking = [
+      {
+        id: BOOKING, workspace_id: WS, owner_user_id: 'user-owner', quote_id: null, contact_id: null, guest_id: null, source: 'sms', kind: 'session',
+        starts_at: '2030-01-08T23:00:00.000Z', ends_at: '2030-01-09T00:00:00.000Z', customer_name: 'Lee Park', customer_phone: '+17205550177',
+        address: null, note: null, state: 'confirmed', approval_id: null, calendar_event_id: null, customer_confirmed_at: null, created_at: '2026-11-01T12:00:00Z',
+      },
+    ]
+    db.tables.customer_reminder = []
+    db.tables.sms_message = []
+  }
+
+  it("runs in the owner's own turn, and the customer is texted from the business's number", async () => {
+    seed()
+    expect(await run('user-owner', 'move_booking', { booking_id: BOOKING, start: '2030-01-09T16:00' })).toMatchObject({ success: true, status: 'moved', when: 'Wed, Jan 9, 4:00 PM' })
+    expect(db.tables.customer_booking[0]).toMatchObject({ starts_at: '2030-01-09T23:00:00.000Z', ends_at: '2030-01-10T00:00:00.000Z' })
+    expect(await run('user-owner', 'cancel_booking', { booking_id: BOOKING })).toMatchObject({ success: true, status: 'cancelled' })
+    expect(db.tables.customer_booking[0].state).toBe('cancelled')
+    expect(db.sms).toEqual([
+      ['+17205550177', expect.stringContaining("Northside Tutoring: your session has moved to Wed, Jan 9, 4:00 PM. Reply here if that time doesn't work."), { from: '+17205550100' }],
+      ['+17205550177', expect.stringContaining("Northside Tutoring: your session on Wed, Jan 9, 4:00 PM is cancelled. Reply here if you'd like another time."), { from: '+17205550100' }],
+    ])
+  })
+
+  it('never in an unattended run, never for a plain member, and the start is a local time', async () => {
+    seed()
+    const unattended = createBusinessTools('user-owner', {} as never, WS, { unattended: true }) as unknown as Record<string, Exec & { inputSchema: { safeParse: (v: unknown) => { success: boolean } } }>
+    expect(await unattended.move_booking.execute({ booking_id: BOOKING, start: '2030-01-09T16:00' }, { toolCallId: 't', messages: [] })).toMatchObject({ success: false, code: 'NEEDS_PERSON' })
+    expect(await unattended.cancel_booking.execute({ booking_id: BOOKING }, { toolCallId: 't', messages: [] })).toMatchObject({ success: false, code: 'NEEDS_PERSON' })
+    expect(await run('user-sam', 'move_booking', { booking_id: BOOKING, start: '2030-01-09T16:00' })).toMatchObject({ success: false, code: 'NOT_ALLOWED' })
+    expect(await run('user-sam', 'cancel_booking', { booking_id: BOOKING })).toMatchObject({ success: false, code: 'NOT_ALLOWED' })
+    expect(db.tables.customer_booking[0]).toMatchObject({ state: 'confirmed', starts_at: '2030-01-08T23:00:00.000Z' })
+    expect(db.sms).toHaveLength(0)
+    expect(unattended.move_booking.inputSchema.safeParse({ booking_id: BOOKING, start: '2030-01-09T16:00' }).success).toBe(true)
+    expect(unattended.move_booking.inputSchema.safeParse({ booking_id: BOOKING, start: '2030-01-09T23:00:00Z' }).success).toBe(false)
+    expect(unattended.cancel_booking.inputSchema.safeParse({ booking_id: 'not-a-booking' }).success).toBe(false)
   })
 })

@@ -386,7 +386,8 @@ export function createTools(
     ...createContactTools(userId, supabase, workspaceId, strict, createPolicy, options?.unattended ?? false),
     // The business's front door (roadmap B): customers' quotes, its profile, booking slots and bookings. See ./business.ts.
     // send_quote / book_quote run only as the owner's approved call (roadmap F3).
-    ...createBusinessTools(userId, supabase, workspaceId, { approvedCall: options?.approvedCall }),
+    // move_booking / cancel_booking text the customer: never an unattended run's.
+    ...createBusinessTools(userId, supabase, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true }),
     // The one money tool (roadmap C2): a customer payment link, only ever the owner's approved call.
     ...createPaymentTools(userId, supabase, workspaceId, { approvedCall: options?.approvedCall }),
     // Companies — the CRM's other half. `get_company_overview` (crm.ts) reads

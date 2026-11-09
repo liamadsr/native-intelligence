@@ -1,8 +1,9 @@
 /**
  * The reminder rows (migration 472, customer_reminder), read and written with
  * the service role: one per subject (a booking, or a calendar event) and
- * phone, claimed before its text goes (./reminders.ts), and what the customer
- * answered (./reminder-replies.ts). Every function takes the workspace and
+ * phone, claimed before its text goes (./reminders.ts), what the customer
+ * answered (./reminder-replies.ts), and the owner's own move or cancel of
+ * the booking (./booking-changes.ts). Every function takes the workspace and
  * touches only its rows.
  *
  * Server only.
@@ -12,7 +13,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 export const REMINDER_SUBJECTS = ['booking', 'meeting'] as const
 export type ReminderSubjectType = (typeof REMINDER_SUBJECTS)[number]
 
-export const REMINDER_ANSWERS = ['confirmed', 'moved', 'opted_out'] as const
+/** The customer's answer, or `cancelled`: the owner cancelled the booking since. */
+export const REMINDER_ANSWERS = ['confirmed', 'moved', 'opted_out', 'cancelled'] as const
 export type ReminderAnswer = (typeof REMINDER_ANSWERS)[number]
 
 export const REMINDER_STATUSES = ['claimed', 'sent', 'failed'] as const
@@ -54,7 +56,7 @@ export interface CustomerReminder {
   phone: string
   customerName: string
   kind: string
-  /** When it was when the reminder went (a move keeps it: `movedTo` is the new time). */
+  /** When it was when the reminder went (a move keeps it: `movedTo` is the new time, whoever moved it). */
   startsAt: string
   endsAt: string
   status: ReminderStatus
@@ -229,4 +231,44 @@ export async function answerReminder(
   const { data, error } = await query.select(REMINDER_SELECT).maybeSingle<ReminderRow>()
   if (error) throw new Error(`customer_reminder update failed: ${error.message}`)
   return data ? toReminder(data) : null
+}
+
+/**
+ * The owner moved a booking (./booking-changes.ts): its reminders follow it
+ * to the new time, and an answer about the old time (confirmed, moved) is
+ * cleared, so the customer's agent asks again. A STOP stays. Throws on a
+ * failed write.
+ */
+export async function remindersFollowBooking(supabase: SupabaseClient, args: { workspaceId: string; bookingId: string; startsAt: string; nowIso: string }): Promise<void> {
+  const moved = await supabase
+    .from('customer_reminder')
+    .update({ moved_to: args.startsAt, updated_at: args.nowIso })
+    .eq('workspace_id', args.workspaceId)
+    .eq('subject_type', 'booking')
+    .eq('subject_id', args.bookingId)
+  if (moved.error) throw new Error(`customer_reminder update failed: ${moved.error.message}`)
+  const cleared = await supabase
+    .from('customer_reminder')
+    .update({ answer: null, answered_at: null, updated_at: args.nowIso })
+    .eq('workspace_id', args.workspaceId)
+    .eq('subject_type', 'booking')
+    .eq('subject_id', args.bookingId)
+    .in('answer', ['confirmed', 'moved'])
+  if (cleared.error) throw new Error(`customer_reminder update failed: ${cleared.error.message}`)
+}
+
+/**
+ * The owner cancelled a booking (./booking-changes.ts): its reminders are
+ * answered `cancelled`, whatever the customer said, so their agent knows and
+ * a later STOP doesn't tell the owner it still stands. Throws on a failed
+ * write.
+ */
+export async function remindersCancelled(supabase: SupabaseClient, args: { workspaceId: string; bookingId: string; nowIso: string }): Promise<void> {
+  const { error } = await supabase
+    .from('customer_reminder')
+    .update({ answer: 'cancelled', answered_at: args.nowIso, updated_at: args.nowIso })
+    .eq('workspace_id', args.workspaceId)
+    .eq('subject_type', 'booking')
+    .eq('subject_id', args.bookingId)
+  if (error) throw new Error(`customer_reminder update failed: ${error.message}`)
 }

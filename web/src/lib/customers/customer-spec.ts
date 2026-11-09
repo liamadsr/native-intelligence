@@ -159,6 +159,8 @@ function reminderAnswerWords(reminder: Pick<CustomerReminder, 'answer' | 'subjec
       return 'they moved it to this time.'
     case 'opted_out':
       return 'they said STOP, then texted again.'
+    case 'cancelled':
+      return 'the business cancelled it since.'
     default:
       return reminder.subjectType === 'meeting' ? "they haven't answered (a meeting: only the owner moves it)." : "they haven't answered."
   }

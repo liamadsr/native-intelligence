@@ -55,7 +55,7 @@ import { cleanText, dollarsToCents } from './intake'
 import { activeBusinessNumber } from './numbers'
 import { bookingUrl } from './profile-input'
 import { BOOK_QUOTE_TOOL, QUOTE_CARD_WHY_MAX, QUOTE_MESSAGE_MAX, SEND_QUOTE_TOOL, bookQuoteInput, hasLink, sendQuoteInput, withoutLinks } from './quote-reply-input'
-import { bookingSetup, isSlotFree, localDate, slotLabel, zonedTime } from './slots'
+import { bookingSetup, isSlotFree, localDate, localStartInstant, slotLabel } from './slots'
 import { businessName, businessOwnerUserId, getBusinessProfile, getQuote, insertBooking, moveBooking, updateQuote } from './store'
 import { QUOTE_ADDRESS_MAX, QUOTE_NAME_MAX, formatCents, quoteSummary, type CustomerQuote } from './types'
 
@@ -407,22 +407,6 @@ export interface BookQuotePlan {
   showsMinutes: boolean
   /** The confirmation text confirmBooking sends, or why none goes. */
   confirmation: { to: string; from: string; body: string } | { skipped: string }
-}
-
-const LOCAL_START = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::00)?$/
-
-/** A wall-clock start in `timeZone` as an instant, or null when that local time doesn't exist there (a bad date, a skipped hour). Pure. */
-export function localStartInstant(start: string, timeZone: string): number | null {
-  const m = LOCAL_START.exec(start)
-  if (!m) return null
-  const [y, mo, d, h, mi] = m.slice(1).map(Number)
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null
-  const clock = `${m[4]}:${m[5]}`
-  const at = zonedTime({ y, m: mo, d }, clock, timeZone)
-  // Read back: a date that doesn't exist (Feb 30) or an hour the clocks skip lands elsewhere.
-  const back = localDate(at, timeZone)
-  const backClock = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(new Date(at))
-  return back.y === y && back.m === mo && back.d === d && backClock === clock ? at : null
 }
 
 /**

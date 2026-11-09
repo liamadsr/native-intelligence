@@ -32,6 +32,13 @@ import type { ApprovedCall } from '@/lib/safety/approved-call'
  *                             the old one stops. Attended only.
  *   find_booking_slots /      open times and the bookings themselves.
  *   list_bookings
+ *   move_booking /            the owner's own change to a confirmed booking
+ *   cancel_booking            (issue #11's follow-up): its calendar event
+ *                             follows, and the customer is texted from the
+ *                             business's number (src/lib/customers/
+ *                             booking-changes.ts). External writes: from a
+ *                             text, each is the owner's card first; an
+ *                             unattended run never calls them.
  *   send_quote / book_quote   the owner's answer to a quote (roadmap F3):
  *                             the price and the booking link to the
  *                             customer, or the time they chose booked. Only
@@ -47,6 +54,8 @@ import type { ApprovedCall } from '@/lib/safety/approved-call'
 export interface BusinessToolContext {
   /** The approval being replayed (executeStoredCall only): send_quote and book_quote run only under their own. */
   approvedCall?: ApprovedCall
+  /** Nobody at the keyboard (a work run's, a loop's or a home turn's own work): no booking is moved or cancelled. */
+  unattended?: boolean
 }
 
 export function createBusinessTools(userId: string, _supabase: SupabaseClient, workspaceId?: string, ctx: BusinessToolContext = {}) {
@@ -274,6 +283,46 @@ export function createBusinessTools(userId: string, _supabase: SupabaseClient, w
             // The customer's own words.
             note: wrapUntrusted(b.note, 'WEB'),
           })),
+        }
+      },
+    }),
+
+    move_booking: tool({
+      description:
+        "Move a customer's confirmed booking to another time when the owner says so (\"move Jane's cleaning to Thursday at 10\", or a time a customer moved that they want back). It keeps its length. Nothing else may be on the owner's calendar or booked then; their booking hours don't bind them. Its calendar event moves too, and the customer gets a text with the new time from the business's number, unless tell_customer is false (the owner already told them). A booking still waiting on the owner's yes is their card to answer instead. Owners and admins only.",
+      inputSchema: z.object({
+        booking_id: z.string().uuid().describe('The booking (list_bookings)'),
+        start: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).describe("The new start in the business's local time, like 2026-11-12T10:00"),
+        tell_customer: z.boolean().optional().describe('Text the customer the new time (default true). False only when the owner says they already told them.'),
+      }),
+      execute: async ({ booking_id, start, tell_customer }) => {
+        if (ctx.unattended) return { success: false, code: 'NEEDS_PERSON', error: "Only the owner moves a customer's booking (the customer is texted). Leave it to them." }
+        if (!workspaceId) return { success: false, error: 'No workspace is active.' }
+        try {
+          // Loaded on use: the calendar and texting code stays out of every tool set's imports.
+          const { ownerMoveBooking } = await import('@/lib/customers/booking-changes')
+          return await ownerMoveBooking(getServiceClient(), { userId, workspaceId, bookingId: booking_id, start, tellCustomer: tell_customer ?? true })
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) }
+        }
+      },
+    }),
+
+    cancel_booking: tool({
+      description:
+        "Cancel a customer's confirmed booking that hasn't started, when the owner says so. Its calendar event is deleted, and the customer gets a text saying so from the business's number, unless tell_customer is false (the owner already told them). A booking still waiting on the owner's yes is their card to answer instead (no asks the customer for another time); a finished job is complete_job. Owners and admins only.",
+      inputSchema: z.object({
+        booking_id: z.string().uuid().describe('The booking (list_bookings)'),
+        tell_customer: z.boolean().optional().describe('Text the customer it is cancelled (default true). False only when the owner says they already told them.'),
+      }),
+      execute: async ({ booking_id, tell_customer }) => {
+        if (ctx.unattended) return { success: false, code: 'NEEDS_PERSON', error: "Only the owner cancels a customer's booking (the customer is texted). Leave it to them." }
+        if (!workspaceId) return { success: false, error: 'No workspace is active.' }
+        try {
+          const { ownerCancelBooking } = await import('@/lib/customers/booking-changes')
+          return await ownerCancelBooking(getServiceClient(), { userId, workspaceId, bookingId: booking_id, tellCustomer: tell_customer ?? true })
+        } catch (err) {
+          return { success: false, error: err instanceof Error ? err.message : String(err) }
         }
       },
     }),

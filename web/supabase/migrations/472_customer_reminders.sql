@@ -10,7 +10,9 @@
 --                                 calendar event) and phone, so a customer is
 --                                 never texted twice for one booking. What
 --                                 they answered (confirmed, moved, opted out)
---                                 is kept on it.
+--                                 is kept on it, or that the owner cancelled
+--                                 the booking; moved_to follows a move by
+--                                 either of them.
 --   2. customer_booking           customer_confirmed_at: the customer said yes
 --                                 (or picked the time it moved to).
 --   3. business_profile           reminders: on unless the owner turns them
@@ -60,7 +62,7 @@ alter table public.customer_reminder
   add constraint customer_reminder_status_check check (status in ('claimed', 'sent', 'failed'));
 alter table public.customer_reminder drop constraint if exists customer_reminder_answer_check;
 alter table public.customer_reminder
-  add constraint customer_reminder_answer_check check (answer is null or answer in ('confirmed', 'moved', 'opted_out'));
+  add constraint customer_reminder_answer_check check (answer is null or answer in ('confirmed', 'moved', 'opted_out', 'cancelled'));
 alter table public.customer_reminder drop constraint if exists customer_reminder_phone_shape;
 alter table public.customer_reminder
   add constraint customer_reminder_phone_shape check (phone_e164 ~ '^[+][1-9][0-9]{7,14}$');

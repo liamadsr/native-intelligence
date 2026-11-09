@@ -356,6 +356,11 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'create_quote_form_link', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Quote Form Link', description: "Make the secret URL the business's website quote form posts to; any old one stops working" },
       { name: 'find_booking_slots', sideEffect: 'read', label: 'Find Booking Slots', description: "The business's open times for a job, from its booking hours and the owner's calendar" },
       { name: 'list_bookings', sideEffect: 'read', label: 'List Bookings', description: "The business's customer bookings, confirmed or waiting for the owner's yes" },
+      // external-write: the owner's own change to a confirmed booking (src/lib/customers/booking-changes.ts): its
+      // calendar event follows and the customer is texted from the business number, so from a text it is the
+      // owner's card first (a sender's number can be faked). Never an unattended run's.
+      { name: 'move_booking', sideEffect: 'external-write', label: 'Move Booking', description: "Move a customer's confirmed booking to another time; its calendar event follows and the customer is texted" },
+      { name: 'cancel_booking', sideEffect: 'external-write', label: 'Cancel Booking', description: "Cancel a customer's confirmed booking; its calendar event is deleted and the customer is texted" },
       // external-write: the owner's answer to a quote (roadmap F3, src/lib/customers/quote-reply.ts), texted from
       // the business number or emailed from their mailbox to a number or address a web form typed. The outward gate
       // holds every call as the owner's card showing exactly who gets what text; the tool runs only as that card's
@@ -1213,6 +1218,9 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // Books a customer's chosen time on the owner's yes (roadmap F3): a booking, the owner's
   // calendar and the customer's text. `book_` is not a write verb. (send_quote matches `send_`.)
   'book_quote',
+  // Moves a customer's booking and texts them (issue #11's follow-up). `move_` is not a write verb.
+  // (cancel_booking matches `cancel_`.)
+  'move_booking',
 ]
 
 /**

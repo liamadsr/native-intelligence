@@ -38,12 +38,12 @@
  * Server only; service role.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { updateCalendarEvent } from '@/lib/integrations/calendar'
+import { rescheduleWithCalendar, type CalendarAfterMove, type MoveEvent } from './booking-changes'
 import { cleanText } from './intake'
 import { answerReminder, getReminder, openRemindersForPhone, reminderAt, type CustomerReminder } from './reminder-store'
 import { dayAndTime, reminderZone, reportToOwner, type OwnerReportDeps } from './reminders'
 import { openSlotAt, slotLabel, type FindOpenSlotsDeps } from './slots'
-import { BOOKING_SELECT, expireStaleBookings, getBooking, toBooking } from './store'
+import { expireStaleBookings, getBooking } from './store'
 import { BOOKING_REQUEST_TTL_MS, type CustomerBooking } from './types'
 
 type ToolOutput = Record<string, unknown>
@@ -54,7 +54,7 @@ export interface ReminderReplyDeps extends OwnerReportDeps {
   timeZone?: (business: { workspaceId: string; ownerUserId: string }) => Promise<string>
   openSlotAt?: typeof openSlotAt
   listEvents?: FindOpenSlotsDeps['listEvents']
-  moveEvent?: (ownerUserId: string, eventId: string, slot: { start: string; end: string }) => Promise<unknown>
+  moveEvent?: MoveEvent
 }
 
 const name = (reminder: Pick<CustomerReminder, 'customerName'>) => cleanText(reminder.customerName, 40) ?? 'A customer'
@@ -69,9 +69,6 @@ export function whenLabel(iso: string, timeZone: string): string {
 export function confirmedReport(reminder: Pick<CustomerReminder, 'customerName' | 'kind'>, at: string, timeZone: string): string {
   return `${name(reminder)} confirmed their ${reminder.kind} on ${whenLabel(at, timeZone)}.`
 }
-
-/** Where the booking's calendar event ended up after a move. */
-export type CalendarAfterMove = 'moved' | 'none' | 'stuck'
 
 /** The owner's line when a customer moved their booking. Pure. */
 export function movedReport(reminder: Pick<CustomerReminder, 'customerName' | 'kind'>, from: string, to: string, timeZone: string, calendar: CalendarAfterMove): string {
@@ -147,32 +144,6 @@ export async function confirmAppointment(
   return { success: true, status: 'confirmed', message: 'Confirmed, and the owner can see it. Thank them in a few words.' }
 }
 
-/**
- * Move a confirmed booking to [slot.start, slot.end), fenced on it still
- * being where it was (a second move, or the owner's own change, wins). The
- * moved booking, `taken` when another live booking holds that start, or
- * null when it changed. Throws on any other failed write.
- */
-async function rescheduleBooking(
-  supabase: SupabaseClient,
-  booking: CustomerBooking,
-  slot: { start: string; end: string },
-  nowIso: string,
-): Promise<CustomerBooking | 'taken' | null> {
-  const { data, error } = await supabase
-    .from('customer_booking')
-    .update({ starts_at: slot.start, ends_at: slot.end, customer_confirmed_at: nowIso, updated_at: nowIso })
-    .eq('workspace_id', booking.workspaceId)
-    .eq('id', booking.id)
-    .eq('state', 'confirmed')
-    .eq('starts_at', booking.startsAt)
-    .select(BOOKING_SELECT)
-    .maybeSingle()
-  if (error?.code === '23505') return 'taken'
-  if (error) throw new Error(`customer_booking update failed: ${error.message}`)
-  return data ? toBooking(data as Parameters<typeof toBooking>[0]) : null
-}
-
 /** move_appointment (see the header). Never throws on a refusal; throws on a failed read. */
 export async function moveAppointment(
   supabase: SupabaseClient,
@@ -215,37 +186,17 @@ export async function moveAppointment(
   if (!open.slot) return { success: false, code: 'SLOT_TAKEN', message: "That time isn't open. Offer others from find_open_slots." }
   const slot = open.slot
 
-  const moved = await rescheduleBooking(supabase, booking, slot, nowIso)
-  if (moved === 'taken') return { success: false, code: 'SLOT_TAKEN', message: 'Someone just took that time. Offer others from find_open_slots.' }
-  if (!moved) return { success: false, code: 'CHANGED', message: 'That booking just changed. Pass their new time to the owner with message_owner.' }
-
-  // The owner's calendar event follows the booking; a calendar that refuses puts the booking back. When the
-  // old time was taken meanwhile (another customer's request), it can't go back: it stays moved, and the owner
-  // is told their calendar still shows the old time.
-  let calendar: CalendarAfterMove = 'none'
-  if (booking.calendarEventId) {
-    try {
-      await (deps.moveEvent ?? ((userId, eventId, s) => updateCalendarEvent(userId, eventId, { start: s.start, end: s.end })))(booking.ownerUserId, booking.calendarEventId, slot)
-      calendar = 'moved'
-    } catch (err) {
-      console.warn('[reminders] calendar move failed:', err instanceof Error ? err.message : String(err))
-      const { data: back, error } = await supabase
-        .from('customer_booking')
-        .update({ starts_at: booking.startsAt, ends_at: booking.endsAt, customer_confirmed_at: booking.customerConfirmedAt, updated_at: nowIso })
-        .eq('workspace_id', booking.workspaceId)
-        .eq('id', booking.id)
-        .eq('starts_at', slot.start)
-        .select('id')
-        .maybeSingle()
-      if (!error && back) {
-        return { success: false, code: 'CALENDAR_FAILED', message: "I couldn't move it on the calendar just now, so it stays at the old time. Pass their new time to the owner with message_owner." }
-      }
-      console.warn('[reminders] booking not put back:', error?.message ?? 'it changed')
-      calendar = 'stuck'
-    }
+  // The customer picked it, so it carries their yes. The owner's calendar event follows the booking
+  // (./booking-changes.ts): a calendar that refuses puts it back, or leaves it moved and the owner told.
+  const moved = await rescheduleWithCalendar(supabase, booking, slot, { nowIso, confirmedAt: nowIso, moveEvent: deps.moveEvent })
+  if (!moved.ok) {
+    if (moved.code === 'SLOT_TAKEN') return { success: false, code: 'SLOT_TAKEN', message: 'Someone just took that time. Offer others from find_open_slots.' }
+    if (moved.code === 'CHANGED') return { success: false, code: 'CHANGED', message: 'That booking just changed. Pass their new time to the owner with message_owner.' }
+    return { success: false, code: 'CALENDAR_FAILED', message: "I couldn't move it on the calendar just now, so it stays at the old time. Pass their new time to the owner with message_owner." }
   }
+  const calendar = moved.calendar
 
-  const from = reminderAt(reminder)
+  const from = booking.startsAt
   const answered = await answerReminder(supabase, { workspaceId: args.workspaceId, id: reminder.id, answer: 'moved', from: [null, 'confirmed', 'moved', 'opted_out'], movedTo: slot.start, nowIso })
   if (answered) {
     await reportToOwner(
