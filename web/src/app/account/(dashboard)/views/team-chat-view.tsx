@@ -50,30 +50,32 @@ interface MentionOption {
 /**
  * Below this width the view shows one pane at a time (a phone, a narrow
  * card): the list of channels, then the channel picked, with Back. At it and
- * above, the two side by side, as they always were.
+ * above, the two side by side, as they always were. The inline card's list is
+ * narrower (w-44), so it keeps two panes down to TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX.
  */
 export const TEAM_CHAT_TWO_PANE_MIN_PX = 576
+export const TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX = 480
 
 /**
  * Is the view narrower than two panes need? Its own width, read by one
  * ResizeObserver (it fires only on a resize, never at rest). Unmeasured (no
  * layout yet, or no ResizeObserver): two panes, as before.
  */
-function useNarrow(ref: RefObject<HTMLElement | null>): boolean {
+function useNarrow(ref: RefObject<HTMLElement | null>, min: number): boolean {
   const [narrow, setNarrow] = useState(false)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
     const measure = () => {
       const width = el.clientWidth
-      setNarrow(width > 0 && width < TEAM_CHAT_TWO_PANE_MIN_PX)
+      setNarrow(width > 0 && width < min)
     }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [ref])
+  }, [ref, min])
   return narrow
 }
 
@@ -119,10 +121,12 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   // One pane at a time when narrow (a phone): the list until the person opens
   // a channel, then that channel, with Back to the list.
   const rootRef = useRef<HTMLDivElement>(null)
-  const narrow = useNarrow(rootRef)
+  const narrow = useNarrow(rootRef, compact ? TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX : TEAM_CHAT_TWO_PANE_MIN_PX)
   const [opened, setOpened] = useState(false)
-  const showList = !narrow || !opened
-  const showChannel = !narrow || opened
+  // Opened, but its channel is gone (archived, or no longer readable): the list again, never an empty pane with no way back.
+  const openedNow = opened && !!selectedId && !!channels?.some((c) => c.id === selectedId)
+  const showList = !narrow || !openedNow
+  const showChannel = !narrow || openedNow
   // The channel on screen: the one read marks are for. The first channel is
   // picked for the person when the list loads, but on a phone it isn't on
   // screen until they open it, and its messages stay unread until then.
@@ -272,6 +276,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
         // refetching the list (and its unread counts) once per message per person.
         const row = payload.new as Partial<TeamChatChannel> & { id?: string }
         if (payload.eventType === 'UPDATE' && row?.id) {
+          // Archived: gone from the list, and if it was the one open, another is picked (loadChannels).
+          if (row.archived_at && row.id === selectedRef.current) refreshList()
           setChannels((prev) => {
             if (!prev?.some((c) => c.id === row.id)) return prev
             if (row.archived_at) return prev.filter((c) => c.id !== row.id)
@@ -343,6 +349,14 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     setSelectedId(id)
     setOpened(true)
   }, [])
+  // Back to the list (a phone): the focus goes to the channel's row, where they were.
+  const backToList = useCallback(() => {
+    setOpened(false)
+    const id = selectedRef.current
+    requestAnimationFrame(() => {
+      if (id) rootRef.current?.querySelector<HTMLElement>(`[data-team-chat-row="${id}"]`)?.focus({ preventScroll: true })
+    })
+  }, [])
 
   const handleSent = useCallback((message: TeamChatMessage, calledAgent: boolean) => {
     setMessages((prev) => ({ ...prev, [message.channel_id]: upsertMessage(prev[message.channel_id], message) }))
@@ -354,7 +368,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   }, [])
 
   return (
-    <div ref={rootRef} data-team-chat-panes={narrow ? (opened ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
+    <div ref={rootRef} data-team-chat-panes={narrow ? (openedNow ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
       <aside
         className={cn(
           'flex-col',
@@ -365,6 +379,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
           <h1 className="text-sm font-semibold text-foreground">Team chat</h1>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+          {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
+          {narrow && error && <p className="px-2 py-1.5 text-xs text-destructive">{error}</p>}
           <SectionHeading label="Channels" onAdd={() => setNewChannelOpen(true)} addLabel="New channel" />
           {channels === null ? (
             <p className="px-2 py-1.5 text-xs text-muted-foreground">Loading…</p>
@@ -392,7 +408,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       </aside>
 
       <section className={cn('min-w-0 flex-1 flex-col', showChannel ? 'flex' : 'hidden')}>
-        {error && !selected ? (
+        {!showChannel ? null : error && !selected ? (
           <p className="py-10 text-center text-sm text-destructive">{error}</p>
         ) : !selected ? (
           channels === null ? null : <EmptyState onCreate={() => setNewChannelOpen(true)} />
@@ -412,7 +428,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
             onLoadEarlier={(before) => loadEarlier(selected.id, before)}
             onSent={handleSent}
             onChanged={handleChanged}
-            onBack={narrow ? () => setOpened(false) : undefined}
+            onBack={narrow ? backToList : undefined}
           />
         )}
       </section>
@@ -460,6 +476,7 @@ function ChannelRow({
   return (
     <button
       type="button"
+      data-team-chat-row={channel.id}
       onClick={onSelect}
       className={cn(
         'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm',
@@ -549,6 +566,12 @@ function ChannelPane({
   onBack?: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Opened on a phone (it takes the screen): the focus starts on Back, the list's button it replaced being gone.
+  const backRef = useRef<HTMLButtonElement>(null)
+  const backFirst = !!onBack
+  useEffect(() => {
+    if (backFirst) backRef.current?.focus({ preventScroll: true })
+  }, [backFirst])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
 
@@ -598,6 +621,7 @@ function ChannelPane({
       <div className={cn('flex h-12 shrink-0 items-center gap-2 border-b border-border', onBack ? 'pl-2 pr-4' : 'px-5')}>
         {onBack && (
           <button
+            ref={backRef}
             type="button"
             onClick={onBack}
             aria-label="All channels"

@@ -16,14 +16,22 @@ vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceId: () => 'ws-1
 vi.mock('@/app/account/teams-context', () => ({ useTeams: () => ({ teams: [] }) }))
 vi.mock('@/lib/voice/assistant-name-store', () => ({ useAssistantName: () => ({ name: 'Joseph' }) }))
 vi.mock('@/lib/cached-fetch', () => ({ cachedJson: async () => ({ members: [{ id: 'm-me', display_name: 'Jordan Ellery' }, { id: 'm-rosa', display_name: 'Rosa Lind' }] }) }))
+// The realtime channel: its handlers kept by table, so a test can send what the database would.
+const realtime = vi.hoisted(() => ({ handlers: new Map<string, (payload: unknown) => void>() }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => {
-    const channel = { on: () => channel, subscribe: () => channel }
+    const channel = {
+      on: (_event: string, filter: { table: string }, cb: (payload: unknown) => void) => {
+        realtime.handlers.set(filter.table, cb)
+        return channel
+      },
+      subscribe: () => channel,
+    }
     return { channel: () => channel, removeChannel: async () => {} }
   },
 }))
 
-import { TEAM_CHAT_TWO_PANE_MIN_PX, TeamChatView } from '../team-chat-view'
+import { TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX, TEAM_CHAT_TWO_PANE_MIN_PX, TeamChatView } from '../team-chat-view'
 
 const CHANNELS = [
   { id: 'c-general', kind: 'channel', name: 'general', topic: null, team_id: null, dm_member_id: null, last_message_at: '2026-11-09T10:00:00Z', archived_at: null, unread: 2, mentions: 0 },
@@ -35,13 +43,20 @@ const MESSAGES = [
 
 let reads: string[] = []
 let width = 390
+let channelsList: unknown[] = CHANNELS
+let channelsStatus = 200
 let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
   reads = []
+  channelsList = CHANNELS
+  channelsStatus = 200
+  realtime.handlers.clear()
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === '/api/account/team-chat/channels') return new Response(JSON.stringify({ channels: CHANNELS, memberId: 'm-me' }))
+    if (url === '/api/account/team-chat/channels') {
+      return channelsStatus === 200 ? new Response(JSON.stringify({ channels: channelsList, memberId: 'm-me' })) : new Response('{}', { status: channelsStatus })
+    }
     const read = url.match(/channels\/([^/]+)\/read$/)
     if (read && init?.method === 'POST') {
       reads.push(read[1])
@@ -63,8 +78,11 @@ afterEach(() => {
   delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth
 })
 
-async function render() {
-  await act(async () => root.render(h(TeamChatView)))
+async function render(props: { compact?: boolean } = {}) {
+  await act(async () => root.render(h(TeamChatView, props)))
+  await settle()
+}
+async function settle() {
   for (let i = 0; i < 5; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
 }
 const panes = () => container.querySelector('[data-team-chat-panes]')?.getAttribute('data-team-chat-panes')
@@ -99,6 +117,54 @@ describe('team chat on a phone (narrower than two panes)', () => {
     await act(async () => back()!.click())
     expect(panes()).toBe('list')
     expect(section().className).toContain('hidden')
+  })
+
+  it('mounts the channel only once it is on screen (so it opens at its newest message), with the focus on Back', async () => {
+    await render()
+    // Picked for the person but not on screen: nothing of it is drawn yet.
+    expect(container.textContent).not.toContain('The kickoff moved to Thursday.')
+    await act(async () => row('general').click())
+    expect(document.activeElement).toBe(back())
+  })
+
+  it('a live message in a channel while the list shows refreshes the counts and marks nothing read', async () => {
+    await render()
+    const send = realtime.handlers.get('team_chat_message')!
+    await act(async () => send({ eventType: 'INSERT', new: { ...MESSAGES[0], id: 'msg-2' } }))
+    expect(reads).toEqual([])
+  })
+
+  it('goes back to the list when the open channel is archived, never an empty pane with no way back', async () => {
+    await render()
+    await act(async () => row('general').click())
+    expect(panes()).toBe('channel')
+    channelsList = []
+    await act(async () => realtime.handlers.get('team_chat_channel')!({ eventType: 'UPDATE', new: { id: 'c-general', archived_at: '2026-11-09T11:00:00Z' } }))
+    expect(panes()).toBe('list')
+    await act(async () => new Promise((r) => setTimeout(r, 450)))
+    await settle()
+    expect(panes()).toBe('list')
+    expect(container.textContent).toContain('Start your first channel')
+  })
+
+  it('says so in the list when the channels could not be loaded', async () => {
+    channelsStatus = 500
+    await render()
+    expect(aside().textContent).toContain('Could not load team chat')
+  })
+})
+
+describe('the inline card (compact): its list is narrower, so two panes hold down to a narrower width', () => {
+  it('two panes at the compact threshold, one below it', async () => {
+    width = TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX
+    await render({ compact: true })
+    expect(panes()).toBe('both')
+    expect(aside().className).toContain('w-44')
+    act(() => root.unmount())
+    root = createRoot(container)
+    width = TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX - 1
+    await render({ compact: true })
+    expect(panes()).toBe('list')
   })
 })
 
