@@ -928,6 +928,41 @@ html[data-sky-tone] [data-on-sky] {
   .card-focus-backdrop::before { animation: none; }
 }
 
+/* The app rail (app/account/(dashboard)/rail/app-rail.tsx, Liam 11-09): a thin
+   band of page icons down the window's left. `--app-rail-w` is its width, set
+   where `data-app-rail` is: on the shell root (in the server markup, so the
+   top bar and the chat start clear of it from the first paint) and on <html>
+   (for the full-screen layer, which sits on <body>). Below `md` the rail is
+   hidden and the width is 0: a phone keeps the app as it was. */
+[data-app-rail] {
+  --app-rail-w: 0px;
+}
+@media (min-width: 768px) {
+  [data-app-rail] {
+    --app-rail-w: 52px;
+  }
+  /* A full-screen card beside the rail (show-tool-card.tsx, `.card-page-layer`)
+     has no blurred veil: the page sits on the app's own background (the sky,
+     the photo, the flat surface or Glass), so the rail beside it stays sharp
+     and every page is a click away. The chat and the top bar under the layer
+     stop painting meanwhile (FRONT_CARD_ATTR, components/chat-cards/
+     front-card.ts): nothing of them showed through the veil anyway. */
+  html[data-app-rail] .card-page-layer::before {
+    display: none;
+  }
+  /* Opacity too: a child with `transition: all` (the composer) would ease its
+     visibility out over its duration, showing beside the page meanwhile. */
+  html[data-app-rail][data-card-front] [data-windows-row],
+  html[data-app-rail][data-card-front] [data-shell-top-bar] {
+    visibility: hidden;
+    opacity: 0;
+  }
+}
+/* On Glass the rail takes the shell's tint, as the shell's surface does. */
+html[data-glass-window] [data-app-rail-nav] {
+  background-color: hsl(var(--background) / var(--window-tint, 0));
+}
+
 /* Chat scroller METRICS. The top fade that used to mask content behind the
    floating HUDs is gone — messages now pass behind the attention deck / widget
    dock and stay readable, with the cards' own heavier shadow providing the

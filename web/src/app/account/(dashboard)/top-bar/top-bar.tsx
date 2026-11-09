@@ -14,6 +14,13 @@ import { ForYouToggle, SidePanelToggle } from '../side-panels/side-panel-toggles
 import { SearchButton } from './search-button'
 
 /**
+ * The room the macOS traffic lights take at the bar's left: their width from
+ * the window's edge, less the app rail's (rail/app-rail.tsx), which the bar
+ * starts after and which the lights mostly sit over. 4px at least, the web's.
+ */
+const TRAFFIC_LIGHT_GUTTER = `max(4px, calc(${MACOS_TRAFFIC_LIGHT_WIDTH}px - var(--app-rail-w, 0px)))`
+
+/**
  * The top bar's controls: For you's toggle leads it at the far left, then
  * Search, and Listen, the side panel's toggle and the
  * workspace pill trail it (Capture is in the chat's composer:
@@ -93,7 +100,7 @@ export function TopBar() {
             // start, so the rest of the column stays drag surface.
             'justify-self-start pr-2',
           )}
-          style={{ paddingLeft: trafficLights ? MACOS_TRAFFIC_LIGHT_WIDTH : 4 }}
+          style={{ paddingLeft: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
         >
           <TooltipProvider delayDuration={300}>
             {/* For you's toggle, at the far left over its column (side-panels/
@@ -119,7 +126,7 @@ export function TopBar() {
       {!mounted && (
         <div
           className="shrink-0 self-stretch"
-          style={{ width: trafficLights ? MACOS_TRAFFIC_LIGHT_WIDTH : 4 }}
+          style={{ width: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
           data-tauri-drag-region
         />
       )}

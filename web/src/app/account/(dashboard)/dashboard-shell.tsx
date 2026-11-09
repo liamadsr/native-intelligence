@@ -64,12 +64,16 @@ import { InteractiveVoiceHost } from '@/components/read-aloud/interactive-voice-
 import { TalkAnywhereHost } from '@/components/read-aloud/talk-anywhere-host'
 import { SilentMicNotice } from '@/components/desktop/silent-mic-notice'
 import { FadingBlur } from '@/components/ui/fading-blur'
+import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
 
 /** The top bar — always fully visible. The workspace switcher and the action
  *  buttons float over the chat, which scrolls on under them (Liam's
  *  reference: content passing beneath the bar, not stopping at a line). */
 /** The blur under the top bar: the bar's height, then TOP_BAR_FADE_PX more. */
 const TOP_BAR_BLUR_STYLE = { height: `calc(100% + ${TOP_BAR_FADE_PX}px)` }
+/** The top bar and the chat row start clear of the app rail (rail/app-rail.tsx). */
+const TOP_BAR_STYLE = { left: 'var(--app-rail-w, 0px)' }
+const CHAT_ROW_STYLE = { marginLeft: 'var(--app-rail-w, 0px)' }
 
 function DashboardTopBar() {
   // Web gets half the top pad (pt-1 = 4px); the desktop app keeps pt-2 because the
@@ -102,10 +106,12 @@ function DashboardTopBar() {
       ref={barRef}
       // The voice bird perches on its bottom edge (components/birds/easter-egg-bird.tsx).
       data-shell-top-bar=""
+      style={TOP_BAR_STYLE}
       className={cn(
-        // No side padding: the bar spans the full window width, as the chat
-        // beneath it does (the trailing cluster carries its own pr-2).
-        'absolute inset-x-0 top-0 flex items-center',
+        // No side padding: the bar spans the window from the app rail to its
+        // right edge, as the chat beneath it does (the trailing cluster
+        // carries its own pr-2).
+        'absolute right-0 top-0 flex items-center',
         'z-40',
         trafficLights ? 'pt-2' : 'pt-1',
       )}
@@ -172,7 +178,9 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
       id={CONTENT_PANEL_ID}
       data-windows-row=""
       // The top bar floats over this row (DashboardTopBar): what sits at the
-      // row's top reads its height to stay clear of it.
+      // row's top reads its height to stay clear of it. It starts clear of
+      // the app rail.
+      style={CHAT_ROW_STYLE}
       className="relative z-10 flex min-h-0 flex-1 overflow-hidden [--chat-top-inset:var(--top-bar-h,0px)] [html[data-capture-card-up]_&]:z-auto [html[data-card-reply-focus]_&]:z-auto"
     >
         {/* CHAT STRIP — transparent so the shell-level photo background shows
@@ -526,6 +534,9 @@ export function DashboardShell({
         <WindowBackdropSync />
         <div
           id="dial8-shell-root"
+          // The app rail's width, `--app-rail-w` (tailwind.css): here in the
+          // server markup, so the top bar and the chat start clear of it.
+          {...{ [APP_RAIL_ATTR]: '' }}
           className="group/shell relative flex h-dvh flex-col overflow-hidden overscroll-none"
         >
           {/* The shell's own surface: the flat `bg-sidebar`, or the custom
@@ -560,7 +571,9 @@ export function DashboardShell({
             <BackdropMotion />
           </div>
 
-          {/* Top bar (full width) — always visible (see TopBar). */}
+          {/* The app rail down the left: the pages, a click away (rail/app-rail.tsx). */}
+          <AppRail avatarUrl={avatarUrl} initials={initials} />
+          {/* Top bar (from the rail to the right edge) — always visible (see TopBar). */}
           <DashboardTopBar />
           {/* Below the top bar: the full-bleed main chat. */}
           {/* The name the empty chat greets the person by (conditions-line.tsx). */}
