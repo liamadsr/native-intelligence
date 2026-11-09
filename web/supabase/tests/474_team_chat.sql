@@ -112,7 +112,7 @@ begin
     array[format('select 1 from public.team_chat_message where channel_id = %L', ch_dm)]);
   perform pg_temp.t474_run('member outside the DM cannot see it in the list', 'rows=0', u_c,
     array[format('select 1 from public.team_chat_channel where id = %L', ch_dm)]);
-  perform pg_temp.t474_run('nobody reads the agent threads', 'rows=0', u_a,
+  perform pg_temp.t474_run('nobody reads the agent threads (no grant at all)', 'refused', u_a,
     array['select 1 from public.team_chat_agent_thread']);
 
   -- ── Writes ────────────────────────────────────────────────────────────────
@@ -175,10 +175,12 @@ begin
     from t474_results;
   raise notice '%', v_report;
   if v_fail > 0 then
-    raise exception '474 team_chat: % check(s) failed', v_fail using detail = v_report;
+    raise exception '474 team_chat: % of % check(s) failed: %', v_fail, (select count(*) from t474_results),
+      (select string_agg(label || ' (got ' || got || ')', '; ' order by n) from t474_results where not pass)
+      using detail = v_report;
   end if;
   if v_raise_report then
-    raise exception '474 team_chat: all checks passed' using detail = v_report;
+    raise exception '474 team_chat: all % checks passed', (select count(*) from t474_results) using detail = v_report;
   end if;
   raise notice '474 team_chat: all checks passed';
 end
