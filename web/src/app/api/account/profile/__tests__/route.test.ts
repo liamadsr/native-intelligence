@@ -179,3 +179,37 @@ describe('the agent’s look and name on the account', () => {
     expect((await PATCH(patchReq({ assistant_name: 'Ada' }))).status).toBe(500)
   })
 })
+
+describe('the app rail’s bar on the account (rail_pages)', () => {
+  it('the GET reports it checked, and null for an account with none, or junk', async () => {
+    expect((await body(await GET())).rail_pages).toBeNull()
+    signedIn({ rail_pages: { order: ['mail', 'docs', 'mail'], hidden: ['deals'] } })
+    expect((await body(await GET())).rail_pages).toEqual({ order: ['mail', 'docs'], hidden: ['deals'] })
+    signedIn({ rail_pages: { order: 'mail' } })
+    expect((await body(await GET())).rail_pages).toBeNull()
+  })
+
+  it('the PATCH saves it through the admin API, that key alone', async () => {
+    const res = await PATCH(patchReq({ rail_pages: { order: ['calendar', 'mail'], hidden: [] } }))
+    expect(res.status).toBe(200)
+    expect(hoisted.updateUserById).toHaveBeenCalledWith('user-1', { user_metadata: { rail_pages: { order: ['calendar', 'mail'], hidden: [] } } })
+  })
+
+  it('refuses what isn’t two short lists of page ids with 400, and writes nothing', async () => {
+    const many = Array.from({ length: 65 }, (_, i) => `page-${i}`)
+    for (const bad of [
+      null,
+      ['mail'],
+      { order: 'mail' },
+      { order: [7] },
+      { order: ['Mail'] },
+      { hidden: ['../etc'] },
+      { order: ['x'.repeat(41)] },
+      { order: many },
+      { hidden: many },
+    ]) {
+      expect((await PATCH(patchReq({ rail_pages: bad }))).status, JSON.stringify(bad).slice(0, 40)).toBe(400)
+    }
+    expect(hoisted.updateUserById).not.toHaveBeenCalled()
+  })
+})

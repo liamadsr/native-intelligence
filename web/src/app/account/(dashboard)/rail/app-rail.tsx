@@ -7,10 +7,21 @@
  *   the header  one pill at the top left, over the top bar: the
  *               workspace's thumbnail (its account menu), For you's button,
  *               and Search (Liam, 11-09).
- *   the bar     down the left, just under the header: every page the
- *               workspace has on (./rail-pages.ts) in one floating pill, a
- *               hairline between its groups (your work, plans, customers,
- *               agents). Where the window is too short it scrolls.
+ *   the bar     down the left, just under the header: the pages the
+ *               person has pinned, in their order (./rail-pages.ts
+ *               railLayout; by default every page the workspace has on, a
+ *               hairline between its groups: your work, plans, customers,
+ *               agents), then Customize bar's icon. Where the window is too
+ *               short it scrolls.
+ *
+ * The person's bar (Liam, 11-09: "customise the navigation like move them up
+ * and down, right click and pin and unpin them … a setting icon that lets me
+ * turn on and off what shows on the navbar"), kept on their account
+ * (lib/rail-prefs-store.ts): drag an icon up or down (./rail-drag.ts), or
+ * Alt+↑/↓ on it; right-click it for Unpin from bar, Move up, Move down and
+ * Customize bar…; the icon at the bar's end opens Customize bar, a switch per
+ * page. Hiding an icon never turns its page off: it still opens from `/`,
+ * Search and links. A custom order is one list, no hairlines.
  *
  *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
  *            Search is a phone's only now: Liam, 11-09).
@@ -39,7 +50,7 @@
  * Flat cost: no animation, no polling; it redraws when a card enters or leaves
  * full screen, or the workspace's edition changes.
  */
-import { useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import {
   AudioLines,
   Brain,
@@ -57,6 +68,7 @@ import {
   MessagesSquare,
   Search,
   Send,
+  Settings2,
   Sparkles,
   Target,
   Telescope,
@@ -67,6 +79,10 @@ import {
 import { cn } from '@/lib/utils'
 import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
 import { WorkspaceSwitcher, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
@@ -75,7 +91,21 @@ import { ForYouToggle } from '../side-panels/side-panel-toggles'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
-import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
+import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
+import { saveRailPrefs, useRailPrefs } from '@/lib/rail-prefs-store'
+import {
+  activeRailItem,
+  moveRailPage,
+  moveRailPageBy,
+  railLayout,
+  railPagesFor,
+  resetRailPrefs,
+  setRailPagePinned,
+  type OfferedRailPage,
+  type RailLayout,
+  type RailPageId,
+} from './rail-pages'
+import { startRailDrag } from './rail-drag'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
 export const APP_RAIL_ATTR = 'data-app-rail'
@@ -91,7 +121,9 @@ const HEADER_STYLE_LIGHTS: React.CSSProperties = { left: 78, top: 9 }
 // Its top 5px under the header's: level with the panels' tops (half a gutter under the top bar).
 const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(var(--app-header-bottom, 0px) + 5px)' }
 /** A floating pill: the panels' glass (COLUMN_CARD_SKIN), rounded, its buttons stacked. */
-const PILL = cn('flex flex-col items-center gap-0.5 rounded-2xl border border-border/60 p-1', COLUMN_CARD_SKIN)
+const PILL = cn('relative flex flex-col items-center gap-0.5 rounded-2xl border border-border/60 p-1', COLUMN_CARD_SKIN)
+/** The hairline between two of the bar's groups, and before Customize bar. */
+const HAIRLINE = 'my-1 h-px w-5 shrink-0 bg-foreground/10'
 
 /** Each page's icon: the rail's own for Liam's reference pages, the `/` menu's for the rest (command-menu.tsx). */
 const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
@@ -172,6 +204,160 @@ function RailButton({
   )
 }
 
+/** Save the bar (when it changed): the bar moves at once, then the account takes it. */
+function commit(next: RailPrefs | null): boolean {
+  if (!next) return false
+  void saveRailPrefs(next)
+  return true
+}
+
+/** A page's icon in the bar: a click opens it, a drag or Alt+↑/↓ moves it, a right-click offers its menu. */
+function PageButton({
+  entry: { def, page },
+  index,
+  count,
+  active,
+  onOpen,
+  onMoveTo,
+  onUnpin,
+  onCustomize,
+  onMenuClosed,
+}: {
+  entry: OfferedRailPage
+  index: number
+  count: number
+  active: boolean
+  onOpen: () => void
+  onMoveTo: (to: number) => void
+  onUnpin: () => void
+  onCustomize: () => void
+  onMenuClosed: (event: Event) => void
+}) {
+  const Icon = PAGE_ICONS[def.id] ?? LayoutList
+  return (
+    <ContextMenu modal={false}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ContextMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={page.label}
+              aria-current={active ? 'page' : undefined}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+              data-app-rail-item={def.id}
+              data-app-rail-page=""
+              onClick={onOpen}
+              onPointerDown={(e) => {
+                if (e.button !== 0 || e.ctrlKey || e.metaKey) return
+                startRailDrag(e.currentTarget, e.pointerId, e.clientY, onMoveTo)
+              }}
+              onKeyDown={(e) => {
+                if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                e.preventDefault()
+                onMoveTo(index + (e.key === 'ArrowUp' ? -1 : 1))
+              }}
+              className={cn(ITEM, 'data-[dragging]:opacity-40', active && ITEM_ACTIVE)}
+            >
+              <Icon className="size-[18px]" strokeWidth={1.75} />
+            </button>
+          </ContextMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
+          <span>{page.label}</span>
+        </TooltipContent>
+      </Tooltip>
+      <ContextMenuContent data-app-rail-menu={def.id} className="min-w-44" onCloseAutoFocus={onMenuClosed}>
+        <ContextMenuItem data-app-rail-menu-item="unpin" onSelect={onUnpin}>
+          Unpin from bar
+        </ContextMenuItem>
+        <ContextMenuItem data-app-rail-menu-item="up" disabled={index === 0} onSelect={() => onMoveTo(index - 1)}>
+          Move up
+        </ContextMenuItem>
+        <ContextMenuItem data-app-rail-menu-item="down" disabled={index === count - 1} onSelect={() => onMoveTo(index + 1)}>
+          Move down
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem data-app-rail-menu-item="customize" onSelect={onCustomize}>
+          Customize bar…
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+/** Customize bar: its icon at the bar's end, and beside the bar a switch per page (on: its icon shows). */
+function CustomizeBar({
+  layout,
+  prefs,
+  open,
+  onOpenChange,
+  onPinned,
+  onReset,
+}: {
+  layout: RailLayout
+  prefs: RailPrefs | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onPinned: (id: RailPageId, pinned: boolean) => void
+  onReset: () => void
+}) {
+  const hidden = new Set(prefs?.hidden ?? [])
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button type="button" aria-label="Customize bar" data-app-rail-item="customize" className={cn(ITEM, open && ITEM_ACTIVE)}>
+              <Settings2 className="size-[18px]" strokeWidth={1.75} />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
+          <span>Customize bar</span>
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        side="right"
+        align="end"
+        sideOffset={12}
+        collisionPadding={8}
+        data-app-rail-customize=""
+        aria-label="Navigation bar"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-64 flex-col p-2"
+      >
+        <div className="px-2 pb-2 pt-1.5">
+          <h2 className="text-sm font-medium">Navigation bar</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Hidden pages still open from Search and /.</p>
+        </div>
+        <ul className="min-h-0 flex-1 overflow-y-auto">
+          {layout.all.map(({ def, page }) => {
+            const Icon = PAGE_ICONS[def.id] ?? LayoutList
+            return (
+              <li key={def.id} data-app-rail-customize-row={def.id}>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent/60">
+                  <Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                  <span className="min-w-0 flex-1 truncate">{page.label}</span>
+                  <Switch
+                    checked={!hidden.has(def.id)}
+                    onCheckedChange={(on) => onPinned(def.id, on)}
+                    aria-label={`Show ${page.label} in the bar`}
+                  />
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="mt-1 border-t border-border/60 px-1 pt-2">
+          <Button type="button" variant="ghost" size="sm" className="w-full justify-start shadow-none" disabled={isDefaultRailPrefs(prefs)} onClick={onReset} data-app-rail-customize-reset="">
+            Reset to default
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function AppRail() {
   // Hydration-safe (false on the server and the first client render), as the
   // top bar's controls are: the icons mount after hydration, the band itself
@@ -194,20 +380,67 @@ export function AppRail() {
   // whatever drives it (chat-panel.tsx openCardHere), as a chip or a notice
   // does; only `/` leaves them out where its chat may not read them.
   const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop })), [edition, desktop])
+  const offeredIds = useMemo(() => pages.map((p) => p.def.id), [pages])
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, () => null)
   const active = activeRailItem(front?.spec ?? null, pages)
 
+  // The person's bar: their pinned pages in their order (the default: every page, the rail's).
+  const prefs = useRailPrefs()
+  const layout = useMemo(() => railLayout(pages, prefs), [pages, prefs])
 
-  // The page groups, each its own floating pill (your work, plans, customers, agents).
+  // The bar's groups, a hairline between two (your work, plans, customers,
+  // agents), while the order is the default; the person's own order is one list.
   const groups = useMemo(() => {
-    const out: Array<{ group: string; pages: typeof pages }> = []
-    for (const p of pages) {
+    if (layout.custom) return layout.shown.length ? [{ group: 'custom', pages: layout.shown }] : []
+    const out: Array<{ group: string; pages: OfferedRailPage[] }> = []
+    for (const p of layout.shown) {
       const last = out[out.length - 1]
       if (last && last.group === p.def.group) last.pages.push(p)
       else out.push({ group: p.def.group, pages: [p] })
     }
     return out
-  }, [pages])
+  }, [layout])
+
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+  /** Customize bar…, picked from an icon's menu: opened once the menu has closed (so its focus doesn't close it again). */
+  const customizeAfterMenu = useRef(false)
+
+  // A move keeps the focus on the moved icon (React moves or remounts it, and
+  // a moved node loses its focus), and says where it went (side-panels.tsx).
+  const [announcement, setAnnouncement] = useState('')
+  const refocus = useRef<RailPageId | null>(null)
+  const label = (id: RailPageId) => pages.find((p) => p.def.id === id)?.page.label ?? id
+  const moveTo = (id: RailPageId, to: number) => {
+    const count = layout.shown.length
+    if (!commit(moveRailPage(prefs, offeredIds, id, to))) return
+    refocus.current = id
+    setAnnouncement(`${label(id)} moved to ${Math.max(0, Math.min(count - 1, to)) + 1} of ${count}`)
+  }
+  const setPinned = (id: RailPageId, pinned: boolean) => {
+    if (commit(setRailPagePinned(prefs, id, pinned))) setAnnouncement(pinned ? `${label(id)} pinned to the bar` : `${label(id)} unpinned from the bar`)
+  }
+  useLayoutEffect(() => {
+    const id = refocus.current
+    refocus.current = null
+    if (!id) return
+    const button = document.querySelector<HTMLElement>(`[data-app-rail-nav] [data-app-rail-item="${id}"]`)
+    if (button && document.activeElement !== button) button.focus()
+  }, [layout])
+  // An icon's menu closed: the focus back on its icon (where it stands now),
+  // Customize bar's if it went, or Customize bar opened.
+  const onMenuClosed = (id: RailPageId) => (event: Event) => {
+    event.preventDefault()
+    if (customizeAfterMenu.current) {
+      customizeAfterMenu.current = false
+      setCustomizeOpen(true)
+      return
+    }
+    const nav = document.querySelector<HTMLElement>('[data-app-rail-nav]')
+    // Closed by a press elsewhere (the composer, a page): the focus stays where that put it.
+    const now = document.activeElement
+    if (now && now !== document.body && !nav?.contains(now)) return
+    ;(nav?.querySelector<HTMLElement>(`[data-app-rail-item="${id}"]`) ?? nav?.querySelector<HTMLElement>('[data-app-rail-item="customize"]'))?.focus()
+  }
 
   // Where the header ends, on <html>: the top bar's controls start after it,
   // and a page full screen starts under it (top-bar.tsx, show-tool-card.tsx).
@@ -232,22 +465,27 @@ export function AppRail() {
     }
   }, [mounted])
 
-  const pageButton = ({ def, page }: (typeof pages)[number]) => {
-    const Icon = PAGE_ICONS[def.id] ?? LayoutList
+  const pageButton = (entry: OfferedRailPage) => {
+    const { def, page } = entry
     return (
-      <RailButton
+      <PageButton
         key={def.id}
-        label={page.label}
+        entry={entry}
+        index={layout.shown.indexOf(entry)}
+        count={layout.shown.length}
         active={active === def.id}
-        onClick={() => {
+        onOpen={() => {
           openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
           // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
           if (active === def.id) focusFrontPage()
         }}
-        data={{ 'data-app-rail-item': def.id }}
-      >
-        <Icon className="size-[18px]" strokeWidth={1.75} />
-      </RailButton>
+        onMoveTo={(to) => moveTo(def.id, to)}
+        onUnpin={() => setPinned(def.id, false)}
+        onCustomize={() => {
+          customizeAfterMenu.current = true
+        }}
+        onMenuClosed={onMenuClosed(def.id)}
+      />
     )
   }
 
@@ -310,10 +548,27 @@ export function AppRail() {
                   {groups.map((g, i) => (
                     <div key={g.group} data-app-rail-group={g.group} className="flex flex-col items-center gap-0.5">
                       {/* A hairline where a group starts (your work, plans, customers, agents). */}
-                      {i > 0 && <div aria-hidden data-app-rail-group-line="" className="my-1 h-px w-5 shrink-0 bg-foreground/10" />}
+                      {i > 0 && <div aria-hidden data-app-rail-group-line="" className={HAIRLINE} />}
                       {g.pages.map(pageButton)}
                     </div>
                   ))}
+                  {/* Customize bar, after a hairline (alone when every page is hidden). */}
+                  {groups.length > 0 && <div aria-hidden data-app-rail-customize-line="" className={HAIRLINE} />}
+                  <CustomizeBar
+                    layout={layout}
+                    prefs={prefs}
+                    open={customizeOpen}
+                    onOpenChange={setCustomizeOpen}
+                    onPinned={setPinned}
+                    onReset={() => {
+                      if (commit(resetRailPrefs(prefs))) setAnnouncement('The bar is back to its default')
+                    }}
+                  />
+                  {/* Where a dragged icon would land (rail-drag.ts): hidden at rest. */}
+                  <div aria-hidden data-app-rail-drop-line="" className="pointer-events-none absolute inset-x-1.5 hidden h-0.5 -translate-y-1/2 rounded-full bg-primary" />
+                </div>
+                <div aria-live="polite" data-app-rail-announce="" className="sr-only">
+                  {announcement}
                 </div>
               </div>
             </div>
