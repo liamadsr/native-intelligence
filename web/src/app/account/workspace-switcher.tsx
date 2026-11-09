@@ -647,8 +647,11 @@ export function WorkspaceSwitcher({
    *  workspace's name heads the menu it opens), opening the workspace/account
    *  menu. Replaces the old `tab-joined` pill, which also carried the
    *  content-panel collapse toggle; that toggle now lives beside the new-tab
-   *  button in tab-bar.tsx. */
-  variant?: 'icon' | 'full' | 'tab' | 'pill'
+   *  button in tab-bar.tsx.
+   *  `rail` — the app rail's foot (rail/app-rail.tsx): the avatar, its menu
+   *  opening up and to the right of it (Liam, 11-09: the one workspace menu,
+   *  at the bottom left; the top bar's pill is a phone's only now). */
+  variant?: 'icon' | 'full' | 'tab' | 'pill' | 'rail'
 }) {
   const router = useRouter()
   const { workspaces, currentId, userEmail, userAvatarUrl, loaded, setCurrentId, refresh } = useContext(WorkspaceCacheCtx)
@@ -681,7 +684,7 @@ export function WorkspaceSwitcher({
   // Popover position (fixed coords). The panel is portaled to <body> so it
   // escapes the tab bar's overflow-hidden / overflow-x-auto clipping — without
   // a portal the menu would be cut off by the bar's fixed-height row.
-  const [pos, setPos] = useState<{ top: number; left: number; right: number } | null>(null)
+  const [pos, setPos] = useState<{ top: number; left: number; right: number; bottom: number } | null>(null)
 
   // Measure the trigger and place the panel just beneath it. Re-measures on
   // open and on scroll/resize while open.
@@ -694,8 +697,10 @@ export function WorkspaceSwitcher({
       const r = el.getBoundingClientRect()
       setPos({
         top: r.bottom + 8,
-        left: r.left,
+        // The rail's menu opens beside it, to the right, its foot level with the avatar's.
+        left: variant === 'rail' ? r.right + 12 : r.left,
         right: window.innerWidth - r.right,
+        bottom: window.innerHeight - r.bottom,
       })
     }
     place()
@@ -766,6 +771,14 @@ export function WorkspaceSwitcher({
   const showUserAvatar = !!userAvatarUrl && !userAvatarFailed
 
   if (!loaded || !current) {
+    // rail: the avatar's place, still (no pulse: the rail runs nothing at rest).
+    if (variant === 'rail') {
+      return (
+        <div className="flex size-9 items-center justify-center">
+          <div className="size-7 rounded-full bg-muted" />
+        </div>
+      )
+    }
     // pill: mirror the live pill — the avatar alone — so the cold→loaded
     // handoff is seamless.
     if (variant === 'pill') {
@@ -833,15 +846,20 @@ export function WorkspaceSwitcher({
           <div
             ref={panelRef}
             role="menu"
-            style={{
-              position: 'fixed',
-              top: pos.top,
-              ...(align === 'end' ? { right: pos.right } : { left: pos.left }),
-              transformOrigin: align === 'end' ? 'top right' : 'top left',
-            }}
+            style={
+              variant === 'rail'
+                ? { position: 'fixed', left: pos.left, bottom: pos.bottom, transformOrigin: 'bottom left' }
+                : {
+                    position: 'fixed',
+                    top: pos.top,
+                    ...(align === 'end' ? { right: pos.right } : { left: pos.left }),
+                    transformOrigin: align === 'end' ? 'top right' : 'top left',
+                  }
+            }
             className={cn(
               'z-[60] w-72 overflow-hidden rounded-3xl border border-border bg-popover p-2 text-popover-foreground shadow-xl',
-              'animate-in fade-in-0 zoom-in-95 slide-in-from-top-1 duration-200 ease-out',
+              'animate-in fade-in-0 zoom-in-95 duration-200 ease-out',
+              variant === 'rail' ? 'slide-in-from-left-1' : 'slide-in-from-top-1',
             )}
           >
             <WorkspacePanelContent {...panelProps} />
@@ -941,6 +959,50 @@ export function WorkspaceSwitcher({
             <WorkspacePanelContent key={openCount} {...panelProps} />
           </LiquidPillCard>
         </LiquidPill>
+        {createOverlay}
+      </div>
+    )
+  }
+
+  if (variant === 'rail') {
+    // The app rail's foot: the avatar, as the rail's other buttons are sized
+    // (a 36px square holding a 28px circle); the menu opens beside it.
+    return (
+      <div ref={rootRef} className="relative">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-label="Workspace and account menu"
+          title={current.name}
+          // No square behind the avatar (Liam, 11-09): the circle alone says
+          // hover (its edge darkens) and open (its ring).
+          className="group flex size-9 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span
+            className={cn(
+              'grid size-7 place-items-center overflow-hidden rounded-full border bg-background text-[10px] font-semibold text-sidebar-foreground/70 transition-colors motion-reduce:transition-none',
+              open ? 'border-primary/40 ring-2 ring-primary/15' : 'border-border/60 group-hover:border-foreground/30',
+            )}
+          >
+            {showUserAvatar ? (
+              <img
+                src={userAvatarUrl ?? undefined}
+                alt=""
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                onError={() => setUserAvatarFailed(true)}
+              />
+            ) : current.logo_url ? (
+              <img src={current.logo_url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              current.name.charAt(0).toUpperCase()
+            )}
+          </span>
+        </button>
+        {panel}
         {createOverlay}
       </div>
     )

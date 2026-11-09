@@ -14,9 +14,17 @@ import { ForYouToggle, SidePanelToggle } from '../side-panels/side-panel-toggles
 import { SearchButton } from './search-button'
 
 /**
- * The top bar's controls: For you's toggle leads it at the far left, then
- * Search, and Listen, the side panel's toggle and the
- * workspace pill trail it (Capture is in the chat's composer:
+ * The room the macOS traffic lights take at the bar's left: their width from
+ * the window's edge, less the app rail's (rail/app-rail.tsx), which the bar
+ * starts after and which the lights mostly sit over. 4px at least, the web's.
+ */
+const TRAFFIC_LIGHT_GUTTER = `max(4px, calc(${MACOS_TRAFFIC_LIGHT_WIDTH}px - var(--app-rail-w, 0px)))`
+
+/**
+ * The top bar's controls: For you's toggle leads it at the far left (from
+ * `md` up only where its column has no room to show by itself), then Search
+ * on a phone (from `md` up the app rail has it); Listen, the side panel's
+ * toggle and the workspace pill trail it (Capture is in the chat's composer:
  * chat/composer-capture-button.tsx). There is nothing in its middle: the
  * main chat is one never-ending conversation (docs/plans/one-chat.md), so the
  * tabs, "New chat" and the chat history that sat there are gone.
@@ -93,16 +101,22 @@ export function TopBar() {
             // start, so the rest of the column stays drag surface.
             'justify-self-start pr-2',
           )}
-          style={{ paddingLeft: trafficLights ? MACOS_TRAFFIC_LIGHT_WIDTH : 4 }}
+          style={{ paddingLeft: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
         >
           <TooltipProvider delayDuration={300}>
             {/* For you's toggle, at the far left over its column (side-panels/
                 side-panel-toggles.tsx), as the side panel's ends the bar over
-                its panel: only while the bots brought something. */}
+                its panel: whenever the bots brought something, the column
+                beside the chat or not (Liam, 11-09: "always visible like the
+                button we have on the right side"). */}
             <ForYouToggle />
-            {/* Search, a round pill of its own beside Home: the `/` palette,
-                flying out of it (search-button.tsx). */}
-            <SearchButton />
+            {/* Search, on a phone only (below `md`, where there is no app
+                rail): from `md` up the rail has it (rail/app-rail.tsx; Liam,
+                11-09). A round pill of its own: the `/` palette, flying out
+                of it (search-button.tsx). */}
+            <div data-tab-bar-phone-only="" className="contents md:hidden">
+              <SearchButton />
+            </div>
             {/* No Inbox bell after it (removed 2026-10-20, Liam): every
                 notice reaches the agent, which tells the person in the chat
                 (docs/plans/retire-notifications-page.md). No Create button
@@ -119,7 +133,7 @@ export function TopBar() {
       {!mounted && (
         <div
           className="shrink-0 self-stretch"
-          style={{ width: trafficLights ? MACOS_TRAFFIC_LIGHT_WIDTH : 4 }}
+          style={{ width: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
           data-tauri-drag-region
         />
       )}
@@ -172,7 +186,9 @@ export function TopBar() {
             bar (Liam, 10-19). z-10 lifts it above the WindowDragStrip. Its
             menu pours down out of the pill's own liquid, right-aligned, so it
             stays inside the window. */}
-        <div className="relative z-10 flex h-8 min-w-0 shrink items-center">
+        {/* On a phone only (below `md`): from `md` up it is the app rail's
+            foot, the one workspace menu (rail/app-rail.tsx; Liam, 11-09). */}
+        <div data-tab-bar-workspace-pill="" className="relative z-10 flex h-8 min-w-0 shrink items-center md:hidden">
           <WorkspaceSwitcher variant="pill" />
         </div>
       </div>

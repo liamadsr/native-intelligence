@@ -67,8 +67,12 @@ export const RIGHT_OPEN_KEY = 'dial8:side-panel:open'
 export const SECTIONS_KEY = 'dial8:side-panel:collapsed'
 /** Remembered per device: the right panel's cards in the person's order (JSON list of ids). */
 export const ORDER_KEY = 'dial8:side-panel:order'
-/** Remembered per device, as it always was: the For you column folded away. */
-export const FOR_YOU_COLLAPSED_KEY = 'dial8:for-you-column:collapsed'
+/**
+ * Remembered per device: the For you column folded away. A new name (11-09:
+ * For you shows whenever it has cards, its toggle always there to fold it):
+ * a fold remembered before then doesn't hide it now.
+ */
+export const FOR_YOU_COLLAPSED_KEY = 'dial8:for-you-column:folded'
 
 /**
  * Every card, in the order it shows until the person drags one. A saved order

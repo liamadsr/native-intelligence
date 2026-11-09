@@ -20,19 +20,38 @@ import { SEARCH_FLIGHT_KEY, SEARCH_FLIGHT_MS, SEARCH_SETTLE_MS, cancelFlight, fl
 /** Asks the main chat's composer to open (or close) the `/` palette. Cancelled (preventDefault) by the one that answers. */
 export const OPEN_SEARCH_EVENT = 'dial8:open-search'
 
-/** The top bar's search button, where it shows. */
-export function searchButton(): HTMLElement | null {
-  return typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('[data-search-button]')
+/** Is a search button on screen: laid out, and not hidden (the top bar's, under a full-screen page beside the app rail)? */
+function showing(el: HTMLElement): boolean {
+  return el.isConnected && el.getClientRects().length > 0 && getComputedStyle(el).visibility === 'visible'
 }
+
+/**
+ * The search button the palette flies out of: the one on screen. From `md` up
+ * that is the app rail's (`data-search-button="rail"`, rail/app-rail.tsx);
+ * the top bar's shows on a phone only. Where neither can be measured (no
+ * layout), the top bar's, as before the rail.
+ */
+export function searchButton(): HTMLElement | null {
+  if (typeof document === 'undefined') return null
+  const all = Array.from(document.querySelectorAll<HTMLElement>('[data-search-button]'))
+  const bar = all.filter((b) => b.dataset.searchButton !== 'rail')
+  return bar.find(showing) ?? all.find(showing) ?? bar[0] ?? null
+}
+
+/** The button the open palette flew out of: it flies back into that one while it shows. */
+let flewFrom: HTMLElement | null = null
 
 /** Hold a copy of `source` (the search button) for the palette to land: the search flight, at its own pace. */
 export function launchSearchFlight(source: HTMLElement | null): void {
+  flewFrom = source
   if (source) launchFlight(SEARCH_FLIGHT_KEY, source, { ms: SEARCH_FLIGHT_MS, settleMs: SEARCH_SETTLE_MS, keepCorners: true })
 }
 
 /** The palette dismissed: its box (`box`) flies back into the search button, the way it came. */
 export function flySearchBack(box: HTMLElement | null): void {
-  flyBack(box, searchButton(), { ms: SEARCH_FLIGHT_MS, settleMs: SEARCH_SETTLE_MS, keepCorners: true })
+  const to = flewFrom && showing(flewFrom) ? flewFrom : searchButton()
+  flewFrom = null
+  flyBack(box, to, { ms: SEARCH_FLIGHT_MS, settleMs: SEARCH_SETTLE_MS, keepCorners: true })
 }
 
 /** Open the palette, flying from `source` when given. False when no composer answered. */

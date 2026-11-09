@@ -928,6 +928,46 @@ html[data-sky-tone] [data-on-sky] {
   .card-focus-backdrop::before { animation: none; }
 }
 
+/* The app rail (app/account/(dashboard)/rail/app-rail.tsx, Liam 11-09): a thin
+   band of page icons down the window's left. `--app-rail-w` is its width, set
+   where `data-app-rail` is: on the shell root (in the server markup, so the
+   top bar and the chat start clear of it from the first paint) and on <html>
+   (for the full-screen layer, which sits on <body>). Below `md` the rail is
+   hidden and the width is 0: a phone keeps the app as it was. */
+[data-app-rail] {
+  --app-rail-w: 0px;
+}
+@media (min-width: 48rem) {
+  /* The rail's floating panel (48px) with its gutter to the window's edge
+     (8px) and a breath before the content (4px). */
+  [data-app-rail] {
+    --app-rail-w: 60px;
+  }
+  /* A full-screen card beside the rail (show-tool-card.tsx, `.card-page-layer`)
+     has no blurred veil: the page sits on the app's own background (the sky,
+     the photo, the flat surface or Glass), so the rail beside it stays sharp
+     and every page is a click away. The chat and the top bar under the layer
+     stop painting meanwhile (FRONT_CARD_ATTR, components/chat-cards/
+     front-card.ts): nothing of them showed through the veil anyway. */
+  html[data-app-rail] .card-page-layer::before {
+    display: none;
+  }
+  /* Opacity too: a child with `transition: all` (the composer) would ease its
+     visibility out over its duration, showing beside the page meanwhile. */
+  html[data-app-rail][data-card-front] [data-windows-row],
+  html[data-app-rail][data-card-front] [data-shell-top-bar] {
+    visibility: hidden;
+    opacity: 0;
+  }
+  /* The web live HUD (live-hud/web-hud.tsx) sits under the layer (z-45): with
+     no veil over it, it would look live, and a press on it would put the page
+     back. It waits out of sight with the chat, as it waited blurred before. */
+  html[data-app-rail][data-card-front] [data-web-hud] {
+    visibility: hidden;
+  }
+}
+
+
 /* Chat scroller METRICS. The top fade that used to mask content behind the
    floating HUDs is gone — messages now pass behind the attention deck / widget
    dock and stay readable, with the cards' own heavier shadow providing the

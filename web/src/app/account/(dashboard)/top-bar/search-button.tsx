@@ -1,8 +1,9 @@
 'use client'
 
 /**
- * The top bar's search (Liam, 10-20): a round pill of its own beside For
- * you's Home, opening the `/` palette as `/` or ⌘K do (docs/plans/slash-search.md),
+ * The top bar's search (Liam, 10-20), on a phone only since the app rail
+ * (Liam, 11-09: from `md` up the rail's Search is the one): a round pill of
+ * its own beside For you's Home, opening the `/` palette as `/` or ⌘K do (docs/plans/slash-search.md),
  * to search everything and open it. Pressed, the button is seen to travel:
  * it lifts off and the palette grows out of it in the middle of the page,
  * the flight For you's Reply takes into the composer (open-search.ts,

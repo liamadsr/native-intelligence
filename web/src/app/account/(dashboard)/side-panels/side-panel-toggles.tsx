@@ -9,8 +9,12 @@
  *   right    always there. Its badges: how many agents run now (the Agents
  *            section's count), and an amber dot while a connection needs
  *            the person (a reconnect, missing access, a sync error). ⌘\.
- *   For you  only while the bots have brought something (with nothing, no
- *            toggle: Liam's "hide empty widgets"), with how many.
+ *   For you  there whenever the bots have brought something (with nothing,
+ *            no toggle: Liam's "hide empty widgets"), with how many, the
+ *            column beside the chat or not (Liam, 11-09: "always visible like
+ *            the button we have on the right side"): it folds the column
+ *            away and brings it back, floating it over the chat where the
+ *            row has no room.
  */
 import { Home, createLucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -93,7 +97,10 @@ export function ForYouToggle() {
           aria-label={`For you, ${entries.length}`}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => toggleForYou(shown)}
-          className={cn(TOP_BAR_PILL, shown && 'bg-muted text-sidebar-foreground')}
+          // Lit while the column is folded away, plain while it shows (Liam,
+          // 11-09: "the logic for the button state is backwards, flip it").
+          data-lit={shown ? undefined : ''}
+          className={cn(TOP_BAR_PILL, !shown && 'bg-muted text-sidebar-foreground')}
         >
           <Home className="h-4 w-4" />
           <span className="text-[11px] font-medium tabular-nums">{entries.length}</span>

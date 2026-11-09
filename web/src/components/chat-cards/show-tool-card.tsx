@@ -9,8 +9,9 @@
  *               title, the page's search and Properties, Save as view), with
  *               big round Full screen and Close buttons over its corner;
  *   full screen the same card over the whole window, everything else blurred
- *               behind it; the X, the button under it, a click outside it or
- *               Esc puts it back;
+ *               behind it (in the dashboard, beside the app rail, on the
+ *               app's own background instead: front-card.ts); the X, the
+ *               button under it, a click outside it or Esc puts it back;
  *   collapsed   one line, "Showed 12 actions · Due this week".
  *
  * Only the newest three cards in a chat are live (older ones fold to their
@@ -66,6 +67,7 @@ import { CardHeaderSlotsProvider, type CardHeaderSlots } from './card-header-slo
 import { CARD_HEADER_ICON_BUTTON } from './card-header-button'
 import { useLiveCaptureDockSlot } from './card-dock-slot'
 import { CARD_GLASS_FRAME, CardGlass } from './card-glass'
+import { holdFrontCard } from './front-card'
 
 
 const CardBody = React.lazy(() => import('./card-body'))
@@ -243,6 +245,10 @@ const FULL_SCREEN_COLUMN_STYLE: React.CSSProperties = { width: FULL_SCREEN_WIDTH
 const FULL_SCREEN_FRAME_STYLE: React.CSSProperties = {
   height: `max(calc(${FULL_SCREEN_WIDTH} / 1.6), calc(${FULL_SCREEN_ROOM} - (100cqw - ${FULL_SCREEN_WIDTH}) * 10))`,
 }
+/** The full-screen layer: the window from the app rail's edge (0 without the rail). */
+const FULL_SCREEN_LAYER_STYLE: React.CSSProperties = { left: 'var(--app-rail-w, 0px)' }
+/** The layer's X in the Mac app: 84px from the window's edge (clear of the traffic lights), at least the usual 1rem from the layer's. */
+const CLOSE_CLEAR_OF_LIGHTS_STYLE: React.CSSProperties = { left: 'max(1rem, calc(84px - var(--app-rail-w, 0px)))' }
 /** The row under the card (the button and its gap: 3.75rem, as the column allows). */
 const FULL_SCREEN_CONTROLS = 'flex h-[3.75rem] shrink-0 items-end justify-end gap-2'
 
@@ -724,6 +730,26 @@ export function ShowToolCard({
     return () => window.removeEventListener('keydown', onKey)
   }, [fullScreen, store])
 
+  // Full screen, it is the card in front for the app rail (front-card.ts):
+  // the rail lights its page, Home or New put it back, and beside the rail
+  // the chat under its layer stops painting. From the moment it is asked for
+  // (a parked page still waking counts), so the rail answers the click at
+  // once. Before paint, so a switch from one page to the next never shows a
+  // frame of the chat between them.
+  React.useLayoutEffect(() => {
+    if (!fullScreen) return
+    return holdFrontCard({
+      id: toolCallId,
+      spec,
+      close: () => {
+        if (store.fullScreen() === toolCallId) store.exitFullScreen()
+      },
+    })
+    // `spec` as it went full screen: a card's kind never changes under its id,
+    // and a reply's spec may be a new object each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullScreen, toolCallId, store])
+
   // In the workspace's words ("12 jobs" in a service business: src/lib/editions/words.ts).
   const edition = useWorkspaceEdition()
   const label = `${countText(spec, liveCount, edition)} · ${spec.title}`
@@ -825,8 +851,12 @@ export function ShowToolCard({
             tabIndex={-1}
             // Everything behind the card goes soft and grey (tailwind.css), so
             // the card is what's in focus. z-50 like Radix's popovers, which
-            // open after it and so paint over it.
-            className="card-focus-backdrop fixed inset-0 z-50 flex flex-col items-center px-4 pb-6 pt-20 outline-none sm:px-16"
+            // open after it and so paint over it. In the dashboard it starts
+            // at the app rail's edge (--app-rail-w) and, beside the rail, has
+            // no veil (`card-page-layer`): the page sits on the app's own
+            // background and the rail stays at hand.
+            className="card-focus-backdrop card-page-layer fixed inset-y-0 right-0 z-50 flex flex-col items-center px-4 pb-6 pt-20 outline-none sm:px-16"
+            style={FULL_SCREEN_LAYER_STYLE}
             // A press anywhere outside the card (the space all round, beside
             // the button under it) puts it back in its message.
             onPointerDown={(e) => {
@@ -835,11 +865,13 @@ export function ShowToolCard({
               store.exitFullScreen()
             }}
           >
-            {/* Clear of the macOS traffic lights in the Mac app. The
-                layer's pt-20 leaves ~20px between this button (44px, from
-                12-16px down) and the card's top, which reaches up to it
-                whenever the card fills the room's height (Liam, 10-25). */}
-            <div className={cn('absolute', hasTrafficLights() ? 'left-[84px] top-3' : 'left-4 top-4')}>
+            {/* Clear of the macOS traffic lights in the Mac app (over the
+                app rail when it shows, so the layer, after it, needs no
+                more than its usual inset). The layer's pt-20 leaves ~20px
+                between this button (44px, from 12-16px down) and the card's
+                top, which reaches up to it whenever the card fills the
+                room's height (Liam, 10-25). */}
+            <div className={cn('absolute', hasTrafficLights() ? 'top-3' : 'left-4 top-4')} style={hasTrafficLights() ? CLOSE_CLEAR_OF_LIGHTS_STYLE : undefined}>
               <OverlayButton label={closeLabel} onClick={() => store.exitFullScreen()} testId="card-close">
                 <X className="size-5" strokeWidth={2} />
               </OverlayButton>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The top bar's lead cluster is For you's toggle, then Search. The Inbox bell
+ * The top bar's lead cluster is For you's toggle, then Search, on a phone only (md:hidden). The Inbox bell
  * and its unread badge that followed them went 2026-10-20 (Liam): every notice
  * reaches the agent, which tells the person in the chat
  * (docs/plans/retire-notifications-page.md). The Agents button that stood in
@@ -100,6 +100,21 @@ describe('the top bar’s lead cluster', () => {
     expect(search?.getAttribute('aria-label')).toBe('Search')
     const forYou = lead().querySelector<HTMLElement>('[data-for-you-toggle]')!
     expect(forYou.compareDocumentPosition(search!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('keeps Search for a phone only (from md up the app rail has it); For you’s toggle decides for itself', () => {
+    render()
+    const phoneOnly = lead().querySelector<HTMLElement>('[data-tab-bar-phone-only]')!
+    expect(phoneOnly.className).toContain('md:hidden')
+    expect(phoneOnly.querySelector('[data-search-button]')).not.toBeNull()
+    expect(phoneOnly.querySelector('[data-for-you-toggle]')).toBeNull()
+    expect(lead().querySelector('[data-for-you-toggle]')).not.toBeNull()
+  })
+
+  it('keeps the workspace pill for a phone only: from md up the app rail’s foot is the one workspace menu', () => {
+    render()
+    const pill = container.querySelector<HTMLElement>('[data-tab-bar-workspace-pill]')!
+    expect(pill.className).toContain('md:hidden')
   })
 
   it('renders nothing of the cluster on the server (the mount gate holds)', () => {

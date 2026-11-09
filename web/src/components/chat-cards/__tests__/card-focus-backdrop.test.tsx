@@ -34,6 +34,7 @@ vi.mock('../pages/page-card', () => ({ PageGate: () => null }))
 import { ShowToolCard } from '../show-tool-card'
 import { ChatCardHostProvider } from '../card-host'
 import { ChatCardStore } from '../card-store'
+import { FRONT_CARD_ATTR, closeFrontCards, frontCard } from '../front-card'
 import type { CardSpec } from '@/lib/chat-cards/kinds'
 
 const spec: CardSpec = { kind: 'list', title: 'Open actions', entity_type: 'action', filters: [] }
@@ -100,6 +101,50 @@ describe('a full-screen card', () => {
     await act(async () => store.enterFullScreen('c1'))
     await act(async () => buttons(document.querySelector('[data-chat-card-fullscreen="c1"]')!, 'Back into the chat')[1].click())
     expect(document.querySelector('[data-chat-card-fullscreen="c1"]')).toBeNull()
+  })
+
+  it('starts at the app rail’s edge, as the layer the rail keeps its veil off (card-page-layer)', async () => {
+    await render()
+    await act(async () => store.enterFullScreen('c1'))
+    const layer = document.querySelector<HTMLElement>('[data-chat-card-fullscreen="c1"]')!
+    expect(layer.classList.contains('card-page-layer')).toBe(true)
+    expect(layer.style.left).toBe('var(--app-rail-w, 0px)')
+    expect(layer.className).toContain('right-0')
+    expect(layer.className).not.toContain('inset-0')
+  })
+
+  it('is the card in front while full screen: the rail lights it, <html> is marked, and its close puts it back', async () => {
+    await render()
+    expect(frontCard()).toBeNull()
+    await act(async () => store.enterFullScreen('c1'))
+    expect(frontCard()?.id).toBe('c1')
+    expect(frontCard()?.spec).toEqual(spec)
+    expect(document.documentElement.hasAttribute(FRONT_CARD_ATTR)).toBe(true)
+    await act(async () => closeFrontCards())
+    expect(store.fullScreen()).toBeNull()
+    expect(document.querySelector('[data-chat-card-fullscreen="c1"]')).toBeNull()
+    expect(frontCard()).toBeNull()
+    expect(document.documentElement.hasAttribute(FRONT_CARD_ATTR)).toBe(false)
+  })
+
+  it('lets go of the front when it unmounts full screen (its chat let go of it)', async () => {
+    await render()
+    await act(async () => store.enterFullScreen('c1'))
+    expect(frontCard()?.id).toBe('c1')
+    await act(async () => root.render(h('div')))
+    expect(frontCard()).toBeNull()
+    expect(document.documentElement.hasAttribute(FRONT_CARD_ATTR)).toBe(false)
+  })
+
+  it('its close leaves alone another card that went full screen since', async () => {
+    await render()
+    await act(async () => store.enterFullScreen('c1'))
+    const close = frontCard()!.close
+    store.setCards([{ id: 'c1', spec }, { id: 'c2', spec }])
+    await act(async () => store.enterFullScreen('c2'))
+    close()
+    expect(store.fullScreen()).toBe('c2')
+    await act(async () => store.exitFullScreen())
   })
 
   it('folds to its pill from the big Close button', async () => {
