@@ -43,7 +43,13 @@ const SidePanelIcon = createLucideIcon('side-panel', [
   ['path', { d: 'M11 14h6', key: 'line-2' }],
 ])
 
-export function SidePanelToggle() {
+/**
+ * `pill` (a phone's top bar): the bar's round pill. `header` (the top bar's
+ * right header from `md` up, Liam 11-09: Capture and this, as the rail's
+ * header on the left): flat and round like that header's buttons, tinted
+ * while the panel is open.
+ */
+export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'header' } = {}) {
   const state = useSidePanelState()
   const { running } = useAgentsSummary()
   const open = state.rightOpen
@@ -60,9 +66,18 @@ export function SidePanelToggle() {
           aria-label={label}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => toggleRightPanel()}
-          className={cn(TOP_BAR_PILL, open && 'bg-muted text-sidebar-foreground')}
+          data-variant={variant}
+          className={
+            variant === 'header'
+              ? cn(
+                  'relative flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+                  // Tinted while the panel is open, as the rail's lit page (Liam, 11-09: "do the same for this button").
+                  open && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
+                )
+              : cn(TOP_BAR_PILL, open && 'bg-muted text-sidebar-foreground')
+          }
         >
-          <SidePanelIcon data-side-panel-icon="" className="h-4 w-4" />
+          <SidePanelIcon data-side-panel-icon="" className={variant === 'header' ? 'size-[18px]' : 'h-4 w-4'} strokeWidth={variant === 'header' ? 1.75 : 2} />
           {running > 0 && (
             <span data-side-panel-running="" className="text-[11px] font-medium tabular-nums">
               {running}

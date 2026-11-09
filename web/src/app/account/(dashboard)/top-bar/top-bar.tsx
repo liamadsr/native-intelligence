@@ -11,6 +11,8 @@ import { useHotkeys } from '@/lib/hotkeys'
 import { WorkspaceSwitcher } from '../../workspace-switcher'
 import { ListenModeToggle } from '@/components/read-aloud/listen-mode-toggle'
 import { ForYouToggle, SidePanelToggle } from '../side-panels/side-panel-toggles'
+import { ComposerCaptureButton } from '../chat/composer-capture-button'
+import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { SearchButton } from './search-button'
 
 /**
@@ -55,7 +57,8 @@ export function TopBar() {
   // desktop-only — it renders on the web build too, where SSR actually runs.
   const mounted = useSyncExternalStore(subscribeMounted, getMountedSnapshot, getMountedServerSnapshot)
   const settingsOverlay = useOptionalSettingsOverlay()
-  const { isRecording, startRecording } = useRecordingStable()
+  const recording = useRecordingStable()
+  const { isRecording, startRecording } = recording
 
   // Global hotkeys
   useHotkeys([
@@ -186,12 +189,28 @@ export function TopBar() {
             Draws nothing where read-aloud can't play (a browser). z-10 lifts
             it above the WindowDragStrip. */}
         <ListenModeToggle className="z-10" />
-        {/* The side panel's toggle (Agents · Plan · Connections, side-panels/
-            side-panels.tsx), over the panel it opens. After hydration only
-            (its Tooltip takes a useId, see above). */}
+        {/* From `md` up, the right header (Liam, 11-09: "move the capture
+            button and make a component like the one we have on the left"):
+            one glass pill, as the app rail's header is (rail/app-rail.tsx),
+            holding Capture (moved out of the chat's composer:
+            chat/composer-capture-button.tsx, the recording's controls while
+            one runs) and the side panel's toggle (Agents · Plan ·
+            Connections, side-panels/side-panels.tsx), over the panel it
+            opens. Below `md` the toggle is the bar's pill, as before, and
+            Capture stays in the composer. After hydration only (their
+            Tooltips take a useId, see above). */}
         {mounted && (
           <TooltipProvider delayDuration={300}>
-            <SidePanelToggle />
+            <div
+              data-top-bar-right-header=""
+              className={cn('relative z-10 hidden items-center gap-0.5 rounded-2xl border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+            >
+              <ComposerCaptureButton recording={recording} />
+              <SidePanelToggle variant="header" />
+            </div>
+            <div data-tab-bar-phone-only="" className="contents md:hidden">
+              <SidePanelToggle />
+            </div>
           </TooltipProvider>
         )}
         {/* The workspace + account pill (the avatar), at the very end of the

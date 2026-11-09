@@ -1481,7 +1481,12 @@ export const ChatInput = memo(function ChatInput({
           {/* Capture (the main chat's composer, given the recording): the record
               icon left of the mic, or a recording's controls
               (composer-capture-button.tsx). */}
-          {mainComposer && recording && <ComposerCaptureButton recording={recording} />}
+          {/* Below `md` only: from `md` up Capture is in the top bar's right header (top-bar/top-bar.tsx; Liam, 11-09). */}
+          {mainComposer && recording && (
+            <div data-composer-capture-phone-only="" className="contents md:hidden">
+              <ComposerCaptureButton recording={recording} />
+            </div>
+          )}
 
           {/* Dictation: the mic sits left of send (desktop, on-device
               transcription ready). In voice mode (no dictation then) the spot

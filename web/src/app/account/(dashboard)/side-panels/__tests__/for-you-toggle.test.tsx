@@ -25,7 +25,7 @@ vi.mock('../side-panels', async () => {
 })
 
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { ForYouToggle } from '../side-panel-toggles'
+import { ForYouToggle, SidePanelToggle } from '../side-panel-toggles'
 import * as store from '../side-panel-store'
 
 let container: HTMLDivElement
@@ -101,5 +101,19 @@ describe('For you’s toggle', () => {
     entries.count = 0
     render()
     expect(toggle()).toBeNull()
+  })
+})
+
+describe('the side panel’s toggle in the top bar’s right header', () => {
+  const side = () => container.querySelector<HTMLButtonElement>('[data-side-panel-toggle]')
+  it('is round and flat, tinted while the panel is open and plain while it’s closed (Liam, 11-09)', () => {
+    act(() => root.render(<TooltipProvider><SidePanelToggle variant="header" /></TooltipProvider>))
+    expect(side()?.getAttribute('data-variant')).toBe('header')
+    expect(side()!.className.split(' ')).toContain('rounded-full')
+    expect(side()?.getAttribute('aria-expanded')).toBe('false')
+    expect(side()!.className.split(' ')).not.toContain('bg-foreground/[0.08]')
+    act(() => side()!.click())
+    expect(side()?.getAttribute('aria-expanded')).toBe('true')
+    expect(side()!.className.split(' ')).toContain('bg-foreground/[0.08]')
   })
 })
