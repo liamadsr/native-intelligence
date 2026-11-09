@@ -99,12 +99,12 @@ import {
   PANEL_GUTTER_PX,
   PANEL_SLIDE_MS,
   RIGHT_PANEL_WIDTH_PX,
-  TOP_BAR_FADE_PX,
   planKeyOf,
   planSpace,
   type PanelMode,
   type SpacePlan,
 } from './space-plan'
+import { TOP_BAR_RIGHT_INSET_PX } from '../top-bar/insets'
 
 export function useSidePanelState(): SidePanelState {
   return useSyncExternalStore(subscribeSidePanels, getSidePanelState, getServerSidePanelState)
@@ -241,11 +241,13 @@ export const SLIDE_CLASS = 'transition-[translate,visibility] ease-out motion-re
 export const SLIDE_STYLE: CSSProperties = { transitionDuration: `${PANEL_SLIDE_MS}ms` }
 
 /**
- * Both panels' top (this one's and For you's): below the top bar and clear of
- * its blur (TOP_BAR_FADE_PX), half a gutter after it. The window's gutter at
- * the other three sides.
+ * Both panels' top (this one's and For you's): just under the top bar, half a
+ * gutter after it, close under their buttons (Liam, 11-09: too much space
+ * between For you's button and its cards). The bar's blur is under them, not
+ * over them (dashboard-shell.tsx ChatRow), so they're sharp from their top.
+ * Their outer sides line up with the bar's buttons (top-bar/insets.ts).
  */
-export const PANEL_TOP = `calc(var(--chat-top-inset, 0px) + ${TOP_BAR_FADE_PX + PANEL_GUTTER_PX / 2}px)`
+export const PANEL_TOP = `calc(var(--chat-top-inset, 0px) + ${PANEL_GUTTER_PX / 2}px)`
 
 /**
  * The right side panel. Always rendered by the row (its toggle's shortcut and
@@ -297,7 +299,7 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
         SLIDE_CLASS,
         open ? 'visible translate-x-0' : 'invisible translate-x-[calc(100%+1rem)]',
       )}
-      style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: PANEL_GUTTER_PX, bottom, width: RIGHT_PANEL_WIDTH_PX }}
+      style={{ ...SLIDE_STYLE, top: PANEL_TOP, right: TOP_BAR_RIGHT_INSET_PX, bottom, width: RIGHT_PANEL_WIDTH_PX }}
     >
       {/* As tall as its cards (down to the panel's bottom, then it scrolls), a hair of room round them for their lift and focus rings. */}
       <div

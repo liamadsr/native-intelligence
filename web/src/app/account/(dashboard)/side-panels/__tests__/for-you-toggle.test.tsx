@@ -104,6 +104,20 @@ describe('For you’s toggle', () => {
   })
 })
 
+describe('the side panel’s toggle', () => {
+  const side = () => container.querySelector<HTMLButtonElement>('[data-side-panel-toggle]')
+  it('shaded while the panel is closed, plain while it’s open, as For you’s (Liam, 11-09)', () => {
+    act(() => root.render(h(TooltipProvider, null, h(SidePanelToggle))))
+    expect(side()?.getAttribute('aria-expanded')).toBe('false')
+    expect(side()?.hasAttribute('data-lit')).toBe(true)
+    expect(side()!.className.split(' ')).toContain('bg-muted')
+    act(() => side()!.click())
+    expect(side()?.getAttribute('aria-expanded')).toBe('true')
+    expect(side()?.hasAttribute('data-lit')).toBe(false)
+    expect(side()!.className.split(' ')).not.toContain('bg-muted')
+  })
+})
+
 describe('the side panel’s toggle in the top bar’s right header', () => {
   const side = () => container.querySelector<HTMLButtonElement>('[data-side-panel-toggle]')
   it('is round and flat, tinted while the panel is open and plain while it’s closed (Liam, 11-09)', () => {

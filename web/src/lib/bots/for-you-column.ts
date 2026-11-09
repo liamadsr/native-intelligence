@@ -160,30 +160,16 @@ export function forYouColumnEntries({ roster, counts, rows, cards, cardRows = []
     .map(({ entry }) => entry)
 }
 
-/** One bot's entries in the column, newest first. */
-export interface ColumnGroup {
-  source: ColumnSource
-  entries: ColumnEntry[]
-}
-
 /**
- * The column's entries under their bots (Liam, 2026-10-14: "grouped under the
- * same agent"): one group per bot, newest first within it, the groups in order
- * of their newest entry. Takes forYouColumnEntries' list (newest first, each
- * thing once, under the bot it was first placed with), so a bot's first entry
- * is its newest and the groups fall out in order. Ties keep the list's order.
- * A thing listed twice still shows once, under the bot that had it first.
+ * The column's list as it shows, one flat list (Liam, 11-09: no headers; each
+ * card's tag says where it came from): forYouColumnEntries' order, newest
+ * first, a thing listed twice shown once, where it was first listed.
  */
-export function groupColumnEntries(entries: readonly ColumnEntry[]): ColumnGroup[] {
-  const groups = new Map<string, ColumnGroup>()
+export function uniqueColumnEntries(entries: readonly ColumnEntry[]): ColumnEntry[] {
   const have = new Set<string>()
-  for (const entry of entries) {
-    if (have.has(entry.id)) continue
+  return entries.filter((entry) => {
+    if (have.has(entry.id)) return false
     have.add(entry.id)
-    const id = entry.source.teammateId
-    const group = groups.get(id)
-    if (group) group.entries.push(entry)
-    else groups.set(id, { source: entry.source, entries: [entry] })
-  }
-  return [...groups.values()]
+    return true
+  })
 }
