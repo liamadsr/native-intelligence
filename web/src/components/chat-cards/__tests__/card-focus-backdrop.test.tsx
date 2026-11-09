@@ -83,7 +83,7 @@ describe('a full-screen card', () => {
     expect(document.querySelector('[data-chat-card-fullscreen="c1"]')).not.toBeNull()
   })
 
-  it('takes the whole window over a frosted backdrop, and its X or the button under it puts it back', async () => {
+  it('takes the whole window over a frosted backdrop, and its one button under it (Minimize) puts it back: no floating X', async () => {
     await render()
     await act(async () => store.enterFullScreen('c1'))
     const layer = document.querySelector('[data-chat-card-fullscreen="c1"]')!
@@ -93,13 +93,12 @@ describe('a full-screen card', () => {
     expect(layer.className).not.toContain('bg-black')
     expect(stage.contains(layer)).toBe(false)
 
+    // One way back from a card the chat showed (Liam, 11-09: the X and Minimize did the same): Minimize, under it.
     const back = buttons(layer, 'Back into the chat')
-    expect(back).toHaveLength(2)
+    expect(back).toHaveLength(1)
+    expect(layer.querySelector('[data-testid="card-minimize"]')).toBe(back[0])
+    expect(layer.querySelector('[data-card-header-close]')).toBeNull()
     await act(async () => back[0].click())
-    expect(document.querySelector('[data-chat-card-fullscreen="c1"]')).toBeNull()
-
-    await act(async () => store.enterFullScreen('c1'))
-    await act(async () => buttons(document.querySelector('[data-chat-card-fullscreen="c1"]')!, 'Back into the chat')[1].click())
     expect(document.querySelector('[data-chat-card-fullscreen="c1"]')).toBeNull()
   })
 
