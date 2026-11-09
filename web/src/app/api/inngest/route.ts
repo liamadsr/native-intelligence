@@ -31,6 +31,7 @@ import { chatIdleCompaction } from '@/lib/inngest/chat-idle-compaction'
 import { homeTurn } from '@/lib/inngest/home-turn'
 import { approvalTurn } from '@/lib/inngest/approval-turn'
 import { slackTurn } from '@/lib/inngest/slack-turn'
+import { teamChatTurn } from '@/lib/inngest/team-chat-turn'
 import { textTurn } from '@/lib/inngest/text-turn'
 import { agentNumbersBalance, agentNumbersDaily } from '@/lib/inngest/agent-numbers'
 import { agentLinkTurn } from '@/lib/inngest/agent-link-turn'
@@ -126,6 +127,7 @@ export const { GET, POST, PUT } = serve({
     homeTurn,
     approvalTurn,
     slackTurn,
+    teamChatTurn,
     textTurn,
     agentNumbersBalance,
     agentNumbersDaily,

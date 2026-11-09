@@ -284,6 +284,7 @@ const PAGE_BODIES: Record<PageKind, React.LazyExoticComponent<React.ComponentTyp
   flows: React.lazy(() => import('./pages/flows-card')),
   evals: React.lazy(() => import('./pages/evals-card')),
   campaigns: React.lazy(() => import('./pages/campaigns-card')),
+  team_chat: React.lazy(() => import('./pages/team-chat-card')),
   knowledge: React.lazy(() => import('./pages/knowledge-card')),
   library: React.lazy(() => import('./pages/library-card')),
   teams: React.lazy(() => import('./pages/teams-card')),

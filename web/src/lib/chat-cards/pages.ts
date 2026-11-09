@@ -37,6 +37,7 @@ export const PAGE_KIND_NAMES = [
   'knowledge',
   'library',
   'teams',
+  'team_chat',
   'bot',
   'work_item',
   'guest',
@@ -167,6 +168,15 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     view: 'teams',
     target: { types: ['team'] },
   },
+  // Team chat (roadmap #7, migration 474): the workspace's channels and DMs.
+  // Gated with Teams (always allowed): it is the team talking. The person
+  // opens it (from `/`); `show` doesn't offer it, so the agent's tools don't change.
+  team_chat: {
+    label: 'Team chat',
+    rows: 'channels',
+    view: 'teams',
+    personOnly: true,
+  },
   // One AI teammate's page (bots-v4.md "A bot's page"): its chat and its work.
   // `target` is the teammate; `at` a work item of its open on the page.
   bot: {
@@ -207,7 +217,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {

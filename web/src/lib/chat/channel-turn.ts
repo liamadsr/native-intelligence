@@ -53,8 +53,14 @@ export const CALL_CHANNEL = 'call' as const
  * the home thread.
  */
 export const DIAL8_CHANNEL = 'dial8' as const
-export type MessageChannel = typeof SLACK_CHANNEL | typeof SMS_CHANNEL | typeof DIAL8_CHANNEL | typeof CALL_CHANNEL
-const MESSAGE_CHANNELS: ReadonlySet<unknown> = new Set<MessageChannel>([SLACK_CHANNEL, SMS_CHANNEL, DIAL8_CHANNEL, CALL_CHANNEL])
+/**
+ * Team chat (roadmap #7, migration 474): the person @-mentioned their agent in
+ * a team chat channel or DM. Only ever into their own conversation for that
+ * channel (team_chat_agent_thread), never the home thread.
+ */
+export const TEAM_CHAT_CHANNEL = 'team_chat' as const
+export type MessageChannel = typeof SLACK_CHANNEL | typeof SMS_CHANNEL | typeof DIAL8_CHANNEL | typeof CALL_CHANNEL | typeof TEAM_CHAT_CHANNEL
+const MESSAGE_CHANNELS: ReadonlySet<unknown> = new Set<MessageChannel>([SLACK_CHANNEL, SMS_CHANNEL, DIAL8_CHANNEL, CALL_CHANNEL, TEAM_CHAT_CHANNEL])
 
 /** The person's Slack message's chat_messages id prefix (`slack-in:<team>:<channel>:<ts>`). */
 export const SLACK_MESSAGE_ID_PREFIX = 'slack-in:'
@@ -67,6 +73,9 @@ export const DIAL8_MESSAGE_ID_PREFIX = 'agent-in:'
 
 /** What the person said on a call's chat_messages id prefix (`call-in:<GPT-Live session>:<delegation>`). */
 export const CALL_MESSAGE_ID_PREFIX = 'call-in:'
+
+/** The person's team chat mention's chat_messages id prefix (`team-chat-in:<team_chat_message id>`). */
+export const TEAM_CHAT_MESSAGE_ID_PREFIX = 'team-chat-in:'
 
 /** The most messages one turn carries (the newest). */
 export const CHANNEL_TURN_MAX_MESSAGES = 10
@@ -85,6 +94,11 @@ export function slackMessageId(teamId: string, channel: string, ts: string): str
 /** A text's id in the home thread: a retried webhook converges on one row. */
 export function smsMessageId(messageSid: string): string {
   return `${SMS_MESSAGE_ID_PREFIX}${messageSid}`
+}
+
+/** A team chat mention's id in the person's conversation for that channel: a retry converges on one row. */
+export function teamChatMessageId(teamChatMessageId: string): string {
+  return `${TEAM_CHAT_MESSAGE_ID_PREFIX}${teamChatMessageId}`
 }
 
 /** What the person said before one of GPT-Live's hand-offs: one row per hand-off, so a retry converges. */
@@ -107,10 +121,11 @@ export function isChannelMessageRow(message: unknown): boolean {
   if (m.id.startsWith(SMS_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND || meta?.kind === LEGACY_TEXT_MESSAGE_KIND
   if (m.id.startsWith(DIAL8_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
   if (m.id.startsWith(CALL_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
+  if (m.id.startsWith(TEAM_CHAT_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
   return false
 }
 
-/** The channel a message came in, or its reply went out, through ('slack', 'sms', 'dial8', 'call'); else null. */
+/** The channel a message came in, or its reply went out, through ('slack', 'sms', 'dial8', 'call', 'team_chat'); else null. */
 export function messageChannel(message: unknown): MessageChannel | null {
   const meta = (message as { metadata?: unknown } | null)?.metadata
   const channel = !!meta && typeof meta === 'object' ? (meta as { channel?: unknown }).channel : undefined
@@ -147,6 +162,12 @@ const CHANNEL_FRAME: Readonly<Record<MessageChannel, { open: string; one: (place
     one: () => 'The person said this on a phone call with you (a live transcript, so a word may be misheard):',
     many: (n) => `The person said this on a phone call with you (${n} parts, oldest first; a live transcript, so a word may be misheard):`,
   },
+  // The person's own @-mention of you in team chat, with the channel's recent messages after it as data.
+  team_chat: {
+    open: '[TEAM CHAT · ',
+    one: (place) => `The person ${teamChatFrom(place)}:`,
+    many: (n, place) => `The person ${teamChatFrom(place)} (${n} messages, oldest first):`,
+  },
 }
 
 /** Where a message was said: a direct conversation, or a group thread others read. */
@@ -154,6 +175,11 @@ export type ChannelPlace = 'direct' | 'thread'
 
 function slackFrom(place: ChannelPlace): string {
   return place === 'thread' ? 'mentioned you in a Slack channel thread (others in the channel read your reply)' : 'messaged you from Slack'
+}
+
+/** Where a team chat mention was said: the message itself names the channel or DM (src/lib/team-chat/agent-turn.ts). */
+function teamChatFrom(_place: ChannelPlace): string {
+  return 'mentioned you in team chat in Dial8 (everyone in that channel or direct message reads your reply)'
 }
 
 /** True for the text of a message a channel turn sent (the person's words, framed). */

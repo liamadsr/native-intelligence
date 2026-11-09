@@ -69,7 +69,7 @@ export function isCallerClass(value: unknown): value is CallerClass {
 }
 
 /** An outside channel (decision 14: each is an app-routed turn; Slack DMs are built, src/lib/slack/). */
-export type OutsideChannel = 'slack' | 'sms' | 'call' | 'dial8'
+export type OutsideChannel = 'slack' | 'sms' | 'call' | 'dial8' | 'team_chat'
 
 /**
  * A principal some door verified. Each variant carries only the verified
@@ -126,7 +126,7 @@ const KNOWN_CHAT_SURFACES: ReadonlySet<string> = new Set(['device_ask'])
  * The outside channels a channel turn's token may name (twin of
  * CHANNEL_SURFACES in src/lib/chat/chat-run-token.ts; this module stays pure).
  */
-const CHANNEL_TURN_SURFACES: ReadonlySet<OutsideChannel> = new Set<OutsideChannel>(['slack', 'sms', 'dial8', 'call'])
+const CHANNEL_TURN_SURFACES: ReadonlySet<OutsideChannel> = new Set<OutsideChannel>(['slack', 'sms', 'dial8', 'call', 'team_chat'])
 
 /**
  * The caller class of a verified principal. Fails closed: a principal this
@@ -202,7 +202,8 @@ export function channelCaller(sender: Pick<Extract<VerifiedPrincipal, { kind: 'c
     // A guest texts the agent made for them; nobody is a guest on Slack or a call yet.
     return sender.channel === 'sms' && typeof sender.senderGuestId === 'string' && sender.senderGuestId ? 'guest' : 'unknown'
   }
-  if (sender.senderUserId === sender.ownerUserId) return sender.channel === 'slack' ? 'person' : 'person_remote'
+  // Team chat (474) is their own signed-in Dial8 session, like their linked Slack account.
+  if (sender.senderUserId === sender.ownerUserId) return sender.channel === 'slack' || sender.channel === 'team_chat' ? 'person' : 'person_remote'
   return sender.senderIsMember ? 'other_person' : 'unknown'
 }
 

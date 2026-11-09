@@ -32,10 +32,10 @@ describe('migration 456', () => {
     expect(SQL).not.toContain('\\')
   })
 
-  it("home_turn.reason is 443's list plus call, exactly the app's reasons", () => {
+  it("home_turn.reason is 443's list plus call, exactly the app's reasons then (474 adds team_chat)", () => {
     const listed = inList(BODY, 'home_turn_reason_check', 'reason')
     expect(listed).toEqual([...inList(flat(read('443_now_follow_up.sql')), 'home_turn_reason_check', 'reason'), 'call'])
-    expect([...listed].sort()).toEqual([...HOME_TURN_REASONS].sort())
+    expect([...listed].sort()).toEqual(HOME_TURN_REASONS.filter((r) => r !== 'team_chat').sort())
   })
 
   it('drops the old check before adding the new one (re-runnable)', () => {

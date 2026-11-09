@@ -127,6 +127,7 @@ export const CARD_PAGES: readonly CardPage[] = [
   { slug: 'evals', label: 'Evals', description: 'Your eval suites', kind: 'evals', view: 'evals', spec: page('evals', 'Evals') },
   { slug: 'agents', label: 'Agents & skills', description: 'Your agents and skills', kind: 'library', view: 'agents', keywords: ['skills', 'library', 'bots'], spec: page('library', 'Agents & skills') },
   { slug: 'teams', label: 'Teams', description: 'Your teams', kind: 'teams', view: 'teams', spec: page('teams', 'Teams') },
+  { slug: 'team-chat', label: 'Team chat', description: 'Channels and direct messages with your team', kind: 'team_chat', view: 'teams', keywords: ['chat', 'channels', 'messages', 'dm'], spec: page('team_chat', 'Team chat') },
 ]
 
 /** Kinds with no page of their own, and why. */

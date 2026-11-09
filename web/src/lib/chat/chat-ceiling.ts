@@ -177,6 +177,14 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * on the call.
    */
   call: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...attendedOnlyToolsDeniedTo('person_remote'), ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
+  /**
+   * The person @-mentioning their agent in team chat (migration 474,
+   * src/lib/team-chat/): Slack's channel-thread set, and no chat-native tool
+   * at all (no background helper or message to another person's agent: what
+   * came back would have nowhere in the channel to go). Others in the channel
+   * read the reply; nothing there draws cards.
+   */
+  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
 }
 
 /**

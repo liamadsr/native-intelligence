@@ -113,7 +113,7 @@ export interface ChatRunTokenClaims {
    * it only removes the surface's structural exclusions (chat-ceiling.ts
    * SURFACE_EXCLUDED_TOOLS), and the internal spec + tool routes admit it only
    * while its ownership row exists (surface-run-guard.ts).
-   * 'slack' | 'sms' | 'call' → a message the person sent from an outside channel (a
+   * 'slack' | 'sms' | 'call' | 'team_chat' → a message the person sent from an outside channel (a
    * Slack DM or channel thread, docs/plans/slack-connect.md; a text to the
    * Dial8 number, or what they said on a call to it, docs/plans/text-and-calling.md): ONLY together with `server:
    * 'channel_turn'`, and that principal always carries an outside channel's
@@ -276,10 +276,10 @@ export type ChatRunSurface = 'device_ask' | ChannelSurface
  * is another Dial8 user's agent over an agent link (migration 435): a guest
  * turn only (it always carries `guestId`), never the owner speaking.
  */
-export type ChannelSurface = 'slack' | 'sms' | 'dial8' | 'call'
+export type ChannelSurface = 'slack' | 'sms' | 'dial8' | 'call' | 'team_chat'
 
 /** Every {@link ChannelSurface}. */
-export const CHANNEL_SURFACES: ReadonlySet<string> = new Set<ChannelSurface>(['slack', 'sms', 'dial8', 'call'])
+export const CHANNEL_SURFACES: ReadonlySet<string> = new Set<ChannelSurface>(['slack', 'sms', 'dial8', 'call', 'team_chat'])
 
 /** The channel surfaces only a guest's turn speaks through: never the owner's own. */
 export const GUEST_ONLY_SURFACES: ReadonlySet<string> = new Set<ChannelSurface>(['dial8'])
@@ -293,8 +293,8 @@ export type ChatRunServerPrincipal = 'idle_compaction' | 'home_turn' | 'channel_
 /** Every {@link ChatRunServerPrincipal}, for the verifiers' shape guard. */
 export const CHAT_RUN_SERVER_PRINCIPALS: ReadonlySet<string> = new Set<ChatRunServerPrincipal>(['idle_compaction', 'home_turn', 'channel_turn'])
 
-/** A home turn's reasons that mint a `home_turn` token: every reason but a channel turn's (text, slack, agent_ask, call). */
-export type HomeTurnTokenReason = Exclude<HomeTurnReason, 'text' | 'slack' | 'agent_ask' | 'call'>
+/** A home turn's reasons that mint a `home_turn` token: every reason but a channel turn's (text, slack, agent_ask, call, team_chat). */
+export type HomeTurnTokenReason = Exclude<HomeTurnReason, 'text' | 'slack' | 'agent_ask' | 'call' | 'team_chat'>
 
 /** Every {@link HomeTurnTokenReason}, for the verifiers' shape guard. */
 export const HOME_TURN_TOKEN_REASONS: ReadonlySet<string> = new Set<HomeTurnTokenReason>(['helper_report', 'event', 'digest', 'guest_ask', 'agent_answer', 'check_in', 'approval'])

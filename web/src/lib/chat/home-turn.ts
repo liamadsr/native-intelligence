@@ -35,7 +35,7 @@ import {
   teammateReportContextLine,
   type TeammateReport,
 } from './teammate-report'
-import { CALL_CHANNEL, DIAL8_CHANNEL, renderChannelTurnBody, SLACK_CHANNEL, SMS_CHANNEL, type PlannedChannelMessage } from './channel-turn'
+import { CALL_CHANNEL, DIAL8_CHANNEL, renderChannelTurnBody, SLACK_CHANNEL, SMS_CHANNEL, TEAM_CHAT_CHANNEL, type PlannedChannelMessage } from './channel-turn'
 import { guestAskTurnLines, type HomeTurnGuestAsks } from '@/lib/guests/guest-ask-lines'
 import { AGENT_ANSWER_GUIDANCE, agentAnswerTurnLines, type HomeTurnAgentAnswers } from '@/lib/agent-links/answer-lines'
 import { isIsoInstant } from '@/lib/presence/presence'
@@ -61,8 +61,11 @@ export const HOME_TURN_REQUESTED_EVENT = 'home/turn.requested' as const
  * 456: 'call' is the person on a phone call to the Dial8 number: GPT-Live
  * talks, and each request it hands over is a channel turn run in-process by
  * the call's bridge (src/lib/calls/call-turn.ts), never an Inngest event.
+ * 474: 'team_chat' is the person @-mentioning their agent in team chat
+ * (src/lib/team-chat/), in their own conversation for that channel, with its
+ * own event and consumer (src/lib/inngest/team-chat-turn.ts).
  */
-export const HOME_TURN_REASONS = ['helper_report', 'event', 'digest', 'text', 'slack', 'guest_ask', 'agent_ask', 'agent_answer', 'check_in', 'approval', 'call'] as const
+export const HOME_TURN_REASONS = ['helper_report', 'event', 'digest', 'text', 'slack', 'guest_ask', 'agent_ask', 'agent_answer', 'check_in', 'approval', 'call', 'team_chat'] as const
 export type HomeTurnReason = (typeof HOME_TURN_REASONS)[number]
 
 /** A home_turn row's life. Mirrors migration 333's check. */
@@ -591,6 +594,9 @@ export function buildHomeTurnBody(
     case 'slack':
       // The person's own words, not a background update (./channel-turn.ts).
       return renderChannelTurnBody(SLACK_CHANNEL, homeTurnTag(rowId), input.channelMessages ?? [], input.channelPlace ?? 'direct')
+    case 'team_chat':
+      // The person's own @-mention in team chat, with the channel's recent messages as data (./channel-turn.ts).
+      return renderChannelTurnBody(TEAM_CHAT_CHANNEL, homeTurnTag(rowId), input.channelMessages ?? [], input.channelPlace ?? 'thread')
     case 'call':
       // The person's own words on a call, as GPT-Live heard them (./channel-turn.ts).
       return renderChannelTurnBody(CALL_CHANNEL, homeTurnTag(rowId), input.channelMessages ?? [])
