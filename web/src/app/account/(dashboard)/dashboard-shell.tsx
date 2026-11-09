@@ -70,7 +70,7 @@ import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
  *  buttons float over the chat, which scrolls on under them (Liam's
  *  reference: content passing beneath the bar, not stopping at a line). */
 /** The blur under the top bar: the bar's height, then TOP_BAR_FADE_PX more. */
-const TOP_BAR_BLUR_STYLE = { height: `calc(100% + ${TOP_BAR_FADE_PX}px)` }
+const TOP_BAR_BLUR_STYLE = { height: `calc(var(--chat-top-inset, 0px) + ${TOP_BAR_FADE_PX}px)` }
 /** The top bar and the chat row start clear of the app rail (rail/app-rail.tsx). */
 const TOP_BAR_STYLE = { left: 'var(--app-rail-w, 0px)' }
 const CHAT_ROW_STYLE = { marginLeft: 'var(--app-rail-w, 0px)' }
@@ -116,11 +116,6 @@ function DashboardTopBar() {
         trafficLights ? 'pt-2' : 'pt-1',
       )}
     >
-      {/* Under the bar the chat goes soft, a blur that fades out downward
-          (Liam, 10-18: most blurry at the top, less and less going down, not
-          one flat band), so what scrolls up passes beneath the bar instead of
-          being cut off. The side panels start below it (TOP_BAR_FADE_PX). */}
-      <FadingBlur direction="down" className="absolute inset-x-0 top-0" style={TOP_BAR_BLUR_STYLE} />
       {/* Window-drag layer for the desktop app: covers the ENTIRE strip at
           z-[5]; every interactive cluster in the bar sits at z-10 above it.
           (An attribute on this container alone would be dead — Tauri only
@@ -207,6 +202,13 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
         {/* The For you column on the left and the side panel on the right
             (side-panels.tsx): beside the chat's content where they make room,
             over the chat's edge where they float. */}
+        {/* Under the top bar the chat goes soft, a blur that fades out
+            downward (Liam, 10-18: most blurry at the top, less and less going
+            down, not one flat band), so what scrolls up passes beneath the bar
+            instead of being cut off. Over the chat strip (z-20), under the
+            panels (z-25): they start just under the bar, sharp (Liam, 10-16:
+            never "under the blurry section"; 11-09: close under their buttons). */}
+        <FadingBlur direction="down" className="pointer-events-none absolute inset-x-0 top-0 z-[22]" style={TOP_BAR_BLUR_STYLE} />
         <ForYouColumn mode={plan.left} />
         <RightSidePanel mode={plan.right} />
 

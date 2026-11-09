@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react'
 import { cn } from '@/lib/utils'
 import { useHasTrafficLights, subscribeMounted, getMountedSnapshot, getMountedServerSnapshot } from '@/components/desktop-titlebar'
-import { MACOS_TRAFFIC_LIGHT_WIDTH } from '@/lib/platform'
+import { topBarLeftInset } from './insets'
 import { useRecordingStable } from '@/hooks/recording-context'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useOptionalSettingsOverlay } from '../settings-overlay'
@@ -16,13 +16,6 @@ import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { SearchButton } from './search-button'
 
 /**
- * The room the macOS traffic lights take at the bar's left: their width from
- * the window's edge, less the app rail's (rail/app-rail.tsx), which the bar
- * starts after and which the lights mostly sit over. 4px at least, the web's.
- */
-const TRAFFIC_LIGHT_GUTTER = `max(4px, calc(${MACOS_TRAFFIC_LIGHT_WIDTH}px - var(--app-rail-w, 0px)))`
-
-/**
  * Where the bar's first control starts: past the traffic lights (or 4px in),
  * and from `md` up past the app rail's header too (rail/app-rail.tsx, Liam
  * 11-09: Home, the workspace and Search in one pill at the top left), 8px
@@ -30,7 +23,8 @@ const TRAFFIC_LIGHT_GUTTER = `max(4px, calc(${MACOS_TRAFFIC_LIGHT_WIDTH}px - var
  * 0 while it is hidden).
  */
 function leadInset(trafficLights: boolean): string {
-  return `max(${trafficLights ? TRAFFIC_LIGHT_GUTTER : '4px'}, calc(var(--app-header-right, 0px) - var(--app-rail-w, 0px) + 8px))`
+  const base = topBarLeftInset(trafficLights)
+  return `max(${typeof base === 'number' ? `${base}px` : base}, calc(var(--app-header-right, 0px) - var(--app-rail-w, 0px) + 8px))`
 }
 
 /**

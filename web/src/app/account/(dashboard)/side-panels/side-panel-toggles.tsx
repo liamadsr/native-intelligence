@@ -66,6 +66,8 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
           aria-label={label}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => toggleRightPanel()}
+          // The phone's pill: shaded while closed (#36). The header's: tinted while open.
+          data-lit={(variant === 'header' ? open : !open) ? '' : undefined}
           data-variant={variant}
           className={
             variant === 'header'
@@ -76,7 +78,7 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
                   // Tinted while the panel is open, as the rail's lit page (Liam, 11-09: "do the same for this button").
                   open && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
                 )
-              : cn(TOP_BAR_PILL, open && 'bg-muted text-sidebar-foreground')
+              : cn(TOP_BAR_PILL, !open && 'bg-muted text-sidebar-foreground')
           }
         >
           <SidePanelIcon data-side-panel-icon="" className={variant === 'header' ? 'size-[18px]' : 'h-4 w-4'} strokeWidth={variant === 'header' ? 1.75 : 2} />
