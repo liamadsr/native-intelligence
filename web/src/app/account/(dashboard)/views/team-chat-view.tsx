@@ -365,7 +365,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       <aside
         className={cn(
           'flex-col',
-          narrow ? (showList ? 'flex w-full' : 'hidden') : cn('flex shrink-0 border-r border-border', compact ? 'w-44' : 'w-60'),
+          // No divider between the list and the messages (Liam, 11-09: no visible divider lines).
+          narrow ? (showList ? 'flex w-full' : 'hidden') : cn('flex shrink-0', compact ? 'w-44' : 'w-60'),
         )}
       >
         <div className="flex h-12 shrink-0 items-center px-4">
@@ -611,7 +612,8 @@ function ChannelPane({
 
   return (
     <>
-      <div className={cn('flex h-12 shrink-0 items-center gap-2 border-b border-border', onBack ? 'pl-2 pr-4' : 'px-5')}>
+      {/* No rule under the channel's name (Liam, 11-09: no visible divider lines). */}
+      <div className={cn('flex h-12 shrink-0 items-center gap-2', onBack ? 'pl-2 pr-4' : 'px-5')}>
         {onBack && (
           <button
             ref={backRef}
