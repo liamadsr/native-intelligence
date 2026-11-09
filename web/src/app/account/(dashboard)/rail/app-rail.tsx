@@ -121,7 +121,9 @@ const HEADER_STYLE_LIGHTS: React.CSSProperties = { left: 78, top: 9 }
 // Its top 5px under the header's: level with the panels' tops (half a gutter under the top bar).
 const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(var(--app-header-bottom, 0px) + 5px)' }
 /** A floating pill: the panels' glass (COLUMN_CARD_SKIN), rounded, its buttons stacked. */
-const PILL = cn('relative flex flex-col items-center gap-0.5 rounded-2xl border border-border/60 p-1', COLUMN_CARD_SKIN)
+// A capsule (rounded-full): its ends follow the round buttons inside it, 4px
+// round them (Liam, 11-09: the circles and their containers didn't match).
+const PILL = cn('relative flex flex-col items-center gap-0.5 rounded-full border border-border/60 p-1', COLUMN_CARD_SKIN)
 /** The hairline between two of the bar's groups, and before Customize bar. */
 const HAIRLINE = 'my-1 h-px w-5 shrink-0 bg-foreground/10'
 
@@ -503,7 +505,7 @@ export function AppRail() {
       <div
         ref={headerRef}
         data-app-rail-header=""
-        className={cn('absolute z-[45] hidden items-center gap-0.5 rounded-2xl border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+        className={cn('absolute z-[45] hidden items-center gap-0.5 rounded-full border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
         style={trafficLights ? HEADER_STYLE_LIGHTS : HEADER_STYLE}
       >
         {mounted ? (

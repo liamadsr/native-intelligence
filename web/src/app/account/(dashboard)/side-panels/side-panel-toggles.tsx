@@ -70,7 +70,9 @@ export function SidePanelToggle({ variant = 'pill' }: { variant?: 'pill' | 'head
           className={
             variant === 'header'
               ? cn(
-                  'relative flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+                  // A 32px circle, as the header's other icon buttons (a pill once it counts agents running).
+                  running > 0 ? 'px-2' : 'w-8',
+                  'relative flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
                   // Tinted while the panel is open, as the rail's lit page (Liam, 11-09: "do the same for this button").
                   open && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
                 )

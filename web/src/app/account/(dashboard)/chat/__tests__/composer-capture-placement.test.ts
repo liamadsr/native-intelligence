@@ -55,7 +55,7 @@ describe('Capture: the top bar’s right header from md up, the main chat’s co
     const bar = strip(readFileSync(join(ROOT, TOP_BAR), 'utf8'))
     const header = bar.indexOf('data-top-bar-right-header=""')
     expect(header).toBeGreaterThan(-1)
-    expect(bar.indexOf('<ComposerCaptureButton recording={recording} />', header)).toBeGreaterThan(header)
+    expect(bar.indexOf('<ComposerCaptureButton recording={recording} variant="header" />', header)).toBeGreaterThan(header)
     expect(bar.indexOf('<SidePanelToggle variant="header" />', header)).toBeGreaterThan(header)
     // The chat panel hands it the recording it reads already.
     expect(strip(readFileSync(join(ROOT, 'src/app/account/(dashboard)/chat/chat-panel.tsx'), 'utf8'))).toContain('recording={recording}')

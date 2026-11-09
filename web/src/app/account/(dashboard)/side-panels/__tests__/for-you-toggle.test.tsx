@@ -110,6 +110,8 @@ describe('the side panel’s toggle in the top bar’s right header', () => {
     act(() => root.render(<TooltipProvider><SidePanelToggle variant="header" /></TooltipProvider>))
     expect(side()?.getAttribute('data-variant')).toBe('header')
     expect(side()!.className.split(' ')).toContain('rounded-full')
+    // A 32px circle with nothing running (not a 34×32 oval).
+    expect(side()!.className.split(' ')).toContain('w-8')
     expect(side()?.getAttribute('aria-expanded')).toBe('false')
     expect(side()!.className.split(' ')).not.toContain('bg-foreground/[0.08]')
     act(() => side()!.click())

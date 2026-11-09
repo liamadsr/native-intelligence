@@ -110,7 +110,8 @@ describe('the app rail', () => {
     expect(item('home')).toBeNull()
     expect(item('new')).toBeNull()
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
-      expect(pill.className).toContain('rounded-2xl')
+      // Capsules: their ends follow the round buttons inside (Liam, 11-09).
+      expect(pill.className.split(' ')).toContain('rounded-full')
       expect(pill.className).toContain('bg-background/70')
       expect(pill.className).toContain('backdrop-blur-md')
       expect(pill.className).toContain('border-border/60')

@@ -204,9 +204,10 @@ export function TopBar() {
             <div
               data-top-bar-right-header=""
               // -my-px: its 42px in the bar's 40px row, level with the rail's header (3px from the top, as it is).
-              className={cn('relative z-10 -my-px hidden items-center gap-0.5 rounded-2xl border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+              // A capsule, as the rail's header: its ends follow the round buttons inside.
+              className={cn('relative z-10 -my-px hidden items-center gap-0.5 rounded-full border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
             >
-              <ComposerCaptureButton recording={recording} />
+              <ComposerCaptureButton recording={recording} variant="header" />
               <SidePanelToggle variant="header" />
             </div>
             <div data-tab-bar-phone-only="" className="contents md:hidden">
