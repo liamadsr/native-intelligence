@@ -111,6 +111,12 @@ describe('the top bar’s lead cluster', () => {
     expect(lead().querySelector('[data-for-you-toggle]')).not.toBeNull()
   })
 
+  it('keeps the workspace pill for a phone only: from md up the app rail’s foot is the one workspace menu', () => {
+    render()
+    const pill = container.querySelector<HTMLElement>('[data-tab-bar-workspace-pill]')!
+    expect(pill.className).toContain('md:hidden')
+  })
+
   it('renders nothing of the cluster on the server (the mount gate holds)', () => {
     const html = renderToString(h(TopBar))
     expect(html).not.toContain('data-tab-bar-lead')

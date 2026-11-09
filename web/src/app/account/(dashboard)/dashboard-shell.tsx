@@ -572,7 +572,7 @@ export function DashboardShell({
           </div>
 
           {/* The app rail down the left: the pages, a click away (rail/app-rail.tsx). */}
-          <AppRail avatarUrl={avatarUrl} initials={initials} />
+          <AppRail />
           {/* Top bar (from the rail to the right edge) — always visible (see TopBar). */}
           <DashboardTopBar />
           {/* Below the top bar: the full-bleed main chat. */}

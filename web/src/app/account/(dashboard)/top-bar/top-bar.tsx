@@ -186,7 +186,9 @@ export function TopBar() {
             bar (Liam, 10-19). z-10 lifts it above the WindowDragStrip. Its
             menu pours down out of the pill's own liquid, right-aligned, so it
             stays inside the window. */}
-        <div className="relative z-10 flex h-8 min-w-0 shrink items-center">
+        {/* On a phone only (below `md`): from `md` up it is the app rail's
+            foot, the one workspace menu (rail/app-rail.tsx; Liam, 11-09). */}
+        <div data-tab-bar-workspace-pill="" className="relative z-10 flex h-8 min-w-0 shrink items-center md:hidden">
           <WorkspaceSwitcher variant="pill" />
         </div>
       </div>

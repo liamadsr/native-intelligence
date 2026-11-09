@@ -15,7 +15,9 @@
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
- *   avatar   Settings (⌘,).
+ *   avatar   the workspace and account menu (WorkspaceSwitcher `rail`: switch
+ *            workspace, Settings, sign out…), the one place it lives from `md`
+ *            up (Liam, 11-09: the top bar's pill is a phone's only now).
  *
  * The page in front is lit (components/chat-cards/front-card.ts), Home with
  * none. The full-screen layer starts at the rail's edge (show-tool-card.tsx),
@@ -27,6 +29,11 @@
  * In the Mac app the window has no title bar: the rail's top is window drag
  * surface, with room for the traffic lights over it.
  *
+ * Its surface is the panels' glass (Liam, 11-09: "match the glass effect of
+ * the actual panels"): the page cards' and floating cards' own translucent
+ * fill and blur (chat-cards/card-glass.tsx, attention/card-skin.ts), with
+ * their fine edge. Like them it re-composites while the sky moves.
+ *
  * Flat cost: no animation, no polling; it redraws when a card enters or leaves
  * full screen, or the workspace's edition changes.
  */
@@ -35,13 +42,12 @@ import { Building2, Calendar, Folder, House, ListChecks, Mail, MessagesSquare, P
 import { cn } from '@/lib/utils'
 import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { useWorkspaceEdition } from '@/app/account/workspace-switcher'
+import { WorkspaceSwitcher, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { closeFrontCards, frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
-import { useOptionalSettingsOverlay } from '../settings-overlay'
 import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
@@ -136,7 +142,7 @@ function RailButton({
   )
 }
 
-export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; initials: string }) {
+export function AppRail() {
   // Hydration-safe (false on the server and the first client render), as the
   // top bar's controls are: the icons mount after hydration, the band itself
   // is in the server markup so nothing moves.
@@ -144,10 +150,8 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
   const trafficLights = useHasTrafficLights()
   const desktop = useIsDesktop()
   const edition = useWorkspaceEdition()
-  const settings = useOptionalSettingsOverlay()
   const searchRef = useRef<HTMLButtonElement>(null)
   const searchKey = useModKeyLabel('K')
-  const settingsKey = useModKeyLabel(',')
 
   // <html> carries the rail's width too, for the full-screen layer on <body>.
   useLayoutEffect(() => {
@@ -172,13 +176,13 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
     <nav
       data-app-rail-nav=""
       aria-label="Pages"
-      className="absolute inset-y-0 left-0 z-30 hidden flex-col items-center bg-sidebar md:flex"
+      className="absolute inset-y-0 left-0 z-30 hidden flex-col items-center bg-background/70 backdrop-blur-md md:flex"
       style={{ width: 'var(--app-rail-w)' }}
     >
       {/* Its edge, a hairline: in the Mac app from under the traffic lights
           down, so it never runs between them (the third sits past the rail,
           as in Liam's reference). */}
-      <div aria-hidden className={cn('pointer-events-none absolute bottom-0 right-0 w-px bg-border/70', trafficLights ? 'top-11' : 'top-0')} />
+      <div aria-hidden className={cn('pointer-events-none absolute bottom-0 right-0 w-px bg-border/60', trafficLights ? 'top-11' : 'top-0')} />
       {/* Window drag surface over the top (childless: Tauri drags only on
           the attributed target), with room for the Mac's traffic lights. */}
       <div data-tauri-drag-region="" aria-hidden className={cn('w-full shrink-0', trafficLights ? 'h-11' : 'h-1.5')} />
@@ -221,13 +225,9 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
               )
             })}
             <div className="flex-1" />
-            <RailButton label="Settings" hint={<kbd className={KBD}>{settingsKey}</kbd>} onClick={() => settings?.openSettings()} data={{ 'data-app-rail-item': 'settings' }}>
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="" className="size-7 rounded-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="flex size-7 items-center justify-center rounded-full bg-foreground/[0.08] text-[10px] font-semibold text-sidebar-foreground">{initials}</span>
-              )}
-            </RailButton>
+            <div data-app-rail-item="workspace">
+              <WorkspaceSwitcher variant="rail" />
+            </div>
           </div>
         </TooltipProvider>
       )}

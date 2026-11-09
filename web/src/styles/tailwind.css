@@ -964,10 +964,7 @@ html[data-sky-tone] [data-on-sky] {
     visibility: hidden;
   }
 }
-/* On Glass the rail takes the shell's tint, as the shell's surface does. */
-html[data-glass-window] [data-app-rail-nav] {
-  background-color: hsl(var(--background) / var(--window-tint, 0));
-}
+
 
 /* Chat scroller METRICS. The top fade that used to mask content behind the
    floating HUDs is gone — messages now pass behind the attention deck / widget

@@ -14,13 +14,21 @@ import { holdFrontCard } from '@/components/chat-cards/front-card'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const { edition, openSettings, openSearch } = vi.hoisted(() => ({
+const { edition, openSearch, switcher } = vi.hoisted(() => ({
   edition: { current: null as EditionDefinition | null },
-  openSettings: vi.fn(),
   openSearch: vi.fn(() => true),
+  switcher: { variants: [] as string[] },
 }))
-vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceEdition: () => edition.current }))
-vi.mock('../../settings-overlay', () => ({ useOptionalSettingsOverlay: () => ({ openSettings }) }))
+vi.mock('@/app/account/workspace-switcher', async () => {
+  const React = await import('react')
+  return {
+    useWorkspaceEdition: () => edition.current,
+    WorkspaceSwitcher: ({ variant }: { variant: string }) => {
+      switcher.variants.push(variant)
+      return React.createElement('button', { 'aria-label': 'Workspace and account menu', 'data-variant': variant })
+    },
+  }
+})
 vi.mock('@/lib/chat/open-search', () => ({ openSearch }))
 
 import { APP_RAIL_ATTR, AppRail } from '../app-rail'
@@ -45,18 +53,26 @@ afterEach(() => {
 })
 
 async function render() {
-  await act(async () => root.render(h(AppRail, { avatarUrl: null, initials: 'FS' })))
+  await act(async () => root.render(h(AppRail)))
 }
 const item = (id: string) => container.querySelector<HTMLButtonElement>(`[data-app-rail-item="${id}"]`)
 const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws New, Search, Home, the pages and Settings, in Liam’s order', async () => {
+  it('draws New, Search, Home, the pages and the workspace menu at its foot, in Liam’s order', async () => {
     await render()
-    expect(items()).toEqual(['new', 'search', 'home', 'docs', 'mail', 'team-chat', 'actions', 'calendar', 'agents', 'crm', 'settings'])
+    expect(items()).toEqual(['new', 'search', 'home', 'docs', 'mail', 'team-chat', 'actions', 'calendar', 'agents', 'crm', 'workspace'])
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
-    expect(item('settings')?.textContent).toBe('FS')
+    // The one workspace and account menu (Liam, 11-09), the rail's own variant.
+    expect(container.querySelector('[data-app-rail-item="workspace"] [data-variant="rail"]')).not.toBeNull()
+  })
+
+  it('is glass, as the panels are (their translucent fill and blur)', async () => {
+    await render()
+    const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
+    expect(nav.className).toContain('bg-background/70')
+    expect(nav.className).toContain('backdrop-blur-md')
   })
 
   it('leaves out a page that is off in the workspace', async () => {
@@ -158,11 +174,9 @@ describe('the app rail', () => {
     expect(item('search')?.getAttribute('data-search-button')).toBe('rail')
   })
 
-  it('opens Search from its button, and Settings from the avatar', async () => {
+  it('opens Search from its button', async () => {
     await render()
     await act(async () => item('search')!.click())
     expect(openSearch).toHaveBeenCalledWith(item('search'))
-    await act(async () => item('settings')!.click())
-    expect(openSettings).toHaveBeenCalledTimes(1)
   })
 })
