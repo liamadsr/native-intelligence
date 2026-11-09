@@ -3,7 +3,7 @@
 //!
 //! The web page hands the app a token and the hub's URL. The page is not
 //! trusted with where this Mac's connection goes: the token is signed by
-//! Dial8's server (Ed25519), names the hub it is for, and is checked here
+//! Native Intelligence's server (Ed25519), names the hub it is for, and is checked here
 //! with the server's public key, fetched from the app's own API origin. A page
 //! can't point this Mac at another hub without a token the server signed for it.
 //!
@@ -51,7 +51,7 @@ impl std::fmt::Display for TicketError {
         f.write_str(match self {
             TicketError::Malformed => "the exit token is malformed",
             TicketError::BadKey => "the server's key is malformed",
-            TicketError::BadSignature => "the exit token isn't signed by Dial8",
+            TicketError::BadSignature => "the exit token isn't signed by Native Intelligence",
             TicketError::WrongAudience => "the token isn't an exit token",
             TicketError::Expired => "the exit token has expired",
             TicketError::WrongHub => "the token isn't for that browser",

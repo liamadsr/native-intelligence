@@ -1,7 +1,7 @@
 /**
  * The content tools (content C0; docs/plans/content-skill-set.md §2 rows 3-5,
  * §6 C0): the craft checks on a post the agent drafts in the chat. Neither
- * posts anything: Dial8 never publishes for the person (decision 2). The
+ * posts anything: Native Intelligence never publishes for the person (decision 2). The
  * person posts from the link, on the platform's own page.
  *
  *   lint_post     the deterministic check (src/lib/content/post-check.ts): the

@@ -324,7 +324,7 @@ export const LIGHT_DONE_WINDOW_MS = 24 * 60 * 60 * 1000
  * range on (member_id, status, created_at) (migration 272), not every done row
  * the caller ever had. A run that started before it and finished inside the
  * last day (one parked on a question for days) isn't read: its peek still
- * shows when it settled while Dial8 was open (its push is held whole).
+ * shows when it settled while Native Intelligence was open (its push is held whole).
  */
 export const LIGHT_DONE_STARTED_WINDOW_MS = 2 * LIGHT_DONE_WINDOW_MS
 /**

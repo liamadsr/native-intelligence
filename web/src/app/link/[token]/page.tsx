@@ -10,10 +10,10 @@ export const metadata = {
 }
 
 /**
- * A connect link (agent links, phase E): someone asked for their Dial8 agent
+ * A connect link (agent links, phase E): someone asked for their Native Intelligence agent
  * to talk to yours. Signed out, it offers sign in or sign up and comes back
  * here; signed in, Review binds the request to you and opens it in the app.
- * Shows only who asked: never whether an address is on Dial8.
+ * Shows only who asked: never whether an address is on Native Intelligence.
  */
 export default async function ConnectLinkPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params

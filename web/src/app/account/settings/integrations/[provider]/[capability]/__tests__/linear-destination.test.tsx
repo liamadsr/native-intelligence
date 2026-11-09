@@ -552,7 +552,7 @@ describe('Linear attribution toggle', () => {
     await mount()
 
     const toggle = container.querySelector(
-      '[aria-label="Include a “Pushed from Dial8” link on pushed tasks"]',
+      '[aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"]',
     ) as HTMLElement
     expect(toggle).toBeTruthy()
     toggle.click()
@@ -566,7 +566,7 @@ describe('Linear attribution toggle', () => {
     await mount()
 
     const toggle = container.querySelector(
-      '[aria-label="Include a “Pushed from Dial8” link on pushed tasks"]',
+      '[aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"]',
     ) as HTMLElement
     expect(toggle).toBeTruthy()
     expect(toggle.getAttribute('data-disabled')).toBeNull()
@@ -577,7 +577,7 @@ describe('Linear attribution toggle', () => {
     await mount()
 
     const toggle = container.querySelector(
-      '[aria-label="Include a “Pushed from Dial8” link on pushed tasks"]',
+      '[aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"]',
     ) as HTMLElement
     expect(toggle.getAttribute('data-state')).toBe('checked')
   })

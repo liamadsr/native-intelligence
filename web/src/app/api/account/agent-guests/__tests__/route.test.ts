@@ -73,7 +73,7 @@ beforeEach(() => {
 })
 
 describe('GET /api/account/agent-guests', () => {
-  it('lists the owner’s people as GuestViews, with their request code and the Dial8 number', async () => {
+  it('lists the owner’s people as GuestViews, with their request code and the Native Intelligence number', async () => {
     store.listGuests.mockResolvedValue([guest()])
     store.requestCode.mockResolvedValue({ code: 'K7Q4MX', open: false })
     const res = await list.GET()

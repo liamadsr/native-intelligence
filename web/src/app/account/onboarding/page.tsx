@@ -6,7 +6,7 @@ import { OnboardingWizard } from './onboarding-wizard'
 import { AuthSessionPinger } from '@/components/analytics/auth-session-pinger'
 
 export const metadata = {
-  title: 'Get Started – Dial8',
+  title: 'Get Started',
 }
 
 export default async function OnboardingPage() {

@@ -268,7 +268,7 @@ describe('POST start-agent — the right worker for the delegate (decision 9)', 
 })
 
 describe('POST start-agent — a person on their own ChatGPT plan (the free tier)', () => {
-  it('a coding Start is refused, with why, before any run is made: a coding run is Dial8-paid', async () => {
+  it('a coding Start is refused, with why, before any run is made: a coding run is NI-paid', async () => {
     world()
     hoisted.chatgptPlanFor.mockResolvedValueOnce(true)
     const res = await start()

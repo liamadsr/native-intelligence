@@ -101,7 +101,7 @@ export const OAUTH_CONFIG = {
     authUrl: 'https://app.asana.com/-/oauth_authorize',
     tokenUrl: 'https://app.asana.com/-/oauth_token',
     scopes: {
-      // The Dial8 Asana app runs in FULL-PERMISSIONS mode (the Developer
+      // The Native Intelligence Asana app runs in FULL-PERMISSIONS mode (the Developer
       // Console's "Full permissions" toggle — Liam's call, 2026-07-26). In that
       // mode Asana FORBIDS requesting named granular scopes (forbidden_scopes),
       // and the app must ask for the single 'default' scope instead.

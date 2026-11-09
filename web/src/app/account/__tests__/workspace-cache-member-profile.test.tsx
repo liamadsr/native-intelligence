@@ -85,7 +85,7 @@ describe('useCurrentMemberProfile', () => {
       'fetch',
       vi.fn(async (url: string) => {
         if (url === '/api/account/workspace/list') {
-          return jsonRes({ workspaces: [{ id: 'ws-1', name: 'Dial8', slug: 'dial8', logo_url: null, plan: 'pro', role: 'owner' }] })
+          return jsonRes({ workspaces: [{ id: 'ws-1', name: 'Native Intelligence', slug: 'dial8', logo_url: null, plan: 'pro', role: 'owner' }] })
         }
         if (url === '/api/account/workspace') {
           return jsonRes({
@@ -144,7 +144,7 @@ describe('useCurrentMemberProfile', () => {
 
     const workspaceList = {
       workspaces: [
-        { id: 'ws-1', name: 'Dial8', slug: 'dial8', logo_url: null, plan: 'pro', role: 'owner' },
+        { id: 'ws-1', name: 'Native Intelligence', slug: 'dial8', logo_url: null, plan: 'pro', role: 'owner' },
         { id: 'ws-2', name: 'Side', slug: 'side', logo_url: null, plan: 'free', role: 'member' },
       ],
     }
@@ -157,7 +157,7 @@ describe('useCurrentMemberProfile', () => {
       'ws-1': {
         workspace: { id: 'ws-1' },
         currentMemberId: 'mA',
-        members: [{ id: 'mA', user_id: 'u-1', email: 'liam@dial8.ai', display_name: 'Liam @ Dial8', avatar_url: 'https://cdn/a.png' }],
+        members: [{ id: 'mA', user_id: 'u-1', email: 'liam@dial8.ai', display_name: 'Liam @ Native Intelligence', avatar_url: 'https://cdn/a.png' }],
       },
       'ws-2': {
         workspace: { id: 'ws-2' },
@@ -188,7 +188,7 @@ describe('useCurrentMemberProfile', () => {
       root.render(h(WorkspaceCacheProvider, null, h(SwitchProbe)))
     })
     expect(memberId).toBe('mA')
-    expect(profile!.displayName).toBe('Liam @ Dial8')
+    expect(profile!.displayName).toBe('Liam @ Native Intelligence')
     expect(workspaceFetches).toEqual(['ws-1'])
 
     await act(async () => {

@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { needsProductFacts, productFactsRider, productFactsText, renderProductFactsRider } from '../product-facts-rider'
 import { PRODUCT_FACTS_HEADING } from '@/lib/live-agent/product-facts'
 
-const doc = (text: string) => ({ documentId: 'd1', title: 'Dial8', text, updatedAt: null })
+const doc = (text: string) => ({ documentId: 'd1', title: 'Native Intelligence', text, updatedAt: null })
 
 describe('needsProductFacts', () => {
   it.each([
@@ -16,7 +16,9 @@ describe('needsProductFacts', () => {
     'Does it integrate with HubSpot?',
     'draft a pitch for Acme',
     'write a case study about the Acme rollout',
-    'what does Dial8 do for sales teams',
+    'what does Native Intelligence do for sales teams',
+    'what does dial8 do for sales teams',
+    'can NI integrate with HubSpot',
     'list the features we shipped',
   ])('fires on %s', (text) => {
     expect(needsProductFacts(text)).toBe(true)
@@ -34,7 +36,7 @@ describe('productFactsText', () => {
   })
 
   it('is the whole doc before it has sections', () => {
-    expect(productFactsText(doc('Dial8 is a workspace. $20/seat.'))).toBe('Dial8 is a workspace. $20/seat.')
+    expect(productFactsText(doc('Native Intelligence is a workspace. $20/seat.'))).toBe('Native Intelligence is a workspace. $20/seat.')
   })
 
   it('an empty facts section says nothing (no rider)', () => {

@@ -16,7 +16,7 @@ import { researcherModel } from './lib/model.js'
  * — its own mount. This isolation is deliberate: the researcher has a spend
  * guard and its own locked-down tool surface (the authored enrich/save/finish
  * tools, no sandbox). Web is NOT what separates it any more — web_search/
- * web_fetch are an always-on capability of every Dial8 agent. What IS unique
+ * web_fetch are an always-on capability of every Native Intelligence agent. What IS unique
  * here is the pair of CRM enrichment tools, tools/enrich_company.ts and
  * tools/enrich_me.ts. Neither
  * talks to Exa itself: each POSTs to the Next app's internal

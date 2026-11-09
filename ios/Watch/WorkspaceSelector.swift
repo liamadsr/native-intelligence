@@ -3,7 +3,7 @@ import SwiftUI
 /// The idle screen's secondary line: WHICH WORKSPACE this watch will file its
 /// next capture into.
 ///
-/// It replaces the old `Text("Dial8")`, which said nothing. People belong to more
+/// It replaces the old product-name label, which said nothing. People belong to more
 /// than one workspace, and a capture made on the wrist has to land in the right
 /// one — but the record button is still the hero of this screen, so the selector
 /// is deliberately quiet: footnote type, secondary colour, no fill of its own.
@@ -44,7 +44,7 @@ struct WorkspaceSelector: View {
         } else if let only = sync.workspaces.first {
             plainLabel(only.name)
         } else {
-            plainLabel("Dial8")
+            plainLabel("NI")
         }
     }
 
@@ -144,7 +144,7 @@ struct WorkspaceSelector: View {
 
     // MARK: - Non-interactive
 
-    /// Exactly the type the old "Dial8" label used, so the idle screen's rhythm
+    /// Exactly the type the old product-name label used, so the idle screen's rhythm
     /// is unchanged when there is nothing to choose.
     private func plainLabel(_ text: String) -> some View {
         Text(text)

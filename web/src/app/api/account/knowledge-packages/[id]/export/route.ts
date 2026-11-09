@@ -198,7 +198,7 @@ export async function GET(
     `# ${pkg.name}`,
     '',
     ...(pkg.description ? [String(pkg.description), ''] : []),
-    `> Knowledge package exported from Dial8 on ${exportedAt.slice(0, 10)} — ${(claims ?? []).length} claims with provenance. Every claim traces back to a recorded source.`,
+    `> Knowledge package exported from Native Intelligence on ${exportedAt.slice(0, 10)} — ${(claims ?? []).length} claims with provenance. Every claim traces back to a recorded source.`,
     '',
   ]
   if (brief?.content) {

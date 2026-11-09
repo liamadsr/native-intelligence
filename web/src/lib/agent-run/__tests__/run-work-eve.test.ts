@@ -211,7 +211,7 @@ function inputRequestedEmpty(): HandleMessageStreamEvent {
 const BRIEF: WorkRunBrief = {
   task: 'Draft a follow-up email to Randy about GA access.',
   userName: 'Liam',
-  workspaceName: 'Dial8',
+  workspaceName: 'Native Intelligence',
   resources: [{ type: 'contact', id: 'con-9', label: 'Randy' }],
   deliverableHint: 'email_draft',
   trackedActionIdentifier: 'GEN-42',

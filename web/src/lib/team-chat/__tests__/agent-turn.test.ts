@@ -163,7 +163,7 @@ describe('the mention as the person’s message', () => {
     })
     // The row reads as a channel message, and the turn's body frames it as team chat.
     expect(isChannelMessageRow({ id: call.messageId, role: 'user', metadata: call.metadata })).toBe(true)
-    expect(renderChannelTurnBody(TEAM_CHAT_CHANNEL, '[tag]', [{ messageId: 'x', text }], 'thread')).toMatch(/^\[TEAM CHAT · \[tag\]\] The person mentioned you in team chat in Dial8/)
+    expect(renderChannelTurnBody(TEAM_CHAT_CHANNEL, '[tag]', [{ messageId: 'x', text }], 'thread')).toMatch(/^\[TEAM CHAT · \[tag\]\] The person mentioned you in team chat in Native Intelligence/)
   })
 
   it('a second mention in the same channel reuses the conversation', async () => {

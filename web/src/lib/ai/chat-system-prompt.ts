@@ -363,7 +363,7 @@ export const STABLE_SECTION_KEYS = ['base', 'web-access', 'agent', 'skill', 'mcp
  * A teammate chat's stable sections (bots v2): the same, with the teammate's
  * persona (`agent`, which opens with who it is) FIRST. Live on DEV the persona
  * sat under the base prompt's own identity line and lost to it: asked "Who are
- * you?", the teammate answered as Dial8's chat assistant. Leading costs no
+ * you?", the teammate answered as Native Intelligence's chat assistant. Leading costs no
  * cache: a teammate chat's base names the teammate (withTeammateIdentity), so
  * its prefix is already its own.
  */
@@ -776,7 +776,7 @@ export async function buildChatSystemPrompt(
 
   return {
     // A teammate chat leads with the teammate (TEAMMATE_STABLE_SECTION_KEYS),
-    // and its base prompt names the teammate, not Dial8, as who the model is.
+    // and its base prompt names the teammate, not Native Intelligence, as who the model is.
     stable: inOrder(teammate ? TEAMMATE_STABLE_SECTION_KEYS : STABLE_SECTION_KEYS, {
       base: baseText,
       'web-access': base.webAccess,
@@ -977,8 +977,8 @@ export function joinChatSystemPrompt(sections: readonly ChatPromptSection[]): st
 export function assistantIdentityBlock(name: string): string {
   return [
     TEAMMATE_IDENTITY_HEADING,
-    `Your name is ${name}: the name the user gave their assistant in Dial8, and the name they say to talk to you by voice. You are their assistant here, not one of their AI teammates.`,
-    `When asked who you are or what your name is, say you're ${name}. Speak as ${name}, in the first person. Never call yourself Dial8 or Dial8's chat assistant: you are ${name}.`,
+    `Your name is ${name}: the name the user gave their assistant in Native Intelligence, and the name they say to talk to you by voice. You are their assistant here, not one of their AI teammates.`,
+    `When asked who you are or what your name is, say you're ${name}. Speak as ${name}, in the first person. Never call yourself Native Intelligence or Native Intelligence's chat assistant: you are ${name}.`,
   ].join('\n')
 }
 
@@ -994,7 +994,7 @@ const MCP_DISPLAY_NAME_MAX_CHARS = 100
  * A server's display name, safe inside the `<external-server-data>` fence: on
  * one line (no forged `##` heading), at most 100 characters, and with every
  * angle bracket swapped for a look-alike, so it can neither close the fence
- * nor open any tag Dial8 writes (`<turn-context>`, `<section>`, …).
+ * nor open any tag Native Intelligence writes (`<turn-context>`, `<section>`, …).
  */
 function fencedServerName(displayName: string): string {
   const flat = [...displayName.replace(/\s+/g, ' ').trim()].slice(0, MCP_DISPLAY_NAME_MAX_CHARS).join('')

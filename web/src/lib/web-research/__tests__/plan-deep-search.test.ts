@@ -205,16 +205,16 @@ describe('planWebSearch', () => {
       text: '', model: 'chatgpt-plan/gpt-6-luna', usage: {}, webSources: [], webSearches: 1,
       object: {
         content: { results: [
-          { title: 'Dial8', url: 'https://dial8.ai/', snippet: 'Linear meets Granola.' },
+          { title: 'Native Intelligence', url: 'https://dial8.ai/', snippet: 'Linear meets Granola.' },
           { title: 'Invented', url: 'https://not-read.example/', snippet: 'x' },
           { title: 'Bad', url: 'javascript:1', snippet: 'x' },
         ] },
-        grounding: [{ field: 'results[0].url', citations: [{ url: 'https://dial8.ai/', title: 'Dial8' }], confidence: 'high' }],
-        sources: [{ url: 'https://dial8.ai/', title: 'Dial8' }],
+        grounding: [{ field: 'results[0].url', citations: [{ url: 'https://dial8.ai/', title: 'Native Intelligence' }], confidence: 'high' }],
+        sources: [{ url: 'https://dial8.ai/', title: 'Native Intelligence' }],
       },
     })
     const res = await planWebSearch({ query: 'dial8', numResults: 5 }, { userId: 'u1', workspaceId: 'w1' })
-    expect(res).toEqual({ results: [{ title: 'Dial8', url: 'https://dial8.ai/', publishedDate: null, author: null, highlights: ['Linear meets Granola.'] }], costDollars: 0 })
+    expect(res).toEqual({ results: [{ title: 'Native Intelligence', url: 'https://dial8.ai/', publishedDate: null, author: null, highlights: ['Linear meets Granola.'] }], costDollars: 0 })
     expect(runUtilityTask).toHaveBeenCalledWith(expect.objectContaining({ kind: 'plan_web_search', chatgptPlan: true, userId: 'u1' }))
   })
 })

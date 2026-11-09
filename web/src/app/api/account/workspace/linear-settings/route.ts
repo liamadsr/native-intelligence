@@ -220,7 +220,7 @@ export async function PATCH(request: NextRequest): Promise<Response> {
     //
     // `include_dial8_attribution` deliberately SURVIVES this and the team switch
     // below. Those resets exist because the ids beneath a destination resolve to
-    // nothing (or to something else) once it moves; a preference about Dial8's
+    // nothing (or to something else) once it moves; a preference about Native Intelligence's
     // own branding has no such failure mode, and silently re-branding issues on
     // a re-point is the opposite of what the user asked for.
     config = { ...state.config }

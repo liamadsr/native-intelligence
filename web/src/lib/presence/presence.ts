@@ -1,5 +1,5 @@
 /**
- * Presence: whether a person is at a Dial8 app right now, and how far they
+ * Presence: whether a person is at a Native Intelligence app right now, and how far they
  * have read their home thread (docs/plans/reach-follows-you.md §1 and §2).
  *
  * The router (part C) uses both to decide where an agent message goes: a
@@ -131,7 +131,7 @@ export function parsePresencePing(body: unknown): ParsedPresencePing {
 }
 
 /**
- * Whether the person is at any Dial8 app: some row says `active` and that
+ * Whether the person is at any Native Intelligence app: some row says `active` and that
  * ping is at most PRESENT_WINDOW_MS old. A row in any other state, or an
  * active one that went stale, says nothing either way.
  */
@@ -152,7 +152,7 @@ export interface DesktopPresenceReading {
 /**
  * The desktop main window's state from the Mac's reading: a locked screen
  * (or another user on the console) is `locked`, no input for more than
- * DESKTOP_IDLE_SECONDS is `idle`, and anything else is `active`. Dial8 may be
+ * DESKTOP_IDLE_SECONDS is `idle`, and anything else is `active`. Native Intelligence may be
  * in the background: a native banner still reaches someone using the Mac.
  */
 export function desktopState({ idleSeconds, locked }: DesktopPresenceReading): Extract<PresenceState, 'active' | 'idle' | 'locked'> {

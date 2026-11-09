@@ -188,7 +188,7 @@ function Host() {
           }),
         ask: deliverVoiceAsk,
         publish: setInteractivePhase,
-        // Voice focus: only the user and voices Dial8 knows are heard.
+        // Voice focus: only the user and voices Native Intelligence knows are heard.
         openFocus: openVoiceFocus,
       }),
     [],

@@ -8,13 +8,13 @@
  * its own: it reads in the voice Read aloud picks (@/lib/read-aloud/read-anywhere-voice).
  *
  * Off until the user turns it on here, and it can't be turned on until the
- * permission is granted: this is the only place Dial8 asks for Accessibility
+ * permission is granted: this is the only place Native Intelligence asks for Accessibility
  * (called Device Control and Data Access from macOS 27), and no other feature
  * needs it. "Allow access" shows macOS's prompt (once ever), else opens the
- * pane; the section notices the grant on its own. The same switch lets Dial8
+ * pane; the section notices the grant on its own. The same switch lets Native Intelligence
  * send the ⌘C that reads terminals; when that half is missing, "Finish setup"
  * repairs it, with a relaunch as the last step. The settings live on the
- * desktop, not in this page's storage: the shortcut works with no Dial8 page
+ * desktop, not in this page's storage: the shortcut works with no Native Intelligence page
  * open.
  *
  * Renders nothing in a browser, on a desktop build without the commands, or
@@ -35,7 +35,7 @@ import { tauriBridge, type ReadSelectionStatus } from '@/lib/tauri-bridge'
 import { ShortcutField } from './shortcut-field'
 
 /** How often the section re-checks the grant while it waits for the user to
- *  turn Dial8 on in System Settings. */
+ *  turn Native Intelligence on in System Settings. */
 const PERMISSION_POLL_MS = 1500
 
 export function ReadAnywhereSection() {
@@ -58,7 +58,7 @@ export function ReadAnywhereSection() {
     return () => window.removeEventListener('focus', refresh)
   }, [refresh])
 
-  // Waiting on the grant: notice it as soon as the user flips Dial8 on.
+  // Waiting on the grant: notice it as soon as the user flips Native Intelligence on.
   const granted = !!status?.accessibility && status.keystrokes
   const waiting = !!status?.supported && !granted && (asked || status.enabled)
   useEffect(() => {
@@ -151,13 +151,13 @@ export function PermissionRow({
   if (accessibility && keystrokes) return null
 
   const missingAll = !accessibility
-  const title = missingAll ? 'Allow Dial8 to read your selection' : 'One more step for terminals'
+  const title = missingAll ? 'Allow Native Intelligence to read your selection' : 'One more step for terminals'
   const body = missingAll
-    ? 'Read anywhere needs the Device Control and Data Access permission (called Accessibility before macOS 27). Dial8 uses it only to read the text you select when you press the shortcut.'
-    : 'Dial8 can read most apps now. To read terminals like Warp, it also needs to copy your selection with ⌘C.'
+    ? 'Read anywhere needs the Device Control and Data Access permission (called Accessibility before macOS 27). Native Intelligence uses it only to read the text you select when you press the shortcut.'
+    : 'Native Intelligence can read most apps now. To read terminals like Warp, it also needs to copy your selection with ⌘C.'
   const hint = missingAll
-    ? 'In System Settings, turn on Dial8. This page updates on its own.'
-    : 'If nothing changes, relaunch Dial8: macOS can apply the change only after a restart.'
+    ? 'In System Settings, turn on Native Intelligence. This page updates on its own.'
+    : 'If nothing changes, relaunch Native Intelligence: macOS can apply the change only after a restart.'
 
   return (
     <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
@@ -181,7 +181,7 @@ export function PermissionRow({
               className="h-8"
               onClick={() => void tauriBridge.readSelectionRelaunch().catch(() => {})}
             >
-              Relaunch Dial8
+              Relaunch Native Intelligence
             </Button>
           )}
         </div>

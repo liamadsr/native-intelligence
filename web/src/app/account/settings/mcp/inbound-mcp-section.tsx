@@ -1,10 +1,10 @@
 'use client'
 
 /**
- * Settings › Dial8 MCP's body: Dial8 as an MCP server.
+ * Settings › Native Intelligence MCP's body: Native Intelligence as an MCP server.
  *
  * This is the inbound direction — AI apps (Claude, ChatGPT, Cursor, Claude
- * Code, …) connect to Dial8 and get our workspace tools. The user picks
+ * Code, …) connect to Native Intelligence and get our workspace tools. The user picks
  * their app and gets its quickest way in (connect-apps.tsx), and sees the
  * apps currently holding tokens. The page (mcp-settings-view.tsx) carries
  * the heading.

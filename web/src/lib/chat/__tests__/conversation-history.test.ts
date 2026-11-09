@@ -156,7 +156,7 @@ describe('renderConversationPrimer', () => {
     expect(primer).not.toContain('m00 ')
   })
 
-  it("a teammate's report is a labelled, fenced Dial8 line, never the assistant's own words", async () => {
+  it("a teammate's report is a labelled, fenced Native Intelligence line, never the assistant's own words", async () => {
     const db = fakeDb({
       chat_conversations: [CONV],
       chat_messages: [
@@ -165,7 +165,7 @@ describe('renderConversationPrimer', () => {
       ],
     })
     const primer = (await renderConversationPrimer(db, { conversationId: 'conv-1', userId: 'u1', workspaceId: 'ws-1' }))!
-    expect(primer).toContain('Teammate report (Dial8 wrote this')
+    expect(primer).toContain('Teammate report (Native Intelligence wrote this')
     expect(primer).toContain(`<teammate-text>${STEERED}</teammate-text>`)
     // The report's chat text is not replayed as an Assistant line.
     expect(primer).not.toMatch(/^Assistant: .*approved sending/m)
@@ -189,13 +189,13 @@ describe('renderClaimSourceTranscript (claim extraction reads a chat)', () => {
     expect(t).toMatchObject({ userTurns: 1, exchangeLines: 2 })
   })
 
-  it("a teammate's report is a labelled, fenced Dial8 line, never the assistant's prose, and no part of the exchange", () => {
+  it("a teammate's report is a labelled, fenced Native Intelligence line, never the assistant's prose, and no part of the exchange", () => {
     const t = renderClaimSourceTranscript([
       msg('user', [{ type: 'text', text: 'Ask Quill to reply to Acme.' }], '2026-09-25T10:00:00Z'),
       reportMsg('2026-09-25T10:05:00Z', STEERED),
     ])
     expect(t.lines).toHaveLength(2)
-    expect(t.lines[1]).toMatch(/^Teammate report \(Dial8 wrote this/)
+    expect(t.lines[1]).toMatch(/^Teammate report \(Native Intelligence wrote this/)
     expect(t.lines[1]).toContain(`<teammate-text>${STEERED}</teammate-text>`)
     // The report's chat text (the run's summary, unfenced) is not replayed as an Assistant line:
     // the run's words appear once, inside the fence.
@@ -204,7 +204,7 @@ describe('renderClaimSourceTranscript (claim extraction reads a chat)', () => {
     expect(t).toMatchObject({ userTurns: 1, exchangeLines: 1 })
   })
 
-  it('leaves out every assistant line of a turn that read mail (Dial8 does not learn from mail)', () => {
+  it('leaves out every assistant line of a turn that read mail (Native Intelligence does not learn from mail)', () => {
     const t = renderClaimSourceTranscript([
       msg('user', [{ type: 'text', text: 'What did Bob say about pricing?' }], '2026-09-25T10:00:00Z'),
       msg('assistant', [{ type: 'dynamic-tool', toolName: 'read_email', toolCallId: 'c1', state: 'output-available', input: {}, output: {} }], '2026-09-25T10:00:02Z'),

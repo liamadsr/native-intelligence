@@ -16,7 +16,7 @@ export interface GuestView {
   masked: string | null
   /** Where they reach the agent: Text, Slack (migration 434). */
   channels: GuestChannelId[]
-  /** The Dial8 user they are, when their agent is a channel (435); join with /api/account/agent-links by myHalfGuestId. */
+  /** The Native Intelligence user they are, when their agent is a channel (435); join with /api/account/agent-links by myHalfGuestId. */
   peerUserId: string | null
   /** Their channels not yet proven theirs: their invite still binds these. */
   unbound: GuestChannelId[]
@@ -44,12 +44,12 @@ export interface GuestInvite {
   code: string
   /** The first text it types in for them: "Hi, it's Sam · K7Q4MX". */
   text: string
-  /** The Dial8 number they text, E.164; null when texting isn't set up. */
+  /** The Native Intelligence number they text, E.164; null when texting isn't set up. */
   dial8Number: string | null
   expiresAt: string | null
 }
 
-/** The channels' names as the tab shows them; dial8 is their own Dial8 agent (agent links, migration 435). */
+/** The channels' names as the tab shows them; dial8 is their own Native Intelligence agent (agent links, migration 435). */
 export const GUEST_CHANNEL_LABELS: Record<GuestChannelId, string> = { sms: 'Text', slack: 'Slack', dial8: 'Their agent' }
 
 /** "··8830": the last four digits, as the People tab shows a guest's number. */

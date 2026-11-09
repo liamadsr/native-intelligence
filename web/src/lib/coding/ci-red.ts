@@ -1,5 +1,5 @@
 /**
- * A pull request link Dial8 itself may print (P10 F7's "CI is still red"
+ * A pull request link Native Intelligence itself may print (P10 F7's "CI is still red"
  * message in the home thread, ci-fix.ts): only a github.com pull request
  * URL; anything else reads as none. Pure, client-safe.
  */

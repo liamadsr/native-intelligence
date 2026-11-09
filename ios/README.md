@@ -1,4 +1,4 @@
-# Dial8 for iPhone and Apple Watch
+# Native Intelligence for iPhone and Apple Watch
 
 The native iOS app, its Apple Watch companion and its widgets. They talk to the same
 backend as the web app: the dial8.ai API for chat, captures and calendar, and Supabase

@@ -4,7 +4,7 @@ import { inngest } from '@/lib/inngest/client'
 import { claimAsanaWebhookSecret, loadAsanaWebhookAuth } from '@/lib/tasks/asana-config'
 
 /**
- * POST /api/webhooks/asana/[syncStateId] — Asana → Dial8 read-back receiver.
+ * POST /api/webhooks/asana/[syncStateId] — Asana → Native Intelligence read-back receiver.
  *
  * One receiver URL per `task_sync_state` row (the id is the path segment), so a
  * delivery identifies its workspace without a lookup table and a leaked/stale

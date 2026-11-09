@@ -39,11 +39,11 @@ export const LINK_PURPOSES: Record<OneTimeLinkPurpose, LinkPurpose> = {
         // Google's contacts leg asked for on its own reads as its own product.
         title: payload.provider === 'google' && payload.capabilities.join() === 'contacts' ? 'Connect Google Contacts' : `Connect ${name}`,
         body: payload.capabilities.every((c) => importsOnConnect(payload.provider, c))
-          ? `Your Dial8 agent will read your ${what} to bring them into Dial8. It only reads: nothing is sent or changed in ${name}. You sign in on ${name}'s own page: Dial8 never sees your password.`
+          ? `Your Native Intelligence agent will read your ${what} to bring them into Native Intelligence. It only reads: nothing is sent or changed in ${name}. You sign in on ${name}'s own page: Native Intelligence never sees your password.`
           : payload.provider === 'github'
             ? // A business's website (roadmap track E): it reads the repo and proposes changes as pull requests, merged only on their yes.
-              `Your Dial8 agent will be able to read your repositories and suggest changes to your website as pull requests. Nothing goes live until you say yes by text. You sign in on GitHub's own page: Dial8 never sees your password.`
-            : `Your Dial8 agent will be able to read your ${what}. You sign in on ${name}'s own page: Dial8 never sees your password.`,
+              `Your Native Intelligence agent will be able to read your repositories and suggest changes to your website as pull requests. Nothing goes live until you say yes by text. You sign in on GitHub's own page: Native Intelligence never sees your password.`
+            : `Your Native Intelligence agent will be able to read your ${what}. You sign in on ${name}'s own page: Native Intelligence never sees your password.`,
         button: `Continue to ${name}`,
       }
     },

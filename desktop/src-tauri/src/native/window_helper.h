@@ -1,6 +1,6 @@
 /// C-callable helpers to smooth out live-resize on the macOS WKWebView.
 ///
-/// Dial8 is a Tauri shell hosting a web app inside a WKWebView. During a live
+/// Native Intelligence is a Tauri shell hosting a web app inside a WKWebView. During a live
 /// window resize, AppKit resizes the NSWindow frame synchronously with the
 /// drag, but the WKWebView re-lays-out and repaints a frame (or more) behind.
 /// In that gap the window's *backgroundColor* shows through — which by default
@@ -98,9 +98,9 @@ bool window_style_traffic_lights(void *ns_window, double diameter, double center
 /// Swaps the window's class to a runtime NSPanel subclass that keeps what tao's
 /// window class adds (its methods and ivars: focusability, background drag)
 /// and never becomes main, then sets the non-activating style, keeps it showing
-/// when Dial8 isn't the active app (an NSPanel hides on deactivate by default),
+/// when Native Intelligence isn't the active app (an NSPanel hides on deactivate by default),
 /// floats it, and lets it join every Space including full-screen ones. It also
-/// stays up when the user hides Dial8 (Cmd+H). Run on the main thread, before
+/// stays up when the user hides Native Intelligence (Cmd+H). Run on the main thread, before
 /// the window is first shown. Idempotent: on a window that is already a panel
 /// it only re-asserts the Space behavior and level.
 ///
@@ -118,7 +118,7 @@ int window_make_overlay_panel(void *ns_window);
 /// Bring a window to the front WITHOUT making it key: `orderFrontRegardless`,
 /// where tao's show is `makeKeyAndOrderFront:`. For the agent HUD, a
 /// non-activating panel that can become key, a plain show would take the
-/// keyboard from whatever the user is typing in (their call app, Dial8's main
+/// keyboard from whatever the user is typing in (their call app, Native Intelligence's main
 /// window). Main thread.
 void window_order_front_without_focus(void *ns_window);
 

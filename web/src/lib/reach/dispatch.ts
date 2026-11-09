@@ -13,7 +13,7 @@
  *
  * The person's own texts are never capped (Liam, 2026-10-31: "We don't need a
  * text cap"); a guest's are (text-turn-server.ts), and so are the replies to
- * numbers Dial8 can't tie to anyone (src/lib/sms/store.ts).
+ * numbers Native Intelligence can't tie to anyone (src/lib/sms/store.ts).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -85,7 +85,7 @@ export async function slackTarget(supabase: SupabaseClient, input: { userId: str
 }
 
 /**
- * Whether Dial8 may text them while they are away: 'away' for any verified
+ * Whether Native Intelligence may text them while they are away: 'away' for any verified
  * phone that hasn't said STOP (linking is the agreement, no separate switch:
  * Liam, 2026-10-31), null for no verified phone or one that said STOP.
  * Never throws (null).

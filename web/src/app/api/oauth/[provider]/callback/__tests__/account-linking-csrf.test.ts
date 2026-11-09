@@ -113,7 +113,7 @@ function stateData(state: string) {
   return JSON.parse(Buffer.from(state.slice(0, state.lastIndexOf('.')), 'base64url').toString())
 }
 
-/** The provider redirecting the (victim's) browser back, with no Dial8 cookies. */
+/** The provider redirecting the (victim's) browser back, with no Native Intelligence cookies. */
 function providerReturn(state: string, cookie?: string) {
   return callback(
     new Request(`https://dial8.ai/api/oauth/linear/callback?code=victim-code&state=${encodeURIComponent(state)}`, {

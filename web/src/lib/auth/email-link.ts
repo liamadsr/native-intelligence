@@ -20,7 +20,7 @@ export function emailLinkType(raw: string | null): EmailOtpType | null {
 }
 
 /**
- * A PKCE link's token hash (`pkce_` + hex). Every Dial8 sign-in uses PKCE, so
+ * A PKCE link's token hash (`pkce_` + hex). Every Native Intelligence sign-in uses PKCE, so
  * any other token is refused before it reaches Supabase: a link without PKCE
  * isn't bound to the browser that asked for it, and someone else's could sign
  * this browser into their account.

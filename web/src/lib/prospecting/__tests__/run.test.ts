@@ -387,7 +387,7 @@ class World {
 
 function icpFor(kind: 'buyers' | 'thin'): Icp {
   const icp = emptyIcp()
-  icp.source.name = 'Dial8'
+  icp.source.name = 'Native Intelligence'
   icp.source.domain = 'dial8.ai'
   icp.source.what_we_sell = 'a meeting-capture and CRM workspace'
   if (kind === 'buyers') {

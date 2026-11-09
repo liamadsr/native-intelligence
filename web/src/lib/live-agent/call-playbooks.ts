@@ -209,9 +209,9 @@ function scoreWorkspaceNames(text: string, weight: number, playbooks: readonly C
  * The goal counts double (it is the person's own words). Common words that
  * also mean other things ("deal", "close", "raise", "pitch") count a quarter
  * of a strong one, so one of them alone never picks. Clear means a score of
- * at least MIN_SUGGESTION_SCORE that beats the runner-up: "Pitch Dial8" alone ties investor-pitch
+ * at least MIN_SUGGESTION_SCORE that beats the runner-up: "Pitch Native Intelligence" alone ties investor-pitch
  * with sales-call and picks nothing, so the copilot chooses from the room;
- * "Pitch Dial8" plus a prep about a venture scout picks investor-pitch.
+ * "Pitch Native Intelligence" plus a prep about a venture scout picks investor-pitch.
  * `workspace` playbooks are picked by their names (scoreWorkspaceNames): a
  * goal of "Renewal with Acme" picks a workspace "renewal-call". Pure.
  */

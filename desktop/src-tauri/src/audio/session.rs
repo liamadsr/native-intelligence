@@ -312,7 +312,7 @@ impl RecordingSession {
         // serialization + IPC into the WebView) can stall past the IO
         // deadline, which makes CoreAudio restart the device IO: a ~1s hole
         // in our own capture and an audible dropout for every other app
-        // sharing the input device (observed live: Dial8's and Zoom's input
+        // sharing the input device (observed live: Native Intelligence's and Zoom's input
         // streams blipping together during captures). The callback must only
         // copy the chunk into a channel; a dedicated thread converts and
         // emits.

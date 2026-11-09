@@ -94,7 +94,7 @@ describe('tool guides', () => {
       expect(flows, recipe).toContain(recipe)
     }
     expect(flows).toContain("only when the person\'s own request matches one, never on your initiative".replace("\\'", "'"))
-    expect(flows).toContain('Dial8 never sends a newsletter')
+    expect(flows).toContain('Native Intelligence never sends a newsletter')
     expect(flows).toContain("a post or anything public always does, whatever the loop's trust")
     expect(flows).toContain('`{{steps.<id>.output}}`')
     expect(flows).toContain('`{{trigger.capture.title}}`')
@@ -175,7 +175,7 @@ describe('tool guides', () => {
 
   it('the base prompt keeps the core and drops the manuals', async () => {
     const prompt = await buildSystemPrompt('user-1', stubSupabase(), undefined, { workspaceId: 'ws-1', webAccess: 'never' })
-    for (const kept of ["You are Assistant, the user's always-on agent in Dial8", '## How You Work', '## Response Style', '## Things to Avoid Saying', '## Things to Say Instead', '## Safety', '`find` is the front door']) {
+    for (const kept of ["You are Assistant, the user's always-on agent in Native Intelligence", '## How You Work', '## Response Style', '## Things to Avoid Saying', '## Things to Say Instead', '## Safety', '`find` is the front door']) {
       expect(prompt, kept).toContain(kept)
     }
     for (const gone of ['Important Workflows', '### Email Tools', '### Knowledge Graph', '### Documents', '### Attachment Search', '### Calendar ↔ Captures', '### Cycles', '/account/wiki', '/api/account/']) {
@@ -196,9 +196,12 @@ describe('tool guides', () => {
     // Was 25.3K before the trim (10-27). Grow it on purpose, never by drift:
     // a tool's how-to goes in its note, an area's in its pack. 11,000 → 11,050
     // on purpose (10-27): the Now file's empty line, after the agent told the
-    // person it couldn't see a note that had never been written.
-    expect(web).toBeLessThanOrEqual(11_050)
-    expect(web + desktopNotes).toBeLessThanOrEqual(11_500)
+    // person it couldn't see a note that had never been written. 11,050 →
+    // 11,130 on purpose (11-09): the product's new name, Native Intelligence,
+    // is longer than the old one was. It adds 80 here and 84 with the desktop
+    // notes; both limits moved by that much and nothing else.
+    expect(web).toBeLessThanOrEqual(11_130)
+    expect(web + desktopNotes).toBeLessThanOrEqual(11_585)
     expect(tokens(parts.base)).toBeLessThanOrEqual(2_500)
     expect(coreNotes).toBeLessThanOrEqual(700)
   })

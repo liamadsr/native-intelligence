@@ -7,7 +7,7 @@
  * (home-turn-server.ts) and the Inngest consumers (src/lib/inngest/slack-turn.ts,
  * src/lib/inngest/text-turn.ts) read the rest.
  *
- * The flow (Slack): the person DMs the Dial8 bot from their linked Slack
+ * The flow (Slack): the person DMs the Native Intelligence bot from their linked Slack
  * account. The intake writes the message into their home thread as THEIR
  * message (id `slack-in:<team>:<channel>:<ts>`, metadata `{ kind:
  * 'channel_message', channel: 'slack' }`) and sends `slack/turn.requested`.
@@ -25,7 +25,7 @@
  * `channel_turn` with surface `sms`, and the reply is texted back.
  *
  * The flow (a call, docs/plans/text-and-calling.md Phase 4): the person calls
- * the Dial8 number from their verified phone and GPT-Live talks with them
+ * the Native Intelligence number from their verified phone and GPT-Live talks with them
  * (src/lib/calls/). Each time it hands a request to us, the bridge writes what
  * they said as their message (id `call-in:<session>:<delegation>`, metadata
  * `{ kind: 'channel_message', channel: 'call' }`) and runs reason 'call' as
@@ -45,10 +45,10 @@ export const LEGACY_TEXT_MESSAGE_KIND = 'text_message'
 /** The channels that write into the home thread. */
 export const SLACK_CHANNEL = 'slack' as const
 export const SMS_CHANNEL = 'sms' as const
-/** A phone call to the Dial8 number (GPT-Live speaks; src/lib/calls/). */
+/** A phone call to the Native Intelligence number (GPT-Live speaks; src/lib/calls/). */
 export const CALL_CHANNEL = 'call' as const
 /**
- * Another Dial8 user's agent, over an agent link (migration 435): only ever
+ * Another Native Intelligence user's agent, over an agent link (migration 435): only ever
  * into the thread of the owner's half for that user (a guest thread), never
  * the home thread.
  */
@@ -179,7 +179,7 @@ function slackFrom(place: ChannelPlace): string {
 
 /** Where a team chat mention was said: the message itself names the channel or DM (src/lib/team-chat/agent-turn.ts). */
 function teamChatFrom(_place: ChannelPlace): string {
-  return 'mentioned you in team chat in Dial8 (everyone in that channel or direct message reads your reply)'
+  return 'mentioned you in team chat in Native Intelligence (everyone in that channel or direct message reads your reply)'
 }
 
 /** True for the text of a message a channel turn sent (the person's words, framed). */

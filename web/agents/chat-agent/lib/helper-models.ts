@@ -18,7 +18,7 @@
  * app sends every task of a plan turn to the plain helper, which runs the
  * plan's lighter model (./chat-model.ts helperChatModel). Should another
  * helper ever start on one, it gets the plan's turn guard, which the Gateway
- * serves from no host: it fails, and Dial8 pays nothing.
+ * serves from no host: it fails, and Native Intelligence pays nothing.
  */
 import { defineDynamic } from 'eve'
 import { FALLBACK_CHATGPT_PLAN_ROUTE, chatGptPlanForTurn, planTurnSelection } from './chatgpt-plan-model.js'

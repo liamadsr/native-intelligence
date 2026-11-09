@@ -6,7 +6,7 @@ import { registerTools } from './tools'
 
 /**
  * Build the `instructions` blob the MCP server sends in the `initialize`
- * response. Clients (Claude Code, ChatGPT Codex, the Dial8 live agent) treat
+ * response. Clients (Claude Code, ChatGPT Codex, the Native Intelligence live agent) treat
  * this as part of their system prompt for the duration of the session.
  *
  * Two jobs:
@@ -21,7 +21,7 @@ import { registerTools } from './tools'
  *      connector happened to point. What replaces it is the protocol: read the
  *      `workspace_id` off the row, pass it back.
  *
- *   2. Teach the knowledge loop. Dial8 is the workspace's accumulated
+ *   2. Teach the knowledge loop. Native Intelligence is the workspace's accumulated
  *      memory — external agents that don't know to ORIENT (briefs) →
  *      SEARCH (claims) → SAVE (create_claim) treat it as a bare CRUD API
  *      and miss the entire point.
@@ -39,7 +39,7 @@ function buildInstructions(
     : `id ${workspaceId} (no name on the workspace record)`
 
   return [
-    `Dial8 MCP — active workspace: ${label}.`,
+    `Native Intelligence MCP — active workspace: ${label}.`,
     '',
     'The active workspace is a DEFAULT, not a fence. One session reaches every workspace you belong to — route each call yourself instead of switching scope:',
     '  • Every row you read carries `workspace_id`, and every result carries `active_workspace`.',
@@ -54,7 +54,7 @@ function buildInstructions(
     'YOUR TOOL LIST MAY BE OUT OF DATE. It was fetched when you connected and this server cannot update it mid-session. If a capability seems to be missing, do NOT conclude it does not exist:',
     '  1. `dial8_search_tools` — what this server can do right now, read live. Pass an exact `name` for a tool\'s argument schema.',
     '  2. `dial8_call_tool` — invoke any tool by name, including one absent from your list.',
-    'When that happens, tell the user their Dial8 connector is holding an old tool list and reconnecting will refresh it.',
+    'When that happens, tell the user their Native Intelligence connector is holding an old tool list and reconnecting will refresh it.',
     '',
     'Knowledge loop — this workspace accumulates a knowledge graph of claims (durable facts, decisions, open questions, commitments) extracted from meetings, documents, and conversations, each with provenance:',
     '  1. ORIENT — read the `dial8://brief/workspace` resource (compiled world model) if your client supports MCP resources. Project and package briefs live at `dial8://brief/project/{id}` and `dial8://brief/package/{id}`.',
@@ -264,7 +264,7 @@ export async function createMcpServer(
       version: '1.0.0',
       // What an app shows for the server it added (its connector list, the
       // sign-in prompt), where it reads them.
-      title: 'Dial8',
+      title: 'Native Intelligence',
       websiteUrl: 'https://dial8.ai',
       icons: [{ src: 'https://dial8.ai/icon.png', mimeType: 'image/png', sizes: ['1024x1024'] }],
     },

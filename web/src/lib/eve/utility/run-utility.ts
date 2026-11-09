@@ -37,7 +37,7 @@
  * the background (retireInBackground: never awaited, so it adds no latency;
  * bounded by RETIRE_TIMEOUT_MS): its run ends, and the utility agent's
  * `retention: 0` then deletes the run's stored data — the prompt included,
- * which can be mail text Dial8 must not keep. Never earlier: at retention 0
+ * which can be mail text Native Intelligence must not keep. Never earlier: at retention 0
  * the purge races any read still in flight. A session whose create only
  * returned after the deadline is cancelled, then retired the same way.
  *
@@ -231,7 +231,7 @@ export interface UtilityRunBase {
    * runs on the kind's plan model through the plan proxy, never the Gateway,
    * whatever `model` says; the result's `model` is `chatgpt-plan/<model>`,
    * which logUsage logs at no cost. Needs `userId`: a call with no person has
-   * no plan to run on, and is refused rather than run on Dial8's models.
+   * no plan to run on, and is refused rather than run on Native Intelligence's models.
    */
   chatgptPlan?: boolean
   /**
@@ -314,7 +314,7 @@ function utilityClient(a: {
 /**
  * The signed model for a call on the person's ChatGPT plan
  * (`chatgpt-plan/<model>`, the spec route runs it on the plan), or null for a
- * call on Dial8's models. Throws for a plan call with no person.
+ * call on Native Intelligence's models. Throws for a plan call with no person.
  */
 function utilityPlanSlug(args: Pick<UtilityRunBase, 'kind' | 'userId' | 'chatgptPlan' | 'planModel'>): string | null {
   if (!args.chatgptPlan) return null

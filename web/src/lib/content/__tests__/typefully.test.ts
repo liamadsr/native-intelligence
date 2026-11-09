@@ -48,7 +48,7 @@ describe('finding Typefully’s tools', () => {
 
   it('reads the social sets, with their handles', () => {
     expect(socialSets(JSON.stringify({ results: [{ id: 42, username: 'liam' }, { id: 43 }] }))).toEqual([{ id: 42, label: '@liam' }, { id: 43, label: null }])
-    expect(socialSets(JSON.stringify([{ id: 'abc', name: 'Dial8 team' }]))).toEqual([{ id: 'abc', label: 'Dial8 team' }])
+    expect(socialSets(JSON.stringify([{ id: 'abc', name: 'Native Intelligence team' }]))).toEqual([{ id: 'abc', label: 'Native Intelligence team' }])
     expect(socialSets('not json')).toBeNull()
     expect(socialSets('[]')).toEqual([])
   })

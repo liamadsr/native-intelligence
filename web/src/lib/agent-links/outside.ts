@@ -1,12 +1,12 @@
 /**
- * Agent links with Dial8 users outside your workspace (phase E; decisions 3,
+ * Agent links with Native Intelligence users outside your workspace (phase E; decisions 3,
  * 4 and 5 in /mnt/project-files/agent-links/contracts.md), read and written
  * with the service role. The routes call these after their own auth.
  *
  *   resolveEmailTarget    the confirmed user who signs in with an email, for
  *                         requestLink. Whatever it finds, the requester hears
  *                         the same "request sent" (decision 3): nothing here
- *                         or in requestLink tells them who is on Dial8.
+ *                         or in requestLink tells them who is on Native Intelligence.
  *   requestLinkByEmail /  the two ways to ask someone outside: by the email
  *   createConnectLink     they sign in with (one email goes out, the same
  *                         whoever it is), or a link the requester sends
@@ -45,7 +45,7 @@ export function normalizeLinkEmail(raw: unknown): string | null {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null
 }
 
-/** The confirmed Dial8 user signing in with `email`, else null (migration 436). A failed lookup reads as nobody. */
+/** The confirmed Native Intelligence user signing in with `email`, else null (migration 436). A failed lookup reads as nobody. */
 export async function resolveEmailTarget(service: SupabaseClient, email: string): Promise<string | null> {
   const normalized = normalizeLinkEmail(email)
   if (!normalized) return null
@@ -168,7 +168,7 @@ export type OutsideRequestResult = LinkResult | { ok: false; reason: 'daily_cap'
 /**
  * Ask someone by email (decision 3). The address is looked up, and the
  * request carries a connect token either way; one email goes out with its
- * link, worded the same whether or not the address is on Dial8. Refusals
+ * link, worded the same whether or not the address is on Native Intelligence. Refusals
  * are the store's, plus `daily_cap` (EMAIL_REQUESTS_PER_DAY).
  */
 export async function requestLinkByEmail(service: SupabaseClient, input: AskInput & { email: string }, now = Date.now()): Promise<OutsideRequestResult> {
@@ -304,7 +304,7 @@ export async function redeemConnectToken(service: SupabaseClient, input: { token
 }
 
 /**
- * Requests sent by email to this person's address before they were on Dial8
+ * Requests sent by email to this person's address before they were on Native Intelligence
  * (or before it matched): each becomes theirs, so it shows on their People
  * tab. Runs on every read of their links; a confirmed address only. Returns
  * how many it bound.
@@ -398,7 +398,7 @@ export async function setOutsideLinksAllowed(
 
 /**
  * The one email a request by address sends, the same whether or not the
- * address is on Dial8 (decision 3): who asked, and the connect link, which
+ * address is on Native Intelligence (decision 3): who asked, and the connect link, which
  * signs them in or up and opens the request. Returns whether Resend took it.
  */
 export async function sendLinkRequestEmail(input: { to: string; requesterName: string; url: string }): Promise<boolean> {
@@ -407,18 +407,18 @@ export async function sendLinkRequestEmail(input: { to: string; requesterName: s
   try {
     const { error } = await sendEmail({
       to: input.to,
-      subject: `${name} wants their Dial8 agent to talk to yours`,
+      subject: `${name} wants their Native Intelligence agent to talk to yours`,
       html: `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
           <h2 style="margin: 0 0 16px;">${nameHtml} wants your agents to talk</h2>
           <p style="color: #555; line-height: 1.6;">
-            ${nameHtml} asked to connect their Dial8 agent with yours, so the two can find times and answer each other's questions. Nothing is shared until you accept, and you choose what their agent may ask yours.
+            ${nameHtml} asked to connect their Native Intelligence agent with yours, so the two can find times and answer each other's questions. Nothing is shared until you accept, and you choose what their agent may ask yours.
           </p>
           <a href="${input.url}" style="display: inline-block; margin: 24px 0; padding: 12px 24px; background: #000; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 500;">
             Review the request
           </a>
           <p style="color: #888; font-size: 13px; line-height: 1.5;">
-            If you're new to Dial8, the link lets you create an account first. It works once and expires in 7 days. If you didn't expect this email, you can ignore it.
+            If you're new to Native Intelligence, the link lets you create an account first. It works once and expires in 7 days. If you didn't expect this email, you can ignore it.
           </p>
         </div>
       `,

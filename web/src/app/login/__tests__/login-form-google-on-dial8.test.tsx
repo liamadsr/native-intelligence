@@ -88,7 +88,7 @@ describe('LoginForm Google sign-in on dial8.ai', () => {
     })
   }
 
-  it('navigates to Dial8’s own flow on the web', async () => {
+  it('navigates to Native Intelligence’s own flow on the web', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(window, 'location')
     const location = { href: 'http://localhost/login', origin: 'http://localhost', assign: vi.fn() }
     Object.defineProperty(window, 'location', { configurable: true, value: location })
@@ -134,10 +134,10 @@ describe('LoginForm Google sign-in on dial8.ai', () => {
     expect(container.textContent).toContain('Authentication failed. Please try again.')
   })
 
-  it('runs Supabase’s flow on a desktop build that refuses /auth/google', async () => {
+  it.each(['not a Native Intelligence sign-in page', 'not a Dial8 sign-in page'])('runs Supabase’s flow on a desktop build that refuses /auth/google (%s)', async (refusal) => {
     mocks.desktop = true
     mocks.authWebSession
-      .mockRejectedValueOnce(new Error('not a Dial8 sign-in page'))
+      .mockRejectedValueOnce(new Error(refusal))
       .mockResolvedValueOnce({ kind: 'callback', url: 'dial8desktop://auth/callback?code=abc' })
     await render()
     await clickGoogle()

@@ -100,7 +100,7 @@ describe('the turn row', () => {
       workspaceId: WS,
       memberId: 'member-1',
       kind: 'local_agent',
-      title: 'Dial8 on Liam’s MacBook · dial8-website: Take a look at this repository',
+      title: 'Native Intelligence on Liam’s MacBook · dial8-website: Take a look at this repository',
       actor: 'agent',
       status: 'queued',
       runKey: `local_agent:${SID}:1`,
@@ -118,8 +118,8 @@ describe('the turn row', () => {
   })
 
   it('titles cap the request at 60 characters; steps name the tool and its target', () => {
-    expect(turnTitle('Liam’s MacBook', 'repo', 'a'.repeat(100))).toBe(`Dial8 on Liam’s MacBook · repo: ${'a'.repeat(59)}…`)
-    expect(turnTitle('', 'repo', 'Look')).toBe('Dial8 on your Mac · repo: Look')
+    expect(turnTitle('Liam’s MacBook', 'repo', 'a'.repeat(100))).toBe(`Native Intelligence on Liam’s MacBook · repo: ${'a'.repeat(59)}…`)
+    expect(turnTitle('', 'repo', 'Look')).toBe('Native Intelligence on your Mac · repo: Look')
     expect(stepFromTool('read_file', '{"path":"src/lib/x.ts"}')).toBe('Reading src/lib/x.ts')
     expect(stepFromTool('bash', '{"command":"npm test"}')).toBe('Running npm test')
     expect(stepFromTool('grep', '{"pattern":"TODO"')).toBe('Searching')

@@ -108,7 +108,7 @@ describe("the business's number", () => {
   const config = { accountSid: 'AC1', authToken: 't', fromNumber: '+18885550100', messagingServiceSid: 'MG1' }
   const db = () => memoryDb({ business_phone_number: [] }, { business_phone_number: (a, b) => a.state === 'active' && b.state === 'active' && (a.phone_e164 === b.phone_e164 || a.workspace_id === b.workspace_id) })
 
-  it("buys a local number in the area code and points its SMS webhook at Dial8's, never into Dial8's messaging service", async () => {
+  it("buys a local number in the area code and points its SMS webhook at Native Intelligence's, never into Native Intelligence's messaging service", async () => {
     const calls: Array<{ url: string; body: string | null }> = []
     const fetch = vi.fn(async (url: string, init: RequestInit) => {
       calls.push({ url, body: typeof init.body === 'string' ? init.body : null })
@@ -121,14 +121,14 @@ describe("the business's number", () => {
     expect(out).toMatchObject({ ok: true, number: { phone: '+19295550123', twilioSid: 'PN9', workspaceId: 'ws-rug' } })
     expect(calls[0].url).toContain('AvailablePhoneNumbers/US/Local.json?AreaCode=929&SmsEnabled=true')
     expect(new URLSearchParams(calls[1].body!).get('SmsUrl')).toBe('https://dial8.ai/api/twilio/sms')
-    // Never in Dial8's sender pool: Twilio could pick it for a Dial8 text.
+    // Never in Native Intelligence's sender pool: Twilio could pick it for a Native Intelligence text.
     expect(calls.some((c) => c.url.includes('messaging.twilio.com'))).toBe(false)
     expect((await findBusinessNumber(supabase, '+19295550123'))?.workspaceId).toBe('ws-rug')
     // One per business.
     expect(await buyBusinessNumber(supabase, { workspaceId: 'ws-rug', ownerUserId: 'user-owner', areaCode: '929', businessName: 'R' }, { fetch: fetch as never, config })).toEqual({ ok: false, reason: 'has_number' })
   })
 
-  it('attaches a number already in the account; refuses the Dial8 number itself and one not in the account', async () => {
+  it('attaches a number already in the account; refuses the Native Intelligence number itself and one not in the account', async () => {
     const fetch = vi.fn(async (url: string) => (url.includes('PhoneNumber=%2B16465550173') ? Response.json({ incoming_phone_numbers: [{ sid: 'PN1' }] }) : url.includes('IncomingPhoneNumbers.json?') ? Response.json({ incoming_phone_numbers: [] }) : Response.json({})))
     const supabase = db()
     expect(await attachBusinessNumber(supabase, { workspaceId: 'ws-rug', ownerUserId: 'u', phone: '(646) 555-0173' }, { fetch: fetch as never, config })).toMatchObject({ ok: true, number: { phone: '+16465550173' } })

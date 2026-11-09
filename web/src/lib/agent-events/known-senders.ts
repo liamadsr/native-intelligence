@@ -3,7 +3,7 @@
  * the person knows reaches them in the home thread within a couple of
  * minutes; everything else waits quietly in the review pile and the digest.
  *
- * A sender is KNOWN to the person in a workspace when, from what Dial8
+ * A sender is KNOWN to the person in a workspace when, from what Native Intelligence
  * already holds (never a stored message body, which is going away):
  *   • the CRM: a contact in the workspace with that address, as its primary or
  *     a secondary address (a merged-away tombstone doesn't count), or the

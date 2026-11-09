@@ -21,7 +21,7 @@
  *   - nothing here can throw — attribution rides on the sign-in path.
  *
  * POST-PIVOT: a fresh signup with NO cookie is now stamped
- * DEFAULT_SIGNUP_EDITION ('sales'), because Dial8 runs one funnel and `/` is
+ * DEFAULT_SIGNUP_EDITION ('sales'), because Native Intelligence runs one funnel and `/` is
  * the sales pitch. That default is deliberately applied INSIDE the same two
  * gates, which is what the first two bullets above now also protect: every
  * returning customer pings this route cookieless, so an ungated default would

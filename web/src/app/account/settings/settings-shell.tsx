@@ -59,8 +59,8 @@ const navSections: NavSection[] = [
     items: [
       // Integrations and outbound MCP servers, one list (Claude's Connectors).
       { href: '/account/settings/connectors', label: 'Connectors', icon: Link2 },
-      // Dial8 as an MCP server, for Claude Code / Cursor.
-      { href: '/account/settings/mcp', label: 'Dial8 MCP', icon: Terminal },
+      // Native Intelligence as an MCP server, for Claude Code / Cursor.
+      { href: '/account/settings/mcp', label: 'NI MCP', icon: Terminal },
       { href: '/account/settings/environments', label: 'Environments', icon: Server },
       { href: '/account/settings/autonomy', label: 'Autonomy', icon: Sparkles },
       { href: '/account/settings/memory', label: 'Memory', icon: Lightbulb },

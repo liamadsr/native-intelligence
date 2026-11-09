@@ -317,7 +317,7 @@ bool window_style_traffic_lights(void *ns_window, double diameter, double center
 // (canBecomeKeyWindow, which reads tao's `focusable`, and sendEvent:, which
 // drags a movable-by-background window) and its ivars, by name, as tao reads
 // them. So tao's set_focusable and dragging still work on the swapped window.
-// It never becomes main: a panel shouldn't take Dial8's menu bar. Main thread
+// It never becomes main: a panel shouldn't take Native Intelligence's menu bar. Main thread
 // only (objc_getClass then objc_allocateClassPair isn't atomic).
 static BOOL dial8_overlay_panel_no(id self, SEL _cmd) { return NO; }
 
@@ -396,7 +396,7 @@ int window_make_overlay_panel(void *ns_window) {
 
     @autoreleasepool {
         NSWindow *window = (__bridge NSWindow *)ns_window;
-        // Stay up when the user hides Dial8 (Cmd+H): the HUD is for the call,
+        // Stay up when the user hides Native Intelligence (Cmd+H): the HUD is for the call,
         // not the app. Applies to a plain window too, so it's set either way.
         window.canHide = NO;
 
@@ -429,7 +429,7 @@ int window_make_overlay_panel(void *ns_window) {
         panel.styleMask |= NSWindowStyleMaskNonactivatingPanel;
         // Setting the non-activating style after the window exists doesn't
         // reach the window server on its own: a click would still activate
-        // Dial8 (and pull the user out of their full-screen call). This private
+        // Native Intelligence (and pull the user out of their full-screen call). This private
         // setter is what the style sets at creation; skipped where it's gone.
         SEL preventsActivation = NSSelectorFromString(@"_setPreventsActivation:");
         if ([panel respondsToSelector:preventsActivation]) {
@@ -569,7 +569,7 @@ int window_set_glass_panel(void *ns_window, int on, int appearance, double corne
         // Blur what's behind the panel (the call, the desktop).
         fx.blendingMode = NSVisualEffectBlendingModeBehindWindow;
         fx.material = NSVisualEffectMaterialUnderWindowBackground;
-        // Stay glass while Dial8 isn't the active app: the panel's whole job is
+        // Stay glass while Native Intelligence isn't the active app: the panel's whole job is
         // to float over the user's call window.
         fx.state = NSVisualEffectStateActive;
         if (appearance == DIAL8_BACKDROP_APPEARANCE_DARK) {

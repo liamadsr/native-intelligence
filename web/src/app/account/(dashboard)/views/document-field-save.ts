@@ -73,7 +73,7 @@ export async function patchDocumentFields(
  *   sections the same lines changed differently, but inside matching `##`
  *            sections (minimal D4, canon documents): every section only one
  *            side changed is taken as it is, and the person picks mine or
- *            theirs for each section both changed ("Dial8 updated
+ *            theirs for each section both changed ("Native Intelligence updated
  *            Positioning while you were editing"). No presence, no CRDT
  *            (decision 17, GEN-334).
  *   choose   the same lines changed differently and the sections don't line

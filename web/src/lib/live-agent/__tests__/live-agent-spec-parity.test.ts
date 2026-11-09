@@ -1098,7 +1098,7 @@ describe("a live turn on the person's own ChatGPT plan (the free tier)", () => {
     expect(spec!.systemPrompt).toContain(WEB_ACCESS_GUIDANCE)
   })
 
-  it('a batch pass thinks on the plan at the same Think reasoning as a live turn, as DeepSeek does on Dial8', async () => {
+  it('a batch pass thinks on the plan at the same Think reasoning as a live turn, as DeepSeek does on Native Intelligence', async () => {
     const { claims } = await runRoute({ capture_id: FIX.captureId, mode: 'batch', prior_transcript: 'Speaker 1: ship Friday' }, {})
     const spec = await rebuildLiveAgentSpec(claims, { supabase: createFakeSupabase(meetingFixture({})).client })
     expect(spec!.chatgptPlan).toEqual({ model: 'gpt-6-luna', helperModel: 'gpt-6-luna', reasoning: 'medium' })

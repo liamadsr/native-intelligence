@@ -34,7 +34,7 @@ import type { EventNeedsPersonInput } from '@/lib/ai/decisions/tasks/event-needs
  * verdict, as a boolean; fails open). Opted in to the ChatGPT free tier: a
  * person on their own plan is not over it, so their events still reach their
  * agent; the home turns past this gate run on their plan (the turn's rebuild
- * puts them there), and Jev, Dial8-paid, refuses them on its own
+ * puts them there), and Jev, NI-paid, refuses them on its own
  * (runDecision's usage check) at no cost.
  */
 export async function isOverBackgroundUsage(userId: string): Promise<boolean> {
@@ -119,7 +119,7 @@ async function noticeIdByGroup(supabase: SupabaseClient, memberId: string, group
 }
 
 /**
- * The copy of a meeting-soon notice: Dial8's sentence around a clipped title,
+ * The copy of a meeting-soon notice: Native Intelligence's sentence around a clipped title,
  * saying the prep is ready only when it is (a plain heads-up otherwise). Pure.
  */
 export function meetingNoticeCopy(row: Pick<AgentEventRow, 'facts' | 'occurs_at'>, nowMs: number): { title: string; sentence: string; body: string } {

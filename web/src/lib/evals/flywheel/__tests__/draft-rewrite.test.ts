@@ -5,7 +5,7 @@
  *     holding ONLY the score, word counts, origin and pointers: no draft
  *     text, no sent text, no subject, anywhere in the row;
  *   - a light edit, a short draft, a send without edits, or a draft with no
- *     Dial8 row records nothing;
+ *     Native Intelligence row records nothing;
  *   - it never fails or holds up a send: a broken candidate write or draft
  *     read is swallowed and the send still answers ok.
  */
@@ -126,7 +126,7 @@ describe('sendProviderDraft → draft_rewrite candidate', () => {
     expect(fake.selects.some((s) => s.table === 'email_draft' && s.columns.includes('body_text'))).toBe(false)
   })
 
-  it('a draft with no Dial8 row (written in the mailbox) records nothing', async () => {
+  it('a draft with no Native Intelligence row (written in the mailbox) records nothing', async () => {
     seed({ provider_draft_id: 'm-other', provider_thread_id: 'thr-other' })
     await sendProviderDraft('user-1', WS, 'thr-1', 'm-draft', edits(REWRITE))
     await settle()

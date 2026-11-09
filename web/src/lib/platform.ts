@@ -1,5 +1,5 @@
 /**
- * Platform detection utilities for Dial8.
+ * Platform detection utilities for Native Intelligence.
  * Detects whether the app is running inside a Tauri desktop shell.
  */
 

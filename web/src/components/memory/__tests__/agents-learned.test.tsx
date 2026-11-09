@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * What the agents learned at work, in What Dial8 has learned (trust layer P2;
+ * What the agents learned at work, in What Native Intelligence has learned (trust layer P2;
  * decision 16 as apply with undo): nothing renders when there is nothing to
  * show or the viewer may not manage it (hide empty widgets); every entry is
  * live, with its teammate and when, and Remove with an Undo that restores it;

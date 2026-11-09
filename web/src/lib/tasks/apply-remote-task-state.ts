@@ -2,9 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { emitStatusChange } from '@/lib/flows/emit-status-change'
 
 /**
- * Apply one Asana task's REMOTE completion state to the Dial8 action behind it.
+ * Apply one Asana task's REMOTE completion state to the Native Intelligence action behind it.
  *
- * This is the shared body of the Asana→Dial8 read-back, called from BOTH
+ * This is the shared body of the Asana→Native Intelligence read-back, called from BOTH
  * arrival paths so they cannot drift:
  *   - src/lib/inngest/asana-apply-remote.ts — the webhook fast path (a delivery
  *     told us this specific task changed).
@@ -15,7 +15,7 @@ import { emitStatusChange } from '@/lib/flows/emit-status-change'
  * compact — they carry no state); everything after that lives here.
  *
  * ── The echo-loop breaker ────────────────────────────────────────────────────
- * Dial8→Asana (asana-echo-status) and Asana→Dial8 (this) are a closed cycle, so
+ * Native Intelligence→Asana (asana-echo-status) and Asana→Native Intelligence (this) are a closed cycle, so
  * SOMETHING has to terminate it. That something is the compare-and-swap on
  * `action_external_task.completed` below: the link row records the last-known
  * provider state, and this function refuses to do any action work unless the
@@ -132,7 +132,7 @@ export type ApplyRemoteOutcome =
    * ASANA ONLY in practice. The task behind a CANCELED action was un-completed
    * and the caller passed NO `remoteHint`, so the un-completion is ambiguous —
    * "not done" or "not cancelled"? Nothing is written — not even the link row —
-   * because Dial8 stays authoritative here and a committed `completed:false`
+   * because Native Intelligence stays authoritative here and a committed `completed:false`
    * would strand the link (see module docblock). A Jira caller always names the
    * category, so it reopens instead.
    */
@@ -234,7 +234,7 @@ async function reopenStateId(supabase: SupabaseClient, teamId: string): Promise<
  * fallback in step 4 (which DOES approximate, onto `completed`). The difference
  * is whether the approximation is true:
  *   - a cancellation that lands on `completed` is a truthful landing. The work
- *     really did stop; Dial8 records it as finished rather than abandoned, which
+ *     really did stop; Native Intelligence records it as finished rather than abandoned, which
  *     loses a nuance the team's board cannot express anyway. The echo then reads
  *     bucket=done against a done-CATEGORY Jira status and leaves the issue
  *     alone, so the approximation costs one word, not a write.
@@ -245,7 +245,7 @@ async function reopenStateId(supabase: SupabaseClient, teamId: string): Promise<
  *     whole hint exists to remove, re-created by the fallback meant to soften it.
  * A team with no in-progress column is reachable (migration 020 seeds all five
  * categories, but a state with no actions referencing it can be deleted), so
- * this is a real board and not a theoretical one. Declining leaves Dial8 and
+ * this is a real board and not a theoretical one. Declining leaves Native Intelligence and
  * Jira visibly disagreeing, which is the honest outcome: the link row still
  * records the provider's state and its label still shows the real status name.
  */
@@ -381,7 +381,7 @@ export async function applyRemoteTaskState(args: {
 
     // JIRA ONLY: the done CATEGORY covers both "finished" and "abandoned"
     // (Jira has no canceled category), and folding the second onto `completed`
-    // is how a user's cancellation used to come back out of Dial8 as a
+    // is how a user's cancellation used to come back out of Native Intelligence as a
     // completion.
     //
     // A team with no canceled column still lands on completed, and that
@@ -407,7 +407,7 @@ export async function applyRemoteTaskState(args: {
     //    Asana cannot represent cancellation, so a canceled action's task is
     //    completed:true exactly like a done one, and an Asana user un-completing
     //    it is ambiguous — "this isn't done" or "this isn't cancelled"? We refuse
-    //    to guess and leave Dial8 authoritative. (Handled at step 3a, before the
+    //    to guess and leave Native Intelligence authoritative. (Handled at step 3a, before the
     //    CAS, so the link row isn't stranded.)
     //  - 'canceled' WITH a hint follows the issue. Jira states which category the
     //    issue is in now, so there is nothing to guess: the user un-cancelled it.
@@ -422,7 +422,7 @@ export async function applyRemoteTaskState(args: {
     if (!action.team_id) return { linkId: link.id, outcome: 'no_target_state' }
 
     // JIRA ONLY: "reopened" and "reopened INTO in-progress" are different
-    // events, and treating the second as the first is what sent a Dial8 action
+    // events, and treating the second as the first is what sent a Native Intelligence action
     // to Todo while Jira said In Progress — which the echo then "corrected" by
     // dragging the issue back to To Do. Anything else (Asana, and Jira's `new`
     // statuses) keeps the team default, which is what a fresh action gets.

@@ -23,7 +23,7 @@ class LiveActivityManager {
         let authInfo = ActivityAuthorizationInfo()
         print("[LiveActivityManager] areActivitiesEnabled: \(authInfo.areActivitiesEnabled)")
         guard authInfo.areActivitiesEnabled else {
-            print("[LiveActivityManager] Live Activities not enabled — check Settings → Dial8 → Live Activities")
+            print("[LiveActivityManager] Live Activities not enabled — check Settings → NI → Live Activities")
             return
         }
 

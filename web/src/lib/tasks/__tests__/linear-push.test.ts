@@ -521,7 +521,7 @@ describe('pushActionToLinear — payload shape', () => {
 
     expect(hoistedApi.createIssue.mock.calls[0][1].description).toBe(
       '**ENG-42**\n\nDo <the> work & ship it\n\n' +
-        'Pushed from Dial8: [ENG-42](https://dial8.ai/account?action=act-1)',
+        'Pushed from Native Intelligence: [ENG-42](https://dial8.ai/account?action=act-1)',
     )
   })
 })
@@ -546,7 +546,7 @@ describe('pushActionToLinear — best-effort assignee ON THE CREATE', () => {
   })
 
   it('creates UNASSIGNED when the email matches nobody in Linear', async () => {
-    // The expected case, not an edge one: the member's Dial8 email need not be
+    // The expected case, not an edge one: the member's Native Intelligence email need not be
     // their address in the customer's Linear org.
     hoistedApi.findUserByEmail.mockResolvedValue(null)
     const db = makeDb({ action: ASSIGNED, member: { user_id: 'u-9' } })
@@ -789,7 +789,7 @@ describe('buildMarkdownDescription', () => {
   it('always carries the deep link, even with no identifier or description', () => {
     expect(
       buildMarkdownDescription({ actionId: 'act-9', identifier: null, description: null }),
-    ).toBe('Pushed from Dial8: [this action](https://dial8.ai/account?action=act-9)')
+    ).toBe('Pushed from Native Intelligence: [this action](https://dial8.ai/account?action=act-9)')
   })
 
   it('emits the identifier bold, the body, and the backlink, blank-line separated', () => {
@@ -801,13 +801,13 @@ describe('buildMarkdownDescription', () => {
       }),
     ).toBe(
       '**ENG-1**\n\nDo the work\n\n' +
-        'Pushed from Dial8: [ENG-1](https://dial8.ai/account?action=act-9)',
+        'Pushed from Native Intelligence: [ENG-1](https://dial8.ai/account?action=act-9)',
     )
   })
 
   /**
    * Nothing to escape, and deliberately so: Linear descriptions ARE markdown, so
-   * markdown a user wrote in Dial8 rendering as markdown in Linear is the
+   * markdown a user wrote in Native Intelligence rendering as markdown in Linear is the
    * desirable outcome — not the injection hazard the Asana HTML builder defends
    * against.
    */
@@ -880,6 +880,6 @@ describe('buildMarkdownDescription', () => {
         identifier: '   ',
         description: 'Body',
       }),
-    ).toBe('Body\n\nPushed from Dial8: [this action](https://dial8.ai/account?action=act-9)')
+    ).toBe('Body\n\nPushed from Native Intelligence: [this action](https://dial8.ai/account?action=act-9)')
   })
 })

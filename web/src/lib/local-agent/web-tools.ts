@@ -113,7 +113,7 @@ export interface MacWebToolContext {
   /**
    * The person runs on their own ChatGPT plan (the free tier): web_search runs
    * on their plan (planWebSearch, src/lib/web-research/plan-deep-search.ts),
-   * never Exa, which Dial8 pays for. It logs its own usage, at no cost.
+   * never Exa, which Native Intelligence pays for. It logs its own usage, at no cost.
    */
   chatgptPlan?: boolean
 }

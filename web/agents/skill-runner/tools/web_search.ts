@@ -1,7 +1,7 @@
 /**
  * web_search — LIVE for the skill-runner, pinned to Exa.
  *
- * Web access is ON by default for every Dial8 agent — not a per-agent
+ * Web access is ON by default for every Native Intelligence agent — not a per-agent
  * allowlist toggle, and not part of a skill's tool ceiling. The one off switch
  * for skill runs is the spec's `webAccess: false` (the USE_GATEWAY kill switch),
  * under which tools/workspace_tools.ts replaces this tool with a stub

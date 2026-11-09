@@ -608,10 +608,10 @@ describe('voice mode', () => {
   })
 
   it('a turn Voice focus ignored: a quiet, muted line in the field while listening; words heard take over', async () => {
-    const live = makeLive({ notice: 'Ignored a voice Dial8 doesn’t recognise' })
+    const live = makeLive({ notice: 'Ignored a voice Native Intelligence doesn’t recognise' })
     await mount({ voice: { availability: READY, mode: on({ phase: 'listening', live }) } })
     expect(q('[data-dictation-final]')!.textContent).toBe('')
-    expect(q('[data-dictation-interim]')!.textContent).toBe('Ignored a voice Dial8 doesn’t recognise')
+    expect(q('[data-dictation-interim]')!.textContent).toBe('Ignored a voice Native Intelligence doesn’t recognise')
     expect(q('[data-dictation-interim]')!.className).toContain('text-muted-foreground')
     expect(textarea().value).toBe('')
     await act(async () => live.set({ transcript: { final: '', interim: 'what time' } }))

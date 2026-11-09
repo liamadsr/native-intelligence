@@ -4,7 +4,7 @@
  * `crm_import`) and the Gmail / Outlook import (`email_sync_state`, kind
  * `email_import`). Only the INITIAL import is a run — it has a start, a
  * terminal and a user; incremental sync is a continuous watermark and never a
- * ledger row. Task sync (Asana / Jira / Linear) has no import at all: Dial8
+ * ledger row. Task sync (Asana / Jira / Linear) has no import at all: Native Intelligence
  * only pushes actions out, so there is nothing to mirror.
  *
  *   crm_import    one row per import run, run key `hubspot:<account>:<started>`.

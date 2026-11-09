@@ -12,7 +12,7 @@ import { z } from 'zod'
  *
  * Because it has no execute, the MCP registrar skips it (it requires `.execute`,
  * see src/lib/mcp/tools/index.ts) — so it is NOT exported over MCP: the picker
- * only exists in Dial8's own chats.
+ * only exists in Native Intelligence's own chats.
  *
  * The schema: 1–4 questions, each with a short header chip, 2–4 options
  * (label + description), and a single/multi-select flag.

@@ -14,7 +14,7 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 const open = vi.hoisted(() => ({ system: vi.fn(async () => true) }))
 vi.mock('sonner', () => ({ toast }))
 vi.mock('posthog-js/react', () => ({ usePostHog: () => ({ capture: vi.fn() }) }))
-vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaces: () => ({ workspaces: [{ id: 'ws-1', name: 'Dial8' }], currentId: 'ws-1' }) }))
+vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaces: () => ({ workspaces: [{ id: 'ws-1', name: 'Native Intelligence' }], currentId: 'ws-1' }) }))
 vi.mock('@/lib/open-external', async (orig) => ({ ...(await orig<typeof import('@/lib/open-external')>()), openInSystemBrowser: open.system }))
 
 import { AttentionCard } from '../attention-card'

@@ -134,7 +134,7 @@ export async function runSendPaymentLink(
   const { userId, workspaceId } = args
   const availability = connectAvailability()
   if (!availability.ok) {
-    return { success: false as const, code: 'PAYMENTS_OFF', error: 'Card payments are not switched on for Dial8 yet. Nothing was sent; tell the person.' }
+    return { success: false as const, code: 'PAYMENTS_OFF', error: 'Card payments are not switched on for Native Intelligence yet. Nothing was sent; tell the person.' }
   }
   const found = await getConnectedAccount(supabase, workspaceId)
   // An account made in the other mode (a key switched since) can't take these payments.

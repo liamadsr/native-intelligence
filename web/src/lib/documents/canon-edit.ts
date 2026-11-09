@@ -15,7 +15,7 @@
  *     (document_revision.edit_meta, migration 376: section, op, reason,
  *     sources), and as ONE line in the daily digest (agent_log 'doc_updated');
  *   - when it rests on untrusted outside text (canon-sources.ts
- *     canonOutsideLabel), says so on both: edit_meta.outside, and "Dial8
+ *     canonOutsideLabel), says so on both: edit_meta.outside, and "Native Intelligence
  *     updated Positioning in Product (from a web page)";
  *   - can be undone alone: revertSectionEdit puts that section back as it was
  *     before the edit, leaving every later edit to other sections in place.
@@ -349,7 +349,7 @@ export async function afterCanonWrite(
     sectionText: w.sectionText ?? null,
     sectionBefore: w.sectionBefore ?? '',
   })
-  // The digest's line is for Dial8's edits; a person's own revert from the history logs none.
+  // The digest's line is for Native Intelligence's edits; a person's own revert from the history logs none.
   const line = w.logLine === false ? null : logLineFor({ type: 'doc_updated', section: w.section, title: w.title, reverted: w.reverted, from: w.outside ?? null })
   if (line) {
     const readers = new Set<string>([w.userId, ...(await canonOwnerUserIds(supabase, w.workspaceId, w.canon))])
@@ -364,7 +364,7 @@ export async function afterCanonWrite(
 
 /**
  * One digest line for a batch of section edits to one canon document, at most
- * one per document per day (an output connector's doc_proposals, F3): "Dial8
+ * one per document per day (an output connector's doc_proposals, F3): "Native Intelligence
  * updated Messaging and Positioning in Product", for the person whose run made
  * the edits and the document's owners, deduped on the document and the UTC
  * day, so a second batch the same day adds edits to the history but no second

@@ -1,5 +1,5 @@
 /**
- * Who is calling the Dial8 number (the spike): the person whose verified
+ * Who is calling the Native Intelligence number (the spike): the person whose verified
  * phone (user_phone, migration 411) the call's From number is, or nobody. Owner
  * calls only: a guest or a business's customer is not a caller yet.
  *

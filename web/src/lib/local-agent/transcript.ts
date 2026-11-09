@@ -1,6 +1,6 @@
 /**
  * A local agent's transcript, server side (contract B): the raw event page the
- * Agents panel folds itself (`readEvents`), and a compact view for the Dial8
+ * Agents panel folds itself (`readEvents`), and a compact view for the Native Intelligence
  * agent's `read_local_agent` tool (`readTranscript`).
  *
  * Events are local_agent_event rows in id order: the device's normalized

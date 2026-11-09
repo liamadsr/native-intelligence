@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import type { ConnectClientId } from '@/lib/mcp/connect-clients'
 
 /**
- * The apps' own marks for Settings › Dial8 MCP's "Pick your app" tiles, from
+ * The apps' own marks for Settings › Native Intelligence MCP's "Pick your app" tiles, from
  * simple-icons 16.33.0 (CC0 path data, 24×24). A near-black mark draws in the
  * text colour so it shows in dark mode. OpenAI (ChatGPT, Codex) and VS Code
  * have no mark there: those tiles show the app's initials, the way Settings ›

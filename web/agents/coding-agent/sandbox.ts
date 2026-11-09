@@ -155,7 +155,7 @@ import {
  * WARNING: deliberately conservative. A repo that fetches from other hosts
  * (private registries, CDNs, apt) needs `trusted`. There is NO AI-gateway host
  * here: inference is eve's own concern (outside the sandbox), the agent has no
- * in-run Dial8 workspace access, and its web_search/web_fetch run outside the
+ * in-run Native Intelligence workspace access, and its web_search/web_fetch run outside the
  * sandbox too — so none of them depend on sandbox egress.
  * (lib/__tests__/network-policy.test.ts pins the exact list.)
  */
@@ -353,7 +353,7 @@ export function envHookCommand(envFile: string): string {
   ].join('\n')
 }
 
-/** The marker line that identifies Dial8's push guard. */
+/** The marker line that identifies Native Intelligence's push guard. */
 export const PUSH_GUARD_MARKER = '# dial8-push-guard'
 
 /**
@@ -697,7 +697,7 @@ async function seedWorkspace(
     )
   }
   await required({ command: 'git config user.email "agent@dial8.ai"' }, 'git config user.email')
-  await required({ command: 'git config user.name "Dial8 Agent"' }, 'git config user.name')
+  await required({ command: 'git config user.name "Native Intelligence Agent"' }, 'git config user.name')
   // A first plain `git push` of the new branch sets its upstream (git ≥ 2.37).
   await required({ command: 'git config push.autoSetupRemote true' }, 'git config push.autoSetupRemote')
   if (typeof spec.startFrom === 'string' && spec.startFrom && spec.startFrom !== spec.branchName) {

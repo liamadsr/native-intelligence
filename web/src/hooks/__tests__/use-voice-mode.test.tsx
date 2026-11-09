@@ -506,7 +506,7 @@ describe('useVoiceMode — a turn handled where it was said (bots-v2.md Phase 4)
   })
 })
 
-describe('useVoiceMode — Voice focus (a voice Dial8 doesn’t know is ignored)', () => {
+describe('useVoiceMode — Voice focus (a voice Native Intelligence doesn’t know is ignored)', () => {
   /** A gate whose verdicts the test hands out, turn by turn (Voice focus on
    *  unless `on` says otherwise). */
   function fakeGate({ on = true }: { on?: boolean } = {}) {

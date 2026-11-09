@@ -182,7 +182,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background p-6 text-foreground lg:p-8">
       <Card className="w-full max-w-lg">{children}</Card>
-      <p className="text-xs text-muted-foreground">Scheduling by Dial8</p>
+      <p className="text-xs text-muted-foreground">Scheduling by Native Intelligence</p>
     </div>
   )
 }

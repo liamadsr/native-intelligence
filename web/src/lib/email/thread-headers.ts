@@ -65,7 +65,7 @@ function retryAfterMs(value: string | null | undefined): number {
   return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, RETRY_MAX_MS) : RETRY_DEFAULT_MS
 }
 
-/** A Gmail message as a metadata read returns it (the fields Dial8 reads). */
+/** A Gmail message as a metadata read returns it (the fields Native Intelligence reads). */
 export interface GmailMetadata {
   id: string
   threadId?: string

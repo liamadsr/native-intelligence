@@ -7,7 +7,7 @@ import { test, expect } from '@playwright/test';
 test('marketing homepage loads', { tag: '@pr' }, async ({ page }) => {
   const response = await page.goto('/');
   expect(response?.status()).toBeLessThan(400);
-  await expect(page).toHaveTitle(/Dial8/i);
+  await expect(page).toHaveTitle(/Native Intelligence/i);
 });
 
 test('login page renders', { tag: '@pr' }, async ({ page }) => {

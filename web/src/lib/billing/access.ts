@@ -12,7 +12,7 @@ import { isAdminEmail } from '@/lib/admin-emails'
  *     "continue without adding a card" (see /api/billing/invite-access), or
  *   • the ChatGPT free tier: a "Continue with ChatGPT" connection with the
  *     plan grant (migrations 404/407, docs/plans/chatgpt-free-tier.md). Their
- *     AI runs on their own ChatGPT plan, so it costs Dial8 nothing. An
+ *     AI runs on their own ChatGPT plan, so it costs Native Intelligence nothing. An
  *     `exhausted` plan still lets them in (AI just stops and says so); a
  *     subscription, when present, wins.
  *
@@ -69,7 +69,7 @@ export interface BillingAccess {
   hasUsedTrial: boolean
   /** Signed up through an admin invite → may skip the card. */
   canSkipPayment: boolean
-  /** Dial8 staff (ADMIN_EMAILS) — exempt from billing entirely. */
+  /** Native Intelligence staff (ADMIN_EMAILS) — exempt from billing entirely. */
   staff: boolean
 }
 

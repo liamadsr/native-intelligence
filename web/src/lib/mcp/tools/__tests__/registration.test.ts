@@ -179,7 +179,7 @@ describe('the bot-work tools (dial8_list_bot_work, dial8_get_bot_item, dial8_set
 
   it('speaks of the person’s agent in the third person (one face): it’s a client acting for them, not the agent', async () => {
     const description = registeredToolMap(await buildRegisteredServer()).dial8_list_bot_work.description ?? ''
-    expect(description).toContain("The agent marked self is the person's own Dial8 agent")
+    expect(description).toContain("The agent marked self is the person's own Native Intelligence agent")
     expect(description).toContain("'Your agent…'")
     expect(description).not.toContain('The agent marked self is you')
   })

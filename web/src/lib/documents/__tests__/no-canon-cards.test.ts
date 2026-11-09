@@ -101,7 +101,7 @@ describe('no canon path raises a card: by behaviour', () => {
     })
     expect(r.ok).toBe(true)
     expect(String(db.rows('document')[0].content)).toContain('Cheaper than Gong.')
-    expect(logs.lines.some((l) => l.line === 'Dial8 updated Positioning in Product (from a web page on gong.example)')).toBe(true)
+    expect(logs.lines.some((l) => l.line === 'Native Intelligence updated Positioning in Product (from a web page on gong.example)')).toBe(true)
     expect(touched.has('attention_item')).toBe(false)
   })
 

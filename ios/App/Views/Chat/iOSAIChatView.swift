@@ -289,7 +289,7 @@ struct iOSChatSurface: View {
             Spacer(minLength: 8)
             Button { showingAgents = true } label: {
                 HStack(spacing: 5) {
-                    Text(viewModel.selectedAgent?.name ?? "Dial8").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(viewModel.selectedAgent?.name ?? "Native Intelligence").font(.subheadline.weight(.semibold)).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                 }
                 .foregroundStyle(.primary)

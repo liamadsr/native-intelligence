@@ -1,6 +1,6 @@
 /**
  * A run chat's turn as the full composer sends it (bots v4: the floating chat
- * Open in Dial8 opens is as capable as the main chat). Shared by both run-chat
+ * Open in Native Intelligence opens is as capable as the main chat). Shared by both run-chat
  * routes: a work run's (/api/account/agent-runs/[id]/chat, the work-agent's
  * parked session) and a loop run's (/api/account/activity/[id]/chat, the
  * skill-runner's parked session). The turn stays on that exact session; what

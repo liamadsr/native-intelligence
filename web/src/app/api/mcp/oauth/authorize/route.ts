@@ -13,7 +13,7 @@ import { grantedScopes } from '@/lib/mcp/scopes'
  *
  * Nothing here redirects to the client. A registered redirect_uri is not a
  * trusted one (/register is open, and a metadata document is anyone's to
- * publish), so a request error is a 400 on Dial8's own page, never a bounce
+ * publish), so a request error is a 400 on Native Intelligence's own page, never a bounce
  * to the client's URI: that would send a browser to any registered site with
  * no consent shown (RFC 9700 §4.11.2). Only the person's Allow or Deny on the
  * consent page sends them back to the client.
@@ -32,13 +32,13 @@ export async function GET(request: Request) {
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  // User is not logged in — redirect to Dial8 login page with return URL
+  // User is not logged in — redirect to Native Intelligence login page with return URL
   const toLogin = () => NextResponse.redirect(`${baseUrl}/login?redirect=${encodeURIComponent(request.url)}`)
 
   // A client named by its metadata document (an https client_id) is fetched
-  // only for a signed-in person: an anonymous request can't make Dial8 fetch
+  // only for a signed-in person: an anonymous request can't make Native Intelligence fetch
   // URLs. Until then only the URL's shape is checked, and the only redirect
-  // is to Dial8's own login, which comes back here.
+  // is to Native Intelligence's own login, which comes back here.
   if (clientId && isMetadataClientId(clientId) && !user) {
     const problem = clientIdUrlProblem(clientId)
     if (problem) return NextResponse.json({ error: 'invalid_client', error_description: problem }, { status: 400 })

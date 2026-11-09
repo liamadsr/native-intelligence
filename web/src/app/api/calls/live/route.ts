@@ -16,7 +16,7 @@ const DECLINE = 603
 
 /**
  * POST /api/calls/live: OpenAI's webhook for the project's GPT-Live calls
- * (the spike, docs/plans/text-and-calling.md Phase 4). The Dial8 number's SIP
+ * (the spike, docs/plans/text-and-calling.md Phase 4). The Native Intelligence number's SIP
  * trunk sends calls to OpenAI, which posts `live.transport.incoming` here.
  * Public on purpose (outside the proxy's matcher, src/proxy.ts): the Standard
  * Webhooks signature is its authentication (GPT_LIVE_WEBHOOK_SECRET).

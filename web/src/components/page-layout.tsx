@@ -15,6 +15,8 @@ export interface Section {
 interface PageLayoutProps {
   children: React.ReactNode
   sections?: Section[]
+  /** Leaves out the app icon, which is the new name's mark. Only /sms passes it (src/app/sms/client.tsx). */
+  brandName?: string
 }
 
 // Consistent page header component for all interior pages
@@ -419,7 +421,7 @@ function MobileNavWrapper({ sections }: { sections?: Section[] }) {
   return <MobileNav sections={sections} activeSection={activeSection} />
 }
 
-export function PageLayout({ children, sections }: PageLayoutProps) {
+export function PageLayout({ children, sections, brandName }: PageLayoutProps) {
   return (
     <div className="overflow-hidden">
       {/* Left sidebar with vertical line. No fill: the public sky
@@ -428,7 +430,7 @@ export function PageLayout({ children, sections }: PageLayoutProps) {
       <div className="hidden lg:block fixed left-0 top-0 bottom-0 w-60 z-30">
         <div className="absolute top-0 bottom-0 right-0 w-px bg-linear-to-b from-border/50 via-border to-border/50" />
         {/* App icon - centered in sidebar, links to home */}
-        <div className="absolute top-8 left-0 right-0 flex justify-center z-40">
+        {!brandName && <div className="absolute top-8 left-0 right-0 flex justify-center z-40">
           <motion.div
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -437,13 +439,13 @@ export function PageLayout({ children, sections }: PageLayoutProps) {
             <Link href="/" title="Go to homepage">
               {/* Always the dark app icon — the light/marble variant is retired. */}
               <img
-                src="/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png"
-                alt="Dial8"
+                src="/brand/ni-app-icon.png"
+                alt="Native Intelligence"
                 className="w-20 h-20 hover:scale-105 transition-transform"
               />
             </Link>
           </motion.div>
-        </div>
+        </div>}
       </div>
       <SidebarNav sections={sections} />
       <MobileNavWrapper sections={sections} />

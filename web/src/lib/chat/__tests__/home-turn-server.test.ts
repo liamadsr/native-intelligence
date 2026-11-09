@@ -977,7 +977,7 @@ describe('the session tail (peekSessionTail) and the park check', () => {
     // A question asked AFTER the person's message, in their new turn, is open.
     expect(hasOpenInputRequest([req, started, typed, ev('input.requested', { requests: [{ requestId: 'q2' }] })])).toBe(true)
     // A home turn's own message (a background update) is not the person's.
-    const update = ev('message.received', { message: `[BACKGROUND UPDATE · ${homeTurnTag('row-1')}] Not from the person: Dial8 sent this on its own, and nobody typed it.` })
+    const update = ev('message.received', { message: `[BACKGROUND UPDATE · ${homeTurnTag('row-1')}] Not from the person: Native Intelligence sent this on its own, and nobody typed it.` })
     expect(hasOpenInputRequest([req, started, update])).toBe(true)
   })
 
@@ -1310,7 +1310,7 @@ describe('sendHomeTurn: a primed first message', () => {
 
 // ── Text turns (reason 'text', docs/plans/text-and-calling.md) ──────────────
 
-describe('text turns: the person texting the Dial8 number', () => {
+describe('text turns: the person texting the Native Intelligence number', () => {
   const TEXT_DATA: HomeTurnRequestedData = { conversationId: CONV, userId: USER, workspaceId: WS, workItemIds: [], reason: 'text' }
   const textRow = (sid: string, text: string, minutesAgo: number) => ({
     conversation_id: CONV,

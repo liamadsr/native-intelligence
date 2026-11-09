@@ -14,14 +14,14 @@ import { logsMeetingsToHubspot } from '@/lib/crm/hubspot-meeting-log'
 // After a capture finishes processing, log it to HubSpot as ONE meeting
 // engagement associated to every participant contact that carries a HubSpot
 // object id. Fireflies model: summary + confirmed action items + a deep link
-// back to the Dial8 capture, never the raw transcript.
+// back to the Native Intelligence capture, never the raw transcript.
 //
 // Triggered by crm/hubspot-log-capture, sent unconditionally from capture-
 // ingest.ts alongside the extraction send. ALL gating lives here so the sender
 // stays dumb:
 //   0. capture visibility — a PRIVATE capture ("Only me") is never pushed to an
 //      external CRM. This is the hardest boundary of them all: the summary would
-//      leave the product entirely, into a system Dial8 visibility cannot reach
+//      leave the product entirely, into a system Native Intelligence visibility cannot reach
 //      or revoke. Read fail-closed from the row here (NOT from the event's
 //      flow_eligible flag, which the triage reconciler's re-fire omits), same
 //      posture as flowDispatchOnCaptureProcessed. See
@@ -263,7 +263,7 @@ export const hubspotLogCapture = inngest.createFunction(
 
 /**
  * Assemble the plain-text meeting body: AI summary, a bulleted list of CONFIRMED
- * action items (suggested/dismissed excluded), and a link back to the Dial8
+ * action items (suggested/dismissed excluded), and a link back to the Native Intelligence
  * capture. Truncates the summary (never the link) to stay under MAX_BODY_CHARS.
  */
 async function buildMeetingBody(
@@ -292,7 +292,7 @@ async function buildMeetingBody(
     parts.push('Action items:')
     for (const t of actionTitles) parts.push(`- ${t}`)
   }
-  parts.push(`View in Dial8: ${link}`)
+  parts.push(`View in Native Intelligence: ${link}`)
   const tail = '\n\n' + parts.join('\n')
 
   const summaryBudget = MAX_BODY_CHARS - tail.length

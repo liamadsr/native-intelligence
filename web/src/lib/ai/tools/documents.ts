@@ -1388,7 +1388,7 @@ export function createDocumentTools(
 
     list_document_revisions: tool({
       description:
-        'List a document\'s version history, newest first: one entry per change to its title or body, with who it was for (a person, Dial8 for a person, or the system), a one-line summary and when. ' +
+        'List a document\'s version history, newest first: one entry per change to its title or body, with who it was for (a person, Native Intelligence for a person, or the system), a one-line summary and when. ' +
         'The newest entry is the document as it is now; a section edit names its section, reason and sources, and `outside` when it rested on outside text. Use get_document_revision to see one version and what it changed, restore_document_revision to put one back, revert_section_edit to undo just one edit.',
       inputSchema: z.object({
         document_id: z.string().describe('UUID of the document'),

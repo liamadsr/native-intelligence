@@ -22,7 +22,7 @@ use super::ring::Entry;
 use super::state::{Grant, GrantMode};
 use super::{folder, DeviceInfo, LocalAgentService, ResumeArgs, ResumeMessage, StartArgs, StartResult, StatusReport};
 
-const PICKER_TITLE: &str = "Choose a folder for Dial8's local agent";
+const PICKER_TITLE: &str = "Choose a folder for Native Intelligence's local agent";
 /// The edit confirm (l1-contract C2). Its buttons: OK allows, Cancel (and
 /// Esc) keeps the folder read-only.
 pub(crate) const ALLOW_CHANGES: &str = "Allow changes";
@@ -42,7 +42,7 @@ pub(crate) fn edit_confirm_text(name: &str) -> (String, &'static str) {
     if name.chars().count() > CONFIRM_NAME_MAX {
         short.push('…');
     }
-    (format!("Let Dial8's agent make changes in {short}?"), EDIT_CONFIRM_BODY)
+    (format!("Let Native Intelligence's agent make changes in {short}?"), EDIT_CONFIRM_BODY)
 }
 
 /// Ask, natively, whether the agent may edit this git repo. Anything but
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn the_edit_confirm_says_what_happens() {
         let (title, body) = edit_confirm_text("dial8-website");
-        assert_eq!(title, "Let Dial8's agent make changes in dial8-website?");
+        assert_eq!(title, "Let Native Intelligence's agent make changes in dial8-website?");
         assert_eq!(
             body,
             "Changes go on a new git branch in a separate copy. Your files and current branch stay as they are, \
@@ -239,6 +239,6 @@ mod tests {
         let (long, _) = edit_confirm_text(&"n".repeat(200));
         assert!(long.chars().count() < 120 && long.contains('…'), "{long}");
         let (odd, _) = edit_confirm_text("a\nb");
-        assert_eq!(odd, "Let Dial8's agent make changes in ab?");
+        assert_eq!(odd, "Let Native Intelligence's agent make changes in ab?");
     }
 }

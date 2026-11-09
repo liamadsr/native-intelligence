@@ -314,7 +314,7 @@ describe('the claim', () => {
     expect(hoisted.settleEvalWorkFromRow).toHaveBeenCalledWith(hoisted.supabase, 'run-1')
   })
 
-  it("grades on the starter's own ChatGPT plan when they're on it (never Dial8's judges)", async () => {
+  it("grades on the starter's own ChatGPT plan when they're on it (never Native Intelligence's judges)", async () => {
     fakeSupabase()
     hoisted.onPlan.mockResolvedValue(true)
     await run()
@@ -341,7 +341,7 @@ describe('the claim', () => {
     expect(hoisted.gradeTrial).not.toHaveBeenCalled()
   })
 
-  it('a plan run priced at $0 (a $0 ceiling) completes every trial: on the plan they cost Dial8 nothing', async () => {
+  it('a plan run priced at $0 (a $0 ceiling) completes every trial: on the plan they cost Native Intelligence nothing', async () => {
     fakeSupabase({
       claim: [
         {

@@ -345,7 +345,7 @@ describe('RecordingSettingsView — the permissions panel is live', () => {
     )
     expect(openSettings).toBeTruthy()
 
-    // The user turns Dial8 on under Screen & System Audio Recording.
+    // The user turns Native Intelligence on under Screen & System Audio Recording.
     perm.checkSystem.mockResolvedValue('granted')
     await act(async () => { vi.advanceTimersByTime(1500) })
     await flush()
@@ -653,7 +653,7 @@ describe('RecordingSettingsView — no choices that needn\'t be (Liam, 2026-10-0
     await mount()
     const row = container.querySelector('[data-testid="auto-record-row"]')!
     expect(row.textContent).toContain('Auto-record meetings')
-    expect(row.textContent).toContain('When off, Dial8 asks before it records.')
+    expect(row.textContent).toContain('When off, Native Intelligence asks before it records.')
     const toggle = row.querySelector('[role="switch"]') as HTMLButtonElement
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     // Never disabled (detection is always on, not a setting).

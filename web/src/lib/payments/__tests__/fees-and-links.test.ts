@@ -1,6 +1,6 @@
 /**
  * The platform fee (default zero, optional per workspace) and the payment
- * link Dial8 makes on the owner's connected account (a direct charge, one
+ * link Native Intelligence makes on the owner's connected account (a direct charge, one
  * completed checkout).
  */
 import { describe, expect, it, vi } from 'vitest'

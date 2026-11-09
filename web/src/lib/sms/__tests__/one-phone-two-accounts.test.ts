@@ -3,19 +3,19 @@
  * 2026-11-01: "I wanna treat it as a completely separate workspace. I should
  * still be able to connect my phone number to that workspace's agent").
  * Account A, their own,
- * holds the phone on the Dial8 line; account B, a business's own account
+ * holds the phone on the Native Intelligence line; account B, a business's own account
  * (its own workspace, A is not a member), adds the same phone as its business
  * line and is reached on the business's own number. Over the real store on an
  * in-memory database:
  *
- *   - the store's rules (findLinkedPhone reads the Dial8 line only;
+ *   - the store's rules (findLinkedPhone reads the Native Intelligence line only;
  *     findBusinessPerson prefers a business line; each opt-out stays on its
  *     own row);
  *   - linking a phone (verifyPhoneCode): a business's account adds a business
- *     line beside the other account's Dial8 line and emails that account;
- *     anyone else, or a Dial8-line account with no email to tell, moves the
+ *     line beside the other account's Native Intelligence line and emails that account;
+ *     anyone else, or an NI-line account with no email to tell, moves the
  *     number, as before;
- *   - inbound texts end to end: the Dial8 number reaches A, the business's
+ *   - inbound texts end to end: the Native Intelligence number reaches A, the business's
  *     number reaches B in B's workspace, B's approval code is answered there,
  *     a stranger is still a customer, and STOP / START stay on the number
  *     they were texted to.
@@ -68,7 +68,7 @@ const businessRow = (over: Row = {}): Row => ({
 beforeEach(() => {
   process.env.RUN_SKILL_INTERNAL_SECRET = KEY
   tables = {
-    // Account A: their own, on the Dial8 line. Account B: Bright Loom's own account; A is not one of its members.
+    // Account A: their own, on the Native Intelligence line. Account B: Bright Loom's own account; A is not one of its members.
     user_phone: [dial8Row()],
     member: [
       { id: 'm-a', user_id: 'user-a', workspace_id: 'ws-home', role: 'owner' },
@@ -87,7 +87,7 @@ beforeEach(() => {
     agent_guest: [],
   }
   db = memoryDb(tables, {
-    // user_phone_user_key, and 464's user_phone_dial8_phone_key: one Dial8-line holder per phone.
+    // user_phone_user_key, and 464's user_phone_dial8_phone_key: one NI-line holder per phone.
     user_phone: (a, b) =>
       a.user_id === b.user_id || (a.phone_e164 === b.phone_e164 && a.verified_at != null && b.verified_at != null && a.line === 'dial8' && b.line === 'dial8'),
     sms_message: (a, b) => a.twilio_sid != null && a.twilio_sid === b.twilio_sid && a.direction === b.direction,
@@ -95,20 +95,20 @@ beforeEach(() => {
 })
 
 describe('the store', () => {
-  it('findLinkedPhone reads the Dial8 line only: a business-line row is never who the Dial8 number reaches', async () => {
+  it('findLinkedPhone reads the Native Intelligence line only: a business-line row is never who the Native Intelligence number reaches', async () => {
     tables.user_phone.push(businessRow())
     expect(await findLinkedPhone(db, PHONE)).toMatchObject({ userId: 'user-a', line: 'dial8' })
     tables.user_phone = tables.user_phone.filter((r) => r.line !== 'dial8')
     expect(await findLinkedPhone(db, PHONE)).toBeNull()
   })
 
-  it("findBusinessPerson: a verified row whose person is one of the business's members, a business line before the Dial8 line, deterministic", async () => {
-    // Only A's Dial8 row, and A isn't a member: nobody (a customer).
+  it("findBusinessPerson: a verified row whose person is one of the business's members, a business line before the Native Intelligence line, deterministic", async () => {
+    // Only A's Native Intelligence row, and A isn't a member: nobody (a customer).
     expect(await findBusinessPerson(db, PHONE, 'ws-rug')).toBeNull()
-    // A joins Bright Loom: their Dial8 row answers there.
+    // A joins Bright Loom: their Native Intelligence row answers there.
     tables.member.push({ id: 'm-a2', user_id: 'user-a', workspace_id: 'ws-rug', role: 'member' })
     expect(await findBusinessPerson(db, PHONE, 'ws-rug')).toMatchObject({ userId: 'user-a', line: 'dial8' })
-    // B's business line wins over the Dial8 line, whatever the order the rows come back in.
+    // B's business line wins over the Native Intelligence line, whatever the order the rows come back in.
     tables.user_phone.unshift(businessRow())
     expect(await findBusinessPerson(db, PHONE, 'ws-rug')).toMatchObject({ id: 'p-b', userId: 'user-b', line: 'business' })
     tables.user_phone.reverse()
@@ -119,12 +119,12 @@ describe('the store', () => {
     expect(await findBusinessPerson(db, PHONE, 'ws-rug')).toMatchObject({ id: 'p-d' })
   })
 
-  it('findBusinessPerson ignores a row that was never verified (the same filter as the Dial8 line)', async () => {
+  it('findBusinessPerson ignores a row that was never verified (the same filter as the Native Intelligence line)', async () => {
     tables.user_phone.push(businessRow({ verified_at: null }))
     expect(await findBusinessPerson(db, PHONE, 'ws-rug')).toBeNull()
   })
 
-  it('each opt-out stays on its own row: the Dial8 line, or the one row a business number resolved to', async () => {
+  it('each opt-out stays on its own row: the Native Intelligence line, or the one row a business number resolved to', async () => {
     tables.user_phone.push(businessRow(), businessRow({ id: 'p-x', user_id: 'user-x', workspace_id: 'ws-x' }))
     await setPhoneRowOptOut(db, 'p-b', true)
     expect(tables.user_phone.map((r) => [r.id, r.opted_out_at !== null])).toEqual([['p-a', false], ['p-b', true], ['p-x', false]])
@@ -155,7 +155,7 @@ describe('linking a phone (Settings › Phone)', () => {
   const emails: Record<string, string | null> = { 'user-a': 'owner-a@example.com' }
   const dial8HolderEmail = async (userId: string) => emails[userId] ?? null
 
-  it("a business's account adds the number as its business line beside the other account's Dial8 line, emails that account, and welcomes from its own number", async () => {
+  it("a business's account adds the number as its business line beside the other account's Native Intelligence line, emails that account, and welcomes from its own number", async () => {
     pending('user-b', 'ws-rug')
     const send = sent()
     const notifyDial8Holder = vi.fn(async () => true)
@@ -169,7 +169,7 @@ describe('linking a phone (Settings › Phone)', () => {
     expect(send).toHaveBeenCalledWith(PHONE, businessLineWelcomeText('Bright Loom'), { from: RUG })
   })
 
-  it('a business with no live number yet gets its business line, and no welcome from the Dial8 number (it would point at the other agent)', async () => {
+  it('a business with no live number yet gets its business line, and no welcome from the Native Intelligence number (it would point at the other agent)', async () => {
     tables.business_phone_number = []
     pending('user-b', 'ws-rug')
     const send = sent()
@@ -178,7 +178,7 @@ describe('linking a phone (Settings › Phone)', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("an account that isn't a business's moves the number, as before: the other account's row goes, and the Dial8 welcome goes out", async () => {
+  it("an account that isn't a business's moves the number, as before: the other account's row goes, and the Native Intelligence welcome goes out", async () => {
     pending('user-c', 'ws-c')
     const send = sent()
     const notifyDial8Holder = vi.fn(async () => true)
@@ -188,7 +188,7 @@ describe('linking a phone (Settings › Phone)', () => {
     expect(send).toHaveBeenCalledWith(PHONE, WELCOME_TEXT)
   })
 
-  it('with no Dial8-line holder, even a business takes the Dial8 line and the business lines of others go (as before)', async () => {
+  it('with no NI-line holder, even a business takes the Native Intelligence line and the business lines of others go (as before)', async () => {
     tables.user_phone = [businessRow({ id: 'p-x', user_id: 'user-x', workspace_id: 'ws-x' })]
     pending('user-b', 'ws-rug')
     expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), notifyDial8Holder: async () => true, dial8HolderEmail, now: () => T0 })).toMatchObject({ ok: true, line: 'dial8' })
@@ -211,7 +211,7 @@ describe('linking a phone (Settings › Phone)', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("a Dial8-line account with no email (a phone-only text sign-up) can't be told, so the number moves to the business, as before 464", async () => {
+  it("an NI-line account with no email (a phone-only text sign-up) can't be told, so the number moves to the business, as before 464", async () => {
     tables.user_phone = [dial8Row({ user_id: 'user-phone-only', workspace_id: 'ws-p' })]
     pending('user-b', 'ws-rug')
     const send = sent()
@@ -247,17 +247,17 @@ describe('linking a phone (Settings › Phone)', () => {
 
   it('the notice says what it means, that nothing is needed if it was them, and how to take the number back; it never names the other account', () => {
     const { subject, text } = businessLineNoticeEmail({ maskedPhone: '+1 ••• ••• 0123', origin: 'https://dial8.ai' })
-    expect(subject).toBe('Your phone number was added to another Dial8 account')
+    expect(subject).toBe('Your phone number was added to another Native Intelligence account')
     expect(text).toContain('+1 ••• ••• 0123')
     expect(text).toContain("as that account's business line")
-    expect(text).toContain('Your own Dial8 agent is unchanged')
+    expect(text).toContain('Your own Native Intelligence agent is unchanged')
     expect(text).toContain('If you did this yourself, for a business you run, there is nothing to do.')
     expect(text).toContain('remove it in Settings › Phone and add your new one: https://dial8.ai/account/settings/phone')
-    expect(text).toContain('verifying it again with a new code takes it off every other Dial8 account')
+    expect(text).toContain('verifying it again with a new code takes it off every other Native Intelligence account')
     expect(text).not.toContain('Rug')
   })
 
-  it('taking it back works: the Dial8-line account removing and verifying the number again takes it off the business account', async () => {
+  it('taking it back works: the NI-line account removing and verifying the number again takes it off the business account', async () => {
     tables.user_phone.push(businessRow())
     // Settings › Phone: Remove (its own row, under RLS), then add the number again with a new code.
     tables.user_phone = tables.user_phone.filter((r) => r.user_id !== 'user-a')
@@ -300,7 +300,7 @@ describe('inbound texts over the real store', () => {
     return { deps, delivered, customers, answerApproval, sms }
   }
 
-  it("the Dial8 number reaches account A, in A's workspace", async () => {
+  it("the Native Intelligence number reaches account A, in A's workspace", async () => {
     const f = setup()
     expect(await handleInboundSms(f.sms(PHONE, DIAL8, "what's on tomorrow?"), f.deps)).toEqual({ outcome: 'queued', reply: null })
     expect(f.delivered).toEqual([expect.objectContaining({ linked: expect.objectContaining({ userId: 'user-a', workspaceId: 'ws-home', line: 'dial8' }) })])
@@ -327,7 +327,7 @@ describe('inbound texts over the real store', () => {
     expect(f.delivered).toEqual([])
   })
 
-  it('a single-account owner (a Dial8-line row, a member of the business): STOP / START on either number toggle that one row, and the business number undoes the Dial8 STOP', async () => {
+  it('a single-account owner (an NI-line row, a member of the business): STOP / START on either number toggle that one row, and the business number undoes the Native Intelligence STOP', async () => {
     tables.member.push({ id: 'm-a2', user_id: 'user-a', workspace_id: 'ws-rug', role: 'owner' })
     const f = setup()
     // One account: no business-line row on the phone.
@@ -353,7 +353,7 @@ describe('inbound texts over the real store', () => {
     const optedOut = () => Object.fromEntries(tables.user_phone.map((r) => [r.user_id, r.opted_out_at !== null]))
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'STOP'), f.deps)).outcome).toBe('stop')
     expect(optedOut()).toEqual({ 'user-a': false, 'user-b': true })
-    // A still hears on the Dial8 number; B's texts are ignored until START.
+    // A still hears on the Native Intelligence number; B's texts are ignored until START.
     expect((await handleInboundSms(f.sms(PHONE, DIAL8, 'hi'), f.deps)).outcome).toBe('queued')
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'hi'), f.deps)).outcome).toBe('opted_out')
     expect((await handleInboundSms(f.sms(PHONE, DIAL8, 'STOP'), f.deps)).outcome).toBe('stop')

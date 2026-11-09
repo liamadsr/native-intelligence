@@ -176,9 +176,9 @@ async function deleteFromMailboxState(supabase: SupabaseClient, userId: string, 
 }
 
 /**
- * Delete the mailbox copy of one of the person's own Dial8 draft rows (the
+ * Delete the mailbox copy of one of the person's own Native Intelligence draft rows (the
  * agent's discard, src/lib/email/discard-drafts.ts). The row is the caller's
- * own (read with `user_id = the caller`) and Dial8 wrote its ids, so the
+ * own (read with `user_id = the caller`) and Native Intelligence wrote its ids, so the
  * DELETE goes straight to the mailbox the row names (its provider and
  * account), even when the thread's index row names another draft (a second
  * draft on the thread, which the index doesn't list). The thread is then

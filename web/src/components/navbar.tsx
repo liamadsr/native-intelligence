@@ -207,7 +207,8 @@ function MobileMenu() {
   )
 }
 
-export function Navbar({ banner }: { banner?: React.ReactNode }) {
+/** `brandName`: the name to show in place of the logo (only /sms passes it; see Logo). */
+export function Navbar({ banner, brandName }: { banner?: React.ReactNode; brandName?: string }) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4 lg:left-60">
       <div className="mx-auto max-w-4xl">
@@ -216,7 +217,7 @@ export function Navbar({ banner }: { banner?: React.ReactNode }) {
               read as one cluster, clearly separate from the auth actions. */}
           <div className="flex items-center gap-6">
             <Link href="/" title="Home">
-              <Logo className="h-9" />
+              <Logo className="h-9" name={brandName} />
             </Link>
             {banner && (
               <div className="hidden items-center lg:flex">

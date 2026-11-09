@@ -82,7 +82,7 @@ interface DialogCopy {
 const COPY: Record<WebAudioCaptureErrorKind, DialogCopy> = {
   'permission-denied': {
     title: 'Microphone access needed',
-    body: 'Dial8 needs permission to use your microphone to capture this meeting. Your browser has blocked it.',
+    body: 'Native Intelligence needs permission to use your microphone to capture this meeting. Your browser has blocked it.',
     steps: [
       'Click the camera/lock icon in your browser’s address bar.',
       'Set Microphone to “Allow” for this site.',
@@ -102,7 +102,7 @@ const COPY: Record<WebAudioCaptureErrorKind, DialogCopy> = {
   },
   'insecure-context': {
     title: 'Secure connection required',
-    body: 'Microphone capture only works over a secure (HTTPS) connection. Open Dial8 over HTTPS to record.',
+    body: 'Microphone capture only works over a secure (HTTPS) connection. Open Native Intelligence over HTTPS to record.',
     canRetry: false,
   },
   unsupported: {

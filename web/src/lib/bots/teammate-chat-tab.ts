@@ -7,7 +7,7 @@
  * chat (the `bot` page kind), full screen.
  *
  * `openTeammateChatTab(teammateId)` (openBotPage, the desktop overlay's Open
- * in Dial8 through desktop-open-chat.ts) is a window event the dashboard's
+ * in Native Intelligence through desktop-open-chat.ts) is a window event the dashboard's
  * TeammateChatTabBridge answers with the roster: a teammate it holds opens as
  * a card, and the event is cancelled so the caller knows; one it doesn't hold
  * (deleted, or behind a private team) is left alone, and the caller falls

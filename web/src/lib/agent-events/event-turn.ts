@@ -14,7 +14,7 @@
  *   • minus what settled since (./freshness.ts: a draft sent, a thread
  *     answered, an approval decided), marked so it is never read again.
  *
- * The body names each thread or item in a line, by Dial8's own phrase around
+ * The body names each thread or item in a line, by Native Intelligence's own phrase around
  * a clipped title (a mail row: the sender's address, never a subject), with its pointer (`email_draft <id>`,
  * `capture <id>`…) so the agent can open it with its read tools and point the
  * person at the review pile. Never mail text. Once the agent WROTE a reply,
@@ -112,7 +112,7 @@ function pointer(row: Pick<EventTurnRow, 'kind' | 'facts' | 'ref_type' | 'ref_id
 }
 
 /**
- * One row's line: Dial8's phrase around a clipped title, then its pointer.
+ * One row's line: Native Intelligence's phrase around a clipped title, then its pointer.
  * A mail row names the sender's address and its contact pointer, never a
  * subject (no stored mail): the agent reads the thread live if it must. A
  * meeting change names its times in `timeZone` (the person's), with the zone,
@@ -130,7 +130,7 @@ export function eventTurnLine(row: EventTurnRow, timeZone: string | null = null)
     case 'email.needs_reply': {
       // E3 (decision 1): Jev wasn't sure a reply is needed, so none was guessed at: ask first.
       if (f.reason === 'unsure') {
-        return `- Maybe a reply${by}${contact}: Dial8 wasn't sure one is needed, so none was drafted. Ask the person whether they want a reply; draft one only if they say yes.${pointer(row)}`
+        return `- Maybe a reply${by}${contact}: Native Intelligence wasn't sure one is needed, so none was drafted. Ask the person whether they want a reply; draft one only if they say yes.${pointer(row)}`
       }
       // A draft held back by a limit stays held back: say why, and that it is not to be drafted.
       const held = typeof f.reason === 'string' ? NO_DRAFT_BECAUSE[f.reason] : undefined
@@ -183,7 +183,7 @@ export function eventTurnLine(row: EventTurnRow, timeZone: string | null = null)
     case 'sequence.failed':
       return `- An outreach sequence of theirs had a problem: “${title}”.${pointer(row)}`
     case 'connection.needs_reconnect': {
-      // Dial8's own catalog id (cleanFacts kept it short): connect takes it.
+      // Native Intelligence's own catalog id (cleanFacts kept it short): connect takes it.
       const catalogId = typeof f.catalogId === 'string' && /^[a-z0-9-]{1,40}$/.test(f.catalogId) ? f.catalogId : null
       const how = catalogId
         ? `Call connect with catalog_id "${catalogId}": its card's Reconnect signs them in again, keeping its tool settings.`
@@ -191,11 +191,11 @@ export function eventTurnLine(row: EventTurnRow, timeZone: string | null = null)
       return `- “${title}” needs the person to sign in again: its sign-in expired and couldn't be renewed, so its tools fail until they reconnect. ${how} Say it once, in a line.${pointer(row)}`
     }
     case 'quote.received':
-      // Roadmap B1: the title is Dial8's own words and numbers (receive.ts quoteEventTitle); what the customer typed is read with get_quote, fenced.
+      // Roadmap B1: the title is Native Intelligence's own words and numbers (receive.ts quoteEventTitle); what the customer typed is read with get_quote, fenced.
       // Roadmap F3: the owner's yes is book_quote (a time the customer chose) or send_quote (the price and the booking link), each its own card.
       return `- A new quote request from the business's website, ${title}.${contact} Read it with get_quote, then tell the person in a few lines who it is, what they want and the price. If the customer already chose a time (its requested dates, or their notes), offer to book it and on their yes call book_quote; otherwise ask for or confirm the price and on their yes call send_quote. A payment link can follow (send_payment_link, its own card).${pointer(row)}`
     case 'job.paid':
-      // Roadmap C2: Dial8's own words (paid.ts paidText); the owner's text about it didn't go out.
+      // Roadmap C2: Native Intelligence's own words (paid.ts paidText); the owner's text about it didn't go out.
       return `- A customer paid: “${title}”. Tell the person in a line; nothing else to do.${pointer(row)}`
     default:
       return `- ${title}${pointer(row)}`

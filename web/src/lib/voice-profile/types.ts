@@ -1,6 +1,6 @@
 /**
  * Voice-profile shared contract — types + tuning constants imported across the
- * "Teach Dial8 your voice" feature (enrollment flow, API routes, dashboard
+ * "Teach Native Intelligence your voice" feature (enrollment flow, API routes, dashboard
  * nudge, live self-verification).
  *
  * Wave-0 contract: pure types and numeric constants, zero runtime dependencies.

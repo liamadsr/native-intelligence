@@ -336,7 +336,7 @@ export interface AskInChatLine {
 export const ASKS_IN_CHAT_NOTE =
   'These wait as cards in the chat, never in For you. Only the person’s own click on an approval’s card answers it; never say you approved one. Point them to the card in the chat.'
 
-/** An ask's line (P13): its kind in Dial8's words, its title clipped. */
+/** An ask's line (P13): its kind in Native Intelligence's words, its title clipped. */
 export function askInChatLine(card: Pick<AttentionItem, 'id' | 'kind' | 'title'>): AskInChatLine {
   const kind: AskInChatLine['kind'] =
     card.kind === 'approval' ? 'approval' : card.kind === 'question' ? 'question' : card.kind === 'work_proposal' ? 'work_to_start' : card.kind === 'draft_email' ? 'email_to_draft' : 'suggestion'
@@ -964,7 +964,7 @@ async function readBotDrafts(
 
 /** A Mail draft as one line: "I drafted the reply to dana@acme.com: “Re: Pricing”; it waits in Mail." */
 function draftLine(draft: Pick<AgentDraft, 'id' | 'to' | 'subject'>, bot: Pick<BotRef, 'name' | 'self'> | null, reader: BotWorkVoice = 'agent'): BotWorkLine {
-  const speaker = bot ? speakerFor(bot, reader) : 'Dial8'
+  const speaker = bot ? speakerFor(bot, reader) : 'Native Intelligence'
   return {
     id: `${AGENT_DRAFT_ITEM_PREFIX}${draft.id}`,
     type: 'review',
@@ -1455,7 +1455,7 @@ async function readBatch(caller: BotWorkCaller, key: string, botId?: string): Pr
     if (cards.length === 0) return NO_ITEM
     const bot = await ownerBot(caller, ownerKey, source.workspaceIds)
     if (bot === undefined) return NO_ITEM
-    const speaker = bot ? speakerFor(bot, caller.voice) : 'Dial8'
+    const speaker = bot ? speakerFor(bot, caller.voice) : 'Native Intelligence'
     const voice = speaker ? { person: 'third' as const, speaker } : {}
     return {
       ok: true,

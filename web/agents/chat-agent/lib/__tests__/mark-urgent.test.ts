@@ -48,8 +48,8 @@ describe('mark_urgent: static, so every turn advertises the same tool list', () 
   it('its description and every note fit OpenAI’s 1024 characters together', () => {
     const notes = [MARK_URGENT_REFUSED, MARK_URGENT_BAD_TIME, MARK_URGENT_PAST].map((o) => ('note' in o ? o.note : ''))
     expect(MARK_URGENT_DESCRIPTION.length + notes.reduce((n, s) => n + s.length, 0)).toBeLessThanOrEqual(1024)
-    // It never lets the agent pick a channel: Dial8 decides where it goes.
-    expect(MARK_URGENT_DESCRIPTION).toMatch(/Dial8 decides where it goes/)
+    // It never lets the agent pick a channel: Native Intelligence decides where it goes.
+    expect(MARK_URGENT_DESCRIPTION).toMatch(/Native Intelligence decides where it goes/)
     expect(MARK_URGENT_DESCRIPTION).toMatch(/10 am tomorrow/)
   })
 

@@ -9,7 +9,7 @@ import { MEMORY_ENTRY_ACTIONS, listTeammateMemory, settleMemoryEntry, type Memor
 /**
  * What the agents learned at work: a teammate's memory (agent_memory; trust
  * layer P2, decision 16 as apply with undo; migration 374), shown in What
- * Dial8 has learned. Every entry is live at once and can be removed (and
+ * Native Intelligence has learned. Every entry is live at once and can be removed (and
  * restored); one learned after its run read untrusted outside text carries
  * the tools that brought it, for its label. Nothing waits to be accepted. A
  * teammate's memory is read by every member's runs of it, so only those who

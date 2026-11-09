@@ -9,7 +9,7 @@ int mic_permission_status(void);
 /// Returns 1 = granted, 0 = denied, -1 = timed out.
 int mic_permission_request(void);
 
-/// Dial8's Mic Mode (Control Center → Mic Mode), which macOS applies to this
+/// Native Intelligence's Mic Mode (Control Center → Mic Mode), which macOS applies to this
 /// app's microphone input: 0 = Standard, 1 = Wide Spectrum, 2 = Voice
 /// Isolation (AVCaptureMicrophoneMode); -1 = unknown. A preference read: it
 /// opens no device, never the microphone.

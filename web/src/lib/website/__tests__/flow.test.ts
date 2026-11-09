@@ -63,7 +63,7 @@ function fakeWorld(opts: { draft?: boolean; merged?: boolean; head?: string; pat
     const pull = url.match(/\/repos\/jane\/site\/pulls\/(\d+)$/)
     if (pull && method === 'GET') {
       const n = Number(pull[1])
-      return json(200, { number: n, node_id: `PR_${n}`, html_url: `https://github.com/jane/site/pull/${n}`, title: n === 9 ? 'Undo: Send website quote requests to Dial8' : 'Send website quote requests to Dial8', body: 'Owner summary: Your quote form now also sends each request to Dial8. It still emails you like before.', state: 'open', draft: opts.draft !== false, merged: n === 7 || opts.merged === true, merge_commit_sha: n === 7 || opts.merged ? MERGE : null, head: { sha: opts.head ?? HEAD }, base: { ref: 'main' }, changed_files: 1 })
+      return json(200, { number: n, node_id: `PR_${n}`, html_url: `https://github.com/jane/site/pull/${n}`, title: n === 9 ? 'Undo: Send website quote requests to Native Intelligence' : 'Send website quote requests to Native Intelligence', body: 'Owner summary: Your quote form now also sends each request to Native Intelligence. It still emails you like before.', state: 'open', draft: opts.draft !== false, merged: n === 7 || opts.merged === true, merge_commit_sha: n === 7 || opts.merged ? MERGE : null, head: { sha: opts.head ?? HEAD }, base: { ref: 'main' }, changed_files: 1 })
     }
     if (pull && method === 'PATCH') return json(200, {})
     if (url.endsWith('/merge') && method === 'PUT') return opts.mergeStatus ? json(opts.mergeStatus, { message: opts.mergeMessage ?? 'no' }) : json(200, { sha: MERGE, merged: true })
@@ -303,7 +303,7 @@ describe('wire → card → yes → live → it works', () => {
       userId: OWNER,
       toolName: MERGE_WEBSITE_CHANGE_TOOL,
       sideEffect: 'external-write',
-      context: { website: { changeId: row.id, headSha: HEAD, summary: 'Your quote form now also sends each request to Dial8. It still emails you like before.', previewUrl: 'https://site-git-dial8.vercel.app/' } },
+      context: { website: { changeId: row.id, headSha: HEAD, summary: 'Your quote form now also sends each request to Native Intelligence. It still emails you like before.', previewUrl: 'https://site-git-dial8.vercel.app/' } },
     })
     expect(approval.conversationId).toBeUndefined()
     expect(row).toMatchObject({ state: 'awaiting_yes', approval_id: 'appr-1', head_sha: HEAD })
@@ -750,7 +750,7 @@ describe('the review’s fixes', () => {
     expect(checkPages('https://jane.github.io/site', 'html', { path: 'contact.html' })).toEqual(['https://jane.github.io/site/contact.html', 'https://jane.github.io/site/'])
   })
 
-  it("only Dial8's own intake URL counts on the live site, and it is never posted elsewhere", async () => {
+  it("only Native Intelligence's own intake URL counts on the live site, and it is never posted elsewhere", async () => {
     await connected()
     await startWiring(db, who, {}, deps())
     const row = changeRow()

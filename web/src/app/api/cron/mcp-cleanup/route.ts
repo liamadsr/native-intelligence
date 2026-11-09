@@ -6,8 +6,8 @@ import { requireCronSecret } from '@/lib/api-auth'
  * POST /api/cron/mcp-cleanup — Daily housekeeping for all MCP-related tables.
  *
  * Covers BOTH directions:
- *  - Inbound (clients connecting TO Dial8): mcp_auth_code, mcp_oauth_token
- *  - Outbound (Dial8 connecting TO external servers): external_mcp_oauth_state
+ *  - Inbound (clients connecting TO Native Intelligence): mcp_auth_code, mcp_oauth_token
+ *  - Outbound (Native Intelligence connecting TO external servers): external_mcp_oauth_state
  *
  * Schedule: daily via Vercel cron at 03:00 UTC. Vercel's scheduler always
  * issues GET with `Authorization: Bearer ${CRON_SECRET}`, so the handler is

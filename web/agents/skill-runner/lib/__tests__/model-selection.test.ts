@@ -229,7 +229,7 @@ describe('skill-runner model resolver — the person\'s own ChatGPT plan (the fr
     expect(fetchEveSpec).toHaveBeenCalledTimes(2)
   })
 
-  it("refuses a plan it can't read rather than run on a Gateway model Dial8 pays for", async () => {
+  it("refuses a plan it can't read rather than run on a Gateway model Native Intelligence pays for", async () => {
     fetchEveSpec.mockResolvedValue({ ...specFor('deepseek-v4-flash', false), chatgptPlan: { model: 'gpt-4o', helperModel: 'gpt-4o', reasoning: 'low' } } as never)
     await expect(resolve()).rejects.toThrow(/ChatGPT plan this agent can't read/)
   })

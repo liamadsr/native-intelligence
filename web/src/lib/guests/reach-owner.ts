@@ -221,8 +221,8 @@ export async function messageOwner(
     success: true,
     delivered: 'in_app',
     message: urgentBy
-      ? "Passed on as urgent. The owner gets it in Dial8, or by text or Slack if they're away from it, even at night when it's due before their morning."
-      : "Passed on. The owner gets it in Dial8, or by text or Slack if they're away from it; at night it waits for their morning.",
+      ? "Passed on as urgent. The owner gets it in Native Intelligence, or by text or Slack if they're away from it, even at night when it's due before their morning."
+      : "Passed on. The owner gets it in Native Intelligence, or by text or Slack if they're away from it; at night it waits for their morning.",
   }
 }
 
@@ -318,7 +318,7 @@ export async function rememberAboutGuest(
   const known = ((data ?? []) as Array<{ text: string }>).map((r) => r.text.trim().toLowerCase())
   if (known.includes(text.toLowerCase())) return { success: true, remembered: false, message: 'Already known.' }
   if (known.length >= GUEST_MEMORY_CAP) {
-    return { success: false, code: 'MEMORY_FULL', message: `You already keep ${GUEST_MEMORY_CAP} things about ${guest.displayName}; the owner can clear some in Dial8.` }
+    return { success: false, code: 'MEMORY_FULL', message: `You already keep ${GUEST_MEMORY_CAP} things about ${guest.displayName}; the owner can clear some in Native Intelligence.` }
   }
   const { error: insertError } = await supabase.from('agent_guest_memory').insert({ guest_id: guest.id, owner_user_id: scope.ownerUserId, kind: input.kind, text })
   if (insertError) throw new Error(insertError.message)

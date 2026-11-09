@@ -1,5 +1,5 @@
 /**
- * Single-use links (migration 457): a link Dial8 texts (or shows) that does
+ * Single-use links (migration 457): a link Native Intelligence texts (or shows) that does
  * one thing for one account, once, before it expires. The first purpose is an
  * OAuth connect started from a text (./purposes.ts); Stripe Connect's
  * onboarding link (roadmap track C) is meant to be the next.

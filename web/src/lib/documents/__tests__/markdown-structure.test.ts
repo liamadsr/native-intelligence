@@ -16,7 +16,7 @@ import {
 const DOC = [
   '# Product', // 1
   '', // 2
-  'Dial8 captures meetings.', // 3
+  'Native Intelligence captures meetings.', // 3
   '', // 4
   '## Positioning', // 5
   'For founders.', // 6
@@ -177,7 +177,7 @@ describe('section edits', () => {
     expect(replaceSection('# A\n\n## B\n\nold\n', parseOutline('# A\n\n## B\n\nold\n')[1], 'new')).toBe('# A\n\n## B\n\nnew\n')
     expect(next).not.toContain('Free while in beta.')
     expect(next).not.toContain('Not a heading')
-    expect(next.startsWith('# Product\n\nDial8 captures meetings.')).toBe(true)
+    expect(next.startsWith('# Product\n\nNative Intelligence captures meetings.')).toBe(true)
   })
 
   it('replace_section can rename the heading', () => {
@@ -193,7 +193,7 @@ describe('section edits', () => {
     const next = removeSection(DOC, positioning)
     expect(next).not.toContain('For founders.')
     expect(next).not.toContain('Real alternative')
-    expect(next).toContain('Dial8 captures meetings.\n\n## Pricing')
+    expect(next).toContain('Native Intelligence captures meetings.\n\n## Pricing')
   })
 
   it('insert_section_after goes after the subsections, at the same level by default', () => {

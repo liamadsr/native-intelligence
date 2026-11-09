@@ -1,11 +1,11 @@
-// RSS 2.0 feed for the Dial8 blog. Generated from the same MDX source the blog
+// RSS 2.0 feed for the Native Intelligence blog. Generated from the same MDX source the blog
 // pages read, so it stays in sync with published posts. Referenced by the
 // <link rel="alternate" type="application/rss+xml"> in the root layout.
 import { blog } from '@/lib/source'
 
 const BASE_URL = 'https://dial8.ai'
-const FEED_TITLE = 'Dial8 Blog'
-const FEED_DESCRIPTION = 'Product updates, writing, and announcements from Dial8.'
+const FEED_TITLE = 'Native Intelligence Blog'
+const FEED_DESCRIPTION = 'Product updates, writing, and announcements from Native Intelligence.'
 
 // Escape the five XML predefined entities so titles/descriptions can't break
 // the document.

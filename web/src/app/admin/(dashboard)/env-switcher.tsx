@@ -73,7 +73,7 @@ export function EnvSwitcher({ currentEnv }: { currentEnv: AdminEnv }) {
                 <activeEnv.icon className="size-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">Dial8</span>
+                <span className="truncate font-medium">Native Intelligence</span>
                 <span className="truncate text-xs">{activeEnv.label}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />

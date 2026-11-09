@@ -4,12 +4,12 @@ import { inngest } from '@/lib/inngest/client'
 import { JIRA_PROVIDER } from '@/lib/tasks/jira-config'
 
 /**
- * POST /api/webhooks/jira — Jira → Dial8 read-back receiver.
+ * POST /api/webhooks/jira — Jira → Native Intelligence read-back receiver.
  *
  * ONE global URL, no `[syncStateId]` segment, and that is not a simplification:
  * Atlassian's registration schema says "only a single URL per app is allowed to
  * be registered", so a per-tenant receiver path is not expressible. Deliveries
- * therefore carry no indication of which Dial8 workspace they belong to — the
+ * therefore carry no indication of which Native Intelligence workspace they belong to — the
  * issue id is resolved against `action_external_task` downstream, across
  * workspaces.
  *
@@ -39,7 +39,7 @@ import { JIRA_PROVIDER } from '@/lib/tasks/jira-config'
  * the body is trusted, believed or written anywhere: we lift issue ids out of
  * it, and `jira-apply-remote` then re-fetches each issue over an authenticated
  * call, which is where the actual trust boundary lives. An attacker who forges
- * a delivery achieves exactly one thing — Dial8 re-reads an issue it already had
+ * a delivery achieves exactly one thing — Native Intelligence re-reads an issue it already had
  * permission to read, and applies whatever Jira genuinely says.
  *
  * The response is deliberately dumb and fast. Jira retries a non-2xx up to 5
@@ -164,7 +164,7 @@ export async function POST(request: Request): Promise<Response> {
   //
   // `issues: known.length` — the POST-filter count — turned this endpoint into a
   // free cross-tenant oracle: it is unauthenticated, always 200s, and answers
-  // "does this Jira issue id have a Dial8 link ANYWHERE in the fleet?" one id at
+  // "does this Jira issue id have a Native Intelligence link ANYWHERE in the fleet?" one id at
   // a time. That is exactly the reconnaissance an attacker needs for the half of
   // the amplification the filter does NOT close — a genuinely linked id still
   // fans out to every workspace that links it. So the filter's result stays

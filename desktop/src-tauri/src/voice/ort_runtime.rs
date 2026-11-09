@@ -211,12 +211,12 @@ pub(crate) mod tests {
 
     #[test]
     fn frameworks_first_then_the_dev_build() {
-        let exe = Path::new("/Apps/Dial8.app/Contents/MacOS/dial8-desktop");
+        let exe = Path::new("/Apps/Native Intelligence.app/Contents/MacOS/dial8-desktop");
         let dirs = search_dirs(Some(exe), Some(Path::new("/src/src-tauri")));
         assert_eq!(
             dirs,
             vec![
-                PathBuf::from("/Apps/Dial8.app/Contents/MacOS/../Frameworks"),
+                PathBuf::from("/Apps/Native Intelligence.app/Contents/MacOS/../Frameworks"),
                 PathBuf::from("/src/src-tauri/sidecars/local-tts/.out/lib"),
             ]
         );

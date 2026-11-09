@@ -1,6 +1,6 @@
 # coding-agent
 
-The eve sandbox agent that runs Dial8's **cloud coding runs** (Phase 3 —
+The eve sandbox agent that runs Native Intelligence's **cloud coding runs** (Phase 3 —
 `docs/plans/eve-phase3-coding-runs.md`). It is the ONLY cloud coding-run runtime,
 and it serves both origins — action-origin runs ("Start" on an assigned action) and flow-origin runs
 (a `run_agent` flow action with no triggering action, whose repo / persona / task
@@ -18,7 +18,7 @@ work through eve's default **harness tools**, which bind to the authored sandbox
 | `glob`, `grep` | **not registered** | eve dropped them from the default set in 0.39.0. They are now opt-in (`export { glob as default } from 'eve/tools/glob'`); neither file exists, so neither tool is advertised. Searching happens through `bash` (`rg`, `find`). |
 | `finish_run` | LIVE (authored, terminal) | The ONLY way to end a run: POSTs the outcome; the system opens the PR. |
 | `post_progress` | LIVE (authored) | Appends to `log_tail`; its response carries the cancel signal. |
-| `web_search` | **LIVE**, pinned to Exa | Web access is an always-on capability of every Dial8 agent. An unattended run that hits an unfamiliar API or an opaque error has no one to ask — its only other options were guessing or failing. Provider-executed, so it does not touch the sandbox network policy. |
+| `web_search` | **LIVE**, pinned to Exa | Web access is an always-on capability of every Native Intelligence agent. An unattended run that hits an unfamiliar API or an opaque error has no one to ask — its only other options were guessing or failing. Provider-executed, so it does not touch the sandbox network policy. |
 | `web_fetch` | **LIVE**, guarded wrapper | Doc/changelog lookup. Wraps eve's built-in with the SSRF url-guard (`lib/url-guard.ts`) and a per-session abuse cap (`lib/web-fetch-cap.ts`). Runs in the APP runtime, **not** the sandbox: it cannot read or write `/workspace`, and it is not a hole in the sandbox network policy. |
 
 The tool surface is entirely structural: what the agent may do is bounded by the

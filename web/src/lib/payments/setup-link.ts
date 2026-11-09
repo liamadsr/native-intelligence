@@ -1,6 +1,6 @@
 /**
  * The texted Stripe setup link (migration 459, stripe_connect_link): a link
- * Dial8 texts the owner that starts their Stripe onboarding, once, for one
+ * Native Intelligence texts the owner that starts their Stripe onboarding, once, for one
  * account (user and workspace), within 15 minutes.
  *
  * Built to the shape of track A's one-time links (src/lib/links/one-time.ts,

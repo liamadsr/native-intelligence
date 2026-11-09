@@ -8,7 +8,7 @@
  * the DEFAULT — every field below opens prefilled from `task_sync_state.config`
  * — but it is no longer the only answer. The three things Liam wanted are all
  * the same thing: push one action to a Jira board and assign a teammate who
- * doesn't use Dial8; send a Linear ticket to a friend with the details already
+ * doesn't use Native Intelligence; send a Linear ticket to a friend with the details already
  * filled; put two actions from one meeting into two different projects without
  * touching Settings.
  *
@@ -829,7 +829,7 @@ export function PushComposePanel({
       if (jiraMeta) {
         if (jiraMeta.blocking_fields.length > 0) {
           const names = jiraMeta.blocking_fields.map((f) => f.name).join(', ')
-          return `This issue type requires fields Dial8 can't fill: ${names}.`
+          return `This issue type requires fields Native Intelligence can't fill: ${names}.`
         }
         if (jiraMeta.due_date_required && !jiraDueDate) return 'A due date is required.'
         if (jiraMeta.assignee_required && !jiraAssignee) return 'An assignee is required.'
@@ -1210,7 +1210,7 @@ function ComposeFields(props: ComposeFieldsProps) {
           THE SITE IS NOT A CAPTION either. "In {siteName}" was a leading label
           for a value nobody can change in v1, and on the common setup where the
           Jira site is named for the workspace it read as noise ("In dial8", on
-          a Dial8 screen). It survives where it is actually useful — as the
+          a Native Intelligence screen). It survives where it is actually useful — as the
           Project chip's `title`, i.e. on hover of the field the site scopes. */}
 
       {provider === 'jira' && (
@@ -1554,11 +1554,11 @@ function JiraFields({
             className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5"
             data-jira-blocking-wall=""
           >
-            <p className="text-xs font-medium">This issue type needs more than Dial8 can fill</p>
+            <p className="text-xs font-medium">This issue type needs more than Native Intelligence can fill</p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               {meta.blocking_fields.map((f) => f.name).join(', ')}{' '}
               {meta.blocking_fields.length === 1 ? 'is required' : 'are required'} on this create
-              screen and {meta.blocking_fields.length === 1 ? 'has' : 'have'} no values Dial8 can
+              screen and {meta.blocking_fields.length === 1 ? 'has' : 'have'} no values Native Intelligence can
               choose from.
               {nativeCreateUrl ? ` Create it in ${providerName} instead, then link it back.` : ''}
             </p>
@@ -1575,7 +1575,7 @@ function JiraFields({
               meta.blocking_fields.length === 1 ? 'is required' : 'are required'
             } on this create screen and ${
               meta.blocking_fields.length === 1 ? 'has' : 'have'
-            } no values Dial8 can choose from.`}
+            } no values Native Intelligence can choose from.`}
           >
             <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />
             <span className="text-[10px]">

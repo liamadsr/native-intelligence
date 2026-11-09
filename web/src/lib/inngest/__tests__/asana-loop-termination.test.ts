@@ -3,9 +3,9 @@ import { createAsanaRemoteFake } from '@/test/asana-remote-fake'
 import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
 
 /**
- * REGRESSION: the Asana↔Dial8 completion cycle must terminate in one hop.
+ * REGRESSION: the Asana↔Native Intelligence completion cycle must terminate in one hop.
  *
- * Dial8→Asana (asana-echo-status) and Asana→Dial8 (applyRemoteTaskState) form a
+ * Native Intelligence→Asana (asana-echo-status) and Asana→Native Intelligence (applyRemoteTaskState) form a
  * closed loop: a webhook moves the action, that fires
  * `flow/entity.status_changed`, which wakes the echo, which writes back to
  * Asana, which raises another webhook… Left unguarded this is an infinite
@@ -137,7 +137,7 @@ beforeEach(() => {
   })
 })
 
-describe('Asana ↔ Dial8 loop termination', () => {
+describe('Asana ↔ Native Intelligence loop termination', () => {
   it('a webhook-applied completion produces ZERO Asana writes from the echo', async () => {
     hoistedConfig.loadAsanaSyncState.mockResolvedValue({
       id: 'tss-1',
@@ -147,7 +147,7 @@ describe('Asana ↔ Dial8 loop termination', () => {
       config: { project_gid: 'proj-1' },
     })
 
-    // 1. Asana → Dial8: the task was completed remotely.
+    // 1. Asana → Native Intelligence: the task was completed remotely.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',

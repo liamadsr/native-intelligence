@@ -216,7 +216,7 @@ function correctionsOf(card: AttentionItem): AcceptCorrections {
   }
 }
 
-/** A card one click settles from a list: a suggested change Dial8 can apply, with its target, run by no agent. */
+/** A card one click settles from a list: a suggested change Native Intelligence can apply, with its target, run by no agent. */
 function oneClick(card: AttentionItem): boolean {
   const p = card.payload ?? {}
   return card.kind === 'action_card' && !isTargetlessUpdate(p) && !isUnsupportedChange(p) && !p.assignee_ai_member_id

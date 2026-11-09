@@ -85,7 +85,7 @@ describe('createCanonDocument', () => {
   })
 
   it('the product doc pointer’s document is adopted: keyed, text kept', async () => {
-    state.lookup = { ok: true, viaPointer: true, memberId: 'm1', doc: { id: 'doc-p', title: 'Dial8', canon_key: null, content: 'Dial8 is a workspace.' } }
+    state.lookup = { ok: true, viaPointer: true, memberId: 'm1', doc: { id: 'doc-p', title: 'Native Intelligence', canon_key: null, content: 'Native Intelligence is a workspace.' } }
     const c = client('owner')
     const r = await createCanonDocument(c as never, { workspaceId: 'w', userId: 'u', key: 'product' })
     expect(r).toMatchObject({ ok: true, outcome: 'adopted', document: { id: 'doc-p' } })

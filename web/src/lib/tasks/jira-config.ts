@@ -57,8 +57,8 @@ export interface JiraDestinationConfig {
   /** bucket → Jira status id. Absent/null buckets fall back to statusCategory. */
   status_map?: StatusMap
   /**
-   * Put Dial8's fingerprints on a pushed issue's description: the action
-   * identifier as a bold heading paragraph, and the "Pushed from Dial8"
+   * Put Native Intelligence's fingerprints on a pushed issue's description: the action
+   * identifier as a bold heading paragraph, and the "Pushed from Native Intelligence"
    * backlink paragraph at the bottom.
    *
    * ABSENT MEANS TRUE — every connection made before this setting existed keeps
@@ -69,13 +69,13 @@ export interface JiraDestinationConfig {
    * Provider-level, NOT destination-level — it survives a site switch, a project
    * switch and a destination clear, all of which reset the ids beneath them.
    * Those resets exist because per-site ids resolve to unrelated objects on
-   * another tenant; a preference about Dial8's own branding has no such problem.
+   * another tenant; a preference about Native Intelligence's own branding has no such problem.
    */
   include_dial8_attribution?: boolean
 }
 
 /**
- * Does this config want Dial8 attribution on pushed issues?
+ * Does this config want Native Intelligence attribution on pushed issues?
  *
  * The default-on rule lives HERE, in one place, so no caller can accidentally
  * turn an absent key into "off" by reading the raw field.

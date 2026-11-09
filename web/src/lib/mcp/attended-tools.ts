@@ -5,7 +5,7 @@
  *
  *   A person's own connector (Claude Desktop, Cursor, ...): settle_card,
  *   revise_email_draft and discard_email_draft, as the person's own tools.
- *   Each acts only on the caller's own card or Dial8's own drafts, and the
+ *   Each acts only on the caller's own card or Native Intelligence's own drafts, and the
  *   person is the one asking (a big discard still asks them first: its
  *   `confirmed`).
  *   undo_extraction_pass stays out: it deletes what a pass filed in bulk, and
@@ -20,10 +20,10 @@
  *   managing their own agents from their own client, under the agent
  *   editor's rules; a delete or merge lands as their card in the app, exactly
  *   as from chat, and an MCP client can't accept one.
- *   And remember (one-agent plan Part 3): the person saying what Dial8
+ *   And remember (one-agent plan Part 3): the person saying what Native Intelligence
  *   should remember, from their own client, lands in the same note (or, with
  *   scope 'profile', in the facts about them); they see and undo it in What
- *   Dial8 has learned (dial8_remember).
+ *   Native Intelligence has learned (dial8_remember).
  *   And the loop builders (create_flow, update_flow, delete_flow): the
  *   person's own client building or switching on their loops is the person
  *   acting, as it was before they became attended-only. The tools' own
@@ -58,7 +58,7 @@
  *   the app (and Slice 2's check-in), never from another client.
  *   finish_getting_started stays out too: getting started
  *   (docs/plans/getting-started-skill.md) is the app's chat walking someone
- *   new through Dial8, so only that chat ends it.
+ *   new through Native Intelligence, so only that chat ends it.
  *   And update_email_thread (GEN-1166): the person sorting their own inbox
  *   from their own client (dial8_update_email_thread); every change comes
  *   back with its undo, and over ten threads still waits for their yes

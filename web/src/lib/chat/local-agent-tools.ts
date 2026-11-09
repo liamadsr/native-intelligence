@@ -1,5 +1,5 @@
 /**
- * The Dial8 agent's local-agent tools, run by the main chat's tool route
+ * The Native Intelligence agent's local-agent tools, run by the main chat's tool route
  * (/api/internal/chat/tool) with eve's ids (docs/plans/local-agents.md, "The
  * full build"; contract F). The schema twins are src/lib/ai/tools/local-agent.ts.
  *
@@ -227,7 +227,7 @@ export async function listLocalAgents(svc: Svc, claims: ChatRunTokenClaims, _inp
   if (sessions.length > ordered.length) out.sessions_omitted = sessions.length - ordered.length
   if (devices.length === 0) {
     out.note =
-      "No Mac has local agents set up yet. The person turns them on in the Dial8 desktop app and adds a folder to their environment from the chat's + menu (Select folder…) or the side panel's Environment card."
+      "No Mac has local agents set up yet. The person turns them on in the Native Intelligence desktop app and adds a folder to their environment from the chat's + menu (Select folder…) or the side panel's Environment card."
   } else if (folders.length === 0) {
     out.note =
       "Their environment has no folder yet: the person adds one in the desktop app, from the chat's + menu (Select folder…) or the side panel's Environment card. Once added, it is available in every chat."
@@ -345,7 +345,7 @@ function fallbackNote(f: CloudFallback): string {
 const DELIVERED_NOTE = 'Delivered to it on the Mac; read_local_agent shows its reply.'
 
 /**
- * message_local_agent: a message from the Dial8 agent, keyed on eve's ids
+ * message_local_agent: a message from the Native Intelligence agent, keyed on eve's ids
  * (localAgentMessageKey), so a retried call sends it once and answers as the
  * first did. A home turn (the server's) may only answer an open question: the
  * session's last_signal must be 'ask' (decision 6).
@@ -406,7 +406,7 @@ export async function messageLocalAgent(
     message_id: sent.messageId,
     ...(sent.requeued ? { requeued: true } : {}),
     note: sent.requeued
-      ? `Its Dial8 app on ${device} had closed: it resumes with this message when the Mac reconnects.`
+      ? `Its Native Intelligence app on ${device} had closed: it resumes with this message when the Mac reconnects.`
       : session.status === 'queued'
         ? `It hasn't started on ${device} yet: it reads this once it does.`
         : DELIVERED_NOTE,
@@ -418,7 +418,7 @@ function itemView(it: TranscriptItem): Output {
   const base = { id: it.id, at: it.at }
   switch (it.kind) {
     case 'inbound':
-      return { ...base, kind: 'message', from: it.author === 'agent' ? 'you (the Dial8 agent)' : 'the person', text: it.text ?? '' }
+      return { ...base, kind: 'message', from: it.author === 'agent' ? 'you (the Native Intelligence agent)' : 'the person', text: it.text ?? '' }
     case 'text':
       return { ...base, kind: 'reply', text: it.text ?? '' }
     case 'tool':
@@ -584,7 +584,7 @@ export async function runMacTeammateTool(
         output: {
           status: 'sent',
           note:
-            "Sent to Dial8 in the cloud, your teammate. It reads it in the person's chat with Dial8 and answers here as your next message; it may ask the person first. " +
+            "Sent to Native Intelligence in the cloud, your teammate. It reads it in the person's chat with Native Intelligence and answers here as your next message; it may ask the person first. " +
             'If you need the answer to go on, end your turn now.',
         },
       },

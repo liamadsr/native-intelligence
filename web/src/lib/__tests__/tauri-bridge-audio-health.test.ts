@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 /**
  * Bridge contract for macOS audio health (coreaudiod stuck → Restart audio)
- * and Dial8's Mic Mode. The website ships ahead of the desktop, so on a
+ * and Native Intelligence's Mic Mode. The website ships ahead of the desktop, so on a
  * desktop without the commands both reads fall back to `unknown` (the
  * notices then never show) instead of rejecting, and nothing touches Tauri
  * in the browser.

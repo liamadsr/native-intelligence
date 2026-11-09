@@ -1720,7 +1720,7 @@ export function createClaimTools(
       description:
         'Kick off background ingestion of a source into the knowledge graph. The job extracts atomic claims from the source, dedupes against existing claims, and proposes new wiki pages. Results land as suggested for the user to review at /account/wiki/review. Use this when the user uploads a document, shares a link, or asks to "remember everything from <source>".',
       inputSchema: z.object({
-        // Never 'email': Dial8 doesn't learn from mail (migration 341).
+        // Never 'email': Native Intelligence doesn't learn from mail (migration 341).
         source_type: z.enum([
           'attachment',
           'capture',

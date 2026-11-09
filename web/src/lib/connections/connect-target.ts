@@ -188,7 +188,7 @@ export async function resolveConnectTarget(
     const provider = target.provider.trim().toLowerCase()
     const choices = INTEGRATION_CATALOG.filter((e) => e.provider === provider)
     if (!choices.length) {
-      return { ok: false, error: `"${target.provider}" isn't an integration Dial8 has. Integrations: ${[...new Set(INTEGRATION_CATALOG.map((e) => e.provider))].join(', ')}. For another app, pass its catalog_id or its MCP server URL.` }
+      return { ok: false, error: `"${target.provider}" isn't an integration Native Intelligence has. Integrations: ${[...new Set(INTEGRATION_CATALOG.map((e) => e.provider))].join(', ')}. For another app, pass its catalog_id or its MCP server URL.` }
     }
     const capability = target.capability?.trim().toLowerCase() || (choices.length === 1 ? choices[0].capability : '')
     const entry = capability ? getIntegration(provider, capability) : undefined

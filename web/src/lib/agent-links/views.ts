@@ -25,7 +25,7 @@ export const AGENT_LINK_PENDING_MAX = 5
 export const AGENT_LINK_REQUEST_TTL_MS = 7 * 24 * 60 * 60_000
 
 export interface LinkPeer {
-  /** Null for an email request to someone not on Dial8 yet (never says whether they are). */
+  /** Null for an email request to someone not on Native Intelligence yet (never says whether they are). */
   userId: string | null
   /** Their name as their workspace shows it, else the name the requester typed. */
   name: string

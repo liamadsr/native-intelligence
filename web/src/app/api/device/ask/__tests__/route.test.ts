@@ -224,7 +224,7 @@ describe('POST /api/device/ask — the eve session runs as the device', () => {
     const opts = h.clients[0] as { headers: Record<string, string> }
     expect(verifyChatRunToken(opts.headers['x-chat-run-token'])).toMatchObject({ surface: 'device_ask', chatgptPlan: true })
     const [, row] = h.logUsage.mock.calls[0] as [string, { model: string; provider: string }]
-    // The fixture's steps name no model, so the ask is billed as asked: the plan's (nothing to Dial8).
+    // The fixture's steps name no model, so the ask is billed as asked: the plan's (nothing to Native Intelligence).
     expect(row).toMatchObject({ model: 'chatgpt-plan/gpt-6.1-sol', provider: 'chatgpt-plan' })
   })
 

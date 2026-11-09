@@ -23,18 +23,18 @@ function stubSupabase() {
 describe('the base prompt keeps its stale lines out', () => {
   it('no page URLs, no slash-command skills, no dashboard for "what did I miss?", no HTTP-POST-only loops', async () => {
     const prompt = await buildSystemPrompt('user-1', stubSupabase(), undefined, { workspaceId: 'ws-1', webAccess: 'never' })
-    for (const stale of ['/account/wiki', '/api/account/', '/project-manager', 'What did I miss?', 'fire HTTP POSTs', "Dial8's chat assistant"]) {
+    for (const stale of ['/account/wiki', '/api/account/', '/project-manager', 'What did I miss?', 'fire HTTP POSTs', "Native Intelligence's chat assistant"]) {
       expect(prompt, stale).not.toContain(stale)
     }
   })
 
   it('the base prompt and the static instructions open on the same always-on framing', async () => {
     const prompt = await buildSystemPrompt('user-1', stubSupabase(), undefined, { workspaceId: 'ws-1', webAccess: 'never' })
-    expect(prompt).toContain("You are Assistant, the user's always-on agent in Dial8, for them and their team.")
+    expect(prompt).toContain("You are Assistant, the user's always-on agent in Native Intelligence, for them and their team.")
     // The person runs a skill by typing / and its name (chat-input.tsx); the agent loads one.
     expect(prompt).toContain('the person runs one by typing / and its name, and you load one with `load_skill`')
     const md = readFileSync(join(process.cwd(), 'agents/chat-agent/instructions.md'), 'utf8').replace(/\s+/g, ' ')
-    expect(md).toContain("In the user's main in-app chat you are their always-on agent, under the name they gave you in Settings → Preferences (\"Assistant\" by default; Dial8 is the product)")
-    expect(md).not.toContain("Dial8's chat assistant")
+    expect(md).toContain("In the user's main in-app chat you are their always-on agent, under the name they gave you in Settings → Preferences (\"Assistant\" by default; Native Intelligence is the product)")
+    expect(md).not.toContain("Native Intelligence's chat assistant")
   })
 })

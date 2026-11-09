@@ -4,7 +4,7 @@ import { libraryWords, type LibraryItemRow } from '../builders/library'
 const who = { workspaceId: 'ws-1', userId: 'user-1' }
 
 const PREP_PROMPT = [
-  'You prepare the user for ONE specific meeting. Not their day: one meeting, all the way down. You work from what Dial8 already knows. You never invent a fact. You keep it short.',
+  'You prepare the user for ONE specific meeting. Not their day: one meeting, all the way down. You work from what Native Intelligence already knows. You never invent a fact. You keep it short.',
   '',
   '## Pin the meeting',
   'Find it on the calendar.',
@@ -57,7 +57,7 @@ describe('libraryWords', () => {
       'When it runs on its own in a flow, it can use Captures, Actions, Contacts & Companies and legacy scope.',
       'Its prompt says: You prepare the user for ONE specific meeting.',
       'Not their day: one meeting, all the way down.',
-      'You work from what Dial8 already knows.',
+      'You work from what Native Intelligence already knows.',
       'You never invent a fact.',
       'It covers Pin the meeting, Who is coming, What happened last time and three more.',
     ])

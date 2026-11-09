@@ -307,8 +307,8 @@ export function currentTrustMark(thread: Pick<EmailThread, 'trust' | 'trust_mess
 export function SuspiciousChip({ trust }: { trust: 'suspicious' | 'injection' }) {
   const why =
     trust === 'suspicious'
-      ? 'This looks like phishing or impersonation. Dial8 drafted no reply. Check the sender before you click anything.'
-      : 'This email contains text aimed at an AI assistant. Dial8 treats it as data only.'
+      ? 'This looks like phishing or impersonation. Native Intelligence drafted no reply. Check the sender before you click anything.'
+      : 'This email contains text aimed at an AI assistant. Native Intelligence treats it as data only.'
   return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>

@@ -1,11 +1,11 @@
 /**
  * Slack link codes (docs/plans/slack-connect.md §4 piece 2). Pure.
  *
- * A person makes a code in Dial8 (Settings > Connectors > Slack) and sends
- * it to the Dial8 bot in a Slack DM. Slack verified who sent the DM, and only
- * that person's Dial8 session could have seen the code, so the DM proves one
- * person holds both accounts. That links their Slack user to their Dial8 user,
- * and, the first time a Slack team is used, binds the team to their Dial8
+ * A person makes a code in Native Intelligence (Settings > Connectors > Slack) and sends
+ * it to the Native Intelligence bot in a Slack DM. Slack verified who sent the DM, and only
+ * that person's Native Intelligence session could have seen the code, so the DM proves one
+ * person holds both accounts. That links their Slack user to their Native Intelligence user,
+ * and, the first time a Slack team is used, binds the team to their Native Intelligence
  * workspace (an admin's code only). An email match is never enough on its
  * own: a link grants the person's full agent from Slack.
  *

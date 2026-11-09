@@ -14,8 +14,8 @@
  *      the teammate; a lost race re-reads the winner; a thread in another
  *      workspace than the teammate's → null;
  *   3. the persona section opens with who the teammate is (`## Who you
- *      are`: its name, what it is, what to say when asked, and never Dial8 or
- *      Dial8's chat assistant), then speaks as the teammate (name, recipe
+ *      are`: its name, what it is, what to say when asked, and never Native Intelligence or
+ *      Native Intelligence's chat assistant), then speaks as the teammate (name, recipe
  *      prompt, skills); a system teammate speaks from its loop's blurb, never
  *      its identity-anchor recipe; every section carries the conversation note;
  *   4. the memory section frames entries as context/data and fences them.
@@ -202,10 +202,10 @@ describe('renderTeammatePersonaSection', () => {
   it('a role teammate: who it is first, then its OWN name, its recipe prompt, its skills, and the conversation note', () => {
     const out = renderTeammatePersonaSection({ name: 'Ghostwriter', isSystem: false, systemKey: null }, persona)
     expect(out).toMatch(
-      /^## Who you are\nYour name is Ghostwriter\. You are one of the user's AI teammates in Dial8\. What you do is set out under "Your role" below\.\n/,
+      /^## Who you are\nYour name is Ghostwriter\. You are one of the user's AI teammates in Native Intelligence\. What you do is set out under "Your role" below\.\n/,
     )
-    expect(out).toContain("When asked who you are or what your name is, say you're Ghostwriter, one of their AI teammates in Dial8, and what you do in a line.")
-    expect(out).toContain("Never call yourself Dial8, Dial8's chat assistant or a generic AI assistant: you are Ghostwriter.")
+    expect(out).toContain("When asked who you are or what your name is, say you're Ghostwriter, one of their AI teammates in Native Intelligence, and what you do in a line.")
+    expect(out).toContain("Never call yourself Native Intelligence, Native Intelligence's chat assistant or a generic AI assistant: you are Ghostwriter.")
     expect(out.indexOf('## Who you are')).toBeLessThan(out.indexOf('## Your role: Ghostwriter'))
     expect(out).not.toContain('Writer (recipe name)')
     expect(out).toContain('Lead with the point.')
@@ -223,7 +223,7 @@ describe('renderTeammatePersonaSection', () => {
     expect(out).toContain("You are Captures, one of this workspace's built-in teammates.")
     expect(out).toContain(SYSTEM_TEAMMATE_BLURBS.captures.slice(1))
     // Real work in the area is the main agent's (it brings the area's know-how); there is no agent menu.
-    expect(out).toContain("the person asks Dial8's main assistant (the main chat): it does it with Captures's know-how.")
+    expect(out).toContain("the person asks Native Intelligence's main assistant (the main chat): it does it with Captures's know-how.")
     expect(out).not.toContain('agent menu')
     expect(out).toContain('## This conversation')
   })
@@ -232,22 +232,22 @@ describe('renderTeammatePersonaSection', () => {
     const out = renderTeammatePersonaSection({ name: 'Mail', isSystem: true, systemKey: 'mail' }, null)
     expect(out.split('\n').slice(0, 3)).toEqual([
       TEAMMATE_IDENTITY_HEADING,
-      "Your name is Mail. You are one of the user's AI teammates in Dial8: you speak for Dial8's background work in Mail, which drafts replies to the threads that need one, and brings your mail import.",
-      "When asked who you are or what your name is, say you're Mail, the teammate that drafts replies to the threads that need one, and brings your mail import. Speak as Mail, in the first person. Never call yourself Dial8, Dial8's chat assistant or a generic AI assistant: you are Mail.",
+      "Your name is Mail. You are one of the user's AI teammates in Native Intelligence: you speak for Native Intelligence's background work in Mail, which drafts replies to the threads that need one, and brings your mail import.",
+      "When asked who you are or what your name is, say you're Mail, the teammate that drafts replies to the threads that need one, and brings your mail import. Speak as Mail, in the first person. Never call yourself Native Intelligence, Native Intelligence's chat assistant or a generic AI assistant: you are Mail.",
     ])
     // A renamed face still says which area it is.
-    expect(renderTeammatePersonaSection({ name: 'Inbox Pal', isSystem: true, systemKey: 'mail' }, null)).toContain("you speak for Dial8's background work in Mail")
+    expect(renderTeammatePersonaSection({ name: 'Inbox Pal', isSystem: true, systemKey: 'mail' }, null)).toContain("you speak for Native Intelligence's background work in Mail")
     // An unknown key still names the teammate and what kind it is.
     expect(renderTeammatePersonaSection({ name: 'Mystery', isSystem: true, systemKey: 'nope' }, null)).toMatch(
-      /^## Who you are\nYour name is Mystery\. You are one of the user's AI teammates in Dial8: you speak for one of Dial8's built-in background jobs\.\n/,
+      /^## Who you are\nYour name is Mystery\. You are one of the user's AI teammates in Native Intelligence: you speak for one of Native Intelligence's built-in background jobs\.\n/,
     )
   })
 
   it('a system teammate with no readable persona, or an unknown key, still gets a built-in persona', () => {
     expect(renderTeammatePersonaSection({ name: 'Prospecting', isSystem: true, systemKey: 'prospecting' }, null)).toContain(
-      "You speak for Dial8's background work in Prospecting.",
+      "You speak for Native Intelligence's background work in Prospecting.",
     )
-    expect(systemTeammatePersonaPrompt('Mystery', 'nope')).toContain("one of Dial8's built-in background jobs")
+    expect(systemTeammatePersonaPrompt('Mystery', 'nope')).toContain("one of Native Intelligence's built-in background jobs")
   })
 
   it('no readable persona for a role teammate → who it is, the name alone as its role, plus the note', () => {
@@ -256,8 +256,8 @@ describe('renderTeammatePersonaSection', () => {
     expect(identity).toBe(
       [
         TEAMMATE_IDENTITY_HEADING,
-        "Your name is Researcher. You are one of the user's AI teammates in Dial8.",
-        "When asked who you are or what your name is, say you're Researcher, one of their AI teammates in Dial8. Speak as Researcher, in the first person. Never call yourself Dial8, Dial8's chat assistant or a generic AI assistant: you are Researcher.",
+        "Your name is Researcher. You are one of the user's AI teammates in Native Intelligence.",
+        "When asked who you are or what your name is, say you're Researcher, one of their AI teammates in Native Intelligence. Speak as Researcher, in the first person. Never call yourself Native Intelligence, Native Intelligence's chat assistant or a generic AI assistant: you are Researcher.",
       ].join('\n'),
     )
     expect(role).toBe('## Your role: Researcher')
@@ -305,18 +305,18 @@ describe('the Assistant speaks from its blurb, propose-only (bots-v4 Phase 5)', 
   it('fits the conversation note: limits built in (Customize), and past them the main assistant, which it isn’t', () => {
     const prompt = assistantPersonaPrompt('Assistant')
     expect(prompt).toContain('reading and proposing is built in for you, and Customize shows it that way')
-    expect(prompt).toContain("You are not Dial8's main assistant (the main chat)")
+    expect(prompt).toContain("You are not Native Intelligence's main assistant (the main chat)")
     for (const where of ['thread', 'chat'] as const) {
       const out = renderTeammatePersonaSection({ name: 'Assistant', isSystem: true, systemKey: 'assistant' }, null, { in: where })
       // Persona first, then the note that names where to send them.
-      expect(out.indexOf("You are not Dial8's main assistant")).toBeLessThan(out.indexOf('## This conversation'))
+      expect(out.indexOf("You are not Native Intelligence's main assistant")).toBeLessThan(out.indexOf('## This conversation'))
       expect(out).toContain('Customize, under About on your page')
     }
   })
 
   it('opens with an identity that says the same, never a loop', () => {
     const out = renderTeammatePersonaSection({ name: 'Assistant', isSystem: true, systemKey: 'assistant' }, null)
-    expect(out).toContain('Your name is Assistant. You are one of the user\'s AI teammates in Dial8: part of Dial8’s main agent, you bring them the AI work that belongs to no area')
+    expect(out).toContain('Your name is Assistant. You are one of the user\'s AI teammates in Native Intelligence: part of Native Intelligence’s main agent, you bring them the AI work that belongs to no area')
     expect(out).toContain("say you're Assistant, the teammate that brings you the AI work that belongs to no area.")
     expect(out).not.toContain('Assistant loop')
   })
@@ -330,14 +330,14 @@ describe('conversationNote: where its limits are set, and what to suggest past t
       expect(note, where).toContain('You can only use the tools this conversation gives you.')
       expect(note, where).toContain('Customize, under About on your page, shows what you can use and may change on your own, and who may change that.')
       // The old open-ended pointer gave the bot nothing to suggest.
-      expect(note, where).not.toContain('say so and suggest where in Dial8 it can be done.')
+      expect(note, where).not.toContain('say so and suggest where in Native Intelligence it can be done.')
     }
   })
 
   it('its thread and a bot conversation both suggest the main assistant, and a bot conversation says where its work waits', () => {
-    expect(conversationNote('Writer', 'thread')).toContain("suggest Dial8's main assistant (the main chat)")
+    expect(conversationNote('Writer', 'thread')).toContain("suggest Native Intelligence's main assistant (the main chat)")
     const chat = conversationNote('Writer', 'chat')
-    expect(chat).toContain("suggest Dial8's main assistant (the main chat) or where in Dial8 it can be done.")
+    expect(chat).toContain("suggest Native Intelligence's main assistant (the main chat) or where in Native Intelligence it can be done.")
     expect(chat).not.toContain('agent menu')
     expect(chat).toContain('What your work delivers for them waits in For you and on your page; a question or an approval asks in the chat.')
   })

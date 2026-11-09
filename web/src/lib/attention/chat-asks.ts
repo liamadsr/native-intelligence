@@ -88,7 +88,7 @@ export interface AddedItem {
   entity_id: string
   entity_type: string
   capture_id?: string
-  /** Dial8's words for where it came from ("your call “Acme sync”"). */
+  /** Native Intelligence's words for where it came from ("your call “Acme sync”"). */
   source?: string
   title?: string
   /** An action's identifier (ENG-51). */
@@ -206,7 +206,7 @@ const GATE_KEYS = ['approval_id', 'code', 'message', 'success']
  * The approval a chat turn's tool result raised, or null. Only the doors that
  * hold calls: a tool in HOLDING_TOOLS whose result says so (`code:
  * 'APPROVAL_REQUIRED'`, `status: 'approval_requested'` or `awaiting_approval:
- * true`, beside a uuid `approval_id`), or a Dial8 tool's result that is
+ * true`, beside a uuid `approval_id`), or a Native Intelligence tool's result that is
  * exactly the outward gate's held-call shape. Never a connected app's own
  * tool (`mcp__…`), whose result is that app's. The card renders after the
  * agent's message instead of the generic chip.

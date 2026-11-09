@@ -91,7 +91,7 @@ async function resolveUser(supabase: SupabaseClient): Promise<ResolvedUser | nul
     const authHeader = headerStore.get('authorization')
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7)
-      // Opaque Dial8 device token: not a JWT, can't bind a client to it.
+      // Opaque Native Intelligence device token: not a JWT, can't bind a client to it.
       if (isDeviceToken(token)) return null
       // Validate the Supabase access token AND bind a client to it so the
       // membership queries below run as this user rather than as anon.

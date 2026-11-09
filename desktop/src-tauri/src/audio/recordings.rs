@@ -5,7 +5,7 @@
 //! nothing reads them back. They are only the raw audio a crashed capture
 //! could still be recovered from, so the latest few are worth keeping. macOS
 //! clears the temp dir at a restart, and until then they used to pile up
-//! (macOS filed "disk writes" reports against Dial8 for it). Now the newest
+//! (macOS filed "disk writes" reports against Native Intelligence for it). Now the newest
 //! [`KEEP_NEWEST`] from the last [`KEEP_FOR`] are kept and the rest go, at
 //! launch and after each capture stops, on a thread of their own.
 //!

@@ -2,24 +2,24 @@
  * A business's own number (roadmap B2, migration 458 business_phone_number):
  * the Twilio number its customers text. The inbound webhook decides by the
  * number that was texted (`To`): a business's number is a customer's text
- * (./texting.ts), the Dial8 number is everyone else's (src/lib/sms/inbound.ts).
+ * (./texting.ts), the Native Intelligence number is everyone else's (src/lib/sms/inbound.ts).
  *
- * Getting one (POST /api/admin/business-numbers, Dial8's admins
- * only: a number costs Dial8 money and lives in Dial8's Twilio account):
+ * Getting one (POST /api/admin/business-numbers, Native Intelligence's admins
+ * only: a number costs Native Intelligence money and lives in Native Intelligence's Twilio account):
  *   - buy: a new US local number in an area code, through Twilio's REST API
  *     (AvailablePhoneNumbers, then IncomingPhoneNumbers), its SMS webhook set
- *     to Dial8's. A number bought but not recorded is released again;
- *   - attach: a number already in Dial8's Twilio account (bought or ported by
- *     hand), its SMS webhook pointed at Dial8's.
- * A business number is NEVER added to Dial8's messaging service: in its
- * sender pool Twilio could pick it for a Dial8 text (sticky sender, area-code
- * match), and a Dial8 user's reply would land on the business. It sends with
+ *     to Native Intelligence's. A number bought but not recorded is released again;
+ *   - attach: a number already in Native Intelligence's Twilio account (bought or ported by
+ *     hand), its SMS webhook pointed at Native Intelligence's.
+ * A business number is NEVER added to Native Intelligence's messaging service: in its
+ * sender pool Twilio could pick it for a Native Intelligence text (sticky sender, area-code
+ * match), and a Native Intelligence user's reply would land on the business. It sends with
  * its own `From` (src/lib/twilio/client.ts); its 10DLC brand and campaign
  * are its own, registered apart (docs/plans/customer-front-door.md).
  * Its voice webhook is left alone: calls are the calling work's
  * (docs/plans/text-and-calling.md Phase 4).
  *
- * One live number per workspace, unique across Dial8. Server only.
+ * One live number per workspace, unique across Native Intelligence. Server only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { twilioConfig, twilioSmsWebhookUrl, type TwilioConfig } from '@/lib/twilio/config'
@@ -48,7 +48,7 @@ function toNumber(row: NumberRow): BusinessNumber {
   return { id: row.id, workspaceId: row.workspace_id, ownerUserId: row.owner_user_id, phone: row.phone_e164, twilioSid: row.twilio_sid }
 }
 
-/** The live business number that is `to`, or null (the Dial8 number, or nobody's). Throws on a failed read. */
+/** The live business number that is `to`, or null (the Native Intelligence number, or nobody's). Throws on a failed read. */
 export async function findBusinessNumber(supabase: SupabaseClient, to: string | null | undefined): Promise<BusinessNumber | null> {
   const phone = typeof to === 'string' ? to.trim() : ''
   if (!isE164(phone)) return null
@@ -71,7 +71,7 @@ export async function businessNumberById(supabase: SupabaseClient, id: string): 
   return data ? toNumber(data) : null
 }
 
-/** The SMS webhook a business number posts to: the same one as the Dial8 number. */
+/** The SMS webhook a business number posts to: the same one as the Native Intelligence number. */
 export function smsWebhookUrl(): string {
   return twilioSmsWebhookUrl()
 }
@@ -90,7 +90,7 @@ function twilio(deps: ProvisionDeps, config: TwilioConfig, url: string, init: { 
   return twilioRest(config, url, init, deps.fetch)
 }
 
-/** Point a Twilio number's SMS webhook at Dial8's (never into Dial8's messaging service: see the header). */
+/** Point a Twilio number's SMS webhook at Native Intelligence's (never into Native Intelligence's messaging service: see the header). */
 async function wireNumber(deps: ProvisionDeps, config: TwilioConfig, sid: string): Promise<{ ok: boolean; error?: string }> {
   const accountUrl = `${TWILIO_API}/Accounts/${encodeURIComponent(config.accountSid)}`
   const set = await twilio(deps, config, `${accountUrl}/IncomingPhoneNumbers/${encodeURIComponent(sid)}.json`, {
@@ -142,7 +142,7 @@ export async function buyBusinessNumber(
     if (typeof candidate !== 'string' || !isNanpNumber(candidate)) return { ok: false, reason: 'none_available' }
     const bought = await twilio(deps, config, `${accountUrl}/IncomingPhoneNumbers.json`, {
       method: 'POST',
-      form: { PhoneNumber: candidate, SmsUrl: deps.webhookUrl ?? smsWebhookUrl(), SmsMethod: 'POST', FriendlyName: `${args.businessName} (Dial8)`.slice(0, 64) },
+      form: { PhoneNumber: candidate, SmsUrl: deps.webhookUrl ?? smsWebhookUrl(), SmsMethod: 'POST', FriendlyName: `${args.businessName} (NI)`.slice(0, 64) },
     })
     const sid = typeof bought.json?.sid === 'string' ? bought.json.sid : null
     if (!bought.ok || !sid) return { ok: false, reason: 'twilio_refused', error: `purchase refused (${bought.status})` }
@@ -157,7 +157,7 @@ export async function buyBusinessNumber(
 }
 
 /**
- * Attach a number already in Dial8's Twilio account to the workspace and
+ * Attach a number already in Native Intelligence's Twilio account to the workspace and
  * wire it (see the header). Never throws.
  */
 export async function attachBusinessNumber(
@@ -169,9 +169,9 @@ export async function attachBusinessNumber(
   if (!config) return { ok: false, reason: 'not_configured' }
   const phone = normalizeE164(args.phone)
   if (!phone || !isNanpNumber(phone)) return { ok: false, reason: 'bad_input', error: 'A US or Canadian number, like +16465550173.' }
-  // Dial8's own numbers (the agent's, and a sign-up number when there is one) are never a business's.
+  // Native Intelligence's own numbers (the agent's, and a sign-up number when there is one) are never a business's.
   const dial8 = [config.fromNumber, process.env.TWILIO_SIGNUP_NUMBER].map((n) => normalizeE164(n)).filter(Boolean)
-  if (dial8.includes(phone)) return { ok: false, reason: 'bad_input', error: "That is a Dial8 number itself: it can't be a business's." }
+  if (dial8.includes(phone)) return { ok: false, reason: 'bad_input', error: "That is a Native Intelligence number itself: it can't be a business's." }
   try {
     if (await activeBusinessNumber(supabase, args.workspaceId)) return { ok: false, reason: 'has_number' }
     const accountUrl = `${TWILIO_API}/Accounts/${encodeURIComponent(config.accountSid)}`

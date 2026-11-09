@@ -168,7 +168,7 @@ describe('ReadAloudSection — the module row', () => {
     await mount()
     const text = container.textContent ?? ''
     expect(text).toContain('Read aloud')
-    expect(text).toContain("Reads Dial8's chat replies aloud on this Mac. Runs on-device, free and unlimited.")
+    expect(text).toContain("Reads Native Intelligence's chat replies aloud on this Mac. Runs on-device, free and unlimited.")
     expect(text).toContain('Downloads automatically (~140 MB).')
     expect(text).toContain("Speech by Kyutai's Pocket TTS, licensed CC BY 4.0")
     expect(container.querySelector('[data-testid="local-module-row-local-tts"]')).toBeTruthy()

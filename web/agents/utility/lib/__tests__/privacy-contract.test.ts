@@ -3,7 +3,7 @@
  *
  * Utility prompts carry workspace content, including mail bodies (the nightly
  * mail-tone pass `memory_learn_mail_tone`, reply drafting
- * `email_draft_reply`), and Dial8 never stores mail text. Two settings make
+ * `email_draft_reply`), and Native Intelligence never stores mail text. Two settings make
  * sure eve does not keep it either:
  *
  *   - `experimental.workflow.retention: 0` — eve deletes the run's payloads

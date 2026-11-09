@@ -206,7 +206,7 @@ pub fn compute_status(available: bool, stt: ModuleView, tts: ModuleView, vad: Op
         speech_audio: true,
     };
     if !available {
-        status.reason = Some("Chat voice needs the Dial8 desktop app for macOS".into());
+        status.reason = Some("Chat voice needs the Native Intelligence desktop app for macOS".into());
         return status;
     }
     if !stt.launchable {

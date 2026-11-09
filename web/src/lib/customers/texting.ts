@@ -6,11 +6,11 @@
  *   1. one of the business's own people (a member's verified phone, on
  *      either line: src/lib/sms/store.ts findBusinessPerson, the same rule
  *      inbound.ts resolves WHICH person by) is not a customer: null, and the
- *      person's own path takes it, as if they had texted the Dial8 number but
+ *      person's own path takes it, as if they had texted the Native Intelligence number but
  *      in this business's workspace, whichever workspace their phone is
  *      linked to. inbound.ts asks here only for a sender it found none for;
  *   2. the owner's own guest (their Household, say) reaches the agent the
- *      owner made for them, as by the Dial8 number;
+ *      owner made for them, as by the Native Intelligence number;
  *   3. anyone else is the business's customer: their customer row is found
  *      or made (./customer-guests.ts, linked to their CRM contact when the
  *      number matches one), past their daily cap one notice a day, and the
@@ -108,7 +108,7 @@ export async function handleBusinessText(
     return { outcome: 'owner_guest_queued', reply: null }
   }
 
-  // 3. A customer: a US or Canadian number only (Dial8 texts nowhere else:
+  // 3. A customer: a US or Canadian number only (Native Intelligence texts nowhere else:
   // against SMS pumping, ../twilio/phone.ts isNanpNumber), never answered.
   if (!isNanpNumber(phone)) return { outcome: 'customer_refused', reply: null }
   if (!text || !sid) return { outcome: 'customer_no_text', reply: input.numMedia > 0 ? CUSTOMER_NO_TEXT_REPLY : null }

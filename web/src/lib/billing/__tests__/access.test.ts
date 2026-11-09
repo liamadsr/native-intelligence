@@ -92,7 +92,7 @@ describe('classifyBillingAccess', () => {
   })
 })
 
-describe('classifyBillingAccess — Dial8 staff', () => {
+describe('classifyBillingAccess — Native Intelligence staff', () => {
   beforeEach(() => vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai'))
 
   it('exempts the named admins (ADMIN_EMAILS) regardless of subscription rows', () => {

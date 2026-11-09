@@ -44,7 +44,7 @@ export function jevFallbackCost(inputTokens: number): number {
 /**
  * Answer one decision: Jev on the Gateway, or, for a person on their own
  * ChatGPT plan (the free tier), the plan's helper model for the kinds that run
- * there (./plan-decision.ts, PLAN_DECISION_DEADLINES); Jev is Dial8-paid and
+ * there (./plan-decision.ts, PLAN_DECISION_DEADLINES); Jev is NI-paid and
  * never runs for them, so their other kinds escalate `budget_unavailable` as
  * before. Either way the task's own accept() decides, and the call is metered.
  */
@@ -169,7 +169,7 @@ export async function runDecision<K extends DecisionKind>(kind: K, raw: Input<K>
       }
     }
     // Opted in to the ChatGPT free tier: a person on their own plan passes,
-    // and their decision runs there or not at all (Jev is Dial8's).
+    // and their decision runs there or not at all (Jev is Native Intelligence's).
     const allowance = await timed('budget', () => read(() => checkUsageLimits(ctx.userId, signal, { chatgptPlan: true })))
     if (!allowance?.allowed) return escalate('budget_unavailable')
     const onPlan = isChatGptPlanUsage(allowance)
@@ -215,7 +215,7 @@ export async function runDecision<K extends DecisionKind>(kind: K, raw: Input<K>
     const outputTokens = validCount(result.usage.outputTokens) ? result.usage.outputTokens : undefined
     metrics.usage = { inputTokens, outputTokens, known: inputTokens !== undefined && outputTokens !== undefined, costSource: 'unknown' }
     if (planModel) {
-      // The person's own plan pays: nothing to Dial8.
+      // The person's own plan pays: nothing to Native Intelligence.
       metrics.usage.costUsd = 0
       metrics.usage.costSource = 'chatgpt_plan'
     } else {

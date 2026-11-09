@@ -129,7 +129,7 @@ describe('AssistantNameSection', () => {
     expect(window.localStorage.getItem(KEY)).toBeNull()
   })
 
-  it('a name saved in another Dial8 window shows up here', async () => {
+  it('a name saved in another Native Intelligence window shows up here', async () => {
     await mount()
     window.localStorage.setItem(KEY, copy('Ada'))
     await act(async () => {

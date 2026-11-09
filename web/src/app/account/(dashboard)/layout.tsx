@@ -6,7 +6,7 @@ import { DashboardShell } from './dashboard-shell'
 import { DashboardErrorBoundary } from './dashboard-error-boundary'
 
 export const metadata = {
-  title: 'My Account – Dial8',
+  title: 'My Account',
 }
 
 export default async function AccountLayout({

@@ -175,7 +175,7 @@ export function EmailDraftCard({ draft, onSent }: EmailDraftCardProps) {
   const subjectText = edited ? editSubject : draft.subject
 
   // `ph-no-capture`: PostHog session replay blocks the draft (recipients,
-  // subject, body) and autocapture skips it. Dial8 never stores mail text.
+  // subject, body) and autocapture skips it. Native Intelligence never stores mail text.
   return (
     // `data-chat-panel`: the reply's line about the draft rides its foot (tailwind.css).
     <div data-chat-panel="draft" className="ph-no-capture my-2 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm">

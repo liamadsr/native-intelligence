@@ -246,7 +246,7 @@ describe('prepBrief', () => {
     for (const tool of ['get_meeting_prep', 'get_contact_details', 'my_open_actions_from_their_meetings', 'get_capture_content', 'find']) expect(input.context).toContain(tool)
   })
 
-  // Nothing enriches on its own any more: Dial8 offers it, under the prep's
+  // Nothing enriches on its own any more: Native Intelligence offers it, under the prep's
   // report, for the outside attendees not enriched yet. The brief carries their
   // contact ids (no calendar text) so the report can name them.
   it('an external meeting names the contacts its report offers to enrich, and gives them back', () => {

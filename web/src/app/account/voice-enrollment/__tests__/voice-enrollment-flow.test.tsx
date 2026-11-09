@@ -200,7 +200,7 @@ describe('VoiceEnrollmentFlow — model-load gate', () => {
   it('disables the intro CTA until the embedder loads, then enables it', async () => {
     act(() => root.render(h(VoiceEnrollmentFlow)))
     await flush()
-    expect(text()).toContain('Teach Dial8 your voice')
+    expect(text()).toContain('Teach Native Intelligence your voice')
     // Before the load ack: the CTA reads "Getting ready…" and is disabled.
     const gettingReady = findCTA(/getting ready/i)
     expect(gettingReady).toBeTruthy()

@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const { user, supabase, via } = await authenticateUser(req)
     // Throws the 429 / 503 Response when the person may not spend. Opted in to
     // the ChatGPT free tier: a person on their own plan asks on it (the turn's
-    // rebuild puts it there), billed to the plan, never Dial8's models.
+    // rebuild puts it there), billed to the plan, never Native Intelligence's models.
     const onPlan = isChatGptPlanUsage(await checkUsageLimits(user.id, undefined, { chatgptPlan: true }))
 
     const body = await req.json()

@@ -1,11 +1,11 @@
 /**
- * Which Dial8 account a verified ChatGPT sign-in belongs to, and the session
+ * Which Native Intelligence account a verified ChatGPT sign-in belongs to, and the session
  * that signs it in (docs/plans/chatgpt-free-tier.md, phase 1).
  *
  * Resolution, in order:
  *   1. this ChatGPT account is already linked (chatgpt_connection, by
  *      issuer + subject)        → that person;
- *   2. its VERIFIED email is an existing, CONFIRMED Dial8 account → link it
+ *   2. its VERIFIED email is an existing, CONFIRMED Native Intelligence account → link it
  *      (the same trust Google sign-in gets: Supabase links verified emails).
  *      An account whose email was never confirmed is refused
  *      ('email_unconfirmed'): anyone can sign up with a password under an

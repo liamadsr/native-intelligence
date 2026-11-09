@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
   if (error) return serverError(error.message)
 
   // Fire-and-forget analytics (never blocks/fails the write). `recipe_published`
-  // rides alongside on a public create — the "publishes to every Dial8 user"
+  // rides alongside on a public create — the "publishes to every Native Intelligence user"
   // step is a countable event on both create and the edit that flips it.
   const { user, workspaceId } = auth
   trackServerEvent('recipe_created', { userId: user.id, workspaceId, email: user.email }, {

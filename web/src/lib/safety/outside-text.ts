@@ -1,7 +1,7 @@
 /**
  * Which tool calls bring UNTRUSTED OUTSIDE TEXT into a run (trust layer P2;
  * decision 16 as Liam settled it on 2026-10-20: apply with undo, never an
- * approval queue). Nothing an agent learns or writes into Dial8 waits on
+ * approval queue). Nothing an agent learns or writes into Native Intelligence waits on
  * this: a teammate memory entry and a canon edit apply at once and can be
  * undone. What it decides is provenance: the run's reads are recorded
  * (agent_run.outside_reads, migration 374) so what it taught or wrote carries

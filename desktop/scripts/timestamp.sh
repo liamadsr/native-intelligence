@@ -58,7 +58,7 @@ timestamp_retry() {
     return "$status"
 }
 
-# Sign a throwaway copy of /usr/bin/true the way the release signs Dial8.app
+# Sign a throwaway copy of /usr/bin/true the way the release signs Native Intelligence.app
 # ($1 = signing identity; hardened runtime, secure timestamp), retrying like
 # timestamp_retry, and check the signature got its timestamp. On failure,
 # prints codesign's output to stderr and returns non-zero.

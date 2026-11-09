@@ -22,13 +22,13 @@
  *     number when that workspace has one and a text from their phone to it
  *     would come back to them (they are the person it resolves to: roadmap
  *     B2); else from their agent's own number when it has one
- *     (src/lib/sms/agent-number.ts), else the Dial8 one. A business-line
- *     phone (a business's own account on a phone whose Dial8 line is another
+ *     (src/lib/sms/agent-number.ts), else the Native Intelligence one. A business-line
+ *     phone (a business's own account on a phone whose Native Intelligence line is another
  *     account's, migration 464) only ever from a business number: with none,
- *     nothing goes ('no_line'), since its reply to a Dial8 number would reach
+ *     nothing goes ('no_line'), since its reply to a Native Intelligence number would reach
  *     the other account. A 21610 opts out the row of the person texted, the
- *     one row the sending number resolves to (from a Dial8 number, the
- *     Dial8 line). So one phone can talk to two workspaces' (or two
+ *     one row the sending number resolves to (from a Native Intelligence number, the
+ *     Native Intelligence line). So one phone can talk to two workspaces' (or two
  *     accounts') agents, each on its own number, and a reply to either
  *     reaches the right one (src/lib/sms/inbound.ts, src/lib/sms/workspace-line.ts);
  *   - for a reply, is claimed on the row first (home_turn.reply_sent_at, one
@@ -45,7 +45,7 @@
  * instead ({@link textGuest}): only while they are active, never a number
  * that said STOP, never past their own daily cap, and its notices are worded
  * for them. A business's customer (preset 'customer', roadmap B2) is texted
- * from the business number they texted, never the Dial8 one. The approvals it raised are the owner's, in the app: none is
+ * from the business number they texted, never the Native Intelligence one. The approvals it raised are the owner's, in the app: none is
  * texted to anyone here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -74,7 +74,7 @@ import {
 } from '@/lib/sms/store'
 
 const DAY_MS = 24 * 60 * 60_000
-/** Texts Dial8 sends one guest in a day (replies and notices). */
+/** Texts Native Intelligence sends one guest in a day (replies and notices). */
 export const GUEST_DAILY_OUTBOUND_CAP = 60
 /**
  * The most texts one reply to a guest goes as (each up to 10 segments, ~15K
@@ -208,7 +208,7 @@ export async function textPerson(
     /**
      * The workspace the text is about: its business number sends it, when it
      * has one. null: about their own agent, not one workspace (their agent's
-     * number, src/lib/sms/agent-number.ts): their agent's number or the Dial8
+     * number, src/lib/sms/agent-number.ts): their agent's number or the Native Intelligence
      * one, and nothing to a business-line phone, whose reply there would
      * reach the other account.
      */
@@ -241,8 +241,8 @@ export async function textPerson(
       sent: (sid) => recordOutbound(supabase, { phone: to, kind: args.kind, sid, userId: args.userId }),
       // A 21610 is a STOP to the number that sent it (the carrier blocks that
       // pair): from a business's number, the row of the person texted, which
-      // is the row a STOP to that number would change; from a Dial8 number
-      // (theirs or Dial8's), the Dial8-line row. Never another account's row.
+      // is the row a STOP to that number would change; from a Native Intelligence number
+      // (theirs or Native Intelligence's), the NI-line row. Never another account's row.
       unsubscribed: from ? () => setPhoneRowOptOut(supabase, rowId, true).catch(() => {}) : () => setPhoneOptOut(supabase, to, true).catch(() => {}),
     },
     { from, sender },
@@ -271,7 +271,7 @@ async function sendTexts(
   bodies: readonly string[],
   deps: TextSendDeps,
   on: { sent: (sid: string) => Promise<unknown>; unsubscribed?: () => Promise<unknown> },
-  /** `from`: a business's own number (a customer's reply, or a text about that business: roadmap B2); `sender`: the person's agent number; else the Dial8 one. */
+  /** `from`: a business's own number (a customer's reply, or a text about that business: roadmap B2); `sender`: the person's agent number; else the Native Intelligence one. */
   via: { from?: string | null; sender?: string | null } = {},
 ): Promise<TextSendResult> {
   let first: string | null = null
@@ -315,9 +315,9 @@ export async function textGuest(
     if (error) return { sent: false, reason: 'lookup_failed' }
     if (!data || data.state !== 'active') return { sent: false, reason: 'no_phone' }
     phone = data.phone_e164
-    // A business's customer is answered from the number they texted, never the Dial8 one.
+    // A business's customer is answered from the number they texted, never the Native Intelligence one.
     if (data.preset === 'customer') {
-      // A US or Canadian number only, as every text Dial8 sends to someone unverified.
+      // A US or Canadian number only, as every text Native Intelligence sends to someone unverified.
       if (!isNanpNumber(phone)) return { sent: false, reason: 'no_phone' }
       const number = data.business_number_id ? await businessNumberById(supabase, data.business_number_id) : null
       if (!number) return { sent: false, reason: 'no_phone' }
@@ -418,27 +418,27 @@ async function claimReply(supabase: SupabaseClient, rowId: string, now?: () => n
 export function textTurnSkipNotice(reason: HomeTurnSkip | 'busy' | 'failed' | 'unfinished' | 'held'): string | null {
   switch (reason) {
     case 'question_pending':
-      return 'You have a question from me waiting in Dial8. Answer it there, then text me again.'
+      return 'You have a question from me waiting in Native Intelligence. Answer it there, then text me again.'
     case 'autonomy_off':
-      return "Dial8's agent is switched off for this workspace (Settings > Autonomy), so I can't act on texts right now."
+      return "Native Intelligence's agent is switched off for this workspace (Settings > Autonomy), so I can't act on texts right now."
     case 'usage_limited':
-      return "You've reached your Dial8 usage limit, so I can't answer texts right now. Check Settings > Billing."
+      return "You've reached your Native Intelligence usage limit, so I can't answer texts right now. Check Settings > Billing."
     case 'not_member':
     case 'no_conversation':
     case 'not_home':
-      return "I couldn't find your Dial8 workspace for this number. Link your phone again in Settings > Phone."
+      return "I couldn't find your Native Intelligence workspace for this number. Link your phone again in Settings > Phone."
     case 'busy':
-      return "I'm still busy with something else in Dial8. Text me again in a few minutes."
+      return "I'm still busy with something else in Native Intelligence. Text me again in a few minutes."
     case 'unfinished':
       // Its words past the read cap are never written (finishHomeTurn): promise none.
-      return "That's taking me too long to answer by text. Open Dial8 to see what got done, or text me again."
+      return "That's taking me too long to answer by text. Open Native Intelligence to see what got done, or text me again."
     case 'held':
-      return "That needs your OK first. It's waiting for you in Dial8."
+      return "That needs your OK first. It's waiting for you in Native Intelligence."
     case 'failed':
     case 'no_session':
     case 'lookup_failed':
     case 'usage_check_failed':
-      return "Sorry, I couldn't get to that just now. Try again in a minute, or open Dial8."
+      return "Sorry, I couldn't get to that just now. Try again in a minute, or open Native Intelligence."
     default:
       return null
   }

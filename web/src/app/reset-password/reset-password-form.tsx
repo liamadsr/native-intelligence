@@ -85,7 +85,7 @@ export function ResetPasswordForm({
           </div>
           <CardTitle className="mt-4">Set a new password</CardTitle>
           <CardDescription>
-            Choose a new password for your Dial8 account.
+            Choose a new password for your Native Intelligence account.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">

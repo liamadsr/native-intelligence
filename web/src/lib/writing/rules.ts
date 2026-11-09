@@ -1,5 +1,5 @@
 /**
- * The house writing standard: one set of rules for every surface Dial8 writes
+ * The house writing standard: one set of rules for every surface Native Intelligence writes
  * on (email drafts first; posts and generated docs later). Plan:
  * docs/plans/eve-templates-lessons.md §3b P3, content-skill-set.md §2 row 12.
  *

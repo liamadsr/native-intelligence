@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { DevSettingsView } from './dev-settings-view'
 
 export const metadata = {
-  title: 'Developer – Settings – Dial8',
+  title: 'Developer – Settings',
 }
 
 export default async function DevSettingsPage() {

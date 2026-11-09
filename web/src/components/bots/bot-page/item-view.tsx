@@ -34,7 +34,7 @@
  *              reads "Your run’s chat": it runs on the run's own limits, not
  *              the bot's. A local agent's turn (`kind: 'local_agent'`,
  *              local-agents contract G) is a conversation of its own: the
- *              Dial8 agent's and yours with the agent working on your Mac,
+ *              Native Intelligence agent's and yours with the agent working on your Mac,
  *              the whole session across its turns (LocalAgentPanel), with
  *              its box to message it as you. It isn't remounted when the
  *              turn settles (the session goes on), and the work side doesn't
@@ -183,7 +183,7 @@ function ItemConversation({
       </p>
     )
   }
-  // A local agent's turn: the session's own conversation (the Dial8 agent, you, and the agent on your Mac).
+  // A local agent's turn: the session's own conversation (the Native Intelligence agent, you, and the agent on your Mac).
   const localSessionId = row ? localAgentSessionIdOf(row) : null
   if (localSessionId) {
     return (

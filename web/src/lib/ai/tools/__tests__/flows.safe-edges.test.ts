@@ -7,7 +7,7 @@
  *     does, its skills' tools and who it runs as; the accepted replay switches
  *     it on only while the loop is unchanged; any other loop of their own,
  *     act-mode or with connected apps, takes the chat yes alone;
- *   - someone else's loop that reaches outside Dial8 or acts on its own is
+ *   - someone else's loop that reaches outside Native Intelligence or acts on its own is
  *     its owner's card;
  *   - trust: lowered freely, a raise only ever behind a card; the report title
  *     is settable;

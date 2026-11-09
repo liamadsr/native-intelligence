@@ -20,7 +20,7 @@ import { createMcpServer } from '../server'
 
 const USER = 'user-1'
 const WS = 'ws-1'
-const WS_NAME = 'Dial8 Marketing'
+const WS_NAME = 'Native Intelligence Marketing'
 
 /** Chainable no-op, except `workspace` which answers the name + settings read. */
 function supabaseStub() {
@@ -54,7 +54,7 @@ async function build(scopes?: string[]): Promise<string> {
 describe('workspace-scope section', () => {
   it('names the active workspace and calls it a DEFAULT, not a fence', async () => {
     const text = await build()
-    expect(text).toContain(`Dial8 MCP — active workspace: "${WS_NAME}" (id ${WS}).`)
+    expect(text).toContain(`Native Intelligence MCP — active workspace: "${WS_NAME}" (id ${WS}).`)
     expect(text).toContain('The active workspace is a DEFAULT, not a fence.')
   })
 

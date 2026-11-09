@@ -473,7 +473,7 @@ function EntityRowImpl({
           />
         )}
       </span>
-      {/* The Dial8 chips, DOWN while the push form is up. `EntityLeading` is
+      {/* The Native Intelligence chips, DOWN while the push form is up. `EntityLeading` is
           drawing the form itself (see its `onComposeChange` doc) — this side
           only has to get out of its way. */}
       {/* `shrink-0` keeps the chips at their natural width — correct for the

@@ -13,28 +13,28 @@ const base = {
   workItemId: 'job-1',
   workspaceId: 'ws',
   teammateId: 'tm',
-  teammateName: 'Dial8',
+  teammateName: 'Native Intelligence',
   title: 'Your Mac · dial8-desktop: Take a look at this repository',
   localAgent: { sessionId: SID, folderLabel: 'dial8-desktop' },
 }
 
 describe('local agent teammate reports', () => {
-  it('reads as Dial8 on the Mac in its folder, with the request as the subject (an older report has no Mac name)', () => {
+  it('reads as Native Intelligence on the Mac in its folder, with the request as the subject (an older report has no Mac name)', () => {
     expect(teammateReportText(buildTeammateReport({ ...base, status: 'needs_review', summary: 'Found three issues.' }))).toBe(
-      'Dial8 on your Mac (dial8-desktop) finished **Take a look at this repository** — ready for your review.\n\nFound three issues.',
+      'Native Intelligence on your Mac (dial8-desktop) finished **Take a look at this repository** — ready for your review.\n\nFound three issues.',
     )
     expect(teammateReportText(buildTeammateReport({ ...base, status: 'needs_input', question: 'Which branch?' }))).toBe(
-      'Dial8 on your Mac (dial8-desktop) has a question about **Take a look at this repository**.',
+      'Native Intelligence on your Mac (dial8-desktop) has a question about **Take a look at this repository**.',
     )
     expect(teammateReportText(buildTeammateReport({ ...base, status: 'failed', reason: "your Mac didn't connect within 6 hours" }))).toBe(
-      "Dial8 on your Mac (dial8-desktop) couldn't finish **Take a look at this repository**: your Mac didn't connect within 6 hours",
+      "Native Intelligence on your Mac (dial8-desktop) couldn't finish **Take a look at this repository**: your Mac didn't connect within 6 hours",
     )
     expect(teammateReportText(buildTeammateReport({ ...base, status: 'canceled' }))).toBe(
-      'Dial8 on your Mac (dial8-desktop) stopped work on **Take a look at this repository** — it was canceled.',
+      'Native Intelligence on your Mac (dial8-desktop) stopped work on **Take a look at this repository** — it was canceled.',
     )
   })
 
-  it('keeps up to 2k of the summary for the Dial8 agent, 280 in the chat, and names the session', () => {
+  it('keeps up to 2k of the summary for the Native Intelligence agent, 280 in the chat, and names the session', () => {
     const long = 'word '.repeat(600)
     const r = buildTeammateReport({ ...base, status: 'needs_review', summary: long })
     expect(r.summary!.length).toBe(2000)
@@ -59,12 +59,12 @@ describe('local agent teammate reports', () => {
     expect(parseTeammateReport(JSON.parse(JSON.stringify(r)))).toEqual(r)
     const bad = buildTeammateReport({ ...base, status: 'needs_review', localAgent: { sessionId: 'not a uuid', folderLabel: 'x' } })
     expect(bad.local_agent).toBeUndefined()
-    expect(teammateReportText(bad)).toContain('Dial8 finished')
+    expect(teammateReportText(bad)).toContain('Native Intelligence finished')
   })
 
   it('an interruption reads as one, not as a question, and the home turn is not told to answer it', () => {
     const r = buildTeammateReport({ ...base, status: 'needs_input', question: 'your Mac app closed while it was working. Message it to resume.', localAgent: { ...base.localAgent, interrupted: true } })
-    expect(teammateReportText(r)).toBe('Dial8 on your Mac (dial8-desktop) closed while working on **Take a look at this repository** — message it to resume.')
+    expect(teammateReportText(r)).toBe('Native Intelligence on your Mac (dial8-desktop) closed while working on **Take a look at this repository** — message it to resume.')
     const line = teammateReportContextLine(r)
     expect(line).toContain('the Mac app closed while it was working')
     expect(line).not.toContain('message_local_agent')
@@ -74,20 +74,20 @@ describe('local agent teammate reports', () => {
   it('a done turn reports in the chat (no review wording); a review names the branch', () => {
     const done = teammateReportContextLine(buildTeammateReport({ ...base, status: 'done', summary: 'Three issues.' }))
     expect(done).toContain('its report is in the chat')
-    expect(teammateReportText(buildTeammateReport({ ...base, status: 'done', summary: 'Three issues.' }))).toBe('Dial8 on your Mac (dial8-desktop) finished **Take a look at this repository**.\n\nThree issues.')
+    expect(teammateReportText(buildTeammateReport({ ...base, status: 'done', summary: 'Three issues.' }))).toBe('Native Intelligence on your Mac (dial8-desktop) finished **Take a look at this repository**.\n\nThree issues.')
     const review = teammateReportContextLine(buildTeammateReport({ ...base, status: 'needs_review' }))
     expect(review).toContain('wait on a branch')
   })
 
-  it('names the teammate by its Mac, fenced for the model, and words a question to Dial8 as one', () => {
+  it('names the teammate by its Mac, fenced for the model, and words a question to Native Intelligence as one', () => {
     const named = { ...base, localAgent: { ...base.localAgent, deviceName: 'Liam’s MacBook Pro' } }
     expect(teammateReportText(buildTeammateReport({ ...named, status: 'done', summary: 'Done.' }))).toBe(
-      'Dial8 on Liam’s MacBook Pro (dial8-desktop) finished **Take a look at this repository**.\n\nDone.',
+      'Native Intelligence on Liam’s MacBook Pro (dial8-desktop) finished **Take a look at this repository**.\n\nDone.',
     )
     const asked = buildTeammateReport({ ...named, status: 'needs_input', question: 'Which repo holds the API?', localAgent: { ...named.localAgent, toTeammate: true } })
-    expect(teammateReportText(asked)).toBe('Dial8 on Liam’s MacBook Pro (dial8-desktop) asked Dial8 about **Take a look at this repository**.')
+    expect(teammateReportText(asked)).toBe('Native Intelligence on Liam’s MacBook Pro (dial8-desktop) asked Native Intelligence about **Take a look at this repository**.')
     const line = teammateReportContextLine(asked)
-    expect(line).toContain('Dial8 on <teammate-text>Liam’s MacBook Pro</teammate-text>')
+    expect(line).toContain('Native Intelligence on <teammate-text>Liam’s MacBook Pro</teammate-text>')
     expect(line).toContain('asks you, its teammate')
     expect(line).toContain('<teammate-text>Which repo holds the API?</teammate-text>')
     expect(line).toContain('message_local_agent')
@@ -99,11 +99,16 @@ describe('local agent teammate reports', () => {
   })
 
   it('takes the subject from a title in either form: the teammate’s, or the older "Your Mac"', () => {
-    const named = { ...base, title: 'Dial8 on Liam’s MacBook Pro · dial8-desktop: Take a look at this repository', localAgent: { ...base.localAgent, deviceName: 'Liam’s MacBook Pro' } }
+    const named = { ...base, title: 'Native Intelligence on Liam’s MacBook Pro · dial8-desktop: Take a look at this repository', localAgent: { ...base.localAgent, deviceName: 'Liam’s MacBook Pro' } }
     expect(teammateReportText(buildTeammateReport({ ...named, status: 'canceled' }))).toBe(
-      'Dial8 on Liam’s MacBook Pro (dial8-desktop) stopped work on **Take a look at this repository** — it was canceled.',
+      'Native Intelligence on Liam’s MacBook Pro (dial8-desktop) stopped work on **Take a look at this repository** — it was canceled.',
     )
     expect(teammateReportText(buildTeammateReport({ ...base, status: 'canceled' }))).toContain('**Take a look at this repository**')
+    // A title written before the rename (a job that started on the old deploy) still loses its prefix.
+    const old = { ...named, title: 'Dial8 on Liam’s MacBook Pro · dial8-desktop: Take a look at this repository' }
+    expect(teammateReportText(buildTeammateReport({ ...old, status: 'canceled' }))).toBe(
+      'Native Intelligence on Liam’s MacBook Pro (dial8-desktop) stopped work on **Take a look at this repository** — it was canceled.',
+    )
   })
 
   it('labels the kind', () => {

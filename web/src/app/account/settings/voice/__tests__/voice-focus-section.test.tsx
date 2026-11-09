@@ -66,7 +66,7 @@ describe('VoiceFocusSection', () => {
     mount(true)
     expect(container.textContent).toContain('Voice focus')
     expect(container.textContent).toContain(
-      'Only respond to you and people Dial8 recognises by voice. Voices it doesn’t know, like a TV or people nearby, are ignored. Turn it off to hear everyone.',
+      'Only respond to you and people Native Intelligence recognises by voice. Voices it doesn’t know, like a TV or people nearby, are ignored. Turn it off to hear everyone.',
     )
   })
 
@@ -76,7 +76,7 @@ describe('VoiceFocusSection', () => {
     expect(container.querySelector('[data-testid="voice-focus-section"]')?.getAttribute('data-trained')).toBe('false')
     expect(toggle()?.getAttribute('aria-checked')).toBe('false')
     expect(toggle()?.disabled).toBe(true)
-    expect(container.textContent).toContain('Train your voice first so Dial8 knows it’s you.')
+    expect(container.textContent).toContain('Train your voice first so Native Intelligence knows it’s you.')
     act(() => trainButton()!.click())
     expect(onTrain).toHaveBeenCalledTimes(1)
   })

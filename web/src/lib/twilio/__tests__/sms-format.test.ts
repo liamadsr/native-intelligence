@@ -54,7 +54,7 @@ describe('formatSmsReply: never cut, long replies go as several texts', () => {
       expect(text.endsWith('.')).toBe(true)
     }
     expect(out.join(' ')).toBe(long)
-    expect(out.join(' ')).not.toContain('More in Dial8')
+    expect(out.join(' ')).not.toMatch(/More in (Native Intelligence|Dial8)/)
   })
 
   it('prefers a paragraph break, then a line break, over a sentence end', () => {

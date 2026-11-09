@@ -3,7 +3,7 @@ import { sendEmail, BASE_URL } from '@/lib/email'
 
 /**
  * Admin-issued signup invites — the allow-list that lets a named address
- * create a Dial8 account even when the work-email gate (migration 241) would
+ * create a Native Intelligence account even when the work-email gate (migration 241) would
  * refuse its domain. Rows live in `public.signup_invite` (migration 242) and
  * are only ever written through the admin console with a service-role client.
  *
@@ -125,10 +125,10 @@ export function renderSignupInviteEmail(
   const note = invite.note?.trim()
   const skip = invite.skip_payment !== false
   return {
-    subject: "You're invited to Dial8",
+    subject: "You're invited to Native Intelligence",
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-        <h2 style="margin: 0 0 16px;">You're invited to Dial8</h2>
+        <h2 style="margin: 0 0 16px;">You're invited to Native Intelligence</h2>
         <p style="color: #555; line-height: 1.6;">
           Create your account with the link below — it's tied to this email address.${
             skip ? ' No card needed.' : ' You\'ll start a 7-day free trial.'

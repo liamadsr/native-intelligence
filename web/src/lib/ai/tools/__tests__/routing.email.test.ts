@@ -40,7 +40,7 @@ const WS_OTHER = 'ws-2'
 const WS_THIRD = 'ws-3'
 
 const WORKSPACES = [
-  { id: WS_ACTIVE, name: 'Dial8 Marketing' },
+  { id: WS_ACTIVE, name: 'Native Intelligence Marketing' },
   { id: WS_OTHER, name: 'Engineering' },
   { id: WS_THIRD, name: 'Personal' },
 ]

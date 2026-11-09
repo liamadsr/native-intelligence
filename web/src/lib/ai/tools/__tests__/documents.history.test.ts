@@ -54,7 +54,7 @@ describe('list_document_revisions', () => {
     const s = store()
     const r = (await s.tools.list_document_revisions.execute!({ document_id: DOC }, OPTS)) as Result & { revisions: Array<Record<string, unknown>> }
     expect(r.current_revision).toBe(5)
-    expect(r.revisions[0]).toMatchObject({ revision: 5, by: 'Dial8 (for Ana)', summary: 'Replaced section Risks', current: true })
+    expect(r.revisions[0]).toMatchObject({ revision: 5, by: 'Native Intelligence (for Ana)', summary: 'Replaced section Risks', current: true })
     expect(r.revisions[1]).toMatchObject({ revision: 4, by: 'Ana' })
   })
 })

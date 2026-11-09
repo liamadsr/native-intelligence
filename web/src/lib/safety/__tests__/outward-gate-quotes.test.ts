@@ -53,7 +53,7 @@ describe('send_quote and book_quote at the outward gate', () => {
     }
   })
 
-  it("are always the owner's card, with the card's words pinned for the replay (the Dial8 MCP name too)", async () => {
+  it("are always the owner's card, with the card's words pinned for the replay (the Native Intelligence MCP name too)", async () => {
     const hold = await outwardHoldOf({ workspaceId: 'w', userId: 'u-owner', toolName: 'book_quote', input: { quote_id: 'q-1', start: '2026-11-04T09:30' } })
     expect(hold).toMatchObject({ reason: 'customer_quote', card: CARD, context: CONTEXT, refusal: expect.stringContaining("books a customer's job") })
     expect(mocks.hold).toHaveBeenCalledWith({ service: true }, { workspaceId: 'w', userId: 'u-owner', toolName: 'book_quote', input: { quote_id: 'q-1', start: '2026-11-04T09:30' } })

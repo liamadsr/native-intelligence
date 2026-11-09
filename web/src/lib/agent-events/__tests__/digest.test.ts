@@ -17,7 +17,7 @@
  *   • delivery: only undelivered rows are marked, with the day's key and the
  *     home turn;
  *   • the face notice: ONE `agent_digest` from the Assistant per person per
- *     day, its words Dial8's own;
+ *     day, its words Native Intelligence's own;
  *   • the plan step of the home turn: a digest re-reads the rows, keys the turn
  *     `digest:<date>`, and skips with nothing new.
  */
@@ -394,7 +394,7 @@ describe('markDigestDelivered', () => {
 describe('sendDigestNotice', () => {
   const digest = { date: '2026-10-14', timeZone: 'Europe/London', counts: ['1 waiting on you', '2 drafts ready', '1 failed', '3 finished'], lines: [], eventIds: [] }
 
-  it('sends ONE agent_digest notice per day from the Assistant, in Dial8’s own words', async () => {
+  it('sends ONE agent_digest notice per day from the Assistant, in Native Intelligence’s own words', async () => {
     const id = await sendDigestNotice(db as never, { workspaceId: WS, userId: USER, conversationId: CONV, homeTurnId: 'ht-1', digest })
     expect(id).toBe('n-1')
     expect(notify.rows).toHaveLength(1)

@@ -231,7 +231,7 @@ export const ENTITY_REGISTRY = [
     workspaceScoped: { kind: 'column', table: 'email_thread_index' },
     label: { table: 'email_thread_index', columns: 'from_email', render: (r) => str(r.from_email) },
     linkable: true,
-    // Dial8 doesn't learn from mail (2026-10-15, migration 341): a claim may
+    // Native Intelligence doesn't learn from mail (2026-10-15, migration 341): a claim may
     // never cite an email, so no claim_source row, no mirrored cites edge, no
     // `create_claim` source. Kept linkable so a work item's declared resources
     // still round-trip; claim reads drop email neighbours and never resolve

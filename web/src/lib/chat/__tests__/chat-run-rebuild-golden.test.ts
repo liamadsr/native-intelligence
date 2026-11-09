@@ -957,13 +957,13 @@ describe('a teammate chat’s stable prompt (bots v2)', () => {
       const { systemPrompt } = await rebuildChatSpec(teammateClaims(id), {}, { splitTurnContext: true })
       expect(systemPrompt.startsWith(`${modelLine}## Who you are\nYour name is ${name}.`), name).toBe(true)
       // The base prompt's rules are all there, under the teammate's identity.
-      expect(systemPrompt, name).toContain(`You are ${name}, one of the user's AI teammates in Dial8. You know their actions`)
+      expect(systemPrompt, name).toContain(`You are ${name}, one of the user's AI teammates in Native Intelligence. You know their actions`)
       expect(systemPrompt, name).not.toContain('You are Assistant,')
-      expect(systemPrompt, name).not.toContain("the user's always-on agent in Dial8, for them and their team")
+      expect(systemPrompt, name).not.toContain("the user's always-on agent in Native Intelligence, for them and their team")
     }
-    // The main chat still opens with the base prompt and its own identity (Assistant, in Dial8).
+    // The main chat still opens with the base prompt and its own identity (Assistant, in Native Intelligence).
     const main = await rebuildChatSpec(CLAIMS, {}, { splitTurnContext: true })
-    expect(main.systemPrompt.startsWith(`${modelLine}${renderHelperModelRoster(STRONG_DAILY_CAP)}\n\nYou are Assistant, the user's always-on agent in Dial8, for them and their team.`)).toBe(true)
+    expect(main.systemPrompt.startsWith(`${modelLine}${renderHelperModelRoster(STRONG_DAILY_CAP)}\n\nYou are Assistant, the user's always-on agent in Native Intelligence, for them and their team.`)).toBe(true)
   })
 })
 
@@ -1007,7 +1007,7 @@ describe('a conversation focused on an area (one-agent S3)', () => {
         category: 'skill',
         name: 'Mail playbook',
         slug: 'mail-playbook',
-        description: 'How Dial8 does Mail.',
+        description: 'How Native Intelligence does Mail.',
         system_prompt: 'MAIL_PLAYBOOK <expertise> stays inert',
         visibility: 'public',
         created_by: null,

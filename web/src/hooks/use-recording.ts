@@ -1180,7 +1180,7 @@ export function useRecording(options: UseRecordingOptions = {}) {
         // request (the command re-derives it) — treat it like denied.
         const result = await tauriBridge.requestMicPermission().catch(() => 'unknown')
         if (result === 'denied' || result === 'opened-settings') {
-          throw new Error('Microphone access was denied. Enable Dial8 under System Settings → Privacy & Security → Microphone, then start again.')
+          throw new Error('Microphone access was denied. Enable Native Intelligence under System Settings → Privacy & Security → Microphone, then start again.')
         }
       } else if (micPerm === 'denied' || micPerm === 'restricted') {
         // macOS never re-prompts a denied mic (and Windows never prompts at
@@ -1188,8 +1188,8 @@ export function useRecording(options: UseRecordingOptions = {}) {
         // lands in the right place.
         void tauriBridge.requestMicPermission().catch(() => {})
         throw new Error(desktopOS() === 'windows'
-          ? 'Microphone access is turned off for Dial8. Turn on Microphone access and “Let desktop apps access your microphone” under Settings → Privacy & security → Microphone, then start again.'
-          : 'Microphone access is turned off for Dial8. Enable it under System Settings → Privacy & Security → Microphone, then start again.')
+          ? 'Microphone access is turned off for Native Intelligence. Turn on Microphone access and “Let desktop apps access your microphone” under Settings → Privacy & security → Microphone, then start again.'
+          : 'Microphone access is turned off for Native Intelligence. Enable it under System Settings → Privacy & Security → Microphone, then start again.')
       }
 
       // System-audio TCC gate. Unlike the mic, a missing System Audio Recording

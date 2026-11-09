@@ -1,7 +1,7 @@
 import { ResetPasswordForm } from './reset-password-form'
 
 export const metadata = {
-  title: 'Set New Password – Dial8',
+  title: 'Set New Password',
   robots: { index: false, follow: false },
 }
 

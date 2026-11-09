@@ -1,5 +1,5 @@
 /**
- * What an inbound text to the Dial8 number, or to a business's own number,
+ * What an inbound text to the Native Intelligence number, or to a business's own number,
  * does (docs/plans/text-and-calling.md, Phase 1), after the webhook
  * (src/app/api/twilio/sms/route.ts) verified its Twilio signature. In this
  * order:
@@ -8,11 +8,11 @@
  *   2. the ledger row, keyed on the MessageSid: a second delivery of the same
  *      message (Twilio's fallback URL after a timeout) stops here;
  *  2b. THE NUMBER THAT WAS TEXTED (`To`, roadmap B2) decides who the sender
- *      is. On the Dial8 number: the phone's Dial8-line account
+ *      is. On the Native Intelligence number: the phone's NI-line account
  *      (findLinkedPhone), never a business-line one. On a business's own
  *      number: one of that business's own people (businessPerson: a verified
  *      row of the phone whose person is a member there, a business-line row
- *      first, then the Dial8-line one), in the business's workspace; anyone
+ *      first, then the NI-line one), in the business's workspace; anyone
  *      else there is its customer. So one phone can talk to two accounts' (or
  *      two workspaces') agents, each on its own number (migration 464).
  *      Everything below runs on that sender;
@@ -22,8 +22,8 @@
  *      may follow it); START / UNSTOP clear it and say so (YES too, but only
  *      for a sender that is opted out, as Twilio does; any other YES is a
  *      message for the agent); HELP answers. Per number, as the carrier
- *      enforces it (Twilio's opt-out is per sending number): to the Dial8
- *      number, the phone's Dial8-line row; to a business's number, exactly
+ *      enforces it (Twilio's opt-out is per sending number): to the Native Intelligence
+ *      number, the phone's NI-line row; to a business's number, exactly
  *      the row that number resolves the phone to (2b), on either line, the
  *      one whose opt-out the texts from that number read (nothing when it
  *      resolves to no one). Guests and customers (setGuestOptOut) and the
@@ -37,9 +37,9 @@
  *   5. the per-number rate limit: past it, the text is ignored;
  *   5b. a text to a business's own number from someone who isn't one of its
  *      people is its customer's (src/lib/customers/texting.ts); its people go
- *      on below as by the Dial8 number but in the business's workspace. HELP
+ *      on below as by the Native Intelligence number but in the business's workspace. HELP
  *      and START to a business's number name the business. Only a text to the
- *      Dial8 number reaches the branches below as a stranger;
+ *      Native Intelligence number reaches the branches below as a stranger;
  *   6. a number no one linked may be a guest's (guest access,
  *      src/lib/guests/texting.ts): an active guest's text goes to their own
  *      agent, an invite code activates them, a JOIN asks an owner. Otherwise
@@ -57,7 +57,7 @@
  *      as their message and a text turn is requested (`deliverText`). The turn
  *      never runs inside the webhook.
  *
- * Against SMS pumping, a reply to a text Dial8 can't tie to a person (HELP,
+ * Against SMS pumping, a reply to a text Native Intelligence can't tie to a person (HELP,
  * START, an unknown sender, a sign-up code) goes only to a US/Canada number
  * (isNanpNumber) and only while the global hourly cap
  * (SMS_AUTO_REPLY_HOURLY_CAP) holds.
@@ -123,7 +123,7 @@ export interface InboundSms {
   media?: InboundMedia[]
   /** `OptOutType` (STOP, START or HELP): Twilio matched an opt-out keyword and already replied. Absent otherwise. */
   optOutType?: string | null
-  /** `To`: the number that was texted (the Dial8 number, or a business's own). Absent: the Dial8 number. */
+  /** `To`: the number that was texted (the Native Intelligence number, or a business's own). Absent: the Native Intelligence number. */
   to?: string | null
 }
 
@@ -145,7 +145,7 @@ export interface InboundDeps {
   recordInbound(row: { phone: string; kind: SmsInboundKind; sid: string | null }): Promise<'new' | 'duplicate'>
   /** Drop the inbound row again (delivery failed), so a second delivery of the message is not a duplicate. */
   forgetInbound(sid: string): Promise<void>
-  /** The phone's Dial8-line account: who a text to the Dial8 number is from (./store.ts). */
+  /** The phone's NI-line account: who a text to the Native Intelligence number is from (./store.ts). */
   findLinkedPhone(phone: string): Promise<LinkedPhone | null>
   /**
    * Who a text to `workspaceId`'s business number is from when it is one of
@@ -154,7 +154,7 @@ export interface InboundDeps {
    * The same rule as the customer path's isBusinessPerson.
    */
   businessPerson(phone: string, workspaceId: string): Promise<LinkedPhone | null>
-  /** STOP / START to the Dial8 number: the phone's Dial8-line row. */
+  /** STOP / START to the Native Intelligence number: the phone's NI-line row. */
   setPhoneOptOut(phone: string, optedOut: boolean): Promise<void>
   /** STOP / START to a business's number: the row it resolved the phone to (`businessPerson`), on either line. */
   setPhoneRowOptOut(id: string, optedOut: boolean): Promise<void>
@@ -189,7 +189,7 @@ export interface InboundDeps {
   setGuestOptOut?(phone: string, optedOut: boolean): Promise<void>
   /** Save a linked person's texted contact files to their chat uploads (./media.ts). Absent: files are not read. */
   saveTextedFiles?(args: { linked: LinkedPhone; media: InboundMedia[] }): Promise<SavedTextedFile[]>
-  /** The business whose own number `to` is, with its name, or null for the Dial8 number (roadmap B2). Absent: no business numbers. */
+  /** The business whose own number `to` is, with its name, or null for the Native Intelligence number (roadmap B2). Absent: no business numbers. */
   businessLine?(to: string): Promise<{ number: BusinessNumber; name: string } | null>
   /**
    * A text to a business's number from someone who isn't one of its people
@@ -256,7 +256,7 @@ export function unknownNumberReply(origin: string): string {
 }
 
 export function notMemberReply(origin: string): string {
-  return `Your phone is linked to a Dial8 workspace you're no longer in. Link it again in Settings > Phone: ${origin}/account/settings/phone`
+  return `Your phone is linked to a Native Intelligence workspace you're no longer in. Link it again in Settings > Phone: ${origin}/account/settings/phone`
 }
 
 export const NO_TEXT_REPLY = "I can only read words for now, not pictures. Text me what you need."
@@ -461,14 +461,14 @@ export function supabaseInboundDeps(
     answerApproval: (input) => answerApprovalByText(input, supabaseTextApprovalDeps(supabase)),
     guestText: (input, tools) => handleGuestText(input, supabaseGuestTextDeps(supabase, tools)),
     businessLine: async (to) => {
-      // The Dial8 number is never a business's: no read at all for it.
+      // The Native Intelligence number is never a business's: no read at all for it.
       if (normalizeE164(twilioPhoneNumber()) === normalizeE164(to)) return null
       try {
         const number = await findBusinessNumber(supabase, to)
         return number ? { number, name: await businessName(supabase, number.workspaceId) } : null
       } catch (err) {
-        // A failed lookup must never cost a STOP or a person's own text: read as the Dial8 line.
-        console.error('[twilio-sms] ALERT business number lookup failed, taken as the Dial8 line:', err instanceof Error ? err.message : String(err))
+        // A failed lookup must never cost a STOP or a person's own text: read as the Native Intelligence line.
+        console.error('[twilio-sms] ALERT business number lookup failed, taken as the Native Intelligence line:', err instanceof Error ? err.message : String(err))
         return null
       }
     },

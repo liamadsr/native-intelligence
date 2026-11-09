@@ -34,7 +34,7 @@
  * (check_ai_usage_limit(user, true)); then src/lib/chatgpt/plan-proxy.ts calls
  * OpenAI with the person's plan token, and the call is logged at $0 as
  * `chatgpt-plan/<model>`. The Gateway path's usage check stays the one-argument
- * form, so a free user never reaches Dial8's models, whatever the token says.
+ * form, so a free user never reaches Native Intelligence's models, whatever the token says.
  *
  * Abuse bounds: at most MAX_CALLS_IN_FLIGHT calls per person at once (a
  * per-person slot, migration 410's local_agent_relay_acquire, freed when the

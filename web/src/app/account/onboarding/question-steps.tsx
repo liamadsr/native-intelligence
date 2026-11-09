@@ -186,7 +186,7 @@ export function SourceStep({
   return (
     <QuestionShell
       title="How did you hear about us?"
-      subtitle="We'd love to know how you discovered Dial8."
+      subtitle="We'd love to know how you discovered Native Intelligence."
       submitting={submitting}
       onContinue={() =>
         onContinue({ source: source ?? '', sourceDetail: resolvedDetail })
@@ -274,7 +274,7 @@ export function MeetingsStep({
   return (
     <QuestionShell
       title="Where do your meetings happen?"
-      subtitle="Dial8 works everywhere. Pick all that apply and we'll recommend the best setup."
+      subtitle="Native Intelligence works everywhere. Pick all that apply and we'll recommend the best setup."
       submitting={submitting}
       onContinue={() => onContinue({ meetingPlatforms: selected })}
       onBack={onBack}
@@ -305,7 +305,7 @@ const CAPTURE_OPTIONS: {
   {
     value: 'desktop',
     title: 'Record with the desktop app',
-    body: 'Dial8 records right from your computer — nothing joins your call, and it works with every meeting platform.',
+    body: 'Native Intelligence records right from your computer — nothing joins your call, and it works with every meeting platform.',
     icon: Laptop,
     recommended: true,
   },
@@ -330,7 +330,7 @@ export function CaptureStep({
 
   return (
     <QuestionShell
-      title="How should Dial8 capture your meetings?"
+      title="How should Native Intelligence capture your meetings?"
       subtitle="Choose your default. You can always change it later."
       submitting={submitting}
       onContinue={() => onContinue({ capturePreference: choice })}

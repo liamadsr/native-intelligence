@@ -110,7 +110,7 @@ export function DictateAnywhereSection() {
 
         {status.enabled && status.error === 'no_event_tap' && (
           <p className="text-[11px] text-red-700 dark:text-red-400">
-            Dial8 can’t watch the right ⌥ key yet. Allow access above, then turn this off and on.
+            Native Intelligence can’t watch the right ⌥ key yet. Allow access above, then turn this off and on.
           </p>
         )}
         {error && <p className="text-[11px] text-red-700 dark:text-red-400">{error}</p>}

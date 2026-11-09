@@ -74,7 +74,7 @@ const SIGNALS: Array<{ label: string; re: RegExp }> = [
   { label: 'third-party / external system', re: /\bthird[- ]party\b|\bexternal (system|service|provider|tracker|account)\b/i },
   // An enum value "public" in the input schema (JSON-quoted, so prose like "the
   // public web" does not count): the tool can make something visible beyond the
-  // workspace — Discover is every Dial8 tenant.
+  // workspace — Discover is every Native Intelligence tenant.
   { label: 'public visibility', re: /"public"/ },
   // An input FIELD that sets another automation's instructions or tool surface
   // (a skill's prompt / agent_config): editing what an existing flow executes.

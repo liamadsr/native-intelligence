@@ -226,10 +226,10 @@ describe('a plain yes or no', () => {
   })
 
   it('several at once: how many ran, failed or could not be answered', () => {
-    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: true, success: true }, { ok: true, decision: 'approve', ran: true, success: false }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Dial8.")
-    expect(plainSettleLine([{ ok: true, decision: 'decline' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe("Declined 1. Nothing ran. 1 couldn't be answered here: open Dial8.")
-    expect(plainSettleLine([{ ok: false, code: 'EXPIRED', error: 'x' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe('None of the 2 could be answered here: open Dial8.')
-    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: false }, { ok: true, decision: 'approve', ran: true, success: true }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Dial8.")
+    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: true, success: true }, { ok: true, decision: 'approve', ran: true, success: false }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Native Intelligence.")
+    expect(plainSettleLine([{ ok: true, decision: 'decline' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe("Declined 1. Nothing ran. 1 couldn't be answered here: open Native Intelligence.")
+    expect(plainSettleLine([{ ok: false, code: 'EXPIRED', error: 'x' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe('None of the 2 could be answered here: open Native Intelligence.')
+    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: false }, { ok: true, decision: 'approve', ran: true, success: true }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Native Intelligence.")
   })
 })
 

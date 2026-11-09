@@ -33,7 +33,7 @@
 //!    `gh auth status --hostname <host>` succeeds (both run in an empty
 //!    folder of their own, so nothing in a checkout steers gh); otherwise
 //!    the server's `POST /api/local-agent/sessions/<id>/pull-request` with
-//!    the session token, and the server opens it with the person's Dial8
+//!    the session token, and the server opens it with the person's Native Intelligence
 //!    GitHub sign-in. The remote URL sent there never carries a
 //!    `user:password@`, and neither the token nor that URL is ever logged
 //!    (`Debug` redacts both).
@@ -640,7 +640,7 @@ pub async fn push_remote(git: &Git, repo: &Path) -> Result<String, String> {
 /// The remote the branch goes to, checked before the person is asked.
 pub async fn target(git: &Git, repo: &Path, branch: &str) -> Result<Target, String> {
     if !is_job_branch(branch) {
-        return Err(format!("{branch} isn't a branch Dial8 made for this job"));
+        return Err(format!("{branch} isn't a branch Native Intelligence made for this job"));
     }
     git.run_with(
         repo,
@@ -850,8 +850,8 @@ async fn open_pr(
     .await
     .map(|url| (url, Via::Server));
     ran.push(match &result {
-        Ok((url, _)) => format!("POST the pull request to Dial8 ({remote_url} {branch}): {url}"),
-        Err(e) => format!("POST the pull request to Dial8 ({remote_url} {branch}): {e}"),
+        Ok((url, _)) => format!("POST the pull request to Native Intelligence ({remote_url} {branch}): {url}"),
+        Err(e) => format!("POST the pull request to Native Intelligence ({remote_url} {branch}): {e}"),
     });
     result
 }
@@ -962,24 +962,24 @@ async fn gh_pr_create(
     Err(format!("gh pr create failed: {why}"))
 }
 
-/// The server fallback: it opens the pull request with the person's Dial8
+/// The server fallback: it opens the pull request with the person's Native Intelligence
 /// GitHub sign-in and answers `{ url }`.
 async fn server_pr(origin: &str, session_id: &str, token: Option<&str>, payload: &Value) -> Result<String, String> {
-    let token = token.ok_or("gh isn't signed in, and this job has no Dial8 session to open the pull request with")?;
+    let token = token.ok_or("gh isn't signed in, and this job has no Native Intelligence session to open the pull request with")?;
     if !super::is_safe_id(session_id) {
-        return Err("this job's id isn't a Dial8 session".into());
+        return Err("this job's id isn't a Native Intelligence session".into());
     }
     let client = reqwest::Client::builder()
         .timeout(SERVER_TIMEOUT)
         .build()
-        .map_err(|e| format!("can't reach Dial8: {e}"))?;
+        .map_err(|e| format!("can't reach Native Intelligence: {e}"))?;
     let resp = client
         .post(pull_request_url(origin, session_id))
         .bearer_auth(token)
         .json(payload)
         .send()
         .await
-        .map_err(|e| format!("can't reach Dial8: {e}"))?;
+        .map_err(|e| format!("can't reach Native Intelligence: {e}"))?;
     let status = resp.status();
     let body: Value = resp.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
@@ -988,13 +988,13 @@ async fn server_pr(origin: &str, session_id: &str, token: Option<&str>, payload:
             .and_then(Value::as_str)
             .map(|e| truncate(e, 600))
             .unwrap_or_else(|| format!("HTTP {status}"));
-        return Err(format!("Dial8 couldn't open the pull request: {why}"));
+        return Err(format!("Native Intelligence couldn't open the pull request: {why}"));
     }
     body.get("url")
         .and_then(Value::as_str)
         .filter(|u| u.starts_with("https://") && u.len() <= MAX_URL && !u.chars().any(char::is_whitespace))
         .map(str::to_string)
-        .ok_or_else(|| "Dial8 answered without a pull request URL".to_string())
+        .ok_or_else(|| "Native Intelligence answered without a pull request URL".to_string())
 }
 
 // The local agent runs on macOS only so far (its jobs, shells and

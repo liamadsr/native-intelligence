@@ -115,7 +115,7 @@ export interface ChatRunTokenClaims {
    * while its ownership row exists (surface-run-guard.ts).
    * 'slack' | 'sms' | 'call' | 'team_chat' → a message the person sent from an outside channel (a
    * Slack DM or channel thread, docs/plans/slack-connect.md; a text to the
-   * Dial8 number, or what they said on a call to it, docs/plans/text-and-calling.md): ONLY together with `server:
+   * Native Intelligence number, or what they said on a call to it, docs/plans/text-and-calling.md): ONLY together with `server:
    * 'channel_turn'`, and that principal always carries an outside channel's
    * surface (see `server`). The spec adds the turn-context line naming the
    * channel, and the surface's exclusions take everything that needs a
@@ -141,7 +141,7 @@ export interface ChatRunTokenClaims {
   teammateId?: string
   /**
    * Where a token naming a teammate talks to it. Absent: the bot's own thread
-   * (the bubble, its page's chat, Open in Dial8), as every teammate token was
+   * (the bubble, its page's chat, Open in Native Intelligence), as every teammate token was
    * before. 'chat': a main-chat conversation with the bot as its agent (bots
    * v4 Phase C, a conversation stamped with the bot in
    * chat_conversations.agent_teammate_id, migration 307). One chat (Slice 2)
@@ -260,7 +260,7 @@ export interface ChatRunTokenClaims {
    * docs/plans/chatgpt-free-tier.md): the browser mint's usage check said so.
    * Each turn's spec still decides from the live usage row; this claim is the
    * chat-agent's fallback when the spec can't be read, so a spec outage falls
-   * back to the plan, never to a Gateway model Dial8 pays for
+   * back to the plan, never to a Gateway model Native Intelligence pays for
    * (agents/chat-agent/lib/chatgpt-plan-model.ts).
    */
   chatgptPlan?: true
@@ -273,7 +273,7 @@ export type ChatRunSurface = 'device_ask' | ChannelSurface
 
 /**
  * The outside channels a `channel_turn` speaks through (decision 14). 'dial8'
- * is another Dial8 user's agent over an agent link (migration 435): a guest
+ * is another Native Intelligence user's agent over an agent link (migration 435): a guest
  * turn only (it always carries `guestId`), never the owner speaking.
  */
 export type ChannelSurface = 'slack' | 'sms' | 'dial8' | 'call' | 'team_chat'

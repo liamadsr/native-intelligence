@@ -2,7 +2,7 @@
  * Connecting an account from a text (roadmap track A2): the agent texts a
  * single-use link (./one-time.ts, purpose 'oauth_connect') bound to the
  * account whose phone it goes to. Tapping it opens /l/<token>, whose button
- * starts the provider's own sign-in with no Dial8 session:
+ * starts the provider's own sign-in with no Native Intelligence session:
  *
  *   mint     {@link mintConnectLink}: a link for one provider; its payload is
  *            the capabilities to connect, in order (Google: email, then
@@ -25,13 +25,13 @@
  * Never a password by text: the link only ever opens the provider's page.
  *
  * The one risk a link carries is being forwarded: whoever taps it connects
- * THEIR account to the link's Dial8 account (the web flow's binding can't
+ * THEIR account to the link's Native Intelligence account (the web flow's binding can't
  * help: the browser that taps the link is, by design, the one that starts the
  * sign-in). So: a link is only ever texted to the account's verified number
  * by the server (the welcome, and connect_link on the person's own text
  * turn; the model, a web chat and MCP never see one), it works once, for 15
  * minutes, the page names the masked number it was sent to before the
- * button, and the connected address gets an email saying which Dial8
+ * button, and the connected address gets an email saying which Native Intelligence
  * account it was connected to and how to remove the access.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -77,7 +77,7 @@ export const TEXT_CONNECT_DEFAULT: Record<TextConnectProvider, readonly OAuthCap
 }
 
 const PROVIDER_LABEL: Record<TextConnectProvider, string> = { google: 'Google', microsoft: 'Microsoft', github: 'GitHub', hubspot: 'HubSpot', brevo: 'Brevo' }
-/** Where the owner of a connected account removes Dial8's access, on the provider's own site. */
+/** Where the owner of a connected account removes Native Intelligence's access, on the provider's own site. */
 const REVOKE_URL: Record<TextConnectProvider, string> = {
   google: 'https://myaccount.google.com/permissions',
   microsoft: 'https://account.live.com/consent/Manage',
@@ -182,7 +182,7 @@ export function nextConnectLeg(state: OAuthStateData, provider: OAuthProvider, c
 export function connectLinkText(provider: TextConnectProvider, url: string, capabilities?: readonly OAuthCapability[]): string {
   const name = PROVIDER_LABEL[provider]
   const what = capabilities?.length === 1 && capabilities[0] === 'contacts' ? `${name} Contacts` : `${name} account`
-  const reads = (capabilities ?? TEXT_CONNECT_DEFAULT[provider]).every((c) => importsOnConnect(provider, c)) ? ' I only read them, to bring your contacts into Dial8.' : ''
+  const reads = (capabilities ?? TEXT_CONNECT_DEFAULT[provider]).every((c) => importsOnConnect(provider, c)) ? ' I only read them, to bring your contacts into Native Intelligence.' : ''
   return `Connect your ${what}: ${url} It opens ${name}'s own sign-in and works once, for 15 minutes.${reads} I'll never ask for a password by text.`
 }
 
@@ -213,7 +213,7 @@ export function textConnectConfirmation(args: {
   if (args.failed) return `${name} ${what ? `${what} ` : ''}didn't connect. Text me "connect ${name}" anytime for a new link.`
   // A contacts source: its first import has started (roadmap track G).
   const importing = args.capabilities.some((c) => importsOnConnect(args.provider, c))
-    ? " I'm bringing your contacts into Dial8 now (read only, nothing is sent) and will text you a summary when it's done."
+    ? " I'm bringing your contacts into Native Intelligence now (read only, nothing is sent) and will text you a summary when it's done."
     : ''
   if (args.first === false) return `${name} ${what ? `${what} ` : ''}is connected too.${importing}`
   const account = args.email && !args.email.endsWith('@unknown') ? ` (${args.email})` : ''
@@ -283,7 +283,7 @@ export async function confirmTextConnect(
       await (deps.email ?? sendConnectedNotice)({ to: args.email, provider: args.provider, maskedPhone: phone ? maskPhone(phone.phone) : null }).catch(() => false)
     }
     // Linked here, or one of this workspace's own people, texted from its business number (src/lib/sms/workspace-line.ts);
-    // a business-line phone only ever from a business number ('no_line': none to send from). Else their agent's own number, else Dial8's.
+    // a business-line phone only ever from a business number ('no_line': none to send from). Else their agent's own number, else Native Intelligence's.
     if (!phone || phone.optedOut || !(await phoneServesWorkspace(supabase, phone, args.workspaceId))) return { texted: false }
     const from = await sendingLine(supabase, phone, args.workspaceId)
     if (from === 'no_line') return { texted: false }
@@ -302,17 +302,17 @@ export async function confirmTextConnect(
 /** The notice's words. Pure. */
 export function connectedNoticeEmail(args: { to: string; provider: TextConnectProvider; maskedPhone: string | null }): { subject: string; text: string } {
   const name = PROVIDER_LABEL[args.provider]
-  const whose = args.maskedPhone ? `the Dial8 account texting ${args.maskedPhone}` : 'a Dial8 account'
+  const whose = args.maskedPhone ? `the Native Intelligence account texting ${args.maskedPhone}` : 'a Native Intelligence account'
   return {
-    subject: `Your ${name} account was connected to Dial8`,
+    subject: `Your ${name} account was connected to Native Intelligence`,
     text:
-      `Your ${name} account ${args.to} was just connected to ${whose}, from a link Dial8 texted to that number. If that was you, there's nothing to do. ` +
-      `If it wasn't, remove Dial8's access here: ${REVOKE_URL[args.provider]} and reply to this email so we can look into it.`,
+      `Your ${name} account ${args.to} was just connected to ${whose}, from a link Native Intelligence texted to that number. If that was you, there's nothing to do. ` +
+      `If it wasn't, remove Native Intelligence's access here: ${REVOKE_URL[args.provider]} and reply to this email so we can look into it.`,
   }
 }
 
 /**
- * Email the connected address that it was connected, and to which Dial8
+ * Email the connected address that it was connected, and to which Native Intelligence
  * account: the one defence a person who tapped a forwarded link has. Best
  * effort: returns whether Resend took it.
  */

@@ -48,7 +48,7 @@ export function transportSuffix(device: Pick<InputDevice, 'name' | 'transport'>)
 // ─── Bluetooth ─────────────────────────────────────────────────
 
 export const BLUETOOTH_HINT =
-  'Using this mic switches your AirPods or Bluetooth headphones to call quality while Dial8 is listening.'
+  'Using this mic switches your AirPods or Bluetooth headphones to call quality while Native Intelligence is listening.'
 
 /** Set once the one-time Bluetooth note has shown (a Bluetooth mic first
  *  moved to #1). */

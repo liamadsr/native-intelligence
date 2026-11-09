@@ -166,7 +166,7 @@ export default function About() {
       <div>
         <Navbar />
         <PageHeader
-          eyebrow="About Dial8"
+          eyebrow="About Native Intelligence"
           title="Your information should work for you, not the other way around."
           description="We're building the future of personal information management—an agentic workspace where everything you do gets captured, organized, and made accessible without the overhead."
         />
@@ -182,7 +182,7 @@ export default function About() {
               </p>
               <p>
                 Think back a month. What was that conversation you had with Nick about his forecasting
-                mechanism? With Dial8, you just ask&mdash;and it pulls it right up. Every meeting, every
+                mechanism? With Native Intelligence, you just ask&mdash;and it pulls it right up. Every meeting, every
                 decision, every commitment. Accessible through text or voice, like a natural conversation
                 with your own memory.
               </p>

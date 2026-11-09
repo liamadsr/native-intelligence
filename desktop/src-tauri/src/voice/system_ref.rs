@@ -2,13 +2,13 @@
 //!
 //! On laptop speakers a call's audio (Zoom, Meet, a video) plays out loud,
 //! the mic hears it, and dictation or voice mode used to transcribe it as the
-//! user: the voice canceller's reference was only Dial8's own read-aloud
+//! user: the voice canceller's reference was only Native Intelligence's own read-aloud
 //! (conversation, interactive) or nothing at all (dictation). Meeting
 //! captures already solve this with the system-audio tap
 //! (`audio::capture_aec`); a voice session now borrows the same tap:
 //!
 //! ```text
-//! SystemCapture (reference only: Core Audio process tap minus Dial8's PID,
+//! SystemCapture (reference only: Core Audio process tap minus Native Intelligence's PID,
 //!   Swift sidecar, 16 kHz f32 over a pipe) ──sample callback──▶ TapSlot ══▶ DSP thread
 //!                                                                 (summed with read-aloud
 //!                                                                  in conversation / interactive,
@@ -148,7 +148,7 @@ pub fn hold_ms(system_on: bool) -> u64 {
 }
 
 /// Sum `src` into `dst` (the read-aloud frame gets the system audio played
-/// at about the same time: the tap excludes Dial8's own PID, so nothing is
+/// at about the same time: the tap excludes Native Intelligence's own PID, so nothing is
 /// counted twice).
 pub fn mix_into<const N: usize>(dst: &mut [f32; N], src: &[f32; N]) {
     for (d, s) in dst.iter_mut().zip(src) {

@@ -1,7 +1,7 @@
 /**
  * The morning tidy (GEN-1166's optional loop; migration 446). A few minutes
  * after a person's morning digest (src/lib/inngest/email-auto-archive.ts,
- * started by the digest cron), Dial8 archives the day's receipts and
+ * started by the digest cron), Native Intelligence archives the day's receipts and
  * notifications from their inbox, says so in ONE message in the home thread,
  * and puts the batch back on Undo. No model: which threads qualify is the
  * index's own classification (src/lib/email/automated-sender.ts), so a

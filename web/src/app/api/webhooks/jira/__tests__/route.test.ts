@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /**
- * Tests for POST /api/webhooks/jira — the Jira→Dial8 receiver.
+ * Tests for POST /api/webhooks/jira — the Jira→Native Intelligence receiver.
  *
  * This endpoint is UNAUTHENTICATED and that is a platform fact, not an
  * oversight: dynamic (REST-registered) webhooks cannot carry a shared secret at
@@ -284,7 +284,7 @@ describe('jira receiver — only ids that already have a link are enqueued', () 
    * Reporting the POST-filter count turned this unauthenticated, always-200
    * endpoint into a free cross-tenant oracle: POST one id at a time, read
    * `{issues:1}` vs `{issues:0}`, and enumerate exactly which Jira issue ids
-   * have a Dial8 link ANYWHERE in the fleet — which is precisely the target list
+   * have a Native Intelligence link ANYWHERE in the fleet — which is precisely the target list
    * for the half of the amplification the filter does not close (a genuinely
    * linked id still fans out to every matching link in every workspace).
    *

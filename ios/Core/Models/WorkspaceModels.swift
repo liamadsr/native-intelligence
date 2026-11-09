@@ -11,7 +11,7 @@
 //  workspace / default team / default workflow state so the rest of the data
 //  layer can supply those IDs on insert.
 //
-//  Field names/CodingKeys mirror the live schema (Dial8 DEV/PRD) exactly.
+//  Field names/CodingKeys mirror the live schema (Native Intelligence DEV/PRD) exactly.
 //
 
 import Foundation

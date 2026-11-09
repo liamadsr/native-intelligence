@@ -107,7 +107,7 @@ export function SkyCanvas({ surfaceVar, wash, themed = false, alwaysFade = false
       onFallback: (scene, surface) => setFallback(scene ? { scene, surface } : null),
     })
     controllerRef.current = controller
-    // Another app in front no longer freezes the sky (Liam, 10-10: Dial8 open
+    // Another app in front no longer freezes the sky (Liam, 10-10: Native Intelligence open
     // beside the app he types in, and the clouds never moved): it drifts on
     // at a lower frame rate. A hidden or covered window stops it (the page
     // is hidden then), as do activity in the page and the run's cap.

@@ -1,5 +1,5 @@
 /**
- * Migration 317 (S2, what Dial8 has learned) and the app agree: the area
+ * Migration 317 (S2, what Native Intelligence has learned) and the app agree: the area
  * CHECKs are the registry's areas, the scopes, statuses and sources are the
  * app's, and who may do what is held in the database. The SQL was exercised
  * on DEV inside one rolled-back block (2026-10-08), as a member, the owner

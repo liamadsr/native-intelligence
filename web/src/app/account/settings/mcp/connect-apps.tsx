@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Settings › Dial8 MCP's "Pick your app": the server URL to copy, a tile per
+ * Settings › Native Intelligence MCP's "Pick your app": the server URL to copy, a tile per
  * AI app, and the picked app's own way in: its one-click install link, the
  * command to paste, or the steps in its settings. What each app takes lives
  * in lib/mcp/connect-clients.ts; this only draws it.
@@ -80,7 +80,7 @@ export function ConnectApps() {
           <CopyButton text={server.url} label="Copy URL" what="the server URL" />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Every app signs in with your Dial8 account. No API key to make or paste.
+          Every app signs in with your Native Intelligence account. No API key to make or paste.
         </p>
       </section>
 
@@ -166,7 +166,7 @@ function AppPanel({ client, server }: { client: ConnectClient; server: ConnectSe
     >
       <div className="flex items-center gap-3">
         <ConnectAppIcon id={client.id} />
-        <h3 className="text-sm font-semibold">Add Dial8 to {client.name}</h3>
+        <h3 className="text-sm font-semibold">Add Native Intelligence to {client.name}</h3>
       </div>
 
       {local && (
@@ -186,7 +186,7 @@ function AppPanel({ client, server }: { client: ConnectClient; server: ConnectSe
             </a>
           </Button>
           <p className="mt-2 text-xs text-muted-foreground">
-            Opens {client.name}, which asks you to confirm. Then sign in with your Dial8 account when it asks.
+            Opens {client.name}, which asks you to confirm. Then sign in with your Native Intelligence account when it asks.
           </p>
         </div>
       )}

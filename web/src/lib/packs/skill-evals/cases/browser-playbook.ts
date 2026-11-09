@@ -2,7 +2,7 @@ import type { SkillEvalCase } from '../types'
 
 /**
  * The Browser core (rewritten in 327, the cloud browser in 425): the last
- * rung of the ladder, a bounded goal, never for Dial8's own data.
+ * rung of the ladder, a bounded goal, never for Native Intelligence's own data.
  */
 export const cases: SkillEvalCase[] = [
   {
@@ -22,14 +22,14 @@ export const cases: SkillEvalCase[] = [
     loads: [],
     tools: ['list_actions'],
     avoid: ['run_browser_task', 'open_browser'],
-    why: "Dial8's own data: never the browser.",
+    why: "Native Intelligence's own data: never the browser.",
   },
   {
     request: 'open the Atlas spec doc in the browser and summarize it',
     loads: [],
     tools: ['search_tools', 'list_documents', 'get_document'],
     avoid: ['run_browser_task'],
-    why: 'A Dial8 document is read with its tools, not by URL.',
+    why: 'A Native Intelligence document is read with its tools, not by URL.',
   },
   {
     request: 'what does the page I have open in the browser say about pricing?',

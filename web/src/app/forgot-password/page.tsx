@@ -1,7 +1,7 @@
 import { ForgotPasswordForm } from './forgot-password-form'
 
 export const metadata = {
-  title: 'Forgot Password – Dial8',
+  title: 'Forgot Password',
   robots: { index: false, follow: false },
 }
 

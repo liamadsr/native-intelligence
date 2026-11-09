@@ -19,7 +19,7 @@ import { useEffect } from 'react'
 import { hasDownload } from '@/lib/app-download'
 
 const sections: Section[] = [
-  { id: 'hero', label: 'Dial8' },
+  { id: 'hero', label: 'Native Intelligence' },
   { id: 'problem', label: 'The Problem' },
   { id: 'how-it-works', label: 'How It Works' },
   { id: 'live-agents', label: 'Live Agents' },
@@ -154,7 +154,7 @@ function Hero() {
                 </span>
                 <h1 className="font-display text-4xl/[1.08] font-medium tracking-tight text-foreground sm:text-5xl/[1.05] md:text-6xl/[1.02]">
                   Meetings create work.{' '}
-                  <span className="text-muted-foreground">Dial8 gets it done.</span>
+                  <span className="text-muted-foreground">Native Intelligence gets it done.</span>
                 </h1>
               </motion.div>
 
@@ -165,7 +165,7 @@ function Hero() {
                 className="mt-5 sm:mt-8"
               >
                 <p className="max-w-lg text-sm/6 text-muted-foreground sm:text-lg/7">
-                  Dial8 records your meetings, turns decisions into tracked action items with
+                  Native Intelligence records your meetings, turns decisions into tracked action items with
                   full context &mdash; and hands them to AI agents that write the code, draft the
                   docs, and open the PRs.
                 </p>
@@ -289,7 +289,7 @@ function ProblemSection() {
           className="mt-16"
         >
           <p className="text-xl font-medium text-foreground">
-            Dial8 closes the loop.
+            Native Intelligence closes the loop.
           </p>
           <p className="mt-3 text-lg text-muted-foreground">
             Meetings become tracked actions. Actions carry their context. Agents execute them.
@@ -320,12 +320,12 @@ function HowItWorksSection() {
       >
         <img
           src="/screenshots/dial8-conversation-shipped-work-light.png"
-          alt="From conversation to shipped work: meetings flow into Dial8, become owned and prioritized action items linked to their context, and agents pick them up and finish them."
+          alt="From conversation to shipped work: meetings flow into Native Intelligence, become owned and prioritized action items linked to their context, and agents pick them up and finish them."
           className="w-full rounded-2xl dark:hidden"
         />
         <img
           src="/screenshots/dial8-conversation-shipped-work-dark.png"
-          alt="From conversation to shipped work: meetings flow into Dial8, become owned and prioritized action items linked to their context, and agents pick them up and finish them."
+          alt="From conversation to shipped work: meetings flow into Native Intelligence, become owned and prioritized action items linked to their context, and agents pick them up and finish them."
           className="hidden w-full rounded-2xl dark:block"
         />
       </motion.div>
@@ -345,7 +345,7 @@ function LiveAgentsSection() {
             description={
               <>
                 <p>
-                  Other tools transcribe and summarize. Dial8 listens for the work: live agents
+                  Other tools transcribe and summarize. Native Intelligence listens for the work: live agents
                   act during the conversation &mdash; a PM agent hears a status update and moves
                   the project forward before the call ends.
                 </p>
@@ -428,7 +428,7 @@ function ExecutionSection() {
             description={
               <>
                 <p>
-                  Every action item in Dial8 carries the full context of why it exists — the
+                  Every action item in Native Intelligence carries the full context of why it exists — the
                   meeting it came from, the decision behind it, and who&rsquo;s responsible.
                   When it&rsquo;s time to execute, press &ldquo;Work on this&rdquo; and an AI agent
                   picks it up with complete understanding.
@@ -464,7 +464,7 @@ function IntegrationsSection() {
         badge="Integrations & MCP"
         title="Your tools, fully connected."
         align="center"
-        description="Connect your existing tools or bring your own agents. Dial8 integrates with the services you already use — and exposes its full workspace via the Model Context Protocol."
+        description="Connect your existing tools or bring your own agents. Native Intelligence integrates with the services you already use — and exposes its full workspace via the Model Context Protocol."
       />
       <motion.div
         initial={{ opacity: 0, y: 30 }}
@@ -497,7 +497,7 @@ function CTASection() {
           <p className="mt-6 text-xl text-muted-foreground max-w-2xl mx-auto">
             Your meetings already contain the context. Your projects should update themselves.
             Your action items should come with everything an agent needs to execute.
-            That&rsquo;s Dial8.
+            That&rsquo;s Native Intelligence.
           </p>
           <div className="mt-10 flex flex-col items-center gap-6">
             {hasDownload() && (

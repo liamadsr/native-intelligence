@@ -152,7 +152,7 @@ const MODEL_RELAY_PATH = '/api/local-agent/model'
 const FALLBACK_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
 const SAFE_CONFIG = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'commit.gpgSign=false']
 const SUBJECT_MAX = 72
-const DEFAULT_SUBJECT = "Changes from Dial8's local agent"
+const DEFAULT_SUBJECT = "Changes from Native Intelligence's local agent"
 const LOCK_FATAL = 'job already running'
 const LOCK_ERROR =
   'this job is still running in another launcher (left over from an earlier run of the app); wait for it to finish, or end that process, then resume again'
@@ -377,7 +377,7 @@ class Git {
     const subject = commitSubject(summary)
     const configured = (p: Promise<string>) => p.then((s) => s.trim().length > 0, () => false)
     const hasIdentity = (await configured(this.run(worktree, ['config', 'user.name']))) && (await configured(this.run(worktree, ['config', 'user.email'])))
-    const args = hasIdentity ? [] : ['-c', 'user.name=Dial8 local agent', '-c', 'user.email=local-agent@dial8.ai']
+    const args = hasIdentity ? [] : ['-c', 'user.name=Native Intelligence local agent', '-c', 'user.email=local-agent@dial8.ai']
     await this.run(worktree, [...args, 'commit', '--quiet', '--allow-empty', '-m', subject])
     const commit = (await this.run(worktree, ['rev-parse', 'HEAD'])).trim()
     const branch = (await this.run(worktree, ['symbolic-ref', '--short', 'HEAD'])).trim()
@@ -683,12 +683,12 @@ export class FakeRust {
     this.preparing.delete(jobId)
     if (prepError) return { ok: false, error: prepError }
     if (stopped) return { ok: false, error: 'stopped before it started' }
-    if (this.closing) return { ok: false, error: 'Dial8 is quitting' }
+    if (this.closing) return { ok: false, error: 'Native Intelligence is quitting' }
     let launchFolder = folder
     let edit: EditCtx | null = null
     if (jobMode === 'edit' && prepared) {
       launchFolder = realpathSync(prepared.worktree.dir)
-      if (!launchFolder.startsWith(`${realpathSync(this.cfg.worktreesRoot)}/`)) return { ok: false, error: `${launchFolder} is not one of Dial8's worktrees` }
+      if (!launchFolder.startsWith(`${realpathSync(this.cfg.worktreesRoot)}/`)) return { ok: false, error: `${launchFolder} is not one of Native Intelligence's worktrees` }
     }
     const first =
       existing?.sessionId !== undefined
@@ -868,7 +868,7 @@ export class FakeRust {
   // ── Internals ──
 
   private canLaunch(): string | null {
-    if (this.closing) return 'Dial8 is quitting'
+    if (this.closing) return 'Native Intelligence is quitting'
     return null
   }
 

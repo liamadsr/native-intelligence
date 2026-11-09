@@ -3,7 +3,7 @@
  *
  * A finished utterance is compared, one to three words at a time, with the
  * vocabulary by how it SOUNDS: each term and each span becomes a consonant
- * skeleton of how it is said ("Dial8" → "dial eight" → `dlAt`, "Superbase" →
+ * skeleton of how it is said ("Route8" → "route eight" → `rtAt`, "Superbase" →
  * `sprbs` vs Supabase `spbs`). A strong match is rewritten to the term's
  * spelling; a span whose letters equal a term's is respelled ("post hog" →
  * PostHog). The speech engine is never touched, so this works the same on

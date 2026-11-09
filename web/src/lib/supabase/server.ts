@@ -142,7 +142,7 @@ export async function createClient() {
   // session. Forward that header to PostgREST so RLS evaluates against the
   // token's user. Browser requests have no such header and are unaffected.
   //
-  // Only forward Supabase JWTs (`eyJ…`). A Dial8 device token (`d8d_…`) is an
+  // Only forward Supabase JWTs (`eyJ…`). A Native Intelligence device token (`d8d_…`) is an
   // opaque secret, NOT a JWT — forwarding it makes Supabase auth reject it as
   // malformed (and `auth.getUser()` throws). Device tokens are resolved
   // separately in resolveUser()/authenticateUser(); here we just leave the

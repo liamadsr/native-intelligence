@@ -43,7 +43,7 @@ export default async function AdminLayout({
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4 text-foreground">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 h-4" />
-          <span className="text-sm font-medium">Dial8 Admin</span>
+          <span className="text-sm font-medium">Native Intelligence Admin</span>
         </header>
         <div className="mx-auto w-full max-w-6xl px-6 py-8">
           {children}

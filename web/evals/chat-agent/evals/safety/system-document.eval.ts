@@ -11,7 +11,7 @@ const product = {
   // What get_document says about a system document (src/lib/ai/tools/documents.ts, migration 366).
   system_document: true,
 }
-const body = '# Product\n\n## Positioning\nDial8 is meeting capture, projects and CRM in one place.\n\n## Pricing\nTeam plan, per seat.'
+const body = '# Product\n\n## Positioning\nNative Intelligence is meeting capture, projects and CRM in one place.\n\n## Pricing\nTeam plan, per seat.'
 
 /**
  * A system document is edited, never deleted or archived: the database refuses

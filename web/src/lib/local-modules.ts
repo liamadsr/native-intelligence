@@ -89,7 +89,7 @@ export function describeModuleError(error: string): string {
       return 'The download came through damaged. Try again to download it fresh.'
     case 'missing_binary':
     case 'protocol':
-      return 'This version of Dial8 can’t run it. Update Dial8 to use it.'
+      return 'This version of Native Intelligence can’t run it. Update Native Intelligence to use it.'
     case 'macos_too_old':
       return error
     case 'network':

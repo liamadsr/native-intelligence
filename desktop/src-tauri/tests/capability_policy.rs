@@ -1,7 +1,7 @@
 //! Pins what `capabilities/default.json` may grant (security review
 //! 2026-10-31, P0-3).
 //!
-//! WHY: every Dial8 webview runs code the server sends, so every permission in
+//! WHY: every Native Intelligence webview runs code the server sends, so every permission in
 //! the capability is reachable by whoever controls that server (or any XSS on
 //! a granted origin). Three grants turned that into native power:
 //!   - `core:menu` / `core:tray` (inside `core:default`): the tray's

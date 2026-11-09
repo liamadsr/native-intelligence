@@ -63,7 +63,7 @@ describe('blocked sites', () => {
   })
 })
 
-describe("Dial8's own app is off-limits to the agent (A5)", () => {
+describe("Native Intelligence's own app is off-limits to the agent (A5)", () => {
   it('blocks dial8.ai and its subdomains, local dev on any port, and the configured app origin', async () => {
     const { appOwnSites, blockedSiteForUrl } = await import('../blocked-sites')
     const sites = appOwnSites('https://app.example-staging.com')

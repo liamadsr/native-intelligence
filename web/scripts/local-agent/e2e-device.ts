@@ -12,7 +12,7 @@
  *        ▼
  *   fake Rust, its own process (e2e/fake-rust.ts) ──spawn──▶ launcher.ts (real) ──▶ eve server (real build)
  *
- * The agent is the Mac body (the Dial8 agent built for the Mac, contract C2,
+ * The agent is the Mac body (the Native Intelligence agent built for the Mac, contract C2,
  * scripts/local-agent/build.sh).
  *
  * The model: the dev path by default (LOCAL_AGENT_DEV_ENV_FILE; the launcher
@@ -30,7 +30,7 @@
  *      calls, and every event uploaded under the real runId.
  *   A2 a person's steer while the turn runs: `[From Liam] …`, same turn.
  *   A3 the agent's question ends the turn (scripted: `message_teammate`
- *      through C1) → waiting → the Dial8 agent's answer
+ *      through C1) → waiting → the Native Intelligence agent's answer
  *      (`[From the Dial8 agent] …`) → the turn resumes. What the server does
  *      with message_teammate (needs_input, the cloud body's home turn) is
  *      WS-C's and not covered here.
@@ -173,7 +173,7 @@ const launcherPids = new Set<number>()
 
 const toolPath = [dirname(process.execPath), '/usr/bin', '/bin'].join(':')
 function hostGit(gitArgs: string[]): string {
-  return execFileSync('git', ['-c', 'user.name=Dial8 e2e', '-c', 'user.email=e2e@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
+  return execFileSync('git', ['-c', 'user.name=Native Intelligence e2e', '-c', 'user.email=e2e@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
     encoding: 'utf8',
     // Cast: Next's global types make ProcessEnv require NODE_ENV, which git doesn't need.
     env: { PATH: toolPath, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string> as NodeJS.ProcessEnv,
@@ -457,7 +457,7 @@ async function main() {
   }, { skipIf: skipA ?? (a1 ? null : 'A1 did not complete') })
 
   let answerId = ''
-  const a3 = await step('A3 the question ends the turn → waiting → the Dial8 agent answers → the agent resumes', async () => {
+  const a3 = await step('A3 the question ends the turn → waiting → the Native Intelligence agent answers → the agent resumes', async () => {
     const ringAsked = await ringOf(rust, A)
     const ask = fakeModel?.c1.find((r) => r.route === 'tool' && r.toolName === 'message_teammate')
     const asked = {

@@ -14,7 +14,7 @@
  *     on, with no metadata (as before);
  *   - a failed or timed-out generation (runUtilityTask throws after its 45s
  *     wall clock) skips THAT thread and the loop moves on — nothing half-saved;
- *   - what Dial8 has learned about how the person writes (their Mail note and
+ *   - what Native Intelligence has learned about how the person writes (their Mail note and
  *     the facts about them) rides in the message under "How they write", and
  *     decides the tone when none was asked for (Liam, 2026-10-17).
  */
@@ -981,7 +981,7 @@ describe('reviewBudget', () => {
 })
 
 describe('a plan check that cannot be read', () => {
-  it('fails an automatic pass closed: nothing drafted, nothing on Dial8\'s models', async () => {
+  it('fails an automatic pass closed: nothing drafted, nothing on Native Intelligence\'s models', async () => {
     planCheck.onPlan.mockImplementation(async (_u: unknown, opts?: unknown) => {
       if ((opts as { failClosed?: boolean } | undefined)?.failClosed) throw new Error('ChatGPT plan check failed: db down')
       return false

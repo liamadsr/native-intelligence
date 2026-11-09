@@ -142,13 +142,13 @@ describe('buildRawEmail non-ASCII subject encoding', () => {
   }
 
   it('RFC 2047 encodes a subject containing an em dash', () => {
-    // The prod bug: 'Dial8 — quick intro (pre-seed)' arrived as
-    // 'Dial8 Ã¢Â€Â” quick intro (pre-seed)' because the raw UTF-8 bytes sat
+    // The prod bug: 'Native Intelligence — quick intro (pre-seed)' arrived as
+    // 'Native Intelligence Ã¢Â€Â” quick intro (pre-seed)' because the raw UTF-8 bytes sat
     // in an undeclared header and clients decoded them as Latin-1.
-    const raw = buildRawEmail({ ...base, subject: 'Dial8 — quick intro (pre-seed)' })
+    const raw = buildRawEmail({ ...base, subject: 'Native Intelligence — quick intro (pre-seed)' })
     const headers = headerSection(raw)
     expect(headers).toContain(
-      `Subject: =?UTF-8?B?${Buffer.from('Dial8 — quick intro (pre-seed)', 'utf8').toString('base64')}?=`,
+      `Subject: =?UTF-8?B?${Buffer.from('Native Intelligence — quick intro (pre-seed)', 'utf8').toString('base64')}?=`,
     )
     // No raw non-ASCII may survive anywhere in the header block.
       expect(/[^\x00-\x7f]/.test(headers)).toBe(false)

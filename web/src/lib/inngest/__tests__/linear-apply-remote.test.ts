@@ -3,7 +3,7 @@ import { createAsanaRemoteFake, type AsanaRemoteFake } from '@/test/asana-remote
 import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
 
 /**
- * Tests for src/lib/inngest/linear-apply-remote.ts — the Linear→Dial8 webhook
+ * Tests for src/lib/inngest/linear-apply-remote.ts — the Linear→Native Intelligence webhook
  * fast path — and, through it, the shared apply helper all three providers run.
  *
  * Invariants locked in:
@@ -184,7 +184,7 @@ describe('linear-apply-remote — registration', () => {
 
   it('caps concurrency WITHOUT a key — the event carries no workspace', () => {
     // Inngest evaluates a concurrency key against the EVENT, and an app-level
-    // Linear delivery names an issue and an org, never a Dial8 workspace.
+    // Linear delivery names an issue and an org, never a Native Intelligence workspace.
     expect(hoisted.config.concurrency).toEqual([{ limit: 5 }])
   })
 
@@ -507,7 +507,7 @@ describe('linear-apply-remote — applying', () => {
   })
 
   it('fans ONE issue id out to every workspace that links it', async () => {
-    // Two Dial8 workspaces connected to the same Linear organization.
+    // Two Native Intelligence workspaces connected to the same Linear organization.
     const db = setDb({
       links: [
         { ...LINK },

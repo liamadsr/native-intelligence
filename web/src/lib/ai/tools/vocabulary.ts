@@ -16,7 +16,7 @@ import {
  * §10, migration 430): the words transcription should get right ("add
  * Supabase to my vocabulary", "it keeps writing Superbase"). Words are fixed
  * by sound in meeting transcripts, dictation and voice mode. The same store as
- * Settings → Vocabulary. Most of the vocabulary arrives on its own (names Dial8
+ * Settings → Vocabulary. Most of the vocabulary arrives on its own (names Native Intelligence
  * knows, words the team writes); these tools are for what the person asks.
  *
  * Fences (review, 2026-10-24): an unattended run (work-run, skill-run) never
@@ -46,7 +46,7 @@ export function createVocabularyTools(
   return {
     list_vocabulary: tool({
       description:
-        "List the custom vocabulary: words transcription should get right (product names, people, acronyms), the workspace's and the user's own. include_harvested adds the words Dial8 picked up on its own from what the team writes; include_automatic adds the names it uses (teammates, projects, contacts and their companies).",
+        "List the custom vocabulary: words transcription should get right (product names, people, acronyms), the workspace's and the user's own. include_harvested adds the words Native Intelligence picked up on its own from what the team writes; include_automatic adds the names it uses (teammates, projects, contacts and their companies).",
       inputSchema: z.object({
         status: z.enum(['active', 'dismissed', 'all']).optional().default('active').describe('active (in use, default), dismissed (turned off), or all'),
         include_harvested: z.boolean().optional().default(false).describe('Also list the words harvested from documents, tasks and chats'),
@@ -78,7 +78,7 @@ export function createVocabularyTools(
       description:
         "Add a word to the custom vocabulary so transcription spells it right, when the user asks (\"add Supabase to my vocabulary\", \"it keeps writing Superbase, it's Supabase\"). The term exactly as it should be written; sounds_like for spellings the engine produces that don't look like it (\"Superbase\", \"Guyan\" for Nguyen) — never ordinary words. Workspace scope by default (shared with the team); personal when the user says it is just for them. Adding a word that is already there merges it.",
       inputSchema: z.object({
-        term: z.string().describe(`The word as it should be written (at most ${VOCABULARY_TERM_MAX_CHARS} characters), e.g. "Supabase", "Dial8", "RLS"`),
+        term: z.string().describe(`The word as it should be written (at most ${VOCABULARY_TERM_MAX_CHARS} characters), e.g. "Supabase", "Route8", "RLS"`),
         sounds_like: z.array(z.string()).optional().describe('How transcription mishears or misspells it, e.g. ["Superbase"]'),
         scope: z.enum(['workspace', 'personal']).optional().default('workspace').describe('workspace (every member, default) or personal (just the user)'),
       }),

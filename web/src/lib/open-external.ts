@@ -113,11 +113,11 @@ function unwrap(u: URL): string | null {
 /**
  * True for a URL that never opens in the in-app browser: signing in,
  * connecting an account (an OAuth authorize step, on any provider), paying,
- * joining a meeting, and Dial8's own pages. The user's sign-ins, passkeys and
+ * joining a meeting, and Native Intelligence's own pages. The user's sign-ins, passkeys and
  * saved cards live in their browser, OAuth callbacks come back to the desktop
  * app through it, Apple Pay doesn't run in an in-app tab, and a meeting link
  * launches the meeting app from the browser — an in-app tab can't, and has no
- * camera or mic. Dial8 itself in a tab would share the app's cookies and sign
+ * camera or mic. Native Intelligence itself in a tab would share the app's cookies and sign
  * in through the web flow, in the tab. The connect and sign-in buttons already
  * hand their URLs to the system browser themselves; this keeps a plain LINK to
  * such a page out of the in-app browser too. A wrapped link (Safe Links, …) is

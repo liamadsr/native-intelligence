@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * THE landing page — Dial8's lead marketing pitch, served at `/`.
+ * THE landing page — Native Intelligence's lead marketing pitch, served at `/`.
  *
  * One plain-terms headline, short feature panels, a desktop-app section,
  * integrations, FAQ, one repeated CTA, framed around the intelligence layer
@@ -51,7 +51,7 @@ import { ChevronDown, Plug } from 'lucide-react'
 import { hasDownload } from '@/lib/app-download'
 
 const sections: Section[] = [
-  { id: 'hero', label: 'Dial8 for Sales' },
+  { id: 'hero', label: 'NI for Sales' },
   { id: 'features', label: 'Features' },
   { id: 'team', label: 'For Teams' },
   { id: 'desktop', label: 'Desktop App' },
@@ -322,7 +322,7 @@ function FeaturesSection() {
           Everything between hello and closed
         </h2>
         <p className="mt-6 mx-auto max-w-2xl text-lg text-muted-foreground">
-          Dial8 captures what your team learns, combines it with your playbooks
+          Native Intelligence captures what your team learns, combines it with your playbooks
           and product knowledge, and gives every rep the right context while
           they sell.
         </p>
@@ -331,13 +331,13 @@ function FeaturesSection() {
       <div className="space-y-8">
         <FeaturePanel
           title="Your company’s knowledge, live on the call"
-          description="A live agent listens with everything Dial8 knows — your product, playbook, pricing, competitors, and this customer’s history — and surfaces the right piece in a heads-up display only you can see."
+          description="A live agent listens with everything Native Intelligence knows — your product, playbook, pricing, competitors, and this customer’s history — and surfaces the right piece in a heads-up display only you can see."
           visual={<HudTipsDemo />}
         />
         <FeaturePanel
           flip
           title="Your team gets smarter with every call"
-          description="Your best reps learn something every day — how customers describe the problem, which objections actually matter, what moves deals forward. Dial8 captures it and makes it available to everyone."
+          description="Your best reps learn something every day — how customers describe the problem, which objections actually matter, what moves deals forward. Native Intelligence captures it and makes it available to everyone."
           visual={<IntelligenceLoopDemo />}
         />
         <FeaturePanel
@@ -551,7 +551,7 @@ function IntegrationsSection() {
           Works with your stack
         </h2>
         <p className="mt-6 mx-auto max-w-2xl text-lg text-muted-foreground">
-          Already on HubSpot? Keep it — Dial8 syncs both ways. Ready to
+          Already on HubSpot? Keep it — Native Intelligence syncs both ways. Ready to
           consolidate? The CRM is built in.
         </p>
       </motion.div>
@@ -587,10 +587,10 @@ const FAQ_ITEMS = [
   },
   {
     q: 'How does the live agent work?',
-    a: 'Your playbooks, product knowledge, and deal history live in Dial8 as shared context. On a call the agent draws on it and surfaces what’s relevant — in a heads-up display only your side can see.',
+    a: 'Your playbooks, product knowledge, and deal history live in Native Intelligence as shared context. On a call the agent draws on it and surfaces what’s relevant — in a heads-up display only your side can see.',
   },
   {
-    q: 'Can Dial8 replace our CRM?',
+    q: 'Can Native Intelligence replace our CRM?',
     a: 'It can. Contacts, companies, deals, and interaction history are built in. If you’re staying on HubSpot, sync two-way instead of switching.',
   },
   {

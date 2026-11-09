@@ -13,7 +13,7 @@ import { VOCABULARY_TERM_MAX_CHARS, allRows, automaticVocabulary, listVocabulary
  * mishearings ("Superbase") in every meeting and dictation. A word is taken
  * when it is NOT ordinary English (or a name, place, day…: the lexicon), looks
  * like a word rather than code, and repeats: twice when it carries a capital
- * or a digit ("Supabase", "Dial8", "RLS"), four times when all lowercase
+ * or a digit ("Supabase", "Route8", "RLS"), four times when all lowercase
  * ("pgvector"), so a one-off typo never qualifies. Harmless when wrong: the
  * corrector never rewrites an ordinary word into one of these.
  *
@@ -27,7 +27,7 @@ import { VOCABULARY_TERM_MAX_CHARS, allRows, automaticVocabulary, listVocabulary
  * (source_type meeting_extraction, or linked to a capture) and chat messages
  * (which may be dictated, and say nothing about it) are not read. Documents
  * the agent writes can't be told from typed ones, so a learned word that
- * sounds like a name Dial8 knows or a word someone added is taken for a
+ * sounds like a name Native Intelligence knows or a word someone added is taken for a
  * mishearing of it and left out (dropMishearings).
  */
 
@@ -161,7 +161,7 @@ export function dropMishearings(words: readonly HarvestedWord[], trusted: readon
 
 /**
  * The names and added words a harvest is checked against (dropMishearings): the
- * names Dial8 knows and the words people or the agent added. For the
+ * names Native Intelligence knows and the words people or the agent added. For the
  * workspace's harvest (userId null), only what every member sees.
  */
 export async function trustedTerms(

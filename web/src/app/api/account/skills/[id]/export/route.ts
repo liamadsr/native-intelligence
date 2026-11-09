@@ -10,7 +10,7 @@ import type { AgentConfig } from '@/lib/types/library'
  * Export a Skill as a portable Anthropic SKILL.md file — the "take your skill
  * to any agent runtime" surface. The frontmatter carries only the standard
  * `name`/`description`; the system prompt becomes the instructions body, and
- * Dial8-specific config (standing instructions, response style) is folded in as
+ * NI-specific config (standing instructions, response style) is folded in as
  * prose sections so the file stays portable to any SKILL.md consumer.
  *
  * Runs under the caller's RLS client with the same workspace scoping as the

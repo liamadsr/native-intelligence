@@ -2,7 +2,7 @@
  * Asana API v1.0 HTTP client.
  *
  * Thin wrapper over the Asana public API used by the action push
- * (src/lib/tasks/asana-push.ts), the Dial8→Asana status echo
+ * (src/lib/tasks/asana-push.ts), the Native Intelligence→Asana status echo
  * (src/lib/inngest/asana-echo-status.ts), and the destination picker routes
  * (/api/account/asana/*).
  *
@@ -470,7 +470,7 @@ export async function createTask(
 /**
  * `PUT /tasks/{gid}` — set the completion flag.
  *
- * This is the whole Dial8→Asana lifecycle write: Asana has no status field, so
+ * This is the whole Native Intelligence→Asana lifecycle write: Asana has no status field, so
  * both 'done' and 'canceled' land as completed:true (see
  * src/lib/tasks/lifecycle.ts for why canceled is unrepresentable).
  */
@@ -536,7 +536,7 @@ export async function getTask(accessToken: string, taskGid: string): Promise<Asa
 }
 
 // ---------------------------------------------------------------------------
-// Webhooks (Phase B — Asana → Dial8 read-back)
+// Webhooks (Phase B — Asana → Native Intelligence read-back)
 // ---------------------------------------------------------------------------
 
 /** One event filter on a webhook registration. */

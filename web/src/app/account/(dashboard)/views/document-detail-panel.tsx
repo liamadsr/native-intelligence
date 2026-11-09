@@ -144,7 +144,7 @@ interface EditConflict {
   /** The document now, and its revision. */
   theirs: string
   revision: number
-  /** Who made the newer change ("Dial8 (for Ana)"), when the history says. */
+  /** Who made the newer change ("Native Intelligence (for Ana)"), when the history says. */
   by: string | null
 }
 
@@ -1174,7 +1174,7 @@ export function DocumentDetailPanel({
 }
 
 /**
- * A section-level conflict (minimal D4): someone (usually Dial8) changed the
+ * A section-level conflict (minimal D4): someone (usually Native Intelligence) changed the
  * same sections the person was editing. Every other section is combined
  * already; for each section both changed, the person keeps theirs or takes
  * the newer one, then saves. Nothing is overwritten until they do.

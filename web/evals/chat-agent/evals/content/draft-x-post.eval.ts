@@ -53,7 +53,7 @@ export default defineEval({
     const calls = callsOf([turn])
     // Gate: reads only. The checks are reads; nothing writes, sends or posts.
     t.check(callsOutside(calls), equals([])).label('called only read tools (nothing posted, sent or written)')
-    t.check(calls.filter((c) => c.name.startsWith('mcp__') || c.name === 'run_browser_task').map((c) => c.name), equals([])).label('no connected app and no browser: Dial8 never posts')
+    t.check(calls.filter((c) => c.name.startsWith('mcp__') || c.name === 'run_browser_task').map((c) => c.name), equals([])).label('no connected app and no browser: Native Intelligence never posts')
     // Not vacuous: it read the shipped work, checked the post with its sources, and handed back the link.
     t.check(calls.some((c) => c.name === 'list_actions'), equals(true)).label('read the shipped work')
     t.check(calls.some(citedCheck), equals(true)).label('checked the post on X with its sources')

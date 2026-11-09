@@ -29,7 +29,7 @@ export const CHAT_IMAGE_NOT_SHOWN =
 
 /** The Mac body's note: photos are never shown there (see the header). */
 export const MAC_CHAT_IMAGE_NOT_SHOWN =
-  "Photos aren't shown to you on the Mac. If you need what's in it, say so: the person, or the Dial8 agent in the cloud, can look at it."
+  "Photos aren't shown to you on the Mac. If you need what's in it, say so: the person, or the Native Intelligence agent in the cloud, can look at it."
 
 /**
  * The Mac body's `read_file` description: eve's, without its line that images

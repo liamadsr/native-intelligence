@@ -9,7 +9,7 @@ export const maxDuration = 60
  * GET /api/cron/crm-sync
  *
  * Every 15 min, keeps connected HubSpot CRM accounts fresh. HubSpot has no push
- * webhook wired into Dial8, so this cron is the sole freshness driver: for every
+ * webhook wired into Native Intelligence, so this cron is the sole freshness driver: for every
  * enabled `capability = 'crm'` account it either advances the incremental sync
  * or self-heals a stalled/never-finished initial import.
  *

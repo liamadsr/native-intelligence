@@ -30,9 +30,9 @@ THIN = "-" * 80
 
 HEADER = """\
 THIRD-PARTY SOFTWARE NOTICES
-Dial8 for macOS
+Native Intelligence for macOS
 
-Dial8 includes the third-party open-source software listed in this file, and
+Native Intelligence includes the third-party open-source software listed in this file, and
 this file holds every notice and license text for it:
 
   Part 1 lists each component, grouped by the part of the app it ships in,
@@ -44,7 +44,7 @@ this file holds every notice and license text for it:
          under the paths of all of them.
 
 The same folders and files are inside the app, in
-Dial8.app/Contents/Resources/Licenses/. Part 2 gives each file's path in that
+Native Intelligence.app/Contents/Resources/Licenses/. Part 2 gives each file's path in that
 folder; the paths inside a part's notices are relative to that part's own
 folder (Licenses/<part>/).
 

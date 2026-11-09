@@ -13,14 +13,14 @@ import { maskPhone } from '@/lib/twilio/phone'
  *            dial8Number, agentNumber, canGetNumber, available }: their own
  *            rows, read under RLS. `dial8Number` is the number they text: their
  *            agent's own (`agentNumber`, POST /api/account/agent-number) when it
- *            has one, else the Dial8 one. `canGetNumber`: it has none and this
- *            Dial8 has a pool to give one from (src/lib/sms/agent-number.ts).
+ *            has one, else the Native Intelligence one. `canGetNumber`: it has none and this
+ *            Native Intelligence has a pool to give one from (src/lib/sms/agent-number.ts).
  * POST   { phone, consent: true, consentVersion } → texts a 6-digit code to
  *            the number (E.164, or a US/Canada number without +1) in the
  *            current workspace; 400 without the SMS consent ticked on the
  *            current words (src/lib/sms/consent.ts), 429 when asked too often.
  *            Verify with POST /api/account/phone/verify.
- *            There is no switch for the texts Dial8 starts while they are
+ *            There is no switch for the texts Native Intelligence starts while they are
  *            away: a linked phone gets them, and STOP turns them off (Liam,
  *            2026-10-31: "I don't want this to be a setting").
  * DELETE → unlinks the number (their own row, under RLS) and voids any
@@ -83,15 +83,15 @@ export async function POST(req: Request) {
     case 'invalid_phone':
       return badRequest('Enter a mobile number with its country code, like +1 555 123 4567.')
     case 'unsupported_country':
-      return badRequest('Dial8 can text US and Canadian mobile numbers only for now.')
+      return badRequest('Native Intelligence can text US and Canadian mobile numbers only for now.')
     case 'no_consent':
-      return badRequest('Agree to receive text messages from Dial8 first.')
+      return badRequest('Agree to receive text messages from Native Intelligence first.')
     case 'rate_limited':
       return rateLimited('Too many codes. Wait a few minutes and try again.')
     case 'unsubscribed':
-      return apiError('This number opted out of Dial8 texts. Text START to the Dial8 number first, then try again.', { status: 409, code: 'PHONE_OPTED_OUT' })
+      return apiError('This number opted out of Native Intelligence texts. Text START to the Native Intelligence number first, then try again.', { status: 409, code: 'PHONE_OPTED_OUT' })
     case 'not_configured':
-      return apiError('Texting is not set up on this Dial8 yet.', { status: 503, code: 'SMS_NOT_CONFIGURED' })
+      return apiError('Texting is not set up here yet.', { status: 503, code: 'SMS_NOT_CONFIGURED' })
     case 'send_failed':
       return apiError("We couldn't text that number. Check it and try again.", { status: 502, code: 'SMS_SEND_FAILED' })
     default:

@@ -59,7 +59,7 @@ export type ComposeLayout = 'strip' | 'stack'
  * THE CHIP. The strip's unit of presentation, and the reason this file no
  * longer looks like a form.
  *
- * Dial8 renders an action's own properties as a row of compact outline pills —
+ * Native Intelligence renders an action's own properties as a row of compact outline pills —
  * `PropertyPill` in proposal-card.tsx / create-dialog.tsx / attention-card.tsx,
  * plus `chipClass`/`cellTriggerClass` in lib/views/property-options.ts. All of
  * them agree on the same tokens: `h-7`, `rounded-full`, a hairline border, a
@@ -186,7 +186,7 @@ export function OptionSelect({
             fallback, which is PropertyPill's `muted` by another route.
 
             `hideChevron` in `strip`: a chevron on every chip is four chevrons
-            in a row of four properties, and Dial8's own property pills carry
+            in a row of four properties, and Native Intelligence's own property pills carry
             none. `aria-label` stays put — it is the handle every test and every
             screen reader identifies this field by. */}
         <SelectTrigger
@@ -259,7 +259,7 @@ export function formatWireDate(date: Date): string {
 /**
  * A date-only field. Every provider's date here is a calendar date.
  *
- * IN `strip` THIS IS DIAL8'S OWN PICKER — the same `DateTimePicker` the
+ * IN `strip` THIS IS NATIVE INTELLIGENCE'S OWN PICKER — the same `DateTimePicker` the
  * proposal card's due-date pill wraps, at `granularity="day"` (which drops the
  * time row entirely) and wearing `chipTriggerClass`. A native
  * `<input type="date">` was the one control in the row that was not the app's:
@@ -413,7 +413,7 @@ export function ComposeFailure({
         <div className="flex-1">
           <p className="text-sm font-medium">Reconnect {providerName} to compose</p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Dial8 can no longer use your stored {providerName} authorization, so the pickers
+            Native Intelligence can no longer use your stored {providerName} authorization, so the pickers
             can&apos;t load.
           </p>
           <Button

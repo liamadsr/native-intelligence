@@ -67,7 +67,7 @@
  *    audio and a trained voiceprint, the session asks for it. With Voice
  *    focus on, each turn waits (at most VOICE_FOCUS.VERDICT_WAIT_MS, then it
  *    goes anyway) on whose voice it was, in the turn chain, before anything
- *    else happens to it (interceptTurn included); a voice Dial8 doesn't know
+ *    else happens to it (interceptTurn included); a voice Native Intelligence doesn't know
  *    is dropped like an intercepted turn (nothing sent, no reply stopped,
  *    read-aloud follows nothing) and the field says so briefly
  *    (`live.notice`). Off, a turn goes exactly as without it (interceptTurn

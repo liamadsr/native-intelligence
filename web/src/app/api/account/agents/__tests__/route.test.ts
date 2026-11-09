@@ -3,7 +3,7 @@
  *
  * Migration 191 opened recipe writes to every workspace member so they can
  * author their own agents/skills — but visibility='public' publishes an item to
- * EVERY Dial8 user, platform-wide. RLS can't tell "publish" from an ordinary
+ * EVERY Native Intelligence user, platform-wide. RLS can't tell "publish" from an ordinary
  * write, so the routes gate it: only owner/admin may CREATE-as-public (POST) or
  * TRANSITION a non-public row to public (PATCH). Non-public writes are unaffected.
  *

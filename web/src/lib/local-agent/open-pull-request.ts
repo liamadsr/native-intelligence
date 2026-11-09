@@ -4,7 +4,7 @@
  * (push.rs, desktop PR #70) has already pushed the job's own `dial8/…` branch
  * from the person's checkout, as the person, after their yes on the Mac. It
  * then posts here with the session token, and the server opens the pull
- * request with the person's Dial8 GitHub sign-in, the way a cloud coding
+ * request with the person's Native Intelligence GitHub sign-in, the way a cloud coding
  * run's outcome does (src/app/api/internal/agent-run/outcome/route.ts):
  *
  *   - only the session's OWN branch (`dial8/<slug>-<its id's first 8>`, or
@@ -142,7 +142,7 @@ export async function openSessionPullRequest(
   const remote = parseRemoteRepo(body.remoteUrl)
   if (!remote) return fail(400, 'BAD_REMOTE', "The remote URL doesn't name a repository.")
   if (remote.host !== 'github.com') {
-    return fail(400, 'UNSUPPORTED_HOST', `Dial8 opens pull requests on github.com only. Sign in to gh on your Mac to open one on ${remote.host}.`)
+    return fail(400, 'UNSUPPORTED_HOST', `Native Intelligence opens pull requests on github.com only. Sign in to gh on your Mac to open one on ${remote.host}.`)
   }
   const title = cleanTitle(body.title)
   if (!title) return fail(400, 'BAD_TITLE', `The title is required, at most ${PR_TITLE_MAX} characters.`)
@@ -170,7 +170,7 @@ export async function openSessionPullRequest(
 
   const token = await (deps.githubToken ?? storedGithubToken)(svc, claims.uid)
   if (!token) {
-    return fail(409, 'GITHUB_NOT_CONNECTED', 'Connect GitHub in Dial8 (Settings, Connectors), or sign in to gh on your Mac, to open the pull request. The branch is pushed.')
+    return fail(409, 'GITHUB_NOT_CONNECTED', 'Connect GitHub in Native Intelligence (Settings, Connectors), or sign in to gh on your Mac, to open the pull request. The branch is pushed.')
   }
   const doFetch = deps.fetchImpl ?? fetch
 

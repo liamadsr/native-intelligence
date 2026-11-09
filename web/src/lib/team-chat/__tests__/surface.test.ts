@@ -2,7 +2,7 @@
  * The team_chat surface through the shared turn plumbing (migration 474): who
  * the caller is, which tools a turn may reach (the channel's other members
  * steer it and read its reply, so nothing that deletes, automates, leaves
- * Dial8 or would wait on an approval card), its per-turn note, and the one
+ * Native Intelligence or would wait on an approval card), its per-turn note, and the one
  * conversation it may run in.
  */
 import { describe, expect, it } from 'vitest'
@@ -24,7 +24,7 @@ describe('the caller', () => {
 })
 
 describe('the tools', () => {
-  it('reads and changes to the person’s own Dial8 items only', () => {
+  it('reads and changes to the person’s own Native Intelligence items only', () => {
     let reads = 0
     for (const name of TOOL_REGISTRY_MAP.keys()) {
       const effect = getToolSideEffect(name)

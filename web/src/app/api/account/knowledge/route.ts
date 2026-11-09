@@ -19,7 +19,7 @@ import { NextResponse, type NextRequest } from 'next/server'
  * Read-only. Workspace-scoped via the user session (RLS also enforces it).
  *
  * A claim is readable only when one of its sources is (migration 341): one
- * with any email source (Dial8 doesn't learn from mail), or taken only from
+ * with any email source (Native Intelligence doesn't learn from mail), or taken only from
  * other people's private captures, is dropped with its edges and sources, and
  * no email is ever a node or a label. RLS hides the same rows once 341 is
  * applied; this holds before it.

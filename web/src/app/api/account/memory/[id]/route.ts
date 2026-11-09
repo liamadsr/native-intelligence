@@ -5,7 +5,7 @@ import { memoryTextProblem, normalizeMemoryText, type MemoryLine } from '@/lib/p
 import { MEMORY_LINE_COLUMNS } from '@/lib/packs/memory-write'
 
 /**
- * One line of what Dial8 has learned (migration 317): edit it, accept it, or
+ * One line of what Native Intelligence has learned (migration 317): edit it, accept it, or
  * delete it (dismiss a proposal, the chip's Undo).
  *
  * By id on the person's own session, not the current workspace: the chat's

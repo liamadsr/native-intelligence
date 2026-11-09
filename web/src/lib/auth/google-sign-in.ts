@@ -1,5 +1,5 @@
 /**
- * "Sign in with Google" on dial8.ai. Dial8 runs Google's OAuth flow itself,
+ * "Sign in with Google" on dial8.ai. Native Intelligence runs Google's OAuth flow itself,
  * so the browser goes dial8.ai → accounts.google.com → dial8.ai and never
  * visits <project>.supabase.co. Supabase's own flow calls back to its project
  * URL, which Google's account chooser then shows the person ("to continue to

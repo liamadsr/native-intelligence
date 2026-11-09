@@ -414,7 +414,7 @@ describe('pushActionToJira — payload shape', () => {
         { type: 'paragraph', content: [{ type: 'text', text: 'Do <the> work & ship it' }] },
       ],
     })
-    expect(JSON.stringify(description)).not.toContain('Pushed from Dial8')
+    expect(JSON.stringify(description)).not.toContain('Pushed from Native Intelligence')
     expect(JSON.stringify(description)).not.toContain('dial8.ai')
   })
 
@@ -450,7 +450,7 @@ describe('pushActionToJira — payload shape', () => {
         {
           type: 'paragraph',
           content: [
-            { type: 'text', text: 'Pushed from Dial8: ' },
+            { type: 'text', text: 'Pushed from Native Intelligence: ' },
             {
               type: 'text',
               text: 'ENG-42',
@@ -861,7 +861,7 @@ describe('buildAdfDescription', () => {
         {
           type: 'paragraph',
           content: [
-            { type: 'text', text: 'Pushed from Dial8: ' },
+            { type: 'text', text: 'Pushed from Native Intelligence: ' },
             {
               type: 'text',
               text: 'this action',

@@ -1,6 +1,6 @@
 /**
  * The Mac body (contract C2, docs/plans/teammate-agent.md): what the shared
- * files of the one Dial8 agent become when it is built and launched with
+ * files of the one Native Intelligence agent become when it is built and launched with
  * DIAL8_AGENT_HOST=mac, beside the cloud body they stay for everyone else.
  * Pins:
  *   - the harness (bash, read_file, write_file) is eve's own on the Mac and
@@ -605,7 +605,7 @@ describe('ask_user, the persona and the person’s words on the Mac', () => {
     const without = await persona.events['turn.started']({}, { session: { auth: auth('mac-session:another') } })
     expect(without.content.startsWith('## You are on the person\'s Mac')).toBe(true)
     expect(without.content).not.toContain('message_teammate')
-    expect(without.content).toContain('no Dial8 tools')
+    expect(without.content).toContain('no Native Intelligence tools')
   })
 
   it('only [From <name>] messages after the request are kept as the person’s words', async () => {

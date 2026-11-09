@@ -25,7 +25,7 @@
  *      nothing. Then ONE model call and the checks (./facts.ts), all in one
  *      step that returns only the lines (no mail text in the step's stored
  *      output); a failed call goes out on the calendar alone;
- *   4. Dial8's template over them: the message, log line and notice
+ *   4. Native Intelligence's template over them: the message, log line and notice
  *      (deliverLookAhead: the gather and the write in one call, whose result
  *      holds only the row and the departures' calendar keys, so no mail-derived
  *      words sit in a stored step output), then a text when their phone takes

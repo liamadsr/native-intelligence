@@ -71,7 +71,7 @@ describe('riskClassOf', () => {
     expect(riskClassOf('complete_job')).toBe('external-write')
   })
 
-  it('reviews the internal-writes that also write outside Dial8 as external (HubSpot writeback, the mailbox draft), without changing their registry class', () => {
+  it('reviews the internal-writes that also write outside Native Intelligence as external (HubSpot writeback, the mailbox draft), without changing their registry class', () => {
     for (const name of ['create_contact', 'update_crm_contact', 'revise_email_draft', 'dial8_create_contact']) expect(riskClassOf(name)).toBe('external-write')
     for (const name of ['create_contact', 'update_crm_contact', 'revise_email_draft']) expect(getToolSideEffect(name)).toBe('internal-write')
   })
@@ -103,12 +103,12 @@ describe('reviewRiskyCall', () => {
       card: { title: 'Approve delete_action?', why: "This deletes something (delete_action), once, with exactly the inputs below; you didn't ask for that in this conversation." } })
     mocks.decide.mockResolvedValueOnce({ status: 'escalate', reason: 'temporarily_unavailable' })
     expect(await reviewRiskyCall(base)).toMatchObject({ verdict: 'block', reason: 'temporarily_unavailable',
-      card: { why: "This deletes something (delete_action), once, with exactly the inputs below; Dial8's safety check couldn't run just now, so it asks you first." } })
+      card: { why: "This deletes something (delete_action), once, with exactly the inputs below; Native Intelligence's safety check couldn't run just now, so it asks you first." } })
     mocks.decide.mockRejectedValueOnce(new Error('boom'))
     expect(await reviewRiskyCall(base)).toMatchObject({ verdict: 'block', reason: 'unavailable', card: { why: expect.stringContaining("couldn't run just now") } })
     mocks.decide.mockResolvedValueOnce({ status: 'escalate', reason: 'uncertain', inferenceId: 'inf-u' })
     expect(await reviewRiskyCall(base)).toMatchObject({ verdict: 'block', reason: 'uncertain', inferenceId: 'inf-u',
-      card: { why: expect.stringContaining("Dial8 couldn't tell whether you asked for that in this conversation") } })
+      card: { why: expect.stringContaining("Native Intelligence couldn't tell whether you asked for that in this conversation") } })
   })
 
   it('with no words to check against it blocks without asking Jev (a wake turn has none)', async () => {
@@ -139,10 +139,10 @@ describe('reviewRiskyCall', () => {
   it('a loop\'s card names its instructions', () => {
     const loop = { toolName: 'push_action_to_jira', sideEffect: 'external-write', source: 'loop_instructions' } as const
     expect(approvalCardCopy(loop).why)
-      .toBe("This changes something outside Dial8 (push_action_to_jira), once, with exactly the inputs below; the loop's instructions don't ask for that.")
+      .toBe("This changes something outside Native Intelligence (push_action_to_jira), once, with exactly the inputs below; the loop's instructions don't ask for that.")
     expect(approvalCardCopy(loop, 'no_request').why).toContain('the loop has no saved instructions to check it against')
-    expect(approvalCardCopy(loop, 'uncertain').why).toContain("Dial8 couldn't tell whether the loop's instructions ask for that")
-    expect(approvalCardCopy(loop, 'deadline_exceeded').why).toContain("Dial8's safety check couldn't run just now")
+    expect(approvalCardCopy(loop, 'uncertain').why).toContain("Native Intelligence couldn't tell whether the loop's instructions ask for that")
+    expect(approvalCardCopy(loop, 'deadline_exceeded').why).toContain("Native Intelligence's safety check couldn't run just now")
   })
 
   it('tells a judgement (not asked, unsure, no words) from a review that never ran', () => {
@@ -269,7 +269,7 @@ describe("holdEveryCallAs: a door's own ask first, over a call the reviewer woul
       input: { title: 'Milk' },
       reason: 'guest_text',
       decisionId: null,
-      card: { title: 'Approve create_action?', why: `This changes something in Dial8 (create_action), once, with exactly the inputs below; ${HOLD.cardWhy}.` },
+      card: { title: 'Approve create_action?', why: `This changes something in Native Intelligence (create_action), once, with exactly the inputs below; ${HOLD.cardWhy}.` },
     }))
   })
 
@@ -288,7 +288,7 @@ describe("holdEveryCallAs: a door's own ask first, over a call the reviewer woul
 })
 
 describe('gateRiskyCall: a text turn holds every risky call (alwaysHold), whatever the mode', () => {
-  const HOLD = { reason: 'text_turn', message: "Nothing ran. Tell them: I've put it in Dial8 for you to approve." }
+  const HOLD = { reason: 'text_turn', message: "Nothing ran. Tell them: I've put it in Native Intelligence for you to approve." }
   const textTurn = (over: Partial<GateRequest>): GateRequest => ({ ...base, caller: 'person_remote', alwaysHold: HOLD, defer: () => {}, ...over })
 
   it.each([
@@ -489,7 +489,7 @@ describe('blocking: allow, deny, the reviewer unavailable, attended or not', () 
       expect(run).not.toHaveBeenCalled()
       expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED' } })
       expect(mocks.approve).toHaveBeenCalledWith(base.approval.supabase, expect.objectContaining({
-        card: expect.objectContaining({ why: expect.stringContaining("Dial8's safety check couldn't run just now") }),
+        card: expect.objectContaining({ why: expect.stringContaining("Native Intelligence's safety check couldn't run just now") }),
       }))
     }
   })
@@ -520,18 +520,18 @@ describe('blocking: allow, deny, the reviewer unavailable, attended or not', () 
   })
 })
 
-describe('cards from the Dial8 agent on the Mac (C1: approval.context.localAgent)', () => {
+describe('cards from the Native Intelligence agent on the Mac (C1: approval.context.localAgent)', () => {
   const localAgent = { sessionId: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' }
   const mac = { ...base, caller: 'person_remote' as const, mustEnforce: true as const, approval: { ...base.approval, conversationId: null, context: { localAgent } } }
 
-  it('the card names Dial8 on the Mac and the job, and why, against the job’s own request', async () => {
+  it('the card names Native Intelligence on the Mac and the job, and why, against the job’s own request', async () => {
     mocks.decide.mockResolvedValue(deny)
     const gated = await gateRiskyCall(mac, async () => 'ran')
     expect(mocks.approve).toHaveBeenCalledWith(base.approval.supabase, expect.objectContaining({
       conversationId: null, context: { localAgent },
       card: {
-        title: 'Approve delete_action from Dial8 on Liam’s MacBook?',
-        why: "Dial8 on Liam’s MacBook wants this for its job in dial8-website: it deletes something (delete_action), once, with exactly the inputs below; you didn't ask the job for that.",
+        title: 'Approve delete_action from Native Intelligence on Liam’s MacBook?',
+        why: "Native Intelligence on Liam’s MacBook wants this for its job in dial8-website: it deletes something (delete_action), once, with exactly the inputs below; you didn't ask the job for that.",
       },
     }))
     const message = (gated as { output: { message: string } }).output.message
@@ -542,10 +542,10 @@ describe('cards from the Dial8 agent on the Mac (C1: approval.context.localAgent
   it('a loop’s job, an unsure answer, no words, the check down: each says so', () => {
     const copy = (reason: string, source: 'person' | 'loop_instructions' = 'person') => approvalCardCopy({ toolName: 'delete_action', sideEffect: 'delete', source, localAgent }, reason).why
     expect(copy('not_asked', 'loop_instructions')).toContain("the loop's request for the job doesn't ask for that")
-    expect(copy('uncertain')).toContain("Dial8 couldn't tell whether you asked the job for that")
+    expect(copy('uncertain')).toContain("Native Intelligence couldn't tell whether you asked the job for that")
     expect(copy('no_request')).toContain('the job has no request of yours to check it against')
     expect(copy('no_request', 'loop_instructions')).toContain('the loop that started the job has no saved request')
-    expect(copy('unavailable')).toContain("Dial8's safety check couldn't run just now")
+    expect(copy('unavailable')).toContain("Native Intelligence's safety check couldn't run just now")
     expect(copy('not_asked')).not.toContain('this conversation')
   })
 
@@ -553,7 +553,7 @@ describe('cards from the Dial8 agent on the Mac (C1: approval.context.localAgent
     const gated = await gateRiskyCall({ ...mac, toolName: 'mcp__linear__create_issue', sideEffect: 'unclassified', input: { title: 'x' }, externalTool: { serverName: 'Linear', requiresApproval: true } }, async () => 'ran')
     expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED' } })
     expect(mocks.approve).toHaveBeenCalledWith(base.approval.supabase, expect.objectContaining({
-      card: expect.objectContaining({ why: expect.stringMatching(/^Dial8 on Liam’s MacBook, for its job in dial8-website: This runs a tool on Linear/) }),
+      card: expect.objectContaining({ why: expect.stringMatching(/^Native Intelligence on Liam’s MacBook, for its job in dial8-website: This runs a tool on Linear/) }),
     }))
   })
 })

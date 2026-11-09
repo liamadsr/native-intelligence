@@ -509,7 +509,7 @@ function EditorBody({ onDone, initialTab, guestId, linkId }: { onDone: () => voi
     <>
       <DialogHeader className="shrink-0 px-6 pt-5 text-left">
         <DialogTitle className="text-base">Your agent</DialogTitle>
-        <DialogDescription className="sr-only">Its name and look, how you reach it outside Dial8, and who else can.</DialogDescription>
+        <DialogDescription className="sr-only">Its name and look, how you reach it outside Native Intelligence, and who else can.</DialogDescription>
       </DialogHeader>
       <PanelTabs tab={tab} onTab={showTab} id={tabsId} />
       {/* The rest of the dialog's height, for every tab, each scrolling inside it. */}

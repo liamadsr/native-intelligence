@@ -1,9 +1,9 @@
 /**
  * A home turn acts on its own, and every send waits for the person's yes
  * (Liam, 2026-10-26). Through the gate (action-review.ts, GateRequest.homeTurn):
- * work inside Dial8 runs, a delete of Dial8's own items runs, a plain read of
+ * work inside Native Intelligence runs, a delete of Native Intelligence's own items runs, a plain read of
  * a connected app runs, the person's own calendar with nobody else on it
- * runs; anything that reaches another person or leaves Dial8 is held as the
+ * runs; anything that reaches another person or leaves Native Intelligence is held as the
  * person's approval card in their home thread (never a refusal), and they are
  * pinged (reachPerson). And the outward gate now holds an invite to anyone
  * but the person, teammates included.
@@ -86,12 +86,12 @@ describe('a home turn through the gate', () => {
     expect(mocks.approve).not.toHaveBeenCalled()
   })
 
-  it('a delete of Dial8\'s own items runs', async () => {
+  it('a delete of Native Intelligence\'s own items runs', async () => {
     expect(await gateRiskyCall({ ...home, toolName: 'delete_action', input: { action_id: 'a1' }, sideEffect: 'delete' }, run, false)).toMatchObject({ held: false })
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it('anything else that leaves Dial8 is the person\'s card, whatever the reviewer\'s mode', async () => {
+  it('anything else that leaves Native Intelligence is the person\'s card, whatever the reviewer\'s mode', async () => {
     for (const enforce of [false, true]) {
       const gated = await gateRiskyCall({ ...home, toolName: 'push_action_to_jira', input: { action_id: 'a1' } }, run, enforce)
       expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED' } })

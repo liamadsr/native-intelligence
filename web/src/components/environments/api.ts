@@ -18,7 +18,7 @@ import type { NetworkAccess } from '@/lib/environments/types'
 
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: string; code: string | null }
 
-const UNREACHABLE = "Dial8 couldn't be reached. Try again."
+const UNREACHABLE = "Native Intelligence couldn't be reached. Try again."
 
 async function call<T>(url: string, init: RequestInit, pick: (json: unknown) => T | null, fallback: string): Promise<ApiResult<T>> {
   try {
@@ -91,7 +91,7 @@ export function saveFolderSetting(
   )
 }
 
-/** "Remove this Mac" (refused with MAC_BUSY while a Dial8 job is open on it). */
+/** "Remove this Mac" (refused with MAC_BUSY while a Native Intelligence job is open on it). */
 export function removeMac(deviceId: string): Promise<ApiResult<true>> {
   return call(
     `${ENVIRONMENTS_URL}/macs/${encodeURIComponent(deviceId)}`,

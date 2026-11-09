@@ -22,7 +22,7 @@ import {
 } from '@/lib/tasks/apply-remote-task-state'
 
 // =====================================================================
-// Jira → Dial8 read-back (webhook fast path)
+// Jira → Native Intelligence read-back (webhook fast path)
 //
 // Fired by the receiver (src/app/api/webhooks/jira/route.ts) with the issue ids
 // named in one delivery.
@@ -40,7 +40,7 @@ import {
 // permits exactly one receiver URL per app, so a delivery names an issue and
 // nothing else — no sync state, no workspace. The link table is therefore the
 // router: `(provider, external_id)` is indexed for exactly this, and one issue
-// id may legitimately match links in SEVERAL workspaces (two Dial8 workspaces
+// id may legitimately match links in SEVERAL workspaces (two Native Intelligence workspaces
 // connected to the same Jira site). Each matched workspace resolves its OWN
 // destination and token.
 //
@@ -51,7 +51,7 @@ import {
 //   - `remoteCompleted` from `statusCategory.key === 'done'` — the stable,
 //     non-localizable enum, never the status name;
 //   - `remoteHint.category`, so a reopen into an `indeterminate` status lands in
-//     a STARTED Dial8 state rather than the team default — and, because its mere
+//     a STARTED Native Intelligence state rather than the team default — and, because its mere
 //     presence says the un-completion is unambiguous, so a CANCELLED action
 //     follows the issue back out instead of being pinned forever (Asana, which
 //     passes no hint, still refuses: see apply-remote-task-state.ts step 5);
@@ -240,7 +240,7 @@ export const jiraApplyRemote = inngest.createFunction(
         const state = await loadJiraSyncState(workspaceId)
         const cloudId = state?.config.cloud_id
         if (!state || !cloudId) {
-          // Links survive a disconnect (they are Dial8 rows), so a workspace
+          // Links survive a disconnect (they are Native Intelligence rows), so a workspace
           // whose Jira account is gone is an ordinary outcome, not an error.
           skipped.push({ workspaceId, reason: 'no_sync_state' })
           continue

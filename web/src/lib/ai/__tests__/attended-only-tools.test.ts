@@ -101,7 +101,7 @@ const POST_SEND = ['publish_post', 'schedule_post']
  * their approval card.
  */
 const MAIL_TRIAGE = ['update_email_thread', 'unsubscribe_thread']
-/** GEN-1165: discarding drafts Dial8 wrote, from the mailbox and Dial8, at the person's word (no bot is granted it). */
+/** GEN-1165: discarding drafts Native Intelligence wrote, from the mailbox and Native Intelligence, at the person's word (no bot is granted it). */
 const DRAFT_DISCARD = ['discard_email_draft']
 /** Roadmap B: what the business's customers are told, and its website form's secret link, change only at the person's word. */
 const BUSINESS_SETUP = ['update_business_profile', 'create_quote_form_link']
@@ -123,7 +123,7 @@ describe('the attended-only set', () => {
     expect(getToolSideEffect('update_email_thread')).toBe('internal-write')
     // External: the outward gate (which holds it as the person's card) only sees risky calls.
     expect(getToolSideEffect('unsubscribe_thread')).toBe('external-write')
-    // A delete (the mailbox's draft and Dial8's row), read as a write by name.
+    // A delete (the mailbox's draft and Native Intelligence's row), read as a write by name.
     expect(TOOL_REGISTRY_MAP.get('discard_email_draft')?.category.id).toBe('emails')
     expect(getToolSideEffect('discard_email_draft')).toBe('delete')
     expect(getMutatingToolNames().has('discard_email_draft')).toBe(true)

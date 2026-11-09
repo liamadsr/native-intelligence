@@ -52,7 +52,7 @@ export interface EmailThreadForAI {
 // =====================================================================
 
 /**
- * A thread as its mailbox holds it now. No stored mail (2026-10-15): Dial8
+ * A thread as its mailbox holds it now. No stored mail (2026-10-15): Native Intelligence
  * keeps no copy of messages, so every read is live, from the thread's OWN
  * mailbox (./thread-mailbox.ts: the account the caller names, else the
  * person's index row's, else each mailbox the workspace may read), never the

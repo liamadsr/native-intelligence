@@ -1,7 +1,7 @@
 /**
  * web_search — LIVE for the chat-agent, pinned to Exa.
  *
- * Web access is an ALWAYS-ON capability of every Dial8 agent — not a per-agent
+ * Web access is an ALWAYS-ON capability of every Native Intelligence agent — not a per-agent
  * allowlist toggle, and not a persona/ceiling entry (matching how Anthropic's
  * own agents browse). There is deliberately no `web_search` row in the app's
  * TOOL_CATEGORIES registry: adding one would make the eve resolver mint a

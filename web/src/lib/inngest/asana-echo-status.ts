@@ -11,11 +11,11 @@ import { ASANA_PROVIDER, loadAsanaSyncState } from '@/lib/tasks/asana-config'
 import { asanaWriteForBucket, bucketForCategory } from '@/lib/tasks/lifecycle'
 
 // =====================================================================
-// Dial8 → Asana status echo
+// Native Intelligence → Asana status echo
 //
-// The write half of two-way completion sync: when a Dial8 action moves to a new
+// The write half of two-way completion sync: when a Native Intelligence action moves to a new
 // workflow state, every Asana task linked to it is updated to match. (The read
-// half — Asana → Dial8 over a webhook — is Phase B.)
+// half — Asana → Native Intelligence over a webhook — is Phase B.)
 //
 // It rides the EXISTING `flow/entity.status_changed` event rather than minting
 // its own: that event is already the single choke point every status writer

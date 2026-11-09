@@ -72,7 +72,7 @@ export function blockedSiteForUrl(url: string | null | undefined, sites: readonl
 }
 
 /**
- * Dial8's own app (A5 review): the browser agent never reads or acts on it,
+ * Native Intelligence's own app (A5 review): the browser agent never reads or acts on it,
  * whatever the user's list says, so it can never click Approve on an approval
  * card (or settle anything else) for the person. Production, local dev, and
  * the app's configured origin.
@@ -85,9 +85,9 @@ export function appOwnSites(appUrl: string | undefined = process.env.NEXT_PUBLIC
   return [...new Set([...DIAL8_OWN_SITES, ...(configured ? [configured] : [])])]
 }
 
-/** What the agent is told on Dial8's own pages. */
+/** What the agent is told on Native Intelligence's own pages. */
 export function appSiteBlockedMessage(): string {
-  return "The agent can't read or act on Dial8's own pages: approvals and settings there are the person's to click. Tell the user to do it themselves."
+  return "The agent can't read or act on Native Intelligence's own pages: approvals and settings there are the person's to click. Tell the user to do it themselves."
 }
 
 /** Only well-formed entries, deduplicated, at most MAX_BLOCKED_SITES. */

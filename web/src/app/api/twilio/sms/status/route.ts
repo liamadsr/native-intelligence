@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic'
  * Public on purpose, as the inbound webhook: the X-Twilio-Signature is its
  * authentication (over TWILIO_WEBHOOK_URL + "/status" when a proxy rewrites
  * the host, as the callback URL itself is). A text carriers refused as from a
- * number not yet registered is resent from the Dial8 number
+ * number not yet registered is resent from the Native Intelligence number
  * (src/lib/sms/status.ts); everything else is ignored. 204 when handled.
  * Logs ids and outcomes only.
  */

@@ -1,5 +1,5 @@
 /**
- * What Dial8 learns from a person's chat is theirs (Liam, 2026-10-17;
+ * What Native Intelligence learns from a person's chat is theirs (Liam, 2026-10-17;
  * migration 353): the agent's knowledge tools show a claim known only from
  * someone else's chat to no one but them, and never show another person's
  * chat as evidence, a neighbour or a label, even on a claim that is shared

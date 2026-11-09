@@ -16,7 +16,7 @@
  *  - every query is workspace-scoped AND provider-scoped: an action may hold an
  *    asana, a jira and a linear link at once, so an unscoped read or delete
  *    would return or destroy the wrong one.
- *  - the unlink is Dial8-side ONLY — it never touches the Linear issue.
+ *  - the unlink is NI-side ONLY — it never touches the Linear issue.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -257,7 +257,7 @@ describe('DELETE /api/account/actions/[id]/linear/[linkId]', () => {
   })
 
   it('scopes the delete by link, action, PROVIDER and workspace', async () => {
-    // Every one of the four matters: without the provider filter a Dial8 user
+    // Every one of the four matters: without the provider filter a Native Intelligence user
     // tidying up a Linear chip could delete the action's Jira link instead.
     await DELETE(new Request('http://x', { method: 'DELETE' }), linkParams())
     expect(filterCols()).toEqual(['id', 'action_id', 'provider', 'workspace_id'])

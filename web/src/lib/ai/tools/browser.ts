@@ -217,7 +217,7 @@ export function createBrowserTools(
       // The person's open windows on this workspace show the live view (cloud-computer-mount.tsx); nothing runs in the sandbox.
       execute: async () => {
         await ringComputer({ userId, workspaceId }, 'browser-show')
-        return { success: true, message: 'Your browser is showing on the user’s open Dial8 windows.' }
+        return { success: true, message: 'Your browser is showing on the user’s open Native Intelligence windows.' }
       },
     }),
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# Dial8 Desktop — Production Release Script
+# Native Intelligence Desktop — Production Release Script
 #
-# Builds, signs, notarizes, and packages Dial8.app into a distributable DMG.
+# Builds, signs, notarizes, and packages Native Intelligence.app into a distributable DMG.
 #
 # Prerequisites:
 #   - Apple Developer Program membership
@@ -67,7 +67,7 @@ TAURI_DIR="$SCRIPT_DIR/src-tauri"
 TARGET_DIR="$TAURI_DIR/target"
 RELEASE_DIR="$TARGET_DIR/release"
 BUNDLE_DIR="$RELEASE_DIR/bundle/macos"
-APP_PATH="$BUNDLE_DIR/Dial8.app"
+APP_PATH="$BUNDLE_DIR/Native Intelligence.app"
 ENTITLEMENTS="$TAURI_DIR/entitlements.production.plist"
 TAURI_CONF="$TAURI_DIR/tauri.conf.json"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
@@ -272,7 +272,7 @@ with open('$TAURI_CONF', 'w') as f:
 else
     VERSION=$(python3 -c "import json; print(json.load(open('$TAURI_CONF'))['version'])")
 fi
-log "Building Dial8 v${VERSION}"
+log "Building Native Intelligence v${VERSION}"
 
 # Start the Windows build now, so it runs while this Mac builds.
 WINDOWS_OK=false
@@ -516,7 +516,7 @@ timestamp_retry codesign --force --options runtime \
 
 # Sign the app bundle with --deep as a safety net to catch anything missed,
 # then re-sign the main executable to ensure entitlements aren't stripped.
-log "Signing Dial8.app bundle..."
+log "Signing Native Intelligence.app bundle..."
 timestamp_retry codesign --force --deep --options runtime \
     --sign "$SIGNING_IDENTITY" \
     --timestamp \
@@ -684,7 +684,7 @@ rm -f "$DMG_PATH"
 TMP_DMG_DIR=$(mktemp -d)
 
 # Copy app (ditto preserves extended attributes including the notarization staple)
-ditto "$APP_PATH" "$TMP_DMG_DIR/Dial8.app"
+ditto "$APP_PATH" "$TMP_DMG_DIR/Native Intelligence.app"
 
 # Create Applications symlink
 ln -s /Applications "$TMP_DMG_DIR/Applications"
@@ -692,7 +692,7 @@ ln -s /Applications "$TMP_DMG_DIR/Applications"
 # Create the DMG
 log "Creating DMG..."
 hdiutil create \
-    -volname "Dial8" \
+    -volname "Native Intelligence" \
     -srcfolder "$TMP_DMG_DIR" \
     -ov \
     -format UDZO \
@@ -717,7 +717,7 @@ ok "DMG created: $DMG_PATH"
 
 # ─── Rebuild updater bundle from the final signed+notarized app ──────────────
 #
-# cargo tauri build creates Dial8.app.tar.gz BEFORE the release script re-signs
+# cargo tauri build creates its own "Native Intelligence.app.tar.gz" BEFORE the release script re-signs
 # with entitlements, injects plist keys, and notarizes. The auto-updater would
 # deliver the pre-re-signed version without entitlements. Rebuild it now.
 
@@ -730,7 +730,7 @@ rm -f "$UPDATER_BUNDLE" "$UPDATER_SIG"
 # Create tar.gz from the final app (same format Tauri uses)
 # COPYFILE_DISABLE=1 prevents macOS resource fork ._* files from being included,
 # which the Tauri updater can't unpack.
-COPYFILE_DISABLE=1 tar -czf "$UPDATER_BUNDLE" -C "$BUNDLE_DIR" "Dial8.app"
+COPYFILE_DISABLE=1 tar -czf "$UPDATER_BUNDLE" -C "$BUNDLE_DIR" "Native Intelligence.app"
 
 # Re-sign the updater bundle with the Tauri updater key
 if [ -f "$UPDATER_KEY_PATH" ]; then

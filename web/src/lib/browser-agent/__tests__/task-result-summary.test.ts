@@ -69,7 +69,7 @@ describe('compact browser task results', () => {
         summary: { decisionCalls: 0, usage: { complete: true } } })
   })
   it('keeps an actionable stop message without inventing provider usage', () => {
-    const message = 'example.com turns away browsers in the cloud, so this needs the user\'s Mac with Dial8 open.'
+    const message = 'example.com turns away browsers in the cloud, so this needs the user\'s Mac with Native Intelligence open.'
     expect(compactBrowserTaskResult({ ...base, status: 'escalate', reason: 'needs_your_mac', message, steps: 0, trace: [] }))
       .toMatchObject({ status: 'escalate', reason: 'needs_your_mac', message, steps: 0,
         summary: { decisionCalls: 0, usage: { unknownTokenCalls: 0, unknownCostCalls: 0, complete: true } } })

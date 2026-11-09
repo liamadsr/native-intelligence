@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Third-party notices for the Rust standard library in the Dial8 app binary.
+"""Third-party notices for the Rust standard library in the Native Intelligence app binary.
 
     rust_std.py [--manifest-dir DIR] [--target TRIPLE] OUT
 

@@ -28,11 +28,11 @@ export interface RevisionDetail extends RevisionSummary {
   frontmatter: unknown
 }
 
-/** Who a revision was by, in a word or two: "Dial8 (for Ana)", "Ana", "Dial8 (system)". */
+/** Who a revision was by, in a word or two: "Native Intelligence (for Ana)", "Ana", "Native Intelligence (system)". */
 export function describeRevisionAuthor(r: Pick<RevisionSummary, 'author_kind' | 'author_name'>): string {
   const name = r.author_name?.trim() || null
-  if (r.author_kind === 'agent') return name ? `Dial8 (for ${name})` : 'Dial8'
-  if (r.author_kind === 'system') return name ? `Dial8 (system, for ${name})` : 'Dial8 (system)'
+  if (r.author_kind === 'agent') return name ? `Native Intelligence (for ${name})` : 'Native Intelligence'
+  if (r.author_kind === 'system') return name ? `Native Intelligence (system, for ${name})` : 'Native Intelligence (system)'
   if (r.author_kind === 'human') return name ?? 'Someone'
   return name ? `${name} (before history)` : 'Before history'
 }

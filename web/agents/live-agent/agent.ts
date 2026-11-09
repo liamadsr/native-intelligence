@@ -24,7 +24,7 @@ import { COMPACTION_THRESHOLD_PERCENT } from './lib/model-policy.js'
  *
  * Model: WHICH model is the spec's (recipe override → the workspace's
  * 'live_agent' default), addressed as a Gateway catalog slug like every other
- * Dial8 eve agent; valid per-user telemetry turns it into the object selection
+ * Native Intelligence eve agent; valid per-user telemetry turns it into the object selection
  * form so Gateway BYOK/cost attribution reaches every generation. Resolved at
  * session.started — a live session IS one turn; step.started hands the same
  * choice back (a step resolver must return one).
@@ -63,7 +63,7 @@ export default defineAgent({
         if (spec?.chatgptPlan !== undefined) {
           const plan = validChatGptPlan(spec.chatgptPlan)
           if (!plan) {
-            throw new Error("[live-agent] the turn's spec names a ChatGPT plan this agent can't read — refusing to run it on Dial8's models")
+            throw new Error("[live-agent] the turn's spec names a ChatGPT plan this agent can't read — refusing to run it on Native Intelligence's models")
           }
           return { plan }
         }

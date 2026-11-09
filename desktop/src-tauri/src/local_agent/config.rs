@@ -244,7 +244,7 @@ pub async fn shell_probe(shell: &Path, timeout: Duration) -> Option<Probe> {
     }
 }
 
-/// The path of the Dial8 model relay under the app's API origin.
+/// The path of the Native Intelligence model relay under the app's API origin.
 pub const MODEL_RELAY_PATH: &str = "/api/local-agent/model";
 
 /// The model relay's base URL, built from the app's own API origin
@@ -298,7 +298,7 @@ pub struct LaunchEnv<'a> {
 }
 
 /// The launcher's environment, from scratch (contract §1). With a model
-/// token, the model goes through the Dial8 relay; without one (the dev page)
+/// token, the model goes through the Native Intelligence relay; without one (the dev page)
 /// a debug build falls back to the dev env file's gateway key.
 pub fn launcher_env(l: &LaunchConfig, e: LaunchEnv<'_>) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = [

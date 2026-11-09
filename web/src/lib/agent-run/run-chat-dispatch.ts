@@ -201,9 +201,9 @@ export interface LoopRunChatTarget {
   relay?: boolean
   /**
    * The person runs on their own ChatGPT plan now (the free tier): a run that
-   * started on Dial8's models is handed the plan's model, so the skill-runner
+   * started on Native Intelligence's models is handed the plan's model, so the skill-runner
    * moves its session onto the plan for this turn
-   * (planAwareSessionModelEvents) rather than bill Dial8.
+   * (planAwareSessionModelEvents) rather than bill Native Intelligence.
    */
   chatgptPlan?: boolean
 }

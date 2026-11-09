@@ -67,7 +67,7 @@ describe('one agent per folder, in its own words', () => {
     db.tables.local_agent_session[0].status = 'running'
     const out = await startAction()
     expect(out).toMatchObject({ status: 'skipped', code: 'FOLDER_BUSY' })
-    expect((out as { reason: string }).reason).toBe('Dial8 is already working in dial8-website on Liam’s MacBook. Wait for it to finish, or stop it, then press Start again.')
+    expect((out as { reason: string }).reason).toBe('Native Intelligence is already working in dial8-website on Liam’s MacBook. Wait for it to finish, or stop it, then press Start again.')
   })
 
   it('a running action job refuses the person’s start, naming it as one of their actions', async () => {

@@ -9,7 +9,7 @@
 /// a denied capture just delivers zero-filled buffers. So creating a tap (the
 /// old tap_helper_probe_permission) can never detect a denial. The only
 /// status/request API for this service is the private TCC framework, the same
-/// approach insidegui/AudioCap uses; Dial8 ships Developer ID + notarized (not
+/// approach insidegui/AudioCap uses; Native Intelligence ships Developer ID + notarized (not
 /// the App Store), so private API use is acceptable here.
 ///
 /// The framework is loaded with dlopen + dlsym (no link-time dependency), so a

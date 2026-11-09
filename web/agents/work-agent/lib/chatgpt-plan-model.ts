@@ -6,7 +6,7 @@
  * (src/app/api/internal/chatgpt-plan/v1/responses). The proxy checks the
  * agent's own run credentials, swaps in the person's plan token and applies
  * the plan route's rules. Nothing goes through the AI Gateway, so nothing is
- * billed to Dial8, and a spent plan is only an error.
+ * billed to Native Intelligence, and a spent plan is only an error.
  *
  * ONE FILE, COPIED: every eve agent that runs on a plan keeps a byte-identical
  * copy at lib/chatgpt-plan-model.ts (an agent bundles only its own folder);
@@ -110,7 +110,7 @@ export function chatgptPlanFromRunToken(runToken: string): boolean {
  * A chat turn's plan: the spec's when it carries a valid one; else, when the
  * spec failed (or carried one that didn't validate) and the run token says
  * the person runs on their plan, the fallback plan, so a spec outage never
- * lands a free user on a Gateway model Dial8 pays for; else null.
+ * lands a free user on a Gateway model Native Intelligence pays for; else null.
  */
 export function chatGptPlanForTurn(spec: { chatgptPlan?: unknown } | null, runToken: string): ChatGptPlan | null {
   const plan = validChatGptPlan(spec?.chatgptPlan)
@@ -154,7 +154,7 @@ export function planLanguageModel(model: string, proxy: PlanProxy) {
  * src/lib/chatgpt/plan-request.ts; tested on a real plan 10-22), and a safety
  * identifier, which the proxy strips. The cost: eve names its steps
  * `openai/<model>`, which the app reads as the plan's (planModelOfStep in
- * src/lib/chatgpt/plan-models.ts: no Gateway model Dial8 runs is a plan
+ * src/lib/chatgpt/plan-models.ts: no Gateway model Native Intelligence runs is a plan
  * model); the chat's usage meter maps them back first (planReportModelId).
  * eve reports a cost only for a Gateway call, so a plan step never has one.
  */
@@ -219,7 +219,7 @@ export interface PlanAwareSessionModel<S> {
   /**
    * The session's model, from its spec. Throws when there is none, so the
    * session fails closed; a spec that names a plan this module can't read
-   * must throw too, never fall back to a Gateway model Dial8 pays for.
+   * must throw too, never fall back to a Gateway model Native Intelligence pays for.
    */
   choose: (runToken: string) => Promise<SessionModelChoice<S>>
   /** This agent's proxy connection (its spec-client's chatGptPlanProxy). */
@@ -234,7 +234,7 @@ export interface PlanAwareSessionModel<S> {
  *   - session.started: the spec's choice, kept in session state;
  *   - turn.started: the kept choice. A later turn (a resume or a follow-up
  *     chat) reads the spec again first, so a person who is on their plan by
- *     now moves onto it. A plan session never moves back: it costs Dial8
+ *     now moves onto it. A plan session never moves back: it costs Native Intelligence
  *     nothing as it is;
  *   - step.started: on a plan, the live plan model through this agent's own
  *     proxy (the search model: the agent's web_search is OpenAI's own on the

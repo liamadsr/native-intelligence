@@ -21,7 +21,7 @@
  *    (lookups, Connect, Slack replies, a turn) runs after the response.
  *
  * Who is speaking is decided after that, from the team and user Slack put
- * in the event and what Dial8 holds (src/lib/slack/inbound.ts). This route
+ * in the event and what Native Intelligence holds (src/lib/slack/inbound.ts). This route
  * adds no trust check of its own beyond the three above.
  */
 import { after } from 'next/server'

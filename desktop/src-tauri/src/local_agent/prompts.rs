@@ -19,7 +19,7 @@
 //!   the prompt shows the realpath the person is actually allowing. Rust's
 //!   rules are at least as strict as the launcher's, all compared ignoring
 //!   case (APFS does), as written and as realpaths. Never readable:
-//!   - credentials, Dial8's data, `~/Library`, or a hidden entry at HOME's
+//!   - credentials, Native Intelligence's data, `~/Library`, or a hidden entry at HOME's
 //!     top (settings, history, tokens), nor where one really lives when it
 //!     is a symlink (a `~/.zshrc` kept in `~/dotfiles`), nor where an entry
 //!     of a credentials folder really lives (a `~/.aws/credentials` kept in
@@ -116,7 +116,7 @@ const OUTSIDE_HOME_REFUSED: &[&str] = &[
 pub const FENCE_READ_ONLY: &str =
     "fence grants are read-only: a local agent changes files only in its own copy, on the job's branch";
 
-/// Credentials and Dial8's own data under HOME: a fence never reaches them,
+/// Credentials and Native Intelligence's own data under HOME: a fence never reaches them,
 /// nor anything containing them (`~/.config` holds gh's token).
 const HOME_DENIED: &[&str] = &[
     ".ssh",
@@ -318,13 +318,13 @@ pub fn check_fence(ask: &FenceAsk, rules: &FenceRules<'_>) -> Result<PathBuf, St
         return refuse("it is part of macOS");
     }
     if rules.protected.iter().any(|p| overlaps(&f, p)) {
-        return refuse("it holds Dial8's own data");
+        return refuse("it holds Native Intelligence's own data");
     }
     if within(&f, &rules.home.join("Library")) && !within(&f, &rules.home.join(folder::ICLOUD_DRIVE)) {
         return refuse("your Library holds keychains, mail, browser and app data");
     }
     if HOME_DENIED.iter().any(|d| overlaps(&f, &rules.home.join(d))) {
-        return refuse("it holds credentials or Dial8's own data");
+        return refuse("it holds credentials or Native Intelligence's own data");
     }
     // Hidden entries at the top of HOME hold settings, history and
     // credentials: never read or written, nor where they really live (a
@@ -359,7 +359,7 @@ pub fn check_fence(ask: &FenceAsk, rules: &FenceRules<'_>) -> Result<PathBuf, St
                 .any(|q| overlaps(q, p) || overlaps(q, &real_p))
         });
         if runs {
-            return refuse("Dial8 runs programs or reads its config from there outside the sandbox");
+            return refuse("Native Intelligence runs programs or reads its config from there outside the sandbox");
         }
         if overlaps(&f, rules.own) || overlaps(&written, rules.own) {
             return refuse(
@@ -739,7 +739,7 @@ pub fn push_prompt(at: &PushWhere<'_>, ask: &PushAsk) -> NativePrompt {
             shown(at.repo.unwrap_or(at.remote), 80)
         ),
         body: format!(
-            "\u{201C}{}\u{201D}\n\nCommit {short}, from Dial8's agent in {}. This runs git push to {} with your \
+            "\u{201C}{}\u{201D}\n\nCommit {short}, from Native Intelligence's agent in {}. This runs git push to {} with your \
              own git login, and pushes {}.\n\n{}",
             shown(&ask.title, SHOWN_TITLE),
             shown(at.label, 60),
@@ -753,10 +753,10 @@ pub fn push_prompt(at: &PushWhere<'_>, ask: &PushAsk) -> NativePrompt {
     }
 }
 
-/// "Let Dial8's agent read <path>?" (fence grants are read-only).
+/// "Let Native Intelligence's agent read <path>?" (fence grants are read-only).
 pub fn fence_prompt(real: &Path, label: &str, reason: Option<&str>) -> NativePrompt {
     let path = shown(&real.display().to_string(), SHOWN_PATH);
-    let title = format!("Let Dial8's agent read {path}?");
+    let title = format!("Let Native Intelligence's agent read {path}?");
     let mut body = format!(
         "The local agent working in {} asked to read this; it can't change it. It lasts for this job only \
          and isn't added to your shared folders.",
@@ -813,15 +813,15 @@ pub fn worker_prompt(
         ),
         WorkerLaunch::Resume { message: None } => (
             "continue",
-            format!("Its task: {task}\n\nIt continues with a new message from Dial8."),
+            format!("Its task: {task}\n\nIt continues with a new message from Native Intelligence."),
         ),
     };
     NativePrompt {
         title: format!("Let {name} {verb} in {}?", shown(label, 60)),
         body: format!(
-            "A Dial8 cloud agent or one of your loops wants to run your own {name}, on your own account and with \
-             network access, in {}.\n\n{what}\n\nA yes also lets it run the follow-up messages Dial8 sends it for \
-             the next {}; then Dial8 asks again. With no answer within {}, it doesn't run.",
+            "A Native Intelligence cloud agent or one of your loops wants to run your own {name}, on your own account and with \
+             network access, in {}.\n\n{what}\n\nA yes also lets it run the follow-up messages Native Intelligence sends it for \
+             the next {}; then Native Intelligence asks again. With no answer within {}, it doesn't run.",
             shown(path, SHOWN_PATH),
             super::human(yes_for),
             super::human(wait)
@@ -1021,7 +1021,7 @@ mod tests {
         std::os::unix::fs::symlink(home.join(".ssh"), home.join("code/innocent")).unwrap();
         // Where Rust runs programs from: a tool PATH folder in HOME, the
         // app, and a git binary somewhere else.
-        for d in ["bin", "go/bin", "Apps/Dial8.app/Contents/Resources"] {
+        for d in ["bin", "go/bin", "Apps/Native Intelligence.app/Contents/Resources"] {
             std::fs::create_dir_all(home.join(d)).unwrap();
         }
         std::fs::write(home.join(".gitconfig"), "").unwrap();
@@ -1044,7 +1044,7 @@ mod tests {
         let never_write = vec![
             home.join("bin"),
             home.join("go/bin"),
-            home.join("Apps/Dial8.app"),
+            home.join("Apps/Native Intelligence.app"),
             home.join("tools/git"),
             PathBuf::from("/usr/bin"),
             home.join("code/proj/bin"),
@@ -1140,7 +1140,7 @@ mod tests {
             (home.join("go/bin/gh"), Access::Write),
             (home.join("tools"), Access::Write),
             (
-                home.join("Apps/Dial8.app/Contents/Resources/local-agent"),
+                home.join("Apps/Native Intelligence.app/Contents/Resources/local-agent"),
                 Access::Write,
             ),
             // …never shell or git config (hidden at the top of HOME)…
@@ -1372,7 +1372,7 @@ mod tests {
         );
 
         let f = fence_prompt(Path::new("/Users/x/code/lib"), "site", Some("shared types"));
-        assert_eq!(f.title, "Let Dial8's agent read /Users/x/code/lib?");
+        assert_eq!(f.title, "Let Native Intelligence's agent read /Users/x/code/lib?");
         assert!(f.body.contains("for this job only") && f.body.contains("isn't added to your shared folders"));
         assert!(f.body.contains("it can't change it"), "read-only: {}", f.body);
         assert!(f.body.ends_with("\u{201C}shared types\u{201D}"), "{}", f.body);
@@ -1498,9 +1498,9 @@ mod tests {
         assert_eq!(p.title, "Let Claude Code work in site?");
         assert_eq!(
             p.body,
-            "A Dial8 cloud agent or one of your loops wants to run your own Claude Code, on your own account and \
+            "A Native Intelligence cloud agent or one of your loops wants to run your own Claude Code, on your own account and \
              with network access, in /Users/x/code/site.\n\nIts task: \u{201C}Fix the login redirect\u{201D}\n\n\
-             A yes also lets it run the follow-up messages Dial8 sends it for the next 60 min; then Dial8 asks \
+             A yes also lets it run the follow-up messages Native Intelligence sends it for the next 60 min; then Native Intelligence asks \
              again. With no answer within 2 min, it doesn't run."
         );
         assert_eq!((p.allow.as_str(), p.deny.as_str()), ("Run Claude Code", WORKER_DENY));
@@ -1533,7 +1533,7 @@ mod tests {
             hour,
             Duration::from_secs(30),
         );
-        assert!(blind.body.contains("It continues with a new message from Dial8."), "{}", blind.body);
+        assert!(blind.body.contains("It continues with a new message from Native Intelligence."), "{}", blind.body);
         let long = worker_prompt(
             Worker::Codex,
             "s",

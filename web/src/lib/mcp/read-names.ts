@@ -1,5 +1,5 @@
 /**
- * Read-shaped tool names: the name classifier the Dial8 MCP guard falls back
+ * Read-shaped tool names: the name classifier the Native Intelligence MCP guard falls back
  * on (src/lib/mcp/guard.ts classifyToolAccess) for a tool neither the registry
  * nor the MCP-only map knows. Shared with the external-MCP approval policy
  * (src/lib/mcp-client/approval-policy.ts), which applies it to a connected
@@ -28,7 +28,7 @@ export function isReadShapedName(name: string): boolean {
  * others: list_issues, search-code), so the external approval policy
  * (src/lib/mcp-client/approval-policy.ts) accepts each verb on its own, or
  * followed by `_`, `-`, `.`, `:`, or a capital letter or digit (camelCase).
- * Kept apart from READ_NAME_PATTERNS, which classify Dial8's own tools for
+ * Kept apart from READ_NAME_PATTERNS, which classify Native Intelligence's own tools for
  * the MCP guard.
  */
 const EXTERNAL_READ_VERBS = [

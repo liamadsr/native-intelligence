@@ -116,7 +116,7 @@ export function turnRunKey(sessionId: string, turn: number): string {
   return `local_agent:${sessionId}:${turn}`
 }
 
-/** "Dial8 on Liam's MacBook Pro · dial8-website: Take a look at this repository" (the teammate, C4) */
+/** "Native Intelligence on Liam's MacBook Pro · dial8-website: Take a look at this repository" (the teammate, C4) */
 export function turnTitle(deviceName: string, folderLabel: string, text: string): string {
   const prefix = `${macTeammateName(oneLine(deviceName, 80))} · `
   const label = oneLine(folderLabel, 80) || 'a folder'
@@ -151,7 +151,7 @@ export function stepFromTool(name: string, input: string): string {
   return oneLine(arg ? `${verb} ${arg}` : verb, STEP_MAX)
 }
 
-/** The summary the Dial8 agent gets, capped. */
+/** The summary the Native Intelligence agent gets, capped. */
 export function reportText(text: string | null | undefined): string {
   const t = (text ?? '').trim()
   return t.length > REPORT_TEXT_MAX ? `${t.slice(0, REPORT_TEXT_MAX - 1).trimEnd()}…` : t

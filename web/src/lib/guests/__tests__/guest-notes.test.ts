@@ -17,7 +17,7 @@ const note = (over: Record<string, unknown> = {}, data: Record<string, unknown> 
       type: 'data-guest-message',
       data: {
         guest: { id: 'g-jess', name: 'Jess (Wife)', preset: 'family', channel: 'sms', conversation_id: 'conv-jess' },
-        text: "Jess set up your workout schedule and it's waiting on your approval in Dial8.",
+        text: "Jess set up your workout schedule and it's waiting on your approval in Native Intelligence.",
         urgent: false,
         at: '2026-11-02T13:04:51Z',
         ...data,

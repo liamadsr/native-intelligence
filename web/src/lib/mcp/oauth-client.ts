@@ -109,7 +109,7 @@ export async function checkMcpClient(
   }
   let client: McpOAuthClient
   if (isMetadataClientId(clientId)) {
-    if (!opts.requester) return { ok: false, error: 'invalid_client', description: 'Sign in to Dial8 first' }
+    if (!opts.requester) return { ok: false, error: 'invalid_client', description: 'Sign in to Native Intelligence first' }
     // Never a stored row: the document as it is now (or as cached under its
     // own Cache-Control), so a redirect URI it dropped is refused at once.
     const resolved = await resolveClientMetadata(clientId, {

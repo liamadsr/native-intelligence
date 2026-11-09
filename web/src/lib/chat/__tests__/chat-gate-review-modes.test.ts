@@ -4,7 +4,7 @@
  * ACTION_REVIEW_MODE's default (L5): everything that runs today stays shadow,
  * the Mac body is enforced. Only Jev and the approval writer are stubbed.
  *   - a typed main-chat turn, a relayed turn: the call runs, no card;
- *   - a call from the Dial8 agent on the Mac (mustEnforce, its job named):
+ *   - a call from the Native Intelligence agent on the Mac (mustEnforce, its job named):
  *     held, its card at home;
  *   - blocking: the typed turn is held too.
  */
@@ -49,7 +49,7 @@ describe('the default mode at the shared chat gate', () => {
     expect(approvals.create).not.toHaveBeenCalled()
   })
 
-  it('a call from the Dial8 agent on the Mac is held, its card at home naming the Mac', async () => {
+  it('a call from the Native Intelligence agent on the Mac is held, its card at home naming the Mac', async () => {
     const run = vi.fn(async () => 'ran')
     const mac = ctx({
       caller: 'person_remote',
@@ -63,7 +63,7 @@ describe('the default mode at the shared chat gate', () => {
     expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED' } })
     expect(approvals.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       conversationId: null,
-      card: expect.objectContaining({ title: 'Approve delete_action from Dial8 on Liam’s MacBook?' }),
+      card: expect.objectContaining({ title: 'Approve delete_action from Native Intelligence on Liam’s MacBook?' }),
     }))
   })
 

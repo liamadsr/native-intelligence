@@ -14,9 +14,9 @@ import { parseLensUpdate } from '@/lib/tasks/task-lens'
 /**
  * DELETE /api/account/actions/[id]/jira/[linkId] — Unlink a Jira issue.
  *
- * Dial8-side ONLY: this drops the link row so the action stops echoing status
+ * NI-side ONLY: this drops the link row so the action stops echoing status
  * changes. The Jira issue itself is never touched — deleting someone's issue out
- * from under them because a Dial8 user tidied up a panel would be unrecoverable
+ * from under them because a Native Intelligence user tidied up a panel would be unrecoverable
  * (and, in most real Jira instances, wouldn't even be permitted).
  */
 export async function DELETE(
@@ -54,7 +54,7 @@ export async function DELETE(
  * already established for the compose panel, applied to edits. See parseLensUpdate.
  *
  * WHAT THIS DELIBERATELY CANNOT WRITE, and why:
- *  - STATUS. It already has an owner — the Dial8→Jira echo, which resolves a
+ *  - STATUS. It already has an owner — the Native Intelligence→Jira echo, which resolves a
  *    transition against the issue's live workflow graph — and a second write path
  *    would race the CAS the webhook read-back uses as its loop-breaker.
  *  - PROJECT and ISSUE TYPE. Both are identifier-rewriting, wizard-driven Jira

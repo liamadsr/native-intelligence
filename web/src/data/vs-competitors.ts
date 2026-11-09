@@ -70,7 +70,7 @@ export interface Competitor {
   faqs: Faq[]
 }
 
-// Dial8's own facts, verified against pricing/page copy in this repo. Reused as
+// Native Intelligence's own facts, verified against pricing/page copy in this repo. Reused as
 // the left column across every comparison so the story stays consistent.
 const DIAL8 = {
   startingPrice: '14-day free trial, then $99 per user / month (Pro)',
@@ -80,7 +80,7 @@ const DIAL8 = {
   capture: 'Bot-free — the desktop app captures audio locally; nothing joins the call',
 }
 
-// Rows that describe Dial8 and are identical across every competitor. The
+// Rows that describe Native Intelligence and are identical across every competitor. The
 // competitor cell is filled in per-vendor below.
 type SharedRowKey =
   | 'botFree'
@@ -157,7 +157,7 @@ function row(key: SharedRowKey, competitor: Cell): MatrixRow {
   return { feature: base.feature, detail: base.detail, dial8: base.dial8, competitor }
 }
 
-// What Dial8 argues it does that notetakers stop short of. Shared across pages
+// What Native Intelligence argues it does that notetakers stop short of. Shared across pages
 // because the structural difference is the same regardless of competitor.
 export const DIAL8_STRENGTHS: { title: string; body: string }[] = [
   {
@@ -170,7 +170,7 @@ export const DIAL8_STRENGTHS: { title: string; body: string }[] = [
   },
   {
     title: 'Agents that actually do the work',
-    body: 'Dial8 hands actions to AI agents that execute — writing code, opening pull requests, drafting documents — with the full context of the meeting that created the task.',
+    body: 'Native Intelligence hands actions to AI agents that execute — writing code, opening pull requests, drafting documents — with the full context of the meeting that created the task.',
   },
   {
     title: 'One knowledge graph, open over MCP',
@@ -184,14 +184,14 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     name: 'Granola',
     site: 'https://www.granola.ai',
     tagline: 'the polished, bot-free AI notepad for meetings',
-    metaTitle: 'Dial8 vs Granola: notes vs. work that ships (2026)',
+    metaTitle: 'Native Intelligence vs Granola: notes vs. work that ships (2026)',
     metaDescription:
-      'Granola takes beautiful bot-free meeting notes. Dial8 turns those meetings into tracked tasks, live projects, a self-updating CRM, and agents that execute.',
+      'Granola takes beautiful bot-free meeting notes. Native Intelligence turns those meetings into tracked tasks, live projects, a self-updating CRM, and agents that execute.',
     verdict:
-      'Granola is genuinely excellent at what it does: bot-free, beautifully designed AI notes that feel effortless, plus an AI chat that already knows your meetings, and integrations that push into tools like HubSpot and Attio. The difference is architectural. In Granola the meeting output is a note and a chat you export from; with Dial8 the meeting output is the tracker — action items become tracked tasks with identifiers and boards, projects and a native CRM update themselves, and agents pick up the work, all in the same system.',
+      'Granola is genuinely excellent at what it does: bot-free, beautifully designed AI notes that feel effortless, plus an AI chat that already knows your meetings, and integrations that push into tools like HubSpot and Attio. The difference is architectural. In Granola the meeting output is a note and a chat you export from; with Native Intelligence the meeting output is the tracker — action items become tracked tasks with identifiers and boards, projects and a native CRM update themselves, and agents pick up the work, all in the same system.',
     startingPrice: 'Free, then $14 per user / month (Business, monthly), per their published pricing (July 2026)',
     platforms: 'macOS desktop app, with a mobile app for phone calls',
-    capture: 'Bot-free — captures audio locally, like Dial8',
+    capture: 'Bot-free — captures audio locally, like Native Intelligence',
     matrix: [
       row('botFree', true),
       row('transcription', true),
@@ -213,7 +213,7 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
       },
       {
         title: 'A polished mobile app',
-        body: 'Granola’s mobile app for in-person and phone conversations is mature and widely used. Dial8 ships an iOS app as well, but Granola’s mobile experience has had longer to bake.',
+        body: 'Granola’s mobile app for in-person and phone conversations is mature and widely used. Native Intelligence ships an iOS app as well, but Granola’s mobile experience has had longer to bake.',
       },
       {
         title: 'A focused, mature note-and-chat product',
@@ -223,19 +223,19 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     faqs: [
       {
         q: 'Does Granola create tasks from meetings?',
-        a: 'Granola extracts and organizes notes and lets you chat with them, but it does not have a built-in task tracker with identifiers, boards, and cycles. It relies on integrations to push items into other tools. Dial8 turns action items into tracked work inside the same system.',
+        a: 'Granola extracts and organizes notes and lets you chat with them, but it does not have a built-in task tracker with identifiers, boards, and cycles. It relies on integrations to push items into other tools. Native Intelligence turns action items into tracked work inside the same system.',
       },
       {
-        q: 'Does Dial8 use a meeting bot?',
-        a: 'No. Like Granola, Dial8 captures audio locally through its macOS desktop app — nothing joins your call as a participant.',
+        q: 'Does Native Intelligence use a meeting bot?',
+        a: 'No. Like Granola, Native Intelligence captures audio locally through its macOS desktop app — nothing joins your call as a participant.',
       },
       {
         q: 'Can Granola update my project status or CRM automatically?',
-        a: 'Granola focuses on notes and chat and integrates with tools like HubSpot and Attio, but it does not maintain live projects or a self-updating CRM. In Dial8, conversations update project status and contact history on their own.',
+        a: 'Granola focuses on notes and chat and integrates with tools like HubSpot and Attio, but it does not maintain live projects or a self-updating CRM. In Native Intelligence, conversations update project status and contact history on their own.',
       },
       {
         q: 'Which should I choose?',
-        a: 'If you want the most polished bot-free notepad and chat, Granola is a great pick. If you want meetings to feed a task system, live projects, a CRM, and agents that execute the work, that is what Dial8 is built for.',
+        a: 'If you want the most polished bot-free notepad and chat, Granola is a great pick. If you want meetings to feed a task system, live projects, a CRM, and agents that execute the work, that is what Native Intelligence is built for.',
       },
     ],
   },
@@ -245,11 +245,11 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     name: 'Fathom',
     site: 'https://www.fathom.ai',
     tagline: 'the free-friendly AI notetaker with strong CRM sync',
-    metaTitle: 'Dial8 vs Fathom: notes vs. executed work (2026)',
+    metaTitle: 'Native Intelligence vs Fathom: notes vs. executed work (2026)',
     metaDescription:
-      'Fathom is a generous AI notetaker with clean CRM sync. Dial8 turns meetings into tracked tasks, live projects, a native CRM, and agents that execute the work.',
+      'Fathom is a generous AI notetaker with clean CRM sync. Native Intelligence turns meetings into tracked tasks, live projects, a native CRM, and agents that execute the work.',
     verdict:
-      'Fathom is a genuinely strong notetaker — a usable free tier, clean AI summaries, action items, follow-up emails, reliable CRM syncing into HubSpot and Salesforce, and action-item push into task tools like Asana. The difference is architectural: those are exports out of a notes product. With Dial8 the meeting output is the tracker — the same meeting becomes tracked tasks with identifiers and boards, projects and a native CRM stay current on their own, and actions go to agents that execute — all in one system, with nothing to route into afterward.',
+      'Fathom is a genuinely strong notetaker — a usable free tier, clean AI summaries, action items, follow-up emails, reliable CRM syncing into HubSpot and Salesforce, and action-item push into task tools like Asana. The difference is architectural: those are exports out of a notes product. With Native Intelligence the meeting output is the tracker — the same meeting becomes tracked tasks with identifiers and boards, projects and a native CRM stay current on their own, and actions go to agents that execute — all in one system, with nothing to route into afterward.',
     startingPrice: 'Free tier, then Premium at $20/user/mo (monthly), per their published pricing (July 2026)',
     platforms: 'Web plus a Mac desktop app; bot-free capture is in beta on Mac',
     capture: 'Bot by default, with bot-free capture in beta on Mac',
@@ -284,19 +284,19 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     faqs: [
       {
         q: 'Does Fathom create tasks from meetings?',
-        a: 'Fathom extracts AI action items into your notes, can send follow-up emails, and pushes action items into task tools like Asana, but it does not include its own built-in task tracker with identifiers, boards, and cycles. Dial8 turns action items into tracked work inside the same system, with nothing to route into afterward.',
+        a: 'Fathom extracts AI action items into your notes, can send follow-up emails, and pushes action items into task tools like Asana, but it does not include its own built-in task tracker with identifiers, boards, and cycles. Native Intelligence turns action items into tracked work inside the same system, with nothing to route into afterward.',
       },
       {
         q: 'Does Fathom use a meeting bot?',
-        a: 'By default Fathom sends a visible bot to join your call, though it has a bot-free capture mode in beta on Mac. Dial8 is bot-free by design — its desktop app captures audio locally and nothing joins the call.',
+        a: 'By default Fathom sends a visible bot to join your call, though it has a bot-free capture mode in beta on Mac. Native Intelligence is bot-free by design — its desktop app captures audio locally and nothing joins the call.',
       },
       {
-        q: 'Does Dial8 sync to my CRM like Fathom?',
-        a: 'Dial8 has a native CRM that updates itself from calls — contacts, companies, and interaction history — rather than only syncing fields into a third-party CRM. If you are committed to HubSpot or Salesforce, Fathom’s sync is a strength.',
+        q: 'Does Native Intelligence sync to my CRM like Fathom?',
+        a: 'Native Intelligence has a native CRM that updates itself from calls — contacts, companies, and interaction history — rather than only syncing fields into a third-party CRM. If you are committed to HubSpot or Salesforce, Fathom’s sync is a strength.',
       },
       {
         q: 'Which should I choose?',
-        a: 'For a generous notetaker with clean CRM sync, Fathom is a strong pick. If you want meetings to become tracked tasks, live projects, and work that agents execute, Dial8 is built for that loop.',
+        a: 'For a generous notetaker with clean CRM sync, Fathom is a strong pick. If you want meetings to become tracked tasks, live projects, and work that agents execute, Native Intelligence is built for that loop.',
       },
     ],
   },
@@ -306,11 +306,11 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     name: 'Otter.ai',
     site: 'https://otter.ai',
     tagline: 'the established transcription platform with sales agents',
-    metaTitle: 'Dial8 vs Otter.ai: transcripts vs. tracked work (2026)',
+    metaTitle: 'Native Intelligence vs Otter.ai: transcripts vs. tracked work (2026)',
     metaDescription:
-      'Otter.ai is a mature transcription platform with sales agents. Dial8 turns meetings into tracked tasks, live projects, a CRM, and agents that execute.',
+      'Otter.ai is a mature transcription platform with sales agents. Native Intelligence turns meetings into tracked tasks, live projects, a CRM, and agents that execute.',
     verdict:
-      'Otter.ai is a mature, widely adopted platform with excellent live transcription, broad app coverage, and a growing suite of domain agents like its SDR and sales notetaker agents. Where it differs from Dial8 is scope. Otter is built around the transcript and specialized sales workflows; Dial8 is built around the whole loop — turning any meeting into tracked tasks with identifiers and boards, keeping projects and CRM current, and running general agents that execute code, PRs, and docs.',
+      'Otter.ai is a mature, widely adopted platform with excellent live transcription, broad app coverage, and a growing suite of domain agents like its SDR and sales notetaker agents. Where it differs from Native Intelligence is scope. Otter is built around the transcript and specialized sales workflows; Native Intelligence is built around the whole loop — turning any meeting into tracked tasks with identifiers and boards, keeping projects and CRM current, and running general agents that execute code, PRs, and docs.',
     startingPrice: 'Free (300 min/mo), then Pro at $16.99/user/mo (monthly), per their published pricing (July 2026)',
     platforms: 'macOS, Windows, web, iOS, Android, and a Chrome extension',
     capture: 'Uses a meeting bot (OtterPilot) that joins Zoom, Teams, and Meet',
@@ -331,7 +331,7 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     theirStrengths: [
       {
         title: 'Broad platform coverage',
-        body: 'Otter runs on Mac, Windows, web, iOS, Android, and Chrome. Dial8 covers macOS, iOS, and web (Windows is waitlist-only), so if you need Windows or Android today, Otter’s reach is wider.',
+        body: 'Otter runs on Mac, Windows, web, iOS, Android, and Chrome. Native Intelligence covers macOS, iOS, and web (Windows is waitlist-only), so if you need Windows or Android today, Otter’s reach is wider.',
       },
       {
         title: 'Mature, reliable transcription',
@@ -345,19 +345,19 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     faqs: [
       {
         q: 'Does Otter.ai create tasks from meetings?',
-        a: 'Otter surfaces action items in its notes and offers sales-focused agents, but it does not include a built-in task tracker with identifiers, boards, and cycles. Dial8 turns action items into tracked work in the same system.',
+        a: 'Otter surfaces action items in its notes and offers sales-focused agents, but it does not include a built-in task tracker with identifiers, boards, and cycles. Native Intelligence turns action items into tracked work in the same system.',
       },
       {
-        q: 'Does Dial8 use a meeting bot like Otter?',
-        a: 'No. Otter uses the OtterPilot bot, which joins your Zoom, Teams, or Meet call as a participant. Dial8 captures audio locally through its desktop app — nothing joins the call.',
+        q: 'Does Native Intelligence use a meeting bot like Otter?',
+        a: 'No. Otter uses the OtterPilot bot, which joins your Zoom, Teams, or Meet call as a participant. Native Intelligence captures audio locally through its desktop app — nothing joins the call.',
       },
       {
-        q: 'Otter has AI agents — how is Dial8 different?',
-        a: 'Otter’s agents are domain-specific for sales — running demos, qualifying leads, and taking sales notes. Dial8’s agents are general executors: they take an action from a meeting and write code, open pull requests, or draft documents with the full meeting context.',
+        q: 'Otter has AI agents — how is Native Intelligence different?',
+        a: 'Otter’s agents are domain-specific for sales — running demos, qualifying leads, and taking sales notes. Native Intelligence’s agents are general executors: they take an action from a meeting and write code, open pull requests, or draft documents with the full meeting context.',
       },
       {
         q: 'Which should I choose?',
-        a: 'For broad platform coverage, mature transcription, and sales-agent workflows, Otter is a solid choice. If you want meetings to become tracked tasks, live projects, a self-updating CRM, and general agents that execute, that is Dial8.',
+        a: 'For broad platform coverage, mature transcription, and sales-agent workflows, Otter is a solid choice. If you want meetings to become tracked tasks, live projects, a self-updating CRM, and general agents that execute, that is Native Intelligence.',
       },
     ],
   },
@@ -367,11 +367,11 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     name: 'Fireflies.ai',
     site: 'https://fireflies.ai',
     tagline: 'the integration-rich meeting assistant with a bot',
-    metaTitle: 'Dial8 vs Fireflies.ai: notes vs. tracked work (2026)',
+    metaTitle: 'Native Intelligence vs Fireflies.ai: notes vs. tracked work (2026)',
     metaDescription:
-      'Fireflies.ai is an integration-rich meeting assistant. Dial8 turns meetings into tracked tasks, live projects, a native CRM, and agents that execute.',
+      'Fireflies.ai is an integration-rich meeting assistant. Native Intelligence turns meetings into tracked tasks, live projects, a native CRM, and agents that execute.',
     verdict:
-      'Fireflies.ai is a capable, integration-heavy meeting assistant — unlimited transcription and summaries, an action-item feature, AskFred search, and a deep catalog of integrations that push tasks into tools like Asana, Jira, and Trello. The structural difference is where the work lives. Fireflies extracts items and hands them off to other systems; Dial8 keeps the whole loop in one place — tracked tasks with identifiers and boards, live projects, a native CRM that updates from calls, and agents that execute the work.',
+      'Fireflies.ai is a capable, integration-heavy meeting assistant — unlimited transcription and summaries, an action-item feature, AskFred search, and a deep catalog of integrations that push tasks into tools like Asana, Jira, and Trello. The structural difference is where the work lives. Fireflies extracts items and hands them off to other systems; Native Intelligence keeps the whole loop in one place — tracked tasks with identifiers and boards, live projects, a native CRM that updates from calls, and agents that execute the work.',
     startingPrice: 'Free, then Pro at $10/user/mo (billed annually), per their published pricing (July 2026)',
     platforms: 'macOS, Windows, web, iOS, Android, and a Chrome extension',
     capture: 'Uses the Fred bot to auto-join calendar meetings',
@@ -406,19 +406,19 @@ export const COMPETITORS: Record<CompetitorSlug, Competitor> = {
     faqs: [
       {
         q: 'Does Fireflies.ai create tasks from meetings?',
-        a: 'Fireflies extracts action items and can push them into external tools like Asana, Jira, and Trello, but it does not have a built-in task tracker with identifiers, boards, and cycles. Dial8 keeps the tracked task system inside the same product.',
+        a: 'Fireflies extracts action items and can push them into external tools like Asana, Jira, and Trello, but it does not have a built-in task tracker with identifiers, boards, and cycles. Native Intelligence keeps the tracked task system inside the same product.',
       },
       {
         q: 'Does Fireflies use a meeting bot?',
-        a: 'Yes. Fireflies uses the Fred bot, which auto-joins your calendar meetings as a participant. Dial8 is bot-free — its desktop app captures audio locally and nothing joins the call.',
+        a: 'Yes. Fireflies uses the Fred bot, which auto-joins your calendar meetings as a participant. Native Intelligence is bot-free — its desktop app captures audio locally and nothing joins the call.',
       },
       {
-        q: 'Fireflies integrates with my PM tools — why would I want Dial8’s tracker?',
-        a: 'Integrations move an item into another system where it lives separately from the meeting. Dial8 keeps the task, the meeting that created it, the project it belongs to, and the agent that can execute it in one connected workspace.',
+        q: 'Fireflies integrates with my PM tools — why would I want Native Intelligence’s tracker?',
+        a: 'Integrations move an item into another system where it lives separately from the meeting. Native Intelligence keeps the task, the meeting that created it, the project it belongs to, and the agent that can execute it in one connected workspace.',
       },
       {
         q: 'Which should I choose?',
-        a: 'If you want the widest set of integrations and to keep work in your existing PM tools, Fireflies is a strong fit. If you want meetings to become tracked work, live projects, a CRM, and executed output in one system, choose Dial8.',
+        a: 'If you want the widest set of integrations and to keep work in your existing PM tools, Fireflies is a strong fit. If you want meetings to become tracked work, live projects, a CRM, and executed output in one system, choose Native Intelligence.',
       },
     ],
   },

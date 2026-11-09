@@ -424,8 +424,8 @@ fn make_agent_hud_overlay(window: &tauri::WebviewWindow) {
 
 /// Show the HUD without taking the keyboard. tao's show is
 /// makeKeyAndOrderFront, and the HUD is a panel that can become key without
-/// activating Dial8, so a plain show would pull the user's typing out of their
-/// call app or Dial8's main window. A plain show off macOS.
+/// activating Native Intelligence, so a plain show would pull the user's typing out of their
+/// call app or Native Intelligence's main window. A plain show off macOS.
 fn show_agent_hud_window(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
@@ -673,7 +673,7 @@ pub fn show_agent_hud(app: AppHandle) {
 
 /// Make sure the live-agent HUD is up (see ensure_agent_hud_inner), for the
 /// relay hook to call whenever the HUD should be on screen: as each nudge
-/// arrives, when the user comes back to Dial8, and on a slow heartbeat. So a
+/// arrives, when the user comes back to Native Intelligence, and on a slow heartbeat. So a
 /// HUD that went missing mid-call comes back by itself instead of only on an
 /// app restart. Returns what it did: "visible", "restored", "created" or
 /// "recreating", for the HUD's analytics.
@@ -731,7 +731,7 @@ pub(crate) fn on_agent_hud_page_load_started() {
 /// starts clean. Do NOT call this on a mere refocus: closing forces a full
 /// window recreate (page reload + ~800ms show delay + agent_hud_ready
 /// re-handshake) and loses buffered nudges. Use hide_agent_hud_transient for
-/// the "user came back to Dial8" case.
+/// the "user came back to Native Intelligence" case.
 #[tauri::command]
 pub fn hide_agent_hud(app: AppHandle) {
     // The page is gone — stop emitting to it and drop any buffered nudges so the
@@ -786,7 +786,7 @@ pub fn get_agent_hud_capture_visible() -> bool {
 }
 
 /// Transiently HIDE the live-agent HUD without destroying it — for the
-/// "user refocused Dial8" case. The webview stays loaded and the nudge buffer +
+/// "user refocused Native Intelligence" case. The webview stays loaded and the nudge buffer +
 /// ready flag are PRESERVED, so a later show_agent_hud brings the same window
 /// (with its history) straight back with no reload or re-handshake. This is
 /// what makes hide-on-refocus / show-on-reblur cheap and lossless.

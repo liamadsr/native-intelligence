@@ -376,7 +376,7 @@ export async function ensureJiraWebhook(args: {
   //
   // NOTE we delete ONLY our own stored id, never every webhook on this site
   // pointing at our receiver URL. `GET /webhook` is scoped to (app, USER,
-  // tenant), and one Atlassian user can legitimately be connected to two Dial8
+  // tenant), and one Atlassian user can legitimately be connected to two Native Intelligence
   // workspaces — each with its own registration, each delivering to the same
   // global URL. A "sweep everything that looks like ours" convergence would
   // silently unregister the other workspace.

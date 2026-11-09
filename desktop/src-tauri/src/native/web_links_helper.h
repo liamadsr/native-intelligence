@@ -1,6 +1,6 @@
 /// C-callable helper for the desktop Google sign-in: an
 /// ASWebAuthenticationSession (`web_links_auth_session_start`). It runs the
-/// sign-in page in the system's web-authentication sheet over the Dial8 window
+/// sign-in page in the system's web-authentication sheet over the Native Intelligence window
 /// and catches the `dial8desktop://` callback itself, so the code comes back as
 /// the session's result (see commands/auth_session.rs).
 

@@ -202,7 +202,7 @@ describe('companyWords', () => {
             // The user's own address is one of the company's, so every thread of theirs matches.
             recent_email_threads: threads,
           },
-          { name: 'Dial8', industry: 'Software', description: 'Meetings, projects and CRM in one workspace.' },
+          { name: 'Native Intelligence', industry: 'Software', description: 'Meetings, projects and CRM in one workspace.' },
         ),
         { is_workspace_company: true, metadata: null },
         new Set(['act-mine']),
@@ -210,7 +210,7 @@ describe('companyWords', () => {
 
     const quote = thread({ id: 't-out', subject: 'Quote for 40 seats', from_email: 'buyer@bigco.com' })
     expect(dial8([thread({ id: 't-sam', subject: 'Launch plan', from_email: 'sam@dial8.ai' }), quote])).toEqual([
-      'Dial8, your own company.',
+      'Native Intelligence, your own company.',
       'Meetings, projects and CRM in one workspace.',
       'Two actions are open with people there, one of them yours.',
       'Ship the listen briefs, assigned to you.',

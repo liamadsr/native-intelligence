@@ -1,6 +1,6 @@
 /**
- * Settings › Dial8 MCP's per-app install paths (connect-clients.ts): the
- * one-click links carry exactly Dial8's server in each app's own format, and
+ * Settings › Native Intelligence MCP's per-app install paths (connect-clients.ts): the
+ * one-click links carry exactly Native Intelligence's server in each app's own format, and
  * the commands and config snippets name it the same way.
  */
 import { describe, it, expect } from 'vitest'

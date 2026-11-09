@@ -83,7 +83,7 @@ export async function registerTools(
   registerGitHubTools(server, userId, supabase, workspaceId, workspaceName)
 
   // Register Library tools (Skills, Agents, Meeting Types CRUD).
-  // Lets external Claude/OpenAI clients author Dial8 library items.
+  // Lets external Claude/OpenAI clients author Native Intelligence library items.
   // Creates default to visibility='personal' for safety.
   registerLibraryTools(server, userId, supabase, workspaceId, workspaceName)
 
@@ -192,7 +192,7 @@ export async function registerTools(
 
     if (!toolDef.execute) continue
 
-    const description = toolDef.description || `Dial8 tool: ${name}`
+    const description = toolDef.description || `Native Intelligence tool: ${name}`
     const zodShape = toolDef.inputSchema?.shape
 
     const execute = toolDef.execute

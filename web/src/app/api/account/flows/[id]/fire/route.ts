@@ -120,7 +120,7 @@ export async function POST(
     }
     if (triggerType === 'capture_processed') {
       // Synthetic capture so {{capture.*}} tokens render in the test.
-      extras.capture = { id: SYNTH_ID, title: 'Test fire from Dial8' }
+      extras.capture = { id: SYNTH_ID, title: 'Test fire from Native Intelligence' }
     }
   } else {
     // A PR loop fires against its linked action, with the PR state it waits

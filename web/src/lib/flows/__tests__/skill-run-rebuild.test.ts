@@ -283,7 +283,7 @@ describe("rebuildEveSpec on the person's own ChatGPT plan (the free tier)", () =
     expect(rebuilt!.ceilingTools.length).toBeGreaterThan(0)
   })
 
-  it('a Fast skill thinks less on the plan, as it does on Dial8', async () => {
+  it('a Fast skill thinks less on the plan, as it does on Native Intelligence', async () => {
     RECIPE.agent_config.model_tier = 'fast'
     try {
       expect((await rebuildEveSpec(claims({ model: 'chatgpt-plan/gpt-6-luna' })))!.chatgptPlan!.reasoning).toBe('low')

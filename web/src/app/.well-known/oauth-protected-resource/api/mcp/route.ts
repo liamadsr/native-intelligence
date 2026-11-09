@@ -13,7 +13,7 @@ export async function GET() {
     resource: `${baseUrl}/api/mcp`,
     authorization_servers: [baseUrl],
     scopes_supported: ['read', 'write'],
-    resource_name: 'Dial8 MCP Server',
+    resource_name: 'Native Intelligence MCP Server',
     resource_documentation: `${baseUrl}/docs/mcp`,
   })
 }

@@ -1,7 +1,7 @@
 //! Desktop Google and ChatGPT sign-in in an ASWebAuthenticationSession.
 //!
 //! The sign-in page runs in the system's web-authentication sheet over the
-//! calling Dial8 window (native/web_links_helper.m), and the session catches
+//! calling Native Intelligence window (native/web_links_helper.m), and the session catches
 //! the `dial8desktop://` callback itself, so the callback URL comes back as this
 //! command's result instead of as an OS deep link. The web login form falls
 //! back to opening the page with the opener when this command is missing.
@@ -31,7 +31,7 @@ extern "C" {
 
 /// The pages a sign-in session may start on, as (host, path): Supabase's
 /// authorize endpoint (Google sign-in through Supabase, login-form.tsx), and
-/// Dial8's own Google and ChatGPT sign-ins (`/auth/google`, `/auth/chatgpt`).
+/// Native Intelligence's own Google and ChatGPT sign-ins (`/auth/google`, `/auth/chatgpt`).
 /// The web uses `/auth/google` once its Google client is configured
 /// (src/lib/auth/google-sign-in.ts), so the person never sees the Supabase
 /// project's URL; it falls back to Supabase's flow on a build that refuses
@@ -110,7 +110,7 @@ extern "C" fn on_done(ctx: *mut c_void, callback_url: *const c_char, error: *con
 #[tauri::command]
 pub async fn auth_web_session_cmd(window: tauri::WebviewWindow, url: String) -> AuthResult {
     if !session_url_allowed(&url) {
-        return Err("not a Dial8 sign-in page".into());
+        return Err("not a Native Intelligence sign-in page".into());
     }
     #[cfg(target_os = "macos")]
     {

@@ -58,7 +58,7 @@ export const INTEGRATION_BRAND_ICONS: Record<string, BrandIconComponent> = {
   'asana:tasks': AsanaIcon,
   'jira:tasks': JiraIcon,
   'linear:tasks': LinearIcon,
-  // Dial8's Slack app (SLACK_APP_ENTRY), not a catalog pair.
+  // Native Intelligence's Slack app (SLACK_APP_ENTRY), not a catalog pair.
   'slack:messaging': SlackIcon,
   // Texting (TEXTING_ENTRY): no brand, the phone page's own icon.
   'sms:messaging': ({ className }) => <MessageSquareText className={className} />,

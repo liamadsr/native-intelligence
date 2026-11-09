@@ -1,5 +1,5 @@
 #!/bin/bash
-# Development launcher for Dial8 Desktop
+# Development launcher for Native Intelligence Desktop
 #
 # Instead of `cargo tauri dev` (which runs a bare binary that can't handle
 # deep links), this script:
@@ -16,7 +16,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TAURI_DIR="$SCRIPT_DIR/src-tauri"
 BINARY="$TAURI_DIR/target/debug/dial8-desktop"
-BUNDLE_APP="$TAURI_DIR/target/debug/bundle/macos/Dial8.app"
+BUNDLE_APP="$TAURI_DIR/target/debug/bundle/macos/Native Intelligence.app"
 BUNDLE_BIN="$BUNDLE_APP/Contents/MacOS/dial8-desktop"
 
 # Sidecar build/stage/sign helpers (every folder in src-tauri/sidecars/).
@@ -76,9 +76,9 @@ build_and_sync() {
     # Regenerate the whole .app bundle each run instead of cp-ing the fresh
     # binary into the existing one.
     #
-    # Why: once Dial8 has been granted TCC permissions (microphone, screen
+    # Why: once Native Intelligence has been granted TCC permissions (microphone, screen
     # recording), macOS marks the bundle with a com.apple.macl xattr and
-    # protects its contents. Writing *any* file into Dial8.app/Contents/MacOS/
+    # protects its contents. Writing *any* file into Native Intelligence.app/Contents/MacOS/
     # from a shell without Full Disk Access then fails with "Operation not
     # permitted" — which silently aborted this script before it could launch.
     # The bundle *directory* itself is not locked, so we delete it wholesale
@@ -94,6 +94,14 @@ build_and_sync() {
     #                                local builds don't abort on signing.
     echo "[dev] Rebuilding .app bundle..."
     rm -rf "$BUNDLE_APP"
+    # TODO(rename-compat): remove once no checkout still has a Dial8.app build.
+    # The bundle was Dial8.app before the rename: drop that stale build and its
+    # LaunchServices registration (same bundle id and dial8desktop:// scheme).
+    OLD_BUNDLE_APP="$TAURI_DIR/target/debug/bundle/macos/Dial8.app"
+    if [ -d "$OLD_BUNDLE_APP" ]; then
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$OLD_BUNDLE_APP" 2>/dev/null || true
+        rm -rf "$OLD_BUNDLE_APP"
+    fi
     cd "$SCRIPT_DIR"
     cargo tauri build --debug --bundles app \
         --config '{"bundle":{"createUpdaterArtifacts":false}}' 2>&1
@@ -126,14 +134,14 @@ build_and_sync() {
 
 launch_app() {
     # Kill any existing instances
-    pkill -f "Dial8.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
+    pkill -f "\.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
     pkill -f "target/debug/dial8-desktop" 2>/dev/null || true
     sleep 0.3
 
     # Re-register URL scheme
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -R -f "$BUNDLE_APP" 2>/dev/null
 
-    echo "[dev] Launching Dial8.app..."
+    echo "[dev] Launching Native Intelligence.app..."
     open "$BUNDLE_APP"
 }
 
@@ -142,7 +150,7 @@ build_and_sync
 launch_app
 
 echo ""
-echo "  Dial8 is running from the .app bundle."
+echo "  Native Intelligence is running from the .app bundle."
 echo "  Deep links (dial8desktop://) will work."
 echo "  Webview → http://localhost:3000"
 echo ""

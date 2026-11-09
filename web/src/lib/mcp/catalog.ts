@@ -47,6 +47,6 @@ export function staleCatalogHint(stamp: CatalogStamp): string {
     `This server currently exposes ${stamp.tool_count} tools (catalog ${stamp.version}). ` +
     'If a tool listed here is missing from your own tool list, your client cached an older ' +
     'catalog at connect time — call it through dial8_call_tool, and tell the user to ' +
-    'reconnect the Dial8 connector to refresh the list.'
+    'reconnect the Native Intelligence connector to refresh the list.'
   )
 }

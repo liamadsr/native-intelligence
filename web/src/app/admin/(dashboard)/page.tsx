@@ -73,7 +73,7 @@ export default async function AdminDashboard() {
 
   return (
     <div>
-      <AdminPageHeader title="Dashboard" description="Overview of Dial8 metrics" />
+      <AdminPageHeader title="Dashboard" description="Overview of Native Intelligence metrics" />
 
       {/* Metric cards */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

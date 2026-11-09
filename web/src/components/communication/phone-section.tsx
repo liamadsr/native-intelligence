@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Linking a phone to text the Dial8 agent (docs/plans/text-and-calling.md,
+ * Linking a phone to text the Native Intelligence agent (docs/plans/text-and-calling.md,
  * Phase 1). Add a number → we text a 6-digit code → type it back → linked.
  *
  * Two steps, as a modern sign-in's (Liam, 2026-10-24, with his reference:
@@ -9,7 +9,7 @@
  * its space; the SMS consent stays word for word with its unchecked box
  * (the 10DLC campaign names both: docs/plans/text-and-calling-10dlc.md), as
  * the fine print over the button:
- *   the number   one field: the flag and +1 (Dial8 texts US and Canadian
+ *   the number   one field: the flag and +1 (Native Intelligence texts US and Canadian
  *                numbers only), then the number formatted as it's typed or
  *                pasted, (555) 123-4567 (lib/sms/phone-format.ts); the
  *                consent; Send code →
@@ -22,9 +22,9 @@
  * opts out; START opts back in.
  *
  * Its own number (Liam, 2026-11-02; src/lib/sms/agent-number.ts): where this
- * Dial8 has a pool to give from, a person without one first gets the agent a
+ * Native Intelligence has a pool to give from, a person without one first gets the agent a
  * number on a button ("Get a number"), then links their phone to it; a
- * phone already linked to the Dial8 number can get one too. Never on sign-up.
+ * phone already linked to the Native Intelligence number can get one too. Never on sign-up.
  *
  * Linking is the agreement to every text the agent sends, the ones while the
  * person is away included: there is no second switch (Liam, 2026-10-31: "I
@@ -64,11 +64,11 @@ interface LinkedPhone {
 
 interface PhoneState {
   phone: LinkedPhone | null
-  /** The number they text: their agent's own, else the Dial8 one. */
+  /** The number they text: their agent's own, else the Native Intelligence one. */
   dial8Number: string | null
   /** Their agent's own number, when it has one. */
   agentNumber?: string | null
-  /** It has none, and this Dial8 can give one. */
+  /** It has none, and this deployment can give one. */
   canGetNumber?: boolean
   available: boolean
 }
@@ -239,7 +239,7 @@ export function PhoneSection({ compact = false, name: nameProp }: { compact?: bo
       ) : !state.available ? (
         <section>
           <Heading>Text {name}</Heading>
-          <Lead>Texting isn&apos;t set up on this Dial8 yet.</Lead>
+          <Lead>Texting isn&apos;t set up here yet.</Lead>
         </section>
       ) : sentTo ? (
         <CodeStep
@@ -332,7 +332,7 @@ function StartTexting({ name, agentNumber }: { name: string; agentNumber: string
   )
 }
 
-/** The US flag (Dial8 texts +1 numbers: the US and Canada). Drawn, not an emoji: Windows has no flag emoji. */
+/** The US flag (Native Intelligence texts +1 numbers: the US and Canada). Drawn, not an emoji: Windows has no flag emoji. */
 function UsFlag() {
   return (
     <svg aria-hidden viewBox="0 0 19 10" className="h-3.5 w-[26px] shrink-0 rounded-[2px] ring-1 ring-black/10">
@@ -345,7 +345,7 @@ function UsFlag() {
   )
 }
 
-/** Before step one, where this Dial8 can give one: get the agent its own number. */
+/** Before step one, where this deployment can give one: get the agent its own number. */
 function GetNumberStep({ name, busy, error, onGet }: { name: string; busy: boolean; error: string | null; onGet: () => void }) {
   return (
     <section data-phone-step="get-number">

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * PERMISSIONS — the desktop-only "set up Dial8 on your computer" step
+ * PERMISSIONS — the desktop-only "set up Native Intelligence on your computer" step
  * (Circleback-style): stacked permission cards that unlock in sequence —
  * microphone first, then system audio. The wizard's resume logic only ever
  * lands here inside the Tauri shell; on web the step is skipped entirely.
@@ -294,7 +294,7 @@ export function PermissionsStep({
         animate={{ opacity: 1, y: 0 }}
         className="text-3xl font-bold tracking-tight"
       >
-        Set up Dial8 on your computer
+        Set up Native Intelligence on your computer
       </motion.h1>
       <motion.p
         initial={{ opacity: 0, y: 10 }}
@@ -303,8 +303,8 @@ export function PermissionsStep({
         className="mt-2 text-muted-foreground"
       >
         {windows
-          ? 'Dial8 needs access to your microphone to record meetings.'
-          : 'Dial8 needs access to your microphone and system audio to record meetings.'}
+          ? 'Native Intelligence needs access to your microphone to record meetings.'
+          : 'Native Intelligence needs access to your microphone and system audio to record meetings.'}
       </motion.p>
 
       <motion.div
@@ -320,8 +320,8 @@ export function PermissionsStep({
             mic === 'denied'
               ? windows
                 ? 'Microphone access is turned off in Settings → Privacy & security → Microphone. Turn on Microphone access and “Let desktop apps access your microphone”, and we’ll detect it here automatically.'
-                : 'Microphone access is turned off in System Settings. Flip the toggle for Dial8 and we’ll detect it here automatically.'
-              : 'Dial8 only uses your microphone while you’re recording a meeting.'
+                : 'Microphone access is turned off in System Settings. Flip the toggle for Native Intelligence and we’ll detect it here automatically.'
+              : 'Native Intelligence only uses your microphone while you’re recording a meeting.'
           }
           state={
             mic === 'granted'
@@ -348,9 +348,9 @@ export function PermissionsStep({
             body={
               system === 'denied'
                 ? systemLegacy
-                  ? 'System audio is blocked. Enable Dial8 under Screen & System Audio Recording in System Settings, then check again.'
-                  : 'System audio is blocked. Enable Dial8 under Screen & System Audio Recording in System Settings — we’ll detect it here automatically.'
-                : 'Lets Dial8 hear the other people in your meetings — captured only while you’re recording.'
+                  ? 'System audio is blocked. Enable Native Intelligence under Screen & System Audio Recording in System Settings, then check again.'
+                  : 'System audio is blocked. Enable Native Intelligence under Screen & System Audio Recording in System Settings — we’ll detect it here automatically.'
+                : 'Lets Native Intelligence hear the other people in your meetings — captured only while you’re recording.'
             }
             state={
               system === 'granted'

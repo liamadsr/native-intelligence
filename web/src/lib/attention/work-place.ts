@@ -3,8 +3,8 @@
  * (components/attention/work-place-picker.tsx), sent with the Start as
  * `run_in` (PATCH /api/account/attention-items, settle-card.ts):
  *
- *   absent  a Dial8 work run: the workspace agent and its tools, as always;
- *   mac     one of the person's own shared folders on their Mac: the Dial8
+ *   absent  a Native Intelligence work run: the workspace agent and its tools, as always;
+ *   mac     one of the person's own shared folders on their Mac: the Native Intelligence
  *           agent there does it (environments start.ts startWorkOnMac);
  *   cloud   a shared cloud environment of the card's workspace, on a
  *           project's GitHub repo (a cloud environment holds no repos): a

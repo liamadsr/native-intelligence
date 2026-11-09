@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Native Intelligence mark (placeholder until the final art): a geometric "NI" monogram. -->
+  <g fill="#000" stroke="#000" stroke-width="36" stroke-linejoin="round">
+    <path d="M58 114 H240 L500 650 V114 H672 V910 H492 L232 374 V910 H58 Z"/>
+    <rect x="812" y="114" width="154" height="796"/>
+  </g>
+</svg>

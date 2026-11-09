@@ -683,7 +683,7 @@ export async function getDefault(
 // ── Remove this Mac ─────────────────────────────────────────────────────────
 
 /** Why "Remove this Mac" was refused. */
-export const MAC_BUSY_REASON = 'A Dial8 job is still open on this Mac. Stop it first, then remove the Mac.'
+export const MAC_BUSY_REASON = 'A Native Intelligence job is still open on this Mac. Stop it first, then remove the Mac.'
 
 /**
  * "Remove this Mac" (MAX_DEVICES says "remove one first"), softly: nothing

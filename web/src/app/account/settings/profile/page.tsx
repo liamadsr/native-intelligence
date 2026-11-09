@@ -1,7 +1,7 @@
 import { ProfileView } from './profile-view'
 
 export const metadata = {
-  title: 'Profile – Settings – Dial8',
+  title: 'Profile – Settings',
 }
 
 export default function ProfilePage() {

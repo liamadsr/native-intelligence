@@ -30,7 +30,7 @@ API_AVAILABLE(macos(14.4))
 
 /// Resolve the PID of the app RESPONSIBLE for a (helper) process — e.g. the
 /// com.apple.WebKit.GPU XPC service that actually runs a WKWebView app's
-/// audio resolves to its host app (new Teams, Safari, Dial8 itself, ...).
+/// audio resolves to its host app (new Teams, Safari, Native Intelligence itself, ...).
 /// Returns 0 on failure.
 + (pid_t)responsiblePidForPid:(pid_t)pid;
 

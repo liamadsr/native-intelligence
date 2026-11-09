@@ -20,7 +20,7 @@ describe('one live draft per thread (GEN-1164)', () => {
     const deleteMailboxDraft = vi.fn(async (_userId: string, _accountId: string, _draftId: string) => true)
     expect(await supersedeOtherDrafts(db as never, { userId: 'u1', providerThreadId: 'thr-1', keepId: 'new' }, { deleteMailboxDraft })).toBe(3)
     expect(db.rows('email_draft').map((r) => r.id).sort()).toEqual(['mine', 'new', 'other', 'saved', 'theirs'])
-    // By the id Dial8 saved; a legacy row with no account has no mailbox to clean.
+    // By the id Native Intelligence saved; a legacy row with no account has no mailbox to clean.
     expect(deleteMailboxDraft.mock.calls.map((c) => c[2]).sort()).toEqual(['pd-accepts', 'pd-declines'])
     // The new draft rests on the hold: it stays.
     expect(db.rows('email_hold')).toHaveLength(1)

@@ -1,13 +1,13 @@
 /**
  * Payments through the owner's own Stripe (roadmap track C, migration 459):
- * Stripe Connect, with Dial8's Stripe account as the platform. This file is
+ * Stripe Connect, with Native Intelligence's Stripe account as the platform. This file is
  * the env and the one switch; nothing here talks to Stripe.
  *
- * Dial8's own billing (src/lib/billing/*, the stripe-webhook edge function)
+ * Native Intelligence's own billing (src/lib/billing/*, the stripe-webhook edge function)
  * shares the Stripe account and its secret key (getStripe), and nothing else:
  * Connect has its own webhook endpoints, secrets and tables.
  *
- * Live mode is off until Dial8's Connect platform profile is approved
+ * Live mode is off until Native Intelligence's Connect platform profile is approved
  * (docs/plans/stripe-connect-payments.md "Before going live"): with a live
  * secret key, Connect refuses unless STRIPE_CONNECT_LIVE is '1'. A test key
  * always works. So deploying this to production moves no real money.

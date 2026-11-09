@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Native Intelligence app icon (placeholder until the final art): the NI mark on a dark tile. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3a3a"/>
+      <stop offset="1" stop-color="#121212"/>
+    </linearGradient>
+    <linearGradient id="glyph" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5a5a5a"/>
+      <stop offset="1" stop-color="#3c3c3c"/>
+    </linearGradient>
+    <g id="ni" stroke-width="36" stroke-linejoin="round">
+      <path d="M58 114 H240 L500 650 V114 H672 V910 H492 L232 374 V910 H58 Z"/>
+      <rect x="812" y="114" width="154" height="796"/>
+    </g>
+  </defs>
+  <rect x="40" y="40" width="944" height="944" rx="212" fill="url(#tile)"/>
+  <rect x="42" y="42" width="940" height="940" rx="210" fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="4"/>
+  <g transform="translate(512 512) scale(0.6) translate(-512 -512)">
+    <use href="#ni" transform="translate(-9 -9)" fill="#8c8c8c" stroke="#8c8c8c"/>
+    <use href="#ni" transform="translate(11 11)" fill="#000000" stroke="#000000"/>
+    <use href="#ni" fill="url(#glyph)" stroke="#444444"/>
+  </g>
+</svg>

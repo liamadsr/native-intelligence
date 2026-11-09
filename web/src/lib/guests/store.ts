@@ -10,7 +10,7 @@
  *                     the invite link puts in their first text. A number
  *                     that is someone's own verified phone, the owner's
  *                     among them, or another owner's active guest, is
- *                     refused: one Dial8 number, so a phone reaches one
+ *                     refused: one Native Intelligence number, so a phone reaches one
  *                     agent.
  *   renewInvite       a fresh code for someone who hasn't texted yet.
  *   updateGuest       their name, channels, number (once, for someone
@@ -61,7 +61,7 @@ export type GuestState = 'invited' | 'requested' | 'active' | 'removed'
 
 /**
  * Where a guest reaches the owner's agent: Text, Slack (migration 434), and
- * their own Dial8 agent (dial8, migration 435: src/lib/agent-links). The
+ * their own Native Intelligence agent (dial8, migration 435: src/lib/agent-links). The
  * People routes here never add or take away dial8: only a link does.
  */
 export const GUEST_CHANNELS = ['sms', 'slack', 'dial8'] as const
@@ -93,10 +93,10 @@ export interface AgentGuest {
   channels: GuestChannelId[]
   /** When their number was proven theirs (their invite or JOIN texted from it); a text reaches their agent only after (434). */
   phoneBoundAt: string | null
-  /** The Slack account bound to them (they DMed the Dial8 bot with their invite), else null (434). */
+  /** The Slack account bound to them (they DMed the Native Intelligence bot with their invite), else null (434). */
   slackTeamId: string | null
   slackUserId: string | null
-  /** The Dial8 user this person is, for their agent (dial8), else null (435). */
+  /** The Native Intelligence user this person is, for their agent (dial8), else null (435). */
   peerUserId: string | null
   /** When the link with them went active; their agent reaches nothing before (435). */
   peerBoundAt: string | null
@@ -248,7 +248,7 @@ export function inviteText(displayName: string, code: string): string {
   return `Hi, it's ${first} · ${code}`
 }
 
-/** The invite link: Messages, to the Dial8 number, with their first text typed in. */
+/** The invite link: Messages, to the Native Intelligence number, with their first text typed in. */
 export function inviteHref(dial8Number: string, displayName: string, code: string): string {
   return smsHref(dial8Number, inviteText(displayName, code))
 }
@@ -306,7 +306,7 @@ function cleanNotes(notes: unknown): string | null | undefined {
 /**
  * Why a number can't be a guest's: someone's own verified phone (the owner's
  * too). Every row of the phone counts, on either line (migration 464: a
- * Dial8-line row and any business-line rows): a business line is a Dial8
+ * NI-line row and any business-line rows): a business line is a Native Intelligence
  * person too. Throws on a failed read.
  */
 async function numberIsSomeones(supabase: SupabaseClient, phone: string, ownerUserId: string): Promise<'own_number' | 'someones_number' | null> {
@@ -642,7 +642,7 @@ export async function findActiveGuestByPhone(supabase: SupabaseClient, phone: st
     .select(AGENT_GUEST_SELECT)
     .eq('phone_e164', phone)
     .eq('state', 'active')
-    // A business's customer texts its number, never the Dial8 one (src/lib/customers/texting.ts).
+    // A business's customer texts its number, never the Native Intelligence one (src/lib/customers/texting.ts).
     .neq('preset', 'customer')
     .contains('channels', ['sms'])
     .not('phone_bound_at', 'is', null)
@@ -676,7 +676,7 @@ export async function findOpenInvitesByPhone(supabase: SupabaseClient, phone: st
  * The first text with the right invite code: their number is bound and the
  * guest is active (someone already in on Slack stays active). The code is
  * spent unless Slack, also theirs, isn't bound yet (434). 'conflict' when this number is already active for another
- * owner (one Dial8 number, so a phone reaches one agent); 'gone' when the
+ * owner (one Native Intelligence number, so a phone reaches one agent); 'gone' when the
  * invite was removed or used in the meantime.
  */
 export async function activateInvitedGuest(
@@ -790,7 +790,7 @@ export function guestInviteKey(): string | null {
 
 // ── Trusted people (meeting prep, the look-ahead) ───────────────────────────
 
-/** Linked guests whose Dial8 sign-in address is looked up, at most (one admin call each). */
+/** Linked guests whose Native Intelligence sign-in address is looked up, at most (one admin call each). */
 export const TRUSTED_PEER_LOOKUPS_MAX = 3
 /** How long those lookups may take together before they're dropped (the listed addresses still count). */
 export const TRUSTED_PEER_LOOKUP_MS = 1_500
@@ -798,8 +798,8 @@ export const TRUSTED_PEER_LOOKUP_MS = 1_500
 /**
  * The owner's trusted people, by calendar address (migration 455): each
  * active guest's calendar addresses, plus, for a guest whose agent is linked
- * to the owner's from OUTSIDE their workspaces (their Dial8 user, the link
- * active, sharing no workspace with the owner), their own Dial8 sign-in
+ * to the owner's from OUTSIDE their workspaces (their Native Intelligence user, the link
+ * active, sharing no workspace with the owner), their own Native Intelligence sign-in
  * address, which their calendar invites come from. Lower case.
  *
  * Why: a guest is someone the owner chose (Liam, 2026-10-31: every event of a

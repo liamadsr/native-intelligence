@@ -44,7 +44,7 @@ describe('normalizeTerm / normalizeSoundsLike', () => {
 
   it('dedupes by letters, drops the term itself, takes a comma list', () => {
     expect(normalizeSoundsLike('Superbase, super base, supabase, Soupabase', 'Supabase')).toEqual(['Superbase', 'Soupabase'])
-    expect(normalizeSoundsLike(['  dial eight ', 7, ''], 'Dial8')).toEqual(['dial eight'])
+    expect(normalizeSoundsLike(['  route eight ', 7, ''], 'Route8')).toEqual(['route eight'])
   })
 })
 
@@ -136,7 +136,7 @@ describe('automaticVocabulary / compileVocabulary', () => {
       { id: 'm1', user_id: ME, display_name: 'Liam Alizadeh', workspace_id: WS },
       { id: 'm2', user_id: OTHER, display_name: 'Prabhjot Singh', workspace_id: WS },
     ],
-    projects: [{ name: 'Dial8 Desktop', workspace_id: WS, is_archived: false }, { name: 'Old thing', workspace_id: WS, is_archived: true }],
+    projects: [{ name: 'Depot8 Desktop', workspace_id: WS, is_archived: false }, { name: 'Old thing', workspace_id: WS, is_archived: true }],
     contact: [
       { full_name: 'Siobhan Kowalczyk', company: { name: 'Pinecone' }, workspace_id: WS, merged_into_contact_id: null, visibility: 'workspace', created_by_member_id: 'm2', last_interaction_at: '2026-10-20' },
       { full_name: 'Ngozi Okafor', company: null, workspace_id: WS, merged_into_contact_id: null, visibility: 'private', created_by_member_id: 'm1', last_interaction_at: '2026-10-19' },
@@ -152,7 +152,7 @@ describe('automaticVocabulary / compileVocabulary', () => {
     expect(auto).toEqual([
       { term: 'Liam Alizadeh', kind: 'teammate' },
       { term: 'Prabhjot Singh', kind: 'teammate' },
-      { term: 'Dial8 Desktop', kind: 'project' },
+      { term: 'Depot8 Desktop', kind: 'project' },
       { term: 'Siobhan Kowalczyk', kind: 'contact' },
       { term: 'Pinecone', kind: 'company' },
       { term: 'Ngozi Okafor', kind: 'contact' },
@@ -162,13 +162,13 @@ describe('automaticVocabulary / compileVocabulary', () => {
   it('leaves out names nobody says and names made only of everyday words', async () => {
     db = vocabularyDb({
       member: [{ id: 'm1', user_id: ME, display_name: 'Liam Alizadeh', workspace_id: WS }],
-      projects: ['__default__', 'Untitled Project', 'Daily', 'Get a dog', 'Dial8 Desktop'].map((name) => ({ name, workspace_id: WS, is_archived: false })),
+      projects: ['__default__', 'Untitled Project', 'Daily', 'Get a dog', 'Depot8 Desktop'].map((name) => ({ name, workspace_id: WS, is_archived: false })),
       contact: ['stephanie.guerreiro.1', 'dl-d-usallfield', 'vrolland', 'Siobhan Kowalczyk'].map((full_name, i) => ({
         full_name, company: null, workspace_id: WS, merged_into_contact_id: null, visibility: 'workspace', created_by_member_id: 'm1', last_interaction_at: `2026-10-1${i}`,
       })),
     })
     const auto = await automaticVocabulary(db.client, ctx)
-    expect(auto.map((a) => a.term).sort()).toEqual(['Dial8 Desktop', 'Liam Alizadeh', 'Siobhan Kowalczyk'])
+    expect(auto.map((a) => a.term).sort()).toEqual(['Depot8 Desktop', 'Liam Alizadeh', 'Siobhan Kowalczyk'])
   })
 
   it('compiles active words (with forms), harvested words and the automatic names nobody hid', async () => {
@@ -185,8 +185,8 @@ describe('automaticVocabulary / compileVocabulary', () => {
       ],
     })
     const c = await compileVocabulary(db.client, ctx)
-    // Added words first (yours, then the workspace's), then what the team writes, then the names Dial8 knows; each sorted.
-    expect(c.entries.map((e) => e.term)).toEqual(['Tauri', 'Supabase', 'pgvector', 'Dial8 Desktop', 'Liam Alizadeh', 'Ngozi Okafor', 'Prabhjot Singh', 'Siobhan Kowalczyk'])
+    // Added words first (yours, then the workspace's), then what the team writes, then the names Native Intelligence knows; each sorted.
+    expect(c.entries.map((e) => e.term)).toEqual(['Tauri', 'Supabase', 'pgvector', 'Depot8 Desktop', 'Liam Alizadeh', 'Ngozi Okafor', 'Prabhjot Singh', 'Siobhan Kowalczyk'])
     expect(c.entries[1]).toEqual({ term: 'Supabase', soundsLike: ['Superbase'] })
     expect(c.counts).toEqual({ stored: 3, automatic: 5 })
     expect(c.version).toMatch(/^[0-9a-z]+$/)

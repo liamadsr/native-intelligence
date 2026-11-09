@@ -1,6 +1,6 @@
 /**
  * The model relay and the app (C1) end to end, without a model: the REAL
- * launcher starts the REAL built Mac body (the Dial8 agent built with
+ * launcher starts the REAL built Mac body (the Native Intelligence agent built with
  * DIAL8_AGENT_HOST=mac, scripts/local-agent/build.sh) with
  * LOCAL_AGENT_MODEL_BASE_URL + LOCAL_AGENT_MODEL_TOKEN pointed at a fake app on
  * 127.0.0.1. It answers C1's spec route with a small spec, its tool route with
@@ -60,7 +60,7 @@ interface Seen {
 
 /** The spec C1 would send for the session's conversation (src/lib/chat/chat-run-rebuild.ts ChatSpec, host 'mac'). */
 const SPEC = {
-  systemPrompt: 'SPEC-PROMPT-MARKER: you are the person’s Dial8 agent.',
+  systemPrompt: 'SPEC-PROMPT-MARKER: you are the person’s Native Intelligence agent.',
   model: 'anthropic/claude-sonnet-5.5',
   ceiling: ['list_actions', 'web_fetch', 'web_search'],
   ceilingTools: [

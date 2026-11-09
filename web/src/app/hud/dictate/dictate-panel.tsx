@@ -145,7 +145,7 @@ export function pasteNote(result: DictatePasteResult, text: string): string | nu
     case 'focus_changed':
       return 'Copied. Press ⌘V to paste'
     case 'no_keys':
-      return 'Copied. Press ⌘V (allow Dial8 in Accessibility to paste for you)'
+      return 'Copied. Press ⌘V (allow Native Intelligence in Accessibility to paste for you)'
     default:
       return text.trim() ? `Not pasted: ${tail(text, NOT_PASTED_CHARS)}` : null
   }
@@ -157,7 +157,7 @@ export function tail(text: string, max = SHOWN_CHARS): string {
   return t.length <= max ? t : `…${t.slice(t.length - max + 1).replace(/^\S*\s/, '')}`
 }
 
-export const AGENT_UNREACHABLE = 'Couldn’t reach Dial8. Open the app and try again.'
+export const AGENT_UNREACHABLE = 'Couldn’t reach Native Intelligence. Open the app and try again.'
 
 /** Where the words go when listening stops. */
 type Route = 'paste' | 'agent'

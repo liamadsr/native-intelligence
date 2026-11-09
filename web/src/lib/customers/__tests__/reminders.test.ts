@@ -2,7 +2,7 @@
  * Reminders (issue #11, ../reminders.ts): 10 o'clock in the business's own
  * zone, one request per local date; tomorrow's confirmed bookings and
  * meetings with customers, each customer texted once from the business's
- * number in Dial8's words; never a STOP, an unsubscribed tag, a lead nobody
+ * number in Native Intelligence's words; never a STOP, an unsubscribed tag, a lead nobody
  * vouched for, a number abroad, a booking's own calendar event, or the same
  * booking twice; nothing at night, a day late, paused, off, or without a
  * number; and one line to the owner, which finds them only on the first day.

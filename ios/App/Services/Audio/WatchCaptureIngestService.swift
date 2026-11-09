@@ -2,7 +2,7 @@
 //  WatchCaptureIngestService.swift
 //  dial8
 //
-//  Turns a finished Watch recording into a Dial8 capture.
+//  Turns a finished Watch recording into a Native Intelligence capture.
 //
 //  A RECORDING IS A SESSION OF CHUNKS
 //  ----------------------------------

@@ -8,7 +8,7 @@
  * Responses request lands here, and src/lib/chatgpt/plan-proxy.ts does the
  * rest: the person's plan token, the plan route's rules, OpenAI's answer
  * streamed back, the connection's status kept. Nothing here ever reaches the
- * AI Gateway or a Dial8 key.
+ * AI Gateway or a Native Intelligence key.
  *
  * Auth: any eve agent's run, as that agent authenticates to its own internal
  * routes: its family's secret and a verified, unexpired run token

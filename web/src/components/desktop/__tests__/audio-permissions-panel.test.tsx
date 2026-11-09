@@ -172,7 +172,7 @@ describe('AudioPermissionsPanel', () => {
     expect(row('microphone').textContent).toContain('Granted')
     const system = row('system-audio')
     expect(system.textContent).toContain("Can't verify")
-    expect(system.textContent).toContain("Update Dial8 to see this permission's status.")
+    expect(system.textContent).toContain("Update Native Intelligence to see this permission's status.")
 
     await click(buttonIn(system, /^request$/i))
 

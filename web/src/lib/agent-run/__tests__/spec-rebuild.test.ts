@@ -463,7 +463,7 @@ describe('buildAgentRunSpec — base branch is the repo default, and the prompt 
     expect(h.resolveRepoDefaultBranch).not.toHaveBeenCalled()
   })
 
-  it('tells the eve agent to push + finish_run, not to open the PR or use Dial8 MCP tools', async () => {
+  it('tells the eve agent to push + finish_run, not to open the PR or use Native Intelligence MCP tools', async () => {
     const built = await buildAgentRunSpec(makeClient() as never, { agentRunId: 'run-1', workspaceId: 'ws-1' })
     expect(built.ok).toBe(true)
     if (!built.ok) return

@@ -1,7 +1,7 @@
 import { SettingsShell } from './settings-shell'
 
 export const metadata = {
-  title: 'Settings – Dial8',
+  title: 'Settings',
 }
 
 export default function SettingsLayout({

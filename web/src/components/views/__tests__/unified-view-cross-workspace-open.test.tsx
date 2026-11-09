@@ -90,7 +90,7 @@ vi.mock('../view-toolbar', () => ({ ViewToolbar: () => null }))
 
 import { UnifiedViewLayout } from '../unified-view-layout'
 
-const HOME_ROW = { id: 'act-1', title: 'Ship it', workspace: { id: 'ws-1', name: 'Dial8' } }
+const HOME_ROW = { id: 'act-1', title: 'Ship it', workspace: { id: 'ws-1', name: 'Native Intelligence' } }
 const FOREIGN_ROW = { id: 'act-9', title: 'Renew contract', workspace: { id: 'ws-2', name: 'Acme Sales' } }
 
 let container: HTMLDivElement

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * "Continue with ChatGPT" runs Dial8's own OAuth flow (/auth/chatgpt): the web
+ * "Continue with ChatGPT" runs Native Intelligence's own OAuth flow (/auth/chatgpt): the web
  * navigates to it; the desktop runs it in the sign-in sheet and redeems the
  * one-time token the callback deep link carries, only when its `bind` is the
  * one this webview started with.
@@ -105,7 +105,7 @@ describe('LoginForm Continue with ChatGPT', () => {
     expect(button(/google/i)).toBeDefined()
   })
 
-  it('navigates to Dial8’s own flow on the web', async () => {
+  it('navigates to Native Intelligence’s own flow on the web', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(window, 'location')
     const location = { href: 'http://localhost/login', origin: 'http://localhost', assign: vi.fn() }
     Object.defineProperty(window, 'location', { configurable: true, value: location })

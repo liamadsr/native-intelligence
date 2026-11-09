@@ -118,7 +118,7 @@ pub fn system_info() -> SystemInfo {
 #[serde(rename_all = "camelCase")]
 pub struct PresenceState {
     /// Seconds since the last keyboard, mouse or trackpad input anywhere on
-    /// the Mac (not just in Dial8). Always finite and >= 0.
+    /// the Mac (not just in Native Intelligence). Always finite and >= 0.
     pub idle_seconds: f64,
     /// The screen is locked, or this user's session isn't the one on the
     /// console (fast user switching put someone else in front of it).

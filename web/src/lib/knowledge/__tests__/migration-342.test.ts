@@ -1,5 +1,5 @@
 /**
- * Migration 342 purges the knowledge Dial8 learned from mail (the owner's
+ * Migration 342 purges the knowledge Native Intelligence learned from mail (the owner's
  * go-ahead, 2026-10-15). It can't be run here, so the file is pinned as text:
  * what it deletes, in an order the foreign keys allow, inside one DO block,
  * never touching the stored mail itself, with no backslash anywhere.

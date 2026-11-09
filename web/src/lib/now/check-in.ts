@@ -42,7 +42,7 @@
  * THE START (10-27: no Now file had been written on PROD a day after launch,
  * because nothing but the person's own turn ever began one): an empty note,
  * once a day (no check-in ran to the end today), at the first slot where
- * Dial8's own records show something in motion for the person
+ * Native Intelligence's own records show something in motion for the person
  * (readStartItems: their open work items and the confirmed actions assigned
  * to them in a started state, from the last two weeks, and their pull
  * requests left open by their newest change). A start that wrote nothing
@@ -58,7 +58,7 @@
  *
  * THE TURN (src/lib/chat/home-turn-server.ts planHomeTurn 'check_in'): the
  * plan re-gathers all of this (never trusting the payload) and the body is
- * Dial8's templates only (checkInBody): each due line with its number, its
+ * Native Intelligence's templates only (checkInBody): each due line with its number, its
  * item's status, title and times (never tracked_job.result_summary or its
  * question), and the new events as log lines. A reply sends one
  * `agent_check_in` notice (sendCheckInNotice) and marks the events it carried
@@ -169,7 +169,7 @@ export function lineDate(text: string, addedAt: string, today: string, timeZone:
 
 // ── Pure: what is due ────────────────────────────────────────────────────────
 
-/** What Dial8 knows of a tracked item, templated (status, title, times; never a summary or a question). */
+/** What Native Intelligence knows of a tracked item, templated (status, title, times; never a summary or a question). */
 export interface CheckInItemState {
   /** The item is finished: a stale line about it has nothing left to follow. */
   done: boolean
@@ -323,7 +323,7 @@ const ANSWER_PHRASE: Record<CheckInAnswer['kind'], string> = {
 
 /**
  * The check-in's body input for these due lines, or null when none is due.
- * Every line is Dial8's template around the note's own line, the item's
+ * Every line is Native Intelligence's template around the note's own line, the item's
  * state line and the events' log lines (awayLineFor: a fixed phrase and a
  * clipped title). Pure.
  */
@@ -334,7 +334,7 @@ export function checkInBody(due: readonly DueLine[], args: { date: string; hour:
   for (const d of due) {
     const key = checkInItemKey(d.line.track)
     lines.push(`Line ${d.line.line}${d.line.section ? ` (${d.line.section})` : ''}, item ${key}: ${d.line.text}`)
-    lines.push(`- Item: ${d.state?.line ?? "not found in Dial8's records (gone, or not the person's)"}${d.state?.retried ? `; a check-in already retried it (that helper: ${d.state.retried})` : ''}`)
+    lines.push(`- Item: ${d.state?.line ?? "not found in Native Intelligence's records (gone, or not the person's)"}${d.state?.retried ? `; a check-in already retried it (that helper: ${d.state.retried})` : ''}`)
     for (const e of d.events) {
       lines.push(`- New: ${formatLogTime(e.occurs_at, args.timeZone)} ${awayLineFor(e, args.timeZone)}`)
       eventIds.push(e.id)
@@ -397,7 +397,7 @@ export function actionState(
 
 const PR_STATE_PHRASE: Record<string, string> = { merged: 'merged', closed: 'closed without merging', reopened: 'reopened', ci_failed: 'checks failing' }
 
-/** A pull request's state line, from its newest pr.changed event (Dial8's own values: never its title). Pure. */
+/** A pull request's state line, from its newest pr.changed event (Native Intelligence's own values: never its title). Pure. */
 export function prState(ref: string, latest: { facts?: AgentEventFacts; occurs_at?: string } | null, timeZone: string): CheckInItemState {
   const state = typeof latest?.facts?.prState === 'string' ? latest.facts.prState : null
   return {
@@ -616,7 +616,7 @@ export function nowNoteEmpty(note: Pick<NowNote, 'content'> | null): boolean {
 }
 
 /**
- * What is in motion for the person in Dial8's own records, to start an empty
+ * What is in motion for the person in Native Intelligence's own records, to start an empty
  * note from: their work still running or waiting on them (tracked_job of
  * their member row), the confirmed actions assigned to them in a started
  * state, and their pull requests whose newest change in the last week left
@@ -734,7 +734,7 @@ export async function gatherCheckIn(
     note = loaded.note
   }
   if (!note || nowNoteEmpty(note)) {
-    // Nothing written yet: start it from Dial8's own records, once a day (a
+    // Nothing written yet: start it from Native Intelligence's own records, once a day (a
     // check-in that ran to the end today, start or not, had its chance).
     const history = args.history ?? (await readCheckInHistory(supabase, { conversationId: args.conversationId, date: args.date, hour: args.hour }))
     if (history.ranToday) return { ok: false, reason: 'started_today' }
@@ -916,7 +916,7 @@ export function checkInNoticeGroupKey(homeTurnId: string): string {
   return `agent_check_in:${homeTurnId}`
 }
 
-/** What a check-in's bubble says: Dial8's words only (never the reply's). Pure. */
+/** What a check-in's bubble says: Native Intelligence's words only (never the reply's). Pure. */
 export function checkInNoticeCopy(): { title: string; sentence: string } {
   return { title: 'Your agent checked in', sentence: 'I checked on what I’m tracking for you and left a note in our thread.' }
 }

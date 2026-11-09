@@ -8,8 +8,8 @@ import type { LinkPurposeView } from '@/lib/links/purposes'
 export const LINK_DONE_COPY: Record<string, { title: string; description: string }> = {
   connected: { title: "You're connected", description: "You can close this page. I've texted you what's next." },
   partial: { title: 'Partly connected', description: "Part of it connected. I've texted you what happened." },
-  failed: { title: "That didn't connect", description: 'Nothing was connected. Text Dial8 for a new link and try again.' },
-  invalid: { title: 'This link no longer works', description: 'It was already used or it expired. Text Dial8 for a new one.' },
+  failed: { title: "That didn't connect", description: 'Nothing was connected. Text Native Intelligence for a new link and try again.' },
+  invalid: { title: 'This link no longer works', description: 'It was already used or it expired. Text Native Intelligence for a new one.' },
 }
 
 /** The card a single-use link's pages share (src/app/l/[token], src/app/l/done). */
@@ -38,7 +38,7 @@ export function LinkConfirm({ view, maskedPhone, action }: { view: LinkPurposeVi
   return (
     <LinkCard title={view.title} description={view.body}>
       <p className="text-sm text-muted-foreground" data-link-phone>
-        For the Dial8 account texting <strong className="whitespace-nowrap text-foreground">{maskedPhone}</strong>. Only continue if Dial8 sent this link to your phone.
+        For the Native Intelligence account texting <strong className="whitespace-nowrap text-foreground">{maskedPhone}</strong>. Only continue if Native Intelligence sent this link to your phone.
       </p>
       <form method="post" action={action}>
         <Button type="submit" className="w-full" data-link-continue>

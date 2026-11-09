@@ -32,7 +32,7 @@ const req = (body: unknown, headers: Record<string, string> = {}) =>
   })
 
 const PLAN = { teams: [{ source_team_id: 't1', mode: 'own' }] }
-const RESULT = { ok: true, blockers: [], source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Dial8' }, plan: PLAN }
+const RESULT = { ok: true, blockers: [], source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Native Intelligence' }, plan: PLAN }
 const GOOD = { source_workspace_id: SRC, destination_workspace_id: DST }
 
 beforeEach(() => {

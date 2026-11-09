@@ -123,7 +123,7 @@ type Verdict = z.infer<typeof VerdictSchema>
 /**
  * A run whose starter is on their own ChatGPT plan (the free tier): its judges
  * run on that plan (the utility agent's `eval_judge` kind, on the plan's main
- * model, the stronger one, as rule 4 asks), never Dial8's models.
+ * model, the stronger one, as rule 4 asks), never Native Intelligence's models.
  */
 export interface JudgePlan {
   userId: string
@@ -137,7 +137,7 @@ export function judgeMessage(instructions: string, prompt: string): string {
 
 /**
  * One structured judge call on the person's plan (see JudgePlan): the eval
- * graders' only path off the Gateway. Usage is the plan's: no cost to Dial8.
+ * graders' only path off the Gateway. Usage is the plan's: no cost to Native Intelligence.
  * Throws as generateObject does; the callers turn a failure into `skipped`.
  */
 export async function judgeOnPlan<T>(plan: JudgePlan, args: { instructions: string; prompt: string; schema: z.ZodType<T> }): Promise<{ object: T; usage: GradingUsage }> {

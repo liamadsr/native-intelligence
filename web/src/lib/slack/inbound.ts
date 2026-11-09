@@ -1,16 +1,16 @@
 /**
- * What Dial8 does with a verified Slack event (docs/plans/slack-connect.md §2,
+ * What Native Intelligence does with a verified Slack event (docs/plans/slack-connect.md §2,
  * §4 pieces 2 and 4). The events route verifies the forwarded request,
  * dedupes it and acks Slack, then hands the parsed event here (after the
  * response).
  *
  * Who is speaking is decided here, at intake, from what Slack verified (the
- * team, the user id) and what Dial8 holds (the installation row, the
+ * team, the user id) and what Native Intelligence holds (the installation row, the
  * person's link), never from the message's words:
  *
- *   - a link code in a DM: links that Slack user to the code's Dial8 user,
+ *   - a link code in a DM: links that Slack user to the code's Native Intelligence user,
  *     and binds an unbound Slack team to the code's workspace when the code
- *     is a Dial8 admin's AND the sender is an admin or owner of the Slack
+ *     is a Native Intelligence admin's AND the sender is an admin or owner of the Slack
  *     workspace (./link-code.ts). Wrong codes are capped per Slack user and
  *     team (store.ts linkAttemptsBlocked), so a code can't be guessed;
  *   - a DM from a linked person in the team: the person (caller.ts
@@ -103,23 +103,23 @@ const settingsLink = () => `${appOrigin()}${SLACK_SETTINGS_PATH}`
 
 export const SLACK_REPLIES = {
   unknownSender: () =>
-    `I don't know who you are in Dial8 yet. Open Dial8, go to Settings > Connectors > Slack, press "Link my account" and send me the code it shows: ${settingsLink()}`,
-  outsider: () => "I only answer people in this Slack workspace who've linked their Dial8 account.",
-  sharedChannel: () => "I don't answer in channels shared with another company: your Dial8 agent would be answering where they read it. Message me directly instead.",
+    `I don't know who you are in Native Intelligence yet. Open Native Intelligence, go to Settings > Connectors > Slack, press "Link my account" and send me the code it shows: ${settingsLink()}`,
+  outsider: () => "I only answer people in this Slack workspace who've linked their Native Intelligence account.",
+  sharedChannel: () => "I don't answer in channels shared with another company: your Native Intelligence agent would be answering where they read it. Message me directly instead.",
   unboundTeam: () =>
-    `This Slack workspace isn't connected to Dial8 yet. A Dial8 admin connects it: open Settings > Connectors > Slack in Dial8 and send me the code shown there. ${settingsLink()}`,
-  codeRejected: () => `That code didn't work: it's used, expired or mistyped. Make a new one in Dial8: ${settingsLink()}`,
+    `This Slack workspace isn't connected to Native Intelligence yet. A Native Intelligence admin connects it: open Settings > Connectors > Slack in Native Intelligence and send me the code shown there. ${settingsLink()}`,
+  codeRejected: () => `That code didn't work: it's used, expired or mistyped. Make a new one in Native Intelligence: ${settingsLink()}`,
   tooManyCodes: () => 'Too many wrong codes. Try again in an hour.',
   needsSlackAdmin: () =>
-    "Only an admin or owner of this Slack workspace can connect it to Dial8. Ask one of them to send me their code from Dial8's Settings > Connectors > Slack.",
-  notMember: () => "That code's Dial8 account can't link Slack in its workspace. Ask an admin of the workspace.",
-  needsAdmin: () => "This Slack workspace isn't connected to Dial8 yet, and only a Dial8 workspace admin can connect it. Ask an admin to send me their code first.",
-  otherWorkspace: () => 'This Slack workspace is already connected to a different Dial8 workspace, so I can\'t link that code here.',
-  notInstalled: () => `I can't reach this Slack workspace through the Dial8 app. Add the app again from Dial8: ${settingsLink()}`,
+    "Only an admin or owner of this Slack workspace can connect it to Native Intelligence. Ask one of them to send me their code from Native Intelligence's Settings > Connectors > Slack.",
+  notMember: () => "That code's Native Intelligence account can't link Slack in its workspace. Ask an admin of the workspace.",
+  needsAdmin: () => "This Slack workspace isn't connected to Native Intelligence yet, and only a Native Intelligence workspace admin can connect it. Ask an admin to send me their code first.",
+  otherWorkspace: () => 'This Slack workspace is already connected to a different Native Intelligence workspace, so I can\'t link that code here.',
+  notInstalled: () => `I can't reach this Slack workspace through the Native Intelligence app. Add the app again from Native Intelligence: ${settingsLink()}`,
   failed: () => 'Something went wrong on my side. Try again in a minute.',
-  linked: () => 'Done: this Slack account is linked to your Dial8 account. Message me here any time.',
+  linked: () => 'Done: this Slack account is linked to your Native Intelligence account. Message me here any time.',
   boundAndLinked: (team: string) =>
-    `Done: ${team ? `${team} is` : 'this Slack workspace is'} connected to your Dial8 workspace, and this Slack account is linked to yours. Teammates can link theirs from Settings > Connectors > Slack in Dial8.`,
+    `Done: ${team ? `${team} is` : 'this Slack workspace is'} connected to your Native Intelligence workspace, and this Slack account is linked to yours. Teammates can link theirs from Settings > Connectors > Slack in Native Intelligence.`,
 } as const
 
 /** Handle one verified, first-delivery event. Never throws. */
@@ -304,8 +304,8 @@ async function redeemCode(
 
   let teamName = live?.team_name ?? ''
   if (!live) {
-    // Tying a Slack workspace to a Dial8 workspace is an admin act on both
-    // sides: a Dial8 admin's code, sent by an admin or owner of the Slack
+    // Tying a Slack workspace to a Native Intelligence workspace is an admin act on both
+    // sides: a Native Intelligence admin's code, sent by an admin or owner of the Slack
     // workspace. Any member could otherwise bind their company's Slack to a
     // workspace of their own.
     if (!user.user?.is_admin && !user.user?.is_owner && !user.user?.is_primary_owner) {

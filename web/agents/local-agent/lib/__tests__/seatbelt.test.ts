@@ -423,7 +423,7 @@ describe('fence grants (C3 kind "fence")', () => {
     ['a newline', '/Users/p/code/a\nb', 'read', ctx],
     ['a relative path', 'code/lib', 'read', ctx],
     ['a folder outside HOME, for writing', '/code/shared', 'write', ctx],
-    ['an app bundle, for writing', '/Users/p/Applications/Dial8.app/Contents/MacOS', 'write', ctx],
+    ['an app bundle, for writing', '/Users/p/Applications/Native Intelligence.app/Contents/MacOS', 'write', ctx],
     ['an app bundle in capitals, for writing', '/Users/p/Applications/Other.APP', 'write', ctx],
     ['an overlong path', `/Users/p/${'x'.repeat(1100)}`, 'read', ctx],
     ['another access', '/Users/p/code/lib', 'exec', ctx],

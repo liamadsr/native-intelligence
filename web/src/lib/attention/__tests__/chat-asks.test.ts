@@ -32,7 +32,7 @@ describe('isChatAskCard / splitCardsByPlace', () => {
 
 describe('approvalIdOfToolOutput', () => {
   const GATE = { success: false, code: 'APPROVAL_REQUIRED', approval_id: ID, message: 'Nothing ran.' }
-  it('only the doors that hold calls: the outward gate (any Dial8 tool, its exact shape), connections, the flow tools, mcp_confirm_call', () => {
+  it('only the doors that hold calls: the outward gate (any Native Intelligence tool, its exact shape), connections, the flow tools, mcp_confirm_call', () => {
     expect(approvalIdOfToolOutput('publish_post', GATE)).toBe(ID)
     expect(approvalIdOfToolOutput('disconnect', { ...GATE, loops_that_need_it: ['Weekly posts'] })).toBe(ID)
     expect(approvalIdOfToolOutput('set_tool_access', { ...GATE, waiting_on_card: ['x'] })).toBe(ID)

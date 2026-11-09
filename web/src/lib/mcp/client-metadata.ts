@@ -1,8 +1,8 @@
 /**
- * OAuth Client ID Metadata Documents (CIMD) for Dial8's MCP OAuth server
+ * OAuth Client ID Metadata Documents (CIMD) for Native Intelligence's MCP OAuth server
  * (draft-ietf-oauth-client-id-metadata-document, which the MCP authorization
  * spec of 2025-11-25 says servers SHOULD support). An app with no prior
- * relationship to Dial8 names itself with an https URL as its client_id, and
+ * relationship to Native Intelligence names itself with an https URL as its client_id, and
  * the JSON document at that URL is its registration: its name, its redirect
  * URIs, how it authenticates. It sits beside dynamic client registration
  * (register/route.ts), whose ids are `mcp_…` and never a URL.
@@ -34,7 +34,7 @@ const MAX_CLIENT_ID_LENGTH = 512
 const MAX_REDIRECT_URIS = 20
 const MAX_NAME_LENGTH = 100
 
-/** What Dial8 keeps of a document that passed. */
+/** What Native Intelligence keeps of a document that passed. */
 export interface ClientMetadata {
   client_id: string
   client_name: string
@@ -59,9 +59,9 @@ export function isMetadataClientId(clientId: string): boolean {
 /**
  * Why `raw` can't be a client_id URL, or null when it can. The draft's rules
  * (https, a path, no userinfo, no fragment, no dot segments; a query is
- * NOT RECOMMENDED and refused here), plus Dial8's: the URL in its canonical
+ * NOT RECOMMENDED and refused here), plus Native Intelligence's: the URL in its canonical
  * form (so the string compared is the one fetched), the default port (so a
- * client_id can't aim Dial8 at another service on a host), a public host
+ * client_id can't aim Native Intelligence at another service on a host), a public host
  * name, never an IP address or a name the SSRF guard refuses.
  */
 export function clientIdUrlProblem(raw: string): string | null {
@@ -92,7 +92,7 @@ export function clientIdUrlProblem(raw: string): string | null {
 const UNSAFE_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g
 
 /**
- * A client's name as Dial8 shows it (consent page, Connected apps): control
+ * A client's name as Native Intelligence shows it (consent page, Connected apps): control
  * and bidi characters dropped, at most 100, `fallback` when nothing is left.
  * For registered clients too: /register stores whatever name it is sent.
  */
@@ -104,7 +104,7 @@ export function cleanClientName(name: unknown, fallback: string): string {
 /**
  * The document at `clientId`, checked: a JSON object whose client_id is that
  * URL exactly, a public client (no secret; auth method `none`, the only one
- * Dial8's token endpoint takes), the authorization code flow, and 1–20
+ * Native Intelligence's token endpoint takes), the authorization code flow, and 1–20
  * redirect URIs that pass the same rule /register applies. A missing name
  * becomes the host: the consent page shows the host either way.
  */
@@ -165,7 +165,7 @@ export function cacheTtlMs(cacheControl: string | null): number {
 const cache = new Map<string, { metadata: ClientMetadata; until: number }>()
 
 // Each person's allowance, per instance. With the default port and the 5 s
-// deadline it keeps one account from using Dial8 to probe hosts at volume:
+// deadline it keeps one account from using Native Intelligence to probe hosts at volume:
 //   - A fetch of a client_id the person has no recent pass for is charged
 //     BEFORE it runs (so parallel lookups can't all slip past) and refunded
 //     if the document passes: only failures stay counted.

@@ -37,7 +37,7 @@ function fullIcp(overrides: Partial<Icp> = {}): Icp {
     ...overrides,
     source: {
       company_id: 'co-1',
-      name: 'Dial8',
+      name: 'Native Intelligence',
       domain: 'dial8.ai',
       what_we_sell: 'an AI meeting-capture and CRM workspace',
       our_customers: ['Globex', 'Initech'],
@@ -317,7 +317,7 @@ describe('buildDiscoverySystemPrompt', () => {
 
   it('contains the source-company description', () => {
     const prompt = buildDiscoverySystemPrompt(icp)
-    expect(prompt).toContain('Dial8')
+    expect(prompt).toContain('Native Intelligence')
     expect(prompt).toContain('dial8.ai')
     expect(prompt).toContain('an AI meeting-capture and CRM workspace')
   })

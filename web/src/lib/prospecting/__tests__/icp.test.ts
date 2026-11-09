@@ -162,7 +162,7 @@ describe('buildIcpDraft — the §4 seeding table', () => {
 const NAMESAKE: SourceCompanyRow = {
   id: 'co-3',
   workspace_id: 'ws-1',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   domain: 'dial8.ai',
   industry: 'Hospitality',
   description: null,
@@ -175,7 +175,7 @@ const NAMESAKE: SourceCompanyRow = {
         ),
         known_customers: field('Hotel Varenne, Number Nine', 'https://hotelvarenne.com/dial8'),
         description: field(
-          'Dial8 is an agentic workspace and sales intelligence platform',
+          'Native Intelligence is an agentic workspace and sales intelligence platform',
           'https://www.dial8.ai/about',
         ),
       },
@@ -187,12 +187,12 @@ describe('buildIcpDraft — the own-domain gate on who-we-are fields', () => {
   it('IGNORES an off-domain products_and_services and takes the own-domain description', () => {
     const { icp, provenance } = buildIcpDraft(NAMESAKE, 'buyers')
     expect(icp.source.what_we_sell).toBe(
-      'Dial8 is an agentic workspace and sales intelligence platform',
+      'Native Intelligence is an agentic workspace and sales intelligence platform',
     )
     expect(provenance['source.what_we_sell'].source_url).toBe('https://www.dial8.ai/about')
     // …and the namesake's prose reaches nothing downstream either.
     expect(icp.target.description).toBe(
-      'Companies that would buy Dial8 is an agentic workspace and sales intelligence platform.',
+      'Companies that would buy Native Intelligence is an agentic workspace and sales intelligence platform.',
     )
   })
 
@@ -262,7 +262,7 @@ describe('buildIcpDraft — the own-domain gate on who-we-are fields', () => {
     const noDomain = { ...NAMESAKE, domain: null }
     const { icp } = buildIcpDraft(noDomain, 'buyers')
     expect(icp.source.what_we_sell).toBe(
-      'Dial8 is an agentic workspace and sales intelligence platform',
+      'Native Intelligence is an agentic workspace and sales intelligence platform',
     )
     expect(icp.source.our_customers).toEqual([])
 

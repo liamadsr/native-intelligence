@@ -24,4 +24,4 @@ export function proposalNeedsPerson(change: { change_type?: string | null } | nu
 
 /** What the model reads when it tries to apply one. */
 export const PROPOSAL_PERSON_ONLY_NOTE =
-  "That proposal runs a tool in a connected app outside Dial8, so only the person can accept it: on its card, or with Apply in the capture. Don't accept it; tell them it is waiting for them."
+  "That proposal runs a tool in a connected app outside Native Intelligence, so only the person can accept it: on its card, or with Apply in the capture. Don't accept it; tell them it is waiting for them."

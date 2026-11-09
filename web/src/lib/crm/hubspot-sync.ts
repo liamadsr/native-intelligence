@@ -1,7 +1,7 @@
 /**
- * HubSpot → Dial8 CRM mapping + upsert engine.
+ * HubSpot → Native Intelligence CRM mapping + upsert engine.
  *
- * Curated CRM data from a connected HubSpot portal is imported into Dial8's
+ * Curated CRM data from a connected HubSpot portal is imported into Native Intelligence's
  * existing `company` / `contact` tables, ENRICHING what's already there rather
  * than clobbering it. All the decision logic (bucketing numeric ranges, the
  * fill-empty merge, which match wins, archived skip) is expressed as PURE
@@ -145,7 +145,7 @@ export function computeFillEmptyPatch(
 }
 
 // ---------------------------------------------------------------------------
-// Pure: normalize HubSpot objects → Dial8 field shapes
+// Pure: normalize HubSpot objects → Native Intelligence field shapes
 // ---------------------------------------------------------------------------
 
 export interface MappedCompany {
@@ -164,7 +164,7 @@ export interface MappedCompany {
   country: string | null
 }
 
-/** Map a HubSpot company object → Dial8 company field shape (all nullable). */
+/** Map a HubSpot company object → Native Intelligence company field shape (all nullable). */
 export function mapCompany(obj: HubspotObject): MappedCompany {
   const p = obj.properties ?? {}
   return {
@@ -191,7 +191,7 @@ export interface MappedContact {
   job_title: string | null
 }
 
-/** Map a HubSpot contact object → Dial8 contact field shape. */
+/** Map a HubSpot contact object → Native Intelligence contact field shape. */
 export function mapContact(obj: HubspotObject): MappedContact {
   const p = obj.properties ?? {}
   const first = cleanStr(p.firstname)

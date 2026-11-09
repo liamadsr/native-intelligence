@@ -7,11 +7,11 @@ import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
   title: 'Blog',
-  description: 'Latest news, product updates, and writing from the Dial8 team.',
+  description: 'Latest news, product updates, and writing from the Native Intelligence team.',
   alternates: { canonical: '/blog' },
   openGraph: {
-    title: 'Dial8 Blog',
-    description: 'Latest news, product updates, and writing from the Dial8 team.',
+    title: 'Native Intelligence Blog',
+    description: 'Latest news, product updates, and writing from the Native Intelligence team.',
     url: 'https://dial8.ai/blog',
     type: 'website',
   },
@@ -36,7 +36,7 @@ export default function BlogIndex() {
             Blog
           </h1>
           <p className="mt-2 text-lg text-muted-foreground">
-            Latest news and updates from Dial8.
+            Latest news and updates from Native Intelligence.
           </p>
 
           <div className="mt-10 grid gap-6">

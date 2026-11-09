@@ -350,7 +350,7 @@ class World {
 
 function icpFor(): Icp {
   const icp = emptyIcp()
-  icp.source.name = 'Dial8'
+  icp.source.name = 'Native Intelligence'
   icp.source.domain = 'dial8.ai'
   icp.source.what_we_sell = 'AI workspace for sales teams'
   icp.target.description = 'B2B SaaS companies with large sales teams'

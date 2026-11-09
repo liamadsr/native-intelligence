@@ -87,7 +87,7 @@ const CASES: CraftCase[] = [
   },
   {
     name: "a customer's company named, from a call",
-    input: { surface: 'x', parts: ['Northwind Traders now runs every standup through Dial8.'], blockedPhrases: CALL_NAMES },
+    input: { surface: 'x', parts: ['Northwind Traders now runs every standup through Native Intelligence.'], blockedPhrases: CALL_NAMES },
     ok: false,
     link: false,
   },
@@ -118,13 +118,13 @@ const CASES: CraftCase[] = [
   },
   {
     name: 'a price from shipped work alone: it could be anyone\'s, so no link',
-    input: { surface: 'x', parts: ['Dial8 Pro is now $20 a month, with unlimited captures.'] },
+    input: { surface: 'x', parts: ['Native Intelligence Pro is now $20 a month, with unlimited captures.'] },
     ok: false,
     link: false,
   },
   {
     name: 'our own public price, cited from the product doc: a note, not a block',
-    input: { surface: 'x', parts: ['Dial8 Pro is now $20 a month, with unlimited captures.'], ownPricingSource: true },
+    input: { surface: 'x', parts: ['Native Intelligence Pro is now $20 a month, with unlimited captures.'], ownPricingSource: true },
     ok: true,
     finds: ['public_safe'],
     link: true,

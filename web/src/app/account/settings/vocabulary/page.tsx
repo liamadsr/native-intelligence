@@ -1,7 +1,7 @@
 import { VocabularySettingsView } from './vocabulary-settings-view'
 
 export const metadata = {
-  title: 'Vocabulary – Settings – Dial8',
+  title: 'Vocabulary – Settings',
 }
 
 export default function VocabularySettingsPage() {

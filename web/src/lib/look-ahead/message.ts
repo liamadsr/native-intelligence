@@ -1,6 +1,6 @@
 /**
  * The look-ahead's messages (docs/plans/look-ahead-heartbeat.md §3, §4.5):
- * Dial8's template over the checked facts, never a model's free text, and
+ * Native Intelligence's template over the checked facts, never a model's free text, and
  * their writes:
  *   • the home thread: one assistant message per slot and date (the evening's
  *     `look-ahead:<date>`, the morning's `look-ahead:<date>:later`, a
@@ -20,7 +20,7 @@
  * separators, vanity ones too, and any run of seven or more digits), links,
  * web addresses and email addresses (scrub), after Unicode normalization: a
  * stranger's invite or a planted mail can't put "call 1-888-…" or a domain on
- * the person's phone. A thing to bring goes out as Dial8's own words for it
+ * the person's phone. A thing to bring goes out as Native Intelligence's own words for it
  * (canonicalBring: "driver's license", "a payment card in your name"), never
  * the mail's. A text names a place only when it is the calendar's own or
  * shaped like a street address. A booking found only in mail (an extra) stays in the
@@ -105,7 +105,7 @@ export function scrub(text: string): string {
     .trim()
 }
 
-/** The things a person brings, in Dial8's own words: the mail's are never sent. */
+/** The things a person brings, in Native Intelligence's own words: the mail's are never sent. */
 const BRING_WORDS: ReadonlyArray<[RegExp, (raw: string) => string]> = [
   [/boarding pass/i, () => 'boarding pass'],
   [/passport/i, () => 'passport'],
@@ -120,13 +120,13 @@ const BRING_WORDS: ReadonlyArray<[RegExp, (raw: string) => string]> = [
   [/\bkeys?\b/i, () => 'keys'],
 ]
 
-/** A thing to bring in Dial8's words, or null when it isn't one it knows. Pure. */
+/** A thing to bring in Native Intelligence's words, or null when it isn't one it knows. Pure. */
 export function canonicalBring(raw: string): string | null {
   for (const [re, say] of BRING_WORDS) if (re.test(raw)) return say(raw)
   return null
 }
 
-/** Each thing once, in Dial8's words. Pure. */
+/** Each thing once, in Native Intelligence's words. Pure. */
 function bringList(raw: readonly string[]): string[] {
   return [...new Set(raw.map(canonicalBring).filter((b): b is string => !!b))].slice(0, 3)
 }
@@ -279,7 +279,7 @@ export function lookAheadLogLine(label: string, lines: readonly LookAheadLine[])
   return `Look-ahead sent for ${label} (details in the thread): ${items.join('; ')}${more}`
 }
 
-/** The notice's words: Dial8's, the first calendar item's time and title (a booking from mail is never named), and how many more. Pure. */
+/** The notice's words: Native Intelligence's, the first calendar item's time and title (a booking from mail is never named), and how many more. Pure. */
 export function lookAheadNoticeCopy(lines: readonly LookAheadLine[], of: LookAheadMessageFor): { title: string; sentence: string } {
   const title = 'travel' in of ? 'Coming up in about 3 hours' : of.slot === 'evening' ? 'For tomorrow morning' : 'For later today'
   const first = lines.find((l) => !l.fromMail)

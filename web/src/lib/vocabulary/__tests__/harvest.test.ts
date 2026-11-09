@@ -13,13 +13,13 @@ describe('harvestWords', () => {
       [
         doc('We moved auth to Supabase. Supabase has RLS policies; RLS is on.'),
         doc("The supabase dashboard and Supabase's logs. Ping Kowalczyk, then Kowalczyk again."),
-        { text: 'Dial8 ships Friday. Dial8 desktop too.', source: 'action' },
+        { text: 'Route8 ships Friday. Route8 desktop too.', source: 'action' },
       ],
       lexicon,
     )
-    expect(words.map((w) => [w.term, w.count])).toEqual([['Supabase', 4], ['RLS', 2], ['Kowalczyk', 2], ['Dial8', 2]])
+    expect(words.map((w) => [w.term, w.count])).toEqual([['Supabase', 4], ['RLS', 2], ['Kowalczyk', 2], ['Route8', 2]])
     expect(words[0].sources).toEqual(['document'])
-    expect(words.find((w) => w.term === 'Dial8')?.sources).toEqual(['action'])
+    expect(words.find((w) => w.term === 'Route8')?.sources).toEqual(['action'])
   })
 
   it('a one-off word never qualifies; an all-lowercase one needs four sightings', () => {

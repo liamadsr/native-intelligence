@@ -303,12 +303,12 @@ describe('the Mac instructions', () => {
     expect(withBoth).toContain('`report_to_person`')
     expect(withBoth).toContain('`message_teammate`')
     expect(withBoth).toContain('call it on its own, never beside another tool')
-    expect(withBoth).toContain('Your Dial8 tools work as they do in the chat')
-    // No spec (no session token, or the app unreachable): no teammate tools, no Dial8 tools.
+    expect(withBoth).toContain('Your Native Intelligence tools work as they do in the chat')
+    // No spec (no session token, or the app unreachable): no teammate tools, no Native Intelligence tools.
     const without = macHostInstructions('read', undefined)
     expect(without).not.toContain('report_to_person')
     expect(without).not.toContain('message_teammate')
     expect(without).toContain('put what you found, what was blocked and any question in your `finish` summary')
-    expect(without).toContain('no Dial8 tools')
+    expect(without).toContain('no Native Intelligence tools')
   })
 })

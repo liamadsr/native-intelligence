@@ -38,8 +38,8 @@ export function createLinearTools(
   return {
     push_action_to_linear: tool({
       description:
-        'Push a Dial8 action to the workspace\'s connected Linear team as an issue, ' +
-        'and link the two so later Dial8 status changes move the Linear issue. ' +
+        'Push a Native Intelligence action to the workspace\'s connected Linear team as an issue, ' +
+        'and link the two so later Native Intelligence status changes move the Linear issue. ' +
         'Accepts the action UUID or its identifier (e.g. ENG-42). ' +
         'Requires a Linear connection with a team chosen in ' +
         'Settings → Connectors → Linear.',

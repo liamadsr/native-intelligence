@@ -19,7 +19,7 @@ export interface DecisionMetrics {
     inputTokens?: number
     outputTokens?: number
     costUsd?: number
-    /** 'chatgpt_plan': the decision ran on the person's own ChatGPT plan, at no cost to Dial8. */
+    /** 'chatgpt_plan': the decision ran on the person's own ChatGPT plan, at no cost to Native Intelligence. */
     costSource: 'gateway' | 'catalog' | 'chatgpt_plan' | 'unknown'
     /** Both token counts were supplied by the provider. Missing counts are never estimated. */
     known: boolean

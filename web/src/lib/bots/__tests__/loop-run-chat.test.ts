@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Bots v3 Phase 4 — Reply and Open in Dial8 on a LOOP item continue the exact
+ * Bots v3 Phase 4 — Reply and Open in Native Intelligence on a LOOP item continue the exact
  * chat its run used, when that run parked its session (`source.run_chat` on its
  * ledger row). Pinned here:
  *   - a loop run's chat id (`loop:<row>`) and its route (/api/account/activity/[id]/chat);

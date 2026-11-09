@@ -162,7 +162,7 @@ describe('reading', () => {
     expect(getEnvironmentSnapshot()).toMatchObject({ canEdit: false, thisDeviceId: null })
     expect(status).not.toHaveBeenCalled()
     await removeEnvironmentFolder('f-1')
-    expect(toastError).toHaveBeenCalledWith("Remove dial8-website in Dial8 on Liam's MacBook Pro")
+    expect(toastError).toHaveBeenCalledWith("Remove dial8-website in Native Intelligence on Liam's MacBook Pro")
   })
 })
 
@@ -176,7 +176,7 @@ describe('adding', () => {
     s.state.folders = [FOLDER]
     await addEnvironmentFolder()
     expect(d.refreshMirror).toHaveBeenCalledTimes(1)
-    // A rejoin: a Mac removed from Dial8 comes back when a folder is added on it.
+    // A rejoin: a Mac removed from Native Intelligence comes back when a folder is added on it.
     expect(d.refreshMirror).toHaveBeenCalledWith({ rejoin: true })
     expect(getEnvironmentSnapshot().folders.map((f) => f.id)).toEqual(['f-1'])
     expect(getEnvironmentSnapshot().picking).toBe(false)
@@ -190,10 +190,10 @@ describe('adding', () => {
     expect(toastError).not.toHaveBeenCalled()
     configureEnvironment(deps(s, { refreshMirror: async () => ({ folders: [] }) }))
     await addEnvironmentFolder()
-    expect(toastError).toHaveBeenCalledWith("Couldn't add the folder", { description: 'Dial8 did not register it. Try again.' })
+    expect(toastError).toHaveBeenCalledWith("Couldn't add the folder", { description: 'Native Intelligence did not register it. Try again.' })
     configureEnvironment(deps(s, { refreshMirror: async () => null }))
     await addEnvironmentFolder()
-    expect(toastError).toHaveBeenCalledWith("Couldn't add the folder", { description: "Dial8 couldn't be reached. Try again." })
+    expect(toastError).toHaveBeenCalledWith("Couldn't add the folder", { description: "Native Intelligence couldn't be reached. Try again." })
   })
 })
 
@@ -287,6 +287,6 @@ describe('removing', () => {
     const { d } = await ready()
     await removeEnvironmentFolder('f-2')
     expect(d.removeGrant).not.toHaveBeenCalled()
-    expect(toastError).toHaveBeenCalledWith('Remove notes in Dial8 on Studio')
+    expect(toastError).toHaveBeenCalledWith('Remove notes in Native Intelligence on Studio')
   })
 })

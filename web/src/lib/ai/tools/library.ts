@@ -63,7 +63,7 @@ import {
  *     chat and can promote it, but nothing lands in front of the team because
  *     a model chose a default.
  *
- * Publishing to Discover (visibility 'public', which every Dial8 user sees) is
+ * Publishing to Discover (visibility 'public', which every Native Intelligence user sees) is
  * owner/admin only, as on the HTTP routes and over MCP: see {@link publishDenied}.
  *
  * create_skill and update_skill are ATTENDED ONLY (ATTENDED_ONLY_TOOL_NAMES in

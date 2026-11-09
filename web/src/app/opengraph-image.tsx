@@ -2,12 +2,12 @@ import { ImageResponse } from 'next/og'
 
 // Default social-card image for the whole site (og:image + fallback for pages
 // without their own). Generated at build time via next/og. Kept deliberately
-// simple and font-fetch-free so it can't fail the build — the Dial8 brand is
+// simple and font-fetch-free so it can't fail the build — the Native Intelligence brand is
 // monochrome, so a near-black canvas with the wordmark and tagline reads on
 // brand without any downloaded typeface.
 
 export const runtime = 'nodejs'
-export const alt = 'Dial8 — The end-to-end AI sales platform'
+export const alt = 'Native Intelligence — The end-to-end AI sales platform'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -43,13 +43,13 @@ export default function OpengraphImage() {
         <div
           style={{
             display: 'flex',
-            fontSize: 128,
+            fontSize: 100,
             fontWeight: 700,
             letterSpacing: '-0.04em',
             lineHeight: 1,
           }}
         >
-          Dial8
+          Native Intelligence
         </div>
         <div
           style={{
