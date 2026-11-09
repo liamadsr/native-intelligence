@@ -60,6 +60,25 @@ describe('migration 473 (deals, pipelines, custom fields)', () => {
     expect(sweep).toContain("'deal.stage'")
   })
 
+  it("carries deals through the CRM's own contact merge, and back on unmerge", () => {
+    const merge = sql.slice(sql.indexOf('create or replace function public.contact_merge_move_deals()'))
+    const mergeBody = merge.slice(0, merge.indexOf('\n$$;'))
+    // The survivor takes the loser's place; a deal that has both drops the loser.
+    expect(mergeBody).toContain('array_replace(contact_ids, new.source_contact_id, new.target_contact_id)')
+    expect(mergeBody).toContain('array_remove(contact_ids, new.source_contact_id)')
+    // What moved is recorded beside 132's own lists, for the undo.
+    expect(mergeBody).toContain("jsonb_build_object('deal_ids', v_repointed, 'deal_ids_had_target', v_had_target)")
+    expect(sql).toMatch(/create trigger contact_merge_move_deals\s+before insert on public\.contact_merge/)
+    const unmerge = sql.slice(sql.indexOf('create or replace function public.contact_unmerge_restore_deals()'))
+    const unmergeBody = unmerge.slice(0, unmerge.indexOf('\n$$;'))
+    expect(unmergeBody).toContain('array_replace(contact_ids, new.target_contact_id, new.source_contact_id)')
+    expect(unmergeBody).toContain('array_append(contact_ids, new.source_contact_id)')
+    expect(sql).toMatch(/create trigger contact_unmerge_restore_deals\s+after update of undone_at on public\.contact_merge/)
+    for (const fn of ['contact_merge_move_deals', 'contact_unmerge_restore_deals']) {
+      expect(sql, fn).toContain(`revoke all on function public.${fn}() from public, anon, authenticated;`)
+    }
+  })
+
   it('is re-runnable: every constraint is dropped before it is added', () => {
     const added = [...sql.matchAll(/add constraint (\w+)/g)].map((m) => m[1])
     expect(added.length).toBeGreaterThan(10)

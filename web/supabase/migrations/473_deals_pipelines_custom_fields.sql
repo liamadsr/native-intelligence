@@ -1558,3 +1558,95 @@ BEGIN
                             'remaining', v_remaining);
 END;
 $$;
+
+-- ------------------------------------------------------------
+-- 10. A contact merge (132, the CRM's dedup) carries deals along
+-- ------------------------------------------------------------
+-- merge_contacts records what it moves in contact_merge.moved and
+-- unmerge_contacts moves exactly that back. Rather than copy both, two
+-- triggers on contact_merge do the deals' part: on the merge row's insert,
+-- each deal on the merged-away contact points at the survivor instead (a deal
+-- that already has the survivor just drops the loser), and the deal ids go
+-- into `moved` (deal_ids, deal_ids_had_target); when the merge is undone
+-- (undone_at set), those deals get the restored contact back.
+
+create or replace function public.contact_merge_move_deals()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_repointed jsonb;
+  v_had_target jsonb;
+begin
+  if new.source_contact_id is null or new.target_contact_id is null then
+    return new;
+  end if;
+
+  select coalesce(jsonb_agg(id) filter (where not (contact_ids @> array[new.target_contact_id])), '[]'::jsonb),
+         coalesce(jsonb_agg(id) filter (where contact_ids @> array[new.target_contact_id]), '[]'::jsonb)
+    into v_repointed, v_had_target
+    from public.deal
+   where contact_ids @> array[new.source_contact_id];
+
+  -- The survivor takes the loser's place; where it is on the deal already,
+  -- the loser just goes.
+  update public.deal
+     set contact_ids = case
+           when contact_ids @> array[new.target_contact_id] then array_remove(contact_ids, new.source_contact_id)
+           else array_replace(contact_ids, new.source_contact_id, new.target_contact_id)
+         end
+   where contact_ids @> array[new.source_contact_id];
+
+  new.moved := coalesce(new.moved, '{}'::jsonb)
+    || jsonb_build_object('deal_ids', v_repointed, 'deal_ids_had_target', v_had_target);
+  return new;
+end;
+$$;
+
+revoke all on function public.contact_merge_move_deals() from public, anon, authenticated;
+
+drop trigger if exists contact_merge_move_deals on public.contact_merge;
+create trigger contact_merge_move_deals
+  before insert on public.contact_merge
+  for each row execute function public.contact_merge_move_deals();
+
+create or replace function public.contact_unmerge_restore_deals()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_repointed uuid[];
+  v_had_target uuid[];
+begin
+  if old.undone_at is not null or new.undone_at is null
+     or new.source_contact_id is null or new.target_contact_id is null then
+    return new;
+  end if;
+  v_repointed := array(select (jsonb_array_elements_text(coalesce(new.moved->'deal_ids', '[]'::jsonb)))::uuid);
+  v_had_target := array(select (jsonb_array_elements_text(coalesce(new.moved->'deal_ids_had_target', '[]'::jsonb)))::uuid);
+
+  -- Repointed deals: the survivor hands the place back.
+  update public.deal
+     set contact_ids = case
+           when contact_ids @> array[new.source_contact_id] then array_remove(contact_ids, new.target_contact_id)
+           else array_replace(contact_ids, new.target_contact_id, new.source_contact_id)
+         end
+   where id = any(v_repointed) and contact_ids @> array[new.target_contact_id];
+  -- Deals that had both: the restored contact comes back beside the survivor.
+  update public.deal
+     set contact_ids = array_append(contact_ids, new.source_contact_id)
+   where id = any(v_had_target) and not (contact_ids @> array[new.source_contact_id]);
+  return new;
+end;
+$$;
+
+revoke all on function public.contact_unmerge_restore_deals() from public, anon, authenticated;
+
+drop trigger if exists contact_unmerge_restore_deals on public.contact_merge;
+create trigger contact_unmerge_restore_deals
+  after update of undone_at on public.contact_merge
+  for each row execute function public.contact_unmerge_restore_deals();
