@@ -7,7 +7,7 @@
  *   the header  one pill at the top left, over the top bar: the
  *               workspace's thumbnail (its account menu), For you's button,
  *               and Search (Liam, 11-09).
- *   the bar     down the left, centred under the header: every page the
+ *   the bar     down the left, just under the header: every page the
  *               workspace has on (./rail-pages.ts) in one floating pill, a
  *               hairline between its groups (your work, plans, customers,
  *               agents). Where the window is too short it scrolls.
@@ -88,7 +88,8 @@ export const HEADER_BOTTOM_VAR = '--app-header-bottom'
 const HEADER_STYLE: React.CSSProperties = { left: 8, top: 3 }
 const HEADER_STYLE_LIGHTS: React.CSSProperties = { left: 78, top: 9 }
 /** The pills' column: the rail's width, under the header. */
-const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(var(--app-header-bottom, 0px) + 4px)' }
+// Its top 5px under the header's: level with the panels' tops (half a gutter under the top bar).
+const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(var(--app-header-bottom, 0px) + 5px)' }
 /** A floating pill: the panels' glass (COLUMN_CARD_SKIN), rounded, its buttons stacked. */
 const PILL = cn('flex flex-col items-center gap-0.5 rounded-2xl border border-border/60 p-1', COLUMN_CARD_SKIN)
 
@@ -292,8 +293,8 @@ export function AppRail() {
 
       {/* The bar (Liam, 11-09, from Miro's toolbar: "one big bar instead of
           four"): every page in one floating pill, a hairline between its
-          groups, down the left, centred in the room under the header; where
-          the window is too short it scrolls. */}
+          groups, down the left, at the top just under the header ("top align
+          it so it's not center"); where the window is too short it scrolls. */}
       <nav
         data-app-rail-nav=""
         aria-label="Pages"
@@ -302,8 +303,8 @@ export function AppRail() {
       >
         {mounted && (
           <TooltipProvider delayDuration={300}>
-            <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden py-2 [scrollbar-width:none]">
-              <div className="my-auto flex flex-col items-start gap-1.5 pl-2">
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden pb-2 [scrollbar-width:none]">
+              <div className="flex flex-col items-start gap-1.5 pl-2">
                 <div data-app-rail-pill="pages" className={PILL}>
                   {groups.map((g, i) => (
                     <div key={g.group} data-app-rail-group={g.group} className="flex flex-col items-center gap-0.5">

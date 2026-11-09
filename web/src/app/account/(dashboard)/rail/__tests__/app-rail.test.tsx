@@ -92,7 +92,10 @@ describe('the app rail', () => {
     expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['pages'])
     expect(Array.from(pills[0].querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['work', 'plans', 'customers', 'agents'])
     expect(pills[0].querySelectorAll('[data-app-rail-group-line]')).toHaveLength(3)
+    // At the top, not centred (Liam, 11-09: "top align it so it's not center").
+    expect(pills[0].parentElement!.className).not.toContain('my-auto')
     // No Home or New button (Liam, 11-09: "we don't need this button").
+
     expect(item('home')).toBeNull()
     expect(item('new')).toBeNull()
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
