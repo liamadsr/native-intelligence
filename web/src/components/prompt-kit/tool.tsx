@@ -220,6 +220,8 @@ const TOOL_LABELS: Record<string, string> = {
   create_quote_form_link: 'Make quote form link',
   find_booking_slots: 'Find booking slots',
   list_bookings: 'List bookings',
+  move_booking: 'Move booking',
+  cancel_booking: 'Cancel booking',
   send_quote: 'Send quote',
   book_quote: 'Book quote',
   // Attachments

@@ -159,6 +159,31 @@ describe("a text to a business's number", () => {
     expect(g.deps.setPhoneOptOut).not.toHaveBeenCalled()
   })
 
+  it("STOP from a customer tells the business's reminders (issue #11), after the opt-out is set; never for one of its people", async () => {
+    const f = fakeDeps()
+    f.deps.customerStopped = vi.fn(async () => 1)
+    expect(await handleInboundSms(sms('STOP'), f.deps)).toEqual({ outcome: 'stop', reply: null })
+    expect(f.deps.setGuestOptOut).toHaveBeenCalledWith(STRANGER, true)
+    expect(f.deps.customerStopped).toHaveBeenCalledWith({ number: NUMBER, name: 'Bright Loom' }, STRANGER)
+    // A failure there never costs the STOP.
+    const broken = fakeDeps()
+    broken.deps.customerStopped = vi.fn(async () => {
+      throw new Error('down')
+    })
+    expect(await handleInboundSms(sms('STOP'), broken.deps)).toEqual({ outcome: 'stop', reply: null })
+    // One of the business's own people, START, or STOP to the Dial8 number: nothing.
+    const own = fakeDeps({ linked: ACCOUNT_A, person: ACCOUNT_B })
+    own.deps.customerStopped = vi.fn(async () => 1)
+    await handleInboundSms(sms('STOP'), own.deps)
+    const start = fakeDeps()
+    start.deps.customerStopped = vi.fn(async () => 1)
+    await handleInboundSms(sms('START'), start.deps)
+    const dial8 = fakeDeps()
+    dial8.deps.customerStopped = vi.fn(async () => 1)
+    await handleInboundSms(sms('STOP', { to: DIAL8 }), dial8.deps)
+    expect([own, start, dial8].map((x) => (x.deps.customerStopped as ReturnType<typeof vi.fn>).mock.calls.length)).toEqual([0, 0, 0])
+  })
+
   it('START from a stranger (a customer) touches no person row: guests, customers and the ledger only', async () => {
     const f = fakeDeps()
     await handleInboundSms(sms('START'), f.deps)

@@ -27,7 +27,9 @@
  *      the row that number resolves the phone to (2b), on either line, the
  *      one whose opt-out the texts from that number read (nothing when it
  *      resolves to no one). Guests and customers (setGuestOptOut) and the
- *      ledger as before. When Twilio
+ *      ledger as before. A business's customer who says STOP to a reminder
+ *      it texted them: the owner is told (customerStopped,
+ *      src/lib/customers/reminder-replies.ts). When Twilio
  *      answered the keyword itself (a Messaging Service's Advanced Opt-Out
  *      sets `OptOutType`), its keyword wins, since its opt-out state is the one
  *      carriers enforce, and nothing is said back: Twilio already replied;
@@ -75,6 +77,7 @@ import { handleGuestText, supabaseGuestTextDeps, type GuestTextDeps, type GuestT
 import { setGuestOptOut } from '@/lib/guests/store'
 import { findBusinessNumber, type BusinessNumber } from '@/lib/customers/numbers'
 import { businessName } from '@/lib/customers/store'
+import { remindersStopped } from '@/lib/customers/reminder-replies'
 import {
   businessHelpReply,
   businessStartReply,
@@ -194,6 +197,8 @@ export interface InboundDeps {
    * of the business's own people after all. `reply` and `noticedSince` are
    * this handler's (NANP only, the global auto-reply cap).
    */
+  /** A business's customer (not one of its people) said STOP to its number: their open reminders tell the owner. Best effort. */
+  customerStopped?(business: { number: BusinessNumber; name: string }, phone: string): Promise<unknown>
   businessText?(
     input: { number: BusinessNumber; phone: string; text: string; sid: string | null; numMedia: number },
     tools: Pick<BusinessTextDeps, 'autoReply' | 'noticedSince'>,
@@ -320,6 +325,7 @@ export async function handleInboundSms(input: InboundSms, deps: InboundDeps): Pr
       await deps.setPhoneOptOut(phone, optedOut)
     }
     await deps.setGuestOptOut?.(phone, optedOut).catch(() => {})
+    if (optedOut && business && !linked) await deps.customerStopped?.(business, phone).catch(() => {})
     if (optedOut) return { outcome: 'stop', reply: null }
     return { outcome: 'start', reply: answeredByTwilio ? null : await autoReply(deps, phone, 'auto_reply', business ? businessStartReply(business.name) : START_REPLY, now) }
   }
@@ -467,6 +473,7 @@ export function supabaseInboundDeps(
       }
     },
     businessText: (input, tools) => handleBusinessText(input, supabaseBusinessTextDeps(supabase, tools)),
+    customerStopped: (business, phone) => remindersStopped(supabase, { workspaceId: business.number.workspaceId, phone, businessName: business.name }),
     setGuestOptOut: (phone, optedOut) => setGuestOptOut(supabase, phone, optedOut),
     deliverText: args.deliverText,
     origin: args.origin,

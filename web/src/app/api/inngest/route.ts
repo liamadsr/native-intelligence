@@ -64,6 +64,7 @@ import { websiteChangeMerged, websitePrOpened } from '@/lib/inngest/website-func
 import { sequenceStepSend } from '@/lib/inngest/sequence-functions'
 import { campaignRollingPass, reviewRequestOnJob } from '@/lib/inngest/outreach-functions'
 import { dailyJobsPass, dailyJobsSend } from '@/lib/inngest/daily-jobs'
+import { customerRemindersPass, customerRemindersSend } from '@/lib/inngest/customer-reminders'
 import { prospectingRunExecute } from '@/lib/inngest/prospecting-functions'
 import { evalRunExecute } from '@/lib/inngest/eval-functions'
 import { asanaEchoStatus } from '@/lib/inngest/asana-echo-status'
@@ -171,6 +172,8 @@ export const { GET, POST, PUT } = serve({
     // The owner's daily list of jobs (roadmap F3): 7 o'clock local, confirmed bookings only.
     dailyJobsPass,
     dailyJobsSend,
+    customerRemindersPass,
+    customerRemindersSend,
     prospectingRunExecute,
     evalRunExecute,
     asanaEchoStatus,

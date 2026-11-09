@@ -75,6 +75,8 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'create_quote_form_link',
   'find_booking_slots',
   'list_bookings',
+  'move_booking',
+  'cancel_booking',
   // The owner's answer to a quote (roadmap F3): theirs alone, on their own card.
   'send_quote',
   'book_quote',

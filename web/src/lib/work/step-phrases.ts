@@ -85,6 +85,8 @@ const STEP_PHRASES: Record<string, string> = {
   send_payment_link: 'Asking to send a payment link',
   send_quote: 'Asking to send a quote',
   book_quote: 'Asking to book a job',
+  move_booking: 'Moving a booking',
+  cancel_booking: 'Cancelling a booking',
   schedule_post: 'Asking to queue a post',
   create_canon_document: 'Writing a canon document',
   propose_section_edit: 'Editing a canon document',

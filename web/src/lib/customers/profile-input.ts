@@ -110,6 +110,10 @@ export function parseProfilePatch(body: unknown): { patch: BusinessProfilePatch 
     }
     patch.bookingSlug = b.booking_slug === null ? null : (b.booking_slug as string).trim().toLowerCase()
   }
+  if (b.reminders !== undefined) {
+    if (typeof b.reminders !== 'boolean') return { error: 'reminders must be true or false.' }
+    patch.reminders = b.reminders
+  }
   return { patch }
 }
 

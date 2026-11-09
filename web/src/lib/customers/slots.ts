@@ -140,6 +140,22 @@ export function openSlots(input: OpenSlotsInput): OpenSlot[] {
   return out
 }
 
+const LOCAL_START = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::00)?$/
+
+/** A wall-clock start in `timeZone` as an instant, or null when that local time doesn't exist there (a bad date, a skipped hour). Pure. */
+export function localStartInstant(start: string, timeZone: string): number | null {
+  const m = LOCAL_START.exec(start)
+  if (!m) return null
+  const [y, mo, d, h, mi] = m.slice(1).map(Number)
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null
+  const clock = `${m[4]}:${m[5]}`
+  const at = zonedTime({ y, m: mo, d }, clock, timeZone)
+  // Read back: a date that doesn't exist (Feb 30) or an hour the clocks skip lands elsewhere.
+  const back = localDate(at, timeZone)
+  const backClock = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(new Date(at))
+  return back.y === y && back.m === mo && back.d === d && backClock === clock ? at : null
+}
+
 /** A slot as a customer reads it: "Tue, Nov 3, 10:00 AM". Pure. */
 export function slotLabel(startIso: string, timeZone: string): string {
   try {
@@ -183,6 +199,8 @@ export function slotWindow(range: { fromDate?: string | null; days?: number }, s
 export interface FindOpenSlotsDeps {
   listEvents?: typeof listCalendarEventsUnified
   now?: () => number
+  /** What a move leaves behind: the booking being moved and its own calendar event never block its new time. */
+  except?: { bookingId?: string | null; eventId?: string | null }
 }
 
 /**
@@ -211,8 +229,9 @@ export async function findOpenSlots(
   ])
   // A request the owner never answered lapses with its approval: its slot is open again.
   const staleBefore = now - BOOKING_REQUEST_TTL_MS
-  const live = bookings.filter((b) => b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore)
-  const slots = openSlots({ rules: setup.rules, timeZone: setup.timeZone, now, busy: busyBlocks(events, timeMin, timeMax), bookings: live, ...range })
+  const live = bookings.filter((b) => b.id !== deps.except?.bookingId && (b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore))
+  const busy = busyBlocks(deps.except?.eventId ? events.filter((e) => e.id !== deps.except?.eventId) : events, timeMin, timeMax)
+  const slots = openSlots({ rules: setup.rules, timeZone: setup.timeZone, now, busy, bookings: live, ...range })
   return { slots, timeZone: setup.timeZone, rules: setup.rules }
 }
 
@@ -236,9 +255,9 @@ export async function openSlotAt(
 /**
  * Whether [start, end) is still free: nothing on the owner's calendar then
  * (an all-day event that day included) and no other live booking (a fresh
- * request or a confirmed one), `exceptBookingId`'s own hold aside. The
- * owner's yes checks it again before booking. Throws when the calendar
- * can't be read.
+ * request or a confirmed one), `exceptBookingId`'s own hold aside (and, for
+ * a move, `deps.except`'s booking and calendar event). The owner's yes checks
+ * it again before booking. Throws when the calendar can't be read.
  */
 export async function isSlotFree(
   supabase: SupabaseClient,
@@ -258,12 +277,15 @@ export async function isSlotFree(
     liveBookingsBetween(supabase, business.workspaceId, slot.start, slot.end),
   ])
   const staleBefore = now - BOOKING_REQUEST_TTL_MS
-  if (bookings.some((b) => b.id !== slot.exceptBookingId && (b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore))) return false
+  const exceptBookingId = slot.exceptBookingId ?? deps.except?.bookingId
+  if (bookings.some((b) => b.id !== exceptBookingId && (b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore))) return false
   const setup = await bookingSetup(supabase, business)
   const day = localDate(from, setup.timeZone)
   const dayStart = zonedTime(day, '00:00', setup.timeZone)
   const dayEnd = zonedTime(addDays(day, 1), '00:00', setup.timeZone)
-  for (const block of busyBlocks(events, timeMin, timeMax)) {
+  // A moved booking's own calendar event never blocks its new time.
+  const theirs = deps.except?.eventId
+  for (const block of busyBlocks(theirs ? events.filter((e) => e.id !== theirs) : events, timeMin, timeMax)) {
     const s = Date.parse(block.start)
     const e = Date.parse(block.end)
     if (block.allDay ? allDayTakes({ start: s, end: e }, dayStart, dayEnd) : s < to && e > from) return false

@@ -109,6 +109,16 @@ describe('a stranger texting the business', () => {
     expect(await handleBusinessText(text('', 'SM1', 1), d)).toEqual({ outcome: 'customer_no_text', reply: CUSTOMER_NO_TEXT_REPLY })
     expect(tables.agent_guest).toHaveLength(0)
   })
+
+  it('their first text answering a reminder the business just texted them gets no welcome: that text named the business and the opt-out', async () => {
+    const wasReminded = vi.fn(async () => true)
+    const { d, delivered } = deps({ wasReminded })
+    const out = await handleBusinessText(text('Yes'), d)
+    expect(out).toEqual({ outcome: 'customer_queued', reply: null })
+    expect(delivered.map((x) => x.text)).toEqual(['Yes'])
+    expect(wasReminded).toHaveBeenCalledWith('ws-rug', SARAH)
+    expect(d.autoReply).not.toHaveBeenCalled()
+  })
 })
 
 describe("the business's own people", () => {

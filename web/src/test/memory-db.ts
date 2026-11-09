@@ -8,7 +8,7 @@
  *   upsert (one row or many, `{ onConflict: 'a,b' }`: a row matching on those
  *   columns is updated, else inserted),
  *   eq, neq, in, is, gt, gte, lt, lte, not(col, 'is', null), contains,
- *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"}'),
+ *   ilike ('%suffix' / 'prefix%' / '%mid%'), or('a.eq.x,b.cs.{"y"},c.is.null'),
  *   order (strings or numbers), limit, range (fetchAllRows' pages), single,
  *   maybeSingle.
  *
@@ -25,9 +25,13 @@ type Filter = (r: Row) => boolean
 function orFilter(expr: string): Filter {
   const parts = expr.split(',').map((p) => p.trim()).filter(Boolean)
   const tests = parts.map((part): Filter => {
-    const m = /^([a-z_]+)\.(eq|cs|neq)\.(.*)$/.exec(part)
+    const m = /^([a-z_]+)\.(eq|cs|neq|is)\.(.*)$/.exec(part)
     if (!m) throw new Error(`memory-db: or ${part}`)
     const [, col, op, raw] = m
+    if (op === 'is') {
+      if (raw !== 'null') throw new Error(`memory-db: or ${part}`)
+      return (r) => r[col] === null || r[col] === undefined
+    }
     if (op === 'cs') {
       const inner = raw.replace(/^\{|\}$/g, '').split(',').map((v) => v.replace(/^"|"$/g, ''))
       return (r) => Array.isArray(r[col]) && inner.every((v) => (r[col] as unknown[]).includes(v))
