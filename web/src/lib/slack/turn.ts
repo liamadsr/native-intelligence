@@ -457,9 +457,11 @@ export async function postSlackTurnReply(
     return { posted: false, reason: 'lookup_failed' }
   }
   if (isQuietReply(text)) return { posted: false, reason: 'quiet' }
-  if (!(await claimReply(supabase, args.rowId, deps.now))) return { posted: false, reason: 'already_sent' }
   // A guest has no Dial8 to open: no "more in Dial8" link for them.
   const body = markdownToSlack(text, args.guestId ? {} : { moreLink: `${deps.origin ?? appOrigin()}/account` })
+  // Nothing left once its HTML comments go (a reply that was only `<!-- card:4 -->`).
+  if (!body) return { posted: false, reason: 'quiet' }
+  if (!(await claimReply(supabase, args.rowId, deps.now))) return { posted: false, reason: 'already_sent' }
   const sent = await slack.post({ channel: origin.channel_id, text: body, ...inThread(origin) }).catch(() => ({ ok: false as const, error: 'request_failed' }))
   return sent.ok ? { posted: true } : { posted: false, reason: sent.error }
 }

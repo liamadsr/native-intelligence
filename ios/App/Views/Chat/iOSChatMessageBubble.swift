@@ -63,6 +63,13 @@ struct iOSChatMessageBubble: View {
 
     // MARK: - Assistant Message
 
+    /// The reply as shown and copied: HTML comments (`<!-- card:4 -->`, proposal
+    /// markers) never reach the screen. The live reply's own bubble
+    /// (`iOSAIChatView.streamingBubble`) strips them as it streams.
+    private var shownContent: String {
+        ChatReplyText.strippingComments(message.content)
+    }
+
     private var assistantMessage: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Tool calls stay as compact chips above the answer
@@ -79,8 +86,9 @@ struct iOSChatMessageBubble: View {
                 }
             }
 
-            if !message.content.isEmpty {
-                Markdown(message.content)
+            let shown = shownContent
+            if !shown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Markdown(shown)
                     .font(.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -98,7 +106,7 @@ struct iOSChatMessageBubble: View {
     private var actionRow: some View {
         HStack(spacing: 20) {
             actionButton(systemImage: "doc.on.clipboard", label: "Copy message") {
-                UIPasteboard.general.string = message.content
+                UIPasteboard.general.string = shownContent
                 print("📋 iOSChatMessageBubble: copied message \(message.id.uuidString.prefix(8))")
             }
 
@@ -167,7 +175,7 @@ struct iOSChatMessageBubble: View {
     private var expandedSheet: some View {
         NavigationStack {
             ScrollView {
-                Markdown(message.content)
+                Markdown(shownContent)
                     .font(.body)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

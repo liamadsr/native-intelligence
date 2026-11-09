@@ -70,9 +70,11 @@ To run against your own backend, change those two files.
 
 ```sh
 Scripts/test-eve-chat.sh
+Scripts/test-chat-reply-text.sh
 ```
 
-It runs the real Swift chat transport against a local fixture server. See `docs/ios-eve-chat.md`.
+The first runs the real Swift chat transport against a local fixture server (see
+`docs/ios-eve-chat.md`). The second checks how the chat bubble drops HTML comments from a reply.
 
 ## Third-party code
 

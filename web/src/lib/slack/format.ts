@@ -11,15 +11,19 @@
  *   & < >                 → &amp; &lt; &gt; (Slack's three escapes)
  *
  * Code spans and fenced blocks pass through untouched (Slack reads backticks
- * the same way). A reply past Slack's practical message size is cut at a
- * line break with a pointer to the rest in Dial8.
+ * the same way). HTML comments outside code (`<!-- proposal:… -->`, a stray
+ * `<!-- card:4 -->`) are dropped. A reply past Slack's practical message size
+ * is cut at a line break with a pointer to the rest in Dial8.
  */
+
+import { stripHtmlComments } from '@/lib/chat/strip-comments'
 
 /** Slack truncates a message's text well before its 40,000 limit in practice; keep replies readable. */
 export const SLACK_REPLY_MAX_CHARS = 3_500
 
 export function markdownToSlack(markdown: string, opts: { moreLink?: string } = {}): string {
-  const segments = splitCode(markdown.replace(/\r\n/g, '\n'))
+  // HTML comments go first (code keeps its own): Slack would print one, escaped, as text.
+  const segments = splitCode(stripHtmlComments(markdown.replace(/\r\n/g, '\n')))
   const out = segments.map((seg) => (seg.code ? seg.text : convertProse(seg.text))).join('').trim()
   return clip(out, opts.moreLink)
 }

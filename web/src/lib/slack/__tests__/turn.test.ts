@@ -272,6 +272,15 @@ describe('the reply', () => {
     expect(db.turns[0].reply_sent_at).toBeNull()
   })
 
+  it('posts nothing for a reply that was only an HTML comment, and claims nothing', async () => {
+    const onlyComment = { id: 'home-turn:row-1', parts: [{ type: 'text', text: '<!-- card:4 -->' }] }
+    const db = fakeDb({ messages: [onlyComment], turns: [{ id: 'row-1', reply_sent_at: null }] })
+    const { slack, calls } = fakeSlack()
+    expect(await postSlackTurnReply(db.client, { userId: USER, conversationId: CONV, rowId: 'row-1' }, origin, slack)).toEqual({ posted: false, reason: 'quiet' })
+    expect(calls).toEqual([])
+    expect(db.turns[0].reply_sent_at).toBeNull()
+  })
+
   it('settling takes the 👀 off, and says so when the turn failed or ran long', async () => {
     m.finish.mockResolvedValue({ outcome: 'quiet', written: false })
     const data = { conversationId: CONV, userId: USER, workspaceId: WS, workItemIds: [], reason: 'slack' as const }
