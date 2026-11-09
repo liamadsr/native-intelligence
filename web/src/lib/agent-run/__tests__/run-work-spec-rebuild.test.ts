@@ -303,6 +303,9 @@ describe('computeWorkRunCeiling', () => {
         // Roadmap F3: the owner's answer to a quote (its text, or the booked time), external writes on their own card.
         'send_quote',
         'book_quote',
+        // Issue #11's follow-up: the owner's own move or cancel of a booking texts the customer, an external write.
+        'move_booking',
+        'cancel_booking',
       ].sort(),
     )
   })

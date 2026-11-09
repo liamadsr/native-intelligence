@@ -234,12 +234,16 @@ export async function answerReminder(
 }
 
 /**
- * The owner moved a booking (./booking-changes.ts): its reminders follow it
- * to the new time, and an answer about the old time (confirmed, moved) is
- * cleared, so the customer's agent asks again. A STOP stays. Throws on a
- * failed write.
+ * The owner moved a booking (./booking-changes.ts). To another day: its
+ * reminders are let go, so the day before the new date reminds them again
+ * (a STOP stays, at the new time). The same day: they follow it to the new
+ * time, and an answer about the old time (confirmed, moved) is cleared, so
+ * the customer's agent asks again. Throws on a failed write.
  */
-export async function remindersFollowBooking(supabase: SupabaseClient, args: { workspaceId: string; bookingId: string; startsAt: string; nowIso: string }): Promise<void> {
+export async function remindersFollowBooking(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; bookingId: string; startsAt: string; newDay: boolean; nowIso: string },
+): Promise<void> {
   const moved = await supabase
     .from('customer_reminder')
     .update({ moved_to: args.startsAt, updated_at: args.nowIso })
@@ -247,6 +251,17 @@ export async function remindersFollowBooking(supabase: SupabaseClient, args: { w
     .eq('subject_type', 'booking')
     .eq('subject_id', args.bookingId)
   if (moved.error) throw new Error(`customer_reminder update failed: ${moved.error.message}`)
+  if (args.newDay) {
+    const gone = await supabase
+      .from('customer_reminder')
+      .delete()
+      .eq('workspace_id', args.workspaceId)
+      .eq('subject_type', 'booking')
+      .eq('subject_id', args.bookingId)
+      .or('answer.is.null,answer.neq.opted_out')
+    if (gone.error) throw new Error(`customer_reminder delete failed: ${gone.error.message}`)
+    return
+  }
   const cleared = await supabase
     .from('customer_reminder')
     .update({ answer: null, answered_at: null, updated_at: args.nowIso })

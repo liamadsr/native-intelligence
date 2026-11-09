@@ -10,14 +10,19 @@
  *                   moves (its unique live-slot key keeps two from one
  *                   start), its calendar event follows (a calendar that
  *                   refuses puts the booking back), the customer's yes to the
- *                   old time is cleared, its reminder follows it, and the
- *                   customer is texted the new time.
+ *                   old time is cleared, and the customer is texted the
+ *                   new time. Its reminder follows it the same day; to
+ *                   another day it is let go, so the day before the new date
+ *                   reminds them again. A booking that changed again while
+ *                   its calendar moved (the customer's own move) is left as
+ *                   it is, and nobody is texted.
  *   cancel_booking  a confirmed booking not yet started: it is cancelled,
  *                   its calendar event deleted (one that can't be is
  *                   reported; the booking stays cancelled), its reminder
  *                   answered `cancelled` (the customer's agent knows, and a
- *                   later STOP doesn't tell the owner it still stands), and
- *                   the customer is texted.
+ *                   later STOP doesn't tell the owner it still stands), its
+ *                   quote opened again (booked → accepted, so book_quote can
+ *                   book another time), and the customer is texted.
  *
  * A requested booking is the owner's card to answer (yes books it; no asks
  * the customer for another time), so neither tool touches one. Owners and
@@ -35,7 +40,7 @@ import { deleteCalendarEvent, updateCalendarEvent } from '@/lib/integrations/cal
 import { textBookingCustomer } from './booking'
 import { cleanText } from './intake'
 import { remindersCancelled, remindersFollowBooking } from './reminder-store'
-import { bookingSetup, isSlotFree, localStartInstant, slotLabel, type FindOpenSlotsDeps } from './slots'
+import { bookingSetup, isSlotFree, localDate, localStartInstant, slotLabel, type FindOpenSlotsDeps } from './slots'
 import { BOOKING_SELECT, businessName, expireStaleBookings, getBooking, moveBooking, toBooking } from './store'
 import { BOOKING_REQUEST_TTL_MS, type CustomerBooking } from './types'
 
@@ -91,6 +96,7 @@ export async function rescheduleWithCalendar(
       .update({ starts_at: booking.startsAt, ends_at: booking.endsAt, customer_confirmed_at: booking.customerConfirmedAt, updated_at: opts.nowIso })
       .eq('workspace_id', booking.workspaceId)
       .eq('id', booking.id)
+      .eq('state', 'confirmed')
       .eq('starts_at', slot.start)
       .select('id')
       .maybeSingle()
@@ -157,6 +163,19 @@ function toldLine(booking: Pick<CustomerBooking, 'customerName'>, tellCustomer: 
 }
 
 /**
+ * A booked quote whose booking was cancelled, back to accepted (book_quote
+ * refuses a booked one), unless another live booking still holds it. Fenced
+ * on it still being booked. Throws on a failed read or write.
+ */
+async function reopenQuote(supabase: SupabaseClient, workspaceId: string, quoteId: string, nowIso: string): Promise<void> {
+  const { data: live, error } = await supabase.from('customer_booking').select('id').eq('workspace_id', workspaceId).eq('quote_id', quoteId).in('state', ['requested', 'confirmed']).limit(1)
+  if (error) throw new Error(`customer_booking read failed: ${error.message}`)
+  if (live?.length) return
+  const reopened = await supabase.from('customer_quote').update({ status: 'accepted', updated_at: nowIso }).eq('workspace_id', workspaceId).eq('id', quoteId).eq('status', 'booked')
+  if (reopened.error) throw new Error(`customer_quote update failed: ${reopened.error.message}`)
+}
+
+/**
  * move_booking (see the header). `start` is the business's local time, like
  * 2026-11-12T10:00. Never throws on a refusal; throws on a failed read.
  */
@@ -206,15 +225,23 @@ export async function ownerMoveBooking(
     if (moved.code === 'CHANGED') return refuse('CHANGED', `That booking just changed (list_bookings shows it now). ${nothing}`)
     return refuse('CALENDAR_FAILED', `Your calendar wouldn't move its event, so the booking stays at ${slotLabel(booking.startsAt, zone)}. ${nothing}`)
   }
-  await remindersFollowBooking(supabase, { workspaceId: booking.workspaceId, bookingId: booking.id, startsAt: slot.start, nowIso }).catch((err) =>
+  // The customer may have moved it again from their reminder while the calendar was moving: theirs stands.
+  const current = await getBooking(supabase, booking.workspaceId, booking.id)
+  if (!current || current.state !== 'confirmed' || Date.parse(current.startsAt) !== at) {
+    return refuse('CHANGED', 'That booking changed again while it was moving (list_bookings shows it now; check your calendar matches). Nobody was texted.')
+  }
+  const day = (iso: string) => {
+    const d = localDate(Date.parse(iso), zone)
+    return `${d.y}-${d.m}-${d.d}`
+  }
+  await remindersFollowBooking(supabase, { workspaceId: booking.workspaceId, bookingId: booking.id, startsAt: slot.start, newDay: day(slot.start) !== day(booking.startsAt), nowIso }).catch((err) =>
     console.warn('[bookings] reminders not moved:', err instanceof Error ? err.message : String(err)),
   )
 
   let texted = false
   if (args.tellCustomer) {
     const name = await businessName(supabase, booking.workspaceId)
-    const body = bookingMovedText(name, moved.booking, label)
-    texted = await (deps.textCustomer ?? ((b, text) => textBookingCustomer(supabase, b, text)))(moved.booking, body).catch(() => false)
+    texted = await (deps.textCustomer ?? ((b, text) => textBookingCustomer(supabase, b, text)))(current, bookingMovedText(name, current, label)).catch(() => false)
   }
   const calendar =
     moved.calendar === 'moved'
@@ -252,10 +279,11 @@ export async function ownerCancelBooking(
   const business = { workspaceId: booking.workspaceId, ownerUserId: booking.ownerUserId }
   // The zone only words the texts: a read that fails never stops the cancel.
   const zone = await (deps.timeZone ?? (async (b) => (await bookingSetup(supabase, b)).timeZone))(business).catch(() => 'UTC')
-  const label = slotLabel(booking.startsAt, zone)
 
   const cancelled = await moveBooking(supabase, { workspaceId: booking.workspaceId, bookingId: booking.id, from: 'confirmed', to: 'cancelled' })
   if (!cancelled) return refuse('CHANGED', `That booking just changed (list_bookings shows it now). ${nothing}`)
+  // Its time as it was cancelled (a move may have landed since it was read).
+  const label = slotLabel(cancelled.startsAt, zone)
 
   let calendar: 'deleted' | 'none' | 'stuck' = 'none'
   if (booking.calendarEventId) {
@@ -270,6 +298,11 @@ export async function ownerCancelBooking(
   await remindersCancelled(supabase, { workspaceId: booking.workspaceId, bookingId: booking.id, nowIso }).catch((err) =>
     console.warn('[bookings] reminders not cancelled:', err instanceof Error ? err.message : String(err)),
   )
+  if (booking.quoteId) {
+    await reopenQuote(supabase, booking.workspaceId, booking.quoteId, nowIso).catch((err) =>
+      console.warn('[bookings] quote not reopened:', err instanceof Error ? err.message : String(err)),
+    )
+  }
 
   let texted = false
   if (args.tellCustomer) {

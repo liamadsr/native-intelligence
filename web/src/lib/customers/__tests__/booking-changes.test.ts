@@ -4,17 +4,18 @@
  * event is deleted), the customer's reminder follows, the customer is texted
  * in fixed words, and the owner reads what happened. Nothing else may be on
  * the owner's calendar or booked at the new time; their booking hours don't
- * bind them. Owners and admins only; a requested booking is their card to
- * answer. Over the real store and slot check on an in-memory database; the
- * business is made up.
+ * bind them. To another day the reminder is let go, so the new date gets
+ * its own. A cancel opens the booking's quote again. Owners and admins only;
+ * a requested booking is their card to answer. Over the real store and slot
+ * check on an in-memory database; the business is made up.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
-import { bookingCancelledText, bookingMovedText, ownerCancelBooking, ownerMoveBooking, type BookingChangeDeps } from '../booking-changes'
+import { bookingCancelledText, bookingMovedText, ownerCancelBooking, ownerMoveBooking, rescheduleWithCalendar, type BookingChangeDeps } from '../booking-changes'
 import { customerRecordSection } from '../customer-spec'
 import { confirmAppointment, remindersStopped } from '../reminder-replies'
-import { openRemindersForPhone } from '../reminder-store'
+import { claimReminder, openRemindersForPhone } from '../reminder-store'
 import { getBooking } from '../store'
 
 const WS = 'ws-brightside'
@@ -60,8 +61,13 @@ beforeEach(() => {
   }
   db = memoryDb(tables, {
     customer_booking: (a, b) => a.workspace_id === b.workspace_id && a.starts_at === b.starts_at && ['requested', 'confirmed'].includes(a.state as string) && ['requested', 'confirmed'].includes(b.state as string),
+    customer_reminder: (a, b) => a.workspace_id === b.workspace_id && a.subject_type === b.subject_type && a.subject_id === b.subject_id && a.phone_e164 === b.phone_e164,
   })
 })
+
+/** The send pass's claim for Dana's booking: `taken` while a reminder for it stands. */
+const claimDana = (startsAt: string) =>
+  claimReminder(db, { workspaceId: WS, ownerUserId: OWNER, subjectType: 'booking', subjectId: B_DANA, contactId: null, phone: DANA, customerName: 'Dana Ruiz', kind: 'visit', startsAt, endsAt: startsAt })
 
 function deps(over: Partial<BookingChangeDeps> = {}) {
   const texts: Array<{ to: string | null; body: string }> = []
@@ -83,8 +89,9 @@ const cancel = (d: BookingChangeDeps, over: Partial<{ userId: string; bookingId:
   ownerCancelBooking(db, { userId: OWNER, workspaceId: WS, bookingId: B_DANA, tellCustomer: true, ...over }, d)
 
 describe('move_booking', () => {
-  it("moves the booking and its calendar event to the owner's local time, the same length; the customer is texted the new time and asked again", async () => {
+  it("moves the booking and its calendar event to the owner's local time, the same length, and texts the customer; to another day its reminder is let go", async () => {
     const { d, texts } = deps()
+    expect(await claimDana('2026-11-05T15:00:00.000Z')).toEqual({ ok: false, reason: 'taken' })
     const out = await move('2026-11-06T13:00', d)
     expect(out).toEqual({
       success: true,
@@ -98,20 +105,30 @@ describe('move_booking', () => {
     })
     const slot = { start: '2026-11-06T19:00:00.000Z', end: '2026-11-06T20:30:00.000Z' }
     expect(d.moveEvent).toHaveBeenCalledWith(OWNER, 'evt-dana', slot)
-    const moved = await getBooking(db, WS, B_DANA)
     // Their yes was to the old time: it is cleared.
-    expect(moved).toMatchObject({ startsAt: slot.start, endsAt: slot.end, state: 'confirmed', customerConfirmedAt: null })
+    expect(await getBooking(db, WS, B_DANA)).toMatchObject({ startsAt: slot.start, endsAt: slot.end, state: 'confirmed', customerConfirmedAt: null })
     expect(texts).toEqual([{ to: DANA, body: 'Brightside: your visit has moved to Fri, Nov 6, 1:00 PM at 400 Lake St. Reply here if that time doesn\'t work.' }])
-    // The reminder follows it, its answer about the old time cleared, so their agent asks again.
-    expect(tables.customer_reminder[0]).toMatchObject({ moved_to: slot.start, answer: null, answered_at: null })
-    const open = await openRemindersForPhone(db, WS, DANA, NOW)
-    expect(customerRecordSection('Dana Ruiz', [], [moved!], CHICAGO, open)).toBe(
+    // A new day: the old reminder is let go, so the day before the new date reminds them again.
+    expect(tables.customer_reminder).toEqual([])
+    expect(await claimDana(slot.start)).toMatchObject({ ok: true })
+  })
+
+  it('the same day, its reminder follows it and their answer about the old time is cleared; a STOP stays, whatever the day', async () => {
+    const { d } = deps()
+    expect(await move('2026-11-05T13:00', d)).toMatchObject({ success: true, when: 'Thu, Nov 5, 1:00 PM' })
+    expect(tables.customer_reminder[0]).toMatchObject({ moved_to: '2026-11-05T19:00:00.000Z', answer: null, answered_at: null })
+    const moved = await getBooking(db, WS, B_DANA)
+    expect(customerRecordSection('Dana Ruiz', [], [moved!], CHICAGO, await openRemindersForPhone(db, WS, DANA, NOW))).toBe(
       [
         "## Dana Ruiz's quotes and bookings",
-        '- Visit booked: Fri, Nov 6, 1:00 PM.',
-        `- We texted them a reminder for their visit on Fri, Nov 6, 1:00 PM: they haven't answered. [reminder ${R_DANA}]`,
+        '- Visit booked: Thu, Nov 5, 1:00 PM.',
+        `- We texted them a reminder for their visit on Thu, Nov 5, 1:00 PM: they haven't answered. [reminder ${R_DANA}]`,
       ].join('\n'),
     )
+    tables.customer_reminder[0].answer = 'opted_out'
+    expect(await move('2026-11-09T13:00', d)).toMatchObject({ success: true, when: 'Mon, Nov 9, 1:00 PM' })
+    expect(tables.customer_reminder).toHaveLength(1)
+    expect(tables.customer_reminder[0]).toMatchObject({ answer: 'opted_out', moved_to: '2026-11-09T19:00:00.000Z' })
   })
 
   it("the booking's own time and event never block it (an hour later), and the booking hours don't bind the owner (a Saturday)", async () => {
@@ -136,6 +153,42 @@ describe('move_booking', () => {
     }
     expect(tables.customer_booking[0]).toMatchObject({ starts_at: '2026-11-05T15:00:00.000Z', customer_confirmed_at: '2026-11-04T16:30:00.000Z' })
     expect(tables.customer_reminder[0]).toMatchObject({ moved_to: null, answer: 'confirmed' })
+  })
+
+  it("a fresh request holds its time; one the owner never answered is expired first; a day off (all-day) is busy", async () => {
+    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'fresh', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-06T19:00:00.000Z', ends_at: '2026-11-06T20:00:00.000Z', calendar_event_id: null, created_at: '2026-11-04T12:00:00Z' })
+    const fresh = deps()
+    expect(await move('2026-11-06T13:00', fresh.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
+    tables.customer_booking[1].created_at = '2026-11-01T12:00:00Z'
+    expect(await move('2026-11-06T13:00', fresh.d)).toMatchObject({ success: true, status: 'moved' })
+    expect(tables.customer_booking[1].state).toBe('expired')
+    const dayOff = deps({ listEvents: vi.fn(async () => [{ id: 'off', title: 'Day off', start: '2026-11-09T00:00:00.000Z', end: '2026-11-10T00:00:00.000Z', isAllDay: true }]) as never })
+    expect(await move('2026-11-09T13:00', dayOff.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
+  })
+
+  it("a customer's own move while the calendar was moving stands: nothing is texted and their reminder is left as they made it", async () => {
+    tables.customer_reminder[0].answer = 'moved'
+    const { d, texts } = deps({
+      moveEvent: vi.fn(async () => {
+        tables.customer_booking[0].starts_at = '2026-11-06T21:00:00.000Z'
+        tables.customer_reminder[0].moved_to = '2026-11-06T21:00:00.000Z'
+      }),
+    })
+    expect(await move('2026-11-06T13:00', d)).toMatchObject({ success: false, code: 'CHANGED' })
+    expect(texts).toEqual([])
+    expect(tables.customer_reminder[0]).toMatchObject({ answer: 'moved', moved_to: '2026-11-06T21:00:00.000Z' })
+  })
+
+  it('a cancel that lands while the calendar refuses is never undone by the rollback', async () => {
+    const { d, texts } = deps({
+      moveEvent: vi.fn(async () => {
+        tables.customer_booking[0].state = 'cancelled'
+        throw new Error('410')
+      }),
+    })
+    expect(await move('2026-11-06T13:00', d)).toMatchObject({ success: false, code: 'CHANGED' })
+    expect(tables.customer_booking[0]).toMatchObject({ state: 'cancelled', starts_at: '2026-11-06T19:00:00.000Z' })
+    expect(texts).toEqual([])
   })
 
   it('a calendar that refuses puts the booking back, and nobody is texted', async () => {
@@ -228,6 +281,67 @@ describe('cancel_booking', () => {
     expect(d.deleteEvent).not.toHaveBeenCalled()
     expect(texts).toEqual([])
     expect(await cancel(d, { userId: ADMIN })).toMatchObject({ success: true, status: 'cancelled' })
+  })
+})
+
+describe('rescheduleWithCalendar (shared with the customer\'s own move)', () => {
+  const nowIso = '2026-11-04T18:00:00.000Z'
+  const slot = { start: '2026-11-06T19:00:00.000Z', end: '2026-11-06T20:30:00.000Z' }
+
+  it("another live booking at that start is SLOT_TAKEN; a booking that moved since is CHANGED; nothing changes", async () => {
+    const booking = (await getBooking(db, WS, B_DANA))!
+    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'other', customer_phone: '+13125550199', starts_at: slot.start, ends_at: slot.end, calendar_event_id: null })
+    const moveEvent = vi.fn(async () => ({}))
+    expect(await rescheduleWithCalendar(db, booking, slot, { nowIso, confirmedAt: null, moveEvent })).toEqual({ ok: false, code: 'SLOT_TAKEN' })
+    tables.customer_booking.pop()
+    expect(await rescheduleWithCalendar(db, { ...booking, startsAt: '2026-11-05T14:00:00.000Z' }, slot, { nowIso, confirmedAt: null, moveEvent })).toEqual({ ok: false, code: 'CHANGED' })
+    expect(moveEvent).not.toHaveBeenCalled()
+    expect(tables.customer_booking[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
+  })
+
+  it("a calendar that refuses after the old time was taken can't go back: it stays moved, the calendar stuck", async () => {
+    const booking = (await getBooking(db, WS, B_DANA))!
+    const moveEvent = vi.fn(async () => {
+      tables.customer_booking.push({ ...tables.customer_booking[0], id: 'taker', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T15:00:00.000Z', calendar_event_id: null, created_at: nowIso })
+      throw new Error('403')
+    })
+    expect(await rescheduleWithCalendar(db, booking, slot, { nowIso, confirmedAt: nowIso, moveEvent })).toMatchObject({ ok: true, calendar: 'stuck', booking: { startsAt: slot.start, customerConfirmedAt: nowIso } })
+  })
+})
+
+describe('cancel_booking and its quote', () => {
+  const Q = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+  beforeEach(() => {
+    tables.customer_booking[0].quote_id = Q
+    tables.customer_quote = [{ id: Q, workspace_id: WS, status: 'booked', updated_at: '2026-11-01T12:00:00Z' }]
+  })
+
+  it('opens a booked quote again, so book_quote can book another time', async () => {
+    expect(await cancel(deps().d)).toMatchObject({ success: true })
+    expect(tables.customer_quote[0]).toMatchObject({ status: 'accepted', updated_at: '2026-11-04T18:00:00.000Z' })
+  })
+
+  it('leaves it booked while another live booking holds it', async () => {
+    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'second', customer_phone: '+13125550199', starts_at: '2026-11-12T15:00:00.000Z', ends_at: '2026-11-12T16:30:00.000Z' })
+    expect(await cancel(deps().d)).toMatchObject({ success: true })
+    expect(tables.customer_quote[0].status).toBe('booked')
+  })
+
+  it('leaves a quote that is no longer booked (done) alone', async () => {
+    tables.customer_quote[0].status = 'done'
+    expect(await cancel(deps().d)).toMatchObject({ success: true })
+    expect(tables.customer_quote[0].status).toBe('done')
+  })
+
+  it('texts the time it was cancelled at, even when a move landed after it was read', async () => {
+    const { d, texts } = deps({
+      timeZone: async () => {
+        tables.customer_booking[0].starts_at = '2026-11-06T19:00:00.000Z'
+        return CHICAGO
+      },
+    })
+    expect(await cancel(d)).toMatchObject({ success: true, when: 'Fri, Nov 6, 1:00 PM' })
+    expect(texts[0].body).toContain('your visit on Fri, Nov 6, 1:00 PM is cancelled')
   })
 })
 
