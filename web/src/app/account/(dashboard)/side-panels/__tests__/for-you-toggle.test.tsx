@@ -76,6 +76,12 @@ describe('For you’s toggle', () => {
     expect(store.getSidePanelState().leftOpen).toBe(true)
   })
 
+  it('is an inbox tray, not a house (Home is the rail header’s)', () => {
+    render()
+    expect(toggle()?.querySelector('svg')?.getAttribute('class')).toContain('lucide-inbox')
+    expect(toggle()?.querySelector('.lucide-house')).toBeNull()
+  })
+
   it('none with nothing brought', () => {
     entries.count = 0
     render()

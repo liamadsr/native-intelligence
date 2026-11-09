@@ -16,7 +16,7 @@
  *            away and brings it back, floating it over the chat where the
  *            row has no room.
  */
-import { Home, createLucideIcon } from 'lucide-react'
+import { Inbox, createLucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { TOP_BAR_PILL, TOP_BAR_TIP } from '../top-bar/pill-style'
@@ -102,7 +102,8 @@ export function ForYouToggle() {
           data-lit={shown ? undefined : ''}
           className={cn(TOP_BAR_PILL, !shown && 'bg-muted text-sidebar-foreground')}
         >
-          <Home className="h-4 w-4" />
+          {/* An inbox tray, not a house: Home is the app rail's header's (Liam, 11-09: "why do I see two home icons?"). */}
+          <Inbox data-for-you-icon="" className="h-4 w-4" />
           <span className="text-[11px] font-medium tabular-nums">{entries.length}</span>
         </button>
       </TooltipTrigger>
