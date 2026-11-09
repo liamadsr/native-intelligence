@@ -50,7 +50,7 @@ describe('migration 435', () => {
 
   it('keeps 429’s home turn reasons and notice kinds, adding its own', () => {
     // 443's 'check_in' and 445's 'approval' came later (their own tests pin them).
-    expect(BODY).toContain(`reason in (${list(HOME_TURN_REASONS.filter((r) => r !== 'check_in' && r !== 'approval' && r !== 'call'))})`)
+    expect(BODY).toContain(`reason in (${list(HOME_TURN_REASONS.filter((r) => r !== 'check_in' && r !== 'approval' && r !== 'call' && r !== 'team_chat'))})`)
     expect(BODY).toContain("ref_type in ('tool_approval', 'guest_message', 'agent_link')")
   })
 

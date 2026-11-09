@@ -205,7 +205,7 @@ describe('migration 429', () => {
     // 435 widens it again (agent links); this file keeps the reasons 429 shipped.
     // 435's agent reasons, 443's 'check_in' and 445's 'approval' came later.
     expect(BODY).toContain(
-      `check (reason in (${HOME_TURN_REASONS.filter((r) => r !== 'agent_ask' && r !== 'agent_answer' && r !== 'check_in' && r !== 'approval' && r !== 'call').map((r) => `'${r}'`).join(', ')}))`,
+      `check (reason in (${HOME_TURN_REASONS.filter((r) => r !== 'agent_ask' && r !== 'agent_answer' && r !== 'check_in' && r !== 'approval' && r !== 'call' && r !== 'team_chat').map((r) => `'${r}'`).join(', ')}))`,
     )
     expect(BODY).toContain("check (ref_type in ('tool_approval', 'guest_message'))")
   })

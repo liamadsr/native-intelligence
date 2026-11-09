@@ -177,6 +177,14 @@ export const SURFACE_EXCLUDED_TOOLS: Readonly<Record<ChatRunSurface, ReadonlySet
    * on the call.
    */
   call: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...attendedOnlyToolsDeniedTo('person_remote'), ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
+  /**
+   * The person @-mentioning their agent in team chat (migration 474,
+   * src/lib/team-chat/): Slack's channel-thread set, and no chat-native tool
+   * at all (no background helper or message to another person's agent: what
+   * came back would have nowhere in the channel to go). Others in the channel
+   * read the reply; nothing there draws cards.
+   */
+  team_chat: new Set(['mcp_confirm_call', 'helpers', ...CHAT_NATIVE_TOOL_NAMES, ...ATTENDED_ONLY_TOOL_NAMES, ...CARD_TOOLS, ...BROWSER_TOOLS, ...JWT_TOOLS]),
 }
 
 /**
@@ -376,9 +384,32 @@ export function homeTurnMayAct(toolName: string): boolean {
   return getToolSideEffect(toolName) !== undefined || toolName.startsWith('mcp__')
 }
 
+/**
+ * The side effects a team chat turn may have (migration 474): reading, and
+ * changing the person's own Dial8 items. Other members' messages ride the
+ * turn as context, and the reply is read by the whole channel, so nothing
+ * that deletes, sets up an automation, leaves Dial8 (mail, connected apps,
+ * every `mcp__…` tool) or would wait on an approval card the channel can't
+ * show is reachable from it: the person asks for that in their own chat.
+ */
+const TEAM_CHAT_SIDE_EFFECTS: ReadonlySet<string> = new Set(['read', 'internal-write'])
+
+/**
+ * True when a team chat turn may never call `toolName`: a connected app's
+ * (`mcp__…`), or a registry tool past its side effects. A tool with no side
+ * effect class (search_tools) is left to the surface's own set.
+ */
+export function teamChatExcludes(toolName: string): boolean {
+  if (toolName.startsWith('mcp__')) return true
+  const effect = getToolSideEffect(toolName)
+  return effect !== undefined && !TEAM_CHAT_SIDE_EFFECTS.has(effect)
+}
+
 /** True when `toolName` is structurally excluded for this token surface. */
 export function isToolExcludedForSurface(toolName: string, surface: ChatRunSurface | undefined): boolean {
-  return !!surface && SURFACE_EXCLUDED_TOOLS[surface].has(toolName)
+  if (!surface) return false
+  if (SURFACE_EXCLUDED_TOOLS[surface].has(toolName)) return true
+  return surface === 'team_chat' && teamChatExcludes(toolName)
 }
 
 /**
@@ -391,6 +422,8 @@ export function surfaceExternalToolNames(
   externalMcpToolNames: readonly string[],
   surface: ChatRunSurface | undefined,
 ): string[] {
+  // Team chat reaches no connected app at all (teamChatExcludes), whatever the tool is called.
+  if (surface === 'team_chat') return []
   return externalMcpToolNames.filter((name) => !isToolExcludedForSurface(name, surface))
 }
 

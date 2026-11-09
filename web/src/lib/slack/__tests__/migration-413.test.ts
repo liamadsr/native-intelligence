@@ -35,7 +35,7 @@ describe('migration 413', () => {
     const listed = [...check![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
     // 429 adds guest_ask and 435 the agent reasons (their own tests check them).
     // 443's 'check_in' and 445's 'approval' came later (their own tests pin them).
-    for (const reason of HOME_TURN_REASONS.filter((r) => r !== 'guest_ask' && r !== 'agent_ask' && r !== 'agent_answer' && r !== 'check_in' && r !== 'approval' && r !== 'call')) expect(listed).toContain(reason)
+    for (const reason of HOME_TURN_REASONS.filter((r) => r !== 'guest_ask' && r !== 'agent_ask' && r !== 'agent_answer' && r !== 'check_in' && r !== 'approval' && r !== 'call' && r !== 'team_chat')) expect(listed).toContain(reason)
     expect(listed).toContain('text')
     expect(BODY).toContain('alter table public.home_turn drop constraint if exists home_turn_reason_check;')
   })

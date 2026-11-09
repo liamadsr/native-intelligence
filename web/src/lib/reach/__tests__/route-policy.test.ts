@@ -51,9 +51,9 @@ describe('home turns', () => {
     expect(out).toMatchObject({ routes: true, kind: 'home_turn', ref: { type: 'home_message', id: ROW }, text: 'Want me to cancel your call with Ken?', textable: true, approvalIds: [] })
   })
 
-  it('a text, Slack, call or linked agent turn never routes: it was answered where it came from', () => {
+  it('a text, Slack, call, team chat or linked agent turn never routes: it was answered where it came from', () => {
     const channelReasons = HOME_TURN_REASONS.filter((r) => !ROUTED_HOME_TURN_REASONS.has(r))
-    expect([...channelReasons].sort()).toEqual(['agent_ask', 'call', 'slack', 'text'])
+    expect([...channelReasons].sort()).toEqual(['agent_ask', 'call', 'slack', 'team_chat', 'text'])
     for (const reason of channelReasons) expect(routeOf(row({ kind: 'home_turn', reason }, [text('Done.')]), USER)).toEqual({ routes: false })
     // A routed reason that was posted to a channel all the same is not sent twice.
     expect(routeOf(row({ kind: 'home_turn', reason: 'event', channel: 'sms' }, [text('Done.')]), USER)).toEqual({ routes: false })

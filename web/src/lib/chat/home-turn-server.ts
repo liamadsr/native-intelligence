@@ -160,6 +160,7 @@ import {
   LEGACY_TEXT_MESSAGE_KIND,
   SLACK_CHANNEL,
   SMS_CHANNEL,
+  TEAM_CHAT_CHANNEL,
   type MessageChannel,
   type PlannedChannelMessage,
 } from '@/lib/chat/channel-turn'
@@ -346,6 +347,8 @@ export function serverTurnConversationOk(conv: Pick<ConversationRow, 'is_home' |
   const channel = channelOfReason(reason)
   // A linked agent's message only ever reaches a half's thread (guestTurnConversationOk binds which).
   if (channel === DIAL8_CHANNEL) return !!conv.agent_guest_id && conv.is_home !== true
+  // A team chat mention only ever reaches the person's own conversation for that channel (474), never the home thread.
+  if (channel === TEAM_CHAT_CHANNEL) return conv.is_home !== true && !conv.agent_guest_id && conv.outside_channel === TEAM_CHAT_CHANNEL
   if (conv.is_home === true) return true
   if (conv.agent_guest_id) return channel === 'sms' || channel === 'slack'
   return channel !== null && conv.outside_channel === channel
@@ -427,6 +430,7 @@ export function channelOfReason(reason: HomeTurnReason): MessageChannel | null {
   if (reason === 'text') return SMS_CHANNEL
   if (reason === 'agent_ask') return DIAL8_CHANNEL
   if (reason === 'call') return CALL_CHANNEL
+  if (reason === 'team_chat') return TEAM_CHAT_CHANNEL
   return null
 }
 

@@ -42,7 +42,7 @@ export function helpersGate(
 ): HelpersGate {
   if (killSwitchOn()) return { allowed: false, reason: 'Helpers are switched off right now. Do the work yourself, step by step.' }
   if (claims.surface) {
-    return { allowed: false, reason: `Helpers are not available on ${claims.surface === 'device_ask' ? 'a device ask' : claims.surface === 'sms' ? 'a text message' : claims.surface === 'call' ? 'a phone call' : claims.surface === 'dial8' ? "another person's agent's message" : `a message from ${claims.surface === 'slack' ? 'Slack' : 'outside the app'}`}. Do the work yourself.` }
+    return { allowed: false, reason: `Helpers are not available on ${claims.surface === 'device_ask' ? 'a device ask' : claims.surface === 'sms' ? 'a text message' : claims.surface === 'call' ? 'a phone call' : claims.surface === 'dial8' ? "another person's agent's message" : claims.surface === 'team_chat' ? 'a team chat mention' : `a message from ${claims.surface === 'slack' ? 'Slack' : 'outside the app'}`}. Do the work yourself.` }
   }
   if (claims.relay) return { allowed: false, reason: 'Helpers are not available on a relayed turn. Do the work yourself.' }
   if (claims.teammateId) return { allowed: false, reason: "Helpers are only for the person's main chat, not an agent's conversation. Do the work yourself." }

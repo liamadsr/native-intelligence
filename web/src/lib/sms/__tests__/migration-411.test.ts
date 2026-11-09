@@ -55,7 +55,7 @@ describe('migration 411', () => {
   it("widens home_turn's reasons to what the app writes plus Slack's (its 413 lists 'text' too), and adds the text turn's columns", () => {
     // 'slack' until the Slack channel's own reason lands in HOME_TURN_REASONS: either migration may run last.
     // 429's 'guest_ask', 435's agent reasons, 443's 'check_in' and 445's 'approval' came later (their own tests pin them).
-    const reasons = HOME_TURN_REASONS.filter((r) => r !== 'guest_ask' && r !== 'agent_ask' && r !== 'agent_answer' && r !== 'check_in' && r !== 'approval' && r !== 'call')
+    const reasons = HOME_TURN_REASONS.filter((r) => r !== 'guest_ask' && r !== 'agent_ask' && r !== 'agent_answer' && r !== 'check_in' && r !== 'approval' && r !== 'call' && r !== 'team_chat')
     const list = [...reasons, ...(reasons as readonly string[]).includes('slack') ? [] : ['slack']].map((x) => `'${x}'`).join(', ')
     expect(BODY).toContain('alter table public.home_turn drop constraint if exists home_turn_reason_check;')
     expect(BODY).toContain(`check (reason in (${list}))`)

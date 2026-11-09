@@ -23,7 +23,7 @@ describe('migration 445', () => {
 
   it('checks the app’s home turn reasons, approval among them, and keeps 443’s check_in (the Now file, PR 970)', () => {
     expect(HOME_TURN_REASONS).toContain('approval')
-    const reasons = [...HOME_TURN_REASONS.filter((r) => r !== 'approval' && r !== 'call'), ...(HOME_TURN_REASONS.includes('check_in' as never) ? [] : ['check_in']), 'approval']
+    const reasons = [...HOME_TURN_REASONS.filter((r) => r !== 'approval' && r !== 'call' && r !== 'team_chat'), ...(HOME_TURN_REASONS.includes('check_in' as never) ? [] : ['check_in']), 'approval']
     expect(BODY).toContain(`add constraint home_turn_reason_check check (reason in (${list(reasons)}))`)
   })
 

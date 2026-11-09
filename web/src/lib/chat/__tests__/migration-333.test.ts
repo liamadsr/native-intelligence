@@ -50,7 +50,7 @@ describe('migration 333', () => {
     const list = (xs: readonly string[]) => xs.map((x) => `'${x}'`).join(', ')
     expect(BODY).toContain(`check (status in (${list(HOME_TURN_STATUSES)}))`)
     // 411 (texts), 413 (Slack), 429, 435, 443, 445 and 456 widened the check; this file keeps the reasons 333 shipped.
-    const later = new Set(['slack', 'text', 'guest_ask', 'agent_ask', 'agent_answer', 'check_in', 'approval', 'call'])
+    const later = new Set(['slack', 'text', 'guest_ask', 'agent_ask', 'agent_answer', 'check_in', 'approval', 'call', 'team_chat'])
     expect(BODY).toContain(`check (reason in (${list(HOME_TURN_REASONS.filter((r) => !later.has(r)))}))`)
   })
 

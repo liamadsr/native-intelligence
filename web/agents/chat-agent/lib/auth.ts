@@ -647,11 +647,11 @@ export interface VerifiedChatRunClaims {
   userId: string
   /**
    * Absent → the in-app (browser) chat; 'device_ask' → the device one-shot;
-   * 'slack' | 'sms' | 'call' → a message the person sent from an outside channel (a
+   * 'slack' | 'sms' | 'call' | 'team_chat' → a message the person sent from an outside channel (a
    * Slack message, a text to the Dial8 number, what they said on a call to it), only ever
    * together with `server: 'channel_turn'` (twin of ChatRunTokenClaims.surface).
    */
-  surface?: 'device_ask' | 'slack' | 'sms' | 'call'
+  surface?: 'device_ask' | 'slack' | 'sms' | 'call' | 'team_chat'
   /**
    * The AI teammate a bots v2 teammate chat is with (twin of
    * ChatRunTokenClaims.teammateId). An ordinary in-app chat for this channel:
@@ -706,7 +706,7 @@ export interface VerifiedChatRunClaims {
 const SERVER_PRINCIPALS: ReadonlySet<string> = new Set(['idle_compaction', 'home_turn', 'channel_turn'])
 
 /** Twin of CHANNEL_SURFACES in src/lib/chat/chat-run-token.ts. */
-const CHANNEL_SURFACES: ReadonlySet<string> = new Set(['slack', 'sms', 'dial8', 'call'])
+const CHANNEL_SURFACES: ReadonlySet<string> = new Set(['slack', 'sms', 'dial8', 'call', 'team_chat'])
 
 /** Twin of GUEST_ONLY_SURFACES in src/lib/chat/chat-run-token.ts. */
 const GUEST_ONLY_SURFACES: ReadonlySet<string> = new Set(['dial8'])
