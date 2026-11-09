@@ -3,9 +3,10 @@
 /**
  * The app rail (Liam, 11-09, from his reference): a thin band of icons down
  * the window's left, the way to move between the pages. Top to bottom: New,
- * Search, Home, then the pages (./rail-pages.ts: Docs, Mail, Team chat,
- * My Actions, Calendar, Agents & skills, the CRM), and the person's avatar at
- * the foot.
+ * Search, Home, then every page the workspace has on (./rail-pages.ts, in
+ * four groups with a hairline between them: your work, plans, customers,
+ * agents), and the person's avatar at the foot. Where the window is too short
+ * for them all, the pages scroll between Home and the avatar.
  *
  *   New      puts any page away and puts the cursor in the composer: the
  *            agent makes things on request (no Create dialog: Liam, 10-20).
@@ -41,8 +42,33 @@
  * Flat cost: no animation, no polling; it redraws when a card enters or leaves
  * full screen, or the workspace's edition changes.
  */
-import { useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
-import { Building2, Calendar, Folder, House, ListChecks, Mail, MessagesSquare, Plus, Search, Sparkles, type LucideIcon } from 'lucide-react'
+import { Fragment, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import {
+  AudioLines,
+  Brain,
+  Building2,
+  Calendar,
+  Contact,
+  FlaskConical,
+  Folder,
+  FolderKanban,
+  HandCoins,
+  House,
+  LayoutList,
+  ListChecks,
+  Mail,
+  Megaphone,
+  MessagesSquare,
+  Plus,
+  Search,
+  Send,
+  Sparkles,
+  Target,
+  Telescope,
+  Users,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -58,20 +84,34 @@ import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
 export const APP_RAIL_ATTR = 'data-app-rail'
 
+/** Each page's icon: the rail's own for Liam's reference pages, the `/` menu's for the rest (command-menu.tsx). */
 const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
   docs: Folder,
   mail: Mail,
   'team-chat': MessagesSquare,
   actions: ListChecks,
   calendar: Calendar,
+  captures: AudioLines,
+  projects: FolderKanban,
+  initiatives: Target,
+  knowledge: Brain,
+  flows: Workflow,
+  companies: Building2,
+  contacts: Contact,
+  deals: HandCoins,
+  prospecting: Telescope,
+  sequences: Send,
+  campaigns: Megaphone,
   agents: Sparkles,
-  crm: Building2,
+  evals: FlaskConical,
+  teams: Users,
 }
 
 // A tint of the foreground for hover and the lit page: it reads on the rail's
 // surface in light and dark alike (bg-muted is the surface's own shade in light).
+// 32px, 2px apart: every page fits a 900px window (more scroll in a shorter one).
 const ITEM =
-  'relative flex size-9 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
+  'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
@@ -195,7 +235,7 @@ export function AppRail() {
       >
       {mounted && (
         <TooltipProvider delayDuration={300}>
-          <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden py-1.5 [scrollbar-width:none]">
+          <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-0.5 overflow-y-auto overflow-x-hidden py-1.5 [scrollbar-width:none]">
             <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
               <Plus className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
@@ -213,11 +253,14 @@ export function AppRail() {
             <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
               <House className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
-            {pages.map(({ def, page }) => {
-              const Icon = PAGE_ICONS[def.id]
+            {pages.map(({ def, page }, i) => {
+              const Icon = PAGE_ICONS[def.id] ?? LayoutList
+              // A hairline where a new group starts (your work, plans, customers, agents).
+              const groupStart = i > 0 && pages[i - 1].def.group !== def.group
               return (
+                <Fragment key={def.id}>
+                {groupStart && <div aria-hidden data-app-rail-group-line="" className="my-1 h-px w-5 shrink-0 bg-foreground/10" />}
                 <RailButton
-                  key={def.id}
                   label={page.label}
                   active={active === def.id}
                   onClick={() => {
@@ -229,6 +272,7 @@ export function AppRail() {
                 >
                   <Icon className="size-[18px]" strokeWidth={1.75} />
                 </RailButton>
+                </Fragment>
               )
             })}
             <div className="flex-1" />

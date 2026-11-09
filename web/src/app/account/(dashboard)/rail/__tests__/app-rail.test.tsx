@@ -60,9 +60,18 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws New, Search, Home, the pages and the workspace menu at its foot, in Liam’s order', async () => {
+  it('draws New, Search, Home, every page that is on and the workspace menu at its foot', async () => {
     await render()
-    expect(items()).toEqual(['new', 'search', 'home', 'docs', 'mail', 'team-chat', 'actions', 'calendar', 'agents', 'crm', 'workspace'])
+    expect(items()).toEqual([
+      'new', 'search', 'home',
+      'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
+      'projects', 'initiatives', 'knowledge', 'flows',
+      'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
+      'agents', 'evals', 'teams',
+      'workspace',
+    ])
+    // A hairline between the groups (your work, plans, customers, agents).
+    expect(container.querySelectorAll('[data-app-rail-group-line]')).toHaveLength(3)
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
     // The one workspace and account menu (Liam, 11-09), the rail's own variant.
     expect(container.querySelector('[data-app-rail-item="workspace"] [data-variant="rail"]')).not.toBeNull()
@@ -121,7 +130,7 @@ describe('the app rail', () => {
   it('lights nothing for a card no rail page shows', async () => {
     await render()
     await act(async () => {
-      releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'flows', title: 'Flows' }, close: () => {} }))
+      releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'work_item', title: 'A review' } as never, close: () => {} }))
     })
     expect(lit()).toEqual([])
   })
