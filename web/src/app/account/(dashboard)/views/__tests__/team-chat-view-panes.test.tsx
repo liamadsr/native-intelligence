@@ -79,7 +79,7 @@ afterEach(() => {
 })
 
 async function render(props: { compact?: boolean } = {}) {
-  await act(async () => root.render(h(TeamChatView, props)))
+  await act(async () => root.render(<TeamChatView {...props} />))
   await settle()
 }
 async function settle() {
