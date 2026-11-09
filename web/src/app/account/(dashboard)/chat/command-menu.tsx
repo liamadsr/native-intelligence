@@ -157,6 +157,11 @@ const ENTER_WAIT_MS = 2000
 /** A verb as the footer and the highlighted row say it. */
 const VERB_LABEL: Record<MenuVerb, string> = { open: 'open', use: 'use', mention: 'add to chat' }
 
+/** A verb as said for this item: a host's own option (team chat's people) is mentioned, not added to a chat. */
+function verbLabel(verb: MenuVerb, item: MenuItem | undefined): string {
+  return verb === 'mention' && item?.kind === 'option' ? 'mention' : VERB_LABEL[verb]
+}
+
 /** The record kinds no composer mentions (nothing to attach them by). */
 const NO_MENTIONS: readonly MenuSearchKind[] = []
 
@@ -727,7 +732,7 @@ function MenuBody({
         </span>
         <span className="flex items-center gap-1">
           <Kbd>↵</Kbd>
-          <span className="ml-0.5">{active ? VERB_LABEL[active] : 'select'}</span>
+          <span className="ml-0.5">{active ? verbLabel(active, items[highlighted]) : 'select'}</span>
         </span>
         {tabs.length > 2 && (
           <span className="flex items-center gap-1">
@@ -840,7 +845,7 @@ function MenuRow({
       {verb && (
         <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground" data-menu-row-verb={verb}>
           <Kbd>↵</Kbd>
-          {VERB_LABEL[verb]}
+          {verbLabel(verb, item)}
         </span>
       )}
     </button>

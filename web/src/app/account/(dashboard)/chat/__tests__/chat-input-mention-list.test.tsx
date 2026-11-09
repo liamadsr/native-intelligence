@@ -161,6 +161,27 @@ describe("a host's own @ list", () => {
     expect(container.querySelector('.lucide-user')).toBeNull()
   })
 
+  it('after a pick the menu stays shut where the caret lands, so Enter sends (a message ending in a mention)', async () => {
+    await mount()
+    type('thanks @ro')
+    await settle()
+    press('Enter')
+    await settle()
+    expect(host.value).toBe('thanks @Rosa Lind ')
+    // The browser reads the caret where the pick left it, past "@Rosa Lind ".
+    const ta = textarea()
+    act(() => {
+      ta.setSelectionRange(ta.value.length, ta.value.length)
+      document.dispatchEvent(new Event('selectionchange'))
+      ta.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }))
+    })
+    await settle()
+    expect(inlineMenu()).toBeNull()
+    press('Enter')
+    expect(host.onSubmit).toHaveBeenCalledTimes(1)
+    expect(host.picks).toEqual(['m-rosa'])
+  })
+
   it('a click on a row picks it too, and the arrows move the highlight', async () => {
     await mount()
     type('@')

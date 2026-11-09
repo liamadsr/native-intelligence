@@ -561,6 +561,11 @@ export const ChatInput = memo(function ChatInput({
     tick()
   }
   // ── The menu, read from the text and the caret ─────────────────────────────
+  // The host's own options picked in this message (mentionList): done, as a
+  // chip's label is, so the menu doesn't open again on "@Rosa Lind " and Enter
+  // sends. Forgotten when the box empties (a send).
+  const [pickedOptionLabels, setPickedOptionLabels] = useState<readonly string[]>([])
+  if (value === '' && pickedOptionLabels.length > 0) setPickedOptionLabels([])
   // Labels already done (attached mentions, the armed skill): a trigger on one
   // is no trigger (findTriggerToken), so Enter after `/brief` sends.
   const doneMentions = useMemo(
@@ -569,8 +574,9 @@ export const ChatInput = memo(function ChatInput({
       ...attachedContacts.map((c) => mentionLabel(c)),
       ...attachedCompanies.map((c) => c.name),
       ...attachedRecords.map((r) => mentionRecordLabel(r)),
+      ...pickedOptionLabels,
     ],
-    [attachedNotes, attachedContacts, attachedCompanies, attachedRecords],
+    [attachedNotes, attachedContacts, attachedCompanies, attachedRecords, pickedOptionLabels],
   )
   const doneTriggers = useMemo(
     () => ({ skills: activeSkill ? [activeSkill.slug] : [], mentions: doneMentions }),
@@ -792,6 +798,7 @@ export const ChatInput = memo(function ChatInput({
 
   // One of the host's own options: its `@label` in the text, and the host told (no chip).
   const handleOptionPick = (option: ComposerMentionOption) => {
+    setPickedOptionLabels((prev) => (prev.includes(option.label) ? prev : [...prev, option.label]))
     insertMention(option.label)
     mentionList?.onPick(option)
   }

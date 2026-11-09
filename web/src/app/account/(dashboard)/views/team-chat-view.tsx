@@ -902,8 +902,12 @@ function Composer({
       if (!res.ok) throw new Error('send failed')
       const json = (await res.json()) as { message?: TeamChatMessage }
       if (json.message) onSent(json.message, json.message.mentions_agent)
-      setText('')
-      setPicked([])
+      // Only what was sent goes: words typed while it was on its way stay.
+      const typedSince = latest.current.text !== text
+      if (!typedSince) {
+        setText('')
+        setPicked([])
+      }
     } catch {
       setFailed(true)
     } finally {
@@ -913,7 +917,11 @@ function Composer({
   }, [])
 
   // The box's words, at most a message's worth (the server refuses more).
-  const onChange = useCallback((value: string) => setText(value.slice(0, TEAM_CHAT_MESSAGE_MAX)), [])
+  const onChange = useCallback((value: string) => {
+    setText(value.slice(0, TEAM_CHAT_MESSAGE_MAX))
+    // Editing after a failed send: the note has done its job.
+    setFailed(false)
+  }, [])
   const onSubmit = useCallback(() => void send(), [send])
 
   if (archived) {
