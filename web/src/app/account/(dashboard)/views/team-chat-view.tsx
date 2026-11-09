@@ -16,7 +16,7 @@
  * RLS filters what arrives), resyncing on every (re)subscribe.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { AtSign, Bot, Hash, Lock, MessageSquare, Pencil, Plus, SendHorizontal, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -102,7 +102,9 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       const res = await fetch('/api/account/team-chat/channels')
       if (!res.ok) throw new Error('Could not load team chat')
       const json = (await res.json()) as { channels?: TeamChatChannel[]; memberId?: string }
-      const list = Array.isArray(json.channels) ? json.channels : []
+      // The channel on screen is read (its read mark may still be on its way): never counted unread here.
+      const open = typeof document !== 'undefined' && document.visibilityState === 'visible' ? selectedRef.current : null
+      const list = (Array.isArray(json.channels) ? json.channels : []).map((c) => (c.id === open ? { ...c, unread: 0, mentions: 0 } : c))
       setMeId(json.memberId ?? null)
       setChannels(list)
       setError(null)
@@ -178,8 +180,9 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
           })
         }
         if (payload.eventType === 'INSERT' && row.channel_id === selectedRef.current && document.visibilityState === 'visible') {
+          // A burst of messages is one read mark.
           if (readTimer) clearTimeout(readTimer)
-          readTimer = setTimeout(() => void markRead(row.channel_id), 600)
+          readTimer = setTimeout(() => void markRead(row.channel_id), 150)
         } else if (payload.eventType === 'INSERT') {
           refreshList()
         }
@@ -671,6 +674,17 @@ function Composer({
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
+  // Where the caret goes once a programmatic change (a picked mention, the @ button) has rendered:
+  // set before the browser handles the next keystroke, so fast typing never lands in the wrong place.
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const at = pendingCaret.current
+    const el = ref.current
+    if (at === null || !el) return
+    pendingCaret.current = null
+    el.focus()
+    el.setSelectionRange(at, at)
+  }, [text])
 
   const options = useMemo<MentionOption[]>(() => {
     if (!query) return []
@@ -695,13 +709,7 @@ function Composer({
     setText(value)
     setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
     setQuery(null)
-    requestAnimationFrame(() => {
-      const el = ref.current
-      if (el) {
-        el.focus()
-        el.setSelectionRange(cursor, cursor)
-      }
-    })
+    pendingCaret.current = cursor
   }
 
   const send = async () => {
@@ -812,12 +820,9 @@ function Composer({
             const at = el?.selectionStart ?? text.length
             const next = `${text.slice(0, at)}${at > 0 && !/\s$/.test(text.slice(0, at)) ? ' ' : ''}@${text.slice(at)}`
             const caret = next.length - text.slice(at).length
+            pendingCaret.current = caret
             setText(next)
             updateQuery(next, caret)
-            requestAnimationFrame(() => {
-              el?.focus()
-              el?.setSelectionRange(caret, caret)
-            })
           }}
           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
