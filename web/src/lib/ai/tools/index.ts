@@ -394,7 +394,7 @@ export function createTools(
     // ONE account you can already name; these are the index and the writes.
     ...createCompanyTools(userId, supabase, workspaceId, strict, createPolicy),
     // Deals and custom fields (roadmap #8): apply with undo, every change logged. See ./deals.ts.
-    ...createDealTools(userId, supabase, workspaceId, strict),
+    ...createDealTools(userId, supabase, workspaceId, strict, createPolicy),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).

@@ -133,7 +133,9 @@ function FieldInput({ field, options, onSave }: { field: FieldRow; options: stri
     const before = field.value === null ? '' : String(field.value)
     if (draft === before) return
     if (!draft.trim()) return onSave(null)
-    onSave(field.field_type === 'number' ? Number(draft.replace(/[,\s]/g, '')) : draft.trim())
+    // The server checks and parses it (a number field refuses "12k" rather
+    // than clearing the value), so it goes as typed.
+    onSave(draft.trim())
   }
   return (
     <input

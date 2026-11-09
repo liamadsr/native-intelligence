@@ -49,9 +49,14 @@ function seed() {
     deal: [],
     deal_event: [],
   }
+  const hidden = new Set<string>()
   const db = memoryDb(tables) as SupabaseClient & { rpc: unknown }
-  ;(db as unknown as { rpc: unknown }).rpc = async () => ({ data: P, error: null })
-  return { db: db as SupabaseClient, tables }
+  ;(db as unknown as { rpc: unknown }).rpc = async (fn: string, args: Record<string, string>) => {
+    if (fn === 'ensure_default_deal_pipeline') return { data: P, error: null }
+    // contact_visible_to / company_visible_to: everything but what a test hides.
+    return { data: !hidden.has(args.p_contact_id ?? args.p_company_id), error: null }
+  }
+  return { db: db as SupabaseClient, tables, hidden }
 }
 
 const person = { userId: USER, source: 'person' as const }
@@ -75,6 +80,8 @@ describe('deals', () => {
     expect(matchStage(stages, 'signed')?.id).toBe(S.won)
     expect(matchStage(stages, 'dead')?.id).toBe(S.lost)
     expect(matchStage(stages, 'Negotiation')).toBeNull()
+    // An id that is no stage of this pipeline matches nothing (a uuid with "dead" in it included).
+    expect(matchStage(stages, '00000000-0000-4000-8000-00000000dead')).toBeNull()
   })
 
   it('creates a deal in the first stage, owned by the person, and logs it', async () => {
@@ -189,6 +196,51 @@ describe('deals', () => {
     const c = await createDeal(db, WS, { name: 'Mine' }, person)
     if (!c.ok) throw new Error(c.error)
     expect(await updateDeal(db, OTHER_WS, c.deal.id, { value: 1 }, person)).toEqual({ ok: false, error: 'Deal not found' })
+  })
+
+  it('undo ignores keys that are no deal field, and drops contacts deleted since', async () => {
+    const { db, tables } = seed()
+    const c = await createDeal(db, WS, { name: 'Forged', contact_ids: [CONTACT_A, CONTACT_B] }, person)
+    if (!c.ok) throw new Error(c.error)
+    tick()
+    const u = await updateDeal(db, WS, c.deal.id, { contact_ids: [CONTACT_B] }, person)
+    if (!u.ok) throw new Error(u.error)
+    // A hand-made row tries to move the deal to another workspace.
+    const ev = tables.deal_event.find((e) => e.id === u.eventId)!
+    ;(ev.changes as Record<string, unknown>).workspace_id = { from: OTHER_WS, to: WS }
+    // Contact A is deleted before the undo.
+    tables.contact = tables.contact.filter((x) => x.id !== CONTACT_A)
+    tick()
+    const undo = await undoDealEvent(db, WS, { dealId: c.deal.id, eventId: u.eventId! }, person)
+    if (!undo.ok) throw new Error(undo.error)
+    expect(undo.restored).toEqual(['contact_ids'])
+    expect(undo.deal.workspace_id).toBe(WS)
+    expect(undo.deal.contact_ids).toEqual([CONTACT_B])
+  })
+
+  it('undo where every field moved on since is refused and leaves the change in place', async () => {
+    const { db, tables } = seed()
+    const c = await createDeal(db, WS, { name: 'Moved on', value: 1 }, person)
+    if (!c.ok) throw new Error(c.error)
+    tick()
+    const u = await updateDeal(db, WS, c.deal.id, { value: 2 }, { userId: USER, source: 'agent' })
+    tick()
+    await updateDeal(db, WS, c.deal.id, { value: 3 }, person)
+    if (!u.ok) throw new Error(u.error)
+    const undo = await undoDealEvent(db, WS, { dealId: c.deal.id, eventId: u.eventId! }, person)
+    expect(undo.ok).toBe(false)
+    expect(tables.deal_event.find((e) => e.id === u.eventId)?.undone_at).toBeFalsy()
+  })
+
+  it("for a service-role caller, a contact or company the person can't see is not found", async () => {
+    const { db, hidden } = seed()
+    hidden.add(CONTACT_B)
+    hidden.add(COMPANY)
+    const viewer = { viewer: USER }
+    expect(await createDeal(db, WS, { name: 'X', contact_ids: [CONTACT_B] }, person, viewer)).toEqual({ ok: false, error: `Contact not found: ${CONTACT_B}` })
+    expect(await createDeal(db, WS, { name: 'X', company_id: COMPANY }, person, viewer)).toEqual({ ok: false, error: 'Company not found.' })
+    // The person's own client (no viewer) relies on RLS instead.
+    expect((await createDeal(db, WS, { name: 'X', contact_ids: [CONTACT_B] }, person)).ok).toBe(true)
   })
 
   it('diffs custom fields one key at a time and says changes in words', () => {

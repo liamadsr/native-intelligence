@@ -26,7 +26,8 @@ import {
   setRecordCustomFields,
 } from '@/lib/crm/custom-fields'
 import { formatDealValue } from '@/lib/crm/deal-format'
-import { resolveEntityWorkspace } from './_shared'
+import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type CreateWorkspacePolicy } from './_shared'
+import { isCompanyVisibleTo, isContactVisibleTo } from '@/lib/crm/contact-visibility'
 
 /**
  * Deals (roadmap #8): the agent creates, finds, updates and moves deals and
@@ -85,9 +86,10 @@ function actorFor(userId: string, because: { source: (typeof BECAUSE_SOURCES)[nu
   }
 }
 
-async function present(db: SupabaseClient, workspaceId: string, deals: Deal[], pipelines?: DealPipeline[]) {
+async function present(db: SupabaseClient, workspaceId: string, viewer: string, deals: Deal[], pipelines?: DealPipeline[]) {
   const pl = pipelines ?? (await listPipelines(db, workspaceId))
-  const names = await lookupDealNames(db, workspaceId, deals)
+  // These tools may run on a service-role client: only what the person can see is named.
+  const names = await lookupDealNames(db, workspaceId, deals, viewer)
   return deals.map((d) => ({ ...describeDeal(d, { pipelines: pl, ...names }), value_label: formatDealValue(d.value, d.currency) || null }))
 }
 
@@ -95,7 +97,21 @@ function stagesOf(pipelines: DealPipeline[]) {
   return pipelines.map((p) => ({ pipeline: p.name, is_default: p.is_default, stages: p.stages.map((s) => ({ name: s.name, kind: s.kind })) }))
 }
 
-export function createDealTools(userId: string, supabase: SupabaseClient, workspaceId: string, strictWorkspace = false) {
+export function createDealTools(
+  userId: string,
+  supabase: SupabaseClient,
+  workspaceId: string,
+  strictWorkspace = false,
+  // CREATE-TIME WORKSPACE ROUTING (_shared.ts), like companies and contacts.
+  createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+) {
+  const viewer = { viewer: userId }
+  const createIn = (explicit: string | undefined) =>
+    resolveCreateWorkspace(supabase, userId, workspaceId, explicit, { strictWorkspace, policy: createWorkspacePolicy })
+  const workspaceIdField = z
+    .string()
+    .optional()
+    .describe('Workspace to create in. Defaults to the active workspace. Copy it from the workspace_id on rows you read, or from active_workspace.')
   const dealWorkspace = async (dealId: string) =>
     (await resolveEntityWorkspace(supabase, userId, 'deal', dealId, workspaceId, strictWorkspace))?.workspaceId ?? null
 
@@ -114,7 +130,7 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
       execute: async (input) => {
         try {
           const { deals, pipelines } = await findDeals(supabase, workspaceId, input)
-          return { success: true, count: deals.length, deals: await present(supabase, workspaceId, deals, pipelines), pipelines: stagesOf(pipelines) }
+          return { success: true, count: deals.length, deals: await present(supabase, workspaceId, userId, deals, pipelines), pipelines: stagesOf(pipelines) }
         } catch (e) {
           return { success: false, error: e instanceof Error ? e.message : String(e) }
         }
@@ -130,7 +146,7 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
         const deal = await getDeal(supabase, ws, deal_id)
         if (!deal) return { success: false, error: 'Deal not found' }
         const pipelines = await listPipelines(supabase, ws)
-        const [described] = await present(supabase, ws, [deal], pipelines)
+        const [described] = await present(supabase, ws, userId, [deal], pipelines)
         const events = await listDealEvents(supabase, ws, deal_id, 15)
         return {
           success: true,
@@ -155,12 +171,20 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
         name: z.string().min(1).max(200).describe('e.g. "Northwind website redesign".'),
         ...dealFieldsSchema,
         because: becauseSchema,
+        workspace_id: workspaceIdField,
       }),
-      execute: async ({ because, ...input }) => {
-        const result = await createDeal(supabase, workspaceId, input as DealInput & { name: string }, actorFor(userId, because))
+      execute: async ({ because, workspace_id, ...input }) => {
+        const ws = await createIn(workspace_id)
+        if (!ws.ok) return ws.error
+        const result = await createDeal(supabase, ws.workspaceId, input as DealInput & { name: string }, actorFor(userId, because), viewer)
         if (!result.ok) return { success: false, error: result.error }
-        const [deal] = await present(supabase, workspaceId, [result.deal])
-        return { success: true, deal, message: `Created deal "${result.deal.name}"${deal.stage ? ` in ${deal.stage}` : ''}.` }
+        const [deal] = await present(supabase, ws.workspaceId, userId, [result.deal])
+        return {
+          success: true,
+          deal,
+          message: `Created deal "${result.deal.name}"${deal.stage ? ` in ${deal.stage}` : ''}.`,
+          ...workspaceEcho(ws.workspaceId, ws.workspaceName),
+        }
       },
     }),
 
@@ -176,10 +200,10 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
       execute: async ({ deal_id, because, ...input }) => {
         const ws = await dealWorkspace(deal_id)
         if (!ws) return { success: false, error: 'Deal not found' }
-        const result = await updateDeal(supabase, ws, deal_id, input as DealInput, actorFor(userId, because))
+        const result = await updateDeal(supabase, ws, deal_id, input as DealInput, actorFor(userId, because), viewer)
         if (!result.ok) return { success: false, error: result.error }
         const pipelines = await listPipelines(supabase, ws)
-        const [deal] = await present(supabase, ws, [result.deal], pipelines)
+        const [deal] = await present(supabase, ws, userId, [result.deal], pipelines)
         const changed = describeChanges(result.changes, { pipelines })
         return {
           success: true,
@@ -201,7 +225,7 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
       execute: async ({ deal_id, stage, because }) => {
         const ws = await dealWorkspace(deal_id)
         if (!ws) return { success: false, error: 'Deal not found' }
-        const result = await updateDeal(supabase, ws, deal_id, { stage }, actorFor(userId, because))
+        const result = await updateDeal(supabase, ws, deal_id, { stage }, actorFor(userId, because), viewer)
         if (!result.ok) return { success: false, error: result.error }
         const pipelines = await listPipelines(supabase, ws)
         const changed = describeChanges(result.changes, { pipelines })
@@ -246,11 +270,15 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
         label: z.string().min(1).max(60).describe('e.g. "Contract length (months)".'),
         field_type: z.enum(CUSTOM_FIELD_TYPES),
         options: z.array(z.string()).max(50).optional().describe('select only: the choices.'),
+        workspace_id: workspaceIdField,
       }),
-      execute: async (input) => {
-        const result = await defineCustomField(supabase, workspaceId, input)
+      execute: async ({ workspace_id, ...input }) => {
+        const ws = await createIn(workspace_id)
+        if (!ws.ok) return ws.error
+        const result = await defineCustomField(supabase, ws.workspaceId, input)
         if (!result.ok) return { success: false, error: result.error }
         return {
+          ...workspaceEcho(ws.workspaceId, ws.workspaceName),
           success: true,
           field: { key: result.field.key, label: result.field.label, field_type: result.field.field_type, options: result.field.options },
           message: result.existed ? `"${result.field.label}" already exists.` : `Added "${result.field.label}" to ${input.entity_type === 'company' ? 'companies' : `${input.entity_type}s`}.`,
@@ -271,12 +299,16 @@ export function createDealTools(userId: string, supabase: SupabaseClient, worksp
         if (entity_type === 'deal') {
           const ws = await dealWorkspace(id)
           if (!ws) return { success: false, error: 'Deal not found' }
-          const result = await updateDeal(supabase, ws, id, { custom_fields: values }, actorFor(userId, because))
+          const result = await updateDeal(supabase, ws, id, { custom_fields: values }, actorFor(userId, because), viewer)
           if (!result.ok) return { success: false, error: result.error }
           return { success: true, custom_fields: result.deal.custom_fields, change_id: result.eventId }
         }
         const resolved = await resolveEntityWorkspace(supabase, userId, entity_type, id, workspaceId, strictWorkspace)
-        if (!resolved) return { success: false, error: `${entity_type === 'contact' ? 'Contact' : 'Company'} not found` }
+        const notFound = { success: false, error: `${entity_type === 'contact' ? 'Contact' : 'Company'} not found` }
+        if (!resolved) return notFound
+        // A contact or company the person can't see is not found (service-role client).
+        const visible = entity_type === 'contact' ? await isContactVisibleTo(supabase, id, userId) : await isCompanyVisibleTo(supabase, id, userId)
+        if (!visible) return notFound
         const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values)
         if (!result.ok) {
           const defs = await listCustomFieldDefinitions(supabase, resolved.workspaceId, entity_type).catch(() => [])

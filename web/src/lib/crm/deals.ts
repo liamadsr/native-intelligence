@@ -25,6 +25,7 @@ import {
 } from './custom-fields'
 import { toIlikeSearchTerm } from './ilike-search-term'
 import { formatDealValue } from './deal-format'
+import { filterVisibleCompanies, filterVisibleContacts, isCompanyVisibleTo } from './contact-visibility'
 
 export type DealStageKind = 'open' | 'won' | 'lost'
 export type DealChangeSource = 'person' | 'agent' | 'email' | 'capture' | 'sms'
@@ -99,6 +100,7 @@ export const DEAL_SELECT =
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v)
+const CUSTOM_KEY_RE = /^[a-z][a-z0-9_]{0,39}$/
 
 const CURRENCY_RE = /^[A-Z]{3}$/
 
@@ -153,12 +155,13 @@ export function matchStage(stages: readonly DealStage[], name: string): DealStag
   if (!raw) return null
   const byId = stages.find((s) => s.id === raw)
   if (byId) return byId
+  if (UUID_RE.test(raw)) return null
   const n = raw.toLowerCase()
   const exact = stages.find((s) => s.name.toLowerCase() === n)
   if (exact) return exact
   const prefix = stages.filter((s) => s.name.toLowerCase().startsWith(n))
   if (prefix.length === 1) return prefix[0]
-  const kind: DealStageKind | null = /\bwon\b|\bwin\b|closed[- ]?won|signed/.test(n) ? 'won' : /\blost\b|closed[- ]?lost|dead/.test(n) ? 'lost' : null
+  const kind: DealStageKind | null = /\bwon\b|\bwin\b|closed[- ]?won|signed/.test(n) ? 'won' : /\blost\b|closed[- ]?lost|\bdead\b/.test(n) ? 'lost' : null
   if (kind) {
     const ofKind = stages.filter((s) => s.kind === kind)
     if (ofKind.length === 1) return ofKind[0]
@@ -245,6 +248,7 @@ async function resolveInput(
   workspaceId: string,
   input: DealInput,
   current: Deal | null,
+  viewer: string | null,
 ): Promise<Resolved> {
   const row: Record<string, unknown> = {}
 
@@ -307,6 +311,11 @@ async function resolveInput(
       if (!isUuid(input.company_id)) return { ok: false, error: 'company_id is a company id from list_companies.' }
       const { data } = await db.from('company').select('id').eq('id', input.company_id).eq('workspace_id', workspaceId).maybeSingle()
       if (!data) return { ok: false, error: 'Company not found.' }
+      // On a service-role client (the agent's tools), a company the person
+      // can't see is not found, as their own page would say.
+      if (viewer && input.company_id !== current?.company_id && !(await isCompanyVisibleTo(db, input.company_id, viewer))) {
+        return { ok: false, error: 'Company not found.' }
+      }
     }
     row.company_id = input.company_id
   }
@@ -318,7 +327,14 @@ async function resolveInput(
     if (wanted.length) {
       const { data, error } = await db.from('contact').select('id').eq('workspace_id', workspaceId).in('id', wanted)
       if (error) return { ok: false, error: error.message }
-      const found = new Set(((data ?? []) as { id: string }[]).map((c) => c.id))
+      let rows = (data ?? []) as { id: string }[]
+      // Contacts already on the deal stay; a new one must be one the person can see.
+      if (viewer) {
+        const already = new Set(current?.contact_ids ?? [])
+        const fresh = await filterVisibleContacts(db, viewer, rows.filter((r) => !already.has(r.id)))
+        rows = [...rows.filter((r) => already.has(r.id)), ...fresh]
+      }
+      const found = new Set(rows.map((c) => c.id))
       const missing = wanted.filter((id) => !found.has(id))
       if (missing.length) return { ok: false, error: `Contact not found: ${missing.join(', ')}` }
     }
@@ -392,6 +408,15 @@ async function logEvent(
   return (data as { id: string }).id
 }
 
+/**
+ * `viewer`: the person a service-role caller (the agent's tools) acts for. A
+ * new contact or company on a deal must then be one they can see; the routes
+ * run on the person's own RLS client and need no viewer.
+ */
+export interface WriteOptions {
+  viewer?: string | null
+}
+
 export type DealWriteResult =
   | { ok: true; deal: Deal; changes: DealChanges; eventId: string | null }
   | { ok: false; error: string }
@@ -405,8 +430,14 @@ const SOURCE_FOR_DEAL: Record<DealChangeSource, string> = {
 }
 
 /** Creates a deal (in the default pipeline's first stage unless told otherwise) and logs it. */
-export async function createDeal(db: SupabaseClient, workspaceId: string, input: DealInput & { name: string }, actor: DealActor): Promise<DealWriteResult> {
-  const resolved = await resolveInput(db, workspaceId, input, null)
+export async function createDeal(
+  db: SupabaseClient,
+  workspaceId: string,
+  input: DealInput & { name: string },
+  actor: DealActor,
+  opts: WriteOptions = {},
+): Promise<DealWriteResult> {
+  const resolved = await resolveInput(db, workspaceId, input, null, opts.viewer ?? null)
   if (!resolved.ok) return resolved
   const row = resolved.row
   if (row.owner_id === undefined && actor.userId) {
@@ -431,10 +462,17 @@ export async function createDeal(db: SupabaseClient, workspaceId: string, input:
  * one undo reverses the whole write. A write that changes nothing logs
  * nothing.
  */
-export async function updateDeal(db: SupabaseClient, workspaceId: string, dealId: string, input: DealInput, actor: DealActor): Promise<DealWriteResult> {
+export async function updateDeal(
+  db: SupabaseClient,
+  workspaceId: string,
+  dealId: string,
+  input: DealInput,
+  actor: DealActor,
+  opts: WriteOptions = {},
+): Promise<DealWriteResult> {
   const current = await getDeal(db, workspaceId, dealId)
   if (!current) return { ok: false, error: 'Deal not found' }
-  const resolved = await resolveInput(db, workspaceId, input, current)
+  const resolved = await resolveInput(db, workspaceId, input, current, opts.viewer ?? null)
   if (!resolved.ok) return resolved
   const changes = diffDeal(current, resolved.row)
   if (!Object.keys(changes).length) return { ok: true, deal: current, changes, eventId: null }
@@ -526,8 +564,14 @@ export async function undoDealEvent(
   const restored: string[] = []
   const kept: string[] = []
   let customFields: Record<string, unknown> | null = null
-  for (const [key, { from, to }] of Object.entries(event.changes ?? {})) {
-    if (key.startsWith('custom_fields.')) {
+  for (const [key, change] of Object.entries(event.changes ?? {})) {
+    // Only a deal's own fields go back: the log is written by the app, but a
+    // member can add a row by hand, so a key that is no field is ignored.
+    if (!change || typeof change !== 'object') continue
+    const { from, to } = change as { from: unknown; to: unknown }
+    const isCustom = key.startsWith('custom_fields.') && CUSTOM_KEY_RE.test(key.slice('custom_fields.'.length))
+    if (!isCustom && !(DEAL_FIELDS as readonly string[]).includes(key)) continue
+    if (isCustom) {
       const k = key.slice('custom_fields.'.length)
       const now = deal.custom_fields?.[k] ?? null
       if (!sameValue(now, to)) {
@@ -549,6 +593,25 @@ export async function undoDealEvent(
     patch[key] = from
     restored.push(key)
   }
+  // What the old value points at may be gone since: a contact deleted, a
+  // member who left, a company removed. Contacts still there go back; a
+  // missing owner or company keeps the current value.
+  if (Array.isArray(patch.contact_ids) && patch.contact_ids.length) {
+    const wanted = (patch.contact_ids as unknown[]).filter(isUuid)
+    const { data } = wanted.length ? await db.from('contact').select('id').eq('workspace_id', workspaceId).in('id', wanted) : { data: [] }
+    const alive = new Set(((data ?? []) as { id: string }[]).map((c) => c.id))
+    patch.contact_ids = wanted.filter((id) => alive.has(id))
+  }
+  for (const [key, table] of [['owner_id', 'member'], ['company_id', 'company']] as const) {
+    const v = patch[key]
+    if (v === null || v === undefined) continue
+    const { data } = isUuid(v) ? await db.from(table).select('id').eq('id', v).eq('workspace_id', workspaceId).maybeSingle() : { data: null }
+    if (!data) {
+      delete patch[key]
+      restored.splice(restored.indexOf(key), 1)
+      kept.push(key)
+    }
+  }
   if (customFields) patch.custom_fields = customFields
   // The stage and its pipeline go back as a pair, or not at all.
   if (('stage_id' in patch) !== ('pipeline_id' in patch) && event.changes.pipeline_id) {
@@ -563,6 +626,10 @@ export async function undoDealEvent(
     }
   }
 
+  if (!restored.length) {
+    return { ok: false, error: 'Nothing to restore: every field it changed has changed again since.' }
+  }
+
   let updated = deal
   if (Object.keys(patch).length) {
     const { data, error } = await db.from('deal').update(patch).eq('id', deal.id).eq('workspace_id', workspaceId).select(DEAL_SELECT).single()
@@ -571,7 +638,7 @@ export async function undoDealEvent(
   }
   await db.from('deal_event').update({ undone_at: new Date().toISOString() }).eq('id', event.id).eq('workspace_id', workspaceId)
   const undoChanges: DealChanges = {}
-  for (const key of restored) undoChanges[key] = { from: event.changes[key].to, to: event.changes[key].from }
+  for (const key of restored) undoChanges[key] = { from: event.changes[key].to, to: key.startsWith('custom_fields.') ? event.changes[key].from : patch[key] }
   await logEvent(db, workspaceId, deal.id, 'undo', undoChanges, { ...actor, sourceRef: event.id })
   return { ok: true, deal: updated, restored, kept }
 }
@@ -596,9 +663,12 @@ export function describeDeal(
     expected_close_date: deal.expected_close_date,
     owner_id: deal.owner_id,
     owner: deal.owner_id ? ctx.owners?.get(deal.owner_id) ?? null : null,
-    company_id: deal.company_id,
+    // A company the reader can't see is neither named nor pointed at.
+    company_id: deal.company_id && (!ctx.companies || ctx.companies.has(deal.company_id)) ? deal.company_id : null,
     company: deal.company_id ? ctx.companies?.get(deal.company_id) ?? null : null,
-    contacts: deal.contact_ids.map((id) => ({ id, name: ctx.contacts?.get(id) ?? null })),
+    // A contact the reader can't see is left out (its count says so).
+    contacts: deal.contact_ids.filter((id) => !ctx.contacts || ctx.contacts.has(id)).map((id) => ({ id, name: ctx.contacts?.get(id) ?? null })),
+    ...(ctx.contacts && deal.contact_ids.some((id) => !ctx.contacts!.has(id)) ? { other_contacts: deal.contact_ids.filter((id) => !ctx.contacts!.has(id)).length } : {}),
     custom_fields: deal.custom_fields,
     closed_at: deal.closed_at,
     updated_at: deal.updated_at,
@@ -606,7 +676,7 @@ export function describeDeal(
 }
 
 /** Names for the ids a set of deals points at, in three small reads. */
-export async function lookupDealNames(db: SupabaseClient, workspaceId: string, deals: readonly Deal[]) {
+export async function lookupDealNames(db: SupabaseClient, workspaceId: string, deals: readonly Deal[], viewer: string | null = null) {
   const companyIds = [...new Set(deals.map((d) => d.company_id).filter((x): x is string => !!x))]
   const contactIds = [...new Set(deals.flatMap((d) => d.contact_ids))].slice(0, 200)
   const ownerIds = [...new Set(deals.map((d) => d.owner_id).filter((x): x is string => !!x))]
@@ -615,9 +685,15 @@ export async function lookupDealNames(db: SupabaseClient, workspaceId: string, d
     contactIds.length ? db.from('contact').select('id, full_name, email').eq('workspace_id', workspaceId).in('id', contactIds) : Promise.resolve({ data: [] }),
     ownerIds.length ? db.from('member').select('id, display_name').eq('workspace_id', workspaceId).in('id', ownerIds) : Promise.resolve({ data: [] }),
   ])
+  // On a service-role client, only what the person can see is named.
+  let companyRows = (companies.data ?? []) as { id: string; name: string }[]
+  let contactRows = (contacts.data ?? []) as { id: string; full_name: string | null; email: string | null }[]
+  if (viewer) {
+    ;[companyRows, contactRows] = await Promise.all([filterVisibleCompanies(db, viewer, companyRows), filterVisibleContacts(db, viewer, contactRows)])
+  }
   return {
-    companies: new Map(((companies.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name])),
-    contacts: new Map(((contacts.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((c) => [c.id, c.full_name || c.email || 'Unnamed'])),
+    companies: new Map(companyRows.map((c) => [c.id, c.name])),
+    contacts: new Map(contactRows.map((c) => [c.id, c.full_name || c.email || 'Unnamed'])),
     owners: new Map(((owners.data ?? []) as { id: string; display_name: string }[]).map((m) => [m.id, m.display_name])),
   }
 }

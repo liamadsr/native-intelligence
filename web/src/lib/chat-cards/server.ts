@@ -281,6 +281,15 @@ export async function resolveNamedValues(
   return { ok: true, value: out }
 }
 
+async function redactHiddenDealCompanies(scope: CardScope, fence: VisibilityFence, rows: Record<string, unknown>[]): Promise<void> {
+  const ids = [...new Set(rows.map((r) => r.company_id).filter((x): x is string => typeof x === 'string'))]
+  if (!ids.length) return
+  const visible = await visibleCompanyIds(scope.supabase, fence, ids)
+  for (const r of rows) {
+    if (typeof r.company_id === 'string' && !visible.has(r.company_id)) r.company = null
+  }
+}
+
 // ── Running a list ────────────────────────────────────────────────────────────
 
 export interface ListPage {
@@ -320,7 +329,11 @@ export async function runListQuery(
   const { data, count, error } = await q
   if (error) throw new Error(error.message)
   // A row's embedded team (a document's) is named only when the person can see that team.
-  return { count: count ?? 0, rows: redactHiddenTeams(stripFenceEmbed((data ?? []) as unknown as Record<string, unknown>[]), fence) }
+  const rows = redactHiddenTeams(stripFenceEmbed((data ?? []) as unknown as Record<string, unknown>[]), fence)
+  // A deal's company is named only when the person can see that company (its
+  // embed reads on this service-role client, past the company RLS).
+  if (entity === 'deal') await redactHiddenDealCompanies(scope, fence, rows)
+  return { count: count ?? 0, rows }
 }
 
 // ── Records ───────────────────────────────────────────────────────────────────

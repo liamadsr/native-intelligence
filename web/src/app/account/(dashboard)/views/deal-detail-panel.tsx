@@ -6,7 +6,7 @@
  * agent's from an email, a meeting or a text included, is listed with where it
  * came from and an Undo: apply with undo, never an accept/dismiss queue.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { Building2, CircleDollarSign, Trash2, Undo2, User } from 'lucide-react'
 import { toast } from 'sonner'
@@ -14,7 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { PropertyGroup } from '@/components/views/property-group'
 import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
-import { emitEntityUpdated } from '@/lib/entity-events'
+import { emitEntityDeleted, emitEntityUpdated } from '@/lib/entity-events'
 import { describeChanges, type Deal, type DealEvent, type DealPipeline } from '@/lib/crm/deals'
 import { formatDealValue } from '@/lib/crm/deal-format'
 import { cn } from '@/lib/utils'
@@ -61,6 +61,9 @@ export function DealDetailPanel({
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
   const [notes, setNotes] = useState('')
+  const nameRef = useRef<HTMLDivElement>(null)
+  const valueRef = useRef<HTMLInputElement>(null)
+  const notesRef = useRef<HTMLTextAreaElement>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/account/deals/${dealId}`)
@@ -71,9 +74,11 @@ export function DealDetailPanel({
     }
     const json = (await res.json()) as DealDetail
     setDetail(json)
-    setName(json.deal.name)
-    setValue(json.deal.value === null ? '' : String(json.deal.value))
-    setNotes(json.deal.notes ?? '')
+    // A reload (after any save) never overwrites what the person is typing.
+    const typingIn = (el: HTMLElement | null) => !!el && el.contains(document.activeElement)
+    if (!typingIn(nameRef.current)) setName(json.deal.name)
+    if (!typingIn(valueRef.current)) setValue(json.deal.value === null ? '' : String(json.deal.value))
+    if (!typingIn(notesRef.current)) setNotes(json.deal.notes ?? '')
     setLoading(false)
   }, [dealId])
 
@@ -128,6 +133,7 @@ export function DealDetailPanel({
       toast.error('Could not delete the deal')
       return
     }
+    emitEntityDeleted({ entityType: 'deal', id: dealId })
     onClose()
   }
 
@@ -175,7 +181,7 @@ export function DealDetailPanel({
                 >
                   <CircleDollarSign className="h-5 w-5" />
                 </div>
-                <div className="min-w-0 flex-1" onBlur={saveName}>
+                <div ref={nameRef} className="min-w-0 flex-1" onBlur={saveName}>
                   <EntityTitleInput
                     className="text-lg"
                     value={name}
@@ -241,6 +247,7 @@ export function DealDetailPanel({
                   <span className="text-xs text-muted-foreground">Value</span>
                   <div className="flex items-center gap-1">
                     <input
+                      ref={valueRef}
                       className={cn(fieldClass, 'w-40 flex-none')}
                       inputMode="decimal"
                       placeholder="Empty"
@@ -254,6 +261,8 @@ export function DealDetailPanel({
                       onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
                     />
                     <input
+                      // Keyed on the saved code, so an undo or a refused save shows the real one.
+                      key={detail.deal.currency}
                       className={cn(fieldClass, 'w-16 flex-none uppercase text-muted-foreground')}
                       defaultValue={detail.deal.currency}
                       maxLength={3}
@@ -325,7 +334,14 @@ export function DealDetailPanel({
                 </div>
               </PropertyGroup>
 
-              <CustomFieldsGroup entityType="deal" recordId={dealId} showAddWhenEmpty onChanged={() => void load()} />
+              <CustomFieldsGroup
+                // Re-read after any change to the deal (an Undo included).
+                key={detail.deal.updated_at}
+                entityType="deal"
+                recordId={dealId}
+                showAddWhenEmpty
+                onChanged={() => void load()}
+              />
 
 
               <PropertyGroup title="History">
@@ -362,6 +378,7 @@ export function DealDetailPanel({
 
               <PropertyGroup title="Notes">
                 <textarea
+                  ref={notesRef}
                   className="min-h-[80px] w-full resize-y rounded-md border border-transparent bg-transparent px-3 py-2 text-sm hover:border-border focus:border-border focus:outline-none"
                   placeholder="Add notes"
                   value={notes}

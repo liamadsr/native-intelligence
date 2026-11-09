@@ -37,6 +37,29 @@ describe('migration 473 (deals, pipelines, custom fields)', () => {
     expect(sql).toContain('alter publication supabase_realtime add table public.deal;')
   })
 
+  it('keeps the change log append-only for members, and the trigger merge-aware', () => {
+    expect(sql).toContain('revoke update, delete on table public.deal_event from authenticated;')
+    expect(sql).toContain('grant update (undone_at) on table public.deal_event to authenticated;')
+    expect(sql).toMatch(/create or replace function public\.deal_before_write\(\)[\s\S]*?security definer[\s\S]*?if public\._wsmerge_active\(\) then/)
+    expect(sql).toContain("raise exception 'deal owner belongs to another workspace'")
+    expect(sql).toContain("raise exception 'deal company belongs to another workspace'")
+  })
+
+  it('makes workspace merge carry deals: stages fold by name before the generic re-stamp', () => {
+    expect(sql).toContain('CREATE OR REPLACE FUNCTION public._wsmerge_deals(p_source uuid, p_dest uuid)')
+    expect(sql).toContain('REVOKE EXECUTE ON FUNCTION public._wsmerge_deals(uuid, uuid) FROM PUBLIC, anon, authenticated;')
+    const restamp = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public._wsmerge_generic_restamp('))
+    expect(restamp.indexOf('public._wsmerge_deals(p_source, p_dest)')).toBeLessThan(restamp.indexOf('FOR r IN'))
+    // The legacy (team_id / status_id) deal branches need the legacy column now.
+    for (const fn of ['repair_cross_workspace_drift', '_wsmerge_teams_finish']) {
+      const body = sql.slice(sql.indexOf(`CREATE OR REPLACE FUNCTION public.${fn}(`))
+      expect(body, fn).toContain("table_name = 'deal' AND column_name = 'team_id'")
+    }
+    const sweep = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.workspace_integrity_sweep('))
+    expect(sweep.slice(0, sweep.indexOf('\n$$;'))).not.toContain("'deal.team'")
+    expect(sweep).toContain("'deal.stage'")
+  })
+
   it('is re-runnable: every constraint is dropped before it is added', () => {
     const added = [...sql.matchAll(/add constraint (\w+)/g)].map((m) => m[1])
     expect(added.length).toBeGreaterThan(10)
