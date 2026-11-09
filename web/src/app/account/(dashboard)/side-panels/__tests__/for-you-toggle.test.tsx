@@ -82,12 +82,14 @@ describe('For you’s toggle', () => {
     expect(toggle()?.querySelector('.lucide-house')).toBeNull()
   })
 
-  it('in the app rail’s header: flat like its other buttons, tinted while the column is hidden', () => {
+  it('in the app rail’s header: round and flat like its other buttons, tinted while the column is hidden', () => {
     act(() => store.reportSpacePlan(false))
     act(() => root.render(h(TooltipProvider, null, h(ForYouToggle, { variant: 'header' }))))
     expect(toggle()?.getAttribute('data-variant')).toBe('header')
     expect(toggle()!.className.split(' ')).toContain('bg-foreground/[0.08]')
-    expect(toggle()!.className).not.toContain('rounded-full')
+    // Round, as the rail's buttons (Liam, 11-09), with no border of its own (the bar's pill has it).
+    expect(toggle()!.className.split(' ')).toContain('rounded-full')
+    expect(toggle()!.className.split(' ')).not.toContain('border')
     act(() => store.reportSpacePlan(true))
     expect(toggle()!.className.split(' ')).not.toContain('bg-foreground/[0.08]')
   })

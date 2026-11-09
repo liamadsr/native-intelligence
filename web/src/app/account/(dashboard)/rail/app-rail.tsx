@@ -119,8 +119,9 @@ const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
 // A tint of the foreground for hover and the lit page: it reads on the rail's
 // surface in light and dark alike (bg-muted is the surface's own shade in light).
 // 32px, 2px apart: every page fits a 900px window (more scroll in a shorter one).
+// Round (Liam, 11-09: "the hover states should be circle"), the lit one too.
 const ITEM =
-  'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
+  'relative flex size-8 shrink-0 items-center justify-center rounded-full text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
@@ -287,7 +288,7 @@ export function AppRail() {
           </TooltipProvider>
         ) : (
           // Its size until the controls mount (after hydration), so nothing moves.
-          <div aria-hidden className="h-8 w-[104px]" />
+          <div aria-hidden className="h-8 w-56" />
         )}
       </div>
 

@@ -652,8 +652,8 @@ export function WorkspaceSwitcher({
    *  opening up and to the right of it (Liam, 11-09: the one workspace menu,
    *  at the bottom left; the top bar's pill is a phone's only now).
    *  `header` — the app rail's header (rail/app-rail.tsx, Liam 11-09): the
-   *  workspace's thumbnail alone, flat inside the header's pill, at its far
-   *  left; its menu drops below it. */
+   *  workspace's thumbnail and name, flat inside the header's pill, at its
+   *  far left; its menu drops below it. */
   variant?: 'icon' | 'full' | 'tab' | 'pill' | 'rail' | 'header'
 }) {
   const router = useRouter()
@@ -774,11 +774,12 @@ export function WorkspaceSwitcher({
   const showUserAvatar = !!userAvatarUrl && !userAvatarFailed
 
   if (!loaded || !current) {
-    // header: the thumbnail's place, still (no pulse: the rail runs nothing at rest).
+    // header: the thumbnail and name's place, still (no pulse: the rail runs nothing at rest).
     if (variant === 'header') {
       return (
-        <div className="grid size-8 place-items-center">
+        <div className="flex h-8 items-center gap-2 pl-1 pr-3">
           <div className="size-6 rounded-md bg-muted" />
+          <div className="h-3 w-24 rounded bg-muted" />
         </div>
       )
     }
@@ -977,9 +978,11 @@ export function WorkspaceSwitcher({
 
   if (variant === 'header') {
     // The header's far left: the workspace's thumbnail (its logo, else its
-    // letter) alone (Liam, 11-09); the menu drops below it, at its left.
+    // letter) and name (Liam, 11-09: "add the workspace name back in"), a
+    // round hover (the rail's: "the hover states should be circle"); the
+    // menu drops below it, at its left.
     return (
-      <div ref={rootRef} className="relative">
+      <div ref={rootRef} className="relative min-w-0">
         <button
           ref={triggerRef}
           type="button"
@@ -987,17 +990,19 @@ export function WorkspaceSwitcher({
           aria-expanded={open}
           aria-haspopup="menu"
           aria-label="Workspace and account menu"
-          title={current.name}
           className={cn(
-            'grid size-8 place-items-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+            'flex h-8 min-w-0 max-w-[200px] items-center gap-2 rounded-full pl-1 pr-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
             open ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.05]',
           )}
         >
           <span
             data-workspace-thumbnail=""
-            className="grid size-6 place-items-center overflow-hidden rounded-md bg-foreground/[0.08] text-[11px] font-semibold text-foreground/80"
+            className="grid size-6 shrink-0 place-items-center overflow-hidden rounded-full bg-foreground/[0.08] text-[11px] font-semibold text-foreground/80"
           >
             {current.logo_url ? <img src={current.logo_url} alt="" className="h-full w-full object-cover" /> : current.name.charAt(0).toUpperCase()}
+          </span>
+          <span data-workspace-name="" className="min-w-0 truncate text-[14px] font-semibold text-foreground">
+            {current.name}
           </span>
         </button>
         {panel}

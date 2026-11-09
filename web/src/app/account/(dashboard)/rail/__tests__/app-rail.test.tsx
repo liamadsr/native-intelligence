@@ -105,6 +105,9 @@ describe('the app rail', () => {
       expect(pill.className).toContain('border-border/60')
     }
     expect(pills[0].querySelector('[data-app-rail-item="mail"]')).not.toBeNull()
+    // Round hovers and lit states (Liam, 11-09: "the hover states should be circle").
+    expect(item('mail')!.className.split(' ')).toContain('rounded-full')
+    expect(item('search')!.className.split(' ')).toContain('rounded-full')
     expect(pills[0].querySelector('[data-app-rail-item="deals"]')).not.toBeNull()
   })
 
