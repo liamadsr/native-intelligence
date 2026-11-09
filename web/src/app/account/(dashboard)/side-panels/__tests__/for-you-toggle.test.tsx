@@ -25,7 +25,7 @@ vi.mock('../side-panels', async () => {
 })
 
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { ForYouToggle } from '../side-panel-toggles'
+import { ForYouToggle, SidePanelToggle } from '../side-panel-toggles'
 import * as store from '../side-panel-store'
 
 let container: HTMLDivElement
@@ -80,5 +80,19 @@ describe('For you’s toggle', () => {
     entries.count = 0
     render()
     expect(toggle()).toBeNull()
+  })
+})
+
+describe('the side panel’s toggle', () => {
+  const side = () => container.querySelector<HTMLButtonElement>('[data-side-panel-toggle]')
+  it('shaded while the panel is closed, plain while it’s open, as For you’s (Liam, 11-09)', () => {
+    act(() => root.render(h(TooltipProvider, null, h(SidePanelToggle))))
+    expect(side()?.getAttribute('aria-expanded')).toBe('false')
+    expect(side()?.hasAttribute('data-lit')).toBe(true)
+    expect(side()!.className.split(' ')).toContain('bg-muted')
+    act(() => side()!.click())
+    expect(side()?.getAttribute('aria-expanded')).toBe('true')
+    expect(side()?.hasAttribute('data-lit')).toBe(false)
+    expect(side()!.className.split(' ')).not.toContain('bg-muted')
   })
 })
