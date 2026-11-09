@@ -82,6 +82,16 @@ describe('For you’s toggle', () => {
     expect(toggle()?.querySelector('.lucide-house')).toBeNull()
   })
 
+  it('in the app rail’s header: flat like its other buttons, tinted while the column is hidden', () => {
+    act(() => store.reportSpacePlan(false))
+    act(() => root.render(h(TooltipProvider, null, h(ForYouToggle, { variant: 'header' }))))
+    expect(toggle()?.getAttribute('data-variant')).toBe('header')
+    expect(toggle()!.className.split(' ')).toContain('bg-foreground/[0.08]')
+    expect(toggle()!.className).not.toContain('rounded-full')
+    act(() => store.reportSpacePlan(true))
+    expect(toggle()!.className.split(' ')).not.toContain('bg-foreground/[0.08]')
+  })
+
   it('none with nothing brought', () => {
     entries.count = 0
     render()

@@ -102,16 +102,14 @@ describe('the top bar’s lead cluster', () => {
     expect(forYou.compareDocumentPosition(search!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('keeps Search for a phone only (from md up the app rail has it); For you’s toggle decides for itself', () => {
+  it('keeps For you and Search for a phone only (from md up the app rail’s header has them)', () => {
     render()
-    const phoneOnly = lead().querySelector<HTMLElement>('[data-tab-bar-phone-only]')!
-    expect(phoneOnly.className).toContain('md:hidden')
-    expect(phoneOnly.querySelector('[data-search-button]')).not.toBeNull()
-    expect(phoneOnly.querySelector('[data-for-you-toggle]')).toBeNull()
-    expect(lead().querySelector('[data-for-you-toggle]')).not.toBeNull()
+    const forYou = lead().querySelector<HTMLElement>('[data-for-you-toggle]')!
+    const search = lead().querySelector<HTMLElement>('[data-search-button]')!
+    for (const el of [forYou, search]) expect(el.closest<HTMLElement>('[data-tab-bar-phone-only]')?.className).toContain('md:hidden')
   })
 
-  it('keeps the workspace pill for a phone only: from md up the app rail’s foot is the one workspace menu', () => {
+  it('keeps the workspace pill for a phone only: from md up the app rail’s header is the one workspace menu', () => {
     render()
     const pill = container.querySelector<HTMLElement>('[data-tab-bar-workspace-pill]')!
     expect(pill.className).toContain('md:hidden')

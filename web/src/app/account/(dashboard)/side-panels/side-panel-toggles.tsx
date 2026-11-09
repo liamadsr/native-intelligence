@@ -81,7 +81,12 @@ export function SidePanelToggle() {
   )
 }
 
-export function ForYouToggle() {
+/**
+ * `pill` (a phone's top bar): the bar's round pill. `header` (the app rail's
+ * header from `md` up, Liam 11-09: the workspace's thumbnail, then For you,
+ * then Search): flat like the header's other buttons, tinted while lit.
+ */
+export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header' } = {}) {
   // On screen now (the row's space plan): what the toggle shows and flips.
   const shown = useSidePanelState().leftShown
   const entries = useForYouEntries()
@@ -100,10 +105,18 @@ export function ForYouToggle() {
           // Lit while the column is folded away, plain while it shows (Liam,
           // 11-09: "the logic for the button state is backwards, flip it").
           data-lit={shown ? undefined : ''}
-          className={cn(TOP_BAR_PILL, !shown && 'bg-muted text-sidebar-foreground')}
+          data-variant={variant}
+          className={
+            variant === 'header'
+              ? cn(
+                  'flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+                  !shown && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
+                )
+              : cn(TOP_BAR_PILL, !shown && 'bg-muted text-sidebar-foreground')
+          }
         >
-          {/* An inbox tray, not a house: Home is the app rail's header's (Liam, 11-09: "why do I see two home icons?"). */}
-          <Inbox data-for-you-icon="" className="h-4 w-4" />
+          {/* An inbox tray, not a house: Home is the app rail's (Liam, 11-09: "why do I see two home icons?"). */}
+          <Inbox data-for-you-icon="" className={variant === 'header' ? 'size-[18px]' : 'h-4 w-4'} strokeWidth={variant === 'header' ? 1.75 : 2} />
           <span className="text-[11px] font-medium tabular-nums">{entries.length}</span>
         </button>
       </TooltipTrigger>

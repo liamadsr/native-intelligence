@@ -651,9 +651,9 @@ export function WorkspaceSwitcher({
    *  `rail` — the app rail's foot (rail/app-rail.tsx): the avatar, its menu
    *  opening up and to the right of it (Liam, 11-09: the one workspace menu,
    *  at the bottom left; the top bar's pill is a phone's only now).
-   *  `header` — the app rail's header (rail/app-rail.tsx, Liam 11-09, from
-   *  Miro's board header): the workspace's mark and name with a caret, flat
-   *  inside the header's pill; its menu drops below it. */
+   *  `header` — the app rail's header (rail/app-rail.tsx, Liam 11-09): the
+   *  workspace's thumbnail alone, flat inside the header's pill, at its far
+   *  left; its menu drops below it. */
   variant?: 'icon' | 'full' | 'tab' | 'pill' | 'rail' | 'header'
 }) {
   const router = useRouter()
@@ -774,12 +774,11 @@ export function WorkspaceSwitcher({
   const showUserAvatar = !!userAvatarUrl && !userAvatarFailed
 
   if (!loaded || !current) {
-    // header: the mark and name's place, still (no pulse: the rail runs nothing at rest).
+    // header: the thumbnail's place, still (no pulse: the rail runs nothing at rest).
     if (variant === 'header') {
       return (
-        <div className="flex h-8 items-center gap-2 px-1.5">
+        <div className="grid size-8 place-items-center">
           <div className="size-6 rounded-md bg-muted" />
-          <div className="h-3 w-24 rounded bg-muted" />
         </div>
       )
     }
@@ -977,10 +976,10 @@ export function WorkspaceSwitcher({
   }
 
   if (variant === 'header') {
-    // The header's middle: the workspace's mark (its logo, else its letter)
-    // and name, and a caret; the menu drops below it, at its left.
+    // The header's far left: the workspace's thumbnail (its logo, else its
+    // letter) alone (Liam, 11-09); the menu drops below it, at its left.
     return (
-      <div ref={rootRef} className="relative min-w-0">
+      <div ref={rootRef} className="relative">
         <button
           ref={triggerRef}
           type="button"
@@ -988,18 +987,18 @@ export function WorkspaceSwitcher({
           aria-expanded={open}
           aria-haspopup="menu"
           aria-label="Workspace and account menu"
+          title={current.name}
           className={cn(
-            'group flex h-8 min-w-0 max-w-[220px] items-center gap-2 rounded-lg pl-1 pr-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+            'grid size-8 place-items-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
             open ? 'bg-foreground/[0.08]' : 'hover:bg-foreground/[0.05]',
           )}
         >
-          <span className="grid size-6 shrink-0 place-items-center overflow-hidden rounded-md bg-foreground/[0.08] text-[11px] font-semibold text-foreground/80">
+          <span
+            data-workspace-thumbnail=""
+            className="grid size-6 place-items-center overflow-hidden rounded-md bg-foreground/[0.08] text-[11px] font-semibold text-foreground/80"
+          >
             {current.logo_url ? <img src={current.logo_url} alt="" className="h-full w-full object-cover" /> : current.name.charAt(0).toUpperCase()}
           </span>
-          <span data-workspace-name="" className="min-w-0 truncate text-[14px] font-semibold text-foreground">
-            {current.name}
-          </span>
-          <ChevronDown className={cn('size-3.5 shrink-0 text-foreground/45 transition-transform duration-200 motion-reduce:transition-none', open && 'rotate-180')} />
         </button>
         {panel}
         {createOverlay}

@@ -4,12 +4,13 @@
  * The app rail (Liam, 11-09, from his references, then Miro's): the way to
  * move between the pages, floating at the window's left.
  *
- *   the header  one pill at the top left, over the top bar: Home, the
- *               workspace and account menu (its name), and Search.
- *   the pills   down the left, centred under the header: New in its own,
- *               then every page the workspace has on (./rail-pages.ts), a
- *               pill per group (your work, plans, customers, agents). Where
- *               the window is too short they scroll.
+ *   the header  one pill at the top left, over the top bar: the
+ *               workspace's thumbnail (its account menu), For you's button,
+ *               and Search (Liam, 11-09).
+ *   the pills   down the left, centred under the header: Home and New in
+ *               the first, then every page the workspace has on
+ *               (./rail-pages.ts), a pill per group (your work, plans,
+ *               customers, agents). Where the window is too short they scroll.
  *
  *   New      puts any page away and puts the cursor in the composer: the
  *            agent makes things on request (no Create dialog: Liam, 10-20).
@@ -74,6 +75,7 @@ import { WorkspaceSwitcher, useWorkspaceEdition } from '@/app/account/workspace-
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
+import { ForYouToggle } from '../side-panels/side-panel-toggles'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { closeFrontCards, frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
@@ -288,9 +290,9 @@ export function AppRail() {
           drags only on the attributed target), where the traffic lights sit. */}
       {trafficLights && <div data-tauri-drag-region="" aria-hidden className="absolute left-0 top-0 z-30 hidden h-11 md:block" style={{ width: 'var(--app-rail-w)' }} />}
 
-      {/* The header (Liam, 11-09, from Miro's board header): Home, the
-          workspace and account menu, and Search, in one floating pill at the
-          top left, over the top bar. */}
+      {/* The header (Liam, 11-09, from Miro's board header): the workspace's
+          thumbnail (its account menu), For you, and Search, in one floating
+          pill at the top left, over the top bar. */}
       <div
         ref={headerRef}
         data-app-rail-header=""
@@ -299,12 +301,11 @@ export function AppRail() {
       >
         {mounted ? (
           <TooltipProvider delayDuration={300}>
-            <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
-              <House className="size-[18px]" strokeWidth={1.75} />
-            </RailButton>
-            <div data-app-rail-item="workspace" className="min-w-0">
+            <div data-app-rail-item="workspace" className="flex">
               <WorkspaceSwitcher variant="header" />
             </div>
+            {/* For you's button (it shows only while the bots have brought something). */}
+            <ForYouToggle variant="header" />
             <RailButton
               label="Search"
               hint={<kbd className={KBD}>{searchKey}</kbd>}
@@ -318,7 +319,7 @@ export function AppRail() {
           </TooltipProvider>
         ) : (
           // Its size until the controls mount (after hydration), so nothing moves.
-          <div aria-hidden className="h-8 w-44" />
+          <div aria-hidden className="h-8 w-[104px]" />
         )}
       </div>
 
@@ -335,7 +336,11 @@ export function AppRail() {
           <TooltipProvider delayDuration={300}>
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden py-2 [scrollbar-width:none]">
               <div className="my-auto flex flex-col items-start gap-1.5 pl-2">
-                <div data-app-rail-pill="new" className={PILL}>
+                <div data-app-rail-pill="start" className={PILL}>
+                  {/* Home at the top (Liam, 11-09: "the home button all the way at the top"): the chat. */}
+                  <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
+                    <House className="size-[18px]" strokeWidth={1.75} />
+                  </RailButton>
                   <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
                     <Plus className="size-[18px]" strokeWidth={1.75} />
                   </RailButton>

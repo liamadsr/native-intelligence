@@ -30,6 +30,11 @@ vi.mock('@/app/account/workspace-switcher', async () => {
   }
 })
 vi.mock('@/lib/chat/open-search', () => ({ openSearch }))
+// For you's button (side-panels): its own tests; here, where it sits.
+vi.mock('../../side-panels/side-panel-toggles', async () => {
+  const React = await import('react')
+  return { ForYouToggle: ({ variant }: { variant?: string }) => React.createElement('button', { 'data-for-you-panel-toggle': '', 'data-variant': variant }) }
+})
 
 import { APP_RAIL_ATTR, AppRail } from '../app-rail'
 
@@ -60,16 +65,20 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws the header (Home, the workspace menu, Search), then New and every page that is on, in Liam’s order', async () => {
+  it('draws the header (the workspace’s thumbnail, For you, Search), then Home, New and every page that is on', async () => {
     await render()
     const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
-    const inHeader = Array.from(header.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)
-    expect(inHeader).toEqual(['home', 'workspace', 'search'])
+    // In order: the workspace's thumbnail at the far left, For you, Search (Liam, 11-09).
+    const order = Array.from(header.querySelectorAll<HTMLElement>('[data-app-rail-item="workspace"], [data-for-you-panel-toggle], [data-app-rail-item="search"]')).map((el) =>
+      el.hasAttribute('data-for-you-panel-toggle') ? 'for-you' : el.dataset.appRailItem,
+    )
+    expect(order).toEqual(['workspace', 'for-you', 'search'])
+    expect(header.querySelector('[data-for-you-panel-toggle]')?.getAttribute('data-variant')).toBe('header')
     // The one workspace and account menu (Liam, 11-09), the header's variant.
     expect(header.querySelector('[data-app-rail-item="workspace"] [data-variant="header"]')).not.toBeNull()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
-      'new',
+      'home', 'new',
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
       'projects', 'initiatives', 'knowledge', 'flows',
       'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
@@ -78,10 +87,12 @@ describe('the app rail', () => {
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
   })
 
-  it('floats its pills like Miro’s toolbar: New alone, then a pill per group, each with the panels’ glass', async () => {
+  it('floats its pills like Miro’s toolbar: Home and New, then a pill per group, each with the panels’ glass', async () => {
     await render()
     const pills = Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-pill]'))
-    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['new', 'work', 'plans', 'customers', 'agents'])
+    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['start', 'work', 'plans', 'customers', 'agents'])
+    // Home at the top of the first pill.
+    expect(pills[0].querySelector('[data-app-rail-item]')?.getAttribute('data-app-rail-item')).toBe('home')
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
       expect(pill.className).toContain('rounded-2xl')
       expect(pill.className).toContain('bg-background/70')

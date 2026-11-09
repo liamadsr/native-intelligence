@@ -115,12 +115,13 @@ export function TopBar() {
           style={{ paddingLeft: leadInset(trafficLights) }}
         >
           <TooltipProvider delayDuration={300}>
-            {/* For you's toggle, at the far left over its column (side-panels/
-                side-panel-toggles.tsx), as the side panel's ends the bar over
-                its panel: whenever the bots brought something, the column
-                beside the chat or not (Liam, 11-09: "always visible like the
-                button we have on the right side"). */}
-            <ForYouToggle />
+            {/* For you's toggle (side-panels/side-panel-toggles.tsx), on a
+                phone only, at the far left over its column: from `md` up it's
+                in the app rail's header (rail/app-rail.tsx; Liam, 11-09: the
+                workspace's thumbnail, then For you, then Search). */}
+            <div data-tab-bar-phone-only="" className="contents md:hidden">
+              <ForYouToggle />
+            </div>
             {/* Search, on a phone only (below `md`, where there is no app
                 rail): from `md` up the rail has it (rail/app-rail.tsx; Liam,
                 11-09). A round pill of its own: the `/` palette, flying out
