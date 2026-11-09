@@ -20,8 +20,10 @@ export const DEFAULT_MODEL = 'deepseek-v4-flash'
  * before): Claude Haiku 5.5 on the AI Gateway (anthropic/claude-haiku-5.5,
  * 1M window). Every main-chat turn runs it
  * (the person's own, a server turn, a relay, a Slack message, a teammate
- * chat), except a device ask (Flash, a quick answer someone waits on) and a
- * person on their own ChatGPT plan (their plan's model, never a Gateway one).
+ * chat), except a device ask (Flash, a quick answer someone waits on), a
+ * person on their own ChatGPT plan (their plan's model, never a Gateway one)
+ * and a person who picked another model for their main agent (Auto is this
+ * one: ./agent-model.ts).
  * It picks the model of each helper it starts from HELPER_MODELS below.
  * ONE constant: moving to another model is this line, its CHAT_MODELS entry,
  * its ai_model_costs row, and each agent's KNOWN_CONTEXT_WINDOWS mirror.
@@ -533,7 +535,7 @@ export const HELPER_MODELS: readonly HelperModelEntry[] = [
     model: 'claude-haiku-5-5',
     level: 'light',
     tier: 'fast',
-    runsOn: "Claude Haiku 5.5, the main chat's own model",
+    runsOn: 'Claude Haiku 5.5',
     price: '0.10 / 0.50 (0.50 / 2.50 past 100K input)',
     bestFor: 'Quick, reliable tool use and extraction; short drafts in a polished voice; following a precise format.',
   },
@@ -626,19 +628,41 @@ export function helperModelSpecs(): Record<HelperModelKey, HelperModelSpec> {
 }
 
 /**
+ * The model the person picked for their main agent (./agent-model.ts), as the
+ * roster names it: its name, and whether it is a strong (premium) model.
+ */
+export interface RosterMainModel {
+  name: string
+  premium: boolean
+}
+
+/**
  * The roster as the main chat's system prompt carries it: stable text (no
  * dates, no counts), right after the identity line, so the agent sees what
- * it can hand a task to every time it starts one.
+ * it can hand a task to every time it starts one. It opens with the model the
+ * main agent runs on: MAIN_MODEL (Auto), or the one the person picked
+ * (`chosen`), which changes only when they change it, so the cached prefix
+ * holds from turn to turn.
  */
-export function renderHelperModelRoster(dailyCap: number): string {
+export function renderHelperModelRoster(dailyCap: number, chosen?: RosterMainModel | null): string {
   const rows = HELPER_MODELS.map((m) => `| \`${m.key}\` | ${m.runsOn} | ${m.price} | ${m.bestFor} |`)
   const premium = HELPER_MODELS.filter((m) => m.tier === 'strong').map((m) => `\`${m.key}\``)
+  const self = chosen
+    ? `${chosen.premium ? 'a strong model' : 'a fast, inexpensive model'} the person chose for you (${chosen.name})`
+    : 'a fast, inexpensive model (Claude Haiku 5.5)'
+  // On a strong pick the case for a helper is the cost, not the model: there
+  // is no stronger model to hand a hard task to, or barely one.
+  const strong = chosen?.premium === true
+  const helperFor = strong ? 'or routine work a cheaper model does as well as you' : 'or work that needs a stronger model than yours'
+  const lastWord = strong
+    ? '- You run on a strong model: do hard judgment yourself unless it splits into parallel parts, and hand routine, high-volume work to a cheaper helper rather than spend your own steps on it.'
+    : '- When a task is beyond you, hand it to a stronger model rather than guess: a careful answer from `sonnet` costs less than a wrong one.'
   return [
     '## Models for helpers',
     '',
-    'For the main agent (a helper does its own task itself): you run on a fast, inexpensive model (Claude Haiku 5.5), so you do most of the work yourself. ' +
+    `For the main agent (a helper does its own task itself): you run on ${self}, so you do most of the work yourself. ` +
       'A helper pays for a big batch that splits cleanly (`helpers`, several in parallel in this turn), a long job that runs while you keep talking (`start_helper`), ' +
-      'or work that needs a stronger model than yours. Choose each task\'s model with its `model` field. ' +
+      `${helperFor}. Choose each task's model with its \`model\` field. ` +
       'Every helper has the same tools and limits whatever its model; only the model differs.',
     '',
     'Which model for which job:',
@@ -655,7 +679,7 @@ export function renderHelperModelRoster(dailyCap: number): string {
     `- ${premium.join(', ')} are premium: paid plans only, and at most ${dailyCap} premium helpers a day per person. ` +
       `Past that, or on an unpaid plan, the task runs on \`${HELPER_MODEL_FALLBACK}\` instead; each result names the model it ran on.`,
     '- Leave `model` out and the app picks from the task itself.',
-    '- When a task is beyond you, hand it to a stronger model rather than guess: a careful answer from `sonnet` costs less than a wrong one.',
+    lastWord,
   ].join('\n')
 }
 

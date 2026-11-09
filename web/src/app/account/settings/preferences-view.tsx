@@ -43,7 +43,7 @@ import {
   BackgroundImageError,
   type BackgroundMode,
 } from '@/lib/custom-background'
-import { AssistantNameSection } from './assistant-name-section'
+import { AssistantSection } from './assistant-section'
 
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -536,9 +536,9 @@ export function PreferencesView() {
 
   return (
     <div className="space-y-8">
-      {/* Your assistant's name — every platform: the chat goes by it, and on
-          the desktop it is Interactive mode's wake word. */}
-      <AssistantNameSection />
+      {/* Your assistant — every platform: the name the chat goes by (on the
+          desktop, Interactive mode's wake word) and the model it runs on. */}
+      <AssistantSection />
 
       {/* Appearance */}
       <div>
