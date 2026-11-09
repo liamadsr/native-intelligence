@@ -119,6 +119,14 @@ describe('posting', () => {
     expect(other.message.mentions_agent).toBe(false)
   })
 
+  it('picking a teammate whose name starts with the agent’s never calls the agent', async () => {
+    h.meta = {}
+    tables.member.push({ id: STRANGER, workspace_id: WS, display_name: 'Joseph Lee' })
+    const res = await (await postMessage(req(`/api/account/team-chat/channels/${CH}/messages`, { body: '@Joseph Lee can you check the quote?', mentions: [STRANGER] }), params(CH))).json()
+    expect(res.message).toMatchObject({ mentions: [STRANGER], mentions_agent: false })
+    expect(h.afters).toHaveLength(0)
+  })
+
   it('refuses an empty or oversized message and a bad id', async () => {
     expect((await postMessage(req(`/api/account/team-chat/channels/${CH}/messages`, { body: '  ' }), params(CH))).status).toBe(400)
     expect((await postMessage(req(`/api/account/team-chat/channels/${CH}/messages`, { body: 'x'.repeat(8001) }), params(CH))).status).toBe(400)

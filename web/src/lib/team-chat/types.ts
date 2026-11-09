@@ -106,13 +106,30 @@ function escapeForRegExp(text: string): string {
 
 /**
  * True when the words @-mention this assistant name ("@Joseph", any case),
- * as a whole word: "@Josephine" is not "@Joseph".
+ * as a whole word: "@Josephine" is not "@Joseph". An `@Name` that runs on
+ * into a member's name ("@Joseph Lee", a teammate, when the agent goes by
+ * the default "Joseph") is that member, never the agent: pass the
+ * workspace's member names as `memberNames`.
  */
-export function mentionsAssistantName(body: string, assistantName: string | null | undefined): boolean {
+export function mentionsAssistantName(
+  body: string,
+  assistantName: string | null | undefined,
+  memberNames: readonly (string | null | undefined)[] = [],
+): boolean {
   const name = assistantName?.trim()
   if (!name) return false
-  const re = new RegExp(`(^|[^\\p{L}\\p{N}_])@${escapeForRegExp(name)}(?![\\p{L}\\p{N}_])`, 'iu')
-  return re.test(body)
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}_])@${escapeForRegExp(name)}(?![\\p{L}\\p{N}_])`, 'giu')
+  const lower = name.toLowerCase()
+  // Members whose name starts with the agent's and goes on ("Joseph Lee").
+  const longer = memberNames
+    .map((n) => n?.trim().toLowerCase() ?? '')
+    .filter((n) => n.length > lower.length && n.startsWith(lower))
+  for (const m of body.matchAll(re)) {
+    const rest = body.slice((m.index ?? 0) + m[1].length + 1).toLowerCase()
+    const isMember = longer.some((n) => rest.startsWith(n) && !/[\p{L}\p{N}_]/u.test(rest.charAt(n.length)))
+    if (!isMember) return true
+  }
+  return false
 }
 
 /** A DM's other member, from its dm_key (`a:b`, or `a` for a note to self) and the person's own member id. */

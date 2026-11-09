@@ -62,15 +62,27 @@ describe('migration 474', () => {
     expect(insert).toContain('c.workspace_id = team_chat_message.workspace_id')
   })
 
-  it('edit and delete are the author’s own; the guard keeps everything but the words', () => {
-    expect(BODY).toMatch(/policy team_chat_message_update on public\.team_chat_message\s+for update to authenticated\s+using \(author_kind = 'member' and author_member_id = public\.current_member_id\(workspace_id\) and deleted_at is null\)/)
+  it('edit and delete are the author’s own (and delete, not edit, their agent’s reply); the guard keeps everything but the words', () => {
+    const update = BODY.slice(BODY.indexOf('create policy team_chat_message_update'), BODY.indexOf('revoke all on table public.team_chat_channel'))
+    expect(update).toContain('deleted_at is null')
+    expect(update).toContain("(author_kind = 'member' and author_member_id = public.current_member_id(workspace_id))")
+    expect(update).toContain("(author_kind = 'agent' and agent_for_member_id = public.current_member_id(workspace_id))")
     const guard = fn('team_chat_message_guard')
-    for (const col of ['channel_id', 'workspace_id', 'author_kind', 'author_member_id', 'agent_for_member_id', 'agent_name', 'in_reply_to', 'created_at']) {
+    expect(guard).toMatch(/if old\.author_kind = 'agent' and new\.deleted_at is null then\s+raise exception/)
+    for (const col of ['id', 'channel_id', 'workspace_id', 'author_kind', 'author_member_id', 'agent_for_member_id', 'agent_name', 'in_reply_to', 'created_at']) {
       expect(guard).toContain(`new.${col} is distinct from old.${col}`)
     }
     // A delete clears the words; an edit never sets the agent off again.
     expect(guard).toContain("new.body := '';")
     expect(guard).toContain('new.mentions_agent := old.mentions_agent;')
+  })
+
+  it('a member’s insert gets the server’s clock and is never born edited or deleted', () => {
+    const guard = fn('team_chat_message_insert_guard')
+    expect(guard).toContain('new.created_at := now();')
+    expect(guard).toContain('new.edited_at := null;')
+    expect(guard).toContain('new.deleted_at := null;')
+    expect(BODY).toMatch(/create trigger team_chat_message_insert_guard\s+before insert on public\.team_chat_message/)
   })
 
   it('the functions a client calls check membership first and run only for the signed-in', () => {
@@ -116,6 +128,8 @@ describe('migration 474', () => {
     expect(PROBES).toContain("'NON-MEMBER cannot post', 'refused'")
     expect(PROBES).toContain("'member outside the team cannot read the team channel', 'rows=0'")
     expect(PROBES).toContain("'member outside the DM cannot read it', 'rows=0'")
+    expect(PROBES).toContain("'a member''s post gets the server''s clock, never a future one', 'rows=1'")
+    expect(PROBES).toContain("'member cannot edit their agent''s reply', 'refused'")
     expect(PROBES.trimEnd().endsWith('rollback;')).toBe(true)
   })
 })

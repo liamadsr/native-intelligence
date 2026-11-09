@@ -2,8 +2,9 @@
  * /api/account/team-chat/messages/[id] (roadmap #7, migration 474): the
  * person's own messages only (RLS and 474's guard hold it to the author).
  *   PATCH { body, mentions? } → { message } edited (edited_at stamped). An
- *         edit never calls the agent again.
- *   DELETE → { ok: true } deleted (soft: its words are cleared for everyone).
+ *         edit never calls the agent again. Never their agent's reply.
+ *   DELETE → { ok: true } deleted (soft: its words are cleared for everyone):
+ *         their own message, or their own agent's reply.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'

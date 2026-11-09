@@ -23,7 +23,7 @@ declare
   w1 uuid; wx uuid; t1 uuid;
   m_a uuid; m_b uuid; m_c uuid; m_x uuid;
   ch_open uuid; ch_team uuid; ch_dm uuid;
-  msg_open uuid; msg_team uuid; msg_dm uuid;
+  msg_open uuid; msg_team uuid; msg_dm uuid; msg_agent uuid;
   v_report text;
   v_fail int;
   -- true: always end by raising the report (how it runs through a single
@@ -90,11 +90,14 @@ begin
   insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body) values (ch_open, w1, m_a, 'hello all') returning id into msg_open;
   insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body) values (ch_team, w1, m_a, 'team only') returning id into msg_team;
   insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body) values (ch_dm, w1, m_a, 'just us') returning id into msg_dm;
+  -- Ana's agent's reply (the service role writes these; here postgres, no request).
+  insert into public.team_chat_message (channel_id, workspace_id, author_kind, agent_for_member_id, agent_name, body)
+  values (ch_open, w1, 'agent', m_a, 'Juniper', 'a reply') returning id into msg_agent;
 
   -- ── Reads ─────────────────────────────────────────────────────────────────
   perform pg_temp.t474_run('member reads the open channel', 'rows=1', u_b,
     array[format('select 1 from public.team_chat_channel where id = %L', ch_open)]);
-  perform pg_temp.t474_run('member reads its messages', 'rows=1', u_b,
+  perform pg_temp.t474_run('member reads its messages (Ana''s and her agent''s)', 'rows=2', u_b,
     array[format('select 1 from public.team_chat_message where channel_id = %L', ch_open)]);
   perform pg_temp.t474_run('NON-MEMBER cannot see the channel', 'rows=0', u_x,
     array[format('select 1 from public.team_chat_channel where id = %L', ch_open)]);
@@ -145,6 +148,23 @@ begin
       format('update public.team_chat_message set deleted_at = now() where id = %L', msg_open),
       format('select 1 from public.team_chat_message where id = %L and body = %L and deleted_at is not null', msg_open, '')
     ]);
+
+  perform pg_temp.t474_run('author cannot change a message id', 'refused', u_a,
+    array[format('update public.team_chat_message set id = gen_random_uuid() where id = %L', msg_team)]);
+  perform pg_temp.t474_run('a member''s post gets the server''s clock, never a future one', 'rows=1', u_b,
+    array[
+      format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, created_at, edited_at) values (%L, %L, %L, %L, now() + interval %L, now())', ch_open, w1, m_b, 'from the future', '30 days'),
+      format('select 1 from public.team_chat_message where body = %L and created_at <= now() and edited_at is null', 'from the future')
+    ]);
+  perform pg_temp.t474_run('member deletes their own agent''s reply', 'rows=1', u_a,
+    array[
+      format('update public.team_chat_message set deleted_at = now() where id = %L', msg_agent),
+      format('select 1 from public.team_chat_message where id = %L and body = %L', msg_agent, '')
+    ]);
+  perform pg_temp.t474_run('member cannot edit their agent''s reply', 'refused', u_a,
+    array[format('update public.team_chat_message set body = %L where id = %L', 'put words in its mouth', msg_agent)]);
+  perform pg_temp.t474_run('another member cannot delete someone''s agent reply', 'rows=0', u_b,
+    array[format('update public.team_chat_message set deleted_at = now() where id = %L', msg_agent)]);
 
   -- ── Functions ─────────────────────────────────────────────────────────────
   perform pg_temp.t474_run('member creates a channel through the function', 'rows=1', u_b,

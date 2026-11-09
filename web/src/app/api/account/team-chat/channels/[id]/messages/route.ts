@@ -58,7 +58,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!channel || channel.workspace_id !== auth.workspaceId) return notFound()
     const mentions = await workspaceMemberIds(auth.supabase, auth.workspaceId, tidyMentionIds(input.mentions))
     const agentName = sanitizeAssistantName(auth.user.user_metadata?.assistant_name) ?? DEFAULT_ASSISTANT_NAME
-    const mentionsAgent = input.mentionsAgent === true || mentionsAssistantName(body, agentName)
+    // "@Joseph Lee" is a teammate, not an agent called Joseph: the name check skips a member's name.
+    const { data: names } = await auth.supabase.from('member').select('display_name').eq('workspace_id', auth.workspaceId)
+    const memberNames = ((names ?? []) as Array<{ display_name: string | null }>).map((m) => m.display_name)
+    const mentionsAgent = input.mentionsAgent === true || mentionsAssistantName(body, agentName, memberNames)
     const message = await postMessage(auth.supabase, {
       workspaceId: auth.workspaceId,
       channelId: id,

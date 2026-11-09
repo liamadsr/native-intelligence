@@ -30,7 +30,7 @@ import { useTeams } from '@/app/account/teams-context'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
 import { insertMentionAt } from '@/app/account/(dashboard)/chat/mention-text'
 import { continuesGroup, mentionQueryAt, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
-import { agentDisplayName, TEAM_CHAT_MESSAGE_MAX, type TeamChatChannel, type TeamChatMessage } from '@/lib/team-chat/types'
+import { agentDisplayName, mentionsAssistantName, TEAM_CHAT_MESSAGE_MAX, TEAM_CHAT_PAGE_SIZE, type TeamChatChannel, type TeamChatMessage } from '@/lib/team-chat/types'
 
 interface Member {
   id: string
@@ -86,6 +86,10 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
 
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedId
+  const meRef = useRef<string | null>(null)
+  meRef.current = meId
+  // Channels whose older messages haven't all been loaded (their last page was full).
+  const [more, setMore] = useState<Record<string, boolean>>({})
 
   // The card's header count: everything unread.
   const onCountRef = useRef(onCount)
@@ -119,10 +123,26 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages`)
     if (!res.ok) return
     const json = (await res.json()) as { messages?: TeamChatMessage[] }
+    const page = Array.isArray(json.messages) ? json.messages : []
+    setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
     setMessages((prev) => {
-      // Keep anything realtime brought in while the page was loading.
-      let list = Array.isArray(json.messages) ? json.messages : []
+      // Keep anything realtime (or an earlier page) brought in while the page was loading.
+      let list = page
       for (const m of prev[channelId] ?? []) if (!list.some((x) => x.id === m.id)) list = upsertMessage(list, m)
+      return { ...prev, [channelId]: list }
+    })
+  }, [])
+
+  // The page before the oldest message shown.
+  const loadEarlier = useCallback(async (channelId: string, before: string) => {
+    const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages?before=${encodeURIComponent(before)}`)
+    if (!res.ok) return
+    const json = (await res.json()) as { messages?: TeamChatMessage[] }
+    const page = Array.isArray(json.messages) ? json.messages : []
+    setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
+    setMessages((prev) => {
+      let list = prev[channelId] ?? []
+      for (const m of page) list = upsertMessage(list, m)
       return { ...prev, [channelId]: list }
     })
   }, [])
@@ -154,6 +174,16 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     void markRead(selectedId)
   }, [selectedId, loadMessages, markRead])
 
+  // Coming back to the tab reads the channel on screen (what arrived while away was left unread).
+  useEffect(() => {
+    const onVisible = () => {
+      const open = selectedRef.current
+      if (document.visibilityState === 'visible' && open) void markRead(open)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [markRead])
+
   // Live: one channel for the workspace; RLS filters what arrives.
   useEffect(() => {
     if (!workspaceId) return
@@ -171,7 +201,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
         const row = payload.new as TeamChatMessage | undefined
         if (!row?.id || !row.channel_id) return
         setMessages((prev) => (prev[row.channel_id] ? { ...prev, [row.channel_id]: upsertMessage(prev[row.channel_id], row) } : prev))
-        if (row.author_kind === 'agent' && row.agent_for_member_id) {
+        // Only the person's own agent's new reply ends their "looking into it" line.
+        if (payload.eventType === 'INSERT' && row.author_kind === 'agent' && row.agent_for_member_id && row.agent_for_member_id === meRef.current) {
           setWaitingOnAgent((prev) => {
             if (!prev[row.channel_id]) return prev
             const next = { ...prev }
@@ -190,7 +221,20 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
           setChannels((prev) => prev?.map((c) => (c.id === row.channel_id ? { ...c, last_message_at: row.created_at } : c)) ?? prev)
         }
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_chat_channel', filter: `workspace_id=eq.${workspaceId}` }, refreshList)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_chat_channel', filter: `workspace_id=eq.${workspaceId}` }, (payload) => {
+        // Every message bumps its channel's last_message_at: patch that in place rather than
+        // refetching the list (and its unread counts) once per message per person.
+        const row = payload.new as Partial<TeamChatChannel> & { id?: string }
+        if (payload.eventType === 'UPDATE' && row?.id) {
+          setChannels((prev) => {
+            if (!prev?.some((c) => c.id === row.id)) return prev
+            if (row.archived_at) return prev.filter((c) => c.id !== row.id)
+            return prev.map((c) => (c.id === row.id ? { ...c, name: row.name ?? c.name, topic: row.topic ?? c.topic, last_message_at: row.last_message_at ?? c.last_message_at } : c))
+          })
+          return
+        }
+        refreshList()
+      })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           void loadChannels()
@@ -304,6 +348,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
             membersById={membersById}
             assistantName={assistantName}
             waitingOnAgent={!!waitingOnAgent[selected.id]}
+            hasMore={!!more[selected.id]}
+            onLoadEarlier={(before) => loadEarlier(selected.id, before)}
             onSent={handleSent}
             onChanged={handleChanged}
           />
@@ -419,6 +465,8 @@ function ChannelPane({
   membersById,
   assistantName,
   waitingOnAgent,
+  hasMore,
+  onLoadEarlier,
   onSent,
   onChanged,
 }: {
@@ -431,18 +479,35 @@ function ChannelPane({
   membersById: Map<string, Member>
   assistantName: string
   waitingOnAgent: boolean
+  hasMore: boolean
+  onLoadEarlier: (before: string) => Promise<void>
   onSent: (message: TeamChatMessage, calledAgent: boolean) => void
   onChanged: (message: TeamChatMessage) => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [loadingEarlier, setLoadingEarlier] = useState(false)
 
-  // Stay at the bottom as messages arrive.
-  const count = messages?.length ?? 0
+  // Stay at the bottom as messages arrive (a new last message), never when older ones are loaded above.
+  const lastId = messages?.at(-1)?.id ?? null
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [count, waitingOnAgent])
+  }, [lastId, waitingOnAgent])
+
+  const earlier = async () => {
+    const oldest = messages?.[0]
+    const el = scrollRef.current
+    if (!oldest || loadingEarlier) return
+    setLoadingEarlier(true)
+    const fromBottom = el ? el.scrollHeight - el.scrollTop : 0
+    await onLoadEarlier(oldest.created_at)
+    setLoadingEarlier(false)
+    // Keep the message they were reading where it was.
+    requestAnimationFrame(() => {
+      if (el) el.scrollTop = el.scrollHeight - fromBottom
+    })
+  }
 
   const labelsFor = useCallback(
     (m: TeamChatMessage): string[] => {
@@ -487,6 +552,14 @@ function ChannelPane({
             <p className="mt-1 text-sm text-muted-foreground">Type @{assistantName} to ask your agent; it answers here with what the channel has said.</p>
           </div>
         ) : (
+          <>
+          {hasMore && (
+            <div className="mb-2 flex justify-center">
+              <Button size="sm" variant="ghost" onClick={() => void earlier()} disabled={loadingEarlier}>
+                {loadingEarlier ? 'Loading…' : 'Load earlier messages'}
+              </Button>
+            </div>
+          )}
           <ul className="space-y-0.5">
             {messages.map((m, i) => (
               <MessageRow
@@ -508,6 +581,7 @@ function ChannelPane({
               />
             ))}
           </ul>
+          </>
         )}
         {waitingOnAgent && (
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -557,6 +631,8 @@ function MessageRow({
 }) {
   const isAgent = message.author_kind === 'agent'
   const mine = !isAgent && !!meId && message.author_member_id === meId
+  // Their own agent's reply: theirs to delete (never to edit), if it said something it shouldn't have.
+  const myAgent = isAgent && !!meId && message.agent_for_member_id === meId
   const name = isAgent
     ? agentDisplayName(message.agent_name, memberName(membersById.get(message.agent_for_member_id ?? '')), message.agent_for_member_id === meId)
     : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
@@ -591,11 +667,13 @@ function MessageRow({
           </p>
         )}
       </div>
-      {mine && !deleted && !editing && (
+      {(mine || myAgent) && !deleted && !editing && (
         <div className="absolute right-2 top-1 hidden gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-sm group-hover:flex">
-          <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+          {mine && (
+            <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button type="button" onClick={onDelete} aria-label="Delete message" title="Delete" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -715,15 +793,16 @@ function Composer({
   const send = async () => {
     const body = text.trim()
     if (!body || sending) return
-    const still = mentionsStillIn(body, picked)
-    const mentionsAgent = still.includes(AGENT_OPTION_ID)
+    const still = mentionsStillIn(body, picked).filter((id) => id !== AGENT_OPTION_ID)
+    // The agent by name, never a teammate whose name starts with it ("@Joseph Lee").
+    const mentionsAgent = picked.some((p) => p.id === AGENT_OPTION_ID) && mentionsAssistantName(body, assistantName, members.map((m) => m.display_name))
     setSending(true)
     setFailed(false)
     try {
       const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ body, mentions: still.filter((id) => id !== AGENT_OPTION_ID), mentionsAgent }),
+        body: JSON.stringify({ body, mentions: still, mentionsAgent }),
       })
       if (!res.ok) throw new Error('send failed')
       const json = (await res.json()) as { message?: TeamChatMessage }

@@ -57,6 +57,15 @@ describe('the agent by name', () => {
     expect(mentionsAssistantName('@Joseph', null)).toBe(false)
   })
 
+  it('a teammate whose name starts with the agent’s is the teammate, never the agent', () => {
+    const members = ['Joseph Lee', 'Ana Ruiz', null]
+    expect(mentionsAssistantName('@Joseph Lee can you check?', 'Joseph', members)).toBe(false)
+    expect(mentionsAssistantName('@joseph lee, thoughts?', 'Joseph', members)).toBe(false)
+    expect(mentionsAssistantName('@Joseph Lee and @Joseph, both of you', 'Joseph', members)).toBe(true)
+    expect(mentionsAssistantName('@Joseph Leeds is a city', 'Joseph', members)).toBe(true)
+    expect(mentionsAssistantName('@Joseph what next?', 'Joseph', members)).toBe(true)
+  })
+
   it('a name with regex characters is matched literally', () => {
     expect(mentionsAssistantName("@O'Neil hi", "O'Neil")).toBe(true)
     expect(mentionsAssistantName('@Ann-Marie hi', 'Ann-Marie')).toBe(true)

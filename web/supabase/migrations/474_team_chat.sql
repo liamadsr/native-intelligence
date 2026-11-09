@@ -18,7 +18,9 @@
 --                            role only). mentions holds member ids;
 --                            mentions_agent says the author called on their
 --                            own agent. Edit and delete are the author's own
---                            (a delete is soft: the words are cleared).
+--                            (a delete is soft: the words are cleared); a
+--                            member may also delete their agent's reply.
+--                            created_at is always the server's.
 --   team_chat_agent_thread   per channel and person: the person's own
 --                            conversation (outside_channel 'team_chat') the
 --                            agent's turns for that channel run in. Service
@@ -195,13 +197,23 @@ create policy team_chat_message_insert on public.team_chat_message
     and exists (select 1 from public.team_chat_channel c where c.id = channel_id and c.workspace_id = team_chat_message.workspace_id)
   );
 
--- Edit and delete: the author's own messages only (the guard below keeps
--- everything else as it was).
+-- Edit and delete: the author's own messages only, and delete (never edit)
+-- their own agent's replies (the guard below keeps everything else as it
+-- was).
 drop policy if exists team_chat_message_update on public.team_chat_message;
 create policy team_chat_message_update on public.team_chat_message
   for update to authenticated
-  using (author_kind = 'member' and author_member_id = public.current_member_id(workspace_id) and deleted_at is null)
-  with check (author_kind = 'member' and author_member_id = public.current_member_id(workspace_id));
+  using (
+    deleted_at is null
+    and (
+      (author_kind = 'member' and author_member_id = public.current_member_id(workspace_id))
+      or (author_kind = 'agent' and agent_for_member_id = public.current_member_id(workspace_id))
+    )
+  )
+  with check (
+    (author_kind = 'member' and author_member_id = public.current_member_id(workspace_id))
+    or (author_kind = 'agent' and agent_for_member_id = public.current_member_id(workspace_id))
+  );
 
 revoke all on table public.team_chat_channel from anon, authenticated;
 revoke all on table public.team_chat_member from anon, authenticated;
@@ -214,7 +226,8 @@ grant select, insert, update on table public.team_chat_message to authenticated;
 -- ── Guards ──────────────────────────────────────────────────────────────────
 
 -- A member's update changes only the words (and their mentions) or deletes
--- the message; a delete clears the words. edited_at is stamped here.
+-- the message; a delete clears the words. edited_at is stamped here. Their
+-- agent's reply can only be deleted.
 create or replace function public.team_chat_message_guard()
 returns trigger
 language plpgsql
@@ -224,7 +237,8 @@ begin
   if auth.uid() is null then
     return new;
   end if;
-  if new.channel_id is distinct from old.channel_id
+  if new.id is distinct from old.id
+     or new.channel_id is distinct from old.channel_id
      or new.workspace_id is distinct from old.workspace_id
      or new.author_kind is distinct from old.author_kind
      or new.author_member_id is distinct from old.author_member_id
@@ -233,6 +247,9 @@ begin
      or new.in_reply_to is distinct from old.in_reply_to
      or new.created_at is distinct from old.created_at then
     raise exception 'team chat: only the words of a message can change' using errcode = '42501';
+  end if;
+  if old.author_kind = 'agent' and new.deleted_at is null then
+    raise exception 'team chat: an agent''s reply can only be deleted' using errcode = '42501';
   end if;
   if new.deleted_at is not null then
     new.body := '';
@@ -254,6 +271,30 @@ drop trigger if exists team_chat_message_guard on public.team_chat_message;
 create trigger team_chat_message_guard
   before update on public.team_chat_message
   for each row execute function public.team_chat_message_guard();
+
+-- A member's insert: the server's clock, never the client's (a future
+-- created_at would stay unread for everyone, top the list and steer which
+-- messages the agent reads), and never already edited or deleted.
+create or replace function public.team_chat_message_insert_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+  new.created_at := now();
+  new.edited_at := null;
+  new.deleted_at := null;
+  return new;
+end;
+$$;
+
+drop trigger if exists team_chat_message_insert_guard on public.team_chat_message;
+create trigger team_chat_message_insert_guard
+  before insert on public.team_chat_message
+  for each row execute function public.team_chat_message_insert_guard();
 
 -- A channel's newest message time (the list's order).
 create or replace function public.team_chat_touch_channel()

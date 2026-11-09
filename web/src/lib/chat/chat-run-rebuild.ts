@@ -242,7 +242,7 @@ export const TEAM_CHAT_TURN_NOTE =
   'Everyone in the channel reads your reply: keep the person\'s private details (mail, calendar, contacts, documents) out of it unless they asked for exactly that there. ' +
   'Answer like a chat message: short and plain, a short list at most; no headings and no tables. ' +
   'There are no cards or pickers in team chat: never call show or ask_user; if you need them to choose, ask in one short sentence with the options in it. ' +
-  'You can act for them with your tools. Anything that sends or changes something outside Dial8 waits for their approval in Dial8: when that happens, say it is waiting for them to approve. ' +
+  'From team chat you can read, and change their own Dial8 items (tasks, notes, contacts). You cannot delete anything, send mail, touch their connected apps or set up automations here: if they ask for that, say they can ask you in their own Dial8 chat. ' +
   CHANNEL_REPLY_RULE
 
 /** A channel turn's turn-context line for its surface, or null for any other token. */
