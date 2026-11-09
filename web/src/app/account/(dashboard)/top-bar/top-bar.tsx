@@ -203,7 +203,8 @@ export function TopBar() {
           <TooltipProvider delayDuration={300}>
             <div
               data-top-bar-right-header=""
-              className={cn('relative z-10 hidden items-center gap-0.5 rounded-2xl border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+              // -my-px: its 42px in the bar's 40px row, level with the rail's header (3px from the top, as it is).
+              className={cn('relative z-10 -my-px hidden items-center gap-0.5 rounded-2xl border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
             >
               <ComposerCaptureButton recording={recording} />
               <SidePanelToggle variant="header" />
