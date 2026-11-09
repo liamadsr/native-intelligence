@@ -89,6 +89,12 @@ function focusComposerWhenClear(): void {
   attempt()
 }
 
+/** The page in front takes the keys (its own: mail's j/k, Esc). */
+function focusFrontPage(): void {
+  const layer = document.querySelector<HTMLElement>('[data-chat-card-fullscreen]')
+  if (layer && !layer.contains(document.activeElement)) layer.focus({ preventScroll: true })
+}
+
 function RailButton({
   label,
   hint,
@@ -114,7 +120,6 @@ function RailButton({
           type="button"
           aria-label={label}
           aria-current={active ? 'page' : undefined}
-          onMouseDown={(e) => e.stopPropagation()}
           onClick={onClick}
           className={cn(ITEM, active && ITEM_ACTIVE)}
           {...data}
@@ -150,6 +155,9 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
     return () => html.removeAttribute(APP_RAIL_ATTR)
   }, [])
 
+  // Calendar and Mail always: the main chat opens the person's own pages
+  // whatever drives it (chat-panel.tsx openCardHere), as a chip or a notice
+  // does; only `/` leaves them out where its chat may not read them.
   const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop })), [edition, desktop])
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, () => null)
   const active = activeRailItem(front?.spec ?? null, pages)
@@ -163,9 +171,13 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
     <nav
       data-app-rail-nav=""
       aria-label="Pages"
-      className="absolute inset-y-0 left-0 z-30 hidden flex-col items-center border-r border-border/70 bg-sidebar md:flex"
+      className="absolute inset-y-0 left-0 z-30 hidden flex-col items-center bg-sidebar md:flex"
       style={{ width: 'var(--app-rail-w)' }}
     >
+      {/* Its edge, a hairline: in the Mac app from under the traffic lights
+          down, so it never runs between them (the third sits past the rail,
+          as in Liam's reference). */}
+      <div aria-hidden className={cn('pointer-events-none absolute bottom-0 right-0 w-px bg-border/70', trafficLights ? 'top-11' : 'top-0')} />
       {/* Window drag surface over the top (childless: Tauri drags only on
           the attributed target), with room for the Mac's traffic lights. */}
       <div data-tauri-drag-region="" aria-hidden className={cn('w-full shrink-0', trafficLights ? 'h-11' : 'h-1.5')} />
@@ -180,7 +192,8 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
               hint={<kbd className={KBD}>{searchKey}</kbd>}
               buttonRef={searchRef}
               onClick={() => openSearch(searchRef.current)}
-              data={{ 'data-app-rail-item': 'search' }}
+              // ⌘K and `/` fly the palette out of this one while the top bar is hidden under a page (open-search.ts).
+              data={{ 'data-app-rail-item': 'search', 'data-search-button': 'rail' }}
             >
               <Search className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
@@ -195,7 +208,11 @@ export function AppRail({ avatarUrl, initials }: { avatarUrl: string | null; ini
                   key={def.id}
                   label={page.label}
                   active={active === def.id}
-                  onClick={() => openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })}
+                  onClick={() => {
+                    openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
+                    // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
+                    if (active === def.id) focusFrontPage()
+                  }}
                   data={{ 'data-app-rail-item': def.id }}
                 >
                   <Icon className="size-[18px]" strokeWidth={1.75} />

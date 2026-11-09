@@ -957,6 +957,12 @@ html[data-sky-tone] [data-on-sky] {
     visibility: hidden;
     opacity: 0;
   }
+  /* The web live HUD (live-hud/web-hud.tsx) sits under the layer (z-45): with
+     no veil over it, it would look live, and a press on it would put the page
+     back. It waits out of sight with the chat, as it waited blurred before. */
+  html[data-app-rail][data-card-front] [data-web-hud] {
+    visibility: hidden;
+  }
 }
 /* On Glass the rail takes the shell's tint, as the shell's surface does. */
 html[data-glass-window] [data-app-rail-nav] {

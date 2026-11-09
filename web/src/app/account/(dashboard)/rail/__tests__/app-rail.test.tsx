@@ -138,6 +138,26 @@ describe('the app rail', () => {
     strip.remove()
   })
 
+  it('gives the keys back to the page in front when its own icon is clicked again', async () => {
+    const layer = document.createElement('div')
+    layer.setAttribute('data-chat-card-fullscreen', 'c1')
+    layer.tabIndex = -1
+    document.body.appendChild(layer)
+    await render()
+    await act(async () => {
+      releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'team_chat', title: 'Team chat' }, close: () => {} }))
+    })
+    item('team-chat')!.focus()
+    await act(async () => item('team-chat')!.click())
+    expect(document.activeElement).toBe(layer)
+    layer.remove()
+  })
+
+  it('marks its Search as the rail’s search button (the palette’s flight while the top bar is hidden)', async () => {
+    await render()
+    expect(item('search')?.getAttribute('data-search-button')).toBe('rail')
+  })
+
   it('opens Search from its button, and Settings from the avatar', async () => {
     await render()
     await act(async () => item('search')!.click())

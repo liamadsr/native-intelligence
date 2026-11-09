@@ -127,6 +127,15 @@ describe('a full-screen card', () => {
     expect(document.documentElement.hasAttribute(FRONT_CARD_ATTR)).toBe(false)
   })
 
+  it('lets go of the front when it unmounts full screen (its chat let go of it)', async () => {
+    await render()
+    await act(async () => store.enterFullScreen('c1'))
+    expect(frontCard()?.id).toBe('c1')
+    await act(async () => root.render(h('div')))
+    expect(frontCard()).toBeNull()
+    expect(document.documentElement.hasAttribute(FRONT_CARD_ATTR)).toBe(false)
+  })
+
   it('its close leaves alone another card that went full screen since', async () => {
     await render()
     await act(async () => store.enterFullScreen('c1'))
