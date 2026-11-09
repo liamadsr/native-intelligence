@@ -50,10 +50,15 @@ describe('For you’s toggle', () => {
     act(() => store.reportSpacePlan(true))
     render()
     expect(toggle()?.getAttribute('aria-expanded')).toBe('true')
+    // Plain while the column shows; lit once folded (Liam, 11-09: flipped).
+    expect(toggle()?.hasAttribute('data-lit')).toBe(false)
     expect(toggle()?.textContent).toContain('3')
     act(() => toggle()!.click())
     expect(store.getSidePanelState().leftOpen).toBe(false)
     expect(window.localStorage.getItem(store.FOR_YOU_COLLAPSED_KEY)).toBe('1')
+    act(() => store.reportSpacePlan(false))
+    expect(toggle()?.hasAttribute('data-lit')).toBe(true)
+    expect(toggle()?.className).toContain('bg-muted')
   })
 
   it('is there while the column is folded or has no room, and brings it back', () => {

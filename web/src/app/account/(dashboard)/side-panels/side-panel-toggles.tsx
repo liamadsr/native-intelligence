@@ -97,7 +97,10 @@ export function ForYouToggle() {
           aria-label={`For you, ${entries.length}`}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => toggleForYou(shown)}
-          className={cn(TOP_BAR_PILL, shown && 'bg-muted text-sidebar-foreground')}
+          // Lit while the column is folded away, plain while it shows (Liam,
+          // 11-09: "the logic for the button state is backwards, flip it").
+          data-lit={shown ? undefined : ''}
+          className={cn(TOP_BAR_PILL, !shown && 'bg-muted text-sidebar-foreground')}
         >
           <Home className="h-4 w-4" />
           <span className="text-[11px] font-medium tabular-nums">{entries.length}</span>
