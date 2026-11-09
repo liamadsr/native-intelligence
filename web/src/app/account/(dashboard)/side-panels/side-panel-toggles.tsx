@@ -60,7 +60,10 @@ export function SidePanelToggle() {
           aria-label={label}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => toggleRightPanel()}
-          className={cn(TOP_BAR_PILL, open && 'bg-muted text-sidebar-foreground')}
+          // Plain (white, raised) while the panel is open, shaded while it's
+          // closed, as For you's (Liam, 11-09: it looked selected while closed).
+          data-lit={open ? undefined : ''}
+          className={cn(TOP_BAR_PILL, !open && 'bg-muted text-sidebar-foreground')}
         >
           <SidePanelIcon data-side-panel-icon="" className="h-4 w-4" />
           {running > 0 && (

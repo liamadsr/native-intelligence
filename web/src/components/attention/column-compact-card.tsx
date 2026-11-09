@@ -130,6 +130,15 @@ function useForeignName(workspaceId: string): string | null {
   return currentId && workspaceId !== currentId ? (workspaces.find((w) => w.id === workspaceId)?.name ?? null) : null
 }
 
+/**
+ * The tag on a card (Liam, 11-09: the agent or area it came from as "a tag or
+ * something on the task", not a header over it): the area the agent's card
+ * came from ("Captures", "CRM"), else the bot's name ("Writer").
+ */
+export function columnTag(entry: ColumnShown): string {
+  return entry.area ?? entry.source.name
+}
+
 /** "Open Writer": the agent's own page, its conversation with you. Not the main agent's (Reply is its chat). */
 function botRow(source: ColumnSource): MenuRow[] {
   if (source.agent) return []
@@ -207,7 +216,7 @@ function CompactAttention({
     reply: { kind: 'card', id: item.id, workspaceId: item.workspace_id, verb: copy.verb, sentence: copy.sentence, subkind: item.kind, ...(copy.icon ? { icon: copy.icon } : {}) },
     impression: () => verbs.capture('attention_card_impression'),
   }
-  return <CompactShell model={model} source={entry.source} />
+  return <CompactShell model={model} source={entry.source} tag={columnTag(entry)} />
 }
 
 function CompactReview({ entry, shared }: { entry: Extract<ColumnShown, { kind: 'review' }>; shared: AgentWorkShared }) {
@@ -252,7 +261,7 @@ function CompactReview({ entry, shared }: { entry: Extract<ColumnShown, { kind: 
     reply: { kind: 'review', id: work.id, workspaceId: work.workspace_id, verb: copy.verb, sentence: copy.sentence, subkind: work.kind, ...(copy.icon ? { icon: copy.icon } : {}) },
     impression: () => posthog?.capture('attention_card_impression', { kind: 'work_review', work_kind: work.kind, surface: 'column' }),
   }
-  return <CompactShell model={model} source={entry.source} />
+  return <CompactShell model={model} source={entry.source} tag={columnTag(entry)} />
 }
 
 /**
@@ -290,7 +299,7 @@ function CompactDraft({ entry }: { entry: Extract<ColumnShown, { kind: 'draft' }
     reply: { kind: 'draft', id: draft.id, workspaceId: draft.workspace_id, verb: copy.verb, sentence, icon: 'mail' },
     impression: () => posthog?.capture('attention_card_impression', { kind: 'email_draft', surface: 'column' }),
   }
-  return <CompactShell model={model} source={source} />
+  return <CompactShell model={model} source={source} tag={columnTag(entry)} />
 }
 
 /** The verb pill. */
@@ -318,7 +327,7 @@ function VerbPill({ verb, busy, onClick, className }: { verb: string; busy: bool
 }
 
 /** The card in the column and, while open, its focus view. */
-function CompactShell({ model, source }: { model: CompactModel; source: ColumnSource }) {
+function CompactShell({ model, source, tag }: { model: CompactModel; source: ColumnSource; tag: string }) {
   const { copy } = model
   const rootRef = useRef<HTMLDivElement>(null)
   // The card as the focus view shows it, grown: where Reply's flight takes off.
@@ -414,6 +423,13 @@ function CompactShell({ model, source }: { model: CompactModel; source: ColumnSo
           <SentenceIcon icon={copy.icon} />
           {copy.sentence}
         </p>
+        {/* Where it came from, as a tag on the card (the column has no headers). */}
+        <span
+          data-compact-tag=""
+          className="mt-1.5 inline-flex h-5 max-w-full items-center rounded-full bg-foreground/[0.06] px-2 text-[11px] font-medium text-muted-foreground"
+        >
+          <span className="truncate">{tag}</span>
+        </span>
       </div>
       {view && (
         <ColumnFocusView

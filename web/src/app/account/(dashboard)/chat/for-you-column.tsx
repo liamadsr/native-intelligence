@@ -39,6 +39,8 @@ import { useActiveLiveCapture } from './use-live-capture-dock'
 import { setForYouContent } from '../side-panels/side-panel-store'
 import { FOR_YOU_WIDTH_PX, PANEL_GUTTER_PX, type PanelMode } from '../side-panels/space-plan'
 import { PANEL_TOP, SLIDE_CLASS, SLIDE_STYLE, useComposerReserve } from '../side-panels/side-panels'
+import { topBarLeftInset } from '../top-bar/insets'
+import { useHasTrafficLights } from '@/components/desktop-titlebar'
 import { useAgentDrafts } from '@/hooks/use-agent-drafts'
 
 export { FOR_YOU_COLLAPSED_KEY } from '../side-panels/side-panel-store'
@@ -87,6 +89,8 @@ export function ForYouColumn({ mode }: { mode: PanelMode }) {
   const floating = open && mode === 'float'
   const composer = useComposerReserve(floating)
   const bottom = Math.max(PANEL_GUTTER_PX, composer > 0 ? composer + PANEL_GUTTER_PX : 0)
+  // Its left edge under its button's (Liam, 11-09: they didn't line up).
+  const trafficLights = useHasTrafficLights()
 
   if (!shared || !mounted || entries.length === 0) return null
   return (
@@ -106,7 +110,7 @@ export function ForYouColumn({ mode }: { mode: PanelMode }) {
       style={{
         ...SLIDE_STYLE,
         top: PANEL_TOP,
-        left: PANEL_GUTTER_PX,
+        left: topBarLeftInset(trafficLights),
         bottom,
         width: FOR_YOU_WIDTH_PX,
       }}

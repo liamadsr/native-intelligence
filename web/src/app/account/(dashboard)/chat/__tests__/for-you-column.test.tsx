@@ -114,7 +114,8 @@ vi.mock('@/components/capture/action-target-picker', () => ({
 }))
 
 import { countByOwner } from '@/lib/work/agent-work-lanes'
-import { forYouColumnEntries, groupColumnEntries, type ColumnEntry } from '@/lib/bots/for-you-column'
+import { forYouColumnEntries, uniqueColumnEntries, type ColumnEntry } from '@/lib/bots/for-you-column'
+import { columnTag } from '@/components/attention/column-compact-card'
 import { splitCardsByPlace } from '@/lib/attention/chat-asks'
 import { botOwners, withBotOwners, withCardOwners } from '@/lib/work/bot-owner'
 import { __resetFullRowsForTests } from '@/lib/work/full-rows'
@@ -323,15 +324,14 @@ async function settle() {
 
 const column = () => container.querySelector<HTMLElement>('section[aria-label="For you"][data-for-you-column]')
 const columnCards = () => Array.from(container.querySelectorAll<HTMLElement>('[data-for-you-card]')).map((el) => el.getAttribute('data-for-you-card'))
-/** The column's bot groups, in order: each bot's header (its name, its count) and its cards. */
-const columnGroups = () =>
-  Array.from(container.querySelectorAll<HTMLElement>('[data-for-you-group]')).map((g) => ({
-    bot: g.getAttribute('data-for-you-group'),
-    headers: g.querySelectorAll('[data-for-you-source]').length,
-    name: g.querySelector('[data-for-you-group-name]')!.textContent,
-    count: g.querySelector('[data-for-you-group-count]')?.textContent ?? null,
-    cards: Array.from(g.querySelectorAll<HTMLElement>('[data-for-you-card]')).map((el) => el.getAttribute('data-for-you-card')),
-  }))
+/** Each card on show and its tag (where it came from), in order. */
+const columnTags = () =>
+  Array.from(container.querySelectorAll<HTMLElement>('[data-for-you-card]')).map((el) => [
+    el.getAttribute('data-for-you-card'),
+    el.querySelector('[data-compact-tag]')?.textContent ?? null,
+  ])
+/** Headers or labels over the cards: none (Liam, 11-09). */
+const headers = () => container.querySelectorAll('[data-for-you-group], [data-for-you-source], [data-for-you-area]').length
 /** A writer's card raised by `bot`, `minutesAgo` before noon. */
 const cardBy = (id: string, bot: string, minutesAgo: number) =>
   card(id, {
@@ -491,33 +491,38 @@ describe('forYouColumnEntries', () => {
   })
 })
 
-describe('groupColumnEntries', () => {
+describe('uniqueColumnEntries', () => {
   const src = (id: string) => ({ teammateId: id, name: id, face: null })
   const entry = (id: string, bot: string, at: string) => ({ kind: 'card', id, at, card: card(id), source: src(bot) }) as unknown as ColumnEntry
 
-  it('one group per bot, its entries newest first, the groups in order of their newest', () => {
-    const groups = groupColumnEntries([
+  it('one flat list in the order given (newest first), not grouped by bot', () => {
+    const list = uniqueColumnEntries([
       entry('t1', 'triage', '2026-10-03T11:00:00.000Z'),
       entry('w1', 'writer', '2026-10-03T10:00:00.000Z'),
       entry('t2', 'triage', '2026-10-03T09:00:00.000Z'),
-      entry('w2', 'writer', '2026-10-03T08:00:00.000Z'),
     ])
-    expect(groups.map((g) => [g.source.teammateId, g.entries.map((e) => e.id)])).toEqual([
-      ['triage', ['t1', 't2']],
-      ['writer', ['w1', 'w2']],
-    ])
+    expect(list.map((e) => e.id)).toEqual(['t1', 'w1', 't2'])
   })
 
-  it('a thing listed under two bots shows once, under the bot that had it first', () => {
-    const groups = groupColumnEntries([
+  it('a thing listed under two bots shows once, where it was first listed', () => {
+    const list = uniqueColumnEntries([
       entry('c1', 'writer', '2026-10-03T11:00:00.000Z'),
       entry('c1', 'triage', '2026-10-03T11:00:00.000Z'),
       entry('t1', 'triage', '2026-10-03T10:00:00.000Z'),
     ])
-    expect(groups.map((g) => [g.source.teammateId, g.entries.map((e) => e.id)])).toEqual([
-      ['writer', ['c1']],
-      ['triage', ['t1']],
+    expect(list.map((e) => [e.id, e.source.teammateId])).toEqual([
+      ['c1', 'writer'],
+      ['t1', 'triage'],
     ])
+  })
+})
+
+describe('columnTag: where a card came from, on the card', () => {
+  it('the area the agent’s card came from, else the bot’s name', () => {
+    const source = { teammateId: 'agent', name: 'Assistant', face: null, agent: true }
+    expect(columnTag({ kind: 'card', id: 'a', at: '', card: card('a'), source, area: 'Captures' } as never)).toBe('Captures')
+    expect(columnTag({ kind: 'card', id: 'b', at: '', card: card('b'), source } as never)).toBe('Assistant')
+    expect(columnTag({ kind: 'card', id: 'c', at: '', card: card('c'), source: { teammateId: 'writer', name: 'Writer', face: null } } as never)).toBe('Writer')
   })
 })
 
@@ -581,9 +586,12 @@ describe('ForYouColumn', () => {
     )
     await renderColumn()
     expect(columnCards()).toEqual(['t-new', 'r1', 'w-old'])
-    expect(columnGroups()).toEqual([
-      { bot: 'triage', headers: 1, name: 'Triage', count: null, cards: ['t-new'] },
-      { bot: 'writer', headers: 1, name: 'Writer', count: '2', cards: ['r1', 'w-old'] },
+    // One list, no headers: each card tagged with where it came from.
+    expect(headers()).toBe(0)
+    expect(columnTags()).toEqual([
+      ['t-new', 'Triage'],
+      ['r1', 'Writer'],
+      ['w-old', 'Writer'],
     ])
     // Compact cards: a verb and one sentence each.
     expect(container.querySelector('[data-for-you-card="r1"] [data-compact-card="r1"]')).not.toBeNull()
@@ -685,7 +693,7 @@ describe('ForYouColumn', () => {
     await renderColumn()
     try {
       expect(columnCards()).toEqual(['r1'])
-      expect(columnGroups()[0].count).toBeNull()
+      expect(columnTags()).toEqual([['r1', 'Writer']])
       expect(container.querySelector('[data-question-card]')).toBeNull()
       // The bot's page lists the review alone too.
       expect(page.querySelector('section[aria-label="For you"] h2')!.textContent).toContain('1')
@@ -733,11 +741,14 @@ describe('ForYouColumn', () => {
     expect(container.querySelector('[data-for-you-more]')).toBeNull()
   })
 
-  it('two cards from one bot: one header with both beneath it, each with its own age (in its focus view)', async () => {
+  it('two cards from one bot: no header, each tagged with the bot, each with its own age (in its focus view)', async () => {
     hold([], [cardBy('w1', 'writer', 5), cardBy('w2', 'writer', 120)])
     await renderColumn()
-    expect(columnGroups()).toEqual([{ bot: 'writer', headers: 1, name: 'Writer', count: '2', cards: ['w1', 'w2'] }])
-    expect(container.querySelectorAll('[data-for-you-source]')).toHaveLength(1)
+    expect(columnTags()).toEqual([
+      ['w1', 'Writer'],
+      ['w2', 'Writer'],
+    ])
+    expect(headers()).toBe(0)
     const age = async (id: string) => {
       await act(async () => container.querySelector<HTMLElement>(`[data-compact-card="${id}"]`)!.click())
       const meta = document.querySelector('[data-compact-meta]')?.textContent
@@ -748,16 +759,18 @@ describe('ForYouColumn', () => {
     expect(await age('w2')).toBe('Writer · 2h')
   })
 
-  it('two bots: two headers, the bot with the newest first, its cards together even past the other’s', async () => {
+  it('two bots: one list, newest first, each card tagged with its bot (no headers)', async () => {
     hold([], [cardBy('w-old', 'writer', 300), cardBy('t-mid', 'triage', 60), cardBy('w-new', 'writer', 10)])
     await renderColumn()
-    expect(columnGroups()).toEqual([
-      { bot: 'writer', headers: 1, name: 'Writer', count: '2', cards: ['w-new', 'w-old'] },
-      { bot: 'triage', headers: 1, name: 'Triage', count: null, cards: ['t-mid'] },
+    expect(columnTags()).toEqual([
+      ['w-new', 'Writer'],
+      ['t-mid', 'Triage'],
+      ['w-old', 'Writer'],
     ])
+    expect(headers()).toBe(0)
   })
 
-  it('the cap counts cards, not bots: a bot it cuts keeps one header, and the next page carries on under it', async () => {
+  it('the cap counts cards: the first page, then the rest, newest first across bots', async () => {
     // Writer: 33, Triage: 3 older; the first page is 30 of the writer's.
     const many = [
       ...Array.from({ length: 33 }, (_, i) => cardBy(`w${i}`, 'writer', i + 1)),
@@ -766,15 +779,26 @@ describe('ForYouColumn', () => {
     hold([], many)
     await renderColumn()
     expect(columnCards()).toHaveLength(30)
-    expect(columnGroups().map((g) => [g.bot, g.headers, g.count, g.cards.length])).toEqual([['writer', 1, '33', 30]])
+    expect(columnTags().every(([, tag]) => tag === 'Writer')).toBe(true)
     const more = container.querySelector<HTMLButtonElement>('[data-for-you-more]')!
     expect(more.textContent).toBe('Show 6 more')
     await act(async () => more.click())
     expect(columnCards()).toHaveLength(36)
-    expect(columnGroups().map((g) => [g.bot, g.headers, g.count, g.cards.length])).toEqual([
-      ['writer', 1, '33', 33],
-      ['triage', 1, '3', 3],
+    expect(columnTags().slice(-3)).toEqual([
+      ['t0', 'Triage'],
+      ['t1', 'Triage'],
+      ['t2', 'Triage'],
     ])
+    expect(headers()).toBe(0)
+  })
+
+  it('stands under its top-bar button: its left edge at the bar’s inset, just under the bar (Liam, 11-09)', async () => {
+    hold([], [card('c1')])
+    await renderColumn()
+    // The web's bar starts its controls 4px in (top-bar/insets.ts); the column lines up with them.
+    expect(columnRoot()!.style.left).toBe('4px')
+    // Half a gutter under the bar, not below its 24px blur (the blur is under the panels now).
+    expect(columnRoot()!.style.top).toBe('calc(var(--chat-top-inset, 0px) + 6px)')
   })
 
   it('has no toggle of its own: the top bar’s folds it', async () => {
@@ -834,13 +858,12 @@ describe('ForYouColumn', () => {
     expect(impressions()).toHaveLength(3)
   })
 
-  it('its bot’s count leaves out a review whose read failed (it can’t show)', async () => {
+  it('a review whose read failed doesn’t show', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
     hold([light('bad')], [card('c1')])
     await renderColumn()
     expect(columnCards()).toEqual(['c1'])
-    // Both the writer's: one that can show, so no count.
-    expect(columnGroups()).toEqual([{ bot: 'writer', headers: 1, name: 'Writer', count: null, cards: ['c1'] }])
+    expect(columnTags()).toEqual([['c1', 'Writer']])
   })
 
   it('floating, it stands clear of the composer', async () => {
