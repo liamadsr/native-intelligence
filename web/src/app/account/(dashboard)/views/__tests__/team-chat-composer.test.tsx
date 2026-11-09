@@ -31,7 +31,15 @@ vi.mock('@/lib/supabase/client', () => ({
     return { channel: () => channel, removeChannel: async () => {} }
   },
 }))
-vi.mock('@/hooks/recording-context', () => ({ useRecordingStable: () => ({}) }))
+vi.mock('@/hooks/recording-context', () => ({ useRecordingStable: () => ({}), useOptionalRecordingStable: () => null }))
+// What the desktop's voice can do (useVoiceAvailability): set per test.
+const voiceState = vi.hoisted(() => ({
+  current: { hasVoice: false, visible: false, dictation: false, conversation: false, blocked: null, status: {} } as Record<string, unknown>,
+}))
+vi.mock('@/hooks/use-voice-availability', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/use-voice-availability')>()),
+  useVoiceAvailability: () => voiceState.current,
+}))
 vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
 vi.mock('@/lib/workspace-fetch', () => ({ getClientWorkspaceId: () => 'ws-1' }))
 
@@ -214,6 +222,20 @@ describe("team chat's box is the main composer", () => {
     act(() => container.querySelector<HTMLButtonElement>('[data-team-chat-composer] button[aria-label="Add"]')!.click())
     await settle()
     expect(document.querySelector('[data-composer-unavailable="files"]')?.textContent).toContain('text only')
+  })
+
+  it('dictation, where the desktop has it: the mic in the box, and no voice mode (a channel is no conversation with the agent)', async () => {
+    voiceState.current = { hasVoice: true, visible: true, dictation: true, conversation: true, blocked: null, status: {} }
+    await render()
+    const composer = container.querySelector('[data-team-chat-composer]')!
+    expect(composer.querySelector('[data-voice-control="dictation"]')).not.toBeNull()
+    expect(composer.querySelector('[data-voice-control="conversation"]')).toBeNull()
+    voiceState.current = { hasVoice: false, visible: false, dictation: false, conversation: false, blocked: null, status: {} }
+  })
+
+  it('no dictation where the desktop has none (a browser): no mic', async () => {
+    await render()
+    expect(container.querySelector('[data-team-chat-composer] [data-voice-control="dictation"]')).toBeNull()
   })
 
   it('an archived channel has no box, only why', async () => {

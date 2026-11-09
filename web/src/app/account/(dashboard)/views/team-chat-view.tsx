@@ -28,7 +28,9 @@ import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { useTeams } from '@/app/account/teams-context'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
-import { ChatInput, type ChatInputUnavailable } from '@/app/account/(dashboard)/chat/chat-input'
+import { ChatInput, type ChatInputUnavailable, type ChatInputVoice } from '@/app/account/(dashboard)/chat/chat-input'
+import { useVoiceAvailability } from '@/hooks/use-voice-availability'
+import { useOptionalRecordingStable } from '@/hooks/recording-context'
 import type { ComposerMentionList, ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
 import { continuesGroup, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
 import { agentDisplayName, mentionsAssistantName, TEAM_CHAT_MESSAGE_MAX, TEAM_CHAT_PAGE_SIZE, type TeamChatChannel, type TeamChatMessage } from '@/lib/team-chat/types'
@@ -855,6 +857,15 @@ function Composer({
   onSent: (message: TeamChatMessage, calledAgent: boolean) => void
 }) {
   const [text, setText] = useState('')
+  // Dictation into the box, as in the main chat (the desktop app; Liam, 11-09:
+  // "add the dictation button to the chat"). Dictation only: no voice mode,
+  // which is a conversation with the agent, not a message to the channel.
+  const recording = useOptionalRecordingStable()
+  const availability = useVoiceAvailability({ recording: !!(recording?.isRecording || recording?.isStarting) })
+  const voice = useMemo<ChatInputVoice | undefined>(
+    () => (availability.dictation ? { availability: { ...availability, conversation: false, visible: true } } : undefined),
+    [availability],
+  )
   const [picked, setPicked] = useState<Array<{ id: string; label: string }>>([])
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -948,6 +959,7 @@ function Composer({
         mainComposer={false}
         unavailable={TEAM_CHAT_UNAVAILABLE}
         mentionList={mentionList}
+        voice={voice}
       />
       {failed && <p className="mt-1 px-3 text-xs text-destructive">That didn&apos;t send. Try again.</p>}
     </div>

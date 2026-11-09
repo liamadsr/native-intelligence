@@ -68,10 +68,12 @@ import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { EnvironmentSelector } from '@/components/environments/environment-selector'
 
 /** The composer's voice: what the desktop can do, and the panel's voice mode.
- *  Absent (or `availability.visible` false) → no voice control at all. */
+ *  Absent (or `availability.visible` false) → no voice control at all. No
+ *  `mode` (team chat: a channel is no conversation with the agent) →
+ *  dictation only. */
 export interface ChatInputVoice {
   availability: VoiceAvailability
-  mode: VoiceModeHandle
+  mode?: VoiceModeHandle
 }
 
 /** A control a host can't honour in its conversation. */
