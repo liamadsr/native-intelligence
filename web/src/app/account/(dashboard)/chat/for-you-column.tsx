@@ -12,16 +12,18 @@
  * The left half of one system with the right side panel
  * (side-panels/side-panels.tsx; Liam, 10-15: "so that they all fit nicely"):
  *
- *   Toggle   its "For you" button at the top bar's far left
- *            (side-panel-toggles.tsx), the one way to open and fold it (the
- *            column has no pill of its own). Folded is remembered per device.
+ *   Always   from `md` up (where the app rail is) it shows whenever it has
+ *            cards, with no toggle (Liam, 11-09: "just show that stuff all
+ *            the time if you have any"; side-panels.tsx useForYouAlways). On
+ *            a phone its "For you" button at the top bar's far left
+ *            (side-panel-toggles.tsx) opens and folds it, folded remembered
+ *            per device.
  *   Motion   it slides in and out on a transform, as the right panel does.
  *   Room     the space plan (side-panels/space-plan.ts) puts it in the free
  *            space beside the chat's content where it fits (the chat does
  *            not move), or moves the content right by just the shortfall
  *            where the chat keeps 640px; narrower it floats over the chat's
- *            left edge, but only once opened by hand this session (never
- *            over the chat unasked).
+ *            left edge (on a phone only once opened by hand this session).
  *   When     only with cards to show (with nothing waiting, nothing at all:
  *            no column, no toggle), and not while a live capture's notepad
  *            holds the left (live-capture-dock.tsx).
@@ -111,7 +113,7 @@ export function ForYouColumn({ mode }: { mode: PanelMode }) {
         width: FOR_YOU_WIDTH_PX,
       }}
     >
-      {/* Its top-bar toggle slides it out and back. */}
+      {/* It slides in with its first cards and out with its last (on a phone, its toggle too). */}
       <ForYouColumnPanel entries={entries} shared={shared} style={PANEL_STYLE} />
     </aside>
   )

@@ -9,7 +9,8 @@
  *
  *   New      puts any page away and puts the cursor in the composer: the
  *            agent makes things on request (no Create dialog: Liam, 10-20).
- *   Search   the `/` palette, as the top bar's Search and ⌘K open it.
+ *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
+ *            Search is a phone's only now: Liam, 11-09).
  *   Home     the chat: puts the page in front away.
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.

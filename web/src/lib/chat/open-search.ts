@@ -26,9 +26,9 @@ function showing(el: HTMLElement): boolean {
 }
 
 /**
- * The search button the palette flies out of: the top bar's, or the app
- * rail's (`data-search-button="rail"`, rail/app-rail.tsx) while the top bar
- * is hidden under a full-screen page. Where neither can be measured (no
+ * The search button the palette flies out of: the one on screen. From `md` up
+ * that is the app rail's (`data-search-button="rail"`, rail/app-rail.tsx);
+ * the top bar's shows on a phone only. Where neither can be measured (no
  * layout), the top bar's, as before the rail.
  */
 export function searchButton(): HTMLElement | null {

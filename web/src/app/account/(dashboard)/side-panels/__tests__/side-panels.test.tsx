@@ -73,7 +73,7 @@ vi.mock('../environment-section', () => ({
   EnvironmentSection: () => h('div', { 'data-environment-section-stub': '' }, 'environment'),
 }))
 
-const { INSET_RIGHT_VAR, RightSidePanel, SLIDE_CLASS, useSidePanelPlan, useSidePanelState } = await import('../side-panels')
+const { FOR_YOU_ALWAYS_QUERY, INSET_RIGHT_VAR, RightSidePanel, SLIDE_CLASS, planFor, useSidePanelPlan, useSidePanelState } = await import('../side-panels')
 const { SidePanelToggle } = await import('../side-panel-toggles')
 const store = await import('../side-panel-store')
 const feed = await import('../chat-feed')
@@ -713,5 +713,67 @@ describe('the row’s space plan', () => {
     act(() => root.render(h(Row)))
     expect(planNow()).toBe('float:off')
     expect(store.getSidePanelState().leftShown).toBe(true)
+  })
+
+  describe('from md up (the app rail’s width): For you shows by itself, with no toggle', () => {
+    let wide = true
+    const changes = new Set<() => void>()
+    beforeEach(() => {
+      wide = true
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        get matches() {
+          return query === FOR_YOU_ALWAYS_QUERY && wide
+        },
+        addEventListener: (_: string, cb: () => void) => changes.add(cb),
+        removeEventListener: (_: string, cb: () => void) => changes.delete(cb),
+      }))
+    })
+
+    it('shows whenever it has cards, even folded on this device, and floats where it doesn’t fit beside the chat', () => {
+      // Folded by hand before (the old toggle): remembered, but no longer heeded.
+      act(() => store.setForYouOpen(false))
+      act(() => store.setForYouContent(true))
+      width = 1600
+      act(() => root.render(h(Row)))
+      expect(planNow()).toBe('room:off')
+      expect(store.getSidePanelState().leftShown).toBe(true)
+      width = 900
+      act(() => observe!())
+      expect(planNow()).toBe('float:off')
+    })
+
+    it('shows nothing with no cards', () => {
+      act(() => store.setForYouContent(false))
+      act(() => root.render(h(Row)))
+      expect(planNow()).toBe('off:off')
+    })
+
+    it('goes back to the phone’s rule when the window narrows under md', () => {
+      act(() => store.setForYouOpen(false))
+      act(() => store.setForYouContent(true))
+      width = 1600
+      act(() => root.render(h(Row)))
+      expect(planNow()).toBe('room:off')
+      wide = false
+      act(() => {
+        for (const cb of changes) cb()
+      })
+      expect(planNow()).toBe('off:off')
+    })
+  })
+})
+
+describe('planFor', () => {
+  const base = { rightOpen: false, leftOpen: false, leftContent: true, leftFloatOk: false, captureDock: false }
+  it('with `always`, For you shows folded or not, and may float', () => {
+    expect(planFor(1600, base, { always: true }).left).toBe('room')
+    expect(planFor(900, base, { always: true }).left).toBe('float')
+    expect(planFor(900, { ...base, leftContent: false }, { always: true }).left).toBe('off')
+  })
+  it('without, as before: folded stays off; open floats only once opened by hand', () => {
+    expect(planFor(1600, base).left).toBe('off')
+    expect(planFor(1600, { ...base, leftOpen: true }).left).toBe('room')
+    expect(planFor(900, { ...base, leftOpen: true }).left).toBe('off')
+    expect(planFor(900, { ...base, leftOpen: true, leftFloatOk: true }).left).toBe('float')
   })
 })

@@ -9,8 +9,10 @@
  *   right    always there. Its badges: how many agents run now (the Agents
  *            section's count), and an amber dot while a connection needs
  *            the person (a reconnect, missing access, a sync error). ⌘\.
- *   For you  only while the bots have brought something (with nothing, no
- *            toggle: Liam's "hide empty widgets"), with how many.
+ *   For you  on a phone only (below `md`: from `md` up the column shows by
+ *            itself, side-panels.tsx useForYouAlways, Liam 11-09), and only
+ *            while the bots have brought something (with nothing, no toggle:
+ *            Liam's "hide empty widgets"), with how many.
  */
 import { Home, createLucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'

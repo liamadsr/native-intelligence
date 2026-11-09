@@ -5,9 +5,12 @@
  * so that they all fit nicely"): the right side panel and, on the left, the
  * For you column (chat/for-you-column.tsx), one system.
  *
- *   One way in   each side has one toggle in the top bar
- *                (side-panel-toggles.tsx); the right one also ⌘\, and Esc
- *                closes it while the focus is inside it.
+ *   One way in   the right panel has its toggle in the top bar
+ *                (side-panel-toggles.tsx), also ⌘\, and Esc closes it while
+ *                the focus is inside it. For you has none from `md` up (Liam,
+ *                11-09: "just show that stuff all the time if you have any"):
+ *                there it shows whenever it has cards (useForYouAlways); on
+ *                a phone, with no app rail, its top-bar toggle stays.
  *   One motion   a panel slides in and out on a transform (PANEL_SLIDE_MS,
  *                none under reduced motion); width, left and grid columns are
  *                never animated.
@@ -110,20 +113,47 @@ export function useSidePanelState(): SidePanelState {
   return useSyncExternalStore(subscribeSidePanels, getSidePanelState, getServerSidePanelState)
 }
 
+/** The app rail's breakpoint (tailwind.css `[data-app-rail]`, Tailwind's `md`). */
+export const FOR_YOU_ALWAYS_QUERY = '(min-width: 768px)'
+
+function wideQuery(): MediaQueryList | null {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(FOR_YOU_ALWAYS_QUERY) : null
+}
+function subscribeWide(listener: () => void): () => void {
+  const query = wideQuery()
+  query?.addEventListener('change', listener)
+  return () => query?.removeEventListener('change', listener)
+}
+const getWide = () => wideQuery()?.matches ?? false
+const getWideServer = () => false
+
 /**
- * Where the panels go in a row this wide, as the store says they are: For
- * you as the device remembered it shows where it makes room, and floats only
- * once opened by hand this session. `content` is the chat's widest content
+ * For you shows by itself (Liam, 11-09: no toggle; "just show that stuff all
+ * the time if you have any"): from `md` up, where the app rail is. Below it
+ * (a phone) it waits for its top-bar toggle, as before. One media query
+ * listener; false on the server and the first client render.
+ */
+export function useForYouAlways(): boolean {
+  return useSyncExternalStore(subscribeWide, getWide, getWideServer)
+}
+
+/**
+ * Where the panels go in a row this wide, as the store says they are. With
+ * `always` (useForYouAlways: from `md` up) For you shows whenever it has
+ * cards, making room where it fits and floating over the chat's edge where it
+ * doesn't, whatever the device remembered. Without (a phone), as the device
+ * remembered it, it shows where it makes room, and floats only once opened by
+ * hand this session. `content` is the chat's widest content
  * (measureChatContent), `was` the plan in force (the hysteresis).
  */
 export function planFor(
   width: number,
   state: Pick<SidePanelState, 'rightOpen' | 'leftOpen' | 'leftContent' | 'leftFloatOk' | 'captureDock'>,
-  { content, was = null }: { content?: number; was?: SpacePlan | null } = {},
+  { content, was = null, always = false }: { content?: number; was?: SpacePlan | null; always?: boolean } = {},
 ): SpacePlan {
   const input = { width, right: state.rightOpen, content, dock: state.captureDock, was }
-  const plan = planSpace({ ...input, left: state.leftOpen && state.leftContent })
-  if (plan.left === 'float' && !state.leftFloatOk) return planSpace({ ...input, left: false })
+  const plan = planSpace({ ...input, left: state.leftContent && (always || state.leftOpen) })
+  if (plan.left === 'float' && !always && !state.leftFloatOk) return planSpace({ ...input, left: false })
   return plan
 }
 
@@ -168,6 +198,9 @@ export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePl
   const state = useSidePanelState()
   const stateRef = useRef(state)
   stateRef.current = state
+  const always = useForYouAlways()
+  const alwaysRef = useRef(always)
+  alwaysRef.current = always
   // The row's width and the chat's content in refs: a render only when they change the modes.
   const widthRef = useRef(0)
   const contentRef = useRef(CHAT_CONTENT_MAX_PX)
@@ -198,7 +231,7 @@ export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePl
       if (width === widthRef.current && content === contentRef.current) return
       widthRef.current = width
       contentRef.current = content
-      const next = planFor(width, stateRef.current, { content, was: appliedRef.current })
+      const next = planFor(width, stateRef.current, { content, was: appliedRef.current, always: alwaysRef.current })
       if (planKeyOf(next) !== planKeyOf(appliedRef.current)) setModesTick((n) => n + 1)
       else apply(next)
     }
@@ -210,9 +243,9 @@ export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePl
   }, [rowRef, apply])
 
   const computed = useMemo(
-    () => planFor(widthRef.current, state, { content: contentRef.current, was: appliedRef.current }),
+    () => planFor(widthRef.current, state, { content: contentRef.current, was: appliedRef.current, always }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- modesTick says the refs moved the modes
-    [state, modesTick],
+    [state, always, modesTick],
   )
   // On the row before paint; then the chat's re-wrapped text goes back to the
   // same distance from its bottom (after a toggle, in the commit that moved it).

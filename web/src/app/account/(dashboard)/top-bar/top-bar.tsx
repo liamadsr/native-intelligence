@@ -21,8 +21,9 @@ import { SearchButton } from './search-button'
 const TRAFFIC_LIGHT_GUTTER = `max(4px, calc(${MACOS_TRAFFIC_LIGHT_WIDTH}px - var(--app-rail-w, 0px)))`
 
 /**
- * The top bar's controls: For you's toggle leads it at the far left, then
- * Search, and Listen, the side panel's toggle and the
+ * The top bar's controls: on a phone, For you's toggle leads it at the far
+ * left, then Search (from `md` up the app rail has Search and For you shows by
+ * itself, so neither is here); Listen, the side panel's toggle and the
  * workspace pill trail it (Capture is in the chat's composer:
  * chat/composer-capture-button.tsx). There is nothing in its middle: the
  * main chat is one never-ending conversation (docs/plans/one-chat.md), so the
@@ -103,13 +104,19 @@ export function TopBar() {
           style={{ paddingLeft: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
         >
           <TooltipProvider delayDuration={300}>
-            {/* For you's toggle, at the far left over its column (side-panels/
-                side-panel-toggles.tsx), as the side panel's ends the bar over
-                its panel: only while the bots brought something. */}
-            <ForYouToggle />
-            {/* Search, a round pill of its own beside Home: the `/` palette,
-                flying out of it (search-button.tsx). */}
-            <SearchButton />
+            {/* On a phone only (below `md`, where there is no app rail): from
+                `md` up the rail has Search (rail/app-rail.tsx) and For you
+                shows by itself whenever it has cards (side-panels.tsx
+                useForYouAlways), so neither button is here (Liam, 11-09). */}
+            <div data-tab-bar-phone-only="" className="contents md:hidden">
+              {/* For you's toggle, at the far left over its column (side-panels/
+                  side-panel-toggles.tsx), as the side panel's ends the bar over
+                  its panel: only while the bots brought something. */}
+              <ForYouToggle />
+              {/* Search, a round pill of its own beside Home: the `/` palette,
+                  flying out of it (search-button.tsx). */}
+              <SearchButton />
+            </div>
             {/* No Inbox bell after it (removed 2026-10-20, Liam): every
                 notice reaches the agent, which tells the person in the chat
                 (docs/plans/retire-notifications-page.md). No Create button
