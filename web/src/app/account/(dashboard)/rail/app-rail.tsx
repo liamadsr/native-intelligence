@@ -7,8 +7,8 @@
  *   the header  one pill at the top left, over the top bar: the
  *               workspace's thumbnail (its account menu), For you's button,
  *               and Search (Liam, 11-09).
- *   the pills   down the left, centred under the header: Home and New in
- *               the first, then every page the workspace has on
+ *   the pills   down the left, centred under the header: New in the
+ *               first, then every page the workspace has on
  *               (./rail-pages.ts), a pill per group (your work, plans,
  *               customers, agents). Where the window is too short they scroll.
  *
@@ -16,7 +16,8 @@
  *            agent makes things on request (no Create dialog: Liam, 10-20).
  *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
  *            Search is a phone's only now: Liam, 11-09).
- *   Home     the chat: puts the page in front away.
+ *   (No Home button, Liam 11-09: "we don't need this button". New, a page's
+ *   X and Esc put the page in front away.)
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
@@ -24,8 +25,7 @@
  *            switch workspace, Settings, sign out…), the one place it lives
  *            from `md` up (Liam, 11-09: the top bar's pill is a phone's only now).
  *
- * The page in front is lit (components/chat-cards/front-card.ts), Home with
- * none. A page full screen starts at the rail's edge and under the header
+ * The page in front is lit (components/chat-cards/front-card.ts). A page full screen starts at the rail's edge and under the header
  * (show-tool-card.tsx), so both stay at hand while a page is open.
  *
  * Its width is `--app-rail-w` (tailwind.css, `[data-app-rail]`): the shell
@@ -52,7 +52,6 @@ import {
   Folder,
   FolderKanban,
   HandCoins,
-  House,
   LayoutList,
   ListChecks,
   Mail,
@@ -336,11 +335,7 @@ export function AppRail() {
           <TooltipProvider delayDuration={300}>
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden py-2 [scrollbar-width:none]">
               <div className="my-auto flex flex-col items-start gap-1.5 pl-2">
-                <div data-app-rail-pill="start" className={PILL}>
-                  {/* Home at the top (Liam, 11-09: "the home button all the way at the top"): the chat. */}
-                  <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
-                    <House className="size-[18px]" strokeWidth={1.75} />
-                  </RailButton>
+                <div data-app-rail-pill="new" className={PILL}>
                   <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
                     <Plus className="size-[18px]" strokeWidth={1.75} />
                   </RailButton>

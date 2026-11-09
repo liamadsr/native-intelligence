@@ -2,7 +2,7 @@
 /**
  * The app rail (../app-rail.tsx): its icons in Liam's order, a page opens as
  * `/` opens it (OPEN_CARD_EVENT, full screen in the main chat), the page in
- * front is lit (Home with none), Home and New put it away, and <html> carries
+ * front is lit, New puts it away (no Home button: Liam, 11-09), and <html> carries
  * the rail's width attribute for the full-screen layer while it is mounted.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -65,7 +65,7 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws the header (the workspace’s thumbnail, For you, Search), then Home, New and every page that is on', async () => {
+  it('draws the header (the workspace’s thumbnail, For you, Search), then New and every page that is on, and no Home', async () => {
     await render()
     const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
     // In order: the workspace's thumbnail at the far left, For you, Search (Liam, 11-09).
@@ -78,7 +78,7 @@ describe('the app rail', () => {
     expect(header.querySelector('[data-app-rail-item="workspace"] [data-variant="header"]')).not.toBeNull()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
-      'home', 'new',
+      'new',
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
       'projects', 'initiatives', 'knowledge', 'flows',
       'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
@@ -87,12 +87,12 @@ describe('the app rail', () => {
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
   })
 
-  it('floats its pills like Miro’s toolbar: Home and New, then a pill per group, each with the panels’ glass', async () => {
+  it('floats its pills like Miro’s toolbar: New, then a pill per group, each with the panels’ glass', async () => {
     await render()
     const pills = Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-pill]'))
-    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['start', 'work', 'plans', 'customers', 'agents'])
-    // Home at the top of the first pill.
-    expect(pills[0].querySelector('[data-app-rail-item]')?.getAttribute('data-app-rail-item')).toBe('home')
+    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['new', 'work', 'plans', 'customers', 'agents'])
+    // No Home button (Liam, 11-09: "we don't need this button").
+    expect(item('home')).toBeNull()
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
       expect(pill.className).toContain('rounded-2xl')
       expect(pill.className).toContain('bg-background/70')
@@ -142,15 +142,15 @@ describe('the app rail', () => {
     expect(asked[1].spec).toEqual({ kind: 'mail', title: 'Inbox', mail: { folder: 'inbox' } })
   })
 
-  it('lights Home with no page in front, and the page in front when there is one', async () => {
+  it('lights nothing with no page in front, and the page in front when there is one', async () => {
     await render()
-    expect(lit()).toEqual(['home'])
+    expect(lit()).toEqual([])
     await act(async () => {
       releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'team_chat', title: 'Team chat' }, close: () => {} }))
     })
     expect(lit()).toEqual(['team-chat'])
     await act(async () => releases.pop()!())
-    expect(lit()).toEqual(['home'])
+    expect(lit()).toEqual([])
   })
 
   it('lights nothing for a card no rail page shows', async () => {
@@ -159,16 +159,6 @@ describe('the app rail', () => {
       releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'work_item', title: 'A review' } as never, close: () => {} }))
     })
     expect(lit()).toEqual([])
-  })
-
-  it('puts the page in front away from Home', async () => {
-    await render()
-    const close = vi.fn()
-    await act(async () => {
-      releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'mail', title: 'Inbox', mail: { folder: 'inbox' } }, close }))
-    })
-    await act(async () => item('home')!.click())
-    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('New puts the page away and the cursor in the chat’s composer', async () => {
