@@ -144,7 +144,8 @@ export function ComposerCaptureButton({ recording: rec, variant = 'composer' }: 
         <Button
           variant="ghost"
           size="icon"
-          className={ICON_BUTTON}
+          // The header's icons are 18px; the Button sets its icons' size itself ([&_svg]:size-4).
+          className={cn(ICON_BUTTON, variant === 'header' && '[&_svg]:size-[18px]')}
           aria-label="Start capture"
           data-composer-capture={isStarting ? 'starting' : 'idle'}
           data-onboarding-target="capture"
@@ -158,7 +159,7 @@ export function ComposerCaptureButton({ recording: rec, variant = 'composer' }: 
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
             </span>
           ) : (
-            <Disc className={variant === 'header' ? 'size-[18px]' : 'h-4 w-4'} strokeWidth={variant === 'header' ? 1.75 : 2} />
+            <Disc className="h-4 w-4" strokeWidth={variant === 'header' ? 1.75 : 2} />
           )}
         </Button>
       </PromptInputAction>
