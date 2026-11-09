@@ -16,8 +16,8 @@
  * RLS filters what arrives), resyncing on every (re)subscribe.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
-import { AtSign, Bot, ChevronLeft, Hash, Lock, MessageSquare, Pencil, Plus, SendHorizontal, Trash2, Users } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Bot, ChevronLeft, Hash, Lock, MessageSquare, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -28,8 +28,9 @@ import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { useTeams } from '@/app/account/teams-context'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
-import { insertMentionAt } from '@/app/account/(dashboard)/chat/mention-text'
-import { continuesGroup, mentionQueryAt, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
+import { ChatInput, type ChatInputUnavailable } from '@/app/account/(dashboard)/chat/chat-input'
+import type { ComposerMentionList, ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
+import { continuesGroup, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
 import { agentDisplayName, mentionsAssistantName, TEAM_CHAT_MESSAGE_MAX, TEAM_CHAT_PAGE_SIZE, type TeamChatChannel, type TeamChatMessage } from '@/lib/team-chat/types'
 
 interface Member {
@@ -37,14 +38,6 @@ interface Member {
   user_id?: string
   display_name: string | null
   avatar_url?: string | null
-}
-
-/** One option in the @ picker: a member, or the person's own agent. */
-interface MentionOption {
-  id: string
-  label: string
-  hint: string
-  agent: boolean
 }
 
 /**
@@ -828,6 +821,20 @@ function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMes
   )
 }
 
+/** What team chat's box can't take: its messages are words only. */
+const TEAM_CHAT_UNAVAILABLE: ChatInputUnavailable = {
+  files: { reason: 'Team chat messages are text only.' },
+}
+const NO_NOTES: never[] = []
+const NO_FILES: never[] = []
+const noop = () => {}
+
+/**
+ * The box: the main chat's composer (ChatInput, not the main one), with its
+ * `@` listing the person's agent and the members (mentionList) in place of
+ * the record search. Enter sends, Shift+Enter is a new line. Text only: no
+ * files (dimmed in +, with why), no voice, no skills.
+ */
 function Composer({
   channelId,
   placeholder,
@@ -847,55 +854,43 @@ function Composer({
 }) {
   const [text, setText] = useState('')
   const [picked, setPicked] = useState<Array<{ id: string; label: string }>>([])
-  const [query, setQuery] = useState<{ start: number; query: string } | null>(null)
-  const [active, setActive] = useState(0)
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState(false)
-  const ref = useRef<HTMLTextAreaElement>(null)
-  // Where the caret goes once a programmatic change (a picked mention, the @ button) has rendered:
-  // set before the browser handles the next keystroke, so fast typing never lands in the wrong place.
-  const pendingCaret = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    const at = pendingCaret.current
-    const el = ref.current
-    if (at === null || !el) return
-    pendingCaret.current = null
-    el.focus()
-    el.setSelectionRange(at, at)
-  }, [text])
 
-  const options = useMemo<MentionOption[]>(() => {
-    if (!query) return []
-    const q = query.query.toLowerCase()
-    const all: MentionOption[] = [
+  // The person's own agent, then everyone else in the workspace.
+  const options = useMemo<ComposerMentionOption[]>(
+    () => [
       { id: AGENT_OPTION_ID, label: assistantName, hint: 'your agent', agent: true },
-      ...members
-        .filter((m) => m.id !== meId)
-        .map((m) => ({ id: m.id, label: memberName(m), hint: '', agent: false })),
-    ]
-    return all.filter((o) => !q || o.label.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || o.label.toLowerCase().startsWith(q)).slice(0, 8)
-  }, [query, members, meId, assistantName])
+      ...members.filter((m) => m.id !== meId).map((m) => ({ id: m.id, label: memberName(m) })),
+    ],
+    [members, meId, assistantName],
+  )
+  const mentionList = useMemo<ComposerMentionList>(
+    () => ({
+      options,
+      // A member picked is kept (their mention goes with the message while
+      // "@Name" is still in it); the agent is found by name at send.
+      onPick: (o) => {
+        if (o.agent) return
+        setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
+      },
+    }),
+    [options],
+  )
 
-  const updateQuery = (value: string, caret: number) => {
-    setQuery(mentionQueryAt(value, caret))
-    setActive(0)
-  }
+  // The latest of what a send reads, so the send handed to the (memoized) box stays one function.
+  const latest = useRef({ text, picked, sending, channelId, assistantName, members, onSent })
+  latest.current = { text, picked, sending, channelId, assistantName, members, onSent }
 
-  const pick = (o: MentionOption) => {
-    if (!query) return
-    const { value, cursor } = insertMentionAt(text, query.start, o.label)
-    setText(value)
-    setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
-    setQuery(null)
-    pendingCaret.current = cursor
-  }
-
-  const send = async () => {
+  const send = useCallback(async () => {
+    const { text, picked, sending, channelId, assistantName, members, onSent } = latest.current
     const body = text.trim()
     if (!body || sending) return
-    const still = mentionsStillIn(body, picked).filter((id) => id !== AGENT_OPTION_ID)
-    // The agent by name, never a teammate whose name starts with it ("@Joseph Lee").
-    const mentionsAgent = picked.some((p) => p.id === AGENT_OPTION_ID) && mentionsAssistantName(body, assistantName, members.map((m) => m.display_name))
+    const still = mentionsStillIn(body, picked)
+    // "@<agent name>" in the words, picked or typed, calls the agent: by name,
+    // never a teammate whose name starts with it ("@Joseph Lee").
+    const mentionsAgent = mentionsAssistantName(body, assistantName, members.map((m) => m.display_name))
+    latest.current.sending = true
     setSending(true)
     setFailed(false)
     try {
@@ -909,109 +904,42 @@ function Composer({
       if (json.message) onSent(json.message, json.message.mentions_agent)
       setText('')
       setPicked([])
-      setQuery(null)
     } catch {
       setFailed(true)
     } finally {
+      latest.current.sending = false
       setSending(false)
     }
-  }
+  }, [])
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (query && options.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setActive((i) => (i + 1) % options.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setActive((i) => (i - 1 + options.length) % options.length)
-        return
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault()
-        pick(options[active] ?? options[0])
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setQuery(null)
-        return
-      }
-    }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault()
-      void send()
-    }
-  }
+  // The box's words, at most a message's worth (the server refuses more).
+  const onChange = useCallback((value: string) => setText(value.slice(0, TEAM_CHAT_MESSAGE_MAX)), [])
+  const onSubmit = useCallback(() => void send(), [send])
 
   if (archived) {
     return <div className="border-t border-border px-5 py-3 text-sm text-muted-foreground">This channel is archived.</div>
   }
 
   return (
-    <div className="relative shrink-0 px-5 pb-4">
-      {query && options.length > 0 && (
-        <div className="absolute bottom-full left-5 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg" role="listbox">
-          {options.map((o, i) => (
-            <button
-              key={o.id}
-              type="button"
-              role="option"
-              aria-selected={i === active}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                pick(o)
-              }}
-              onMouseEnter={() => setActive(i)}
-              className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm', i === active ? 'bg-accent text-foreground' : 'text-foreground')}
-            >
-              <Avatar name={o.label} agent={o.agent} small />
-              <span className="truncate">{o.label}</span>
-              {o.hint && <span className="ml-auto text-[11px] text-muted-foreground">{o.hint}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="flex items-end gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:border-ring">
-        <Textarea
-          ref={ref}
-          value={text}
-          rows={1}
-          maxLength={TEAM_CHAT_MESSAGE_MAX}
-          placeholder={placeholder}
-          onChange={(e) => {
-            setText(e.target.value)
-            updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
-          }}
-          onKeyDown={onKeyDown}
-          onClick={(e) => updateQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
-          onBlur={() => setTimeout(() => setQuery(null), 120)}
-          className="max-h-40 min-h-0 flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
-        />
-        <button
-          type="button"
-          aria-label="Mention someone"
-          title="Mention someone or your agent"
-          onClick={() => {
-            const el = ref.current
-            const at = el?.selectionStart ?? text.length
-            const next = `${text.slice(0, at)}${at > 0 && !/\s$/.test(text.slice(0, at)) ? ' ' : ''}@${text.slice(at)}`
-            const caret = next.length - text.slice(at).length
-            pendingCaret.current = caret
-            setText(next)
-            updateQuery(next, caret)
-          }}
-          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <AtSign className="h-4 w-4" />
-        </button>
-        <Button size="sm" onClick={() => void send()} disabled={!text.trim() || sending} aria-label="Send">
-          <SendHorizontal className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      {failed && <p className="mt-1 text-xs text-destructive">That didn&apos;t send. Try again.</p>}
+    <div className="shrink-0 px-3 pb-3" data-team-chat-composer aria-busy={sending || undefined}>
+      <ChatInput
+        value={text}
+        onChange={onChange}
+        onSubmit={onSubmit}
+        onStop={noop}
+        isLoading={false}
+        attachedNotes={NO_NOTES}
+        onAttachNote={noop}
+        onRemoveNote={noop}
+        attachedFiles={NO_FILES}
+        onAttachFiles={noop}
+        onRemoveFile={noop}
+        placeholder={placeholder}
+        mainComposer={false}
+        unavailable={TEAM_CHAT_UNAVAILABLE}
+        mentionList={mentionList}
+      />
+      {failed && <p className="mt-1 px-3 text-xs text-destructive">That didn&apos;t send. Try again.</p>}
     </div>
   )
 }

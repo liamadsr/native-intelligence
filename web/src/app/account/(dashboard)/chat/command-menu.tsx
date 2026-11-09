@@ -34,6 +34,7 @@ import {
   AppWindow,
   AudioLines,
   BookOpen,
+  Bot,
   Boxes,
   Brain,
   Building2,
@@ -67,10 +68,12 @@ import {
   cycleTab,
   isRecordKind,
   menuTakesEnter,
+  mentionOptionsMenu,
   offeredKinds,
   searchedKinds,
   serverSearch,
   verbFor,
+  type ComposerMentionList,
   type MenuItem,
   type MenuOffer,
   type MenuSection,
@@ -110,6 +113,12 @@ export interface CommandMenuProps {
   mentionKinds?: readonly MenuSearchKind[]
   /** What's already attached to the turn, by kind: left out. */
   exclude?: Partial<Record<MenuSearchKind, readonly string[]>>
+  /**
+   * The host's own `@` list (team chat's agent and members): inline, `@`
+   * lists these, narrowed by what's typed, in place of the record search
+   * (none runs). Absent: the records, as ever.
+   */
+  mentionList?: ComposerMentionList
   /** Esc, a press outside the palette, Backspace in its empty field. */
   onDismiss: () => void
   /** The palette arrives flying from the top bar's search button (SEARCH_FLIGHT_KEY), not fading in. */
@@ -164,6 +173,7 @@ export function CommandMenu({
   onMentionRecord,
   mentionKinds = NO_MENTIONS,
   exclude,
+  mentionList,
   onDismiss,
   onUnclaimedEnter,
   arriving = false,
@@ -177,6 +187,8 @@ export function CommandMenu({
   // (A `/` in its field closes it: see onKey below.)
   const activeTrigger: MenuTrigger = palette ? '/' : trigger
   const query = palette ? search : typedQuery
+  // The host's own `@` list, in place of the records (inline only).
+  const hostOptions = !palette && activeTrigger === '@' && mentionList ? mentionList.options : null
 
   const offeredPages = useMemo(() => (pages && onSelectPage ? pages : []), [pages, onSelectPage])
   // The tabs and sections in the workspace's words ("Jobs", "Customers" in a service business).
@@ -197,17 +209,20 @@ export function CommandMenu({
 
   // Records come from the server (one request a keystroke, debounced); pages
   // and skills are searched here, at once, on every key.
-  const wanted = open ? serverSearch(activeTrigger, currentTab, query, offered) : null
+  const wanted = open && !hostOptions ? serverSearch(activeTrigger, currentTab, query, offered) : null
   const found = useMenuSearch(wanted, query, exclude)
   // Closed: what each shows first (recent people…) is fetched ahead, so the first `/` or `@` doesn't shift under it.
   const firstSlash = useMemo(() => serverSearch('/', 'all', '', offeredKinds('/', offer)), [offer])
   const firstAt = useMemo(() => serverSearch('@', 'all', '', offeredKinds('@', offer)), [offer])
   usePrefetchMenuSearch(open || palette ? null : firstSlash)
-  usePrefetchMenuSearch(open || palette ? null : firstAt)
+  usePrefetchMenuSearch(open || palette || mentionList ? null : firstAt)
 
   const { sections, tabs } = useMemo(
-    () => buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition }),
-    [activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition],
+    () =>
+      hostOptions
+        ? mentionOptionsMenu(hostOptions, query)
+        : buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition }),
+    [hostOptions, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition],
   )
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections])
 
@@ -223,7 +238,7 @@ export function CommandMenu({
   // was turned to a tab of its own. Nothing matching what's typed: it steps
   // aside, and the keys are the box's again (Enter sends `/usr/bin`).
   // Loading counts only where records show (a Pages tab never waits on the server).
-  const showsRecords = searchedKinds(activeTrigger, currentTab, query, offered).some(isRecordKind)
+  const showsRecords = !hostOptions && searchedKinds(activeTrigger, currentTab, query, offered).some(isRecordKind)
   const loadingFirst = found.loading && items.length === 0 && showsRecords
   // The answer for what's typed is still on its way: it may put a better row on top.
   const searching = found.searching && showsRecords
@@ -243,10 +258,11 @@ export function CommandMenu({
       if (!item) return
       if (item.kind === 'page') onSelectPage?.(item.page)
       else if (item.kind === 'skill') onSelectSkill(item.skill)
+      else if (item.kind === 'option') mentionList?.onPick(item.option)
       else if (verb === 'open') onOpenRecord?.(item.row)
       else onMentionRecord?.(item.row)
     },
-    [onSelectPage, onSelectSkill, onOpenRecord, onMentionRecord],
+    [onSelectPage, onSelectSkill, onOpenRecord, onMentionRecord, mentionList],
   )
   const verbs = useCallback((item: MenuItem) => verbFor(activeTrigger, item), [activeTrigger])
 
@@ -399,7 +415,7 @@ export function CommandMenu({
     )
   }
   return (
-    <InlineFrame open={visible} anchorRef={anchorRef}>
+    <InlineFrame open={visible} anchorRef={anchorRef} fitAnchor={!!mentionList}>
       {body}
     </InlineFrame>
   )
@@ -411,10 +427,13 @@ export function CommandMenu({
 function InlineFrame({
   open,
   anchorRef,
+  fitAnchor = false,
   children,
 }: {
   open: boolean
   anchorRef: React.RefObject<HTMLElement | null>
+  /** No wider than the composer (a host's own list, in a narrow view: a phone, a card). */
+  fitAnchor?: boolean
   children: ReactNode
 }) {
   const floatingContainerRef = useFloatingChatContainerRef()
@@ -437,12 +456,14 @@ function InlineFrame({
         style={{
           // The chat's reading column, inset from the card walls (as the
           // other pickers above the composer: picker-popover.tsx).
-          width:
+          width: Math.min(
             measureChatReadingColumn(
               floatingContainerRef.current?.getBoundingClientRect().width ??
                 anchorRef.current?.getBoundingClientRect().width ??
                 360,
             ) - 36,
+            fitAnchor ? (anchorRef.current?.getBoundingClientRect().width || 360) - 16 : Infinity,
+          ),
           maxHeight: Math.min(room, 440),
         }}
         // The box keeps the focus, and decides when the menu goes: a press
@@ -733,6 +754,8 @@ function rowKey(item: MenuItem): string {
       return `skill:${item.skill.id}`
     case 'record':
       return `${item.row.kind}:${recordId(item.row)}`
+    case 'option':
+      return `option:${item.option.id}`
   }
 }
 
@@ -761,6 +784,8 @@ function rowData(item: MenuItem): Record<string, string> {
       const named = byKind[row.kind]
       return { 'data-record-item': `${row.kind}:${id}`, ...(named ? { [named]: id } : {}) }
     }
+    case 'option':
+      return { 'data-mention-option': item.option.id }
   }
 }
 
@@ -829,6 +854,7 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
   if (item.kind === 'skill') {
     return { title: item.skill.name, detail: item.skill.description, meta: <span className="font-mono">/{item.skill.slug}</span> }
   }
+  if (item.kind === 'option') return { title: item.option.label, detail: item.option.hint || null, meta: null }
   const row = item.row
   switch (row.kind) {
     case 'action':
@@ -889,6 +915,15 @@ function RowIcon({ item }: { item: MenuItem }) {
       <span className={cn(TILE, MUTED_TILE, 'text-base leading-none')}>{item.skill.icon}</span>
     ) : (
       <LibraryItemIcon color={item.skill.color} seed={item.skill.id} size="sm" />
+    )
+  }
+  if (item.kind === 'option') {
+    return item.option.agent ? (
+      <span className={cn(TILE, 'rounded-full bg-primary/10 text-primary')}>
+        <Bot className="size-4" strokeWidth={1.75} />
+      </span>
+    ) : (
+      <span className={cn(TILE, 'rounded-full bg-primary/10 text-[11px] font-semibold text-primary')}>{initials(item.option.label)}</span>
     )
   }
   const row = item.row

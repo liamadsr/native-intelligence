@@ -12,7 +12,10 @@ import { createRoot, type Root } from 'react-dom/client'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceId: () => 'ws-1' }))
+vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceId: () => 'ws-1', useWorkspaceEdition: () => null }))
+// The box is the main chat's composer (ChatInput): what it reads, stubbed.
+vi.mock('@/hooks/recording-context', () => ({ useRecordingStable: () => ({}) }))
+vi.mock('@/hooks/use-entity-sync', () => ({ useEntityListSync: () => {} }))
 vi.mock('@/app/account/teams-context', () => ({ useTeams: () => ({ teams: [] }) }))
 vi.mock('@/lib/voice/assistant-name-store', () => ({ useAssistantName: () => ({ name: 'Joseph' }) }))
 vi.mock('@/lib/cached-fetch', () => ({ cachedJson: async () => ({ members: [{ id: 'm-me', display_name: 'Jordan Ellery' }, { id: 'm-rosa', display_name: 'Rosa Lind' }] }) }))

@@ -23,6 +23,8 @@ import {
   removeToken,
   replaceToken,
   sameTriggerToken,
+  type ComposerMentionList,
+  type ComposerMentionOption,
 } from './command-menu-model'
 import type { OfferedPage } from '@/lib/chat-cards/page-menu'
 import { SEARCH_FLIGHT_KEY, flightWaiting } from '@/lib/chat/card-reply-flight'
@@ -73,7 +75,7 @@ export interface ChatInputVoice {
 }
 
 /** A control a host can't honour in its conversation. */
-export type ChatInputUnavailableControl = 'agent' | 'photos'
+export type ChatInputUnavailableControl = 'agent' | 'photos' | 'files'
 
 /**
  * The controls a host can't honour (a teammate is its own agent, a run's chat
@@ -194,6 +196,7 @@ export const ChatInput = memo(function ChatInput({
   unavailable,
   folders,
   environment,
+  mentionList,
 }: {
   value: string
   onChange: (value: string) => void
@@ -285,6 +288,13 @@ export const ChatInput = memo(function ChatInput({
    * the selector under the box, while `visible`. Absent: no selector.
    */
   environment?: ComposerEnvironment
+  /**
+   * The host's own `@` list (team chat: the person's agent and the members),
+   * in place of the record search: `@` lists these in the same menu, and a
+   * pick puts `@label` in the text and tells the host (`onPick`), with no
+   * chip. Absent: `@` finds records, as ever.
+   */
+  mentionList?: ComposerMentionList
 }) {
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   // ── The `/` and `@` menu (command-menu-model.ts) ───────────────────────────
@@ -780,6 +790,12 @@ export const ChatInput = memo(function ChatInput({
     onAttachRecord?.(record)
   }
 
+  // One of the host's own options: its `@label` in the text, and the host told (no chip).
+  const handleOptionPick = (option: ComposerMentionOption) => {
+    insertMention(option.label)
+    mentionList?.onPick(option)
+  }
+
   // A record picked to go in the message: by its own kind's way in.
   const handleMention = (row: MenuSearchRow) => {
     if (row.kind === 'capture') handleNoteSelect(row.capture)
@@ -939,6 +955,9 @@ export const ChatInput = memo(function ChatInput({
     },
   }
 
+  // A chat that takes no files (team chat: text only) says so in the + menu, and takes no drop or paste.
+  const filesOff = !!unavailable?.files
+
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click()
   }, [])
@@ -957,10 +976,10 @@ export const ChatInput = memo(function ChatInput({
     e.preventDefault()
     e.stopPropagation()
     dragCounterRef.current++
-    if (e.dataTransfer.types.includes('Files')) {
+    if (!filesOff && e.dataTransfer.types.includes('Files')) {
       setIsDragging(true)
     }
-  }, [])
+  }, [filesOff])
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -983,20 +1002,20 @@ export const ChatInput = memo(function ChatInput({
       dragCounterRef.current = 0
       setIsDragging(false)
       const files = Array.from(e.dataTransfer.files)
-      if (files.length > 0) onAttachFiles(files)
+      if (files.length > 0 && !filesOff) onAttachFiles(files)
     },
-    [onAttachFiles],
+    [onAttachFiles, filesOff],
   )
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const files = Array.from(e.clipboardData?.files ?? [])
-      if (files.length > 0) {
+      if (files.length > 0 && !filesOff) {
         e.preventDefault()
         onAttachFiles(files)
       }
     },
-    [onAttachFiles],
+    [onAttachFiles, filesOff],
   )
 
   // The input options (search settings) stay open at all times — clicking
@@ -1353,13 +1372,27 @@ export const ChatInput = memo(function ChatInput({
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" side="top" className="w-60 p-2">
-              <button
-                className="flex w-full items-center gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50"
-                onClick={() => { setPlusMenuOpen(false); handleFileSelect() }}
-              >
-                <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span>{unavailable?.photos ? 'Add files' : 'Add files or photos'}</span>
-              </button>
+              {unavailable?.files ? (
+                // No files here at all: the item says why, in its place.
+                <div
+                  data-composer-unavailable="files"
+                  className="flex w-full items-start gap-2.5 rounded-2xl px-2 py-2 text-sm text-muted-foreground"
+                >
+                  <Paperclip className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block">{unavailable.files.label ?? 'Files and photos'}</span>
+                    <span className="block text-xs">{unavailable.files.reason}</span>
+                  </span>
+                </div>
+              ) : (
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50"
+                  onClick={() => { setPlusMenuOpen(false); handleFileSelect() }}
+                >
+                  <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{unavailable?.photos ? 'Add files' : 'Add files or photos'}</span>
+                </button>
+              )}
               {/* A folder on this Mac for local agents (desktop only), added
                   to the environment for every chat: the Mac's own picker,
                   and its own confirm for edits. */}
@@ -1535,6 +1568,7 @@ export const ChatInput = memo(function ChatInput({
         trigger={menuToken?.trigger ?? '/'}
         query={menuToken?.query ?? ''}
         {...menuPicks}
+        mentionList={mentionList ? { options: mentionList.options, onPick: handleOptionPick } : undefined}
         onDismiss={handleMenuDismiss}
         onUnclaimedEnter={onSubmit}
         anchorRef={anchorRef}

@@ -102,6 +102,8 @@ export function useRecipeCommands() {
   return commands
 }
 
+const NO_SKILLS: readonly SkillCommand[] = []
+
 export interface SlashCommandPickerProps extends Omit<CommandMenuProps, 'skills' | 'onSelectSkill'> {
   /** A skill picked. */
   onSelect: (recipe: SkillCommand) => void
@@ -113,7 +115,8 @@ export interface SlashCommandPickerProps extends Omit<CommandMenuProps, 'skills'
  * skill changes anywhere while it's open.
  */
 export function SlashCommandPicker({ onSelect, ...props }: SlashCommandPickerProps) {
-  const { open } = props
+  // A host's own `@` list lists no skills: none are read for it.
+  const open = props.open && !props.mentionList
   const override = useComposerWorkspace()
   const [commands, setCommands] = useState<SkillCommand[]>(() => cachedCommands(override ?? getClientWorkspaceId()) ?? [])
 
@@ -140,5 +143,5 @@ export function SlashCommandPicker({ onSelect, ...props }: SlashCommandPickerPro
     if (open) loadCommands(true, override).then(setCommands, () => {})
   })
 
-  return <CommandMenu {...props} skills={commands} onSelectSkill={onSelect} />
+  return <CommandMenu {...props} skills={props.mentionList ? NO_SKILLS : commands} onSelectSkill={onSelect} />
 }
