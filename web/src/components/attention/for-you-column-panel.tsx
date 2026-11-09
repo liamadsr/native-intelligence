@@ -6,14 +6,11 @@
  * (column-compact-card.tsx; Liam, 2026-10-16: "more like Hard where you just
  * see the action button"): the card's verb as a pill and one sentence, its
  * details, other verbs and full card (AttentionCard, ReviewCard's verbs,
- * QuestionCard) in the focus view a click opens. Grouped under the bot they
- * came from (Liam, 2026-10-14: "grouped under the same agent"): one quiet
- * header per bot (its face, name, and a count when it has more than one; the
- * bots still own them), its cards stacked beneath it newest first, the bots
- * in order of their newest (groupColumnEntries). A flat list like Hard's is
- * one line: render `shown` in one list instead of `groups`. The agent's cards
- * (one face: its area work is its own) each carry a small area label ("Mail")
- * over them.
+ * QuestionCard) in the focus view a click opens. One flat list, newest
+ * first, with no headers (Liam, 11-09: the per-agent headers and area labels
+ * over the cards made it inconsistent): where a card came from is a tag on
+ * the card itself (column-compact-card.tsx columnTag: the area the agent's
+ * card came from, "Captures", "CRM", else the bot's name).
  * Mounted by
  * chat/for-you-column.tsx, which decides
  * whether there is room and places it in the chat's left gutter; it has no
@@ -33,17 +30,15 @@
  * the chat (chat-ask-card.tsx).
  *
  * Flat cost: at most `limit` cards are mounted (COLUMN_PAGE, then "Show N
- * more" adds a page; the cap counts cards in the grouped order, so a bot cut
- * by it shows its header once, and the next page carries on beneath it), no
+ * more" adds a page), no
  * card animates in or out, and the scroll fades are two booleans that change
  * only as the list reaches or leaves an end.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { AgentIcon } from '@/components/agents/agent-icon'
 import type { AgentWorkShared } from '@/components/work/agent-work-provider'
 import { useCardPickers } from '@/lib/bots/card-pickers'
-import { groupColumnEntries, type ColumnEntry, type ColumnSource } from '@/lib/bots/for-you-column'
-import { fullRowFailed, pruneFullRows, useFullRows } from '@/lib/work/full-rows'
+import { uniqueColumnEntries, type ColumnEntry } from '@/lib/bots/for-you-column'
+import { pruneFullRows, useFullRows } from '@/lib/work/full-rows'
 import { reviewCardOf } from './rail-cards'
 import { ColumnCompactCard, type ColumnShown } from './column-compact-card'
 
@@ -53,7 +48,7 @@ export const COLUMN_PAGE = 30
 /** How far the soft fade at an end of the list reaches, px. */
 const FADE_PX = 18
 
-/** `area`: the area an agent's card came from (one face: for-you-column.ts), as a small label over it. */
+/** `area`: the area an agent's card came from (one face: for-you-column.ts), its tag. */
 type Shown = ColumnShown
 
 export function ForYouColumnPanel({
@@ -69,8 +64,8 @@ export function ForYouColumnPanel({
 }) {
   const { work } = shared
   const [limit, setLimit] = useState(COLUMN_PAGE)
-  // Each bot's entries together (the bots in order of their newest), then the cap over cards.
-  const ordered = useMemo(() => groupColumnEntries(entries).flatMap((g) => g.entries), [entries])
+  // Newest first (as the bots brought them), each thing once, then the cap over cards.
+  const ordered = useMemo(() => uniqueColumnEntries(entries), [entries])
   const windowed = useMemo(() => ordered.slice(0, limit), [ordered, limit])
 
   // The reviews on show, whole (their title and deliverables): read once, shared with the bubble.
@@ -94,33 +89,6 @@ export function ForYouColumnPanel({
     }
     return out
   }, [windowed, whole])
-
-  // The ones on show that can't show: a review whose read failed, or no longer waiting.
-  const unshowable = useMemo(
-    () =>
-      windowed.filter((e) => {
-        if (e.kind !== 'review') return false
-        const row = whole.get(e.id)
-        return row ? row.status !== 'needs_review' : fullRowFailed(e.row)
-      }),
-    [windowed, whole],
-  )
-
-  // The cards on show under their bots (contiguous: `ordered` keeps each bot's
-  // together), each header counting its bot's entries less the ones that
-  // can't show.
-  const groups = useMemo(() => {
-    const totals = new Map<string, number>()
-    for (const e of ordered) totals.set(e.source.teammateId, (totals.get(e.source.teammateId) ?? 0) + 1)
-    for (const e of unshowable) totals.set(e.source.teammateId, (totals.get(e.source.teammateId) ?? 0) - 1)
-    const out: Array<{ source: ColumnSource; count: number; cards: Shown[] }> = []
-    for (const s of shown) {
-      const last = out[out.length - 1]
-      if (last && last.source.teammateId === s.source.teammateId) last.cards.push(s)
-      else out.push({ source: s.source, count: totals.get(s.source.teammateId) ?? 1, cards: [s] })
-    }
-    return out
-  }, [ordered, unshowable, shown])
 
   // Each card's workspace's lists for its pills: the one set AgentInfraHost loads for the page.
   const cardWorkspaces = useMemo(() => shown.flatMap((s) => (s.kind === 'card' ? [s.card.workspace_id] : [])), [shown])
@@ -178,25 +146,13 @@ export function ForYouColumnPanel({
         className="pointer-events-none -mx-1 min-h-0 w-[calc(100%+0.5rem)] overflow-y-auto overscroll-contain px-1 pb-1 scrollbar-hide-deep [overflow-anchor:none]"
         style={{ maskImage: mask, WebkitMaskImage: mask }}
       >
-        <ul ref={listRef} className="flex flex-col gap-4">
-          {groups.map((g) => (
-            <li key={g.source.teammateId} data-for-you-group={g.source.teammateId} className="flex min-w-0 flex-col gap-1.5">
-              <GroupHeader source={g.source} count={g.count} />
-              <ul className="flex min-w-0 flex-col gap-2">
-                {g.cards.map((s) => (
-                  <li key={s.id} data-for-you-card={s.id} className="flex min-w-0 flex-col gap-1">
-                    {s.area && (
-                      <span data-for-you-area="" className="truncate pl-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        {s.area}
-                      </span>
-                    )}
-                    {/* The card takes the pointer (the column around it doesn't). */}
-                    <div data-for-you-card-box="" className="pointer-events-auto relative min-w-0">
-                      <ColumnCompactCard entry={s} shared={shared} pickerFor={pickerFor} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
+        <ul ref={listRef} className="flex flex-col gap-2">
+          {shown.map((s) => (
+            <li key={s.id} data-for-you-card={s.id} className="flex min-w-0 flex-col">
+              {/* The card takes the pointer (the column around it doesn't). */}
+              <div data-for-you-card-box="" className="pointer-events-auto relative min-w-0">
+                <ColumnCompactCard entry={s} shared={shared} pickerFor={pickerFor} />
+              </div>
             </li>
           ))}
         </ul>
@@ -212,31 +168,5 @@ export function ForYouColumnPanel({
         )}
       </div>
     </section>
-  )
-}
-
-/**
- * An agent's header over its cards, quiet (the cards are the list): the agent mark and
- * name, and how many it has for you when that's more than one, on a faint
- * solid backing with no edge or lift (still legible on the sky).
- */
-function GroupHeader({ source, count }: { source: ColumnSource; count: number }) {
-  return (
-    <span
-      data-for-you-source={source.teammateId}
-      className="inline-flex h-5 max-w-full items-center gap-1 self-start rounded-full bg-card/70 pl-0.5 pr-2 text-[11px] font-medium text-muted-foreground dark:bg-neutral-900/70"
-    >
-      <span aria-hidden className="flex h-[18px] w-[18px] shrink-0 items-center justify-center">
-        <AgentIcon className="h-3 w-3" />
-      </span>
-      <span data-for-you-group-name="" className="truncate">
-        {source.name}
-      </span>
-      {count > 1 && (
-        <span data-for-you-group-count="" className="shrink-0 tabular-nums text-muted-foreground">
-          {count}
-        </span>
-      )}
-    </span>
   )
 }
