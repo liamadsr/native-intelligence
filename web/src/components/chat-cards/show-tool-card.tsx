@@ -50,7 +50,6 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { Bookmark, CalendarDays, LayoutList, Mail, Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { hasTrafficLights } from '@/lib/platform'
 import { countLabel, type CardSpec } from '@/lib/chat-cards/kinds'
 import type { EditionDefinition } from '@/lib/editions/manifest'
 import { useWorkspaceEdition } from '@/app/account/workspace-switcher'
@@ -236,19 +235,25 @@ function OverlayButton({ label, onClick, testId, children }: { label: string; on
  */
 const FULL_SCREEN_STAGE = 'flex min-h-0 w-full flex-1 items-center justify-center [container-type:size]'
 const FULL_SCREEN_COLUMN = 'flex flex-col'
-/** The room under the stage's top for the card: the stage less the controls' row. */
-const FULL_SCREEN_ROOM = 'calc(100cqh - 3.75rem)'
-/** The card's width: 16:10 of the room, the 1440px cap, or the window's width. */
-const FULL_SCREEN_WIDTH = `min(100cqw, 1440px, calc(${FULL_SCREEN_ROOM} * 1.6))`
-/** Plain inline CSS (not Tailwind arbitrary values), so the math is exactly what reaches the browser. */
-const FULL_SCREEN_COLUMN_STYLE: React.CSSProperties = { width: FULL_SCREEN_WIDTH }
-const FULL_SCREEN_FRAME_STYLE: React.CSSProperties = {
-  height: `max(calc(${FULL_SCREEN_WIDTH} / 1.6), calc(${FULL_SCREEN_ROOM} - (100cqw - ${FULL_SCREEN_WIDTH}) * 10))`,
+/**
+ * The column and the frame's size, for a room: the stage less the controls'
+ * row under the card (a card from the chat: its Minimize), or less a small
+ * margin (a page the person opened: no row, its X is in its header).
+ * Plain inline CSS (not Tailwind arbitrary values), so the math is exactly
+ * what reaches the browser.
+ */
+function fullScreenSizes(room: string): { column: React.CSSProperties; frame: React.CSSProperties } {
+  /** The card's width: 16:10 of the room, the 1440px cap, or the window's width. */
+  const width = `min(100cqw, 1440px, calc(${room} * 1.6))`
+  return {
+    column: { width },
+    frame: { height: `max(calc(${width} / 1.6), calc(${room} - (100cqw - ${width}) * 10))` },
+  }
 }
-/** The full-screen layer: the window from the app rail's edge (0 without the rail). */
-const FULL_SCREEN_LAYER_STYLE: React.CSSProperties = { left: 'var(--app-rail-w, 0px)' }
-/** The layer's X in the Mac app: 84px from the window's edge (clear of the traffic lights), at least the usual 1rem from the layer's. */
-const CLOSE_CLEAR_OF_LIGHTS_STYLE: React.CSSProperties = { left: 'max(1rem, calc(84px - var(--app-rail-w, 0px)))' }
+const FULL_SCREEN_WITH_CONTROLS = fullScreenSizes('calc(100cqh - 3.75rem)')
+const FULL_SCREEN_PAGE = fullScreenSizes('calc(100cqh - 1rem)')
+/** The full-screen layer: the window from the app rail's edge and under its header (rail/app-rail.tsx; 0 without the rail). */
+const FULL_SCREEN_LAYER_STYLE: React.CSSProperties = { left: 'var(--app-rail-w, 0px)', top: 'var(--app-header-bottom, 0px)' }
 /** The row under the card (the button and its gap: 3.75rem, as the column allows). */
 const FULL_SCREEN_CONTROLS = 'flex h-[3.75rem] shrink-0 items-end justify-end gap-2'
 
@@ -798,6 +803,10 @@ export function ShowToolCard({
   // the frame it is drawn in, header and page together, as one card.
   const pulse = <ListenFramePulseHere focused={fullScreen} drawn />
 
+  // A page the person opened, full screen (kept, not the live capture's
+  // notes): closed from its header. A card from the chat closes with its
+  // Minimize, under it: back into its message.
+  const pageClose = kept && shownFullScreen && !dockMatch
   const header = (
     // The title and the controls only: the count and the card's number are
     // the agent's business (its note), not the reader's. A container, for the
@@ -813,6 +822,22 @@ export function ShowToolCard({
       <div className="ml-auto flex items-center gap-0.5">
         <div ref={rightSlotRef} data-card-header-slot="right" className="flex shrink-0 items-center empty:hidden" />
         <SaveAsView spec={spec} configRef={configRef} />
+        {/* A page the person opened (the app rail, `/`): its one close, here
+            in its own header (Liam, 11-09: the floating X "feels so out of
+            place", and Minimize did the same as it). */}
+        {pageClose && (
+          <button
+            type="button"
+            onClick={() => store.exitFullScreen()}
+            aria-label="Close"
+            title="Close"
+            data-testid="card-close"
+            data-card-header-close=""
+            className="ml-1 grid size-7 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          >
+            <X className="size-4" strokeWidth={1.75} />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -829,13 +854,12 @@ export function ShowToolCard({
     </button>
   )
 
-  // A kept card is put away, not drawn into the chat: its X closes it.
-  // The docked capture's goes back to its notes.
-  const closeLabel = dockMatch ? 'Back to notes' : kept ? 'Close' : 'Back into the chat'
   // What the card is, on its roots (data-chat-card / data-chat-card-fullscreen),
   // for UI automation (src/lib/automation/README.md): its kind, and a list's entity.
   const kindAttrs = { 'data-card-kind': spec.kind, 'data-card-entity': spec.kind === 'list' ? spec.entity_type : undefined }
-  const minimizeLabel = dockMatch ? 'Back to notes' : kept ? 'Minimize' : 'Back into the chat'
+  // The docked capture's goes back to its notes; a card from the chat, into its message.
+  const minimizeLabel = dockMatch ? 'Back to notes' : 'Back into the chat'
+  const sizes = pageClose ? FULL_SCREEN_PAGE : FULL_SCREEN_WITH_CONTROLS
 
   const overlay = !shownFullScreen
     ? null
@@ -855,7 +879,10 @@ export function ShowToolCard({
             // at the app rail's edge (--app-rail-w) and, beside the rail, has
             // no veil (`card-page-layer`): the page sits on the app's own
             // background and the rail stays at hand.
-            className="card-focus-backdrop card-page-layer fixed inset-y-0 right-0 z-50 flex flex-col items-center px-4 pb-6 pt-20 outline-none sm:px-16"
+            // pt-14 below `md` (clear of the Mac app's traffic lights, no rail
+            // header there); from `md` up the layer starts under the rail's
+            // header already.
+            className="card-focus-backdrop card-page-layer fixed inset-y-0 right-0 z-50 flex flex-col items-center px-4 pb-6 pt-14 outline-none sm:px-16 md:pt-2"
             style={FULL_SCREEN_LAYER_STYLE}
             // A press anywhere outside the card (the space all round, beside
             // the button under it) puts it back in its message.
@@ -865,31 +892,28 @@ export function ShowToolCard({
               store.exitFullScreen()
             }}
           >
-            {/* Clear of the macOS traffic lights in the Mac app (over the
-                app rail when it shows, so the layer, after it, needs no
-                more than its usual inset). The layer's pt-20 leaves ~20px
-                between this button (44px, from 12-16px down) and the card's
-                top, which reaches up to it whenever the card fills the
-                room's height (Liam, 10-25). */}
-            <div className={cn('absolute', hasTrafficLights() ? 'top-3' : 'left-4 top-4')} style={hasTrafficLights() ? CLOSE_CLEAR_OF_LIGHTS_STYLE : undefined}>
-              <OverlayButton label={closeLabel} onClick={() => store.exitFullScreen()} testId="card-close">
-                <X className="size-5" strokeWidth={2} />
-              </OverlayButton>
-            </div>
+            {/* No floating X (Liam, 11-09: "feels so out of place"): a page
+                closes from its header, a card from the chat with Minimize
+                under it, and either with Esc or a press outside it. */}
             <FullScreenInteractive />
             <div className={FULL_SCREEN_STAGE}>
-            <div className={FULL_SCREEN_COLUMN} style={FULL_SCREEN_COLUMN_STYLE}>
-              <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={FULL_SCREEN_FRAME_STYLE}>
+            <div className={FULL_SCREEN_COLUMN} style={sizes.column}>
+              <div ref={fullScreenFrameRef} {...{ [CARD_FRAME_ATTR]: '' }} className={cn('relative flex w-full flex-col overflow-hidden shadow-2xl', CARD_GLASS_FRAME)} style={sizes.frame}>
                 <CardGlass />
                 {header}
                 <BodySlot host={bodyHost} className="relative z-10 min-h-0 flex-1" />
                 {pulse}
               </div>
-              <div className={FULL_SCREEN_CONTROLS}>
-                <OverlayButton label={minimizeLabel} onClick={() => store.exitFullScreen()}>
-                  <Minimize2 className="size-4" strokeWidth={2} />
-                </OverlayButton>
-              </div>
+              {/* Minimize: for a card from the chat (back into its message) or
+                  the capture's notes; a page the person opened has its X in
+                  its header instead (Liam, 11-09: the two did the same). */}
+              {!pageClose && (
+                <div className={FULL_SCREEN_CONTROLS}>
+                  <OverlayButton label={minimizeLabel} onClick={() => store.exitFullScreen()} testId="card-minimize">
+                    <Minimize2 className="size-4" strokeWidth={2} />
+                  </OverlayButton>
+                </div>
+              )}
             </div>
             </div>
           </div>,

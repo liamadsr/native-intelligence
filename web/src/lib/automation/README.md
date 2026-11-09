@@ -78,7 +78,8 @@ These are attributes only. Several hooks already existed and are reused rather t
 | Card kind, on both roots | `data-card-kind="<kind>"`, plus `data-card-entity="<entity>"` for `list` cards (Captures is `list` / `capture`) |
 | Card back | `[data-testid="card-back"]` |
 | Card forward | `[data-testid="card-forward"]` |
-| Card close (full screen ✕, and an inline card's Close) | `[data-testid="card-close"]` |
+| Card close (a page's ✕ in its header, full screen; an inline card's Close) | `[data-testid="card-close"]` |
+| Card minimize (a card enlarged from the chat, full screen: back into its message) | `[data-testid="card-minimize"]` |
 | Captures list row | `[data-testid="capture-row"][data-capture-id="<id>"]` |
 | Capture detail root | `[data-testid="capture-detail"][data-capture-id="<id>"]` |
 | Proposed change row | `[data-proposal-row]` (existing) with `data-proposal-id="<id>"` and `data-proposal-status="pending\|accepted\|dismissed"` |

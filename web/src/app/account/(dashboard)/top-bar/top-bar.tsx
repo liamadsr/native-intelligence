@@ -11,8 +11,21 @@ import { useHotkeys } from '@/lib/hotkeys'
 import { WorkspaceSwitcher } from '../../workspace-switcher'
 import { ListenModeToggle } from '@/components/read-aloud/listen-mode-toggle'
 import { ForYouToggle, SidePanelToggle } from '../side-panels/side-panel-toggles'
+import { ComposerCaptureButton } from '../chat/composer-capture-button'
+import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { SearchButton } from './search-button'
 
+/**
+ * Where the bar's first control starts: past the traffic lights (or 4px in),
+ * and from `md` up past the app rail's header too (rail/app-rail.tsx, Liam
+ * 11-09: Home, the workspace and Search in one pill at the top left), 8px
+ * after it (`--app-header-right`, the header's right edge from the window's,
+ * 0 while it is hidden).
+ */
+function leadInset(trafficLights: boolean): string {
+  const base = topBarLeftInset(trafficLights)
+  return `max(${typeof base === 'number' ? `${base}px` : base}, calc(var(--app-header-right, 0px) - var(--app-rail-w, 0px) + 8px))`
+}
 
 /**
  * The top bar's controls: For you's toggle leads it at the far left (from
@@ -38,7 +51,8 @@ export function TopBar() {
   // desktop-only — it renders on the web build too, where SSR actually runs.
   const mounted = useSyncExternalStore(subscribeMounted, getMountedSnapshot, getMountedServerSnapshot)
   const settingsOverlay = useOptionalSettingsOverlay()
-  const { isRecording, startRecording } = useRecordingStable()
+  const recording = useRecordingStable()
+  const { isRecording, startRecording } = recording
 
   // Global hotkeys
   useHotkeys([
@@ -95,15 +109,16 @@ export function TopBar() {
             // start, so the rest of the column stays drag surface.
             'justify-self-start pr-2',
           )}
-          style={{ paddingLeft: topBarLeftInset(trafficLights) }}
+          style={{ paddingLeft: leadInset(trafficLights) }}
         >
           <TooltipProvider delayDuration={300}>
-            {/* For you's toggle, at the far left over its column (side-panels/
-                side-panel-toggles.tsx), as the side panel's ends the bar over
-                its panel: whenever the bots brought something, the column
-                beside the chat or not (Liam, 11-09: "always visible like the
-                button we have on the right side"). */}
-            <ForYouToggle />
+            {/* For you's toggle (side-panels/side-panel-toggles.tsx), on a
+                phone only, at the far left over its column: from `md` up it's
+                in the app rail's header (rail/app-rail.tsx; Liam, 11-09: the
+                workspace's thumbnail, then For you, then Search). */}
+            <div data-tab-bar-phone-only="" className="contents md:hidden">
+              <ForYouToggle />
+            </div>
             {/* Search, on a phone only (below `md`, where there is no app
                 rail): from `md` up the rail has it (rail/app-rail.tsx; Liam,
                 11-09). A round pill of its own: the `/` palette, flying out
@@ -127,7 +142,7 @@ export function TopBar() {
       {!mounted && (
         <div
           className="shrink-0 self-stretch"
-          style={{ width: topBarLeftInset(trafficLights) }}
+          style={{ width: leadInset(trafficLights) }}
           data-tauri-drag-region
         />
       )}
@@ -168,12 +183,30 @@ export function TopBar() {
             Draws nothing where read-aloud can't play (a browser). z-10 lifts
             it above the WindowDragStrip. */}
         <ListenModeToggle className="z-10" />
-        {/* The side panel's toggle (Agents · Plan · Connections, side-panels/
-            side-panels.tsx), over the panel it opens. After hydration only
-            (its Tooltip takes a useId, see above). */}
+        {/* From `md` up, the right header (Liam, 11-09: "move the capture
+            button and make a component like the one we have on the left"):
+            one glass pill, as the app rail's header is (rail/app-rail.tsx),
+            holding Capture (moved out of the chat's composer:
+            chat/composer-capture-button.tsx, the recording's controls while
+            one runs) and the side panel's toggle (Agents · Plan ·
+            Connections, side-panels/side-panels.tsx), over the panel it
+            opens. Below `md` the toggle is the bar's pill, as before, and
+            Capture stays in the composer. After hydration only (their
+            Tooltips take a useId, see above). */}
         {mounted && (
           <TooltipProvider delayDuration={300}>
-            <SidePanelToggle />
+            <div
+              data-top-bar-right-header=""
+              // -my-px: its 42px in the bar's 40px row, level with the rail's header (3px from the top, as it is).
+              // A capsule, as the rail's header: its ends follow the round buttons inside.
+              className={cn('relative z-10 -my-px hidden items-center gap-0.5 rounded-full border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+            >
+              <ComposerCaptureButton recording={recording} variant="header" />
+              <SidePanelToggle variant="header" />
+            </div>
+            <div data-tab-bar-phone-only="" className="contents md:hidden">
+              <SidePanelToggle />
+            </div>
           </TooltipProvider>
         )}
         {/* The workspace + account pill (the avatar), at the very end of the

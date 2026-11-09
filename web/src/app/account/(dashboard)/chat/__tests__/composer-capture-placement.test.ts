@@ -3,11 +3,13 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 /**
- * Capture lives once, in the main chat's composer, left of the mic and Send
- * (Liam, 2026-10-19: moved out of the top bar, "just the icon", "Start
- * capture" on hover): ComposerCaptureButton (../composer-capture-button). The
- * top bar's Capture pill (top-bar/capture-bar-button, with its calendar) is
- * no longer rendered anywhere.
+ * Capture (ComposerCaptureButton, ../composer-capture-button): from `md` up in
+ * the top bar's right header, beside the side panel's toggle (Liam, 11-09:
+ * "move the capture button and make a component like the one we have on the
+ * left"); below `md` (a phone, where that header doesn't show) in the main
+ * chat's composer, left of the mic and Send (Liam, 2026-10-19). The old top
+ * bar Capture pill (top-bar/capture-bar-button, with its calendar) is no
+ * longer rendered anywhere.
  *
  * A source check, because the composer and the top bar are too heavy to
  * mount here and the property is where the control is rendered at all. Its
@@ -39,16 +41,25 @@ const renderedIn = (tag: string) =>
     .filter((file) => strip(readFileSync(file, 'utf8')).includes(tag))
     .map((file) => relative(ROOT, file))
 
-describe('Capture: once, in the main chat’s composer', () => {
+describe('Capture: the top bar’s right header from md up, the main chat’s composer on a phone', () => {
   const input = strip(readFileSync(join(ROOT, CHAT_INPUT), 'utf8'))
 
-  it('is rendered in the composer only, for the main chat, and the top bar has no Capture', () => {
-    expect(renderedIn('<ComposerCaptureButton')).toEqual([CHAT_INPUT])
-    expect(input).toContain('{mainComposer && recording && <ComposerCaptureButton recording={recording} />}')
+  it('is rendered in the top bar’s right header and, for a phone only, in the main chat’s composer', () => {
+    expect(renderedIn('<ComposerCaptureButton').sort()).toEqual([CHAT_INPUT, TOP_BAR].sort())
+    // The composer's: the main chat's, below md only.
+    const phoneOnly = input.indexOf('data-composer-capture-phone-only="" className="contents md:hidden"')
+    expect(phoneOnly).toBeGreaterThan(-1)
+    expect(input.indexOf('<ComposerCaptureButton recording={recording} />', phoneOnly)).toBeGreaterThan(phoneOnly)
+    expect(input).toContain('{mainComposer && recording && (')
+    // The top bar's: in its right header (md and up), with the side panel's toggle.
+    const bar = strip(readFileSync(join(ROOT, TOP_BAR), 'utf8'))
+    const header = bar.indexOf('data-top-bar-right-header=""')
+    expect(header).toBeGreaterThan(-1)
+    expect(bar.indexOf('<ComposerCaptureButton recording={recording} variant="header" />', header)).toBeGreaterThan(header)
+    expect(bar.indexOf('<SidePanelToggle variant="header" />', header)).toBeGreaterThan(header)
     // The chat panel hands it the recording it reads already.
     expect(strip(readFileSync(join(ROOT, 'src/app/account/(dashboard)/chat/chat-panel.tsx'), 'utf8'))).toContain('recording={recording}')
     expect(renderedIn('<CaptureBarButton')).toEqual([])
-    expect(strip(readFileSync(join(ROOT, TOP_BAR), 'utf8'))).not.toMatch(/Capture(Bar)?Button/)
   })
 
   it('sits right of the row’s spacer, left of the mic and the send slot', () => {

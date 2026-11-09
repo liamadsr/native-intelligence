@@ -27,8 +27,9 @@
 // last saw the bots, the peeks dismissed), still cleared so a device from
 // before signs out clean. Most of it is not keyed by user, hence the sign-out
 // wipe. Also this device's copy of the agent's look and name
-// (`dial8:agent-look`, `dial8:voice:assistant-name`; the account keeps the
-// real ones, lib/account-setting.ts), so the next account to sign in starts
+// (`dial8:agent-look`, `dial8:voice:assistant-name`) and of the app rail's
+// bar (`dial8:rail-pages`; the account keeps the real ones,
+// lib/account-setting.ts), so the next account to sign in starts
 // on the default rather than the last one's, and a desktop HUD still open
 // drops it at once.
 const WIPE_KEY_PREFIXES = [
@@ -40,6 +41,7 @@ const WIPE_KEY_PREFIXES = [
   'dial8:bots:peek',
   'dial8:agent-look',
   'dial8:voice:assistant-name',
+  'dial8:rail-pages',
 ] as const
 
 let wipeActive = false

@@ -76,6 +76,27 @@ describe('For you’s toggle', () => {
     expect(store.getSidePanelState().leftOpen).toBe(true)
   })
 
+  it('is an inbox tray, not a house (Home is the rail header’s)', () => {
+    render()
+    expect(toggle()?.querySelector('svg')?.getAttribute('class')).toContain('lucide-inbox')
+    expect(toggle()?.querySelector('.lucide-house')).toBeNull()
+  })
+
+  it('in the app rail’s header: round and flat like its other buttons, tinted while the column shows (Liam: closed but highlighted was wrong)', () => {
+    act(() => store.reportSpacePlan(true))
+    act(() => root.render(<TooltipProvider><ForYouToggle variant="header" /></TooltipProvider>))
+    expect(toggle()?.getAttribute('data-variant')).toBe('header')
+    expect(toggle()?.hasAttribute('data-lit')).toBe(true)
+    expect(toggle()!.className.split(' ')).toContain('bg-foreground/[0.08]')
+    // Round, as the rail's buttons (Liam, 11-09), with no border of its own (the bar's pill has it).
+    expect(toggle()!.className.split(' ')).toContain('rounded-full')
+    expect(toggle()!.className.split(' ')).not.toContain('border')
+    // Closed: plain.
+    act(() => store.reportSpacePlan(false))
+    expect(toggle()?.hasAttribute('data-lit')).toBe(false)
+    expect(toggle()!.className.split(' ')).not.toContain('bg-foreground/[0.08]')
+  })
+
   it('none with nothing brought', () => {
     entries.count = 0
     render()
@@ -94,5 +115,21 @@ describe('the side panel’s toggle', () => {
     expect(side()?.getAttribute('aria-expanded')).toBe('true')
     expect(side()?.hasAttribute('data-lit')).toBe(false)
     expect(side()!.className.split(' ')).not.toContain('bg-muted')
+  })
+})
+
+describe('the side panel’s toggle in the top bar’s right header', () => {
+  const side = () => container.querySelector<HTMLButtonElement>('[data-side-panel-toggle]')
+  it('is round and flat, tinted while the panel is open and plain while it’s closed (Liam, 11-09)', () => {
+    act(() => root.render(<TooltipProvider><SidePanelToggle variant="header" /></TooltipProvider>))
+    expect(side()?.getAttribute('data-variant')).toBe('header')
+    expect(side()!.className.split(' ')).toContain('rounded-full')
+    // A 32px circle with nothing running (not a 34×32 oval).
+    expect(side()!.className.split(' ')).toContain('w-8')
+    expect(side()?.getAttribute('aria-expanded')).toBe('false')
+    expect(side()!.className.split(' ')).not.toContain('bg-foreground/[0.08]')
+    act(() => side()!.click())
+    expect(side()?.getAttribute('aria-expanded')).toBe('true')
+    expect(side()!.className.split(' ')).toContain('bg-foreground/[0.08]')
   })
 })

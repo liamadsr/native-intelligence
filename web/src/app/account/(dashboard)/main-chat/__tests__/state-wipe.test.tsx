@@ -57,7 +57,8 @@ const userKeys = () =>
       k.startsWith('dial8:bots:bubble') ||
       k.startsWith('dial8:bots:seen') ||
       k === 'dial8:agent-look' ||
-      k === 'dial8:voice:assistant-name',
+      k === 'dial8:voice:assistant-name' ||
+      k === 'dial8:rail-pages',
   )
 
 beforeEach(() => {
@@ -96,7 +97,9 @@ describe('beginPersistedTabStateWipe — sign-out wipe survives the pagehide flu
     // This device's copy of the agent's look and name (the account keeps the real ones).
     localStorage.setItem('dial8:agent-look', JSON.stringify({ type: 'cat', glasses: 'none', hat: 'none', headphones: false, bowTie: false }))
     localStorage.setItem('dial8:voice:assistant-name', JSON.stringify('Ada'))
-    expect(userKeys().length).toBeGreaterThanOrEqual(8)
+    // This device's copy of the app rail's bar (the account keeps the real one).
+    localStorage.setItem('dial8:rail-pages', JSON.stringify({ order: ['mail', 'docs'], hidden: ['deals'] }))
+    expect(userKeys().length).toBeGreaterThanOrEqual(9)
     expect(isTabStateWipeActive()).toBe(false)
 
     beginPersistedTabStateWipe()

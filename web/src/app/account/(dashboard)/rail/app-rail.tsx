@@ -1,105 +1,164 @@
 'use client'
 
 /**
- * The app rail (Liam, 11-09, from his reference): a thin band of icons down
- * the window's left, the way to move between the pages. Top to bottom: New,
- * Search, Home, then the pages (./rail-pages.ts: Docs, Mail, Team chat,
- * My Actions, Calendar, Agents & skills, the CRM), and the person's avatar at
- * the foot.
+ * The app rail (Liam, 11-09, from his references, then Miro's): the way to
+ * move between the pages, floating at the window's left.
  *
- *   New      puts any page away and puts the cursor in the composer: the
- *            agent makes things on request (no Create dialog: Liam, 10-20).
+ *   the header  one pill at the top left, over the top bar: the
+ *               workspace's thumbnail (its account menu), For you's button,
+ *               and Search (Liam, 11-09).
+ *   the bar     down the left, just under the header: the pages the
+ *               person has pinned, in their order (./rail-pages.ts
+ *               railLayout; by default every page the workspace has on, a
+ *               hairline between its groups: your work, plans, customers,
+ *               agents), then Customize bar's icon. Where the window is too
+ *               short it scrolls.
+ *
+ * The person's bar (Liam, 11-09: "customise the navigation like move them up
+ * and down, right click and pin and unpin them … a setting icon that lets me
+ * turn on and off what shows on the navbar"), kept on their account
+ * (lib/rail-prefs-store.ts): drag an icon up or down (./rail-drag.ts), or
+ * Alt+↑/↓ on it; right-click it for Unpin from bar, Move up, Move down and
+ * Customize bar…; the icon at the bar's end opens Customize bar, a switch per
+ * page. Hiding an icon never turns its page off: it still opens from `/`,
+ * Search and links. A custom order is one list, no hairlines.
+ *
  *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
  *            Search is a phone's only now: Liam, 11-09).
- *   Home     the chat: puts the page in front away.
+ *   (No Home or New button, Liam 11-09: "we don't need this button". A
+ *   page's X and Esc put it away; the composer is the chat's.)
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
- *   avatar   the workspace and account menu (WorkspaceSwitcher `rail`: switch
- *            workspace, Settings, sign out…), the one place it lives from `md`
- *            up (Liam, 11-09: the top bar's pill is a phone's only now).
+ *   workspace  the workspace and account menu (WorkspaceSwitcher `header`:
+ *            switch workspace, Settings, sign out…), the one place it lives
+ *            from `md` up (Liam, 11-09: the top bar's pill is a phone's only now).
  *
- * The page in front is lit (components/chat-cards/front-card.ts), Home with
- * none. The full-screen layer starts at the rail's edge (show-tool-card.tsx),
- * so the rail stays at hand while a page is open.
+ * The page in front is lit (components/chat-cards/front-card.ts). A page full screen starts at the rail's edge and under the header
+ * (show-tool-card.tsx), so both stay at hand while a page is open.
  *
  * Its width is `--app-rail-w` (tailwind.css, `[data-app-rail]`): the shell
- * moves its top bar and chat clear of it, and the full-screen layer starts
- * after it. Below `md` the rail is hidden and the width is 0, as before.
- * In the Mac app the window has no title bar: the rail's top is window drag
- * surface, with room for the traffic lights over it.
+ * moves its top bar and chat clear of it. The header's right edge and bottom
+ * are `--app-header-right` and `--app-header-bottom` on <html>: the top bar's
+ * controls start after it. Below `md` all of it is hidden, as before. In the
+ * Mac app the header sits past the traffic lights, level with them.
  *
- * It is a panel like the others (Liam, 11-09: "match the glass effect of the
- * actual panels", "rounding out the edges … the same as the other panels and
- * pages"): a floating card inset from the window's edges, with the pages'
- * corners and the floating cards' glass (chat-cards/card-glass.tsx,
- * attention/card-skin.ts COLUMN_CARD_SKIN): their translucent fill, blur,
- * fine edge and soft shadow. Like them it re-composites while the sky moves.
- * In the Mac app it starts under the traffic lights, the window-drag strip
- * above it.
+ * Each pill is a panel like the others (Liam, 11-09: "match the glass effect
+ * of the actual panels"): the floating cards' glass (attention/card-skin.ts
+ * COLUMN_CARD_SKIN), their translucent fill, blur, fine edge and soft shadow.
  *
  * Flat cost: no animation, no polling; it redraws when a card enters or leaves
  * full screen, or the workspace's edition changes.
  */
-import { useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
-import { Building2, Calendar, Folder, House, ListChecks, Mail, MessagesSquare, Plus, Search, Sparkles, type LucideIcon } from 'lucide-react'
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import {
+  AudioLines,
+  Brain,
+  Building2,
+  Calendar,
+  Contact,
+  FlaskConical,
+  Folder,
+  FolderKanban,
+  HandCoins,
+  LayoutList,
+  ListChecks,
+  Mail,
+  Megaphone,
+  MessagesSquare,
+  Search,
+  Send,
+  Settings2,
+  Sparkles,
+  Target,
+  Telescope,
+  Users,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getMountedServerSnapshot, getMountedSnapshot, subscribeMounted, useHasTrafficLights, useIsDesktop } from '@/components/desktop-titlebar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
+import { Button } from '@/components/ui/button'
 import { WorkspaceSwitcher, useWorkspaceEdition } from '@/app/account/workspace-switcher'
 import { pagesFor } from '@/lib/chat-cards/page-menu'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
+import { ForYouToggle } from '../side-panels/side-panel-toggles'
 import { useModKeyLabel } from '@/lib/hotkeys'
-import { closeFrontCards, frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
-import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
+import { isDefaultRailPrefs, type RailPrefs } from '@/lib/rail-prefs'
+import { saveRailPrefs, useRailPrefs } from '@/lib/rail-prefs-store'
+import {
+  activeRailItem,
+  moveRailPage,
+  moveRailPageBy,
+  railLayout,
+  railPagesFor,
+  resetRailPrefs,
+  setRailPagePinned,
+  type OfferedRailPage,
+  type RailLayout,
+  type RailPageId,
+} from './rail-pages'
+import { startRailDrag } from './rail-drag'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
 export const APP_RAIL_ATTR = 'data-app-rail'
 
+/** On <html>: the header's right edge and bottom, px (0 while it is hidden, below `md`). */
+export const HEADER_RIGHT_VAR = '--app-header-right'
+export const HEADER_BOTTOM_VAR = '--app-header-bottom'
+
+/** The header, centred on the top bar's row: 8px in on the web; past the traffic lights, level with them, in the Mac app. */
+const HEADER_STYLE: React.CSSProperties = { left: 8, top: 3 }
+const HEADER_STYLE_LIGHTS: React.CSSProperties = { left: 78, top: 9 }
+/** The pills' column: the rail's width, under the header. */
+// Its top 5px under the header's: level with the panels' tops (half a gutter under the top bar).
+const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(var(--app-header-bottom, 0px) + 5px)' }
+/** A floating pill: the panels' glass (COLUMN_CARD_SKIN), rounded, its buttons stacked. */
+// A capsule (rounded-full): its ends follow the round buttons inside it, 4px
+// round them (Liam, 11-09: the circles and their containers didn't match).
+const PILL = cn('relative flex flex-col items-center gap-0.5 rounded-full border border-border/60 p-1', COLUMN_CARD_SKIN)
+/** The hairline between two of the bar's groups, and before Customize bar. */
+const HAIRLINE = 'my-1 h-px w-5 shrink-0 bg-foreground/10'
+
+/** Each page's icon: the rail's own for Liam's reference pages, the `/` menu's for the rest (command-menu.tsx). */
 const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
   docs: Folder,
   mail: Mail,
   'team-chat': MessagesSquare,
   actions: ListChecks,
   calendar: Calendar,
+  captures: AudioLines,
+  projects: FolderKanban,
+  initiatives: Target,
+  knowledge: Brain,
+  flows: Workflow,
+  companies: Building2,
+  contacts: Contact,
+  deals: HandCoins,
+  prospecting: Telescope,
+  sequences: Send,
+  campaigns: Megaphone,
   agents: Sparkles,
-  crm: Building2,
+  evals: FlaskConical,
+  teams: Users,
 }
 
 // A tint of the foreground for hover and the lit page: it reads on the rail's
 // surface in light and dark alike (bg-muted is the surface's own shade in light).
+// 32px, 2px apart: every page fits a 900px window (more scroll in a shorter one).
+// Round (Liam, 11-09: "the hover states should be circle"), the lit one too.
 const ITEM =
-  'relative flex size-9 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
+  'relative flex size-8 shrink-0 items-center justify-center rounded-full text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none'
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
-
-/** How often, and how long, New tries for the cursor. */
-const FOCUS_RETRY_MS = 25
-const FOCUS_WAIT_MS = 600
-
-/**
- * The cursor in the main chat's composer, once it can take it. Under a
- * full-screen page the chat doesn't paint (visibility: hidden takes no focus);
- * the page leaves on the chat's next commit, and the composer then eases back
- * in (its `transition: all` takes visibility too, hidden for its first frame).
- * So it tries until the field has the focus, for a moment at most: a short
- * poll on a click, nothing at rest.
- */
-function focusComposerWhenClear(): void {
-  const started = Date.now()
-  const attempt = () => {
-    const field = document.querySelector<HTMLTextAreaElement>('#dial8-chat-strip-slot [data-chat-input-root] textarea')
-    if (!frontCard() && field) {
-      field.focus({ preventScroll: true })
-      if (document.activeElement === field) return
-    }
-    if (Date.now() - started < FOCUS_WAIT_MS) window.setTimeout(attempt, FOCUS_RETRY_MS)
-  }
-  attempt()
-}
 
 /** The page in front takes the keys (its own: mail's j/k, Esc). */
 function focusFrontPage(): void {
@@ -147,6 +206,160 @@ function RailButton({
   )
 }
 
+/** Save the bar (when it changed): the bar moves at once, then the account takes it. */
+function commit(next: RailPrefs | null): boolean {
+  if (!next) return false
+  void saveRailPrefs(next)
+  return true
+}
+
+/** A page's icon in the bar: a click opens it, a drag or Alt+↑/↓ moves it, a right-click offers its menu. */
+function PageButton({
+  entry: { def, page },
+  index,
+  count,
+  active,
+  onOpen,
+  onMoveTo,
+  onUnpin,
+  onCustomize,
+  onMenuClosed,
+}: {
+  entry: OfferedRailPage
+  index: number
+  count: number
+  active: boolean
+  onOpen: () => void
+  onMoveTo: (to: number) => void
+  onUnpin: () => void
+  onCustomize: () => void
+  onMenuClosed: (event: Event) => void
+}) {
+  const Icon = PAGE_ICONS[def.id] ?? LayoutList
+  return (
+    <ContextMenu modal={false}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ContextMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={page.label}
+              aria-current={active ? 'page' : undefined}
+              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+              data-app-rail-item={def.id}
+              data-app-rail-page=""
+              onClick={onOpen}
+              onPointerDown={(e) => {
+                if (e.button !== 0 || e.ctrlKey || e.metaKey) return
+                startRailDrag(e.currentTarget, e.pointerId, e.clientY, onMoveTo)
+              }}
+              onKeyDown={(e) => {
+                if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                e.preventDefault()
+                onMoveTo(index + (e.key === 'ArrowUp' ? -1 : 1))
+              }}
+              className={cn(ITEM, 'data-[dragging]:opacity-40', active && ITEM_ACTIVE)}
+            >
+              <Icon className="size-[18px]" strokeWidth={1.75} />
+            </button>
+          </ContextMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
+          <span>{page.label}</span>
+        </TooltipContent>
+      </Tooltip>
+      <ContextMenuContent data-app-rail-menu={def.id} className="min-w-44" onCloseAutoFocus={onMenuClosed}>
+        <ContextMenuItem data-app-rail-menu-item="unpin" onSelect={onUnpin}>
+          Unpin from bar
+        </ContextMenuItem>
+        <ContextMenuItem data-app-rail-menu-item="up" disabled={index === 0} onSelect={() => onMoveTo(index - 1)}>
+          Move up
+        </ContextMenuItem>
+        <ContextMenuItem data-app-rail-menu-item="down" disabled={index === count - 1} onSelect={() => onMoveTo(index + 1)}>
+          Move down
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem data-app-rail-menu-item="customize" onSelect={onCustomize}>
+          Customize bar…
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+/** Customize bar: its icon at the bar's end, and beside the bar a switch per page (on: its icon shows). */
+function CustomizeBar({
+  layout,
+  prefs,
+  open,
+  onOpenChange,
+  onPinned,
+  onReset,
+}: {
+  layout: RailLayout
+  prefs: RailPrefs | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onPinned: (id: RailPageId, pinned: boolean) => void
+  onReset: () => void
+}) {
+  const hidden = new Set(prefs?.hidden ?? [])
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button type="button" aria-label="Customize bar" data-app-rail-item="customize" className={cn(ITEM, open && ITEM_ACTIVE)}>
+              <Settings2 className="size-[18px]" strokeWidth={1.75} />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8} collisionPadding={8} className={TIP}>
+          <span>Customize bar</span>
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        side="right"
+        align="end"
+        sideOffset={12}
+        collisionPadding={8}
+        data-app-rail-customize=""
+        aria-label="Navigation bar"
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-64 flex-col p-2"
+      >
+        <div className="px-2 pb-2 pt-1.5">
+          <h2 className="text-sm font-medium">Navigation bar</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Hidden pages still open from Search and /.</p>
+        </div>
+        <ul className="min-h-0 flex-1 overflow-y-auto">
+          {layout.all.map(({ def, page }) => {
+            const Icon = PAGE_ICONS[def.id] ?? LayoutList
+            return (
+              <li key={def.id} data-app-rail-customize-row={def.id}>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm hover:bg-accent/60">
+                  <Icon className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.75} />
+                  <span className="min-w-0 flex-1 truncate">{page.label}</span>
+                  <Switch
+                    checked={!hidden.has(def.id)}
+                    onCheckedChange={(on) => onPinned(def.id, on)}
+                    aria-label={`Show ${page.label} in the bar`}
+                  />
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="mt-1 border-t border-border/60 px-1 pt-2">
+          <Button type="button" variant="ghost" size="sm" className="w-full justify-start shadow-none" disabled={isDefaultRailPrefs(prefs)} onClick={onReset} data-app-rail-customize-reset="">
+            Reset to default
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function AppRail() {
   // Hydration-safe (false on the server and the first client render), as the
   // top bar's controls are: the icons mount after hydration, the band itself
@@ -169,36 +382,139 @@ export function AppRail() {
   // whatever drives it (chat-panel.tsx openCardHere), as a chip or a notice
   // does; only `/` leaves them out where its chat may not read them.
   const pages = useMemo(() => railPagesFor(pagesFor(edition, { desktop })), [edition, desktop])
+  const offeredIds = useMemo(() => pages.map((p) => p.def.id), [pages])
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, () => null)
   const active = activeRailItem(front?.spec ?? null, pages)
 
-  const onNew = () => {
-    closeFrontCards()
-    focusComposerWhenClear()
+  // The person's bar: their pinned pages in their order (the default: every page, the rail's).
+  const prefs = useRailPrefs()
+  const layout = useMemo(() => railLayout(pages, prefs), [pages, prefs])
+
+  // The bar's groups, a hairline between two (your work, plans, customers,
+  // agents), while the order is the default; the person's own order is one list.
+  const groups = useMemo(() => {
+    if (layout.custom) return layout.shown.length ? [{ group: 'custom', pages: layout.shown }] : []
+    const out: Array<{ group: string; pages: OfferedRailPage[] }> = []
+    for (const p of layout.shown) {
+      const last = out[out.length - 1]
+      if (last && last.group === p.def.group) last.pages.push(p)
+      else out.push({ group: p.def.group, pages: [p] })
+    }
+    return out
+  }, [layout])
+
+  const [customizeOpen, setCustomizeOpen] = useState(false)
+  /** Customize bar…, picked from an icon's menu: opened once the menu has closed (so its focus doesn't close it again). */
+  const customizeAfterMenu = useRef(false)
+
+  // A move keeps the focus on the moved icon (React moves or remounts it, and
+  // a moved node loses its focus), and says where it went (side-panels.tsx).
+  const [announcement, setAnnouncement] = useState('')
+  const refocus = useRef<RailPageId | null>(null)
+  const label = (id: RailPageId) => pages.find((p) => p.def.id === id)?.page.label ?? id
+  const moveTo = (id: RailPageId, to: number) => {
+    const count = layout.shown.length
+    if (!commit(moveRailPage(prefs, offeredIds, id, to))) return
+    refocus.current = id
+    setAnnouncement(`${label(id)} moved to ${Math.max(0, Math.min(count - 1, to)) + 1} of ${count}`)
+  }
+  const setPinned = (id: RailPageId, pinned: boolean) => {
+    if (commit(setRailPagePinned(prefs, id, pinned))) setAnnouncement(pinned ? `${label(id)} pinned to the bar` : `${label(id)} unpinned from the bar`)
+  }
+  useLayoutEffect(() => {
+    const id = refocus.current
+    refocus.current = null
+    if (!id) return
+    const button = document.querySelector<HTMLElement>(`[data-app-rail-nav] [data-app-rail-item="${id}"]`)
+    if (button && document.activeElement !== button) button.focus()
+  }, [layout])
+  // An icon's menu closed: the focus back on its icon (where it stands now),
+  // Customize bar's if it went, or Customize bar opened.
+  const onMenuClosed = (id: RailPageId) => (event: Event) => {
+    event.preventDefault()
+    if (customizeAfterMenu.current) {
+      customizeAfterMenu.current = false
+      setCustomizeOpen(true)
+      return
+    }
+    const nav = document.querySelector<HTMLElement>('[data-app-rail-nav]')
+    // Closed by a press elsewhere (the composer, a page): the focus stays where that put it.
+    const now = document.activeElement
+    if (now && now !== document.body && !nav?.contains(now)) return
+    ;(nav?.querySelector<HTMLElement>(`[data-app-rail-item="${id}"]`) ?? nav?.querySelector<HTMLElement>('[data-app-rail-item="customize"]'))?.focus()
+  }
+
+  // Where the header ends, on <html>: the top bar's controls start after it,
+  // and a page full screen starts under it (top-bar.tsx, show-tool-card.tsx).
+  // 0 while it is hidden (below `md`). Measured again only when it resizes.
+  const headerRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const html = document.documentElement
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      html.style.setProperty(HEADER_RIGHT_VAR, `${Math.round(r.right)}px`)
+      html.style.setProperty(HEADER_BOTTOM_VAR, `${Math.round(r.bottom)}px`)
+    }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(el)
+    return () => {
+      observer?.disconnect()
+      html.style.removeProperty(HEADER_RIGHT_VAR)
+      html.style.removeProperty(HEADER_BOTTOM_VAR)
+    }
+  }, [mounted])
+
+  const pageButton = (entry: OfferedRailPage) => {
+    const { def, page } = entry
+    return (
+      <PageButton
+        key={def.id}
+        entry={entry}
+        index={layout.shown.indexOf(entry)}
+        count={layout.shown.length}
+        active={active === def.id}
+        onOpen={() => {
+          openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
+          // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
+          if (active === def.id) focusFrontPage()
+        }}
+        onMoveTo={(to) => moveTo(def.id, to)}
+        onUnpin={() => setPinned(def.id, false)}
+        onCustomize={() => {
+          customizeAfterMenu.current = true
+        }}
+        onMenuClosed={onMenuClosed(def.id)}
+      />
+    )
   }
 
   return (
-    <nav
-      data-app-rail-nav=""
-      aria-label="Pages"
-      className="absolute inset-y-0 left-0 z-30 hidden flex-col md:flex"
-      style={{ width: 'var(--app-rail-w)' }}
-    >
-      {/* Window drag surface over the top (childless: Tauri drags only on
-          the attributed target): the gutter above the panel, and in the Mac
-          app the room for the traffic lights, which sit over it. */}
-      <div data-tauri-drag-region="" aria-hidden className={cn('w-full shrink-0', trafficLights ? 'h-11' : 'h-2')} />
-      {/* The panel: a floating card, inset from the window's edges. */}
+    // One host element (display: contents): the header and the pills place
+    // themselves on the shell.
+    <div className="contents">
+      {/* Window drag surface at the top-left in the Mac app (childless: Tauri
+          drags only on the attributed target), where the traffic lights sit. */}
+      {trafficLights && <div data-tauri-drag-region="" aria-hidden className="absolute left-0 top-0 z-30 hidden h-11 md:block" style={{ width: 'var(--app-rail-w)' }} />}
+
+      {/* The header (Liam, 11-09, from Miro's board header): the workspace's
+          thumbnail (its account menu), For you, and Search, in one floating
+          pill at the top left, over the top bar. */}
       <div
-        data-app-rail-panel=""
-        className={cn('mb-2 ml-2 flex min-h-0 w-12 flex-1 flex-col items-center overflow-hidden rounded-3xl border border-border/60', COLUMN_CARD_SKIN)}
+        ref={headerRef}
+        data-app-rail-header=""
+        className={cn('absolute z-[45] hidden items-center gap-0.5 rounded-full border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+        style={trafficLights ? HEADER_STYLE_LIGHTS : HEADER_STYLE}
       >
-      {mounted && (
-        <TooltipProvider delayDuration={300}>
-          <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overflow-x-hidden py-1.5 [scrollbar-width:none]">
-            <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
-              <Plus className="size-[18px]" strokeWidth={1.75} />
-            </RailButton>
+        {mounted ? (
+          <TooltipProvider delayDuration={300}>
+            <div data-app-rail-item="workspace" className="flex">
+              <WorkspaceSwitcher variant="header" />
+            </div>
+            {/* For you's button (it shows only while the bots have brought something). */}
+            <ForYouToggle variant="header" />
             <RailButton
               label="Search"
               hint={<kbd className={KBD}>{searchKey}</kbd>}
@@ -209,36 +525,58 @@ export function AppRail() {
             >
               <Search className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
-            <div aria-hidden className="h-2.5 shrink-0" />
-            <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
-              <House className="size-[18px]" strokeWidth={1.75} />
-            </RailButton>
-            {pages.map(({ def, page }) => {
-              const Icon = PAGE_ICONS[def.id]
-              return (
-                <RailButton
-                  key={def.id}
-                  label={page.label}
-                  active={active === def.id}
-                  onClick={() => {
-                    openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
-                    // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
-                    if (active === def.id) focusFrontPage()
-                  }}
-                  data={{ 'data-app-rail-item': def.id }}
-                >
-                  <Icon className="size-[18px]" strokeWidth={1.75} />
-                </RailButton>
-              )
-            })}
-            <div className="flex-1" />
-            <div data-app-rail-item="workspace">
-              <WorkspaceSwitcher variant="rail" />
-            </div>
-          </div>
-        </TooltipProvider>
-      )}
+          </TooltipProvider>
+        ) : (
+          // Its size until the controls mount (after hydration), so nothing moves.
+          <div aria-hidden className="h-8 w-56" />
+        )}
       </div>
-    </nav>
+
+      {/* The bar (Liam, 11-09, from Miro's toolbar: "one big bar instead of
+          four"): every page in one floating pill, a hairline between its
+          groups, down the left, at the top just under the header ("top align
+          it so it's not center"); where the window is too short it scrolls. */}
+      <nav
+        data-app-rail-nav=""
+        aria-label="Pages"
+        className="absolute bottom-0 left-0 z-30 hidden md:flex"
+        style={NAV_STYLE}
+      >
+        {mounted && (
+          <TooltipProvider delayDuration={300}>
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden pb-2 [scrollbar-width:none]">
+              <div className="flex flex-col items-start gap-1.5 pl-2">
+                <div data-app-rail-pill="pages" className={PILL}>
+                  {groups.map((g, i) => (
+                    <div key={g.group} data-app-rail-group={g.group} className="flex flex-col items-center gap-0.5">
+                      {/* A hairline where a group starts (your work, plans, customers, agents). */}
+                      {i > 0 && <div aria-hidden data-app-rail-group-line="" className={HAIRLINE} />}
+                      {g.pages.map(pageButton)}
+                    </div>
+                  ))}
+                  {/* Customize bar, after a hairline (alone when every page is hidden). */}
+                  {groups.length > 0 && <div aria-hidden data-app-rail-customize-line="" className={HAIRLINE} />}
+                  <CustomizeBar
+                    layout={layout}
+                    prefs={prefs}
+                    open={customizeOpen}
+                    onOpenChange={setCustomizeOpen}
+                    onPinned={setPinned}
+                    onReset={() => {
+                      if (commit(resetRailPrefs(prefs))) setAnnouncement('The bar is back to its default')
+                    }}
+                  />
+                  {/* Where a dragged icon would land (rail-drag.ts): hidden at rest. */}
+                  <div aria-hidden data-app-rail-drop-line="" className="pointer-events-none absolute inset-x-1.5 hidden h-0.5 -translate-y-1/2 rounded-full bg-primary" />
+                </div>
+                <div aria-live="polite" data-app-rail-announce="" className="sr-only">
+                  {announcement}
+                </div>
+              </div>
+            </div>
+          </TooltipProvider>
+        )}
+      </nav>
+    </div>
   )
 }

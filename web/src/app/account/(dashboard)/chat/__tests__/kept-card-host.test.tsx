@@ -128,6 +128,9 @@ describe('a page the person opened', () => {
     await settle()
     const close = document.querySelector('[data-chat-card-fullscreen="p1"] [data-testid="card-close"]') as HTMLButtonElement
     expect(close.getAttribute('aria-label')).toBe('Close')
+    // In the page's own header, and the one way out: no Minimize under it (Liam, 11-09).
+    expect(close.closest('[data-card-header]')).not.toBeNull()
+    expect(document.querySelector('[data-chat-card-fullscreen="p1"] [data-testid="card-minimize"]')).toBeNull()
     await act(async () => close.click())
     expect(store.fullScreen()).toBeNull()
     expect(document.querySelector('[data-chat-card-fullscreen="p1"]')).toBeNull()

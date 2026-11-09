@@ -61,7 +61,12 @@ const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center round
 /** The recording, as the chat panel reads it. */
 export type ComposerRecording = ReturnType<typeof useRecordingStable>
 
-export function ComposerCaptureButton({ recording: rec }: { recording: ComposerRecording }) {
+/**
+ * `composer` (a phone's chat composer): the composer's icon size. `header`
+ * (the top bar's right header from `md` up): the header's 18px, 1.75 stroke,
+ * as its other icons (Liam, 11-09: it looked smaller than the panel icon).
+ */
+export function ComposerCaptureButton({ recording: rec, variant = 'composer' }: { recording: ComposerRecording; variant?: 'composer' | 'header' }) {
   const isDesktop = useIsDesktop()
   const captureKey = useModKeyLabel('N')
   const isRecording = !!rec.isRecording
@@ -139,7 +144,8 @@ export function ComposerCaptureButton({ recording: rec }: { recording: ComposerR
         <Button
           variant="ghost"
           size="icon"
-          className={ICON_BUTTON}
+          // The header's icons are 18px; the Button sets its icons' size itself ([&_svg]:size-4).
+          className={cn(ICON_BUTTON, variant === 'header' && '[&_svg]:size-[18px]')}
           aria-label="Start capture"
           data-composer-capture={isStarting ? 'starting' : 'idle'}
           data-onboarding-target="capture"
@@ -153,7 +159,7 @@ export function ComposerCaptureButton({ recording: rec }: { recording: ComposerR
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
             </span>
           ) : (
-            <Disc className="h-4 w-4" />
+            <Disc className="h-4 w-4" strokeWidth={variant === 'header' ? 1.75 : 2} />
           )}
         </Button>
       </PromptInputAction>
