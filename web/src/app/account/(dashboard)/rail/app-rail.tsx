@@ -7,17 +7,15 @@
  *   the header  one pill at the top left, over the top bar: the
  *               workspace's thumbnail (its account menu), For you's button,
  *               and Search (Liam, 11-09).
- *   the pills   down the left, centred under the header: New in the
- *               first, then every page the workspace has on
- *               (./rail-pages.ts), a pill per group (your work, plans,
- *               customers, agents). Where the window is too short they scroll.
+ *   the bar     down the left, centred under the header: every page the
+ *               workspace has on (./rail-pages.ts) in one floating pill, a
+ *               hairline between its groups (your work, plans, customers,
+ *               agents). Where the window is too short it scrolls.
  *
- *   New      puts any page away and puts the cursor in the composer: the
- *            agent makes things on request (no Create dialog: Liam, 10-20).
  *   Search   the `/` palette, as ⌘K and `/` open it (the top bar's own
  *            Search is a phone's only now: Liam, 11-09).
- *   (No Home button, Liam 11-09: "we don't need this button". New, a page's
- *   X and Esc put the page in front away.)
+ *   (No Home or New button, Liam 11-09: "we don't need this button". A
+ *   page's X and Esc put it away; the composer is the chat's.)
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
@@ -57,7 +55,6 @@ import {
   Mail,
   Megaphone,
   MessagesSquare,
-  Plus,
   Search,
   Send,
   Sparkles,
@@ -76,7 +73,7 @@ import { openTarget } from '@/lib/chat-cards/open-card'
 import { openSearch } from '@/lib/chat/open-search'
 import { ForYouToggle } from '../side-panels/side-panel-toggles'
 import { useModKeyLabel } from '@/lib/hotkeys'
-import { closeFrontCards, frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { COLUMN_CARD_SKIN } from '@/components/attention/card-skin'
 import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
 
@@ -126,31 +123,6 @@ const ITEM =
 const ITEM_ACTIVE = 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]'
 const TIP = 'flex items-center gap-1.5 rounded-lg border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md'
 const KBD = 'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border bg-muted/60 px-1 text-[10px] font-medium text-muted-foreground'
-
-/** How often, and how long, New tries for the cursor. */
-const FOCUS_RETRY_MS = 25
-const FOCUS_WAIT_MS = 600
-
-/**
- * The cursor in the main chat's composer, once it can take it. Under a
- * full-screen page the chat doesn't paint (visibility: hidden takes no focus);
- * the page leaves on the chat's next commit, and the composer then eases back
- * in (its `transition: all` takes visibility too, hidden for its first frame).
- * So it tries until the field has the focus, for a moment at most: a short
- * poll on a click, nothing at rest.
- */
-function focusComposerWhenClear(): void {
-  const started = Date.now()
-  const attempt = () => {
-    const field = document.querySelector<HTMLTextAreaElement>('#dial8-chat-strip-slot [data-chat-input-root] textarea')
-    if (!frontCard() && field) {
-      field.focus({ preventScroll: true })
-      if (document.activeElement === field) return
-    }
-    if (Date.now() - started < FOCUS_WAIT_MS) window.setTimeout(attempt, FOCUS_RETRY_MS)
-  }
-  attempt()
-}
 
 /** The page in front takes the keys (its own: mail's j/k, Esc). */
 function focusFrontPage(): void {
@@ -223,10 +195,6 @@ export function AppRail() {
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, () => null)
   const active = activeRailItem(front?.spec ?? null, pages)
 
-  const onNew = () => {
-    closeFrontCards()
-    focusComposerWhenClear()
-  }
 
   // The page groups, each its own floating pill (your work, plans, customers, agents).
   const groups = useMemo(() => {
@@ -322,9 +290,10 @@ export function AppRail() {
         )}
       </div>
 
-      {/* The pills (Liam, 11-09, from Miro's toolbar): New, then each group of
-          pages in its own floating pill, down the left, centred in the room
-          under the header; where the window is too short they scroll. */}
+      {/* The bar (Liam, 11-09, from Miro's toolbar: "one big bar instead of
+          four"): every page in one floating pill, a hairline between its
+          groups, down the left, centred in the room under the header; where
+          the window is too short it scrolls. */}
       <nav
         data-app-rail-nav=""
         aria-label="Pages"
@@ -335,16 +304,15 @@ export function AppRail() {
           <TooltipProvider delayDuration={300}>
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden py-2 [scrollbar-width:none]">
               <div className="my-auto flex flex-col items-start gap-1.5 pl-2">
-                <div data-app-rail-pill="new" className={PILL}>
-                  <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
-                    <Plus className="size-[18px]" strokeWidth={1.75} />
-                  </RailButton>
+                <div data-app-rail-pill="pages" className={PILL}>
+                  {groups.map((g, i) => (
+                    <div key={g.group} data-app-rail-group={g.group} className="flex flex-col items-center gap-0.5">
+                      {/* A hairline where a group starts (your work, plans, customers, agents). */}
+                      {i > 0 && <div aria-hidden data-app-rail-group-line="" className="my-1 h-px w-5 shrink-0 bg-foreground/10" />}
+                      {g.pages.map(pageButton)}
+                    </div>
+                  ))}
                 </div>
-                {groups.map((g) => (
-                  <div key={g.group} data-app-rail-pill={g.group} className={PILL}>
-                    {g.pages.map(pageButton)}
-                  </div>
-                ))}
               </div>
             </div>
           </TooltipProvider>

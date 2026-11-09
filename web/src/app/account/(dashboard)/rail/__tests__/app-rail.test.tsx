@@ -2,7 +2,7 @@
 /**
  * The app rail (../app-rail.tsx): its icons in Liam's order, a page opens as
  * `/` opens it (OPEN_CARD_EVENT, full screen in the main chat), the page in
- * front is lit, New puts it away (no Home button: Liam, 11-09), and <html> carries
+ * front is lit (no Home or New button: Liam, 11-09), and <html> carries
  * the rail's width attribute for the full-screen layer while it is mounted.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -65,7 +65,7 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws the header (the workspace’s thumbnail, For you, Search), then New and every page that is on, and no Home', async () => {
+  it('draws the header (the workspace’s thumbnail, For you, Search), then every page that is on, and no Home or New', async () => {
     await render()
     const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
     // In order: the workspace's thumbnail at the far left, For you, Search (Liam, 11-09).
@@ -78,7 +78,6 @@ describe('the app rail', () => {
     expect(header.querySelector('[data-app-rail-item="workspace"] [data-variant="header"]')).not.toBeNull()
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
-      'new',
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
       'projects', 'initiatives', 'knowledge', 'flows',
       'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
@@ -87,20 +86,23 @@ describe('the app rail', () => {
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
   })
 
-  it('floats its pills like Miro’s toolbar: New, then a pill per group, each with the panels’ glass', async () => {
+  it('floats one bar like Miro’s toolbar ("one big bar instead of four"), a hairline between its groups, with the panels’ glass', async () => {
     await render()
     const pills = Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-pill]'))
-    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['new', 'work', 'plans', 'customers', 'agents'])
-    // No Home button (Liam, 11-09: "we don't need this button").
+    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['pages'])
+    expect(Array.from(pills[0].querySelectorAll<HTMLElement>('[data-app-rail-group]')).map((g) => g.dataset.appRailGroup)).toEqual(['work', 'plans', 'customers', 'agents'])
+    expect(pills[0].querySelectorAll('[data-app-rail-group-line]')).toHaveLength(3)
+    // No Home or New button (Liam, 11-09: "we don't need this button").
     expect(item('home')).toBeNull()
+    expect(item('new')).toBeNull()
     for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
       expect(pill.className).toContain('rounded-2xl')
       expect(pill.className).toContain('bg-background/70')
       expect(pill.className).toContain('backdrop-blur-md')
       expect(pill.className).toContain('border-border/60')
     }
-    expect(pills[1].querySelector('[data-app-rail-item="mail"]')).not.toBeNull()
-    expect(pills[3].querySelector('[data-app-rail-item="deals"]')).not.toBeNull()
+    expect(pills[0].querySelector('[data-app-rail-item="mail"]')).not.toBeNull()
+    expect(pills[0].querySelector('[data-app-rail-item="deals"]')).not.toBeNull()
   })
 
   it('tells the top bar and the full-screen layer where the header ends (on <html>)', async () => {
@@ -159,28 +161,6 @@ describe('the app rail', () => {
       releases.push(holdFrontCard({ id: 'c1', spec: { kind: 'work_item', title: 'A review' } as never, close: () => {} }))
     })
     expect(lit()).toEqual([])
-  })
-
-  it('New puts the page away and the cursor in the chat’s composer', async () => {
-    const strip = document.createElement('div')
-    strip.id = 'dial8-chat-strip-slot'
-    strip.innerHTML = '<div data-chat-input-root><textarea></textarea></div>'
-    document.body.appendChild(strip)
-    await render()
-    let release = () => {}
-    // Its close puts it back a moment later, as the chat's next commit does.
-    const close = vi.fn(() => setTimeout(release, 30))
-    await act(async () => {
-      release = holdFrontCard({ id: 'c1', spec: { kind: 'calendar', title: 'This week', calendar: { from: '2026-11-08', to: '2026-11-14', view: 'week' } }, close })
-    })
-    await act(async () => item('new')!.click())
-    expect(close).toHaveBeenCalledTimes(1)
-    // Not while the page is still in front (the chat under it takes no focus)…
-    expect(document.activeElement).not.toBe(strip.querySelector('textarea'))
-    // …but once it has gone.
-    await act(async () => new Promise((r) => setTimeout(r, 120)))
-    expect(document.activeElement).toBe(strip.querySelector('textarea'))
-    strip.remove()
   })
 
   it('gives the keys back to the page in front when its own icon is clicked again', async () => {
