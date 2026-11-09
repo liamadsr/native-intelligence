@@ -258,6 +258,51 @@ export type MenuItem =
   | { kind: 'page'; page: OfferedPage }
   | { kind: 'skill'; skill: SkillCommand }
   | { kind: 'record'; row: MenuSearchRow }
+  | { kind: 'option'; option: ComposerMentionOption }
+
+/**
+ * One of a host's own `@` options (team chat: the person's agent and the
+ * workspace's members), listed in place of the record search. Picking one
+ * puts `@label` in the text and tells the host; it attaches nothing.
+ */
+export interface ComposerMentionOption {
+  id: string
+  label: string
+  /** A quiet word after the name ("your agent"). */
+  hint?: string
+  /** The person's own agent (drawn as one). */
+  agent?: boolean
+}
+
+/** A host's own `@` list, and what it does with a pick. */
+export interface ComposerMentionList {
+  options: readonly ComposerMentionOption[]
+  onPick: (option: ComposerMentionOption) => void
+}
+
+/** How many of a host's options the menu shows at once. */
+const OPTIONS_CAP = 8
+
+/** The host's options a query finds: a word of the label (or the label) starting with it, in the host's order. */
+export function filterMentionOptions(options: readonly ComposerMentionOption[], query: string): ComposerMentionOption[] {
+  const q = query.trim().toLowerCase()
+  return options
+    .filter((o) => {
+      if (!q) return true
+      const label = o.label.toLowerCase()
+      return label.startsWith(q) || label.split(/\s+/).some((w) => w.startsWith(q))
+    })
+    .slice(0, OPTIONS_CAP)
+}
+
+/** The menu for a host's own `@` list: one section, no tabs. */
+export function mentionOptionsMenu(options: readonly ComposerMentionOption[], query: string): Menu {
+  const items = filterMentionOptions(options, query).map((option): MenuItem => ({ kind: 'option', option }))
+  const sections: MenuSection[] = items.length
+    ? [{ key: 'people', label: 'People', items, total: items.length, totalKnown: true, offset: 0 }]
+    : []
+  return { sections, tabs: ['all'] }
+}
 
 /** What picking a row does: open it (a page, a record's card), use it (a skill), or put it in the message. */
 export type MenuVerb = 'open' | 'use' | 'mention'
@@ -296,6 +341,7 @@ export function offeredKinds(trigger: MenuTrigger, offer: MenuOffer): MenuKind[]
 export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
   if (item.kind === 'skill') return 'use'
   if (item.kind === 'page') return 'open'
+  if (item.kind === 'option') return 'mention'
   return trigger === '@' ? 'mention' : 'open'
 }
 

@@ -4,6 +4,7 @@ import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo
 import { flushSync } from 'react-dom'
 import { AlertCircle, ArrowUp, AudioLines, Building2, CircleCheck, FileText, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -23,6 +24,8 @@ import {
   removeToken,
   replaceToken,
   sameTriggerToken,
+  type ComposerMentionList,
+  type ComposerMentionOption,
 } from './command-menu-model'
 import type { OfferedPage } from '@/lib/chat-cards/page-menu'
 import { SEARCH_FLIGHT_KEY, flightWaiting } from '@/lib/chat/card-reply-flight'
@@ -66,14 +69,19 @@ import type { ComposerEnvironment, ComposerFolders } from './composer-state'
 import { EnvironmentSelector } from '@/components/environments/environment-selector'
 
 /** The composer's voice: what the desktop can do, and the panel's voice mode.
- *  Absent (or `availability.visible` false) → no voice control at all. */
+ *  Absent (or `availability.visible` false) → no voice control at all. No
+ *  `mode` (team chat: a channel is no conversation with the agent) →
+ *  dictation only. */
 export interface ChatInputVoice {
   availability: VoiceAvailability
-  mode: VoiceModeHandle
+  mode?: VoiceModeHandle
 }
 
+/** The composer's arrangement (ChatInput's `layout`). */
+export type ChatInputLayout = 'stacked' | 'inline'
+
 /** A control a host can't honour in its conversation. */
-export type ChatInputUnavailableControl = 'agent' | 'photos'
+export type ChatInputUnavailableControl = 'agent' | 'photos' | 'files'
 
 /**
  * The controls a host can't honour (a teammate is its own agent, a run's chat
@@ -111,6 +119,8 @@ const CONTROLS_INSET_PX = 13
 const BOX_EDGE_PX = 9
 /** The under-row's text buttons pad their label this much (`px-1.5`). */
 const TEXT_BUTTON_PAD_PX = 6
+/** The inline composer's field grows to about four lines, then scrolls. */
+const INLINE_FIELD_MAX_PX = 104
 /** The box's controls row: the inset, less the box's own border and padding. */
 const CONTROLS_ROW_PADDING = { paddingLeft: CONTROLS_INSET_PX - BOX_EDGE_PX, paddingRight: CONTROLS_INSET_PX - BOX_EDGE_PX }
 /** The row under the box: the first label's text at the inset. */
@@ -194,6 +204,8 @@ export const ChatInput = memo(function ChatInput({
   unavailable,
   folders,
   environment,
+  mentionList,
+  layout = 'stacked',
 }: {
   value: string
   onChange: (value: string) => void
@@ -285,7 +297,23 @@ export const ChatInput = memo(function ChatInput({
    * the selector under the box, while `visible`. Absent: no selector.
    */
   environment?: ComposerEnvironment
+  /**
+   * The host's own `@` list (team chat: the person's agent and the members),
+   * in place of the record search: `@` lists these in the same menu, and a
+   * pick puts `@label` in the text and tells the host (`onPick`), with no
+   * chip. Absent: `@` finds records, as ever.
+   */
+  mentionList?: ComposerMentionList
+  /**
+   * `stacked` (default): the field on its own row, the controls under it.
+   * `inline` (the main chat and team chat, Liam 11-09: "a single line"): one
+   * row in a pill, "+" at the left, the field, then the mic and send at the
+   * right; the field is one line that may grow a little (Shift+Enter, a long
+   * message), then scrolls.
+   */
+  layout?: ChatInputLayout
 }) {
+  const inline = layout === 'inline'
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   // ── The `/` and `@` menu (command-menu-model.ts) ───────────────────────────
   // Read from the text and the caret on every edit and caret move, never
@@ -551,6 +579,11 @@ export const ChatInput = memo(function ChatInput({
     tick()
   }
   // ── The menu, read from the text and the caret ─────────────────────────────
+  // The host's own options picked in this message (mentionList): done, as a
+  // chip's label is, so the menu doesn't open again on "@Rosa Lind " and Enter
+  // sends. Forgotten when the box empties (a send).
+  const [pickedOptionLabels, setPickedOptionLabels] = useState<readonly string[]>([])
+  if (value === '' && pickedOptionLabels.length > 0) setPickedOptionLabels([])
   // Labels already done (attached mentions, the armed skill): a trigger on one
   // is no trigger (findTriggerToken), so Enter after `/brief` sends.
   const doneMentions = useMemo(
@@ -559,8 +592,9 @@ export const ChatInput = memo(function ChatInput({
       ...attachedContacts.map((c) => mentionLabel(c)),
       ...attachedCompanies.map((c) => c.name),
       ...attachedRecords.map((r) => mentionRecordLabel(r)),
+      ...pickedOptionLabels,
     ],
-    [attachedNotes, attachedContacts, attachedCompanies, attachedRecords],
+    [attachedNotes, attachedContacts, attachedCompanies, attachedRecords, pickedOptionLabels],
   )
   const doneTriggers = useMemo(
     () => ({ skills: activeSkill ? [activeSkill.slug] : [], mentions: doneMentions }),
@@ -780,6 +814,13 @@ export const ChatInput = memo(function ChatInput({
     onAttachRecord?.(record)
   }
 
+  // One of the host's own options: its `@label` in the text, and the host told (no chip).
+  const handleOptionPick = (option: ComposerMentionOption) => {
+    setPickedOptionLabels((prev) => (prev.includes(option.label) ? prev : [...prev, option.label]))
+    insertMention(option.label)
+    mentionList?.onPick(option)
+  }
+
   // A record picked to go in the message: by its own kind's way in.
   const handleMention = (row: MenuSearchRow) => {
     if (row.kind === 'capture') handleNoteSelect(row.capture)
@@ -939,6 +980,9 @@ export const ChatInput = memo(function ChatInput({
     },
   }
 
+  // A chat that takes no files (team chat: text only) says so in the + menu, and takes no drop or paste.
+  const filesOff = !!unavailable?.files
+
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click()
   }, [])
@@ -957,10 +1001,10 @@ export const ChatInput = memo(function ChatInput({
     e.preventDefault()
     e.stopPropagation()
     dragCounterRef.current++
-    if (e.dataTransfer.types.includes('Files')) {
+    if (!filesOff && e.dataTransfer.types.includes('Files')) {
       setIsDragging(true)
     }
-  }, [])
+  }, [filesOff])
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -983,20 +1027,20 @@ export const ChatInput = memo(function ChatInput({
       dragCounterRef.current = 0
       setIsDragging(false)
       const files = Array.from(e.dataTransfer.files)
-      if (files.length > 0) onAttachFiles(files)
+      if (files.length > 0 && !filesOff) onAttachFiles(files)
     },
-    [onAttachFiles],
+    [onAttachFiles, filesOff],
   )
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const files = Array.from(e.clipboardData?.files ?? [])
-      if (files.length > 0) {
+      if (files.length > 0 && !filesOff) {
         e.preventDefault()
         onAttachFiles(files)
       }
     },
-    [onAttachFiles],
+    [onAttachFiles, filesOff],
   )
 
   // The input options (search settings) stay open at all times — clicking
@@ -1011,6 +1055,59 @@ export const ChatInput = memo(function ChatInput({
   // selector sits there too (docs/plans/environments.md §6), while you have one.
   const environmentOn = !!environment?.visible
   const underRowOn = !!unavailable?.agent || environmentOn
+
+  // The field: its own row (stacked), or between "+" and the mic (inline).
+  const field = (
+    <div className={inline ? 'relative min-w-0 flex-1' : 'relative px-1'} ref={textareaHostRef}>
+      <PromptInputTextarea
+        // The rotating overlay draws the placeholder (the hint too): no
+        // native one under it, so exactly one line shows. The default hint
+        // stays the field's accessible hint (aria-placeholder).
+        placeholder={suggestionsOn ? '' : fieldPlaceholder}
+        aria-placeholder={suggestionsOn ? fieldPlaceholder : undefined}
+        aria-keyshortcuts={suggestionsOn ? 'Tab' : undefined}
+        aria-describedby={suggestionsOn ? tabHintId : undefined}
+        // Voice mode: spoken turns are sent on their own, never merged with
+        // the field, so it can't be typed into meanwhile. Its value (empty
+        // when voice mode started) is left untouched.
+        readOnly={voiceModeOn}
+        // The main chat's composer, for UI automation
+        // (src/lib/automation/README.md); a teammate's or a run's has none.
+        data-testid={mainComposer ? 'chat-composer-input' : undefined}
+        className={inline ? 'min-h-0 w-full px-2 py-1.5 md:text-[15px]' : 'min-h-0 w-full py-1.5'}
+        rows={1}
+        // Inline, the field is narrower beside its controls: a short hint still shows.
+        hidePlaceholderBelow={inline ? 96 : undefined}
+        onPaste={handlePaste}
+        onKeyDown={handleFieldKeyDown}
+        onSelect={handleFieldSelect}
+        onFocus={() => setFieldBlurred(false)}
+        onBlur={() => setFieldBlurred(true)}
+      />
+      {suggestionsOn && suggestions && (
+        <ComposerSuggestionOverlay
+          hint={fieldPlaceholder}
+          suggestions={suggestions}
+          deck={suggestionDeck}
+          active={isActive}
+          currentRef={currentSuggestionRef}
+          hostRef={textareaHostRef}
+        />
+      )}
+      {suggestionsOn && (
+        <span id={tabHintId} className="sr-only">
+          Press Tab to send a suggested question.
+        </span>
+      )}
+      {dictationTail && <DictationTail hostRef={textareaHostRef} value={value} transcript={dictationTail} />}
+      {voiceModeOn && voiceMode && (
+        <>
+          <VoiceTranscript hostRef={textareaHostRef} value={value} voice={voiceMode} />
+          <VoiceInterruptTap voice={voiceMode} />
+        </>
+      )}
+    </div>
+  )
 
   return (
     <PopoverLockContext.Provider value={handlePopoverLock}>
@@ -1078,9 +1175,20 @@ export const ChatInput = memo(function ChatInput({
         // Voice mode sends what is said; Enter in the (read-only) field doesn't.
         onSubmit={voiceModeOn ? undefined : submit}
         isLoading={isLoading}
+        // Inline: a few lines at most, then the field scrolls.
+        maxHeight={inline ? INLINE_FIELD_MAX_PX : undefined}
         // Glass: the chat scrolls on beneath the composer (chat-panel's dock),
-        // and shows through it, softened.
-        className="@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm backdrop-blur-xl"
+        // and shows through it, softened. Inline (the main chat and team
+        // chat): a pill, its radius half its one-line height, so it stays a
+        // pill on one line and a rounded box if it grows. Team chat's has no
+        // blur of its own (nothing scrolls beneath it, and it sits in a glass
+        // card already).
+        className={cn(
+          inline
+            ? '@container/chatinput relative rounded-[28px] border border-border/70 bg-background/80 px-2 py-2 shadow-sm'
+            : '@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm',
+          (!inline || mainComposer) && 'backdrop-blur-xl',
+        )}
         // The chat box itself (inside the root, without the agent row under it).
         data-bot-chat-box
       >
@@ -1280,59 +1388,18 @@ export const ChatInput = memo(function ChatInput({
         )}
 
         {/* Textarea on its own full-width row so it never gets squeezed by the
-            controls when the panel is narrow. */}
-        <div className="relative px-1" ref={textareaHostRef}>
-          <PromptInputTextarea
-            // The rotating overlay draws the placeholder (the hint too): no
-            // native one under it, so exactly one line shows. The default hint
-            // stays the field's accessible hint (aria-placeholder).
-            placeholder={suggestionsOn ? '' : fieldPlaceholder}
-            aria-placeholder={suggestionsOn ? fieldPlaceholder : undefined}
-            aria-keyshortcuts={suggestionsOn ? 'Tab' : undefined}
-            aria-describedby={suggestionsOn ? tabHintId : undefined}
-            // Voice mode: spoken turns are sent on their own, never merged with
-            // the field, so it can't be typed into meanwhile. Its value (empty
-            // when voice mode started) is left untouched.
-            readOnly={voiceModeOn}
-            // The main chat's composer, for UI automation
-            // (src/lib/automation/README.md); a teammate's or a run's has none.
-            data-testid={mainComposer ? 'chat-composer-input' : undefined}
-            className="min-h-0 w-full py-1.5"
-            rows={1}
-            onPaste={handlePaste}
-            onKeyDown={handleFieldKeyDown}
-            onSelect={handleFieldSelect}
-            onFocus={() => setFieldBlurred(false)}
-            onBlur={() => setFieldBlurred(true)}
-          />
-          {suggestionsOn && suggestions && (
-            <ComposerSuggestionOverlay
-              hint={fieldPlaceholder}
-              suggestions={suggestions}
-              deck={suggestionDeck}
-              active={isActive}
-              currentRef={currentSuggestionRef}
-              hostRef={textareaHostRef}
-            />
-          )}
-          {suggestionsOn && (
-            <span id={tabHintId} className="sr-only">
-              Press Tab to send a suggested question.
-            </span>
-          )}
-          {dictationTail && <DictationTail hostRef={textareaHostRef} value={value} transcript={dictationTail} />}
-          {voiceModeOn && voiceMode && (
-            <>
-              <VoiceTranscript hostRef={textareaHostRef} value={value} voice={voiceMode} />
-              <VoiceInterruptTap voice={voiceMode} />
-            </>
-          )}
-        </div>
+            controls when the panel is narrow (inline: in the controls row). */}
+        {!inline && field}
 
         {/* The box's one controls row: "+" at the left; the dictation mic and
             send's slot (voice mode, send or stop) at the right. The agent sits
             under the box (data-composer-under-row). */}
-        <div data-composer-controls className="flex items-center gap-1.5 pb-0.5" style={CONTROLS_ROW_PADDING}>
+        <div
+          data-composer-controls
+          data-composer-layout={inline ? 'inline' : undefined}
+          className={inline ? 'flex min-h-[38px] items-center gap-1' : 'flex items-center gap-1.5 pb-0.5'}
+          style={inline ? undefined : CONTROLS_ROW_PADDING}
+        >
           {/* "+" menu: files (or photos). */}
           <Popover
             open={plusMenuOpen}
@@ -1353,13 +1420,27 @@ export const ChatInput = memo(function ChatInput({
               </Button>
             </PopoverTrigger>
             <PopoverContent align="start" side="top" className="w-60 p-2">
-              <button
-                className="flex w-full items-center gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50"
-                onClick={() => { setPlusMenuOpen(false); handleFileSelect() }}
-              >
-                <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span>{unavailable?.photos ? 'Add files' : 'Add files or photos'}</span>
-              </button>
+              {unavailable?.files ? (
+                // No files here at all: the item says why, in its place.
+                <div
+                  data-composer-unavailable="files"
+                  className="flex w-full items-start gap-2.5 rounded-2xl px-2 py-2 text-sm text-muted-foreground"
+                >
+                  <Paperclip className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block">{unavailable.files.label ?? 'Files and photos'}</span>
+                    <span className="block text-xs">{unavailable.files.reason}</span>
+                  </span>
+                </div>
+              ) : (
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-2xl px-2 py-2 text-sm hover:bg-muted/50"
+                  onClick={() => { setPlusMenuOpen(false); handleFileSelect() }}
+                >
+                  <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{unavailable?.photos ? 'Add files' : 'Add files or photos'}</span>
+                </button>
+              )}
               {/* A folder on this Mac for local agents (desktop only), added
                   to the environment for every chat: the Mac's own picker,
                   and its own confirm for edits. */}
@@ -1394,8 +1475,8 @@ export const ChatInput = memo(function ChatInput({
             </PopoverContent>
           </Popover>
 
-          {/* Spacer pushes the mic and send's slot to the right. */}
-          <div className="min-w-0 flex-1" />
+          {/* Spacer pushes the mic and send's slot to the right (inline: the field does). */}
+          {inline ? field : <div className="min-w-0 flex-1" />}
 
           {/* Capture (the main chat's composer, given the recording): the record
               icon left of the mic, or a recording's controls
@@ -1472,7 +1553,7 @@ export const ChatInput = memo(function ChatInput({
                   <Button
                     variant="default"
                     size="icon"
-                    className="h-8 w-8 rounded-full"
+                    className={inline ? 'h-9 w-9 rounded-full' : 'h-8 w-8 rounded-full'}
                     aria-label={isLoading ? 'Send when this reply finishes' : 'Send message'}
                     disabled={!hasDraft}
                     onClick={submit}
@@ -1535,6 +1616,7 @@ export const ChatInput = memo(function ChatInput({
         trigger={menuToken?.trigger ?? '/'}
         query={menuToken?.query ?? ''}
         {...menuPicks}
+        mentionList={mentionList ? { options: mentionList.options, onPick: handleOptionPick } : undefined}
         onDismiss={handleMenuDismiss}
         onUnclaimedEnter={onSubmit}
         anchorRef={anchorRef}

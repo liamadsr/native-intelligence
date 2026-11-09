@@ -16,20 +16,25 @@
  * RLS filters what arrives), resyncing on every (re)subscribe.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { AtSign, Bot, Hash, Lock, MessageSquare, Pencil, Plus, SendHorizontal, Trash2, Users } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Bot, ChevronLeft, Hash, Lock, MessageSquare, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Avatar as AvatarRoot, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { cachedJson } from '@/lib/cached-fetch'
 import { useWorkspaceId } from '@/app/account/workspace-switcher'
 import { useTeams } from '@/app/account/teams-context'
 import { useAssistantName } from '@/lib/voice/assistant-name-store'
-import { insertMentionAt } from '@/app/account/(dashboard)/chat/mention-text'
-import { continuesGroup, mentionQueryAt, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
+import { ChatInput, type ChatInputUnavailable, type ChatInputVoice } from '@/app/account/(dashboard)/chat/chat-input'
+import { useVoiceAvailability } from '@/hooks/use-voice-availability'
+import { useOptionalRecordingStable } from '@/hooks/recording-context'
+import type { ComposerMentionList, ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
+import { continuesGroup, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
 import { agentDisplayName, mentionsAssistantName, TEAM_CHAT_MESSAGE_MAX, TEAM_CHAT_PAGE_SIZE, type TeamChatChannel, type TeamChatMessage } from '@/lib/team-chat/types'
 
 interface Member {
@@ -39,12 +44,37 @@ interface Member {
   avatar_url?: string | null
 }
 
-/** One option in the @ picker: a member, or the person's own agent. */
-interface MentionOption {
-  id: string
-  label: string
-  hint: string
-  agent: boolean
+/**
+ * Below this width the view shows one pane at a time (a phone, a narrow
+ * card): the list of channels, then the channel picked, with Back. At it and
+ * above, the two side by side, split by Mail's resizable handle. The inline
+ * card's list may be narrower (down to 176px), so it keeps two panes down to
+ * TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX.
+ */
+export const TEAM_CHAT_TWO_PANE_MIN_PX = 576
+export const TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX = 480
+
+/**
+ * Is the view narrower than two panes need? Its own width, read by one
+ * ResizeObserver (it fires only on a resize, never at rest). Unmeasured (no
+ * layout yet, or no ResizeObserver): two panes, as before.
+ */
+function useNarrow(ref: RefObject<HTMLElement | null>, min: number): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => {
+      const width = el.clientWidth
+      setNarrow(width > 0 && width < min)
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref, min])
+  return narrow
 }
 
 /** The id the person's own agent goes by in the picker (never a member id). */
@@ -54,6 +84,15 @@ const AGENT_WAIT_MS = 3 * 60_000
 
 function memberName(m: Member | undefined): string {
   return m?.display_name?.trim() || 'Teammate'
+}
+
+/** A name's initials for its avatar: the first and last words' ("Rosa Lind": RL). */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return '?'
+  const first = words[0].charAt(0)
+  const last = words.length > 1 ? words[words.length - 1].charAt(0) : ''
+  return (first + last).toUpperCase()
 }
 
 function sortByTime(list: TeamChatMessage[]): TeamChatMessage[] {
@@ -86,6 +125,29 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
 
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedId
+  // One pane at a time when narrow (a phone): the list until the person opens
+  // a channel, then that channel, with Back to the list.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const narrow = useNarrow(rootRef, compact ? TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX : TEAM_CHAT_TWO_PANE_MIN_PX)
+  const [opened, setOpened] = useState(false)
+  // Narrowing while a channel is on screen beside the list keeps that channel
+  // open (with Back), not the list: it stays as it was, its draft, an edit,
+  // where it was scrolled to. Set during render, so it never leaves the screen.
+  const [wasNarrow, setWasNarrow] = useState(narrow)
+  if (narrow !== wasNarrow) {
+    setWasNarrow(narrow)
+    if (narrow && selectedId && !opened) setOpened(true)
+  }
+  // Opened, but its channel is gone (archived, or no longer readable): the list again, never an empty pane with no way back.
+  const openedNow = opened && !!selectedId && !!channels?.some((c) => c.id === selectedId)
+  const showList = !narrow || !openedNow
+  const showChannel = !narrow || openedNow
+  // The channel on screen: the one read marks are for. The first channel is
+  // picked for the person when the list loads, but on a phone it isn't on
+  // screen until they open it, and its messages stay unread until then.
+  const onScreen = showChannel ? selectedId : null
+  const onScreenRef = useRef<string | null>(null)
+  onScreenRef.current = onScreen
   const meRef = useRef<string | null>(null)
   meRef.current = meId
   // Channels whose older messages haven't all been loaded (their last page was full).
@@ -107,7 +169,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       if (!res.ok) throw new Error('Could not load team chat')
       const json = (await res.json()) as { channels?: TeamChatChannel[]; memberId?: string }
       // The channel on screen is read (its read mark may still be on its way): never counted unread here.
-      const open = typeof document !== 'undefined' && document.visibilityState === 'visible' ? selectedRef.current : null
+      const open = typeof document !== 'undefined' && document.visibilityState === 'visible' ? onScreenRef.current : null
       const list = (Array.isArray(json.channels) ? json.channels : []).map((c) => (c.id === open ? { ...c, unread: 0, mentions: 0 } : c))
       setMeId(json.memberId ?? null)
       setChannels(list)
@@ -167,17 +229,20 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     }
   }, [workspaceId])
 
-  // Opening a channel loads it and marks it read.
+  // Picking a channel loads it; on screen, it is read.
   useEffect(() => {
     if (!selectedId) return
     void loadMessages(selectedId)
-    void markRead(selectedId)
-  }, [selectedId, loadMessages, markRead])
+  }, [selectedId, loadMessages])
+  useEffect(() => {
+    if (!onScreen) return
+    void markRead(onScreen)
+  }, [onScreen, markRead])
 
   // Coming back to the tab reads the channel on screen (what arrived while away was left unread).
   useEffect(() => {
     const onVisible = () => {
-      const open = selectedRef.current
+      const open = onScreenRef.current
       if (document.visibilityState === 'visible' && open) void markRead(open)
     }
     document.addEventListener('visibilitychange', onVisible)
@@ -210,7 +275,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
             return next
           })
         }
-        if (payload.eventType === 'INSERT' && row.channel_id === selectedRef.current && document.visibilityState === 'visible') {
+        if (payload.eventType === 'INSERT' && row.channel_id === onScreenRef.current && document.visibilityState === 'visible') {
           // A burst of messages is one read mark.
           if (readTimer) clearTimeout(readTimer)
           readTimer = setTimeout(() => void markRead(row.channel_id), 150)
@@ -226,6 +291,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
         // refetching the list (and its unread counts) once per message per person.
         const row = payload.new as Partial<TeamChatChannel> & { id?: string }
         if (payload.eventType === 'UPDATE' && row?.id) {
+          // Archived: gone from the list, and if it was the one open, another is picked (loadChannels).
+          if (row.archived_at && row.id === selectedRef.current) refreshList()
           setChannels((prev) => {
             if (!prev?.some((c) => c.id === row.id)) return prev
             if (row.archived_at) return prev.filter((c) => c.id !== row.id)
@@ -284,10 +351,27 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       if (!res.ok) return
       const json = (await res.json()) as { id?: string }
       await loadChannels()
-      if (json.id) setSelectedId(json.id)
+      if (json.id) {
+        setSelectedId(json.id)
+        setOpened(true)
+      }
     },
     [loadChannels],
   )
+
+  // The person picks a channel (from the list): on a phone, it takes the screen.
+  const openChannel = useCallback((id: string) => {
+    setSelectedId(id)
+    setOpened(true)
+  }, [])
+  // Back to the list (a phone): the focus goes to the channel's row, where they were.
+  const backToList = useCallback(() => {
+    setOpened(false)
+    const id = selectedRef.current
+    requestAnimationFrame(() => {
+      if (id) rootRef.current?.querySelector<HTMLElement>(`[data-team-chat-row="${id}"]`)?.focus({ preventScroll: true })
+    })
+  }, [])
 
   const handleSent = useCallback((message: TeamChatMessage, calledAgent: boolean) => {
     setMessages((prev) => ({ ...prev, [message.channel_id]: upsertMessage(prev[message.channel_id], message) }))
@@ -298,63 +382,106 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     setMessages((prev) => ({ ...prev, [message.channel_id]: upsertMessage(prev[message.channel_id], message) }))
   }, [])
 
-  return (
-    <div className="flex h-full min-h-0">
-      <aside className={cn('flex shrink-0 flex-col border-r border-border', compact ? 'w-44' : 'w-60')}>
-        <div className="flex h-12 shrink-0 items-center px-4">
-          <h1 className="text-sm font-semibold text-foreground">Team chat</h1>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-          <SectionHeading label="Channels" onAdd={() => setNewChannelOpen(true)} addLabel="New channel" />
-          {channels === null ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">Loading…</p>
-          ) : channelList.length === 0 ? (
-            <button type="button" onClick={() => setNewChannelOpen(true)} className="w-full rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent">
-              Start your first channel
-            </button>
-          ) : (
-            channelList.map((c) => (
-              <ChannelRow
-                key={c.id}
-                channel={c}
-                title={channelTitle(c)}
-                active={c.id === selectedId}
-                privateTeam={!!c.team_id && !!teamsById.get(c.team_id)?.is_private}
-                onSelect={() => setSelectedId(c.id)}
-              />
-            ))
-          )}
-          <SectionHeading label="Direct messages" onAdd={() => setNewDmOpen(true)} addLabel="New message" className="mt-4" />
-          {dmList.map((c) => (
-            <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === selectedId} onSelect={() => setSelectedId(c.id)} />
-          ))}
-        </div>
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col">
-        {error && !selected ? (
-          <p className="py-10 text-center text-sm text-destructive">{error}</p>
-        ) : !selected ? (
-          channels === null ? null : <EmptyState onCreate={() => setNewChannelOpen(true)} />
+  const list = (
+    <aside className={cn('flex min-h-0 flex-col', narrow ? (showList ? 'h-full w-full' : 'hidden') : 'h-full w-full')}>
+      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+        <MessageSquare className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <h1 className="text-[15px] font-semibold text-foreground">Team chat</h1>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+        {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
+        {narrow && error && <p className="px-3 py-1.5 text-xs text-destructive">{error}</p>}
+        <SectionHeading label="Channels" onAdd={() => setNewChannelOpen(true)} addLabel="New channel" />
+        {channels === null ? (
+          <p className="px-3 py-2 text-sm text-muted-foreground">Loading…</p>
+        ) : channelList.length === 0 ? (
+          <button type="button" onClick={() => setNewChannelOpen(true)} className="flex h-10 w-full items-center rounded-xl px-3 text-left text-sm text-muted-foreground hover:bg-accent/60">
+            Start your first channel
+          </button>
         ) : (
-          <ChannelPane
-            key={selected.id}
-            channel={selected}
-            title={channelTitle(selected)}
-            teamName={selected.team_id ? (teamsById.get(selected.team_id)?.name ?? null) : null}
-            messages={messages[selected.id] ?? null}
-            meId={meId}
-            members={members}
-            membersById={membersById}
-            assistantName={assistantName}
-            waitingOnAgent={!!waitingOnAgent[selected.id]}
-            hasMore={!!more[selected.id]}
-            onLoadEarlier={(before) => loadEarlier(selected.id, before)}
-            onSent={handleSent}
-            onChanged={handleChanged}
-          />
+          channelList.map((c) => (
+            <ChannelRow
+              key={c.id}
+              channel={c}
+              title={channelTitle(c)}
+              active={c.id === onScreen}
+              privateTeam={!!c.team_id && !!teamsById.get(c.team_id)?.is_private}
+              onSelect={() => openChannel(c.id)}
+            />
+          ))
         )}
-      </section>
+        <SectionHeading label="Direct messages" onAdd={() => setNewDmOpen(true)} addLabel="New message" className="mt-5" />
+        {dmList.map((c) => {
+          const person = c.dm_member_id ? membersById.get(c.dm_member_id) : undefined
+          return (
+            <ChannelRow
+              key={c.id}
+              channel={c}
+              title={channelTitle(c)}
+              avatar={{ name: memberName(person), url: person?.avatar_url }}
+              active={c.id === onScreen}
+              onSelect={() => openChannel(c.id)}
+            />
+          )
+        })}
+      </div>
+    </aside>
+  )
+
+  const pane = (
+    <section className={cn('h-full min-h-0 min-w-0 flex-1 flex-col', showChannel ? 'flex' : 'hidden')}>
+      {!showChannel ? null : error && !selected ? (
+        <p className="py-10 text-center text-sm text-destructive">{error}</p>
+      ) : !selected ? (
+        channels === null ? null : <EmptyState onCreate={() => setNewChannelOpen(true)} />
+      ) : (
+        <ChannelPane
+          key={selected.id}
+          channel={selected}
+          title={channelTitle(selected)}
+          dmPerson={selected.kind === 'dm' && selected.dm_member_id ? membersById.get(selected.dm_member_id) : undefined}
+          teamName={selected.team_id ? (teamsById.get(selected.team_id)?.name ?? null) : null}
+          messages={messages[selected.id] ?? null}
+          meId={meId}
+          members={members}
+          membersById={membersById}
+          assistantName={assistantName}
+          waitingOnAgent={!!waitingOnAgent[selected.id]}
+          hasMore={!!more[selected.id]}
+          onLoadEarlier={(before) => loadEarlier(selected.id, before)}
+          onSent={handleSent}
+          onChanged={handleChanged}
+          onBack={narrow ? backToList : undefined}
+        />
+      )}
+    </section>
+  )
+
+  return (
+    <div ref={rootRef} data-team-chat-panes={narrow ? (openedNow ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
+      {/* The list and the messages split as Mail's are, by a line with a
+          grip that resizes them (Liam, 11-09: "the same type of divider that
+          we have for the main page"). Narrow (a phone), one pane at a time:
+          the other panel hidden (the `hidden` attribute, which the panel's
+          inline display can't override) and no divider. One tree either way,
+          so crossing the width keeps the open channel as it was: its draft,
+          an edit, where it was scrolled to, the focus. */}
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+        <ResizablePanel
+          id="team-chat-list"
+          hidden={narrow && !showList}
+          defaultSize={compact ? '32%' : '26%'}
+          minSize={compact ? '176px' : '18%'}
+          maxSize="45%"
+          className="flex min-h-0 flex-col"
+        >
+          {list}
+        </ResizablePanel>
+        {!narrow && <ResizableHandle withHandle />}
+        <ResizablePanel id="team-chat-channel" hidden={narrow && !showChannel} minSize="40%" className="flex min-h-0 min-w-0 flex-col">
+          {pane}
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <NewChannelDialog
         open={newChannelOpen}
@@ -363,7 +490,7 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
         onCreated={async (id) => {
           setNewChannelOpen(false)
           await loadChannels()
-          setSelectedId(id)
+          openChannel(id)
         }}
       />
       <NewDmDialog open={newDmOpen} onOpenChange={setNewDmOpen} members={members} meId={meId} onPick={openDm} />
@@ -373,10 +500,10 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
 
 function SectionHeading({ label, onAdd, addLabel, className }: { label: string; onAdd: () => void; addLabel: string; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-between px-2 py-1.5', className)}>
-      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-      <button type="button" onClick={onAdd} aria-label={addLabel} title={addLabel} className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground">
-        <Plus className="h-3.5 w-3.5" />
+    <div className={cn('flex h-8 items-center justify-between pl-3 pr-1.5', className)}>
+      <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
+      <button type="button" onClick={onAdd} aria-label={addLabel} title={addLabel} className="rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+        <Plus className="h-4 w-4" />
       </button>
     </div>
   )
@@ -385,12 +512,15 @@ function SectionHeading({ label, onAdd, addLabel, className }: { label: string; 
 function ChannelRow({
   channel,
   title,
+  avatar,
   active,
   privateTeam,
   onSelect,
 }: {
   channel: TeamChatChannel
   title: string
+  /** A direct message's other person (their photo, else their initials). */
+  avatar?: { name: string; url?: string | null }
   active: boolean
   privateTeam?: boolean
   onSelect: () => void
@@ -399,43 +529,52 @@ function ChannelRow({
   return (
     <button
       type="button"
+      data-team-chat-row={channel.id}
       onClick={onSelect}
       className={cn(
-        'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm',
-        active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+        'flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-[15px]',
+        active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
         unread && 'font-semibold text-foreground',
       )}
     >
       {channel.kind === 'channel' ? (
-        privateTeam ? <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" /> : <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        privateTeam ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <Hash className="h-4 w-4 shrink-0 opacity-70" />
       ) : (
-        <Avatar name={title} small />
+        <Avatar name={avatar?.name ?? title} url={avatar?.url} size="sm" />
       )}
       <span className="min-w-0 flex-1 truncate">{title}</span>
       {unread && channel.mentions > 0 ? (
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground" title={`${channel.mentions} mention${channel.mentions === 1 ? '' : 's'}`}>
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground" title={`${channel.mentions} mention${channel.mentions === 1 ? '' : 's'}`}>
           @{channel.mentions}
         </span>
       ) : unread ? (
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted-foreground/20 px-1 text-[10px] font-semibold text-foreground">{channel.unread}</span>
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted-foreground/20 px-1.5 text-[11px] font-semibold text-foreground">{channel.unread}</span>
       ) : null}
     </button>
   )
 }
 
-function Avatar({ name, agent = false, small = false }: { name: string; agent?: boolean; small?: boolean }) {
-  const size = small ? 'h-4 w-4 text-[9px]' : 'h-8 w-8 text-xs'
+const AVATAR_SIZES = {
+  xs: { box: 'h-5 w-5 text-[9px]', icon: 'h-3 w-3' },
+  sm: { box: 'h-6 w-6 text-[10px]', icon: 'h-3.5 w-3.5' },
+  md: { box: 'h-9 w-9 text-xs', icon: 'h-4 w-4' },
+} as const
+
+/** A round avatar: the person's photo when known, else their initials; an agent's, its own (violet, a bot). */
+function Avatar({ name, url, agent = false, size = 'md' }: { name: string; url?: string | null; agent?: boolean; size?: keyof typeof AVATAR_SIZES }) {
+  const { box, icon } = AVATAR_SIZES[size]
   if (agent) {
     return (
-      <span className={cn('flex shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-600 dark:text-violet-300', size)}>
-        <Bot className={small ? 'h-3 w-3' : 'h-4 w-4'} />
+      <span className={cn('flex shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-300', box)} aria-hidden>
+        <Bot className={icon} />
       </span>
     )
   }
   return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground', size)}>
-      {name.trim().charAt(0).toUpperCase() || '?'}
-    </span>
+    <AvatarRoot className={box} aria-hidden>
+      {url && <AvatarImage src={url} alt="" className="object-cover" />}
+      <AvatarFallback className="bg-muted font-semibold text-muted-foreground">{initials(name)}</AvatarFallback>
+    </AvatarRoot>
   )
 }
 
@@ -458,6 +597,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 function ChannelPane({
   channel,
   title,
+  dmPerson,
   teamName,
   messages,
   meId,
@@ -469,9 +609,12 @@ function ChannelPane({
   onLoadEarlier,
   onSent,
   onChanged,
+  onBack,
 }: {
   channel: TeamChatChannel
   title: string
+  /** A direct message's other person, for the avatar beside their name. */
+  dmPerson?: Member
   teamName: string | null
   messages: TeamChatMessage[] | null
   meId: string | null
@@ -483,8 +626,18 @@ function ChannelPane({
   onLoadEarlier: (before: string) => Promise<void>
   onSent: (message: TeamChatMessage, calledAgent: boolean) => void
   onChanged: (message: TeamChatMessage) => void
+  /** One pane at a time (a phone): back to the list of channels. */
+  onBack?: () => void
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Opened on a phone (it takes the screen): the focus starts on Back, the
+  // list's button it replaced being gone. Only as it opens: a channel already
+  // on screen when the view narrows keeps the focus where it was (its box).
+  const backRef = useRef<HTMLButtonElement>(null)
+  const backFirst = useRef(!!onBack)
+  useEffect(() => {
+    if (backFirst.current) backRef.current?.focus({ preventScroll: true })
+  }, [])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
 
@@ -531,16 +684,30 @@ function ChannelPane({
 
   return (
     <>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-5">
-        {channel.kind === 'channel' ? <Hash className="h-4 w-4 text-muted-foreground" /> : <Avatar name={title} small />}
-        <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
+      {/* No rule under the channel's name (Liam, 11-09: no visible divider lines). */}
+      <div className={cn('flex h-14 shrink-0 items-center gap-2', onBack ? 'pl-2 pr-4' : 'px-5')}>
+        {onBack && (
+          <button
+            ref={backRef}
+            type="button"
+            onClick={onBack}
+            aria-label="All channels"
+            title="All channels"
+            data-team-chat-back=""
+            className="-ml-0.5 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        )}
+        {channel.kind === 'channel' ? <Hash className="h-5 w-5 shrink-0 text-muted-foreground" /> : <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size="sm" />}
+        <h2 className="truncate text-lg font-bold text-foreground">{title}</h2>
         {teamName && (
-          <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
             <Users className="h-3 w-3" />
             {teamName}
           </span>
         )}
-        {channel.topic && <span className="truncate text-xs text-muted-foreground">{channel.topic}</span>}
+        {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -548,7 +715,7 @@ function ChannelPane({
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
         ) : messages.length === 0 ? (
           <div className="py-10 text-center">
-            <p className="text-sm font-medium text-foreground">{channel.kind === 'channel' ? `This is the start of #${title}` : `This is the start of your messages with ${title}`}</p>
+            <p className="text-[15px] font-semibold text-foreground">{channel.kind === 'channel' ? `This is the start of #${title}` : `This is the start of your messages with ${title}`}</p>
             <p className="mt-1 text-sm text-muted-foreground">Type @{assistantName} to ask your agent; it answers here with what the channel has said.</p>
           </div>
         ) : (
@@ -560,7 +727,7 @@ function ChannelPane({
               </Button>
             </div>
           )}
-          <ul className="space-y-0.5">
+          <ul>
             {messages.map((m, i) => (
               <MessageRow
                 key={m.id}
@@ -584,8 +751,8 @@ function ChannelPane({
           </>
         )}
         {waitingOnAgent && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Avatar name={assistantName} agent small />
+          <div className="mt-3 flex items-center gap-2 px-2 text-sm text-muted-foreground">
+            <Avatar name={assistantName} agent size="xs" />
             <span className="animate-pulse">{assistantName} is looking into it…</span>
           </div>
         )}
@@ -637,23 +804,24 @@ function MessageRow({
     ? agentDisplayName(message.agent_name, memberName(membersById.get(message.agent_for_member_id ?? '')), message.agent_for_member_id === meId)
     : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
   const deleted = !!message.deleted_at
+  const author = isAgent ? undefined : membersById.get(message.author_member_id ?? '')
 
   return (
-    <li className={cn('group relative flex gap-3 rounded-md px-2 hover:bg-accent/40', grouped ? 'py-0.5' : 'mt-2 py-1')}>
-      <div className="w-8 shrink-0">{!grouped && <Avatar name={name} agent={isAgent} />}</div>
+    <li className={cn('group relative flex gap-3 rounded-xl px-2 hover:bg-accent/40', grouped ? 'py-0.5' : 'mt-3 pb-0.5 pt-1.5 first:mt-0')}>
+      <div className="w-9 shrink-0">{!grouped && <Avatar name={memberName(author)} url={author?.avatar_url} agent={isAgent} />}</div>
       <div className="min-w-0 flex-1">
         {!grouped && (
           <div className="flex items-baseline gap-2">
-            <span className={cn('text-sm font-semibold', isAgent ? 'text-violet-700 dark:text-violet-300' : 'text-foreground')}>{name}</span>
-            <span className="text-[11px] text-muted-foreground">{messageTime(message.created_at)}</span>
+            <span className={cn('truncate text-[15px] font-semibold', isAgent ? 'text-violet-700 dark:text-violet-300' : 'text-foreground')}>{name}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{messageTime(message.created_at)}</span>
           </div>
         )}
         {editing ? (
           <EditBox message={message} members={members} onCancel={onCancelEdit} onSaved={onSaved} />
         ) : deleted ? (
-          <p className="text-sm italic text-muted-foreground">This message was deleted.</p>
+          <p className="text-[15px] italic leading-relaxed text-muted-foreground">This message was deleted.</p>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+          <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground">
             {mentionSegments(message.body, labels).map((seg, i) =>
               seg.mention ? (
                 <span key={i} className="rounded bg-primary/10 px-0.5 font-medium text-primary">
@@ -668,7 +836,7 @@ function MessageRow({
         )}
       </div>
       {(mine || myAgent) && !deleted && !editing && (
-        <div className="absolute right-2 top-1 hidden gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-sm group-hover:flex">
+        <div className="absolute right-2 top-1 hidden gap-0.5 rounded-lg border border-border bg-background p-0.5 shadow-sm group-hover:flex">
           {mine && (
             <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
               <Pencil className="h-3.5 w-3.5" />
@@ -728,6 +896,21 @@ function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMes
   )
 }
 
+/** What team chat's box can't take: its messages are words only. */
+const TEAM_CHAT_UNAVAILABLE: ChatInputUnavailable = {
+  files: { reason: 'Team chat messages are text only.' },
+}
+const NO_NOTES: never[] = []
+const NO_FILES: never[] = []
+const noop = () => {}
+
+/**
+ * The box: the main chat's composer (ChatInput, not the main one) in its
+ * one-row pill (`layout="inline"`: +, the field, the mic, send), with its
+ * `@` listing the person's agent and the members (mentionList) in place of
+ * the record search. Enter sends, Shift+Enter is a new line. Text only: no
+ * files (dimmed in +, with why), dictation but no voice mode, no skills.
+ */
 function Composer({
   channelId,
   placeholder,
@@ -746,56 +929,53 @@ function Composer({
   onSent: (message: TeamChatMessage, calledAgent: boolean) => void
 }) {
   const [text, setText] = useState('')
+  // Dictation into the box, as in the main chat (the desktop app; Liam, 11-09:
+  // "add the dictation button to the chat"). Dictation only: no voice mode,
+  // which is a conversation with the agent, not a message to the channel.
+  const recording = useOptionalRecordingStable()
+  const availability = useVoiceAvailability({ recording: !!(recording?.isRecording || recording?.isStarting) })
+  const voice = useMemo<ChatInputVoice | undefined>(
+    () => (availability.dictation ? { availability: { ...availability, conversation: false, visible: true } } : undefined),
+    [availability],
+  )
   const [picked, setPicked] = useState<Array<{ id: string; label: string }>>([])
-  const [query, setQuery] = useState<{ start: number; query: string } | null>(null)
-  const [active, setActive] = useState(0)
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState(false)
-  const ref = useRef<HTMLTextAreaElement>(null)
-  // Where the caret goes once a programmatic change (a picked mention, the @ button) has rendered:
-  // set before the browser handles the next keystroke, so fast typing never lands in the wrong place.
-  const pendingCaret = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    const at = pendingCaret.current
-    const el = ref.current
-    if (at === null || !el) return
-    pendingCaret.current = null
-    el.focus()
-    el.setSelectionRange(at, at)
-  }, [text])
 
-  const options = useMemo<MentionOption[]>(() => {
-    if (!query) return []
-    const q = query.query.toLowerCase()
-    const all: MentionOption[] = [
+  // The person's own agent, then everyone else in the workspace.
+  const options = useMemo<ComposerMentionOption[]>(
+    () => [
       { id: AGENT_OPTION_ID, label: assistantName, hint: 'your agent', agent: true },
-      ...members
-        .filter((m) => m.id !== meId)
-        .map((m) => ({ id: m.id, label: memberName(m), hint: '', agent: false })),
-    ]
-    return all.filter((o) => !q || o.label.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || o.label.toLowerCase().startsWith(q)).slice(0, 8)
-  }, [query, members, meId, assistantName])
+      ...members.filter((m) => m.id !== meId).map((m) => ({ id: m.id, label: memberName(m) })),
+    ],
+    [members, meId, assistantName],
+  )
+  const mentionList = useMemo<ComposerMentionList>(
+    () => ({
+      options,
+      // A member picked is kept (their mention goes with the message while
+      // "@Name" is still in it); the agent is found by name at send.
+      onPick: (o) => {
+        if (o.agent) return
+        setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
+      },
+    }),
+    [options],
+  )
 
-  const updateQuery = (value: string, caret: number) => {
-    setQuery(mentionQueryAt(value, caret))
-    setActive(0)
-  }
+  // The latest of what a send reads, so the send handed to the (memoized) box stays one function.
+  const latest = useRef({ text, picked, sending, channelId, assistantName, members, onSent })
+  latest.current = { text, picked, sending, channelId, assistantName, members, onSent }
 
-  const pick = (o: MentionOption) => {
-    if (!query) return
-    const { value, cursor } = insertMentionAt(text, query.start, o.label)
-    setText(value)
-    setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
-    setQuery(null)
-    pendingCaret.current = cursor
-  }
-
-  const send = async () => {
+  const send = useCallback(async () => {
+    const { text, picked, sending, channelId, assistantName, members, onSent } = latest.current
     const body = text.trim()
     if (!body || sending) return
-    const still = mentionsStillIn(body, picked).filter((id) => id !== AGENT_OPTION_ID)
-    // The agent by name, never a teammate whose name starts with it ("@Joseph Lee").
-    const mentionsAgent = picked.some((p) => p.id === AGENT_OPTION_ID) && mentionsAssistantName(body, assistantName, members.map((m) => m.display_name))
+    const still = mentionsStillIn(body, picked)
+    // "@<agent name>" in the words, picked or typed, calls the agent: by name,
+    // never a teammate whose name starts with it ("@Joseph Lee").
+    const mentionsAgent = mentionsAssistantName(body, assistantName, members.map((m) => m.display_name))
+    latest.current.sending = true
     setSending(true)
     setFailed(false)
     try {
@@ -807,111 +987,54 @@ function Composer({
       if (!res.ok) throw new Error('send failed')
       const json = (await res.json()) as { message?: TeamChatMessage }
       if (json.message) onSent(json.message, json.message.mentions_agent)
-      setText('')
-      setPicked([])
-      setQuery(null)
+      // Only what was sent goes: words typed while it was on its way stay.
+      const typedSince = latest.current.text !== text
+      if (!typedSince) {
+        setText('')
+        setPicked([])
+      }
     } catch {
       setFailed(true)
     } finally {
+      latest.current.sending = false
       setSending(false)
     }
-  }
+  }, [])
 
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (query && options.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setActive((i) => (i + 1) % options.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setActive((i) => (i - 1 + options.length) % options.length)
-        return
-      }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault()
-        pick(options[active] ?? options[0])
-        return
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setQuery(null)
-        return
-      }
-    }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault()
-      void send()
-    }
-  }
+  // The box's words, at most a message's worth (the server refuses more).
+  const onChange = useCallback((value: string) => {
+    setText(value.slice(0, TEAM_CHAT_MESSAGE_MAX))
+    // Editing after a failed send: the note has done its job.
+    setFailed(false)
+  }, [])
+  const onSubmit = useCallback(() => void send(), [send])
 
   if (archived) {
-    return <div className="border-t border-border px-5 py-3 text-sm text-muted-foreground">This channel is archived.</div>
+    return <div className="mx-4 mb-4 shrink-0 rounded-[28px] bg-muted/60 px-5 py-4 text-sm text-muted-foreground">This channel is archived.</div>
   }
 
   return (
-    <div className="relative shrink-0 px-5 pb-4">
-      {query && options.length > 0 && (
-        <div className="absolute bottom-full left-5 z-20 mb-1 w-72 overflow-hidden rounded-lg border border-border bg-popover p-1 shadow-lg" role="listbox">
-          {options.map((o, i) => (
-            <button
-              key={o.id}
-              type="button"
-              role="option"
-              aria-selected={i === active}
-              onMouseDown={(e) => {
-                e.preventDefault()
-                pick(o)
-              }}
-              onMouseEnter={() => setActive(i)}
-              className={cn('flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm', i === active ? 'bg-accent text-foreground' : 'text-foreground')}
-            >
-              <Avatar name={o.label} agent={o.agent} small />
-              <span className="truncate">{o.label}</span>
-              {o.hint && <span className="ml-auto text-[11px] text-muted-foreground">{o.hint}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="flex items-end gap-2 rounded-xl border border-border bg-background px-3 py-2 focus-within:border-ring">
-        <Textarea
-          ref={ref}
-          value={text}
-          rows={1}
-          maxLength={TEAM_CHAT_MESSAGE_MAX}
-          placeholder={placeholder}
-          onChange={(e) => {
-            setText(e.target.value)
-            updateQuery(e.target.value, e.target.selectionStart ?? e.target.value.length)
-          }}
-          onKeyDown={onKeyDown}
-          onClick={(e) => updateQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
-          onBlur={() => setTimeout(() => setQuery(null), 120)}
-          className="max-h-40 min-h-0 flex-1 resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
-        />
-        <button
-          type="button"
-          aria-label="Mention someone"
-          title="Mention someone or your agent"
-          onClick={() => {
-            const el = ref.current
-            const at = el?.selectionStart ?? text.length
-            const next = `${text.slice(0, at)}${at > 0 && !/\s$/.test(text.slice(0, at)) ? ' ' : ''}@${text.slice(at)}`
-            const caret = next.length - text.slice(at).length
-            pendingCaret.current = caret
-            setText(next)
-            updateQuery(next, caret)
-          }}
-          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          <AtSign className="h-4 w-4" />
-        </button>
-        <Button size="sm" onClick={() => void send()} disabled={!text.trim() || sending} aria-label="Send">
-          <SendHorizontal className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      {failed && <p className="mt-1 text-xs text-destructive">That didn&apos;t send. Try again.</p>}
+    <div className="shrink-0 px-2 pb-3" data-team-chat-composer aria-busy={sending || undefined}>
+      <ChatInput
+        value={text}
+        onChange={onChange}
+        onSubmit={onSubmit}
+        onStop={noop}
+        isLoading={false}
+        attachedNotes={NO_NOTES}
+        onAttachNote={noop}
+        onRemoveNote={noop}
+        attachedFiles={NO_FILES}
+        onAttachFiles={noop}
+        onRemoveFile={noop}
+        placeholder={placeholder}
+        mainComposer={false}
+        unavailable={TEAM_CHAT_UNAVAILABLE}
+        mentionList={mentionList}
+        voice={voice}
+        layout="inline"
+      />
+      {failed && <p className="mt-1 px-3 text-xs text-destructive">That didn&apos;t send. Try again.</p>}
     </div>
   )
 }
@@ -1033,7 +1156,7 @@ function NewDmDialog({
           {list.map((m) => (
             <li key={m.id}>
               <button type="button" onClick={() => onPick(m.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
-                <Avatar name={memberName(m)} small />
+                <Avatar name={memberName(m)} url={m.avatar_url} size="sm" />
                 <span className="truncate">{memberName(m)}</span>
                 {m.id === meId && <span className="ml-auto text-[11px] text-muted-foreground">you</span>}
               </button>
