@@ -233,6 +233,24 @@ describe("team chat's box is the main composer", () => {
     voiceState.current = { hasVoice: false, visible: false, dictation: false, conversation: false, blocked: null, status: {} }
   })
 
+  it('one row, as a modern chat box: +, the field, the mic, then send', async () => {
+    voiceState.current = { hasVoice: true, visible: true, dictation: true, conversation: true, blocked: null, status: {} }
+    await render()
+    const row = container.querySelector('[data-team-chat-composer] [data-composer-controls]')!
+    expect(row.getAttribute('data-composer-layout')).toBe('inline')
+    const order = [
+      row.querySelector('button[aria-label="Add"]'),
+      row.querySelector('textarea'),
+      row.querySelector('[data-voice-control="dictation"]'),
+      row.querySelector('button[aria-label="Send message"]'),
+    ]
+    expect(order.every(Boolean)).toBe(true)
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+    voiceState.current = { hasVoice: false, visible: false, dictation: false, conversation: false, blocked: null, status: {} }
+  })
+
   it('no dictation where the desktop has none (a browser): no mic', async () => {
     await render()
     expect(container.querySelector('[data-team-chat-composer] [data-voice-control="dictation"]')).toBeNull()

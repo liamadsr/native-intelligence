@@ -38,7 +38,7 @@ const host = vi.hoisted(() => ({
   onSubmit: (() => {}) as () => void,
 }))
 
-function Host({ filesOff = false }: { filesOff?: boolean }) {
+function Host({ filesOff = false, layout }: { filesOff?: boolean; layout?: 'stacked' | 'inline' }) {
   const [value, setValue] = useState('')
   // What the host holds, for the tests to read after each act().
   useEffect(() => {
@@ -59,6 +59,7 @@ function Host({ filesOff = false }: { filesOff?: boolean }) {
     mainComposer: false,
     unavailable: filesOff ? { files: { reason: 'Team chat messages are text only.' } } : undefined,
     mentionList: { options: OPTIONS, onPick: (o: ComposerMentionOption) => host.picks.push(o.id) },
+    layout,
   })
 }
 
@@ -95,7 +96,7 @@ const inlineMenu = () => document.querySelector('[data-command-menu="inline"]')
 const optionRows = () => [...document.querySelectorAll<HTMLElement>('[data-mention-option]')]
 const optionIds = () => optionRows().map((r) => r.getAttribute('data-mention-option'))
 
-async function mount(props: { filesOff?: boolean } = {}) {
+async function mount(props: { filesOff?: boolean; layout?: 'stacked' | 'inline' } = {}) {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -209,5 +210,51 @@ describe('a host that takes no files', () => {
       textarea().dispatchEvent(paste)
     })
     expect(host.files).toHaveLength(0)
+  })
+})
+
+describe('the inline layout (team chat): one row in a pill', () => {
+  const controls = () => container.querySelector<HTMLElement>('[data-composer-controls]')!
+  const add = () => container.querySelector<HTMLButtonElement>('button[aria-label="Add"]')!
+  const send = () => container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!
+  const follows = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+  it('puts +, the one-line field and send in one row, in that order', async () => {
+    await mount({ layout: 'inline', filesOff: true })
+    expect(controls().getAttribute('data-composer-layout')).toBe('inline')
+    expect(controls().contains(add())).toBe(true)
+    expect(controls().contains(textarea())).toBe(true)
+    expect(controls().contains(send())).toBe(true)
+    expect(follows(add(), textarea())).toBe(true)
+    expect(follows(textarea(), send())).toBe(true)
+    expect(textarea().getAttribute('rows')).toBe('1')
+    // A pill: no blur of its own (it sits in a glass card).
+    const box = container.querySelector<HTMLElement>('[data-bot-chat-box]')!
+    expect(box.className).toContain('rounded-[28px]')
+    expect(box.className).not.toContain('backdrop-blur')
+  })
+
+  it('still sends on Enter, keeps Shift+Enter for a new line, and opens the @ list', async () => {
+    await mount({ layout: 'inline' })
+    type('hi')
+    press('Enter', { shiftKey: true })
+    expect(host.onSubmit).not.toHaveBeenCalled()
+    press('Enter')
+    expect(host.onSubmit).toHaveBeenCalledTimes(1)
+    type(' @Ro')
+    await settle()
+    expect(inlineMenu()).not.toBeNull()
+    expect(optionIds()).toEqual(['m-rosa'])
+  })
+
+  it('without it, the main layout as before: the field on its own row, the controls under it', async () => {
+    await mount()
+    expect(controls().getAttribute('data-composer-layout')).toBeNull()
+    expect(controls().contains(textarea())).toBe(false)
+    expect(controls().contains(add())).toBe(true)
+    expect(follows(textarea(), controls())).toBe(true)
+    const box = container.querySelector<HTMLElement>('[data-bot-chat-box]')!
+    expect(box.className).toContain('rounded-3xl')
+    expect(box.className).toContain('backdrop-blur-xl')
   })
 })

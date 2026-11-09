@@ -93,6 +93,8 @@ const aside = () => container.querySelector('aside')!
 const section = () => container.querySelector('section')!
 const row = (name: string) => [...container.querySelectorAll('aside button')].find((b) => b.textContent?.includes(name)) as HTMLButtonElement
 const back = () => container.querySelector<HTMLButtonElement>('[data-team-chat-back]')
+// The divider between the list and the messages (Mail's resizable handle: a line with a grip).
+const handle = () => container.querySelector('[role="separator"]')
 
 describe('team chat on a phone (narrower than two panes)', () => {
   beforeEach(() => {
@@ -103,6 +105,8 @@ describe('team chat on a phone (narrower than two panes)', () => {
     await render()
     expect(panes()).toBe('list')
     expect(aside().className).toContain('w-full')
+    // One pane at a time: nothing to drag.
+    expect(handle()).toBeNull()
     expect(section().className).toContain('hidden')
     // The first channel is picked for the person, but it isn't on screen: still unread, not lit.
     expect(row('general').textContent).toContain('2')
@@ -113,6 +117,7 @@ describe('team chat on a phone (narrower than two panes)', () => {
     await render()
     await act(async () => row('general').click())
     expect(panes()).toBe('channel')
+    expect(handle()).toBeNull()
     expect(aside().className).toContain('hidden')
     expect(section().className).not.toContain('hidden')
     expect(container.textContent).toContain('The kickoff moved to Thursday.')
@@ -162,12 +167,13 @@ describe('the inline card (compact): its list is narrower, so two panes hold dow
     width = TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX
     await render({ compact: true })
     expect(panes()).toBe('both')
-    expect(aside().className).toContain('w-44')
+    expect(handle()).not.toBeNull()
     act(() => root.unmount())
     root = createRoot(container)
     width = TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX - 1
     await render({ compact: true })
     expect(panes()).toBe('list')
+    expect(handle()).toBeNull()
   })
 })
 
@@ -179,7 +185,15 @@ describe('team chat with room for two panes', () => {
   it('shows the list and the first channel side by side, reads it, and has no Back', async () => {
     await render()
     expect(panes()).toBe('both')
-    expect(aside().className).toContain('w-60')
+    // Side by side in Mail's resizable split: the list, the handle (with its grip), the messages.
+    const panels = [...container.querySelectorAll('[data-panel]')]
+    expect(panels).toHaveLength(2)
+    expect(panels[0].contains(aside())).toBe(true)
+    expect(panels[1].contains(section())).toBe(true)
+    expect(handle()).not.toBeNull()
+    expect(handle()!.querySelector('svg')).not.toBeNull()
+    expect(panels[0].compareDocumentPosition(handle()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(handle()!.compareDocumentPosition(panels[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(section().className).not.toContain('hidden')
     expect(container.textContent).toContain('The kickoff moved to Thursday.')
     expect(reads).toEqual(['c-general'])

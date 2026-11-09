@@ -22,6 +22,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Avatar as AvatarRoot, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { cachedJson } from '@/lib/cached-fetch'
@@ -45,8 +47,9 @@ interface Member {
 /**
  * Below this width the view shows one pane at a time (a phone, a narrow
  * card): the list of channels, then the channel picked, with Back. At it and
- * above, the two side by side, as they always were. The inline card's list is
- * narrower (w-44), so it keeps two panes down to TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX.
+ * above, the two side by side, split by Mail's resizable handle. The inline
+ * card's list may be narrower (down to 176px), so it keeps two panes down to
+ * TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX.
  */
 export const TEAM_CHAT_TWO_PANE_MIN_PX = 576
 export const TEAM_CHAT_TWO_PANE_MIN_COMPACT_PX = 480
@@ -81,6 +84,15 @@ const AGENT_WAIT_MS = 3 * 60_000
 
 function memberName(m: Member | undefined): string {
   return m?.display_name?.trim() || 'Teammate'
+}
+
+/** A name's initials for its avatar: the first and last words' ("Rosa Lind": RL). */
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return '?'
+  const first = words[0].charAt(0)
+  const last = words.length > 1 ? words[words.length - 1].charAt(0) : ''
+  return (first + last).toUpperCase()
 }
 
 function sortByTime(list: TeamChatMessage[]): TeamChatMessage[] {
@@ -362,72 +374,103 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     setMessages((prev) => ({ ...prev, [message.channel_id]: upsertMessage(prev[message.channel_id], message) }))
   }, [])
 
+  const list = (
+    <aside className={cn('flex min-h-0 flex-col', narrow ? (showList ? 'h-full w-full' : 'hidden') : 'h-full w-full')}>
+      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+        <MessageSquare className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <h1 className="text-[15px] font-semibold text-foreground">Team chat</h1>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+        {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
+        {narrow && error && <p className="px-3 py-1.5 text-xs text-destructive">{error}</p>}
+        <SectionHeading label="Channels" onAdd={() => setNewChannelOpen(true)} addLabel="New channel" />
+        {channels === null ? (
+          <p className="px-3 py-2 text-sm text-muted-foreground">Loading…</p>
+        ) : channelList.length === 0 ? (
+          <button type="button" onClick={() => setNewChannelOpen(true)} className="flex h-10 w-full items-center rounded-xl px-3 text-left text-sm text-muted-foreground hover:bg-accent/60">
+            Start your first channel
+          </button>
+        ) : (
+          channelList.map((c) => (
+            <ChannelRow
+              key={c.id}
+              channel={c}
+              title={channelTitle(c)}
+              active={c.id === onScreen}
+              privateTeam={!!c.team_id && !!teamsById.get(c.team_id)?.is_private}
+              onSelect={() => openChannel(c.id)}
+            />
+          ))
+        )}
+        <SectionHeading label="Direct messages" onAdd={() => setNewDmOpen(true)} addLabel="New message" className="mt-5" />
+        {dmList.map((c) => {
+          const person = c.dm_member_id ? membersById.get(c.dm_member_id) : undefined
+          return (
+            <ChannelRow
+              key={c.id}
+              channel={c}
+              title={channelTitle(c)}
+              avatar={{ name: memberName(person), url: person?.avatar_url }}
+              active={c.id === onScreen}
+              onSelect={() => openChannel(c.id)}
+            />
+          )
+        })}
+      </div>
+    </aside>
+  )
+
+  const pane = (
+    <section className={cn('h-full min-h-0 min-w-0 flex-1 flex-col', showChannel ? 'flex' : 'hidden')}>
+      {!showChannel ? null : error && !selected ? (
+        <p className="py-10 text-center text-sm text-destructive">{error}</p>
+      ) : !selected ? (
+        channels === null ? null : <EmptyState onCreate={() => setNewChannelOpen(true)} />
+      ) : (
+        <ChannelPane
+          key={selected.id}
+          channel={selected}
+          title={channelTitle(selected)}
+          dmPerson={selected.kind === 'dm' && selected.dm_member_id ? membersById.get(selected.dm_member_id) : undefined}
+          teamName={selected.team_id ? (teamsById.get(selected.team_id)?.name ?? null) : null}
+          messages={messages[selected.id] ?? null}
+          meId={meId}
+          members={members}
+          membersById={membersById}
+          assistantName={assistantName}
+          waitingOnAgent={!!waitingOnAgent[selected.id]}
+          hasMore={!!more[selected.id]}
+          onLoadEarlier={(before) => loadEarlier(selected.id, before)}
+          onSent={handleSent}
+          onChanged={handleChanged}
+          onBack={narrow ? backToList : undefined}
+        />
+      )}
+    </section>
+  )
+
   return (
     <div ref={rootRef} data-team-chat-panes={narrow ? (openedNow ? 'channel' : 'list') : 'both'} className="flex h-full min-h-0">
-      <aside
-        className={cn(
-          'flex-col',
-          // No divider between the list and the messages (Liam, 11-09: no visible divider lines).
-          narrow ? (showList ? 'flex w-full' : 'hidden') : cn('flex shrink-0', compact ? 'w-44' : 'w-60'),
-        )}
-      >
-        <div className="flex h-12 shrink-0 items-center px-4">
-          <h1 className="text-sm font-semibold text-foreground">Team chat</h1>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
-          {/* On a phone the list stands alone: a failed load says so here, not only in the hidden pane. */}
-          {narrow && error && <p className="px-2 py-1.5 text-xs text-destructive">{error}</p>}
-          <SectionHeading label="Channels" onAdd={() => setNewChannelOpen(true)} addLabel="New channel" />
-          {channels === null ? (
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">Loading…</p>
-          ) : channelList.length === 0 ? (
-            <button type="button" onClick={() => setNewChannelOpen(true)} className="w-full rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent">
-              Start your first channel
-            </button>
-          ) : (
-            channelList.map((c) => (
-              <ChannelRow
-                key={c.id}
-                channel={c}
-                title={channelTitle(c)}
-                active={c.id === onScreen}
-                privateTeam={!!c.team_id && !!teamsById.get(c.team_id)?.is_private}
-                onSelect={() => openChannel(c.id)}
-              />
-            ))
-          )}
-          <SectionHeading label="Direct messages" onAdd={() => setNewDmOpen(true)} addLabel="New message" className="mt-4" />
-          {dmList.map((c) => (
-            <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === onScreen} onSelect={() => openChannel(c.id)} />
-          ))}
-        </div>
-      </aside>
-
-      <section className={cn('min-w-0 flex-1 flex-col', showChannel ? 'flex' : 'hidden')}>
-        {!showChannel ? null : error && !selected ? (
-          <p className="py-10 text-center text-sm text-destructive">{error}</p>
-        ) : !selected ? (
-          channels === null ? null : <EmptyState onCreate={() => setNewChannelOpen(true)} />
-        ) : (
-          <ChannelPane
-            key={selected.id}
-            channel={selected}
-            title={channelTitle(selected)}
-            teamName={selected.team_id ? (teamsById.get(selected.team_id)?.name ?? null) : null}
-            messages={messages[selected.id] ?? null}
-            meId={meId}
-            members={members}
-            membersById={membersById}
-            assistantName={assistantName}
-            waitingOnAgent={!!waitingOnAgent[selected.id]}
-            hasMore={!!more[selected.id]}
-            onLoadEarlier={(before) => loadEarlier(selected.id, before)}
-            onSent={handleSent}
-            onChanged={handleChanged}
-            onBack={narrow ? backToList : undefined}
-          />
-        )}
-      </section>
+      {narrow ? (
+        // One pane at a time (a phone): no divider to drag.
+        <>
+          {list}
+          {pane}
+        </>
+      ) : (
+        // Side by side: the list and the messages split as Mail's are, by a
+        // line with a grip that resizes them (Liam, 11-09: "the same type of
+        // divider that we have for the main page").
+        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+          <ResizablePanel id="team-chat-list" defaultSize={compact ? '32%' : '26%'} minSize={compact ? '176px' : '18%'} maxSize="45%" className="flex min-h-0 flex-col">
+            {list}
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="team-chat-channel" minSize="40%" className="flex min-h-0 min-w-0 flex-col">
+            {pane}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      )}
 
       <NewChannelDialog
         open={newChannelOpen}
@@ -446,10 +489,10 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
 
 function SectionHeading({ label, onAdd, addLabel, className }: { label: string; onAdd: () => void; addLabel: string; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-between px-2 py-1.5', className)}>
-      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
-      <button type="button" onClick={onAdd} aria-label={addLabel} title={addLabel} className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground">
-        <Plus className="h-3.5 w-3.5" />
+    <div className={cn('flex h-8 items-center justify-between pl-3 pr-1.5', className)}>
+      <span className="text-[13px] font-medium text-muted-foreground">{label}</span>
+      <button type="button" onClick={onAdd} aria-label={addLabel} title={addLabel} className="rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
+        <Plus className="h-4 w-4" />
       </button>
     </div>
   )
@@ -458,12 +501,15 @@ function SectionHeading({ label, onAdd, addLabel, className }: { label: string; 
 function ChannelRow({
   channel,
   title,
+  avatar,
   active,
   privateTeam,
   onSelect,
 }: {
   channel: TeamChatChannel
   title: string
+  /** A direct message's other person (their photo, else their initials). */
+  avatar?: { name: string; url?: string | null }
   active: boolean
   privateTeam?: boolean
   onSelect: () => void
@@ -475,41 +521,49 @@ function ChannelRow({
       data-team-chat-row={channel.id}
       onClick={onSelect}
       className={cn(
-        'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm',
-        active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+        'flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-[15px]',
+        active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
         unread && 'font-semibold text-foreground',
       )}
     >
       {channel.kind === 'channel' ? (
-        privateTeam ? <Lock className="h-3.5 w-3.5 shrink-0 opacity-70" /> : <Hash className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        privateTeam ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <Hash className="h-4 w-4 shrink-0 opacity-70" />
       ) : (
-        <Avatar name={title} small />
+        <Avatar name={avatar?.name ?? title} url={avatar?.url} size="sm" />
       )}
       <span className="min-w-0 flex-1 truncate">{title}</span>
       {unread && channel.mentions > 0 ? (
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground" title={`${channel.mentions} mention${channel.mentions === 1 ? '' : 's'}`}>
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground" title={`${channel.mentions} mention${channel.mentions === 1 ? '' : 's'}`}>
           @{channel.mentions}
         </span>
       ) : unread ? (
-        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-muted-foreground/20 px-1 text-[10px] font-semibold text-foreground">{channel.unread}</span>
+        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted-foreground/20 px-1.5 text-[11px] font-semibold text-foreground">{channel.unread}</span>
       ) : null}
     </button>
   )
 }
 
-function Avatar({ name, agent = false, small = false }: { name: string; agent?: boolean; small?: boolean }) {
-  const size = small ? 'h-4 w-4 text-[9px]' : 'h-8 w-8 text-xs'
+const AVATAR_SIZES = {
+  xs: { box: 'h-5 w-5 text-[9px]', icon: 'h-3 w-3' },
+  sm: { box: 'h-6 w-6 text-[10px]', icon: 'h-3.5 w-3.5' },
+  md: { box: 'h-9 w-9 text-xs', icon: 'h-4 w-4' },
+} as const
+
+/** A round avatar: the person's photo when known, else their initials; an agent's, its own (violet, a bot). */
+function Avatar({ name, url, agent = false, size = 'md' }: { name: string; url?: string | null; agent?: boolean; size?: keyof typeof AVATAR_SIZES }) {
+  const { box, icon } = AVATAR_SIZES[size]
   if (agent) {
     return (
-      <span className={cn('flex shrink-0 items-center justify-center rounded-md bg-violet-500/15 text-violet-600 dark:text-violet-300', size)}>
-        <Bot className={small ? 'h-3 w-3' : 'h-4 w-4'} />
+      <span className={cn('flex shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-violet-600 dark:text-violet-300', box)} aria-hidden>
+        <Bot className={icon} />
       </span>
     )
   }
   return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground', size)}>
-      {name.trim().charAt(0).toUpperCase() || '?'}
-    </span>
+    <AvatarRoot className={box} aria-hidden>
+      {url && <AvatarImage src={url} alt="" className="object-cover" />}
+      <AvatarFallback className="bg-muted font-semibold text-muted-foreground">{initials(name)}</AvatarFallback>
+    </AvatarRoot>
   )
 }
 
@@ -532,6 +586,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 function ChannelPane({
   channel,
   title,
+  dmPerson,
   teamName,
   messages,
   meId,
@@ -547,6 +602,8 @@ function ChannelPane({
 }: {
   channel: TeamChatChannel
   title: string
+  /** A direct message's other person, for the avatar beside their name. */
+  dmPerson?: Member
   teamName: string | null
   messages: TeamChatMessage[] | null
   meId: string | null
@@ -615,7 +672,7 @@ function ChannelPane({
   return (
     <>
       {/* No rule under the channel's name (Liam, 11-09: no visible divider lines). */}
-      <div className={cn('flex h-12 shrink-0 items-center gap-2', onBack ? 'pl-2 pr-4' : 'px-5')}>
+      <div className={cn('flex h-14 shrink-0 items-center gap-2', onBack ? 'pl-2 pr-4' : 'px-5')}>
         {onBack && (
           <button
             ref={backRef}
@@ -624,20 +681,20 @@ function ChannelPane({
             aria-label="All channels"
             title="All channels"
             data-team-chat-back=""
-            className="-ml-0.5 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="-ml-0.5 rounded-lg p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-5 w-5" />
           </button>
         )}
-        {channel.kind === 'channel' ? <Hash className="h-4 w-4 shrink-0 text-muted-foreground" /> : <Avatar name={title} small />}
-        <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
+        {channel.kind === 'channel' ? <Hash className="h-5 w-5 shrink-0 text-muted-foreground" /> : <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size="sm" />}
+        <h2 className="truncate text-lg font-bold text-foreground">{title}</h2>
         {teamName && (
-          <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
             <Users className="h-3 w-3" />
             {teamName}
           </span>
         )}
-        {channel.topic && <span className="truncate text-xs text-muted-foreground">{channel.topic}</span>}
+        {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -645,7 +702,7 @@ function ChannelPane({
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
         ) : messages.length === 0 ? (
           <div className="py-10 text-center">
-            <p className="text-sm font-medium text-foreground">{channel.kind === 'channel' ? `This is the start of #${title}` : `This is the start of your messages with ${title}`}</p>
+            <p className="text-[15px] font-semibold text-foreground">{channel.kind === 'channel' ? `This is the start of #${title}` : `This is the start of your messages with ${title}`}</p>
             <p className="mt-1 text-sm text-muted-foreground">Type @{assistantName} to ask your agent; it answers here with what the channel has said.</p>
           </div>
         ) : (
@@ -657,7 +714,7 @@ function ChannelPane({
               </Button>
             </div>
           )}
-          <ul className="space-y-0.5">
+          <ul>
             {messages.map((m, i) => (
               <MessageRow
                 key={m.id}
@@ -681,8 +738,8 @@ function ChannelPane({
           </>
         )}
         {waitingOnAgent && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <Avatar name={assistantName} agent small />
+          <div className="mt-3 flex items-center gap-2 px-2 text-sm text-muted-foreground">
+            <Avatar name={assistantName} agent size="xs" />
             <span className="animate-pulse">{assistantName} is looking into it…</span>
           </div>
         )}
@@ -734,23 +791,24 @@ function MessageRow({
     ? agentDisplayName(message.agent_name, memberName(membersById.get(message.agent_for_member_id ?? '')), message.agent_for_member_id === meId)
     : `${memberName(membersById.get(message.author_member_id ?? ''))}${mine ? ' (you)' : ''}`
   const deleted = !!message.deleted_at
+  const author = isAgent ? undefined : membersById.get(message.author_member_id ?? '')
 
   return (
-    <li className={cn('group relative flex gap-3 rounded-md px-2 hover:bg-accent/40', grouped ? 'py-0.5' : 'mt-2 py-1')}>
-      <div className="w-8 shrink-0">{!grouped && <Avatar name={name} agent={isAgent} />}</div>
+    <li className={cn('group relative flex gap-3 rounded-xl px-2 hover:bg-accent/40', grouped ? 'py-0.5' : 'mt-3 pb-0.5 pt-1.5 first:mt-0')}>
+      <div className="w-9 shrink-0">{!grouped && <Avatar name={memberName(author)} url={author?.avatar_url} agent={isAgent} />}</div>
       <div className="min-w-0 flex-1">
         {!grouped && (
           <div className="flex items-baseline gap-2">
-            <span className={cn('text-sm font-semibold', isAgent ? 'text-violet-700 dark:text-violet-300' : 'text-foreground')}>{name}</span>
-            <span className="text-[11px] text-muted-foreground">{messageTime(message.created_at)}</span>
+            <span className={cn('truncate text-[15px] font-semibold', isAgent ? 'text-violet-700 dark:text-violet-300' : 'text-foreground')}>{name}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{messageTime(message.created_at)}</span>
           </div>
         )}
         {editing ? (
           <EditBox message={message} members={members} onCancel={onCancelEdit} onSaved={onSaved} />
         ) : deleted ? (
-          <p className="text-sm italic text-muted-foreground">This message was deleted.</p>
+          <p className="text-[15px] italic leading-relaxed text-muted-foreground">This message was deleted.</p>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+          <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground">
             {mentionSegments(message.body, labels).map((seg, i) =>
               seg.mention ? (
                 <span key={i} className="rounded bg-primary/10 px-0.5 font-medium text-primary">
@@ -765,7 +823,7 @@ function MessageRow({
         )}
       </div>
       {(mine || myAgent) && !deleted && !editing && (
-        <div className="absolute right-2 top-1 hidden gap-0.5 rounded-md border border-border bg-background p-0.5 shadow-sm group-hover:flex">
+        <div className="absolute right-2 top-1 hidden gap-0.5 rounded-lg border border-border bg-background p-0.5 shadow-sm group-hover:flex">
           {mine && (
             <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
               <Pencil className="h-3.5 w-3.5" />
@@ -834,10 +892,11 @@ const NO_FILES: never[] = []
 const noop = () => {}
 
 /**
- * The box: the main chat's composer (ChatInput, not the main one), with its
+ * The box: the main chat's composer (ChatInput, not the main one) in its
+ * one-row pill (`layout="inline"`: +, the field, the mic, send), with its
  * `@` listing the person's agent and the members (mentionList) in place of
  * the record search. Enter sends, Shift+Enter is a new line. Text only: no
- * files (dimmed in +, with why), no voice, no skills.
+ * files (dimmed in +, with why), dictation but no voice mode, no skills.
  */
 function Composer({
   channelId,
@@ -938,11 +997,11 @@ function Composer({
   const onSubmit = useCallback(() => void send(), [send])
 
   if (archived) {
-    return <div className="border-t border-border px-5 py-3 text-sm text-muted-foreground">This channel is archived.</div>
+    return <div className="mx-4 mb-4 shrink-0 rounded-[28px] bg-muted/60 px-5 py-4 text-sm text-muted-foreground">This channel is archived.</div>
   }
 
   return (
-    <div className="shrink-0 px-3 pb-3" data-team-chat-composer aria-busy={sending || undefined}>
+    <div className="shrink-0 px-2 pb-3" data-team-chat-composer aria-busy={sending || undefined}>
       <ChatInput
         value={text}
         onChange={onChange}
@@ -960,6 +1019,7 @@ function Composer({
         unavailable={TEAM_CHAT_UNAVAILABLE}
         mentionList={mentionList}
         voice={voice}
+        layout="inline"
       />
       {failed && <p className="mt-1 px-3 text-xs text-destructive">That didn&apos;t send. Try again.</p>}
     </div>
@@ -1083,7 +1143,7 @@ function NewDmDialog({
           {list.map((m) => (
             <li key={m.id}>
               <button type="button" onClick={() => onPick(m.id)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent">
-                <Avatar name={memberName(m)} small />
+                <Avatar name={memberName(m)} url={m.avatar_url} size="sm" />
                 <span className="truncate">{memberName(m)}</span>
                 {m.id === meId && <span className="ml-auto text-[11px] text-muted-foreground">you</span>}
               </button>

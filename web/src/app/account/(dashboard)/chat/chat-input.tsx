@@ -76,6 +76,9 @@ export interface ChatInputVoice {
   mode?: VoiceModeHandle
 }
 
+/** The composer's arrangement (ChatInput's `layout`). */
+export type ChatInputLayout = 'stacked' | 'inline'
+
 /** A control a host can't honour in its conversation. */
 export type ChatInputUnavailableControl = 'agent' | 'photos' | 'files'
 
@@ -115,6 +118,8 @@ const CONTROLS_INSET_PX = 13
 const BOX_EDGE_PX = 9
 /** The under-row's text buttons pad their label this much (`px-1.5`). */
 const TEXT_BUTTON_PAD_PX = 6
+/** The inline composer's field grows to about four lines, then scrolls. */
+const INLINE_FIELD_MAX_PX = 104
 /** The box's controls row: the inset, less the box's own border and padding. */
 const CONTROLS_ROW_PADDING = { paddingLeft: CONTROLS_INSET_PX - BOX_EDGE_PX, paddingRight: CONTROLS_INSET_PX - BOX_EDGE_PX }
 /** The row under the box: the first label's text at the inset. */
@@ -199,6 +204,7 @@ export const ChatInput = memo(function ChatInput({
   folders,
   environment,
   mentionList,
+  layout = 'stacked',
 }: {
   value: string
   onChange: (value: string) => void
@@ -297,7 +303,15 @@ export const ChatInput = memo(function ChatInput({
    * chip. Absent: `@` finds records, as ever.
    */
   mentionList?: ComposerMentionList
+  /**
+   * `stacked` (default, the main chat's): the field on its own row, the
+   * controls under it. `inline` (team chat): one row in a pill, "+" at the
+   * left, the field, then the mic and send at the right; the field is one
+   * line that may grow a little (Shift+Enter, a long message).
+   */
+  layout?: ChatInputLayout
 }) {
+  const inline = layout === 'inline'
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   // ── The `/` and `@` menu (command-menu-model.ts) ───────────────────────────
   // Read from the text and the caret on every edit and caret move, never
@@ -1040,6 +1054,59 @@ export const ChatInput = memo(function ChatInput({
   const environmentOn = !!environment?.visible
   const underRowOn = !!unavailable?.agent || environmentOn
 
+  // The field: its own row (stacked), or between "+" and the mic (inline).
+  const field = (
+    <div className={inline ? 'relative min-w-0 flex-1' : 'relative px-1'} ref={textareaHostRef}>
+      <PromptInputTextarea
+        // The rotating overlay draws the placeholder (the hint too): no
+        // native one under it, so exactly one line shows. The default hint
+        // stays the field's accessible hint (aria-placeholder).
+        placeholder={suggestionsOn ? '' : fieldPlaceholder}
+        aria-placeholder={suggestionsOn ? fieldPlaceholder : undefined}
+        aria-keyshortcuts={suggestionsOn ? 'Tab' : undefined}
+        aria-describedby={suggestionsOn ? tabHintId : undefined}
+        // Voice mode: spoken turns are sent on their own, never merged with
+        // the field, so it can't be typed into meanwhile. Its value (empty
+        // when voice mode started) is left untouched.
+        readOnly={voiceModeOn}
+        // The main chat's composer, for UI automation
+        // (src/lib/automation/README.md); a teammate's or a run's has none.
+        data-testid={mainComposer ? 'chat-composer-input' : undefined}
+        className={inline ? 'min-h-0 w-full px-2 py-1.5 md:text-[15px]' : 'min-h-0 w-full py-1.5'}
+        rows={1}
+        // Inline, the field is narrower beside its controls: a short hint still shows.
+        hidePlaceholderBelow={inline ? 96 : undefined}
+        onPaste={handlePaste}
+        onKeyDown={handleFieldKeyDown}
+        onSelect={handleFieldSelect}
+        onFocus={() => setFieldBlurred(false)}
+        onBlur={() => setFieldBlurred(true)}
+      />
+      {suggestionsOn && suggestions && (
+        <ComposerSuggestionOverlay
+          hint={fieldPlaceholder}
+          suggestions={suggestions}
+          deck={suggestionDeck}
+          active={isActive}
+          currentRef={currentSuggestionRef}
+          hostRef={textareaHostRef}
+        />
+      )}
+      {suggestionsOn && (
+        <span id={tabHintId} className="sr-only">
+          Press Tab to send a suggested question.
+        </span>
+      )}
+      {dictationTail && <DictationTail hostRef={textareaHostRef} value={value} transcript={dictationTail} />}
+      {voiceModeOn && voiceMode && (
+        <>
+          <VoiceTranscript hostRef={textareaHostRef} value={value} voice={voiceMode} />
+          <VoiceInterruptTap voice={voiceMode} />
+        </>
+      )}
+    </div>
+  )
+
   return (
     <PopoverLockContext.Provider value={handlePopoverLock}>
     <InputActiveContext.Provider value={isActive}>
@@ -1106,9 +1173,18 @@ export const ChatInput = memo(function ChatInput({
         // Voice mode sends what is said; Enter in the (read-only) field doesn't.
         onSubmit={voiceModeOn ? undefined : submit}
         isLoading={isLoading}
+        // Inline: a few lines at most, then the field scrolls.
+        maxHeight={inline ? INLINE_FIELD_MAX_PX : undefined}
         // Glass: the chat scrolls on beneath the composer (chat-panel's dock),
-        // and shows through it, softened.
-        className="@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm backdrop-blur-xl"
+        // and shows through it, softened. Inline (team chat): a pill, with no
+        // blur of its own (nothing scrolls beneath it, and it sits in a glass
+        // card already); its radius is half its one-line height, so it stays
+        // a pill on one line and a rounded box if it grows.
+        className={
+          inline
+            ? '@container/chatinput relative rounded-[28px] border border-border/70 bg-background/80 px-2 py-2 shadow-sm'
+            : '@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm backdrop-blur-xl'
+        }
         // The chat box itself (inside the root, without the agent row under it).
         data-bot-chat-box
       >
@@ -1308,59 +1384,18 @@ export const ChatInput = memo(function ChatInput({
         )}
 
         {/* Textarea on its own full-width row so it never gets squeezed by the
-            controls when the panel is narrow. */}
-        <div className="relative px-1" ref={textareaHostRef}>
-          <PromptInputTextarea
-            // The rotating overlay draws the placeholder (the hint too): no
-            // native one under it, so exactly one line shows. The default hint
-            // stays the field's accessible hint (aria-placeholder).
-            placeholder={suggestionsOn ? '' : fieldPlaceholder}
-            aria-placeholder={suggestionsOn ? fieldPlaceholder : undefined}
-            aria-keyshortcuts={suggestionsOn ? 'Tab' : undefined}
-            aria-describedby={suggestionsOn ? tabHintId : undefined}
-            // Voice mode: spoken turns are sent on their own, never merged with
-            // the field, so it can't be typed into meanwhile. Its value (empty
-            // when voice mode started) is left untouched.
-            readOnly={voiceModeOn}
-            // The main chat's composer, for UI automation
-            // (src/lib/automation/README.md); a teammate's or a run's has none.
-            data-testid={mainComposer ? 'chat-composer-input' : undefined}
-            className="min-h-0 w-full py-1.5"
-            rows={1}
-            onPaste={handlePaste}
-            onKeyDown={handleFieldKeyDown}
-            onSelect={handleFieldSelect}
-            onFocus={() => setFieldBlurred(false)}
-            onBlur={() => setFieldBlurred(true)}
-          />
-          {suggestionsOn && suggestions && (
-            <ComposerSuggestionOverlay
-              hint={fieldPlaceholder}
-              suggestions={suggestions}
-              deck={suggestionDeck}
-              active={isActive}
-              currentRef={currentSuggestionRef}
-              hostRef={textareaHostRef}
-            />
-          )}
-          {suggestionsOn && (
-            <span id={tabHintId} className="sr-only">
-              Press Tab to send a suggested question.
-            </span>
-          )}
-          {dictationTail && <DictationTail hostRef={textareaHostRef} value={value} transcript={dictationTail} />}
-          {voiceModeOn && voiceMode && (
-            <>
-              <VoiceTranscript hostRef={textareaHostRef} value={value} voice={voiceMode} />
-              <VoiceInterruptTap voice={voiceMode} />
-            </>
-          )}
-        </div>
+            controls when the panel is narrow (inline: in the controls row). */}
+        {!inline && field}
 
         {/* The box's one controls row: "+" at the left; the dictation mic and
             send's slot (voice mode, send or stop) at the right. The agent sits
             under the box (data-composer-under-row). */}
-        <div data-composer-controls className="flex items-center gap-1.5 pb-0.5" style={CONTROLS_ROW_PADDING}>
+        <div
+          data-composer-controls
+          data-composer-layout={inline ? 'inline' : undefined}
+          className={inline ? 'flex min-h-[38px] items-center gap-1' : 'flex items-center gap-1.5 pb-0.5'}
+          style={inline ? undefined : CONTROLS_ROW_PADDING}
+        >
           {/* "+" menu: files (or photos). */}
           <Popover
             open={plusMenuOpen}
@@ -1436,8 +1471,8 @@ export const ChatInput = memo(function ChatInput({
             </PopoverContent>
           </Popover>
 
-          {/* Spacer pushes the mic and send's slot to the right. */}
-          <div className="min-w-0 flex-1" />
+          {/* Spacer pushes the mic and send's slot to the right (inline: the field does). */}
+          {inline ? field : <div className="min-w-0 flex-1" />}
 
           {/* Capture (the main chat's composer, given the recording): the record
               icon left of the mic, or a recording's controls
@@ -1514,7 +1549,7 @@ export const ChatInput = memo(function ChatInput({
                   <Button
                     variant="default"
                     size="icon"
-                    className="h-8 w-8 rounded-full"
+                    className={inline ? 'h-9 w-9 rounded-full' : 'h-8 w-8 rounded-full'}
                     aria-label={isLoading ? 'Send when this reply finishes' : 'Send message'}
                     disabled={!hasDraft}
                     onClick={submit}
