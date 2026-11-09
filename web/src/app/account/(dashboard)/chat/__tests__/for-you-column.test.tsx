@@ -792,6 +792,15 @@ describe('ForYouColumn', () => {
     expect(headers()).toBe(0)
   })
 
+  it('stands under its top-bar button: its left edge at the bar’s inset, just under the bar (Liam, 11-09)', async () => {
+    hold([], [card('c1')])
+    await renderColumn()
+    // The web's bar starts its controls 4px in (top-bar/insets.ts); the column lines up with them.
+    expect(columnRoot()!.style.left).toBe('4px')
+    // Half a gutter under the bar, not below its 24px blur (the blur is under the panels now).
+    expect(columnRoot()!.style.top).toBe('calc(var(--chat-top-inset, 0px) + 6px)')
+  })
+
   it('has no toggle of its own: the top bar’s folds it', async () => {
     hold([], [card('c1')])
     await renderColumn()
