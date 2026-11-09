@@ -102,15 +102,18 @@ export function ForYouToggle({ variant = 'pill' }: { variant?: 'pill' | 'header'
           aria-label={`For you, ${entries.length}`}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => toggleForYou(shown)}
-          // Lit while the column is folded away, plain while it shows (Liam,
-          // 11-09: "the logic for the button state is backwards, flip it").
-          data-lit={shown ? undefined : ''}
+          // The top bar's pill (a phone): lit while the column is folded away,
+          // plain (its white, raised look) while it shows (Liam, 11-09: "flip
+          // it"). The header's: tinted while the column shows, as the bar's
+          // lit page is, plain while it's folded (Liam, 11-09: "it's closed
+          // but it's highlighted").
+          data-lit={(variant === 'header' ? shown : !shown) ? '' : undefined}
           data-variant={variant}
           className={
             variant === 'header'
               ? cn(
                   'flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-sidebar-foreground/65 transition-colors hover:bg-foreground/[0.05] hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
-                  !shown && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
+                  shown && 'bg-foreground/[0.08] text-sidebar-foreground hover:bg-foreground/[0.08]',
                 )
               : cn(TOP_BAR_PILL, !shown && 'bg-muted text-sidebar-foreground')
           }
