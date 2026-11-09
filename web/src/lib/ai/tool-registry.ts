@@ -332,7 +332,8 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // they run on the person's own text turn too; the writes refuse an unattended turn themselves.
       { name: 'read_contact_file', sideEffect: 'read', label: 'Read Contact File', description: 'Read a spreadsheet (CSV, Excel) or phone contacts file the person sent and map its columns to CRM fields' },
       { name: 'import_contact_file', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Import Contacts', description: 'Import a spreadsheet or phone contacts file into the CRM: deduped, never over their edits, undoable as a whole; nothing goes out' },
-      { name: 'list_contact_imports', sideEffect: 'read', label: 'List Contact Imports', description: 'Their recent imports of existing customers (files, Google Contacts, HubSpot, Brevo) with counts and the contacts to check' },
+      { name: 'import_stripe_customers', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Import Stripe Customers', description: 'Import the customers of their connected Stripe account, with their payments: deduped, undoable as a whole; nothing goes out, nothing in Stripe changes' },
+      { name: 'list_contact_imports', sideEffect: 'read', label: 'List Contact Imports', description: 'Their recent imports of existing customers (files and app exports, Google Contacts, HubSpot, Brevo, Stripe) with counts and the contacts to check' },
       { name: 'undo_contact_import', sideEffect: 'delete', label: 'Undo Contact Import', description: 'Take one import back as a whole: the contacts it added are removed, what it changed goes back; edits since stay' },
       { name: 'update_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Contact', description: 'Edit contact details' },
       { name: 'update_crm_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update CRM', description: 'Update CRM relationship fields' },
@@ -1203,8 +1204,9 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // business profile into the workspace memory. Neither `connect_` nor `save_` is a write verb.
   'connect_link',
   'save_business_profile',
-  // Imports a contact file into the CRM (roadmap track G). `import_` is not a write verb.
+  // Imports a contact file into the CRM (roadmap track G), or a connected Stripe's customers (#10). `import_` is not a write verb.
   'import_contact_file',
+  'import_stripe_customers',
   // A business's website (roadmap track E): connect_website saves the site and its project; the
   // other two open a pull request on its repo. None of `connect_`, `wire_`, `change_` is a write verb.
   'connect_website',

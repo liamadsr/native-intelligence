@@ -3,7 +3,7 @@ import { getServiceClient } from '@/lib/admin'
 import { getValidTokenForAccount } from '@/lib/oauth/token-manager'
 import { applyPendingItems, failImportBatch, loadImportBatch, stageRecords } from '@/lib/crm/import/batch'
 import { finishImportBatch, tellOwner, tellUndo } from '@/lib/crm/import/finish'
-import { CONTACT_IMPORT_APPLY, CONTACT_IMPORT_BREVO, CONTACT_IMPORT_GOOGLE, CONTACT_IMPORT_UNDO, type ContactImportEventData } from '@/lib/crm/import/run'
+import { CONTACT_IMPORT_APPLY, CONTACT_IMPORT_BREVO, CONTACT_IMPORT_GOOGLE, CONTACT_IMPORT_STRIPE, CONTACT_IMPORT_UNDO, type ContactImportEventData } from '@/lib/crm/import/run'
 import { finishUndo, undoImportItems } from '@/lib/crm/import/undo'
 import { googlePersonToRecord, listGoogleConnections, listGoogleContactGroups } from '@/lib/crm/import/sources/google-contacts'
 import {
@@ -20,6 +20,8 @@ import {
   type BrevoDeal,
 } from '@/lib/crm/import/sources/brevo'
 import type { ImportPastJob } from '@/lib/crm/import/record'
+import { getConnectedAccount } from '@/lib/payments/accounts'
+import { listStripeCustomers, readStripePayments, stripeCustomerToRecord, stripeGuestToRecord, type StripePayments } from '@/lib/crm/import/sources/stripe'
 
 // =====================================================================
 // Bringing existing customers in (roadmap track G, docs/plans/customer-import.md)
@@ -31,6 +33,9 @@ import type { ImportPastJob } from '@/lib/crm/import/record'
 //   undo     a batch taken back, a chunk per step, then a text.
 //   google   Google Contacts, read page by page into a batch, then apply.
 //   brevo    Brevo's lists, companies, deals and contacts, then apply.
+//   stripe   a connected Stripe account's payments, its customers page by
+//            page with theirs, then the guests who paid without one; then
+//            apply (roadmap #10).
 //
 // Every step is idempotent: an applied item is no longer pending, an undone
 // one is stamped, a staged page is staged after the batch's last item (a
@@ -231,6 +236,74 @@ export const contactImportBrevo = inngest.createFunction(
       }
       if (!result.more) break
     }
+
+    await step.sendEvent('apply', { name: CONTACT_IMPORT_APPLY, data: { batchId, workspaceId } })
+    return { status: 'staged' as const }
+  },
+)
+
+/** Customer pages one Stripe import reads (100 a page): as many people as one file holds (MAX_SHEET_ROWS). */
+const MAX_STRIPE_PAGES = 200
+
+export const contactImportStripe = inngest.createFunction(
+  {
+    id: 'contact-import-stripe',
+    retries: 3,
+    concurrency: IMPORT_CONCURRENCY,
+    onFailure: (ctx: unknown) => importOnFailure(ctx as Parameters<typeof importOnFailure>[0]),
+    triggers: [{ event: CONTACT_IMPORT_STRIPE }],
+  },
+  async ({ event, step }) => {
+    const { batchId, workspaceId } = event.data as ContactImportEventData
+    const supabase = getServiceClient()
+    const batch = await step.run('load', () => loadImportBatch(supabase, batchId))
+    if (!batch || batch.status !== 'staging' || batch.source !== 'stripe') return { status: 'skipped' as const }
+
+    const stripeAccount = await step.run('account', async () => {
+      const account = await getConnectedAccount(supabase, workspaceId)
+      return account && account.status !== 'disconnected' ? account.stripeAccountId : null
+    })
+    if (!stripeAccount) {
+      await step.run('fail-not-connected', () => sourceFailed(supabase, batchId, 'Stripe is not connected', 'Connect Stripe again, then ask me to import your Stripe customers.'))
+      return { status: 'failed' as const }
+    }
+    // Loaded on use, like the payments tools: the Stripe SDK stays out of the other functions' path.
+    const stripe = async () => (await import('@/lib/stripe')).getStripe()
+
+    // Payments first: each customer's ride on its record. The step returns only what the records need.
+    const payments: StripePayments | { error: string } = await step.run('payments', async () => {
+      try {
+        return await readStripePayments(await stripe(), stripeAccount)
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : String(err) }
+      }
+    })
+    if ('error' in payments) {
+      await step.run('fail-payments', () => sourceFailed(supabase, batchId, payments.error, 'Ask me to import your Stripe customers again in a bit.'))
+      return { status: 'failed' as const }
+    }
+    const jobsByCustomer = new Map(payments.byCustomer)
+
+    let cursor: string | null = null
+    for (let page = 0; page < MAX_STRIPE_PAGES; page++) {
+      const result: { next: string | null } | { error: string } = await step.run(`customers-${page}`, async () => {
+        try {
+          const { customers, next } = await listStripeCustomers(await stripe(), stripeAccount, cursor)
+          await stageRecords(supabase, (await loadImportBatch(supabase, batchId))!, customers.map((c) => stripeCustomerToRecord(c, jobsByCustomer.get(c.id) ?? [], { allPaymentsRead: !payments.truncated })))
+          return { next }
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) }
+        }
+      })
+      if ('error' in result) {
+        await step.run('fail-read', () => sourceFailed(supabase, batchId, result.error, 'Ask me to import your Stripe customers again in a bit.'))
+        return { status: 'failed' as const }
+      }
+      cursor = result.next
+      if (!cursor) break
+    }
+    // After the customers: a guest who is also a customer folds into them.
+    if (payments.guests.length) await step.run('guests', async () => stageRecords(supabase, (await loadImportBatch(supabase, batchId))!, payments.guests.map(stripeGuestToRecord)))
 
     await step.sendEvent('apply', { name: CONTACT_IMPORT_APPLY, data: { batchId, workspaceId } })
     return { status: 'staged' as const }

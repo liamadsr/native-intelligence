@@ -5,8 +5,10 @@
  * records the importer takes.
  *
  *   readContactFile   bytes + name → a sheet with its column mapping, or
- *                     cards. The old binary .xls and anything else is
- *                     refused with what to send instead.
+ *                     cards. The export of a tool it knows (QuickBooks,
+ *                     Stripe, Square…: ./sources/export-layouts.ts) maps
+ *                     itself and imports as that app. The old binary .xls
+ *                     and anything else is refused with what to send instead.
  *   loadOwnUpload     the bytes of a file in the caller's own chat-uploads
  *                     folder, and nothing else (the same guard as
  *                     read_chat_file: a crafted path never reads another
@@ -14,7 +16,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isOwnChatUploadPath, MAX_CHAT_UPLOAD_BYTES } from '@/lib/chat/upload-allowlist'
-import type { ImportContactRecord, ImportRelationship, ImportSource } from './record'
+import { IMPORT_SOURCE_LABEL, type ImportContactRecord, type ImportRelationship, type ImportSource } from './record'
+import { detectExportLayout, type ExportLayout } from './sources/export-layouts'
 import { autoMapColumns, parseCsv, readXlsx, rowsToRecords, unmappedColumns, type ColumnMapping, type Sheet } from './sources/spreadsheet'
 import { looksLikeVcard, MAX_CARDS, parseVcards } from './sources/vcard'
 
@@ -22,7 +25,7 @@ import { looksLikeVcard, MAX_CARDS, parseVcards } from './sources/vcard'
 export const CONTACT_FILE_EXTENSIONS = ['csv', 'tsv', 'txt', 'xlsx', 'vcf', 'vcard'] as const
 
 export type ContactFile =
-  | { ok: true; format: 'spreadsheet'; source: ImportSource; sheet: Sheet; mappings: ColumnMapping[] }
+  | { ok: true; format: 'spreadsheet'; source: ImportSource; sheet: Sheet; mappings: ColumnMapping[]; layout: ExportLayout | null }
   | { ok: true; format: 'vcard'; source: ImportSource; cards: ImportContactRecord[] }
   | { ok: false; error: string }
 
@@ -51,10 +54,7 @@ export async function readContactFile(bytes: Uint8Array, fileName: string, colum
   const ext = fileExtension(fileName)
   try {
     if (ext === 'xls') return { ok: false, error: 'That is the old Excel format (.xls). Ask them to save it as .xlsx or CSV ("Save As" in Excel) and send it again.' }
-    if (ext === 'xlsx') {
-      const sheet = await readXlsx(bytes)
-      return { ok: true, format: 'spreadsheet', source: 'spreadsheet', sheet, mappings: autoMapColumns(sheet, columns) }
-    }
+    if (ext === 'xlsx') return spreadsheet(await readXlsx(bytes), fileName, columns)
     const text = decodeText(bytes)
     if (ext === 'vcf' || ext === 'vcard' || looksLikeVcard(text)) {
       const cards = parseVcards(text)
@@ -64,7 +64,7 @@ export async function readContactFile(bytes: Uint8Array, fileName: string, colum
     if (ext === 'csv' || ext === 'tsv' || ext === 'txt' || ext === '') {
       const sheet = parseCsv(text, ext === 'tsv' ? '\t' : undefined)
       if (sheet.rows.length === 0) return { ok: false, error: 'That file has a header row but no rows under it.' }
-      return { ok: true, format: 'spreadsheet', source: 'spreadsheet', sheet, mappings: autoMapColumns(sheet, columns) }
+      return spreadsheet(sheet, fileName, columns)
     }
     return { ok: false, error: `A .${ext} file can't be imported. Send a CSV, an Excel file (.xlsx) or contacts (.vcf).` }
   } catch (err) {
@@ -72,10 +72,23 @@ export async function readContactFile(bytes: Uint8Array, fileName: string, colum
   }
 }
 
-/** The records a read file imports. Unmapped columns are left out. */
+/** A sheet, as a known tool's export (its app the source) or anyone's own spreadsheet. */
+function spreadsheet(sheet: Sheet, fileName: string, columns: Record<string, string>): ContactFile {
+  const layout = detectExportLayout(sheet.headers, fileName.split('/').pop() ?? fileName)
+  return { ok: true, format: 'spreadsheet', source: layout?.app ?? 'spreadsheet', sheet, mappings: autoMapColumns(sheet, columns, layout), layout }
+}
+
+/**
+ * The records a read file imports. Unmapped columns are left out. With no
+ * `relationship` given: a known tool's export takes its own default (a
+ * billing or field-service tool's people are customers, a CRM's or a mailing
+ * list's are not all), anyone's own spreadsheet is their customers (an
+ * owner's list almost always is), and phone contacts are mixed.
+ */
 export function contactFileRecords(file: Extract<ContactFile, { ok: true }>, relationship?: ImportRelationship): ImportContactRecord[] {
   if (file.format === 'vcard') return file.cards.map((card) => (relationship ? { ...card, relationship } : card))
-  return rowsToRecords(file.sheet, file.mappings, { relationship })
+  const fallback = file.layout ? (file.layout.relationship ?? undefined) : 'customer'
+  return rowsToRecords(file.sheet, file.mappings, { relationship: relationship ?? fallback, skipRow: file.layout?.skipRow, cell: file.layout?.cell })
 }
 
 /** What the agent shows (and asks about) before importing. */
@@ -83,6 +96,7 @@ export function contactFilePreview(file: Extract<ContactFile, { ok: true }>) {
   if (file.format === 'vcard') {
     return {
       format: 'vcard' as const,
+      app: null,
       rows: file.cards.length,
       truncated: file.cards.length >= MAX_CARDS,
       sample: file.cards.slice(0, 3).map((c) => ({ name: c.fullName, emails: c.emails, phones: c.phones })),
@@ -92,7 +106,9 @@ export function contactFilePreview(file: Extract<ContactFile, { ok: true }>) {
   const column = (m: ColumnMapping) => `#${file.mappings.indexOf(m) + 1}`
   return {
     format: 'spreadsheet' as const,
-    rows: file.sheet.rows.length,
+    /** The tool it is an export of ("Stripe"), when it is one: every column is mapped. */
+    app: file.layout ? IMPORT_SOURCE_LABEL[file.layout.app] : null,
+    rows: file.layout?.skipRow ? file.sheet.rows.filter((row) => !file.layout!.skipRow!(row)).length : file.sheet.rows.length,
     // Past MAX_SHEET_ROWS the rest is left out: say so to the owner.
     truncated: file.sheet.truncated === true,
     columns: file.mappings.map((m) => ({ column: column(m), header: m.header, field: m.target ?? 'unmapped', samples: m.samples })),

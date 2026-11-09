@@ -103,6 +103,9 @@ const REVIEWED_IN_CEILING: Record<string, string> = {
   create_eval_case: '"send"/"push" appear only inside the example eval script text; it writes an internal eval case',
   update_eval_case:
     '"pushed back" appears only in the example grading text of its input schema; it edits an internal eval case row',
+  // reads an outside account into the CRM, attended
+  import_stripe_customers:
+    "reads the Stripe account the owner connected for payments (list calls only: nothing in Stripe changes) into undoable CRM contacts; 'send' is the owner sending an export file instead. It refuses an unattended turn (a work run passes unattended: true), so it never runs in a work run",
   // texts only the caller themselves
   connect_link:
     "texts a sign-in link only to the caller's OWN verified number (the channel the agent's reply already uses), and only on their own SMS turn: it refuses unattended (a work run passes unattended: true) and every other turn, so it never sends from a work run or to anyone else",

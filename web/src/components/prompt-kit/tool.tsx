@@ -104,6 +104,7 @@ const TOOL_LABELS: Record<string, string> = {
   // Bringing existing customers in (src/lib/ai/tools/contact-import.ts).
   read_contact_file: 'Read the contacts file',
   import_contact_file: 'Import contacts',
+  import_stripe_customers: 'Import Stripe customers',
   list_contact_imports: 'Check imports',
   undo_contact_import: 'Undo the import',
   // The agent's checklist for a long job (agents' native update_plan; the chat

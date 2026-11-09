@@ -217,3 +217,27 @@ describe('text files in any encoding', () => {
     expect(decodeText(new Uint8Array([0xff, 0xfe, 0x4a, 0x00, 0xe9, 0x00]))).toBe('Jé')
   })
 })
+
+describe('a HubSpot export file (roadmap #10)', () => {
+  it('links its people by record id but never makes them the connected portal\'s: the meeting log and the sync write by that id', async () => {
+    const db = seeded([{ id: 'c-own', full_name: 'Eve Park', email: 'eve.park@example.com' }])
+    await importAll(db, [person({ externalId: '501', fullName: 'Eve Park', emails: ['eve.park@example.com'] }), person({ externalId: '502', fullName: 'Finn Hale', emails: ['finn.hale@example.com'] })], { source: 'hubspot' })
+    const eve = contacts(db).find((c) => c.id === 'c-own')!
+    // Matched: not claimed for HubSpot.
+    expect(eve.source_provider ?? null).toBeNull()
+    expect(eve.provider_contact_id ?? null).toBeNull()
+    const finn = contacts(db).find((c) => c.full_name === 'Finn Hale')!
+    expect(finn).toMatchObject({ source: 'import', source_provider: 'hubspot_export', provider_contact_id: null, tags: ['from HubSpot'] })
+    expect(db.tables.crm_source_link.map((l) => [l.source, l.external_id])).toEqual([
+      ['hubspot', '501'],
+      ['hubspot', '502'],
+    ])
+  })
+
+  it("the connected portal's import still claims them as its sync does", async () => {
+    const db = seeded([{ id: 'c-own', full_name: 'Eve Park', email: 'eve.park@example.com' }])
+    await importAll(db, [person({ externalId: '501', fullName: 'Eve Park', emails: ['eve.park@example.com'] }), person({ externalId: '502', fullName: 'Finn Hale', emails: ['finn.hale@example.com'] })], { source: 'hubspot', accountId: 'acct-hs' })
+    expect(contacts(db).find((c) => c.id === 'c-own')).toMatchObject({ source_provider: 'hubspot', provider_contact_id: '501' })
+    expect(contacts(db).find((c) => c.full_name === 'Finn Hale')).toMatchObject({ source: 'hubspot_sync', source_provider: 'hubspot', provider_contact_id: '502' })
+  })
+})

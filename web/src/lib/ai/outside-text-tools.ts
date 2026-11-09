@@ -232,6 +232,7 @@ export const NOT_OUTSIDE_TEXT_TOOLS: Readonly<Record<string, string>> = {
   change_website: "a write; returns Dial8's own status words",
   undo_website_change: "a write; returns Dial8's own status words",
   import_contact_file: 'a write; returns its own counts, summary and the contact ids to check (no file text)',
+  import_stripe_customers: "a write; returns Dial8's own status words and a batch id (the customers are read in the background)",
   list_contact_imports: 'import batches: source, status, counts, the summary Dial8 wrote',
   undo_contact_import: 'a write; returns its own summary',
   get_email_summary: 'counts only (unread, needs reply, drafts)',

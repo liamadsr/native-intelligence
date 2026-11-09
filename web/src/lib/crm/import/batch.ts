@@ -547,7 +547,8 @@ async function updateMatched(ctx: ApplyContext, contactId: string, record: Impor
   for (let attempt = 0; attempt < 2; attempt++) {
     const { patch, changes } = contactPatch({ local, record, source: ctx.batch.source, companyId, blockedEmails: blocked })
     // HubSpot's own sync finds a contact by its HubSpot id: claim an unclaimed one, as the sync does.
-    if (ctx.batch.source === 'hubspot' && record.externalId && !local.source_provider && !local.provider_contact_id) {
+    // Only from the connected portal: an export file's ids may be another portal's.
+    if (ctx.batch.source === 'hubspot' && ctx.batch.account_id && record.externalId && !local.source_provider && !local.provider_contact_id) {
       patch.source_provider = 'hubspot'
       patch.provider_contact_id = record.externalId
       changes.source_provider = { before: null, after: 'hubspot' }
@@ -647,7 +648,16 @@ async function applyContactItem(ctx: ApplyContext, item: ImportItem, progress: I
   const check = decision?.kind === 'check' ? decision : null
   const drop = new Set([...(check?.dropEmails ?? []), ...emailsOwnedByOthers(ctx, record, null)])
   const insertRow = (dropEmails: Set<string>) =>
-    contactInsert({ workspaceId: batch.workspace_id, record, source: batch.source, companyId: company.id, createdByMemberId: ctx.memberId, dropEmails: [...dropEmails], stamp: { batchId: batch.id, itemId: item.id } })
+    contactInsert({
+      workspaceId: batch.workspace_id,
+      record,
+      source: batch.source,
+      companyId: company.id,
+      createdByMemberId: ctx.memberId,
+      dropEmails: [...dropEmails],
+      stamp: { batchId: batch.id, itemId: item.id },
+      connected: !!batch.account_id,
+    })
   let insert = insertRow(drop)
   let hidden = false
   let { data, error } = await ctx.db.from('contact').insert(insert).select('*').maybeSingle()

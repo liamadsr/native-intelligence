@@ -7,7 +7,9 @@
  *   map      {@link autoMapColumns}: each header to a field it plainly is
  *            ("Phone", "Cell", "Mobile #" → phone), or unmapped. The agent asks
  *            the owner only about the unmapped ones, then passes their answers
- *            as overrides ("Rug type" → note, "Sq ft" → skip).
+ *            as overrides ("Rug type" → note, "Sq ft" → skip). The export of a
+ *            tool it knows (QuickBooks, Stripe, Square…: ./export-layouts.ts)
+ *            maps every column itself, so nothing is asked.
  *   records  {@link rowsToRecords}: one contact per row. A row's job, date and
  *            amount become a past job on the timeline; an invoice export with
  *            a row per invoice folds into one contact per customer (the
@@ -20,6 +22,8 @@ import {
   normalizeDate,
   parseMoneyCents,
   splitTags,
+  UNSUBSCRIBED_EMAIL_TAG,
+  UNSUBSCRIBED_SMS_TAG,
   type ImportContactRecord,
   type ImportPastJob,
   type ImportRelationship,
@@ -48,10 +52,28 @@ export const COLUMN_TARGETS = [
   'job_date',
   'amount',
   'relationship',
+  /** The name a tool shows them by: their name when no other column has one, else their company when it names someone else. */
+  'display_name',
+  /** What they have spent or bought in all (a total, a count): kept in notes; above zero, they are a customer. */
+  'spend',
+  /** Says they unsubscribed from email (a yes, a date, "Unsubscribed"): never emailed by outreach. */
+  'email_opt_out',
+  /** Says they unsubscribed from texts: never texted by outreach. */
+  'sms_opt_out',
   'note',
   'skip',
 ] as const
 export type ColumnTarget = (typeof COLUMN_TARGETS)[number]
+
+/**
+ * What a column can map to: a field, or (only from a recognised export's
+ * layout, never an answer) the app's own id for the row, which links the
+ * contact so a second import of the same app finds it (a plain spreadsheet's
+ * "ID" column names nothing outside that one file), or one line of an
+ * address written over several columns (QuickBooks Desktop's "Bill to 1" to
+ * "Bill to 5", where a line may be the customer's own name).
+ */
+export type MappedTarget = ColumnTarget | 'external_id' | 'address_line'
 
 export function isColumnTarget(value: unknown): value is ColumnTarget {
   return typeof value === 'string' && (COLUMN_TARGETS as readonly string[]).includes(value)
@@ -122,7 +144,7 @@ export function parseCsv(input: string, delimiter = detectDelimiter(input)): She
       field = ''
       if (row.some((c) => c.trim() !== '')) records.push(row)
       row = []
-      if (records.length > MAX_SHEET_ROWS + 1) break
+      if (records.length > MAX_SHEET_ROWS + 1 + MAX_TITLE_ROWS) break
     } else field += ch
   }
   row.push(field)
@@ -130,7 +152,35 @@ export function parseCsv(input: string, delimiter = detectDelimiter(input)): She
   return toSheet(records)
 }
 
-function toSheet(records: string[][]): Sheet {
+/** The rows above a header a report export may have (its title, the business, the dates). */
+const MAX_TITLE_ROWS = 10
+
+/** How many of a row's cells name a field. */
+function headerScore(row: string[]): number {
+  return row.filter((cell) => cell.trim() && targetForHeader(cell) !== null).length
+}
+
+/**
+ * The header row: the first row, unless a report's title rows sit above it
+ * (QuickBooks: "Customer Contact List", the business, "All Dates"). Then it is
+ * the row that names the most fields, when every row above it has at most two
+ * cells: a row with more is data or the header itself, never a title.
+ */
+export function headerRowIndex(records: string[][]): number {
+  let best = 0
+  let bestScore = records.length ? headerScore(records[0]) : 0
+  for (let i = 0; i < Math.min(records.length, MAX_TITLE_ROWS); i++) {
+    if (records[i].filter((c) => c.trim()).length > 2) {
+      const score = headerScore(records[i])
+      if (score > bestScore && score >= 2) best = i
+      break
+    }
+  }
+  return best
+}
+
+function toSheet(all: string[][]): Sheet {
+  const records = all.slice(headerRowIndex(all))
   const [head = [], ...rest] = records
   const width = Math.min(Math.max(head.length, ...rest.slice(0, 50).map((r) => r.length)), MAX_COLUMNS)
   const headers = Array.from({ length: width }, (_, i) => cleanText(head[i], 120) ?? `Column ${i + 1}`)
@@ -218,7 +268,7 @@ export async function readXlsx(bytes: Uint8Array): Promise<Sheet> {
       row[index] = value
     }
     if (row.some((cell) => cell.trim() !== '')) records.push(row)
-    if (records.length > MAX_SHEET_ROWS + 1) break
+    if (records.length > MAX_SHEET_ROWS + 1 + MAX_TITLE_ROWS) break
   }
   return toSheet(records)
 }
@@ -302,27 +352,45 @@ export function targetForHeader(header: string): ColumnTarget | null {
 
 export interface ColumnMapping {
   header: string
-  target: ColumnTarget | null
+  /** How a note line names the column, when not by its header (a recognised export's prefix off). */
+  label?: string
+  target: MappedTarget | null
   /** A few non-empty values from the column, to show the owner when asking. */
   samples: string[]
+}
+
+/** What a recognised export knows about its own columns (./export-layouts.ts). */
+export interface LayoutColumns {
+  /** The field of a column the export is known to have, or null when it isn't one of them. */
+  target(header: string): MappedTarget | null
+  /** A column it doesn't know that no field's name fits (a custom field): kept in notes, never asked about. */
+  rest: 'note' | 'skip'
+  /** How a note line names a column, when not by its header. */
+  label?: (header: string) => string
+  /** A field's value as the app writes it, read plain (Jobber's "client_property" id → the client's). */
+  cell?: Partial<Record<MappedTarget, (value: string) => string>>
 }
 
 /**
  * Each column's field, as far as its header says. Overrides win: keyed by the
  * column's number ("#3", counting from 1) or its header (case-insensitive).
+ * Then a recognised export's own columns, then the field a header plainly
+ * names; a recognised export leaves nothing unmapped.
  */
-export function autoMapColumns(sheet: Sheet, overrides: Record<string, string> = {}): ColumnMapping[] {
+export function autoMapColumns(sheet: Sheet, overrides: Record<string, string> = {}, layout: LayoutColumns | null = null): ColumnMapping[] {
   const byKey = new Map(Object.entries(overrides).filter(([h]) => !/^#\d+$/.test(h)).map(([h, t]) => [headerKey(h), t]))
   const mappings = sheet.headers.map((header, i) => {
     const override = overrides[`#${i + 1}`] ?? byKey.get(headerKey(header))
-    const target = override !== undefined && isColumnTarget(override) ? override : targetForHeader(header)
+    const target: MappedTarget | null =
+      override !== undefined && isColumnTarget(override) ? override : (layout?.target(header) ?? targetForHeader(header) ?? layout?.rest ?? null)
     const samples: string[] = []
     for (const row of sheet.rows) {
       const v = cleanText(row[i], 60)
       if (v && !samples.includes(v)) samples.push(v)
       if (samples.length >= 3) break
     }
-    return { header, target, samples }
+    const label = layout?.label?.(header)
+    return label && label !== header ? { header, label, target, samples } : { header, target, samples }
   })
   // An empty column needs no question.
   for (const m of mappings) if (m.target === null && m.samples.length === 0) m.target = 'skip'
@@ -348,26 +416,91 @@ export function relationshipFromCell(value: string | null): ImportRelationship |
 }
 
 /**
+ * The numbers in a phone cell: one, several ("626-555-0101; 626-555-0102"),
+ * or labelled ("Phone: (626) 555-0101 Mobile: (626) 555-0102", as QuickBooks
+ * writes them). A fax number is not a phone.
+ */
+export function splitPhones(value: string): string[] {
+  const parts = value.split(/([A-Za-z][A-Za-z. ]{0,20}):\s*/)
+  const numbers = parts[0].trim() ? [parts[0]] : []
+  for (let i = 1; i < parts.length; i += 2) if (!/fax/i.test(parts[i])) numbers.push(parts[i + 1] ?? '')
+  return numbers.flatMap((v) => v.split(/[;,/]|\s{2,}/)).map((v) => v.trim()).filter(Boolean)
+}
+
+/** An address cell on one line: its lines or double-spaced parts (Mailchimp's "12 Elm St  Pasadena  CA  91101  US") become commas. */
+export function addressFromCell(value: string): string | null {
+  const parts = value.split(/\s*\n\s*| {2,}|\t/)
+  return parts.length > 1 ? formatAddress(parts) : cleanText(value, 300)
+}
+
+/**
+ * A cell that says they unsubscribed (from email or texts, by its column):
+ * yes or true (an "Unsubscribed" column), "Unsubscribed" or "Opted out" (a
+ * status), "No consent" (Pipedrive's no_consent too), or a date (when they
+ * left: Mailchimp's UNSUB_TIME). "Subscribed", "No", "Not subscribed" and
+ * blanks are not.
+ */
+export function isOptOut(value: string | null | undefined): boolean {
+  const v = (value ?? '').trim().toLowerCase().replace(/_/g, ' ')
+  if (!v || /^(false|no|n|0|subscribed|opted ?in|active|pending|unknown|none|n\/a|-)$/.test(v) || /^not\b/.test(v)) return false
+  if (/unsub|opt(?:ed)?[ -]?out|no consent|do not|cleaned|bounced|^(true|yes|y|1)$/.test(v)) return true
+  return normalizeDate(v) !== null
+}
+
+/** Words two names share ("Ruiz, Ana" and "Ana Ruiz" do; "Fernhill Cleaning" and "Ana Ruiz" don't). */
+function sharesWord(a: string, b: string): boolean {
+  const words = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1))
+  const left = words(a)
+  return [...words(b)].some((w) => left.has(w))
+}
+
+/** "0", "0.00", "$0.00": a total that says nothing. */
+const ZERO = /^[$€£]?\s*0+(?:[.,]0+)?\s*[$€£]?$/
+
+/**
  * One contact per row. Unmapped columns (target null) are left out: the agent
  * asks about them first. `relationship` is the file's default (most files an
- * owner sends at signup are their customers); a row with a past job is a
- * customer either way.
+ * owner sends at signup are their customers); a row with a past job, or one
+ * that spent something, is a customer either way, and one whose spend is all
+ * zero is a lead. `skipRow` drops a row before it is read (a report's totals
+ * line).
  */
-export function rowsToRecords(sheet: Sheet, mappings: ColumnMapping[], opts: { relationship?: ImportRelationship; nowMs?: number } = {}): ImportContactRecord[] {
+export function rowsToRecords(
+  sheet: Sheet,
+  mappings: ColumnMapping[],
+  opts: { relationship?: ImportRelationship; nowMs?: number; skipRow?: (row: string[]) => boolean; cell?: LayoutColumns['cell'] } = {},
+): ImportContactRecord[] {
   const nowMs = opts.nowMs ?? Date.now()
-  return sheet.rows.map((row) => {
-    const values = (target: ColumnTarget) => mappings.flatMap((m, i) => (m.target === target ? [row[i] ?? ''] : [])).map((v) => v.trim()).filter(Boolean)
-    const first = (target: ColumnTarget) => values(target)[0] ?? null
+  const rows = opts.skipRow ? sheet.rows.filter((row) => !opts.skipRow!(row)) : sheet.rows
+  return rows.map((row) => {
+    const values = (target: MappedTarget) =>
+      mappings
+        .flatMap((m, i) => (m.target === target ? [row[i] ?? ''] : []))
+        .map((v) => (opts.cell?.[target] ? opts.cell[target]!(v.trim()) : v).trim())
+        .filter(Boolean)
+    const first = (target: MappedTarget) => values(target)[0] ?? null
+    const lines = (target: MappedTarget) =>
+      mappings.flatMap((m, i) => {
+        const v = cleanText(row[i], 500)
+        return m.target === target && v && !ZERO.test(v) ? [`${m.label ?? m.header}: ${v}`] : []
+      })
 
     const emails = values('email').flatMap((v) => v.split(/[;,\s]+/))
-    const phones = values('phone').flatMap((v) => v.split(/[;,/]|\s{2,}/))
-    const address =
-      first('address') ??
-      formatAddress([values('street').join(' '), first('street2'), first('city'), first('state'), first('postal_code'), first('country')])
-    const noteLines = [
-      ...values('notes'),
-      ...mappings.flatMap((m, i) => (m.target === 'note' && cleanText(row[i]) ? [`${m.header}: ${cleanText(row[i], 500)}`] : [])),
-    ]
+    const phones = values('phone').flatMap(splitPhones)
+    // An address line that only repeats who they are ("Bill to 1": "Ana Ruiz") is not an address.
+    const names = new Set([...values('full_name'), ...values('display_name'), ...values('company'), [first('first_name'), first('last_name')].filter(Boolean).join(' ')].map((n) => n.toLowerCase()))
+    const addressLines = values('address_line').filter((line) => !names.has(line.toLowerCase()))
+    const fullAddress = first('address')
+    const address = fullAddress
+      ? addressFromCell(fullAddress)
+      : addressLines.length
+        ? formatAddress(addressLines)
+        : formatAddress([values('street').join(' '), first('street2'), first('city'), first('state'), first('postal_code'), first('country')])
+    const spends = values('spend')
+    const spent = spends.some((v) => (parseMoneyCents(v) ?? 0) > 0)
+    // Every spend column there and zero: they never bought (a quote, an abandoned checkout), so not a customer.
+    const neverBought = spends.length > 0 && spends.length === mappings.filter((m) => m.target === 'spend').length && spends.every((v) => ZERO.test(v))
+    const noteLines = [...values('notes'), ...lines('note'), ...lines('spend')]
     const job = first('job')
     const jobDate = first('job_date')
     const amountCents = parseMoneyCents(first('amount'))
@@ -381,12 +514,26 @@ export function rowsToRecords(sheet: Sheet, mappings: ColumnMapping[], opts: { r
         currency: null,
       })
     }
-    const lastContact = normalizeDate(first('last_contact'), nowMs) ?? (history.length ? null : normalizeDate(jobDate, nowMs))
-    const relationship = relationshipFromCell(first('relationship')) ?? (history.length ? 'customer' : (opts.relationship ?? null))
-    const companyName = first('company')
+    const lastContacts = values('last_contact').map((v) => normalizeDate(v, nowMs)).filter((d): d is string => !!d)
+    const lastContact = lastContacts.length ? lastContacts.reduce((a, b) => (a > b ? a : b)) : history.length ? null : normalizeDate(jobDate, nowMs)
+    const relationship = relationshipFromCell(first('relationship')) ?? (history.length || spent ? 'customer' : neverBought ? 'lead' : (opts.relationship ?? null))
+
+    // A tool's display name is the person when nothing else names them, else
+    // their business when it names someone else ("Fernhill Cleaning" for Ana Ruiz).
+    let fullName = first('full_name')
+    let companyName = first('company')
+    const display = first('display_name')
+    const personName = fullName ?? ([first('first_name'), first('last_name')].filter(Boolean).join(' ') || null)
+    if (display && !personName) fullName = display
+    else if (display && personName && !companyName && !sharesWord(display, personName)) companyName = display
+
+    const tags = values('tags').flatMap(splitTags)
+    if (values('email_opt_out').some(isOptOut)) tags.push(UNSUBSCRIBED_EMAIL_TAG)
+    if (values('sms_opt_out').some(isOptOut)) tags.push(UNSUBSCRIBED_SMS_TAG)
     return {
       kind: 'contact' as const,
-      fullName: first('full_name'),
+      externalId: first('external_id'),
+      fullName,
       firstName: first('first_name'),
       lastName: first('last_name'),
       emails,
@@ -394,7 +541,7 @@ export function rowsToRecords(sheet: Sheet, mappings: ColumnMapping[], opts: { r
       address,
       company: companyName ? { name: companyName } : null,
       jobTitle: first('job_title'),
-      tags: values('tags').flatMap(splitTags),
+      tags,
       notes: noteLines.length ? noteLines.join('\n') : null,
       history,
       lastContactAt: lastContact,

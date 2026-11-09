@@ -1,0 +1,3 @@
+Record ID,First Name,Last Name,Email,Phone Number,Contact owner,Associated Company,Last Activity Date,Lead Status,Marketing contact status,Create Date,Lifecycle Stage,Job Title,Unsubscribed from all email
+501,Eve,Park,eve.park@example.com,626-555-0105,Sam Owner,Park Dental,2025-04-02 10:22,Open,Marketing contact,2024-11-02 08:10,Customer,Office manager,false
+502,Finn,Hale,finn.hale@example.com,,Sam Owner,,,New,Non-marketing contact,2025-02-20 14:31,Lead,,true
