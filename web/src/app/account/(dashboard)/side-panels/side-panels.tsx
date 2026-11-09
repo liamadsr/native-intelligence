@@ -113,8 +113,8 @@ export function useSidePanelState(): SidePanelState {
   return useSyncExternalStore(subscribeSidePanels, getSidePanelState, getServerSidePanelState)
 }
 
-/** The app rail's breakpoint (tailwind.css `[data-app-rail]`, Tailwind's `md`). */
-export const FOR_YOU_ALWAYS_QUERY = '(min-width: 768px)'
+/** The app rail's breakpoint (tailwind.css `[data-app-rail]`): Tailwind's `md`, 48rem, as its `md:` classes read it. */
+export const FOR_YOU_ALWAYS_QUERY = '(min-width: 48rem)'
 
 function wideQuery(): MediaQueryList | null {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(FOR_YOU_ALWAYS_QUERY) : null
@@ -129,9 +129,11 @@ const getWideServer = () => false
 
 /**
  * For you shows by itself (Liam, 11-09: no toggle; "just show that stuff all
- * the time if you have any"): from `md` up, where the app rail is. Below it
- * (a phone) it waits for its top-bar toggle, as before. One media query
- * listener; false on the server and the first client render.
+ * the time if you have any"): from `md` up, where the app rail is, wherever
+ * the row has room for it beside the chat. Where it would cover the chat (a
+ * narrow window) it waits for its top-bar toggle, which shows there, as it
+ * does on a phone. One media query listener; false on the server and the
+ * first client render.
  */
 export function useForYouAlways(): boolean {
   return useSyncExternalStore(subscribeWide, getWide, getWideServer)
@@ -140,10 +142,11 @@ export function useForYouAlways(): boolean {
 /**
  * Where the panels go in a row this wide, as the store says they are. With
  * `always` (useForYouAlways: from `md` up) For you shows whenever it has
- * cards, making room where it fits and floating over the chat's edge where it
- * doesn't, whatever the device remembered. Without (a phone), as the device
- * remembered it, it shows where it makes room, and floats only once opened by
- * hand this session. `content` is the chat's widest content
+ * cards and the row has room for it beside the chat, whatever the device
+ * remembered folded. Without (a phone), as the device remembered it, it shows
+ * where it makes room. Either way it floats over the chat's edge only once
+ * opened by hand this session (its toggle shows where it has no room: never
+ * over the chat unasked). `content` is the chat's widest content
  * (measureChatContent), `was` the plan in force (the hysteresis).
  */
 export function planFor(
@@ -153,7 +156,7 @@ export function planFor(
 ): SpacePlan {
   const input = { width, right: state.rightOpen, content, dock: state.captureDock, was }
   const plan = planSpace({ ...input, left: state.leftContent && (always || state.leftOpen) })
-  if (plan.left === 'float' && !always && !state.leftFloatOk) return planSpace({ ...input, left: false })
+  if (plan.left === 'float' && !state.leftFloatOk) return planSpace({ ...input, left: false })
   return plan
 }
 
@@ -216,7 +219,7 @@ export function useSidePanelPlan(rowRef: RefObject<HTMLElement | null>): SpacePl
         setPxVar(row, INSET_LEFT_VAR, plan.insetLeft)
         setPxVar(row, INSET_RIGHT_VAR, plan.insetRight)
       }
-      reportSpacePlan(plan.left !== 'off')
+      reportSpacePlan(plan.left)
     },
     [rowRef],
   )

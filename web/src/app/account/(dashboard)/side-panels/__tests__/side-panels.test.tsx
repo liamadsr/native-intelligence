@@ -715,7 +715,7 @@ describe('the row’s space plan', () => {
     expect(store.getSidePanelState().leftShown).toBe(true)
   })
 
-  describe('from md up (the app rail’s width): For you shows by itself, with no toggle', () => {
+  describe('from md up (the app rail’s width): For you shows by itself where it has room', () => {
     let wide = true
     const changes = new Set<() => void>()
     beforeEach(() => {
@@ -729,17 +729,25 @@ describe('the row’s space plan', () => {
       }))
     })
 
-    it('shows whenever it has cards, even folded on this device, and floats where it doesn’t fit beside the chat', () => {
-      // Folded by hand before (the old toggle): remembered, but no longer heeded.
+    it('shows whenever it has cards and room, even folded on this device; never over the chat unasked', () => {
+      // Folded by hand before (the old toggle): remembered, but no longer heeded where it has room.
       act(() => store.setForYouOpen(false))
       act(() => store.setForYouContent(true))
       width = 1600
       act(() => root.render(h(Row)))
       expect(planNow()).toBe('room:off')
       expect(store.getSidePanelState().leftShown).toBe(true)
+      expect(store.getSidePanelState().leftFloating).toBe(false)
+      // No room beside the chat: it waits (its toggle shows there), never covering the chat unasked.
       width = 900
       act(() => observe!())
+      expect(planNow()).toBe('off:off')
+      // Opened by hand there: it floats; folded again, it goes.
+      act(() => store.toggleForYou(false))
       expect(planNow()).toBe('float:off')
+      expect(store.getSidePanelState().leftFloating).toBe(true)
+      act(() => store.toggleForYou(true))
+      expect(planNow()).toBe('off:off')
     })
 
     it('shows nothing with no cards', () => {
@@ -765,10 +773,16 @@ describe('the row’s space plan', () => {
 
 describe('planFor', () => {
   const base = { rightOpen: false, leftOpen: false, leftContent: true, leftFloatOk: false, captureDock: false }
-  it('with `always`, For you shows folded or not, and may float', () => {
+  it('with `always`, For you shows folded or not where it has room, and floats only once opened by hand', () => {
     expect(planFor(1600, base, { always: true }).left).toBe('room')
-    expect(planFor(900, base, { always: true }).left).toBe('float')
+    expect(planFor(900, base, { always: true }).left).toBe('off')
+    expect(planFor(900, { ...base, leftOpen: true, leftFloatOk: true }, { always: true }).left).toBe('float')
     expect(planFor(900, { ...base, leftContent: false }, { always: true }).left).toBe('off')
+  })
+  it('with `always` and the right panel open on a laptop, the right panel makes room and For you waits rather than covering the chat', () => {
+    const plan = planFor(1228, { ...base, rightOpen: true }, { always: true })
+    expect(plan.right).toBe('room')
+    expect(plan.left).toBe('off')
   })
   it('without, as before: folded stays off; open floats only once opened by hand', () => {
     expect(planFor(1600, base).left).toBe('off')

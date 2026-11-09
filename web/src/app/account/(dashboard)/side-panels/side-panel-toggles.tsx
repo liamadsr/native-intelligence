@@ -9,10 +9,12 @@
  *   right    always there. Its badges: how many agents run now (the Agents
  *            section's count), and an amber dot while a connection needs
  *            the person (a reconnect, missing access, a sync error). ⌘\.
- *   For you  on a phone only (below `md`: from `md` up the column shows by
- *            itself, side-panels.tsx useForYouAlways, Liam 11-09), and only
- *            while the bots have brought something (with nothing, no toggle:
- *            Liam's "hide empty widgets"), with how many.
+ *   For you  only while the bots have brought something (with nothing, no
+ *            toggle: Liam's "hide empty widgets"), with how many. From `md`
+ *            up the column shows by itself where it has room (side-panels.tsx
+ *            useForYouAlways, Liam 11-09: no toggle then); the toggle shows
+ *            only where it has none, to float it over the chat and fold it
+ *            again. On a phone, always.
  */
 import { Home, createLucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -23,7 +25,7 @@ import { useAgentsSummary } from '../chat/chat-widgets'
 import { useForYouEntries } from '../chat/for-you-column'
 import { useActiveLiveCapture } from '../chat/use-live-capture-dock'
 import { toggleForYou, toggleRightPanel } from './side-panel-store'
-import { RIGHT_PANEL_ID, useSidePanelState } from './side-panels'
+import { RIGHT_PANEL_ID, useForYouAlways, useSidePanelState } from './side-panels'
 
 /**
  * The side panel's icon (Liam, 10-19, from a reference: a landscape rounded
@@ -81,10 +83,13 @@ export function SidePanelToggle() {
 
 export function ForYouToggle() {
   // On screen now (the row's space plan): what the toggle shows and flips.
-  const shown = useSidePanelState().leftShown
+  const { leftShown: shown, leftFloating } = useSidePanelState()
+  const always = useForYouAlways()
   const entries = useForYouEntries()
   const capturing = useActiveLiveCapture() !== null
   if (entries.length === 0 || capturing) return null
+  // From `md` up, beside the chat by itself: nothing to toggle.
+  if (always && shown && !leftFloating) return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>

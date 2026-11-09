@@ -13,17 +13,18 @@
  * (side-panels/side-panels.tsx; Liam, 10-15: "so that they all fit nicely"):
  *
  *   Always   from `md` up (where the app rail is) it shows whenever it has
- *            cards, with no toggle (Liam, 11-09: "just show that stuff all
- *            the time if you have any"; side-panels.tsx useForYouAlways). On
- *            a phone its "For you" button at the top bar's far left
- *            (side-panel-toggles.tsx) opens and folds it, folded remembered
- *            per device.
+ *            cards and room beside the chat, with no toggle (Liam, 11-09:
+ *            "just show that stuff all the time if you have any";
+ *            side-panels.tsx useForYouAlways). Where it has no room (a
+ *            narrow window), and on a phone, its "For you" button at the top
+ *            bar's far left (side-panel-toggles.tsx) opens and folds it.
  *   Motion   it slides in and out on a transform, as the right panel does.
  *   Room     the space plan (side-panels/space-plan.ts) puts it in the free
  *            space beside the chat's content where it fits (the chat does
  *            not move), or moves the content right by just the shortfall
  *            where the chat keeps 640px; narrower it floats over the chat's
- *            left edge (on a phone only once opened by hand this session).
+ *            left edge, but only once opened by hand this session (never
+ *            over the chat unasked).
  *   When     only with cards to show (with nothing waiting, nothing at all:
  *            no column, no toggle), and not while a live capture's notepad
  *            holds the left (live-capture-dock.tsx).
@@ -113,7 +114,7 @@ export function ForYouColumn({ mode }: { mode: PanelMode }) {
         width: FOR_YOU_WIDTH_PX,
       }}
     >
-      {/* It slides in with its first cards and out with its last (on a phone, its toggle too). */}
+      {/* It slides in with its first cards and out with its last (and with its toggle where it has no room). */}
       <ForYouColumnPanel entries={entries} shared={shared} style={PANEL_STYLE} />
     </aside>
   )

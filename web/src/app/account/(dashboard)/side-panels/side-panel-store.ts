@@ -52,6 +52,8 @@ export interface SidePanelState {
   captureDock: boolean
   /** The For you column is on screen now (the row's space plan): what its toggle shows and flips. */
   leftShown: boolean
+  /** It is on screen floating over the chat's edge (opened by hand: the row had no room for it). */
+  leftFloating: boolean
 }
 
 /** Remembered per device: the right panel open. */
@@ -98,6 +100,7 @@ const SERVER: SidePanelState = {
   leftFloatOk: false,
   captureDock: false,
   leftShown: false,
+  leftFloating: false,
 }
 
 function readKey(key: string): string | null {
@@ -185,6 +188,7 @@ function readSaved(): SidePanelState {
     leftFloatOk: false,
     captureDock: false,
     leftShown: false,
+    leftFloating: false,
   }
 }
 
@@ -299,9 +303,9 @@ export function setCaptureDockOpen(open: boolean): void {
   set({ captureDock: open })
 }
 
-/** The row's space plan, as the rest of the shell reads it: For you on screen. */
-export function reportSpacePlan(leftShown: boolean): void {
-  set({ leftShown })
+/** The row's space plan, as the rest of the shell reads it: For you on screen, and whether floating. */
+export function reportSpacePlan(left: 'off' | 'room' | 'float'): void {
+  set({ leftShown: left !== 'off', leftFloating: left === 'float' })
 }
 
 // ── The chat's bottom anchor ───────────────────────────────────────────────

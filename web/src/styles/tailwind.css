@@ -937,7 +937,7 @@ html[data-sky-tone] [data-on-sky] {
 [data-app-rail] {
   --app-rail-w: 0px;
 }
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   [data-app-rail] {
     --app-rail-w: 52px;
   }
