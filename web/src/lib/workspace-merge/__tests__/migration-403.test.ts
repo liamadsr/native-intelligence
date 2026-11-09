@@ -26,7 +26,8 @@ function newest(fn: string): { file: string; body: string } {
 
 describe('migration 403: the drift repair', () => {
   it('is a function the server may run again, scoped to one workspace or all', () => {
-    expect(newest('repair_cross_workspace_drift').file).toBe('403_repair_cross_workspace_drift.sql')
+    // 473 (deals) redefines it, unchanged but for the legacy deal guard.
+    expect(['403_repair_cross_workspace_drift.sql', '473_deals_pipelines_custom_fields.sql']).toContain(newest('repair_cross_workspace_drift').file)
     expect(BODY).toContain('CREATE OR REPLACE FUNCTION public.repair_cross_workspace_drift(p_workspace uuid DEFAULT NULL)')
     expect(BODY).toContain('REVOKE EXECUTE ON FUNCTION public.repair_cross_workspace_drift(uuid) FROM PUBLIC, anon, authenticated')
     expect(BODY).toContain('GRANT EXECUTE ON FUNCTION public.repair_cross_workspace_drift(uuid) TO service_role')

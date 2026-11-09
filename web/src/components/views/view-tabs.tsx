@@ -22,7 +22,7 @@ import {
 export const ENTITY_PLURAL: Record<ViewEntityType, string> = {
   agent: 'agents', skill: 'skills',
   action: 'issues', capture: 'captures', contact: 'contacts',
-  company: 'companies', email_thread: 'threads', document: 'documents',
+  company: 'companies', deal: 'deals', email_thread: 'threads', document: 'documents',
   initiative: 'initiatives',
   project: 'projects',
   flow: 'flows',

@@ -159,7 +159,7 @@ export const PACKS: Record<AreaKey, PackDefinition> = {
     name: 'CRM',
     feature: 'crm',
     toolGroups: ['contacts'],
-    cardKinds: entityCards('contact', 'company'),
+    cardKinds: entityCards('contact', 'company', 'deal'),
   },
   prospecting: {
     key: 'prospecting',

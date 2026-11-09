@@ -327,6 +327,16 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'list_companies', sideEffect: 'read', label: 'List Companies', description: 'List the companies in the CRM with contact/meeting counts and last interaction — the way to find a company_id' },
       { name: 'create_company', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Create Company', description: 'Add a company to the CRM' },
       { name: 'update_company', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Company', description: 'Edit a company: name, domain, industry, size, address, tags' },
+      // Deals (roadmap #8, src/lib/ai/tools/deals.ts): every write is logged with its before and after,
+      // so the agent applies a change an email, meeting or text makes and the person undoes it (no queue).
+      { name: 'find_deals', sideEffect: 'read', label: 'Find Deals', description: 'Find deals by name, stage, open/won/lost, company or contact, with every pipeline\'s stages' },
+      { name: 'get_deal', sideEffect: 'read', label: 'Get Deal', description: 'One deal with its recent changes and where each came from' },
+      { name: 'create_deal', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Create Deal', description: 'Add a deal: value, stage, close date, owner, company, contacts' },
+      { name: 'update_deal', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Update Deal', description: 'Change a deal\'s value, stage, close date, owner, company, contacts or custom fields; undoable' },
+      { name: 'move_deal', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Move Deal', description: 'Move a deal to another pipeline stage (won, lost, proposal…); undoable' },
+      { name: 'undo_deal_change', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Undo Deal Change', description: 'Take back a change to a deal; fields changed again since keep their newer value' },
+      { name: 'define_custom_field', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Define Custom Field', description: 'Add a custom field (text, number, date, select) to every deal, contact or company' },
+      { name: 'set_custom_fields', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Set Custom Fields', description: 'Set custom field values on a deal, contact or company' },
       { name: 'create_contact', sideEffect: 'internal-write', writeTarget: 'crm', label: 'Create Contact', description: 'Add a new contact' },
       // Bringing existing customers in (roadmap track G, src/lib/ai/tools/contact-import.ts). Not attended only:
       // they run on the person's own text turn too; the writes refuse an unattended turn themselves.
@@ -1133,6 +1143,10 @@ export const REPORT_MODE_WRITE_ALLOWLIST = ['create_document', 'add_comment', 's
  * `push_action_to_*` tool belongs here by construction.
  */
 const NON_PREFIX_MUTATING_TOOLS: string[] = [
+  // Deals (roadmap #8): moving a deal's stage and adding a workspace custom
+  // field both write. (create_/update_/undo_/set_ deal tools match the prefix.)
+  'move_deal',
+  'define_custom_field',
   // Inbox triage (GEN-1166): calls a mailing list's one-click link or sends an
   // unsubscribe email from the person's mailbox. (update_email_thread matches `update_`.)
   'unsubscribe_thread',

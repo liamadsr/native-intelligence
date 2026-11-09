@@ -120,7 +120,7 @@ const EntityActivitySection = dynamic(
 // Overview = the editable record + activity; Details = every known fact as
 // structured fields (the enrichment made first-class); People = the contacts;
 // Agents = every agent interaction with it.
-const COMPANY_SECTIONS = ['overview', 'details', 'people', 'agents'] as const
+const COMPANY_SECTIONS = ['overview', 'details', 'people', 'deals', 'agents'] as const
 type CompanySection = (typeof COMPANY_SECTIONS)[number]
 
 interface CompanyDetailPanelProps {
@@ -134,6 +134,8 @@ interface CompanyDetailPanelProps {
   onDeleted?: () => void
   onSelectContact?: (contactId: string, name: string, event?: React.MouseEvent) => void
   onOpenCapture?: (captureId: string, title: string, event?: React.MouseEvent) => void
+  /** Open one of the company's deals (roadmap #8). */
+  onOpenDeal?: (dealId: string, name: string, event?: React.MouseEvent) => void
 }
 
 export function CompanyDetailPanel({
@@ -145,6 +147,7 @@ export function CompanyDetailPanel({
   onDeleted,
   onSelectContact,
   onOpenCapture,
+  onOpenDeal,
 }: CompanyDetailPanelProps) {
   const [company, setCompany] = useState<CompanyDetail | null>(null)
   // For the Listen brief's fallback line, read when it plays.
@@ -448,6 +451,18 @@ export function CompanyDetailPanel({
                   key={`company-people-${companyId}`}
                   entityType="contact"
                   onItemSelect={(id, title, event) => onSelectContact?.(id, title, event)}
+                  scopeFilters={peopleScopeFilters}
+                  viewScope={{ type: 'company', id: companyId }}
+                />
+              )}
+
+              {activeTab === 'deals' && (
+                // The company's deals, the same list/board as the Deals page,
+                // scoped to company_id (a registered deal filter).
+                <UnifiedViewLayout
+                  key={`company-deals-${companyId}`}
+                  entityType="deal"
+                  onItemSelect={(id, title, event) => onOpenDeal?.(id, title || 'Deal', event)}
                   scopeFilters={peopleScopeFilters}
                   viewScope={{ type: 'company', id: companyId }}
                 />

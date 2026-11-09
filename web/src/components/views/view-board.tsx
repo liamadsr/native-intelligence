@@ -16,6 +16,8 @@ import { statusIdsForGroup } from './group-status-ids'
 import { ActionPlatformCell } from '@/components/tasks/action-platform-cell'
 import { requestActionCompose } from '@/lib/tasks/compose-request-events'
 import { RowWorkspaceBadge } from './workspace-badge'
+import { format, parseISO } from 'date-fns'
+import { formatDealTotals, formatDealValue } from '@/lib/crm/deal-format'
 
 const CARD_TYPE = 'BOARD_CARD'
 const COLUMN_TYPE = 'BOARD_COLUMN'
@@ -337,6 +339,12 @@ function BoardColumn({
           <span className="text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5">
             {group.items?.length ?? 0}
           </span>
+          {/* A stage's worth, per currency (deals only). */}
+          {entityType === 'deal' && group.items?.length ? (
+            <span className="text-xs tabular-nums text-muted-foreground" data-deal-column-total="">
+              {formatDealTotals(group.items as Array<{ value: number | null; currency: string | null }>)}
+            </span>
+          ) : null}
           {flows && flows.length > 0 && <FlowIndicator flows={flows} />}
         </div>
       </div>
@@ -523,6 +531,20 @@ interface BoardCardProps {
   onToggleCheck?: (id: string) => void
 }
 
+function DealCardMeta({ item }: { item: Record<string, unknown> }) {
+  const value = formatDealValue(item.value as number | null, item.currency as string | null)
+  const company = (item.company as { name?: string } | null)?.name
+  const close = typeof item.expected_close_date === 'string' ? item.expected_close_date : null
+  if (!value && !company && !close) return null
+  return (
+    <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground" data-deal-card-meta="">
+      {value && <span className="font-medium tabular-nums text-foreground/80">{value}</span>}
+      {company && <span className="min-w-0 truncate">{company}</span>}
+      {close && <span className="ml-auto shrink-0">{format(parseISO(close), 'MMM d')}</span>}
+    </div>
+  )
+}
+
 function boardCardTitle(item: Record<string, unknown>): string {
   if (!item.title && !item.full_name && !item.name && typeof item.from_email === 'string') return `Email from ${item.from_email}`
   return (item.title || item.subject || item.full_name || item.name || 'Untitled') as string
@@ -670,6 +692,9 @@ function BoardCardImpl({
         <RowWorkspaceBadge item={item} className="ml-auto" />
       </div>
       <div className="text-sm font-medium line-clamp-2">{title}</div>
+      {/* A deal card (roadmap #8) also says what it is worth, for whom, and
+          when it should close: the three things a pipeline is read for. */}
+      {entityType === 'deal' && <DealCardMeta item={item} />}
     </div>
   )
 }

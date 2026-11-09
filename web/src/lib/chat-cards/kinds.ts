@@ -33,7 +33,7 @@ export type CardKind = (typeof CARD_KIND_NAMES)[number]
  * The entity types a list card draws in P1: every list the generic page
  * (tabs/tab-content.tsx) serves through UnifiedViewLayout.
  */
-export const CARD_LIST_ENTITIES = ['action', 'capture', 'document', 'initiative', 'project', 'contact', 'company'] as const
+export const CARD_LIST_ENTITIES = ['action', 'capture', 'document', 'initiative', 'project', 'contact', 'company', 'deal'] as const
 export type CardListEntity = (typeof CARD_LIST_ENTITIES)[number]
 
 /** The records a record card opens: each has its own detail panel. */
@@ -41,7 +41,7 @@ export const CARD_RECORD_TYPES = CARD_LIST_ENTITIES
 export type CardRecordType = CardListEntity
 
 /** Entities whose rows the query engine can search by text (applySearch). */
-export const CARD_SEARCHABLE_ENTITIES: ReadonlySet<ViewEntityType> = new Set(['action', 'capture', 'document', 'contact', 'company'])
+export const CARD_SEARCHABLE_ENTITIES: ReadonlySet<ViewEntityType> = new Set(['action', 'capture', 'document', 'contact', 'company', 'deal'])
 
 /** One filter on a card: a views filter without the UI's chip id. */
 export interface CardFilter {
@@ -160,6 +160,7 @@ export const ENTITY_NOUN: Record<CardListEntity, { singular: string; plural: str
   project: { singular: 'project', plural: 'projects' },
   contact: { singular: 'contact', plural: 'contacts' },
   company: { singular: 'company', plural: 'companies' },
+  deal: { singular: 'deal', plural: 'deals' },
 }
 
 /** How each kind names what it shows, in the pill and in the agent's note. */

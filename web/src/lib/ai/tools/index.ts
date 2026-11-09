@@ -43,6 +43,7 @@ import { createLibraryTools } from './library'
 import { createSequenceTools } from './sequences'
 import { createProspectingTools } from './prospecting'
 import { createCompanyTools } from './companies'
+import { createDealTools } from './deals'
 import { createCampaignTools } from './campaigns'
 import { createReviewTools } from './reviews'
 import { createChatHelperTools } from './chat-helpers'
@@ -392,6 +393,8 @@ export function createTools(
     // Companies — the CRM's other half. `get_company_overview` (crm.ts) reads
     // ONE account you can already name; these are the index and the writes.
     ...createCompanyTools(userId, supabase, workspaceId, strict, createPolicy),
+    // Deals and custom fields (roadmap #8): apply with undo, every change logged. See ./deals.ts.
+    ...createDealTools(userId, supabase, workspaceId, strict, createPolicy),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).
