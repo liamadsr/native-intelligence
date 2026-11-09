@@ -106,9 +106,9 @@ export function TopBar() {
           <TooltipProvider delayDuration={300}>
             {/* For you's toggle, at the far left over its column (side-panels/
                 side-panel-toggles.tsx), as the side panel's ends the bar over
-                its panel: only while the bots brought something, and from
-                `md` up only where the column has no room to show by itself
-                (Liam, 11-09: it shows all the time). */}
+                its panel: whenever the bots brought something, the column
+                beside the chat or not (Liam, 11-09: "always visible like the
+                button we have on the right side"). */}
             <ForYouToggle />
             {/* Search, on a phone only (below `md`, where there is no app
                 rail): from `md` up the rail has it (rail/app-rail.tsx; Liam,

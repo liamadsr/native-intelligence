@@ -52,8 +52,6 @@ export interface SidePanelState {
   captureDock: boolean
   /** The For you column is on screen now (the row's space plan): what its toggle shows and flips. */
   leftShown: boolean
-  /** It is on screen floating over the chat's edge (opened by hand: the row had no room for it). */
-  leftFloating: boolean
 }
 
 /** Remembered per device: the right panel open. */
@@ -69,8 +67,12 @@ export const RIGHT_OPEN_KEY = 'dial8:side-panel:open'
 export const SECTIONS_KEY = 'dial8:side-panel:collapsed'
 /** Remembered per device: the right panel's cards in the person's order (JSON list of ids). */
 export const ORDER_KEY = 'dial8:side-panel:order'
-/** Remembered per device, as it always was: the For you column folded away. */
-export const FOR_YOU_COLLAPSED_KEY = 'dial8:for-you-column:collapsed'
+/**
+ * Remembered per device: the For you column folded away. A new name (11-09:
+ * For you shows whenever it has cards, its toggle always there to fold it):
+ * a fold remembered before then doesn't hide it now.
+ */
+export const FOR_YOU_COLLAPSED_KEY = 'dial8:for-you-column:folded'
 
 /**
  * Every card, in the order it shows until the person drags one. A saved order
@@ -100,7 +102,6 @@ const SERVER: SidePanelState = {
   leftFloatOk: false,
   captureDock: false,
   leftShown: false,
-  leftFloating: false,
 }
 
 function readKey(key: string): string | null {
@@ -188,7 +189,6 @@ function readSaved(): SidePanelState {
     leftFloatOk: false,
     captureDock: false,
     leftShown: false,
-    leftFloating: false,
   }
 }
 
@@ -303,9 +303,9 @@ export function setCaptureDockOpen(open: boolean): void {
   set({ captureDock: open })
 }
 
-/** The row's space plan, as the rest of the shell reads it: For you on screen, and whether floating. */
-export function reportSpacePlan(left: 'off' | 'room' | 'float'): void {
-  set({ leftShown: left !== 'off', leftFloating: left === 'float' })
+/** The row's space plan, as the rest of the shell reads it: For you on screen. */
+export function reportSpacePlan(leftShown: boolean): void {
+  set({ leftShown })
 }
 
 // ── The chat's bottom anchor ───────────────────────────────────────────────
