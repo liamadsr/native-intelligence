@@ -23,11 +23,13 @@ export const RAIL_PAGES_PROFILE_FIELD = 'rail_pages'
 export const RAIL_PAGES_STORAGE_KEY = 'dial8:rail-pages'
 
 /** At most this many ids in each list (the rail has 19 pages). */
-export const RAIL_PREFS_MAX_IDS = 64
+// Small on purpose: user_metadata rides in the access token and the auth
+// cookie on every request (the rail has 19 pages; room to grow).
+export const RAIL_PREFS_MAX_IDS = 32
 
 /** A page id: a `/` page's slug, short. */
 const PAGE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const PAGE_ID_MAX = 40
+const PAGE_ID_MAX = 24
 
 export interface RailPrefs {
   order: string[]

@@ -23,6 +23,10 @@ describe('parseRailPrefs', () => {
     expect(parseRailPrefs({ order: ids(RAIL_PREFS_MAX_IDS) })?.order).toHaveLength(RAIL_PREFS_MAX_IDS)
     expect(parseRailPrefs({ order: ids(RAIL_PREFS_MAX_IDS + 1) })).toBeNull()
     expect(parseRailPrefs({ hidden: ids(RAIL_PREFS_MAX_IDS + 1) })).toBeNull()
+    // Small on purpose (it rides in the access token): 32 ids at most, 24 characters each.
+    expect(RAIL_PREFS_MAX_IDS).toBe(32)
+    expect(parseRailPrefs({ order: ['a'.repeat(24)] })?.order).toHaveLength(1)
+    expect(parseRailPrefs({ order: ['a'.repeat(25)] })).toBeNull()
   })
 
   it('tells the default and two equal bars apart', () => {
