@@ -1,12 +1,15 @@
 'use client'
 
 /**
- * The app rail (Liam, 11-09, from his reference): a thin band of icons down
- * the window's left, the way to move between the pages. Top to bottom: New,
- * Search, Home, then every page the workspace has on (./rail-pages.ts, in
- * four groups with a hairline between them: your work, plans, customers,
- * agents), and the person's avatar at the foot. Where the window is too short
- * for them all, the pages scroll between Home and the avatar.
+ * The app rail (Liam, 11-09, from his references, then Miro's): the way to
+ * move between the pages, floating at the window's left.
+ *
+ *   the header  one pill at the top left, over the top bar: Home, the
+ *               workspace and account menu (its name), and Search.
+ *   the pills   down the left, centred under the header: New in its own,
+ *               then every page the workspace has on (./rail-pages.ts), a
+ *               pill per group (your work, plans, customers, agents). Where
+ *               the window is too short they scroll.
  *
  *   New      puts any page away and puts the cursor in the composer: the
  *            agent makes things on request (no Create dialog: Liam, 10-20).
@@ -16,33 +19,28 @@
  *   a page   opens as `/` opens it (openTarget `page`): full screen in the
  *            main chat, the same card brought back when it was opened before.
  *            Another page open already is switched in place.
- *   avatar   the workspace and account menu (WorkspaceSwitcher `rail`: switch
- *            workspace, Settings, sign out…), the one place it lives from `md`
- *            up (Liam, 11-09: the top bar's pill is a phone's only now).
+ *   workspace  the workspace and account menu (WorkspaceSwitcher `header`:
+ *            switch workspace, Settings, sign out…), the one place it lives
+ *            from `md` up (Liam, 11-09: the top bar's pill is a phone's only now).
  *
  * The page in front is lit (components/chat-cards/front-card.ts), Home with
- * none. The full-screen layer starts at the rail's edge (show-tool-card.tsx),
- * so the rail stays at hand while a page is open.
+ * none. A page full screen starts at the rail's edge and under the header
+ * (show-tool-card.tsx), so both stay at hand while a page is open.
  *
  * Its width is `--app-rail-w` (tailwind.css, `[data-app-rail]`): the shell
- * moves its top bar and chat clear of it, and the full-screen layer starts
- * after it. Below `md` the rail is hidden and the width is 0, as before.
- * In the Mac app the window has no title bar: the rail's top is window drag
- * surface, with room for the traffic lights over it.
+ * moves its top bar and chat clear of it. The header's right edge and bottom
+ * are `--app-header-right` and `--app-header-bottom` on <html>: the top bar's
+ * controls start after it. Below `md` all of it is hidden, as before. In the
+ * Mac app the header sits past the traffic lights, level with them.
  *
- * It is a panel like the others (Liam, 11-09: "match the glass effect of the
- * actual panels", "rounding out the edges … the same as the other panels and
- * pages"): a floating card inset from the window's edges, with the pages'
- * corners and the floating cards' glass (chat-cards/card-glass.tsx,
- * attention/card-skin.ts COLUMN_CARD_SKIN): their translucent fill, blur,
- * fine edge and soft shadow. Like them it re-composites while the sky moves.
- * In the Mac app it starts under the traffic lights, the window-drag strip
- * above it.
+ * Each pill is a panel like the others (Liam, 11-09: "match the glass effect
+ * of the actual panels"): the floating cards' glass (attention/card-skin.ts
+ * COLUMN_CARD_SKIN), their translucent fill, blur, fine edge and soft shadow.
  *
  * Flat cost: no animation, no polling; it redraws when a card enters or leaves
  * full screen, or the workspace's edition changes.
  */
-import { Fragment, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import {
   AudioLines,
   Brain,
@@ -83,6 +81,18 @@ import { activeRailItem, railPagesFor, type RailPageId } from './rail-pages'
 
 /** On the shell root (server markup) and <html> (for the layer on <body>): defines `--app-rail-w`. */
 export const APP_RAIL_ATTR = 'data-app-rail'
+
+/** On <html>: the header's right edge and bottom, px (0 while it is hidden, below `md`). */
+export const HEADER_RIGHT_VAR = '--app-header-right'
+export const HEADER_BOTTOM_VAR = '--app-header-bottom'
+
+/** The header, centred on the top bar's row: 8px in on the web; past the traffic lights, level with them, in the Mac app. */
+const HEADER_STYLE: React.CSSProperties = { left: 8, top: 3 }
+const HEADER_STYLE_LIGHTS: React.CSSProperties = { left: 78, top: 9 }
+/** The pills' column: the rail's width, under the header. */
+const NAV_STYLE: React.CSSProperties = { width: 'var(--app-rail-w)', top: 'calc(var(--app-header-bottom, 0px) + 4px)' }
+/** A floating pill: the panels' glass (COLUMN_CARD_SKIN), rounded, its buttons stacked. */
+const PILL = cn('flex flex-col items-center gap-0.5 rounded-2xl border border-border/60 p-1', COLUMN_CARD_SKIN)
 
 /** Each page's icon: the rail's own for Liam's reference pages, the `/` menu's for the rest (command-menu.tsx). */
 const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
@@ -217,28 +227,84 @@ export function AppRail() {
     focusComposerWhenClear()
   }
 
-  return (
-    <nav
-      data-app-rail-nav=""
-      aria-label="Pages"
-      className="absolute inset-y-0 left-0 z-30 hidden flex-col md:flex"
-      style={{ width: 'var(--app-rail-w)' }}
-    >
-      {/* Window drag surface over the top (childless: Tauri drags only on
-          the attributed target): the gutter above the panel, and in the Mac
-          app the room for the traffic lights, which sit over it. */}
-      <div data-tauri-drag-region="" aria-hidden className={cn('w-full shrink-0', trafficLights ? 'h-11' : 'h-2')} />
-      {/* The panel: a floating card, inset from the window's edges. */}
-      <div
-        data-app-rail-panel=""
-        className={cn('mb-2 ml-2 flex min-h-0 w-12 flex-1 flex-col items-center overflow-hidden rounded-3xl border border-border/60', COLUMN_CARD_SKIN)}
+  // The page groups, each its own floating pill (your work, plans, customers, agents).
+  const groups = useMemo(() => {
+    const out: Array<{ group: string; pages: typeof pages }> = []
+    for (const p of pages) {
+      const last = out[out.length - 1]
+      if (last && last.group === p.def.group) last.pages.push(p)
+      else out.push({ group: p.def.group, pages: [p] })
+    }
+    return out
+  }, [pages])
+
+  // Where the header ends, on <html>: the top bar's controls start after it,
+  // and a page full screen starts under it (top-bar.tsx, show-tool-card.tsx).
+  // 0 while it is hidden (below `md`). Measured again only when it resizes.
+  const headerRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const html = document.documentElement
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      html.style.setProperty(HEADER_RIGHT_VAR, `${Math.round(r.right)}px`)
+      html.style.setProperty(HEADER_BOTTOM_VAR, `${Math.round(r.bottom)}px`)
+    }
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(el)
+    return () => {
+      observer?.disconnect()
+      html.style.removeProperty(HEADER_RIGHT_VAR)
+      html.style.removeProperty(HEADER_BOTTOM_VAR)
+    }
+  }, [mounted])
+
+  const pageButton = ({ def, page }: (typeof pages)[number]) => {
+    const Icon = PAGE_ICONS[def.id] ?? LayoutList
+    return (
+      <RailButton
+        key={def.id}
+        label={page.label}
+        active={active === def.id}
+        onClick={() => {
+          openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
+          // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
+          if (active === def.id) focusFrontPage()
+        }}
+        data={{ 'data-app-rail-item': def.id }}
       >
-      {mounted && (
-        <TooltipProvider delayDuration={300}>
-          <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-0.5 overflow-y-auto overflow-x-hidden py-1.5 [scrollbar-width:none]">
-            <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
-              <Plus className="size-[18px]" strokeWidth={1.75} />
+        <Icon className="size-[18px]" strokeWidth={1.75} />
+      </RailButton>
+    )
+  }
+
+  return (
+    // One host element (display: contents): the header and the pills place
+    // themselves on the shell.
+    <div className="contents">
+      {/* Window drag surface at the top-left in the Mac app (childless: Tauri
+          drags only on the attributed target), where the traffic lights sit. */}
+      {trafficLights && <div data-tauri-drag-region="" aria-hidden className="absolute left-0 top-0 z-30 hidden h-11 md:block" style={{ width: 'var(--app-rail-w)' }} />}
+
+      {/* The header (Liam, 11-09, from Miro's board header): Home, the
+          workspace and account menu, and Search, in one floating pill at the
+          top left, over the top bar. */}
+      <div
+        ref={headerRef}
+        data-app-rail-header=""
+        className={cn('absolute z-[45] hidden items-center gap-0.5 rounded-2xl border border-border/60 p-1 md:flex', COLUMN_CARD_SKIN)}
+        style={trafficLights ? HEADER_STYLE_LIGHTS : HEADER_STYLE}
+      >
+        {mounted ? (
+          <TooltipProvider delayDuration={300}>
+            <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
+              <House className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
+            <div data-app-rail-item="workspace" className="min-w-0">
+              <WorkspaceSwitcher variant="header" />
+            </div>
             <RailButton
               label="Search"
               hint={<kbd className={KBD}>{searchKey}</kbd>}
@@ -249,40 +315,41 @@ export function AppRail() {
             >
               <Search className="size-[18px]" strokeWidth={1.75} />
             </RailButton>
-            <div aria-hidden className="h-2.5 shrink-0" />
-            <RailButton label="Home" active={active === 'home'} onClick={closeFrontCards} data={{ 'data-app-rail-item': 'home' }}>
-              <House className="size-[18px]" strokeWidth={1.75} />
-            </RailButton>
-            {pages.map(({ def, page }, i) => {
-              const Icon = PAGE_ICONS[def.id] ?? LayoutList
-              // A hairline where a new group starts (your work, plans, customers, agents).
-              const groupStart = i > 0 && pages[i - 1].def.group !== def.group
-              return (
-                <Fragment key={def.id}>
-                {groupStart && <div aria-hidden data-app-rail-group-line="" className="my-1 h-px w-5 shrink-0 bg-foreground/10" />}
-                <RailButton
-                  label={page.label}
-                  active={active === def.id}
-                  onClick={() => {
-                    openTarget({ type: 'page', slug: page.slug }, { from: 'rail' })
-                    // Already in front: nothing changes, so the page takes the keys back (a click left them on this button).
-                    if (active === def.id) focusFrontPage()
-                  }}
-                  data={{ 'data-app-rail-item': def.id }}
-                >
-                  <Icon className="size-[18px]" strokeWidth={1.75} />
-                </RailButton>
-                </Fragment>
-              )
-            })}
-            <div className="flex-1" />
-            <div data-app-rail-item="workspace">
-              <WorkspaceSwitcher variant="rail" />
-            </div>
-          </div>
-        </TooltipProvider>
-      )}
+          </TooltipProvider>
+        ) : (
+          // Its size until the controls mount (after hydration), so nothing moves.
+          <div aria-hidden className="h-8 w-44" />
+        )}
       </div>
-    </nav>
+
+      {/* The pills (Liam, 11-09, from Miro's toolbar): New, then each group of
+          pages in its own floating pill, down the left, centred in the room
+          under the header; where the window is too short they scroll. */}
+      <nav
+        data-app-rail-nav=""
+        aria-label="Pages"
+        className="absolute bottom-0 left-0 z-30 hidden md:flex"
+        style={NAV_STYLE}
+      >
+        {mounted && (
+          <TooltipProvider delayDuration={300}>
+            <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto overflow-x-hidden py-2 [scrollbar-width:none]">
+              <div className="my-auto flex flex-col items-start gap-1.5 pl-2">
+                <div data-app-rail-pill="new" className={PILL}>
+                  <RailButton label="New" hint={<span className="text-muted-foreground">Ask your agent</span>} onClick={onNew} data={{ 'data-app-rail-item': 'new' }}>
+                    <Plus className="size-[18px]" strokeWidth={1.75} />
+                  </RailButton>
+                </div>
+                {groups.map((g) => (
+                  <div key={g.group} data-app-rail-pill={g.group} className={PILL}>
+                    {g.pages.map(pageButton)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </TooltipProvider>
+        )}
+      </nav>
+    </div>
   )
 }

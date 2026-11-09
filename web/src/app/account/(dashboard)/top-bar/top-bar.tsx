@@ -21,6 +21,17 @@ import { SearchButton } from './search-button'
 const TRAFFIC_LIGHT_GUTTER = `max(4px, calc(${MACOS_TRAFFIC_LIGHT_WIDTH}px - var(--app-rail-w, 0px)))`
 
 /**
+ * Where the bar's first control starts: past the traffic lights (or 4px in),
+ * and from `md` up past the app rail's header too (rail/app-rail.tsx, Liam
+ * 11-09: Home, the workspace and Search in one pill at the top left), 8px
+ * after it (`--app-header-right`, the header's right edge from the window's,
+ * 0 while it is hidden).
+ */
+function leadInset(trafficLights: boolean): string {
+  return `max(${trafficLights ? TRAFFIC_LIGHT_GUTTER : '4px'}, calc(var(--app-header-right, 0px) - var(--app-rail-w, 0px) + 8px))`
+}
+
+/**
  * The top bar's controls: For you's toggle leads it at the far left (from
  * `md` up only where its column has no room to show by itself), then Search
  * on a phone (from `md` up the app rail has it); Listen, the side panel's
@@ -101,7 +112,7 @@ export function TopBar() {
             // start, so the rest of the column stays drag surface.
             'justify-self-start pr-2',
           )}
-          style={{ paddingLeft: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
+          style={{ paddingLeft: leadInset(trafficLights) }}
         >
           <TooltipProvider delayDuration={300}>
             {/* For you's toggle, at the far left over its column (side-panels/
@@ -133,7 +144,7 @@ export function TopBar() {
       {!mounted && (
         <div
           className="shrink-0 self-stretch"
-          style={{ width: trafficLights ? TRAFFIC_LIGHT_GUTTER : 4 }}
+          style={{ width: leadInset(trafficLights) }}
           data-tauri-drag-region
         />
       )}

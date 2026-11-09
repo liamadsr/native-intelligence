@@ -245,8 +245,8 @@ const FULL_SCREEN_COLUMN_STYLE: React.CSSProperties = { width: FULL_SCREEN_WIDTH
 const FULL_SCREEN_FRAME_STYLE: React.CSSProperties = {
   height: `max(calc(${FULL_SCREEN_WIDTH} / 1.6), calc(${FULL_SCREEN_ROOM} - (100cqw - ${FULL_SCREEN_WIDTH}) * 10))`,
 }
-/** The full-screen layer: the window from the app rail's edge (0 without the rail). */
-const FULL_SCREEN_LAYER_STYLE: React.CSSProperties = { left: 'var(--app-rail-w, 0px)' }
+/** The full-screen layer: the window from the app rail's edge and under its header (rail/app-rail.tsx; 0 without the rail). */
+const FULL_SCREEN_LAYER_STYLE: React.CSSProperties = { left: 'var(--app-rail-w, 0px)', top: 'var(--app-header-bottom, 0px)' }
 /** The layer's X in the Mac app: 84px from the window's edge (clear of the traffic lights), at least the usual 1rem from the layer's. */
 const CLOSE_CLEAR_OF_LIGHTS_STYLE: React.CSSProperties = { left: 'max(1rem, calc(84px - var(--app-rail-w, 0px)))' }
 /** The row under the card (the button and its gap: 3.75rem, as the column allows). */

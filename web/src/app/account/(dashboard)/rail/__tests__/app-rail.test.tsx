@@ -60,32 +60,47 @@ const items = () => Array.from(container.querySelectorAll<HTMLElement>('[data-ap
 const lit = () => Array.from(container.querySelectorAll<HTMLElement>('[aria-current="page"]')).map((el) => el.dataset.appRailItem)
 
 describe('the app rail', () => {
-  it('draws New, Search, Home, every page that is on and the workspace menu at its foot', async () => {
+  it('draws the header (Home, the workspace menu, Search), then New and every page that is on, in Liam’s order', async () => {
     await render()
-    expect(items()).toEqual([
-      'new', 'search', 'home',
+    const header = container.querySelector<HTMLElement>('[data-app-rail-header]')!
+    const inHeader = Array.from(header.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)
+    expect(inHeader).toEqual(['home', 'workspace', 'search'])
+    // The one workspace and account menu (Liam, 11-09), the header's variant.
+    expect(header.querySelector('[data-app-rail-item="workspace"] [data-variant="header"]')).not.toBeNull()
+    const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
+    expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
+      'new',
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
       'projects', 'initiatives', 'knowledge', 'flows',
       'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
       'agents', 'evals', 'teams',
-      'workspace',
     ])
-    // A hairline between the groups (your work, plans, customers, agents).
-    expect(container.querySelectorAll('[data-app-rail-group-line]')).toHaveLength(3)
     expect(item('mail')?.getAttribute('aria-label')).toBe('Mail')
-    // The one workspace and account menu (Liam, 11-09), the rail's own variant.
-    expect(container.querySelector('[data-app-rail-item="workspace"] [data-variant="rail"]')).not.toBeNull()
   })
 
-  it('is a panel like the others: a rounded floating card with their glass', async () => {
+  it('floats its pills like Miro’s toolbar: New alone, then a pill per group, each with the panels’ glass', async () => {
     await render()
-    const panel = container.querySelector<HTMLElement>('[data-app-rail-nav] [data-app-rail-panel]')!
-    expect(panel.className).toContain('rounded-3xl')
-    expect(panel.className).toContain('bg-background/70')
-    expect(panel.className).toContain('backdrop-blur-md')
-    expect(panel.className).toContain('border-border/60')
-    // Its items sit inside the panel.
-    expect(panel.querySelector('[data-app-rail-item="mail"]')).not.toBeNull()
+    const pills = Array.from(container.querySelectorAll<HTMLElement>('[data-app-rail-pill]'))
+    expect(pills.map((p) => p.dataset.appRailPill)).toEqual(['new', 'work', 'plans', 'customers', 'agents'])
+    for (const pill of [...pills, container.querySelector<HTMLElement>('[data-app-rail-header]')!]) {
+      expect(pill.className).toContain('rounded-2xl')
+      expect(pill.className).toContain('bg-background/70')
+      expect(pill.className).toContain('backdrop-blur-md')
+      expect(pill.className).toContain('border-border/60')
+    }
+    expect(pills[1].querySelector('[data-app-rail-item="mail"]')).not.toBeNull()
+    expect(pills[3].querySelector('[data-app-rail-item="deals"]')).not.toBeNull()
+  })
+
+  it('tells the top bar and the full-screen layer where the header ends (on <html>)', async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ right: 236, bottom: 45 } as DOMRect)
+    await render()
+    expect(document.documentElement.style.getPropertyValue('--app-header-right')).toBe('236px')
+    expect(document.documentElement.style.getPropertyValue('--app-header-bottom')).toBe('45px')
+    rect.mockRestore()
+    act(() => root.unmount())
+    expect(document.documentElement.style.getPropertyValue('--app-header-right')).toBe('')
+    root = createRoot(container)
   })
 
   it('leaves out a page that is off in the workspace', async () => {
