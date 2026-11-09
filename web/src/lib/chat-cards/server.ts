@@ -188,6 +188,23 @@ async function lookupNames(
 }
 
 /** Workflow state names → ids across the teams the person can see (several share "In Progress"). */
+/** Deal stages by name (every pipeline's stage of that name), for a deals card's stage filter. */
+async function lookupDealStages(scope: CardScope, names: string[]): Promise<Checked<Map<string, string[]>>> {
+  const { data, error } = await scope.supabase.from('deal_stage').select('id, name').eq('workspace_id', scope.workspaceId).limit(200)
+  if (error) throw new Error(`could not look up stages: ${error.message}`)
+  const stages = (data ?? []) as Array<{ id: string; name: string }>
+  const byName = new Map<string, string[]>()
+  for (const name of names) {
+    const ids = stages.filter((s) => s.name.toLowerCase() === name.trim().toLowerCase()).map((s) => s.id)
+    if (ids.length === 0) {
+      const known = [...new Set(stages.map((s) => s.name))].slice(0, 15)
+      return { ok: false, error: `no stage named '${name}'.${known.length ? ` Stages here: ${known.join(', ')}.` : ''}` }
+    }
+    byName.set(name, ids)
+  }
+  return { ok: true, value: byName }
+}
+
 async function lookupStates(scope: CardScope, fence: VisibilityFence, names: string[]): Promise<Checked<Map<string, string[]>>> {
   const byName = new Map<string, string[]>()
   for (const name of names) {
@@ -249,6 +266,8 @@ export async function resolveNamedValues(
     const resolved =
       def.options === 'workflow_states'
         ? await lookupStates(scope, fence, names)
+        : def.options === 'deal_stages'
+        ? await lookupDealStages(scope, names)
         : await lookupNames(scope, fence, def.type, names, f.field === 'user_id' ? 'user_id' : 'id')
     if (!resolved.ok) return { ok: false, error: `filters[${i}] (${f.field}): ${resolved.error}` }
     const ids = values.flatMap((v) => (typeof v === 'string' && resolved.value.has(v) ? resolved.value.get(v)! : [v]))
@@ -314,6 +333,7 @@ const RECORD_TABLE: Record<CardRecordType, { table: string; select: string }> = 
   project: { table: 'projects', select: 'id, name' },
   contact: { table: 'contact', select: 'id, full_name' },
   company: { table: 'company', select: 'id, name' },
+  deal: { table: 'deal', select: 'id, name' },
 }
 
 /** Can the person see this record (the same rules as their own page)? */

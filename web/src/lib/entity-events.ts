@@ -42,6 +42,7 @@ export type EntityKind =
   | 'document'
   | 'contact'
   | 'company'
+  | 'deal'
   | 'email_thread'
   | 'label'
   | 'flow'

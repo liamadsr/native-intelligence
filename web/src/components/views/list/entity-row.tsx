@@ -6,8 +6,9 @@ import { ThinkingOrb } from 'thinking-orbs'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { AlarmClock, Building2, Check, ChevronRight, ExternalLink, EyeOff, FileText, FlaskConical, Linkedin, Loader2, Play, Send, Target, Telescope, Users, X, Zap } from 'lucide-react'
+import { AlarmClock, Building2, Check, CircleDollarSign, ChevronRight, ExternalLink, EyeOff, FileText, FlaskConical, Linkedin, Loader2, Play, Send, Target, Telescope, Users, X, Zap } from 'lucide-react'
 import { ProjectIcon, isEmoji } from '@/components/ui/emoji-icon-picker'
+import { DealCell } from './deal-cells'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -569,6 +570,7 @@ export function getTitle(entityType: ViewEntityType, item: Record<string, unknow
     case 'capture': return (item.title as string) || 'Untitled Capture'
     case 'contact': return (item.full_name as string) || 'Unknown'
     case 'company': return (item.name as string) || 'Unknown'
+    case 'deal': return (item.name as string) || 'Untitled deal'
     // No stored subject (344): a sender-based title.
     case 'email_thread': return item.from_email ? `Email from ${item.from_email as string}` : 'Email'
     case 'document': return (item.title as string) || 'Untitled'
@@ -694,6 +696,14 @@ function EntityLeading({
       )
     case 'company':
       return <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+    case 'deal': {
+      const kind = (item.stage as { kind?: string } | null)?.kind
+      return (
+        <CircleDollarSign
+          className={cn('h-4 w-4 shrink-0', kind === 'won' ? 'text-emerald-500' : kind === 'lost' ? 'text-muted-foreground/50' : 'text-muted-foreground')}
+        />
+      )
+    }
     case 'capture':
       return <span className="text-sm shrink-0">📹</span>
     case 'document':
@@ -2401,7 +2411,7 @@ function renderEditableCell({
       const overdueSensitive = apiField === 'due_at' || apiField === 'target_date'
       // target_date / start_date are `date` columns: store the picked LOCAL
       // calendar day, not the UTC date of its midnight (a day early east of UTC).
-      const dateOnly = apiField === 'target_date' || apiField === 'start_date'
+      const dateOnly = apiField === 'target_date' || apiField === 'start_date' || apiField === 'expected_close_date'
       return (
         <DateCellTrigger
           value={raw}
@@ -2672,6 +2682,10 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
   if (entityType === 'eval_run') {
     const runCell = EvalRunCell({ item, property })
     if (runCell !== undefined) return runCell
+  }
+  if (entityType === 'deal') {
+    const dealCell = DealCell({ item, property })
+    if (dealCell !== undefined) return dealCell
   }
 
   switch (property) {

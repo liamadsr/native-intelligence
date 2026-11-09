@@ -135,6 +135,7 @@ const RECORD_NOUN: Record<CardRecordType, string> = {
   project: 'Project',
   contact: 'Contact',
   company: 'Company',
+  deal: 'Deal',
 }
 
 /**

@@ -59,6 +59,7 @@ const TABLES: Array<{ table: string; entityType: EntityKind; filtered?: boolean 
   { table: 'document', entityType: 'document' },
   { table: 'contact', entityType: 'contact' },
   { table: 'company', entityType: 'company' },
+  { table: 'deal', entityType: 'deal' },
   { table: 'claim', entityType: 'claim' },
   { table: 'entity_link', entityType: 'entity_link' },
   { table: 'comment', entityType: 'comment', filtered: false },

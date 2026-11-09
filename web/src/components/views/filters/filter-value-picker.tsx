@@ -266,6 +266,24 @@ function DynamicEnumPicker({
           setLoaded(true)
         })
         .catch(() => setLoaded(true))
+    } else if (source === 'deal_stages') {
+      // Every pipeline's stages; a stage name shared by two pipelines is one
+      // option holding both ids, the way a workflow state is across teams.
+      fetch('/api/account/deals/pipelines')
+        .then(r => r.ok ? r.json() : null)
+        .then((json) => {
+          const byName = new Map<string, { id: string; name: string; color?: string; ids: string[] }>()
+          for (const p of (json?.pipelines || []) as { stages: { id: string; name: string; color?: string | null }[] }[]) {
+            for (const s of p.stages) {
+              const opt = byName.get(s.name)
+              if (opt) opt.ids.push(s.id)
+              else byName.set(s.name, { id: s.id, name: s.name, color: s.color ?? undefined, ids: [s.id] })
+            }
+          }
+          setOptions(Array.from(byName.values()))
+          setLoaded(true)
+        })
+        .catch(() => setLoaded(true))
     } else {
       setLoaded(true)
     }
@@ -500,7 +518,7 @@ function NumberRangePicker({
  * rather than `timestamptz`. The query engine compares the filter value with
  * the column as-is, so a picked day has to go out as that day.
  */
-const DAY_ONLY_DATE_FIELDS = new Set(['target_date', 'start_date'])
+const DAY_ONLY_DATE_FIELDS = new Set(['target_date', 'start_date', 'expected_close_date'])
 
 export function isDayOnlyDateField(fieldDef: FilterFieldDefinition): boolean {
   return fieldDef.type === 'date' && DAY_ONLY_DATE_FIELDS.has(fieldDef.field)

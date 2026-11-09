@@ -120,6 +120,17 @@ export const CARD_PAGES: readonly CardPage[] = [
     spec: () => ({ kind: 'mail', title: 'Inbox', mail: { folder: 'inbox' } }),
   },
   { slug: 'contacts', label: 'Contacts', description: 'Your CRM contacts', kind: 'list', view: 'contacts', keywords: ['crm', 'people'], spec: list('Contacts', 'contact') },
+  // The pipeline board (roadmap #8). It shares the Companies page's gate: deals
+  // are the CRM's accounts at work, on wherever companies are.
+  {
+    slug: 'deals',
+    label: 'Deals',
+    description: 'Your pipeline, by stage',
+    kind: 'list',
+    view: 'companies',
+    keywords: ['crm', 'pipeline', 'opportunities', 'sales'],
+    spec: () => ({ kind: 'list', title: 'Deals', entity_type: 'deal', filters: [], layout: 'board' }),
+  },
   { slug: 'companies', label: 'Companies', description: 'Your CRM companies', kind: 'list', view: 'companies', keywords: ['crm', 'accounts'], spec: list('Companies', 'company') },
   { slug: 'prospecting', label: 'Prospecting', description: 'Your prospect lists', kind: 'prospecting', view: 'prospecting', keywords: ['prospects', 'leads'], spec: page('prospecting', 'Prospecting') },
   { slug: 'sequences', label: 'Sequences', description: 'Your outreach sequences', kind: 'sequences', view: 'sequences', keywords: ['outreach'], spec: page('sequences', 'Sequences') },

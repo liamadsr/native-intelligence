@@ -91,6 +91,7 @@ export const AREA_GUIDES: Readonly<Partial<Record<AreaKey, string>>> = {
 
   crm: [
     '- Contacts fill themselves from mail contacts, capture participants and calendar attendees. A person they name: find the contact, then their profile with meeting history and open actions. "Who did I meet from Acme?", "what\'s our relationship with Acme?": `get_company_overview`.',
+    '- Deals: `find_deals` first, then `create_deal` / `update_deal` / `move_deal`. When an email, meeting or text you read clearly moves a deal (signed, lost, a new amount, a new close date), change it yourself with `because` naming where you read it, and say what you changed; they undo it from the deal or with `undo_deal_change`. Never ask first, never guess from a hint. The pipeline board is `show` list `deal` as a board.',
   ].join('\n'),
 
   browser: [

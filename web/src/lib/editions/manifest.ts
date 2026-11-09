@@ -956,6 +956,7 @@ export type EditionTerm =
   | 'capture'
   | 'contact'
   | 'company'
+  | 'deal'
   | 'project'
   | 'initiative'
   | 'document'
@@ -976,6 +977,7 @@ export const APP_TERMS: Readonly<Record<EditionTerm, TermWords>> = {
   capture: { one: 'capture', many: 'captures' },
   contact: { one: 'contact', many: 'contacts' },
   company: { one: 'company', many: 'companies' },
+  deal: { one: 'deal', many: 'deals' },
   project: { one: 'project', many: 'projects' },
   initiative: { one: 'initiative', many: 'initiatives' },
   document: { one: 'doc', many: 'docs' },

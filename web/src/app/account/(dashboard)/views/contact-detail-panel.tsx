@@ -255,7 +255,7 @@ const EntityActivitySection = dynamic(
 // Overview = the editable record, notes and activity; Details = every known
 // fact as structured fields (the enrichment made first-class); then the
 // per-entity lists.
-const CONTACT_SECTIONS = ['overview', 'details', 'actions', 'captures', 'sequences', 'agents'] as const
+const CONTACT_SECTIONS = ['overview', 'details', 'actions', 'captures', 'sequences', 'deals', 'agents'] as const
 type ContactSection = (typeof CONTACT_SECTIONS)[number]
 
 interface ContactDetailPanelProps {
@@ -272,6 +272,8 @@ interface ContactDetailPanelProps {
   /** Open a sequence's detail page (sequences are bespoke pages — the host
    *  navigates to a `{ kind: 'sequence' }` location, not a detail panel). */
   onOpenSequence?: (sequenceId: string, name: string, event?: React.MouseEvent) => void
+  /** Open one of the contact's deals (roadmap #8). */
+  onOpenDeal?: (dealId: string, name: string, event?: React.MouseEvent) => void
 }
 
 export function ContactDetailPanel({
@@ -284,6 +286,7 @@ export function ContactDetailPanel({
   onOpenCapture,
   onSelectAction,
   onOpenSequence,
+  onOpenDeal,
 }: ContactDetailPanelProps) {
   const [contact, setContact] = useState<ContactDetail | null>(null)
   // For the Listen brief's fallback line, read when it plays.
@@ -612,6 +615,13 @@ export function ContactDetailPanel({
   // each row (the 'enrollment' display property).
   const sequenceScopeFilters = useMemo<ViewFilter[]>(
     () => [{ id: '__scope_contact', field: 'enrolled_contact_id', operator: 'is', value: contactId }],
+    [contactId],
+  )
+
+  // The deals this contact is on (roadmap #8): `contact_ids` is an array
+  // column, so `includes` is a `@>` predicate.
+  const dealScopeFilters = useMemo<ViewFilter[]>(
+    () => [{ id: '__scope_contact', field: 'contact_ids', operator: 'includes', value: [contactId] }],
     [contactId],
   )
 
@@ -947,6 +957,16 @@ export function ContactDetailPanel({
                   entityType="sequence"
                   onItemSelect={(id, title, event) => onOpenSequence?.(id, title || 'Sequence', event)}
                   scopeFilters={sequenceScopeFilters}
+                  viewScope={{ type: 'contact', id: contactId }}
+                />
+              )}
+
+              {activeTab === 'deals' && (
+                <UnifiedViewLayout
+                  key={`contact-deals-${contactId}`}
+                  entityType="deal"
+                  onItemSelect={(id, title, event) => onOpenDeal?.(id, title || 'Deal', event)}
+                  scopeFilters={dealScopeFilters}
                   viewScope={{ type: 'contact', id: contactId }}
                 />
               )}
