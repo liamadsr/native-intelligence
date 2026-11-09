@@ -3736,13 +3736,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, {
               recording={recording}
               folders={composerFolders}
               environment={composerEnvironment}
+              // One row, as team chat's (Liam, 11-09: "update the main agents
+              // chat box to match the teams-chat one so it's a single line").
+              layout="inline"
             />
           ) : (
-            // The composer's footprint until it mounts: the empty chat box (the
-            // main chat has no row under it now the model is picked per turn by
-            // the server), so nothing jumps.
-            <div aria-hidden className="relative h-[94px] rounded-3xl">
-              <div className="absolute inset-x-2 top-1 h-[84px] rounded-3xl border border-border bg-background shadow-sm" />
+            // The composer's footprint until it mounts: the empty one-row pill
+            // (the main chat has no row under it now the model is picked per
+            // turn by the server), so nothing jumps.
+            <div aria-hidden className="relative h-[56px] rounded-[28px]">
+              <div className="absolute inset-0 rounded-[28px] border border-border bg-background shadow-sm" />
             </div>
           )}
         </div>

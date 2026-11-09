@@ -4,6 +4,7 @@ import { createContext, memo, useCallback, useContext, useEffect, useId, useMemo
 import { flushSync } from 'react-dom'
 import { AlertCircle, ArrowUp, AudioLines, Building2, CircleCheck, FileText, FolderKanban, FolderOpen, ImageIcon, Lock, MousePointerClick, Paperclip, Plus, Target, User, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { registerReloadBlocker } from '@/lib/deploy-reload'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -304,10 +305,11 @@ export const ChatInput = memo(function ChatInput({
    */
   mentionList?: ComposerMentionList
   /**
-   * `stacked` (default, the main chat's): the field on its own row, the
-   * controls under it. `inline` (team chat): one row in a pill, "+" at the
-   * left, the field, then the mic and send at the right; the field is one
-   * line that may grow a little (Shift+Enter, a long message).
+   * `stacked` (default): the field on its own row, the controls under it.
+   * `inline` (the main chat and team chat, Liam 11-09: "a single line"): one
+   * row in a pill, "+" at the left, the field, then the mic and send at the
+   * right; the field is one line that may grow a little (Shift+Enter, a long
+   * message), then scrolls.
    */
   layout?: ChatInputLayout
 }) {
@@ -1176,15 +1178,17 @@ export const ChatInput = memo(function ChatInput({
         // Inline: a few lines at most, then the field scrolls.
         maxHeight={inline ? INLINE_FIELD_MAX_PX : undefined}
         // Glass: the chat scrolls on beneath the composer (chat-panel's dock),
-        // and shows through it, softened. Inline (team chat): a pill, with no
+        // and shows through it, softened. Inline (the main chat and team
+        // chat): a pill, its radius half its one-line height, so it stays a
+        // pill on one line and a rounded box if it grows. Team chat's has no
         // blur of its own (nothing scrolls beneath it, and it sits in a glass
-        // card already); its radius is half its one-line height, so it stays
-        // a pill on one line and a rounded box if it grows.
-        className={
+        // card already).
+        className={cn(
           inline
             ? '@container/chatinput relative rounded-[28px] border border-border/70 bg-background/80 px-2 py-2 shadow-sm'
-            : '@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm backdrop-blur-xl'
-        }
+            : '@container/chatinput relative rounded-3xl border border-border/70 bg-background/80 shadow-sm',
+          (!inline || mainComposer) && 'backdrop-blur-xl',
+        )}
         // The chat box itself (inside the root, without the agent row under it).
         data-bot-chat-box
       >
