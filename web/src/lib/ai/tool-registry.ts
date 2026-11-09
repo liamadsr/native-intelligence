@@ -1142,6 +1142,10 @@ export const REPORT_MODE_WRITE_ALLOWLIST = ['create_document', 'add_comment', 's
  * `push_action_to_*` tool belongs here by construction.
  */
 const NON_PREFIX_MUTATING_TOOLS: string[] = [
+  // Deals (roadmap #8): moving a deal's stage and adding a workspace custom
+  // field both write. (create_/update_/undo_/set_ deal tools match the prefix.)
+  'move_deal',
+  'define_custom_field',
   // Inbox triage (GEN-1166): calls a mailing list's one-click link or sends an
   // unsubscribe email from the person's mailbox. (update_email_thread matches `update_`.)
   'unsubscribe_thread',
