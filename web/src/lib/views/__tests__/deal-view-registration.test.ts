@@ -41,6 +41,6 @@ describe('deal in the views system (roadmap #8)', () => {
     const page = CARD_PAGES.find((p) => p.slug === 'deals')!
     const spec = page.spec(new Date())
     expect(isCardSpec(spec)).toBe(true)
-    expect(spec).toMatchObject({ kind: 'list', entity_type: 'deal', layout: 'board' })
+    expect(spec).toMatchObject({ kind: 'list', entity_type: 'deal', layout: 'board', grouping: { field: 'stage_id', direction: 'asc' } })
   })
 })

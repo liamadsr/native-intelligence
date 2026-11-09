@@ -129,7 +129,7 @@ export const CARD_PAGES: readonly CardPage[] = [
     kind: 'list',
     view: 'companies',
     keywords: ['crm', 'pipeline', 'opportunities', 'sales'],
-    spec: () => ({ kind: 'list', title: 'Deals', entity_type: 'deal', filters: [], layout: 'board' }),
+    spec: () => ({ kind: 'list', title: 'Deals', entity_type: 'deal', filters: [], layout: 'board', grouping: { field: 'stage_id', direction: 'asc' } }),
   },
   { slug: 'companies', label: 'Companies', description: 'Your CRM companies', kind: 'list', view: 'companies', keywords: ['crm', 'accounts'], spec: list('Companies', 'company') },
   { slug: 'prospecting', label: 'Prospecting', description: 'Your prospect lists', kind: 'prospecting', view: 'prospecting', keywords: ['prospects', 'leads'], spec: page('prospecting', 'Prospecting') },

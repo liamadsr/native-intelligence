@@ -24,6 +24,7 @@ import {
   type CustomFieldValue,
 } from './custom-fields'
 import { toIlikeSearchTerm } from './ilike-search-term'
+import { formatDealValue } from './deal-format'
 
 export type DealStageKind = 'open' | 'won' | 'lost'
 export type DealChangeSource = 'person' | 'agent' | 'email' | 'capture' | 'sms'
@@ -622,13 +623,17 @@ export async function lookupDealNames(db: SupabaseClient, workspaceId: string, d
 }
 
 /** "Lead → Won", "$10,000 → $12,500": a change in words, for the agent's reply and the history. */
-export function describeChanges(changes: DealChanges, ctx: { pipelines: DealPipeline[] }): string[] {
+export function describeChanges(changes: DealChanges, ctx: { pipelines: DealPipeline[]; currency?: string | null }): string[] {
   const stageName = (id: unknown) => ctx.pipelines.flatMap((p) => p.stages).find((s) => s.id === id)?.name ?? 'none'
   const out: string[] = []
   for (const [key, { from, to }] of Object.entries(changes)) {
     if (key === 'pipeline_id') continue
     if (key === 'stage_id') out.push(`stage: ${stageName(from)} → ${stageName(to)}`)
     else if (key === 'contact_ids') out.push(`contacts: ${(from as string[] | null)?.length ?? 0} → ${(to as string[] | null)?.length ?? 0}`)
+    else if (key === 'value') {
+      const money = (v: unknown) => (v === null || v === undefined ? 'none' : formatDealValue(v as number, ctx.currency ?? 'USD') || String(v))
+      out.push(`value: ${money(from)} → ${money(to)}`)
+    }
     else out.push(`${key.replace(/^custom_fields\./, '')}: ${from ?? 'none'} → ${to ?? 'none'}`)
   }
   return out

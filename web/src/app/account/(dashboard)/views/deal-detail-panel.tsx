@@ -35,7 +35,7 @@ interface MemberOption {
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  person: 'Changed by hand',
+  person: 'Changed in the app',
   agent: 'Your agent',
   email: 'From an email',
   capture: 'From a meeting',
@@ -138,6 +138,12 @@ export function DealDetailPanel({
 
   const pipeline = useMemo(() => detail?.pipelines.find((p) => p.id === detail.deal.pipeline_id) ?? null, [detail])
   const stage = pipeline?.stages.find((s) => s.id === detail?.deal.stage_id)
+  // The newest change the agent made (from the chat, an email, a meeting or a
+  // text) that is still in place: shown up top with its Undo.
+  const latestAuto = useMemo(() => {
+    const latest = detail?.events.find((e) => e.kind !== 'undo')
+    return latest && latest.kind !== 'created' && latest.source !== 'person' && !latest.undone_at ? latest : null
+  }, [detail])
 
   return (
     <div className="relative flex h-full flex-col" data-deal-panel={dealId}>
@@ -210,12 +216,32 @@ export function DealDetailPanel({
                 </div>
               )}
 
+              {latestAuto && (
+                // The agent's latest change, up top with its Undo: apply with
+                // undo, never a queue (Liam's rule). Gone once it is undone.
+                <div className="flex items-start gap-3 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm" data-deal-latest-change="">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-foreground/90">
+                      {SOURCE_LABEL[latestAuto.source] ?? 'Your agent'}: {describeChanges(latestAuto.changes ?? {}, { pipelines: detail.pipelines, currency: detail.deal.currency }).join('; ')}
+                    </div>
+                    {latestAuto.reason && <div className="text-xs text-muted-foreground">{latestAuto.reason}</div>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void undo(latestAuto.id)}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Undo2 className="h-3 w-3" /> Undo
+                  </button>
+                </div>
+              )}
+
               <PropertyGroup>
                 <div className="grid grid-cols-[120px_1fr] items-center gap-x-2 gap-y-0.5 px-3">
                   <span className="text-xs text-muted-foreground">Value</span>
                   <div className="flex items-center gap-1">
                     <input
-                      className={fieldClass}
+                      className={cn(fieldClass, 'w-40 flex-none')}
                       inputMode="decimal"
                       placeholder="Empty"
                       value={value}
@@ -228,7 +254,7 @@ export function DealDetailPanel({
                       onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
                     />
                     <input
-                      className={cn(fieldClass, 'w-16 uppercase')}
+                      className={cn(fieldClass, 'w-16 flex-none uppercase text-muted-foreground')}
                       defaultValue={detail.deal.currency}
                       maxLength={3}
                       aria-label="Currency"
@@ -301,20 +327,11 @@ export function DealDetailPanel({
 
               <CustomFieldsGroup entityType="deal" recordId={dealId} showAddWhenEmpty onChanged={() => void load()} />
 
-              <PropertyGroup title="Notes">
-                <textarea
-                  className="min-h-[80px] w-full resize-y rounded-md border border-transparent bg-transparent px-3 py-2 text-sm hover:border-border focus:border-border focus:outline-none"
-                  placeholder="Add notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  onBlur={() => notes !== (detail.deal.notes ?? '') && void patch({ notes: notes || null })}
-                />
-              </PropertyGroup>
 
               <PropertyGroup title="History">
                 <ul className="space-y-1 px-3" data-deal-history="">
                   {detail.events.map((e) => {
-                    const lines = describeChanges(e.changes ?? {}, { pipelines: detail.pipelines })
+                    const lines = describeChanges(e.changes ?? {}, { pipelines: detail.pipelines, currency: detail.deal.currency })
                     const undoable = e.kind !== 'created' && e.kind !== 'undo' && !e.undone_at && lines.length > 0
                     return (
                       <li key={e.id} className={cn('flex items-start gap-2 rounded-md py-1.5 text-sm', e.undone_at && 'opacity-50')}>
@@ -341,6 +358,16 @@ export function DealDetailPanel({
                     )
                   })}
                 </ul>
+              </PropertyGroup>
+
+              <PropertyGroup title="Notes">
+                <textarea
+                  className="min-h-[80px] w-full resize-y rounded-md border border-transparent bg-transparent px-3 py-2 text-sm hover:border-border focus:border-border focus:outline-none"
+                  placeholder="Add notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  onBlur={() => notes !== (detail.deal.notes ?? '') && void patch({ notes: notes || null })}
+                />
               </PropertyGroup>
             </div>
           </ScrollArea>
