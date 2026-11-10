@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
+import { agentActivityHeaders } from '@/lib/activity-actor'
 
 /**
  * Hash a token (access token, refresh token, auth code) for storage.
@@ -22,11 +23,11 @@ export function generateClientId(): string {
   return `mcp_${crypto.randomBytes(16).toString('hex')}`
 }
 
-function getServiceClient() {
+function getServiceClient(headers?: Record<string, string>) {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
+    { auth: { persistSession: false, autoRefreshToken: false }, ...(headers ? { global: { headers } } : {}) },
   )
 }
 
@@ -138,7 +139,9 @@ export async function authenticateMcpRequest(request: Request): Promise<{
   return {
     userId: tokenRecord.user_id as string,
     workspaceId,
-    supabase: serviceClient,
+    // The tools' client: what a connector changes is credited to an agent
+    // working for this person in the activity log (migration 488).
+    supabase: getServiceClient(agentActivityHeaders(tokenRecord.user_id as string)),
     scopes: (tokenRecord.scopes as string[] | null) ?? [],
     tokenId: (tokenRecord.id as string | null) ?? null,
   }
