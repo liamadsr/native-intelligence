@@ -29,6 +29,7 @@ import { editionWords } from '@/lib/editions/words'
 import { filterPages, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { normalizeQuery, scoreText, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { SkillCommand } from './chat-panel'
+import type { DirectEntityActionId, EntityRef } from '@/lib/entities/actions'
 
 export type MenuTrigger = '/' | '@'
 
@@ -189,13 +190,15 @@ export function appendMention(value: string, text: string): { value: string; car
 
 /** The record kinds, as the menu's sections name them. */
 export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'agents'
-export type MenuKind = 'pages' | 'skills' | RecordMenuKind
+/** `record_actions`: the actions on the record whose card is in front (the palette only; never a tab). */
+export type MenuKind = 'pages' | 'skills' | 'record_actions' | RecordMenuKind
 export type MenuTab = 'all' | MenuKind
 
 export const TAB_LABELS: Record<MenuTab, string> = {
   all: 'All',
   pages: 'Pages',
   skills: 'Skills',
+  record_actions: 'This record',
   actions: 'Actions',
   docs: 'Docs',
   projects: 'Projects',
@@ -258,7 +261,7 @@ export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
 }
 
 export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
-  return kind !== 'pages' && kind !== 'skills'
+  return kind !== 'pages' && kind !== 'skills' && kind !== 'record_actions'
 }
 
 export type MenuItem =
@@ -267,6 +270,8 @@ export type MenuItem =
   /** `host`: found for a host's own `@` list (team chat), so it is mentioned, not added to a chat. */
   | { kind: 'record'; row: MenuSearchRow; host?: boolean }
   | { kind: 'option'; option: ComposerMentionOption }
+  /** One of the entity actions menu's actions, on the record whose card is in front (src/lib/entities/actions.ts). */
+  | { kind: 'entity_action'; action: DirectEntityActionId; entity: EntityRef; label: string }
 
 /**
  * One of a host's own `@` options (team chat: the person's agent and the
@@ -373,7 +378,7 @@ export function offeredKinds(trigger: MenuTrigger, offer: MenuOffer): MenuKind[]
 
 /** What Enter does to a row: `/` opens it (a skill is used), `@` attaches it. */
 export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
-  if (item.kind === 'skill') return 'use'
+  if (item.kind === 'skill' || item.kind === 'entity_action') return 'use'
   if (item.kind === 'page') return 'open'
   if (item.kind === 'option') return 'mention'
   return trigger === '@' ? 'mention' : 'open'
@@ -469,6 +474,24 @@ export interface MenuSources {
   records: Partial<Record<MenuSearchKind, readonly MenuSearchRow[]>>
   /** The workspace's edition, for the sections' names in its words. Absent: the app's own. */
   edition?: Pick<EditionDefinition, 'words'> | null
+  /** The palette, with a record's card in front: that record's own actions, listed first. */
+  recordActions?: RecordActionsSource | null
+}
+
+/** The actions on the record in front, for the palette (the entity actions menu's, less what needs more input). */
+export interface RecordActionsSource {
+  entity: EntityRef
+  /** The section's name (the record's title). */
+  label: string
+  actions: ReadonlyArray<{ id: DirectEntityActionId; label: string }>
+}
+
+/** The record's actions a query finds (all of them before anything is typed), in the menu's order. */
+export function filterRecordActions(source: RecordActionsSource, query: string): MenuItem[] {
+  const q = normalizeQuery(query)
+  return source.actions
+    .filter((a) => !q || scoreText(a.label, q) > 0)
+    .map((a): MenuItem => ({ kind: 'entity_action', action: a.id, entity: source.entity, label: a.label }))
 }
 
 export interface MenuSection {
@@ -518,6 +541,8 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
         best: Math.max(0, ...found.map((s) => skillScore(s, q))),
       }
     }
+    // The record in front's actions are their own section (below), never an offered kind.
+    if (!isRecordKind(kind)) return { items: [], best: 0 }
     const rows = sources.records[SEARCH_KIND[kind]] ?? []
     return { items: rows.map((row): MenuItem => ({ kind: 'record', row })), best: Math.max(0, ...rows.map((r) => r.score)) }
   }
@@ -533,6 +558,12 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
     : shown.map((kind) => ({ kind }))
 
   const sections: Omit<MenuSection, 'offset'>[] = []
+  // `/` on All, with a record's card in front: its own actions lead (Copy
+  // link, Archive…), narrowed by what's typed like everything else.
+  if (trigger === '/' && tab === 'all' && sources.recordActions) {
+    const items = filterRecordActions(sources.recordActions, query)
+    if (items.length) sections.push({ key: 'record_actions', label: sources.recordActions.label, items, total: items.length, totalKnown: true })
+  }
   for (const { kind } of ordered) {
     const items = all.get(kind)!.items
     if (!items.length) continue

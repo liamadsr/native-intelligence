@@ -26,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type HTMLAttributes,
   type ReactNode,
 } from 'react'
@@ -88,6 +89,11 @@ import { SEARCH_FLIGHT_KEY, landFlight } from '@/lib/chat/card-reply-flight'
 import { measureChatReadingColumn } from './picker-popover'
 import { useFloatingChatContainerRef } from './floating-chat'
 import { useWorkspaceEdition } from '../../workspace-switcher'
+import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { isDirectEntityAction, runEntityAction } from '@/lib/entities/actions'
+import { supportedEntityActions } from '@/lib/entities/entity-actions-registry'
+import { ENTITY_ACTION_ICONS, ENTITY_ACTION_LABELS } from '@/components/entities/entity-actions-menu'
+import type { RecordActionsSource } from './command-menu-model'
 
 /** What the composer's field hands the inline menu: its keys. */
 export interface CommandMenuHandle {
@@ -202,6 +208,10 @@ export function CommandMenu({
   const hostOptions = !palette && activeTrigger === '@' && mentionList ? mentionList.options : null
 
   const offeredPages = useMemo(() => (pages && onSelectPage ? pages : []), [pages, onSelectPage])
+  // The palette over a record's card: that record's own actions lead (the
+  // entity actions menu's, less Rename and Share, which need more input).
+  const front = useSyncExternalStore(subscribeFrontCard, frontCard, noFrontCard)
+  const recordActions = useMemo(() => (palette ? recordActionsFor(front) : null), [palette, front])
   // The tabs and sections in the workspace's words ("Jobs", "Customers" in a service business).
   const edition = useWorkspaceEdition()
   const mentionKey = onMentionRecord ? mentionKinds.join(',') : ''
@@ -254,8 +264,8 @@ export function CommandMenu({
               ? buildMenu('@', 'all', query, hostOffer, { pages: NO_PAGES, skills: NO_SKILLS, records: found.records, edition })
               : undefined,
           )
-        : buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition }),
-    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition],
+        : buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition, recordActions }),
+    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition, recordActions],
   )
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections])
 
@@ -291,13 +301,16 @@ export function CommandMenu({
   const pick = useCallback(
     (item: MenuItem | undefined, verb: MenuVerb) => {
       if (!item) return
-      if (item.kind === 'page') onSelectPage?.(item.page)
+      if (item.kind === 'entity_action') {
+        void runEntityAction(item.action, item.entity, { from: 'palette' })
+        onDismiss()
+      } else if (item.kind === 'page') onSelectPage?.(item.page)
       else if (item.kind === 'skill') onSelectSkill(item.skill)
       else if (item.kind === 'option') mentionList?.onPick(item.option)
       else if (verb === 'open') onOpenRecord?.(item.row)
       else onMentionRecord?.(item.row)
     },
-    [onSelectPage, onSelectSkill, onOpenRecord, onMentionRecord, mentionList],
+    [onSelectPage, onSelectSkill, onOpenRecord, onMentionRecord, mentionList, onDismiss],
   )
   const verbs = useCallback((item: MenuItem) => verbFor(activeTrigger, item), [activeTrigger])
 
@@ -781,6 +794,21 @@ function MenuBody({
   )
 }
 
+const noFrontCard = () => null
+
+/** The record whose card is in front, and its actions the palette can run on their own; null for none. */
+export function recordActionsFor(front: ReturnType<typeof frontCard>): RecordActionsSource | null {
+  const spec = front?.spec
+  if (!spec || spec.kind !== 'record') return null
+  const entity = { type: spec.record.type, id: spec.record.id, label: spec.title }
+  const actions = supportedEntityActions(entity.type)
+    .filter(isDirectEntityAction)
+    .filter((id) => id !== 'open')
+    .map((id) => ({ id, label: ENTITY_ACTION_LABELS[id] }))
+  if (!actions.length) return null
+  return { entity, label: spec.title, actions }
+}
+
 function rowKey(item: MenuItem): string {
   switch (item.kind) {
     case 'page':
@@ -791,6 +819,8 @@ function rowKey(item: MenuItem): string {
       return `${item.row.kind}:${recordId(item.row)}`
     case 'option':
       return `option:${item.option.id}`
+    case 'entity_action':
+      return `entity_action:${item.action}`
   }
 }
 
@@ -821,6 +851,8 @@ function rowData(item: MenuItem): Record<string, string> {
     }
     case 'option':
       return { 'data-mention-option': item.option.id }
+    case 'entity_action':
+      return { 'data-entity-action': item.action }
   }
 }
 
@@ -890,6 +922,7 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
     return { title: item.skill.name, detail: item.skill.description, meta: <span className="font-mono">/{item.skill.slug}</span> }
   }
   if (item.kind === 'option') return { title: item.option.label, detail: item.option.hint || null, meta: null }
+  if (item.kind === 'entity_action') return { title: item.label, detail: null, meta: null }
   const row = item.row
   switch (row.kind) {
     case 'action':
@@ -955,6 +988,14 @@ function RowIcon({ item }: { item: MenuItem }) {
       <span className={cn(TILE, MUTED_TILE, 'text-base leading-none')}>{item.skill.icon}</span>
     ) : (
       <LibraryItemIcon color={item.skill.color} seed={item.skill.id} size="sm" />
+    )
+  }
+  if (item.kind === 'entity_action') {
+    const Icon = ENTITY_ACTION_ICONS[item.action]
+    return (
+      <span className={cn(TILE, MUTED_TILE, 'text-muted-foreground')}>
+        <Icon className="size-4" />
+      </span>
     )
   }
   if (item.kind === 'option') {
