@@ -34,6 +34,7 @@ import { isActivityEntityType, type ActivityEntityType } from '@/lib/knowledge/e
 import { messageChannels } from '@/lib/entity-links/references'
 import {
   encodeFeedCursor,
+  isInboxFilter,
   type FeedAction,
   type FeedEntry,
   type FeedEvent,
@@ -159,10 +160,12 @@ async function readRows(
   if (filter.kinds?.length) q = q.in('entity_type', filter.kinds)
   if (linkedIds.length) q = q.in('entity_id', linkedIds)
 
-  if (filter.assignedToMe || filter.mentionedMe) {
+  if (isInboxFilter(filter)) {
     const actions: FeedAction[] = []
     if (filter.assignedToMe) actions.push('assigned')
     if (filter.mentionedMe) actions.push('mentioned')
+    // A record shared with the viewer alone (migration 513: a member grant's subject).
+    if (filter.sharedWithMe) actions.push('shared')
     q = q.eq('subject_member_id', viewer.memberId).in('action', actions)
   }
 
@@ -241,6 +244,11 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
 type Names = Awaited<ReturnType<typeof readNames>>
 
 function wordsFor(row: ActivityRow, names: Names): { from: string | null; to: string | null } {
+  // A share (513) says its level: 'edit' or 'view'.
+  if (row.action === 'shared') {
+    const level = str(row.detail?.level)
+    return { from: null, to: level === 'edit' || level === 'view' ? level : null }
+  }
   if (row.action === 'updated') {
     // The fields still defined, by name; one since deleted is just not named.
     const labels = changedFieldKeys(row)
@@ -276,7 +284,7 @@ export async function loadFeed(supabase: SupabaseClient, viewer: FeedViewer, fil
   if ('error' in read) return read
 
   // The Inbox never holds the viewer's own doing (assigning themselves).
-  const inbox = filter.assignedToMe || filter.mentionedMe
+  const inbox = isInboxFilter(filter)
   const rows = read.rows.filter((r) => isActivityEntityType(r.entity_type) && !(inbox && r.actor_kind === 'member' && r.actor_member_id === viewer.memberId))
 
   // Every record the rows name: their own, and the one that mentions or is linked.
