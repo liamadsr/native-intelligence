@@ -1,17 +1,26 @@
 /**
  * /api/account/team-chat/messages/[id] (roadmap #7, migration 474): the
  * person's own messages only (RLS and 474's guard hold it to the author).
- *   PATCH { body, mentions? } → { message } edited (edited_at stamped). An
- *         edit never calls the agent again. Never their agent's reply.
+ *   PATCH { body, mentions?, records? } → { message } edited (edited_at
+ *         stamped). An edit never calls the agent again. Never their agent's
+ *         reply. `records` as on a post; the message's `mentions` edges
+ *         follow the edit (added and removed). No `records` (a client from
+ *         before 480): it keeps the ones it had that the words still name.
+ *         A record the edit newly mentions is shared with the channel as on
+ *         a post (`shared`, `shared_with`; src/lib/entity-access/share.ts).
  *   DELETE → { ok: true } deleted (soft: its words are cleared for everyone):
- *         their own message, or their own agent's reply.
+ *         their own message, or their own agent's reply. Its `mentions`
+ *         edges are removed.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound } from '@/lib/api-errors'
-import { deleteMessage, editMessage, workspaceMemberIds } from '@/lib/team-chat/store'
+import { deleteMessage, editMessage, getChannel, workspaceMemberIds } from '@/lib/team-chat/store'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
+import { fenceRecordMentions, storedRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
+import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { isUuid, tidyBody, tidyMentionIds } from '@/lib/team-chat/types'
+import { mentionKey, tidyLabeledMentionRefs } from '@/lib/entity-links/mentionable'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -30,9 +39,26 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   if (!body) return badRequest('Write a message (up to 8,000 characters)')
   try {
     const mentions = await workspaceMemberIds(auth.supabase, auth.workspaceId, tidyMentionIds(input.mentions))
-    const message = await editMessage(auth.supabase, id, { body, mentions })
+    const scope = { workspaceId: auth.workspaceId, userId: auth.user.id }
+    // A client from before 480 sends no `records`: the message keeps the ones
+    // it had that its words still name (never wiped by an older tab's edit).
+    const records = input.records !== undefined ? input.records : await storedRecordMentions(auth.supabase, id)
+    const recordMentions = await fenceRecordMentions(auth.supabase, scope, records, body)
+    // What it mentioned before the edit: only a NEW mention shares (an Undo stays undone across edits).
+    const before = recordMentions.length > 0 ? tidyLabeledMentionRefs(await storedRecordMentions(auth.supabase, id)) : []
+    const message = await editMessage(auth.supabase, id, { body, mentions, recordMentions })
     if (!message) return notFound()
-    return NextResponse.json({ message })
+    // The edges follow the edit: new mentions added, the ones taken out removed.
+    await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: recordMentions })
+    const had = new Set(before.map(mentionKey))
+    const added = recordMentions.filter((r) => !had.has(mentionKey(r)))
+    // Sharing reads the channel only when the edit adds a record (most edits don't).
+    const channel = added.length > 0 ? await getChannel(auth.supabase, message.channel_id) : null
+    const { shared, shared_with } =
+      channel && channel.workspace_id === auth.workspaceId
+        ? await shareMentionedRecords(auth.supabase, { ...scope, memberId: auth.member.id, channel, records: added, source: 'mention' })
+        : { shared: [], shared_with: null }
+    return NextResponse.json({ message, shared, shared_with })
   } catch (err) {
     return teamChatErrorResponse(err, 'message edit')
   }
@@ -46,6 +72,14 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   try {
     const deleted = await deleteMessage(auth.supabase, id)
     if (!deleted) return notFound()
+    // A deleted message mentions nothing (the guard cleared its words): its edges go too.
+    await syncMessageMentions(auth.supabase, {
+      workspaceId: auth.workspaceId,
+      messageId: id,
+      userId: auth.user.id,
+      memberId: auth.member.id,
+      records: [],
+    })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return teamChatErrorResponse(err, 'message delete')

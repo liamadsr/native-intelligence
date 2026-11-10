@@ -30,10 +30,13 @@ const USER = 'user-1'
 const WS = 'ws-1'
 
 type Row = Record<string, unknown>
-const db: { contacts: Row[]; edges: Row[]; hidden: Set<string>; updates: Row[]; rpcUsers: unknown[] } = {
+const db: { contacts: Row[]; edges: Row[]; hidden: Set<string>; grantOnly: Set<string>; updates: Row[]; rpcUsers: unknown[] } = {
   contacts: [],
   edges: [],
   hidden: new Set(),
+  // Readable only through a per-item grant (migration 492): contact_visible_to
+  // says yes, contact_editable_by (498, the write gate) says no.
+  grantOnly: new Set(),
   updates: [],
   rpcUsers: [],
 }
@@ -105,9 +108,12 @@ vi.mock('@/lib/admin', () => ({
   getServiceClient: () => ({
     from: (t: string) => chain(t),
     rpc: async (fn: string, args: { p_contact_id: string; p_user_id: string }) => {
-      if (fn !== 'contact_visible_to') return { data: null, error: { message: `unexpected rpc ${fn}` } }
+      if (fn !== 'contact_visible_to' && fn !== 'contact_editable_by') {
+        return { data: null, error: { message: `unexpected rpc ${fn}` } }
+      }
       db.rpcUsers.push(args.p_user_id)
-      return { data: !db.hidden.has(args.p_contact_id), error: null }
+      const hidden = db.hidden.has(args.p_contact_id) || (fn === 'contact_editable_by' && db.grantOnly.has(args.p_contact_id))
+      return { data: !hidden, error: null }
     },
   }),
 }))
@@ -164,6 +170,7 @@ describe('chat tool route: contact tools never leak another member’s private c
       { workspace_id: WS, source_type: 'project', source_id: 'prj-1', target_type: 'contact', target_id: 'ct-shared', relation: 'related_to' },
     ]
     db.hidden = new Set(['ct-private'])
+    db.grantOnly = new Set()
     db.updates = []
     db.rpcUsers = []
   })
@@ -224,6 +231,18 @@ describe('chat tool route: contact tools never leak another member’s private c
     })
     expect(
       (await call('update_crm_contact', { contact_id: 'ct-private', relationship_type: 'customer' })).body.output,
+    ).toEqual({ success: false, error: 'Contact not found' })
+    expect(db.updates).toEqual([])
+  })
+
+  it('a contact a per-item grant opens to read is still never written (migration 495)', async () => {
+    db.grantOnly = new Set(['ct-shared'])
+    expect((await call('update_contact', { contact_id: 'ct-shared', notes: 'x' })).body.output).toEqual({
+      success: false,
+      error: 'Contact not found',
+    })
+    expect(
+      (await call('update_crm_contact', { contact_id: 'ct-shared', relationship_type: 'customer' })).body.output,
     ).toEqual({ success: false, error: 'Contact not found' })
     expect(db.updates).toEqual([])
   })

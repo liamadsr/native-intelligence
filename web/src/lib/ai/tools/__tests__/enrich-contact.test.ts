@@ -8,8 +8,10 @@
  *   2. without confirmed_with_user: true it refuses (needs_go_ahead) and
  *      touches nothing; a background update can't call it at all, and a loop
  *      run's true flag is refused by its route;
- *   3. a contact the caller can't see (contact_visible_to false), or one in a
- *      workspace they don't belong to, is "Contact not found" and nothing runs;
+ *   3. a contact the caller can't see (the write gate, contact_visible_to_
+ *      ungranted, false: a per-item grant is read-only, migration 495), or one
+ *      in a workspace they don't belong to, is "Contact not found" and nothing
+ *      runs;
  *   4. a permanently-failed contact: ENRICHMENT_PERMANENTLY_FAILED, no mark, no event;
  *   5. a go: the row is marked pending, the Activity row opened, and
  *      crm/enrich-contact.manual sent with the button's payload;
@@ -127,7 +129,7 @@ function makeSupabase(opts: { contacts: Row[]; memberOf?: string[]; hidden?: str
       throw new Error(`unexpected table ${table}`)
     },
     rpc: async (fn: string, args: { p_contact_id: string }) => {
-      if (fn !== 'contact_visible_to') throw new Error(`unexpected rpc ${fn}`)
+      if (fn !== 'contact_editable_by') throw new Error(`unexpected rpc ${fn}`)
       return { data: !(opts.hidden ?? []).includes(args.p_contact_id), error: null }
     },
   }

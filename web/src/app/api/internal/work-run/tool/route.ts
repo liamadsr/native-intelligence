@@ -105,8 +105,9 @@ export async function POST(request: Request) {
   // the session. Every other status dispatches: live runs obviously, and settled
   // completed/failed runs because the user's follow-up chat
   // (api/account/agent-runs/[id]/chat, CHATTABLE_STATUSES) keeps acting through
-  // these same tools after the run settles.
-  const supabase = getServiceClient()
+  // these same tools after the run settles. Its writes are the agent's, for
+  // this person (the activity log).
+  const supabase = getServiceClient({ agentFor: claims.userId })
   const { data: run } = await supabase
     .from('agent_run')
     .select(`${WORK_RUN_ROW_SELECT}, action_id`)

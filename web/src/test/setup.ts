@@ -27,6 +27,11 @@ vi.mock('node:dns/promises', async (importOriginal) => ({
 
 // Consistent environment defaults for tests. Tests can override with vi.stubEnv.
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'https://test.supabase.co'
+// Forced, not defaulted: a production build runs this suite with production's
+// environment, where the pin is set (src/lib/supabase/project.ts). Left in
+// place it would rename the session cookie under every test that builds one.
+// A test that wants a pin stubs it.
+process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF = ''
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key'
 
@@ -142,6 +147,12 @@ for (const flag of [
   // secrets, also injected) so the suites exercise the documented dev-open
   // default; tests covering fail-closed set VERCEL_ENV explicitly per-test.
   'VERCEL_ENV',
+  // The same answer under the name Vercel gives it for the browser, injected
+  // into the build beside VERCEL_ENV. app-env.ts reads it second, so with only
+  // VERCEL_ENV scrubbed every test still ran "in production" during a
+  // production build, and module-level code that fails closed there
+  // (src/lib/supabase/project.ts) threw in the build's test run only.
+  'NEXT_PUBLIC_VERCEL_ENV',
   // VERCEL=1 is also injected into the build env. eve's provider selection
   // keys off it (agents/coding-agent/sandbox.ts reads it at module load), so an
   // inherited value flips module-level provider choice in any test that does not

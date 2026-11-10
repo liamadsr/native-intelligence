@@ -17,6 +17,7 @@ import {
   dmOtherMember,
   type TeamChatChannel,
   type TeamChatMessage,
+  type TeamChatRecordMention,
 } from './types'
 
 export type TeamChatErrorCode = 'not_found' | 'forbidden' | 'conflict' | 'bad_request' | 'failed'
@@ -160,7 +161,16 @@ export async function workspaceMemberIds(supabase: SupabaseClient, workspaceId: 
 /** Post a message as the person (RLS holds it to their own member row, in a channel they may post in). */
 export async function postMessage(
   supabase: SupabaseClient,
-  input: { workspaceId: string; channelId: string; memberId: string; body: string; mentions: string[]; mentionsAgent: boolean },
+  input: {
+    workspaceId: string
+    channelId: string
+    memberId: string
+    body: string
+    mentions: string[]
+    mentionsAgent: boolean
+    /** The records it @-mentions, already fenced for the author (migration 480). */
+    recordMentions?: TeamChatRecordMention[]
+  },
 ): Promise<TeamChatMessage> {
   const { data, error } = await supabase
     .from('team_chat_message')
@@ -172,6 +182,7 @@ export async function postMessage(
       body: input.body,
       mentions: input.mentions,
       mentions_agent: input.mentionsAgent,
+      record_mentions: input.recordMentions ?? [],
     })
     .select(TEAM_CHAT_MESSAGE_COLUMNS)
     .single<TeamChatMessage>()
@@ -180,10 +191,14 @@ export async function postMessage(
 }
 
 /** Edit the person's own message (the guard stamps edited_at). Null when it is not theirs, deleted or gone. */
-export async function editMessage(supabase: SupabaseClient, messageId: string, input: { body: string; mentions: string[] }): Promise<TeamChatMessage | null> {
+export async function editMessage(
+  supabase: SupabaseClient,
+  messageId: string,
+  input: { body: string; mentions: string[]; recordMentions?: TeamChatRecordMention[] },
+): Promise<TeamChatMessage | null> {
   const { data, error } = await supabase
     .from('team_chat_message')
-    .update({ body: input.body, mentions: input.mentions })
+    .update({ body: input.body, mentions: input.mentions, record_mentions: input.recordMentions ?? [] })
     .eq('id', messageId)
     .select(TEAM_CHAT_MESSAGE_COLUMNS)
     .maybeSingle<TeamChatMessage>()

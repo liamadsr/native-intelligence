@@ -10,9 +10,24 @@
  */
 import type { CaptureListItem } from '@/app/account/(dashboard)/views/capture-utils'
 import type { OpenTarget } from '@/lib/chat-cards/open-card'
+import type { EntityType } from '@/lib/knowledge/entity-registry'
 
-/** The kinds the search finds, in the order the menu lists them by default. */
-export const MENU_SEARCH_KINDS = ['action', 'document', 'project', 'initiative', 'capture', 'contact', 'company', 'agent'] as const
+/**
+ * The kinds the search finds, in the order the menu lists them by default:
+ * registered entity kinds, plus 'agent' (a recipe offered as someone to @).
+ */
+export const MENU_SEARCH_KINDS = [
+  'action',
+  'document',
+  'project',
+  'initiative',
+  'capture',
+  'contact',
+  'company',
+  'deal',
+  'flow',
+  'agent',
+] as const satisfies readonly (EntityType | 'agent')[]
 export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
 
 export function isMenuSearchKind(v: unknown): v is MenuSearchKind {
@@ -139,6 +154,22 @@ export interface MenuCompanyRow extends Scored {
   company: MentionCompany
 }
 
+export interface MenuDealRow extends Scored {
+  kind: 'deal'
+  id: string
+  title: string
+  /** Its pipeline stage's name ("Proposal sent"). */
+  status: string | null
+}
+
+export interface MenuFlowRow extends Scored {
+  kind: 'flow'
+  id: string
+  title: string
+  /** 'On' or 'Off'. */
+  status: string | null
+}
+
 export interface MenuAgentRow extends Scored {
   kind: 'agent'
   id: string
@@ -155,6 +186,8 @@ export type MenuSearchRow =
   | MenuCaptureRow
   | MenuContactRow
   | MenuCompanyRow
+  | MenuDealRow
+  | MenuFlowRow
   | MenuAgentRow
 
 /** What the route answers: each kind asked for, its rows best first. */
@@ -272,5 +305,28 @@ export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
       return { kind: row.kind, id: row.id, title: row.title }
     default:
       return null
+  }
+}
+
+/**
+ * A search row as a record mention in a message's words (team chat): its kind
+ * and id, and the words its `@…` shows (an action by its identifier, a capture
+ * by its title, a company by its name, the rest by title). Null for what is
+ * not a record (an agent).
+ */
+export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKind, 'agent'>; id: string; label: string } | null {
+  switch (row.kind) {
+    case 'agent':
+      return null
+    case 'capture':
+      return { type: 'capture', id: row.capture.id, label: row.capture.title || 'Untitled capture' }
+    case 'contact':
+      return { type: 'contact', id: row.contact.id, label: row.contact.full_name || row.contact.email || 'Unnamed contact' }
+    case 'company':
+      return { type: 'company', id: row.company.id, label: row.company.name }
+    case 'action':
+      return { type: 'action', id: row.id, label: row.identifier || row.title }
+    default:
+      return { type: row.kind, id: row.id, label: row.title }
   }
 }

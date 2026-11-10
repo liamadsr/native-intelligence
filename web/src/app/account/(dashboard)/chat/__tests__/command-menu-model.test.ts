@@ -223,7 +223,7 @@ describe('buildMenu', () => {
   })
 
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
-    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'agents'])
+    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents'])
     // Records first, the skills last (a tie goes to the record).
     expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'skills'])
     expect(offeredKinds('@', RUN)).toEqual(['people', 'captures', 'companies', 'skills'])
@@ -263,7 +263,7 @@ describe('serverSearch', () => {
     expect(serverSearch('/', 'all', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('@', 'all', '', offeredKinds('@', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({
-      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'agent'],
+      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'agent'],
       limit: 8,
     })
     // `@` never asks for agents: nothing attaches them.
@@ -334,5 +334,42 @@ describe('the menu in an edition’s words', () => {
     expect(jobs.sections[0].items[0]).toMatchObject({ kind: 'page', page: { slug: 'actions', shownSlug: 'jobs', label: 'My jobs' } })
     // The app's slug still finds it.
     expect(buildMenu('/', 'all', 'actions', MAIN, sources).sections[0].items[0]).toMatchObject({ kind: 'page', page: { slug: 'actions' } })
+  })
+})
+
+describe('the record in front (the palette over a record card)', () => {
+  const sources: MenuSources = {
+    pages: [],
+    skills: [],
+    records: {},
+    recordActions: {
+      entity: { type: 'document', id: 'doc-1', label: 'Q4 renewals plan' },
+      label: 'Q4 renewals plan',
+      actions: [
+        { id: 'copy_link', label: 'Copy link' },
+        { id: 'copy_id', label: 'Copy ID' },
+        { id: 'archive', label: 'Archive' },
+      ],
+    },
+  }
+  const actionsOf = (section: { items: MenuItem[] }) => section.items.map((i) => (i.kind === 'entity_action' ? i.action : null))
+
+  it("leads with the record's own actions before anything is typed", () => {
+    const menu = buildMenu('/', 'all', '', MAIN, sources)
+    expect(menu.sections[0]).toMatchObject({ key: 'record_actions', label: 'Q4 renewals plan', offset: 0 })
+    expect(actionsOf(menu.sections[0])).toEqual(['copy_link', 'copy_id', 'archive'])
+    expect(menu.tabs).not.toContain('record_actions')
+  })
+
+  it('narrows them by what is typed, and leaves them out of a tab and out of `@`', () => {
+    expect(actionsOf(buildMenu('/', 'all', 'arch', MAIN, sources).sections[0])).toEqual(['archive'])
+    expect(buildMenu('/', 'all', 'zzz', MAIN, sources).sections.map((s) => s.key)).not.toContain('record_actions')
+    expect(buildMenu('/', 'people', '', MAIN, sources).sections.map((s) => s.key)).not.toContain('record_actions')
+    expect(buildMenu('@', 'all', '', MAIN, sources).sections.map((s) => s.key)).not.toContain('record_actions')
+  })
+
+  it('picking one uses it', () => {
+    const item = buildMenu('/', 'all', '', MAIN, sources).sections[0].items[0]
+    expect(verbFor('/', item)).toBe('use')
   })
 })

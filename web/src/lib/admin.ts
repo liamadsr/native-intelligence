@@ -2,6 +2,7 @@ import { createClient as createSupabaseClient, type SupabaseClient, type User } 
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { adminEmails, isAdminEmail } from './admin-emails'
+import { agentActivityHeaders } from './activity-actor'
 
 export type AdminEnv = 'development' | 'production'
 
@@ -57,11 +58,19 @@ export async function hasAdminAssurance(
  * Returns a service-role Supabase client using the default env vars
  * (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).
  * Locally these point to dev; on Vercel they point to prod.
+ *
+ * `agentFor`: the client an agent's tool calls write through (the eve tool
+ * routes), acting for that user. Its requests name the agent in their
+ * headers, so the activity log (migration 488, entity_activity_actor) credits
+ * what they change to the agent working for that person, not to the
+ * system. Only server code holds the service key, so only it can say so.
  */
-export function getServiceClient() {
+export function getServiceClient(options?: { agentFor?: string | null }) {
+  const agentFor = options?.agentFor
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    agentFor ? { global: { headers: agentActivityHeaders(agentFor) } } : undefined,
   )
 }
 

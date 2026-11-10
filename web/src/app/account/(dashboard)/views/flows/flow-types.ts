@@ -8,7 +8,8 @@
  * renders the trigger node plus one node per action (a vertical fan-out).
  */
 
-export type FlowEntityType = 'action' | 'project' | 'initiative' | 'milestone'
+import type { FlowEntityType } from '@/lib/flows/types'
+export type { FlowEntityType }
 
 export type FlowTriggerType =
   | 'entity_status_change'

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ENTITY_REF_PATTERN } from '@/components/entity-refs/types'
+import { MAX_MENTIONED_RECORDS, syncMentions } from '@/lib/entity-links/mentions'
 
 /**
  * Obsidian-style wikilink: `[[slug]]` or `[[slug|display text]]`.
@@ -51,16 +53,49 @@ export async function resolveSlugs(
   return map
 }
 
+/** The action identifiers (`GEN-42`) a body names, distinct, in order: the ones the chip layer draws. */
+export function parseActionIdentifiers(markdown: string): string[] {
+  return [...new Set(markdown.match(new RegExp(ENTITY_REF_PATTERN.source, 'g')) ?? [])]
+}
+
+/** Resolve action identifiers to action ids in the workspace; ones naming no action (ISO-8601) aren't in the map. */
+export async function resolveActionIdentifiers(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  identifiers: string[],
+): Promise<Map<string, string>> {
+  if (identifiers.length === 0) return new Map()
+  const { data } = await supabase
+    .from('actions')
+    .select('id, identifier')
+    .eq('workspace_id', workspaceId)
+    .in('identifier', identifiers.slice(0, MAX_MENTIONED_RECORDS))
+  const map = new Map<string, string>()
+  for (const row of data || []) {
+    if (row.identifier) map.set(row.identifier as string, row.id as string)
+  }
+  return map
+}
+
+/** The target kinds a document's body mentions: what syncDocumentLinks manages. */
+const DOCUMENT_MENTION_KINDS = ['document', 'action'] as const
+
 /**
- * Rewrite `entity_link` rows so that the document's outbound `mentions` edges
- * match the wikilinks currently in its body.
+ * Make the document's outbound `mentions` edges match what its body mentions
+ * now: the documents its wikilinks name, and the actions its identifiers
+ * (`GEN-42`, drawn as chips) name. Through the shared mention helper
+ * (src/lib/entity-links/mentions.ts): added and removed as a diff, each target
+ * fenced for the editor.
  *
- * Only touches edges where source_type='document' AND source_id=docId AND
- * relation='mentions'. Other relations (depends_on, cites, etc.) authored by
- * agents or the user are left alone — wikilinks are a fast-moving subset.
+ * Only document and action targets of relation 'mentions' are this body's;
+ * other relations, and a `mentions` edge to any other kind (an agent's
+ * link_entities), are left alone.
  *
  * Unresolved slugs are intentionally dropped from the graph (red links in the
  * UI). They can still be discovered by re-parsing the body.
+ *
+ * `userId` is the editor (their private documents may be linked); absent, it
+ * is read from `memberId`'s row, and with neither only workspace documents are.
  */
 export async function syncDocumentLinks(
   supabase: SupabaseClient,
@@ -68,39 +103,34 @@ export async function syncDocumentLinks(
   documentId: string,
   markdown: string,
   memberId: string | null,
+  userId?: string | null,
 ): Promise<{ resolved: number; unresolved: string[] }> {
   const parsed = parseWikilinks(markdown)
   const slugs = parsed.map((p) => p.slug)
-  const resolved = await resolveSlugs(supabase, workspaceId, slugs)
+  const [resolved, actions] = await Promise.all([
+    resolveSlugs(supabase, workspaceId, slugs),
+    resolveActionIdentifiers(supabase, workspaceId, parseActionIdentifiers(markdown)),
+  ])
   const unresolved = slugs.filter((s) => !resolved.has(s))
 
-  // Wipe existing mentions edges from this document; we'll re-create.
-  await supabase
-    .from('entity_link')
-    .delete()
-    .eq('workspace_id', workspaceId)
-    .eq('source_type', 'document')
-    .eq('source_id', documentId)
-    .eq('relation', 'mentions')
-
-  const inserts: Array<Record<string, unknown>> = []
-  for (const [, targetId] of resolved) {
-    if (targetId === documentId) continue // can't link to self
-    inserts.push({
-      workspace_id: workspaceId,
-      source_type: 'document',
-      source_id: documentId,
-      target_type: 'document',
-      target_id: targetId,
-      relation: 'mentions',
-      created_by: memberId,
-    })
+  let editor = userId ?? null
+  if (!editor && memberId) {
+    const { data } = await supabase.from('member').select('user_id').eq('id', memberId).maybeSingle()
+    editor = ((data as { user_id?: string | null } | null)?.user_id as string | undefined) ?? null
   }
 
-  if (inserts.length > 0) {
-    // Idempotent insert: unique constraint will dedupe across racing writes.
-    await supabase.from('entity_link').insert(inserts)
-  }
+  const result = await syncMentions(supabase, {
+    workspaceId,
+    source: { type: 'document', id: documentId },
+    targets: [
+      ...[...resolved.values()].map((id) => ({ type: 'document' as const, id })),
+      ...[...actions.values()].map((id) => ({ type: 'action' as const, id })),
+    ],
+    userId: editor,
+    memberId,
+    kinds: DOCUMENT_MENTION_KINDS,
+  })
+  if (result.error) console.warn('[wikilinks] mention sync failed:', documentId, result.error)
 
   return { resolved: resolved.size, unresolved }
 }

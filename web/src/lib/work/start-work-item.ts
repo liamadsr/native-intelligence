@@ -482,11 +482,16 @@ async function defaultStateId(supabase: SupabaseClient, teamId: string): Promise
  * another workspace would let the executor reach across tenancy. An id that does
  * not resolve here (or has an unmappable type) is DROPPED, its label kept. A bad
  * id never fails the start.
+ *
+ * `requesterUserId` is who the run is for. A private graph kind's id (a
+ * calendar event, a team-chat channel or message, a decision) survives only
+ * when that person may read it; with no requester it is dropped.
  */
 export async function snapshotResources(
   supabase: SupabaseClient,
   raw: WorkResourceRef[] | undefined,
   workspaceId: string,
+  requesterUserId?: string | null,
 ): Promise<WorkResourceRef[]> {
   if (!Array.isArray(raw)) return []
   const out: WorkResourceRef[] = []
@@ -498,7 +503,7 @@ export async function snapshotResources(
     if (!type || !label) continue
     const ref: WorkResourceRef = { type, label }
     if (typeof r.id === 'string' && r.id) {
-      if (await resourceIdInWorkspace(supabase, type, r.id, workspaceId)) ref.id = r.id
+      if (await resourceIdInWorkspace(supabase, type, r.id, workspaceId, requesterUserId)) ref.id = r.id
     }
     out.push(ref)
   }
@@ -509,13 +514,16 @@ export async function snapshotResources(
  *  keeps its own knowledge_package fence; `cycle` (team-fenced) and `milestone`
  *  (project-fenced) have no workspace_id of their own and verify through their
  *  parent — STRICTER than entityInWorkspace's can't-verify→allow. Every other
- *  LINKABLE_ENTITY_TYPE delegates to entityInWorkspace. Any other type is
+ *  LINKABLE_ENTITY_TYPE delegates to entityInWorkspace, which fences the
+ *  private graph kinds (calendar_event, team_chat_*, decision) to
+ *  `requesterUserId` and fails them closed without one. Any other type is
  *  unmappable → false (the id is dropped, the label kept). */
-async function resourceIdInWorkspace(
+export async function resourceIdInWorkspace(
   supabase: SupabaseClient,
   type: string,
   id: string,
   workspaceId: string,
+  requesterUserId?: string | null,
 ): Promise<boolean> {
   if (type === 'package') {
     const { data } = await supabase
@@ -551,7 +559,7 @@ async function resourceIdInWorkspace(
     return !!p
   }
   if ((LINKABLE_ENTITY_TYPES as readonly string[]).includes(type)) {
-    return entityInWorkspace(supabase, workspaceId, type as (typeof LINKABLE_ENTITY_TYPES)[number], id)
+    return entityInWorkspace(supabase, workspaceId, type as (typeof LINKABLE_ENTITY_TYPES)[number], id, requesterUserId)
   }
   return false
 }

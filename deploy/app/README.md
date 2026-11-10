@@ -69,6 +69,11 @@ them. Only `compose.yaml` fills them with made-up values, for the container test
 
 - Every `NEXT_PUBLIC_*` value, in server code as well as the browser's. That
   includes `NEXT_PUBLIC_APP_URL`, which is where the web role calls the agents.
+- `NEXT_PUBLIC_SUPABASE_PROJECT_REF`, one of those values, is optional and empty by
+  default. It pins the session cookie's name for a project whose address has moved
+  (`web/src/lib/supabase/project.ts`). Two agents read the same cookie and take the
+  value from their environment when they start, so the build argument and the
+  running containers must agree: change it in `.env`, then build again.
 - `EVE_NEXT_PRODUCTION_ORIGIN`, the origin the web role forwards
   `/eve/<name>/v1/*` to. `entrypoint.sh` refuses to start the web role under a
   different value.

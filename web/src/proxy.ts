@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { authCookieOptions } from '@/lib/supabase/project'
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
@@ -32,6 +33,8 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // The same cookie name every other client uses (src/lib/supabase/project.ts).
+      ...authCookieOptions(),
       cookies: {
         getAll() {
           return request.cookies.getAll()

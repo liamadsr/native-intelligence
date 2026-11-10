@@ -8,8 +8,12 @@ Everything Native Intelligence runs on its own server lives in this folder. It i
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
 | [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
 | [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
+| [`server/`](server) | Not a container: [`setup.sh`](server/setup.sh), which does steps 3 to 7 below on a fresh server in one go. | |
+| [`move/`](move) | Not a container: [`move.sh`](move/move.sh), which moves everything here to another server. | |
 
-Follow this page top to bottom on a fresh server. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end: nothing here has run on a real server yet.
+Everything runs on one server, and is kept movable: [`move/README.md`](move/README.md) is how the whole of it goes to another machine.
+
+Follow this page top to bottom on a fresh server. Steps 3 to 7 are also available as one script, [`server/setup.sh`](server/setup.sh), which does what those steps describe and can be run again: it only adds what is missing, and restarts nothing that has not changed. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end. Steps 1 to 13 have since run on two real servers, the second time through `server/setup.sh` and [`move/`](move); steps 14 to 19 have not run on a real server yet.
 
 ## 1. What you need
 
@@ -117,12 +121,12 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 ```
 
-Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: keep 08:30 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it). The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
+Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: keep 08:37 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it). Keep it off the hour and the half hour: that is when scheduled jobs fire, and a reboot at that very second makes the ones that start a few seconds later skip a turn. The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
 
 ```bash
 sudo tee /etc/apt/apt.conf.d/52ni-unattended-upgrades >/dev/null <<'EOF'
 Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "08:30";
+Unattended-Upgrade::Automatic-Reboot-Time "08:37";
 EOF
 ```
 
@@ -443,6 +447,12 @@ sudo nano .env
 
 Fill in the B2 values, `BACKUP_PASSWORD`, `BACKUP_SALT`, `BACKUP_INNGEST_PGPASSWORD` (the Postgres password from step 8) and `BACKUP_INNGEST_PING_URL`.
 
+The three B2 values can also be entered without ever appearing on screen or in your shell history: [`backup/set-b2-key.sh`](backup/set-b2-key.sh) asks for them with hidden input, writes them into `.env`, and checks that Backblaze accepts them.
+
+```bash
+sudo /opt/native-intelligence/deploy/backup/set-b2-key.sh
+```
+
 ```bash
 sudo docker compose up -d --build
 ```
@@ -471,7 +481,7 @@ Without `--apply` it only counts:
 sudo /opt/native-intelligence/deploy/inngest/prune-history.sh
 ```
 
-Once the server has run for a month, schedule it for the first of each month. The hour is 10:23 UTC on purpose: step 4 lets the server reboot itself at 08:30 UTC when an update needs it, and a prune that started just before would be cut off part-way.
+Once the server has run for a month, schedule it for the first of each month. The hour is 10:23 UTC on purpose: step 4 lets the server reboot itself at 08:37 UTC when an update needs it, and a prune that started just before would be cut off part-way.
 
 ```bash
 sudo tee /etc/cron.d/ni-inngest-prune >/dev/null <<'EOF'
@@ -787,16 +797,16 @@ Production moves here. For everything that reaches Supabase through `sb.nativein
 
 **Gate 1, days before: every client uses `sb.nativeintelligence.dev`.** Do not start step 18 until all of this is true.
 
-- **The web app.** Every Supabase URL in its production environment (`NEXT_PUBLIC_SUPABASE_URL`, and any other that names the project, such as `PROD_SUPABASE_URL`) is `https://sb.nativeintelligence.dev`, and a deployment built with them is live.
-- **The desktop app.** A release that takes its Supabase address from the same setting is what people run. As this repository stands, `desktop/src-tauri/src/commands/auth_session.rs` only lets a sign-in start on the hosted project's own host; a build that still has that list cannot sign in with Google through Supabase after the switch.
-- **The iOS app.** As this repository stands, `ios/Core/Config/SupabaseConfig.swift` builds the hosted project's own address into the app. Every copy of such a build goes on talking to the hosted project whatever is done here. A build that uses `sb.nativeintelligence.dev` has to be in the App Store, and old builds have to be gone or made to update, before this step.
-- **The repository agrees.** From a full checkout (not the server's), this must print nothing but tests and comments:
+- **The desktop app, before the web app.** The web decides where a Google sign-in starts, and the desktop app only opens its sign-in window on the hosts in `desktop/src-tauri/src/commands/auth_session.rs` (`SIGN_IN_PAGES`). That list has both of the project's addresses, the hosted one and `sb.nativeintelligence.dev`. A build from before it had the second refuses a Google sign-in that starts on the new address, which is every one from the day the web app moves, for as long as the web signs in with Google through Supabase (it does unless the app's own Google sign-in, `/auth/google`, has been switched on). So a release with the new list has to be what people run first.
+- **The web app, in two settings, in this order.** First `NEXT_PUBLIC_SUPABASE_PROJECT_REF`, set to the hosted project's ref, **in the Production environment only**. The session cookie is named after the first label of the Supabase address (`sb-<label>-auth-token`); move the address without the pin and the cookie is renamed, which signs every person out at once, and production's cloud browsers start sharing a name with every development machine ([`web/src/lib/supabase/project.ts`](../web/src/lib/supabase/project.ts)). With the pin, the name stays what it was, in the app and in the two agents that read the session cookie. Setting it while the address is still the hosted one changes nothing: it gives the name the cookie already has. **Get that deployment live, and check that you are still signed in on it, before touching the address.** This is the only moment a wrong pin can be caught, because the hosted address still says which project it is: the production build stops on a pin that names another project than the address does (a mistyped ref), and on a value that could not be the start of an address at all. Once the address is ours nothing can tell a wrong pin from a right one, it is used, and everyone is signed out. So never set the pin and the address in one deployment. (What counts as a production build: a production deployment on Vercel, and off Vercel any `next build`, so the container image and a build on your own machine stop in the same way. In a Vercel preview or development build, and under `next dev`, a pin that names another project than a `supabase.co` address is production's pin having leaked there, so it is ignored with an error in the log. On a local address it is ignored everywhere.) Then every Supabase URL in the production environment (`NEXT_PUBLIC_SUPABASE_URL`, and any other that names the project, such as `PROD_SUPABASE_URL`) becomes `https://sb.nativeintelligence.dev`, and a deployment built with all of them is live. The pin stays for good. It keeps the cookie's name; that the sessions under it are still valid after the switch is the migration's doing, which brings the signing secret and the session tables across.
+- **The iOS app.** As this repository stands, `ios/Core/Config/SupabaseConfig.swift` builds the hosted project's own address into the app. Every copy of such a build goes on talking to the hosted project whatever is done here. A build that uses `sb.nativeintelligence.dev` has to be in the App Store, and old builds have to be gone or made to update, before this step. The iOS client names its stored session after the first label of the address in the same way the web does, so that build also has to pin the old name (the `storageKey` option where `ios/Core/Services/SupabaseManager.swift` makes the client), or everyone on iOS is signed out by the update.
+- **The repository agrees.** From a full checkout (not the server's), this must print nothing but tests, comments, and the desktop's sign-in list:
 
   ```bash
   git grep -nE '[a-z0-9]{20}\.supabase\.co' -- web desktop ios
   ```
 
-  Today it prints the two files above.
+  Today, apart from tests, it prints four files. Two are comments in the web app. One is `auth_session.rs`, where the hosted address is code and stays on purpose: builds that are already installed, and any deployment not yet moved, still start a sign-in there, so it is taken out only when the hosted project is retired. The fourth is the iOS configuration, which is the one that has to change.
 - **The hosted project agrees.** This is the proof, because it sees what people actually run. Everything that comes through Caddy reaches the hosted project from one address, this server's. In the hosted dashboard, under Logs, look at the API gateway's requests (`edge_logs`) for as many days back as the plan keeps, by the request header `cf-connecting-ip` ([their field list](https://supabase.com/docs/guides/observability/log-field-reference)): every request must come from this server's address. The header `x-client-info` on any that do not says which client library sent it. Expect Stripe's own addresses on `/functions/v1/stripe-webhook` until step 2 moves that.
 
 **Gate 2, days before: the rest.**

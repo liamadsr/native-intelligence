@@ -22,8 +22,9 @@ import {
 import { useSwitchWorkspace, useWorkspaces } from '@/app/account/workspace-switcher'
 import { emitEntityDeleted } from '@/lib/entity-events'
 import { deleteActionCache } from '@/lib/action-cache'
+import type { EntityTypeSubset } from '@/lib/knowledge/entity-registry'
 
-export type MoveEntityType = 'action' | 'project' | 'document' | 'initiative'
+export type MoveEntityType = EntityTypeSubset<'action' | 'project' | 'document' | 'initiative'>
 
 interface MoveWorkspaceDialogProps {
   entityType: MoveEntityType

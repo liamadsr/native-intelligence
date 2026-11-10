@@ -1,25 +1,16 @@
 /** Default list ordering and neighbour lookup for entity detail navigation. */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { serverError } from '@/lib/api-errors'
+import {
+  ENTITY_REGISTRY_BY_ID,
+  type EntityType as RegistryEntityType,
+} from '@/lib/knowledge/entity-registry'
 
 /** Upper bound on rows pulled for one ordering scope. Exported for the
  *  ordered-truncation regression test. */
 export const SCOPE_LIMIT = 2000
 
-export type EntityType =
-  | 'action'
-  | 'capture'
-  | 'document'
-  | 'contact'
-  | 'company'
-  | 'project'
-  | 'initiative'
-
 interface EntityConfig {
-  /** Physical table name (several differ from the API's plural noun). */
-  table: string
-  /** Column carrying the human-readable label for this entity. */
-  titleColumn: string
   /**
    * Ordering strategy:
    *   - 'identifier_ladder': actions — same-team numeric identifier DESC, with
@@ -36,36 +27,43 @@ interface EntityConfig {
    * actions with a parent are sub-tasks that never appear as list rows —
    * stepping the arrows onto either would land the user on a row no list shows.
    */
-  requireNull?: string[]
+  requireNull?: readonly string[]
   /** [column, value] inequality filters the default list applies (e.g. the
    *  internal '__default__' project every workspace carries but never lists). */
-  exclude?: [string, string][]
+  exclude?: readonly (readonly [string, string])[]
 }
 
-const ENTITY_CONFIG: Record<EntityType, EntityConfig> = {
-  action: {
-    table: 'actions',
-    titleColumn: 'title',
-    order: 'identifier_ladder',
-    requireNull: ['parent_id'],
-  },
-  capture: { table: 'captures', titleColumn: 'title', order: 'started_at' },
-  document: { table: 'document', titleColumn: 'title', order: 'created_at' },
-  contact: {
-    table: 'contact',
-    titleColumn: 'full_name',
-    order: 'created_at',
-    requireNull: ['merged_into_contact_id'],
-  },
-  company: { table: 'company', titleColumn: 'name', order: 'created_at' },
-  project: {
-    table: 'projects',
-    titleColumn: 'name',
-    order: 'created_at',
-    exclude: [['name', '__default__']],
-  },
-  initiative: { table: 'initiative', titleColumn: 'name', order: 'created_at' },
+/**
+ * The kinds whose detail page steps through siblings. The table and title
+ * column come from the entity registry; only the list ordering lives here.
+ */
+const ORDERING = {
+  action: { order: 'identifier_ladder', requireNull: ['parent_id'] },
+  capture: { order: 'started_at' },
+  document: { order: 'created_at' },
+  contact: { order: 'created_at', requireNull: ['merged_into_contact_id'] },
+  company: { order: 'created_at' },
+  project: { order: 'created_at', exclude: [['name', '__default__']] },
+  initiative: { order: 'created_at' },
+} as const satisfies Partial<Record<RegistryEntityType, EntityConfig>>
+
+export type EntityType = keyof typeof ORDERING
+
+interface ResolvedConfig extends EntityConfig {
+  /** Physical table name (several differ from the API's plural noun). */
+  table: string
+  /** Column carrying the human-readable label for this entity. */
+  titleColumn: string
 }
+
+/** Exported for the registry-parity test. */
+export const ENTITY_CONFIG: Record<EntityType, ResolvedConfig> = Object.fromEntries(
+  (Object.keys(ORDERING) as EntityType[]).map((type) => {
+    const { table, label } = ENTITY_REGISTRY_BY_ID[type]
+    const config: EntityConfig = ORDERING[type]
+    return [type, { ...config, table, titleColumn: label.columns }]
+  }),
+) as Record<EntityType, ResolvedConfig>
 
 export interface SiblingRef {
   id: string

@@ -48,6 +48,36 @@ export async function filterVisibleContacts<T extends { id?: unknown }>(
 }
 
 /**
+ * The gate for a tool that WRITES a contact (update_contact,
+ * update_crm_contact, enrich_contact, set_custom_fields): the contact EDIT
+ * rule for an explicit user (`contact_editable_by`, migration 498), which is
+ * contact_update's can_edit_contact: its creator, an owner or admin, anyone
+ * when it is workspace-visible, or an `edit` contact_share. Seeing a contact
+ * (a teammate's team contact, a view share, a per-item grant) never lets
+ * someone change it. Fails CLOSED like isContactVisibleTo.
+ */
+export async function isContactWritableTo(
+  supabase: SupabaseClient,
+  contactId: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('contact_editable_by', {
+      p_contact_id: contactId,
+      p_user_id: userId,
+    })
+    if (error) {
+      console.warn('[contact-visibility] contact_editable_by failed:', error.message)
+      return false
+    }
+    return data === true
+  } catch (e) {
+    console.warn('[contact-visibility] contact_editable_by threw:', e)
+    return false
+  }
+}
+
+/**
  * COMPANY VISIBILITY, the company twin of isContactVisibleTo: the `company`
  * table's RLS (mig 059) keys off auth.uid(), which is NULL on a service-role
  * client, so tools fence each company through `company_visible_to(company,
@@ -72,6 +102,33 @@ export async function isCompanyVisibleTo(
     return data === true
   } catch (e) {
     console.warn('[contact-visibility] company_visible_to threw:', e)
+    return false
+  }
+}
+
+/**
+ * The gate for a tool that WRITES a company (set_custom_fields): company_
+ * visible_to without its grant arm (`company_visible_to_ungranted`, migration
+ * 496), the twin of isContactWritableTo. A grant on the company, or on one of
+ * its contacts, lets someone read it, never change it. Fails CLOSED.
+ */
+export async function isCompanyWritableTo(
+  supabase: SupabaseClient,
+  companyId: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('company_visible_to_ungranted', {
+      p_company_id: companyId,
+      p_user_id: userId,
+    })
+    if (error) {
+      console.warn('[contact-visibility] company_visible_to_ungranted failed:', error.message)
+      return false
+    }
+    return data === true
+  } catch (e) {
+    console.warn('[contact-visibility] company_visible_to_ungranted threw:', e)
     return false
   }
 }
