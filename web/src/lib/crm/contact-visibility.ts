@@ -48,6 +48,35 @@ export async function filterVisibleContacts<T extends { id?: unknown }>(
 }
 
 /**
+ * The gate for a tool that WRITES a contact (update_contact,
+ * update_crm_contact, enrich_contact): contact_visible_to without its grant
+ * arm (`contact_visible_to_ungranted`, migration 495). A per-item grant
+ * (migration 492) lets someone read a contact, never change it, so a contact
+ * they see only through one is "not found" here, as it was before grants.
+ * Fails CLOSED like isContactVisibleTo.
+ */
+export async function isContactWritableTo(
+  supabase: SupabaseClient,
+  contactId: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('contact_visible_to_ungranted', {
+      p_contact_id: contactId,
+      p_user_id: userId,
+    })
+    if (error) {
+      console.warn('[contact-visibility] contact_visible_to_ungranted failed:', error.message)
+      return false
+    }
+    return data === true
+  } catch (e) {
+    console.warn('[contact-visibility] contact_visible_to_ungranted threw:', e)
+    return false
+  }
+}
+
+/**
  * COMPANY VISIBILITY, the company twin of isContactVisibleTo: the `company`
  * table's RLS (mig 059) keys off auth.uid(), which is NULL on a service-role
  * client, so tools fence each company through `company_visible_to(company,

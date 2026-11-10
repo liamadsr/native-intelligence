@@ -149,3 +149,24 @@ export async function withGrantedIds(
   for (const r of (data ?? []) as Array<{ id: string }>) if (typeof r.id === 'string') out.add(r.id)
   return out
 }
+
+/**
+ * SESSION CLIENT: does the signed-in caller see any of these records ONLY
+ * through a grant (migration 494's entity_grant_only)? For a route that reads
+ * a record with the caller's RLS and then writes it with the service role: a
+ * grant is view-only, so such a route must refuse. Fails CLOSED: an RPC error
+ * or a throw counts as "only through a grant".
+ */
+export async function anySeenOnlyByGrant(supabase: SupabaseClient, type: GrantableType, ids: readonly string[]): Promise<boolean> {
+  const answers = await Promise.all(
+    uniq(ids).map(async (id) => {
+      try {
+        const { data, error } = await supabase.rpc('entity_grant_only', { p_type: type, p_id: id })
+        return error ? true : data !== false
+      } catch {
+        return true
+      }
+    }),
+  )
+  return answers.some(Boolean)
+}
