@@ -27,7 +27,8 @@ import { inChunks } from '@/lib/supabase/paging'
  * that workspace (a decision through its capture's workspace).
  *
  * The SQL rules these mirror: 474's team_chat_can_read, the
- * local_calendar_event and decision policies. Change one, change its fence.
+ * local_calendar_event and decision policies (the decision one with 493's
+ * grant arm). Change one, change its fence.
  */
 
 /** The graph kinds whose rows only some members may read. */
@@ -168,7 +169,9 @@ const teamChatMessageFence: Fence = async (supabase, userId, ids, workspaceId) =
 /**
  * The decision table's RLS for an explicit user: a member of its capture's
  * workspace, and the capture is a workspace one, or theirs, or the decision is
- * confirmed. Evaluation captures (`is_eval`) are never in the product.
+ * confirmed, or a grant on the capture reaches them (migration 493; the
+ * mirror is src/lib/entity-access/grants.ts). Evaluation captures (`is_eval`)
+ * are never in the product.
  */
 const decisionFence: Fence = async (supabase, userId, ids, workspaceId) => {
   const wanted = uniq(ids)
@@ -192,13 +195,29 @@ const decisionFence: Fence = async (supabase, userId, ids, workspaceId) => {
   if (!members) return new Set()
   const byId = new Map(captures.map((c) => [c.id as string, c]))
   const out = new Set<string>()
+  // Another member's private capture whose decision isn't confirmed: readable only through a grant (493).
+  const viaGrant = new Map<string, string[]>()
   for (const d of decisions) {
     const capture = byId.get(d.capture_id as string)
     if (!capture || capture.is_eval === true) continue
     if (!members.has(capture.workspace_id as string)) continue
     if (capture.visibility === 'workspace' || capture.user_id === userId || d.confirmation === 'confirmed') {
       out.add(d.id as string)
+    } else {
+      const ws = capture.workspace_id as string
+      ;(viaGrant.get(ws) ?? viaGrant.set(ws, []).get(ws)!).push(capture.id as string)
     }
+  }
+  if (viaGrant.size > 0) {
+    // Loaded here, not at the top: the grant mirror reads this file's team chat fence.
+    const { grantedEntityIds } = await import('@/lib/entity-access/grants')
+    const granted = new Set<string>()
+    await Promise.all(
+      [...viaGrant.entries()].map(async ([ws, captureIds]) => {
+        for (const id of await grantedEntityIds(supabase, { userId, workspaceId: ws }, 'capture', captureIds)) granted.add(id)
+      }),
+    )
+    for (const d of decisions) if (granted.has(d.capture_id as string)) out.add(d.id as string)
   }
   return out
 }

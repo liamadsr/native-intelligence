@@ -15,6 +15,7 @@ import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { tool } from 'ai'
 import { z } from 'zod'
 import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact-visibility'
+import { withGrantedIds } from '@/lib/entity-access/grants'
 import {
   PRIVATE_GRAPH_KINDS,
   PRIVATE_KIND_LABEL,
@@ -567,6 +568,24 @@ export function createClaimTools(
         if (type === 'document') query = applyDocumentVisibility(query, await documentRequesterMember(supabase, userId, ws, omitPrivateCaptures))
         const { data } = await query.overrideTypes<Array<Record<string, unknown>>>()
         const rows = (data ?? []) as Array<Record<string, unknown>>
+        // Someone else's private capture or document a grant opens to the
+        // requester (migration 493): its title resolves as theirs would. Not
+        // for an unattended run (no requester), as above.
+        if (type === 'capture' || type === 'document') {
+          const grantUser = type === 'capture' ? requestingUserId : omitPrivateCaptures ? null : userId
+          const have = rows.map((r) => r.id).filter((id): id is string => typeof id === 'string')
+          const opened = await withGrantedIds(supabase, { userId: grantUser, workspaceId: ws }, type, [...ids], have)
+          const extra = [...opened].filter((id) => !have.includes(id))
+          if (extra.length > 0) {
+            const { data: more } = await supabase
+              .from(cfg.table)
+              .select(`id, ${cfg.columns}`)
+              .eq('workspace_id', ws)
+              .in('id', extra)
+              .overrideTypes<Array<Record<string, unknown>>>()
+            rows.push(...((more ?? []) as Array<Record<string, unknown>>))
+          }
+        }
         // Another member's private/team contact, or a company none of whose
         // contacts the caller can see: RLS hides the row on a user client, but
         // this may run service-role. The node keeps its id; its label is a

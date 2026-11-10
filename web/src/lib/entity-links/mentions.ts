@@ -17,8 +17,9 @@
  * who wrote the mention: it must be a mentionable kind, in the source's
  * workspace, and readable by them (a capture or document of theirs or the
  * workspace's, a contact or company they can see, a calendar event of their
- * own, a channel they're in: src/lib/knowledge/entity-fences.ts). Anything
- * else is dropped, never an error: the message still posts.
+ * own, a channel they're in: src/lib/knowledge/entity-fences.ts; or one a
+ * grant opens to them: src/lib/entity-access/grants.ts). Anything else is
+ * dropped, never an error: the message still posts.
  *
  * Flat cost: one read per target kind to fence, one read of the source's
  * current edges, then at most one delete and one insert.
@@ -27,6 +28,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { applyCaptureVisibility, applyDocumentVisibility, documentRequesterMember } from '@/lib/ai/tools/_shared'
 import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { isPrivateGraphKind, visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
+import { withGrantedIds } from '@/lib/entity-access/grants'
 import { WORKSPACE_SCOPED_TABLE, type LinkableEntityType } from '@/lib/knowledge/entity-registry'
 import {
   MENTIONABLE_TYPES,
@@ -91,6 +93,10 @@ async function visibleIdsOf(
     const rows = ((data ?? []) as Array<{ id?: unknown }>).filter((r): r is { id: string } => typeof r.id === 'string')
     if (type === 'contact') return userId ? (await filterVisibleContacts(supabase, userId, rows)).map((r) => r.id) : []
     if (type === 'company') return userId ? (await filterVisibleCompanies(supabase, userId, rows)).map((r) => r.id) : []
+    // Someone else's private capture or document that a grant opens to them (migration 492).
+    if (type === 'capture' || type === 'document') {
+      return [...(await withGrantedIds(supabase, { userId, workspaceId }, type, ids, rows.map((r) => r.id)))]
+    }
     return rows.map((r) => r.id)
   } catch (err) {
     console.warn('[mentions] fence threw:', type, err instanceof Error ? err.message : 'unknown')
