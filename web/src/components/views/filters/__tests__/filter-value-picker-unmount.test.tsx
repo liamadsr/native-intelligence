@@ -112,10 +112,27 @@ describe('how this file sees an update to an unmounted component', () => {
   })
 })
 
+/**
+ * A fetch stub that answers each URL with the promise given for it. A URL the
+ * test did not expect gets a rejection, and every call is on the mock for the
+ * test to check.
+ */
+function stubRoutes(routes: Record<string, Promise<unknown>>) {
+  const fetchStub = vi.fn((url: string) => routes[url] ?? Promise.reject(new Error(`unexpected request ${url}`)))
+  vi.stubGlobal('fetch', fetchStub)
+  return fetchStub
+}
+
+const MEMBERS = '/api/account/workspace/members'
+const PROJECTS = '/api/account/projects'
+const TEAMS = '/api/account/teams'
+const statesOf = (team: string) => `/api/account/workflow-states?team_id=${team}`
+const PIPELINES = '/api/account/deals/pipelines'
+
 describe('a record picker (Assignee)', () => {
   it('shows the loaded name while it is mounted', async () => {
     const members = deferred<unknown>()
-    vi.stubGlobal('fetch', vi.fn(() => members.promise))
+    stubRoutes({ [MEMBERS]: members.promise })
     await mount(field('action', 'assignee_id'), 'm1')
     expect(container.textContent).toBe('Loading...')
 
@@ -129,8 +146,9 @@ describe('a record picker (Assignee)', () => {
 
   it('drops a failed request that settles after unmount', async () => {
     const members = deferred<unknown>()
-    vi.stubGlobal('fetch', vi.fn(() => members.promise))
+    const fetchStub = stubRoutes({ [MEMBERS]: members.promise })
     await mount(field('action', 'assignee_id'), 'm1')
+    expect(fetchStub).toHaveBeenCalledWith(MEMBERS)
     await unmount()
 
     const reads = countWindowEventReads()
@@ -141,8 +159,9 @@ describe('a record picker (Assignee)', () => {
 
   it('drops an answer that arrives after unmount', async () => {
     const members = deferred<unknown>()
-    vi.stubGlobal('fetch', vi.fn(() => members.promise))
+    const fetchStub = stubRoutes({ [MEMBERS]: members.promise })
     await mount(field('action', 'assignee_id'), 'm1')
+    expect(fetchStub).toHaveBeenCalledWith(MEMBERS)
     await unmount()
 
     const reads = countWindowEventReads()
@@ -150,24 +169,38 @@ describe('a record picker (Assignee)', () => {
     await settle()
     expect(reads()).toBe(0)
   })
+
+  it('keeps the newer field\'s options when the older request answers last', async () => {
+    // The same picker, switched from Assignee to Project before the members
+    // came back: the members list, arriving last, must not replace the projects.
+    const members = deferred<unknown>()
+    const projects = deferred<unknown>()
+    const fetchStub = stubRoutes({ [MEMBERS]: members.promise, [PROJECTS]: projects.promise })
+    await mount(field('action', 'assignee_id'), 'x1')
+    await mount(field('action', 'project_id'), 'x1')
+    expect(fetchStub.mock.calls.map(c => c[0])).toEqual([MEMBERS, PROJECTS])
+
+    await act(async () => {
+      projects.resolve(ok({ projects: [{ id: 'x1', name: 'Example Project' }] }))
+      await settle()
+    })
+    await act(async () => {
+      members.resolve(ok({ members: [{ id: 'x1', display_name: 'Avery Example' }] }))
+      await settle()
+    })
+    expect(container.textContent).toBe('Example Project')
+    await unmount()
+  })
 })
 
 describe('a workflow-state picker (Status)', () => {
-  function stubTeamsThenStates(teams: Promise<unknown>) {
-    const fetchStub = vi.fn((url: string) => url === '/api/account/teams'
-      ? teams
-      : Promise.resolve(ok({ states: [{ id: 's1', name: 'Todo' }] })))
-    vi.stubGlobal('fetch', fetchStub)
-    return fetchStub
-  }
-
   it('shows the loaded state while it is mounted', async () => {
-    const teams = deferred<unknown>()
-    stubTeamsThenStates(teams.promise)
-    await mount(field('action', 'status_id'), 's1')
-
+    stubRoutes({
+      [TEAMS]: Promise.resolve(ok({ teams: [{ id: 't1' }] })),
+      [statesOf('t1')]: Promise.resolve(ok({ states: [{ id: 's1', name: 'Todo' }] })),
+    })
     await act(async () => {
-      teams.resolve(ok({ teams: [{ id: 't1' }] }))
+      await mount(field('action', 'status_id'), 's1')
       await settle()
     })
     expect(container.textContent).toBe('Todo')
@@ -176,7 +209,11 @@ describe('a workflow-state picker (Status)', () => {
 
   it('asks for no team\'s states and sets nothing once unmounted', async () => {
     const teams = deferred<unknown>()
-    const fetchStub = stubTeamsThenStates(teams.promise)
+    const fetchStub = stubRoutes({
+      [TEAMS]: teams.promise,
+      [statesOf('t1')]: Promise.resolve(ok({ states: [{ id: 's1', name: 'Todo' }] })),
+      [statesOf('t2')]: Promise.resolve(ok({ states: [{ id: 's2', name: 'Todo' }] })),
+    })
     await mount(field('action', 'status_id'), 's1')
     await unmount()
 
@@ -184,19 +221,85 @@ describe('a workflow-state picker (Status)', () => {
     teams.resolve(ok({ teams: [{ id: 't1' }, { id: 't2' }] }))
     await settle()
     expect(reads()).toBe(0)
-    expect(fetchStub.mock.calls.map(c => c[0])).toEqual(['/api/account/teams'])
+    expect(fetchStub.mock.calls.map(c => c[0])).toEqual([TEAMS])
+  })
+
+  it('asks for no further team once unmounted between two teams', async () => {
+    const t1States = deferred<unknown>()
+    const fetchStub = stubRoutes({
+      [TEAMS]: Promise.resolve(ok({ teams: [{ id: 't1' }, { id: 't2' }] })),
+      [statesOf('t1')]: t1States.promise,
+      [statesOf('t2')]: Promise.resolve(ok({ states: [{ id: 's2', name: 'Todo' }] })),
+    })
+    await act(async () => {
+      await mount(field('action', 'status_id'), 's1')
+      await settle()
+    })
+    expect(fetchStub.mock.calls.map(c => c[0])).toEqual([TEAMS, statesOf('t1')])
+    await unmount()
+
+    const reads = countWindowEventReads()
+    t1States.resolve(ok({ states: [{ id: 's1', name: 'Todo' }] }))
+    await settle()
+    expect(reads()).toBe(0)
+    expect(fetchStub.mock.calls.map(c => c[0])).toEqual([TEAMS, statesOf('t1')])
+  })
+
+  it('sets nothing when the last team\'s states arrive after unmount', async () => {
+    const t1States = deferred<unknown>()
+    const fetchStub = stubRoutes({
+      [TEAMS]: Promise.resolve(ok({ teams: [{ id: 't1' }] })),
+      [statesOf('t1')]: t1States.promise,
+    })
+    await act(async () => {
+      await mount(field('action', 'status_id'), 's1')
+      await settle()
+    })
+    expect(fetchStub.mock.calls.map(c => c[0])).toEqual([TEAMS, statesOf('t1')])
+    await unmount()
+
+    const reads = countWindowEventReads()
+    t1States.resolve(ok({ states: [{ id: 's1', name: 'Todo' }] }))
+    await settle()
+    expect(reads()).toBe(0)
   })
 })
 
 describe('a deal-stage picker (Stage)', () => {
+  const PIPELINE_BODY = { pipelines: [{ stages: [{ id: 'st1', name: 'Qualified' }] }] }
+
+  it('shows the loaded stage while it is mounted', async () => {
+    stubRoutes({ [PIPELINES]: Promise.resolve(ok(PIPELINE_BODY)) })
+    await act(async () => {
+      await mount(field('deal', 'stage_id'), 'st1')
+      await settle()
+    })
+    expect(container.textContent).toBe('Qualified')
+    await unmount()
+  })
+
   it('drops a failed request that settles after unmount', async () => {
     const pipelines = deferred<unknown>()
-    vi.stubGlobal('fetch', vi.fn(() => pipelines.promise))
+    const fetchStub = stubRoutes({ [PIPELINES]: pipelines.promise })
     await mount(field('deal', 'stage_id'), 'st1')
+    expect(fetchStub).toHaveBeenCalledWith(PIPELINES)
     await unmount()
 
     const reads = countWindowEventReads()
     pipelines.reject(new TypeError('fetch failed'))
+    await settle()
+    expect(reads()).toBe(0)
+  })
+
+  it('drops an answer that arrives after unmount', async () => {
+    const pipelines = deferred<unknown>()
+    const fetchStub = stubRoutes({ [PIPELINES]: pipelines.promise })
+    await mount(field('deal', 'stage_id'), 'st1')
+    expect(fetchStub).toHaveBeenCalledWith(PIPELINES)
+    await unmount()
+
+    const reads = countWindowEventReads()
+    pipelines.resolve(ok(PIPELINE_BODY))
     await settle()
     expect(reads()).toBe(0)
   })
