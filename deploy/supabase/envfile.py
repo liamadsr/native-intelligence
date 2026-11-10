@@ -41,16 +41,19 @@ def fmt(name, value):
     Checked against `docker compose config`: bare for plain values; single
     quotes (taken literally) for the rest; double quotes with \\\\, \\" and \\$
     escaped only where single quotes cannot work, which is a value containing
-    a single quote or ending in a backslash.
+    a single quote or ending in a backslash, or a line break: in double quotes
+    Compose reads \\n as one (checked with a container's environment). Some
+    values carry one by accident (pasted with it) and the app uses them with it,
+    so it has to arrive. Any other control character is refused.
     """
     v = "" if value is None else str(value)
-    if any(ord(c) < 32 or ord(c) == 127 or c in "\x85\u2028\u2029" for c in v):
-        die("%s contains a line break or control character; that cannot go into an env file." % name)
+    if any((ord(c) < 32 and c != "\n") or ord(c) == 127 or c in "\x85\u2028\u2029" for c in v):
+        die("%s contains a control character; that cannot go into an env file." % name)
     if re.fullmatch(r"[A-Za-z0-9_./:@,+=-]*", v):
         return v
-    if "'" not in v and not v.endswith("\\"):
+    if "'" not in v and not v.endswith("\\") and "\n" not in v:
         return "'" + v + "'"
-    return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+    return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("\n", "\\n") + '"'
 
 
 def known_names(path):

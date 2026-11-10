@@ -169,7 +169,7 @@ def read_env(path):
             if len(v) >= 2 and v[0] == v[-1] == "'":
                 v = v[1:-1]
             elif len(v) >= 2 and v[0] == v[-1] == '"':
-                v = re.sub(r'\\(["\\$])', r"\1", v[1:-1])
+                v = re.sub(r'\\(["\\$n])', lambda m: "\n" if m.group(1) == "n" else m.group(1), v[1:-1])
             else:
                 v = v.split(" #", 1)[0].strip()
             values[name] = v
