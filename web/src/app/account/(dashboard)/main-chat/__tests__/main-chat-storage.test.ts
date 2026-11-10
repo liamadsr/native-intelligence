@@ -104,6 +104,14 @@ describe('sweepLegacyTabKeys', () => {
     expect(sweepLegacyTabKeys()).toBe(0)
     expect(Object.keys(localStorage)).toEqual(['ni-chat:ws-1'])
   })
+
+  it('frees the copies the storage rename script left under the old names too', () => {
+    for (const key of ['ni-tabs', 'dial8-tabs', 'ni-tabs:ws-1', 'dial8-tabs:ws-1', 'dial8-tabs-chat:ws-1:t1', 'dial8-tabs-head:ws-1:t1']) localStorage.setItem(key, '{}')
+    // Not the tabs': the browser's saved tabs, a main chat, and a key that only contains the old name.
+    for (const key of ['dial8-tabs-browser', 'dial8-chat:ws-2', 'x-dial8-tabs:ws-1']) localStorage.setItem(key, '{}')
+    expect(sweepLegacyTabKeys()).toBe(6)
+    expect(Object.keys(localStorage).sort()).toEqual(['dial8-chat:ws-2', 'dial8-tabs-browser', 'x-dial8-tabs:ws-1'])
+  })
 })
 
 describe('sweepClaudeCodeKeys', () => {
@@ -134,6 +142,15 @@ describe('sweepClaudeCodeKeys', () => {
     expect(Object.keys(localStorage).sort()).toEqual(
       [CLAUDE_CODE_KEYS_SWEPT_KEY, 'ni-chat:ws-1', 'ni-device-id', 'ni-tabs-browser', 'ni-tabs-browser-routing:ws-1'].sort(),
     )
+  })
+
+  it('removes the copies the storage rename script left under the old names too', () => {
+    for (const key of ['ni_claude_directory', 'dial8_claude_directory', 'dial8_claude_session:sess-1', 'dial8_device_id', 'dial8_chat_use_claude_code']) localStorage.setItem(key, 'x')
+    // Someone else's: the browser's device id, and an older build's own swept flag.
+    localStorage.setItem('dial8-device-id', 'browser-device')
+    localStorage.setItem('dial8:claude-code-keys-swept', '1')
+    expect(sweepClaudeCodeKeys()).toBe(5)
+    expect(Object.keys(localStorage).sort()).toEqual([CLAUDE_CODE_KEYS_SWEPT_KEY, 'dial8-device-id', 'dial8:claude-code-keys-swept'].sort())
   })
 
   it('runs once per device: a later boot walks nothing', () => {

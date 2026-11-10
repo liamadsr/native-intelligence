@@ -6,6 +6,7 @@
  * person's browsing, so it goes once a session.
  */
 import { isProfileId } from './ids'
+import { storageKeyAfterRename } from '@/lib/storage-key-rename'
 
 const KEYS = [
   'ni-browser-profiles',
@@ -37,7 +38,9 @@ export async function dropRetiredBrowserData(): Promise<void> {
   }
   try {
     for (const key of Object.keys(localStorage)) {
-      if (KEYS.includes(key) || key === TABS_PREFIX || key.startsWith(`${TABS_PREFIX}:`) || key.startsWith(`${TABS_PREFIX}-routing:`)) {
+      // The copy the storage rename script left under the old name goes too.
+      const name = storageKeyAfterRename(key)
+      if (KEYS.includes(name) || name === TABS_PREFIX || name.startsWith(`${TABS_PREFIX}:`) || name.startsWith(`${TABS_PREFIX}-routing:`)) {
         localStorage.removeItem(key)
       }
     }
