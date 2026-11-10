@@ -18,6 +18,7 @@ import {
   type AbandonedCaptureRow,
   type FinalizeReason,
 } from '@/lib/captures/abandoned'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * The server's Stop for a recording whose recorder died (see
@@ -63,7 +64,7 @@ const BATCH_SETTLE = '11m'
 const RUN_TOKEN_TTL_MS = 30 * 60 * 1000
 
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 export const abandonedCaptureSweep = inngest.createFunction(

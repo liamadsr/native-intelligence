@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Loader2, Save, RotateCcw } from 'lucide-react'
 import { ThinkingOrb } from 'thinking-orbs'
+import { appUrl } from '@/lib/app-url'
 
 interface EmailEditorProps {
   open: boolean
@@ -134,7 +135,7 @@ const DEFAULT_HTML = `<!DOCTYPE html>
     <div class="container">
       <!-- Header with logo -->
       <div class="header">
-        <img src="https://dial8.ai/brand/ni-mark.png" alt="Native Intelligence" style="width:44px;height:44px;vertical-align:middle;" />
+        <img src="${appUrl()}/brand/ni-mark.png" alt="Native Intelligence" style="width:44px;height:44px;vertical-align:middle;" />
         <span class="wordmark">Native Intelligence</span>
       </div>
 
@@ -153,7 +154,7 @@ const DEFAULT_HTML = `<!DOCTYPE html>
       <!-- Footer with small logo -->
       <div class="footer">
         <div class="footer-logo">
-          <img src="https://dial8.ai/brand/ni-mark.png" alt="Native Intelligence" />
+          <img src="${appUrl()}/brand/ni-mark.png" alt="Native Intelligence" />
         </div>
         <p>
           Native Intelligence &middot; Your mind, extended.

@@ -21,6 +21,7 @@ import {
   stateForBucket,
 } from './linear-config'
 import type { LinearPushOverrides } from './push-overrides'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * Push ONE Native Intelligence action to Linear as an issue, and record the link.
@@ -107,7 +108,7 @@ interface PushArgs {
 
 /** App origin for the "back to Native Intelligence" deep link. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /**

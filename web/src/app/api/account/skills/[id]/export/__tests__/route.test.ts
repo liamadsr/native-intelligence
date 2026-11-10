@@ -92,7 +92,7 @@ function makeParams(id: string) {
 
 function getReq() {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/skills/skill-1/export',
+    url: 'https://nativeintelligence.dev/api/account/skills/skill-1/export',
     method: 'GET',
   })
 }
@@ -100,7 +100,7 @@ function getReq() {
 function authed(supabase: unknown) {
   return {
     supabase,
-    user: { id: 'user-1', email: 'u@dial8.test' },
+    user: { id: 'user-1', email: 'u@nativeintelligence.test' },
     workspaceId: 'workspace-1',
     member: { id: 'member-1', role: 'owner' as const },
   }

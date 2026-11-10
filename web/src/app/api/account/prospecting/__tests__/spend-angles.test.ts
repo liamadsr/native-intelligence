@@ -133,7 +133,7 @@ describe('GET /api/account/prospecting/lists/[id]/angles', () => {
       angles: [{ angle: 'lookalike', found: 6, new: 2, saved: 1 }],
     })
 
-    const res = await anglesRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await anglesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       angles: [{ angle: 'lookalike', found: 6, new: 2, saved: 1 }],
@@ -148,14 +148,14 @@ describe('GET /api/account/prospecting/lists/[id]/angles', () => {
     // Distinct from the 404 below, and deliberately so.
     hoisted.listMaybeSingle.mockResolvedValue({ data: { id: 'list-1' }, error: null })
     hoisted.listAngleTelemetry.mockResolvedValue({ ok: true, angles: [] })
-    const res = await anglesRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await anglesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ angles: [] })
   })
 
   it('404s a cross-workspace list rather than returning an empty table', async () => {
     hoisted.listMaybeSingle.mockResolvedValue({ data: null, error: null })
-    const res = await anglesRoute.GET(nextRequest('https://dial8.ai/x'), params('other-ws-list'))
+    const res = await anglesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('other-ws-list'))
     expect(res.status).toBe(404)
     // And it never reaches the aggregation.
     expect(hoisted.listAngleTelemetry).not.toHaveBeenCalled()
@@ -164,20 +164,20 @@ describe('GET /api/account/prospecting/lists/[id]/angles', () => {
   it('500s on a lib read failure rather than showing zero angles', async () => {
     hoisted.listMaybeSingle.mockResolvedValue({ data: { id: 'list-1' }, error: null })
     hoisted.listAngleTelemetry.mockResolvedValue({ ok: false, code: 'DB_ERROR', error: 'boom' })
-    const res = await anglesRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await anglesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(500)
   })
 
   it('500s when the existence probe itself fails', async () => {
     hoisted.listMaybeSingle.mockResolvedValue({ data: null, error: { message: 'boom' } })
-    const res = await anglesRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await anglesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(500)
     expect(hoisted.listAngleTelemetry).not.toHaveBeenCalled()
   })
 
   it('propagates the auth Response untouched', async () => {
     hoisted.requireWorkspace.mockResolvedValue(new Response('nope', { status: 401 }))
-    const res = await anglesRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await anglesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(401)
     expect(hoisted.listAngleTelemetry).not.toHaveBeenCalled()
   })

@@ -12,6 +12,8 @@
  *                    payload whose api_app_id isn't this (fails closed).
  */
 
+import { appUrl } from '@/lib/app-url'
+
 /** The Connect connector, or null when Slack is not set up on this deployment. */
 export function slackConnector(): string | null {
   const value = process.env.SLACK_CONNECTOR?.trim()
@@ -41,7 +43,7 @@ export function slackSelfInstallOpen(): boolean {
 
 /** The app's public origin, for links the bot sends and Connect's return URL. */
 export function appOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /** Slack's page under Settings › Connectors (slack-connector-view.tsx). */

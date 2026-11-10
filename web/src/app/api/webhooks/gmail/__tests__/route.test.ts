@@ -41,7 +41,7 @@ beforeEach(() => {
     return q
   })
   vi.stubEnv('VERCEL_ENV', 'production')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   vi.stubEnv('GMAIL_WEBHOOK_TOKEN', 'sekret')
   vi.stubEnv('GMAIL_PUSH_SERVICE_ACCOUNT', SA)
   vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -53,7 +53,7 @@ afterEach(() => {
 
 function push(headers: Record<string, string> = {}): Request {
   const data = Buffer.from(JSON.stringify({ emailAddress: 'me@gmail.com', historyId: 7 })).toString('base64')
-  return new Request('https://dial8.ai/api/webhooks/gmail?token=sekret', {
+  return new Request('https://nativeintelligence.dev/api/webhooks/gmail?token=sekret', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ message: { data } }),
@@ -64,7 +64,7 @@ const idToken = () =>
   new SignJWT({ email: SA, email_verified: true })
     .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
     .setIssuer('https://accounts.google.com')
-    .setAudience('https://dial8.ai/api/webhooks/gmail?token=sekret')
+    .setAudience('https://nativeintelligence.dev/api/webhooks/gmail?token=sekret')
     .setIssuedAt()
     .setExpirationTime('1h')
     .sign(privateKey)

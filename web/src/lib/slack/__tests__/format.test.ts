@@ -4,7 +4,7 @@ import { SLACK_REPLY_MAX_CHARS, markdownToSlack } from '../format'
 describe('markdownToSlack', () => {
   it('turns markdown emphasis, links, headings and bullets into Slack’s own', () => {
     expect(markdownToSlack('**Bold** and *italic* and ~~gone~~')).toBe('*Bold* and _italic_ and ~gone~')
-    expect(markdownToSlack('See [the doc](https://dial8.ai/docs) now')).toBe('See <https://dial8.ai/docs|the doc> now')
+    expect(markdownToSlack('See [the doc](https://nativeintelligence.dev/docs) now')).toBe('See <https://nativeintelligence.dev/docs|the doc> now')
     expect(markdownToSlack('## Today\n- standup at 9\n- review at 2')).toBe('*Today*\n• standup at 9\n• review at 2')
   })
 
@@ -19,9 +19,9 @@ describe('markdownToSlack', () => {
 
   it('cuts a long reply at a line, pointing to the rest in Native Intelligence', () => {
     const long = Array.from({ length: 400 }, (_, i) => `line ${i} with some words`).join('\n')
-    const out = markdownToSlack(long, { moreLink: 'https://dial8.ai/account' })
+    const out = markdownToSlack(long, { moreLink: 'https://nativeintelligence.dev/account' })
     expect(out.length).toBeLessThanOrEqual(SLACK_REPLY_MAX_CHARS)
-    expect(out.endsWith('_The rest is in Native Intelligence: <https://dial8.ai/account|open it>._')).toBe(true)
+    expect(out.endsWith('_The rest is in Native Intelligence: <https://nativeintelligence.dev/account|open it>._')).toBe(true)
   })
 })
 

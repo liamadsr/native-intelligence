@@ -135,7 +135,7 @@ const ctx = {
     to_status_id: null,
     fired_at: '2026-10-02T00:00:00.000Z',
   },
-  appBaseUrl: 'https://dial8.ai',
+  appBaseUrl: 'https://nativeintelligence.dev',
   capture: null,
 }
 

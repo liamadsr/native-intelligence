@@ -31,14 +31,14 @@ describe('sendSms through the messaging service', () => {
   it('from the agent number when named, with a status callback', async () => {
     const fetch = twilio()
     await sendSms('+14155551234', 'hi', { fetch: fetch as never, config, sender: AGENT })
-    expect(forms(fetch)).toEqual([{ To: '+14155551234', Body: 'hi', MessagingServiceSid: 'MG1', From: AGENT, StatusCallback: 'https://dial8.ai/api/twilio/sms/status' }])
+    expect(forms(fetch)).toEqual([{ To: '+14155551234', Body: 'hi', MessagingServiceSid: 'MG1', From: AGENT, StatusCallback: 'https://nativeintelligence.dev/api/twilio/sms/status' }])
   })
 
   it('a sender the service doesn’t hold (21711): the Native Intelligence number, then the service’s own pick', async () => {
     const fetch = twilio(21711, 21711)
     expect(await sendSms('+14155551234', 'hi', { fetch: fetch as never, config, sender: AGENT })).toEqual({ ok: true, sid: 'SM1' })
     expect(forms(fetch).map((f) => [f.From ?? null, f.MessagingServiceSid, f.StatusCallback ?? null])).toEqual([
-      [AGENT, 'MG1', 'https://dial8.ai/api/twilio/sms/status'],
+      [AGENT, 'MG1', 'https://nativeintelligence.dev/api/twilio/sms/status'],
       [NI, 'MG1', null],
       [null, 'MG1', null],
     ])

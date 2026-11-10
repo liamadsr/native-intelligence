@@ -3,7 +3,7 @@
 /**
  * Settings › Phone: the phone section (components/communication/phone-section.tsx)
  * on its own page. The 10DLC campaign and the texts Native Intelligence sends name this page
- * (dial8.ai/account/settings/phone), so it stays; the agent panel's
+ * (nativeintelligence.dev/account/settings/phone), so it stays; the agent panel's
  * Communication tab shows the same section.
  */
 

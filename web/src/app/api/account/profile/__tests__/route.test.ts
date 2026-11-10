@@ -51,7 +51,7 @@ const { GET, PATCH } = await import('@/app/api/account/profile/route')
 
 function patchReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/profile',
+    url: 'https://nativeintelligence.dev/api/account/profile',
     method: 'PATCH',
     body,
   }) as unknown as NextRequest

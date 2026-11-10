@@ -78,7 +78,7 @@ describe('formFields and formSubmits', () => {
     expect(formSubmits("await fetch('/api/contact', { method: 'POST' })")).toEqual({ submits: 'api-route', target: '/api/contact' })
     expect(formSubmits("'use server'\nexport async function send() {}").submits).toBe('server-action')
     expect(formSubmits('<form action="https://example.org/submit">').submits).toBe('action-url')
-    expect(formSubmits('fetch("https://dial8.ai/api/intake/quotes/qk_' + 'a'.repeat(43) + '")').submits).toBe('dial8')
+    expect(formSubmits('fetch("https://nativeintelligence.dev/api/intake/quotes/qk_' + 'a'.repeat(43) + '")').submits).toBe('dial8')
     expect(formSubmits('<form><input name="q"></form>').submits).toBe('none')
   })
 })

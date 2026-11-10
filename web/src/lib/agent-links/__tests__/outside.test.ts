@@ -16,7 +16,7 @@ vi.mock('../store', () => ({
   endLinkForWorkspace: (s: unknown, i: { linkId: string; byUserId: string }) => endLinkForWorkspace(s, i),
 }))
 const send = vi.fn(async (_m: unknown) => ({ error: null as unknown }))
-vi.mock('@/lib/email', () => ({ BASE_URL: 'https://dial8.ai', sendEmail: (m: unknown) => send(m) }))
+vi.mock('@/lib/email', () => ({ BASE_URL: 'https://nativeintelligence.dev', sendEmail: (m: unknown) => send(m) }))
 
 import {
   EMAIL_REQUESTS_PER_DAY,
@@ -157,12 +157,12 @@ describe('emails', () => {
   })
 
   it('sends one email that never says whether they’re on Native Intelligence, with the name escaped', async () => {
-    expect(await sendLinkRequestEmail({ to: 'dana@northwind.com', requesterName: 'Liam <b>', url: 'https://dial8.ai/link/t' })).toBe(true)
+    expect(await sendLinkRequestEmail({ to: 'dana@northwind.com', requesterName: 'Liam <b>', url: 'https://nativeintelligence.dev/link/t' })).toBe(true)
     const msg = send.mock.calls[0][0] as { to: string; subject: string; html: string }
     expect(msg.to).toBe('dana@northwind.com')
     expect(msg.subject).toBe('Liam <b> wants their Native Intelligence agent to talk to yours')
     expect(msg.html).toContain('Liam &lt;b&gt;')
-    expect(msg.html).toContain('https://dial8.ai/link/t')
+    expect(msg.html).toContain('https://nativeintelligence.dev/link/t')
     expect(msg.html).toContain("If you're new to Native Intelligence")
   })
 })
@@ -175,7 +175,7 @@ describe('connect tokens', () => {
     expect(isConnectTokenShape('../../../../../../../../etc/pass')).toBe(false)
     expect(hashConnectToken(token, KEY)).not.toBe(hashConnectToken(token, 'other'))
     expect(hashConnectToken(token, KEY)).not.toContain(token)
-    expect(connectLinkUrl(token)).toBe(`https://dial8.ai/link/${token}`)
+    expect(connectLinkUrl(token)).toBe(`https://nativeintelligence.dev/link/${token}`)
   })
 
   it('open a waiting request only', async () => {
@@ -345,7 +345,7 @@ describe('asking someone outside', () => {
     const input = requestLink.mock.calls[0][1]
     expect(input).toMatchObject({ peerUserId: null, email: null })
     const url = (result as { url: string }).url
-    const token = url.slice('https://dial8.ai/link/'.length)
+    const token = url.slice('https://nativeintelligence.dev/link/'.length)
     expect(isConnectTokenShape(token)).toBe(true)
     expect(input.connectTokenHash).toBe(hashConnectToken(token, KEY))
   })

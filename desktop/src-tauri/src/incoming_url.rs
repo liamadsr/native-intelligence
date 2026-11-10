@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn everything_else_is_dropped() {
         assert_eq!(auth_callback("https://example.com/a?b=1"), None);
-        assert_eq!(auth_callback("https://dial8.ai/auth/desktop-callback?code=abc"), None);
+        assert_eq!(auth_callback("https://nativeintelligence.dev/auth/desktop-callback?code=abc"), None);
         assert_eq!(auth_callback("file:///etc/passwd"), None);
         assert_eq!(auth_callback("zoommtg://join?x=1"), None);
         assert_eq!(auth_callback("not a url"), None);

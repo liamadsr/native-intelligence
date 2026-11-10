@@ -31,7 +31,7 @@ const { POST } = await import('@/app/api/account/captures/[id]/move/route')
 
 function buildReq(body: unknown) {
   return new Request(
-    'https://dial8.ai/api/account/captures/c1/move',
+    'https://nativeintelligence.dev/api/account/captures/c1/move',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

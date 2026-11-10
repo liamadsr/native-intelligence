@@ -153,7 +153,7 @@ function makeFakeSupabase() {
 
 function bulkReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/bulk',
+    url: 'https://nativeintelligence.dev/api/account/bulk',
     method: 'POST',
     body,
   }) as unknown as NextRequest

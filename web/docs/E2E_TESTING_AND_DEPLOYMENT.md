@@ -17,7 +17,7 @@ Status: **Design — not yet implemented.**
 
 ## Cross-app architecture
 
-The desktop app (`../desktop`) is a **Tauri shell that loads `https://dial8.ai` as its webview**, plus a Rust core exposing native commands (audio capture, meeting detection) over IPC. It is **not** a separate frontend.
+The desktop app (`../desktop`) is a **Tauri shell that loads `https://nativeintelligence.dev` as its webview**, plus a Rust core exposing native commands (audio capture, meeting detection) over IPC. It is **not** a separate frontend.
 
 ### Test tiers
 
@@ -195,7 +195,7 @@ Posted as a PR comment with `<!-- e2e-results -->` marker. CI **updates** the ex
 
 | Branch | Environment | URL | Supabase | Deploy trigger |
 |---|---|---|---|---|
-| `main` | Production | `dial8.ai` | Prod project | Manual promote from dev |
+| `main` | Production | `nativeintelligence.dev` (and `dial8.ai` while it still serves) | Prod project | Manual promote from dev |
 | `dev` | Dev | `dev.dial8.ai` | Dev project (persistent) | Auto on merge to `dev` |
 | `agent/*` `feat/*` `fix/*` | Preview | Vercel preview URL | Ephemeral `e2e-pr-{N}` branch | Auto on push |
 | `hotfix/*` | Preview → Prod | Vercel preview URL | Ephemeral branch | Targets `main` directly |

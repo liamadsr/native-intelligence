@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import ReleaseNotes from './client'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'Release Notes',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
     title: 'Native Intelligence Release Notes',
     description:
       'What’s new in Native Intelligence — the latest features, improvements, and fixes across meeting capture, project management, and AI execution.',
-    url: 'https://dial8.ai/release-notes',
+    url: `${appUrl()}/release-notes`,
     type: 'website',
   },
 }

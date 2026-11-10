@@ -5,7 +5,7 @@
  *  - Fail-closed auth (503 without a provisioned CRON_SECRET, 401 on a bad
  *    bearer) — the wiki-maintenance/triage-reconciler pattern.
  *  - The PUT targets the CANONICAL production host (VERCEL_PROJECT_PRODUCTION_URL,
- *    dial8.ai fallback), never a deployment-specific URL — Inngest records the
+ *    nativeintelligence.dev fallback), never a deployment-specific URL — Inngest records the
  *    host the registration arrives on, so a *.vercel.app self-registration
  *    would pin Inngest to a deployment that goes stale on the next deploy.
  *  - Non-production environments never self-register.
@@ -30,7 +30,7 @@ const fetchMock = vi.fn<(...args: unknown[]) => Promise<FetchStubResponse>>(asyn
 }))
 
 function request(bearer?: string) {
-  return new NextRequest('https://dial8.ai/api/cron/inngest-sync', {
+  return new NextRequest('https://nativeintelligence.dev/api/cron/inngest-sync', {
     headers: bearer ? { authorization: `Bearer ${bearer}` } : {},
   })
 }
@@ -69,7 +69,7 @@ describe('GET /api/cron/inngest-sync', () => {
   it('PUTs the canonical production host and reports modified, without a warning', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    vi.stubEnv('VERCEL_PROJECT_PRODUCTION_URL', 'dial8.ai')
+    vi.stubEnv('VERCEL_PROJECT_PRODUCTION_URL', 'nativeintelligence.dev')
     fetchMock.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -77,7 +77,7 @@ describe('GET /api/cron/inngest-sync', () => {
     })
     const res = await GET(request('test-secret'))
     expect(res.status).toBe(200)
-    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('https://dial8.ai/api/inngest', {
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('https://nativeintelligence.dev/api/inngest', {
       method: 'PUT',
     })
     expect(await res.json()).toMatchObject({ ok: true, modified: true })
@@ -87,11 +87,11 @@ describe('GET /api/cron/inngest-sync', () => {
     error.mockRestore()
   })
 
-  it('falls back to dial8.ai when VERCEL_PROJECT_PRODUCTION_URL is unset', async () => {
+  it('falls back to nativeintelligence.dev when VERCEL_PROJECT_PRODUCTION_URL is unset', async () => {
     vi.stubEnv('VERCEL_PROJECT_PRODUCTION_URL', '')
     const res = await GET(request('test-secret'))
     expect(res.status).toBe(200)
-    expect((fetchMock.mock.calls[0] as unknown[])[0]).toBe('https://dial8.ai/api/inngest')
+    expect((fetchMock.mock.calls[0] as unknown[])[0]).toBe('https://nativeintelligence.dev/api/inngest')
   })
 
   it('never self-registers from a non-production environment', async () => {

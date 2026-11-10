@@ -195,7 +195,7 @@ export const UNKNOWN_TEAMMATE_REREAD_MS = 1_000
 // (plain browser, or desktop-with-focus) keeps the exact toast behaviour it has
 // always had.
 //
-// VERSION SKEW is the governing constraint: dial8.ai deploys ahead of the
+// VERSION SKEW is the governing constraint: the web app deploys ahead of the
 // native binary, so an older shell has no `show_native_notification` command
 // and every invoke rejects. The first failure — for ANY reason (missing
 // command, permission denied, unsupported backend) — permanently disables the

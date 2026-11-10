@@ -11,7 +11,7 @@ final class EveChatAPI {
         if let override = environment["NI_API_BASE_URL"] ?? environment["DIAL8_API_BASE_URL"], let url = URL(string: override) { return url }
         return URL(string: "http://localhost:3000")!
         #else
-        return URL(string: "https://dial8.ai")!
+        return URL(string: "https://nativeintelligence.dev")!
         #endif
     }
 

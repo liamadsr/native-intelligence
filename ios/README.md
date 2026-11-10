@@ -1,7 +1,7 @@
 # Native Intelligence for iPhone and Apple Watch
 
 The native iOS app, its Apple Watch companion and its widgets. They talk to the same
-backend as the web app: the dial8.ai API for chat, captures and calendar, and Supabase
+backend as the web app: the nativeintelligence.dev API for chat, captures and calendar, and Supabase
 for sign-in and data.
 
 ## Layout
@@ -60,7 +60,7 @@ run `xcodegen` and commit both.
 
 - **Development** uses the development Supabase project and, for chat, `http://localhost:3000`
   (set `NI_API_BASE_URL` in the scheme's environment to reach another backend from a device).
-- **Release** uses production and `https://dial8.ai`.
+- **Release** uses production and `https://nativeintelligence.dev`.
 
 The Supabase URLs and anon keys in `Core/Config/SupabaseConfig.swift` and the PostHog key in
 `Core/Config/PostHogConfig.swift` are public client keys; row-level security protects the data.

@@ -85,7 +85,7 @@ const SAMPLES = [
   REPLY,
   'Short answer: yes.',
   '# Title\nSetext\n---\nText after. More text!\n\n* a\n* b\n  lazy continuation. Really.\n\n    indented code. Skip.\n\nEnd.',
-  'See https://docs.dial8.ai/api/v1?x=1. Then **bold. Still bold** and `code. span` done.\n\n~~~\nfence. text\n~~~\nTail sentence one. Tail two',
+  'See https://docs.nativeintelligence.dev/api/v1?x=1. Then **bold. Still bold** and `code. span` done.\n\n~~~\nfence. text\n~~~\nTail sentence one. Tail two',
   '> Quote one. Quote two.\n>\n> - quoted item\n\n$$\nx. y.\n$$\n\nAfter math. 🎉 Party!',
 ]
 
@@ -108,7 +108,7 @@ describe('SentenceStream — random chunkings', () => {
 
 describe('SentenceStream — inline constructs split across chunks', () => {
   const INLINE = [
-    'Read the guide. <https://docs.dial8.ai/guide> covers setup. Then restart.',
+    'Read the guide. <https://docs.nativeintelligence.dev/guide> covers setup. Then restart.',
     'It worked. <em>really</em> well. Done.',
     'It worked. <br> new line. Done.',
     'It worked. <br/>New line. Done.',
@@ -117,9 +117,9 @@ describe('SentenceStream — inline constructs split across chunks', () => {
     'It worked. <!-- note --> fine. Done.',
     'Mail us. <mailto:help@dial8.ai> works too. Bye.',
     'Tom &amp; Jerry. &nbsp;next up. &lt;tag&gt; Done.',
-    'See [the docs](https://docs.dial8.ai/a.b) now. Then *really* go. **Bold. Still** here. _Under_ it.',
+    'See [the docs](https://docs.nativeintelligence.dev/a.b) now. Then *really* go. **Bold. Still** here. _Under_ it.',
     'Use `a<b` and `x ~ y`. Then `<em` ends. Next one.',
-    '- Item one. <https://x.dial8.ai> two.\n- Item ~~three~~ four. Five.',
+    '- Item one. <https://x.nativeintelligence.dev> two.\n- Item ~~three~~ four. Five.',
     '> Quote. <em>quoted</em> tail. End.',
     'Done. [^1] and more. Next [^a]. Ok.',
     'See [a](https://x.io/(b) "Hi. There") now. Next. Ok.',
@@ -149,11 +149,11 @@ describe('SentenceStream — inline constructs split across chunks', () => {
     const s = new SentenceStream()
     const got = [
       ...s.push('Read the guide. <'),
-      ...s.push('Read the guide. <https://docs.dial8.ai/guide'),
-      ...s.push('Read the guide. <https://docs.dial8.ai/guide> covers setup. Then restart.'),
+      ...s.push('Read the guide. <https://docs.nativeintelligence.dev/guide'),
+      ...s.push('Read the guide. <https://docs.nativeintelligence.dev/guide> covers setup. Then restart.'),
       ...s.flush(),
     ]
-    expect(got).toEqual(['Read the guide. docs.dial8.ai covers setup.', 'Then restart.'])
+    expect(got).toEqual(['Read the guide. docs.nativeintelligence.dev covers setup.', 'Then restart.'])
   })
 
   it('a "<" that starts no tag holds nothing back', () => {

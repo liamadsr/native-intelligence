@@ -16,6 +16,7 @@ import {
 } from './asana-config'
 import { bucketForCategory } from './lifecycle'
 import type { AsanaPushOverrides } from './push-overrides'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * Push ONE Native Intelligence action to Asana as a task, and record the link.
@@ -101,7 +102,7 @@ function escapeHtml(text: string): string {
 
 /** App origin for the "back to Native Intelligence" deep link. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /**

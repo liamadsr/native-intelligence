@@ -16,7 +16,7 @@ const base = {
   description: 'Rug wash, 8x10 wool',
   amountCents: 60_000,
   currency: 'usd',
-  origin: 'https://dial8.ai',
+  origin: 'https://nativeintelligence.dev',
 }
 
 describe('the platform fee', () => {
@@ -62,7 +62,7 @@ describe('the payment link params', () => {
     const meta = { dial8_payment_request_id: 'req-1', dial8_workspace_id: 'ws-1', dial8_subject_type: 'quote', dial8_subject_id: 'quote-1' }
     expect(params.metadata).toEqual(meta)
     expect(params.payment_intent_data?.metadata).toEqual(meta)
-    expect(params.after_completion).toEqual({ type: 'redirect', redirect: { url: 'https://dial8.ai/payments/paid' } })
+    expect(params.after_completion).toEqual({ type: 'redirect', redirect: { url: 'https://nativeintelligence.dev/payments/paid' } })
   })
 })
 
@@ -87,7 +87,7 @@ describe('createPaymentLink', () => {
     stripeAccountId: 'acct_owner123',
     livemode: false,
     fee: NO_PLATFORM_FEE,
-    origin: 'https://dial8.ai',
+    origin: 'https://nativeintelligence.dev',
   }
 
   it('makes the link ON the connected account (a direct charge) and stores it', async () => {

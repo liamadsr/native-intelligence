@@ -62,7 +62,7 @@ pub fn open_workspace_window(
     let base_url = if cfg!(debug_assertions) {
         "http://localhost:3000"
     } else {
-        "https://dial8.ai"
+        crate::nav_guard::APP_URL
     };
 
     let url_str = format!("{}/account?switch_to={}", base_url, workspace_id);

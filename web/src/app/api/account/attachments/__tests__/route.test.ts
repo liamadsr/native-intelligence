@@ -160,13 +160,13 @@ const { GET, POST } = await import('@/app/api/account/attachments/route')
 // ---------------------------------------------------------------------------
 
 function getRequest(params: Record<string, string> = {}): NextRequest {
-  const url = new URL('https://dial8.ai/api/account/attachments')
+  const url = new URL('https://nativeintelligence.dev/api/account/attachments')
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   return new NextRequest(url.toString(), { method: 'GET' })
 }
 
 function postRequest(body: Record<string, unknown>): NextRequest {
-  return new NextRequest('https://dial8.ai/api/account/attachments', {
+  return new NextRequest('https://nativeintelligence.dev/api/account/attachments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

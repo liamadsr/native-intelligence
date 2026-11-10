@@ -13,6 +13,7 @@
  * always works. So deploying this to production moves no real money.
  */
 
+import { DEFAULT_APP_URL } from '@/lib/app-url'
 function env(name: string): string | null {
   const value = process.env[name]?.trim()
   return value ? value : null
@@ -53,7 +54,7 @@ export function connectV2WebhookSecret(): string | null {
 
 /** The app's public origin, for links in texts and Stripe's redirect URLs. */
 export function paymentsOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_APP_URL).replace(/\/$/, '')
 }
 
 /** The paths Stripe and the texts send people to. */

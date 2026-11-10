@@ -72,8 +72,8 @@ const { GET: serverMetadata } = await import('@/app/.well-known/oauth-authorizat
 const { _resetClientMetadataCacheForTests } = await import('@/lib/mcp/client-metadata')
 
 const authorizeUrl = (params: Record<string, string>) =>
-  new Request(`https://dial8.ai/api/mcp/oauth/authorize?${new URLSearchParams({ code_challenge: 'c', code_challenge_method: 'S256', ...params })}`)
-const post = (path: string, body: unknown) => new Request(`https://dial8.ai/api/mcp/oauth/${path}`, { method: 'POST', body: JSON.stringify(body) })
+  new Request(`https://nativeintelligence.dev/api/mcp/oauth/authorize?${new URLSearchParams({ code_challenge: 'c', code_challenge_method: 'S256', ...params })}`)
+const post = (path: string, body: unknown) => new Request(`https://nativeintelligence.dev/api/mcp/oauth/${path}`, { method: 'POST', body: JSON.stringify(body) })
 
 beforeEach(() => {
   _resetClientMetadataCacheForTests()
@@ -86,7 +86,7 @@ beforeEach(() => {
   m.order = []
   m.upsertError = null
   m.fetches = 0
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
 })
 
 describe('GET /api/mcp/oauth/authorize, an https client_id', () => {
@@ -325,8 +325,8 @@ describe('scopes: only read and write, never an empty grant', () => {
 
 describe('authorization server metadata', () => {
   it('says client metadata documents are supported, beside registration', async () => {
-    const meta = await (await serverMetadata()).json()
+    const meta = await (await serverMetadata(new Request('https://nativeintelligence.dev/.well-known/oauth-authorization-server'))).json()
     expect(meta.client_id_metadata_document_supported).toBe(true)
-    expect(meta.registration_endpoint).toBe('https://dial8.ai/api/mcp/oauth/register')
+    expect(meta.registration_endpoint).toBe('https://nativeintelligence.dev/api/mcp/oauth/register')
   })
 })

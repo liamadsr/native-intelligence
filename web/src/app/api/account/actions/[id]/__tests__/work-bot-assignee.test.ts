@@ -202,7 +202,7 @@ function makeFakeSupabase(actionRowOverride: Record<string, unknown> = {}) {
 const { PATCH } = await import('@/app/api/account/actions/[id]/route')
 
 function patchReq(body: unknown): NextRequest {
-  return buildRequest({ url: 'https://dial8.ai/api/account/actions/action-1', method: 'PATCH', body }) as unknown as NextRequest
+  return buildRequest({ url: 'https://nativeintelligence.dev/api/account/actions/action-1', method: 'PATCH', body }) as unknown as NextRequest
 }
 
 beforeEach(() => {

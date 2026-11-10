@@ -23,7 +23,7 @@
  * keeps its MCP servers in the Devin CLI's config, not the old
  * mcp_config.json: until that settles, the hint covers it.
  *
- * Pure: no React, no window. The page passes the server (dial8.ai, or the
+ * Pure: no React, no window. The page passes the server (nativeintelligence.dev, or the
  * dev origin on localhost) and renders what comes back.
  */
 

@@ -119,7 +119,7 @@ describe('a loop names the GitHub integration', () => {
 
 describe('a call_tool step on GitHub', () => {
   it('a read runs as the owner, with no card', async () => {
-    const out = await executor()(step(READ_PR), { entity: null, trigger, appBaseUrl: 'https://dial8.ai', steps: {} } as never)
+    const out = await executor()(step(READ_PR), { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', steps: {} } as never)
     expect(out.status).toBe('success')
     expect(out.step_output).toBe('PR #991 merged')
     expect(callTool).toHaveBeenCalledWith(db, GITHUB_INTEGRATION_SERVER_ID, 'pull_request_read', READ_PR.input, OWNER)
@@ -127,7 +127,7 @@ describe('a call_tool step on GitHub', () => {
   })
 
   it('after the run read outside text a read still runs (as a catalog app’s), but a URL in its input waits for the owner’s card', async () => {
-    const after = { entity: null, trigger, appBaseUrl: 'https://dial8.ai', steps: {}, readOutsideText: true } as never
+    const after = { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', steps: {}, readOutsideText: true } as never
     expect((await executor()(step(READ_PR), after)).status).toBe('success')
     expect(hold).not.toHaveBeenCalled()
     callTool.mockClear()
@@ -139,7 +139,7 @@ describe('a call_tool step on GitHub', () => {
 
   it('a sign-in GitHub refuses fails the step with the reconnect line', async () => {
     callTool.mockRejectedValueOnce(Object.assign(new Error('unauthorized'), { code: 401 }))
-    const out = await executor()(step(READ_PR), { entity: null, trigger, appBaseUrl: 'https://dial8.ai', steps: {} } as never)
+    const out = await executor()(step(READ_PR), { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', steps: {} } as never)
     expect(out).toMatchObject({ status: 'failed', error_message: expect.stringMatching(/reconnect GitHub in Settings/) })
   })
 })

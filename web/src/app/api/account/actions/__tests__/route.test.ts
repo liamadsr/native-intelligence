@@ -94,7 +94,7 @@ function actionReq(body: unknown): NextRequest {
   // Next.js accepts any Request-like; for test purposes the cast is safe
   // because we only use methods/properties that Request shares with NextRequest.
   return buildRequest({
-    url: 'https://dial8.ai/api/account/actions',
+    url: 'https://nativeintelligence.dev/api/account/actions',
     body,
   }) as unknown as NextRequest
 }

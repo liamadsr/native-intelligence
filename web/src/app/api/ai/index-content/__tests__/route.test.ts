@@ -77,7 +77,7 @@ const { POST } = await import('@/app/api/ai/index-content/route')
 const LONG_SUMMARY = 'A real meeting summary. '.repeat(20) // ~480 chars
 
 function request(body: Record<string, unknown>) {
-  return new Request('https://dial8.ai/api/ai/index-content', {
+  return new Request('https://nativeintelligence.dev/api/ai/index-content', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

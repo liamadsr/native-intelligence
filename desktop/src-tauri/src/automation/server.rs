@@ -397,7 +397,7 @@ mod tests {
     #[tokio::test]
     async fn any_origin_is_refused_even_with_the_token() {
         let addr = start().await;
-        for origin in ["http://localhost:3000", "https://dial8.ai", "null"] {
+        for origin in ["http://localhost:3000", "https://nativeintelligence.dev", "null"] {
             let reply = send(addr, request("GET", "/health", &[("Authorization", &bearer()), ("Origin", origin)], "")).await;
             assert_eq!(reply.status, 403, "Origin {origin}");
             assert_eq!(reply.body, json!({ "ok": false, "error": "forbidden" }));

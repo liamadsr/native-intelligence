@@ -105,7 +105,7 @@ const { POST } = await import(
 )
 
 const req = new Request(
-  'https://dial8.ai/api/account/captures/cap-1/proposed-changes/pc-1/apply',
+  'https://nativeintelligence.dev/api/account/captures/cap-1/proposed-changes/pc-1/apply',
   { method: 'POST' },
 ) as unknown as import('next/server').NextRequest
 const params = Promise.resolve({ id: 'cap-1', changeId: 'pc-1' })

@@ -105,7 +105,7 @@ beforeEach(() => {
   }
 })
 
-const get = () => GET(new NextRequest('https://dial8.ai/api/account/knowledge'))
+const get = () => GET(new NextRequest('https://nativeintelligence.dev/api/account/knowledge'))
 
 describe('GET /api/account/knowledge: mail is shown to no one', () => {
   it('drops claims learned from mail, with their sources and edges, and never makes an email a node', async () => {

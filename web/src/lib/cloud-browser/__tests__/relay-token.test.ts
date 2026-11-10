@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mintBrowserRelayToken, relayDeviceId, requireBrowserRelay, RELAY_MARK_HEADER, RELAY_TOKEN_HEADER, verifyBrowserRelayToken } from '../relay-token'
 
 const claims = { userId: 'user-1', workspaceId: 'ws-1', sandbox: 'browser-abc' }
-const request = (headers: Record<string, string>) => new Request('https://browser-relay.dial8.ai/api/browser-relay/next', { headers })
+const request = (headers: Record<string, string>) => new Request('https://browser-relay.nativeintelligence.dev/api/browser-relay/next', { headers })
 
 beforeEach(() => {
   vi.stubEnv('BROWSER_INTERNAL_SECRET', 'browser-secret')

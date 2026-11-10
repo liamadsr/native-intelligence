@@ -297,6 +297,6 @@ describe('the post surfaces (content C0)', () => {
     expect(find(lintDraft('Shipped it #buildinpublic #saas', { surface: 'x' }), 'hashtags')).toBeUndefined()
     expect(find(lintDraft('Shipped it #a #b #c', { surface: 'x' }), 'hashtags')).toMatchObject({ severity: 'medium', count: 3 })
     expect(find(lintDraft('Shipped it #a #b', { surface: 'threads' }), 'hashtags')).toMatchObject({ count: 2 })
-    expect(find(lintDraft('Read it: https://dial8.ai/blog\nIt is good.', { surface: 'x' }), 'link_placement')).toMatchObject({ fix: 'move the link to the last line' })
+    expect(find(lintDraft('Read it: https://nativeintelligence.dev/blog\nIt is good.', { surface: 'x' }), 'link_placement')).toMatchObject({ fix: 'move the link to the last line' })
   })
 })

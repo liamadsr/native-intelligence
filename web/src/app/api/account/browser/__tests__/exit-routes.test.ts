@@ -25,7 +25,7 @@ const { privateKey } = generateKeyPairSync('ed25519')
 const SANDBOX = cloudBrowserSandboxName('u1', 'w1', 'local')
 const ticket = (body: unknown = {}) => TICKET(new Request('http://localhost/api/account/browser/exit', { method: 'POST', body: JSON.stringify(body) }))
 const relaySwitch = (body: unknown, token: string | null = mintBrowserRelayToken({ userId: 'u1', workspaceId: 'w1', sandbox: SANDBOX }, 60_000)) =>
-  SWITCH(new Request('https://browser-relay.dial8.ai/api/browser-relay/exit', { method: 'POST', body: JSON.stringify(body),
+  SWITCH(new Request('https://browser-relay.nativeintelligence.dev/api/browser-relay/exit', { method: 'POST', body: JSON.stringify(body),
     headers: token ? { [RELAY_TOKEN_HEADER]: token, [RELAY_MARK_HEADER]: '1' } : {} }))
 
 beforeEach(() => {
@@ -53,7 +53,7 @@ describe('the desktop’s exit ticket', () => {
   })
 
   it('needs the signing key, and serves only its public half', async () => {
-    const key = (ip?: string) => KEY(new Request('https://dial8.ai/api/browser-exit/key', { headers: ip ? { 'x-forwarded-for': `${ip}, 10.0.0.1` } : {} }))
+    const key = (ip?: string) => KEY(new Request('https://nativeintelligence.dev/api/browser-exit/key', { headers: ip ? { 'x-forwarded-for': `${ip}, 10.0.0.1` } : {} }))
     expect(await (await key('24.193.1.2')).json()).toEqual({ key: sandboxVerifyKey(privateKey), ip: '24.193.1.2' })
     vi.stubEnv('CLOUD_BROWSER_SIGNING_KEY', '')
     expect((await ticket()).status).toBe(503)

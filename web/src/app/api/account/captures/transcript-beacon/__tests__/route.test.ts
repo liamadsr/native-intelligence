@@ -52,7 +52,7 @@ function auth(existing: string | null, locked = false) {
 
 function beaconReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/transcript-beacon',
+    url: 'https://nativeintelligence.dev/api/account/captures/transcript-beacon',
     method: 'POST',
     body,
   }) as unknown as NextRequest

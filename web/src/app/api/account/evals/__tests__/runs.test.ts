@@ -116,14 +116,14 @@ beforeEach(() => {
 describe('GET /api/account/evals/runs', () => {
   it('returns a suite run history', async () => {
     hoisted.listRuns.mockResolvedValue([RUN])
-    const res = await runsRoute.GET(nextRequest('https://dial8.ai/x?suite_id=suite-1'))
+    const res = await runsRoute.GET(nextRequest('https://nativeintelligence.dev/x?suite_id=suite-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ runs: [RUN] })
     expect(hoisted.listRuns).toHaveBeenCalledWith(supabase, 'suite-1', undefined)
   })
 
   it('passes ?limit through', async () => {
-    await runsRoute.GET(nextRequest('https://dial8.ai/x?suite_id=suite-1&limit=5'))
+    await runsRoute.GET(nextRequest('https://nativeintelligence.dev/x?suite_id=suite-1&limit=5'))
     expect(hoisted.listRuns).toHaveBeenCalledWith(supabase, 'suite-1', 5)
   })
 
@@ -136,7 +136,7 @@ describe('GET /api/account/evals/runs', () => {
     'falls back to the default rather than trusting ?limit=%j',
     async (raw) => {
       await runsRoute.GET(
-        nextRequest(`https://dial8.ai/x?suite_id=suite-1&limit=${encodeURIComponent(raw)}`),
+        nextRequest(`https://nativeintelligence.dev/x?suite_id=suite-1&limit=${encodeURIComponent(raw)}`),
       )
       expect(hoisted.listRuns).toHaveBeenCalledWith(supabase, 'suite-1', undefined)
     },
@@ -145,26 +145,26 @@ describe('GET /api/account/evals/runs', () => {
   // RUN_FIELDS carries target_system_prompt and target_agent_config, so an
   // unbounded limit is a megabyte response, not merely a long one.
   it('caps an oversized ?limit rather than reading every run', async () => {
-    await runsRoute.GET(nextRequest('https://dial8.ai/x?suite_id=suite-1&limit=1000000'))
+    await runsRoute.GET(nextRequest('https://nativeintelligence.dev/x?suite_id=suite-1&limit=1000000'))
     expect(hoisted.listRuns).toHaveBeenCalledWith(supabase, 'suite-1', 100)
   })
 
   it('requires suite_id', async () => {
-    const res = await runsRoute.GET(nextRequest('https://dial8.ai/x'))
+    const res = await runsRoute.GET(nextRequest('https://nativeintelligence.dev/x'))
     expect(res.status).toBe(400)
     expect(hoisted.listRuns).not.toHaveBeenCalled()
   })
 
   it('404s a cross-workspace suite_id — never 403', async () => {
     hoisted.getSuite.mockResolvedValue(null)
-    const res = await runsRoute.GET(nextRequest('https://dial8.ai/x?suite_id=other'))
+    const res = await runsRoute.GET(nextRequest('https://nativeintelligence.dev/x?suite_id=other'))
     expect(res.status).toBe(404)
     expect(hoisted.listRuns).not.toHaveBeenCalled()
   })
 
   it('propagates the auth Response untouched', async () => {
     hoisted.requireWorkspace.mockResolvedValue(new Response('nope', { status: 401 }))
-    const res = await runsRoute.GET(nextRequest('https://dial8.ai/x?suite_id=suite-1'))
+    const res = await runsRoute.GET(nextRequest('https://nativeintelligence.dev/x?suite_id=suite-1'))
     expect(res.status).toBe(401)
     expect(hoisted.getSuite).not.toHaveBeenCalled()
   })
@@ -176,7 +176,7 @@ describe('GET /api/account/evals/runs', () => {
 
 describe('POST /api/account/evals/runs', () => {
   it('queues a run and returns 202 with the estimate', async () => {
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(202)
     expect(await res.json()).toEqual({ run: RUN, adopted: false, estimated_cost_usd: 0.42 })
     expect(hoisted.startEvalRun).toHaveBeenCalledWith(
@@ -199,7 +199,7 @@ describe('POST /api/account/evals/runs', () => {
         headers: { 'content-type': 'application/json' },
       }),
     )
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(403)
     expect((await res.json()).code).toBe('FEATURE_DISABLED')
     expect(hoisted.startEvalRun).not.toHaveBeenCalled()
@@ -207,7 +207,7 @@ describe('POST /api/account/evals/runs', () => {
   })
 
   it('checks the usage limit exactly ONCE per run', async () => {
-    await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(hoisted.checkUsageLimits).toHaveBeenCalledTimes(1)
     expect(hoisted.checkUsageLimits).toHaveBeenCalledWith(USER.id, undefined, { chatgptPlan: true })
   })
@@ -219,7 +219,7 @@ describe('POST /api/account/evals/runs', () => {
         headers: { 'Content-Type': 'application/json' },
       }),
     )
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(429)
     expect(await res.json()).toMatchObject({ error: 'Usage limit exceeded', reason: 'monthly_cap' })
     expect(hoisted.startEvalRun).not.toHaveBeenCalled()
@@ -229,14 +229,14 @@ describe('POST /api/account/evals/runs', () => {
     hoisted.checkUsageLimits.mockRejectedValueOnce(
       new Response(JSON.stringify({ error: 'Usage check unavailable' }), { status: 503 }),
     )
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(503)
     expect(hoisted.startEvalRun).not.toHaveBeenCalled()
   })
 
   it('does not probe billing for a cross-workspace suite_id', async () => {
     hoisted.getSuite.mockResolvedValue(null)
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(404)
     expect(hoisted.checkUsageLimits).not.toHaveBeenCalled()
     expect(hoisted.startEvalRun).not.toHaveBeenCalled()
@@ -248,7 +248,7 @@ describe('POST /api/account/evals/runs', () => {
       adopted: true,
       estimated_cost_usd: 0.42,
     })
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(202)
     expect(await res.json()).toMatchObject({ adopted: true, run: { id: 'run-1' } })
   })
@@ -257,7 +257,7 @@ describe('POST /api/account/evals/runs', () => {
     hoisted.startEvalRun.mockRejectedValue(
       new EvalRunError('EVAL_BUDGET_EXCEEDED', 'Monthly eval budget of $100 reached'),
     )
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({
       error: 'Monthly eval budget of $100 reached',
@@ -270,27 +270,27 @@ describe('POST /api/account/evals/runs', () => {
       new EvalRunError('EVAL_NO_CASES', 'This suite has no cases for that mode'),
     )
     expect(
-      (await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))).status,
+      (await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))).status,
     ).toBe(400)
 
     hoisted.startEvalRun.mockRejectedValue(
       new EvalRunError('EVAL_SUITE_NOT_FOUND', 'Eval suite not found'),
     )
     expect(
-      (await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))).status,
+      (await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))).status,
     ).toBe(404)
   })
 
   it('maps an unexpected throw to a 500 with no upstream text', async () => {
     hoisted.startEvalRun.mockRejectedValue(new Error('inngest send failed'))
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: START_BODY }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: START_BODY }))
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'Internal server error', code: 'INTERNAL' })
   })
 
   it('rejects an unknown mode before touching billing', async () => {
     const res = await runsRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { ...START_BODY, mode: 'turbo' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { ...START_BODY, mode: 'turbo' } }),
     )
     expect(res.status).toBe(400)
     expect(hoisted.checkUsageLimits).not.toHaveBeenCalled()
@@ -301,7 +301,7 @@ describe('POST /api/account/evals/runs', () => {
     expect(
       (
         await runsRoute.POST(
-          nextRequest('https://dial8.ai/x', { body: { suite_id: 'suite-1', mode: 'batch' } }),
+          nextRequest('https://nativeintelligence.dev/x', { body: { suite_id: 'suite-1', mode: 'batch' } }),
         )
       ).status,
     ).toBe(400)
@@ -309,14 +309,14 @@ describe('POST /api/account/evals/runs', () => {
     expect(
       (
         await runsRoute.POST(
-          nextRequest('https://dial8.ai/x', { body: { ...START_BODY, trials_per_case: 99 } }),
+          nextRequest('https://nativeintelligence.dev/x', { body: { ...START_BODY, trials_per_case: 99 } }),
         )
       ).status,
     ).toBe(400)
   })
 
   it('rejects an unparseable body before touching billing', async () => {
-    const res = await runsRoute.POST(nextRequest('https://dial8.ai/x', { body: '{oops', raw: true }))
+    const res = await runsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: '{oops', raw: true }))
     expect(res.status).toBe(400)
     expect(hoisted.checkUsageLimits).not.toHaveBeenCalled()
   })
@@ -329,14 +329,14 @@ describe('POST /api/account/evals/runs', () => {
 describe('GET /api/account/evals/runs/[id]', () => {
   it('returns the run with its trials', async () => {
     hoisted.getRunDetail.mockResolvedValue({ run: RUN, trials: [{ id: 'trial-1', checks: [] }] })
-    const res = await runRoute.GET(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await runRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ run: RUN, trials: [{ id: 'trial-1', checks: [] }] })
   })
 
   it('404s an unknown run', async () => {
     hoisted.getRunDetail.mockResolvedValue(null)
-    const res = await runRoute.GET(nextRequest('https://dial8.ai/x'), params('nope'))
+    const res = await runRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('nope'))
     expect(res.status).toBe(404)
   })
 
@@ -345,7 +345,7 @@ describe('GET /api/account/evals/runs/[id]', () => {
       run: { ...RUN, workspace_id: 'ws-other' },
       trials: [{ id: 'trial-1' }],
     })
-    const res = await runRoute.GET(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await runRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(404)
     expect(await res.json()).toMatchObject({ code: 'NOT_FOUND' })
   })
@@ -358,7 +358,7 @@ describe('GET /api/account/evals/runs/[id]', () => {
 describe('POST /api/account/evals/runs/[id]/cancel', () => {
   it('cancels a live run', async () => {
     hoisted.cancelEvalRun.mockResolvedValue({ ...RUN, status: 'cancelled', is_live: false })
-    const res = await cancelRoute.POST(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await cancelRoute.POST(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ status: 'cancelled' })
     expect(hoisted.cancelEvalRun).toHaveBeenCalledWith(service, { workspaceId: WS, runId: 'run-1' })
@@ -366,7 +366,7 @@ describe('POST /api/account/evals/runs/[id]/cancel', () => {
 
   it('409s a run that settled since the last poll, rather than claiming it was cancelled', async () => {
     hoisted.cancelEvalRun.mockResolvedValue({ ...RUN, status: 'completed', is_live: false })
-    const res = await cancelRoute.POST(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await cancelRoute.POST(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({
       code: 'NOT_CANCELABLE',
@@ -376,26 +376,26 @@ describe('POST /api/account/evals/runs/[id]/cancel', () => {
 
   it('404s a cross-workspace run without calling the service client', async () => {
     hoisted.runSelect.mockResolvedValue({ data: null, error: null })
-    const res = await cancelRoute.POST(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await cancelRoute.POST(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(404)
     expect(hoisted.cancelEvalRun).not.toHaveBeenCalled()
   })
 
   it('maps EVAL_RUN_NOT_FOUND from the lib to a 404', async () => {
     hoisted.cancelEvalRun.mockRejectedValue(new EvalRunError('EVAL_RUN_NOT_FOUND', 'Run not found'))
-    const res = await cancelRoute.POST(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await cancelRoute.POST(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(404)
   })
 
   it('maps an unexpected throw to a 500', async () => {
     hoisted.cancelEvalRun.mockRejectedValue(new Error('boom'))
-    const res = await cancelRoute.POST(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await cancelRoute.POST(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(500)
   })
 
   it('maps a read error to a 500 without cancelling anything', async () => {
     hoisted.runSelect.mockResolvedValue({ data: null, error: { message: 'timeout' } })
-    const res = await cancelRoute.POST(nextRequest('https://dial8.ai/x'), params('run-1'))
+    const res = await cancelRoute.POST(nextRequest('https://nativeintelligence.dev/x'), params('run-1'))
     expect(res.status).toBe(500)
     expect(hoisted.cancelEvalRun).not.toHaveBeenCalled()
   })

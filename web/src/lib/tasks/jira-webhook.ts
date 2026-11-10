@@ -15,6 +15,7 @@ import {
   loadJiraWebhookState,
   saveJiraWebhookRegistration,
 } from './jira-config'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * Jira dynamic-webhook registration lifecycle — CONVERGENT, not event-sourced.
@@ -78,7 +79,7 @@ export function jiraWebhookPath(): string {
 
 /** App origin for the webhook target (same source as the action deep links). */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /**

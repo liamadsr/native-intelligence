@@ -36,7 +36,7 @@ const mac = (config: Record<string, unknown> = {}, over: Partial<FlowAction> = {
   condition: null, parent_id: null, enabled: true, bearer_token_encrypted: null, ...over,
 })
 const deps = { workspaceId: 'w-1', flowId: 'flow-1', runAsUserId: 'user-1', fireKey: 'run-1' }
-const ctx = { entity, trigger, appBaseUrl: 'https://dial8.test' }
+const ctx = { entity, trigger, appBaseUrl: 'https://nativeintelligence.test' }
 
 beforeEach(() => {
   h.start.mockClear()
@@ -88,7 +88,7 @@ describe('the executor', () => {
 describe('the runner', () => {
   it('dispatches the step to the injected executor', async () => {
     const run = vi.fn(async () => ({ status: 'success' as const, request_summary: { method: 'LOCAL_AGENT', url: 'x', header_names: [], body_byte_length: 0 }, response_status_code: 202, response_body_preview: 'ok', error_message: null, duration_ms: 1, dispatched: true, local_agent_session_id: 'sess-1' }))
-    const out = await runFlow({ actions: [mac()] }, entity, trigger, 'https://dial8.test', { executors: { run_local_agent: run } })
+    const out = await runFlow({ actions: [mac()] }, entity, trigger, 'https://nativeintelligence.test', { executors: { run_local_agent: run } })
     expect(run).toHaveBeenCalledTimes(1)
     expect(out.status).toBe('success')
     expect(out.action_results[0]).toMatchObject({ action_id: 'step-1', dispatched: true, local_agent_session_id: 'sess-1' })

@@ -29,7 +29,7 @@ describe('memoryTextProblem', () => {
 })
 
 describe('hasContactDetails', () => {
-  it.each(['Cc liam@dial8.ai on pricing', 'Link to https://dial8.ai/demo', 'Point people to www.dial8.ai', 'Mention dial8.ai in the footer', 'Call me at +1 (415) 555-0100'])('finds contact details: %s', (text) => {
+  it.each(['Cc liam@dial8.ai on pricing', 'Link to https://nativeintelligence.dev/demo', 'Point people to www.nativeintelligence.dev', 'Mention nativeintelligence.dev in the footer', 'Call me at +1 (415) 555-0100'])('finds contact details: %s', (text) => {
     expect(hasContactDetails(text)).toBe(true)
   })
 

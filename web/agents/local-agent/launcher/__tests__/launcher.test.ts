@@ -129,9 +129,9 @@ describe('the model launch (relay, a local model, or dev)', () => {
 
   it('refuses one without the other, a non-https base and a malformed token', () => {
     expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_TOKEN: token })).toThrow(/set together/)
-    expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/m' })).toThrow(/set together/)
-    expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'http://dial8.ai/m', LOCAL_AGENT_MODEL_TOKEN: token })).toThrow(/https/)
-    expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/m', LOCAL_AGENT_MODEL_TOKEN: 'a b' })).toThrow(/not a model token/)
+    expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/m' })).toThrow(/set together/)
+    expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'http://nativeintelligence.dev/m', LOCAL_AGENT_MODEL_TOKEN: token })).toThrow(/https/)
+    expect(() => modelLaunchFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/m', LOCAL_AGENT_MODEL_TOKEN: 'a b' })).toThrow(/not a model token/)
   })
 
   it('is a local model with the LOCAL_AGENT_LOCAL_MODEL_* pair; the session token then serves C1 only', () => {
@@ -154,7 +154,7 @@ describe('the model launch (relay, a local model, or dev)', () => {
     const local = { LOCAL_AGENT_LOCAL_MODEL_BASE_URL: 'http://127.0.0.1:11434/v1', LOCAL_AGENT_LOCAL_MODEL_ID: 'llama3.1:8b' }
     expect(() => modelLaunchFromEnv({ LOCAL_AGENT_LOCAL_MODEL_ID: 'x' })).toThrow(/set together/)
     expect(() => modelLaunchFromEnv({ LOCAL_AGENT_LOCAL_MODEL_BASE_URL: 'http://127.0.0.1:11434/v1' })).toThrow(/set together/)
-    expect(() => modelLaunchFromEnv({ ...local, LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model', LOCAL_AGENT_MODEL_TOKEN: token })).toThrow(/never has LOCAL_AGENT_MODEL_BASE_URL/)
+    expect(() => modelLaunchFromEnv({ ...local, LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model', LOCAL_AGENT_MODEL_TOKEN: token })).toThrow(/never has LOCAL_AGENT_MODEL_BASE_URL/)
     expect(() => modelLaunchFromEnv({ ...local, LOCAL_AGENT_DEV_ENV_FILE: '/tmp/.env.local' })).toThrow(/never has LOCAL_AGENT_DEV_ENV_FILE/)
     expect(() => modelLaunchFromEnv({ ...local, LOCAL_AGENT_LOCAL_MODEL_BASE_URL: 'http://192.168.1.4:11434/v1' })).toThrow(/loopback/)
     expect(() => modelLaunchFromEnv({ ...local, LOCAL_AGENT_LOCAL_MODEL_ID: 'has space' })).toThrow(/model id/)
@@ -166,25 +166,25 @@ describe('the model launch (relay, a local model, or dev)', () => {
 
   it('takes LOCAL_AGENT_API_ORIGIN as an origin only, and the same one as the relay (C1)', () => {
     expect(apiOriginFromEnv({})).toBeNull()
-    expect(apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('https://dial8.ai')
+    expect(apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('https://nativeintelligence.dev')
     expect(apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'http://127.0.0.1:3001/' })).toBe('http://127.0.0.1:3001')
     expect(apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'http://localhost:3000' })).toBe('http://localhost:3000')
-    expect(apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai', LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model' })).toBe('https://dial8.ai')
-    for (const bad of ['https://dial8.ai/api', 'http://dial8.ai', 'http://10.0.0.2:3000', 'https://u:p@dial8.ai', 'nope']) expect(() => apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: bad })).toThrow(/origin/)
-    expect(() => apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai', LOCAL_AGENT_MODEL_BASE_URL: 'https://other.test/api/local-agent/model' })).toThrow(/different origins/)
+    expect(apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev', LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model' })).toBe('https://nativeintelligence.dev')
+    for (const bad of ['https://nativeintelligence.dev/api', 'http://nativeintelligence.dev', 'http://10.0.0.2:3000', 'https://u:p@dial8.ai', 'nope']) expect(() => apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: bad })).toThrow(/origin/)
+    expect(() => apiOriginFromEnv({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev', LOCAL_AGENT_MODEL_BASE_URL: 'https://other.test/api/local-agent/model' })).toThrow(/different origins/)
   })
 
   it('refuses a local-model run whose session token has no origin to reach (C1)', () => {
     const local = (token: string | null) => ({ kind: 'local', local: { baseURL: 'http://127.0.0.1:11434/v1', id: 'qwen3' }, token }) as const
     expect(c1OriginRefusal(local(token), null)).toMatch(/needs LOCAL_AGENT_API_ORIGIN/)
-    expect(c1OriginRefusal(local(token), 'https://dial8.ai')).toBeNull()
+    expect(c1OriginRefusal(local(token), 'https://nativeintelligence.dev')).toBeNull()
     expect(c1OriginRefusal(local(null), null)).toBeNull()
-    expect(c1OriginRefusal({ kind: 'relay', baseURL: 'https://dial8.ai/api/local-agent/model', token }, null)).toBeNull()
+    expect(c1OriginRefusal({ kind: 'relay', baseURL: 'https://nativeintelligence.dev/api/local-agent/model', token }, null)).toBeNull()
     expect(c1OriginRefusal({ kind: 'dev' }, null)).toBeNull()
   })
 
   it('runs only the Mac build, and a local model only on a build that has one', () => {
-    const relay = { kind: 'relay', baseURL: 'https://dial8.ai/api/local-agent/model', token } as const
+    const relay = { kind: 'relay', baseURL: 'https://nativeintelligence.dev/api/local-agent/model', token } as const
     const local = { kind: 'local', local: { baseURL: 'http://127.0.0.1:11434/v1', id: 'qwen3' }, token: null } as const
     expect(hostMarkerRefusal({ host: 'mac', localModel: false }, relay)).toBeNull()
     expect(hostMarkerRefusal({ host: 'mac', localModel: true }, local)).toBeNull()
@@ -193,9 +193,9 @@ describe('the model launch (relay, a local model, or dev)', () => {
   })
 
   it('accepts https anywhere and http to loopback only', () => {
-    expect(relayBaseUrl('https://dial8.ai/api/local-agent/model')).toBe('https://dial8.ai/api/local-agent/model')
+    expect(relayBaseUrl('https://nativeintelligence.dev/api/local-agent/model')).toBe('https://nativeintelligence.dev/api/local-agent/model')
     expect(relayBaseUrl('http://[::1]:3000/m')).toBe('http://[::1]:3000/m')
-    for (const bad of ['http://10.0.0.1/m', 'https://u:p@dial8.ai/m', 'https://dial8.ai/m?x=1', 'ftp://dial8.ai/m']) expect(relayBaseUrl(bad)).toBeNull()
+    for (const bad of ['http://10.0.0.1/m', 'https://u:p@dial8.ai/m', 'https://nativeintelligence.dev/m?x=1', 'ftp://nativeintelligence.dev/m']) expect(relayBaseUrl(bad)).toBeNull()
   })
 
   it('writes the token file 0600 and atomically, overwriting the old token and leaving no temp file', () => {

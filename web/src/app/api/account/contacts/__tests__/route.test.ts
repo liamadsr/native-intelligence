@@ -89,7 +89,7 @@ vi.mock('@/lib/inngest/client', () => ({
 const { GET, POST } = await import('@/app/api/account/contacts/route')
 
 function getReq(params: Record<string, string> = {}): NextRequest {
-  const url = new URL('https://dial8.ai/api/account/contacts')
+  const url = new URL('https://nativeintelligence.dev/api/account/contacts')
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   const req = buildRequest({ url: url.toString(), method: 'GET' })
   // Augment with nextUrl (Next.js-specific property used by the route handler)
@@ -113,7 +113,7 @@ beforeEach(() => {
 })
 
 function postReq(body: Record<string, unknown>): NextRequest {
-  const url = new URL('https://dial8.ai/api/account/contacts')
+  const url = new URL('https://nativeintelligence.dev/api/account/contacts')
   // buildRequest JSON.stringifies the body by default; pass the raw object.
   const req = buildRequest({ url: url.toString(), method: 'POST', body })
   return Object.assign(req, { nextUrl: url }) as unknown as NextRequest

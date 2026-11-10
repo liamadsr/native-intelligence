@@ -3,6 +3,7 @@
  * change of VM size or idle policy is one line.
  */
 
+import { APP_DOMAINS, appDomainOf, appUrl } from '@/lib/app-url'
 const SECOND = 1_000
 const MINUTE = 60 * SECOND
 const DAY = 24 * 60 * MINUTE
@@ -64,8 +65,22 @@ export const CLOUD_BROWSER = {
   controlTokenTtlMs: 10 * MINUTE,
 } as const
 
-/** The production relay host: a dedicated alias of the app, so the run token never rides dial8.ai page traffic (decision 6). */
-export const PRODUCTION_RELAY_ORIGIN = 'https://browser-relay.dial8.ai'
+/**
+ * The production relay host: a dedicated alias of the app, so the run token
+ * never rides the app's own page traffic (decision 6). It is `browser-relay.`
+ * on the domain the app's address is on (src/lib/app-url.ts), so it follows
+ * the address from one domain to the other; an address on neither gets the
+ * relay of the first.
+ */
+export function productionRelayOrigin(): string {
+  let host = ''
+  try {
+    host = new URL(appUrl()).hostname
+  } catch {
+    // An unreadable address: the first domain's relay, below.
+  }
+  return `https://browser-relay.${appDomainOf(host) ?? APP_DOMAINS[0]}`
+}
 
 /**
  * Where a sandbox reaches the app (C2): CLOUD_BROWSER_RELAY_ORIGIN when set, the
@@ -75,7 +90,7 @@ export const PRODUCTION_RELAY_ORIGIN = 'https://browser-relay.dial8.ai'
 export function cloudBrowserRelayOrigin(): string | null {
   const configured = process.env.CLOUD_BROWSER_RELAY_ORIGIN?.trim()
   if (configured) return configured.replace(/\/+$/, '')
-  if (process.env.VERCEL_ENV === 'production') return PRODUCTION_RELAY_ORIGIN
+  if (process.env.VERCEL_ENV === 'production') return productionRelayOrigin()
   if (process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_BRANCH_URL) return `https://${process.env.VERCEL_BRANCH_URL}`
   return null
 }

@@ -10,19 +10,26 @@ import { withEve } from 'eve/next'
  */
 const BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ?? ''
 
+// The domains the hosted app is served on. This file cannot import TypeScript,
+// so the list is repeated from src/lib/app-url.ts (APP_DOMAINS); a test keeps
+// the two the same (src/lib/cloud-browser/__tests__/relay-host.test.ts).
+// TODO(rename-compat): dial8.ai goes when src/lib/app-url.ts drops it.
+export const APP_DOMAINS = ['nativeintelligence.dev', 'dial8.ai']
+
 // The cloud browser's relay host (docs/plans/cloud-browser.md, decision 6)
 // serves only the relay: its routes (/api/browser-relay/*) and the files it
-// downloads (/cloud-browser/*). Anything else on it goes to the app.
-export const RELAY_HOST_REDIRECT = {
+// downloads (/cloud-browser/*). Anything else on it goes to the app, on the
+// same domain. One rule per domain the app is served on.
+export const RELAY_HOST_REDIRECTS = APP_DOMAINS.map((domain) => ({
   source: '/:path((?!api/browser-relay/|cloud-browser/).*)',
-  has: [{ type: 'host', value: 'browser-relay.dial8.ai' }],
-  destination: 'https://dial8.ai/:path',
+  has: [{ type: 'host', value: `browser-relay.${domain}` }],
+  destination: `https://${domain}/:path`,
   permanent: false,
-}
+}))
 
 /**
  * The Content-Security-Policy on every response. It limits where scripts and
- * workers load from (no third-party host can run code as dial8.ai) and nothing
+ * workers load from (no third-party host can run code as the app) and nothing
  * else: with no default-src, connect-src, img-src, frame-src and the rest stay
  * open, because the desktop app runs these same pages and its IPC is a fetch to
  * ipc://localhost. Every script is first-party today: PostHog's lazy scripts
@@ -155,7 +162,7 @@ const nextConfig = {
       // too). Old links, bookmarks and in-flight OAuth returns keep landing.
       { source: '/account/settings/integrations', destination: '/account/settings/connectors', permanent: false },
       { source: '/account/settings/integrations/:path*', destination: '/account/settings/connectors/:path*', permanent: false },
-      RELAY_HOST_REDIRECT,
+      ...RELAY_HOST_REDIRECTS,
     ]
   },
   async rewrites() {

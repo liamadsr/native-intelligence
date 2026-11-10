@@ -38,7 +38,7 @@ async function authorizeUrl(
   capability = 'tasks',
 ): Promise<URL> {
   const res = await GET(
-    new Request(`https://dial8.ai/api/oauth/${provider}/authorize?capability=${capability}`),
+    new Request(`https://nativeintelligence.dev/api/oauth/${provider}/authorize?capability=${capability}`),
     { params: Promise.resolve({ provider }) },
   )
   const body = (await res.json()) as { url?: string; error?: string }
@@ -50,7 +50,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   hoistedAuth.user = { id: 'u-1' }
   process.env.JIRA_CLIENT_ID = 'jira-client'
-  process.env.OAUTH_REDIRECT_BASE_URL = 'https://dial8.ai'
+  process.env.OAUTH_REDIRECT_BASE_URL = 'https://nativeintelligence.dev'
   process.env.OAUTH_STATE_SECRET = 'state-secret'
 })
 
@@ -87,7 +87,7 @@ describe('GET /api/oauth/jira/authorize', () => {
   it('uses the JIRA_CLIENT_ID and the provider-scoped callback URL', async () => {
     const url = await authorizeUrl('jira')
     expect(url.searchParams.get('client_id')).toBe('jira-client')
-    expect(url.searchParams.get('redirect_uri')).toBe('https://dial8.ai/api/oauth/jira/callback')
+    expect(url.searchParams.get('redirect_uri')).toBe('https://nativeintelligence.dev/api/oauth/jira/callback')
     expect(url.searchParams.get('response_type')).toBe('code')
   })
 

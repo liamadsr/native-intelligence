@@ -96,10 +96,10 @@ pub fn arm() {
 }
 
 /// The main window finished loading `url`: open the gate [`GRACE`] later.
-/// Only a Native Intelligence page counts (a debug build first loads dial8.ai and is then
-/// sent to the dev server).
+/// Only a Native Intelligence page counts (a debug build first loads the
+/// production address and is then sent to the dev server).
 pub fn main_page_loaded(url: &str) {
-    if GATE.is_open() || !counts(url, crate::tray::api_base_url()) {
+    if GATE.is_open() || !app_page(url, cfg!(debug_assertions)) {
         return;
     }
     let url = url.to_string();
@@ -110,6 +110,13 @@ pub fn main_page_loaded(url: &str) {
     if spawned.is_err() {
         open("main window loaded (no thread for the grace)");
     }
+}
+
+/// A page of the app: on the address this build loads, and in a release build
+/// on any of the app's domains (a person may be sent to the other one).
+fn app_page(url: &str, debug_build: bool) -> bool {
+    counts(url, crate::tray::api_base_url())
+        || (!debug_build && crate::nav_guard::APP_DOMAINS.iter().any(|domain| counts(url, &format!("https://{domain}"))))
 }
 
 fn counts(url: &str, base: &str) -> bool {
@@ -160,5 +167,20 @@ mod tests {
         assert!(!counts("https://dial8.ai/", "http://localhost:3000"));
         assert!(!counts("https://dial8.ai.evil.com/", "https://dial8.ai"));
         assert!(!counts("about:blank", "https://dial8.ai"));
+        assert!(counts("https://nativeintelligence.dev/account", "https://nativeintelligence.dev"));
+        assert!(!counts("https://nativeintelligence.dev.evil.com/", "https://nativeintelligence.dev"));
+        assert!(!counts("https://nativeintelligence.devil.example/", "https://nativeintelligence.dev"));
+    }
+
+    #[test]
+    fn a_release_build_counts_a_page_on_either_domain() {
+        for page in ["https://nativeintelligence.dev/account", "https://dial8.ai/account", "https://dial8.ai"] {
+            assert!(app_page(page, false), "{page}");
+        }
+        for other in ["https://www.dial8.ai.evil.com/", "https://evil.nativeintelligence.dev/", "http://dial8.ai/", "about:blank"] {
+            assert!(!app_page(other, false), "{other}");
+        }
+        // A debug build counts only the address it loads.
+        assert_eq!(app_page("https://dial8.ai/account", true), crate::tray::api_base_url() == "https://dial8.ai");
     }
 }

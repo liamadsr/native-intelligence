@@ -2636,7 +2636,7 @@ export const tauriBridge = {
   // it displays `title`/`body` verbatim and carries `payload` back opaquely on
   // click, so new notification types need zero native changes.
   //
-  // VERSION SKEW: the web app ships to dial8.ai ahead of the native binary, so
+  // VERSION SKEW: the web app deploys ahead of the native binary, so
   // every one of these can reject with "command not found" on an older shell.
   // Callers MUST treat any rejection as "native notifications unavailable" and
   // fall back to the in-app toast.

@@ -102,7 +102,7 @@ fn weight(word: &str) -> f32 {
 ///
 /// A sentence's end with no space before the next ("today.Next", "done!So")
 /// is two words too; an abbreviation ("U.S.A", "e.g.") and a domain
-/// ("dial8.ai", lowercase after the dot) stay whole.
+/// ("nativeintelligence.dev", lowercase after the dot) stay whole.
 pub fn words_of(text: &str) -> Vec<String> {
     let spaced = text.replace("...", " ").replace(['\u{2014}', '\u{2013}', '/', '\u{2026}'], " ");
     spaced
@@ -120,7 +120,7 @@ fn split_run_on(token: &str) -> Vec<String> {
     for i in 1..chars.len().saturating_sub(1) {
         let end = matches!(chars[i], '.' | '!' | '?' | ',' | ';' | ':');
         // Two letters at least before it (not "U.S.A"), and a capital after
-        // ("dial8.ai" stays), or any letter after ! ? , ; : ("wait,what").
+        // ("nativeintelligence.dev" stays), or any letter after ! ? , ; : ("wait,what").
         let before = chars[from..i].iter().rev().take_while(|c| c.is_alphabetic()).count();
         let next = chars[i + 1];
         let starts = next.is_uppercase() || (chars[i] != '.' && next.is_alphabetic());
@@ -372,7 +372,7 @@ mod tests {
     fn a_sentence_run_into_the_next_is_two_words() {
         assert_eq!(words_of("done today.Next week"), vec!["done", "today.", "Next", "week"]);
         assert_eq!(words_of("wait,what? ok!So"), vec!["wait,", "what?", "ok!", "So"]);
-        assert_eq!(words_of("U.S.A e.g. dial8.ai Node.js 3.5"), vec!["U.S.A", "e.g.", "dial8.ai", "Node.js", "3.5"]);
+        assert_eq!(words_of("U.S.A e.g. nativeintelligence.dev Node.js 3.5"), vec!["U.S.A", "e.g.", "nativeintelligence.dev", "Node.js", "3.5"]);
     }
 
     #[test]

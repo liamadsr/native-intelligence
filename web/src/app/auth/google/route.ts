@@ -14,7 +14,7 @@ import {
 } from '@/lib/auth/google-sign-in'
 
 /**
- * Start "Sign in with Google" on dial8.ai (src/lib/auth/google-sign-in.ts).
+ * Start "Sign in with Google" on nativeintelligence.dev (src/lib/auth/google-sign-in.ts).
  * Seals a one-time transaction into an HttpOnly cookie and sends the browser
  * to Google; /auth/google/callback finishes it.
  *

@@ -15,8 +15,9 @@ import {
   type Competitor,
 } from '@/data/vs-competitors'
 import { hasDownload } from '@/lib/app-download'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 
 // Only the listed competitors: any other slug is a 404, including ones that
 // would hit an inherited property on COMPETITORS ('constructor', 'toString').

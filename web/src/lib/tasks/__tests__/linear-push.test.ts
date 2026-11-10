@@ -230,7 +230,7 @@ beforeEach(() => {
   // queued `mockResolvedValueOnce` values in place, so a test that failed before
   // consuming its queued value would leak it into the NEXT test.
   vi.resetAllMocks()
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
   hoistedApi.deleteIssue.mockResolvedValue(undefined)
   hoistedConfig.loadLinearSyncState.mockResolvedValue(SYNC_STATE)
   hoistedToken.getValidTokenForAccount.mockResolvedValue({
@@ -474,7 +474,7 @@ describe('pushActionToLinear — payload shape', () => {
 
     const description = hoistedApi.createIssue.mock.calls[0][1].description
     expect(typeof description).toBe('string')
-    expect(description).toContain('https://dial8.ai/account?action=act-1')
+    expect(description).toContain('https://nativeintelligence.dev/account?action=act-1')
     // Not ADF, and not the escaped HTML the Asana sibling builds.
     expect(description).not.toContain('"type":"doc"')
     expect(description).not.toContain('&lt;')
@@ -521,7 +521,7 @@ describe('pushActionToLinear — payload shape', () => {
 
     expect(hoistedApi.createIssue.mock.calls[0][1].description).toBe(
       '**ENG-42**\n\nDo <the> work & ship it\n\n' +
-        'Pushed from Native Intelligence: [ENG-42](https://dial8.ai/account?action=act-1)',
+        'Pushed from Native Intelligence: [ENG-42](https://nativeintelligence.dev/account?action=act-1)',
     )
   })
 })
@@ -789,7 +789,7 @@ describe('buildMarkdownDescription', () => {
   it('always carries the deep link, even with no identifier or description', () => {
     expect(
       buildMarkdownDescription({ actionId: 'act-9', identifier: null, description: null }),
-    ).toBe('Pushed from Native Intelligence: [this action](https://dial8.ai/account?action=act-9)')
+    ).toBe('Pushed from Native Intelligence: [this action](https://nativeintelligence.dev/account?action=act-9)')
   })
 
   it('emits the identifier bold, the body, and the backlink, blank-line separated', () => {
@@ -801,7 +801,7 @@ describe('buildMarkdownDescription', () => {
       }),
     ).toBe(
       '**ENG-1**\n\nDo the work\n\n' +
-        'Pushed from Native Intelligence: [ENG-1](https://dial8.ai/account?action=act-9)',
+        'Pushed from Native Intelligence: [ENG-1](https://nativeintelligence.dev/account?action=act-9)',
     )
   })
 
@@ -880,6 +880,6 @@ describe('buildMarkdownDescription', () => {
         identifier: '   ',
         description: 'Body',
       }),
-    ).toBe('Body\n\nPushed from Native Intelligence: [this action](https://dial8.ai/account?action=act-9)')
+    ).toBe('Body\n\nPushed from Native Intelligence: [this action](https://nativeintelligence.dev/account?action=act-9)')
   })
 })

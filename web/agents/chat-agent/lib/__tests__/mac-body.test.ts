@@ -59,7 +59,7 @@ vi.mock('eve/context', () => ({
 }))
 
 const TOKEN = 'la1.mac-body-test-token'
-const ORIGIN = 'https://dial8.test'
+const ORIGIN = 'https://nativeintelligence.test'
 const RUN = 'mac-session:00000000-0000-4000-8000-000000000000'
 
 const SPEC = {
@@ -314,7 +314,7 @@ describe('agent.ts on the Mac', () => {
     const tokenFile = join(dir, '.model-token')
     const claims = (extra: object) => Buffer.from(JSON.stringify({ sid: 's1', uid: 'u1', wid: 'w1', exp: 9_999_999_999, ...extra })).toString('base64url')
     const saved = { base: process.env.LOCAL_AGENT_MODEL_BASE_URL, file: process.env.LOCAL_AGENT_MODEL_TOKEN_FILE }
-    process.env.LOCAL_AGENT_MODEL_BASE_URL = 'https://dial8.ai/api/local-agent/model'
+    process.env.LOCAL_AGENT_MODEL_BASE_URL = 'https://nativeintelligence.dev/api/local-agent/model'
     process.env.LOCAL_AGENT_MODEL_TOKEN_FILE = tokenFile
     try {
       writeFileSync(tokenFile, `la1.${claims({ cp: true })}.bWFjLW5vdC1jaGVja2VkLWhlcmU`)

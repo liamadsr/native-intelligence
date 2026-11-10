@@ -41,7 +41,7 @@ function deps(over: Partial<BookingLinkDeps> = {}) {
   return d
 }
 
-const post = (body: Record<string, unknown>) => new Request('https://dial8.ai/api/public/book/bright-loom', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+const post = (body: Record<string, unknown>) => new Request('https://nativeintelligence.dev/api/public/book/bright-loom', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 const GOOD = { start: SLOT.start, name: 'Sarah Lee', phone: '(212) 555-0199', address: '12 Elm St' }
 
 describe('the page', () => {
@@ -117,10 +117,10 @@ describe("the business's number", () => {
       return Response.json({}, { status: 200 })
     })
     const supabase = db()
-    const out = await buyBusinessNumber(supabase, { workspaceId: 'ws-rug', ownerUserId: 'user-owner', areaCode: '929', businessName: 'Bright Loom' }, { fetch: fetch as never, config, webhookUrl: 'https://dial8.ai/api/twilio/sms' })
+    const out = await buyBusinessNumber(supabase, { workspaceId: 'ws-rug', ownerUserId: 'user-owner', areaCode: '929', businessName: 'Bright Loom' }, { fetch: fetch as never, config, webhookUrl: 'https://nativeintelligence.dev/api/twilio/sms' })
     expect(out).toMatchObject({ ok: true, number: { phone: '+19295550123', twilioSid: 'PN9', workspaceId: 'ws-rug' } })
     expect(calls[0].url).toContain('AvailablePhoneNumbers/US/Local.json?AreaCode=929&SmsEnabled=true')
-    expect(new URLSearchParams(calls[1].body!).get('SmsUrl')).toBe('https://dial8.ai/api/twilio/sms')
+    expect(new URLSearchParams(calls[1].body!).get('SmsUrl')).toBe('https://nativeintelligence.dev/api/twilio/sms')
     // Never in Native Intelligence's sender pool: Twilio could pick it for a Native Intelligence text.
     expect(calls.some((c) => c.url.includes('messaging.twilio.com'))).toBe(false)
     expect((await findBusinessNumber(supabase, '+19295550123'))?.workspaceId).toBe('ws-rug')

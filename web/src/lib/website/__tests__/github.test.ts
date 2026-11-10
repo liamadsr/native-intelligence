@@ -149,9 +149,9 @@ describe('deploys', () => {
 describe('pull request files', () => {
   it('names the files and the outside hosts the diff adds (not ones it only moves)', async () => {
     const { addedHostsOf, getPullFiles } = await import('../github')
-    expect(addedHostsOf(['@@ -1 +1 @@\n-<a href="https://old.com">\n+<script src="https://cdn.evil.io/x.js"></script>\n+<a href="https://old.com">', '+fetch("https://dial8.ai/api/intake/quotes/x")', '+<script src="//cdn.sneaky.net/a.js">'])).toEqual(['cdn.evil.io', 'cdn.sneaky.net', 'dial8.ai'])
-    const { fetchImpl } = fakeFetch(() => ({ status: 200, body: [{ filename: 'app/quote/page.tsx', patch: '+const U = "https://dial8.ai/x"' }] }))
-    expect(await getPullFiles({ token: 't', fetchImpl }, 'jane/site', 7)).toEqual({ ok: true, value: { files: ['app/quote/page.tsx'], addedHosts: ['dial8.ai'], complete: true } })
+    expect(addedHostsOf(['@@ -1 +1 @@\n-<a href="https://old.com">\n+<script src="https://cdn.evil.io/x.js"></script>\n+<a href="https://old.com">', '+fetch("https://nativeintelligence.dev/api/intake/quotes/x")', '+<script src="//cdn.sneaky.net/a.js">'])).toEqual(['cdn.evil.io', 'cdn.sneaky.net', 'nativeintelligence.dev'])
+    const { fetchImpl } = fakeFetch(() => ({ status: 200, body: [{ filename: 'app/quote/page.tsx', patch: '+const U = "https://nativeintelligence.dev/x"' }] }))
+    expect(await getPullFiles({ token: 't', fetchImpl }, 'jane/site', 7)).toEqual({ ok: true, value: { files: ['app/quote/page.tsx'], addedHosts: ['nativeintelligence.dev'], complete: true } })
     const big = fakeFetch(() => ({ status: 200, body: [{ filename: 'public/photo.jpg' }] }))
     expect(await getPullFiles({ token: 't', fetchImpl: big.fetchImpl }, 'jane/site', 7)).toMatchObject({ ok: true, value: { complete: false } })
   })

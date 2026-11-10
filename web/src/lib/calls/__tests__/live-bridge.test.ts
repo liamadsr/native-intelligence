@@ -249,7 +249,7 @@ describe('runLiveCall', () => {
   })
 
   it('a reply that is only a link says nothing aloud', async () => {
-    const { emit, sent, call } = await startCall(async () => ({ kind: 'reply', text: 'https://dial8.ai/x', outcome: 'written', rowId: 'r' }))
+    const { emit, sent, call } = await startCall(async () => ({ kind: 'reply', text: 'https://nativeintelligence.dev/x', outcome: 'written', rowId: 'r' }))
     emit({ type: 'session.input_transcript.delta', delta: 'Send me the link.', start_ms: 0, end_ms: 400 })
     emit({ type: 'session.delegation.created', delegation: { id: 'del_1' } })
     await flush()
@@ -406,7 +406,7 @@ describe('runLiveCall', () => {
 
 describe('speakable', () => {
   it('drops markdown, list marks and URLs, keeping the words', () => {
-    expect(speakable('## Today\n- **Standup** at 9:30\n- `Review` with Ken\nSee https://dial8.ai/x for more.')).toBe('Today Standup at 9:30 Review with Ken See for more.')
+    expect(speakable('## Today\n- **Standup** at 9:30\n- `Review` with Ken\nSee https://nativeintelligence.dev/x for more.')).toBe('Today Standup at 9:30 Review with Ken See for more.')
     expect(speakable('Plain words stay: 3 o’clock, $600.')).toBe('Plain words stay: 3 o’clock, $600.')
   })
 })

@@ -46,7 +46,7 @@ const SECRETS = {
   UTILITY_INTERNAL_SECRET: 'utility-secret',
 }
 
-const PROXY_URL = 'https://dial8.ai/api/internal/chatgpt-plan/v1/responses'
+const PROXY_URL = 'https://nativeintelligence.dev/api/internal/chatgpt-plan/v1/responses'
 
 /** One family's headers, secret and a fresh token for user `u1`. */
 const FAMILIES: Record<PlanCallerFamily, { secretHeader: string; tokenHeader: string; secret: string; mint: () => string }> = {

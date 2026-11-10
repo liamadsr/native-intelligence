@@ -1,8 +1,9 @@
 import type { EmailOtpType } from '@supabase/supabase-js'
+import { APP_PAGE_ORIGINS } from '@/lib/app-url'
 
 /**
  * Supabase Auth's emails (confirm signup, magic link, reset password, invite,
- * change email) link to dial8.ai/auth/confirm instead of the Supabase
+ * change email) link to nativeintelligence.dev/auth/confirm instead of the Supabase
  * project's own /auth/v1/verify, so the person never sees supabase.co. The
  * templates (supabase/templates/*.html, pasted into the dashboard) carry the
  * link's `token_hash`, its `type`, and the `redirect_to` the sign-in asked for:
@@ -45,6 +46,26 @@ export function emailLinkTarget(redirectTo: string | null, type: EmailOtpType, o
     // Missing or not a URL: the default below.
   }
   return new URL(type === 'recovery' ? '/reset-password' : '/auth/callback', origin)
+}
+
+/**
+ * The app's other domain, when the sign-in this link belongs to began there.
+ * The hosted app answers on two domains while it moves (src/lib/app-url.ts),
+ * and Supabase's emails link to only one of them ({{ .SiteURL }}). The code a
+ * link turns into can only be redeemed with the verifier in the cookies of
+ * the domain the sign-in started on, so /auth/confirm hands such a link over
+ * to that domain's /auth/confirm, unspent. Null when the link belongs here,
+ * names any other site or plain http, or when this origin isn't one of the
+ * app's own (a preview or local dev never sends a link to production).
+ */
+export function emailLinkHomeOrigin(redirectTo: string | null, origin: string): string | null {
+  if (!APP_PAGE_ORIGINS.includes(origin)) return null
+  try {
+    const home = new URL(redirectTo ?? '').origin
+    return home !== origin && APP_PAGE_ORIGINS.includes(home) ? home : null
+  } catch {
+    return null
+  }
 }
 
 /**

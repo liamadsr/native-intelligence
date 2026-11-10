@@ -40,24 +40,39 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
+/// The address a release build loads and calls: the app's own address, in one
+/// place for the whole desktop build. tauri.conf.json's `frontendDist` and
+/// release.sh's `PRODUCTION_URL` hold the same value (tests/capability_policy.rs
+/// checks the first).
+pub(crate) const APP_URL: &str = "https://nativeintelligence.dev";
+
+/// The domains the web app is served on, the current one first. Kept in sync
+/// with `capabilities/default.json`'s `remote.urls` (tests/capability_policy.rs
+/// checks it) — that file is what actually grants native-command access.
+// TODO(rename-compat): dial8.ai stays while that domain still serves the app
+// and people are signed in there. Remove it here, in capabilities/default.json
+// and in tauri.conf.json's CSP together.
+pub(crate) const APP_DOMAINS: [&str; 2] = ["nativeintelligence.dev", "dial8.ai"];
+
 /// Hosts the Native Intelligence web app is served from. The main window loads
-/// `https://dial8.ai` in release and `http://localhost:3000` in a debug build
+/// [`APP_URL`] in release and `http://localhost:3000` in a debug build
 /// (see `tray::api_base_url`), and workspace/HUD windows load subpaths of the
-/// same. Kept in sync with `capabilities/default.json`'s `remote.urls` — that
-/// file is what actually grants native-command access; this list only decides
-/// what may render in-app.
-pub(crate) fn is_dial8_host(url: &Url) -> bool {
+/// same. This list only decides what may render in-app.
+pub(crate) fn is_app_host(url: &Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
     let scheme = url.scheme();
+    // Production, https only. Exactly each domain and its `www.`, never any
+    // other subdomain (security review 2026-10-31, P0-3): a dangling or
+    // third-party subdomain must not render in a window whose origin the
+    // capability trusts. `www.` redirects to the bare domain, so it may load to
+    // follow the redirect; the capability grants native access to the bare
+    // domains alone.
+    if APP_DOMAINS.iter().any(|domain| host == *domain || host.strip_prefix("www.") == Some(*domain)) {
+        return scheme == "https";
+    }
     match host {
-        // Production, https only. Exactly these hosts, never any subdomain
-        // (security review 2026-10-31, P0-3): a dangling or third-party
-        // subdomain must not render in a window whose origin the capability
-        // trusts. www.dial8.ai redirects to dial8.ai, so it may load to follow
-        // the redirect; the capability grants native access to dial8.ai alone.
-        "dial8.ai" | "www.dial8.ai" => scheme == "https",
         // Dev server. http only, and only in debug builds — a release build must
         // never treat localhost as trusted.
         "localhost" | "127.0.0.1" => cfg!(debug_assertions) && scheme == "http",
@@ -66,7 +81,7 @@ pub(crate) fn is_dial8_host(url: &Url) -> bool {
 }
 
 /// Schemes the app shell itself navigates to internally and that carry no remote
-/// content. These are not http(s) so `is_dial8_host` never sees them.
+/// content. These are not http(s) so `is_app_host` never sees them.
 ///
 /// `about:` covers `about:blank` (the transient URL a fresh webview holds before
 /// its real load, and the target of some internal resets). `blob:`/`data:` are
@@ -79,7 +94,7 @@ fn is_internal_scheme(url: &Url) -> bool {
 /// Decide whether `url` may load in a Native Intelligence webview. Pure so it can be tested
 /// without a running app (see the tests below).
 fn is_allowed(url: &Url) -> bool {
-    is_dial8_host(url) || is_internal_scheme(url)
+    is_app_host(url) || is_internal_scheme(url)
 }
 
 /// The `on_navigation` callback. Returns `true` to allow the navigation, `false`
@@ -127,10 +142,16 @@ mod tests {
     }
 
     #[test]
-    fn allows_production_dial8() {
-        assert!(is_allowed(&u("https://dial8.ai/account")));
-        assert!(is_allowed(&u("https://dial8.ai/")));
-        assert!(is_allowed(&u("https://www.dial8.ai/pricing")));
+    fn allows_production_on_both_domains() {
+        for domain in APP_DOMAINS {
+            assert!(is_allowed(&u(&format!("https://{domain}/account"))), "{domain}");
+            assert!(is_allowed(&u(&format!("https://{domain}/"))), "{domain}");
+            assert!(is_allowed(&u(&format!("https://www.{domain}/pricing"))), "{domain}");
+        }
+        assert_eq!(APP_DOMAINS, ["nativeintelligence.dev", "dial8.ai"]);
+        // The address a build loads is one of them, over https.
+        assert!(is_allowed(&u(APP_URL)), "{APP_URL}");
+        assert!(APP_URL.starts_with("https://"), "{APP_URL}");
     }
 
     #[test]
@@ -143,15 +164,24 @@ mod tests {
             "https://status.dial8.ai/",
             "https://evil.dial8.ai/",
             "https://a.b.dial8.ai/",
+            "https://browser-relay.dial8.ai/",
+            "https://app.nativeintelligence.dev/account?switch_to=abc",
+            "https://docs.nativeintelligence.dev/",
+            "https://evil.nativeintelligence.dev/",
+            "https://a.b.nativeintelligence.dev/",
+            "https://www.www.nativeintelligence.dev/",
+            "https://browser-relay.nativeintelligence.dev/",
         ] {
             assert!(!is_allowed(&u(url)), "{url}");
         }
     }
 
     #[test]
-    fn rejects_http_dial8_in_release_logic() {
-        // http://dial8.ai is never allowed (only https for the real host).
+    fn rejects_http_on_the_app_domains() {
+        // Plain http is never allowed on the real hosts (only https).
         assert!(!is_allowed(&u("http://dial8.ai/")));
+        assert!(!is_allowed(&u("http://nativeintelligence.dev/")));
+        assert!(!is_allowed(&u("http://www.nativeintelligence.dev/")));
     }
 
     #[test]
@@ -178,6 +208,11 @@ mod tests {
         assert!(!is_allowed(&u("https://dial8.ai.evil.com/")));
         assert!(!is_allowed(&u("https://notdial8.ai/")));
         assert!(!is_allowed(&u("https://dial8ai.com/")));
+        assert!(!is_allowed(&u("https://nativeintelligence.dev.evil.com/")));
+        assert!(!is_allowed(&u("https://notnativeintelligence.dev/")));
+        assert!(!is_allowed(&u("https://nativeintelligencedev.com/")));
+        assert!(!is_allowed(&u("https://native-intelligence.dev/")));
+        assert!(!is_allowed(&u("https://nativeintelligence.dev@evil.com/")));
     }
 
     #[test]
@@ -187,6 +222,7 @@ mod tests {
         assert!(is_allowed(&u("ipc://localhost")));
         assert!(is_allowed(&u("data:text/html,<p>hi</p>")));
         assert!(is_allowed(&u("blob:https://dial8.ai/uuid")));
+        assert!(is_allowed(&u("blob:https://nativeintelligence.dev/uuid")));
     }
 
     #[test]

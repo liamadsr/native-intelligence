@@ -761,11 +761,11 @@ mod tests {
             env_file: Some("/w/.env.local".into()),
             tool_path: "/n/bin:/usr/bin:/bin".into(),
             home: "/Users/x".into(),
-            model_base_url: model_base_url("https://dial8.ai"),
+            model_base_url: model_base_url("https://nativeintelligence.dev"),
             git: "/usr/bin/git".into(),
             git_env: Vec::new(),
             gh: None,
-            api_origin: "https://dial8.ai".into(),
+            api_origin: "https://nativeintelligence.dev".into(),
         }
     }
 
@@ -784,8 +784,8 @@ mod tests {
     #[test]
     fn the_model_url_is_the_api_origin_plus_the_relay_path() {
         assert_eq!(
-            model_base_url("https://dial8.ai"),
-            "https://dial8.ai/api/local-agent/model"
+            model_base_url("https://nativeintelligence.dev"),
+            "https://nativeintelligence.dev/api/local-agent/model"
         );
         assert_eq!(
             model_base_url("http://localhost:3000/"),
@@ -794,7 +794,7 @@ mod tests {
         // What the app itself resolves: the tray's origin, debug or release.
         let built = model_base_url(crate::tray::api_base_url());
         assert!(
-            built == "http://localhost:3000/api/local-agent/model" || built == "https://dial8.ai/api/local-agent/model",
+            built == "http://localhost:3000/api/local-agent/model" || built == "https://nativeintelligence.dev/api/local-agent/model",
             "{built}"
         );
     }
@@ -811,7 +811,7 @@ mod tests {
         let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
         assert_eq!(
             get("LOCAL_AGENT_MODEL_BASE_URL"),
-            Some("https://dial8.ai/api/local-agent/model")
+            Some("https://nativeintelligence.dev/api/local-agent/model")
         );
         assert_eq!(get("LOCAL_AGENT_MODEL_TOKEN"), Some("tok.abc"));
         assert_eq!(get("LOCAL_AGENT_DEV_ENV_FILE"), None, "the dev key is only a fallback");

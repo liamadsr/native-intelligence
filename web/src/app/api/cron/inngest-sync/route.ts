@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireCronSecret } from '@/lib/api-auth'
+import { appHost } from '@/lib/app-url'
 
 export const maxDuration = 30
 
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, skipped: `env ${process.env.VERCEL_ENV}` })
   }
 
-  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || 'dial8.ai'
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || appHost()
   const registerUrl = `https://${host}/api/inngest`
 
   try {

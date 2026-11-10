@@ -42,7 +42,7 @@ class AIBackendService {
         #if DEBUG
         return "http://localhost:3000"
         #else
-        return "https://dial8.ai"
+        return "https://nativeintelligence.dev"
         #endif
     }
 

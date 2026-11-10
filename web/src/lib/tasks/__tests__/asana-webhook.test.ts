@@ -78,7 +78,7 @@ function calledBefore(first: { mock: { invocationCallOrder: number[] } }, second
 }
 
 const SYNC_STATE_ID = 'tss-1'
-const TARGET = `https://dial8.ai/api/webhooks/asana/${SYNC_STATE_ID}`
+const TARGET = `https://nativeintelligence.dev/api/webhooks/asana/${SYNC_STATE_ID}`
 
 const STATE = {
   id: SYNC_STATE_ID,
@@ -92,7 +92,7 @@ const STATE = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   vi.stubEnv('ASANA_ALLOW_INSECURE_WEBHOOK_TARGET', '')
   hoisted.loadAsanaWebhookAuth.mockResolvedValue({ ...STATE })
   hoisted.getValidTokenForAccount.mockResolvedValue({
@@ -116,7 +116,7 @@ afterEach(() => {
 
 describe('isReachableTarget', () => {
   it('accepts a public https origin (including tunnels)', () => {
-    expect(isReachableTarget('https://dial8.ai/api/webhooks/asana/x')).toBe(true)
+    expect(isReachableTarget('https://nativeintelligence.dev/api/webhooks/asana/x')).toBe(true)
     expect(isReachableTarget('https://abc123.ngrok.app/api/webhooks/asana/x')).toBe(true)
   })
 
@@ -124,7 +124,7 @@ describe('isReachableTarget', () => {
     expect(isReachableTarget('http://localhost:3000/api/webhooks/asana/x')).toBe(false)
     expect(isReachableTarget('https://localhost:3000/api/webhooks/asana/x')).toBe(false)
     expect(isReachableTarget('https://127.0.0.1/api/webhooks/asana/x')).toBe(false)
-    expect(isReachableTarget('http://dial8.ai/api/webhooks/asana/x')).toBe(false)
+    expect(isReachableTarget('http://nativeintelligence.dev/api/webhooks/asana/x')).toBe(false)
     expect(isReachableTarget('not a url')).toBe(false)
   })
 
@@ -338,7 +338,7 @@ describe('ensureAsanaWebhook — existing registration', () => {
     // A preview/tunnel domain still delivers to the right sync state.
     hoisted.getWebhook.mockResolvedValue({
       ...alive,
-      target: `https://preview.dial8.ai${asanaWebhookPath(SYNC_STATE_ID)}`,
+      target: `https://preview.nativeintelligence.dev${asanaWebhookPath(SYNC_STATE_ID)}`,
     })
     const result = await ensureAsanaWebhook({ syncStateId: SYNC_STATE_ID })
     expect(result).toMatchObject({ status: 'healthy' })

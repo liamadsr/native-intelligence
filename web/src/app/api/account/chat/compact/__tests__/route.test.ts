@@ -44,7 +44,7 @@ beforeEach(() => {
 })
 
 const post = (body: unknown, raw = false) =>
-  POST(buildRequest({ url: 'https://dial8.ai/api/account/chat/compact', body, raw }) as unknown as NextRequest)
+  POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/chat/compact', body, raw }) as unknown as NextRequest)
 
 describe('POST /api/account/chat/compact', () => {
   it('auth: a failed requireWorkspace is returned as is, nothing compacted', async () => {

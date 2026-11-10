@@ -45,7 +45,7 @@ const click = (over: Record<string, unknown> = {}) => ({
 })
 
 const req = (payload: unknown, headers: Record<string, string> = {}) =>
-  new Request('https://dial8.ai/api/slack/interactivity', {
+  new Request('https://nativeintelligence.dev/api/slack/interactivity', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: new URLSearchParams({ payload: JSON.stringify(payload) }).toString(),

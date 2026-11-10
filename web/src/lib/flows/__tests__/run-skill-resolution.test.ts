@@ -114,7 +114,7 @@ function action(skillId: string, extra: Partial<RunSkillActionConfig> = {}): Flo
 const ctx = {
   entity: null,
   trigger: { type: 'schedule' as const, entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-07-18T00:00:00Z' },
-  appBaseUrl: 'https://dial8.ai',
+  appBaseUrl: 'https://nativeintelligence.dev',
   capture: null,
 }
 

@@ -145,7 +145,7 @@ function sentFields(): Record<string, unknown> {
 
 beforeEach(() => {
   vi.resetAllMocks()
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
   hoistedConfig.loadJiraSyncState.mockResolvedValue({
     id: 'tss-1',
     accountId: 'acct-1',

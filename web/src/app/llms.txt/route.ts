@@ -6,8 +6,9 @@
 
 import { hasDownload } from '@/lib/app-download'
 import { blog, source } from '@/lib/source'
+import { appUrl } from '@/lib/app-url'
 
-const BASE = 'https://dial8.ai'
+const BASE = appUrl()
 
 function docsSection(): string {
   return source

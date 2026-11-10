@@ -11,7 +11,7 @@ import { grantedScopes } from '@/lib/mcp/scopes'
  *
  * Auth: requireUser() (cookie OR `Authorization: Bearer` Supabase access token),
  * the same as every Native Intelligence API route. The browser consent page sends a cookie;
- * the desktop app's webview carries no dial8.ai cookie, so a consent page
+ * the desktop app's webview carries no nativeintelligence.dev cookie, so a consent page
  * opened there authenticates with the Bearer header its fetch adds.
  */
 export async function POST(request: Request) {

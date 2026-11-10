@@ -4,11 +4,17 @@
  * every target is checked here, on the way in (the login form's cookie) and
  * on the way out (the OAuth callback, the password sign-in).
  */
+import { APP_PAGE_ORIGINS } from '@/lib/app-url'
 
-/** The page's own origin and the app's configured one (NEXT_PUBLIC_APP_URL), which the MCP authorize step links back from. */
+/**
+ * The page's own origin, the app's configured one (NEXT_PUBLIC_APP_URL), which
+ * the MCP authorize step links back from, and the domains the hosted app is
+ * served on: a person who started on one of them resumes on the page's own
+ * (the target is cut down to a path either way).
+ */
 function trustedOrigins(origin: string, appUrl: string | undefined): Set<string> {
   const origins = new Set<string>()
-  for (const raw of [origin, appUrl]) {
+  for (const raw of [origin, appUrl, ...APP_PAGE_ORIGINS]) {
     if (!raw) continue
     try {
       origins.add(new URL(raw).origin)

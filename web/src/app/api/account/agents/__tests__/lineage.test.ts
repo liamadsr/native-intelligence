@@ -107,7 +107,7 @@ function authWith(listRows: Row[], sourceRows: Row[]) {
 }
 
 const req = () => {
-  const url = 'https://dial8.ai/api/account/agents'
+  const url = 'https://nativeintelligence.dev/api/account/agents'
   const r = buildRequest({ method: 'GET', url })
   // next/server's NextRequest exposes `nextUrl`; the route reads
   // `request.nextUrl.searchParams`, so polyfill it on the plain Request.

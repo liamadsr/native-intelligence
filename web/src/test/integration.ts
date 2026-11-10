@@ -33,7 +33,7 @@ export function buildRequest(opts: {
   raw?: boolean
 }) {
   const {
-    url = 'https://dial8.ai/api/test',
+    url = 'https://nativeintelligence.dev/api/test',
     method = 'POST',
     headers = {},
     body,
@@ -87,7 +87,7 @@ export function authedContext(
   // Caller can spread this into a richer object if they need the supabase
   // client. We keep this skinny because most tests mock the client elsewhere.
   return {
-    user: { id: userId, email: 'test@dial8.test' },
+    user: { id: userId, email: 'test@nativeintelligence.test' },
     workspaceId,
     member: { id: memberId, role: 'owner' as const },
   }

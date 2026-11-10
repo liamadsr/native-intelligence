@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * "Sign in with Google" on dial8.ai (`googleOnNi`): the web navigates to
+ * "Sign in with Google" on nativeintelligence.dev (`googleOnNi`): the web navigates to
  * /auth/google; the desktop runs it in the sign-in sheet and redeems the
  * one-time token the callback deep link carries, only when its `bind` is the
  * one this webview started with. A desktop build whose sheet doesn't list
@@ -53,7 +53,7 @@ vi.mock('@/components/logo', () => ({ Logo: () => null }))
 
 import { LoginForm } from '../login-form'
 
-describe('LoginForm Google sign-in on dial8.ai', () => {
+describe('LoginForm Google sign-in on nativeintelligence.dev', () => {
   let container: HTMLDivElement
   let root: Root
 

@@ -93,7 +93,7 @@ function runOutput(over: Record<string, unknown> = {}) {
     counts: {},
     error: null,
     is_live: false,
-    url: 'https://dial8.ai/account?prospect_list=list-1',
+    url: 'https://nativeintelligence.dev/account?prospect_list=list-1',
     ...over,
   }
 }
@@ -322,7 +322,7 @@ describe('ProspectingRunCard in the transcript', () => {
           progress: progress({ stage: 'people', people_found: 0, people_target: 15 }),
         }),
       },
-      url: 'https://dial8.ai/account?prospect_list=list-1',
+      url: 'https://nativeintelligence.dev/account?prospect_list=list-1',
     })
 
     expect(text()).toContain('Account research')

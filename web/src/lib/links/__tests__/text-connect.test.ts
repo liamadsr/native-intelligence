@@ -23,7 +23,7 @@ const LINK: OneTimeLink = {
 
 beforeEach(() => {
   vi.stubEnv('GOOGLE_CLIENT_ID', 'google-client')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
 })
 
 function stateOf(authUrl: string) {
@@ -157,8 +157,8 @@ describe('the confirmation text', () => {
   })
 
   it('the link text says what it opens, that it works once, and never asks for a password', () => {
-    expect(connectLinkText('google', 'https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12')).toBe(
-      "Connect your Google account: https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12 It opens Google's own sign-in and works once, for 15 minutes. I'll never ask for a password by text.",
+    expect(connectLinkText('google', 'https://nativeintelligence.dev/l/AbCdEfGhIjKlMnOpQrStUv12')).toBe(
+      "Connect your Google account: https://nativeintelligence.dev/l/AbCdEfGhIjKlMnOpQrStUv12 It opens Google's own sign-in and works once, for 15 minutes. I'll never ask for a password by text.",
     )
     for (const inSetup of [true, false]) {
       expect(textConnectConfirmation({ provider: 'google', capabilities: ['email'], email: 'a@b.com', inSetup, first: true }).toLowerCase()).not.toContain('password')

@@ -448,11 +448,11 @@ describe('regression — parse output never contains empty text nodes', () => {
 
 describe('inline links — round trip', () => {
   it('parses [text](url) into a link mark and writes it back the same', () => {
-    const md = 'See [the plan](https://dial8.ai/plan) and **bold** text.'
+    const md = 'See [the plan](https://nativeintelligence.dev/plan) and **bold** text.'
     const doc = markdownToJSONContent(md)
     const para = doc.content?.[0]
     const link = para?.content?.find((n) => n.marks?.some((m) => m.type === 'link'))
-    expect(link).toMatchObject({ text: 'the plan', marks: [{ type: 'link', attrs: { href: 'https://dial8.ai/plan' } }] })
+    expect(link).toMatchObject({ text: 'the plan', marks: [{ type: 'link', attrs: { href: 'https://nativeintelligence.dev/plan' } }] })
     expect(jsonContentToMarkdown(doc)).toBe(md)
   })
 
@@ -475,7 +475,7 @@ describe('nested inline marks — round trip', () => {
   })
 
   it('parses bold inside a link and inside strike', () => {
-    const md = '[**plan**](https://dial8.ai/plan) and ~~**old**~~'
+    const md = '[**plan**](https://nativeintelligence.dev/plan) and ~~**old**~~'
     const doc = markdownToJSONContent(md)
     const nodes = doc.content![0].content!
     expect(nodes[0]).toMatchObject({ text: 'plan' })

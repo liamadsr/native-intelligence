@@ -102,7 +102,7 @@ function makeFakeSupabase() {
 
 function postReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/views/query',
+    url: 'https://nativeintelligence.dev/api/account/views/query',
     method: 'POST',
     body,
   }) as unknown as NextRequest

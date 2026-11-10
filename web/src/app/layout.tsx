@@ -9,6 +9,7 @@ import { ThemeScript } from '@/components/theme-script'
 import { SystemThemeListener } from '@/components/system-theme-listener'
 import { CacheBusterScript } from '@/components/desktop/cache-buster-script'
 import { Inter, Noto_Serif } from 'next/font/google'
+import { appUrl } from '@/lib/app-url'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const notoSerif = Noto_Serif({ subsets: ['latin'], variable: '--font-heading' })
@@ -21,7 +22,7 @@ const SITE_DESCRIPTION =
   'Native Intelligence gives every rep your whole team’s knowledge live on the call — no bot joins the meeting — then updates the CRM, queues follow-ups, and feeds what the call taught back to the team.'
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://dial8.ai'),
+  metadataBase: new URL(appUrl()),
   title: {
     template: '%s - Native Intelligence',
     default: SITE_TITLE,
@@ -45,7 +46,7 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     type: 'website',
     siteName: 'Native Intelligence',
-    url: 'https://dial8.ai',
+    url: appUrl(),
   },
   twitter: {
     card: 'summary_large_image',

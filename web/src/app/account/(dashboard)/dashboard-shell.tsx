@@ -65,6 +65,7 @@ import { TalkAnywhereHost } from '@/components/read-aloud/talk-anywhere-host'
 import { SilentMicNotice } from '@/components/desktop/silent-mic-notice'
 import { FadingBlur } from '@/components/ui/fading-blur'
 import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
+import { isWithinAppDomain } from '@/lib/app-url'
 
 /** The top bar — always fully visible. The workspace switcher and the action
  *  buttons float over the chat, which scrolls on under them (Liam's
@@ -707,7 +708,7 @@ function deriveChannel(
   if (!referrer) return 'direct'
   try {
     const host = new URL(referrer).hostname.replace(/^www\./, '')
-    if (host.includes('dial8.ai')) return 'internal'
+    if (isWithinAppDomain(host)) return 'internal'
     if (/google\.|bing\.|duckduckgo\.|yahoo\./.test(host)) return 'organic_search'
     if (/twitter\.|x\.com|linkedin\.|facebook\.|reddit\.|youtube\./.test(host))
       return 'social'

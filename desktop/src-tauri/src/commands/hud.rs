@@ -55,7 +55,7 @@ pub fn show_hud(app: &AppHandle, display_name: &str, bundle_id: &str, is_auto_re
     };
 
     // Load the HUD from the same origin as the main window so it works in
-    // both dev (localhost) and production (dial8.ai). Falls back to the
+    // both dev (localhost) and production (nativeintelligence.dev). Falls back to the
     // compile-time default when the main window URL isn't readable.
     let origin = app
         .get_webview_window("main")

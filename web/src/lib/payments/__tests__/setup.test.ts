@@ -41,8 +41,8 @@ afterEach(() => {
 describe('the setup link', () => {
   it('works once, for 15 minutes, and a peek never uses it', async () => {
     const db = memDb()
-    const made = await createSetupLink(db.client, { userId: 'u1', workspaceId: 'w1', origin: 'https://dial8.ai' }, { now: () => T0, token: () => TOKEN })
-    expect(made).toMatchObject({ ok: true, url: `https://dial8.ai/payments/setup/${TOKEN}`, expiresAt: new Date(T0 + SETUP_LINK_TTL_MS).toISOString() })
+    const made = await createSetupLink(db.client, { userId: 'u1', workspaceId: 'w1', origin: 'https://nativeintelligence.dev' }, { now: () => T0, token: () => TOKEN })
+    expect(made).toMatchObject({ ok: true, url: `https://nativeintelligence.dev/payments/setup/${TOKEN}`, expiresAt: new Date(T0 + SETUP_LINK_TTL_MS).toISOString() })
     expect(SETUP_LINK_TTL_MS).toBe(15 * 60_000)
     // Only the hash is stored.
     expect(JSON.stringify(db.tables.stripe_connect_link)).not.toContain(TOKEN)
@@ -56,7 +56,7 @@ describe('the setup link', () => {
 
   it('expires', async () => {
     const db = memDb()
-    await createSetupLink(db.client, { userId: 'u1', workspaceId: 'w1', origin: 'https://dial8.ai' }, { now: () => T0, token: () => TOKEN })
+    await createSetupLink(db.client, { userId: 'u1', workspaceId: 'w1', origin: 'https://nativeintelligence.dev' }, { now: () => T0, token: () => TOKEN })
     expect(await consumeSetupLink(db.client, TOKEN, { now: () => T0 + SETUP_LINK_TTL_MS + 1 })).toEqual({ ok: false, reason: 'expired' })
   })
 
@@ -78,10 +78,10 @@ describe('the setup link', () => {
   it('texting it needs an owner or admin, and says what the link is for', async () => {
     const db = memDb({ member: [{ workspace_id: 'w1', user_id: 'u1', role: 'owner' }, { workspace_id: 'w1', user_id: 'u2', role: 'member' }], workspace: [{ id: 'w1', name: 'Bright Weave' }] })
     expect(await textSetupLink(db.client, { workspaceId: 'w1', userId: 'u2' })).toMatchObject({ sent: false, reason: 'not_admin' })
-    const sent = await textSetupLink(db.client, { workspaceId: 'w1', userId: 'u1', origin: 'https://dial8.ai' })
+    const sent = await textSetupLink(db.client, { workspaceId: 'w1', userId: 'u1', origin: 'https://nativeintelligence.dev' })
     expect(sent.sent).toBe(true)
     expect(hoisted.texts[0].userId).toBe('u1')
-    expect(hoisted.texts[0].body).toMatch(/^To let customers pay Bright Weave by card, connect Stripe here \(works once, for 15 minutes\): https:\/\/dial8\.ai\/payments\/setup\/[A-Za-z0-9_-]{24}$/)
+    expect(hoisted.texts[0].body).toMatch(/^To let customers pay Bright Weave by card, connect Stripe here \(works once, for 15 minutes\): https:\/\/nativeintelligence\.dev\/payments\/setup\/[A-Za-z0-9_-]{24}$/)
   })
 })
 
@@ -112,7 +112,7 @@ describe('a new Stripe account', () => {
   it('is Accounts v2 with the full Dashboard, Stripe-owned fees and losses, and card payments (direct charges)', async () => {
     const db = memDb({ workspace: [{ id: 'w1', name: 'Bright Weave' }] }, {}, { users: { u1: { email: 'owner@brightweave.test' } } })
     const stripe = fakeStripe()
-    const started = await startNewAccount(db.client, stripe as never, { workspaceId: 'w1', userId: 'u1', origin: 'https://dial8.ai', linkId: 'link-1', livemode: false })
+    const started = await startNewAccount(db.client, stripe as never, { workspaceId: 'w1', userId: 'u1', origin: 'https://nativeintelligence.dev', linkId: 'link-1', livemode: false })
     expect(started).toEqual({ ok: true, redirectUrl: 'https://connect.stripe.com/setup/s/abc' })
     const [params, options] = stripe.v2.core.accounts.create.mock.calls[0] as unknown as [Record<string, unknown>, Record<string, unknown>]
     expect(params).toMatchObject({
@@ -131,8 +131,8 @@ describe('a new Stripe account', () => {
         type: 'account_onboarding',
         account_onboarding: {
           configurations: ['merchant'],
-          refresh_url: expect.stringMatching(/^https:\/\/dial8\.ai\/api\/payments\/setup\/refresh\?w=w1&s=\d+\.[\w-]+$/),
-          return_url: expect.stringMatching(/^https:\/\/dial8\.ai\/payments\/setup\/done\?w=w1&s=\d+\.[\w-]+$/),
+          refresh_url: expect.stringMatching(/^https:\/\/nativeintelligence\.dev\/api\/payments\/setup\/refresh\?w=w1&s=\d+\.[\w-]+$/),
+          return_url: expect.stringMatching(/^https:\/\/nativeintelligence\.dev\/payments\/setup\/done\?w=w1&s=\d+\.[\w-]+$/),
           collection_options: { fields: 'currently_due' },
         },
       },
@@ -150,7 +150,7 @@ describe('a new Stripe account', () => {
   it('a second tap continues the unfinished account instead of making another', async () => {
     const db = memDb({ stripe_connect_account: [{ workspace_id: 'w1', stripe_account_id: 'acct_existing1', linked_via: 'created', status: 'onboarding' }] })
     const stripe = fakeStripe()
-    await startNewAccount(db.client, stripe as never, { workspaceId: 'w1', userId: 'u1', origin: 'https://dial8.ai', linkId: 'link-2', livemode: false })
+    await startNewAccount(db.client, stripe as never, { workspaceId: 'w1', userId: 'u1', origin: 'https://nativeintelligence.dev', linkId: 'link-2', livemode: false })
     expect(stripe.v2.core.accounts.create).not.toHaveBeenCalled()
     expect((stripe.v2.core.accountLinks.create.mock.calls[0] as unknown[])[0]).toMatchObject({ account: 'acct_existing1' })
   })
@@ -171,11 +171,11 @@ describe('an existing Stripe account (OAuth)', () => {
   }
 
   it('asks for read_write with a signed state and sets the binding cookie', () => {
-    const started = startExistingAccount(stripe as never, { workspaceId: 'w1', userId: 'u1', origin: 'https://dial8.ai', linkId: 'l' }, T0)
+    const started = startExistingAccount(stripe as never, { workspaceId: 'w1', userId: 'u1', origin: 'https://nativeintelligence.dev', linkId: 'l' }, T0)
     expect(started.ok).toBe(true)
     if (!started.ok) return
     const params = stripe.oauth.authorizeUrl.mock.calls[0][0]
-    expect(params).toMatchObject({ client_id: 'ca_testclient', response_type: 'code', scope: 'read_write', redirect_uri: 'https://dial8.ai/api/payments/setup/oauth/callback' })
+    expect(params).toMatchObject({ client_id: 'ca_testclient', response_type: 'code', scope: 'read_write', redirect_uri: 'https://nativeintelligence.dev/api/payments/setup/oauth/callback' })
     expect(started.cookie?.name).toBe('stripe_connect_nonce')
     expect(verifyStripeState(params.state, started.cookie!.value, T0 + 1000)).toMatchObject({ ok: true, state: { workspaceId: 'w1', userId: 'u1' } })
   })

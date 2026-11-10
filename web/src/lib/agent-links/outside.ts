@@ -92,7 +92,7 @@ export function hashConnectToken(token: string, key: string): string {
   return createHmac('sha256', key).update(`agent-link-connect:${token}`).digest('hex')
 }
 
-/** The link to send: https://dial8.ai/link/<token>. */
+/** The link to send: https://nativeintelligence.dev/link/<token>. */
 export function connectLinkUrl(token: string, base: string = BASE_URL): string {
   return `${base}${CONNECT_LINK_PATH}${token}`
 }

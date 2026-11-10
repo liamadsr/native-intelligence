@@ -151,7 +151,7 @@ const UNAUTHED = new Response(JSON.stringify({ error: 'Unauthorized' }), {
 const { GET } = await import('@/app/api/account/knowledge/map/node/route')
 
 function req(params: Record<string, string> = {}): NextRequest {
-  const url = new URL('https://dial8.ai/api/account/knowledge/map/node')
+  const url = new URL('https://nativeintelligence.dev/api/account/knowledge/map/node')
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   return Object.assign(buildRequest({ url: url.toString(), method: 'GET' }), {
     nextUrl: url,

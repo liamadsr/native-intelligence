@@ -169,6 +169,6 @@ build when a name from `scripts/open-source/denylist.txt` turns up in either.
 
 ## External Links
 
-- Website: `dial8.ai`
+- Website: `nativeintelligence.dev` (the default of `NEXT_PUBLIC_APP_URL`, `src/lib/app-url.ts`); the hosted app also answers on `dial8.ai` while it moves
 - Discord: `discord.gg/sHtYGtkWga`
 - X/Twitter: `x.com/Dial8_ai`

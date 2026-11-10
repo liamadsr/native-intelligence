@@ -5,6 +5,7 @@ import { PageLayout } from '@/components/page-layout'
 import { GitHubStars } from '@/components/github-stars'
 import { StructuredData, scribeSoftwareApplicationSchema } from '@/components/structured-data'
 import type { Metadata } from 'next'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: { absolute: 'Native Intelligence Scribe - Open Source Speech to Text for macOS' },
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
     title: 'Native Intelligence Scribe - Open Source Speech to Text for macOS',
     description:
       'Hold a hotkey, speak, release. Your words appear as text anywhere on your Mac. Powered by Whisper. Free and open source.',
-    url: 'https://dial8.ai/scribe',
+    url: `${appUrl()}/scribe`,
     type: 'website',
   },
 }

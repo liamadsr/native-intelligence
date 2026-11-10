@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getStripe } from '@/lib/stripe'
+import { appUrl } from '@/lib/app-url'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   }
 
   const stripe = getStripe()
-  const origin = request.headers.get('origin') || 'https://dial8.ai'
+  const origin = request.headers.get('origin') || appUrl()
 
   const session = await stripe.billingPortal.sessions.create({
     customer: subscription.stripe_customer_id,

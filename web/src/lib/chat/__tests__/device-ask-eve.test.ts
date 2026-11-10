@@ -798,10 +798,10 @@ describe('deviceAskEveBudgetMs — the eve budget is what is LEFT of maxDuration
 describe('deviceAskAppBaseUrl — never from the request', () => {
   it('prefers the exact deployment (VERCEL_URL), then NEXT_PUBLIC_APP_URL, then local dev', () => {
     vi.stubEnv('VERCEL_URL', 'dial8-abc.vercel.app')
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
     expect(deviceAskAppBaseUrl()).toBe('https://dial8-abc.vercel.app')
     vi.stubEnv('VERCEL_URL', '')
-    expect(deviceAskAppBaseUrl()).toBe('https://dial8.ai')
+    expect(deviceAskAppBaseUrl()).toBe('https://nativeintelligence.dev')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
     expect(deviceAskAppBaseUrl()).toBe('http://localhost:3000')
   })

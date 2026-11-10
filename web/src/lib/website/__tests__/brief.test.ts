@@ -10,7 +10,7 @@ import type { FormCandidate, SiteInspection } from '../types'
 const FORM: FormCandidate = { path: 'app/quote/page.tsx', kind: 'quote', fields: ['name', 'email', 'phone', 'message'], submits: 'formspree', target: 'https://formspree.io/f/abc', score: 40 }
 const INSPECTION: SiteInspection = { framework: 'nextjs', host: 'vercel', siteUrl: 'https://janescleaning.com', forms: [FORM], truncated: false }
 const SITE = { repoFullName: 'jane/site', siteUrl: 'https://janescleaning.com' }
-const URL = `https://dial8.ai/api/intake/quotes/qk_${'x'.repeat(43)}`
+const URL = `https://nativeintelligence.dev/api/intake/quotes/qk_${'x'.repeat(43)}`
 
 describe('wiringBrief', () => {
   const brief = wiringBrief({ businessName: "Jane's Cleaning", site: SITE, inspection: INSPECTION, form: FORM, intakeUrl: URL, allowedOrigins: ['https://janescleaning.com', 'https://www.janescleaning.com'] })

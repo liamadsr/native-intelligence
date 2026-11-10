@@ -1206,7 +1206,7 @@ fn amounts_per_unit_are_spoken() {
 
 #[test]
 fn slashes_that_are_not_rates_stay() {
-    assert_eq!(per_units("See v2/api and docs.dial8.ai/api"), "See v2/api and docs.dial8.ai/api");
+    assert_eq!(per_units("See v2/api and docs.nativeintelligence.dev/api"), "See v2/api and docs.nativeintelligence.dev/api");
     assert_eq!(per_units("On 11/15/2026, 1/2 off, and/or later."), "On 11/15/2026, 1/2 off, and/or later.");
     assert_eq!(per_units("24/7"), "twenty four seven");
     assert_eq!(per_units("124/7 and 24/75"), "124/7 and 24/75");
@@ -1222,12 +1222,12 @@ fn slashes_that_are_not_rates_stay() {
 fn links_are_read_as_their_site() {
     assert_eq!(links("Order it on https://www.amazon.com/dp/B0C1234567?th=1."), "Order it on Amazon.");
     assert_eq!(links("Sell on shopify.com or amazon.co.uk/sell."), "Sell on Shopify or Amazon.");
-    assert_eq!(links("See https://www.dial8.ai/docs?x=1#top."), "See Dial8.");
-    assert_eq!(links("(see docs.dial8.ai/api)"), "(see Dial8");
+    assert_eq!(links("See https://www.nativeintelligence.dev/docs?x=1#top."), "See Native Intelligence.");
+    assert_eq!(links("(see docs.nativeintelligence.dev/api)"), "(see Native Intelligence");
     assert_eq!(links("Run it on http://localhost:3000/api/chat."), "Run it on localhost.");
     assert_eq!(
-        links("Open https://dial8.ai/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue."),
-        "Open Dial8 to continue."
+        links("Open https://nativeintelligence.dev/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue."),
+        "Open Native Intelligence to continue."
     );
     // GitHub: a pull request or issue by its number, anything else as the site.
     assert_eq!(
@@ -1322,7 +1322,7 @@ fn text_that_only_looks_like_a_link_stays() {
 
 #[test]
 fn normalized_links_are_short() {
-    let url = normalize("Open https://dial8.ai/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue.");
+    let url = normalize("Open https://nativeintelligence.dev/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue.");
     assert!(!url.contains("slash") && !url.contains("three a two"), "{url}");
     assert!(url.contains("to continue."), "{url}");
     let cut = normalize("The repo is github.com/liamadsr/web3-starter-p… and the branch is ready.");

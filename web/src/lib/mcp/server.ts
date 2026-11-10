@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { packageVisibleTo } from '@/lib/knowledge/package-acl'
 import { createMcpAuditLogger, isReadOnlyToken } from './guard'
 import { registerTools } from './tools'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * Build the `instructions` blob the MCP server sends in the `initialize`
@@ -265,8 +266,8 @@ export async function createMcpServer(
       // What an app shows for the server it added (its connector list, the
       // sign-in prompt), where it reads them.
       title: 'Native Intelligence',
-      websiteUrl: 'https://dial8.ai',
-      icons: [{ src: 'https://dial8.ai/icon.png', mimeType: 'image/png', sizes: ['1024x1024'] }],
+      websiteUrl: appUrl(),
+      icons: [{ src: `${appUrl()}/icon.png`, mimeType: 'image/png', sizes: ['1024x1024'] }],
     },
     {
       instructions: buildInstructions(workspaceName, workspaceId, readOnly),

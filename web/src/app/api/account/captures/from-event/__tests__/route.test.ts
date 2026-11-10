@@ -155,7 +155,7 @@ const { POST } = await import('@/app/api/account/captures/from-event/route')
 
 function req(body: Record<string, unknown>): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/from-event',
+    url: 'https://nativeintelligence.dev/api/account/captures/from-event',
     method: 'POST',
     body: {
       title: 'Weekly Standup',

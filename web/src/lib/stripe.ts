@@ -1,4 +1,5 @@
 import Stripe from 'stripe'
+import { APP_PAGE_ORIGINS, appUrl } from '@/lib/app-url'
 
 /**
  * Stripe client singletons.
@@ -66,8 +67,8 @@ export function __resetStripeClientsForTest() {
  */
 const ALLOWED_CHECKOUT_ORIGINS = new Set(
   [
-    'https://dial8.ai',
-    'https://www.dial8.ai',
+    ...APP_PAGE_ORIGINS,
+    appUrl(),
     process.env.NEXT_PUBLIC_SITE_URL,
     // Local development.
     process.env.NODE_ENV !== 'production' ? 'http://localhost:3000' : undefined,
@@ -78,5 +79,5 @@ export function safeCheckoutOrigin(requestOrigin: string | null): string {
   if (requestOrigin && ALLOWED_CHECKOUT_ORIGINS.has(requestOrigin)) {
     return requestOrigin
   }
-  return process.env.NEXT_PUBLIC_SITE_URL || 'https://dial8.ai'
+  return process.env.NEXT_PUBLIC_SITE_URL || appUrl()
 }

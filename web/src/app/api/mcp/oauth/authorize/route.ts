@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { clientIdUrlProblem, isMetadataClientId } from '@/lib/mcp/client-metadata'
+import { mcpBaseUrl } from '@/lib/mcp/base-url'
 import { checkMcpClient } from '@/lib/mcp/oauth-client'
 import { grantedScopes } from '@/lib/mcp/scopes'
 
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   // Check if user is authenticated (Supabase session via cookies)
   const supabase = await createServerClient()
   const { data: { user } } = await supabase.auth.getUser()
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = mcpBaseUrl(request, process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
   // User is not logged in — redirect to Native Intelligence login page with return URL
   const toLogin = () => NextResponse.redirect(`${baseUrl}/login?redirect=${encodeURIComponent(request.url)}`)
 

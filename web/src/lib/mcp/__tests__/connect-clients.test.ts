@@ -13,11 +13,11 @@ import {
   vscodeInstallUrl,
 } from '../connect-clients'
 
-const prod = connectServer('https://dial8.ai', false)
+const prod = connectServer('https://nativeintelligence.dev', false)
 
 describe('the server', () => {
   it('is native-intelligence at the app address, and native-intelligence-dev on a local origin', () => {
-    expect(prod).toEqual({ name: 'native-intelligence', url: 'https://dial8.ai/api/mcp' })
+    expect(prod).toEqual({ name: 'native-intelligence', url: 'https://nativeintelligence.dev/api/mcp' })
     expect(connectServer('http://localhost:3000/', true)).toEqual({ name: 'native-intelligence-dev', url: 'http://localhost:3000/api/mcp' })
   })
 })
@@ -29,14 +29,14 @@ describe('one-click links', () => {
     const href = cursorInstallUrl(prod)
     expect(href.startsWith('https://cursor.com/install-mcp?')).toBe(true)
     expect(params(href).get('name')).toBe('native-intelligence')
-    expect(JSON.parse(Buffer.from(params(href).get('config')!, 'base64').toString('utf8'))).toEqual({ url: 'https://dial8.ai/api/mcp' })
+    expect(JSON.parse(Buffer.from(params(href).get('config')!, 'base64').toString('utf8'))).toEqual({ url: 'https://nativeintelligence.dev/api/mcp' })
   })
 
   it('VS Code: its redirect to vscode:mcp/install, the http server entry as JSON', () => {
     const href = vscodeInstallUrl(prod)
     expect(href.startsWith('https://vscode.dev/redirect/mcp/install?')).toBe(true)
     expect(params(href).get('name')).toBe('native-intelligence')
-    expect(JSON.parse(params(href).get('config')!)).toEqual({ type: 'http', url: 'https://dial8.ai/api/mcp' })
+    expect(JSON.parse(params(href).get('config')!)).toEqual({ type: 'http', url: 'https://nativeintelligence.dev/api/mcp' })
   })
 
   it('every one-click app has an https install link (the desktop app opens only http(s))', () => {
@@ -51,14 +51,14 @@ describe('commands and snippets', () => {
   const texts = (id: Parameters<typeof connectClient>[0]) => connectClient(id).snippets!(prod).map((s) => s.text)
 
   it('the terminal apps add the same server, with sign-in where the app needs a step for it', () => {
-    expect(texts('claude-code')).toEqual(['claude mcp add --scope user --transport http native-intelligence https://dial8.ai/api/mcp', '/mcp'])
-    expect(texts('codex')).toEqual(['codex mcp add native-intelligence --url https://dial8.ai/api/mcp', 'codex mcp login native-intelligence'])
-    expect(texts('gemini-cli')).toEqual(['gemini mcp add --scope user --transport http native-intelligence https://dial8.ai/api/mcp', '/mcp auth native-intelligence'])
-    expect(texts('vscode')).toEqual([`code --add-mcp '{"name":"native-intelligence","type":"http","url":"https://dial8.ai/api/mcp"}'`])
+    expect(texts('claude-code')).toEqual(['claude mcp add --scope user --transport http native-intelligence https://nativeintelligence.dev/api/mcp', '/mcp'])
+    expect(texts('codex')).toEqual(['codex mcp add native-intelligence --url https://nativeintelligence.dev/api/mcp', 'codex mcp login native-intelligence'])
+    expect(texts('gemini-cli')).toEqual(['gemini mcp add --scope user --transport http native-intelligence https://nativeintelligence.dev/api/mcp', '/mcp auth native-intelligence'])
+    expect(texts('vscode')).toEqual([`code --add-mcp '{"name":"native-intelligence","type":"http","url":"https://nativeintelligence.dev/api/mcp"}'`])
   })
 
   it('Cursor’s mcp.json entry is the url alone (no auth block: Cursor registers itself)', () => {
-    expect(JSON.parse(texts('cursor')[0])).toEqual({ mcpServers: { 'native-intelligence': { url: 'https://dial8.ai/api/mcp' } } })
+    expect(JSON.parse(texts('cursor')[0])).toEqual({ mcpServers: { 'native-intelligence': { url: 'https://nativeintelligence.dev/api/mcp' } } })
   })
 })
 

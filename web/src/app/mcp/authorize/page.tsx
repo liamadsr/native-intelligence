@@ -6,6 +6,7 @@ import { Check, Loader2, Shield, Terminal } from 'lucide-react'
 import { ThinkingOrb } from 'thinking-orbs'
 import { Button } from '@/components/ui/button'
 import { grantedScopes } from '@/lib/mcp/scopes'
+import { isWithinAppDomain } from '@/lib/app-url'
 
 /** Redirect URI schemes that would run script or read local data on navigation. */
 const UNSAFE_REDIRECT_SCHEMES = new Set(['javascript:', 'data:', 'vbscript:', 'blob:', 'file:'])
@@ -97,7 +98,7 @@ function AuthorizeContent() {
   // borrowing a real app's metadata URL (MCP authorization spec, "Localhost
   // Redirect URI Risks"), so it is never a known origin: it gets the warning.
   const isLocalApp = !!redirectUrl && (!isWebRedirect || ['localhost', '127.0.0.1', '[::1]'].includes(redirectUrl.hostname))
-  const isKnownOrigin = !!redirectUrl && isWebRedirect && !isLocalApp && /(^|\.)dial8\.ai$/.test(redirectUrl.hostname)
+  const isKnownOrigin = !!redirectUrl && isWebRedirect && !isLocalApp && isWithinAppDomain(redirectUrl.hostname)
 
   const handleApprove = async () => {
     setIsApproving(true)

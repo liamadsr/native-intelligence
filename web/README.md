@@ -224,15 +224,17 @@ The code has some values for the hosted service built in. Change them for your o
 deployment:
 
 - **PostHog.** The `/ingest` rewrites in `next.config.mjs` go to PostHog's US cloud.
-- **Stripe Checkout's return address.** It falls back to the hosted domain unless
+- **Stripe Checkout's return address.** It falls back to the app's address unless
   `NEXT_PUBLIC_SITE_URL` is set (`src/lib/stripe.ts`).
-- **The cloud browser's relay.** On a Vercel production deploy it defaults to the
-  hosted relay (`src/lib/cloud-browser/config.ts`), and `RELAY_HOST_REDIRECT` in
-  `next.config.mjs` points at the hosted domain.
-- **The app's domain.** Some code falls back to the hosted domain when
-  `NEXT_PUBLIC_APP_URL` is empty, so always set it. Some uses it whatever you set: the
-  links in the app's emails (`BASE_URL` in `src/lib/email.ts`, in production), and the
-  marketing pages' canonical URLs, sitemap and `llms.txt`.
+- **The cloud browser's relay.** On a Vercel production deploy it is `browser-relay.` on
+  the app's domain (`src/lib/cloud-browser/config.ts`), and `RELAY_HOST_REDIRECTS` in
+  `next.config.mjs` covers the hosted domains only.
+- **The app's address.** It is one setting, `NEXT_PUBLIC_APP_URL`, read through
+  `src/lib/app-url.ts`. Left empty it is the hosted address
+  (`https://nativeintelligence.dev`), so always set it: the links in the app's emails,
+  the marketing pages' canonical URLs, the sitemap and `llms.txt` all follow it. The
+  hosted domains are also named in `APP_DOMAINS` there, for the few checks that ask
+  whether a host is the hosted app.
 - **The Scribe page's download.** `src/app/scribe/page.tsx` links to the hosted Scribe
   app's file.
 

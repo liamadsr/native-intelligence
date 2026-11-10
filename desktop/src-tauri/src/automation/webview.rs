@@ -103,7 +103,7 @@ pub fn install_flag(app: &AppHandle) {
 }
 
 /// Load the main window's page again: its current (or pending) URL when it is
-/// the app's own (dial8.ai, or the dev server in a debug build, as `setup()`
+/// the app's own (nativeintelligence.dev, or the dev server in a debug build, as `setup()`
 /// points it), else the app's base URL. A navigation rather than `-reload`,
 /// which does nothing while the first load hasn't committed.
 fn reload_main(app: &AppHandle) {

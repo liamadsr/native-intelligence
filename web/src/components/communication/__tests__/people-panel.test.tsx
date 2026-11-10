@@ -77,7 +77,7 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   if (url === '/api/account/agent-links/connect') {
     const b = body as { displayName: string }
     guests = [view({ id: 'g-half', displayName: b.displayName, state: 'invited', channels: ['dial8'], masked: null, lastInboundAt: null }), ...guests]
-    return json({ link: linkView({ id: 'l-new', direction: 'outgoing', myHalfGuestId: 'g-half' }), url: 'https://dial8.ai/link/tok123' }, 201)
+    return json({ link: linkView({ id: 'l-new', direction: 'outgoing', myHalfGuestId: 'g-half' }), url: 'https://nativeintelligence.dev/link/tok123' }, 201)
   }
   if (url === '/api/account/agent-links' && method === 'POST') {
     const b = body as { guestId?: string; peerUserId: string; displayName: string; email?: string }
@@ -484,7 +484,7 @@ describe('the People tab', () => {
     await click(q('[data-people-create]')!)
     await until(() => !!q('[data-people-sent="link"]'))
     expect(calls.find((c) => c.url === '/api/account/agent-links/connect')!.body).toMatchObject({ displayName: 'Dana Kim', preset: 'household' })
-    expect(q('[data-people-connect-url]')!.textContent).toBe('https://dial8.ai/link/tok123')
+    expect(q('[data-people-connect-url]')!.textContent).toBe('https://nativeintelligence.dev/link/tok123')
     expect(q('[data-people-sent]')!.textContent).toContain('Works once, for 7 days')
   })
 

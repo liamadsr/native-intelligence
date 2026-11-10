@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { appHost } from '@/lib/app-url'
 
 // Default social-card image for the whole site (og:image + fallback for pages
 // without their own). Generated at build time via next/og. Kept deliberately
@@ -74,7 +75,7 @@ export default function OpengraphImage() {
             letterSpacing: '0.01em',
           }}
         >
-          dial8.ai
+          {appHost()}
         </div>
       </div>
     ),

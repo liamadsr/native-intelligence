@@ -39,7 +39,7 @@ vi.mock('@/lib/workspace', () => ({
 const { GET } = await import('@/app/api/account/companies/route')
 
 function getReq(params: Record<string, string> = {}): NextRequest {
-  const url = new URL('https://dial8.ai/api/account/companies')
+  const url = new URL('https://nativeintelligence.dev/api/account/companies')
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
   const req = buildRequest({ url: url.toString(), method: 'GET' })
   Object.defineProperty(req, 'nextUrl', { value: url, writable: false })

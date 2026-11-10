@@ -23,7 +23,7 @@ const { GET } = await import('@/app/api/billing/status/route')
 
 const USER = {
   id: 'user-1',
-  email: 'sub@acme.com', // not @dial8.ai: staff are billing-exempt (lib/billing/access)
+  email: 'sub@acme.com', // not @nativeintelligence.dev: staff are billing-exempt (lib/billing/access)
   // created ~30 days ago so the trial-window math is stable and irrelevant here
   created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
   user_metadata: {},

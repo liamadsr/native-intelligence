@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Privacy from './client'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
     title: 'Privacy Policy – Native Intelligence',
     description:
       'How Native Intelligence collects, uses, and protects your data. Read our privacy policy.',
-    url: 'https://dial8.ai/privacy',
+    url: `${appUrl()}/privacy`,
     type: 'website',
   },
 }

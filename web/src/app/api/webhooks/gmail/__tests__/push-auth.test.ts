@@ -134,6 +134,46 @@ describe('verifyGmailPush with GMAIL_PUSH_SERVICE_ACCOUNT set', () => {
     expect(await verifyGmailPush(push(bearer(await idToken())), google.keys)).toBe(false)
     expect(warned.at(-1)).toBe('[gmail-push] refused: no_audience')
   })
+
+  // The hosted app answers on two domains while it moves (src/lib/app-url.ts). The
+  // subscription signs the endpoint it was created with, whichever the address is now.
+  describe.each([
+    ['https://dial8.ai', 'nativeintelligence.dev'],
+    ['https://nativeintelligence.dev', 'dial8.ai'],
+  ])('with the app at %s', (address, otherDomain) => {
+    beforeEach(() => vi.stubEnv('NEXT_PUBLIC_APP_URL', address))
+    const ours = `${address}/api/webhooks/gmail`
+
+    it("accepts our endpoint there, and the same endpoint on the app's other domain", async () => {
+      expect(pushAudience()).toEqual({ endpoints: expect.arrayContaining([ours, `https://${otherDomain}/api/webhooks/gmail`]) })
+      for (const audience of [ours, `${ours}?token=sekret`, `https://${otherDomain}/api/webhooks/gmail`, `https://${otherDomain}/api/webhooks/gmail?token=sekret`]) {
+        expect(await verifyGmailPush(push(bearer(await idToken({}, { audience }))), google.keys), audience).toBe(true)
+      }
+    })
+
+    it('refuses a look-alike of either domain, another host on them, http, and another path', async () => {
+      for (const domain of [new URL(address).host, otherDomain]) {
+        for (const audience of [
+          `https://${domain}.evil.example/api/webhooks/gmail`,
+          `https://evil.${domain}/api/webhooks/gmail`,
+          `https://not${domain}/api/webhooks/gmail`,
+          `https://www.${domain}/api/webhooks/gmail`,
+          `https://browser-relay.${domain}/api/webhooks/gmail`,
+          `http://${domain}/api/webhooks/gmail`,
+          `https://${domain}/api/webhooks/outlook`,
+        ]) {
+          expect(await verifyGmailPush(push(bearer(await idToken({}, { audience }))), google.keys), audience).toBe(false)
+        }
+      }
+    })
+  })
+
+  it('an address on neither domain takes only its own endpoint', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://staging.example.com')
+    expect(pushAudience()).toEqual({ endpoints: ['https://staging.example.com/api/webhooks/gmail'] })
+    expect(await verifyGmailPush(push(bearer(await idToken({}, { audience: 'https://staging.example.com/api/webhooks/gmail' }))), google.keys)).toBe(true)
+    expect(await verifyGmailPush(push(bearer(await idToken())), google.keys)).toBe(false)
+  })
 })
 
 describe('verifyGmailPush until GMAIL_PUSH_SERVICE_ACCOUNT is set: the static ?token=', () => {

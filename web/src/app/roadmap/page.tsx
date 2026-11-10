@@ -6,6 +6,7 @@ import { PageLayout } from '@/components/page-layout'
 import { RoadmapTimeline } from '@/components/roadmap/roadmap-timeline'
 import { ROADMAP_ISSUES_URL, ROADMAP_PROJECT_URL, ROADMAP_SUGGEST_URL } from '@/lib/roadmap/constants'
 import { getRoadmap } from '@/lib/roadmap/fetch'
+import { appUrl } from '@/lib/app-url'
 
 // Rebuilt at most every five minutes, like the GitHub fetch it shows
 // (ROADMAP_REVALIDATE_SECONDS; segment config must be a literal).
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Roadmap - Native Intelligence',
     description: DESCRIPTION,
-    url: 'https://dial8.ai/roadmap',
+    url: `${appUrl()}/roadmap`,
     type: 'website',
   },
 }

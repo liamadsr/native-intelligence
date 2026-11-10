@@ -1,3 +1,5 @@
+import { appUrl } from '@/lib/app-url'
+
 /**
  * Renders JSON-LD structured data as a script tag in the initial server HTML so
  * crawlers and AI agents can read it without executing JS.
@@ -37,7 +39,7 @@ export function StructuredData({
   )
 }
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 
 // Organization schema — powers the knowledge panel / brand entity.
 export const organizationSchema = {

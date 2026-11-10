@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for Native Intelligence Desktop. The remote.urls allowlist below is the ONLY origin set granted these permissions; app commands are declared in build.rs (AppManifest) so tauri refuses them for any other origin. The webview runs code the server sends, so every grant here is reachable by that server (security review 2026-10-31, P0-3): exactly dial8.ai (www.dial8.ai redirects there; no subdomain wildcard, so a taken-over subdomain gets nothing); only the core calls the web makes (no core:menu or core:tray: the tray's menu listener is global, so a web-built menu could act as a native-only tray item; no core:resources); no updater permission (app_update_check / app_update_install / app_update_apply decide in Rust); no shell permission; no localhost (debug builds add capabilities/dev.json for the local dev server, build.rs). tests/capability_policy.rs pins all of this.",
+  "description": "Default capabilities for Native Intelligence Desktop. The remote.urls allowlist below is the ONLY origin set granted these permissions; app commands are declared in build.rs (AppManifest) so tauri refuses them for any other origin. The webview runs code the server sends, so every grant here is reachable by that server (security review 2026-10-31, P0-3): exactly the app's two domains, nativeintelligence.dev and (until it stops serving the app) dial8.ai (each www. host redirects to its bare domain; no subdomain wildcard, so a taken-over subdomain gets nothing); only the core calls the web makes (no core:menu or core:tray: the tray's menu listener is global, so a web-built menu could act as a native-only tray item; no core:resources); no updater permission (app_update_check / app_update_install / app_update_apply decide in Rust); no shell permission; no localhost (debug builds add capabilities/dev.json for the local dev server, build.rs). tests/capability_policy.rs pins all of this.",
   "windows": [
     "main",
     "meeting-hud",
@@ -10,6 +10,7 @@
   ],
   "remote": {
     "urls": [
+      "https://nativeintelligence.dev/*",
       "https://dial8.ai/*"
     ]
   },

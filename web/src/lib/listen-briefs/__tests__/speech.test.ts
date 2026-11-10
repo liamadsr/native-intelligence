@@ -100,7 +100,7 @@ describe('withoutEmails (a brief never reads an address out)', () => {
   })
 
   it('leaves handles, links and plain text alone', () => {
-    expect(withoutEmails('Ping @jessa, see dial8.ai/pricing')).toBe('Ping @jessa, see dial8.ai/pricing')
+    expect(withoutEmails('Ping @jessa, see nativeintelligence.dev/pricing')).toBe('Ping @jessa, see nativeintelligence.dev/pricing')
     expect(withoutEmails('No address here.')).toBe('No address here.')
   })
 

@@ -21,7 +21,7 @@ vi.mock('@/lib/agent-links/outside', async () => {
 const redeem = await import('../redeem/route')
 const workspaces = await import('../answer-workspaces/route')
 const TOKEN = 'A'.repeat(32)
-const post = (body: unknown) => new Request('https://dial8.ai/api/account/agent-links/redeem', { method: 'POST', body: JSON.stringify(body) })
+const post = (body: unknown) => new Request('https://nativeintelligence.dev/api/account/agent-links/redeem', { method: 'POST', body: JSON.stringify(body) })
 
 beforeEach(() => {
   outside.redeemConnectToken.mockReset()

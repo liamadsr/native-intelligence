@@ -40,7 +40,7 @@ const { authenticateUser } = await import('@/lib/ai/auth')
 function request(authHeader?: string): Request {
   const headers = new Headers()
   if (authHeader) headers.set('authorization', authHeader)
-  return new Request('https://dial8.ai/api/device/ask', { method: 'POST', headers })
+  return new Request('https://nativeintelligence.dev/api/device/ask', { method: 'POST', headers })
 }
 
 const DEVICE_OWNER = { id: 'u-device' }

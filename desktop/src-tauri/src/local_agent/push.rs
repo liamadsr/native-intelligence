@@ -1104,8 +1104,8 @@ mod tests {
         );
         assert_eq!(symref_branch("224728b\tHEAD\n"), None);
         assert_eq!(
-            pull_request_url("https://dial8.ai/", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
-            "https://dial8.ai/api/local-agent/sessions/38cb0eef-89e9-496d-bf08-0688225dbfcd/pull-request"
+            pull_request_url("https://nativeintelligence.dev/", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
+            "https://nativeintelligence.dev/api/local-agent/sessions/38cb0eef-89e9-496d-bf08-0688225dbfcd/pull-request"
         );
     }
 
@@ -1286,14 +1286,14 @@ mod tests {
             env_file: None,
             tool_path: "/usr/bin:/bin".into(),
             home: home.display().to_string(),
-            model_base_url: "https://dial8.ai/api/local-agent/model".into(),
+            model_base_url: "https://nativeintelligence.dev/api/local-agent/model".into(),
             git: "/usr/bin/git".into(),
             git_env: vec![
                 ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
                 ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
             ],
             gh: None,
-            api_origin: "https://dial8.ai".into(),
+            api_origin: "https://nativeintelligence.dev".into(),
         })
     }
 
@@ -1374,14 +1374,14 @@ mod tests {
                     env_file: None,
                     tool_path: "/usr/bin:/bin".into(),
                     home: "/Users/x".into(),
-                    model_base_url: "https://dial8.ai/api/local-agent/model".into(),
+                    model_base_url: "https://nativeintelligence.dev/api/local-agent/model".into(),
                     git: "/usr/bin/git".into(),
                     git_env: Vec::new(),
                     gh: None,
-                    api_origin: "https://dial8.ai".into(),
+                    api_origin: "https://nativeintelligence.dev".into(),
                 }),
                 gh: None,
-                api_origin: "https://dial8.ai".into(),
+                api_origin: "https://nativeintelligence.dev".into(),
             },
             repo: "/r".into(),
             branch: "dial8/x-1".into(),
@@ -1418,14 +1418,14 @@ mod tests {
                     env_file: None,
                     tool_path: "/usr/bin:/bin".into(),
                     home: "/Users/x".into(),
-                    model_base_url: "https://dial8.ai/api/local-agent/model".into(),
+                    model_base_url: "https://nativeintelligence.dev/api/local-agent/model".into(),
                     git: "/nonexistent/git".into(),
                     git_env: Vec::new(),
                     gh: None,
-                    api_origin: "https://dial8.ai".into(),
+                    api_origin: "https://nativeintelligence.dev".into(),
                 }),
                 gh: None,
-                api_origin: "https://dial8.ai".into(),
+                api_origin: "https://nativeintelligence.dev".into(),
             },
             repo: "/r".into(),
             branch: "dial8/x-1".into(),

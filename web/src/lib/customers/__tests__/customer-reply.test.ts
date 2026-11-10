@@ -33,7 +33,7 @@ beforeEach(() => {
 describe("a customer's reply", () => {
   it('is sent from the business number they texted, and recorded as theirs', async () => {
     const send = vi.fn(async () => ({ ok: true as const, sid: 'SMout' }))
-    expect(await textGuest(db, { guestId: 'g-sarah', ownerUserId: OWNER, body: 'Cleaning an 8x10 is $400.', kind: 'guest_reply' }, { send, origin: 'https://dial8.ai' })).toEqual({ sent: true, sid: 'SMout' })
+    expect(await textGuest(db, { guestId: 'g-sarah', ownerUserId: OWNER, body: 'Cleaning an 8x10 is $400.', kind: 'guest_reply' }, { send, origin: 'https://nativeintelligence.dev' })).toEqual({ sent: true, sid: 'SMout' })
     expect(send).toHaveBeenCalledWith(SARAH, 'Cleaning an 8x10 is $400.', { from: RUG })
     expect(tables.sms_message).toEqual([expect.objectContaining({ direction: 'out', kind: 'guest_reply', guest_id: 'g-sarah', phone_e164: SARAH })])
   })

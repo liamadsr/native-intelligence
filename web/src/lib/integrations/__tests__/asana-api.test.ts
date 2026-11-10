@@ -469,7 +469,7 @@ describe('asana-api — webhooks', () => {
     pushJson({ data: { gid: 'wh-1', active: true } })
     const created = await createWebhook('tok', {
       resource: 'proj-1',
-      target: 'https://dial8.ai/api/webhooks/asana/tss-1',
+      target: 'https://nativeintelligence.dev/api/webhooks/asana/tss-1',
       filters: [{ resource_type: 'task', action: 'changed', fields: ['completed'] }],
     })
 
@@ -479,7 +479,7 @@ describe('asana-api — webhooks', () => {
     expect(JSON.parse(String(requests[0].init?.body))).toEqual({
       data: {
         resource: 'proj-1',
-        target: 'https://dial8.ai/api/webhooks/asana/tss-1',
+        target: 'https://nativeintelligence.dev/api/webhooks/asana/tss-1',
         filters: [{ resource_type: 'task', action: 'changed', fields: ['completed'] }],
       },
     })

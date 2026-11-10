@@ -21,6 +21,7 @@
  * unsigned request is never trusted).
  */
 
+import { appUrl } from '@/lib/app-url'
 export interface TwilioConfig {
   accountSid: string
   authToken: string
@@ -71,5 +72,5 @@ export function twilioStatusCallbackUrl(): string {
 
 /** The app's public origin, for links in texts. */
 export function appOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }

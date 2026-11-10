@@ -61,8 +61,11 @@ R2_PUBLIC_URL="${R2_PUBLIC_URL%/}"   # no trailing slash: it's joined with "/<fi
 SUPABASE_URL="${NI_SUPABASE_URL:-${DIAL8_SUPABASE_URL:-}}"
 SUPABASE_SERVICE_KEY="${NI_SUPABASE_SERVICE_KEY:-${DIAL8_SUPABASE_SERVICE_KEY:-}}"
 
-# Production frontend URL — the WebView will load this instead of localhost
-PRODUCTION_URL="https://dial8.ai"
+# Production frontend URL — the WebView will load this instead of localhost.
+# The same address as src-tauri/src/nav_guard.rs APP_URL (where the app calls
+# its API) and tauri.conf.json's frontendDist, which the Windows build uses as
+# committed: change all three together.
+PRODUCTION_URL="https://nativeintelligence.dev"
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -191,6 +194,26 @@ if [ "$SKIP_PUBLISH" = false ] && [ -z "$R2_PUBLIC_URL" ]; then
     err "NI_R2_PUBLIC_URL not set (the R2 bucket's public URL, in .env.release)."
     echo "  Or run with --skip-publish."
     exit 1
+fi
+
+# The address this build loads must already serve the app: a build released
+# before it does opens a blank window, and nothing in the app falls back to
+# another address. The update route answers 204 (nothing newer) or 200 with
+# JSON; a domain that is parked, or not pointed at the app yet, answers neither.
+# Checked only for a build that will be published.
+address_serves_the_app() {
+    local answer
+    answer="$(curl -sS -o /dev/null -m 20 -w '%{http_code} %{content_type}' "$PRODUCTION_URL/api/desktop/update/darwin/aarch64/0.0.0" 2>/dev/null || true)"
+    case "$answer" in
+        204*|"200 application/json"*) return 0 ;;
+    esac
+    err "$PRODUCTION_URL does not serve the app yet (its update route answered: ${answer:-nothing})."
+    echo "  A build released now would open a blank window. Release once that address serves the app."
+    return 1
+}
+if [ "$SKIP_PUBLISH" = false ]; then
+    address_serves_the_app || exit 1
+    ok "$PRODUCTION_URL serves the app"
 fi
 
 # Check updater signing key exists

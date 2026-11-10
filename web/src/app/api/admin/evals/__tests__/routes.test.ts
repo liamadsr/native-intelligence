@@ -78,7 +78,7 @@ const ctx = { params: Promise.resolve({ id: 'cand-1' }) }
 const P1 = 'd1000000-0000-4000-8000-000000000001'
 const P2 = 'd1000000-0000-4000-8000-000000000002'
 const patch = (body: unknown) =>
-  PATCH(new Request('https://dial8.ai/api/admin/evals/candidates/cand-1', { method: 'PATCH', body: JSON.stringify(body) }), ctx)
+  PATCH(new Request('https://nativeintelligence.dev/api/admin/evals/candidates/cand-1', { method: 'PATCH', body: JSON.stringify(body) }), ctx)
 
 const validDraft = {
   skill: 'meeting-prep',
@@ -106,17 +106,17 @@ beforeEach(() => {
 describe('admin required', () => {
   it('401s every route for a non-admin, and writes nothing', async () => {
     hoisted.requireAdmin.mockRejectedValue(new Response('no', { status: 401 }))
-    expect((await listCandidates(new Request('https://dial8.ai/api/admin/evals/candidates'))).status).toBe(401)
+    expect((await listCandidates(new Request('https://nativeintelligence.dev/api/admin/evals/candidates'))).status).toBe(401)
     expect((await patch({ status: 'dismissed' })).status).toBe(401)
     expect((await exportCases()).status).toBe(401)
-    expect((await markExported(new Request('https://dial8.ai/api/admin/evals/export', { method: 'POST', body: JSON.stringify({ candidateIds: [P1] }) }))).status).toBe(401)
+    expect((await markExported(new Request('https://nativeintelligence.dev/api/admin/evals/export', { method: 'POST', body: JSON.stringify({ candidateIds: [P1] }) }))).status).toBe(401)
     expect(calls).toEqual([])
   })
 })
 
 describe('GET /api/admin/evals/candidates', () => {
   it('filters by status and source, newest first, joined and counted', async () => {
-    const res = await listCandidates(new Request('https://dial8.ai/api/admin/evals/candidates?status=new&source=thumbs_down&limit=50'))
+    const res = await listCandidates(new Request('https://nativeintelligence.dev/api/admin/evals/candidates?status=new&source=thumbs_down&limit=50'))
     expect(res.status).toBe(200)
     const body = await res.json()
     const listEqs = calls.filter((c) => c.op === 'eq').map((c) => c.args)
@@ -131,14 +131,14 @@ describe('GET /api/admin/evals/candidates', () => {
   })
 
   it('treats `all` as no filter and clamps the limit', async () => {
-    await listCandidates(new Request('https://dial8.ai/api/admin/evals/candidates?status=all&source=all&limit=99999'))
+    await listCandidates(new Request('https://nativeintelligence.dev/api/admin/evals/candidates?status=all&source=all&limit=99999'))
     expect(calls.filter((c) => c.op === 'eq' && (c.args[0] === 'status'))).toEqual([])
     expect(calls).toContainEqual({ table: 'eval_candidate', op: 'limit', args: [500] })
   })
 
   it('400s an unknown status or source', async () => {
-    expect((await listCandidates(new Request('https://dial8.ai/api/admin/evals/candidates?status=bogus'))).status).toBe(400)
-    expect((await listCandidates(new Request('https://dial8.ai/api/admin/evals/candidates?source=bogus'))).status).toBe(400)
+    expect((await listCandidates(new Request('https://nativeintelligence.dev/api/admin/evals/candidates?status=bogus'))).status).toBe(400)
+    expect((await listCandidates(new Request('https://nativeintelligence.dev/api/admin/evals/candidates?source=bogus'))).status).toBe(400)
   })
 })
 
@@ -239,7 +239,7 @@ describe('GET /api/admin/evals/export', () => {
 
 describe('POST /api/admin/evals/export', () => {
   const mark = (body: unknown) =>
-    markExported(new Request('https://dial8.ai/api/admin/evals/export', { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }))
+    markExported(new Request('https://nativeintelligence.dev/api/admin/evals/export', { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }))
 
   it('marks exactly the given ids exported, only while promoted', async () => {
     markResult = { data: [{ id: P1 }], error: null }

@@ -10,7 +10,7 @@ import { PublicSky } from '@/components/sky/public-sky'
 /**
  * Desktop-only escape hatch for a debugging session, read from localStorage —
  * NOT a NEXT_PUBLIC_* build-time env var. The desktop shell loads the already
- * deployed production bundle from dial8.ai, so a build-time flag cannot vary
+ * deployed production bundle from nativeintelligence.dev, so a build-time flag cannot vary
  * per desktop build; it would have to be flipped for every web visitor too.
  * To re-enable replay in the desktop app for one session, run in the webview
  * devtools console and reload:

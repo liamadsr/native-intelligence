@@ -25,6 +25,7 @@ import { request as httpsRequest } from 'node:https'
 import type { LookupFunction } from 'node:net'
 import { ipv6Groups, isPublicAddress } from '@/lib/mcp-client/url-guard'
 import { METADATA_MAX_BYTES, type FetchedDocument } from './client-metadata'
+import { appUrl } from '@/lib/app-url'
 
 export const FETCH_TIMEOUT_MS = 5_000
 
@@ -92,7 +93,7 @@ export function fetchMetadataDocument(url: string, opts: FetchOptions = {}): Pro
       url,
       {
         method: 'GET',
-        headers: { accept: 'application/json', 'user-agent': 'NativeIntelligence-MCP-OAuth (+https://dial8.ai)' },
+        headers: { accept: 'application/json', 'user-agent': `NativeIntelligence-MCP-OAuth (+${appUrl()})` },
         lookup: opts.lookup ?? publicOnlyLookup(),
         agent: false,
       },

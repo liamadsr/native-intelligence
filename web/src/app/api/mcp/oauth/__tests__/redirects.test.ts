@@ -37,15 +37,15 @@ const { GET: authorize } = await import('../authorize/route')
 const { POST: deny } = await import('../deny/route')
 const { POST: approve } = await import('../approve/route')
 
-const authorizeUrl = (params: Record<string, string>) => new Request(`https://dial8.ai/api/mcp/oauth/authorize?${new URLSearchParams(params)}`)
-const denyRequest = (body: unknown) => new Request('https://dial8.ai/api/mcp/oauth/deny', { method: 'POST', body: JSON.stringify(body) })
+const authorizeUrl = (params: Record<string, string>) => new Request(`https://nativeintelligence.dev/api/mcp/oauth/authorize?${new URLSearchParams(params)}`)
+const denyRequest = (body: unknown) => new Request('https://nativeintelligence.dev/api/mcp/oauth/deny', { method: 'POST', body: JSON.stringify(body) })
 const location = (res: Response) => res.headers.get('location')
 
 beforeEach(() => {
   m.client = { ...CLIENT }
   m.user = { id: 'u1' }
   m.authed = true
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
 })
 
 describe('GET /api/mcp/oauth/authorize', () => {
@@ -94,9 +94,9 @@ describe('GET /api/mcp/oauth/authorize', () => {
   it('a valid request goes on to the login page or the consent page, on this site', async () => {
     const params = { client_id: 'c1', redirect_uri: CLIENT.redirect_uris[0], code_challenge: 'x' }
     m.user = null
-    expect(location(await authorize(authorizeUrl(params)))).toMatch(/^https:\/\/dial8\.ai\/login\?redirect=/)
+    expect(location(await authorize(authorizeUrl(params)))).toMatch(/^https:\/\/nativeintelligence\.dev\/login\?redirect=/)
     m.user = { id: 'u1' }
-    expect(location(await authorize(authorizeUrl(params)))).toMatch(/^https:\/\/dial8\.ai\/mcp\/authorize\?/)
+    expect(location(await authorize(authorizeUrl(params)))).toMatch(/^https:\/\/nativeintelligence\.dev\/mcp\/authorize\?/)
   })
 })
 
@@ -105,7 +105,7 @@ describe('a 127.0.0.1 or [::1] callback, which a route handler reads as localhos
   const V6 = 'http://[::1]:53683/callback'
   // On Vercel a route handler gets a NextRequest, whose url turns the first
   // loopback IP after the scheme into localhost; a plain Request doesn't.
-  const nextAuthorize = (query: string) => new NextRequest(`https://dial8.ai/api/mcp/oauth/authorize?${query}`)
+  const nextAuthorize = (query: string) => new NextRequest(`https://nativeintelligence.dev/api/mcp/oauth/authorize?${query}`)
 
   beforeEach(() => {
     m.client = { ...CLIENT, redirect_uris: [V4, V6] }
@@ -123,7 +123,7 @@ describe('a 127.0.0.1 or [::1] callback, which a route handler reads as localhos
       expect(error.status, query).toBe(400)
       expect(location(error), query).toBeNull()
       const consent = new URL(location(await authorize(nextAuthorize(`client_id=c1&${query}&code_challenge=x`)))!)
-      expect(consent.origin + consent.pathname, query).toBe('https://dial8.ai/mcp/authorize')
+      expect(consent.origin + consent.pathname, query).toBe('https://nativeintelligence.dev/mcp/authorize')
       expect(consent.searchParams.get('redirect_uri'), query).toBe(registered)
     }
   })
@@ -163,7 +163,7 @@ describe('a 127.0.0.1 or [::1] callback, which a route handler reads as localhos
   it('approve binds the code to the registered URI and sends the browser there', async () => {
     for (const asked of [V4, 'http://localhost:53682/callback']) {
       m.authCode = null
-      const res = await approve(new Request('https://dial8.ai/api/mcp/oauth/approve', {
+      const res = await approve(new Request('https://nativeintelligence.dev/api/mcp/oauth/approve', {
         method: 'POST',
         body: JSON.stringify({ client_id: 'c1', redirect_uri: asked, code_challenge: 'x', state: 's1' }),
       }))
@@ -171,7 +171,7 @@ describe('a 127.0.0.1 or [::1] callback, which a route handler reads as localhos
       expect((await res.json()).redirect_url, asked).toMatch(/^http:\/\/127\.0\.0\.1:53682\/callback\?code=/)
       expect((m.authCode as Record<string, unknown> | null)?.redirect_uri, asked).toBe(V4) // set by the insert mock
     }
-    const unregistered = await approve(new Request('https://dial8.ai/api/mcp/oauth/approve', {
+    const unregistered = await approve(new Request('https://nativeintelligence.dev/api/mcp/oauth/approve', {
       method: 'POST',
       body: JSON.stringify({ client_id: 'c1', redirect_uri: 'http://localhost:53699/callback', code_challenge: 'x' }),
     }))

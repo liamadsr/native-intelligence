@@ -67,7 +67,7 @@ beforeEach(() => {
 const post = (body: unknown) =>
   POST(
     buildRequest({
-      url: 'https://dial8.ai/api/account/chat/reactions',
+      url: 'https://nativeintelligence.dev/api/account/chat/reactions',
       body: body && typeof body === 'object' && !('bubble' in body) ? { bubble: 0, ...body } : body,
     }) as unknown as NextRequest,
   )
@@ -152,7 +152,7 @@ describe('POST', () => {
     ]) {
       expect((await post(body)).status, JSON.stringify(body)).toBe(400)
     }
-    const bad = await POST(buildRequest({ url: 'https://dial8.ai/api/account/chat/reactions', body: '{', raw: true }) as unknown as NextRequest)
+    const bad = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/chat/reactions', body: '{', raw: true }) as unknown as NextRequest)
     expect(bad.status).toBe(400)
     expect(stored('r2').metadata).not.toHaveProperty('reactions')
   })
@@ -203,7 +203,7 @@ describe('POST', () => {
 })
 
 const get = (conversationId: string) =>
-  GET(buildRequest({ url: `https://dial8.ai/api/account/chat/reactions?conversationId=${conversationId}`, method: 'GET' }) as unknown as NextRequest)
+  GET(buildRequest({ url: `https://nativeintelligence.dev/api/account/chat/reactions?conversationId=${conversationId}`, method: 'GET' }) as unknown as NextRequest)
 
 describe('GET', () => {
   it('lists the reacted replies of the caller’s conversation by id', async () => {

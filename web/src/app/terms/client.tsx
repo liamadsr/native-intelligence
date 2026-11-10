@@ -3,6 +3,7 @@
 import { Footer } from '@/components/footer'
 import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
+import { appUrl, appHost } from '@/lib/app-url'
 
 const sections: Section[] = [
   { id: 'agreement', label: 'Agreement to Terms' },
@@ -141,10 +142,10 @@ export default function Terms() {
                   You can cancel your subscription at any time, online, in the same way you signed
                   up: go to Settings → Billing in the app (or visit{' '}
                   <a
-                    href="https://dial8.ai/account/settings/billing"
+                    href={`${appUrl()}/account/settings/billing`}
                     className="text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 dark:hover:text-cyan-300"
                   >
-                    dial8.ai/account/settings/billing
+                    {appHost()}/account/settings/billing
                   </a>
                   ) and choose Cancel. No phone call, email, or chat with support is required.
                   Cancellation takes effect at the end of the current billing period; you keep
@@ -507,10 +508,10 @@ export default function Terms() {
               <p className="mt-1">
                 Website:{' '}
                 <a
-                  href="https://dial8.ai"
+                  href={appUrl()}
                   className="text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 dark:hover:text-cyan-300"
                 >
-                  https://dial8.ai
+                  {appUrl()}
                 </a>
               </p>
             </div>

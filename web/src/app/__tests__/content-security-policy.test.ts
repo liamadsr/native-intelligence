@@ -3,7 +3,7 @@
  *
  * next.config.mjs sends one Content-Security-Policy on every route. Pinned
  * here: it only allows first-party script and worker sources (no third-party
- * host can run code as dial8.ai), and it sets no default-src or fetch-style
+ * host can run code as nativeintelligence.dev), and it sets no default-src or fetch-style
  * directive, because the desktop app runs these same pages and its IPC is a
  * fetch to ipc://localhost (a connect-src would break it). It must also keep
  * working with Next's inline scripts: a nonce, hash or 'strict-dynamic' would

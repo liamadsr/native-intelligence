@@ -19,8 +19,8 @@
  *      not prove the URL is theirs).
  *   3. People sign in at the vendor with OAuth; no pasted API keys. Our
  *      start route needs dynamic client registration: check that the
- *      vendor accepts Native Intelligence's client and redirect (https://dial8.ai/api/
- *      mcp-oauth/callback) and that its authorize page loads (Figma, Canva,
+ *      vendor accepts Native Intelligence's client and redirect (the app's address, then
+ *      /api/mcp-oauth/callback) and that its authorize page loads (Figma, Canva,
  *      Gamma, Intercom and Vercel refused it on 2026-10-22; Asana, HubSpot,
  *      GitHub, Slack, Box, DocuSign and PagerDuty need a registered app).
  *   4. Its writes are judged: `alwaysAskWrites` when they reach other

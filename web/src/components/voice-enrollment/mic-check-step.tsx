@@ -19,6 +19,7 @@ import { Mic, MicOff, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AudioLevelMeter } from '@/components/desktop/audio-level-meter'
 import type { WebAudioCaptureErrorKind } from '@/lib/web-audio-capture'
+import { appUrl } from '@/lib/app-url'
 
 interface ErrorCopy {
   title: string
@@ -55,7 +56,7 @@ export function micErrorCopy(kind: WebAudioCaptureErrorKind): ErrorCopy {
       return {
         title: 'A secure connection is needed',
         body:
-          'Microphone access needs a secure (HTTPS) connection. Open Native Intelligence at https://dial8.ai and try again.',
+          `Microphone access needs a secure (HTTPS) connection. Open Native Intelligence at ${appUrl()} and try again.`,
         retry: false,
       }
     case 'unsupported':

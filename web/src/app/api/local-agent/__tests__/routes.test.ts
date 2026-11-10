@@ -242,6 +242,8 @@ describe('the cookie-authed POSTs refuse a request from another origin', () => {
 
   it.each([
     ['a sibling subdomain', { origin: 'https://evil.dial8.ai' }],
+    ["a sibling subdomain of the app's other domain", { origin: 'https://evil.nativeintelligence.dev' }],
+    ['the app itself, when the request went to another host', { origin: 'https://nativeintelligence.dev' }],
     ['another site', { origin: 'https://attacker.example' }],
     ['an opaque origin', { origin: 'null' }],
     ['the same host on another scheme', { origin: 'https://localhost' }],

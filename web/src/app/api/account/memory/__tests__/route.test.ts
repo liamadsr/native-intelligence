@@ -31,7 +31,7 @@ function signIn(role: string) {
   hoisted.requireUser.mockResolvedValue({ supabase: db, user: { id: ME } })
 }
 
-const req = (url: string, method: string, body?: unknown) => buildRequest({ url: `https://dial8.ai${url}`, method, body }) as unknown as NextRequest
+const req = (url: string, method: string, body?: unknown) => buildRequest({ url: `https://nativeintelligence.dev${url}`, method, body }) as unknown as NextRequest
 // buildRequest gives a plain Request; the routes read nextUrl.
 function withNextUrl(r: NextRequest): NextRequest {
   Object.defineProperty(r, 'nextUrl', { value: new URL(r.url) })

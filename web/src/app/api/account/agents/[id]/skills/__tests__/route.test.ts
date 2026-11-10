@@ -66,7 +66,7 @@ function seed() {
 }
 
 const put = (agentId: string, body: unknown) =>
-  PUT(buildRequest({ url: `https://dial8.ai/api/account/agents/${agentId}/skills`, method: 'PUT', body }) as unknown as NextRequest, {
+  PUT(buildRequest({ url: `https://nativeintelligence.dev/api/account/agents/${agentId}/skills`, method: 'PUT', body }) as unknown as NextRequest, {
     params: Promise.resolve({ id: agentId }),
   })
 

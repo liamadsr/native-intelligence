@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { appHost } from '@/lib/app-url'
 
 // Social-card image for /meeting-notes: the site-wide card's design (see
 // ../opengraph-image.tsx) with this pitch's headline as the tagline, so a
@@ -74,7 +75,7 @@ export default function OpengraphImage() {
             letterSpacing: '0.01em',
           }}
         >
-          dial8.ai
+          {appHost()}
         </div>
       </div>
     ),

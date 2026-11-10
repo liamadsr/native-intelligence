@@ -32,7 +32,7 @@ const EVIL = 'https://evil.example/phish'
 
 function authorize(params: Record<string, string>) {
   const qs = new URLSearchParams(params)
-  return GET(new Request(`https://dial8.ai/api/mcp/oauth/authorize?${qs}`))
+  return GET(new Request(`https://nativeintelligence.dev/api/mcp/oauth/authorize?${qs}`))
 }
 
 beforeEach(() => {

@@ -82,7 +82,7 @@ function auth(opts: FakeOpts = {}) {
 
 function appendReq(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/captures/${CAPTURE_ID}/transcript-append`,
+    url: `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}/transcript-append`,
     method: 'POST',
     body,
   }) as unknown as NextRequest
@@ -253,7 +253,7 @@ describe('POST transcript-append', () => {
 
   it('returns 400 on invalid JSON body', async () => {
     const req = buildRequest({
-      url: `https://dial8.ai/api/account/captures/${CAPTURE_ID}/transcript-append`,
+      url: `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}/transcript-append`,
       method: 'POST',
       body: '{ not valid json',
       raw: true,

@@ -4,6 +4,7 @@ import { PageLayout } from '@/components/page-layout';
 import { Navbar } from '@/components/navbar';
 import { Footer } from '@/components/footer';
 import type { Metadata } from 'next';
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'Native Intelligence Blog',
     description: 'Latest news, product updates, and writing from the Native Intelligence team.',
-    url: 'https://dial8.ai/blog',
+    url: `${appUrl()}/blog`,
     type: 'website',
   },
 };

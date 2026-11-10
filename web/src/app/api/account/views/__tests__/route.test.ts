@@ -61,16 +61,16 @@ function getReq(query = ''): NextRequest {
   // The route reads request.nextUrl.searchParams — a plain fetch Request has
   // no nextUrl, so stub it with a URL (same searchParams surface).
   const req = buildRequest({
-    url: `https://dial8.ai/api/account/views${query}`,
+    url: `https://nativeintelligence.dev/api/account/views${query}`,
     method: 'GET',
   }) as Request & { nextUrl: URL }
-  req.nextUrl = new URL(`https://dial8.ai/api/account/views${query}`)
+  req.nextUrl = new URL(`https://nativeintelligence.dev/api/account/views${query}`)
   return req as unknown as NextRequest
 }
 
 function postReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/views',
+    url: 'https://nativeintelligence.dev/api/account/views',
     method: 'POST',
     body,
   }) as unknown as NextRequest

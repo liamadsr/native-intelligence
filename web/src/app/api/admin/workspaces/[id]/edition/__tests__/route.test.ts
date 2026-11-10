@@ -57,14 +57,14 @@ const { GET, PATCH } = await import('@/app/api/admin/workspaces/[id]/edition/rou
 const ctx = { params: Promise.resolve({ id: 'ws-1' }) }
 
 function req(body: unknown): Request {
-  return new Request('https://dial8.ai/api/admin/workspaces/ws-1/edition', {
+  return new Request('https://nativeintelligence.dev/api/admin/workspaces/ws-1/edition', {
     method: 'PATCH',
     body: JSON.stringify(body),
   })
 }
 
 function getReq(): Request {
-  return new Request('https://dial8.ai/api/admin/workspaces/ws-1/edition')
+  return new Request('https://nativeintelligence.dev/api/admin/workspaces/ws-1/edition')
 }
 
 beforeEach(() => {
@@ -156,7 +156,7 @@ describe('PATCH /api/admin/workspaces/[id]/edition', () => {
 
   it('400s a missing body key and an unparseable body', async () => {
     expect((await PATCH(req({}), ctx)).status).toBe(400)
-    const bad = new Request('https://dial8.ai/api/admin/workspaces/ws-1/edition', {
+    const bad = new Request('https://nativeintelligence.dev/api/admin/workspaces/ws-1/edition', {
       method: 'PATCH',
       body: 'not json',
     })

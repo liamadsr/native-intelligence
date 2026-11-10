@@ -85,7 +85,7 @@ describe('runDryTestFire', () => {
       supabase: db(),
       flow: { id: 'flow-1', workspace_id: WS, trigger_type: 'schedule', trigger_config: { kind: 'schedule' }, actions: [skill, http, agent, archive] },
       userId: 'caller',
-      appBaseUrl: 'https://dial8.test',
+      appBaseUrl: 'https://nativeintelligence.test',
     })
     expect(res.ok).toBe(true)
     if (!res.ok) return
@@ -108,7 +108,7 @@ describe('runDryTestFire', () => {
       supabase: db(),
       flow: { id: 'flow-1', workspace_id: WS, trigger_type: 'schedule', trigger_config: { kind: 'schedule' }, actions: [mac] },
       userId: 'caller',
-      appBaseUrl: 'https://dial8.test',
+      appBaseUrl: 'https://nativeintelligence.test',
     })
     expect(res.ok).toBe(true)
     if (!res.ok) return
@@ -136,7 +136,7 @@ describe('runDryTestFire', () => {
       flow: { id: 'flow-1', workspace_id: WS, trigger_type: 'entity_status_change', trigger_config: { entity_type: 'action', to_status_id: 's2' }, actions: [http] },
       userId: 'caller',
       sample: { entity_id: 'act-9' },
-      appBaseUrl: 'https://dial8.test',
+      appBaseUrl: 'https://nativeintelligence.test',
     })
     expect(res).toMatchObject({ ok: false, field: 'sample.entity_id' })
   })
@@ -148,7 +148,7 @@ describe('runDryTestFire', () => {
       flow: { id: 'flow-1', workspace_id: WS, trigger_type: 'pr_status_changed', trigger_config: { kind: 'pr_status_changed', repo_full_name: 'acme/web', to_state: 'closed' }, actions: [http] },
       userId: 'caller',
       sample: { entity_id: 'act-1' },
-      appBaseUrl: 'https://dial8.test',
+      appBaseUrl: 'https://nativeintelligence.test',
     })
     expect(res).toMatchObject({ ok: true, sample: 'real', trigger: { type: 'pr_status_changed', entity_type: 'action', to_status_id: 'closed' } })
   })

@@ -161,7 +161,7 @@ pub fn api_base_url() -> &'static str {
     }
     #[cfg(not(debug_assertions))]
     {
-        "https://dial8.ai"
+        crate::nav_guard::APP_URL
     }
 }
 

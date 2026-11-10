@@ -1,6 +1,6 @@
 //! Native OS notifications (macOS Notification Center / Windows toast).
 //!
-//! The web app (dial8.ai) decides WHEN to notify — it owns the realtime
+//! The web app (nativeintelligence.dev) decides WHEN to notify — it owns the realtime
 //! subscription and the focus check. This module only knows how to put a banner
 //! on screen and how to route a click back to the right webview. It is
 //! deliberately payload-agnostic: `title`/`body` are rendered verbatim and
@@ -121,7 +121,7 @@ const SHOWN_IDS_MAX: usize = 200;
 /// Clicks that arrived before the target webview registered its JS listener,
 /// keyed by window label. A notification click can COLD START the app (macOS
 /// relaunches the app to deliver it), in which case the click is handled long
-/// before dial8.ai has loaded, let alone hydrated. Same problem — and same
+/// before nativeintelligence.dev has loaded, let alone hydrated. Same problem — and same
 /// solution — as AGENT_NUDGE_BUFFER in commands/hud.rs: hold the events until
 /// the page calls `notification_click_listener_ready`, then flush in order.
 static CLICK_BUFFER: Mutex<Vec<(String, NotificationClickedPayload)>> = Mutex::new(Vec::new());

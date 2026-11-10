@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.stubEnv('GOOGLE_CLIENT_ID', 'google-client')
   vi.stubEnv('HUBSPOT_CLIENT_ID', 'hubspot-client')
   vi.stubEnv('BREVO_CLIENT_ID', 'brevo-client')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
 })
 
 const link = (payload: Record<string, unknown>): OneTimeLink => ({ id: 'l', purpose: 'oauth_connect', userId: 'user-1', workspaceId: 'ws-1', payload, expiresAt: '2026-11-02T15:15:00Z' })
@@ -29,8 +29,8 @@ const link = (payload: Record<string, unknown>): OneTimeLink => ({ id: 'l', purp
 describe('texted links for the places customers are kept', () => {
   it('a Google Contacts link asks for contacts alone (its scope waits on Google), a plain Google link never does', async () => {
     const db = oneTimeLinkDb()
-    await mintConnectLink(db.client as never, { userId: 'user-1', workspaceId: 'ws-1', provider: 'google', origin: 'https://dial8.ai', capabilities: ['contacts'] })
-    await mintConnectLink(db.client as never, { userId: 'user-1', workspaceId: 'ws-1', provider: 'google', origin: 'https://dial8.ai' })
+    await mintConnectLink(db.client as never, { userId: 'user-1', workspaceId: 'ws-1', provider: 'google', origin: 'https://nativeintelligence.dev', capabilities: ['contacts'] })
+    await mintConnectLink(db.client as never, { userId: 'user-1', workspaceId: 'ws-1', provider: 'google', origin: 'https://nativeintelligence.dev' })
     expect(db.rows.map((r) => r.payload)).toEqual([
       { provider: 'google', capabilities: ['contacts'] },
       { provider: 'google', capabilities: ['email', 'calendar'] },
@@ -54,11 +54,11 @@ describe('texted links for the places customers are kept', () => {
   })
 
   it("the texted link names what it connects, and says a customers link only reads", () => {
-    expect(connectLinkText('google', 'https://dial8.ai/l/x', ['contacts'])).toBe(
-      "Connect your Google Contacts: https://dial8.ai/l/x It opens Google's own sign-in and works once, for 15 minutes. I only read them, to bring your contacts into Native Intelligence. I'll never ask for a password by text.",
+    expect(connectLinkText('google', 'https://nativeintelligence.dev/l/x', ['contacts'])).toBe(
+      "Connect your Google Contacts: https://nativeintelligence.dev/l/x It opens Google's own sign-in and works once, for 15 minutes. I only read them, to bring your contacts into Native Intelligence. I'll never ask for a password by text.",
     )
-    expect(connectLinkText('google', 'https://dial8.ai/l/x')).not.toContain('only read')
-    expect(connectLinkText('hubspot', 'https://dial8.ai/l/x')).toContain('Connect your HubSpot account')
+    expect(connectLinkText('google', 'https://nativeintelligence.dev/l/x')).not.toContain('only read')
+    expect(connectLinkText('hubspot', 'https://nativeintelligence.dev/l/x')).toContain('Connect your HubSpot account')
   })
 
   it('the confirmation says the import has started (and in setup, a contacts connect asks nothing more)', () => {

@@ -118,7 +118,7 @@ describe('claiming a browser command', () => {
 
   it('always blocks Native Intelligence’s own app for the agent (A5: it can never click Approve)', async () => {
     const body = await (await claim()).json()
-    expect(body.blockedSites).toEqual(expect.arrayContaining(['dial8.ai', 'localhost', '127.0.0.1']))
+    expect(body.blockedSites).toEqual(expect.arrayContaining(['nativeintelligence.dev', 'localhost', '127.0.0.1']))
   })
 
   it('claims nothing when the list cannot be read', async () => {

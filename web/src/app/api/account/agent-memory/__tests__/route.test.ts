@@ -42,7 +42,7 @@ function signIn(role: string | null) {
   hoisted.service = db
   hoisted.requireWorkspace.mockResolvedValue({ supabase: db, user: { id: ME }, workspaceId: W })
 }
-const patch = (body: unknown) => PATCH(buildRequest({ url: 'https://dial8.ai/api/account/agent-memory', method: 'PATCH', body }) as unknown as NextRequest)
+const patch = (body: unknown) => PATCH(buildRequest({ url: 'https://nativeintelligence.dev/api/account/agent-memory', method: 'PATCH', body }) as unknown as NextRequest)
 const statusOf = (id: string) => db.rows('agent_memory').find((r) => r.id === id)!.status
 
 beforeEach(() => vi.clearAllMocks())

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { mcpBaseUrl } from '@/lib/mcp/base-url'
 
 /**
  * GET /.well-known/oauth-authorization-server
@@ -6,8 +7,8 @@ import { NextResponse } from 'next/server'
  * OAuth 2.0 Authorization Server Metadata (RFC 8414).
  * Claude Code reads this to discover our OAuth endpoints.
  */
-export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai'
+export async function GET(request: Request) {
+  const baseUrl = mcpBaseUrl(request)
 
   return NextResponse.json({
     issuer: baseUrl,

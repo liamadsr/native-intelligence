@@ -18,7 +18,7 @@ vi.mock('@/lib/sky/met-norway', () => ({
 import { GET } from '../route'
 import { CELL_CACHE, CELL_FAILURE_CACHE } from '@/lib/sky/public-cell'
 
-const get = (query: string) => GET(new Request(`https://dial8.ai/api/sky/cell${query}`))
+const get = (query: string) => GET(new Request(`https://nativeintelligence.dev/api/sky/cell${query}`))
 
 beforeEach(() => {
   fetched.length = 0
@@ -66,7 +66,7 @@ describe('GET /api/sky/cell', () => {
     for (const [query, canonical] of cases) {
       const res = await get(query)
       expect(res.status, query).toBe(308)
-      expect(res.headers.get('location'), query).toBe(`https://dial8.ai/api/sky/cell${canonical}`)
+      expect(res.headers.get('location'), query).toBe(`https://nativeintelligence.dev/api/sky/cell${canonical}`)
       expect(res.headers.get('cache-control'), query).toMatch(/^public/)
     }
     expect(fetched).toEqual([])

@@ -82,11 +82,11 @@ const FIXTURES: Record<string, string> = {
   ].join('\n\n'),
   'inline links': [
     '## Reading list',
-    'Start with [the setup guide](https://dial8.ai/docs/setup) and then [the changelog](https://dial8.ai/changelog), so the call on Friday has no surprises for anyone at all.',
+    'Start with [the setup guide](https://nativeintelligence.dev/docs/setup) and then [the changelog](https://nativeintelligence.dev/changelog), so the call on Friday has no surprises for anyone at all.',
   ].join('\n\n'),
   'links and emoji': [
     '## Links 🔗',
-    'Read https://www.dial8.ai/docs/setup before the call 🎉 and the release notes at https://dial8.ai/changelog after it, so nothing surprises you.',
+    'Read https://www.nativeintelligence.dev/docs/setup before the call 🎉 and the release notes at https://nativeintelligence.dev/changelog after it, so nothing surprises you.',
   ].join('\n\n'),
 }
 

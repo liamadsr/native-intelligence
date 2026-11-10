@@ -122,7 +122,7 @@ pub async fn request_notification_permission() -> Result<String, String> {
 
 /// Called by the webview once its `notification-clicked` listener is live.
 /// Flushes clicks that arrived first — the cold-start case, where clicking a
-/// notification launches the app and the click is handled long before dial8.ai
+/// notification launches the app and the click is handled long before nativeintelligence.dev
 /// has loaded. Mirrors `agent_hud_ready` in `hud.rs`.
 #[tauri::command]
 pub fn notification_click_listener_ready(window: Window) -> Result<(), String> {

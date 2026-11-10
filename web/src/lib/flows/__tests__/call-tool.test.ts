@@ -22,7 +22,7 @@ const draftSchema = { type: 'object', properties: { content: { type: 'string' } 
 
 let db: FakeSupabase
 const trigger: TriggerContext = { type: 'capture_processed', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-10-20T10:00:00Z' }
-const ctx = { entity: null, trigger, appBaseUrl: 'https://dial8.ai', capture: { id: 'cap-1', title: 'Acme call' }, steps: { draft: { output: 'We shipped SSO' } } }
+const ctx = { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', capture: { id: 'cap-1', title: 'Acme call' }, steps: { draft: { output: 'We shipped SSO' } } }
 const step = (config: Record<string, unknown>): FlowAction =>
   ({ id: 'queue', type: 'call_tool', config, condition: null, parent_id: 'draft', enabled: true, bearer_token_encrypted: null }) as FlowAction
 

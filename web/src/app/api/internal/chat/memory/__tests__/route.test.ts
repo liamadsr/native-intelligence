@@ -38,7 +38,7 @@ function req(opts: { secret?: string; token?: string; body?: unknown }) {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
   if (opts.secret) headers[CHAT_RUN_SECRET_HEADER] = opts.secret
   if (opts.token) headers[CHAT_RUN_TOKEN_HEADER] = opts.token
-  return new Request('https://dial8.ai/api/internal/chat/memory', { method: 'POST', headers, body: JSON.stringify(opts.body ?? {}) })
+  return new Request('https://nativeintelligence.dev/api/internal/chat/memory', { method: 'POST', headers, body: JSON.stringify(opts.body ?? {}) })
 }
 const body = (over: Record<string, unknown> = {}) => ({
   op: 'recall',

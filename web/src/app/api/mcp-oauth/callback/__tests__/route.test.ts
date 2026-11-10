@@ -69,7 +69,7 @@ function stateRow(over: Row = {}): Row {
     client_id: 'c1',
     client_secret: null,
     scopes: [],
-    redirect_uri: 'https://dial8.ai/api/mcp-oauth/callback',
+    redirect_uri: 'https://nativeintelligence.dev/api/mcp-oauth/callback',
     code_verifier: 'v',
     ...over,
   }
@@ -78,7 +78,7 @@ function stateRow(over: Row = {}): Row {
 /** The provider's redirect back to the browser that started the flow (its bind cookie rides along). */
 const callback = () => {
   const bind = mcpBindCookie('s1')
-  return GET(new NextRequest('https://dial8.ai/api/mcp-oauth/callback?code=c&state=s1', { headers: { cookie: `${bind.name}=${bind.value}` } }))
+  return GET(new NextRequest('https://nativeintelligence.dev/api/mcp-oauth/callback?code=c&state=s1', { headers: { cookie: `${bind.name}=${bind.value}` } }))
 }
 const popup = (res: Response) => new URL(res.headers.get('location') ?? '').searchParams
 

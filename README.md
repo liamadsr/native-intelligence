@@ -1,3 +1,4 @@
+<!-- TODO(rename-compat): the hosted-app links in this file stay on dial8.ai, which serves today, and move to nativeintelligence.dev once that domain serves. -->
 <div align="center">
 
 # Native Intelligence

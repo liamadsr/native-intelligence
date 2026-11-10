@@ -16,14 +16,14 @@ describe('cleanWord', () => {
     ])
   })
   it("keeps what's part of the word", () => {
-    expect(["don't", 'well-known', '3.5', '$40,', '20%.', 'U.S.', 'dial8.ai'].map(cleanWord)).toEqual([
+    expect(["don't", 'well-known', '3.5', '$40,', '20%.', 'U.S.', 'nativeintelligence.dev'].map(cleanWord)).toEqual([
       "don't",
       'well-known',
       '3.5',
       '$40',
       '20%',
       'U.S.',
-      'dial8.ai',
+      'nativeintelligence.dev',
     ])
   })
   it('shows nothing for punctuation alone', () => {

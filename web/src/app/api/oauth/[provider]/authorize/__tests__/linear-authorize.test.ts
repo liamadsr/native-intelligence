@@ -51,7 +51,7 @@ import { GET } from '../route'
 
 async function authorizeUrl(provider: string, capability = 'tasks'): Promise<URL> {
   const res = await GET(
-    new Request(`https://dial8.ai/api/oauth/${provider}/authorize?capability=${capability}`),
+    new Request(`https://nativeintelligence.dev/api/oauth/${provider}/authorize?capability=${capability}`),
     { params: Promise.resolve({ provider }) },
   )
   const body = (await res.json()) as { url?: string; error?: string }
@@ -66,14 +66,14 @@ beforeEach(() => {
   process.env.LINEAR_CLIENT_ID = 'linear-client'
   process.env.JIRA_CLIENT_ID = 'jira-client'
   process.env.ASANA_CLIENT_ID = 'asana-client'
-  process.env.OAUTH_REDIRECT_BASE_URL = 'https://dial8.ai'
+  process.env.OAUTH_REDIRECT_BASE_URL = 'https://nativeintelligence.dev'
   process.env.OAUTH_STATE_SECRET = 'state-secret'
 })
 
 describe('GET /api/oauth/[provider]/authorize — workspace_id', () => {
   it('403s a workspace_id the caller is not a member of', async () => {
     const res = await GET(
-      new Request('https://dial8.ai/api/oauth/linear/authorize?capability=tasks&workspace_id=ws-foreign'),
+      new Request('https://nativeintelligence.dev/api/oauth/linear/authorize?capability=tasks&workspace_id=ws-foreign'),
       { params: Promise.resolve({ provider: 'linear' }) },
     )
     expect(res.status).toBe(403)
@@ -82,7 +82,7 @@ describe('GET /api/oauth/[provider]/authorize — workspace_id', () => {
   it('signs a workspace_id the caller belongs to into the state', async () => {
     hoistedAuth.memberOf = ['ws-1', 'ws-2']
     const res = await GET(
-      new Request('https://dial8.ai/api/oauth/linear/authorize?capability=tasks&workspace_id=ws-2'),
+      new Request('https://nativeintelligence.dev/api/oauth/linear/authorize?capability=tasks&workspace_id=ws-2'),
       { params: Promise.resolve({ provider: 'linear' }) },
     )
     const { state } = (await res.json()) as { state: string }
@@ -127,7 +127,7 @@ describe('GET /api/oauth/linear/authorize', () => {
     const url = await authorizeUrl('linear')
     expect(url.searchParams.get('client_id')).toBe('linear-client')
     expect(url.searchParams.get('redirect_uri')).toBe(
-      'https://dial8.ai/api/oauth/linear/callback',
+      'https://nativeintelligence.dev/api/oauth/linear/callback',
     )
     expect(url.searchParams.get('response_type')).toBe('code')
   })

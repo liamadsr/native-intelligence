@@ -153,7 +153,7 @@ beforeEach(() => {
   vi.restoreAllMocks()
   hoisted.cloneTrialCapture.mockClear()
   hoisted.decideAutoApply.mockReturnValue('stage')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.test')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.test')
 })
 
 describe('the run token', () => {
@@ -200,7 +200,7 @@ describe('runBatchTrial', () => {
     })
 
     const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('https://dial8.test/api/ai/live-agent')
+    expect(url).toBe('https://nativeintelligence.test/api/ai/live-agent')
     const headers = init.headers as Record<string, string>
     expect(headers.Authorization).toBe('Bearer nid_secret')
     expect(headers['x-workspace-id']).toBe(WS)

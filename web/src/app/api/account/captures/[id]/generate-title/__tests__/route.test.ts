@@ -55,7 +55,7 @@ vi.mock('@/lib/ai/auth', () => ({ logUsage: hoisted.logUsage }))
 const { POST } = await import('@/app/api/account/captures/[id]/generate-title/route')
 
 const call = () =>
-  POST(new Request('https://dial8.ai/x', { method: 'POST' }) as never, { params: Promise.resolve({ id: 'cap-1' }) })
+  POST(new Request('https://nativeintelligence.dev/x', { method: 'POST' }) as never, { params: Promise.resolve({ id: 'cap-1' }) })
 
 function ok(text: string) {
   hoisted.runUtilityTask.mockResolvedValue({

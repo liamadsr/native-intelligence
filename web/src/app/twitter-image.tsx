@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { appHost } from '@/lib/app-url'
 
 // Twitter card image — kept identical to opengraph-image.tsx. Duplicated rather
 // than re-exported so this stays a self-contained metadata-image route (Next's
@@ -73,7 +74,7 @@ export default function TwitterImage() {
             letterSpacing: '0.01em',
           }}
         >
-          dial8.ai
+          {appHost()}
         </div>
       </div>
     ),

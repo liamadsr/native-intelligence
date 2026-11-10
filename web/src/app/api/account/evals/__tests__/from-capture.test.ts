@@ -38,7 +38,7 @@ const service = { tag: 'service-client' }
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 function post(body: unknown) {
-  const url = 'https://dial8.ai/api/account/evals/suites/suite-1/cases/from-capture'
+  const url = 'https://nativeintelligence.dev/api/account/evals/suites/suite-1/cases/from-capture'
   const req = buildRequest({ url, method: 'POST', body })
   Object.defineProperty(req, 'nextUrl', { value: new URL(url) })
   return req as never

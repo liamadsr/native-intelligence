@@ -55,9 +55,9 @@ function constantTimeEqual(a: string, b: string): boolean {
  * holds, and the only thing its callback accepts as proof of that.
  *
  * Production names it `__Host-<base>`: a browser accepts that prefix only
- * when the cookie is Secure, `Path=/` and has no Domain, so no `*.dial8.ai`
+ * when the cookie is Secure, `Path=/` and has no Domain, so no `*.nativeintelligence.dev`
  * subdomain (a takeover, an XSS on a docs or marketing host) can plant one for
- * dial8.ai. A planted copy of an attacker's own flow cookie (they can read it
+ * nativeintelligence.dev. A planted copy of an attacker's own flow cookie (they can read it
  * in their own browser) was the remaining way to link a victim's account to
  * theirs (security review 2026-10-31). The callbacks therefore no longer
  * accept a matching session instead: a subdomain could toss its owner's

@@ -16,7 +16,7 @@ import {
 
 const partner: ChatGptClient = { clientId: 'oaiapp_partner', clientSecret: 's3cret', hostId: null }
 const selfServe: ChatGptClient = { clientId: DYNAMIC_CLIENT_ID, clientSecret: null, hostId: 'urn:uuid:host-1' }
-const REDIRECT = 'https://dial8.ai/auth/chatgpt/callback'
+const REDIRECT = 'https://nativeintelligence.dev/auth/chatgpt/callback'
 
 beforeAll(() => {
   vi.stubEnv('CREDENTIAL_ENCRYPTION_KEY', randomBytes(32).toString('base64'))

@@ -59,7 +59,7 @@ function fakeWorld(opts: { draft?: boolean; merged?: boolean; head?: string; pat
       const text = files[decodeURIComponent(content[1])]
       return text ? json(200, { encoding: 'base64', content: Buffer.from(text).toString('base64'), size: text.length }) : json(404, { message: 'Not Found' })
     }
-    if (url.match(/\/repos\/jane\/site\/pulls\/\d+\/files/)) return json(200, [{ filename: 'app/quote/page.tsx', patch: opts.patch ?? '+const INTAKE = "https://dial8.ai/api/intake/quotes/x"' }])
+    if (url.match(/\/repos\/jane\/site\/pulls\/\d+\/files/)) return json(200, [{ filename: 'app/quote/page.tsx', patch: opts.patch ?? '+const INTAKE = "https://nativeintelligence.dev/api/intake/quotes/x"' }])
     const pull = url.match(/\/repos\/jane\/site\/pulls\/(\d+)$/)
     if (pull && method === 'GET') {
       const n = Number(pull[1])
@@ -328,9 +328,9 @@ describe('wire → card → yes → live → it works', () => {
     expect(await pollDeploy(db, { workspaceId: WS, changeId: String(row.id), poll: 0 }, deps())).toEqual({ done: false })
 
     // Now its script does: a test post from the site's origin reaches the intake.
-    world = fakeWorld({ liveJs: `fetch("https://dial8.ai/api/intake/quotes/${key}",{method:"POST"})` })
+    world = fakeWorld({ liveJs: `fetch("https://nativeintelligence.dev/api/intake/quotes/${key}",{method:"POST"})` })
     intake.post = async (url, init) => {
-      expect(url).toBe(`https://dial8.ai/api/intake/quotes/${key}`)
+      expect(url).toBe(`https://nativeintelligence.dev/api/intake/quotes/${key}`)
       expect((init.headers as Record<string, string>).Origin).toBe('https://janescleaning.com')
       const nonce = new URLSearchParams(String(init.body)).get('_dial8_test')!
       expect(await takeIntakeTest(db, WS, nonce)).toBe(true)
@@ -484,7 +484,7 @@ describe('the live check’s pieces', () => {
     await startWiring(db, who, {}, deps())
     const row = changeRow()
     Object.assign(row, { state: 'deploying', merge_sha: MERGE })
-    world = fakeWorld({ liveHtml: `<script>fetch("https://dial8.ai/api/intake/quotes/qk_${'z'.repeat(43)}")</script>` })
+    world = fakeWorld({ liveHtml: `<script>fetch("https://nativeintelligence.dev/api/intake/quotes/qk_${'z'.repeat(43)}")</script>` })
     const site = (await getLiveSite(db, WS))!
     expect((await checkWiringLive(db, toChange(row), site, deps())).outcome).toBe('not_seen')
   })
@@ -495,7 +495,7 @@ describe('the live check’s pieces', () => {
     const row = changeRow()
     const key = String(launch.mock.calls[0][2].request).match(/(qk_[A-Za-z0-9_-]{43})/)![1]
     Object.assign(row, { state: 'deploying', merge_sha: MERGE })
-    world = fakeWorld({ liveHtml: `<script>fetch("https://dial8.ai/api/intake/quotes/${key}")</script>` })
+    world = fakeWorld({ liveHtml: `<script>fetch("https://nativeintelligence.dev/api/intake/quotes/${key}")</script>` })
     intake.post = async () => new Response('{}', { status: 403 })
     const site = (await getLiveSite(db, WS))!
     expect(await checkWiringLive(db, toChange(row), site, deps())).toMatchObject({ outcome: 'refused', status: 403 })
@@ -665,7 +665,7 @@ describe('the review’s fixes', () => {
     await startWiring(db, who, { replaceCurrent: true }, deps())
     const row = changeRow()
     expect(row).toMatchObject({ form_path: 'app/quote/page.tsx', form_kind: 'quote', replace_current: true })
-    world = fakeWorld({ patch: '+fetch("https://dial8.ai/api/intake/quotes/x")\n+<script src="https://cdn.evil.io/x.js"></script>\n+<a href="https://janescleaning.com/thanks">' })
+    world = fakeWorld({ patch: '+fetch("https://nativeintelligence.dev/api/intake/quotes/x")\n+<script src="https://cdn.evil.io/x.js"></script>\n+<a href="https://janescleaning.com/thanks">' })
     await onWebsiteRunSettled(db, { workspaceId: WS, agentRunId: String(row.agent_run_id), result: 'pr_open', prUrl: 'https://github.com/jane/site/pull/7', summary: null, error: null }, deps())
     await raiseMergeCard(db, { workspaceId: WS, changeId: String(row.id) }, deps())
     const approval = createApproval.mock.calls[0][0]

@@ -5,6 +5,7 @@ import { createNotification } from '@/lib/notifications'
 import { findMemberByEmail } from '@/lib/workspace-member-emails'
 import { NOW_KEY, NOW_PRIVATE_REFUSAL } from '@/lib/now/now-stamp'
 import { NextResponse, type NextRequest } from 'next/server'
+import { appUrl as appAddress } from '@/lib/app-url'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
     .eq('commentable_type', shareableType)
     .eq('commentable_id', shareableId)
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai'
+  const appUrl = appAddress()
   const result = (shares || []).map((s) => ({
     ...s,
     share_url: `${appUrl}/s/${s.share_token}`,
@@ -190,7 +191,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (existing) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai'
+      const appUrl = appAddress()
       return NextResponse.json({
         share: { ...existing, share_url: `${appUrl}/s/${existing.share_token}` },
         existing: true,
@@ -199,7 +200,7 @@ export async function POST(request: NextRequest) {
   }
 
   const share_token = generateShareToken()
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai'
+  const appUrl = appAddress()
 
   const { data: share, error } = await supabase
     .from('share')

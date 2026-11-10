@@ -181,7 +181,7 @@ Root cause (confirmed via unified-log forensics, Aug 12 2026):
 
 Side effect worth knowing: after the swap, the *next* launch from
 `target/debug/bundle/macos/` is the production binary, whose baked
-`frontendDist` is `https://dial8.ai` — a "dev" session silently running
+`frontendDist` is `https://nativeintelligence.dev` — a "dev" session silently running
 production against the production site.
 
 **The fix:** the updater plugin is registered only under

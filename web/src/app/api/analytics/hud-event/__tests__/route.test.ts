@@ -34,7 +34,7 @@ const { POST } = await import('@/app/api/analytics/hud-event/route')
 const WS = '61db7809-ef27-4559-929b-b985dd63cd4f'
 
 function req(body: unknown, headers: Record<string, string> = {}): Request {
-  return new Request('https://dial8.ai/api/analytics/hud-event', {
+  return new Request('https://nativeintelligence.dev/api/analytics/hud-event', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: typeof body === 'string' ? body : JSON.stringify(body),

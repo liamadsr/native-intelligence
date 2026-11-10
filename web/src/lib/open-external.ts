@@ -1,3 +1,5 @@
+import { isWithinAppDomain } from '@/lib/app-url'
+
 /**
  * Schemes an external link may use. Everything else is refused.
  *
@@ -135,7 +137,7 @@ function keeps(url: string, depth: number): boolean {
     return false
   }
   const host = u.hostname.toLowerCase()
-  if (within(host, 'dial8.ai')) return true
+  if (isWithinAppDomain(host)) return true
   if (SIGN_IN_HOSTS.has(host) || PAYMENT_HOSTS.has(host)) return true
   const path = u.pathname.toLowerCase()
   if (isMeetingLink(host, path)) return true

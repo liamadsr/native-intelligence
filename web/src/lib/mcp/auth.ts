@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
+import { appHost } from '@/lib/app-url'
+import { mcpBaseUrl } from '@/lib/mcp/base-url'
 
 /**
  * Hash a token (access token, refresh token, auth code) for storage.
@@ -47,7 +49,7 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 }> {
   const authHeader = request.headers.get('authorization') || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = mcpBaseUrl(request, process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
 
   if (!token) {
     throw new Response(
@@ -130,7 +132,7 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 
   if (!workspaceId) {
     throw new Response(
-      JSON.stringify({ error: 'no_workspace', error_description: 'User has no workspace. Create one at dial8.ai.' }),
+      JSON.stringify({ error: 'no_workspace', error_description: `User has no workspace. Create one at ${appHost()}.` }),
       { status: 403, headers: { 'Content-Type': 'application/json' } },
     )
   }

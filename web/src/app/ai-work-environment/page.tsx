@@ -5,8 +5,9 @@ import { Navbar } from '@/components/navbar'
 import { PageLayout } from '@/components/page-layout'
 import { StructuredData } from '@/components/structured-data'
 import { hasDownload } from '@/lib/app-download'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 const TITLE = 'What is an AI work environment?'
 const DESCRIPTION =
   'An AI work environment is one system where capture, context, and execution meet — meetings feed a knowledge graph, work tracks itself, and agents act on it.'

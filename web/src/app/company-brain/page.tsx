@@ -6,8 +6,9 @@ import {
   softwareApplicationSchema,
 } from '@/components/structured-data'
 import CompanyBrainPage from './company-brain-page'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 const TITLE = 'Company Brain — One brain. Every tool. Always in sync.'
 const DESCRIPTION =
   'Native Intelligence captures your meetings live, turns them into action items, and pushes them into Slack, Jira, Linear, or Asana — while staying the one place that always knows what is true.'

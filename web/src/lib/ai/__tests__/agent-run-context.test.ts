@@ -147,7 +147,7 @@ describe('composeActionTaskPrompt — description cap', () => {
 
 describe('fenceUntrustedValue', () => {
   it('leaves ids, links and status words raw, and fences free text', () => {
-    for (const plain of ['', 'a-1', 'ENG-42', 'https://dial8.ai/account?action=a-1', '2026-10-19T10:00:00.000Z', 'started']) {
+    for (const plain of ['', 'a-1', 'ENG-42', 'https://nativeintelligence.dev/account?action=a-1', '2026-10-19T10:00:00.000Z', 'started']) {
       expect(fenceUntrustedValue(plain)).toBe(plain)
     }
     expect(fenceUntrustedValue('Fix the login bug')).toBe(fence('Fix the login bug'))

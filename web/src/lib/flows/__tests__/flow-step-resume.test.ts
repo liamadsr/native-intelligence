@@ -52,7 +52,7 @@ const runSkill = vi.fn<RunSkillExecutor>(async (action, ctx) => ({
 const settle = vi.fn(async () => {})
 const deps = (paused = false) => ({
   supabase: db as never,
-  appBaseUrl: 'https://dial8.ai',
+  appBaseUrl: 'https://nativeintelligence.dev',
   executorsFor: () => ({ run_skill: runSkill }),
   ledger: { start: async () => ({ settle }) },
   paused: async () => paused,

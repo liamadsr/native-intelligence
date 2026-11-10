@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import About from './client'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'About',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
     title: 'About Native Intelligence',
     description:
       'Native Intelligence is building the system that turns conversations into action — capturing meetings, keeping projects current, and letting AI agents execute.',
-    url: 'https://dial8.ai/about',
+    url: `${appUrl()}/about`,
     type: 'website',
   },
 }

@@ -269,7 +269,7 @@ fn build_tuned(script: &str, seed: Option<&StateFile>, timing: Timing, tune: imp
         env_file: None,
         tool_path: "/usr/bin:/bin".into(),
         home: home.to_str().unwrap().into(),
-        model_base_url: super::config::model_base_url("https://dial8.test"),
+        model_base_url: super::config::model_base_url("https://nativeintelligence.test"),
         git: "/usr/bin/git".into(),
         // A git without the developer's global or system config.
         git_env: vec![
@@ -277,7 +277,7 @@ fn build_tuned(script: &str, seed: Option<&StateFile>, timing: Timing, tune: imp
             ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
         ],
         gh: None,
-        api_origin: "https://dial8.test".into(),
+        api_origin: "https://nativeintelligence.test".into(),
     };
     Rig {
         svc,
@@ -1014,7 +1014,7 @@ async fn edit_jobs_work_in_a_worktree_and_commit_on_finish_without_hooks() {
         text_field(&text, "extra"),
         rig.folder.join(".git").display().to_string()
     );
-    assert_eq!(text_field(&text, "model"), "https://dial8.test/api/local-agent/model");
+    assert_eq!(text_field(&text, "model"), "https://nativeintelligence.test/api/local-agent/model");
     assert_eq!(text_field(&text, "token"), "tok-test-0123456789abcdef");
 
     // The commit: after the finish (and the turn's end), with the next seq.
@@ -1312,7 +1312,7 @@ async fn the_model_token_reaches_the_launcher_and_refreshes_over_stdin() {
         .wait_for("the env", |e| e.job_id == id && e.event["kind"] == "text")
         .await;
     let text = text.event["delta"].as_str().unwrap();
-    assert_eq!(text_field(text, "model"), "https://dial8.test/api/local-agent/model");
+    assert_eq!(text_field(text, "model"), "https://nativeintelligence.test/api/local-agent/model");
     assert_eq!(text_field(text, "token"), "tok-1.abc_DEF-0123456789abcdef");
     let names = text_field(text, "env");
     assert!(!names.contains("LOCAL_AGENT_DEV_ENV_FILE"));
@@ -2970,11 +2970,11 @@ fn what_rust_runs_is_never_opened_for_writing_and_never_closes_all_of_home() {
         env_file: None,
         tool_path: "/Users/x/bin:/opt/homebrew/bin:/usr/bin".into(),
         home: "/Users/x".into(),
-        model_base_url: "https://dial8.test/api/local-agent/model".into(),
+        model_base_url: "https://nativeintelligence.test/api/local-agent/model".into(),
         git: "/opt/homebrew/bin/git".into(),
         git_env: Vec::new(),
         gh: Some("/opt/homebrew/bin/gh".into()),
-        api_origin: "https://dial8.test".into(),
+        api_origin: "https://nativeintelligence.test".into(),
     };
     let nvm = never_write(&launch("/Users/x/.nvm/versions/node/v24.22.1/bin/node"));
     for p in [

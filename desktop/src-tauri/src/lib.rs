@@ -476,7 +476,7 @@ pub fn run() {
     // SecStaticCodeCreateWithPath -67011), which silently kills the
     // microphone grant: cpal keeps delivering zero-filled buffers with no
     // prompt and no error, and the next launch from that path is secretly
-    // production pointed at https://dial8.ai. See docs/PERMISSIONS.md.
+    // production pointed at https://nativeintelligence.dev. See docs/PERMISSIONS.md.
     // The frontend tolerates the missing plugin: checkForUpdate() rejects and
     // app-updater.tsx catches it and treats it as "no update".
     #[cfg(not(debug_assertions))]
@@ -1065,7 +1065,7 @@ pub fn run() {
                 // Point the main window at the right frontend. A *built* debug
                 // bundle (what dev.sh produces) does NOT honor tauri.conf.json's
                 // `devUrl` — that only applies under `tauri dev` — so the window
-                // loads `frontendDist` (production dial8.ai) even in debug. The
+                // loads `frontendDist` (production nativeintelligence.dev) even in debug. The
                 // tray + secondary windows already switch on `debug_assertions`
                 // via `api_base_url()`; do the same for the main window so a
                 // local debug build loads the dev server instead of prod.

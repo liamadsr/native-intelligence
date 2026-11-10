@@ -42,7 +42,7 @@ vi.mock('@/lib/posthog', () => ({ trackServerEvent: vi.fn() }))
 const { GET } = await import('@/app/api/account/actions/route')
 
 function getReq(query = ''): NextRequest {
-  const req = buildRequest({ url: `https://dial8.ai/api/account/actions${query}`, method: 'GET' })
+  const req = buildRequest({ url: `https://nativeintelligence.dev/api/account/actions${query}`, method: 'GET' })
   return Object.assign(req, { nextUrl: new URL(req.url) }) as unknown as NextRequest
 }
 

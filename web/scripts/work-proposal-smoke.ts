@@ -95,7 +95,7 @@ async function main() {
         task:
           'Create a short launch-announcement document for Native Intelligence, an AI meeting workspace that turns meetings into tracked work. ' +
           'Audience: existing waitlist subscribers. Tone: warm, direct, no corporate filler. ' +
-          'Structure: a 1-line hook, 3 short paragraphs (what Native Intelligence does, what changed with launch, how to get started at dial8.ai), and a closing line inviting replies. ' +
+          'Structure: a 1-line hook, 3 short paragraphs (what Native Intelligence does, what changed with launch, how to get started), and a closing line inviting replies. ' +
           'Save it as a document titled "Native Intelligence Launch Announcement". When done, call finish_work with the document as a deliverable.',
         deliverable_hint: 'document',
         resources: [{ type: 'capture', label: "Today's sync" }],

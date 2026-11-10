@@ -63,9 +63,9 @@ beforeEach(() => {
   signIn()
 })
 
-const post = (body: unknown) => POST(buildRequest({ url: 'https://dial8.ai/api/account/chat/feedback', body }) as unknown as NextRequest)
+const post = (body: unknown) => POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/chat/feedback', body }) as unknown as NextRequest)
 const get = (conversationId: string) =>
-  GET(buildRequest({ url: `https://dial8.ai/api/account/chat/feedback?conversationId=${conversationId}`, method: 'GET' }) as unknown as NextRequest)
+  GET(buildRequest({ url: `https://nativeintelligence.dev/api/account/chat/feedback?conversationId=${conversationId}`, method: 'GET' }) as unknown as NextRequest)
 
 describe('POST', () => {
   it('auth: a failed requireWorkspace is returned as is', async () => {
@@ -265,7 +265,7 @@ describe('POST', () => {
   })
 
   it('400 on a body that is not JSON', async () => {
-    const res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/chat/feedback', body: '{nope', raw: true }) as unknown as NextRequest)
+    const res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/chat/feedback', body: '{nope', raw: true }) as unknown as NextRequest)
     expect(res.status).toBe(400)
   })
 })

@@ -284,7 +284,7 @@ describe('browserSelectionToSentences — any page', () => {
   it('reads plain text exactly as plainTextToSentences does', () => {
     const text = 'Getting started\nInstall the app. Then sign in!\n\nIt takes a minute'
     expect(read(text)).toEqual(plainTextToSentences(text))
-    expect(read('Use *bold* at https://docs.dial8.ai/api?x=1 🎉')).toEqual(['Use *bold* at docs.dial8.ai.'])
+    expect(read('Use *bold* at https://docs.nativeintelligence.dev/api?x=1 🎉')).toEqual(['Use *bold* at docs.nativeintelligence.dev.'])
   })
 
   it('drops footnote markers and lines that are only a page control, nothing more', () => {

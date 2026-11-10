@@ -3,6 +3,7 @@
 import { Footer } from '@/components/footer'
 import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
+import { appUrl } from '@/lib/app-url'
 
 const sections: Section[] = [
   { id: 'introduction', label: 'Introduction' },
@@ -490,10 +491,10 @@ export default function Privacy() {
               <p className="mt-1">
                 Website:{' '}
                 <a
-                  href="https://dial8.ai"
+                  href={appUrl()}
                   className="text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 dark:hover:text-cyan-300"
                 >
-                  https://dial8.ai
+                  {appUrl()}
                 </a>
               </p>
             </div>

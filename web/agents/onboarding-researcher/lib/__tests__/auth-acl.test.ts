@@ -161,7 +161,7 @@ describe('session-scoped control + subagent-stream routes — fail closed on any
 
 describe('isUnvouchedSessionCreate — only the app starts research', () => {
   const create = (headers: Record<string, string> = {}, path = '/eve/onboarding-researcher/v1/session') =>
-    new Request(`https://app.dial8.ai${path}`, { method: 'POST', headers })
+    new Request(`https://app.nativeintelligence.dev${path}`, { method: 'POST', headers })
 
   beforeEach(() => {
     vi.stubEnv('AGENT_RUN_INTERNAL_SECRET', 'agent-run-secret')
@@ -179,7 +179,7 @@ describe('isUnvouchedSessionCreate — only the app starts research', () => {
   })
 
   it('leaves every other route to the ownership ACL (streams, sends to a session, health)', () => {
-    const get = (path: string) => new Request(`https://app.dial8.ai${path}`)
+    const get = (path: string) => new Request(`https://app.nativeintelligence.dev${path}`)
     expect(isUnvouchedSessionCreate(get('/eve/onboarding-researcher/v1/session/s1/stream'))).toBe(false)
     expect(isUnvouchedSessionCreate(create({}, '/eve/onboarding-researcher/v1/session/s1'))).toBe(false)
     expect(isUnvouchedSessionCreate(get('/eve/onboarding-researcher/v1/health'))).toBe(false)

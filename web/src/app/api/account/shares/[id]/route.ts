@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { NextResponse, type NextRequest } from 'next/server'
+import { appUrl as appAddress } from '@/lib/app-url'
 
 export async function GET(
   _request: NextRequest,
@@ -74,7 +75,7 @@ export async function PATCH(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!share) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai'
+  const appUrl = appAddress()
   return NextResponse.json({
     share: { ...share, share_url: `${appUrl}/s/${share.share_token}` },
   })

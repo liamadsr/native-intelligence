@@ -16,6 +16,8 @@
  * live view.
  */
 
+import { APP_DOMAINS } from '@/lib/app-url'
+
 /** More than anyone types by hand; bounds what a claim hands the relay. */
 export const MAX_BLOCKED_SITES = 1000
 
@@ -77,7 +79,7 @@ export function blockedSiteForUrl(url: string | null | undefined, sites: readonl
  * card (or settle anything else) for the person. Production, local dev, and
  * the app's configured origin.
  */
-export const NI_OWN_SITES: readonly string[] = ['dial8.ai', 'localhost', '127.0.0.1']
+export const NI_OWN_SITES: readonly string[] = [...APP_DOMAINS, 'localhost', '127.0.0.1']
 
 /** The app's own sites: NI_OWN_SITES plus the configured app origin's site. */
 export function appOwnSites(appUrl: string | undefined = process.env.NEXT_PUBLIC_APP_URL): string[] {

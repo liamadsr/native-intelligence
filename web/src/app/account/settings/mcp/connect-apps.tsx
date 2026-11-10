@@ -24,11 +24,15 @@ import {
 } from '@/lib/mcp/connect-clients'
 import { cn } from '@/lib/utils'
 import { ConnectAppIcon } from './connect-app-icon'
+import { APP_PAGE_ORIGINS, appUrl, isAppPageHost } from '@/lib/app-url'
 
-// The origin the apps add. SSR and the first client render both use dial8.ai
-// (no hydration mismatch); on a local dev server a later commit swaps in its
-// own origin. Nothing changes the hostname mid-session, so subscribe is a no-op.
-const PROD_ORIGIN = 'https://dial8.ai'
+// The origin the apps add. SSR and the first client render both use the app's
+// address (no hydration mismatch); on a local dev server, or on the hosted
+// app's other domain, a later commit swaps in the page's own origin. Nothing
+// changes the hostname mid-session, so subscribe is a no-op.
+const PROD_ORIGIN = appUrl()
+/** The hosted app itself: anything else (a local dev server, a deploy whose address is its own) is added under the dev name, so it never replaces the hosted entry in an app's config. */
+const isHosted = (origin: string) => APP_PAGE_ORIGINS.includes(origin)
 function subscribeToHostname() {
   return () => {}
 }
@@ -38,7 +42,7 @@ function getServerOrigin() {
 function getClientOrigin() {
   if (typeof window === 'undefined') return PROD_ORIGIN
   const host = window.location.hostname
-  return host === 'localhost' || host === '127.0.0.1' ? window.location.origin : PROD_ORIGIN
+  return host === 'localhost' || host === '127.0.0.1' || isAppPageHost(host) ? window.location.origin : PROD_ORIGIN
 }
 
 const SECTION_HEADING = 'mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'
@@ -47,7 +51,7 @@ const tabId = (id: ConnectClientId) => `ni-mcp-app-${id}`
 
 export function ConnectApps() {
   const origin = useSyncExternalStore(subscribeToHostname, getClientOrigin, getServerOrigin)
-  const server = useMemo(() => connectServer(origin, origin !== PROD_ORIGIN), [origin])
+  const server = useMemo(() => connectServer(origin, !isHosted(origin)), [origin])
   const [picked, setPicked] = useState<ConnectClientId>(CONNECT_CLIENTS[0].id)
   const client = connectClient(picked)
   const tabs = useRef<Partial<Record<ConnectClientId, HTMLButtonElement | null>>>({})
@@ -172,7 +176,7 @@ function AppPanel({ client, server }: { client: ConnectClient; server: ConnectSe
       {local && (
         <p className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
           <TriangleAlert aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
-          {client.name} connects from its own servers, so it can&apos;t reach this local dev server. Use dial8.ai, or a
+          {client.name} connects from its own servers, so it can&apos;t reach this local dev server. Use the hosted app, or a
           public tunnel to this machine.
         </p>
       )}

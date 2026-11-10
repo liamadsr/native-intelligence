@@ -65,7 +65,7 @@ const { POST } = await import(
 
 // The route ignores the request body (it types _request: NextRequest but never
 // reads it) — a plain Request cast is sufficient for the handler call.
-const req = new Request('https://dial8.ai/api/account/captures/cap-1/proposed-changes/apply-all', {
+const req = new Request('https://nativeintelligence.dev/api/account/captures/cap-1/proposed-changes/apply-all', {
   method: 'POST',
 }) as unknown as import('next/server').NextRequest
 const params = Promise.resolve({ id: 'cap-1' })

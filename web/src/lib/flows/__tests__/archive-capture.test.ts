@@ -67,7 +67,7 @@ const trigger: TriggerContext = {
   fired_at: '2026-07-02T12:00:00.000Z',
 }
 function ctx(capture: { id: string; title: string | null } | null) {
-  return { entity: null, trigger, appBaseUrl: 'https://dial8.ai', capture }
+  return { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', capture }
 }
 
 beforeEach(() => {

@@ -38,13 +38,13 @@ vi.mock('@/lib/stripe', () => ({
     checkout: { sessions: { create: hoisted.sessionsCreate } },
     customers: { create: hoisted.customersCreate },
   }),
-  safeCheckoutOrigin: () => 'https://dial8.ai',
+  safeCheckoutOrigin: () => 'https://nativeintelligence.dev',
 }))
 
 const { POST } = await import('@/app/api/billing/checkout/route')
 
 function req(body?: unknown): Request {
-  return new Request('https://dial8.ai/api/billing/checkout', {
+  return new Request('https://nativeintelligence.dev/api/billing/checkout', {
     method: 'POST',
     body: body === undefined ? undefined : JSON.stringify(body),
   })
@@ -75,7 +75,7 @@ describe('POST /api/billing/checkout', () => {
     expect(args.subscription_data.trial_settings.end_behavior.missing_payment_method).toBe('cancel')
     expect(args.subscription_data.metadata.user_id).toBe('user-1')
     expect(args.success_url).toContain('/account/start-trial?session_id={CHECKOUT_SESSION_ID}')
-    expect(args.cancel_url).toBe('https://dial8.ai/account/start-trial')
+    expect(args.cancel_url).toBe('https://nativeintelligence.dev/account/start-trial')
     expect(args.line_items).toEqual([{ price: 'price_99', quantity: 1 }])
     expect(hoisted.customersCreate).toHaveBeenCalled()
   })

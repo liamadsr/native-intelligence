@@ -100,7 +100,7 @@ import { verifyChatRunToken } from '@/lib/chat/chat-run-token'
 import { deviceAskTokenTtlMs, CANCEL_TIMEOUT_MS, DEVICE_ASK_LOG_MARGIN_MS } from '@/lib/chat/device-ask-eve'
 
 function req(body: unknown, headers: Record<string, string> = { authorization: 'Bearer nid_abc' }) {
-  return new Request('https://dial8.ai/api/device/ask', {
+  return new Request('https://nativeintelligence.dev/api/device/ask', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),

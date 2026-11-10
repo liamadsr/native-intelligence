@@ -79,7 +79,7 @@ beforeEach(() => {
 })
 
 const quote = () => tables.customer_quote[0]
-const deps = (over: QuoteReplyDeps = {}): QuoteReplyDeps => ({ now: () => NOW, origin: 'https://dial8.ai', send: send as never, ...over })
+const deps = (over: QuoteReplyDeps = {}): QuoteReplyDeps => ({ now: () => NOW, origin: 'https://nativeintelligence.dev', send: send as never, ...over })
 
 /** The owner's yes to the card the gate would make for this call: the replay's approvedCall. */
 async function approvedFor(tool: string, input: Record<string, unknown>, userId = OWNER, d: QuoteReplyDeps = deps()): Promise<ApprovedCall> {
@@ -91,7 +91,7 @@ async function approvedFor(tool: string, input: Record<string, unknown>, userId 
 describe('send_quote', () => {
   it('the card says exactly who gets what text, from the business number; its yes sends that text from that number, sets the price and marks the quote sent', async () => {
     const hold = await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input: { quote_id: QUOTE, price: 240 } }, deps())
-    const text = 'Brightside Window Washing: here is your quote for 1 item, exterior windows: $240. Pick a time at https://dial8.ai/book/brightside or reply here.'
+    const text = 'Brightside Window Washing: here is your quote for 1 item, exterior windows: $240. Pick a time at https://nativeintelligence.dev/book/brightside or reply here.'
     expect(hold?.card).toEqual({
       title: 'Text Dana Ruiz (+1 312-555-0142) their quote, $240?',
       why: `From the business number +1 312-555-0100: “${text}” Then the quote is marked sent at $240. It runs once, exactly as shown, when you accept.`,
@@ -141,15 +141,15 @@ describe('send_quote', () => {
     const hold = await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input }, deps())
     expect(hold?.card).toEqual({
       title: 'Email Dana Ruiz (dana@example.com) their quote, $240?',
-      why: 'From your mailbox, subject “Your quote, $240”: “Hi Dana, Brightside Window Washing: here is your quote for 1 item, exterior windows: $240. Pick a time at https://dial8.ai/book/brightside or reply to this email.” Then the quote is marked sent at $240. It runs once, exactly as shown, when you accept.',
+      why: 'From your mailbox, subject “Your quote, $240”: “Hi Dana, Brightside Window Washing: here is your quote for 1 item, exterior windows: $240. Pick a time at https://nativeintelligence.dev/book/brightside or reply to this email.” Then the quote is marked sent at $240. It runs once, exactly as shown, when you accept.',
     })
     const out = await runSendQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(SEND_QUOTE_TOOL, input) }, input, deps())
     expect(out).toMatchObject({ success: true, sent_via: 'email', to: 'dana@example.com' })
     expect(mocks.sendEmail).toHaveBeenCalledWith(OWNER, WS, expect.objectContaining({
       to: ['dana@example.com'],
       subject: 'Your quote, $240',
-      body_text: 'Hi Dana,\n\nBrightside Window Washing: here is your quote for 1 item, exterior windows: $240. Pick a time at https://dial8.ai/book/brightside or reply to this email.',
-      body_html: expect.stringContaining('<a href="https://dial8.ai/book/brightside">https://dial8.ai/book/brightside</a>'),
+      body_text: 'Hi Dana,\n\nBrightside Window Washing: here is your quote for 1 item, exterior windows: $240. Pick a time at https://nativeintelligence.dev/book/brightside or reply to this email.',
+      body_html: expect.stringContaining('<a href="https://nativeintelligence.dev/book/brightside">https://nativeintelligence.dev/book/brightside</a>'),
     }))
     expect(send).not.toHaveBeenCalled()
     expect(quote().status).toBe('sent')
@@ -189,7 +189,7 @@ describe('send_quote', () => {
     quote().service = 'Windows www.evil.example'
     const hold = await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input: { quote_id: QUOTE, message: 'Thanks, Mr. Lee.' } }, deps())
     expect(hold?.card.title).toBe('Text Dana visit now (+1 312-555-0142) their quote, $240?')
-    expect(hold?.card.why.match(new RegExp(LINKISH.source, 'gi'))).toEqual(['https://dial8.ai/book/brightside'])
+    expect(hold?.card.why.match(new RegExp(LINKISH.source, 'gi'))).toEqual(['https://nativeintelligence.dev/book/brightside'])
   })
 
   it('owners and admins only: a plain member gets no card and sends nothing; an admin emails from their own mailbox', async () => {
@@ -341,7 +341,7 @@ describe('the card shows every word, within what the app and a text show', () =>
     const text = await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input }, deps())
     fits(text?.card)
     expect(text!.card.title).toContain('(+1 312-555-0142)')
-    expect(text!.card.why).toContain('https://dial8.ai/book/' + 'b'.repeat(48))
+    expect(text!.card.why).toContain('https://nativeintelligence.dev/book/' + 'b'.repeat(48))
     // What is sent is exactly the quoted words of the card.
     await runSendQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: { approvalId: 'a', tool: SEND_QUOTE_TOOL, quoteReply: text!.context.quoteReply } }, input, deps())
     expect(text!.card.why).toContain(`“${send.mock.calls[0][1]}”`)

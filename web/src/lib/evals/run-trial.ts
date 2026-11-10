@@ -79,6 +79,7 @@ import type {
   TraceToolCall,
   TraceUsage,
 } from './types'
+import { appUrl } from '@/lib/app-url'
 
 /** Chunks of context the real client sends per live flush
  *  (`RECENT_CHUNKS_MAX` in `use-recording.ts`). Matching it is not cosmetic:
@@ -128,7 +129,7 @@ export const SUMMARY_TOOL_NAMES = ['write_summary', 'update_summary'] as const
 /** Base URL for the internal HTTP call, the same resolution the task-push and
  *  hubspot lanes use. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /** A minted run token and the row id that has to be deleted afterwards. */

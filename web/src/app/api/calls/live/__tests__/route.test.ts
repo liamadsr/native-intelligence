@@ -59,7 +59,7 @@ function delivery(event: unknown, opts: { secret?: Buffer; ts?: number } = {}): 
   const body = JSON.stringify(event)
   const ts = opts.ts ?? Math.floor(Date.now() / 1000)
   const sig = createHmac('sha256', new Uint8Array(opts.secret ?? KEY)).update(`wh_1.${ts}.${body}`).digest('base64')
-  return new Request('https://dial8.test/api/calls/live', {
+  return new Request('https://nativeintelligence.test/api/calls/live', {
     method: 'POST',
     headers: { 'webhook-id': 'wh_1', 'webhook-timestamp': String(ts), 'webhook-signature': `v1,${sig}` },
     body,

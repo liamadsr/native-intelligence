@@ -34,7 +34,7 @@ describe('data passing', () => {
       seen.push({ id: 'queue', steps: ctx.steps, readOutside: ctx.readOutsideText })
       return { status: 'success', ...ok, step_output: 'd_1', read_outside_text: true }
     })
-    const out = await runFlow({ actions }, null, trigger, 'https://dial8.ai', { executors: { run_skill: runSkill, call_tool: callTool }, extras: { workspaceId: 'ws' } })
+    const out = await runFlow({ actions }, null, trigger, 'https://nativeintelligence.dev', { executors: { run_skill: runSkill, call_tool: callTool }, extras: { workspaceId: 'ws' } })
     expect(out.status).toBe('success')
     expect(seen).toEqual([
       { id: 'summarise', steps: {}, readOutside: false },
@@ -53,7 +53,7 @@ describe('data passing', () => {
       node('note', 'run_skill', 'summarise', { skill_id: SKILL, mode: 'report', instructions: 'Use {{steps.summarise.output}}' }),
     ]
     const runSkill = vi.fn(async () => ({ status: 'success' as const, ...ok }))
-    const out = await runFlow({ actions: skipped }, null, trigger, 'https://dial8.ai', { executors: { run_skill: runSkill } })
+    const out = await runFlow({ actions: skipped }, null, trigger, 'https://nativeintelligence.dev', { executors: { run_skill: runSkill } })
     expect(runSkill).not.toHaveBeenCalled()
     expect(out.status).toBe('failed')
     const note = out.action_results.find((r) => r.action_id === 'note')!
@@ -70,7 +70,7 @@ describe('an empty output passes nothing on', () => {
     ]
     const runSkill = vi.fn(async () => ({ status: 'success' as const, ...ok, step_output: '  ' }))
     const callTool = vi.fn()
-    const out = await runFlow({ actions: chain }, null, trigger, 'https://dial8.ai', { executors: { run_skill: runSkill, call_tool: callTool as never } })
+    const out = await runFlow({ actions: chain }, null, trigger, 'https://nativeintelligence.dev', { executors: { run_skill: runSkill, call_tool: callTool as never } })
     expect(callTool).not.toHaveBeenCalled()
     expect(runSkill).toHaveBeenCalledTimes(1)
     expect(out.status).toBe('success')
@@ -88,7 +88,7 @@ describe('parking', () => {
 
   it('a parked step parks the run: status pending, later steps wait, nothing after it runs', async () => {
     const runSkill = vi.fn(async () => ({ status: 'success' as const, ...ok, step_output: 'summary' }))
-    const out = await runFlow({ actions }, null, trigger, 'https://dial8.ai', { executors: { run_skill: runSkill, call_tool: parkedTool } })
+    const out = await runFlow({ actions }, null, trigger, 'https://nativeintelligence.dev', { executors: { run_skill: runSkill, call_tool: parkedTool } })
     expect(out.status).toBe('pending')
     expect(out.parked).toEqual({ action_id: 'queue', approval_id: 'a1', card_id: 'c1', title: 'Add to queue' })
     expect(runSkill).toHaveBeenCalledTimes(1)
@@ -101,11 +101,11 @@ describe('parking', () => {
 
   it('a resume keeps what settled, runs the waiting steps with the outputs so far', async () => {
     const runSkill = vi.fn(async (action: FlowAction, ctx: Parameters<RunSkillExecutor>[1]) => ({ status: 'success' as const, ...ok, step_output: `${action.id}:${JSON.stringify(ctx.steps)}` }))
-    const first = await runFlow({ actions }, null, trigger, 'https://dial8.ai', { executors: { run_skill: runSkill as never, call_tool: parkedTool } })
+    const first = await runFlow({ actions }, null, trigger, 'https://nativeintelligence.dev', { executors: { run_skill: runSkill as never, call_tool: parkedTool } })
     // The card was accepted: the parked step settled with the app's output.
     const settled = first.action_results.map((r) => (r.action_id === 'queue' ? { ...r, status: 'success' as const, parked: null } : r))
     const callTool = vi.fn()
-    const out = await runFlow({ actions }, null, trigger, 'https://dial8.ai', {
+    const out = await runFlow({ actions }, null, trigger, 'https://nativeintelligence.dev', {
       executors: { run_skill: runSkill as never, call_tool: callTool as never },
       resume: { results: settled, stepOutputs: { ...first.step_outputs, queue: { output: 'd_9' } }, readOutsideText: true },
     })

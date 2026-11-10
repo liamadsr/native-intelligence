@@ -27,7 +27,7 @@ vi.mock('@/lib/sms/inbound', () => ({
 vi.mock('@/lib/sms/deliver', () => ({ deliverTextToHomeThread: vi.fn() }))
 vi.mock('@/lib/sms/phone-verification', () => ({ codeKey: () => 'key' }))
 vi.mock('@/lib/sms/signup', () => ({ handleSignupText: vi.fn(), supabaseSignupDeps: vi.fn() }))
-vi.mock('@/lib/twilio/config', () => ({ appOrigin: () => 'https://dial8.ai', twilioAuthToken: () => h.authToken }))
+vi.mock('@/lib/twilio/config', () => ({ appOrigin: () => 'https://nativeintelligence.dev', twilioAuthToken: () => h.authToken }))
 vi.mock('@/lib/twilio/signature', () => ({
   TWILIO_SIGNATURE_HEADER: 'x-twilio-signature',
   twilioRequestUrl: (request: Request) => request.url,
@@ -37,7 +37,7 @@ vi.mock('@/lib/twilio/signature', () => ({
 import { POST } from '../route'
 
 function twilioPost(fields: Record<string, string>): Request {
-  return new Request('https://dial8.ai/api/twilio/sms', {
+  return new Request('https://nativeintelligence.dev/api/twilio/sms', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-twilio-signature': 'sig' },
     body: new URLSearchParams(fields).toString(),

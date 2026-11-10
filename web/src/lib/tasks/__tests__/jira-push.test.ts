@@ -187,7 +187,7 @@ beforeEach(() => {
   // in the diff. Every mock this file uses is re-seeded immediately below, which
   // is what makes the stronger reset safe.
   vi.resetAllMocks()
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
   hoistedApi.deleteIssue.mockResolvedValue(undefined)
   hoistedConfig.loadJiraSyncState.mockResolvedValue(SYNC_STATE)
   hoistedToken.getValidTokenForAccount.mockResolvedValue({
@@ -376,7 +376,7 @@ describe('pushActionToJira — payload shape', () => {
     const description = hoistedApi.createIssue.mock.calls[0][2].fields.description
     expect(typeof description).toBe('object')
     expect(description).toMatchObject({ version: 1, type: 'doc' })
-    expect(JSON.stringify(description)).toContain('https://dial8.ai/account?action=act-1')
+    expect(JSON.stringify(description)).toContain('https://nativeintelligence.dev/account?action=act-1')
   })
 
   it('sends NO assignee field on the create — assignment is post-create only', async () => {
@@ -415,7 +415,7 @@ describe('pushActionToJira — payload shape', () => {
       ],
     })
     expect(JSON.stringify(description)).not.toContain('Pushed from Native Intelligence')
-    expect(JSON.stringify(description)).not.toContain('dial8.ai')
+    expect(JSON.stringify(description)).not.toMatch(/nativeintelligence\.dev|dial8\.ai/)
   })
 
   it('OMITS description entirely when attribution is off and there is none', async () => {
@@ -455,7 +455,7 @@ describe('pushActionToJira — payload shape', () => {
               type: 'text',
               text: 'ENG-42',
               marks: [
-                { type: 'link', attrs: { href: 'https://dial8.ai/account?action=act-1' } },
+                { type: 'link', attrs: { href: 'https://nativeintelligence.dev/account?action=act-1' } },
               ],
             },
           ],
@@ -866,7 +866,7 @@ describe('buildAdfDescription', () => {
               type: 'text',
               text: 'this action',
               marks: [
-                { type: 'link', attrs: { href: 'https://dial8.ai/account?action=act-9' } },
+                { type: 'link', attrs: { href: 'https://nativeintelligence.dev/account?action=act-9' } },
               ],
             },
           ],

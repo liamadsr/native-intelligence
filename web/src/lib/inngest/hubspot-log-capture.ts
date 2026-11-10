@@ -7,6 +7,7 @@ import {
 } from '@/lib/integrations/hubspot-api'
 import { HUBSPOT_SOURCE_PROVIDER } from '@/lib/crm/hubspot-sync'
 import { logsMeetingsToHubspot } from '@/lib/crm/hubspot-meeting-log'
+import { appUrl } from '@/lib/app-url'
 
 // =====================================================================
 // HubSpot meeting-logging writeback (Phase 2)
@@ -282,7 +283,7 @@ async function buildMeetingBody(
     .filter((t): t is string => !!t)
 
   const base =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || 'https://dial8.ai'
+    appUrl()
   const link = `${base}/account/captures/${opts.captureId}`
 
   // Build the fixed tail (action items + link) first so we know how much room is

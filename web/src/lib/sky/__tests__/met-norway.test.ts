@@ -97,7 +97,7 @@ describe('fetchSkyWeather', () => {
     const w = await fetchSkyWeather(40.7, -74)
     const url = String(fetchMock.mock.calls[0][0])
     expect(url.startsWith('https://api.met.no/weatherapi/locationforecast/2.0/complete?')).toBe(true)
-    expect(fetchMock.mock.calls[0][1].headers['User-Agent']).toMatch(/^Dial8\/1\.0 https:\/\/dial8\.ai/)
+    expect(fetchMock.mock.calls[0][1].headers['User-Agent']).toBe('NativeIntelligence/1.0 https://nativeintelligence.dev')
     expect(w.cloudCover).toBe(0)
     expect(w.cirrus).toBeCloseTo(0.914)
   })

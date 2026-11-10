@@ -60,7 +60,7 @@ crate's authors aren't the holders of that text, add a row to `scripts/licenses/
 Local modules (a sidecar + downloadable models + an on/off setting) are described
 in `web/docs/plans/local-modules.md`.
 
-The webview loads the Native Intelligence web app — `localhost:3000` in dev, `https://dial8.ai` in production.
+The webview loads the Native Intelligence web app — `localhost:3000` in dev, `https://nativeintelligence.dev` in production.
 
 ## Development
 
@@ -118,7 +118,7 @@ To verify the URL scheme is registered:
 ```bash
 # 1. Set frontendDist to production URL
 #    In src-tauri/tauri.conf.json, set:
-#    "frontendDist": "https://dial8.ai"
+#    "frontendDist": "https://nativeintelligence.dev"
 
 # 2. Build release
 cd dial8-desktop && cargo tauri build
@@ -170,7 +170,7 @@ The only thing that changes between dev and prod is `frontendDist` in `src-tauri
 | Mode | `frontendDist` |
 |------|---------------|
 | Dev  | `http://localhost:3000` |
-| Prod | `https://dial8.ai` |
+| Prod | `https://nativeintelligence.dev` |
 
 `devUrl` is only used by `cargo tauri dev` and doesn't affect builds.
 
@@ -189,7 +189,8 @@ The only thing that changes between dev and prod is `frontendDist` in `src-tauri
 The following redirect URLs must be whitelisted in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:
 
 - `http://localhost:3000/auth/desktop-callback` (dev)
-- `https://dial8.ai/auth/desktop-callback` (prod)
+- `https://nativeintelligence.dev/auth/desktop-callback` (prod)
+- `https://dial8.ai/auth/desktop-callback` (prod, for builds that still load that address: keep it while that domain serves the app)
 
 ## Key Crates
 

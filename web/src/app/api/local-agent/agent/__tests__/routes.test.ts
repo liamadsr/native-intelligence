@@ -428,14 +428,14 @@ describe('POST /api/local-agent/agent/tool', () => {
 
     it('web_search asks Exa, fences the results and meters Exa’s cost after the response', async () => {
       fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        results: [{ title: 'Native Intelligence', url: 'https://dial8.ai', publishedDate: '2026-10-01T00:00:00Z', highlights: ['Linear meets Granola'] }],
+        results: [{ title: 'Native Intelligence', url: 'https://nativeintelligence.dev', publishedDate: '2026-10-01T00:00:00Z', highlights: ['Linear meets Granola'] }],
         costDollars: { total: 0.005 },
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
       const res = await tool({ toolName: 'web_search', input: { query: 'dial8' } })
       const { output } = await res.json()
       expect(output).toMatchObject({ query: 'dial8', count: 1 })
       expect(output.content).toMatch(/^\[UNTRUSTED WEB CONTENT/)
-      expect(output.content).toContain('https://dial8.ai')
+      expect(output.content).toContain('https://nativeintelligence.dev')
       const [url, init] = fetchMock.mock.calls[0]
       expect(url).toBe('https://api.exa.ai/search')
       expect(JSON.parse(init.body)).toMatchObject({ query: 'dial8', type: 'auto', numResults: 10 })
@@ -447,7 +447,7 @@ describe('POST /api/local-agent/agent/tool', () => {
 
     it("searches on a person's own ChatGPT plan, never Exa, and runs no search when the plan can't be read", async () => {
       plan.check.mockResolvedValueOnce(true)
-      plan.search.mockResolvedValueOnce({ results: [{ title: 'Native Intelligence', url: 'https://dial8.ai', publishedDate: null, author: null, highlights: ['Linear meets Granola'] }], costDollars: 0 })
+      plan.search.mockResolvedValueOnce({ results: [{ title: 'Native Intelligence', url: 'https://nativeintelligence.dev', publishedDate: null, author: null, highlights: ['Linear meets Granola'] }], costDollars: 0 })
       const { output } = await (await tool({ toolName: 'web_search', input: { query: 'dial8' } })).json()
       expect(output).toMatchObject({ query: 'dial8', count: 1 })
       expect(output.content).toMatch(/^\[UNTRUSTED WEB CONTENT/)

@@ -2,8 +2,9 @@
 // pages read, so it stays in sync with published posts. Referenced by the
 // <link rel="alternate" type="application/rss+xml"> in the root layout.
 import { blog } from '@/lib/source'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 const FEED_TITLE = 'Native Intelligence Blog'
 const FEED_DESCRIPTION = 'Product updates, writing, and announcements from Native Intelligence.'
 

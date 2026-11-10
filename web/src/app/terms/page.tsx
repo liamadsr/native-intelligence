@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Terms from './client'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
     title: 'Terms of Service – Native Intelligence',
     description:
       'The terms that govern your use of Native Intelligence, including subscriptions, cancellation, AI features, and acceptable use.',
-    url: 'https://dial8.ai/terms',
+    url: `${appUrl()}/terms`,
     type: 'website',
   },
 }

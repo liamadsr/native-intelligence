@@ -36,7 +36,7 @@ describe('the relay start script', () => {
     const download = lines.slice(from, lines.indexOf('done', from) + 1).join('\n')
     const server = createServer((req, res) => {
       if (req.url?.startsWith('/cloud-browser/relay.mjs') && process.env.RELAY_TEST_REDIRECT === '1') {
-        res.writeHead(307, { location: 'https://dial8.ai/cloud-browser/relay.mjs' }).end('Redirecting...')
+        res.writeHead(307, { location: 'https://nativeintelligence.dev/cloud-browser/relay.mjs' }).end('Redirecting...')
       } else res.writeHead(200).end(`// ${req.url}`)
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))

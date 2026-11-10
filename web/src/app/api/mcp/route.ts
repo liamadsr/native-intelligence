@@ -7,7 +7,7 @@ import { withCurrentToolNames } from '@/lib/mcp/tool-names'
  * MCP Streamable HTTP endpoint.
  *
  * Claude Code connects here after completing OAuth:
- *   claude mcp add --transport http native-intelligence https://dial8.ai/api/mcp
+ *   claude mcp add --transport http native-intelligence https://nativeintelligence.dev/api/mcp
  *
  * OAuth discovery happens automatically via:
  *   GET /.well-known/oauth-protected-resource/api/mcp

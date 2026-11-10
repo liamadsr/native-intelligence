@@ -18,7 +18,7 @@ import { sessionTokenHash } from '@/lib/chatgpt/account'
 import { createClient } from '@/lib/supabase/server'
 
 /**
- * Finish "Sign in with Google" on dial8.ai (started by /auth/google):
+ * Finish "Sign in with Google" on nativeintelligence.dev (started by /auth/google):
  *   1. recover and consume the sealed transaction; refuse a missing, expired
  *      or mismatched one, and Google's own errors, before touching a code;
  *   2. exchange the code (PKCE) for Google's ID token;

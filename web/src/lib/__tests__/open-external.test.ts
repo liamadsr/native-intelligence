@@ -125,6 +125,7 @@ describe('keepsSystemBrowser', () => {
     'https://slack.com/oauth/v2/authorize?client_id=x',
     'https://auth.example.com/connect?client_id=x&response_type=code',
     'https://example.com/anything?redirect_uri=https%3A%2F%2Fdial8.ai',
+    'https://example.com/anything?redirect_uri=https%3A%2F%2Fnativeintelligence.dev',
     'https://acme.okta.com/sso/saml',
     'https://checkout.stripe.com/c/pay/cs_live_1',
     'https://billing.stripe.com/p/session/1',
@@ -144,6 +145,10 @@ describe('keepsSystemBrowser', () => {
     'https://meet.jit.si/acme',
     'https://app.slack.com/huddle/T1/C1',
     // Native Intelligence's own pages: the app routes them, or they open as before.
+    'https://nativeintelligence.dev/invite/abc',
+    'https://www.nativeintelligence.dev/pricing',
+    'https://app.nativeintelligence.dev/account',
+    // …and on the address it had before the rename, which still serves.
     'https://dial8.ai/invite/abc',
     'https://app.dial8.ai/account',
     // Wrapped links are judged by the link inside.
@@ -166,6 +171,9 @@ describe('keepsSystemBrowser', () => {
     'https://example.com/authors/jane',
     'https://app.slack.com/client/T1/C1',
     'https://notdial8.ai/',
+    'https://notnativeintelligence.dev/',
+    'https://nativeintelligence.dev.evil.example/',
+    'https://dial8.ai.evil.example/',
     'https://eur01.safelinks.protection.outlook.com/?url=https%3A%2F%2Fgithub.com%2Facme%2Fapp&data=x',
     'https://www.google.com/url?q=https://example.com/',
     'https://www.google.com/search?q=https://accounts.google.com',

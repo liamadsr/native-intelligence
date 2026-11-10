@@ -1963,11 +1963,11 @@ mod tests {
             env_file: None,
             tool_path: format!("{}:/usr/bin:/bin", base.join("bin").display()),
             home: base.join("home").to_str().unwrap().into(),
-            model_base_url: super::super::config::model_base_url("https://dial8.test"),
+            model_base_url: super::super::config::model_base_url("https://nativeintelligence.test"),
             git: "/usr/bin/git".into(),
             git_env: Vec::new(),
             gh: None,
-            api_origin: "https://dial8.test".into(),
+            api_origin: "https://nativeintelligence.test".into(),
         }
     }
 
@@ -2029,7 +2029,7 @@ mod tests {
         run.apply(&mut env, &launch);
         let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
         assert_eq!(get("LOCAL_AGENT_MODEL_BASE_URL"), None);
-        assert_eq!(get("LOCAL_AGENT_API_ORIGIN"), Some("https://dial8.test"));
+        assert_eq!(get("LOCAL_AGENT_API_ORIGIN"), Some("https://nativeintelligence.test"));
         assert_eq!(get("LOCAL_AGENT_LOCAL_MODEL_BASE_URL"), Some("http://127.0.0.1:1234/v1"));
         assert_eq!(get("LOCAL_AGENT_LOCAL_MODEL_ID"), Some("qwen2.5-7b-instruct"));
         assert_eq!(get("LOCAL_AGENT_LOCAL_MODEL_SERVER"), Some("lmstudio"));
@@ -2980,7 +2980,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         let id = rig.start(None).await.unwrap();
         let got = rig.given(&id, 0).await;
         assert_eq!(got["script"], "launcher.sh");
-        assert_eq!(got["relay"], "https://dial8.test/api/local-agent/model");
+        assert_eq!(got["relay"], "https://nativeintelligence.test/api/local-agent/model");
         assert_eq!(got["token"], TOKEN);
         assert_eq!((got["worker"].as_str(), got["local"].as_str()), ("none", "none"));
         assert_eq!(rig.jobs_on_disk().job(&id).unwrap().worker, None);
@@ -3097,7 +3097,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         assert_eq!(got["id"], "qwen2.5-coder:14b");
         assert_eq!(got["relay"], "none", "no relay URL: fail closed");
         assert_eq!(got["token"], TOKEN, "the token stays, for the Native Intelligence tools");
-        assert_eq!(got["origin"], "https://dial8.test");
+        assert_eq!(got["origin"], "https://nativeintelligence.test");
         // A retried claim on the running job is a no-op: nothing is looked at.
         let looks = rig.looks.load(Ordering::SeqCst);
         let mut again = rig.args(None);

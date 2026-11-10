@@ -24,6 +24,7 @@
  */
 
 import { hostOf } from './evidence'
+import { appUrl } from '@/lib/app-url'
 
 export type DomainProbeStatus = 'live' | 'parked' | 'dead' | 'unknown'
 
@@ -112,7 +113,7 @@ export async function probeParkedDomain(
       signal: controller.signal,
       headers: {
         accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
-        'user-agent': 'Mozilla/5.0 (compatible; NativeIntelligenceProspecting/1.0; +https://dial8.ai)',
+        'user-agent': `Mozilla/5.0 (compatible; NativeIntelligenceProspecting/1.0; +${appUrl()})`,
       },
     })
     const landed = (res.url && hostOf(res.url)) || host

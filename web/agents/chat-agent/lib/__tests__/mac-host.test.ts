@@ -92,11 +92,11 @@ describe('C1 from the Mac', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   it('finds the origin: LOCAL_AGENT_API_ORIGIN, else the relay URL; with both, only one origin', () => {
-    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai', LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model' })).toBe('https://dial8.ai')
-    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai', LOCAL_AGENT_MODEL_BASE_URL: 'https://other.test/api/local-agent/model' })).toBeNull()
-    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai/' })).toBe('https://dial8.ai')
+    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev', LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model' })).toBe('https://nativeintelligence.dev')
+    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev', LOCAL_AGENT_MODEL_BASE_URL: 'https://other.test/api/local-agent/model' })).toBeNull()
+    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev/' })).toBe('https://nativeintelligence.dev')
     expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'http://127.0.0.1:3001' })).toBe('http://127.0.0.1:3001')
-    expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model' })).toBe('https://dial8.ai')
+    expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model' })).toBe('https://nativeintelligence.dev')
     expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'http://127.0.0.1:3001/api/local-agent/model' })).toBe('http://127.0.0.1:3001')
     expect(macApiOrigin({})).toBeNull()
   })
@@ -104,34 +104,34 @@ describe('C1 from the Mac', () => {
   it('refuses an origin that is not one, or not https off loopback', () => {
     // A dev origin on localhost works, as the relay URL's rule allows.
     expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'http://localhost:3000' })).toBe('http://localhost:3000')
-    for (const bad of ['http://dial8.ai', 'http://10.0.0.2:3000', 'https://dial8.ai/api', 'https://u:p@dial8.ai', 'https://dial8.ai?x=1', 'not a url']) {
+    for (const bad of ['http://nativeintelligence.dev', 'http://10.0.0.2:3000', 'https://nativeintelligence.dev/api', 'https://u:p@dial8.ai', 'https://nativeintelligence.dev?x=1', 'not a url']) {
       expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: bad })).toBeNull()
     }
     expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'http://10.0.0.2/api/local-agent/model' })).toBeNull()
   })
 
   it('has no route without a session token file or an origin', () => {
-    expect(macRouteUnavailable({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toMatch(/no session token/)
-    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toMatch(/not absolute/)
+    expect(macRouteUnavailable({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toMatch(/no session token/)
+    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toMatch(/not absolute/)
     expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile })).toMatch(/no app origin/)
-    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBeNull()
+    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBeNull()
     expect(() => macRouteTarget('spec', {})).toThrow(/not reachable/)
   })
 
   it('is the dev path only with no token file at all; a token without a route is misconfigured', () => {
     expect(macRouteState({})).toBe('no-token')
-    expect(macRouteState({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('no-token')
+    expect(macRouteState({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('no-token')
     expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile })).toBe('misconfigured')
-    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('misconfigured')
+    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('misconfigured')
     expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'http://10.0.0.2' })).toBe('misconfigured')
-    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('ok')
+    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('ok')
   })
 
   it('reads the token file on every call, so a refresh lands on the next one', () => {
-    const env = { LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' }
-    expect(macRouteTarget('spec', env)).toEqual({ url: 'https://dial8.ai/api/local-agent/agent/spec', headers: { authorization: `Bearer ${TOKEN_A}` } })
+    const env = { LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' }
+    expect(macRouteTarget('spec', env)).toEqual({ url: 'https://nativeintelligence.dev/api/local-agent/agent/spec', headers: { authorization: `Bearer ${TOKEN_A}` } })
     writeFileSync(tokenFile, TOKEN_B)
-    expect(macRouteTarget('tool', env)).toEqual({ url: 'https://dial8.ai/api/local-agent/agent/tool', headers: { authorization: `Bearer ${TOKEN_B}` } })
+    expect(macRouteTarget('tool', env)).toEqual({ url: 'https://nativeintelligence.dev/api/local-agent/agent/tool', headers: { authorization: `Bearer ${TOKEN_B}` } })
     writeFileSync(tokenFile, 'not a token')
     expect(() => macRouteTarget('tool', env)).toThrow(/does not hold a token/)
   })
@@ -155,7 +155,7 @@ describe('judgeMacLiveness (fails closed)', () => {
   beforeEach(() => {
     resetMacLivenessForTests()
     dir = mkdtempSync(join(tmpdir(), 'mac-live-test-'))
-    env = { LOCAL_AGENT_SESSION_TOKEN_FILE: join(dir, '.model-token'), LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' }
+    env = { LOCAL_AGENT_SESSION_TOKEN_FILE: join(dir, '.model-token'), LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' }
     writeFileSync(env.LOCAL_AGENT_SESSION_TOKEN_FILE, tokenWithExp(NOW + 3600), { mode: 0o600 })
   })
   afterEach(() => {
