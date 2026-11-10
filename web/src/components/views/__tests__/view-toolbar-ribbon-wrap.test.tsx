@@ -47,6 +47,14 @@ beforeEach(() => {
   onScopeReset = vi.fn()
   onConfigChange = vi.fn()
   onViewChange = vi.fn()
+  // The Assignee chip's picker loads the workspace's members on mount. Left to
+  // the real fetch, that request goes through the app's /api/ interceptor
+  // (src/lib/workspace-fetch.ts), which first imports the Supabase client for
+  // a token; on a slow machine it settled after the file's jsdom was torn
+  // down, and the picker's state update threw "window is not defined" as an
+  // unhandled rejection that failed the run. Answered here at once, nothing
+  // outlives the test.
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ members: [] }) })))
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -55,6 +63,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 async function renderToolbar(props: {
