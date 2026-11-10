@@ -1,0 +1,51 @@
+diff --git a/node_modules/next/dist/server/next-server.js b/node_modules/next/dist/server/next-server.js
+index 12d10c7..e7dfcad 100644
+--- a/node_modules/next/dist/server/next-server.js
++++ b/node_modules/next/dist/server/next-server.js
+@@ -1,4 +1,22 @@
+ "use strict";
++/**
++ * Native Intelligence (patches/next+16.1.1.patch). `next start` builds every request's
++ * URL from the address it listens on (https://0.0.0.0:3000/...), so a route that
++ * redirects with `new URL(path, request.url)` sends the browser there. On the app's
++ * own server the proxy in front passes the public host (X-Forwarded-Host, else Host),
++ * and NI_REQUEST_URL_FROM_HOST=1 (set by deploy/app/entrypoint.sh, nowhere else)
++ * makes the URL use it. Unset, nothing changes.
++ */ function niPublicHost(req) {
++    if (process.env.NI_REQUEST_URL_FROM_HOST !== '1') return null;
++    const headers = req && (req.headers || req.originalRequest && req.originalRequest.headers) || {};
++    const read = (name)=>{
++        const value = typeof headers.get === 'function' ? headers.get(name) : headers[name];
++        const first = String(Array.isArray(value) ? value[0] : value || '').split(',')[0].trim();
++        // A host name, with an optional port: nothing that could change the URL's shape.
++        return /^[A-Za-z0-9.-]+(:[0-9]+)?$/.test(first) ? first : '';
++    };
++    return read('x-forwarded-host') || read('host') || null;
++}
+ Object.defineProperty(exports, "__esModule", {
+     value: true
+ });
+@@ -1169,7 +1187,10 @@ class NextNodeServer extends _baseserver.default {
+             // For middleware to "fetch" we must always provide an absolute URL
+             const query = (0, _querystring.urlQueryToSearchParams)(params.parsed.query).toString();
+             const locale = (0, _requestmeta.getRequestMeta)(params.request, 'locale');
+-            url = `${(0, _requestmeta.getRequestMeta)(params.request, 'initProtocol')}://${this.fetchHostname || 'localhost'}:${this.port}${locale ? `/${locale}` : ''}${params.parsed.pathname}${query ? `?${query}` : ''}`;
++            // Native Intelligence (patches/next+16.1.1.patch): behind its own proxy, the
++            // request's public host instead of the address this server listens on.
++            const niHost = niPublicHost(params.request);
++            url = `${(0, _requestmeta.getRequestMeta)(params.request, 'initProtocol')}://${niHost || `${this.fetchHostname || 'localhost'}:${this.port}`}${locale ? `/${locale}` : ''}${params.parsed.pathname}${query ? `?${query}` : ''}`;
+         }
+         if (!url.startsWith('http')) {
+             throw Object.defineProperty(new Error('To use middleware you must provide a `hostname` and `port` to the Next.js Server'), "__NEXT_ERROR_CODE", {
+@@ -1294,7 +1315,10 @@ class NextNodeServer extends _baseserver.default {
+         // Injected in base-server.ts
+         const protocol = ((_req_headers_xforwardedproto = req.headers['x-forwarded-proto']) == null ? void 0 : _req_headers_xforwardedproto.includes('https')) ? 'https' : 'http';
+         // When there are hostname and port we build an absolute URL
+-        const initUrl = this.fetchHostname && this.port ? `${protocol}://${this.fetchHostname}:${this.port}${req.url}` : this.nextConfig.experimental.trustHostHeader ? `https://${req.headers.host || 'localhost'}${req.url}` : req.url;
++        // Native Intelligence (patches/next+16.1.1.patch): behind its own proxy, the
++        // request's public host instead of the address this server listens on.
++        const niHost = niPublicHost(req);
++        const initUrl = niHost ? `${protocol}://${niHost}${req.url}` : this.fetchHostname && this.port ? `${protocol}://${this.fetchHostname}:${this.port}${req.url}` : this.nextConfig.experimental.trustHostHeader ? `https://${req.headers.host || 'localhost'}${req.url}` : req.url;
+         (0, _requestmeta.addRequestMeta)(req, 'initURL', initUrl);
+         (0, _requestmeta.addRequestMeta)(req, 'initQuery', {
+             ...parsedUrl.query

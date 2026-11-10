@@ -98,6 +98,11 @@ case "$role" in
       export INNGEST_API_BASE_URL=http://127.0.0.1:9
       echo "entrypoint: NI_LIVE is not 1: this $role cannot register the app with Inngest"
     fi
+    # `next start` builds each request's URL from the address it listens on
+    # (https://0.0.0.0:3000/...), and a route that redirects with
+    # `new URL(path, request.url)` would send the browser there. With this, Next takes
+    # the public host the proxy passes on instead (web/patches/next+16.1.1.patch).
+    export NI_REQUEST_URL_FROM_HOST=1
     echo "entrypoint: $role on :$PORT, agents at $built"
     remember_role "$role"
     cd "$WEB"
@@ -132,6 +137,13 @@ case "$role" in
     #   requests 5 s) and exits on its own; compose.yaml's stop_grace_period is the
     #   SIGKILL. smoke.sh checks that every role stops without one.
     # Compare these steps with a new eve's before upgrading it.
+    # Where another agent, or this one's own tools, call back into a session: eve
+    # builds that address from its workflow store's (http://localhost:3000) or the
+    # request's origin, plus /eve/<name>. From another container localhost is the
+    # wrong place. On its earlier host eve uses the public production address; this
+    # gives it the app's public address the same way (web/patches/eve+0.79.1.patch),
+    # and the call comes back in through the proxy like any other.
+    export EVE_CALLBACK_BASE_URL="${EVE_CALLBACK_BASE_URL:-${NEXT_PUBLIC_APP_URL:-}}"
     unset EVE_MODEL_CONNECTION EVE_MODEL_KEY_SOURCE EVE_MODEL_TEAM EVE_MODEL_TEAM_NAME
     export HOST=0.0.0.0 NITRO_HOST=0.0.0.0 PORT="$PORT" NITRO_PORT="$PORT"
     exec node .output/server/index.mjs < /dev/null

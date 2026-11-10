@@ -148,6 +148,8 @@ rank() {
 	case "$1" in
 	*supabase*) echo 1 ;;
 	*inngest*) echo 2 ;;
+	# The app needs its database and Inngest, and the edge needs the app's proxy.
+	*app*) echo 3 ;;
 	*edge*) echo 4 ;;
 	*backup*) echo 5 ;;
 	*) echo 3 ;;
@@ -282,7 +284,13 @@ for item in $PROJECTS; do
 	echo "-- $name"
 	cd "$dir"
 	docker compose pull --ignore-buildable --quiet
-	docker compose build --quiet
+	# A stack with its own deploy script (the app) is built by it: it stamps the
+	# image with the commit, and the app's build id comes from that.
+	if [ -x ./deploy.sh ]; then
+		./deploy.sh --build-only >/dev/null
+	else
+		docker compose build --quiet
+	fi
 	docker compose up --no-start --quiet-pull
 done
 EOS

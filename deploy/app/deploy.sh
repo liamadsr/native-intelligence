@@ -48,6 +48,8 @@ esac
 command -v docker >/dev/null || die "Docker is not installed."
 
 compose() { docker compose "$@"; }
+# For the roll-out: Compose's progress lines say nothing the steps below do not.
+quiet() { docker compose --progress quiet "$@"; }
 
 # The checkout belongs to the login user. git refuses to work in it as root, and
 # running it as root once left root-owned files in .git, so ask as its owner.
@@ -66,7 +68,7 @@ check_build_settings() {
 }
 
 running_ids() { # running_ids <service>: its containers, oldest first
-	docker ps -q --filter "label=com.docker.compose.project=ni-app" \
+	docker ps --filter "label=com.docker.compose.project=ni-app" \
 		--filter "label=com.docker.compose.service=$1" --format '{{.CreatedAt}} {{.ID}}' |
 		sort | awk '{ print $NF }'
 }
@@ -91,7 +93,7 @@ wait_healthy() { # wait_healthy <container> <seconds>
 replace() {
 	local service="$1"
 	echo "$(ts) $service"
-	compose up -d --no-deps --wait --wait-timeout 300 "$service" >/dev/null
+	quiet up -d --no-deps --wait --wait-timeout 300 "$service"
 }
 
 # Replaces a service's containers with one on the new image, without a moment in
@@ -104,7 +106,7 @@ roll() {
 		return
 	fi
 	echo "$(ts) $service: starting a new container beside $(echo "$old" | wc -w | tr -d ' ') running"
-	compose up -d --no-deps --no-recreate --scale "$service=$(($(echo "$old" | wc -w) + 1))" "$service" >/dev/null
+	quiet up -d --no-deps --no-recreate --scale "$service=$(($(echo "$old" | wc -w) + 1))" "$service"
 	new="$(running_ids "$service" | grep -vxF "$old" || true)"
 	[ -n "$new" ] || die "$service: no new container appeared."
 	for id in $new; do
@@ -127,14 +129,14 @@ restart_proxy_if_changed() {
 	local id started changed
 	id="$(running_ids proxy | tail -n 1)"
 	if [ -z "$id" ]; then
-		compose up -d --no-deps --wait proxy >/dev/null
+		quiet up -d --no-deps --wait proxy
 		return
 	fi
 	started="$(date -d "$(docker inspect -f '{{.State.StartedAt}}' "$id")" +%s)"
 	changed="$(stat -c %Y proxy/Caddyfile)"
 	if [ "$changed" -gt "$started" ]; then
 		echo "$(ts) proxy: proxy/Caddyfile changed since it started; restarting it (a second or two)"
-		compose restart proxy >/dev/null
+		quiet restart proxy
 	fi
 }
 
@@ -153,7 +155,7 @@ rollout() {
 			echo "$(ts) kept what ran as ni-app:previous"
 		fi
 	fi
-	compose up -d --no-deps --wait proxy >/dev/null
+	quiet up -d --no-deps --wait proxy
 	agents="$(compose config --services | grep '^agent-' || true)"
 	for service in $agents; do replace "$service"; done
 	roll worker 900
