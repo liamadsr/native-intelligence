@@ -1,5 +1,6 @@
 'use client'
 
+import * as React from 'react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -16,6 +17,8 @@ import {
   type ViewEntityType, type ViewLayout,
 } from '@/lib/views/types'
 import type { ViewConfig } from './hooks/use-view'
+import { customFieldDisplayProperties, customFieldFilterFields } from '@/lib/views/custom-field-columns'
+import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 
 interface ViewSettingsPopoverProps {
   config: ViewConfig
@@ -64,30 +67,47 @@ export function ViewSettingsPopover({ config, entityType, onChange, lockedScopeF
   // The library keeps its existing row layout and item actions. Only ordering
   // applies there; board/group/property controls would promise new behavior.
   const isLibrary = entityType === 'agent' || entityType === 'skill'
+  // The workspace's own fields join the sort, group and column lists below,
+  // read only while the popover is open (its content mounts only then).
+  const [open, setOpen] = React.useState(false)
+  const customDefs = useCustomFieldDefinitions(entityType, open)
+  const customFilterFields = React.useMemo(() => customFieldFilterFields(customDefs), [customDefs])
   // 'label' is deliberately NOT groupable: the engine's getGroupKey has no
   // junction-array handling, so label groups degenerate to "[object Object]".
-  const groupableFields = FILTERABLE_FIELDS[entityType].filter(f =>
-    ['enum', 'member', 'project', 'team', 'cycle', 'milestone', 'company', 'boolean', 'date'].includes(f.type)
-    && !(lockedScopeFields?.has(f.field)),
-  )
+  // A custom field groups only when it is a select: its options are the
+  // columns, and a board drag sets the field (unified-view-layout). Text,
+  // number and date values are too many to be columns.
+  const groupableFields = [
+    ...FILTERABLE_FIELDS[entityType].filter(f =>
+      ['enum', 'member', 'project', 'team', 'cycle', 'milestone', 'company', 'boolean', 'date'].includes(f.type)
+      && !(lockedScopeFields?.has(f.field)),
+    ),
+    ...customFilterFields.filter(f => f.type === 'enum'),
+  ]
   // VIRTUAL fields are filterable and groupable but NOT sortable: they live on
   // an embedded resource (flow's `last_run_status` → flow_run.status, a
   // prospect list's → prospecting_run.status), and PostgREST's `order` takes a
   // column of the QUERIED table — `order=last_run_status` is a 400. Offering
   // them here rendered a sort option that broke the page.
-  const sortableFields = FILTERABLE_FIELDS[entityType].filter(f =>
-    f.type !== 'relation' && f.type !== 'label' && f.type !== 'tag' && !f.virtual,
-  )
+  const sortableFields = [
+    ...FILTERABLE_FIELDS[entityType].filter(f =>
+      f.type !== 'relation' && f.type !== 'label' && f.type !== 'tag' && !f.virtual,
+    ),
+    ...customFilterFields,
+  ]
   // Scope-only display properties (e.g. the sequence 'enrollment' cell) are
   // only offered when the instance locks the scope field they depend on —
   // elsewhere the query route never merges their data, so toggling them on
   // could never render anything.
-  const displayProps = (DISPLAY_PROPERTIES[entityType] || []).filter(p =>
-    !p.scopeOnly || lockedScopeFields?.has(p.scopeOnly),
-  )
+  const displayProps = [
+    ...(DISPLAY_PROPERTIES[entityType] || []).filter(p =>
+      !p.scopeOnly || lockedScopeFields?.has(p.scopeOnly),
+    ),
+    ...customFieldDisplayProperties(customDefs),
+  ]
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>

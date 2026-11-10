@@ -14,6 +14,7 @@ import { Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { PropertyGroup } from '@/components/views/property-group'
 import { cn } from '@/lib/utils'
+import { announceCustomFieldsChanged } from '@/lib/views/custom-field-columns'
 import type { CustomFieldEntity, CustomFieldType, CustomFieldValue } from '@/lib/crm/custom-fields'
 
 interface FieldRow {
@@ -188,6 +189,8 @@ export function AddFieldForm({ entityType, onDone }: { entityType: CustomFieldEn
       toast.error(json.error || 'Could not add the field')
       return
     }
+    // Views list it at once: as a filter, a sort, a grouping, a column.
+    announceCustomFieldsChanged()
     onDone(true)
   }
 

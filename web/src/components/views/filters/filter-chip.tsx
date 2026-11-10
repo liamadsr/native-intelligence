@@ -10,6 +10,8 @@ import {
   type FilterOperator, type FilterValue,
   type ViewEntityType, type ViewFilter,
 } from '@/lib/views/types'
+import { customFieldFilterFields, isCustomFieldPath } from '@/lib/views/custom-field-columns'
+import { useCustomFieldDefinitions } from '../hooks/use-custom-field-definitions'
 
 /**
  * How long a half-typed filter value is held before it becomes a query.
@@ -72,7 +74,14 @@ function sameValue(a: FilterValue | undefined, b: FilterValue | undefined): bool
 }
 
 export function FilterChip({ filter, entityType, onUpdate, onRemove }: FilterChipProps) {
-  const fieldDef = FILTERABLE_FIELDS[entityType].find(f => f.field === filter.field)
+  // A custom field's definition is the workspace's, read only for a chip
+  // that names one. A field since removed draws no chip, like any other
+  // field the kind no longer has.
+  const isCustom = isCustomFieldPath(filter.field)
+  const customDefs = useCustomFieldDefinitions(entityType, isCustom)
+  const fieldDef = isCustom
+    ? customFieldFilterFields(customDefs).find(f => f.field === filter.field)
+    : FILTERABLE_FIELDS[entityType].find(f => f.field === filter.field)
 
   // ─── Buffered commits ───────────────────────────────────────────────────
   //
