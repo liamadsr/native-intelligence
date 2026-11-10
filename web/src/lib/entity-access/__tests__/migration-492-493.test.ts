@@ -87,7 +87,12 @@ describe('migration 492: one grant store', () => {
   })
 
   it('stands aside for a workspace merge and never re-checks on granted_by', () => {
-    expect(fn(sql492, 'entity_access_guard')).toContain("coalesce(current_setting('dial8.workspace_merge', true), '') <> ''")
+    const guard = fn(sql492, 'entity_access_guard')
+    expect(guard).toContain("coalesce(current_setting('dial8.workspace_merge', true), '') <> ''")
+    // A signed-in outsider is refused before any lookup that could say what exists.
+    const outsider = guard.indexOf('auth.uid() is not null and not public.is_workspace_member(new.workspace_id)')
+    expect(outsider).toBeGreaterThan(0)
+    expect(outsider).toBeLessThan(guard.indexOf("new.grantee_kind = 'member' and not exists"))
     const trigger = /create trigger entity_access_guard[\s\S]*?execute function public\.entity_access_guard\(\);/.exec(sql492)?.[0] ?? ''
     expect(trigger).toMatch(/before insert or update of workspace_id, entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id/)
     expect(trigger).not.toContain('granted_by')
