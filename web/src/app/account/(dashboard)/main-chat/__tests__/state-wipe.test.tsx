@@ -99,6 +99,12 @@ describe('beginPersistedTabStateWipe — sign-out wipe survives the pagehide flu
     localStorage.setItem('ni:voice:assistant-name', JSON.stringify('Ada'))
     // This device's copy of the app rail's bar (the account keeps the real one).
     localStorage.setItem('ni:rail-pages', JSON.stringify({ order: ['mail', 'docs'], hidden: ['deals'] }))
+    // The same state under its names from before the rename: the storage rename script
+    // leaves those keys beside the new ones for a release (storage-rename-script.tsx).
+    const before = ['dial8-chat:ws-1', 'dial8-chat:last-workspace', 'dial8-tabs-browser', 'dial8:bots:cast', 'dial8:bots:seen:user-1', 'dial8:agent-look', 'dial8:voice:assistant-name', 'dial8:rail-pages']
+    for (const key of before) localStorage.setItem(key, JSON.stringify('the last person’s'))
+    // …and a key that only looks like one of them stays.
+    localStorage.setItem('dial8-theme', 'ocean')
     expect(userKeys().length).toBeGreaterThanOrEqual(9)
     expect(isTabStateWipeActive()).toBe(false)
 
@@ -106,6 +112,8 @@ describe('beginPersistedTabStateWipe — sign-out wipe survives the pagehide flu
 
     expect(isTabStateWipeActive()).toBe(true)
     expect(userKeys()).toEqual([])
+    expect(before.filter((key) => localStorage.getItem(key) !== null)).toEqual([])
+    expect(localStorage.getItem('dial8-theme')).toBe('ocean')
 
     // The killer path: the /sign-out navigation's pagehide flush, which would
     // write the chat's thread straight back.

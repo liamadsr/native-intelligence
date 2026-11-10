@@ -43,6 +43,11 @@ const WIPE_KEY_PREFIXES = [
   'ni:voice:assistant-name',
   'ni:rail-pages',
 ] as const
+// TODO(rename-compat): the same keys under their names from before the rename. The storage
+// rename script leaves the old keys beside the new ones for a release
+// (components/storage-rename-script.tsx), so a sign-out sweeps both: otherwise the last
+// person's chat would stay on a shared device under its old key.
+const WIPE_KEY_PREFIXES_BEFORE_RENAME = WIPE_KEY_PREFIXES.map((prefix) => prefix.replace(/^ni/, 'dial8'))
 
 let wipeActive = false
 
@@ -71,7 +76,7 @@ export function beginPersistedTabStateWipe(): void {
     const doomed: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key && WIPE_KEY_PREFIXES.some((p) => key.startsWith(p))) doomed.push(key)
+      if (key && [...WIPE_KEY_PREFIXES, ...WIPE_KEY_PREFIXES_BEFORE_RENAME].some((p) => key.startsWith(p))) doomed.push(key)
     }
     for (const key of doomed) localStorage.removeItem(key)
   } catch {

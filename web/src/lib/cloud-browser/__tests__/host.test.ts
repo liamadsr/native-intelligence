@@ -182,9 +182,14 @@ describe('ensureCloudBrowser', () => {
   it('gives the session its relay token at the firewall, only for the relay’s own requests, and never private ranges', async () => {
     await host.ensureCloudBrowser(ref)
     const [policy] = sdk.sandboxes.get(NAME)!.session.policies as { allow: Record<string, { match: unknown; transform: { headers: Record<string, string> }[] }[]>; subnets: { deny: string[] } }[]
-    const [rule] = policy.allow['relay.test']
+    const [rule, older] = policy.allow['relay.test']
     expect(rule.match).toEqual({ headers: [{ key: { exact: 'x-ni-relay' }, value: { exact: '1' } }] })
     const token = rule.transform[0].headers['x-ni-relay-token']
+    // A relay started before the rename marks its requests with the older header: it gets the same token, under the older name.
+    expect(policy.allow['relay.test']).toHaveLength(2)
+    expect(older.match).toEqual({ headers: [{ key: { exact: 'x-dial8-relay' }, value: { exact: '1' } }] })
+    expect(older.transform).toEqual([{ headers: { 'x-dial8-relay-token': token } }])
+    expect(rule.transform).toEqual([{ headers: { 'x-ni-relay-token': token } }])
     const { verifyBrowserRelayToken } = await import('@/lib/cloud-browser/relay-token')
     expect(verifyBrowserRelayToken(token)).toMatchObject({ userId: 'u1', workspaceId: 'w1', sandbox: NAME })
     expect(policy.allow['*']).toEqual([])
