@@ -35,6 +35,8 @@ export const FEED_ACTIONS = [
   'mentioned',
   'commented',
   'linked',
+  // A record's custom field values changed (migration 497): detail {fields: [key, ...]}.
+  'updated',
 ] as const
 export type FeedAction = (typeof FEED_ACTIONS)[number]
 
@@ -273,6 +275,9 @@ export function describeFeedEvent(e: FeedEvent): string {
       return 'Commented'
     case 'linked':
       return e.other ? `Linked to ${e.other.label}` : 'Linked'
+    case 'updated':
+      // `to` names the fields ("Contract length, Tier"), read through the viewer's own RLS.
+      return e.to ? `Changed ${e.to}` : 'Changed its fields'
   }
 }
 

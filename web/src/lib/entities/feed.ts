@@ -186,11 +186,21 @@ async function readRows(
   return { rows, read: raw.length, want, last: all[all.length - 1] }
 }
 
-/** The names behind the ids a set of rows names: members, task states, deal stages. */
+/** A custom field change's keys (migration 497's detail.fields), at most 20. */
+function changedFieldKeys(row: Pick<ActivityRow, 'action' | 'detail'>): string[] {
+  const fields = row.action === 'updated' ? row.detail?.fields : null
+  return Array.isArray(fields) ? fields.filter((k): k is string => typeof k === 'string' && /^[a-z][a-z0-9_]{0,39}$/.test(k)).slice(0, 20) : []
+}
+
+/** How many changed fields a line names before "and N more". */
+const FIELDS_NAMED = 2
+
+/** The names behind the ids a set of rows names: members, task states, deal stages, custom fields. */
 async function readNames(supabase: SupabaseClient, workspaceId: string, rows: readonly ActivityRow[]) {
   const memberIds = new Set<string>()
   const stateIds = new Set<string>()
   const stageIds = new Set<string>()
+  const fieldKeys = new Set<string>()
   for (const r of rows) {
     if (r.actor_member_id) memberIds.add(r.actor_member_id)
     if (r.subject_member_id) memberIds.add(r.subject_member_id)
@@ -200,6 +210,7 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
     }
     if (r.action === 'status_changed' && r.entity_type === 'action') for (const v of [d.from, d.to]) if (str(v)) stateIds.add(v as string)
     if (r.action === 'status_changed' && r.entity_type === 'deal') for (const v of [d.from, d.to]) if (str(v)) stageIds.add(v as string)
+    for (const k of changedFieldKeys(r)) fieldKeys.add(k)
   }
   const read = async (table: string, ids: Set<string>, column: string, scoped: boolean) => {
     if (!ids.size) return new Map<string, string>()
@@ -208,17 +219,38 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
     const { data } = await q
     return new Map(((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => [String(r.id), String(r[column] ?? '')]))
   }
-  const [members, states, stages] = await Promise.all([
+  // A field's name is per kind (`entity_type:key`): the workspace's own definitions, through the viewer's RLS.
+  const readFields = async () => {
+    if (!fieldKeys.size) return new Map<string, string>()
+    const { data } = await supabase
+      .from('custom_field_definition')
+      .select('entity_type, key, label')
+      .eq('workspace_id', workspaceId)
+      .in('key', [...fieldKeys])
+    return new Map(((data ?? []) as Array<{ entity_type: string; key: string; label: string }>).map((f) => [`${f.entity_type}:${f.key}`, f.label]))
+  }
+  const [members, states, stages, fields] = await Promise.all([
     read('member', memberIds, 'display_name', true),
     read('workflow_state', stateIds, 'name', false),
     read('deal_stage', stageIds, 'name', false),
+    readFields(),
   ])
-  return { members, states, stages }
+  return { members, states, stages, fields }
 }
 
 type Names = Awaited<ReturnType<typeof readNames>>
 
 function wordsFor(row: ActivityRow, names: Names): { from: string | null; to: string | null } {
+  if (row.action === 'updated') {
+    // The fields still defined, by name; one since deleted is just not named.
+    const labels = changedFieldKeys(row)
+      .map((k) => names.fields.get(`${row.entity_type}:${k}`))
+      .filter((l): l is string => !!l)
+    if (!labels.length) return { from: null, to: null }
+    const named = labels.slice(0, FIELDS_NAMED).join(', ')
+    const rest = labels.length - FIELDS_NAMED
+    return { from: null, to: rest > 0 ? `${named} and ${rest} more` : named }
+  }
   const d = row.detail ?? {}
   const pick = (v: unknown): string | null => {
     const s = str(v)

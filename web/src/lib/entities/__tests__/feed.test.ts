@@ -256,3 +256,35 @@ describe('mergeFeedEntries', () => {
     expect(mergeFeedEntries([a, b], [b, c]).map((e) => e.id)).toEqual([a.id, b.id, c.id])
   })
 })
+
+describe('a custom field change (migration 497)', () => {
+  const updated = (detail: Row) => {
+    seq = 0
+    return memoryDb({
+      member: [{ id: ANA, user_id: U_ANA, workspace_id: WS, display_name: 'Ana Reyes' }],
+      actions: [{ id: TASK, workspace_id: WS, title: 'Send the Fernhill quote' }],
+      custom_field_definition: [
+        { id: 'f1', workspace_id: WS, entity_type: 'action', key: 'customer', label: 'Customer' },
+        { id: 'f2', workspace_id: WS, entity_type: 'action', key: 'tier', label: 'Tier' },
+        { id: 'f3', workspace_id: WS, entity_type: 'action', key: 'budget', label: 'Budget' },
+        // Same key on another kind, and another workspace's: never this task's names.
+        { id: 'f4', workspace_id: WS, entity_type: 'deal', key: 'region', label: 'Deal region' },
+        { id: 'f5', workspace_id: OTHER_WS, entity_type: 'action', key: 'region', label: 'Their region' },
+      ],
+      entity_activity: [act('2026-11-09T13:00:00.000000+00:00', 'action', TASK, 'updated', { actor_member_id: ANA, detail })],
+    })
+  }
+  const history = { entity: { type: 'action', id: TASK }, group: 'none' } as const
+
+  it('names the fields that changed, by the workspace’s own names', async () => {
+    const feed = await run(updated({ fields: ['customer', 'tier'] }), history)
+    expect(feed.events!.map((e) => describeFeedEvent(e))).toEqual(['Changed Customer, Tier'])
+  })
+
+  it('says how many more past two, and names no field since deleted or not this kind’s', async () => {
+    const many = await run(updated({ fields: ['budget', 'customer', 'tier'] }), history)
+    expect(describeFeedEvent(many.events![0])).toBe('Changed Budget, Customer and 1 more')
+    const gone = await run(updated({ fields: ['region', 'gone'] }), history)
+    expect(describeFeedEvent(gone.events![0])).toBe('Changed its fields')
+  })
+})
