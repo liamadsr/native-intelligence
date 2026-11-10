@@ -142,23 +142,29 @@ describe('customFieldWriteRefusal: each kind’s own edit rule', () => {
     expect(await customFieldWriteRefusal(db(f), 'user-a', WS, 'initiative', 'i-theirs')).toBeNull()
   })
 
-  it('contact and company: the twins without the grant arm, failing closed', async () => {
+  it('contact: the edit rule (498); company: the twin without the grant arm; failing closed', async () => {
     const f = fakeRecordsDb(
       {},
       {
         rpcs: {
-          contact_visible_to_ungranted: (a) => a.p_contact_id === 'c-own',
+          contact_editable_by: (a) => a.p_contact_id === 'c-own',
+          contact_visible_to: (a) => a.p_contact_id === 'c-view-share',
           company_visible_to_ungranted: (a) => a.p_company_id === 'co-own',
         },
       },
     )
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-own')).toBeNull()
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-granted')).toEqual({ reason: 'not_found', error: 'Contact not found' })
+    // Seen (a view share, a teammate's team contact) but not editable: forbidden, not a write.
+    expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-view-share')).toEqual({ reason: 'forbidden', error: "You can't edit this contact" })
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'company', 'co-own')).toBeNull()
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'company', 'co-granted')).toEqual({ reason: 'not_found', error: 'Company not found' })
     expect(f.rpcCalls.map((c) => c.fn)).toEqual([
-      'contact_visible_to_ungranted',
-      'contact_visible_to_ungranted',
+      'contact_editable_by',
+      'contact_editable_by',
+      'contact_visible_to',
+      'contact_editable_by',
+      'contact_visible_to',
       'company_visible_to_ungranted',
       'company_visible_to_ungranted',
     ])

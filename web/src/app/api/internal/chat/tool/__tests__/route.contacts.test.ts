@@ -35,7 +35,7 @@ const db: { contacts: Row[]; edges: Row[]; hidden: Set<string>; grantOnly: Set<s
   edges: [],
   hidden: new Set(),
   // Readable only through a per-item grant (migration 492): contact_visible_to
-  // says yes, contact_visible_to_ungranted (495, the write gate) says no.
+  // says yes, contact_editable_by (498, the write gate) says no.
   grantOnly: new Set(),
   updates: [],
   rpcUsers: [],
@@ -108,11 +108,11 @@ vi.mock('@/lib/admin', () => ({
   getServiceClient: () => ({
     from: (t: string) => chain(t),
     rpc: async (fn: string, args: { p_contact_id: string; p_user_id: string }) => {
-      if (fn !== 'contact_visible_to' && fn !== 'contact_visible_to_ungranted') {
+      if (fn !== 'contact_visible_to' && fn !== 'contact_editable_by') {
         return { data: null, error: { message: `unexpected rpc ${fn}` } }
       }
       db.rpcUsers.push(args.p_user_id)
-      const hidden = db.hidden.has(args.p_contact_id) || (fn === 'contact_visible_to_ungranted' && db.grantOnly.has(args.p_contact_id))
+      const hidden = db.hidden.has(args.p_contact_id) || (fn === 'contact_editable_by' && db.grantOnly.has(args.p_contact_id))
       return { data: !hidden, error: null }
     },
   }),

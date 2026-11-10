@@ -6,9 +6,9 @@
  *   - POST /api/account/companies/[id]/enrich (the enrichment run writes the
  *     company back service-role).
  * And the service-role contact write tools gate on the contact twin without
- * its grant arm (contact_visible_to_ungranted, migration 495). This pins:
+ * its grant arm (since 498, contact_editable_by: the EDIT rule). This pins:
  *   - anySeenOnlyByGrant asks entity_grant_only (494) per id and fails closed;
- *   - isContactWritableTo asks contact_visible_to_ungranted and fails closed;
+ *   - isContactWritableTo asks contact_editable_by and fails closed;
  *   - the merge refuses (404, no merge) when either contact is grant-only;
  *   - the company enrich goes ahead only when its claim marked a row (494's
  *     restrictive update policy marks none for a grant-only reader): 404, no
@@ -130,13 +130,13 @@ describe('anySeenOnlyByGrant (entity_grant_only, migration 494)', () => {
   })
 })
 
-describe('isContactWritableTo (contact_visible_to_ungranted, migration 495)', () => {
-  it('asks the twin without the grant arm, keeps only `true`, and fails closed', async () => {
+describe('isContactWritableTo (contact_editable_by, migration 498)', () => {
+  it('asks the edit rule for the user, keeps only `true`, and fails closed', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     const yes = rpcClient(() => ({ data: true, error: null }))
     expect(await isContactWritableTo(yes, 'ct-a', 'user-1')).toBe(true)
     expect((yes.rpc as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([
-      'contact_visible_to_ungranted',
+      'contact_editable_by',
       { p_contact_id: 'ct-a', p_user_id: 'user-1' },
     ])
     expect(await isContactWritableTo(rpcClient(() => ({ data: 'yes', error: null })), 'ct-a', 'user-1')).toBe(false)

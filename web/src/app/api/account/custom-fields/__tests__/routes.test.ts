@@ -124,6 +124,26 @@ describe('/api/account/custom-fields/values', () => {
     expect(f.writes).toEqual([])
   })
 
+  it('a contact seen but not editable (a view share, a teammate’s team contact): not editable, 403, nothing written', async () => {
+    const CONTACT = '44444444-4444-4444-8444-444444444444'
+    f = fakeRecordsDb(
+      {
+        custom_field_definition: [def('contact')],
+        member: [{ id: 'm-b', workspace_id: WS, user_id: USER, role: 'member' }],
+        contact: [{ id: CONTACT, workspace_id: WS, custom_fields: {} }],
+      },
+      // The edit rule (498) says no; the read rule says yes. RLS would refuse the row too.
+      { rpcs: { contact_editable_by: () => false, contact_visible_to: () => true }, canWrite: () => false },
+    )
+    hoisted.requireWorkspace.mockResolvedValue({ supabase: f, user: { id: USER }, workspaceId: WS })
+    const read = await getValues(get(`https://x.test/api/account/custom-fields/values?entity_type=contact&id=${CONTACT}`))
+    expect((await readJson<{ editable: boolean }>(read)).editable).toBe(false)
+    const res = await setValues(post('https://x.test/api/account/custom-fields/values', { entity_type: 'contact', id: CONTACT, values: { Customer: 'x' } }))
+    expect(res.status).toBe(403)
+    expect((await readJson<{ error: string }>(res)).error).toBe("You can't edit this contact")
+    expect(f.writes).toEqual([])
+  })
+
   it('is a 403, not a silent success, when RLS changes no row', async () => {
     seed(() => false)
     const res = await setValues(post('https://x.test/api/account/custom-fields/values', { entity_type: 'action', id: TASK, values: { Customer: 'x' } }))

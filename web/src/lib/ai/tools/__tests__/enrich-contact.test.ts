@@ -129,7 +129,7 @@ function makeSupabase(opts: { contacts: Row[]; memberOf?: string[]; hidden?: str
       throw new Error(`unexpected table ${table}`)
     },
     rpc: async (fn: string, args: { p_contact_id: string }) => {
-      if (fn !== 'contact_visible_to_ungranted') throw new Error(`unexpected rpc ${fn}`)
+      if (fn !== 'contact_editable_by') throw new Error(`unexpected rpc ${fn}`)
       return { data: !(opts.hidden ?? []).includes(args.p_contact_id), error: null }
     },
   }

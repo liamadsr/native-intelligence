@@ -49,11 +49,12 @@ export async function filterVisibleContacts<T extends { id?: unknown }>(
 
 /**
  * The gate for a tool that WRITES a contact (update_contact,
- * update_crm_contact, enrich_contact): contact_visible_to without its grant
- * arm (`contact_visible_to_ungranted`, migration 495). A per-item grant
- * (migration 492) lets someone read a contact, never change it, so a contact
- * they see only through one is "not found" here, as it was before grants.
- * Fails CLOSED like isContactVisibleTo.
+ * update_crm_contact, enrich_contact, set_custom_fields): the contact EDIT
+ * rule for an explicit user (`contact_editable_by`, migration 498), which is
+ * contact_update's can_edit_contact: its creator, an owner or admin, anyone
+ * when it is workspace-visible, or an `edit` contact_share. Seeing a contact
+ * (a teammate's team contact, a view share, a per-item grant) never lets
+ * someone change it. Fails CLOSED like isContactVisibleTo.
  */
 export async function isContactWritableTo(
   supabase: SupabaseClient,
@@ -61,17 +62,17 @@ export async function isContactWritableTo(
   userId: string,
 ): Promise<boolean> {
   try {
-    const { data, error } = await supabase.rpc('contact_visible_to_ungranted', {
+    const { data, error } = await supabase.rpc('contact_editable_by', {
       p_contact_id: contactId,
       p_user_id: userId,
     })
     if (error) {
-      console.warn('[contact-visibility] contact_visible_to_ungranted failed:', error.message)
+      console.warn('[contact-visibility] contact_editable_by failed:', error.message)
       return false
     }
     return data === true
   } catch (e) {
-    console.warn('[contact-visibility] contact_visible_to_ungranted threw:', e)
+    console.warn('[contact-visibility] contact_editable_by threw:', e)
     return false
   }
 }

@@ -70,15 +70,29 @@ describe('custom field tools on every kind', () => {
     const { f, tools } = setup({
       contact_visible_to: () => true,
       company_visible_to: () => true,
-      contact_visible_to_ungranted: () => false,
+      contact_editable_by: () => false,
       company_visible_to_ungranted: () => false,
     })
     const company = await exec(tools, 'set_custom_fields')({ entity_type: 'company', id: 'co-granted', values: { Tier: 'Gold' } }, {})
     expect(company).toEqual({ success: false, error: 'Company not found' })
     const contact = await exec(tools, 'set_custom_fields')({ entity_type: 'contact', id: 'c-granted', values: { Tier: 'Gold' } }, {})
-    expect(contact).toEqual({ success: false, error: 'Contact not found' })
+    // Seen (through the grant) but not editable: refused as such.
+    expect(contact).toEqual({ success: false, error: "You can't edit this contact" })
     expect(f.writes).toEqual([])
-    expect(f.rpcCalls.map((c) => c.fn)).toEqual(['company_visible_to_ungranted', 'contact_visible_to_ungranted'])
+    expect(f.rpcCalls.map((c) => c.fn)).toEqual(['company_visible_to_ungranted', 'contact_editable_by', 'contact_visible_to'])
+  })
+
+  it("never writes a contact the person can see but not edit (a view share, a teammate's team contact)", async () => {
+    // Before 498 the gate asked the READ rule (contact_visible_to_ungranted), which says yes here.
+    const { f, tools } = setup({
+      contact_visible_to: () => true,
+      contact_visible_to_ungranted: () => true,
+      contact_editable_by: () => false,
+    })
+    const out = await exec(tools, 'set_custom_fields')({ entity_type: 'contact', id: 'c-granted', values: { Tier: 'Gold' } }, {})
+    expect(out).toEqual({ success: false, error: "You can't edit this contact" })
+    expect(f.writes).toEqual([])
+    expect(f.rpcCalls.map((c) => c.fn)).not.toContain('contact_visible_to_ungranted')
   })
 
   it('says not found for a record in no workspace of theirs', async () => {

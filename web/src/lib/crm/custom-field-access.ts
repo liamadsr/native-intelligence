@@ -14,14 +14,18 @@
  *   document         the document EDIT rule (src/lib/documents/access.ts,
  *                    migration 359's can_edit_document): a private document
  *                    is its creator's alone, and a grant never edits.
- *   contact          contact_visible_to_ungranted (495): a contact seen only
- *                    through a view grant is not found here.
+ *   contact          contact_editable_by (498), contact_update's
+ *                    can_edit_contact for this user: its creator, an owner or
+ *                    admin, anyone when workspace-visible, an `edit` share. One
+ *                    they can see but not edit (a teammate's team contact, a
+ *                    view share, a grant) is `forbidden`; one they can't see,
+ *                    not found.
  *   company          company_visible_to_ungranted (496), likewise.
  *
  * Every check fails CLOSED: a read error or anything but a yes refuses.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isCompanyWritableTo, isContactWritableTo } from '@/lib/crm/contact-visibility'
+import { isCompanyWritableTo, isContactVisibleTo, isContactWritableTo } from '@/lib/crm/contact-visibility'
 import { documentUpdateRefusal, loadDocumentAccess } from '@/lib/documents/access'
 import {
   customFieldForbidden,
@@ -45,7 +49,8 @@ export async function customFieldWriteRefusal(
   try {
     switch (entity) {
       case 'contact':
-        return (await isContactWritableTo(db, id, userId)) ? null : notFound
+        if (await isContactWritableTo(db, id, userId)) return null
+        return (await isContactVisibleTo(db, id, userId)) ? forbidden : notFound
       case 'company':
         return (await isCompanyWritableTo(db, id, userId)) ? null : notFound
       case 'document': {
