@@ -20,6 +20,9 @@
  * The log's detail holds ids only, never text, so a label can come only
  * from those two reads.
  *
+ * Rows the history backfill wrote (migration 516, `backfilled`) are in
+ * History and Recent like any other, but never in the Inbox.
+ *
  * Flat cost, whatever the page: one read of the log (indexed for each
  * filter), for `linked_to` one fence and one label read of the record named
  * (it must be readable) and at most two reads of its edges, one fence read
@@ -166,7 +169,9 @@ async function readRows(
     if (filter.mentionedMe) actions.push('mentioned')
     // A record shared with the viewer alone (migration 513: a member grant's subject).
     if (filter.sharedWithMe) actions.push('shared')
-    q = q.eq('subject_member_id', viewer.memberId).in('action', actions)
+    // Never a backfilled row (migration 516): history written after the
+    // fact is the record's History, not news for anyone's Inbox.
+    q = q.eq('subject_member_id', viewer.memberId).in('action', actions).eq('backfilled', false)
   }
 
   if (filter.actor === 'me') q = q.eq('actor_kind', 'member').eq('actor_member_id', viewer.memberId)
