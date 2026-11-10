@@ -18,6 +18,14 @@
  *           its creator (migration 369, as captures: no admin override). To
  *           anyone else a private document does not exist: the loaders below
  *           return no access for it, so every route and tool says "not found".
+ *   SHARED  an EDIT grant (migration 512) reaching a member (not a guest)
+ *           lets them edit a document they otherwise couldn't, as its
+ *           creator could: its text, title, tags and fields. Never the
+ *           product doc or a spec page, and never what it is or who has it:
+ *           its visibility, creator, status (archive), publishing, slug,
+ *           type, canon key or project (512's column guard). They never
+ *           delete it. The loaders read edit grants only when asked
+ *           (`editGrants`), so every other caller is exactly as before.
  *   GUARD   (the 359 trigger) a non-admin never changes created_by; a
  *           non-admin who isn't the creator never changes status,
  *           published_status, slug or type; nobody changes the id, the
@@ -30,6 +38,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { MEETING_PREP_KEY } from '@/lib/agent-events/prep-ref'
 import { NOW_KEY, NOW_PRIVATE_REFUSAL, isNowDocument } from '@/lib/now/now-stamp'
 import { readProductDocPointer } from '@/lib/workspace/product-doc'
+import { hasEditGrant } from '@/lib/entity-access/grants'
 import { SYSTEM_DOCUMENT_PRIVATE_REFUSAL, SYSTEM_DOCUMENT_REFUSAL } from './system-document'
 
 /** The document columns the rules read. */
@@ -59,6 +68,11 @@ export interface DocumentAccess {
   row: DocumentAccessRow
   /** Whether the document is the workspace product doc (workspace.settings.product_doc). */
   isProductDoc: boolean
+  /**
+   * An EDIT grant on it reaches the caller (migration 512). Read only when a
+   * loader is asked for `editGrants`; absent, no grant counts.
+   */
+  editGrant?: boolean
 }
 
 /** Shown in the UI and returned by the routes when edit access is refused. */
@@ -71,6 +85,8 @@ export {
   SYSTEM_DOCUMENT_REFUSAL,
   SYSTEM_DOCUMENT_SQLSTATE,
 } from './system-document'
+/** Refused when an edit grant is asked to change what a document is or who has it (512). */
+export const GRANT_EDIT_REFUSAL = 'Shared to edit: you can change what this document says, not who owns or sees it.'
 /** Refused when someone other than its creator tries to change who can see a document. */
 export const VISIBILITY_REFUSAL = 'Only the document creator can change its visibility'
 
@@ -100,8 +116,27 @@ export function isSharedPage(row: Pick<DocumentAccessRow, 'type' | 'slug' | 'pub
   )
 }
 
-/** The EDIT rule (SQL can_edit_document). */
+/** The EDIT rule (SQL can_edit_document, and 512's document_update edit-grant arm). */
 export function canEditDocument(a: DocumentAccess): boolean {
+  if (a.role !== 'owner' && a.role !== 'admin' && a.role !== 'member') return false
+  return ownEditRule(a) || grantEditRule(a)
+}
+
+/**
+ * The caller edits it only through an edit grant (512): its own rule says
+ * no. Then they change what it says and nothing else.
+ */
+export function editsOnlyByGrant(a: DocumentAccess): boolean {
+  return canEditDocument(a) && !ownEditRule(a)
+}
+
+/** 512's document_update arm: an edit grant, never on the product doc or a spec page. */
+function grantEditRule(a: DocumentAccess): boolean {
+  return !!a.editGrant && !a.isProductDoc && (a.row.type ?? 'note') !== 'spec'
+}
+
+/** can_edit_document with the read rule, as document_update stood before 512. */
+function ownEditRule(a: DocumentAccess): boolean {
   const { role, memberId, row } = a
   if (role !== 'owner' && role !== 'admin' && role !== 'member') return false
   // Nobody edits what they can't see (migration 369): no admin override.
@@ -149,6 +184,8 @@ export function isPrivateDocument(row: Pick<DocumentAccessRow, 'visibility'>): b
 export function canDeleteDocument(a: DocumentAccess): boolean {
   if (isSystemDocument(a)) return false
   if (!a.role) return false
+  // No grant ever deletes (512): a document they see only through one is not theirs to delete.
+  if (!documentVisibleToMember(a.row, a.memberId)) return false
   if (isAdmin(a.role)) return true
   if (a.isProductDoc) return false
   return a.row.created_by != null && a.memberId != null && a.row.created_by === a.memberId
@@ -161,7 +198,7 @@ export function canDeleteDocument(a: DocumentAccess): boolean {
  * it in a project makes it the creator's alone (the WITH CHECK refuses it).
  */
 export function canSetDocumentProject(a: DocumentAccess): boolean {
-  if (!canEditDocument(a)) return false
+  if (!canEditDocument(a) || editsOnlyByGrant(a)) return false
   if (isAdmin(a.role)) return true
   return a.row.created_by != null && a.memberId != null && a.row.created_by === a.memberId
 }
@@ -190,6 +227,9 @@ const stampOf = (frontmatter: unknown, key: string = MEETING_PREP_KEY): unknown 
     ? (frontmatter as Record<string, unknown>)[key]
     : undefined
 
+/** The columns an edit grant never changes (512's column guard on document). */
+const GRANT_FIXED_COLUMNS = ['created_by', 'visibility', 'status', 'published_status', 'slug', 'type', 'canon_key', 'project_id'] as const
+
 /**
  * Why this update would be refused (the RLS USING and WITH CHECK, and the 359
  * guard), or null when it may go through. `patch` is the column update the
@@ -201,6 +241,8 @@ export function documentUpdateRefusal(a: DocumentAccess, patch: Record<string, u
   const changes = (key: string) => key in patch && patch[key] !== undefined && !sameJson(patch[key], row[key])
 
   if (changes('id') || changes('workspace_id')) return 'A document changes workspace only by moving it.'
+  // An edit grant (512) changes what it says, never what it is or who has it.
+  if (editsOnlyByGrant(a) && GRANT_FIXED_COLUMNS.some(changes)) return GRANT_EDIT_REFUSAL
   // The Now file (migration 440) is its creator's alone: always private, never canon.
   if (isNowDocument(a.row.frontmatter) && ((changes('visibility') && patch.visibility !== 'private') || (changes('canon_key') && patch.canon_key))) {
     return NOW_PRIVATE_REFUSAL
@@ -251,8 +293,9 @@ export async function loadDocumentAccess(
   workspaceId: string,
   userId: string,
   docId: string,
+  opts: { editGrants?: boolean } = {},
 ): Promise<{ access: DocumentAccess | null; error: string | null }> {
-  const [memberRes, docRes] = await Promise.all([
+  const [memberRes, docRes, editGrant] = await Promise.all([
     supabase
       .from('member')
       .select('id, role, workspace:workspace_id(settings)')
@@ -260,14 +303,18 @@ export async function loadDocumentAccess(
       .eq('user_id', userId)
       .maybeSingle(),
     supabase.from('document').select(DOCUMENT_ACCESS_COLUMNS).eq('id', docId).eq('workspace_id', workspaceId).maybeSingle(),
+    // An edit grant (512), for the callers that let one edit. Fails closed.
+    opts.editGrants ? hasEditGrant(supabase, { userId, workspaceId }, 'document', docId) : Promise.resolve(false),
   ])
   if (docRes.error) return { access: null, error: docRes.error.message }
   if (memberRes.error) return { access: null, error: memberRes.error.message }
   const doc = docRes.data as DocumentAccessRow | null
   if (!doc) return { access: null, error: null }
   const access = toDocumentAccess(memberRes.data, doc, workspaceId)
-  // A private document is its creator's alone: to anyone else it does not exist.
-  if (!documentVisibleToMember(access.row, access.memberId)) return { access: null, error: null }
+  if (editGrant) access.editGrant = true
+  // A private document is its creator's alone: to anyone else it does not
+  // exist, unless an edit grant shares it with them (asked for above).
+  if (!documentVisibleToMember(access.row, access.memberId) && !access.editGrant) return { access: null, error: null }
   return { access, error: null }
 }
 

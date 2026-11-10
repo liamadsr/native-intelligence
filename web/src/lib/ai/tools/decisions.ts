@@ -1,7 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { resolveEntityWorkspace, workspaceEcho, captureReadAccess, captureRequester, captureVisibleToRequester } from './_shared'
+import { resolveEntityWorkspace, workspaceEcho, captureReadAccess, captureRequester, captureWriteAccess } from './_shared'
 import type { CreateWorkspacePolicy } from './_shared'
 import { filedByThisRun, LEAVE_FOR_PERSON, type ActionToolRules } from './actions'
 
@@ -56,8 +56,10 @@ export function createDecisionTools(
     const routed = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!routed) return null
 
-    const visible = await captureVisibleToRequester(supabase, captureId, routed.workspaceId, requester)
-    return visible ? routed.workspaceId : null
+    // A decision's writes follow the capture's write access: its own rule, or
+    // an EDIT grant on it (512, captureWriteAccess); a view grant never.
+    const writable = await captureWriteAccess(supabase, captureId, routed.workspaceId, requester)
+    return writable ? routed.workspaceId : null
   }
 
   return {

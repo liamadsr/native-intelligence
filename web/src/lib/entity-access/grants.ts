@@ -29,6 +29,9 @@ import type { GrantableType } from './model'
 
 const ID_CHUNK = 200
 
+/** The roles an edit grant can make an editor (512: never a guest). */
+const EDITOR_ROLES = new Set(['owner', 'admin', 'member'])
+
 type GrantRow = {
   entity_id: string
   grantee_kind: string
@@ -42,33 +45,41 @@ const uniq = (ids: readonly string[]) => [...new Set(ids.filter((id) => typeof i
 /**
  * The ids among `ids` (records of `type` in `workspaceId`) that a grant
  * reaches `userId` for. Empty for no user, no member row, or a failed read.
+ *
+ * `level: 'edit'` (migration 512's has_entity_edit_grant): only EDIT grants,
+ * and never for a guest member (a guest never edits through a grant). For a
+ * write gate; the default (any level) is the read rule.
  */
 export async function grantedEntityIds(
   supabase: SupabaseClient,
   scope: { userId: string | null | undefined; workspaceId: string },
   type: GrantableType,
   ids: readonly string[],
+  opts: { level?: 'edit' } = {},
 ): Promise<Set<string>> {
   const wanted = uniq(ids)
   const { userId, workspaceId } = scope
   if (!userId || !workspaceId || wanted.length === 0) return new Set()
+  const editOnly = opts.level === 'edit'
   try {
     const { data: me, error: meError } = await supabase
       .from('member')
-      .select('id')
+      .select('id, role')
       .eq('user_id', userId)
       .eq('workspace_id', workspaceId)
       .maybeSingle()
     const memberId = (me as { id?: unknown } | null)?.id
     if (meError || typeof memberId !== 'string') return new Set()
+    if (editOnly && !EDITOR_ROLES.has(String((me as { role?: unknown }).role ?? ''))) return new Set()
 
     const { data: grantData, error } = await inChunks(wanted, ID_CHUNK, async (c) => {
-      const res = await supabase
+      let q = supabase
         .from('entity_access')
         .select('entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id')
         .eq('workspace_id', workspaceId)
         .eq('entity_type', type)
-        .in('entity_id', c)
+      if (editOnly) q = q.eq('level', 'edit')
+      const res = await q.in('entity_id', c)
       return { data: (res.data ?? []) as GrantRow[], error: res.error }
     })
     if (error) {
@@ -192,10 +203,29 @@ export async function withGrantedIds(
 }
 
 /**
+ * Does an EDIT grant (migration 512) on this one record reach `userId`? For
+ * the service-role write gates (the agent's tools), which then let the
+ * person change it as its owner could: never delete it, change who owns or
+ * sees it, or archive it (512's column guard refuses those to a grantee on
+ * a session client; each tool keeps them on its own rule). False on any
+ * failure, for no user, and for a guest.
+ */
+export async function hasEditGrant(
+  supabase: SupabaseClient,
+  scope: { userId: string | null | undefined; workspaceId: string },
+  type: GrantableType,
+  id: string,
+): Promise<boolean> {
+  if (!scope.userId || !id) return false
+  return (await grantedEntityIds(supabase, scope, type, [id], { level: 'edit' })).has(id)
+}
+
+/**
  * SESSION CLIENT: does the signed-in caller see any of these records ONLY
  * through a grant (migration 494's entity_grant_only)? For a route that reads
- * a record with the caller's RLS and then writes it with the service role: a
- * grant is view-only, so such a route must refuse. Fails CLOSED: an RPC error
+ * a record with the caller's RLS and then writes it with the service role in
+ * a way no grant allows (merging contacts deletes one): such a route must
+ * refuse whatever the grant's level. Fails CLOSED: an RPC error
  * or a throw counts as "only through a grant".
  */
 export async function anySeenOnlyByGrant(supabase: SupabaseClient, type: GrantableType, ids: readonly string[]): Promise<boolean> {

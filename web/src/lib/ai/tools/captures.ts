@@ -15,11 +15,13 @@ import {
   captureReadAccess,
   captureRequester,
   captureVisibleToRequester,
+  captureWriteAccess,
   isCaptureVisible,
   readGrants,
   type CreateWorkspacePolicy,
 } from './_shared'
 import { filterVisibleContacts, isContactVisibleTo } from '@/lib/crm/contact-visibility'
+import { hasEditGrant } from '@/lib/entity-access/grants'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { featureGatedRecipeExclusions, resolveWorkspaceEdition } from '@/lib/editions'
 import { excludeFeatureGatedRecipes } from '@/lib/library/feature-gate'
@@ -40,6 +42,14 @@ const SHARED_VIEW_ONLY = {
   shared_with_you: true,
   access: 'view' as const,
   access_note: "Another member's private capture, shared with you to read. You can't change it.",
+}
+
+/** The same, for one shared with them to EDIT (an edit grant, migration 512). */
+const SHARED_TO_EDIT = {
+  shared_with_you: true,
+  access: 'edit' as const,
+  access_note:
+    "Another member's private capture, shared with you to edit: you can change its title, text, summary, tags and decisions, and comment on it, but not archive it or change who sees it.",
 }
 
 /**
@@ -104,8 +114,9 @@ export function createCaptureTools(
 
   /**
    * Resolve a capture id to its workspace AND confirm it is visible to the
-   * requester by its own rule. The gate for every tool that CHANGES a
-   * capture: a grant (492) is view-only and never passes it.
+   * requester by its own rule. The gate for archiving a capture: no grant,
+   * view or edit, passes it (512: an edit grant changes what it says, never
+   * whether it is archived).
    */
   const resolveVisibleCapture = async (captureId: string) => {
     const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
@@ -115,16 +126,33 @@ export function createCaptureTools(
   }
 
   /**
+   * The gate for a tool that changes what a capture SAYS (update_capture,
+   * edit_capture_content): its own rule, or an EDIT grant (512) that shares
+   * another member's private capture with the person to edit
+   * (captureWriteAccess). Never for archiving it: archive_capture keeps
+   * resolveVisibleCapture.
+   */
+  const resolveEditableCapture = async (captureId: string) => {
+    const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
+    if (!wsResolved) return null
+    const access = await captureWriteAccess(supabase, captureId, wsResolved.workspaceId, requester)
+    return access ? wsResolved : null
+  }
+
+  /**
    * The gate for a tool that only READS a capture: its own rule, or a grant
    * that shares another member's private capture with the person
    * (captureReadAccess). `viaGrant`: readable only through the grant, so the
-   * result says it is shared and view-only.
+   * result says it is shared, and `shared` says how (view, or edit: 512).
    */
   const resolveReadableCapture = async (captureId: string) => {
     const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!wsResolved) return null
     const access = await captureReadAccess(supabase, captureId, wsResolved.workspaceId, requester)
-    return access ? { ...wsResolved, viaGrant: access === 'grant' } : null
+    if (!access) return null
+    const viaGrant = access === 'grant'
+    const toEdit = viaGrant && (await hasEditGrant(supabase, { userId: requester, workspaceId: wsResolved.workspaceId }, 'capture', captureId))
+    return { ...wsResolved, viaGrant, shared: viaGrant ? (toEdit ? SHARED_TO_EDIT : SHARED_VIEW_ONLY) : null }
   }
 
   return {
@@ -487,7 +515,7 @@ export function createCaptureTools(
         ai_summary,
         project_id,
       }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveEditableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
 
         const updates: Record<string, unknown> = {}
@@ -635,8 +663,8 @@ export function createCaptureTools(
             ended_at: data.ended_at,
             created_at: data.created_at,
             project_id: data.project_id,
-            // Another member's private capture, shared with the person (a grant): read it, don't change it.
-            ...(wsResolved.viaGrant ? SHARED_VIEW_ONLY : {}),
+            // Another member's private capture, shared with the person (a grant): what they may do with it.
+            ...(wsResolved.shared ?? {}),
             ...(include_transcript ? transcriptFirstPage(data.transcript) : {}),
             ...(include_raw_fields
               ? {
@@ -718,7 +746,7 @@ export function createCaptureTools(
         new_text: z.string().describe('The replacement text.'),
       }),
       execute: async ({ capture_id, field, old_text, new_text }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveEditableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
 
         // 1. Read the current value of the specific field
@@ -883,7 +911,7 @@ export function createCaptureTools(
           // Everything below was read from — and belongs to — this workspace,
           // which is not necessarily the session's active one.
           workspace_id: wsResolved.workspaceId,
-          ...(wsResolved.viaGrant ? SHARED_VIEW_ONLY : {}),
+          ...(wsResolved.shared ?? {}),
           actions: actionsSummary,
           decisions: decisionsSummary,
           summary: {

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
-import { grantedEntityIds, grantedIdsIn, withGrantedIds } from '@/lib/entity-access/grants'
+import { grantedEntityIds, grantedIdsIn, hasEditGrant, withGrantedIds } from '@/lib/entity-access/grants'
 
 /**
  * Standard time-window preset vocabulary, shared across all list_* tools.
@@ -436,6 +436,39 @@ export async function captureReadAccess(
 }
 
 /**
+ * WRITE ACCESS for a tool that changes what a capture SAYS (its title, text,
+ * summary, tags; its decisions; a comment on it): its own rule, as
+ * captureVisibleToRequester (a workspace capture is every member's to edit,
+ * a private one its owner's), or an EDIT grant (migration 512) that shares
+ * another member's private capture with the person to edit. A VIEW grant
+ * never passes, nor does any grant for a guest, an eval capture, or an
+ * unattended run (no requester).
+ *
+ * Never the gate for archiving or deleting a capture, or changing who owns
+ * or sees it: those keep captureVisibleToRequester (and 512's column guard
+ * refuses them to a grantee in the app). 'grant': writable only through the
+ * grant. Fails CLOSED.
+ */
+export async function captureWriteAccess(
+  supabase: SupabaseClient,
+  captureId: string,
+  workspaceId: string,
+  requester: CaptureRequester,
+): Promise<ReadAccess> {
+  if (await captureVisibleToRequester(supabase, captureId, workspaceId, requester)) return 'rule'
+  if (!requester) return null
+  const { data, error } = await supabase
+    .from('captures')
+    .select('id, is_eval')
+    .eq('id', captureId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  const row = data as { id?: unknown; is_eval?: unknown } | null
+  if (error || !row || row.is_eval === true) return null
+  return (await hasEditGrant(supabase, { userId: requester, workspaceId }, 'capture', captureId)) ? 'grant' : null
+}
+
+/**
  * What a list READ adds to its visibility predicate: every capture and
  * document id in `workspaceId` a grant opens to `userId`, one call per kind
  * (migration 506's entity_grant_ids_for; at most LIST_GRANT_CAP each). For
@@ -564,6 +597,28 @@ export async function documentReadAccess(
   if (omitPrivate) return null
   const granted = await withGrantedIds(supabase, { userId, workspaceId }, 'document', [documentId], [])
   return granted.has(documentId) ? 'grant' : null
+}
+
+/**
+ * documentVisibleToRequester for a write that ADDS to a document without
+ * changing its text (add_comment): its own rule, or an EDIT grant (512) on
+ * another member's private document. A view grant never passes; nor does
+ * an unattended run (`omitPrivate`) or a guest. Changing the text itself
+ * goes through the document EDIT rule (src/lib/documents/access.ts, with its
+ * `editGrants` option). 'grant': only through the grant. Fails CLOSED.
+ */
+export async function documentCommentAccess(
+  supabase: SupabaseClient,
+  documentId: string,
+  workspaceId: string,
+  userId: string,
+  omitPrivate?: boolean,
+): Promise<ReadAccess> {
+  if (await documentVisibleToRequester(supabase, documentId, workspaceId, userId, omitPrivate)) return 'rule'
+  if (omitPrivate) return null
+  const { data, error } = await supabase.from('document').select('id').eq('id', documentId).eq('workspace_id', workspaceId).maybeSingle()
+  if (error || !data) return null
+  return (await hasEditGrant(supabase, { userId, workspaceId }, 'document', documentId)) ? 'grant' : null
 }
 
 /**

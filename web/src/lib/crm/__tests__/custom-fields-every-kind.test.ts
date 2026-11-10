@@ -149,7 +149,7 @@ describe('customFieldWriteRefusal: each kind’s own edit rule', () => {
         rpcs: {
           contact_editable_by: (a) => a.p_contact_id === 'c-own',
           contact_visible_to: (a) => a.p_contact_id === 'c-view-share',
-          company_visible_to_ungranted: (a) => a.p_company_id === 'co-own',
+          company_editable_by: (a) => a.p_company_id === 'co-own',
         },
       },
     )
@@ -165,8 +165,8 @@ describe('customFieldWriteRefusal: each kind’s own edit rule', () => {
       'contact_visible_to',
       'contact_editable_by',
       'contact_visible_to',
-      'company_visible_to_ungranted',
-      'company_visible_to_ungranted',
+      'company_editable_by',
+      'company_editable_by',
     ])
     // An rpc that errors refuses.
     const broken = fakeRecordsDb({}, { rpcs: {} })

@@ -4,9 +4,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   captureReadAccess,
   captureRequester,
-  captureVisibleToRequester,
+  captureWriteAccess,
+  documentCommentAccess,
   documentReadAccess,
-  documentVisibleToRequester,
   resolveEntityWorkspace,
   workspaceEcho,
 } from './_shared'
@@ -63,7 +63,8 @@ export function createCommentTools(
    * `access`: 'read' for the tools that only read comments, where a private
    * capture or document SHARED with the person (a grant, 492) counts, as the
    * comment view policy's grant arm (493) has it; 'write' (add_comment, the
-   * default) asks the ungranted rule, a grant being view-only.
+   * default) asks the record's own rule or an EDIT grant (512: a view grant
+   * never comments, as 494's comment policy refuses it in the app).
    */
   const resolveCommentableWorkspace = async (
     type: string,
@@ -84,7 +85,7 @@ export function createCommentTools(
       const visible =
         access === 'read'
           ? !!(await documentReadAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures))
-          : await documentVisibleToRequester(supabase, id, routed.workspaceId, userId, omitPrivateCaptures)
+          : !!(await documentCommentAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures))
       return visible ? routed.workspaceId : null
     }
     if (type !== 'capture') return routed.workspaceId
@@ -93,7 +94,7 @@ export function createCommentTools(
     const visible =
       access === 'read'
         ? !!(await captureReadAccess(supabase, id, routed.workspaceId, requester))
-        : await captureVisibleToRequester(supabase, id, routed.workspaceId, requester)
+        : !!(await captureWriteAccess(supabase, id, routed.workspaceId, requester))
     return visible ? routed.workspaceId : null
   }
 

@@ -20,6 +20,7 @@ import { approvedDocumentDelete, raiseDocumentDeleteCard } from '@/lib/documents
 import { getServiceClient } from '@/lib/supabase/service'
 import { hiddenGraphRefs, isLinkFencedKind } from '@/lib/knowledge/entity-fences'
 import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
+import { hasEditGrant } from '@/lib/entity-access/grants'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
 import type { ApprovalContext } from '@/lib/safety/approvals'
 import { publishDraft, staleDraftMessage } from '@/lib/documents/publish'
@@ -90,6 +91,14 @@ const SHARED_VIEW_ONLY = {
   shared_with_you: true,
   access: 'view' as const,
   access_note: "Another member's private document, shared with you to read. You can't change it; propose_document_edit can't either.",
+}
+
+/** The same, for one shared with them to EDIT (an edit grant, migration 512). */
+const SHARED_TO_EDIT = {
+  shared_with_you: true,
+  access: 'edit' as const,
+  access_note:
+    "Another member's private document, shared with you to edit: you can change its text, title, tags and fields as its creator can, but not delete or archive it, publish it, or change who sees it.",
 }
 
 /** Who can see a document (migration 369): every member, or only its creator. */
@@ -256,8 +265,10 @@ export function createDocumentTools(
    * Edit access for a write (migration 359, src/lib/documents/access.ts).
    * These tools run on a SERVICE-ROLE client, so RLS can't cover them: this is
    * the gate. Owner or admin; the creator (not of the product doc); a plain
-   * member only on a shared wiki page. A refusal points at
-   * propose_document_edit, which writes the caller's own draft instead.
+   * member only on a shared wiki page; and a member another member's
+   * document is shared with to EDIT (an edit grant, 512), for its text and
+   * fields only. A refusal points at propose_document_edit, which writes the
+   * caller's own draft instead.
    */
   async function editGate(
     documentId: string,
@@ -266,9 +277,10 @@ export function createDocumentTools(
     refusalTail = 'Use propose_document_edit to save the change as your own draft for the creator or an admin to review.',
     opts: { canonText?: 'allow' } = {},
   ): Promise<{ access: DocumentAccess } | { refused: { success: false; error: string; use_instead?: 'propose_document_edit' | 'propose_section_edit' | 'update_now' } }> {
-    const { access, error } = await loadDocumentAccess(supabase, targetWs, userId, documentId)
+    const { access, error } = await loadDocumentAccess(supabase, targetWs, userId, documentId, { editGrants: !omitPrivate })
     if (error) return { refused: { success: false, error } }
-    // loadDocumentAccess already hides someone else's private document; a run
+    // loadDocumentAccess already hides someone else's private document (one
+    // shared to edit aside: the rules below then keep it to its text); a run
     // that omits private documents doesn't see its person's own either.
     if (!access || (omitPrivate && isPrivateDocument(access.row))) return { refused: { success: false, error: 'Document not found' } }
     // The person's Now file (migration 440) changes only through update_now,
@@ -348,8 +360,15 @@ export function createDocumentTools(
         .eq('workspace_id', opts.targetWs)
         .maybeSingle()
       if (error) return { success: false as const, error: error.message }
-      // A private document is its creator's alone: to anyone else it doesn't exist.
-      if (!data || !isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, await requesterIn(opts.targetWs))) {
+      // A private document is its creator's alone: to anyone else it doesn't
+      // exist, unless it is shared with them to EDIT (an edit grant, 512; then
+      // editGate below applies the document EDIT rule, which keeps them to
+      // its text). An unattended run never edits through a grant.
+      if (!data) return { success: false as const, error: 'Document not found' }
+      if (
+        !isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, await requesterIn(opts.targetWs)) &&
+        (omitPrivate || !(await hasEditGrant(supabase, { userId, workspaceId: opts.targetWs }, 'document', opts.documentId)))
+      ) {
         return { success: false as const, error: 'Document not found' }
       }
       // The Now file: refused before its text is read into any result (editGate refuses it too).
@@ -880,11 +899,13 @@ export function createDocumentTools(
         // with this person (492, view only): to anyone else it doesn't exist.
         const requester = await requesterIn(resolved.workspaceId)
         let viaGrant = false
+        let sharedToEdit = false
         if (!isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, requester)) {
           const granted = requester ? await grantedReadIds(supabase, userId, resolved.workspaceId, 'document', [document_id]) : new Set<string>()
           // Someone's Now file is theirs alone, shared or not.
           if (!granted.has(document_id) || isNowDocument(data.frontmatter)) return { success: false, error: 'Document not found' }
           viaGrant = true
+          sharedToEdit = await hasEditGrant(supabase, { userId, workspaceId: resolved.workspaceId }, 'document', document_id)
         }
         const fieldDefs = await customFieldDefsOrNone(supabase, resolved.workspaceId, 'document')
         // The person's Now file reaches their own main chat as its now section;
@@ -915,8 +936,8 @@ export function createDocumentTools(
           ...((data as { canon_key?: string | null }).canon_key ? { canon_key: (data as { canon_key: string }).canon_key, system_document: true } : {}),
           // Only its creator sees a private document (migration 369)...
           ...((data as { visibility?: string }).visibility === 'private' ? { visibility: 'private' } : {}),
-          // ...and whoever it is shared with, to read (a grant).
-          ...(viaGrant ? SHARED_VIEW_ONLY : {}),
+          // ...and whoever it is shared with, to read or to edit (a grant, 512).
+          ...(viaGrant ? (sharedToEdit ? SHARED_TO_EDIT : SHARED_VIEW_ONLY) : {}),
           // The workspace's own fields on documents (migration 496), the set ones.
           ...withCustomFields(fieldDefs, (data as { custom_fields?: unknown }).custom_fields),
         }
