@@ -331,8 +331,51 @@ export function EntityActionsMenu({
 }
 
 /**
+ * A right-click menu that mounts on its first right-click, not with its
+ * trigger: for a trigger that repeats down a list (a list row, a chip in every
+ * message).
+ *
+ * A Radix ContextMenu root is not free: each one adds a capture `keydown`
+ * listener on `document` (and two more once-listeners on every key press),
+ * plus its Popper and provider tree. So the trigger renders bare, with
+ * `handlers` on it, and ARMS on the right button's pointerdown, which lands
+ * before the browser's `contextmenu`; a `contextmenu` that still finds it
+ * unarmed (the keyboard's menu key, a ctrl-click) is held and replayed on
+ * `ref`'s element once the menu has mounted. Once armed it stays armed.
+ * Arming remounts what's inside the trigger (the Radix tree goes around it),
+ * so `canArm` can say no (a row mid-compose keeps the browser's menu).
+ */
+export function useArmedContextMenu<T extends HTMLElement>(enabled: boolean, canArm?: () => boolean) {
+  const [armed, setArmed] = React.useState(false)
+  const ref = React.useRef<T | null>(null)
+  const replay = React.useRef<{ x: number; y: number } | null>(null)
+  React.useLayoutEffect(() => {
+    const at = replay.current
+    if (!armed || !at) return
+    replay.current = null
+    ref.current?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y }))
+  }, [armed])
+  const handlers =
+    enabled && !armed
+      ? {
+          onPointerDown: (e: React.PointerEvent) => {
+            if ((e.button === 2 || (e.button === 0 && e.ctrlKey)) && (canArm?.() ?? true)) setArmed(true)
+          },
+          onContextMenu: (e: React.MouseEvent) => {
+            if (!(canArm?.() ?? true)) return
+            e.preventDefault()
+            replay.current = { x: e.clientX, y: e.clientY }
+            setArmed(true)
+          },
+        }
+      : null
+  return { armed: enabled && armed, ref, handlers }
+}
+
+/**
  * Right-click on `children` (a chip, a row) for the record's actions. The
  * child is the trigger itself (asChild), so nothing is added to the layout.
+ * The menu mounts on the first right-click (useArmedContextMenu).
  */
 export function EntityContextMenu({
   entity,
@@ -349,11 +392,18 @@ export function EntityContextMenu({
 }) {
   const actions = useEntityActions(entity, state)
   const { openRename, renameDialog } = useEntityRenameDialog(entity)
-  if (actions.filter((a) => !omit?.includes(a)).length === 0) return children
+  const hasActions = actions.some((a) => !omit?.includes(a))
+  const { armed, ref, handlers } = useArmedContextMenu<HTMLElement>(hasActions)
+  if (!hasActions) return children
+  const trigger = React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+    ref,
+    ...(handlers ?? {}),
+  })
+  if (!armed) return trigger
   return (
     <>
       <ContextMenu modal={false}>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
         <ContextMenuContent className="w-52">
           <EntityActionsMenuItems entity={entity} state={state} omit={omit} variant="context" onRename={openRename} from={from} />
         </ContextMenuContent>

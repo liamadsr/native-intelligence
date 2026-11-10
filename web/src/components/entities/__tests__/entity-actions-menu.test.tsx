@@ -24,7 +24,7 @@ vi.mock('@/lib/entities/actions', async (importOriginal) => {
 })
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { EntityActionsMenu, EntityActionsMenuItems, PANEL_OMIT, type EntityMenuState } from '../entity-actions-menu'
+import { EntityActionsMenu, EntityActionsMenuItems, EntityContextMenu, PANEL_OMIT, type EntityMenuState } from '../entity-actions-menu'
 import type { EntityActionId } from '@/lib/entities/entity-actions-registry'
 
 let container: HTMLDivElement
@@ -110,5 +110,35 @@ describe('EntityActionsMenu', () => {
       root.render(<EntityActionsMenu entity={{ type: 'comment', id: 'c-1', label: 'Looks good' }} omit={['copy_id']} />),
     )
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('EntityContextMenu', () => {
+  const chip = (i: number) => (
+    <EntityContextMenu key={i} entity={{ type: 'document', id: `doc-${i}`, label: `Fernhill plan ${i}` }}>
+      <button type="button" data-chip={i}>
+        Fernhill plan {i}
+      </button>
+    </EntityContextMenu>
+  )
+
+  it('mounts no menu (and no document listeners) until a right-click', async () => {
+    const add = vi.spyOn(document, 'addEventListener')
+    await act(async () => root.render(<div>{Array.from({ length: 200 }, (_, i) => chip(i))}</div>))
+    expect(add.mock.calls.filter(([type]) => type === 'keydown')).toEqual([])
+    add.mockRestore()
+    expect(container.querySelectorAll('button[data-chip]').length).toBe(200)
+  })
+
+  it("opens the record's actions on the first right-click", async () => {
+    await act(async () => root.render(<div>{chip(7)}</div>))
+    const el = container.querySelector('[data-chip="7"]') as HTMLElement
+    await act(async () => {
+      el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+    })
+    expect(shown()).toEqual(['open', 'copy_link', 'copy_id', 'rename', 'share', 'make_task', 'archive'])
+    const copy = document.querySelector('[data-entity-action="copy_id"]') as HTMLElement
+    await act(async () => copy.click())
+    expect(hoisted.ran).toEqual([{ id: 'copy_id', type: 'document' }])
   })
 })

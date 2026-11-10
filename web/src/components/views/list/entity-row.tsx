@@ -41,7 +41,7 @@ import {
 import { LIBRARY_CATEGORY_ICONS } from '@/lib/types/library-icons'
 import { ReminderPickerContent } from '@/components/reminders/reminder-picker'
 import { RowWorkspaceBadge } from '../workspace-badge'
-import { EntityActionsMenuItems, useEntityRenameDialog } from '@/components/entities/entity-actions-menu'
+import { EntityActionsMenuItems, useArmedContextMenu, useEntityRenameDialog } from '@/components/entities/entity-actions-menu'
 import { isArchivedRow, supportedEntityActions } from '@/lib/entities/entity-actions-registry'
 import { DelegateWorkBadge } from '@/components/work/delegate-work-badge'
 import type { ReminderEntityType } from '@/lib/reminders/types'
@@ -337,10 +337,29 @@ function EntityRowImpl({
   const hasEntityActions = supportedEntityActions(entityType).some((a) => a !== 'open')
   const { openRename, renameDialog } = useEntityRenameDialog(entityRef)
 
+  // Contact rows carry an "Add to sequence" item (the mounted contact list —
+  // unified-view-layout — listens for the event and opens the shared picker).
+  const hasSequenceItem = entityType === 'contact'
+  const hasMenu = !!reminderEntityType || hasSequenceItem || hasEntityActions
+
+  /**
+   * THE MENU MOUNTS ON THE FIRST RIGHT-CLICK, NOT WITH THE ROW.
+   *
+   * Every kind now has the entity actions menu, and a Radix ContextMenu root
+   * per row would put hundreds of `document` listeners on a long list
+   * (useArmedContextMenu says why and how). A row in compose mode doesn't arm
+   * (arming remounts the row's insides, and the strip's fields would lose
+   * their input): it gets the browser's own menu, as its inputs expect.
+   */
+  const canArmMenu = React.useCallback(() => !composingRef.current, [])
+  const { armed: menuArmed, ref: rowElRef, handlers: armHandlers } = useArmedContextMenu<HTMLDivElement>(hasMenu, canArmMenu)
+
   const row = (
     <div
+      ref={rowElRef}
       // A capture's row, for UI automation (src/lib/automation/README.md).
       {...(entityType === 'capture' ? { 'data-testid': 'capture-row', 'data-capture-id': itemId } : {})}
+      {...armHandlers}
       onClick={onClick}
       onAuxClick={onAuxClick}
       // Warm the detail-panel cache so clicking through feels instant — once
@@ -515,13 +534,9 @@ function EntityRowImpl({
     </div>
   )
 
-  // Contact rows carry an "Add to sequence" item (the mounted contact list —
-  // unified-view-layout — listens for the event and opens the shared picker).
-  const hasSequenceItem = entityType === 'contact'
-
-  // Rows with no menu content render exactly as before — no Radix wrapper,
-  // no extra state cost, and no change to any existing interaction.
-  if (!reminderEntityType && !hasSequenceItem && !hasEntityActions) return row
+  // Rows with no menu content, and rows whose menu hasn't been asked for yet,
+  // render bare: no Radix wrapper and no document listeners (see menuArmed).
+  if (!hasMenu || !menuArmed) return row
 
   return (
     <>
