@@ -16,7 +16,6 @@
 30 2 * * * node /app/deploy/app/cron/call.mjs /api/cron/reconcile-subscriptions
 45 1 * * * node /app/deploy/app/cron/call.mjs /api/cron/reconcile-deepgram
 0 3 * * 1 node /app/deploy/app/cron/call.mjs /api/cron/billing-reconciliation
-*/30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/inngest-sync
 50 2 * * * node /app/deploy/app/cron/call.mjs /api/cron/proposal-age-out
 40 * * * * node /app/deploy/app/cron/call.mjs /api/cron/index-reconciler
 */15 * * * * node /app/deploy/app/cron/call.mjs /api/cron/crm-sync

@@ -5,6 +5,12 @@ Docker Compose stack that starts every part of it on one machine. It is a test t
 the app builds and starts in containers. It is not the production setup, and it
 changes nothing about how the app runs on Vercel.
 
+The server itself (its public Caddy in `../edge/`, the self-hosted Inngest in
+`../inngest/`, backups) is set up by [`../README.md`](../README.md). Nothing from
+this folder runs there yet. This stack's own proxy publishes port 8080 on
+127.0.0.1 for the test; that is not the way onto the server, where only the edge
+Caddy publishes ports.
+
 ## Try it
 
 From the repository root, with Docker and Compose:
@@ -122,9 +128,7 @@ at the same UTC times as Vercel Cron. Two differences from Vercel:
 
 In the test stack the scheduler is a dry run (`CRON_DRY_RUN=1` in `compose.yaml`):
 it logs each job and calls nothing. Do not turn that off while Vercel Cron still
-runs the same schedule against the same database. Note also that
-`/api/cron/inngest-sync`, off Vercel, re-registers the production app with
-Inngest rather than this one.
+runs the same schedule against the same database.
 
 ## Files
 

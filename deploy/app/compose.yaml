@@ -95,8 +95,7 @@ services:
 
   # The scheduler runs, but as a dry run: each job is logged and nothing is called.
   # Live, this stack would run the app's whole schedule a second time beside Vercel
-  # Cron (given real credentials), and /api/cron/inngest-sync, off Vercel, re-registers
-  # the production app with Inngest. smoke.sh makes its calls itself.
+  # Cron (given real credentials). smoke.sh makes its calls itself.
   cron:
     <<: *app
     command: [cron]
