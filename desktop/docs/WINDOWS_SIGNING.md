@@ -1,6 +1,6 @@
 # Windows code signing (Azure Artifact Signing)
 
-Dial8's Windows release builds are Authenticode-signed by **Azure Artifact Signing** (formerly Trusted
+Native Intelligence's Windows release builds are Authenticode-signed by **Azure Artifact Signing** (formerly Trusted
 Signing), about $9.99/month for 5,000 signatures. The signing runs on the Windows workflow's runner
 (`.github/workflows/windows.yml`, "Build config" + "Build"):
 
@@ -19,7 +19,7 @@ managed PC can refuse the app outright. Even signed, SmartScreen builds reputati
 ## One-time setup (Liam, in Azure and GitHub)
 
 1. **Eligibility.** Public-trust signing is for organizations in the US, Canada, the EU or the UK. Reports
-   say new sign-ups need about 3 years of verifiable business history. If Dial8's entity doesn't qualify,
+   say new sign-ups need about 3 years of verifiable business history. If Native Intelligence's entity doesn't qualify,
    an OV certificate from a CA (~$150–300/yr, cloud HSM) works with the same `signCommand` and a different
    tool.
 2. **Azure subscription + resource group**, e.g. `dial8-signing`, in a region near you (East US, West

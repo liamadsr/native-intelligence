@@ -73,7 +73,7 @@ beforeEach(() => {
 })
 
 describe('GET /api/account/agent-guests', () => {
-  it('lists the owner’s people as GuestViews, with their request code and the Dial8 number', async () => {
+  it('lists the owner’s people as GuestViews, with their request code and the Native Intelligence number', async () => {
     store.listGuests.mockResolvedValue([guest()])
     store.requestCode.mockResolvedValue({ code: 'K7Q4MX', open: false })
     const res = await list.GET()
@@ -82,7 +82,7 @@ describe('GET /api/account/agent-guests', () => {
     expect(store.listGuests).toHaveBeenCalledWith({ service: true }, 'owner-1')
     expect(store.requestCode).toHaveBeenCalledWith({ service: true }, 'owner-1', 'ws-1')
     expect(body.requests).toEqual({ code: 'K7Q4MX', open: false })
-    expect(body.dial8Number).toBe('+14155550100')
+    expect(body.niNumber).toBe('+14155550100')
     expect(body.guests[0]).toMatchObject({ id: 'g-1', displayName: 'Sam Rivera', masked: '··8830', askTools: ['create_calendar_event'] })
     expect(body.guests[0]).not.toHaveProperty('ownerUserId')
     expect(body.guests[0]).not.toHaveProperty('phone')
@@ -105,7 +105,7 @@ describe('POST /api/account/agent-guests', () => {
       expect.objectContaining({ ownerUserId: 'owner-1', workspaceId: 'ws-1', preset: 'household', tools: ['get_free_busy'], askTools: [], askBefore: ['payments'] }),
     )
     const body = await res.json()
-    expect(body.invite).toEqual({ code: 'AB12CD', text: "Hi, it's Sam · AB12CD", dial8Number: '+14155550100', expiresAt: '2026-10-31T00:00:00Z' })
+    expect(body.invite).toEqual({ code: 'AB12CD', text: "Hi, it's Sam · AB12CD", niNumber: '+14155550100', expiresAt: '2026-10-31T00:00:00Z' })
   })
 
   it('needs a preset', async () => {

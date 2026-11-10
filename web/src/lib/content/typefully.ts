@@ -1,6 +1,6 @@
 /**
  * Posting through the person's own Typefully (content C2a, P9;
- * content-skill-set.md §8 "The Dial8 route"). The model never sees
+ * content-skill-set.md §8 "The Native Intelligence route"). The model never sees
  * Typefully's tools for this: `publish_post` and `schedule_post` are our two
  * narrow tools in front of it (the template's allow-list lesson), and they run
  * ONLY from the person's approval: their click on a post card, or their Accept
@@ -237,7 +237,7 @@ export async function sendToTypefully(
       const sets = listed.isError ? null : socialSets(mcpContentText(listed.content))
       const picked = sets ? pickAccount(sets, args.accountId) : 'NO_SOCIAL_SET'
       if (picked === 'NO_SOCIAL_SET') return { success: false, code: 'NO_SOCIAL_SET', error: "Couldn't read your Typefully accounts; nothing was posted." }
-      if (picked === 'NEEDS_ACCOUNT') return { success: false, code: 'NEEDS_ACCOUNT', error: 'You have more than one Typefully account (or the one this card named is gone), so Dial8 won\'t guess which to post as; nothing was posted. Post it from the link instead.' }
+      if (picked === 'NEEDS_ACCOUNT') return { success: false, code: 'NEEDS_ACCOUNT', error: 'You have more than one Typefully account (or the one this card named is gone), so Native Intelligence won\'t guess which to post as; nothing was posted. Post it from the link instead.' }
       socialSetId = picked.id
       account = picked.label
     }
@@ -248,7 +248,7 @@ export async function sendToTypefully(
   const input = draftInput({ surface: args.surface, parts: args.parts, when: args.when, socialSetId })
   const fits = checkToolInputAtRun(input, create.inputSchema)
   if (!fits.ok) {
-    return { success: false, code: 'SHAPE_MISMATCH', error: `Typefully's ${create.name} takes a different input than Dial8 sends (${fits.error}); nothing was posted. This needs checking against a real Typefully connection.` }
+    return { success: false, code: 'SHAPE_MISMATCH', error: `Typefully's ${create.name} takes a different input than Native Intelligence sends (${fits.error}); nothing was posted. This needs checking against a real Typefully connection.` }
   }
   try {
     const out = await call(supabase, server.id, create.name, input, args.userId)

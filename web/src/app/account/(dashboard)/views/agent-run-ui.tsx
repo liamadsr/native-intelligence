@@ -132,6 +132,7 @@ export function metaLine(...parts: (string | null | undefined)[]): string {
 /** Classify a log line so we can tint it like a real shell would. */
 function lineClass(line: string): string {
   const t = line.trimStart()
+  // TODO(rename-compat): `DIAL8_PR_URL=` is the marker in run logs saved before the rename.
   if (/^DIAL8_PR_URL=/.test(t) || /https?:\/\/github\.com\/\S+\/pull\/\d+/.test(t)) {
     return 'text-emerald-400 font-medium'
   }
@@ -176,7 +177,7 @@ export function Terminal({
           <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
         </div>
         <span className="ml-1.5 truncate font-mono text-[11px] text-zinc-400">
-          {sandboxId ? `dial8@${sandboxId}` : 'dial8-sandbox'}
+          {sandboxId ? `ni@${sandboxId}` : 'ni-sandbox'}
         </span>
         {live && (
           <span className="ml-auto flex items-center gap-1.5 text-[11px] text-zinc-400">

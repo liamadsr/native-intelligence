@@ -3,10 +3,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { readTargetWorkspace } from './tools/envelope'
 import { resolveMcpToolSideEffect } from './tool-side-effects'
 import { isReadShapedName } from './read-names'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /**
  * MCP guard — token-scope enforcement + audit logging for every tool exposed
- * by the Dial8 MCP server.
+ * by the Native Intelligence MCP server.
  *
  * The OAuth token table has carried a `scopes` field since migration 065, but
  * nothing ever enforced it: every token was full read-write over the whole
@@ -48,7 +49,7 @@ const READ_ALLOWED_WRITES = new Set(['set_workspace', 'call_tool'])
  * write access to read-only tokens by being misnamed.
  */
 export function classifyToolAccess(toolName: string): McpToolAccess {
-  const bare = toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(toolName)
   if (READ_ALLOWED_WRITES.has(bare)) return 'read'
   // The classification is the source of truth (registry class, then the
   // MCP-only map — Sequence step 2); the name regex below is the fallback for

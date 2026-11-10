@@ -408,8 +408,8 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
       // 800ms later.
       fetchCounts()
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
-    return () => window.removeEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
+    return () => window.removeEventListener('ni:realtime-recovered', onRecovered)
   }, [scheduleRefresh, fetchCounts, dedupKey])
 
   // Drafts folder count: email_draft events (create/update/delete of a draft,
@@ -440,13 +440,13 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
       if (ptid != null && ptid !== providerThreadId) return
       setSelectedThreadReloadKey((k) => k + 1)
     }
-    window.addEventListener('dial8:entity-created', onDraftEvent)
-    window.addEventListener('dial8:entity-updated', onDraftEvent)
-    window.addEventListener('dial8:entity-deleted', onDraftEvent)
+    window.addEventListener('ni:entity-created', onDraftEvent)
+    window.addEventListener('ni:entity-updated', onDraftEvent)
+    window.addEventListener('ni:entity-deleted', onDraftEvent)
     return () => {
-      window.removeEventListener('dial8:entity-created', onDraftEvent)
-      window.removeEventListener('dial8:entity-updated', onDraftEvent)
-      window.removeEventListener('dial8:entity-deleted', onDraftEvent)
+      window.removeEventListener('ni:entity-created', onDraftEvent)
+      window.removeEventListener('ni:entity-updated', onDraftEvent)
+      window.removeEventListener('ni:entity-deleted', onDraftEvent)
     }
   }, [selectedThread?.provider_thread_id])
 
@@ -563,7 +563,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
       // channel missed every INSERT/UPDATE/DELETE during the gap. (The central
       // hook owns the shared-socket wake/online force-reconnect; we only react
       // to recovery here, both from this channel's own status and from the
-      // `dial8:realtime-recovered` event it dispatches.)
+      // `ni:realtime-recovered` event it dispatches.)
       .subscribe((status) => {
         // Our own removeChannel (unmount, or React's dev double mount) closes
         // the channel too: that is not a gap to recover from.
@@ -949,7 +949,7 @@ export function EmailLayout({ onReplyRequest, card }: EmailLayoutProps) {
   // saved views; inline one pane (the list, or the open thread), full screen
   // the page's two panes.
   // `ph-no-capture` on both roots: PostHog session replay blocks the whole
-  // subtree (rrweb blockClass) and autocapture skips it. Dial8 never stores
+  // subtree (rrweb blockClass) and autocapture skips it. Native Intelligence never stores
   // mail text, and a replay would.
   if (isCard) {
     return (

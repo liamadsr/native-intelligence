@@ -10,7 +10,7 @@
  *     `system_prompt`), which tools (its tool tree) and the skills it always
  *     checks (saved to every bot on it). The recipe's rule says who may change
  *     them (migration 191): its author, or a workspace owner or admin. A
- *     built-in agent (a Dial8 system recipe) is nobody's to change: "Make a
+ *     built-in agent (a Native Intelligence system recipe) is nobody's to change: "Make a
  *     copy for this bot" first.
  *   - THIS BOT, its own: name, face, voice (Phase B2: one of the desktop's
  *     voices, or Automatic), team, and what it may change on its own (its
@@ -41,7 +41,7 @@ export type BotKind = 'agent_teammate' | 'agent_work_bot' | 'role_teammate' | 's
 export type PersonaKind =
   /** This workspace's own agent recipe: a custom agent, or a role teammate's `role-<role>` persona. */
   | 'workspace'
-  /** One of Dial8's built-in agents (a system recipe). */
+  /** One of Native Intelligence's built-in agents (a system recipe). */
   | 'builtin'
   /** A system teammate's loop recipe or the loop work-bot anchor (migrations 283, 302), or anything else no session may bind. */
   | 'anchor'
@@ -104,7 +104,7 @@ export const FIELD_REASONS = {
   workBotTeam: 'A work agent stays on the team it was made on.',
   workBotBounds:
     'A work agent reads and proposes changes for you to approve. An owner, admin or team lead can field its persona as a full agent to let it do more.',
-  builtinAgent: 'This persona is built into Dial8. Make a copy for this agent to change it.',
+  builtinAgent: 'This persona is built into Native Intelligence. Make a copy for this agent to change it.',
   noAgent: 'This agent has no persona to change here.',
   hiddenAgent: 'It’s built on a persona only its author can see, so its persona can’t be changed here.',
   agentAuthorOnly: 'Only the persona’s author, or a workspace owner or admin, can change it.',
@@ -244,15 +244,15 @@ export const BOUNDS_CLASSES: Readonly<Record<BoundsChoice, readonly string[]>> =
 
 export const BOUNDS_LABELS: Readonly<Record<BoundsChoice, string>> = {
   read: 'Read only',
-  internal: 'Read, and change Dial8 records',
+  internal: 'Read, and change Native Intelligence records',
 }
 
 export const BOUNDS_HINTS: Readonly<Record<BoundsChoice, string>> = {
   read: 'It looks things up and can tell you what it would change.',
-  internal: 'It can also update actions, documents, contacts and your other Dial8 records. Never sending, publishing or anything outside Dial8.',
+  internal: 'It can also update actions, documents, contacts and your other Native Intelligence records. Never sending, publishing or anything outside Native Intelligence.',
 }
 
-/** The choice a bot's classes read as: "Read, and change Dial8 records" once it holds internal writes. */
+/** The choice a bot's classes read as: "Read, and change Native Intelligence records" once it holds internal writes. */
 export function boundsChoiceOf(classes: readonly string[] | null | undefined): BoundsChoice {
   return Array.isArray(classes) && classes.includes('internal-write') ? 'internal' : 'read'
 }

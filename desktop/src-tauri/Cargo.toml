@@ -1,8 +1,8 @@
 [package]
 name = "dial8-desktop"
 version = "0.2.103"
-description = "Dial8 Desktop — Cross-platform audio capture and transcription"
-authors = ["Dial8"]
+description = "Native Intelligence Desktop — Cross-platform audio capture and transcription"
+authors = ["Native Intelligence"]
 edition = "2021"
 
 [lib]
@@ -75,7 +75,7 @@ semver = "1"
 tauri-plugin-process = "2"
 tauri-plugin-store = "2"
 dirs = "5"
-# Chat voice (dial8-website docs/plans/chat-voice.md §3.3a), all pinned exactly:
+# Chat voice (web/docs/plans/chat-voice.md §3.3a), all pinned exactly:
 # - aec3: pure-Rust port of WebRTC's AEC3 echo canceller (RubyBit/aec3-rs),
 #   MIT OR BSD-3-Clause, plus Google's WebRTC patent grant (its PATENTS file,
 #   wired into the notices through source_notices.tsv). Needs rustc >= 1.88.
@@ -87,7 +87,7 @@ dirs = "5"
 aec3 = "=0.4.0"
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "api-23"] }
 earshot = "=1.2.2"
-# The Mac exit for the agent's cloud browser (dial8-website docs/plans/cloud-browser.md, C4):
+# The Mac exit for the agent's cloud browser (web/docs/plans/cloud-browser.md, C4):
 # its own crate so its tests build without the app.
 browser-exit = { path = "crates/browser-exit" }
 
@@ -119,7 +119,7 @@ objc2-foundation = "0.3"
 # same check on each installer it builds.
 installer-version = { path = "crates/installer-version" }
 # System audio on Windows (audio/system_capture.rs): WASAPI process loopback
-# that leaves out Dial8's own process tree, as the Mac's Core Audio tap
+# that leaves out Native Intelligence's own process tree, as the Mac's Core Audio tap
 # excludes its own PID (so read-aloud never echoes into a recording). MIT.
 wasapi = "0.26"
 # WinRT toast notifications with an Activated callback (the Windows half of the

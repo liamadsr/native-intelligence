@@ -1,6 +1,6 @@
 //
 //  AttachmentModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Models for file attachments on notes
 //

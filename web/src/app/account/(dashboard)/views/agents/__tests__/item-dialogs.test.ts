@@ -83,13 +83,13 @@ describe('buildSubmitBody — agent', () => {
       agentForm({
         enabled_tools: ['crm', 'actions'],
         // Blank entries are filtered from disabled_tools.
-        disabled_tools: ['dial8_delete_action', ''],
+        disabled_tools: ['ni_delete_action', ''],
       }),
       false,
     )
     expect(body.agent_config).toEqual({
       enabled_tools: ['crm', 'actions'],
-      disabled_tools: ['dial8_delete_action'],
+      disabled_tools: ['ni_delete_action'],
     })
     // No slug on agents (skill-only), and no persona styling keys.
     expect('slug' in body).toBe(false)
@@ -136,7 +136,7 @@ describe('formFromRow round-trip', () => {
       system_prompt: 'Be helpful.',
       agent_config: {
         enabled_tools: ['crm'],
-        disabled_tools: ['dial8_delete_action'],
+        disabled_tools: ['ni_delete_action'],
       },
     } as unknown as LibraryRow
 
@@ -145,13 +145,13 @@ describe('formFromRow round-trip', () => {
     expect(form.description).toBe('Handles tickets')
     expect(form.system_prompt).toBe('Be helpful.')
     expect(form.enabled_tools).toEqual(['crm'])
-    expect(form.disabled_tools).toEqual(['dial8_delete_action'])
+    expect(form.disabled_tools).toEqual(['ni_delete_action'])
 
     // Round-trip: the rebuilt body must carry the same allowlist back.
     const body = buildSubmitBody(form, true)
     expect(body.agent_config).toEqual({
       enabled_tools: ['crm'],
-      disabled_tools: ['dial8_delete_action'],
+      disabled_tools: ['ni_delete_action'],
     })
   })
 

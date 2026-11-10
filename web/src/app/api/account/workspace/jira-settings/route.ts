@@ -315,7 +315,7 @@ export async function PATCH(request: NextRequest): Promise<Response> {
     //
     // `include_dial8_attribution` deliberately SURVIVES this, and the site and
     // project switches below. Those resets exist because per-site ids resolve to
-    // real-but-unrelated objects on another tenant; a preference about Dial8's
+    // real-but-unrelated objects on another tenant; a preference about Native Intelligence's
     // own branding has no such failure mode, and silently re-branding issues on
     // a re-point is the opposite of what the user asked for.
     config = { ...state.config }

@@ -37,7 +37,7 @@ const reconcileEvent = (id: string) => ({
 })
 
 function request(bearer?: string): NextRequest {
-  return new NextRequest('https://dial8.ai/api/cron/linear-sync', {
+  return new NextRequest('https://nativeintelligence.dev/api/cron/linear-sync', {
     headers: bearer !== undefined ? { authorization: bearer } : {},
   })
 }

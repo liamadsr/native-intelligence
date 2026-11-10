@@ -436,7 +436,7 @@ describe('PermissionsStep', () => {
       await flush()
 
       expect(host.textContent).not.toContain('system audio')
-      expect(host.textContent).toContain('Dial8 needs access to your microphone to record meetings.')
+      expect(host.textContent).toContain('Native Intelligence needs access to your microphone to record meetings.')
       expect(continueButton().disabled).toBe(false)
     })
 

@@ -7,10 +7,10 @@
  * composer's environment selector reads (environments/environment-selector
  * .tsx): the place's mark, its name, a caret. Its menu:
  *
- *   Dial8          the default: a Dial8 work run, the workspace agent and its
+ *   Native Intelligence          the default: a Native Intelligence work run, the workspace agent and its
  *                  tools, no files (what Start always did);
  *   Your Macs      each Mac (its online dot), then its shared folders: the
- *                  Dial8 agent on that Mac does the work there, on a branch
+ *                  Native Intelligence agent on that Mac does the work there, on a branch
  *                  where the folder allows edits and is a git repository,
  *                  reading only anywhere else. An offline Mac's folders can't
  *                  be picked;
@@ -21,10 +21,10 @@
  *                  workspace's), and only "shared" ones (project work never
  *                  runs in an "only me" one).
  *
- * Nothing to pick but Dial8 (no shared folder, no shared cloud environment):
+ * Nothing to pick but Native Intelligence (no shared folder, no shared cloud environment):
  * the picker isn't shown. The last pick is remembered per workspace in this
  * browser and is the next card's; a remembered place that's gone reads as
- * Dial8. The server checks every id again, as the person's own.
+ * Native Intelligence. The server checks every id again, as the person's own.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
@@ -51,7 +51,7 @@ export type WorkPlaceChoice =
   | { kind: 'mac'; folderId: string; folder: string; mac: string }
   | { kind: 'cloud'; environmentId: string; environment: string; projectId: string; repo: string }
 
-/** What a Start sends for a choice; null (Dial8) sends nothing. */
+/** What a Start sends for a choice; null (Native Intelligence) sends nothing. */
 export function runInOf(choice: WorkPlaceChoice | null): WorkRunPlace | null {
   if (!choice) return null
   return choice.kind === 'mac'
@@ -61,7 +61,7 @@ export function runInOf(choice: WorkPlaceChoice | null): WorkRunPlace | null {
 
 // ── The remembered pick (this browser, per workspace) ──────────────────────
 
-const STORE_PREFIX = 'dial8:work-place:'
+const STORE_PREFIX = 'ni:work-place:'
 
 function readRemembered(workspaceId: string): WorkPlaceChoice | null {
   try {
@@ -134,13 +134,13 @@ function loadProjectRepos(workspaceId: string): Promise<ProjectRepo[]> {
 // ── The picker ──────────────────────────────────────────────────────────────
 
 export interface WorkPlaceState {
-  /** The place a Start runs in now, as it stands against the list (null: Dial8). */
+  /** The place a Start runs in now, as it stands against the list (null: Native Intelligence). */
   choice: WorkPlaceChoice | null
   pick: (choice: WorkPlaceChoice | null) => void
   places: ReturnType<typeof workPlaces>
   /** The environments list landed. */
   loaded: boolean
-  /** There is something to pick but Dial8 (or a remembered place, before the list lands). */
+  /** There is something to pick but Native Intelligence (or a remembered place, before the list lands). */
   shown: boolean
 }
 
@@ -153,7 +153,7 @@ export function workPlaces(environments: readonly (MacEnvironmentItem | CloudEnv
 
 /**
  * The choice as it stands against the list: a remembered folder that's gone,
- * an offline Mac's, or a cloud environment no longer listed, reads as Dial8.
+ * an offline Mac's, or a cloud environment no longer listed, reads as Native Intelligence.
  * While the list hasn't loaded, the choice stands (the server checks it).
  */
 export function liveChoice(choice: WorkPlaceChoice | null, places: ReturnType<typeof workPlaces>, loaded: boolean): WorkPlaceChoice | null {
@@ -206,19 +206,19 @@ export function WorkPlacePicker({ state, workspaceId, disabled }: { state: WorkP
     }
   }, [open, places.clouds.length, workspaceId])
 
-  // Nothing to pick but Dial8: no picker. (Before the list lands, a remembered place still shows.)
+  // Nothing to pick but Native Intelligence: no picker. (Before the list lands, a remembered place still shows.)
   if (!state.shown) return null
 
   const radioValue = current ? (current.kind === 'mac' ? `mac:${current.folderId}` : `cloud:${current.environmentId}:${current.projectId}`) : 'dial8'
-  // A cloud run names its repo too (the environment holds none): "Default · dial8-website".
+  // A cloud run names its repo too (the environment holds none): "Default · web".
   const repoName = current?.kind === 'cloud' ? current.repo.split('/').pop() || '' : ''
   const label = !current
-    ? 'Dial8'
+    ? 'Native Intelligence'
     : current.kind === 'mac'
       ? current.folder || 'Folder'
       : [current.environment || 'Cloud', repoName].filter(Boolean).join(' · ')
   const title = !current
-    ? 'Runs in Dial8 with your workspace’s tools. Pick a folder on your Mac or a cloud environment instead.'
+    ? 'Runs in Native Intelligence with your workspace’s tools. Pick a folder on your Mac or a cloud environment instead.'
     : current.kind === 'mac'
       ? `Runs on ${current.mac || 'your Mac'}, in ${current.folder || 'that folder'}`
       : `Runs in the cloud, ${current.environment || 'its environment'}${current.repo ? `, on ${current.repo}` : ''}`
@@ -268,7 +268,7 @@ export function WorkPlacePicker({ state, workspaceId, disabled }: { state: WorkP
             if (mac) pickMac(mac, id)
           }}
         >
-          <PlaceRow value="dial8" selected={!current} icon={<Sparkles aria-hidden className="size-4 shrink-0 text-muted-foreground" />} name="Dial8" hint="Workspace tools, no files" />
+          <PlaceRow value="dial8" selected={!current} icon={<Sparkles aria-hidden className="size-4 shrink-0 text-muted-foreground" />} name="Native Intelligence" hint="Workspace tools, no files" />
           {places.macs.map((mac) => (
             <div key={mac.id} role="group" aria-label={mac.name}>
               <DropdownMenuSeparator className="mx-0 my-1" />

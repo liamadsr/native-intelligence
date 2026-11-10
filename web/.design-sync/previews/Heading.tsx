@@ -1,9 +1,9 @@
-import { Heading, Subheading, Lead } from '@dial8/ui'
+import { Heading, Subheading, Lead } from '@native-intelligence/ui'
 
 export function Typography() {
   return (
     <div style={{ maxWidth: 640, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <Subheading>Meet Dial8</Subheading>
+      <Subheading>Meet Native Intelligence</Subheading>
       <Heading as="h1">The workspace where meetings become work.</Heading>
       <Lead>
         Capture every conversation, extract the actions and decisions, and keep

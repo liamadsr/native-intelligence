@@ -2,7 +2,7 @@
  * Linear GraphQL API client (OAuth 2.0).
  *
  * Thin wrapper over Linear's single endpoint, used by the action push
- * (src/lib/tasks/linear-push.ts), the Dial8→Linear status echo and the
+ * (src/lib/tasks/linear-push.ts), the Native Intelligence→Linear status echo and the
  * destination picker routes (/api/account/linear/*).
  *
  * Sibling of jira-api.ts and asana-api.ts, and structurally the SIMPLEST of the
@@ -579,7 +579,7 @@ export interface LinearIssueLabel {
 /**
  * Resolve a person to a Linear user id by exact email.
  *
- * NO MATCH IS THE COMMON CASE and the caller must treat it that way: the Dial8
+ * NO MATCH IS THE COMMON CASE and the caller must treat it that way: the Native Intelligence
  * member's email is whatever they signed up with, and there is no reason it is
  * the same address they use in the customer's Linear org. The push assigns on a
  * single exact match and otherwise creates the issue unassigned — the same

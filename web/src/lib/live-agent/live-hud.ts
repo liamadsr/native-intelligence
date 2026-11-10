@@ -31,7 +31,7 @@
  */
 
 /** Within a window (DOM): the recording context opened the capture's conversation. */
-export const LIVE_CAPTURE_CONVERSATION_EVENT = 'dial8:live-capture-conversation'
+export const LIVE_CAPTURE_CONVERSATION_EVENT = 'ni:live-capture-conversation'
 /** Recording window → the HUD (Tauri, emitTo): a LiveHudConversation. */
 export const LIVE_HUD_CONVERSATION_EVENT = 'live-hud:conversation'
 /** HUD → every window (Tauri): a LiveHudFlush. */

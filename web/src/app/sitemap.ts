@@ -1,8 +1,9 @@
 import type { MetadataRoute } from 'next'
 import { blog, source } from '@/lib/source'
 import { VS_COMPETITOR_SLUGS } from '@/data/vs-competitors'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 
 // Public marketing surface plus the public docs. Auth/utility routes carry no
 // SEO value, so they don't appear here (see robots.ts).

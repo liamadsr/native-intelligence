@@ -83,7 +83,7 @@ const { POST } = await import('@/app/api/account/captures/[id]/draft-followup/ro
 const { _resetMemberEmailCacheForTests } = await import('@/lib/workspace-member-emails')
 
 const call = (body: Record<string, unknown> = {}) =>
-  POST(new Request('https://dial8.ai/x', { method: 'POST', body: JSON.stringify(body) }), {
+  POST(new Request('https://nativeintelligence.dev/x', { method: 'POST', body: JSON.stringify(body) }), {
     params: Promise.resolve({ id: 'cap-1' }),
   })
 

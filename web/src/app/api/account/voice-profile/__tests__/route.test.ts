@@ -154,7 +154,7 @@ function auth(
 
 function req(opts: { url?: string; method?: string; body?: unknown }): NextRequest {
   return buildRequest({
-    url: opts.url ?? 'https://dial8.ai/api/account/voice-profile',
+    url: opts.url ?? 'https://nativeintelligence.dev/api/account/voice-profile',
     method: opts.method ?? 'GET',
     body: opts.body,
   }) as unknown as NextRequest
@@ -200,7 +200,7 @@ describe('GET /api/account/voice-profile', () => {
     ]
     hoisted.requireWorkspace.mockResolvedValue(auth(rows, {}))
     const body = await readJson<{ enrolled: boolean; quality: number; chunkCount: number; createdAt: string; prototypes: number[][] }>(
-      await GET(req({ url: 'https://dial8.ai/api/account/voice-profile?include=prototypes' })),
+      await GET(req({ url: 'https://nativeintelligence.dev/api/account/voice-profile?include=prototypes' })),
     )
     expect(body.quality).toBeCloseTo(0.8, 5)
     expect(body.chunkCount).toBe(2)
@@ -210,7 +210,7 @@ describe('GET /api/account/voice-profile', () => {
     // Learned rows alone: matching still has prototypes, but Settings reads "not trained".
     hoisted.requireWorkspace.mockResolvedValue(auth([rows[0]], {}))
     const learnedOnly = await readJson<{ enrolled: boolean; chunkCount: number; prototypes: number[][] }>(
-      await GET(req({ url: 'https://dial8.ai/api/account/voice-profile?include=prototypes' })),
+      await GET(req({ url: 'https://nativeintelligence.dev/api/account/voice-profile?include=prototypes' })),
     )
     expect(learnedOnly.enrolled).toBe(false)
     expect(learnedOnly.chunkCount).toBe(0)
@@ -224,7 +224,7 @@ describe('GET /api/account/voice-profile', () => {
     ]
     hoisted.requireWorkspace.mockResolvedValue(auth(rows, {}))
     const res = await GET(
-      req({ url: 'https://dial8.ai/api/account/voice-profile?include=prototypes' }),
+      req({ url: 'https://nativeintelligence.dev/api/account/voice-profile?include=prototypes' }),
     )
     expect(res.status).toBe(200)
     const body = await readJson<{ prototypes: number[][]; selfContactIds: string[] }>(res)
@@ -244,7 +244,7 @@ describe('GET /api/account/voice-profile', () => {
       auth(rows, {}, { memberId: 'mem-7', selfContactIds: ['c-1', 'c-2'] }),
     )
     const res = await GET(
-      req({ url: 'https://dial8.ai/api/account/voice-profile?include=prototypes' }),
+      req({ url: 'https://nativeintelligence.dev/api/account/voice-profile?include=prototypes' }),
     )
     expect(res.status).toBe(200)
     const body = await readJson<{ selfContactIds: string[] }>(res)
@@ -259,7 +259,7 @@ describe('GET /api/account/voice-profile', () => {
       auth(rows, {}, { memberId: null, selfContactIds: ['c-1'] }),
     )
     const res = await GET(
-      req({ url: 'https://dial8.ai/api/account/voice-profile?include=prototypes' }),
+      req({ url: 'https://nativeintelligence.dev/api/account/voice-profile?include=prototypes' }),
     )
     expect(res.status).toBe(200)
     const body = await readJson<{ selfContactIds: string[] }>(res)

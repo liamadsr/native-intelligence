@@ -145,7 +145,7 @@ describe('chat tool route: the reviewer door', () => {
     await POST(req('delete_action', { personMessages: ['Delete GEN-12'] }, { action_id: 'GEN-12' }, { server: 'channel_turn', surface: 'sms' }))
     expect(gate.calls[0]).toMatchObject({ toolName: 'delete_action', sideEffect: 'delete', caller: 'person_remote', alwaysHold: TEXT_TURN_HOLD, surface: 'sms' })
     // A plain yes or no answers it by text (2026-11-02): no code.
-    expect(TEXT_TURN_HOLD.message).toContain('they answer yes or no, or approve it in Dial8')
+    expect(TEXT_TURN_HOLD.message).toContain('they answer yes or no, or approve it in Native Intelligence')
     expect(TEXT_TURN_HOLD.message).not.toMatch(/code/i)
     await POST(req('delete_action', { personMessages: ['Delete GEN-12'] }))
     expect(gate.calls[1]).not.toHaveProperty('alwaysHold')

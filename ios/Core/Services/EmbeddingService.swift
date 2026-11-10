@@ -1,6 +1,6 @@
 //
 //  EmbeddingService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Service for generating text embeddings via server-side proxy.
 //  Requests route through Supabase Edge Functions that hold the OpenAI API key
@@ -278,7 +278,7 @@ class EmbeddingService: ObservableObject {
         request.addValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue(AIProxyConfig.anonKey, forHTTPHeaderField: "apikey")
-        request.addValue("embeddings", forHTTPHeaderField: "x-dial8-feature")
+        request.addValue("embeddings", forHTTPHeaderField: "x-ni-feature")
 
         let requestBody = OpenAIEmbeddingRequest(
             model: embeddingModel,

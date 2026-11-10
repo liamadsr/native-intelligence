@@ -14,7 +14,7 @@
  * with the app build it belongs to baked in; the host starts it (host.ts
  * `startRelay`) with the app's origin, and the hub's port, sandbox and the
  * server's public key:
- *   node relay.mjs --origin https://browser-relay.dial8.ai --hub-port 4000 --sandbox <name> --viewer-key <spki>
+ *   node relay.mjs --origin https://browser-relay.nativeintelligence.dev --hub-port 4000 --sandbox <name> --viewer-key <spki>
  * It exits when the app has moved to another build, and the next start fetches
  * the new one.
  */

@@ -181,7 +181,7 @@ export const evalRunExecute = inngest.createFunction(
 
     // On the starter's own ChatGPT plan (the free tier): the trials run on it
     // (the live-agent route reads the plan), and so do the judges (gradeTrial's
-    // `plan`), never Dial8's models. Read here, for every run however it was
+    // `plan`), never Native Intelligence's models. Read here, for every run however it was
     // queued; a check that can't be read throws (the step retries), so no
     // judge ever runs on the Gateway for a plan user by default.
     const starter = claimed.started_by

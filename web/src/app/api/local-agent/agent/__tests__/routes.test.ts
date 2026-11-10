@@ -104,7 +104,7 @@ function seed(session: Record<string, unknown> = {}) {
       // Started by the cloud agent from the person's typed turn (the chat tool's start key).
       started_by: 'agent', idempotency_key: `local-agent:${CONV}:session:eve-1:turn:t1:call:c1`,
       mode: 'read', status: 'running', local_model: false, request: 'fix the login redirect', created_at: '2026-10-21T20:00:00.000Z',
-      start_words: ['fix the login redirect in dial8-website'], stop_requested_at: null,
+      start_words: ['fix the login redirect in native-intelligence'], stop_requested_at: null,
       lease_expires_at: new Date(Date.now() + 60_000).toISOString(), ...session,
     }],
     member: [{ id: 'mem-1', workspace_id: WS, user_id: USER }],
@@ -326,7 +326,7 @@ describe('POST /api/local-agent/agent/tool', () => {
     })
     // The evidence is the person's words as the server stored them at the start, never the posted ones.
     const words = m.gateCalls[0].personMessages as () => Promise<string[]>
-    expect(await words()).toEqual(['fix the login redirect in dial8-website'])
+    expect(await words()).toEqual(['fix the login redirect in native-intelligence'])
   })
 
   it('runs the person’s connected MCP tools', async () => {
@@ -397,7 +397,7 @@ describe('POST /api/local-agent/agent/tool', () => {
         toolName: 'delete_action',
         conversationId: null,
         reason: 'local_model',
-        context: expect.objectContaining({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } }),
+        context: expect.objectContaining({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } }),
       }))
     })
 
@@ -428,14 +428,14 @@ describe('POST /api/local-agent/agent/tool', () => {
 
     it('web_search asks Exa, fences the results and meters Exa’s cost after the response', async () => {
       fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        results: [{ title: 'Dial8', url: 'https://dial8.ai', publishedDate: '2026-10-01T00:00:00Z', highlights: ['Linear meets Granola'] }],
+        results: [{ title: 'Native Intelligence', url: 'https://nativeintelligence.dev', publishedDate: '2026-10-01T00:00:00Z', highlights: ['Linear meets Granola'] }],
         costDollars: { total: 0.005 },
       }), { status: 200, headers: { 'content-type': 'application/json' } }))
       const res = await tool({ toolName: 'web_search', input: { query: 'dial8' } })
       const { output } = await res.json()
       expect(output).toMatchObject({ query: 'dial8', count: 1 })
       expect(output.content).toMatch(/^\[UNTRUSTED WEB CONTENT/)
-      expect(output.content).toContain('https://dial8.ai')
+      expect(output.content).toContain('https://nativeintelligence.dev')
       const [url, init] = fetchMock.mock.calls[0]
       expect(url).toBe('https://api.exa.ai/search')
       expect(JSON.parse(init.body)).toMatchObject({ query: 'dial8', type: 'auto', numResults: 10 })
@@ -447,7 +447,7 @@ describe('POST /api/local-agent/agent/tool', () => {
 
     it("searches on a person's own ChatGPT plan, never Exa, and runs no search when the plan can't be read", async () => {
       plan.check.mockResolvedValueOnce(true)
-      plan.search.mockResolvedValueOnce({ results: [{ title: 'Dial8', url: 'https://dial8.ai', publishedDate: null, author: null, highlights: ['Linear meets Granola'] }], costDollars: 0 })
+      plan.search.mockResolvedValueOnce({ results: [{ title: 'Native Intelligence', url: 'https://nativeintelligence.dev', publishedDate: null, author: null, highlights: ['Linear meets Granola'] }], costDollars: 0 })
       const { output } = await (await tool({ toolName: 'web_search', input: { query: 'dial8' } })).json()
       expect(output).toMatchObject({ query: 'dial8', count: 1 })
       expect(output.content).toMatch(/^\[UNTRUSTED WEB CONTENT/)

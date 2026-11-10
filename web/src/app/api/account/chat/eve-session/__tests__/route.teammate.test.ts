@@ -136,7 +136,7 @@ describe('mint — teammate chat', () => {
   })
 
   it('a device token is refused (a teammate chat is an in-app conversation)', async () => {
-    const res = await POST(req({ action: 'mint', teammateId: 'tm-1' }, { Authorization: 'Bearer d8d_abc' }))
+    const res = await POST(req({ action: 'mint', teammateId: 'tm-1' }, { Authorization: 'Bearer nid_abc' }))
     expect(res.status).toBe(403)
     expect(resolveVisibleTeammate).not.toHaveBeenCalled()
   })

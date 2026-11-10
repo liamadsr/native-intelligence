@@ -1,5 +1,5 @@
 /**
- * Platform detection utilities for Dial8.
+ * Platform detection utilities for Native Intelligence.
  * Detects whether the app is running inside a Tauri desktop shell.
  */
 
@@ -45,7 +45,7 @@ export function hasTrafficLights(): boolean {
  * True when `target` (an Element or Text node; anything else → false) sits
  * inside the agent browser's DOM: the live view (components/cloud-browser/
  * live-view.tsx, its blocked sites included) and the side panel's computer
- * card carry `data-dial8-browser`. That DOM shows the person's browsing (the
+ * card carry `data-ni-browser`. That DOM shows the person's browsing (the
  * screen, page previews, the sites they blocked or visited today), so Sentry
  * drops click/input breadcrumbs from it (shouldDropSentryBreadcrumb); PostHog
  * skips it through its `ph-no-capture` class.
@@ -61,7 +61,7 @@ export function isInBrowserSurface(target: unknown): boolean {
     | undefined;
   if (!el || typeof el.closest !== "function") return false;
   try {
-    return el.closest("[data-dial8-browser]") != null;
+    return el.closest("[data-ni-browser]") != null;
   } catch {
     return false;
   }
@@ -70,7 +70,7 @@ export function isInBrowserSurface(target: unknown): boolean {
 /**
  * Horizontal space (px) the web header reserves for the macOS traffic lights.
  * The native cluster itself spans ~65pt (leftInset 13 + 3 lights sized by
- * TRAFFIC_LIGHT_DIAMETER in dial8-desktop/src-tauri/src/lib.rs) — keep this
+ * TRAFFIC_LIGHT_DIAMETER in desktop/src-tauri/src/lib.rs) — keep this
  * in sync with those Rust constants if either side changes.
  */
 export const MACOS_TRAFFIC_LIGHT_WIDTH = 78;

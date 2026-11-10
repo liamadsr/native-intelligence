@@ -16,7 +16,7 @@ const DECLINE = 603
 
 /**
  * POST /api/calls/live: OpenAI's webhook for the project's GPT-Live calls
- * (the spike, docs/plans/text-and-calling.md Phase 4). The Dial8 number's SIP
+ * (the spike, docs/plans/text-and-calling.md Phase 4). The Native Intelligence number's SIP
  * trunk sends calls to OpenAI, which posts `live.transport.incoming` here.
  * Public on purpose (outside the proxy's matcher, src/proxy.ts): the Standard
  * Webhooks signature is its authentication (GPT_LIVE_WEBHOOK_SECRET).
@@ -26,7 +26,7 @@ const DECLINE = 603
  *   2. Anything but an incoming SIP call (the same call's
  *      `realtime.call.incoming`, other events) → 200, ignored: "the first
  *      successful accept selects the runtime surface".
- *   3. Our trunk's secret header (X-Dial8-Trunk = GPT_LIVE_TRUNK_SECRET): OpenAI
+ *   3. Our trunk's secret header (X-NI-Trunk = GPT_LIVE_TRUNK_SECRET): OpenAI
  *      takes a SIP call from anyone who knows the project id, so a call that
  *      didn't come through our Twilio trunk is declined before anything else
  *      (and every call, local dev included, while the secret is unset).

@@ -1,16 +1,16 @@
 #!/bin/bash
 # Shared sidecar helpers — sourced by dev.sh, build.sh and release.sh.
 #
-# Convention (see dial8-website/docs/plans/local-modules.md §1.3): every folder
+# Convention (see web/docs/plans/local-modules.md §1.3): every folder
 # under src-tauri/sidecars/ that has a build.sh (which must be executable) is a
 # sidecar.
 # `build.sh <debug|release>` must leave:
 #
-#   .out/bin/<executable>   → staged into Dial8.app/Contents/MacOS/
-#   .out/lib/*.dylib        → staged into Dial8.app/Contents/Frameworks/ (optional)
+#   .out/bin/<executable>   → staged into Native Intelligence.app/Contents/MacOS/
+#   .out/lib/*.dylib        → staged into Native Intelligence.app/Contents/Frameworks/ (optional)
 #   .out/licenses/NOTICES.txt (required) and the license texts it cites (paths
 #                           relative to it) → staged into
-#                           Dial8.app/Contents/Resources/Licenses/<folder>/ by
+#                           Native Intelligence.app/Contents/Resources/Licenses/<folder>/ by
 #                           licenses_stage (scripts/licenses.sh). NOTICES.txt
 #                           names the sidecar's third-party components; a
 #                           sidecar with none writes one that says so. Nothing
@@ -59,7 +59,7 @@ sidecars_build() {
     return 0
 }
 
-# Copy every built sidecar into an app bundle. $1 = path to Dial8.app.
+# Copy every built sidecar into an app bundle. $1 = path to Native Intelligence.app.
 # (Their license notices are staged by licenses_stage, scripts/licenses.sh.)
 #
 # First removes whatever the previous run staged (the manifest), so a bundle
@@ -112,7 +112,7 @@ sidecars_stage() {
 }
 
 # Print the staged path of every sidecar executable, one per line.
-# $1 = path to Dial8.app.
+# $1 = path to Native Intelligence.app.
 sidecars_staged_executables() {
     local app="$1"
     local dir bin
@@ -127,7 +127,7 @@ sidecars_staged_executables() {
 }
 
 # Print the staged path of every sidecar dylib, one per line.
-# $1 = path to Dial8.app.
+# $1 = path to Native Intelligence.app.
 sidecars_staged_dylibs() {
     local app="$1"
     local dir lib
@@ -145,7 +145,7 @@ sidecars_staged_dylibs() {
 # Sign staged sidecars for a local dev bundle, innermost first (dylibs, then
 # executables). Same flags dev bundles use for the main app: no hardened
 # runtime (debuggers must attach), no timestamp.
-# $1 = Dial8.app, $2 = signing identity, $3 = entitlements plist.
+# $1 = Native Intelligence.app, $2 = signing identity, $3 = entitlements plist.
 sidecars_sign_dev() {
     local app="$1" identity="$2" entitlements="$3"
     local path
@@ -163,7 +163,7 @@ sidecars_sign_dev() {
 # Sign staged sidecar executables for release: hardened runtime, secure
 # timestamp, production entitlements. Dylibs in Contents/Frameworks are signed
 # by release.sh's existing Frameworks pass.
-# $1 = Dial8.app, $2 = signing identity, $3 = entitlements plist.
+# $1 = Native Intelligence.app, $2 = signing identity, $3 = entitlements plist.
 sidecars_sign_release() {
     local app="$1" identity="$2" entitlements="$3"
     local path

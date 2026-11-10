@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Folder filtering. "To review" (the holding pattern, src/lib/email/hold.ts)
-  // is the person's held threads: the ones Dial8 drafted a reply to.
+  // is the person's held threads: the ones Native Intelligence drafted a reply to.
   const held = await heldThreadsFor(supabase, { userId: user.id, workspaceId })
 
   // Search: the provider's hits ARE the results (no stored mail: the index

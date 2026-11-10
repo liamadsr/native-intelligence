@@ -1,5 +1,5 @@
 //! local-tts adapter: read-aloud through the Pocket TTS sidecar, played on the
-//! Mac's speakers (dial8-website/docs/plans/local-modules.md, Part 3).
+//! Mac's speakers (web/docs/plans/local-modules.md, Part 3).
 //!
 //! Commands (bridge contract, optional on the web like the rest):
 //! - `tts_speak { id, text, voice? }` → `Result<(), String>`; errors
@@ -434,8 +434,8 @@ fn roman_value(word: &str) -> Option<u32> {
 /// reaches the model raw. People say a link as the site's name, so, for text
 /// from anywhere (Read anywhere, email, chat link text; the web's
 /// `urlsToHosts` has already cut a markdown link to its host):
-/// - "https://www.amazon.com/dp/…", "shopify.com", "docs.dial8.ai/api" →
-///   "Amazon", "Shopify", "Dial8"; a GitHub pull request or issue →
+/// - "https://www.amazon.com/dp/…", "shopify.com", "docs.nativeintelligence.dev/api" →
+///   "Amazon", "Shopify", "Native Intelligence"; a GitHub pull request or issue →
 ///   "pull request 915" / "issue 915", any other GitHub link → "Github";
 /// - a "…" or ".." glued to a link or path means it was cut short: the
 ///   ellipsis goes, with the cut-off part;
@@ -490,7 +490,7 @@ fn spoken_token(token: &str) -> Option<String> {
         return Some(trail.chars().filter(|&c| !matches!(c, ')' | ']' | '>' | '"' | '\'' | '”' | '’' | '`' | '*')).collect());
     }
     // Markdown markers and brackets around it are not speech:
-    // "**github.com/a**" → "Github", "(liamadsr/dial8-website#915" → "number 915".
+    // "**github.com/a**" → "Github", "(liamadsr/native-intelligence#915" → "number 915".
     let unmark = |s: &str| s.chars().filter(|&c| !matches!(c, '`' | '*' | '(' | ')' | '[' | ']' | '<' | '>')).collect::<String>();
     Some(format!("{}{spoken}{}", unmark(lead), unmark(trail)))
 }
@@ -506,7 +506,7 @@ fn spoken_link(core: &str, cut: bool) -> Option<String> {
             }
         }
     }
-    // A cut-off path: "liamadsr/dial8-corss-p…" → "liamadsr". Only with what a
+    // A cut-off path: "liamadsr/web3-starter-p…" → "liamadsr". Only with what a
     // path or repo name has and a list of words doesn't: a path's start, or a
     // 5+ character part with a digit or underscore ("red/green/blue…",
     // "Mon/Tue…", "in-person/remote…", "Q1/Q2…" and "cd a/b/.." stay).
@@ -592,9 +592,10 @@ fn spoken_site(host: &str, path: &str, cut: bool) -> String {
     site_name(host)
 }
 
-/// "www.amazon.co.uk" → "Amazon", "docs.dial8.ai" → "Dial8", "GitHub.com" →
-/// "GitHub", "bbc.co.uk" → "BBC" (no vowel: an acronym, which `spoken_forms`
-/// may space out); "localhost" and an IP address stay as they are.
+/// "www.amazon.co.uk" → "Amazon", "GitHub.com" → "GitHub", "bbc.co.uk" → "BBC"
+/// (no vowel: an acronym, which `spoken_forms` may space out); the app's own
+/// "docs.nativeintelligence.dev" → "Native Intelligence", its name in two
+/// words; "localhost" and an IP address stay as they are.
 fn site_name(host: &str) -> String {
     let labels: Vec<&str> = host.split('.').filter(|l| !l.is_empty()).collect();
     let n = labels.len();
@@ -606,6 +607,10 @@ fn site_name(host: &str) -> String {
         && labels[n - 1].len() == 2
         && matches!(labels[n - 2].to_ascii_lowercase().as_str(), "co" | "com" | "org" | "net" | "gov" | "ac" | "edu");
     let name = labels[if second_level { n - 3 } else { n - 2 }];
+    // The app's own site: its name as people say it, not one run-together word.
+    if name.eq_ignore_ascii_case("nativeintelligence") {
+        return "Native Intelligence".to_string();
+    }
     if name.contains(|c: char| c.is_ascii_uppercase()) {
         return name.to_string();
     }

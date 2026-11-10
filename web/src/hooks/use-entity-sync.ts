@@ -7,7 +7,7 @@
  * mutation — local, cross-tab, and teammate/server-side via Supabase Realtime
  * (use-realtime-entities.ts). These hooks are the listener side: they turn
  * bus events into a debounced refetch (lists) or an id-matched patch/close
- * (detail panels), plus a catch-up refetch on `dial8:realtime-recovered` so
+ * (detail panels), plus a catch-up refetch on `ni:realtime-recovered` so
  * a surface never stays stale after a dropped-then-restored socket.
  *
  * Use useEntityListSync for anything that renders a collection; use
@@ -87,16 +87,16 @@ export function useEntityListSync(
       if (refetchOnRecovered) schedule()
     }
 
-    window.addEventListener('dial8:entity-created', onEntityEvent)
-    window.addEventListener('dial8:entity-updated', onEntityEvent)
-    window.addEventListener('dial8:entity-deleted', onEntityEvent)
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:entity-created', onEntityEvent)
+    window.addEventListener('ni:entity-updated', onEntityEvent)
+    window.addEventListener('ni:entity-deleted', onEntityEvent)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('dial8:entity-created', onEntityEvent)
-      window.removeEventListener('dial8:entity-updated', onEntityEvent)
-      window.removeEventListener('dial8:entity-deleted', onEntityEvent)
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:entity-created', onEntityEvent)
+      window.removeEventListener('ni:entity-updated', onEntityEvent)
+      window.removeEventListener('ni:entity-deleted', onEntityEvent)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
     }
   }, [kindsKey, debounceMs, refetchOnRecovered, enabled])
 }
@@ -164,14 +164,14 @@ export function useEntityDetailSync(
       if (handlersRef.current.refetch) scheduleRefetch()
     }
 
-    window.addEventListener('dial8:entity-updated', onUpdated)
-    window.addEventListener('dial8:entity-deleted', onDeleted)
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:entity-updated', onUpdated)
+    window.addEventListener('ni:entity-deleted', onDeleted)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     return () => {
       if (timer) clearTimeout(timer)
-      window.removeEventListener('dial8:entity-updated', onUpdated)
-      window.removeEventListener('dial8:entity-deleted', onDeleted)
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:entity-updated', onUpdated)
+      window.removeEventListener('ni:entity-deleted', onDeleted)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
     }
   }, [kind, id, debounceMs])
 }

@@ -65,7 +65,7 @@ import { resolveRunEnvironment } from '@/lib/environments/resolve'
 import { EnvironmentError, isRepoFullName } from '@/lib/environments/types'
 
 // The persona prompt is composeEveCodingSystemPrompt: the eve coding-agent has
-// no Dial8 MCP server and never opens the PR itself (push + finish_run).
+// no Native Intelligence MCP server and never opens the PR itself (push + finish_run).
 //
 // The base branch (clone ref + PR base) is the repo's REAL default branch,
 // resolved from GitHub (github-default-branch.ts, 'main' on any failure), and

@@ -12,11 +12,11 @@
  *   1. While a capture detail panel is mounted, it REGISTERS its captureId here
  *      (synchronous — no event race).
  *   2. On Stop (live mode off), the recording layer checks `hasStreamingPanel`:
- *        • registered  → dispatch `dial8:stream-extraction`; the panel runs the
+ *        • registered  → dispatch `ni:stream-extraction`; the panel runs the
  *          stream and owns completion. The recording layer SKIPS its own fetch.
  *        • not registered → the recording layer runs the guaranteed (non-stream)
  *          batch fetch exactly as before.
- *   3. The panel signals completion by dispatching `dial8:capture-ended`, which
+ *   3. The panel signals completion by dispatching `ni:capture-ended`, which
  *      the recording layer already listens for to do post-extraction work
  *      (title generation, semantic indexing) at the correct time.
  *
@@ -46,7 +46,7 @@ export type StreamExtractionDetail = {
   recentChunks?: string[]
 }
 
-export const STREAM_EXTRACTION_EVENT = 'dial8:stream-extraction'
+export const STREAM_EXTRACTION_EVENT = 'ni:stream-extraction'
 
 /** Ask the mounted panel to run a streaming extraction for this capture. */
 export function requestStreamingExtraction(detail: StreamExtractionDetail): void {

@@ -1,5 +1,5 @@
 /**
- * The few Slack Web API methods Dial8 calls, with a bot token from Connect
+ * The few Slack Web API methods Native Intelligence calls, with a bot token from Connect
  * (./connect.ts). Plain fetch, no SDK: each method is one POST.
  *
  * Rate limits (docs/plans/slack-connect.md §3): apps outside the Slack
@@ -79,7 +79,7 @@ export interface SlackTeamInfo {
   team?: { id?: string; name?: string; domain?: string; enterprise_id?: string }
 }
 
-/** users.info's user (only what Dial8 reads). */
+/** users.info's user (only what Native Intelligence reads). */
 export interface SlackUserInfo {
   user?: {
     id?: string

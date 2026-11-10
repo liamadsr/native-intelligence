@@ -5,7 +5,7 @@ import {
   Button,
   Input,
   Label,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 // The capture harness scopes the portal to the cell, so the open popover
 // renders anchored to its trigger inside the card.

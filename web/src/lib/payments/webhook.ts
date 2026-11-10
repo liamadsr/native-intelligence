@@ -15,7 +15,7 @@
  *   account.updated → the account is re-read from Stripe (./accounts.ts).
  *   account.application.deauthorized → the account is marked disconnected.
  *
- * Trust: a payment is tied back ONLY by the payment link id Dial8 stored when
+ * Trust: a payment is tied back ONLY by the payment link id Native Intelligence stored when
  * it made the link, and only when the event comes from the account that link
  * was made on. Metadata is never trusted alone: an owner can put any metadata
  * on a link in their own Dashboard, so a forged `dial8_payment_request_id` on
@@ -57,7 +57,7 @@ export interface ConnectWebhookDeps {
   /** Insert the event row; false when it already exists AND was processed (a replay). */
   beginEvent(event: { id: string; type: string; account: string | null; livemode: boolean }): Promise<boolean>
   finishEvent(eventId: string, result: { outcome: WebhookOutcome; workspaceId?: string | null; paymentRequestId?: string | null; summary?: Record<string, unknown> }): Promise<void>
-  /** The request Dial8 made this payment link for, on this account. */
+  /** The request Native Intelligence made this payment link for, on this account. */
   findRequestByPaymentLink(stripeAccountId: string, paymentLinkId: string): Promise<PaidRequest | null>
   /** The request a payment intent paid, on this account. */
   findRequestByPaymentIntent(stripeAccountId: string, paymentIntentId: string): Promise<PaidRequest | null>

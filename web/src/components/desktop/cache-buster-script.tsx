@@ -12,12 +12,12 @@ export function CacheBusterScript() {
   const script = `
     try {
       if (window.__TAURI_INTERNALS__) {
-        var KEY = 'dial8_build_id';
+        var KEY = 'ni_build_id';
         var stored = localStorage.getItem(KEY);
-        var reloading = sessionStorage.getItem('dial8_cache_bust');
+        var reloading = sessionStorage.getItem('ni_cache_bust');
         if (reloading) {
           // We just reloaded — clean up the flag and strip ?_cb param if present
-          sessionStorage.removeItem('dial8_cache_bust');
+          sessionStorage.removeItem('ni_cache_bust');
           if (location.search.indexOf('_cb=') !== -1) {
             var clean = new URL(location.href);
             clean.searchParams.delete('_cb');
@@ -31,7 +31,7 @@ export function CacheBusterScript() {
               var needsReload = !stored || d.buildId !== stored;
               localStorage.setItem(KEY, d.buildId);
               if (needsReload) {
-                sessionStorage.setItem('dial8_cache_bust', '1');
+                sessionStorage.setItem('ni_cache_bust', '1');
                 var url = new URL(location.href);
                 url.searchParams.set('_cb', Date.now());
                 location.replace(url.toString());

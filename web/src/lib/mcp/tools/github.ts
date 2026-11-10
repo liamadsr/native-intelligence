@@ -31,7 +31,7 @@ export function registerGitHubTools(
   })
 
   server.tool(
-    'dial8_link_pr',
+    'ni_link_pr',
     'Link a GitHub pull request to an action item. The PR URL must be a valid GitHub PR URL (e.g. https://github.com/owner/repo/pull/123). If the user has connected their GitHub account, PR metadata (title, state) will be fetched automatically.',
     {
       action_id: z.string().describe('The action item ID to link the PR to.'),
@@ -105,7 +105,7 @@ export function registerGitHubTools(
   )
 
   server.tool(
-    'dial8_get_pr_status',
+    'ni_get_pr_status',
     'Get all pull requests linked to an action item with their current status (open, merged, closed, draft).',
     {
       action_id: z.string().describe('The action item ID to get linked PRs for.'),
@@ -143,7 +143,7 @@ export function registerGitHubTools(
   )
 
   server.tool(
-    'dial8_list_linked_prs',
+    'ni_list_linked_prs',
     'List recent pull requests linked to actions in the current workspace. Optionally filter by action ID.',
     {
       action_id: z.string().optional().describe('Optional action ID to filter by. If omitted, returns recent PRs across the workspace.'),

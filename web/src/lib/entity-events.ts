@@ -8,9 +8,9 @@
  * panel, navigate back to the list, see the old status.
  *
  * Three events:
- *   - dial8:entity-created  (already in use)
- *   - dial8:entity-updated  (new — emit after PATCH)
- *   - dial8:entity-deleted  (new — emit after DELETE)
+ *   - ni:entity-created  (already in use)
+ *   - ni:entity-updated  (new — emit after PATCH)
+ *   - ni:entity-deleted  (new — emit after DELETE)
  *
  * Listeners can patch their cached row in place using the `fields` payload,
  * avoiding a server round-trip.
@@ -87,7 +87,7 @@ export interface EntityCreatedDetail {
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
 import type { EntityType } from '@/lib/knowledge/entity-registry'
 
-const BROADCAST_CHANNEL_NAME = 'dial8:entity-events'
+const BROADCAST_CHANNEL_NAME = 'ni:entity-events'
 const TAB_ID =
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -124,9 +124,9 @@ if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
     const myWs = getClientWorkspaceId()
     if (env.ws && myWs && env.ws !== myWs) return
     const eventName =
-      env.kind === 'updated' ? 'dial8:entity-updated'
-      : env.kind === 'deleted' ? 'dial8:entity-deleted'
-      : 'dial8:entity-created'
+      env.kind === 'updated' ? 'ni:entity-updated'
+      : env.kind === 'deleted' ? 'ni:entity-deleted'
+      : 'ni:entity-created'
     window.dispatchEvent(new CustomEvent(eventName, { detail: env.detail }))
   }
 }
@@ -195,21 +195,21 @@ export function wasRecentlyMutatedLocally(entityType: EntityKind, id: string): b
 export function emitEntityUpdated(detail: EntityUpdatedDetail, opts?: EmitOptions) {
   if (typeof window === 'undefined') return
   if (!opts?.skipBroadcast && !opts?.skipSelfMark) markLocallyMutated(detail.entityType, detail.id)
-  window.dispatchEvent(new CustomEvent('dial8:entity-updated', { detail }))
+  window.dispatchEvent(new CustomEvent('ni:entity-updated', { detail }))
   if (!opts?.skipBroadcast) broadcast({ kind: 'updated', src: TAB_ID, ws: getClientWorkspaceId(), detail })
 }
 
 export function emitEntityDeleted(detail: EntityDeletedDetail, opts?: EmitOptions) {
   if (typeof window === 'undefined') return
   if (!opts?.skipBroadcast) markLocallyMutated(detail.entityType, detail.id)
-  window.dispatchEvent(new CustomEvent('dial8:entity-deleted', { detail }))
+  window.dispatchEvent(new CustomEvent('ni:entity-deleted', { detail }))
   if (!opts?.skipBroadcast) broadcast({ kind: 'deleted', src: TAB_ID, ws: getClientWorkspaceId(), detail })
 }
 
 export function emitEntityCreated(detail: EntityCreatedDetail, opts?: EmitOptions) {
   if (typeof window === 'undefined') return
   if (!opts?.skipBroadcast && detail.id) markLocallyMutated(detail.entityType, detail.id)
-  window.dispatchEvent(new CustomEvent('dial8:entity-created', { detail }))
+  window.dispatchEvent(new CustomEvent('ni:entity-created', { detail }))
   if (!opts?.skipBroadcast) broadcast({ kind: 'created', src: TAB_ID, ws: getClientWorkspaceId(), detail })
 }
 
@@ -218,13 +218,13 @@ export function emitEntityCreated(detail: EntityCreatedDetail, opts?: EmitOption
 export function onEntityUpdated(handler: (detail: EntityUpdatedDetail) => void) {
   if (typeof window === 'undefined') return () => {}
   const wrapped = (e: Event) => handler((e as CustomEvent).detail as EntityUpdatedDetail)
-  window.addEventListener('dial8:entity-updated', wrapped)
-  return () => window.removeEventListener('dial8:entity-updated', wrapped)
+  window.addEventListener('ni:entity-updated', wrapped)
+  return () => window.removeEventListener('ni:entity-updated', wrapped)
 }
 
 export function onEntityDeleted(handler: (detail: EntityDeletedDetail) => void) {
   if (typeof window === 'undefined') return () => {}
   const wrapped = (e: Event) => handler((e as CustomEvent).detail as EntityDeletedDetail)
-  window.addEventListener('dial8:entity-deleted', wrapped)
-  return () => window.removeEventListener('dial8:entity-deleted', wrapped)
+  window.addEventListener('ni:entity-deleted', wrapped)
+  return () => window.removeEventListener('ni:entity-deleted', wrapped)
 }

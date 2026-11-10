@@ -20,7 +20,7 @@ let knownMeetingApps: Set<String> = [
 /// FALLBACK — the primary attribution is the responsibility API (see
 /// detectMeetings), which resolves any helper to its true host app.
 /// com.apple.WebKit.GPU is deliberately NOT here: that XPC service hosts
-/// audio for EVERY WKWebView app (new Teams, Safari, Outlook, Dial8 itself),
+/// audio for EVERY WKWebView app (new Teams, Safari, Outlook, Native Intelligence itself),
 /// so a static mapping to Safari mis-attributed everyone else — it made
 /// Teams calls (which run their audio in WebKit.GPU) completely undetectable.
 let helperToParentApp: [String: String] = [

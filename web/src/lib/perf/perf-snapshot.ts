@@ -1,5 +1,5 @@
 /**
- * What the page holds right now, in counts: `window.__dial8PerfSnapshot()`.
+ * What the page holds right now, in counts: `window.__niPerfSnapshot()`.
  *
  * The desktop app's main window stays open for days, and a page that slows over
  * hours (10-19: every style pass ~100 ms after 13 h, fine again after a reload)
@@ -7,7 +7,7 @@
  * where they sit (pages parked out of sight, the chat thread, the capture
  * panels, what was left on <body>), the animations still running, the canvases,
  * the style sheets and their rules, the realtime channels. Read it in the
- * desktop app's Web Inspector (Safari ▸ Develop ▸ the Mac ▸ Dial8): the release
+ * desktop app's Web Inspector (Safari ▸ Develop ▸ the Mac ▸ Native Intelligence): the release
  * build is inspectable.
  *
  * Computed only when called (a walk of the DOM, a few ms to a few tens of ms on
@@ -305,7 +305,7 @@ export function takePerfSnapshot(doc: Document = document, sources: PerfSnapshot
 }
 
 /**
- * What changes in the page over a while: `window.__dial8PerfChurn(seconds)`.
+ * What changes in the page over a while: `window.__niPerfChurn(seconds)`.
  * A snapshot says how much there is to style; this says what keeps asking
  * for it. A `<style>` going in or out, or an attribute on <html>/<body>,
  * restyles the whole window; a class or style written over and over restyles
@@ -380,20 +380,20 @@ export function watchPerfChurn(doc: Document = document, ms = 10_000): Promise<P
 
 declare global {
   interface Window {
-    __dial8PerfSnapshot?: () => PerfSnapshot
-    __dial8PerfChurn?: (seconds?: number) => Promise<PerfChurn>
+    __niPerfSnapshot?: () => PerfSnapshot
+    __niPerfChurn?: (seconds?: number) => Promise<PerfChurn>
   }
 }
 
-/** Puts `window.__dial8PerfSnapshot` and `__dial8PerfChurn` on the page; returns their removal. */
+/** Puts `window.__niPerfSnapshot` and `__niPerfChurn` on the page; returns their removal. */
 export function installPerfSnapshot(sources: PerfSnapshotSources = {}): () => void {
   if (typeof window === 'undefined') return () => {}
   const snapshot = () => takePerfSnapshot(document, sources)
   const churn = (seconds = 10) => watchPerfChurn(document, Math.max(1, Math.min(120, seconds)) * 1000)
-  window.__dial8PerfSnapshot = snapshot
-  window.__dial8PerfChurn = churn
+  window.__niPerfSnapshot = snapshot
+  window.__niPerfChurn = churn
   return () => {
-    if (window.__dial8PerfSnapshot === snapshot) delete window.__dial8PerfSnapshot
-    if (window.__dial8PerfChurn === churn) delete window.__dial8PerfChurn
+    if (window.__niPerfSnapshot === snapshot) delete window.__niPerfSnapshot
+    if (window.__niPerfChurn === churn) delete window.__niPerfChurn
   }
 }

@@ -2,7 +2,7 @@
 
 /**
  * A local agent's panel (contract G, plan "The full build" 3, "Watch"): the
- * whole conversation between the Dial8 agent and the local agent working on
+ * whole conversation between the Native Intelligence agent and the local agent working on
  * your Mac, across every turn of its session, with a box to chime in.
  *
  * Opened where a helper's run opens (a bot's page in item view: the chat
@@ -11,7 +11,7 @@
  * report chip and For you alike: every one of them opens the ledger row, and
  * the row's `source.local_agent_session_id` names the session.
  *
- *   header      the teammate, "Dial8 on <Mac>" (teammate plan C4), its
+ *   header      the teammate, "Native Intelligence on <Mac>" (teammate plan C4), its
  *               folder, whether it may edit, its status, its pull request, Stop
  *   transcript  the request, then everything since (transcript-rows.tsx),
  *               scrolling with the stream while you're at the bottom. Only
@@ -20,8 +20,8 @@
  *               drawn (the session opens on its newest page)
  *   question    when it asked one: what you send answers it (the reply box
  *               IS the question card's answer: the message route resumes the
- *               turn's ledger row). A question to Dial8 in the cloud
- *               (message_teammate) says Dial8 answers it, though you may too
+ *               turn's ledger row). A question to Native Intelligence in the cloud
+ *               (message_teammate) says Native Intelligence answers it, though you may too
  *   on the Mac  while a native question is open there (a push, a folder):
  *               "Waiting for you on your Mac" (invariant 5)
  *   composer    Steer / Queue, as you (local-agent-composer.tsx); an ended
@@ -208,7 +208,7 @@ export function LocalAgentPanel({
 
   const live = isWorking(session.status)
   const asking = session.lastSignal === 'ask' && session.status === 'waiting'
-  // Its last question went to Dial8 in the cloud (message_teammate), who answers it here.
+  // Its last question went to Native Intelligence in the cloud (message_teammate), who answers it here.
   const lastAsk = items.findLast((it): it is Extract<TranscriptItem, { type: 'report' | 'ask' | 'finish' | 'error' }> => it.type === 'ask')
   const askedTeammate = asking && lastAsk?.teammate === true
   // A native question is open on the Mac (C3): the person answers it there, never here.
@@ -251,7 +251,7 @@ export function LocalAgentPanel({
         ))}
         {session.status === 'queued' && items.length === 0 && (
           <p className="text-center text-[11px] text-muted-foreground">
-            It starts when your Mac picks it up (the Dial8 app open and signed in).
+            It starts when your Mac picks it up (the Native Intelligence app open and signed in).
           </p>
         )}
       </div>
@@ -261,7 +261,7 @@ export function LocalAgentPanel({
           <Laptop aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
           <p className="min-w-0 flex-1">
             <span className="font-medium text-amber-700 dark:text-amber-400">Waiting for you on your Mac. </span>
-            <span className="text-foreground/80">Answer the question Dial8 shows there.</span>
+            <span className="text-foreground/80">Answer the question Native Intelligence shows there.</span>
           </p>
         </div>
       )}
@@ -274,7 +274,7 @@ export function LocalAgentPanel({
           <MessageCircleQuestion aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
           <p className="min-w-0 flex-1">
             <span className="font-medium text-amber-700 dark:text-amber-400">
-              {askedTeammate ? 'It asked Dial8, who answers here; you can too. ' : 'It’s waiting on an answer. '}
+              {askedTeammate ? 'It asked Native Intelligence, who answers here; you can too. ' : 'It’s waiting on an answer. '}
             </span>
             <span className="line-clamp-3 text-foreground/80">{session.lastSignalText || 'Reply below.'}</span>
           </p>
@@ -287,7 +287,7 @@ export function LocalAgentPanel({
         ) : (
           <p data-local-agent-ended="" className="py-2 text-center text-xs text-muted-foreground">
             {sessionEndedText(session.status, session.error)}{' '}
-            Ask the Dial8 agent to start a new one.
+            Ask the Native Intelligence agent to start a new one.
           </p>
         )}
       </div>

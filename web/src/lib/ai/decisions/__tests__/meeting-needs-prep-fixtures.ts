@@ -227,7 +227,7 @@ export const meetingNeedsPrepFixtures: MeetingNeedsPrepFixture[] = [
     teammates: 1,
     organizedByPerson: true,
     recurring: true,
-    attendeeDomains: ['dial8.ai'],
+    attendeeDomains: ['nativeintelligence.dev'],
   }),
   f('one_on_one', 'candidate_interview', 'prep', {
     title: 'Interview: Senior iOS Engineer (Jordan Lee)',
@@ -239,7 +239,7 @@ export const meetingNeedsPrepFixtures: MeetingNeedsPrepFixture[] = [
     outsideAttendees: 1,
     teammates: 1,
     organizedByPerson: true,
-    attendeeDomains: ['gmail.com', 'dial8.ai'],
+    attendeeDomains: ['gmail.com', 'nativeintelligence.dev'],
   }),
   // ── Borderline: a meal that is plainly work, and a bare title with an outside domain ──
   f('borderline', 'client_lunch_named', 'prep', {

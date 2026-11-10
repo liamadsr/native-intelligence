@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Writes the rclone config from the environment, then runs the command
+# (crond by default). Two remotes:
+#
+#   store:  where the files physically go. Backblaze B2, bucket B2_BUCKET.
+#   vault:  rclone's `crypt` layer over store: everything written through it
+#           is encrypted before it leaves this container, and decrypted on
+#           the way back. File names stay readable so a listing makes sense.
+#
+# The config is written to a file, not exported, so that `docker compose exec
+# backup rclone ...` sees the same remotes as the cron jobs do.
+set -euo pipefail
+
+: "${BACKUP_PASSWORD:?BACKUP_PASSWORD is not set}"
+: "${BACKUP_SALT:?BACKUP_SALT is not set}"
+
+config_dir=/root/.config/rclone
+config="$config_dir/rclone.conf"
+umask 077
+mkdir -p "$config_dir"
+
+{
+	if [ -n "${BACKUP_TARGET:-}" ]; then
+		# Any rclone remote or a local folder, in place of B2. For a dry run
+		# of the whole job without a bucket (see README.md).
+		echo "[store]"
+		echo "type = alias"
+		echo "remote = ${BACKUP_TARGET}"
+	else
+		: "${B2_KEY_ID:?B2_KEY_ID is not set}"
+		: "${B2_APPLICATION_KEY:?B2_APPLICATION_KEY is not set}"
+		: "${B2_BUCKET:?B2_BUCKET is not set}"
+		echo "[store]"
+		echo "type = alias"
+		echo "remote = b2:${B2_BUCKET}"
+		echo
+		echo "[b2]"
+		echo "type = b2"
+		echo "account = ${B2_KEY_ID}"
+		echo "key = ${B2_APPLICATION_KEY}"
+		# Expired backups are removed for good, not kept as hidden versions.
+		echo "hard_delete = true"
+	fi
+	echo
+	echo "[vault]"
+	echo "type = crypt"
+	echo "remote = store:"
+	echo "filename_encryption = off"
+	echo "directory_name_encryption = false"
+	# rclone wants these two obscured in its config. That is not encryption:
+	# the real protection is that this file and .env are root-only.
+	echo "password = $(printf '%s' "$BACKUP_PASSWORD" | rclone obscure -)"
+	echo "password2 = $(printf '%s' "$BACKUP_SALT" | rclone obscure -)"
+} >"$config"
+
+# The schedule. /etc/backup/crontab lists every job there is; a job whose
+# settings are not in the environment is left out, so the same image runs on a
+# server that does not have that database yet. A database job counts as
+# configured when BACKUP_<NAME>_PGHOST is set, a storage job when
+# BACKUP_<NAME>_S3_ENDPOINT is.
+: >/etc/crontabs/root
+chmod 0600 /etc/crontabs/root
+while IFS= read -r line; do
+	case "$line" in
+		*backup-postgres\ * | *backup-storage\ *)
+			command="${line#*backup-}"
+			kind="${command%% *}"
+			name="${command#* }"
+			name="${name%% *}"
+			var="BACKUP_$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')_"
+			[ "$kind" = postgres ] && var+="PGHOST" || var+="S3_ENDPOINT"
+			case "$line" in \#*) continue ;; esac
+			if [ -z "${!var:-}" ]; then
+				echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) not scheduled: ${name} (${var} is not set)"
+				continue
+			fi
+			;;
+	esac
+	printf '%s\n' "$line" >>/etc/crontabs/root
+done </etc/backup/crontab
+
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) backup container ready. Jobs:"
+grep -Ev '^[[:space:]]*(#|$)' /etc/crontabs/root | sed 's/^/  /'
+
+exec "$@"

@@ -81,7 +81,7 @@ describe('RememberedChip', () => {
   it('a profile fact from a turn that read outside text says it waits for the person, and Undo withdraws it', async () => {
     fetchMock.mockResolvedValue(new Response('{"ok":true}', { status: 200 }))
     const waiting: RememberedData = { ...aboutYou, status: 'proposed' }
-    expect(rememberedLabel(waiting)).toBe('Waiting for you in What Dial8 has learned: Keep answers short')
+    expect(rememberedLabel(waiting)).toBe('Waiting for you in What Native Intelligence has learned: Keep answers short')
     act(() => root.render(h(RememberedChip, { data: waiting })))
     expect(container.textContent).toContain('Accept it to remember')
     await act(async () => undoButton().click())

@@ -6,7 +6,7 @@ import { isDisabledToolSentinel } from 'eve/tools'
 import askUser, { CHANNEL_TURN_ASK_USER_RESULT, SERVER_TURN_ASK_USER_RESULT, TEAMMATE_ASK_USER_RESULT, UNATTENDED_ASK_USER_RESULT } from '../../tools/ask_user'
 
 /**
- * The custom `ask_user` tool (resolved decision: keep Dial8's rich picker, do
+ * The custom `ask_user` tool (resolved decision: keep Native Intelligence's rich picker, do
  * NOT adopt eve's flat native ask_question). Invariants:
  *   1. its `approval` policy parks EVERY call (input.requested — how the
  *      transport surfaces the picker) EXCEPT on the device_ask surface, which
@@ -162,7 +162,7 @@ describe('chat-agent ask_user — a server-started turn answers not applicable',
     expect(SERVER_TURN_ASK_USER_RESULT.note).toMatch(/Not applicable/)
   })
 
-  it('a text turn (the person texting the Dial8 number) is NOT parked: its own note says to ask in the reply', async () => {
+  it('a text turn (the person texting the Native Intelligence number) is NOT parked: its own note says to ask in the reply', async () => {
     const t = token({ server: 'channel_turn', surface: 'sms' })
     expect(await approval({ session: sessionFor(t), toolName: 'ask_user', toolInput: QUESTIONS })).toBe('not-applicable')
     expect(await execute(QUESTIONS, { session: sessionFor(t) })).toEqual(CHANNEL_TURN_ASK_USER_RESULT)

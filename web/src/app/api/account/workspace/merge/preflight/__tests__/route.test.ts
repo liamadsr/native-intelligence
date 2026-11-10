@@ -32,7 +32,7 @@ const req = (body: unknown, headers: Record<string, string> = {}) =>
   })
 
 const PLAN = { teams: [{ source_team_id: 't1', mode: 'own' }] }
-const RESULT = { ok: true, blockers: [], source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Dial8' }, plan: PLAN }
+const RESULT = { ok: true, blockers: [], source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Native Intelligence' }, plan: PLAN }
 const GOOD = { source_workspace_id: SRC, destination_workspace_id: DST }
 
 beforeEach(() => {
@@ -54,7 +54,7 @@ describe('POST /api/account/workspace/merge/preflight', () => {
   })
 
   it('a device token may not even look (it could read the name it would have to type)', async () => {
-    const res = await POST(req(GOOD, { authorization: 'Bearer d8d_devicetoken' }))
+    const res = await POST(req(GOOD, { authorization: 'Bearer nid_devicetoken' }))
     expect(res.status).toBe(403)
     expect(hoisted.requireWorkspaceMember).not.toHaveBeenCalled()
     expect(hoisted.rpc).not.toHaveBeenCalled()

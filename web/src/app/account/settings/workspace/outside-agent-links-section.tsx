@@ -77,7 +77,7 @@ export function OutsideAgentLinksSection() {
           <div className="min-w-0">
             <p className="text-sm font-medium">Agents outside this workspace</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Members can connect their agent with Dial8 users in other workspaces, so the two agents can ask each other things. Each member still
+              Members can connect their agent with Native Intelligence users in other workspaces, so the two agents can ask each other things. Each member still
               chooses who and what. Links between members of this workspace aren&apos;t affected.
             </p>
           </div>

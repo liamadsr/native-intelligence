@@ -6,7 +6,7 @@
  * (runViaEve `park`). When the run ends cleanly the session
  * stays parked at `session.waiting`, holding everything the run read, called
  * and decided. This module keeps the handle to it, one per ledger row
- * (`tracked_job_session`, keyed on `tracked_job.id`), so Reply and Open in Dial8
+ * (`tracked_job_session`, keyed on `tracked_job.id`), so Reply and Open in Native Intelligence
  * on the loop's item continue THAT chat (/api/account/activity/[id]/chat).
  *
  * Why its own table, never a column on `tracked_job`: `tracked_job` is in the

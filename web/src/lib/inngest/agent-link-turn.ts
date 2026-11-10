@@ -51,7 +51,7 @@ export async function agentLinkTurnStep(
 
 /**
  * agent-link/turn.requested → one turn of the agent an owner set up for
- * another Dial8 user, answering that user's agent (agent links, migration
+ * another Native Intelligence user, answering that user's agent (agent links, migration
  * 435; src/lib/agent-links/exchange.ts askAgent wrote the message into the
  * half's thread and sent the event). The home-turn steps with reason
  * 'agent_ask' as a guest's `channel_turn` (surface 'dial8', the half's

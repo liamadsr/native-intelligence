@@ -91,7 +91,7 @@ function makeParams(id = PKG_ID) {
 
 function patchReq(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/knowledge-packages/${PKG_ID}`,
+    url: `https://nativeintelligence.dev/api/account/knowledge-packages/${PKG_ID}`,
     method: 'PATCH',
     body,
   }) as unknown as NextRequest
@@ -186,7 +186,7 @@ describe('GET /knowledge-packages/[id]/export — invisible package', () => {
     happyAuth()
     hoisted.packageResults = [{ data: null, error: null }]
     const req = buildRequest({
-      url: `https://dial8.ai/api/account/knowledge-packages/${PKG_ID}/export?format=markdown`,
+      url: `https://nativeintelligence.dev/api/account/knowledge-packages/${PKG_ID}/export?format=markdown`,
       method: 'GET',
     }) as unknown as NextRequest
     const res = await EXPORT_GET(req, makeParams())

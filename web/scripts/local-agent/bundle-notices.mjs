@@ -119,7 +119,7 @@ function copyrightOf(texts) {
 function notices(repo, licensesDir, agentPackagesFile) {
   const out = join(licensesDir, '..')
   const lines = [
-    'Local agent (Dial8\'s agent that works in folders on this Mac)',
+    'Local agent (Native Intelligence\'s agent that works in folders on this Mac)',
     '',
     'Ships as:',
     '  Contents/Resources/local-agent/ (JavaScript, run by the Node.js the app',

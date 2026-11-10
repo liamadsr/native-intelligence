@@ -29,7 +29,7 @@ export function ApprovalInputs({
   }
   const record = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : null
   // `ph-no-capture`: a held email send's input is its recipients, subject and
-  // body; session replay blocks it (Dial8 never stores mail text).
+  // body; session replay blocks it (Native Intelligence never stores mail text).
   return (
     <dl
       data-approval-inputs=""

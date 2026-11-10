@@ -10,8 +10,8 @@ afterEach(() => {
 
 describe('getSequenceUrl', () => {
   it('builds the /account?sequence= deep link on the app origin', () => {
-    process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
-    expect(getSequenceUrl('seq-123')).toBe('https://dial8.ai/account?sequence=seq-123')
+    process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
+    expect(getSequenceUrl('seq-123')).toBe('https://nativeintelligence.dev/account?sequence=seq-123')
   })
 
   it('strips a trailing slash from the configured origin', () => {
@@ -21,6 +21,6 @@ describe('getSequenceUrl', () => {
 
   it('defaults to the production origin', () => {
     delete process.env.NEXT_PUBLIC_APP_URL
-    expect(getSequenceUrl('x')).toBe('https://dial8.ai/account?sequence=x')
+    expect(getSequenceUrl('x')).toBe('https://nativeintelligence.dev/account?sequence=x')
   })
 })

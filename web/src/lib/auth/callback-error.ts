@@ -8,7 +8,7 @@ import {
  * `code` onto a `/login?error=` code.
  *
  * On failure Supabase redirects to the callback with `error`, `error_code`
- * and `error_description` instead of `code`. The only failure Dial8 names is
+ * and `error_description` instead of `code`. The only failure Native Intelligence names is
  * the work-email hook refusing a signup (the description carries the hook's
  * message verbatim) and an email link that expired or was already used;
  * everything else, including a bare missing `code`, keeps the generic

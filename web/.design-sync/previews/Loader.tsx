@@ -1,4 +1,4 @@
-import { Loader } from '@dial8/ui'
+import { Loader } from '@native-intelligence/ui'
 
 const cell: React.CSSProperties = {
   display: 'flex',

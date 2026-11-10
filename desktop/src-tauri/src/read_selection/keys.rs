@@ -28,7 +28,7 @@ pub const COMMAND: u32 = 0x0100;
 pub const SHIFT: u32 = 0x0200;
 pub const OPTION: u32 = 0x0800;
 pub const CONTROL: u32 = 0x1000;
-/// fn: Dial8's own bit, outside Carbon's mask.
+/// fn: Native Intelligence's own bit, outside Carbon's mask.
 pub const FN: u32 = 0x1_0000;
 /// The key code saved for "fn on its own" (kVK_Function).
 pub const FN_KEYCODE: u32 = 63;

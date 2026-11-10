@@ -23,7 +23,7 @@ const LINK: OneTimeLink = {
 
 beforeEach(() => {
   vi.stubEnv('GOOGLE_CLIENT_ID', 'google-client')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
 })
 
 function stateOf(authUrl: string) {
@@ -57,7 +57,7 @@ describe('the link starts the provider sign-in', () => {
   it("the page's copy names the provider and says the password stays on its page", () => {
     expect(LINK_PURPOSES.oauth_connect.view(LINK)).toEqual({
       title: 'Connect Google',
-      body: "Your Dial8 agent will be able to read your email and calendar. You sign in on Google's own page: Dial8 never sees your password.",
+      body: "Your Native Intelligence agent will be able to read your email and calendar. You sign in on Google's own page: Native Intelligence never sees your password.",
       button: 'Continue to Google',
     })
     const started = LINK_PURPOSES.oauth_connect.start(LINK)
@@ -157,18 +157,18 @@ describe('the confirmation text', () => {
   })
 
   it('the link text says what it opens, that it works once, and never asks for a password', () => {
-    expect(connectLinkText('google', 'https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12')).toBe(
-      "Connect your Google account: https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12 It opens Google's own sign-in and works once, for 15 minutes. I'll never ask for a password by text.",
+    expect(connectLinkText('google', 'https://nativeintelligence.dev/l/AbCdEfGhIjKlMnOpQrStUv12')).toBe(
+      "Connect your Google account: https://nativeintelligence.dev/l/AbCdEfGhIjKlMnOpQrStUv12 It opens Google's own sign-in and works once, for 15 minutes. I'll never ask for a password by text.",
     )
     for (const inSetup of [true, false]) {
       expect(textConnectConfirmation({ provider: 'google', capabilities: ['email'], email: 'a@b.com', inSetup, first: true }).toLowerCase()).not.toContain('password')
     }
   })
 
-  it("the connected address's email names the Dial8 account it joined and how to remove the access", () => {
+  it("the connected address's email names the Native Intelligence account it joined and how to remove the access", () => {
     const mail = connectedNoticeEmail({ to: 'jane@brightweave.com', provider: 'google', maskedPhone: '+1 ••• ••• 4321' })
-    expect(mail.subject).toBe('Your Google account was connected to Dial8')
-    expect(mail.text).toContain('jane@brightweave.com was just connected to the Dial8 account texting +1 ••• ••• 4321')
+    expect(mail.subject).toBe('Your Google account was connected to Native Intelligence')
+    expect(mail.text).toContain('jane@brightweave.com was just connected to the Native Intelligence account texting +1 ••• ••• 4321')
     expect(mail.text).toContain('https://myaccount.google.com/permissions')
   })
 })
@@ -179,7 +179,7 @@ describe("the GitHub link's page (roadmap track E)", () => {
     const view = LINK_PURPOSES.oauth_connect.view({ payload: { provider: 'github', capabilities: ['github'] } } as never)
     expect(view).toEqual({
       title: 'Connect GitHub',
-      body: "Your Dial8 agent will be able to read your repositories and suggest changes to your website as pull requests. Nothing goes live until you say yes by text. You sign in on GitHub's own page: Dial8 never sees your password.",
+      body: "Your Native Intelligence agent will be able to read your repositories and suggest changes to your website as pull requests. Nothing goes live until you say yes by text. You sign in on GitHub's own page: Native Intelligence never sees your password.",
       button: 'Continue to GitHub',
     })
   })

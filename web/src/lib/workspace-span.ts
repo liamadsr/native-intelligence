@@ -53,7 +53,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { applyAccountSettings, beginAccountSettingsRead } from './account-setting'
 import { getClientWorkspaceId } from './workspace-fetch'
 
-export const WORKSPACE_SPAN_STORAGE_KEY = 'dial8:show-all-workspaces'
+export const WORKSPACE_SPAN_STORAGE_KEY = 'ni:show-all-workspaces'
 
 /** Where the account's answer is read and written. */
 export const WORKSPACE_SPAN_PROFILE_URL = '/api/account/profile'
@@ -62,7 +62,7 @@ export const WORKSPACE_SPAN_PROFILE_URL = '/api/account/profile'
  * The inbox's old per-device toggle. Read only as a device's answer for an
  * account that has never saved one.
  */
-const LEGACY_INBOX_SCOPE_KEY = 'dial8:notifications-scope'
+const LEGACY_INBOX_SCOPE_KEY = 'ni:notifications-scope'
 
 /** A window coming back re-reads the account at most this often. */
 export const WORKSPACE_SPAN_RESYNC_MS = 30_000

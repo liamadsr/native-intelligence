@@ -63,14 +63,14 @@ describe('emit-side arming', () => {
   it('skipSelfMark keeps both dispatch legs without arming', () => {
     const seen: unknown[] = []
     const onUpdated = (e: Event) => seen.push((e as CustomEvent).detail)
-    window.addEventListener('dial8:entity-updated', onUpdated)
+    window.addEventListener('ni:entity-updated', onUpdated)
     try {
       emitEntityUpdated(
         { entityType: 'action', id: 'act-emit-3', fields: { external_links: [] } },
         { skipSelfMark: true },
       )
     } finally {
-      window.removeEventListener('dial8:entity-updated', onUpdated)
+      window.removeEventListener('ni:entity-updated', onUpdated)
     }
     expect(seen).toHaveLength(1)
     expect(wasRecentlyMutatedLocally('action', 'act-emit-3')).toBe(false)

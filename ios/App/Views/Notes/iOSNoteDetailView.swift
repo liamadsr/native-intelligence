@@ -1,6 +1,6 @@
 //
 //  iOSNoteDetailView.swift
-//  dial8
+//  Native Intelligence
 //
 //  Rich note detail view for iOS — displays AI-generated sections
 //  (summary, decisions, open questions, action items) with a

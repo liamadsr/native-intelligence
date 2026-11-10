@@ -69,7 +69,7 @@ class TapAudioCapture {
 
         let aggregateUID = "com.dial8.desktop.systemaudio.\(ProcessInfo.processInfo.processIdentifier)"
         let aggregateDeviceDict: [String: Any] = [
-            kAudioAggregateDeviceNameKey as String: "Dial8 System Audio",
+            kAudioAggregateDeviceNameKey as String: "Native Intelligence System Audio",
             kAudioAggregateDeviceUIDKey as String: aggregateUID,
             kAudioAggregateDeviceIsPrivateKey as String: true,
             kAudioAggregateDeviceTapListKey as String: [tapSubDevice]

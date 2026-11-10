@@ -1,6 +1,6 @@
 //
 //  STTProvider.swift
-//  dial8
+//  Native Intelligence
 //
 //  Protocol and supporting types for Speech-to-Text providers.
 //  Separate from AIProvider (which handles text-in/text-out LLMs).

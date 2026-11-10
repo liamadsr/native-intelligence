@@ -1,4 +1,4 @@
-import { Avatar, AvatarImage, AvatarFallback } from '@dial8/ui'
+import { Avatar, AvatarImage, AvatarFallback } from '@native-intelligence/ui'
 
 export function WithImage() {
   return (

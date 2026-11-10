@@ -1,6 +1,6 @@
 //
 //  WatchConnectivityService.swift
-//  dial8
+//  Native Intelligence
 //
 //  The phone end of the Watch → iPhone capture handoff.
 //

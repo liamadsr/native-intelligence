@@ -58,7 +58,7 @@ beforeEach(async () => {
   env.startForCapture.mockClear()
   env.resume.mockClear()
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ capture_id: 'cap-42' }), { status: 200 })))
-  window.addEventListener('dial8:open-card', onOpen)
+  window.addEventListener('ni:open-card', onOpen)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -68,7 +68,7 @@ beforeEach(async () => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
-  window.removeEventListener('dial8:open-card', onOpen)
+  window.removeEventListener('ni:open-card', onOpen)
   vi.unstubAllGlobals()
 })
 

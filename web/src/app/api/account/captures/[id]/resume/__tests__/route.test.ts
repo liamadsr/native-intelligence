@@ -53,7 +53,7 @@ function capture(over: Row = {}): Row {
 
 function call(id = 'cap-1') {
   const request = buildRequest({
-    url: `https://dial8.ai/api/account/captures/${id}/resume`,
+    url: `https://nativeintelligence.dev/api/account/captures/${id}/resume`,
     method: 'POST',
   }) as unknown as NextRequest
   return POST(request, { params: Promise.resolve({ id }) })

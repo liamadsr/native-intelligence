@@ -77,14 +77,14 @@ describe('the rules, on their own', () => {
   it('linesToSentences: headings and items end as sentences, text is split, URLs read as hosts, emoji go', () => {
     const lines: SectionLine[] = [
       { kind: 'heading', text: 'Next steps' },
-      { kind: 'text', text: 'Dr. Smith signed. Send the deck 🚀 to https://docs.dial8.ai/guide?x=1 today.' },
+      { kind: 'text', text: 'Dr. Smith signed. Send the deck 🚀 to https://docs.nativeintelligence.dev/guide?x=1 today.' },
       { kind: 'item', text: 'Book the room' },
       { kind: 'item', text: 'Is it done?' },
     ]
     expect(linesToSentences(lines)).toEqual([
       'Next steps.',
       'Dr. Smith signed.',
-      'Send the deck to docs.dial8.ai today.',
+      'Send the deck to docs.nativeintelligence.dev today.',
       'Book the room.',
       'Is it done?',
     ])
@@ -253,9 +253,9 @@ describe('DOM: what is read', () => {
   })
 
   it('URLs read as their host, emoji are dropped, line breaks are spaces', () => {
-    const root = dom('<h2>Links 🔗</h2><p>See <a href="https://x.dev/a">https://www.dial8.ai/docs/setup</a> 🎉 now.<br>Then go.</p>')
+    const root = dom('<h2>Links 🔗</h2><p>See <a href="https://x.dev/a">https://www.nativeintelligence.dev/docs/setup</a> 🎉 now.<br>Then go.</p>')
     const section = collectDomSection(child(root, 'h2'), root)!
-    expect(linesToSentences(section.lines)).toEqual(['Links.', 'See dial8.ai now.', 'Then go.'])
+    expect(linesToSentences(section.lines)).toEqual(['Links.', 'See nativeintelligence.dev now.', 'Then go.'])
   })
 
   it('domBlockLines of a skipped block is empty', () => {
@@ -440,7 +440,7 @@ describe('ProseMirror: what is read', () => {
         content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [pt('cell')] }] }],
       },
       { type: 'horizontalRule' },
-      { type: 'linkPreview', attrs: { url: 'https://dial8.ai' } },
+      { type: 'linkPreview', attrs: { url: 'https://nativeintelligence.dev' } },
       pt('After the embeds.'),
     )
     const s = collectPmSection(d, 0)!
@@ -465,15 +465,15 @@ describe('ProseMirror: what is read', () => {
   })
 
   it('hard breaks never glue words; URLs read as hosts; emoji go', () => {
-    const d = doc(h(2, 'Links 🔗'), p(t('See https://www.dial8.ai/docs now.'), { type: 'hardBreak' }, t('Then go.')))
-    expect(collectPmSection(d, 0)!.bodyLines).toEqual([{ kind: 'text', text: 'See dial8.ai now. Then go.' }])
-    expect(linesToSentences(collectPmSection(d, 0)!.lines)).toEqual(['Links.', 'See dial8.ai now.', 'Then go.'])
+    const d = doc(h(2, 'Links 🔗'), p(t('See https://www.nativeintelligence.dev/docs now.'), { type: 'hardBreak' }, t('Then go.')))
+    expect(collectPmSection(d, 0)!.bodyLines).toEqual([{ kind: 'text', text: 'See nativeintelligence.dev now. Then go.' }])
+    expect(linesToSentences(collectPmSection(d, 0)!.lines)).toEqual(['Links.', 'See nativeintelligence.dev now.', 'Then go.'])
   })
 
   it('a literal markdown link reads as its text, a literal image not at all (the import parses no links)', () => {
     const d = doc(
       h(2, 'Setup'),
-      pt('Follow [the setup guide](https://dial8.ai/docs/setup_(v2)) first. ![diagram](https://dial8.ai/d.png)Then call Sam.'),
+      pt('Follow [the setup guide](https://nativeintelligence.dev/docs/setup_(v2)) first. ![diagram](https://nativeintelligence.dev/d.png)Then call Sam.'),
     )
     expect(collectPmSection(d, 0)!.bodyLines).toEqual([{ kind: 'text', text: 'Follow the setup guide first. Then call Sam.' }])
   })

@@ -103,6 +103,7 @@ import { notifyFlowStepSettled, type FlowStepOutcome } from '@/lib/flows/flow-st
 import { connectionProblem, loadOwnerConnection, mcpContentText, toolOf } from '@/lib/mcp-client/owner-connection'
 import { checkToolInputAtRun } from '@/lib/flows/tool-input-schema'
 import { capStepOutput } from '@/lib/flows/redact'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /**
  * Where a held call came from. tool_approval's CHECK still admits a retired
@@ -189,7 +190,7 @@ export interface ApprovalContext {
   loopStep?: LoopStepApprovalContext
   /** P9: a post card's own Typefully click, set by the server (settle-card.ts), never by a model. */
   postCard?: true
-  /** C1: a call from the Dial8 agent on the person's Mac (its job, its Mac, its folder). */
+  /** C1: a call from the Native Intelligence agent on the person's Mac (its job, its Mac, its folder). */
   localAgent?: LocalAgentApprovalContext
   /**
    * The card's Always allow (mcp-client/always-allow.ts): the connected app's
@@ -309,13 +310,13 @@ export function askHomeText(approval: Pick<NewApproval, 'door' | 'context' | 'ca
       // The card under it says which loop, what runs and what each button does.
       return publicContent ? 'One of your loops wants to post this. It waits for your yes.' : 'One of your loops stopped here for your yes.'
     case 'skill_run':
-      // A connected app's write the run staged (F4), or a Dial8 tool the
+      // A connected app's write the run staged (F4), or a Native Intelligence tool the
       // reviewer held: only the first is "in a connected app".
       return approval.context?.mcp
         ? 'A loop wants to make this change in a connected app. Nothing has run: it waits for your yes.'
         : 'A loop wants to make this change. Nothing has run: it waits for your yes.'
     default: {
-      // A call from the Dial8 agent on the person's Mac: it names the Mac and
+      // A call from the Native Intelligence agent on the person's Mac: it names the Mac and
       // the job (the person's own Mac name and folder label).
       const mac = approval.context?.localAgent
       // A guest's call (guest access): who asked, through the agent you made for them.
@@ -1007,9 +1008,9 @@ function withoutOffer(context: ApprovalContext | undefined): ApprovalContext {
   return rest
 }
 
-/** A Dial8 MCP name without its prefix (the registry's name). */
+/** A Native Intelligence MCP name without its prefix (the registry's name). */
 function bareName(tool: string): string {
-  return tool.replace(/^dial8_/, '')
+  return bareToolName(tool)
 }
 
 /** Why an edit of a flow step's inputs doesn't fit the tool's schema now, or null when it does. */

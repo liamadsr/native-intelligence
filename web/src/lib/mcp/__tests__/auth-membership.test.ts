@@ -44,7 +44,7 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => fakeService() }))
 
 import { authenticateMcpRequest } from '../auth'
 
-const req = () => new Request('https://dial8.ai/api/mcp', { method: 'POST', headers: { authorization: 'Bearer tok' } })
+const req = () => new Request('https://nativeintelligence.dev/api/mcp', { method: 'POST', headers: { authorization: 'Bearer tok' } })
 const later = new Date(Date.now() + 3_600_000).toISOString()
 
 async function status(p: Promise<unknown>): Promise<number> {

@@ -188,7 +188,7 @@ function makeFakeSupabase(rowOverrides: Record<string, unknown> = {}) {
 
 function patchReq(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/documents/${DOC_ID}`,
+    url: `https://nativeintelligence.dev/api/account/documents/${DOC_ID}`,
     method: 'PATCH',
     body,
   }) as unknown as NextRequest
@@ -197,7 +197,7 @@ function patchReq(body: unknown): NextRequest {
 const { GET, PATCH, DELETE } = await import('@/app/api/account/documents/[id]/route')
 
 function deleteReq(permanent: boolean): NextRequest {
-  return new NextRequest(`https://dial8.ai/api/account/documents/${DOC_ID}${permanent ? '?permanent=true' : ''}`, { method: 'DELETE' })
+  return new NextRequest(`https://nativeintelligence.dev/api/account/documents/${DOC_ID}${permanent ? '?permanent=true' : ''}`, { method: 'DELETE' })
 }
 
 describe('PATCH /api/account/documents/[id] — re-index on edit', () => {

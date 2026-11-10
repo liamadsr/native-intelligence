@@ -53,7 +53,7 @@ describe('migration 390: the newsletter skill', () => {
   it('the week’s block: a slow week is a short issue, never invented news', () => {
     expect(renderNewsletterBlock({ moments: [], shipped: [], docs: [], slow: true })).toContain('A slow week: write a short issue anyway')
     expect(renderNewsletterBlock({ moments: [], shipped: [{ identifier: 'ENG-1', title: 'Search', kind: 'action' }], docs: [], slow: false })).toContain('- ENG-1 Search')
-    expect(renderNewsletterBlock({ moments: [], shipped: [], docs: [], slow: false })).toContain('Dial8 never sends it')
+    expect(renderNewsletterBlock({ moments: [], shipped: [], docs: [], slow: false })).toContain('Native Intelligence never sends it')
   })
 
   it('the issue lands as a document private to the loop’s owner until they share it', () => {

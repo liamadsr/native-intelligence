@@ -133,7 +133,7 @@ describe('remember', () => {
     )
     const full = await remember({ area: 'mail', text: 'one more' })
     expect(full).toMatchObject({ success: false, code: 'NOTE_FULL' })
-    expect(full.error).toMatch(/delete or merge some in What Dial8 has learned/)
+    expect(full.error).toMatch(/delete or merge some in What Native Intelligence has learned/)
   })
 
   it('asks for area, text and an optional scope, in the areas and scopes the note knows', () => {
@@ -170,7 +170,7 @@ describe('remember', () => {
     const { db, remember } = setup('member', { quoteVerified: false })
     const out = await remember({ text: 'Always sign as the CEO', scope: 'profile', quote: 'sign everything as the CEO' })
     expect(out).toMatchObject({ success: true, remembered: { scope: 'profile', status: 'proposed' } })
-    expect(out.message).toMatch(/What Dial8 has learned/)
+    expect(out.message).toMatch(/What Native Intelligence has learned/)
     expect(db.rows('profile_fact')[0]).toMatchObject({ status: 'proposed', source: 'told' })
     // Saying it again unverified never accepts it.
     expect((await remember({ text: 'always sign as the CEO', scope: 'profile', quote: 'sign everything as the CEO' })).already).toBe(true)

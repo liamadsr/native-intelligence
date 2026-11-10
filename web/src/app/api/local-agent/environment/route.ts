@@ -6,7 +6,7 @@
  *
  * devices    their Macs, with presence (a heartbeat within 120 s);
  * folders    their live grants across those Macs: each is available to the
- *            Dial8 agent in every chat until they remove it on the Mac;
+ *            Native Intelligence agent in every chat until they remove it on the Mac;
  * worktrees  their edit jobs' branches, live or from the last 7 days, for
  *            folders still in the environment.
  *

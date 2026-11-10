@@ -66,7 +66,7 @@ function makeSupabase(queues: Record<string, unknown[]>) {
 }
 
 function buildReq(body: unknown) {
-  return new Request('https://dial8.ai/api/account/actions/move/preflight', {
+  return new Request('https://nativeintelligence.dev/api/account/actions/move/preflight', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: typeof body === 'string' ? body : JSON.stringify(body),

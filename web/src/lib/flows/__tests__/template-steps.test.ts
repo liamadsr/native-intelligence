@@ -17,7 +17,7 @@ import {
 import type { TriggerContext } from '../types'
 
 const trigger: TriggerContext = { type: 'capture_processed', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-10-20T10:00:00Z' }
-const ctx = buildTemplateContext(null, trigger, 'https://dial8.ai', {
+const ctx = buildTemplateContext(null, trigger, 'https://nativeintelligence.dev', {
   workspaceId: 'ws-1',
   capture: { id: 'cap-1', title: 'Acme renewal call' },
   steps: { summarise: { output: 'They want SSO.' }, 'a1b2-c3': { output: 'uuid-ish id' } },
@@ -52,7 +52,7 @@ describe('renderStrict', () => {
   })
 
   it('a null namespace is missing too (no capture on a schedule fire)', () => {
-    const noCapture = buildTemplateContext(null, { ...trigger, type: 'schedule' }, 'https://dial8.ai', { workspaceId: 'ws-1' })
+    const noCapture = buildTemplateContext(null, { ...trigger, type: 'schedule' }, 'https://nativeintelligence.dev', { workspaceId: 'ws-1' })
     expect(renderStrict('{{trigger.capture.title}}', noCapture).ok).toBe(false)
     // The lenient renderer keeps its old behaviour (empty), for http bodies and instructions.
     expect(renderTemplate('[{{capture.title}}]', noCapture)).toBe('[]')

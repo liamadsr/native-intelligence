@@ -1,6 +1,6 @@
 /**
  * C5's server half (teammate plan, WS-C): what a pull request for a local
- * agent's branch may name, and the server opening it with the person's Dial8
+ * agent's branch may name, and the server opening it with the person's Native Intelligence
  * GitHub sign-in (open-pull-request.ts), the way the agent-run outcome route
  * does: only the session's own branch, github.com only, replay-safe.
  */
@@ -19,9 +19,9 @@ import { CONV, FOLDER, USER, WS, seeded, type FakeDb } from './fake-db'
 
 describe('pull request helpers', () => {
   it('parses push URLs as push.rs sends them', () => {
-    expect(parseRemoteRepo('https://github.com/liamadsr/dial8-website.git')).toEqual({ host: 'github.com', owner: 'liamadsr', repo: 'dial8-website' })
-    expect(parseRemoteRepo('https://github.com/liamadsr/dial8-website')).toEqual({ host: 'github.com', owner: 'liamadsr', repo: 'dial8-website' })
-    expect(parseRemoteRepo('git@github.com:liamadsr/dial8-website.git')).toEqual({ host: 'github.com', owner: 'liamadsr', repo: 'dial8-website' })
+    expect(parseRemoteRepo('https://github.com/liamadsr/native-intelligence.git')).toEqual({ host: 'github.com', owner: 'liamadsr', repo: 'native-intelligence' })
+    expect(parseRemoteRepo('https://github.com/liamadsr/native-intelligence')).toEqual({ host: 'github.com', owner: 'liamadsr', repo: 'native-intelligence' })
+    expect(parseRemoteRepo('git@github.com:liamadsr/native-intelligence.git')).toEqual({ host: 'github.com', owner: 'liamadsr', repo: 'native-intelligence' })
     expect(parseRemoteRepo('ssh://git@GitHub.com/o/r.git')).toEqual({ host: 'github.com', owner: 'o', repo: 'r' })
     expect(parseRemoteRepo('https://gitlab.example.com/o/r.git')).toEqual({ host: 'gitlab.example.com', owner: 'o', repo: 'r' })
     expect(repoFullName(parseRemoteRepo('git@github.com:o/r.git')!)).toBe('o/r')
@@ -37,11 +37,11 @@ describe('pull request helpers', () => {
       expect(isPlainBranchName(bad), bad).toBe(false)
     }
     const s = { id: '38cb0eef-89e9-496d-bf08-0688225dbfcd', branch: null }
-    expect(isSessionBranch('dial8/dial8-website-38cb0eef', s)).toBe(true)
+    expect(isSessionBranch('dial8/native-intelligence-38cb0eef', s)).toBe(true)
     expect(isSessionBranch('dial8/other-12345678', s)).toBe(false)
     expect(isSessionBranch('main', s)).toBe(false)
-    expect(isSessionBranch('dial8/x-38cb0eef', { ...s, branch: 'dial8/dial8-website-38cb0eef' })).toBe(false)
-    expect(isSessionBranch('dial8/dial8-website-38cb0eef', { ...s, branch: 'dial8/dial8-website-38cb0eef' })).toBe(true)
+    expect(isSessionBranch('dial8/x-38cb0eef', { ...s, branch: 'dial8/native-intelligence-38cb0eef' })).toBe(false)
+    expect(isSessionBranch('dial8/native-intelligence-38cb0eef', { ...s, branch: 'dial8/native-intelligence-38cb0eef' })).toBe(true)
   })
 
   it('knows a pull request URL', () => {
@@ -60,7 +60,7 @@ describe('openSessionPullRequest', () => {
   let branch: string
   const claims = () => ({ sid, uid: USER, wid: WS })
   const body = (extra: Record<string, unknown> = {}) => ({
-    sessionId: sid, remoteUrl: 'https://github.com/liamadsr/dial8-website.git', branch, base: 'main', title: 'Fix the login redirect', body: 'Fixes it.', ...extra,
+    sessionId: sid, remoteUrl: 'https://github.com/liamadsr/native-intelligence.git', branch, base: 'main', title: 'Fix the login redirect', body: 'Fixes it.', ...extra,
   })
   const token = async () => 'gho_test'
 
@@ -68,7 +68,7 @@ describe('openSessionPullRequest', () => {
     db = seeded()
     const { session } = await createSession(db as never, { userId: USER, workspaceId: WS, folderId: FOLDER, conversationId: CONV, request: 'Fix it', mode: 'edit', startedBy: 'agent' })
     sid = session.id
-    branch = `dial8/dial8-website-${sid.slice(0, 8)}`
+    branch = `dial8/native-intelligence-${sid.slice(0, 8)}`
     row = db.tables.local_agent_session.find((s) => s.id === sid)!
     Object.assign(row, { status: 'waiting', run_id: 'r' })
   })
@@ -78,31 +78,31 @@ describe('openSessionPullRequest', () => {
     let state = 'open'
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) =>
       init?.method === 'POST'
-        ? new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/dial8-website/pull/12' }), { status: 201 })
+        ? new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/native-intelligence/pull/12' }), { status: 201 })
         : new Response(JSON.stringify({ state, merged: false }), { status: 200 }),
     )
     const out = await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })
-    expect(out).toEqual({ ok: true, url: 'https://github.com/liamadsr/dial8-website/pull/12' })
+    expect(out).toEqual({ ok: true, url: 'https://github.com/liamadsr/native-intelligence/pull/12' })
     const create = fetchImpl.mock.calls.find((c) => c[1]?.method === 'POST')!
-    expect(create[0]).toBe('https://api.github.com/repos/liamadsr/dial8-website/pulls')
+    expect(create[0]).toBe('https://api.github.com/repos/liamadsr/native-intelligence/pulls')
     expect(JSON.parse(String(create[1]!.body))).toEqual({ title: 'Fix the login redirect', body: 'Fixes it.', head: branch, base: 'main' })
     expect((create[1]!.headers as Record<string, string>).Authorization).toBe('Bearer gho_test')
-    expect(row.pr_url).toBe('https://github.com/liamadsr/dial8-website/pull/12')
+    expect(row.pr_url).toBe('https://github.com/liamadsr/native-intelligence/pull/12')
     // A replay answers with the stored one while GitHub says it's open, without a second create.
     const again = await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })
-    expect(again).toEqual({ ok: true, url: 'https://github.com/liamadsr/dial8-website/pull/12', reused: true })
+    expect(again).toEqual({ ok: true, url: 'https://github.com/liamadsr/native-intelligence/pull/12', reused: true })
     expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === 'POST')).toHaveLength(1)
     // Closed (or merged) since: not the answer to a new push; it opens again.
     state = 'closed'
     const reopened = await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })
-    expect(reopened).toEqual({ ok: true, url: 'https://github.com/liamadsr/dial8-website/pull/12' })
+    expect(reopened).toEqual({ ok: true, url: 'https://github.com/liamadsr/native-intelligence/pull/12' })
     expect(fetchImpl.mock.calls.filter((c) => c[1]?.method === 'POST')).toHaveLength(2)
   })
 
   it('a base that isn’t a branch name falls back to the default branch', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === 'https://api.github.com/repos/liamadsr/dial8-website') return new Response(JSON.stringify({ default_branch: 'develop' }), { status: 200 })
-      return new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/dial8-website/pull/3' }), { status: init?.method === 'POST' ? 201 : 200 })
+      if (url === 'https://api.github.com/repos/liamadsr/native-intelligence') return new Response(JSON.stringify({ default_branch: 'develop' }), { status: 200 })
+      return new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/native-intelligence/pull/3' }), { status: init?.method === 'POST' ? 201 : 200 })
     })
     const out = await openSessionPullRequest(db as never, claims(), body({ base: '--upload-pack=evil' }), { fetchImpl: fetchImpl as never, githubToken: token })
     expect(out).toMatchObject({ ok: true })
@@ -113,11 +113,11 @@ describe('openSessionPullRequest', () => {
     for (const create of [async () => { throw new Error('The operation was aborted due to timeout') }, async () => new Response('{"message":"Server Error"}', { status: 502 })]) {
       const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
         if (init?.method === 'POST') return create()
-        return new Response(JSON.stringify([{ html_url: 'https://github.com/liamadsr/dial8-website/pull/21' }]), { status: 200 })
+        return new Response(JSON.stringify([{ html_url: 'https://github.com/liamadsr/native-intelligence/pull/21' }]), { status: 200 })
       })
       row.pr_url = null
       const out = await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })
-      expect(out).toEqual({ ok: true, url: 'https://github.com/liamadsr/dial8-website/pull/21' })
+      expect(out).toEqual({ ok: true, url: 'https://github.com/liamadsr/native-intelligence/pull/21' })
     }
     // Nothing open either: the failure stands.
     const none = vi.fn(async (_url: string, init?: RequestInit) => (init?.method === 'POST' ? new Response('{}', { status: 500 }) : new Response('[]', { status: 200 })))
@@ -126,21 +126,21 @@ describe('openSessionPullRequest', () => {
   })
 
   it('a job that ended after the person allowed its push still gets its pull request; one that never pushed doesn’t', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/dial8-website/pull/30' }), { status: 201 }))
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/native-intelligence/pull/30' }), { status: 201 }))
     row.status = 'cancelled'
     expect(await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })).toMatchObject({ ok: false, code: 'ENDED' })
     db.tables.local_agent_event = [{ id: 1, session_id: sid, user_id: USER, source: 'device', kind: 'prompt', payload: { kind: 'prompt', id: 'p-1', prompt: 'push', state: 'allowed' }, created_at: new Date().toISOString() }]
-    expect(await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })).toEqual({ ok: true, url: 'https://github.com/liamadsr/dial8-website/pull/30' })
+    expect(await openSessionPullRequest(db as never, claims(), body(), { fetchImpl: fetchImpl as never, githubToken: token })).toEqual({ ok: true, url: 'https://github.com/liamadsr/native-intelligence/pull/30' })
   })
 
   it('finds the open one after GitHub’s 422, and looks up the base when the Mac couldn’t', async () => {
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === 'https://api.github.com/repos/liamadsr/dial8-website') return new Response(JSON.stringify({ default_branch: 'develop' }), { status: 200 })
+      if (url === 'https://api.github.com/repos/liamadsr/native-intelligence') return new Response(JSON.stringify({ default_branch: 'develop' }), { status: 200 })
       if (init?.method === 'POST') return new Response(JSON.stringify({ message: 'Validation Failed', errors: [{ message: 'A pull request already exists' }] }), { status: 422 })
-      return new Response(JSON.stringify([{ html_url: 'https://github.com/liamadsr/dial8-website/pull/7' }]), { status: 200 })
+      return new Response(JSON.stringify([{ html_url: 'https://github.com/liamadsr/native-intelligence/pull/7' }]), { status: 200 })
     })
     const out = await openSessionPullRequest(db as never, claims(), body({ base: null }), { fetchImpl: fetchImpl as never, githubToken: token })
-    expect(out).toEqual({ ok: true, url: 'https://github.com/liamadsr/dial8-website/pull/7' })
+    expect(out).toEqual({ ok: true, url: 'https://github.com/liamadsr/native-intelligence/pull/7' })
     const create = fetchImpl.mock.calls.find((c) => c[1]?.method === 'POST')!
     expect(JSON.parse(String(create[1]!.body)).base).toBe('develop')
     expect(fetchImpl.mock.calls.at(-1)![0]).toContain(`head=${encodeURIComponent(`liamadsr:${branch}`)}`)
@@ -186,7 +186,7 @@ describe('openSessionPullRequest', () => {
   })
 
   it('counts lengths in code points, as the desktop cuts them', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/dial8-website/pull/1' }), { status: 201 }))
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/liamadsr/native-intelligence/pull/1' }), { status: 201 }))
     // 256 emoji are 512 UTF-16 units: still a title the desktop sends whole.
     const out = await openSessionPullRequest(db as never, claims(), body({ title: '😀'.repeat(256), body: '😀'.repeat(60_000) }), { fetchImpl: fetchImpl as never, githubToken: token })
     expect(out).toMatchObject({ ok: true })

@@ -560,7 +560,7 @@ html[data-app-bg='custom'].dark .app-bg-custom-dark {
    `bg-background` / `bg-sidebar`. */
 html[data-glass-window],
 html[data-glass-window] body,
-html[data-glass-window] [data-dial8-app-root] {
+html[data-glass-window] [data-ni-app-root] {
   background: transparent;
 }
 html[data-glass-window] [data-shell-backdrop] {

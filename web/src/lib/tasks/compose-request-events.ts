@@ -22,11 +22,11 @@
  * calendar and the tab bar. Adding a compose argument to it would put a
  * push-integration concern into the signature every view surface implements.
  * The window bus is what this codebase already uses for exactly this shape of
- * cross-tree request (`dial8:chat-about-proposal`, TASK_DESTINATIONS_CHANGED).
+ * cross-tree request (`ni:chat-about-proposal`, TASK_DESTINATIONS_CHANGED).
  */
 
 /** Event name. Window-scoped; same tab only, which is all this hand-off spans. */
-export const ACTION_COMPOSE_REQUESTED = 'dial8:action-compose-requested'
+export const ACTION_COMPOSE_REQUESTED = 'ni:action-compose-requested'
 
 export interface ActionComposeRequest {
   /** The action to compose a push for. */

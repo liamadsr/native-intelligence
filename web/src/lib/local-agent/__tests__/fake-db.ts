@@ -314,7 +314,7 @@ export function seeded(extra: Record<string, Row[]> = {}): FakeDb {
   return fakeDb({
     user_device: [{ user_id: USER, id: DEVICE, name: 'Liam’s MacBook', platform: 'macos', app_version: '0.3.0', last_seen_at: new Date().toISOString() }],
     device_folder: [
-      { id: FOLDER, user_id: USER, device_id: DEVICE, grant_id: 'g1', label: 'dial8-website', path: '/Users/l/code/dial8-website', mode: 'edit', is_git: true, revoked_at: null },
+      { id: FOLDER, user_id: USER, device_id: DEVICE, grant_id: 'g1', label: 'native-intelligence', path: '/Users/l/code/native-intelligence', mode: 'edit', is_git: true, revoked_at: null },
     ],
     chat_conversations: [{ id: CONV, user_id: USER, workspace_id: WS }],
     ...extra,

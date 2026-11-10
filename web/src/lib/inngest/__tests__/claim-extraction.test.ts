@@ -546,7 +546,7 @@ describe('claimExtraction', () => {
       // The run's words: once, fenced, on the Teammate report line; never an Assistant line.
       expect(message).toContain(`<teammate-text>${STEERED}</teammate-text>`)
       expect(message.split(STEERED)).toHaveLength(2)
-      expect(message).toMatch(/^Teammate report \(Dial8 wrote this/m)
+      expect(message).toMatch(/^Teammate report \(Native Intelligence wrote this/m)
       expect(message).not.toMatch(/^Assistant: .*approved sending/m)
       // The rest of the chat is as it was.
       expect(message).toContain('User: Thanks. Our renewal with Acme is in March.')

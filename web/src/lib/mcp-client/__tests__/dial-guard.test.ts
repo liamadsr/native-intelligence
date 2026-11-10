@@ -75,7 +75,7 @@ describe('the transports', () => {
     }
   })
 
-  it('a server Dial8 builds sends its own headers, but never its own Authorization', async () => {
+  it('a server Native Intelligence builds sends its own headers, but never its own Authorization', async () => {
     await listTools(row({
       auth_type: 'bearer',
       access_token_encrypted: 'the-token',

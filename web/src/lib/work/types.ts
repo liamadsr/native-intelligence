@@ -115,7 +115,7 @@ export interface WorkSource {
   provenance?: WorkProvenance
   /**
    * A loop's skill run parked its session (bots v3 Phase 4, migration 303:
-   * `tracked_job_session`): Reply and Open in Dial8 on its item continue that
+   * `tracked_job_session`): Reply and Open in Native Intelligence on its item continue that
    * chat (lib/bots/item-run-chat.ts). Only the flag lives here; the handle is
    * server-only.
    */

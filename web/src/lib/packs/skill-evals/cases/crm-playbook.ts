@@ -3,7 +3,7 @@ import type { SkillEvalCase } from '../types'
 /**
  * The CRM core (326): it rides `search_tools` revealing the CRM tools, or a
  * contact card. Cheapest first: find the contact or company, then the brief
- * or the overview. Dial8's own records never need the browser, and a check-in
+ * or the overview. Native Intelligence's own records never need the browser, and a check-in
  * is a draft, never a send.
  */
 export const cases: SkillEvalCase[] = [

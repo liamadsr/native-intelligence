@@ -10,7 +10,7 @@
 #   launcher/launcher.mjs      launcher.ts with eve/client and prompts.ts bundled in (esbuild)
 #   launcher/server-guard.ts   the server's preload, as is (Node strips types)
 #   .output/                   eve's build of the Mac body: agents/chat-agent with
-#                              DIAL8_AGENT_HOST=mac (mac-body.sh; Nitro, self-contained)
+#                              NI_AGENT_HOST=mac (mac-body.sh; Nitro, self-contained)
 #   workers/<worker>.mjs       when agents/local-agent/workers/ exists: the worker
 #                              adapters, bundled by its build.sh (L4, F-web's)
 #   licenses/NOTICES.txt       the bundled packages and their license texts
@@ -43,7 +43,7 @@ esac
 # (agentRoot, sourcePath: labels the server never needs to exist), so the
 # bundle names this folder and nothing about this Mac. (Two builds of one
 # commit still differ in eve's random build id and Nitro's build date.)
-stage=/tmp/dial8-local-agent-build
+stage=/tmp/ni-local-agent-build
 if ! mkdir "$stage" 2>/dev/null; then
   echo "$stage exists: another bundle build is running (or remove it)" >&2
   exit 1
@@ -57,7 +57,7 @@ rm -rf "$out"
 mkdir -p "$out/launcher" "$out/licenses"
 # ESM with a require for the CommonJS deps eve/client pulls in. Run from the
 # copy so the module comments name `node_modules/…` (bundle-notices.mjs).
-banner="import { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);"
+banner="import { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);"
 (cd "$stage" && "$repo/node_modules/.bin/esbuild" agents/local-agent/launcher/launcher.ts \
   --bundle --platform=node --format=esm --target=node24 --log-level=warning \
   --banner:js="$banner" --outfile="$out/launcher/launcher.mjs")

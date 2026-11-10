@@ -18,7 +18,7 @@ vi.mock('@/lib/sky/met-norway', () => ({
 import { GET } from '../route'
 
 const get = async (query = '', headers: Record<string, string> = {}) =>
-  (await GET(new Request(`https://dial8.ai/api/account/sky${query}`, { headers }))).json()
+  (await GET(new Request(`https://nativeintelligence.dev/api/account/sky${query}`, { headers }))).json()
 
 beforeEach(() => {
   fetched.length = 0

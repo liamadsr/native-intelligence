@@ -1,8 +1,8 @@
-//! Input Device Priority: which microphone Dial8 opens.
+//! Input Device Priority: which microphone Native Intelligence opens.
 //!
-//! The user keeps an ordered list of every input device Dial8 has seen
+//! The user keeps an ordered list of every input device Native Intelligence has seen
 //! (Settings → Recording → Microphone). The highest one that is connected
-//! wins; while the list is not customised, Dial8 uses the system default
+//! wins; while the list is not customised, Native Intelligence uses the system default
 //! input exactly as before (the resolver answers `None`).
 //!
 //! Pieces:
@@ -18,7 +18,7 @@
 //!   one mic the user picked to use right now WITHOUT reordering the list.
 //!   In memory only (never saved); it beats the order and the system default
 //!   ([`pick_with_override`]) until it is cleared, its mic leaves the list,
-//!   or Dial8 quits;
+//!   or Native Intelligence quits;
 //! - the supervisor thread ([`start_supervisor`]): a CoreAudio listener on
 //!   the device list and the default input feeds it; it debounces 300 ms,
 //!   re-enumerates, merges into the store, emits [`EVENT`], flags a fault
@@ -135,7 +135,7 @@ pub fn classify_transport(code: u32) -> Transport {
 /// Our own capture aggregates are private (never enumerated), and macOS's
 /// auto-made default aggregate is plumbing: neither is a mic to rank.
 pub(crate) fn is_plumbing(uid: &str, name: &str) -> bool {
-    name.starts_with("Dial8 ") || uid.starts_with("CADefaultDeviceAggregate") || name.starts_with("CADefaultDeviceAggregate")
+    name.starts_with("Native Intelligence ") || uid.starts_with("CADefaultDeviceAggregate") || name.starts_with("CADefaultDeviceAggregate")
 }
 
 /// One input device present right now.
@@ -1794,7 +1794,7 @@ impl Supervisor {
                 p.name,
                 p.device_id.as_deref().unwrap_or("uid unknown"),
                 if p.silent {
-                    "only exact zeros for 3 s since it opened: digital silence, nothing reaches Dial8"
+                    "only exact zeros for 3 s since it opened: digital silence, nothing reaches Native Intelligence"
                 } else {
                     "silence over (sound at last, or the capture moved on)"
                 }
@@ -2014,7 +2014,7 @@ mod tests {
         assert_eq!(classify_transport(cc(b"thun")), Transport::Other);
         assert_eq!(classify_transport(0), Transport::Other);
         assert!(is_plumbing("CADefaultDeviceAggregate-1234-0", "CADefaultDeviceAggregate-1234-0"));
-        assert!(is_plumbing("x", "Dial8 System Audio"));
+        assert!(is_plumbing("x", "Native Intelligence System Audio"));
         assert!(!is_plumbing("BuiltInMicrophoneDevice", "MacBook Pro Microphone"));
     }
 

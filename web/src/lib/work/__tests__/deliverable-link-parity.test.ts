@@ -37,11 +37,11 @@ import type { WorkDeliverable } from '../types'
 
 const WS = 'f6000000-0000-4000-8000-000000000001'
 const DOC_ID = 'd0c00000-0000-4000-8000-000000000001'
-const PR_URL = 'https://github.com/liamadsr/dial8-website/pull/487'
+const PR_URL = 'https://github.com/liamadsr/native-intelligence/pull/487'
 
 beforeEach(() => {
   fake = makeFakeSupabase()
-  fake.seed('connected_account', [{ id: 'acct-dial8', user_id: 'user-1', provider: 'google', capability: 'email', account_email: 'liam@dial8.ai' }])
+  fake.seed('connected_account', [{ id: 'acct-ni', user_id: 'user-1', provider: 'google', capability: 'email', account_email: 'liam@dial8.ai' }])
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ id: 'r-1', message: { id: '1a0e8b6b5baa5eb0', threadId: '1a0e8b6b5baa5eb0' } }) })),
@@ -86,7 +86,7 @@ describe('role → deliverable → review link parity', () => {
     expect(target).toEqual({ kind: 'card', target: { type: 'mail', folder: 'drafts', threadId: '1a0e8b6b5baa5eb0', draftId: '1a0e8b6b5baa5eb0' } })
     // What Mail's list needs to show and select it: the folder, the provider
     // thread, and an account the workspace links (the list scopes by account).
-    expect(row).toMatchObject({ folder: 'drafts', provider_thread_id: '1a0e8b6b5baa5eb0', account_id: 'acct-dial8', is_draft: true })
+    expect(row).toMatchObject({ folder: 'drafts', provider_thread_id: '1a0e8b6b5baa5eb0', account_id: 'acct-ni', is_draft: true })
   })
 
   it('developer → a PR → its URL, openable', async () => {

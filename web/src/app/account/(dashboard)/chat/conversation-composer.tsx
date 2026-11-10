@@ -3,7 +3,7 @@
 /**
  * ConversationComposer — the main chat's composer for a conversation that
  * isn't the main chat: a teammate's own thread, a work run's chat, a loop
- * run's chat (bots v4: the floating chat Open in Dial8 opens is "just as
+ * run's chat (bots v4: the floating chat Open in Native Intelligence opens is "just as
  * capable" as the main one). It is ChatInput itself, fed by the state every
  * ChatInput host keeps (composer-state.ts), so everything the main composer
  * does, it does here:

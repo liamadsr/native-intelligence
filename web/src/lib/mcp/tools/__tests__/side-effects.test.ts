@@ -22,7 +22,7 @@ function chainableStub(): unknown {
 }
 
 async function registeredNames(): Promise<string[]> {
-  const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+  const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
   await registerTools(server, 'user-1', chainableStub() as SupabaseClient, 'ws-1', 'Test Workspace')
   return Object.keys((server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools)
 }
@@ -41,25 +41,25 @@ describe('MCP tool side-effect classes', () => {
   })
 
   it('the guard classifies by class first: reads read, everything else writes', () => {
-    expect(classifyToolAccess('dial8_get_pr_status')).toBe('read')
-    expect(classifyToolAccess('dial8_list_workspaces')).toBe('read')
-    expect(classifyToolAccess('dial8_link_pr')).toBe('write')
-    expect(classifyToolAccess('dial8_delete_agent')).toBe('write')
-    expect(classifyToolAccess('dial8_create_agent')).toBe('write')
+    expect(classifyToolAccess('ni_get_pr_status')).toBe('read')
+    expect(classifyToolAccess('ni_list_workspaces')).toBe('read')
+    expect(classifyToolAccess('ni_link_pr')).toBe('write')
+    expect(classifyToolAccess('ni_delete_agent')).toBe('write')
+    expect(classifyToolAccess('ni_create_agent')).toBe('write')
     // Registry classes win over a read-shaped name and vice versa.
-    expect(classifyToolAccess('dial8_list_actions')).toBe('read')
-    expect(classifyToolAccess('dial8_create_action')).toBe('write')
+    expect(classifyToolAccess('ni_list_actions')).toBe('read')
+    expect(classifyToolAccess('ni_create_action')).toBe('write')
     // Navigation and the dispatcher stay allowed under a read-only token.
-    expect(classifyToolAccess('dial8_set_workspace')).toBe('read')
-    expect(classifyToolAccess('dial8_call_tool')).toBe('read')
+    expect(classifyToolAccess('ni_set_workspace')).toBe('read')
+    expect(classifyToolAccess('ni_call_tool')).toBe('read')
     // The main agent's bot-work reads (bots-v4 A1) stay reads under a read-only token.
-    expect(classifyToolAccess('dial8_list_bot_work')).toBe('read')
-    expect(classifyToolAccess('dial8_get_bot_item')).toBe('read')
+    expect(classifyToolAccess('ni_list_bot_work')).toBe('read')
+    expect(classifyToolAccess('ni_get_bot_item')).toBe('read')
     // Their writes on that work (bots-v4 A2) are writes: a read-only token can't reach them.
-    expect(classifyToolAccess('dial8_settle_work_item')).toBe('write')
-    expect(classifyToolAccess('dial8_send_work_answer')).toBe('write')
+    expect(classifyToolAccess('ni_settle_work_item')).toBe('write')
+    expect(classifyToolAccess('ni_send_work_answer')).toBe('write')
     // Unknown names still fail closed.
-    expect(classifyToolAccess('dial8_frobnicate')).toBe('write')
-    expect(classifyToolAccess('dial8_get_frobnicate')).toBe('read')
+    expect(classifyToolAccess('ni_frobnicate')).toBe('write')
+    expect(classifyToolAccess('ni_get_frobnicate')).toBe('read')
   })
 })

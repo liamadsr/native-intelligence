@@ -27,7 +27,7 @@ describe('applyFocus', () => {
     expect(left.map((p) => p.area)).toEqual(['calendar'])
     expect(section).toContain(FOCUS_HEADING)
     expect(section).toContain('The person focused this conversation on Mail.')
-    expect(section).toContain("You are still Dial8's main agent, with every tool and the same limits")
+    expect(section).toContain("You are still Native Intelligence's main agent, with every tool and the same limits")
     expect(section).toContain('<expertise area="mail">\n# Mail\nReply within a day.\n</expertise>')
   })
 

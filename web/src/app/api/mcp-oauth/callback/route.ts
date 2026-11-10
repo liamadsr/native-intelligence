@@ -9,9 +9,9 @@ import { isDesktopMcpState, mcpBindCookie, mcpSecretsEqual, readCookie } from '@
  * GET /api/mcp-oauth/callback?code=...&state=...
  *
  * This route is intentionally NOT under /api/account/* — the routing
- * middleware (src/proxy.ts) gates that prefix behind a Dial8 session,
+ * middleware (src/proxy.ts) gates that prefix behind a Native Intelligence session,
  * and OAuth callbacks must be reachable in a fresh browser context
- * (no Dial8 cookies). The `state` (random, issued by us, looked up in the
+ * (no Native Intelligence cookies). The `state` (random, issued by us, looked up in the
  * database) proves the flow is ours; it does NOT prove who is finishing it.
  *
  * Binding the completer to the initiator (security review 2026-10-31,
@@ -49,9 +49,9 @@ function desktopRedirect(path: 'complete' | 'error', params: Record<string, stri
   const done = path === 'complete'
   return new NextResponse(
     deepLinkPage({
-      title: done ? 'Connecting to Dial8...' : 'Connection failed',
+      title: done ? 'Connecting to Native Intelligence...' : 'Connection failed',
       deepLink: `dial8desktop://mcp-oauth/${path}?${new URLSearchParams(params)}`,
-      body: `<p>${done ? 'Finishing the connection in Dial8...' : "The connection didn't complete."}</p>
+      body: `<p>${done ? 'Finishing the connection in Native Intelligence...' : "The connection didn't complete."}</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">You can close this window.</p>`,
     }),
     { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } },

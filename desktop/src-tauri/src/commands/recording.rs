@@ -19,7 +19,7 @@ async fn input_devices_off_main<T: Send + 'static>(
         .map_err(|e| format!("input-devices task failed: {e}"))?
 }
 
-/// Every input device Dial8 has seen, in priority order (Settings →
+/// Every input device Native Intelligence has seen, in priority order (Settings →
 /// Recording → Microphone). Takes no AppState lock.
 #[tauri::command]
 pub async fn list_input_devices(app_handle: AppHandle) -> Result<input_devices::Snapshot, String> {
@@ -569,7 +569,7 @@ pub fn get_audio_levels(state: State<'_, AppState>) -> AudioLevelPayload {
 /// Last AVAuthorizationStatus that check_mic_permission logged (i32::MIN =
 /// nothing logged yet). The permissions surfaces poll check_mic_permission
 /// every 1.5s, and a line per poll would bury the capture diagnostics in
-/// dial8-debug.log, so it logs on change only (first call included) — like
+/// native-intelligence-debug.log, so it logs on change only (first call included) — like
 /// permissions::log_status_if_changed. The capture-start gate calls it too, so
 /// the status a capture started under is always the last one logged. A racy
 /// double-log of one transition from two concurrent callers is harmless.
@@ -829,10 +829,10 @@ mod restart_gate_tests {
 /// asks every few seconds, so it logs on change only.
 static LAST_LOGGED_MIC_MODE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(i32::MIN);
 
-/// Dial8's macOS Mic Mode: "standard" | "wide-spectrum" | "voice-isolation"
+/// Native Intelligence's macOS Mic Mode: "standard" | "wide-spectrum" | "voice-isolation"
 /// | "unknown". Voice Isolation strips other voices in the room out of a
 /// meeting, and either non-standard mode makes macOS reconfigure every
-/// device's audio processing whenever a Dial8 process starts CoreAudio (the
+/// device's audio processing whenever a Native Intelligence process starts CoreAudio (the
 /// 2026-09-28 coreaudiod deadlock). A preference read, never the microphone;
 /// off the main thread all the same (it goes through AVFoundation).
 #[tauri::command]
@@ -848,7 +848,7 @@ pub async fn get_mic_mode() -> Result<String, String> {
         #[cfg(not(target_os = "macos"))]
         let raw = -1;
         if LAST_LOGGED_MIC_MODE.swap(raw, std::sync::atomic::Ordering::Relaxed) != raw {
-            crate::log_to_file(&format!("[mic-mode] Dial8's macOS Mic Mode = {} ({raw})", mic_mode_name(raw)));
+            crate::log_to_file(&format!("[mic-mode] Native Intelligence's macOS Mic Mode = {} ({raw})", mic_mode_name(raw)));
         }
         mic_mode_name(raw).to_string()
     })
@@ -866,7 +866,7 @@ fn mic_mode_name(raw: i32) -> &'static str {
 }
 
 /// Open macOS's Mic Mode menu (Control Center) so the user can pick
-/// Standard. macOS lists Dial8 there only while it is using the microphone,
+/// Standard. macOS lists Native Intelligence there only while it is using the microphone,
 /// so the UI offers this during a recording. Returns at once.
 #[tauri::command]
 pub fn open_mic_mode_picker() {

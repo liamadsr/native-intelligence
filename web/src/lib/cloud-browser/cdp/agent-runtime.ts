@@ -16,8 +16,8 @@ export const AGENT_RUNTIME_ORIGIN = {
   sha256: '53f23c731955e5962b36f319387f20e99d3019e0ea48e26b0c40436ba97f4181',
 } as const
 
-/** The isolated world the runtime lives in, the twin of WebKit's dial8-agent content world. */
-export const AGENT_WORLD = 'dial8-agent'
+/** The isolated world the runtime lives in, the twin of WebKit's ni-agent content world. */
+export const AGENT_WORLD = 'ni-agent'
 
 let cached: string | null = null
 

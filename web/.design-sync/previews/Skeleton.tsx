@@ -1,4 +1,4 @@
-import { Skeleton } from '@dial8/ui'
+import { Skeleton } from '@native-intelligence/ui'
 
 export function CaptureCard() {
   return (

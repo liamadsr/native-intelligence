@@ -2,7 +2,7 @@
 
 /**
  * The person's environment for local agents, on the client: the folders on
- * their Macs the Dial8 agent can work in, in every chat until they remove one
+ * their Macs the Native Intelligence agent can work in, in every chat until they remove one
  * (Liam, 10-21: "once I attach a folder, it's attached until I remove it").
  * One small external store, shared by the side panel's Environment card
  * (side-panels/environment-section.tsx) and the composer's + → Select folder…
@@ -17,7 +17,7 @@
  *            Rust's own edit confirm), then the relay's heartbeat
  *            (refreshLocalAgentDevice) so the server mirrors the new grant
  *            and gives it an id, then a read. That heartbeat is a rejoin: a
- *            Mac removed from Dial8 ("Remove this Mac") comes back this way,
+ *            Mac removed from Native Intelligence ("Remove this Mac") comes back this way,
  *            and only this way.
  *   remove   tauriBridge.localAgent.removeGrant on THIS Mac (a folder on
  *            another Mac is removed there), then the heartbeat, which revokes
@@ -152,7 +152,7 @@ export function abbreviateHome(path: string): string {
   return m ? `~${path.slice(m[0].length)}` : path
 }
 
-/** Where a folder sits: its parent, home abbreviated (`~/code/dial8-v2`); empty for a root. */
+/** Where a folder sits: its parent, home abbreviated (`~/code/native-intelligence`); empty for a root. */
 export function folderParent(path: string): string {
   const trimmed = path.replace(/\/+$/, '')
   const cut = trimmed.lastIndexOf('/')
@@ -384,11 +384,11 @@ export async function addEnvironmentFolder(): Promise<void> {
     // The person cancelled the picker.
     if (!picked.value) return
     const grant = picked.value
-    // A folder picked on this Mac brings it back if it was removed from Dial8.
+    // A folder picked on this Mac brings it back if it was removed from Native Intelligence.
     const mirror = await d().refreshMirror({ rejoin: true }).catch(() => null)
     const row = mirror?.folders.find((f) => f.grantId === grant.id)
     if (!row) {
-      toast.error("Couldn't add the folder", { description: mirror ? 'Dial8 did not register it. Try again.' : "Dial8 couldn't be reached. Try again." })
+      toast.error("Couldn't add the folder", { description: mirror ? 'Native Intelligence did not register it. Try again.' : "Native Intelligence couldn't be reached. Try again." })
       return
     }
     // Picked again after a remove whose revoke hadn't landed: it shows again.
@@ -431,7 +431,7 @@ export async function removeEnvironmentFolder(folderId: string, opts: { stopWork
   const folder = state.listed.find((f) => f.id === folderId)
   if (!folder || state.removing.includes(folderId) || state.hidden.includes(folderId)) return
   if (!state.canEdit || !state.thisDeviceId || folder.deviceId !== state.thisDeviceId) {
-    toast.error(`Remove ${folder.label} in Dial8 on ${folder.deviceName || 'the Mac it is on'}`)
+    toast.error(`Remove ${folder.label} in Native Intelligence on ${folder.deviceName || 'the Mac it is on'}`)
     return
   }
   set({ removing: [...state.removing, folderId] })
@@ -790,7 +790,7 @@ async function put(url: string, body: Record<string, unknown>): Promise<boolean>
     if (res.ok) return true
     toast.error("Couldn't switch the environment", { description: (await readRefusal(res, 'Try again.')).error })
   } catch {
-    toast.error("Couldn't switch the environment", { description: "Dial8 couldn't be reached. Try again." })
+    toast.error("Couldn't switch the environment", { description: "Native Intelligence couldn't be reached. Try again." })
   }
   return false
 }

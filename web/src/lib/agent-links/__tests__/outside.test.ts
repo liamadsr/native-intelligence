@@ -1,6 +1,6 @@
 /**
  * Agent links outside your workspace (src/lib/agent-links/outside.ts): email
- * lookup that never says who's on Dial8, connect tokens, binding a request to
+ * lookup that never says who's on Native Intelligence, connect tokens, binding a request to
  * whoever opened it (once), claiming email requests on sign-in, the answering
  * workspaces and the admin's switch. Over a small in-memory stand-in for
  * agent_link, agent_guest, member and workspace.
@@ -16,7 +16,7 @@ vi.mock('../store', () => ({
   endLinkForWorkspace: (s: unknown, i: { linkId: string; byUserId: string }) => endLinkForWorkspace(s, i),
 }))
 const send = vi.fn(async (_m: unknown) => ({ error: null as unknown }))
-vi.mock('@/lib/email', () => ({ BASE_URL: 'https://dial8.ai', sendEmail: (m: unknown) => send(m) }))
+vi.mock('@/lib/email', () => ({ BASE_URL: 'https://nativeintelligence.dev', sendEmail: (m: unknown) => send(m) }))
 
 import {
   EMAIL_REQUESTS_PER_DAY,
@@ -156,14 +156,14 @@ describe('emails', () => {
     expect(await emailRequestsToday(down, LIAM)).toBe(EMAIL_REQUESTS_PER_DAY)
   })
 
-  it('sends one email that never says whether they’re on Dial8, with the name escaped', async () => {
-    expect(await sendLinkRequestEmail({ to: 'dana@northwind.com', requesterName: 'Liam <b>', url: 'https://dial8.ai/link/t' })).toBe(true)
+  it('sends one email that never says whether they’re on Native Intelligence, with the name escaped', async () => {
+    expect(await sendLinkRequestEmail({ to: 'dana@northwind.com', requesterName: 'Liam <b>', url: 'https://nativeintelligence.dev/link/t' })).toBe(true)
     const msg = send.mock.calls[0][0] as { to: string; subject: string; html: string }
     expect(msg.to).toBe('dana@northwind.com')
-    expect(msg.subject).toBe('Liam <b> wants their Dial8 agent to talk to yours')
+    expect(msg.subject).toBe('Liam <b> wants their Native Intelligence agent to talk to yours')
     expect(msg.html).toContain('Liam &lt;b&gt;')
-    expect(msg.html).toContain('https://dial8.ai/link/t')
-    expect(msg.html).toContain("If you're new to Dial8")
+    expect(msg.html).toContain('https://nativeintelligence.dev/link/t')
+    expect(msg.html).toContain("If you're new to Native Intelligence")
   })
 })
 
@@ -175,7 +175,7 @@ describe('connect tokens', () => {
     expect(isConnectTokenShape('../../../../../../../../etc/pass')).toBe(false)
     expect(hashConnectToken(token, KEY)).not.toBe(hashConnectToken(token, 'other'))
     expect(hashConnectToken(token, KEY)).not.toContain(token)
-    expect(connectLinkUrl(token)).toBe(`https://dial8.ai/link/${token}`)
+    expect(connectLinkUrl(token)).toBe(`https://nativeintelligence.dev/link/${token}`)
   })
 
   it('open a waiting request only', async () => {
@@ -323,7 +323,7 @@ describe('asking someone outside', () => {
     expect(await (first.resolveEmail as (e: string) => Promise<string | null>)('dana@northwind.com')).toBe(DANA)
     const [a, b] = send.mock.calls.map((c) => c[0] as { subject: string; html: string })
     expect(a.subject).toBe(b.subject)
-    expect(a.subject).toBe('Liam Alizadeh wants their Dial8 agent to talk to yours')
+    expect(a.subject).toBe('Liam Alizadeh wants their Native Intelligence agent to talk to yours')
     expect(a.html.replace(/link\/[A-Za-z0-9_-]{32}/, 'link/T')).toBe(b.html.replace(/link\/[A-Za-z0-9_-]{32}/, 'link/T'))
   })
 
@@ -345,7 +345,7 @@ describe('asking someone outside', () => {
     const input = requestLink.mock.calls[0][1]
     expect(input).toMatchObject({ peerUserId: null, email: null })
     const url = (result as { url: string }).url
-    const token = url.slice('https://dial8.ai/link/'.length)
+    const token = url.slice('https://nativeintelligence.dev/link/'.length)
     expect(isConnectTokenShape(token)).toBe(true)
     expect(input.connectTokenHash).toBe(hashConnectToken(token, KEY))
   })

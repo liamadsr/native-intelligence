@@ -1,6 +1,6 @@
 //
 //  AIBackendService.swift
-//  dial8
+//  Native Intelligence
 //
 //  HTTP client for Eve chat and Next.js indexing/search routes.
 //  All AI calls go through the website backend,
@@ -42,7 +42,7 @@ class AIBackendService {
         #if DEBUG
         return "http://localhost:3000"
         #else
-        return "https://dial8.ai"
+        return "https://nativeintelligence.dev"
         #endif
     }
 
@@ -106,7 +106,7 @@ class AIBackendService {
                             }
                         case .finished(let turn):
                             if !turn.requests.isEmpty {
-                                throw AIBackendError.serverError("This agent needs your input. Open the conversation in Dial8 chat to answer it.")
+                                throw AIBackendError.serverError("This agent needs your input. Open the conversation in Native Intelligence chat to answer it.")
                             }
                             if let failure = turn.failure { throw AIBackendError.serverError(failure) }
                             continuation.yield(.completed(AgentResponse(text: turn.text, toolUses: turn.tools.map { ToolUse(name: $0.name, input: $0.input) })))

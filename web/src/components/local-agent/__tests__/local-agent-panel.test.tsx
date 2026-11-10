@@ -5,7 +5,7 @@
  *
  * Locked in: the first read is the newest page of events (the browser
  * client, owner RLS), then the session's GET after it; the request opens the
- * conversation as the Dial8 agent's; messages to it read "Dial8 agent" or
+ * conversation as the Native Intelligence agent's; messages to it read "Native Intelligence agent" or
  * "You", and only a server row is one (S4); a message that couldn't be
  * delivered says so in red; tool calls are collapsed until opened; ask /
  * finish are highlighted and an edit job's branch is its card; realtime rows
@@ -76,7 +76,7 @@ function sessionRow(over: Partial<SessionRow> = {}): SessionRow {
   return {
     id: SID,
     folderId: 'f1',
-    folderLabel: 'dial8-website',
+    folderLabel: 'native-intelligence',
     deviceId: 'd1',
     deviceName: 'Liam’s MacBook',
     conversationId: 'c1',
@@ -100,7 +100,7 @@ function sessionRow(over: Partial<SessionRow> = {}): SessionRow {
 const EVENTS = [
   { id: 1, source: 'device', kind: 'status', payload: { kind: 'status', status: 'running' } },
   { id: 2, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c1', name: 'read_file', input: '{"path":"README.md"}' } },
-  { id: 3, source: 'device', kind: 'tool_result', payload: { kind: 'tool_result', callId: 'c1', name: 'read_file', ok: true, output: '# Dial8 readme body' } },
+  { id: 3, source: 'device', kind: 'tool_result', payload: { kind: 'tool_result', callId: 'c1', name: 'read_file', ok: true, output: '# Native Intelligence readme body' } },
   { id: 4, source: 'device', kind: 'text', payload: { kind: 'text', delta: 'It is a Next.js app.' } },
   { id: 5, source: 'device', kind: 'ask', payload: { kind: 'ask', question: 'Should I look at the desktop repo too?' } },
   { id: 6, source: 'server', kind: 'inbound', payload: { author: 'person', text: 'Only this one', policy: 'steer', messageId: 'm1' } },
@@ -110,7 +110,7 @@ const EVENTS = [
     id: 9,
     source: 'device',
     kind: 'branch',
-    payload: { kind: 'branch', branch: 'dial8/dial8-website-1a2b', commit: 'abcdef1234567', filesChanged: 3, insertions: 10, deletions: 2 },
+    payload: { kind: 'branch', branch: 'dial8/native-intelligence-1a2b', commit: 'abcdef1234567', filesChanged: 3, insertions: 10, deletions: 2 },
   },
 ]
 
@@ -179,26 +179,26 @@ describe('LocalAgentPanel', () => {
     await mount()
     expect(db.reads).toEqual([{ lt: null, limit: EVENTS_PAGE }])
     expect(fetchMock.mock.calls[0][0]).toBe(`/api/local-agent/sessions/${SID}?afterId=9`)
-    // The header: the teammate (Dial8 on its Mac), where it works, whether it edits, its status, Stop.
-    expect(q('[data-local-agent-teammate-name]')?.textContent).toBe('Dial8 on Liam’s MacBook')
-    expect(q('[data-local-agent-header]')?.textContent).toContain('dial8-website')
+    // The header: the teammate (Native Intelligence on its Mac), where it works, whether it edits, its status, Stop.
+    expect(q('[data-local-agent-teammate-name]')?.textContent).toBe('Native Intelligence on Liam’s MacBook')
+    expect(q('[data-local-agent-header]')?.textContent).toContain('native-intelligence')
     expect(q('[data-local-agent-mode]')?.textContent).toBe('Read only')
     expect(q('[data-local-agent-status-line]')?.textContent).toBe('Working')
     expect(q('[data-local-agent-stop]')).not.toBeNull()
-    // The request opens it, as the Dial8 agent's.
+    // The request opens it, as the Native Intelligence agent's.
     const inbound = [...container.querySelectorAll('[data-local-agent-inbound]')]
     expect(inbound[0].getAttribute('data-local-agent-inbound')).toBe('agent')
-    expect(inbound[0].textContent).toContain('Dial8 agent · asked')
+    expect(inbound[0].textContent).toContain('Native Intelligence agent · asked')
     expect(inbound[0].textContent).toContain('Take a look at this repository')
     // Messages to it, labelled by who sent them.
     expect(inbound[1].textContent).toMatch(/^You/)
     expect(inbound[1].textContent).toContain('Only this one')
-    expect(inbound[2].textContent).toContain('Dial8 agent · queued')
+    expect(inbound[2].textContent).toContain('Native Intelligence agent · queued')
     // The agent's words, its highlights and its branch.
     expect(q('[data-local-agent-text]')?.textContent).toContain('It is a Next.js app.')
     expect(q('[data-local-agent-highlight="ask"]')?.textContent).toContain('Should I look at the desktop repo too?')
     expect(q('[data-local-agent-highlight="finish"]')?.textContent).toContain('Mapped the app.')
-    expect(q('[data-local-agent-branch]')?.textContent).toContain('dial8/dial8-website-1a2b')
+    expect(q('[data-local-agent-branch]')?.textContent).toContain('dial8/native-intelligence-1a2b')
     expect(q('[data-local-agent-branch]')?.textContent).toContain('3 files changed · +10 −2')
   })
 
@@ -206,9 +206,9 @@ describe('LocalAgentPanel', () => {
     await mount()
     const tool = q('[data-local-agent-tool="read_file"]')!
     expect(tool.textContent).toContain('Reading README.md')
-    expect(tool.textContent).not.toContain('# Dial8 readme body')
+    expect(tool.textContent).not.toContain('# Native Intelligence readme body')
     await act(async () => tool.querySelector('button')!.click())
-    expect(tool.textContent).toContain('# Dial8 readme body')
+    expect(tool.textContent).toContain('# Native Intelligence readme body')
   })
 
   it('subscribes to its events and its row, one filtered channel each', async () => {
@@ -352,7 +352,7 @@ describe('LocalAgentPanel', () => {
     // Cancelled: no Stop, no box.
     expect(q('[data-local-agent-stop]')).toBeNull()
     expect(q('[data-local-agent-composer]')).toBeNull()
-    expect(q('[data-local-agent-ended]')?.textContent).toContain('Ask the Dial8 agent to start a new one')
+    expect(q('[data-local-agent-ended]')?.textContent).toContain('Ask the Native Intelligence agent to start a new one')
   })
 
   it('an open question: your reply answers it', async () => {
@@ -380,7 +380,7 @@ describe('LocalAgentPanel', () => {
 })
 
 describe('pollIntervalFor', () => {
-  it('the teammate plan: its pull request, a question on the Mac, and a question to Dial8', async () => {
+  it('the teammate plan: its pull request, a question on the Mac, and a question to Native Intelligence', async () => {
     const events = [
       { id: 1, source: 'device', kind: 'status', payload: { kind: 'status', status: 'running' } },
       { id: 2, source: 'device', kind: 'tool', payload: { kind: 'tool', callId: 'c1', name: 'message_teammate', input: '{"text":"Which repo?"}' } },
@@ -392,12 +392,12 @@ describe('pollIntervalFor', () => {
     await mount(sessionRow({ status: 'waiting', mode: 'edit', lastSignal: 'ask', lastSignalText: 'Which repo holds the API?', prUrl: 'https://github.com/o/r/pull/12' }), events)
     // Its pull request, in the header.
     expect(q<HTMLAnchorElement>('[data-local-agent-header-pr]')?.href).toBe('https://github.com/o/r/pull/12')
-    // The teammate tool's call isn't drawn again; its question reads "To Dial8", and Dial8 answers it here.
+    // The teammate tool's call isn't drawn again; its question reads "To Native Intelligence", and Native Intelligence answers it here.
     expect(q('[data-local-agent-tool="message_teammate"]')).toBeNull()
-    expect(q('[data-local-agent-highlight="ask"]')?.textContent).toContain('To Dial8')
+    expect(q('[data-local-agent-highlight="ask"]')?.textContent).toContain('To Native Intelligence')
     expect(q('[data-local-agent-highlight="report"]')?.textContent).toContain('Reading the tests.')
     expect(q('[data-local-agent-asking]')?.getAttribute('data-local-agent-asking')).toBe('teammate')
-    expect(q('[data-local-agent-asking]')?.textContent).toContain('It asked Dial8, who answers here; you can too.')
+    expect(q('[data-local-agent-asking]')?.textContent).toContain('It asked Native Intelligence, who answers here; you can too.')
     // The push asked on the Mac: the thread waits on the person there.
     expect(q('[data-local-agent-prompt="asking"]')?.textContent).toContain('It asked you on your Mac to push the branch')
     // Said once: the banner, not the line too.
@@ -434,8 +434,8 @@ describe('pollIntervalFor', () => {
     expect(q('[data-local-agent-on-mac]')).toBeNull()
     await act(async () => root.unmount())
     root = createRoot(container)
-    await mount(sessionRow({ status: 'cancelled', error: 'Another chat started Dial8 in this folder.' }), [])
-    expect(q('[data-local-agent-ended]')?.textContent).toContain('It ended: Another chat started Dial8 in this folder.')
+    await mount(sessionRow({ status: 'cancelled', error: 'Another chat started Native Intelligence in this folder.' }), [])
+    expect(q('[data-local-agent-ended]')?.textContent).toContain('It ended: Another chat started Native Intelligence in this folder.')
     // Expired: idle for a day, or never picked up, each in its own words.
     for (const [error, words] of [
       ['it sat idle for 24 hours', 'It sat idle for 24 hours, so it ended.'],

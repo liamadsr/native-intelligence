@@ -1,6 +1,6 @@
 //
 //  STTProviderManager.swift
-//  dial8
+//  Native Intelligence
 //
 //  Singleton coordinator for STT providers. Manages provider registration
 //  and the user's selected STT backend.

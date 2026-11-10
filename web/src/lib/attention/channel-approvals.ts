@@ -1,5 +1,5 @@
 /**
- * Dial8 approvals answered from an outside channel (docs/plans/slack-connect.md
+ * Native Intelligence approvals answered from an outside channel (docs/plans/slack-connect.md
  * §4 piece 6; docs/plans/text-and-calling.md, approving by text): what Slack
  * and SMS share. A held call raises the person's ordinary approval card
  * (src/lib/safety/approvals.ts); the channel shows it (Slack: blocks with
@@ -50,7 +50,7 @@ export function needsReplyCode(context: unknown, tool?: string | null): boolean 
   return tool === MERGE_WEBSITE_CHANGE_TOOL || (!!context && typeof context === 'object' && !!(context as { website?: unknown }).website)
 }
 
-/** The code part of an approval needing one, from its context; undefined for any other. */
+/** The code part of an approval needing one, from its context or tool; undefined for any other. */
 function replyCodeOf(approvalId: string, context: unknown, tool?: string): ChannelApproval['replyCode'] {
   return needsReplyCode(context, tool) ? { code: serverReplyCode(approvalId), does: 'put it live' } : undefined
 }
@@ -179,13 +179,13 @@ export async function settleApprovalFromChannel(
 export function settleLine(outcome: ChannelSettleOutcome): string {
   if (outcome.ok) {
     if (outcome.decision === 'decline') return 'Declined. Nothing ran.'
-    return outcome.success === false ? 'Approved, but it failed when it ran. The details are in Dial8.' : 'Approved. It ran.'
+    return outcome.success === false ? 'Approved, but it failed when it ran. The details are in Native Intelligence.' : 'Approved. It ran.'
   }
   switch (outcome.code) {
     case 'ALREADY_RESOLVED':
       return 'This was already answered.'
     case 'CODE_NEEDED':
-      return 'This one needs its code from my text: reply yes and the code to approve it, or approve it in Dial8.'
+      return 'This one needs its code from my text: reply yes and the code to approve it, or approve it in Native Intelligence.'
     case 'EXPIRED':
       return 'This approval expired. Ask me again.'
     case 'NOT_FOUND':

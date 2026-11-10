@@ -32,7 +32,7 @@ const { GET, POST } = await import('@/app/api/cron/wiki-maintenance/route')
 function req(bearer?: string): Request {
   const headers: Record<string, string> = {}
   if (bearer !== undefined) headers.authorization = bearer
-  return new Request('https://dial8.ai/api/cron/wiki-maintenance', { method: 'GET', headers })
+  return new Request('https://nativeintelligence.dev/api/cron/wiki-maintenance', { method: 'GET', headers })
 }
 
 beforeEach(() => {

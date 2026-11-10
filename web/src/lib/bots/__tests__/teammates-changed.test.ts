@@ -37,7 +37,7 @@ describe('announceTeammatesChanged / onTeammatesChanged', () => {
     const off = onTeammatesChanged(heard)
     fromAnotherWindow(TEAMMATES_CHANGED_KEY, '1700000000000:1')
     expect(heard).toHaveBeenCalledTimes(1)
-    fromAnotherWindow('dial8:bots:cast', '{}')
+    fromAnotherWindow('ni:bots:cast', '{}')
     // The key cleared (storage wiped) is no change to hear.
     fromAnotherWindow(TEAMMATES_CHANGED_KEY, null)
     expect(heard).toHaveBeenCalledTimes(1)

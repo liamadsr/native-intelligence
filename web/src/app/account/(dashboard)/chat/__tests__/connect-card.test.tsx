@@ -116,7 +116,7 @@ describe('ConnectCard', () => {
     })
     expect(button().textContent).toBe('Authorize')
     const details = container.querySelector('[data-connect-details]')!
-    expect(details.textContent).toContain("mcp.deepwiki.com isn't in Dial8's catalog")
+    expect(details.textContent).toContain("mcp.deepwiki.com isn't in Native Intelligence's catalog")
     expect(details.textContent).toContain('delete_pageAsks first')
     expect(details.textContent).toContain('search_docsReads')
   })

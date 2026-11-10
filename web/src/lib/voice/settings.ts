@@ -2,22 +2,22 @@
  * Voice mode settings — device-local, like read-aloud's (../read-aloud/settings).
  *
  * Tiny localStorage keys, written only when they differ from the default:
- *   dial8:voice:pause     "short" | "normal" (absent = long, 1.2 s): how long a pause
+ *   ni:voice:pause     "short" | "normal" (absent = long, 1.2 s): how long a pause
  *                         ends the user's turn (voice_start's endSilenceMs)
- *   dial8:voice:focus     "on" (absent = off): Voice focus, only the user and
- *                         voices Dial8 recognises are answered (./voice-focus)
+ *   ni:voice:focus     "on" (absent = off): Voice focus, only the user and
+ *                         voices Native Intelligence recognises are answered (./voice-focus)
  * Every access is wrapped: storage that throws or is full reads as defaults.
  *
  * There is no background-noise setting: every session asks for the quiet room
- * (VOICE_NOISE_PROFILE). A `dial8:voice:noise` left by an older build is not
+ * (VOICE_NOISE_PROFILE). A `ni:voice:noise` left by an older build is not
  * read.
- * The voice itself is read-aloud's (dial8:read-aloud:voice).
+ * The voice itself is read-aloud's (ni:read-aloud:voice).
  */
 
 import type { VoiceNoiseProfile } from '@/lib/tauri-bridge'
 
-export const VOICE_PAUSE_KEY = 'dial8:voice:pause'
-export const VOICE_FOCUS_KEY = 'dial8:voice:focus'
+export const VOICE_PAUSE_KEY = 'ni:voice:pause'
+export const VOICE_FOCUS_KEY = 'ni:voice:focus'
 
 export type VoicePause = 'short' | 'normal' | 'long'
 
@@ -72,7 +72,7 @@ export function setVoicePause(pause: VoicePause): void {
   write(VOICE_PAUSE_KEY, pause === DEFAULT_VOICE_PAUSE ? null : pause)
 }
 
-/** Voice focus: turns in a voice Dial8 doesn't know are ignored (voice mode
+/** Voice focus: turns in a voice Native Intelligence doesn't know are ignored (voice mode
  *  and Interactive; never dictation). Off by default; read at each turn, so
  *  a change applies to a session already running. */
 export function getVoiceFocus(): boolean {

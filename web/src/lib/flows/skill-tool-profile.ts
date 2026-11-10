@@ -2,8 +2,8 @@
  * The tool ceiling of a skill the AGENT wrote (docs/plans/flows-connectors.md
  * §2.5, F1: "an agent-made skill has no tool ceiling").
  *
- * create_skill / update_skill (chat, and dial8_create_skill /
- * dial8_update_skill over MCP) still never take `agent_config`. They take a
+ * create_skill / update_skill (chat, and ni_create_skill /
+ * ni_update_skill over MCP) still never take `agent_config`. They take a
  * small `tool_categories` list instead, validated against the registry's
  * categories, and stamp the config they write with `authored_by: 'agent'`:
  *

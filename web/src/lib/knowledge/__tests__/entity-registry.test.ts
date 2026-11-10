@@ -214,7 +214,7 @@ describe('derived constants are projections of the registry', () => {
     expect([...SOURCE_TYPES]).toEqual([...SOURCE_ENTITY_TYPES, ...NON_ENTITY_SOURCE_TYPES])
     // The pre-registry vocabulary minus 'email': widening create_claim's
     // accepted sources[] is a tool-surface behavior change, not a refactor, and
-    // Dial8 doesn't learn from mail (migration 341), so a claim can't cite one.
+    // Native Intelligence doesn't learn from mail (migration 341), so a claim can't cite one.
     expect([...SOURCE_TYPES].sort()).toEqual(
       ['capture', 'attachment', 'document', 'external_url', 'manual', 'conversation'].sort(),
     )
@@ -512,7 +512,7 @@ describe('the latest claim_neighborhood definition keeps every label branch', ()
   })
 
   /**
-   * Migration 341: Dial8 doesn't learn from mail. A subject line is one
+   * Migration 341: Native Intelligence doesn't learn from mail. A subject line is one
    * person's mail, so the neighborhood never labels an email node, never joins
    * email_message (it joined by workspace only), and never walks onto one.
    */

@@ -4,7 +4,7 @@ import { describeWhen, type Clock } from '../when'
 import { OWNER_EMBEDS, actionItem, sayActionItems, type ItemRow } from './action-items'
 
 /**
- * A capture (a meeting or voice note recorded in Dial8): what it was and who
+ * A capture (a meeting or voice note recorded in Native Intelligence): what it was and who
  * was in it, then the summary at the top of its own notes, read as written
  * (Liam, 2026-09-28: "captures usually start with a summary section at the
  * top, we should read that"), then the action items accepted from it (Liam:

@@ -15,7 +15,7 @@
  *  3. "+" MUST FIRE THE SKILL, NOT OPEN A FORM. `/create-eval` (migration 253)
  *     is what writes a suite AND its cases; a button that opened a name field
  *     would create empty suites that can never be run. The bridge is the
- *     `dial8:trigger-skill` window event the shell routes to the active tab's
+ *     `ni:trigger-skill` window event the shell routes to the active tab's
  *     chat — a component-local handler would reach no chat at all.
  *  4. CLICKING A ROW OPENS THE SUITE, carrying its name so the tab label and
  *     Recently viewed are right before the detail page has loaded anything.
@@ -97,7 +97,7 @@ describe('EvalsView — index', () => {
     const listener = (e: Event) => {
       events.push((e as CustomEvent).detail?.slug)
     }
-    window.addEventListener('dial8:trigger-skill', listener)
+    window.addEventListener('ni:trigger-skill', listener)
     try {
       await render()
 
@@ -107,7 +107,7 @@ describe('EvalsView — index', () => {
 
       expect(events).toEqual(['create-eval'])
     } finally {
-      window.removeEventListener('dial8:trigger-skill', listener)
+      window.removeEventListener('ni:trigger-skill', listener)
     }
   })
 

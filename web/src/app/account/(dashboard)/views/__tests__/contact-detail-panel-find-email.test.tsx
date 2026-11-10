@@ -8,7 +8,7 @@
  *   • the button renders ONLY on an empty email row. On a contact who already
  *     has an address it would be noise at best, and at worst an invitation to
  *     overwrite a known-good address with a web guess.
- *   • the click dispatches `dial8:find-contact-email` carrying the anchors the
+ *   • the click dispatches `ni:find-contact-email` carrying the anchors the
  *     skill searches on — id, name, title, company, domain, LinkedIn — read
  *     off the row the user is actually looking at.
  *
@@ -159,7 +159,7 @@ describe('the Find email button', () => {
     expect(findEmailButton()).toBeTruthy()
   })
 
-  it('dispatches dial8:find-contact-email with the row the user is looking at', async () => {
+  it('dispatches ni:find-contact-email with the row the user is looking at', async () => {
     await mount()
     const seen: Array<Record<string, unknown>> = []
     const listener = (e: Event) => seen.push((e as CustomEvent).detail)

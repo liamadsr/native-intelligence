@@ -12,25 +12,25 @@ const POLL_MS = 5000
 /** The modes worth a word, and what to say about each. */
 const COPY: Partial<Record<MicMode, { title: string; description: string }>> = {
   'voice-isolation': {
-    title: 'Voice Isolation is on for Dial8',
+    title: 'Voice Isolation is on for Native Intelligence',
     description:
       'It removes other people in the room from your recording. Choose Standard in Mic Mode.',
   },
   'wide-spectrum': {
-    title: 'Wide Spectrum is on for Dial8',
+    title: 'Wide Spectrum is on for Native Intelligence',
     description: 'Choose Standard in Mic Mode for the most reliable recordings.',
   },
 }
 
 /**
- * Dial8's macOS Mic Mode (Control Center → Mic Mode), while a desktop
+ * Native Intelligence's macOS Mic Mode (Control Center → Mic Mode), while a desktop
  * recording is live. Voice Isolation strips other people in the room out of
  * the recording, and either non-standard mode makes macOS reconfigure every
- * app's audio each time a Dial8 process starts audio, which can deadlock
+ * app's audio each time a Native Intelligence process starts audio, which can deadlock
  * macOS's audio daemon (see the desktop's audio/health.rs).
  *
  * An app can't change its own Mic Mode, so the action opens the menu. macOS
- * lists Dial8 there only while it's using the mic, which is also why this
+ * lists Native Intelligence there only while it's using the mic, which is also why this
  * only ever shows during a recording. Reading the mode is a preference read:
  * it never touches the mic.
  *

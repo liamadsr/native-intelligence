@@ -1,6 +1,6 @@
 //
 //  WorkspaceService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Resolves and caches the signed-in user's active workspace, default team, and
 //  default workflow state.
@@ -449,5 +449,5 @@ extension Notification.Name {
     /// Every service that caches workspace-scoped rows must observe this, clear
     /// synchronously, then refetch — rows from the previous workspace rendering
     /// under the new one is the bug this notification exists to prevent.
-    static let workspaceDidChange = Notification.Name("dial8.workspaceDidChange")
+    static let workspaceDidChange = Notification.Name("ni.workspaceDidChange")
 }

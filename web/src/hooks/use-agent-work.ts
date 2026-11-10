@@ -439,13 +439,13 @@ export function useAgentWork(opts: { enabled?: boolean } = {}): AgentWork {
       void refreshRef.current()
       emit({ type: 'resync' })
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     return () => {
       closed = true
       subscribedRef.current = false
       loadedEarly.current = false
       if (debounce) clearTimeout(debounce)
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       supabase.removeChannel(channel)
     }
   }, [enabled, setList, rowListeners])

@@ -36,6 +36,7 @@ import { WebAudioCapture, WebAudioCaptureError } from '@/lib/web-audio-capture'
 import { toast } from 'sonner'
 import { MAX_SELF_TOPUP_EMBEDDINGS } from '@/lib/voice-profile/types'
 import { primeVocabulary } from '@/lib/vocabulary/client'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 // ── Speaker display helpers (shared across UIs) ─────────────────
 
@@ -1180,7 +1181,7 @@ export function useRecording(options: UseRecordingOptions = {}) {
         // request (the command re-derives it) — treat it like denied.
         const result = await tauriBridge.requestMicPermission().catch(() => 'unknown')
         if (result === 'denied' || result === 'opened-settings') {
-          throw new Error('Microphone access was denied. Enable Dial8 under System Settings → Privacy & Security → Microphone, then start again.')
+          throw new Error(`Microphone access was denied. Enable ${APP_IN_SYSTEM_SETTINGS} under System Settings → Privacy & Security → Microphone, then start again.`)
         }
       } else if (micPerm === 'denied' || micPerm === 'restricted') {
         // macOS never re-prompts a denied mic (and Windows never prompts at
@@ -1188,8 +1189,8 @@ export function useRecording(options: UseRecordingOptions = {}) {
         // lands in the right place.
         void tauriBridge.requestMicPermission().catch(() => {})
         throw new Error(desktopOS() === 'windows'
-          ? 'Microphone access is turned off for Dial8. Turn on Microphone access and “Let desktop apps access your microphone” under Settings → Privacy & security → Microphone, then start again.'
-          : 'Microphone access is turned off for Dial8. Enable it under System Settings → Privacy & Security → Microphone, then start again.')
+          ? 'Microphone access is turned off for Native Intelligence. Turn on Microphone access and “Let desktop apps access your microphone” under Settings → Privacy & security → Microphone, then start again.'
+          : `Microphone access is turned off. Enable ${APP_IN_SYSTEM_SETTINGS} under System Settings → Privacy & Security → Microphone, then start again.`)
       }
 
       // System-audio TCC gate. Unlike the mic, a missing System Audio Recording
@@ -2337,7 +2338,7 @@ export function useRecording(options: UseRecordingOptions = {}) {
 
       // Get the recording result BEFORE closing Deepgram. On desktop the native
       // `tauriBridge.stopRecording()` kills the mic/system tap — it's fast — and
-      // PCM emits are batched in the Rust emitter threads (dial8-desktop
+      // PCM emits are batched in the Rust emitter threads (desktop
       // session.rs), so up to ~120ms of end-of-recording audio sits in their
       // accumulators at click time. The native stop joins those threads, which
       // flushes that tail through the still-armed audio listeners into the

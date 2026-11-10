@@ -1,3 +1,5 @@
+import { appUrl } from '@/lib/app-url'
+
 /**
  * Renders JSON-LD structured data as a script tag in the initial server HTML so
  * crawlers and AI agents can read it without executing JS.
@@ -37,17 +39,17 @@ export function StructuredData({
   )
 }
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 
 // Organization schema — powers the knowledge panel / brand entity.
 export const organizationSchema = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   url: BASE_URL,
-  logo: `${BASE_URL}/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png`,
+  logo: `${BASE_URL}/brand/ni-app-icon.png`,
   description:
-    'Dial8 is the system that turns conversations into action — meeting capture, project management, and AI execution in one workspace.',
+    'Native Intelligence is the system that turns conversations into action — meeting capture, project management, and AI execution in one workspace.',
   sameAs: ['https://x.com/Dial8_ai', 'https://discord.gg/sHtYGtkWga'],
 }
 
@@ -55,15 +57,15 @@ export const organizationSchema = {
 export const websiteSchema = {
   '@context': 'https://schema.org',
   '@type': 'WebSite',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   url: BASE_URL,
 }
 
-// SoftwareApplication schema — Dial8 as a product, eligible for rich results.
+// SoftwareApplication schema — Native Intelligence as a product, eligible for rich results.
 export const softwareApplicationSchema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   applicationCategory: 'BusinessApplication',
   operatingSystem: 'macOS, Web',
   url: BASE_URL,
@@ -77,12 +79,12 @@ export const softwareApplicationSchema = {
   },
 }
 
-// SoftwareApplication schema for Dial8 Scribe — the free, open-source macOS
+// SoftwareApplication schema for Native Intelligence Scribe — the free, open-source macOS
 // speech-to-text app. Eligible for rich results on the /scribe page.
 export const scribeSoftwareApplicationSchema = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Dial8 Scribe',
+  name: 'Native Intelligence Scribe',
   applicationCategory: 'UtilitiesApplication',
   operatingSystem: 'macOS',
   url: `${BASE_URL}/scribe`,
@@ -119,11 +121,11 @@ export function blogPostingSchema(post: {
     mainEntityOfPage: { '@type': 'WebPage', '@id': post.url },
     publisher: {
       '@type': 'Organization',
-      name: 'Dial8',
+      name: 'Native Intelligence',
       url: BASE_URL,
       logo: {
         '@type': 'ImageObject',
-        url: `${BASE_URL}/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png`,
+        url: `${BASE_URL}/brand/ni-app-icon.png`,
       },
     },
   }

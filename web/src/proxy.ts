@@ -58,7 +58,7 @@ export async function proxy(request: NextRequest) {
   // an `Authorization: Bearer <token>` header, not a cookie. The cookie-only
   // getUser() above sees no session for them, so check the header before
   // bouncing the request. Two token kinds:
-  //   - Dial8 device token (`d8d_…`): opaque, resolved against device_token.
+  //   - Native Intelligence device token (`nid_…`): opaque, resolved against device_token.
   //   - Supabase access token (`eyJ…`): a JWT, validated via getUser(token).
   // The downstream route's own auth (requireWorkspace / authenticateUser) is
   // the real authority; this proxy just must not block valid Bearer requests.

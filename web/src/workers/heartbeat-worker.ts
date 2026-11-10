@@ -5,7 +5,7 @@
  * is hidden or its window is occluded — clamping them to as little as one tick
  * per minute. In the desktop app that throttling is what kills live
  * transcription: when another window (e.g. a video-call app) fully covers
- * Dial8, the WebView's main-thread timers stall, so the 8-second Deepgram
+ * Native Intelligence, the WebView's main-thread timers stall, so the 8-second Deepgram
  * KeepAlive stops firing and Deepgram closes the idle stream.
  *
  * Worker timers are NOT subject to that visibility/occlusion throttling, so a

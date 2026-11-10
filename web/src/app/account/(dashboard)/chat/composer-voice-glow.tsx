@@ -60,7 +60,7 @@ const getIsHidden = () => document.hidden
  * runs SVG filters on the CPU, recomputing the noise each frame. In WKWebView
  * that one beam held the shared WebKit GPU process at 243% CPU (13.5%
  * without it), all through a call while it sat in the always-on-top HUD; it
- * is the `FETurbulenceSoftwareApplier` in the "Dial8 Graphics and Media" CPU
+ * is the `FETurbulenceSoftwareApplier` in the "Native Intelligence Graphics and Media" CPU
  * reports macOS filed during meetings. voice-glow drops the warp on WebKit by
  * itself only for a box over 60,000 px²; the HUD's chat box (and the main
  * composer in a narrower window, where the call glow lived until 10-15) is

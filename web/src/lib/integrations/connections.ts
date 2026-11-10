@@ -7,7 +7,7 @@
  * Sources:
  *   - the integration catalog (catalog.ts), in catalog order, GitHub included.
  *   - `LOCAL_EXCHANGE_ENTRY`, desktop only (EventKit, no OAuth).
- *   - `GET /api/account/integrations/slack` for Dial8's Slack app, only where
+ *   - `GET /api/account/integrations/slack` for Native Intelligence's Slack app, only where
  *     this deployment has one (`SLACK_APP_ENTRY`).
  *   - `GET /api/account/phone` for Texting, only where this deployment has
  *     texting (`TEXTING_ENTRY`).
@@ -56,7 +56,7 @@ export interface McpServerRow {
  */
 export interface SlackAppStatus {
   configured: boolean
-  /** May add Dial8 to a Slack workspace (a Dial8 workspace admin). */
+  /** May add Native Intelligence to a Slack workspace (a Native Intelligence workspace admin). */
   canInstall?: boolean
   /** May link their own Slack account (not a guest). */
   canLink?: boolean
@@ -81,7 +81,7 @@ export interface ConnectionRow {
   /** Stable React key: `${provider}:${capability}`, `mcp:${serverId}` or `mcp-suggested:${id}`. */
   key: string
   /**
-   * 'app' is Dial8's own app installed in another product (Slack): adding it
+   * 'app' is Native Intelligence's own app installed in another product (Slack): adding it
    * takes steps on its page, so every action opens that page.
    */
   kind: 'oauth' | 'mcp' | 'local' | 'app'
@@ -295,7 +295,7 @@ function localExchangeRow(local: LocalCalendarStatus | null): ConnectionRow {
 }
 
 /**
- * Dial8's Slack app, for this person: connected once their own Slack account
+ * Native Intelligence's Slack app, for this person: connected once their own Slack account
  * is linked in a Slack workspace bound here (that's when they can message
  * their agent); until then something to add, but only when they can add it:
  * link their account in a Slack workspace already bound here, or (an admin)

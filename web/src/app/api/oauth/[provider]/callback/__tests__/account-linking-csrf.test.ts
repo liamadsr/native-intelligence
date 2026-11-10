@@ -101,7 +101,7 @@ function sign(payload: Record<string, unknown>) {
 async function start(userId: string, source?: string) {
   hoisted.authUser = { id: userId }
   const qs = new URLSearchParams({ capability: 'tasks', ...(source !== undefined ? { source } : {}) })
-  const res = await authorize(new Request(`https://dial8.ai/api/oauth/linear/authorize?${qs}`), PARAMS)
+  const res = await authorize(new Request(`https://nativeintelligence.dev/api/oauth/linear/authorize?${qs}`), PARAMS)
   expect(res.status).toBe(200)
   const setCookie = res.headers.get('set-cookie')
   // "name=value": what the starting browser sends back to the callback.
@@ -113,10 +113,10 @@ function stateData(state: string) {
   return JSON.parse(Buffer.from(state.slice(0, state.lastIndexOf('.')), 'base64url').toString())
 }
 
-/** The provider redirecting the (victim's) browser back, with no Dial8 cookies. */
+/** The provider redirecting the (victim's) browser back, with no Native Intelligence cookies. */
 function providerReturn(state: string, cookie?: string) {
   return callback(
-    new Request(`https://dial8.ai/api/oauth/linear/callback?code=victim-code&state=${encodeURIComponent(state)}`, {
+    new Request(`https://nativeintelligence.dev/api/oauth/linear/callback?code=victim-code&state=${encodeURIComponent(state)}`, {
       headers: cookie ? { cookie } : {},
     }),
     PARAMS,
@@ -135,7 +135,7 @@ function claimAs(userId: string | null, body: Record<string, unknown>, via: 'coo
   hoisted.authUser = userId ? { id: userId } : null
   hoisted.authVia = via
   return claim(
-    new Request('https://dial8.ai/api/oauth/linear/claim', {
+    new Request('https://nativeintelligence.dev/api/oauth/linear/claim', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -153,7 +153,7 @@ beforeEach(() => {
   vi.stubEnv('OAUTH_STATE_SECRET', 'state-secret')
   vi.stubEnv('LINEAR_CLIENT_ID', 'linear-client')
   vi.stubEnv('LINEAR_CLIENT_SECRET', 'linear-secret')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     if (href.includes('linear.app/oauth/token') || href.includes('api.linear.app/oauth/token')) {

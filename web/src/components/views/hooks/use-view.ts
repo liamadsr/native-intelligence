@@ -40,7 +40,7 @@ function activeViewStorageKey(
 ): string {
   const scope = viewScope ? `${viewScope.type}:${viewScope.id}` : 'global'
   const ws = workspaceId ?? 'unknown'
-  return `dial8:active-view:${ws}:${entityType}:${teamId ?? 'noteam'}:${scope}`
+  return `ni:active-view:${ws}:${entityType}:${teamId ?? 'noteam'}:${scope}`
 }
 
 function readActiveViewId(key: string): string | null {
@@ -554,7 +554,7 @@ export function fitScopeAssigneeFilter(
 function draftStorageKey(
   baselineId: string,
 ): string {
-  return `dial8:view-draft:${baselineId}`
+  return `ni:view-draft:${baselineId}`
 }
 
 function defaultBaselineId(
@@ -634,7 +634,7 @@ const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export function garbageCollectAbandonedDrafts(now: number = Date.now()) {
   if (typeof window === 'undefined') return
   try {
-    const prefix = 'dial8:view-draft:'
+    const prefix = 'ni:view-draft:'
     const toRemove: string[] = []
     const toRestamp: Array<{ key: string; overrides: Partial<ViewConfig> }> = []
     for (let i = 0; i < window.localStorage.length; i++) {
@@ -1064,7 +1064,7 @@ const inflightViewQueries = new Map<string, SharedRequest<ViewQueryResponse>>()
 
 if (typeof window !== 'undefined') {
   const dropInflightViewQueries = () => inflightViewQueries.clear()
-  for (const name of ['dial8:entity-created', 'dial8:entity-updated', 'dial8:entity-deleted', 'dial8:realtime-recovered']) {
+  for (const name of ['ni:entity-created', 'ni:entity-updated', 'ni:entity-deleted', 'ni:realtime-recovered']) {
     window.addEventListener(name, dropInflightViewQueries)
   }
 }

@@ -40,7 +40,7 @@ export async function buildActionContext(actionId: string): Promise<{ prompt: st
   // --- Build structured prompt (XML-like format, similar to Linear) ---
   const lines: string[] = []
 
-  lines.push(`Work on Dial8 issue ${action.identifier || actionId}:`)
+  lines.push(`Work on Native Intelligence issue ${action.identifier || actionId}:`)
   lines.push('')
   lines.push(`<issue identifier="${action.identifier || actionId}">`)
   lines.push(`<title>${action.title}</title>`)

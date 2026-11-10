@@ -22,7 +22,7 @@ vi.mock('@/lib/packs/memory-learning', async (importOriginal) => ({
 import { GET } from '../route'
 
 const call = (auth?: string) =>
-  GET(new NextRequest('https://dial8.ai/api/cron/memory-learning', { headers: auth ? { authorization: auth } : {} }))
+  GET(new NextRequest('https://nativeintelligence.dev/api/cron/memory-learning', { headers: auth ? { authorization: auth } : {} }))
 
 describe('GET /api/cron/memory-learning', () => {
   beforeEach(() => {

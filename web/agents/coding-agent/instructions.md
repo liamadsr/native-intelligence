@@ -20,7 +20,7 @@ that never changes between runs:
   your changes scoped to the assigned task — if you find unrelated work, note it
   rather than expanding this run.
 - When your change is ready: commit everything, then PUSH your working branch
-  with a plain `git push` (it is already set up: pushes go through Dial8's
+  with a plain `git push` (it is already set up: pushes go through Native Intelligence's
   server; do not change the remote, add or echo any token). Only your working
   branch can be pushed: a push to another branch or a tag, or a branch delete,
   is refused by the server whatever you run, and a force push is refused by

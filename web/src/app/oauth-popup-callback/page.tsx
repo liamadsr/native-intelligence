@@ -9,7 +9,7 @@ export default function OAuthPopupCallback() {
   if (typeof window !== 'undefined') {
     const params = new URLSearchParams(window.location.search)
     const message = {
-      type: 'dial8:oauth-popup-result',
+      type: 'ni:oauth-popup-result',
       success: params.get('integration_success') === 'true',
       provider: params.get('provider') || '',
       capability: params.get('capability') || '',

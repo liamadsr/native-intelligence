@@ -14,7 +14,7 @@ import { act, createElement as h } from 'react'
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }))
 vi.mock('sonner', () => ({ toast }))
 vi.mock('posthog-js/react', () => ({ usePostHog: () => ({ capture: vi.fn() }) }))
-vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaces: () => ({ workspaces: [{ id: 'ws-1', name: 'Dial8' }], currentId: 'ws-1' }) }))
+vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaces: () => ({ workspaces: [{ id: 'ws-1', name: 'Native Intelligence' }], currentId: 'ws-1' }) }))
 
 import { AttentionCard } from '../attention-card'
 import type { AttentionItem } from '@/hooks/use-attention-items'

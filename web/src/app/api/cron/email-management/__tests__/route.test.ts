@@ -250,7 +250,7 @@ function draftingPass(events: DraftProgressEvent[], count: number) {
 }
 
 function request(bearer?: string): NextRequest {
-  return new NextRequest('https://dial8.ai/api/cron/email-management', {
+  return new NextRequest('https://nativeintelligence.dev/api/cron/email-management', {
     headers: bearer !== undefined ? { authorization: bearer } : {},
   })
 }

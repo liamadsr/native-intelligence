@@ -8,7 +8,7 @@ import { withActiveWorkspace } from './envelope'
  * Workspace-specific tools that aren't part of the AI SDK tool registry.
  * These give Claude context about the user's workspace(s) and allow switching.
  *
- * @param onWorkspaceChanged - callback invoked when dial8_set_workspace is called,
+ * @param onWorkspaceChanged - callback invoked when ni_set_workspace is called,
  *   so the caller can persist the switch. MUST be awaited: it does the durable
  *   write to `mcp_oauth_token.active_workspace_id`, and the next MCP request
  *   (stateless — fresh server per POST) re-reads that field to scope itself. If
@@ -56,14 +56,14 @@ export function registerWorkspaceTools(
     content: [{
       type: 'text' as const,
       text: JSON.stringify({
-        error: 'You are not a member of this workspace. Use dial8_list_workspaces to see your available workspaces.',
+        error: 'You are not a member of this workspace. Use ni_list_workspaces to see your available workspaces.',
       }),
     }],
     isError: true,
   })
 
   server.tool(
-    'dial8_list_workspaces',
+    'ni_list_workspaces',
     'List all workspaces the authenticated user is a member of. Returns workspace name, slug, and the user\'s role in each.',
     async () => {
       const { data, error } = await supabase
@@ -100,11 +100,11 @@ export function registerWorkspaceTools(
   )
 
   server.tool(
-    'dial8_get_workspace',
+    'ni_get_workspace',
     'Get details about the current workspace including teams, members, and each team\'s workflow states ' +
       '(id, name, category, color, sort_order). Workflow states define the columns of a team\'s board ' +
       '(e.g. Backlog → Todo → In Progress → In Review → Done → Canceled) and are customizable per team. ' +
-      'Use the returned state id or name with dial8_update_action (status_id / status_name) to move an ' +
+      'Use the returned state id or name with ni_update_action (status_id / status_name) to move an ' +
       'action between states. Call this before moving an action so you know the valid options for that team.',
     {
       workspace_id: z.string().optional().describe('Workspace ID. Defaults to the active workspace.'),
@@ -179,8 +179,8 @@ export function registerWorkspaceTools(
   )
 
   server.tool(
-    'dial8_set_workspace',
-    'Switch the active workspace for this MCP session. Use dial8_list_workspaces first to see available workspaces. All subsequent tool calls will be scoped to the selected workspace.',
+    'ni_set_workspace',
+    'Switch the active workspace for this MCP session. Use ni_list_workspaces first to see available workspaces. All subsequent tool calls will be scoped to the selected workspace.',
     {
       workspace_id: z.string().describe('The workspace ID to switch to.'),
     },
@@ -193,7 +193,7 @@ export function registerWorkspaceTools(
         .eq('workspace_id', workspace_id)
         .single()
 
-      // Same refusal as dial8_get_workspace's — if the two ever diverge, the
+      // Same refusal as ni_get_workspace's — if the two ever diverge, the
       // difference itself tells a caller which workspaces exist.
       if (error || !membership) return notAMember()
 

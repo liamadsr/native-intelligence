@@ -11,7 +11,7 @@ vi.mock('server-only', () => ({}))
 const h = vi.hoisted(() => ({
   start: vi.fn(async (..._a: unknown[]): Promise<Record<string, unknown>> => ({
     status: 'started', created: true, deviceOnline: true,
-    session: { id: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' },
+    session: { id: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' },
   })),
 }))
 vi.mock('@/lib/local-agent/unattended', () => ({ startUnattendedLocalAgent: h.start }))
@@ -36,7 +36,7 @@ const mac = (config: Record<string, unknown> = {}, over: Partial<FlowAction> = {
   condition: null, parent_id: null, enabled: true, bearer_token_encrypted: null, ...over,
 })
 const deps = { workspaceId: 'w-1', flowId: 'flow-1', runAsUserId: 'user-1', fireKey: 'run-1' }
-const ctx = { entity, trigger, appBaseUrl: 'https://dial8.test' }
+const ctx = { entity, trigger, appBaseUrl: 'https://nativeintelligence.test' }
 
 beforeEach(() => {
   h.start.mockClear()
@@ -46,7 +46,7 @@ describe('the executor', () => {
   it('hands the rendered request to the Mac, the trigger’s values fenced, with the step’s origin', async () => {
     const out = await createRunLocalAgentExecutor(deps)(mac(), ctx)
     expect(out).toMatchObject({ status: 'success', response_status_code: 202, dispatched: true, local_agent_session_id: 'sess-1' })
-    expect(out.response_body_preview).toContain('Handed to Liam’s MacBook in dial8-website')
+    expect(out.response_body_preview).toContain('Handed to Liam’s MacBook in native-intelligence')
     const [, input] = h.start.mock.calls[0] as [unknown, Record<string, unknown>]
     expect(input).toMatchObject({ userId: 'user-1', workspaceId: 'w-1', folderId: FOLDER, mode: 'read', origin: { flowId: 'flow-1', actionId: 'step-1', fireKey: 'run-1' } })
     // The entity's title is outside text: fenced, never bare.
@@ -69,7 +69,7 @@ describe('the executor', () => {
   })
 
   it('a fire that joined its step’s live job says so (the request is that job’s next turn)', async () => {
-    h.start.mockResolvedValueOnce({ status: 'started', created: false, joined: true, deviceOnline: true, session: { id: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } })
+    h.start.mockResolvedValueOnce({ status: 'started', created: false, joined: true, deviceOnline: true, session: { id: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } })
     expect(await createRunLocalAgentExecutor(deps)(mac(), ctx)).toMatchObject({ status: 'success', response_status_code: 200, dispatched: true, response_body_preview: expect.stringContaining('next turn') })
   })
 
@@ -88,7 +88,7 @@ describe('the executor', () => {
 describe('the runner', () => {
   it('dispatches the step to the injected executor', async () => {
     const run = vi.fn(async () => ({ status: 'success' as const, request_summary: { method: 'LOCAL_AGENT', url: 'x', header_names: [], body_byte_length: 0 }, response_status_code: 202, response_body_preview: 'ok', error_message: null, duration_ms: 1, dispatched: true, local_agent_session_id: 'sess-1' }))
-    const out = await runFlow({ actions: [mac()] }, entity, trigger, 'https://dial8.test', { executors: { run_local_agent: run } })
+    const out = await runFlow({ actions: [mac()] }, entity, trigger, 'https://nativeintelligence.test', { executors: { run_local_agent: run } })
     expect(run).toHaveBeenCalledTimes(1)
     expect(out.status).toBe('success')
     expect(out.action_results[0]).toMatchObject({ action_id: 'step-1', dispatched: true, local_agent_session_id: 'sess-1' })

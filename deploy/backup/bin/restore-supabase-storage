@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# restore-supabase-storage [--yes] [bucket ...]
+#
+# Puts the files of the `supabase-storage` backup back into Supabase Storage.
+# With no bucket named, every bucket the database knows.
+#
+# Run it AFTER the database is right (restored, or never lost) and with the
+# stack running. The database holds the record of every file: its name,
+# owner, type and size. This puts the bytes back behind those records. It can
+# be run again; every run sends every file.
+#
+# How, and why this way:
+#   - Through Storage's S3 endpoint, never by copying into its folder, where
+#     files sit in a layout of Storage's own.
+#   - Storage serves a file's Content-Type and Cache-Control from what was
+#     sent when it was uploaded, and the vault does not hold those headers.
+#     So each file is uploaded with the type and cache setting its record in
+#     the database has.
+#   - An upload moves a record's updated_at to now and rclone leaves two
+#     timestamps of its own in its user metadata. Both are set back to what
+#     they were before the run.
+#   - Then every file is downloaded again and compared with the backup, byte
+#     for byte.
+#
+# A record whose file is not in the backup (uploaded after the last nightly
+# sync) is listed at the end: that file is gone, and its record remains.
+#
+# Settings: BACKUP_SUPABASE_PG* and BACKUP_SUPABASE_STORAGE_S3_* of the two jobs.
+set -euo pipefail
+
+job=supabase-storage
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [restore ${job}] $*"; }
+die() {
+	log "FAILED: $*"
+	exit 1
+}
+
+yes=false
+only=()
+for arg in "$@"; do
+	case "$arg" in
+		--yes) yes=true ;;
+		-*) die "unknown argument: $arg" ;;
+		*) only+=("$arg") ;;
+	esac
+done
+
+export PGHOST="${BACKUP_SUPABASE_PGHOST:?BACKUP_SUPABASE_PGHOST is not set}"
+export PGPORT="${BACKUP_SUPABASE_PGPORT:-5432}"
+export PGUSER="${BACKUP_SUPABASE_PGUSER:?BACKUP_SUPABASE_PGUSER is not set}"
+export PGPASSWORD="${BACKUP_SUPABASE_PGPASSWORD:?BACKUP_SUPABASE_PGPASSWORD is not set}"
+export PGDATABASE="${BACKUP_SUPABASE_PGDATABASE:?BACKUP_SUPABASE_PGDATABASE is not set}"
+export PGCONNECT_TIMEOUT=15
+export RCLONE_CONFIG_STORAGE_TYPE=s3
+export RCLONE_CONFIG_STORAGE_PROVIDER=Other
+export RCLONE_CONFIG_STORAGE_ENDPOINT="${BACKUP_SUPABASE_STORAGE_S3_ENDPOINT:?BACKUP_SUPABASE_STORAGE_S3_ENDPOINT is not set}"
+export RCLONE_CONFIG_STORAGE_REGION="${BACKUP_SUPABASE_STORAGE_S3_REGION:?BACKUP_SUPABASE_STORAGE_S3_REGION is not set}"
+export RCLONE_CONFIG_STORAGE_ACCESS_KEY_ID="${BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID:?BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID is not set}"
+export RCLONE_CONFIG_STORAGE_SECRET_ACCESS_KEY="${BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY:?BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY is not set}"
+
+sql() { psql -X -q -At -F $'\t' -v ON_ERROR_STOP=1 "$@"; }
+
+buckets="$(sql -c "select id from storage.buckets order by id")" || die "cannot read the buckets from the database"
+[ -n "$buckets" ] || die "the database has no buckets: restore the database first"
+rclone lsf storage: >/dev/null || die "cannot reach Storage at ${RCLONE_CONFIG_STORAGE_ENDPOINT}: is the stack running?"
+if [ "${#only[@]}" -gt 0 ]; then
+	for b in "${only[@]}"; do grep -qx -- "$b" <<<"$buckets" || die "no such bucket in the database: $b"; done
+	buckets="$(printf '%s\n' "${only[@]}")"
+fi
+
+if ! $yes; then
+	[ -t 0 ] || die "this overwrites stored files; pass --yes to confirm when not typing at a terminal"
+	printf 'This sends every backed-up file of %s to Storage, replacing what is there. Type yes to go on: ' "$(printf '%s' "$buckets" | tr '\n' ' ')"
+	read -r answer
+	[ "$answer" = yes ] || die "not confirmed"
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+# The records as they are now, to set back afterwards.
+sql -c "copy (select bucket_id, name, user_metadata, updated_at, last_accessed_at from storage.objects) to stdout" >"$work/records.tsv" \
+	|| die "cannot read the file records"
+
+failed=0
+missing_total=0
+: >"$work/missing.txt"
+for bucket in $buckets; do
+	dir="$work/$bucket"
+	mkdir -p "$dir"
+	# A bucket that had no files when it was backed up has no folder in the
+	# vault (rclone's exit status 3): that is an empty backup, not a failure.
+	status=0
+	rclone lsf --recursive --files-only "vault:${job}/current/${bucket}" >"$dir/in-backup.txt" 2>/dev/null || status=$?
+	case "$status" in
+		0) ;;
+		3) : >"$dir/in-backup.txt" ;;
+		*) die "cannot list the backup of bucket ${bucket} (vault:${job}/current/${bucket})" ;;
+	esac
+	# One group per (content type, cache control): each is one rclone run.
+	sql -v "bucket=$bucket" >"$dir/rows.tsv" <<'SQL'
+select dense_rank() over (order by ct, cc), ct, cc, name
+from (select coalesce(nullif(metadata ->> 'mimetype', ''), 'application/octet-stream') as ct,
+             coalesce(nullif(metadata ->> 'cacheControl', ''), 'no-cache') as cc,
+             name
+      from storage.objects where bucket_id = :'bucket') o
+order by 1, name;
+SQL
+	# (FILENAME, not NR == FNR: with an empty first file that test is also
+	# true for every line of the second.)
+	awk -F '\t' -v dir="$dir" '
+		FILENAME == ARGV[1] { have[$0] = 1; next }
+		{
+			if (!($4 in have)) { print $4 > (dir "/missing.txt"); next }
+			if (!($1 in seen)) { seen[$1] = 1; print $1 "\t" $2 "\t" $3 > (dir "/groups.tsv") }
+			print $4 > (dir "/group-" $1 ".list")
+			print $4 > (dir "/present.txt")
+		}' "$dir/in-backup.txt" "$dir/rows.tsv"
+	touch "$dir/missing.txt" "$dir/groups.tsv" "$dir/present.txt"
+	missing="$(wc -l <"$dir/missing.txt")"
+	missing_total=$((missing_total + missing))
+	sed "s|^|${bucket}/|" "$dir/missing.txt" >>"$work/missing.txt"
+	log "bucket ${bucket}: $(wc -l <"$dir/present.txt") file(s) to restore, ${missing} record(s) with no file in the backup"
+
+	while IFS=$'\t' read -r group content_type cache_control; do
+		[ -n "$group" ] || continue
+		rclone copy "vault:${job}/current/${bucket}" "storage:${bucket}" \
+			--files-from-raw "$dir/group-${group}.list" --no-traverse --ignore-times \
+			--metadata --metadata-set "content-type=${content_type}" --metadata-set "cache-control=${cache_control}" \
+			--transfers 4 --retries 2 --stats-one-line --stats 0 \
+			|| { log "  uploading the ${content_type} files failed"; failed=1; }
+	done <"$dir/groups.tsv"
+done
+
+log "setting the file records back to what they were"
+{
+	echo "begin;"
+	echo "create temp table before_restore (bucket_id text, name text, user_metadata jsonb, updated_at timestamptz, last_accessed_at timestamptz) on commit drop;"
+	echo "copy before_restore from stdin;"
+	cat "$work/records.tsv"
+	echo '\.'
+	# Triggers off, or Storage's own trigger would set updated_at to now again.
+	cat <<'SQL'
+set local session_replication_role = replica;
+update storage.objects o
+   set user_metadata = b.user_metadata, updated_at = b.updated_at, last_accessed_at = b.last_accessed_at
+  from before_restore b
+ where b.bucket_id = o.bucket_id and b.name = o.name
+   and (o.user_metadata is distinct from b.user_metadata
+        or o.updated_at is distinct from b.updated_at
+        or o.last_accessed_at is distinct from b.last_accessed_at);
+commit;
+SQL
+} >"$work/records.sql"
+sql -f "$work/records.sql" >/dev/null || die "could not update the file records"
+
+for bucket in $buckets; do
+	dir="$work/$bucket"
+	[ -s "$dir/present.txt" ] || continue
+	if out="$(rclone check "vault:${job}/current/${bucket}" "storage:${bucket}" --download --one-way \
+		--files-from-raw "$dir/present.txt" --checkers 8 --retries 1 2>&1)"; then
+		log "bucket ${bucket}: every restored file reads back the same, byte for byte"
+	else
+		echo "$out" | grep -E 'ERROR' | head -n 20 >&2 || true
+		log "bucket ${bucket}: files DIFFER from the backup"
+		failed=1
+	fi
+done
+
+if [ "$missing_total" -gt 0 ]; then
+	log "${missing_total} record(s) have no file in the backup; these files are lost (first 20):"
+	head -n 20 "$work/missing.txt" | sed 's/^/  /'
+fi
+[ "$failed" = 0 ] || die "not everything was restored: see above. It is safe to run this again."
+log "done"

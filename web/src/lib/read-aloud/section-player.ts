@@ -27,7 +27,7 @@
  * remembers the sentence the run stopped in (the one speaking, or the first
  * not yet done). Playing that key again starts from that sentence, clamped to
  * the sentences worked out now. Starting another key pauses the one playing,
- * and so does another reader taking the desktop, here or in another Dial8
+ * and so does another reader taking the desktop, here or in another Native Intelligence
  * window (someone else's `cancelled`): a click never throws a place away. The
  * surfaces pause too when their item goes away (unmount).
  *
@@ -205,7 +205,7 @@ function onTtsState(p: TtsStatePayload) {
     current.pending.delete(p.id)
     maybeFinish(current)
   } else if (p.state === 'cancelled') {
-    // Not our cancel (ours ends the run first): another Dial8 window reading
+    // Not our cancel (ours ends the run first): another Native Intelligence window reading
     // (its listen mode following the user there), a chat panel there, the
     // Settings preview, dictation or Voice ID starting, or the desktop. A
     // pause: the place is kept, so this key picks up where it was when it

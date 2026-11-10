@@ -75,7 +75,7 @@ import { loadAskedBy, onlyToAskers, renderAskedByBlock, renderShippedBlock, type
 /**
  * Hard wall for one headless prose (report / act) skill run.
  *
- * 240s, not 120s: 120s cut off the scheduled prose loops on prod. The Dial8
+ * 240s, not 120s: 120s cut off the scheduled prose loops on prod. The Native Intelligence
  * Morning brief took 73–121s on the days it finished (Sep 17–28) and was stopped
  * at the wall on Sep 22, 23, 29 and 30; Session Prep took 112s on Sep 23 and was
  * stopped on Sep 16 and 30; the Weekly Groom and Commitment Reconciler loops

@@ -16,7 +16,7 @@
  *   • {@link openHomeThread} — show it in the main chat: the dashboard's one
  *     chat (MainChatHost) is the home thread, and is put back on it when a
  *     live call holds it; with `text` (and `cardIds`), it then sends it as
- *     the person's message (ChatPanelHandle.sendFromSurface). What "Open in Dial8", the
+ *     the person's message (ChatPanelHandle.sendFromSurface). What "Open in Native Intelligence", the
  *     agent's face (its bubble, its page, Refine on a card of its own: one
  *     face, TeammateChat `home`) and anything else that wants it call.
  *
@@ -28,7 +28,7 @@
 import { parseRevealDetail } from './home-message'
 
 /** Window event: show the home thread in the main chat. Handled by MainChatHost. */
-export const OPEN_HOME_THREAD_EVENT = 'dial8:open-home-thread'
+export const OPEN_HOME_THREAD_EVENT = 'ni:open-home-thread'
 
 export interface OpenHomeThreadDetail {
   /** Moot since one-chat Slice 1 (the chat is always on screen); kept in the detail for its callers. */
@@ -63,7 +63,7 @@ export type HomeHandoffResult = { ok: true } | { ok: false; reason: string }
 
 /** Why a hand-off failed, in words a surface shows (it keeps the text). */
 export const HOME_HANDOFF_REASONS = {
-  noStrip: 'Dial8’s chat isn’t open in this window, so that wasn’t sent.',
+  noStrip: 'Native Intelligence’s chat isn’t open in this window, so that wasn’t sent.',
   otherWorkspace: 'That’s in another workspace: switch to it first, then send it again.',
   notOpened: 'Couldn’t open your conversation, so that wasn’t sent. Try again in a moment.',
   notSent: 'Couldn’t send that to your conversation. Try again in a moment.',

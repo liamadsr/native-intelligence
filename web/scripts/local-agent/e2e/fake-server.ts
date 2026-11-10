@@ -1,5 +1,5 @@
 /**
- * A stand-in for the Dial8 server's local-agent routes (l1-contract B), for
+ * A stand-in for the Native Intelligence server's local-agent routes (l1-contract B), for
  * e2e-device.ts: an HTTP server on 127.0.0.1 with the routes' paths and JSON
  * shapes, whose handlers call the REAL server library
  * (src/lib/local-agent/{device,store,transcript,tokens}.ts) the way the route

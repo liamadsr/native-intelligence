@@ -1,7 +1,7 @@
 import { WorkspaceSettingsView } from './workspace-settings-view'
 
 export const metadata = {
-  title: 'Workspace – Settings – Dial8',
+  title: 'Workspace – Settings',
 }
 
 export default function WorkspaceSettingsPage() {

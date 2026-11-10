@@ -9,7 +9,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // `message_teammate`, a message to the cloud body, and `report_to_person`, a
 // note in the session's own thread. On the Mac body only: in its ceiling, its
 // spec's ceilingTools and coreToolNames, and dispatched by its tool route with
-// no reviewer (neither writes outside Dial8; each keys on eve's ids).
+// no reviewer (neither writes outside Native Intelligence; each keys on eve's ids).
 export {
   isMacTeammateTool as isMacNativeTool,
   macTeammateToolEntries as macNativeToolEntries,

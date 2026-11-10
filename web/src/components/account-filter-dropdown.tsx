@@ -34,7 +34,7 @@ type RawConnectedAccount = ConnectedAccount & { workspace_ids?: string[] }
 // mirrored to localStorage so a cold page load renders the connected accounts
 // in the first frame; persisted data is a placeholder only (timestamp stays 0,
 // so the next mount still revalidates).
-const OAUTH_ACCOUNTS_PERSIST_KEY = 'dial8:oauth-accounts:v1'
+const OAUTH_ACCOUNTS_PERSIST_KEY = 'ni:oauth-accounts:v1'
 const OAUTH_ACCOUNTS_FRESH_MS = 60_000
 let cachedOauthAccounts: RawConnectedAccount[] | null = null
 let cachedOauthAccountsAt = 0
@@ -151,10 +151,10 @@ export function AccountFilterDropdown({
     }
     const onRecovered = () => fetchRef.current({ force: true })
     document.addEventListener('visibilitychange', onVisibilityChange)
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
     }
   }, [])
 

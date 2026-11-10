@@ -1,10 +1,10 @@
 'use client'
 
 /**
- * Settings › Dial8 MCP's body: Dial8 as an MCP server.
+ * Settings › Native Intelligence MCP's body: Native Intelligence as an MCP server.
  *
  * This is the inbound direction — AI apps (Claude, ChatGPT, Cursor, Claude
- * Code, …) connect to Dial8 and get our workspace tools. The user picks
+ * Code, …) connect to Native Intelligence and get our workspace tools. The user picks
  * their app and gets its quickest way in (connect-apps.tsx), and sees the
  * apps currently holding tokens. The page (mcp-settings-view.tsx) carries
  * the heading.
@@ -60,9 +60,9 @@ export function InboundMcpSection() {
     <div className="space-y-8">
       {/* Nothing connected yet: no empty list, the picker is the page. */}
       {clients.length > 0 && (
-        <section aria-labelledby="dial8-mcp-connected">
+        <section aria-labelledby="ni-mcp-connected">
           <h2
-            id="dial8-mcp-connected"
+            id="ni-mcp-connected"
             className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
           >
             Connected apps

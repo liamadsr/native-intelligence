@@ -313,7 +313,7 @@ describe('PATCH /asana-settings — read-modify-write', () => {
 
 /**
  * `include_dial8_attribution` gates the identifier heading + "Pushed from
- * Dial8" backlink on pushed tasks. It is PROVIDER-level, not part of the
+ * Native Intelligence" backlink on pushed tasks. It is PROVIDER-level, not part of the
  * destination: it arrives alone, and it must survive every reset that exists to
  * invalidate project-scoped ids.
  */

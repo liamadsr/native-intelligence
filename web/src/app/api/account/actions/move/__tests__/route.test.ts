@@ -25,7 +25,7 @@ vi.mock('@/lib/supabase/server', () => ({
 const { POST } = await import('@/app/api/account/actions/move/route')
 
 function buildReq(body: unknown) {
-  return new Request('https://dial8.ai/api/account/actions/move', {
+  return new Request('https://nativeintelligence.dev/api/account/actions/move', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: typeof body === 'string' ? body : JSON.stringify(body),

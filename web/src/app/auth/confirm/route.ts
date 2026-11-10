@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { emailLinkTarget, emailLinkType, isPkceTokenHash, verifyRedirect } from '@/lib/auth/email-link'
+import { emailLinkHomeOrigin, emailLinkTarget, emailLinkType, isPkceTokenHash, verifyRedirect } from '@/lib/auth/email-link'
 import { browserOrigin } from '@/lib/auth/post-auth-redirect'
 import { createClient } from '@/lib/supabase/server'
 
@@ -16,7 +16,15 @@ import { createClient } from '@/lib/supabase/server'
  * that page as `?error=`; a failure here sends `?error=auth_failed` there.
  * The verifier is what keeps a link working only where it was asked for:
  * someone else's link can't sign this browser into their account.
+ *
+ * While the app answers on two domains, a link asked for on the other one is
+ * handed to that domain's /auth/confirm first, unspent (emailLinkHomeOrigin):
+ * the verifier is in that domain's cookies. `handed=1` marks a link that has
+ * already been handed over once, so two domains that point at each other
+ * can't pass it back and forth.
  */
+const HANDED_OVER = 'handed'
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams
   const tokenHash = params.get('token_hash')
@@ -24,6 +32,14 @@ export async function GET(request: NextRequest) {
   const origin = browserOrigin(request)
   if (!isPkceTokenHash(tokenHash) || !type) {
     return NextResponse.redirect(new URL('/login?error=auth_failed', origin))
+  }
+
+  const home = params.has(HANDED_OVER) ? null : emailLinkHomeOrigin(params.get('redirect_to'), origin)
+  if (home) {
+    const there = new URL('/auth/confirm', home)
+    there.search = request.nextUrl.search
+    there.searchParams.set(HANDED_OVER, '1')
+    return NextResponse.redirect(there)
   }
 
   const target = emailLinkTarget(params.get('redirect_to'), type, origin)

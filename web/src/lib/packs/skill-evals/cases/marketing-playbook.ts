@@ -34,7 +34,7 @@ export const cases: SkillEvalCase[] = [
     loads: ['marketing-playbook'],
     tools: [],
     avoid: ['enroll_contacts_in_sequence', 'create_email_draft', 'run_browser_task'],
-    why: 'Dial8 sends no broadcasts: offer the newsletter as a document they copy into their own tool.',
+    why: 'Native Intelligence sends no broadcasts: offer the newsletter as a document they copy into their own tool.',
   },
   {
     request: 'add to the product doc that we are the only tool that files actions during the call',

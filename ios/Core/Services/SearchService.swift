@@ -1,6 +1,6 @@
 //
 //  SearchService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Unified search service that aggregates results from projects, notes, actions, and contacts
 //

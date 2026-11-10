@@ -1,6 +1,6 @@
 //
 //  Color+Hex.swift
-//  dial8
+//  Native Intelligence
 //
 //  Extension for creating SwiftUI Colors from hex strings
 //

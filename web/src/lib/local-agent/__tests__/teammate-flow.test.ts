@@ -71,7 +71,7 @@ describe('message_teammate, end to end', () => {
       'run-1',
       { kind: 'tool', callId: 'c1', name: 'message_teammate', input: '{"text":"Which repo has it?"}' },
       { kind: 'tool_result', callId: 'c1', name: 'message_teammate', ok: true, output: '{"status":"sent"}' },
-      { kind: 'finish', summary: 'Asked Dial8.' },
+      { kind: 'finish', summary: 'Asked Native Intelligence.' },
       { kind: 'status', status: 'waiting' },
     )
     expect(session()).toMatchObject({ status: 'waiting', last_signal: 'ask', last_signal_text: 'Which repo has it?' })
@@ -103,7 +103,7 @@ describe('message_teammate, end to end', () => {
   })
 
   it('a late upload (the last turn’s end and this turn’s start) never wipes the question the server recorded', async () => {
-    // The Mac ended a turn and started the next, asking Dial8 in it, before either status reached the server.
+    // The Mac ended a turn and started the next, asking Native Intelligence in it, before either status reached the server.
     await ask()
     expect(session()).toMatchObject({ status: 'running', last_signal: 'ask' })
     await upload(
@@ -137,7 +137,7 @@ describe('message_teammate, end to end', () => {
     await ask()
     await upload('run-0', { kind: 'ask', question: 'An old question?' })
     expect(db.tables.local_agent_event.filter((e) => e.kind === 'ask').map((e) => e.source)).toEqual(['server', 'device'])
-    await upload('run-1', { kind: 'finish', summary: 'Asked Dial8.' }, { kind: 'status', status: 'waiting' })
+    await upload('run-1', { kind: 'finish', summary: 'Asked Native Intelligence.' }, { kind: 'status', status: 'waiting' })
     expect(session()).toMatchObject({ status: 'waiting', last_signal: 'ask', last_signal_text: 'Which repo has it?' })
     expect(turns()).toEqual([{ turn: '1', status: 'needs_input' }])
   })

@@ -69,7 +69,7 @@ beforeEach(() => {
 })
 
 const create = (body: Record<string, unknown>) =>
-  POST(buildRequest({ url: 'https://dial8.ai/api/account/agents', method: 'POST', body }) as unknown as NextRequest)
+  POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/agents', method: 'POST', body }) as unknown as NextRequest)
 
 type Created = { agent: { id: string }; ai_team_member?: { id: string; fronts_only: boolean }; bot_kind?: string; bot_error?: string }
 
@@ -175,7 +175,7 @@ describe('POST /api/account/agents: a personal agent has no bot', () => {
 
 describe('DELETE /api/account/agents/[id]: an agent with a bot can be deleted', () => {
   const remove = (id: string) =>
-    DELETE(buildRequest({ url: `https://dial8.ai/api/account/agents/${id}`, method: 'DELETE' }) as unknown as NextRequest, {
+    DELETE(buildRequest({ url: `https://nativeintelligence.dev/api/account/agents/${id}`, method: 'DELETE' }) as unknown as NextRequest, {
       params: Promise.resolve({ id }),
     })
   /** The database's RESTRICT on ai_team_member.agent_recipe_id (migration 144), which the double doesn't enforce. */

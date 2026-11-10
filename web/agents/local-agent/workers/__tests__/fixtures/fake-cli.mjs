@@ -83,14 +83,14 @@ if (!isCodex) {
   }
   // -p --input-format stream-json ...
   const sessionId = flagValue('--session-id') ?? flagValue('--resume')
-  const config = JSON.parse(readFileSync(flagValue('--mcp-config'), 'utf8')).mcpServers.dial8_folder
+  const config = JSON.parse(readFileSync(flagValue('--mcp-config'), 'utf8')).mcpServers.ni_folder
   const token = config.headers.Authorization.slice('Bearer '.length)
   let ready = null
   let n = 0
   const call = async (name, input) => {
     n += 1
     const id = `toolu_${n}`
-    out({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: `mcp__dial8_folder__${name}`, input }] }, parent_tool_use_id: null, session_id: sessionId })
+    out({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: `mcp__ni_folder__${name}`, input }] }, parent_tool_use_id: null, session_id: sessionId })
     const r = await mcp(config.url, token, 'tools/call', { name, arguments: input }, n + 10)
     out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: r.content, ...(r.isError ? { is_error: true } : {}) }] }, parent_tool_use_id: null, session_id: sessionId })
   }
@@ -102,7 +102,7 @@ if (!isCodex) {
       ready ??= (async () => {
         await mcp(config.url, token, 'initialize', { protocolVersion: '2025-11-25', clientInfo: { name: 'fake-claude' } })
         const { tools } = await mcp(config.url, token, 'tools/list', {}, 2)
-        out({ type: 'system', subtype: 'init', session_id: sessionId, tools: tools.map((t) => `mcp__dial8_folder__${t.name}`), mcp_servers: [{ name: 'dial8_folder', status: 'connected' }], claude_code_version: '9.9.9', resumed })
+        out({ type: 'system', subtype: 'init', session_id: sessionId, tools: tools.map((t) => `mcp__ni_folder__${t.name}`), mcp_servers: [{ name: 'ni_folder', status: 'connected' }], claude_code_version: '9.9.9', resumed })
       })()
       await ready
       out({ type: 'user', message: { role: 'user', content: msg.message.content }, isReplay: true, session_id: sessionId })
@@ -143,8 +143,8 @@ if (!isCodex) {
     process.exit(0)
   }
   // exec --json ... [resume <id>] -
-  const url = JSON.parse(overrides.find((o) => o.startsWith('mcp_servers.dial8_folder.url=')).split('=').slice(1).join('='))
-  const token = process.env.DIAL8_WORKSPACE_MCP_TOKEN
+  const url = JSON.parse(overrides.find((o) => o.startsWith('mcp_servers.ni_folder.url=')).split('=').slice(1).join('='))
+  const token = process.env.NI_WORKSPACE_MCP_TOKEN
   const r = rest.indexOf('resume')
   const thread = r === -1 ? '0199b000-0000-7000-8000-000000000001' : rest[r + 1]
   let prompt = ''
@@ -153,14 +153,14 @@ if (!isCodex) {
   out({ type: 'thread.started', thread_id: thread })
   out({ type: 'turn.started' })
   await mcp(url, token, 'initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'fake-codex' } })
-  const item = { id: 'item_1', type: 'mcp_tool_call', server: 'dial8_folder', tool: 'bash', arguments: { command: `cat ${process.env.HOME}/secret.txt; ls /workspace` }, status: 'in_progress' }
+  const item = { id: 'item_1', type: 'mcp_tool_call', server: 'ni_folder', tool: 'bash', arguments: { command: `cat ${process.env.HOME}/secret.txt; ls /workspace` }, status: 'in_progress' }
   out({ type: 'item.started', item })
   const res = await mcp(url, token, 'tools/call', { name: 'bash', arguments: item.arguments }, 2)
   out({ type: 'item.completed', item: { ...item, status: 'completed', result: { content: res.content } } })
   const probe = /probe (\d+) (\S+)/.exec(prompt)
   const said = probe ? await probes(probe[1], probe[2]) : `turn on ${r === -1 ? 'a new thread' : 'the same thread'}: ${prompt.split('\n').at(-1)}`
   out({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: said } })
-  out({ type: 'item.started', item: { id: 'item_3', type: 'mcp_tool_call', server: 'dial8_folder', tool: 'finish', arguments: { summary: 'Done.' }, status: 'in_progress' } })
+  out({ type: 'item.started', item: { id: 'item_3', type: 'mcp_tool_call', server: 'ni_folder', tool: 'finish', arguments: { summary: 'Done.' }, status: 'in_progress' } })
   out({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } })
   process.exit(0)
 }

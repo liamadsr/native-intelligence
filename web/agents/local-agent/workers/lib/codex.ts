@@ -1,13 +1,13 @@
 /**
  * The Codex adapter: the person's own `codex` CLI, signed in with their own
- * ChatGPT or API login (Dial8 never reads it), one process per turn:
+ * ChatGPT or API login (Native Intelligence never reads it), one process per turn:
  *
  *   codex exec --json --skip-git-repo-check --ignore-user-config [--ignore-rules] [--color never]
  *     --sandbox read-only --cd <an empty folder of its own>
  *     -c approval_policy="never" -c project_doc_max_bytes=0 -c web_search="disabled" -c tools.view_image=false
  *     -c features.<f>=false            each of CODEX_FEATURES_OFF that this version knows
  *                                      (shell_tool, unified_exec, multi_agent, hooks, ...)
- *     -c mcp_servers.dial8_folder.url=... (+ bearer_token_env_var, required, timeouts, approve)
+ *     -c mcp_servers.ni_folder.url=... (+ bearer_token_env_var, required, timeouts, approve)
  *     [resume <thread id>] -           the prompt comes on stdin
  *
  *   - `--ignore-user-config` drops `~/.codex/config.toml`: none of the
@@ -60,7 +60,7 @@ export const CODEX_FEATURES_OFF = [
 /** Turned on when this version knows it: older versions reach HTTP MCP servers only through it. */
 export const CODEX_FEATURES_ON = ['rmcp_client'] as const
 
-export const CODEX_TOKEN_ENV = 'DIAL8_WORKSPACE_MCP_TOKEN'
+export const CODEX_TOKEN_ENV = 'NI_WORKSPACE_MCP_TOKEN'
 
 const UPDATE_HINT = 'Update it (`npm install -g @openai/codex@latest`, or `brew upgrade codex`), then try again.'
 const SIGN_IN = "Codex isn't signed in on this Mac, or its login expired. Open Terminal, run `codex login`, then try again."
@@ -129,7 +129,7 @@ async function probeCodex(run: ProbeRunner): Promise<CliProbe> {
   const help = await run(['exec', '--help'])
   const flags = helpFlags(help.stdout)
   const missing = CODEX_REQUIRED_FLAGS.filter((f) => !flags.has(f))
-  if (missing.length) throw new WorkerLaunchError(`This Codex (${version}) is too old for Dial8: \`codex exec\` has no ${missing.join(', ')}. ${UPDATE_HINT}`)
+  if (missing.length) throw new WorkerLaunchError(`This Codex (${version}) is too old for Native Intelligence: \`codex exec\` has no ${missing.join(', ')}. ${UPDATE_HINT}`)
 
   // `features list` and `login status` read config too: the person's is left out there as well, when this
   // version takes --ignore-user-config before a subcommand (else they read it, and only read it).
@@ -140,13 +140,13 @@ async function probeCodex(run: ProbeRunner): Promise<CliProbe> {
   const first = await run([...own, 'features', 'list'])
   const all = parseFeatureList(first.stdout)
   if (first.code !== 0 || !all.has('shell_tool')) {
-    throw new WorkerLaunchError(`This Codex (${version}) can't turn off its built-in shell, which Dial8 needs. ${UPDATE_HINT}`)
+    throw new WorkerLaunchError(`This Codex (${version}) can't turn off its built-in shell, which Native Intelligence needs. ${UPDATE_HINT}`)
   }
   const features = new Set(all.keys())
   const checked = parseFeatureList((await run([...own, ...codexFeatureArgs(features), 'features', 'list'])).stdout)
   const stillOn = CODEX_FEATURES_OFF.filter((f) => features.has(f) && checked.get(f) !== false)
   if (stillOn.includes('shell_tool') || stillOn.includes('unified_exec')) {
-    throw new WorkerLaunchError(`Codex (${version}) didn't turn off its built-in shell (${stillOn.join(', ')}), so Dial8 won't run it.`)
+    throw new WorkerLaunchError(`Codex (${version}) didn't turn off its built-in shell (${stillOn.join(', ')}), so Native Intelligence won't run it.`)
   }
 
   const login = await run([...own, 'login', 'status'])
@@ -306,7 +306,7 @@ export const codexAdapter: CliAdapter = {
   input: (ctx, text, opts) => (opts.first ? codexFirstPrompt(ctx.launch.mode, text) : text),
   createNormalizer: createCodexNormalizer,
   describeExit(code, signal, stderrTail) {
-    if (/unexpected argument|unrecognized|unknown (?:option|flag)/i.test(stderrTail)) return `This Codex is too old for Dial8 (${truncateText(lastLine(stderrTail), 300)}). ${UPDATE_HINT}`
+    if (/unexpected argument|unrecognized|unknown (?:option|flag)/i.test(stderrTail)) return `This Codex is too old for Native Intelligence (${truncateText(lastLine(stderrTail), 300)}). ${UPDATE_HINT}`
     if (/mcp/i.test(stderrTail) && new RegExp(FENCE_SERVER).test(stderrTail)) return `Codex couldn't reach the folder's tools: ${truncateText(lastLine(stderrTail), 500)}`
     if (/\b401\b|unauthori[sz]ed|not logged in|codex login/i.test(stderrTail)) return SIGN_IN
     const why = lastLine(stderrTail)

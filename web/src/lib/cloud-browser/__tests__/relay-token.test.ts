@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mintBrowserRelayToken, relayDeviceId, requireBrowserRelay, RELAY_MARK_HEADER, RELAY_TOKEN_HEADER, verifyBrowserRelayToken } from '../relay-token'
 
 const claims = { userId: 'user-1', workspaceId: 'ws-1', sandbox: 'browser-abc' }
-const request = (headers: Record<string, string>) => new Request('https://browser-relay.dial8.ai/api/browser-relay/next', { headers })
+const request = (headers: Record<string, string>) => new Request('https://browser-relay.nativeintelligence.dev/api/browser-relay/next', { headers })
 
 beforeEach(() => {
   vi.stubEnv('BROWSER_INTERNAL_SECRET', 'browser-secret')
@@ -68,6 +68,14 @@ describe('requireBrowserRelay', () => {
       expect(refused).toBeInstanceOf(Response)
       expect((refused as Response).status).toBe(401)
     }
+  })
+
+  it('still accepts a relay started before the rename, under its old header names', () => {
+    const token = mintBrowserRelayToken(claims, 60_000)
+    expect(requireBrowserRelay(request({ 'x-dial8-relay-token': token, 'x-dial8-relay': '1' }))).toMatchObject(claims)
+    // Never a mix: the token must come under the same name as the mark beside it.
+    const refusedHeaders: Record<string, string>[] = [{ 'x-dial8-relay-token': token }, { 'x-dial8-relay-token': token, [RELAY_MARK_HEADER]: '1' }, { [RELAY_TOKEN_HEADER]: token, 'x-dial8-relay': '1' }]
+    for (const headers of refusedHeaders) expect((requireBrowserRelay(request(headers)) as Response).status).toBe(401)
   })
 
   it('names the device by its sandbox', () => {

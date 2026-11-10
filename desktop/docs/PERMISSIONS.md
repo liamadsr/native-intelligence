@@ -1,4 +1,4 @@
-# macOS Permissions & TCC — how Dial8 keeps microphone / audio grants stable
+# macOS Permissions & TCC — how Native Intelligence keeps microphone / audio grants stable
 
 This document exists because a permission-flow breakage was expensive to
 diagnose. Read it before touching anything that signs the app, changes the
@@ -27,12 +27,12 @@ re-evaluates the current binary's signature against the stored csreq; if it no
 longer satisfies it, the grant is treated as belonging to a *different* program
 and the user is prompted again.
 
-Two services matter for Dial8, and they are keyed differently:
+Two services matter for Native Intelligence, and they are keyed differently:
 
 | Service | TCC key | Grants persist as long as… |
 | --- | --- | --- |
 | `kTCCServiceMicrophone` | **Bundle ID** (`ai.dial8.desktop`) + csreq | bundle id and csreq stay stable |
-| `kTCCServiceAudioCapture` | **binary Path** (`/Applications/Dial8.app/...`) + csreq | the path and csreq stay stable |
+| `kTCCServiceAudioCapture` | **binary Path** (`/Applications/Native Intelligence.app/...`) + csreq | the path and csreq stay stable |
 
 The microphone row is the fragile one: it is keyed by bundle ID, and *every*
 build that declares `CFBundleIdentifier = ai.dial8.desktop` competes for the
@@ -61,7 +61,7 @@ designated => identifier "ai.dial8.desktop" and anchor apple generic
 Because that DR references the team OU and not a specific hash, it is identical
 across versions — so a properly-signed update does **not** re-prompt.
 
-## Where Dial8 actually prompts (prompt origins in this codebase)
+## Where Native Intelligence actually prompts (prompt origins in this codebase)
 
 Only two TCC-gated capabilities are ever requested — microphone and Audio
 Capture — and both prompts originate in the **main process** (`dial8-desktop`),
@@ -102,7 +102,7 @@ designated => cdhash H"a9489445d69ee7ffbfde89f3dc63ea0316ec38ac"
 Its Info.plist still declares `CFBundleIdentifier = ai.dial8.desktop`, so when a
 dev build records audio, TCC writes the shared `ai.dial8.desktop` microphone row
 with **that build's per-cdhash requirement**. The production app
-(`/Applications/Dial8.app`, Developer ID, stable DR above) then fails the csreq
+(`/Applications/Native Intelligence.app`, Developer ID, stable DR above) then fails the csreq
 match on its next microphone access and macOS **re-prompts** the user.
 
 ### Evidence (unified log, Jul 9 2026)
@@ -156,7 +156,7 @@ Root cause (confirmed via unified-log forensics, Aug 12 2026):
    `tauri.conf.json` version (0.2.39) trailed the released 0.2.40, so **every
    dev launch silently replaced the debug bundle on disk with the notarized
    production app** seconds after starting (bundle dir mtime 19:04:53 vs
-   binary build 19:04:42; CDHash identical to `/Applications/Dial8.app`).
+   binary build 19:04:42; CDHash identical to `/Applications/Native Intelligence.app`).
 2. tccd validates the **on-disk** bundle when coreaudiod asks about the mic.
    After the swap it logged `SecStaticCodeCreateWithPath ... -67011` and
    `Failed to match existing code requirement for subject ai.dial8.desktop and
@@ -181,7 +181,7 @@ Root cause (confirmed via unified-log forensics, Aug 12 2026):
 
 Side effect worth knowing: after the swap, the *next* launch from
 `target/debug/bundle/macos/` is the production binary, whose baked
-`frontendDist` is `https://dial8.ai` — a "dev" session silently running
+`frontendDist` is `https://nativeintelligence.dev` — a "dev" session silently running
 production against the production site.
 
 **The fix:** the updater plugin is registered only under
@@ -222,7 +222,7 @@ Three facts, verified on macOS 27.0 in Sep 2026, decide how the app checks it:
      re-prompts.
 
    This is exactly what insidegui/AudioCap does. Private API use is acceptable
-   because Dial8 ships Developer ID + notarized, not through the App Store.
+   because Native Intelligence ships Developer ID + notarized, not through the App Store.
 3. **The Settings deep link is `Privacy_AudioCapture`:**
    `x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture`
    (anchor verified present in `SecurityPrivacyExtension.appex`; it opens the
@@ -284,7 +284,7 @@ system-audio `rms=` line.
 
 Separately from dev builds, there was a window where **auto-updates** re-prompted
 because the updater artifact was stale. `cargo tauri build` produces
-`Dial8.app.tar.gz` *before* `release.sh` re-signs with entitlements, injects the
+`Native Intelligence.app.tar.gz` *before* `release.sh` re-signs with entitlements, injects the
 Info.plist privacy keys, and notarizes — so the shipped updater delivered a
 pre-re-signed app whose signature didn't match the installed one.
 
@@ -298,13 +298,13 @@ regress that ordering.
 
 1. **Bundle identifier** — `ai.dial8.desktop`. Changing it orphans every existing
    microphone grant.
-2. **Developer ID / team** — the certificate named by `DIAL8_SIGNING_IDENTITY` in
+2. **Developer ID / team** — the certificate named by `NI_SIGNING_IDENTITY` in
    `.env.release` (`scripts/signing.sh`); its team ID is read from its name. A
    different signing identity produces a different DR and re-prompts everyone.
 3. **The designated requirement** — must stay the team-OU Developer ID form, not
    an ad-hoc cdhash. This is what `release.sh`'s post-sign assertions guard.
 4. **The bundle must not be modified after signing** — patching any file inside
-   `Dial8.app` after the final `codesign` invalidates the signature (and the
+   `Native Intelligence.app` after the final `codesign` invalidates the signature (and the
    notarization staple).
 
 `release.sh` now fails the build if, on the freshly-signed app: the main exec
@@ -362,9 +362,9 @@ ships.
 - **Inspect a binary's signature / DR / entitlements:**
 
   ```sh
-  codesign -dvvv /Applications/Dial8.app/Contents/MacOS/dial8-desktop
-  codesign -d -r- /Applications/Dial8.app/Contents/MacOS/dial8-desktop
-  codesign -d --entitlements - /Applications/Dial8.app/Contents/MacOS/dial8-desktop
+  codesign -dvvv "/Applications/Native Intelligence.app/Contents/MacOS/dial8-desktop"
+  codesign -d -r- "/Applications/Native Intelligence.app/Contents/MacOS/dial8-desktop"
+  codesign -d --entitlements - "/Applications/Native Intelligence.app/Contents/MacOS/dial8-desktop"
   ```
 
   A healthy production main executable shows `Identifier=ai.dial8.desktop`,

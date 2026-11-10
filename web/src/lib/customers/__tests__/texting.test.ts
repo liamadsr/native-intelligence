@@ -157,7 +157,7 @@ describe('customer rows', () => {
     expect(CUSTOMER_TOOLS).not.toContain('ask_owner_agent')
   })
 
-  it("never show in the owner's People tab, and are never reached through the Dial8 number", async () => {
+  it("never show in the owner's People tab, and are never reached through the Native Intelligence number", async () => {
     await ensureCustomerGuest(db, { number: RUG, phone: SARAH, contact: null })
     tables.agent_guest.push({ ...tables.agent_guest[0], id: 'g-jess', preset: 'household', phone_e164: '+12125550111', business_number_id: null, contact_id: null })
     expect((await listGuests(db, 'user-owner')).map((g) => g.id)).toEqual(['g-jess'])

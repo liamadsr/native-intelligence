@@ -5,7 +5,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 /**
  * POST /api/mcp/oauth/revoke — Revoke an MCP OAuth token.
  * Body: { token_id: string } or { all: true }
- * Requires authenticated Dial8 user session.
+ * Requires authenticated Native Intelligence user session.
  */
 export async function POST(request: Request) {
   const supabase = await createClient()

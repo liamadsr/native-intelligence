@@ -76,7 +76,7 @@ describe('GET /api/account/agent-model', () => {
   })
 
   it('refuses a device token (the hardware\'s): it is no signed-in session', async () => {
-    expect((await get({ Authorization: 'Bearer d8d_made_up_token' })).status).toBe(403)
+    expect((await get({ Authorization: 'Bearer nid_made_up_token' })).status).toBe(403)
     expect(hoisted.rpc).not.toHaveBeenCalled()
   })
 })
@@ -112,7 +112,7 @@ describe('PUT /api/account/agent-model', () => {
   })
 
   it('refuses a device token, writing nothing: a pick can raise the person\'s spend', async () => {
-    expect((await put({ model: 'claude-opus-5-5' }, { Authorization: 'Bearer d8d_made_up_token' })).status).toBe(403)
+    expect((await put({ model: 'claude-opus-5-5' }, { Authorization: 'Bearer nid_made_up_token' })).status).toBe(403)
     expect(hoisted.updateUserById).not.toHaveBeenCalled()
   })
 })

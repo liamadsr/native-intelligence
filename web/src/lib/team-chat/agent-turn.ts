@@ -417,8 +417,8 @@ export async function settleTeamChatTurn(
 // ── Notices ─────────────────────────────────────────────────────────────────
 
 export const TEAM_CHAT_TURN_NOTICES = {
-  cannot: () => "I can't answer here right now. Ask me in your own Dial8 chat.",
-  unfinished: () => "That's taking me a while. I'll keep the answer in your Dial8 chat.",
+  cannot: () => "I can't answer here right now. Ask me in your own Native Intelligence chat.",
+  unfinished: () => "That's taking me a while. I'll keep the answer in your Native Intelligence chat.",
   failed: () => "Sorry, I couldn't get to that just now. Try again in a minute.",
 } as const
 

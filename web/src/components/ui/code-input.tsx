@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * The code in what was typed or pasted. A whole text ("Your Dial8 code is
+ * The code in what was typed or pasted. A whole text ("Your Native Intelligence code is
  * 123 456") has other digits in it: a group of exactly `length` digits (a
  * space or dash inside it allowed) wins; failing that, every digit, in order.
  */

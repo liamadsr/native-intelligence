@@ -110,7 +110,7 @@ describe('renderApprovalOutcomeSection', () => {
     expect(fenceCount(section.markdown)).toBe(1)
   })
 
-  it('a Dial8 tool’s own output rides as JSON, fenced', () => {
+  it('a Native Intelligence tool’s own output rides as JSON, fenced', () => {
     const section = renderApprovalOutcomeSection(ran({ tool: 'ask_agent', result: { success: true, exchange_id: 'ex-1', sent: true } }))!
     expect(section.markdown).toContain('{"exchange_id":"ex-1","sent":true}')
     expect(fenceCount(section.markdown)).toBe(1)

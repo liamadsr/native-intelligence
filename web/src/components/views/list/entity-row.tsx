@@ -507,7 +507,7 @@ function EntityRowImpl({
           />
         )}
       </span>
-      {/* The Dial8 chips, DOWN while the push form is up. `EntityLeading` is
+      {/* The Native Intelligence chips, DOWN while the push form is up. `EntityLeading` is
           drawing the form itself (see its `onComposeChange` doc) — this side
           only has to get out of its way. */}
       {/* `shrink-0` keeps the chips at their natural width — correct for the
@@ -1133,7 +1133,7 @@ function researchValue(item: Record<string, unknown>, key: string): string | nul
  * events are inert — which is the correct failure mode for a hover affordance:
  * nothing happens, nothing breaks, and no half-written CRM record.
  */
-export const PROSPECT_ENTRY_ACTION_EVENT = 'dial8:prospect-entry-action'
+export const PROSPECT_ENTRY_ACTION_EVENT = 'ni:prospect-entry-action'
 
 /**
  * `sequence` is Save-THEN-enroll, and it is one intent rather than two because

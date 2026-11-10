@@ -113,7 +113,7 @@ class SystemAudioCapture {
         ]
 
         let aggregateDeviceDict: [String: Any] = [
-            kAudioAggregateDeviceNameKey as String: "Dial8 Sidecar Audio",
+            kAudioAggregateDeviceNameKey as String: "Native Intelligence Sidecar Audio",
             kAudioAggregateDeviceUIDKey as String: "com.dial8.sidecar.systemaudio",
             kAudioAggregateDeviceIsPrivateKey as String: true,
             kAudioAggregateDeviceTapListKey as String: [tapSubDevice]

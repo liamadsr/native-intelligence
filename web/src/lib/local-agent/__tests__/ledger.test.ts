@@ -78,7 +78,7 @@ function setup(turnStatus: string | null, extra: Partial<LedgerSession> = {}) {
   })
   work.db = db as never
   const s: LedgerSession = {
-    id: SID, userId: USER, workspaceId: WS, conversationId: CONV, folderLabel: 'dial8-website', deviceName: 'Liam’s MacBook',
+    id: SID, userId: USER, workspaceId: WS, conversationId: CONV, folderLabel: 'native-intelligence', deviceName: 'Liam’s MacBook',
     request: 'Take a look at this repository', currentTurn: 1, currentTrackedJobId: jobId, trackedJobId: jobId, ...extra,
   }
   return { db, s, h: jobId ? work.handleFor(jobId) : null }
@@ -100,12 +100,12 @@ describe('the turn row', () => {
       workspaceId: WS,
       memberId: 'member-1',
       kind: 'local_agent',
-      title: 'Dial8 on Liam’s MacBook · dial8-website: Take a look at this repository',
+      title: 'Native Intelligence on Liam’s MacBook · native-intelligence: Take a look at this repository',
       actor: 'agent',
       status: 'queued',
       runKey: `local_agent:${SID}:1`,
       origin: 'chat',
-      source: { chat_conversation_id: CONV, local_agent_session_id: SID, folder_label: 'dial8-website', device_name: 'Liam’s MacBook', turn: 1 },
+      source: { chat_conversation_id: CONV, local_agent_session_id: SID, folder_label: 'native-intelligence', device_name: 'Liam’s MacBook', turn: 1 },
       aiTeamMemberId: 'teammate-assistant',
     })
   })
@@ -118,8 +118,8 @@ describe('the turn row', () => {
   })
 
   it('titles cap the request at 60 characters; steps name the tool and its target', () => {
-    expect(turnTitle('Liam’s MacBook', 'repo', 'a'.repeat(100))).toBe(`Dial8 on Liam’s MacBook · repo: ${'a'.repeat(59)}…`)
-    expect(turnTitle('', 'repo', 'Look')).toBe('Dial8 on your Mac · repo: Look')
+    expect(turnTitle('Liam’s MacBook', 'repo', 'a'.repeat(100))).toBe(`Native Intelligence on Liam’s MacBook · repo: ${'a'.repeat(59)}…`)
+    expect(turnTitle('', 'repo', 'Look')).toBe('Native Intelligence on your Mac · repo: Look')
     expect(stepFromTool('read_file', '{"path":"src/lib/x.ts"}')).toBe('Reading src/lib/x.ts')
     expect(stepFromTool('bash', '{"command":"npm test"}')).toBe('Running npm test')
     expect(stepFromTool('grep', '{"pattern":"TODO"')).toBe('Searching')

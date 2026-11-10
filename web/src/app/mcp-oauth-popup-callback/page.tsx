@@ -4,10 +4,10 @@
  * Landing page for the popup window (web) or system-browser tab (desktop)
  * after an external MCP server OAuth flow completes.
  *
- *   - Web:     window.opener is the Dial8 tab → postMessage and close.
+ *   - Web:     window.opener is the Native Intelligence tab → postMessage and close.
  *   - Desktop: opener is null because the auth happened in the system
  *              browser. Show a "you can close this tab" message; the
- *              Dial8 desktop window has its own focus-based refetcher.
+ *              Native Intelligence desktop window has its own focus-based refetcher.
  */
 import { useEffect, useState } from 'react'
 
@@ -17,7 +17,7 @@ export default function McpOAuthPopupCallback() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const message = {
-      type: 'dial8:mcp-oauth-popup-result',
+      type: 'ni:mcp-oauth-popup-result',
       success: params.get('success') === 'true',
       name: params.get('name') || '',
       tool_count: Number(params.get('tool_count') || 0),
@@ -28,7 +28,7 @@ export default function McpOAuthPopupCallback() {
       window.opener.postMessage(message, window.location.origin)
       window.close()
     } else {
-      // System-browser path (desktop). The Dial8 window already polls
+      // System-browser path (desktop). The Native Intelligence window already polls
       // on focus, so we don't need to deep-link back — just tell the
       // user they can close this tab.
       setDone({
@@ -49,7 +49,7 @@ export default function McpOAuthPopupCallback() {
                 {done.name ? `Connected ${done.name}` : 'Connected'}
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                You can close this tab and return to Dial8.
+                You can close this tab and return to Native Intelligence.
               </p>
             </>
           ) : (
@@ -59,7 +59,7 @@ export default function McpOAuthPopupCallback() {
                 {done.error || 'The MCP server did not approve the connection.'}
               </p>
               <p className="mt-3 text-xs text-muted-foreground">
-                You can close this tab and try again from Dial8.
+                You can close this tab and try again from Native Intelligence.
               </p>
             </>
           )}

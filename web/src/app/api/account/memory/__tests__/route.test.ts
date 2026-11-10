@@ -1,5 +1,5 @@
 /**
- * The editor's routes for what Dial8 has learned (migration 317). On the
+ * The editor's routes for what Native Intelligence has learned (migration 317). On the
  * person's own session RLS decides the rows; these pin what the routes add:
  * the caller's standing for the editor, the add's scope rules (the same
  * saveMemoryLine the `remember` tool uses, as an edit), and errors that name
@@ -31,7 +31,7 @@ function signIn(role: string) {
   hoisted.requireUser.mockResolvedValue({ supabase: db, user: { id: ME } })
 }
 
-const req = (url: string, method: string, body?: unknown) => buildRequest({ url: `https://dial8.ai${url}`, method, body }) as unknown as NextRequest
+const req = (url: string, method: string, body?: unknown) => buildRequest({ url: `https://nativeintelligence.dev${url}`, method, body }) as unknown as NextRequest
 // buildRequest gives a plain Request; the routes read nextUrl.
 function withNextUrl(r: NextRequest): NextRequest {
   Object.defineProperty(r, 'nextUrl', { value: new URL(r.url) })

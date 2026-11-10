@@ -252,7 +252,7 @@ describe('ChatPanel.askAboutList', () => {
     expect(sendMessage.mock.calls[0][1].body.skillId).toBeUndefined()
   })
 
-  it('a dispatched dial8:prospecting-ask reaches the handle with its detail intact', async () => {
+  it('a dispatched ni:prospecting-ask reaches the handle with its detail intact', async () => {
     await mount()
     const listener = (e: Event) => {
       const detail = (e as CustomEvent).detail as ProspectingAskDetail | undefined

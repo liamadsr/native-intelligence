@@ -7,7 +7,7 @@ import {
   CardFooter,
   Button,
   Badge,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 export function Default() {
   return (

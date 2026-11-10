@@ -59,14 +59,15 @@ import {
 import { plainReplyDecision, replyNamesACode } from '@/lib/safety/caller'
 import { countInboundKindSince, markInboundKind, recordOutbound, type LinkedPhone, type SmsOutboundKind } from './store'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** Wrong codes one number may text in a day before codes by text pause. */
 export const SMS_CODE_MISS_DAILY_CAP = 5
 
 const DAY_MS = 24 * 60 * 60_000
 
-export const CODE_MISS_REPLY = "That code doesn't match anything waiting for you. Check the code, or answer it in Dial8."
-export const CODES_PAUSED_REPLY = 'Too many wrong codes today, so approving by text is paused until tomorrow. You can still answer it in Dial8.'
+export const CODE_MISS_REPLY = "That code doesn't match anything waiting for you. Check the code, or answer it in Native Intelligence."
+export const CODES_PAUSED_REPLY = 'Too many wrong codes today, so approving by text is paused until tomorrow. You can still answer it in Native Intelligence.'
 export const CODE_ANSWERED_REPLY = 'That one was already answered, or it expired. Nothing changed.'
 /** Said once to a plain yes that met a website merge: only its code puts it live (after it, a plain yes or no goes to the agent, so no takes the code too). */
 export const CODE_NEEDED_REPLY = 'Your website change needs its code to go live: reply yes and the code from my text, or no and the code to drop it. Nothing went live.'
@@ -89,7 +90,7 @@ export function approvalPromptText(approval: ChannelApproval): string {
   // text the customer gets, who gets it (the title) and from which number,
   // and its only link is the business's own booking link (src/lib/customers/
   // quote-reply.ts keeps every other link out), shown as it will be sent.
-  if (WHOLE_CARD_TOOLS.has((approval.tool ?? '').replace(/^dial8_/, ''))) {
+  if (WHOLE_CARD_TOOLS.has(bareToolName(approval.tool ?? ''))) {
     const one = (s: string) => s.trim().replace(/\s+/g, ' ')
     return `Dial8 needs your OK: ${one(approval.title)} (${one(approval.why)}). Reply yes to approve or no to decline. Reply STOP to opt out.`
   }
@@ -175,12 +176,12 @@ export function plainSettleLine(outcomes: readonly ChannelSettleOutcome[]): stri
   if (outcomes.length === 1) return settleLine(outcomes[0])
   const ok = outcomes.filter((o): o is Extract<ChannelSettleOutcome, { ok: true }> => o.ok)
   const refused = outcomes.length - ok.length
-  if (ok.length === 0) return `None of the ${outcomes.length} could be answered here: open Dial8.`
+  if (ok.length === 0) return `None of the ${outcomes.length} could be answered here: open Native Intelligence.`
   const failedRun = ok.filter((o) => o.decision === 'approve' && (o.success === false || o.ran === false)).length
   const head = ok[0].decision === 'decline'
     ? `Declined ${ok.length}. Nothing ran.`
-    : `Approved ${ok.length}.${failedRun ? ` ${failedRun} didn't run cleanly: the details are in Dial8.` : ' They ran.'}`
-  return refused ? `${head} ${refused} couldn't be answered here: open Dial8.` : head
+    : `Approved ${ok.length}.${failedRun ? ` ${failedRun} didn't run cleanly: the details are in Native Intelligence.` : ' They ran.'}`
+  return refused ? `${head} ${refused} couldn't be answered here: open Native Intelligence.` : head
 }
 
 export interface TextApprovalDeps {

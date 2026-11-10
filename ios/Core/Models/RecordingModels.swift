@@ -1,6 +1,6 @@
 //
 //  RecordingModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Models for recording and transcription.
 //

@@ -7,10 +7,10 @@
  * page's, so a change in either shows in the other.
  *
  *   not linked   "Message {name} in Slack", Get my code →, and how to add
- *                Dial8 to Slack if it isn't there
- *   the code     the code to send Dial8 in Slack, to copy; Open Dial8 in
+ *                Native Intelligence to Slack if it isn't there
+ *   the code     the code to send Native Intelligence in Slack, to copy; Open Native Intelligence in
  *                Slack; works once, for 15 minutes · New code
- *   linked       "Message {name} in Slack", who you are there; Open Dial8
+ *   linked       "Message {name} in Slack", who you are there; Open Native Intelligence
  *                in Slack; each Slack workspace at the foot, with Unlink (and
  *                Disconnect, for whoever manages this workspace)
  *
@@ -32,7 +32,7 @@ export function SlackCard({ name }: { name: string }) {
 
   const openInSlack = slackHref && (
     <a href={slackHref} target="_blank" rel="noreferrer" className={REACH_PRIMARY} data-slack-open="">
-      Open Dial8 in Slack
+      Open Native Intelligence in Slack
       <ArrowUpRight aria-hidden className="size-4" />
     </a>
   )
@@ -54,12 +54,12 @@ export function SlackCard({ name }: { name: string }) {
       ) : !state.configured ? (
         <>
           <ReachHeading>Message {name} in Slack</ReachHeading>
-          <ReachLead>Slack isn&apos;t set up on this Dial8 yet.</ReachLead>
+          <ReachLead>Slack isn&apos;t set up here yet.</ReachLead>
         </>
       ) : linkCode ? (
         <section data-slack-step="code">
-          <ReachHeading>Send this code to Dial8</ReachHeading>
-          <ReachLead>In Slack, open Dial8 and send it this code as a message.</ReachLead>
+          <ReachHeading>Send this code to Native Intelligence</ReachHeading>
+          <ReachLead>In Slack, open Native Intelligence and send it this code as a message.</ReachLead>
           <button type="button" onClick={() => void copyCode()} aria-label={copied ? 'Copied' : 'Copy code'} className={cn(REACH_PILL, 'mt-6 h-14 font-mono text-xl tracking-[0.3em]')} data-slack-code="">
             {linkCode.code}
             {copied ? <Check aria-hidden className="size-4 text-emerald-500" /> : <Copy aria-hidden className="size-4 text-muted-foreground" />}
@@ -76,7 +76,7 @@ export function SlackCard({ name }: { name: string }) {
         <section data-slack-step="linked">
           <ReachHeading>Message {name} in Slack</ReachHeading>
           <ReachLead>
-            You&apos;re <span className="font-medium text-foreground">@{mine[0].myLink!.slackUserName || 'linked'}</span> in {teamName(mine[0])}. DM Dial8, or
+            You&apos;re <span className="font-medium text-foreground">@{mine[0].myLink!.slackUserName || 'linked'}</span> in {teamName(mine[0])}. DM Native Intelligence, or
             @mention it in a thread.
           </ReachLead>
           {openInSlack && <div className="mt-6">{openInSlack}</div>}
@@ -140,7 +140,7 @@ export function SlackCard({ name }: { name: string }) {
               </button>
               {!connected && (
                 <p className="mt-4 text-balance text-xs text-muted-foreground">
-                  Dial8 not in your Slack yet?{' '}
+                  Native Intelligence not in your Slack yet?{' '}
                   {state.selfInstallOpen ? (
                     <button type="button" onClick={() => void install()} disabled={installing} className={REACH_LINK}>
                       Add it to Slack
@@ -158,7 +158,7 @@ export function SlackCard({ name }: { name: string }) {
               )}
             </>
           ) : (
-            <ReachLead>Someone who manages this Dial8 workspace sets up Slack first. Then you can link your account here.</ReachLead>
+            <ReachLead>Someone who manages this Native Intelligence workspace sets up Slack first. Then you can link your account here.</ReachLead>
           )}
         </section>
       )}
@@ -174,7 +174,7 @@ export function SlackCard({ name }: { name: string }) {
           open
           onOpenChange={(open) => !open && setConfirmTeam(null)}
           title={`Disconnect ${confirmTeam.teamName}?`}
-          description="Dial8 stops answering in that Slack workspace, for everyone. Adding it again brings back everyone's links."
+          description="Native Intelligence stops answering in that Slack workspace, for everyone. Adding it again brings back everyone's links."
           confirmLabel="Disconnect"
           busy={busyTeam === confirmTeam.teamId}
           onConfirm={() => void disconnect(confirmTeam.teamId)}

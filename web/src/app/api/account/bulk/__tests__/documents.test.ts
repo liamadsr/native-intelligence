@@ -96,7 +96,7 @@ const { POST } = await import('@/app/api/account/bulk/route')
 function bulk(action: string, ids: string[], value?: unknown): Promise<Response> {
   return POST(
     buildRequest({
-      url: 'https://dial8.ai/api/account/bulk',
+      url: 'https://nativeintelligence.dev/api/account/bulk',
       method: 'POST',
       body: { entity_type: 'document', ids, action, value },
     }) as unknown as NextRequest,

@@ -741,7 +741,7 @@ describe('PATCH /jira-settings — webhook convergence', () => {
 
 /**
  * `include_dial8_attribution` gates the bold identifier paragraph + "Pushed
- * from Dial8" provenance paragraph on pushed issues. It is PROVIDER-level, not
+ * from Native Intelligence" provenance paragraph on pushed issues. It is PROVIDER-level, not
  * part of the destination: it arrives alone, and it must survive every reset
  * here — and this route has the most aggressive ones, because a site switch
  * invalidates every id beneath it.
@@ -798,7 +798,7 @@ describe('PATCH /jira-settings — include_dial8_attribution', () => {
     // The per-site ids are gone (they resolve to strangers on the new tenant)…
     expect(config).not.toHaveProperty('project_id')
     expect(config).not.toHaveProperty('issue_type_id')
-    // …but a preference about Dial8's own branding has no such failure mode.
+    // …but a preference about Native Intelligence's own branding has no such failure mode.
     expect(config.include_dial8_attribution).toBe(false)
   })
 

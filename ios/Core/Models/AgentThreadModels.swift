@@ -1,6 +1,6 @@
 //
 //  AgentThreadModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Core models for AI agents that work on action items
 //

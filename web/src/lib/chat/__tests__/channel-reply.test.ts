@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { CHANNEL_REPLY_RULE, replyTextOfParts } from '../channel-reply'
 import { SMS_TURN_NOTE, SLACK_TURN_NOTE } from '../chat-run-rebuild'
-import { GUEST_SLACK_NOTE, GUEST_SMS_NOTE, guestDial8Note } from '@/lib/guests/guest-spec'
+import { GUEST_SLACK_NOTE, GUEST_SMS_NOTE, guestNiNote } from '@/lib/guests/guest-spec'
 
 const text = (t: string) => ({ type: 'text', text: t })
 const tool = (name = 'get_calendar_events') => ({ type: 'dynamic-tool', toolName: name, state: 'output-available' })
@@ -61,7 +61,7 @@ describe('every channel note tells the agent which words are sent', () => {
     ['the person on Slack', SLACK_TURN_NOTE],
     ['a guest by text', GUEST_SMS_NOTE],
     ['a guest on Slack', GUEST_SLACK_NOTE],
-    ["a guest's agent", guestDial8Note('Liam', 'Jess')],
+    ["a guest's agent", guestNiNote('Liam', 'Jess')],
   ])('%s', (_who, note) => {
     expect(note).toContain(CHANNEL_REPLY_RULE)
   })

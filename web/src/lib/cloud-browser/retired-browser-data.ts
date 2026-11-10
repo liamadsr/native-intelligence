@@ -6,19 +6,20 @@
  * person's browsing, so it goes once a session.
  */
 import { isProfileId } from './ids'
+import { storageKeyAfterRename } from '@/lib/storage-key-rename'
 
 const KEYS = [
-  'dial8-browser-profiles',
-  'dial8-browser-tabs-owner',
-  'dial8-browser-shared-data-cleared',
-  'dial8-browser-library-legacy-owner',
-  'dial8-browser-bookmarks',
+  'ni-browser-profiles',
+  'ni-browser-tabs-owner',
+  'ni-browser-shared-data-cleared',
+  'ni-browser-library-legacy-owner',
+  'ni-browser-bookmarks',
 ]
-/** `dial8-tabs-browser`, `dial8-tabs-browser:<window>` and `dial8-tabs-browser-routing:<workspace>`. */
-const TABS_PREFIX = 'dial8-tabs-browser'
+/** `ni-tabs-browser`, `ni-tabs-browser:<window>` and `ni-tabs-browser-routing:<workspace>`. */
+const TABS_PREFIX = 'ni-tabs-browser'
 /** The shared library before profiles, and `<it>:<profileId>` after. */
 const LIBRARY_DB = 'dial8-browser-library'
-const PROFILES_KEY = 'dial8-browser-profiles'
+const PROFILES_KEY = 'ni-browser-profiles'
 
 let dropped = false
 
@@ -37,7 +38,9 @@ export async function dropRetiredBrowserData(): Promise<void> {
   }
   try {
     for (const key of Object.keys(localStorage)) {
-      if (KEYS.includes(key) || key === TABS_PREFIX || key.startsWith(`${TABS_PREFIX}:`) || key.startsWith(`${TABS_PREFIX}-routing:`)) {
+      // The copy the storage rename script left under the old name goes too.
+      const name = storageKeyAfterRename(key)
+      if (KEYS.includes(name) || name === TABS_PREFIX || name.startsWith(`${TABS_PREFIX}:`) || name.startsWith(`${TABS_PREFIX}-routing:`)) {
         localStorage.removeItem(key)
       }
     }

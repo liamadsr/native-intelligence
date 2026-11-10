@@ -123,14 +123,14 @@ function makeParams(id = PROJECT_ID) {
 
 function getReq(): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/projects/${PROJECT_ID}`,
+    url: `https://nativeintelligence.dev/api/account/projects/${PROJECT_ID}`,
     method: 'GET',
   }) as unknown as NextRequest
 }
 
 function patchReq(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/projects/${PROJECT_ID}`,
+    url: `https://nativeintelligence.dev/api/account/projects/${PROJECT_ID}`,
     method: 'PATCH',
     body,
   }) as unknown as NextRequest
@@ -420,7 +420,7 @@ describe('PATCH /api/account/projects/[id] — the environment', () => {
  */
 function deleteReq(): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/projects/${PROJECT_ID}`,
+    url: `https://nativeintelligence.dev/api/account/projects/${PROJECT_ID}`,
     method: 'DELETE',
   }) as unknown as NextRequest
 }

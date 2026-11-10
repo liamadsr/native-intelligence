@@ -1,5 +1,5 @@
 /**
- * Dial8 approvals in Slack (docs/plans/slack-connect.md §2, §4 piece 6). A
+ * Native Intelligence approvals in Slack (docs/plans/slack-connect.md §2, §4 piece 6). A
  * Slack turn that holds a call (the outward gate, the reviewer) raises the
  * person's ordinary approval card (src/lib/safety/approvals.ts). After the
  * reply, the card is posted to the DM as Slack blocks: what it would do, and
@@ -8,7 +8,7 @@
  * actor 'person', channel 'slack'), so every re-check holds:
  *
  *   - a button: the interactivity route verifies the request, maps the
- *     clicker to their linked Dial8 user, and settles the card the button
+ *     clicker to their linked Native Intelligence user, and settles the card the button
  *     names, fenced on that user's own member row (someone else's card is
  *     never found);
  *   - a reply naming one approval by its code ("yes K7Q4"), bound by
@@ -34,8 +34,14 @@ import type { settleAttentionCard } from '@/lib/attention/settle-card'
 import { serverReplyCode } from '@/lib/safety/reply-code'
 
 /** The action ids our buttons carry. */
-export const APPROVE_ACTION = 'dial8_approve'
-export const DECLINE_ACTION = 'dial8_decline'
+export const APPROVE_ACTION = 'ni_approve'
+export const DECLINE_ACTION = 'ni_decline'
+// TODO(rename-compat): the ids on approval cards posted to Slack before the rename. A
+// person can press one of those for as long as the approval is pending.
+const ACTIONS_BEFORE_RENAME: Record<string, typeof APPROVE_ACTION | typeof DECLINE_ACTION> = {
+  dial8_approve: APPROVE_ACTION,
+  dial8_decline: DECLINE_ACTION,
+}
 
 /** The most cards one turn posts (a pile belongs in the app). */
 export const SLACK_APPROVALS_PER_TURN = CHANNEL_APPROVALS_PER_TURN
@@ -64,13 +70,13 @@ export function approvalBlocks(approval: SlackApproval): { text: string; blocks:
       { type: 'section', text: { type: 'mrkdwn', text: `*${title}*${why ? `\n${why}` : ''}` } },
       {
         type: 'actions',
-        block_id: `dial8_approval:${approval.cardId}`,
+        block_id: `ni_approval:${approval.cardId}`,
         elements: [
           { type: 'button', action_id: APPROVE_ACTION, style: 'primary', text: { type: 'plain_text', text: 'Approve' }, value: approval.cardId },
           { type: 'button', action_id: DECLINE_ACTION, style: 'danger', text: { type: 'plain_text', text: 'Decline' }, value: approval.cardId },
         ],
       },
-      { type: 'context', elements: [{ type: 'mrkdwn', text: `Or reply \`yes ${code}\` or \`no ${code}\`. It's also waiting in Dial8.` }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: `Or reply \`yes ${code}\` or \`no ${code}\`. It's also waiting in Native Intelligence.` }] },
     ],
   }
 }
@@ -109,7 +115,7 @@ export function approvalNamedByReply(
 
 export { settleLine }
 
-/** One click on one of our buttons, as Dial8 reads it. */
+/** One click on one of our buttons, as Native Intelligence reads it. */
 export interface SlackButtonClick {
   teamId: string
   userId: string
@@ -135,7 +141,7 @@ export function parseButtonClick(raw: unknown, appId: string): SlackButtonClick 
   const userId = str(user.id)
   if (!/^T[A-Z0-9]{2,30}$/.test(teamId) || !/^[UW][A-Z0-9]{2,30}$/.test(userId)) return null
   const action = rec(Array.isArray(p.actions) ? p.actions[0] : null)
-  const actionId = action.action_id
+  const actionId = typeof action.action_id === 'string' ? (ACTIONS_BEFORE_RENAME[action.action_id] ?? action.action_id) : null
   if ((actionId !== APPROVE_ACTION && actionId !== DECLINE_ACTION) || typeof action.value !== 'string') return null
   const responseUrl = /^https:\/\/hooks\.slack\.com\//.test(str(p.response_url)) ? str(p.response_url) : null
   // The title is the section above the buttons, as approvalBlocks wrote it.

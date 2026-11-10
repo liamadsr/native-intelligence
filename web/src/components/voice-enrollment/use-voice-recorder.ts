@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Enrollment recorder hook — owns the microphone for the "Teach Dial8 your
+ * Enrollment recorder hook — owns the microphone for the "Teach Native Intelligence your
  * voice" flow.
  *
  * Wraps `WebAudioCapture` (getUserMedia → 16 kHz mono Int16 PCM) with the two

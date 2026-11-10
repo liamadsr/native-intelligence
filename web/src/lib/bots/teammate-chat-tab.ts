@@ -7,7 +7,7 @@
  * chat (the `bot` page kind), full screen.
  *
  * `openTeammateChatTab(teammateId)` (openBotPage, the desktop overlay's Open
- * in Dial8 through desktop-open-chat.ts) is a window event the dashboard's
+ * in Native Intelligence through desktop-open-chat.ts) is a window event the dashboard's
  * TeammateChatTabBridge answers with the roster: a teammate it holds opens as
  * a card, and the event is cancelled so the caller knows; one it doesn't hold
  * (deleted, or behind a private team) is left alone, and the caller falls
@@ -21,7 +21,7 @@
 import { useSyncExternalStore } from 'react'
 
 /** Asks the dashboard for a bot's page: `detail` is OpenTeammateChatDetail. Cancelled (preventDefault) once it's opened. */
-export const OPEN_TEAMMATE_CHAT_EVENT = 'dial8:open-teammate-chat'
+export const OPEN_TEAMMATE_CHAT_EVENT = 'ni:open-teammate-chat'
 
 /** One of a teammate's work items, as its page opens on it: its id and its title (the item's own, for its label). */
 export interface TeammateChatItem {

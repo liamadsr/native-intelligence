@@ -96,7 +96,7 @@ describe('linking one more Slack workspace', () => {
     await render()
     await act(async () => button('Link my account in Beta')!.click())
     await flush()
-    const open = [...container.querySelectorAll('a')].find((a) => a.textContent?.includes('Open Dial8 in Slack'))
+    const open = [...container.querySelectorAll('a')].find((a) => a.textContent?.includes('Open Native Intelligence in Slack'))
     expect(open?.getAttribute('href')).toContain('team=T2')
     expect(container.textContent).toContain('K7Q4M2')
 

@@ -33,7 +33,7 @@
  *   4. Each reminder is CLAIMED before its text goes (customer_reminder,
  *      unique per subject and phone: ./reminder-store.ts), then texted from
  *      the business's number (./booking.ts textBookingCustomer, logged as a
- *      `notice`: never the global auto-reply cap's) in Dial8's
+ *      `notice`: never the global auto-reply cap's) in Native Intelligence's
  *      words (reminderText): the business, what, when, where, "Reply YES to
  *      confirm, or tell us a better time", and the opt-out. A crash between
  *      the claim and the text sends nothing again: at most once.
@@ -46,7 +46,7 @@
  *
  * Their answers (./reminder-replies.ts) go to the customer's own agent:
  * confirm_appointment and move_appointment, and STOP from the inbound
- * handler. No model call here: every word is Dial8's or the owner's.
+ * handler. No model call here: every word is Native Intelligence's or the owner's.
  *
  * Server only; service role.
  */
@@ -169,7 +169,7 @@ export function reminderPlace(place: string | null | undefined): string | null {
 }
 
 /**
- * The customer's reminder, in Dial8's words but for the business's name,
+ * The customer's reminder, in Native Intelligence's words but for the business's name,
  * the job word and the address. Pure.
  */
 export function reminderText(args: { business: string; kind: string; startsAt: string; timeZone: string; place: string | null }): string {

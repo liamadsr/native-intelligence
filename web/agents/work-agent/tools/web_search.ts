@@ -1,7 +1,7 @@
 /**
  * web_search — LIVE for the work-agent, pinned to Exa.
  *
- * Web access is an ALWAYS-ON capability of every Dial8 agent — not a per-agent
+ * Web access is an ALWAYS-ON capability of every Native Intelligence agent — not a per-agent
  * allowlist toggle, and not a ceiling entry. The work-agent's ceiling filters the
  * WORKSPACE-tool proxies (tools/workspace_tools.ts); web search sits outside that
  * mechanism entirely. Adding a `web_search` row to the app's TOOL_CATEGORIES

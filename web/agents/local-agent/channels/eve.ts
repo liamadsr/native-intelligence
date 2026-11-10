@@ -25,7 +25,7 @@ import { isMacHost } from '../../chat-agent/lib/host.js'
 import { macPrincipalAttributes } from '../../chat-agent/lib/mac-host.js'
 import { localAgentSecretAuth } from '../lib/auth.js'
 
-if (!isMacHost()) throw new Error('[local-agent] the Mac channel loaded outside the Mac body (DIAL8_AGENT_HOST is not mac)')
+if (!isMacHost()) throw new Error('[local-agent] the Mac channel loaded outside the Mac body (NI_AGENT_HOST is not mac)')
 
 /** The launcher's per-launch secret (../lib/auth.ts), with the Mac principal's attributes. */
 export function macChannelAuth(): AuthFn<Request> {

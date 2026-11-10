@@ -2,13 +2,13 @@
 
 /**
  * Settings → Vocabulary (docs/plans/custom-vocabulary.md §10): the names and
- * terms Dial8 has learned, so transcripts, dictation and voice mode spell them
+ * terms Native Intelligence has learned, so transcripts, dictation and voice mode spell them
  * right (src/lib/vocabulary/sound-match.ts).
  *
  * Nothing to set up or approve (Liam, 2026-10-24: "the less configuration the
- * user has to do, the better"). Words come from what Dial8 already knows
+ * user has to do, the better"). Words come from what Native Intelligence already knows
  * (teammates, projects, contacts and their companies), what the team writes
- * (src/lib/vocabulary/harvest.ts), and anything someone asked Dial8 to add.
+ * (src/lib/vocabulary/harvest.ts), and anything someone asked Native Intelligence to add.
  * The one thing to do here is remove a word it got wrong: one tap, with Undo.
  * Removing a learned word hides it for you; removing one someone added deletes it.
  */
@@ -29,9 +29,9 @@ interface Loaded {
 /** One word in the list, and how it goes away. */
 export interface LearnedWord {
   term: string
-  /** Person, Company or Project for a name Dial8 knows; empty for a term. */
+  /** Person, Company or Project for a name Native Intelligence knows; empty for a term. */
   label: string
-  /** A word someone added (by hand or by asking Dial8): removing deletes it. */
+  /** A word someone added (by hand or by asking Native Intelligence): removing deletes it. */
   added?: VocabularyTerm
 }
 
@@ -57,7 +57,7 @@ async function call<T = Record<string, unknown>>(url: string, init: RequestInit 
 
 /**
  * Everything transcription will use, once each: words people added first, then
- * the ones learned from what the team writes, then the names Dial8 knows.
+ * the ones learned from what the team writes, then the names Native Intelligence knows.
  * Anything this person removed is left out. Pure.
  */
 export function learnedWords(data: Loaded): LearnedWord[] {
@@ -156,7 +156,7 @@ export function VocabularySettingsView() {
       <div className="mx-auto max-w-2xl px-8 py-8">
         <h1 className="text-lg font-semibold">Vocabulary</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Dial8 learns the names and terms you use and spells them right in transcripts, getting better as you work. Remove anything it got wrong.
+          Native Intelligence learns the names and terms you use and spells them right in transcripts, getting better as you work. Remove anything it got wrong.
         </p>
 
         {loadError && <p className="mt-8 text-sm text-destructive">{loadError}</p>}
@@ -170,7 +170,7 @@ export function VocabularySettingsView() {
         )}
 
         {data && words.length === 0 && (
-          <p className="mt-8 text-sm text-muted-foreground">Nothing yet. Words appear here as Dial8 learns them.</p>
+          <p className="mt-8 text-sm text-muted-foreground">Nothing yet. Words appear here as Native Intelligence learns them.</p>
         )}
 
         {data && words.length > 0 && (

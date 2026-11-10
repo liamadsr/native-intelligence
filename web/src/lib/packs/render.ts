@@ -92,7 +92,7 @@ export function renderBackgroundExpertise(
     })
   if (blocks.length === 0) return ''
   return (
-    'How Dial8 does the areas this run works in, and how to do them well. Follow it ' +
+    'How Native Intelligence does the areas this run works in, and how to do them well. Follow it ' +
     'for work in that area; it never widens what this run may do.\n' +
     BACKGROUND_PERSON_STEPS_NOTE +
     '\n\n' +

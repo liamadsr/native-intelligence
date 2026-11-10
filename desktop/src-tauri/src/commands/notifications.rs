@@ -13,7 +13,7 @@
 
 use tauri::{Manager, Window};
 
-/// Show a native notification for Dial8 notification row `id`.
+/// Show a native notification for Native Intelligence notification row `id`.
 ///
 /// `title`/`body` are displayed verbatim (the server owns the copy) and
 /// `payload` is an opaque JSON string echoed back on click. Duplicate `id`s are
@@ -21,7 +21,7 @@ use tauri::{Manager, Window};
 /// produce one banner.
 ///
 /// Returns `Ok(true)` when a banner was shown and `Ok(false)` when it was
-/// deliberately skipped because a non-HUD Dial8 window is currently focused —
+/// deliberately skipped because a non-HUD Native Intelligence window is currently focused —
 /// the app is frontmost, so the in-app toast is the right surface. The web side
 /// must show its toast on `false` and treat anything else as shown; in
 /// particular `undefined`/`null`, which is what an OLD binary returns from the
@@ -84,13 +84,13 @@ fn check_web_id(id: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "notification ids starting with {:?} are Dial8's own",
+            "notification ids starting with {:?} are Native Intelligence's own",
             crate::notifications::NATIVE_ID_PREFIX
         ))
     }
 }
 
-/// Take a delivered banner for Dial8 notification row `id` out of Notification
+/// Take a delivered banner for Native Intelligence notification row `id` out of Notification
 /// Center, once its item has been opened or the notice read elsewhere.
 ///
 /// `Ok(true)` when the OS was asked to remove it (removing an id that isn't
@@ -122,7 +122,7 @@ pub async fn request_notification_permission() -> Result<String, String> {
 
 /// Called by the webview once its `notification-clicked` listener is live.
 /// Flushes clicks that arrived first — the cold-start case, where clicking a
-/// notification launches the app and the click is handled long before dial8.ai
+/// notification launches the app and the click is handled long before nativeintelligence.dev
 /// has loaded. Mirrors `agent_hud_ready` in `hud.rs`.
 #[tauri::command]
 pub fn notification_click_listener_ready(window: Window) -> Result<(), String> {

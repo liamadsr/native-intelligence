@@ -24,7 +24,7 @@ vi.mock('@/lib/agent-links/store', () => ({
 }))
 
 const route = await import('../route')
-const patch = (body: unknown) => new Request('https://dial8.ai/x', { method: 'PATCH', body: JSON.stringify(body) })
+const patch = (body: unknown) => new Request('https://nativeintelligence.dev/x', { method: 'PATCH', body: JSON.stringify(body) })
 
 beforeEach(() => {
   role.value = 'admin'

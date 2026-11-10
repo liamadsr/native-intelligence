@@ -9,30 +9,30 @@
 //! dev.sh builds) and builds with the `automation-bridge` cargo feature
 //! (`cargo tauri build --features automation-bridge`, an optimized build for
 //! the recorder; release.sh never passes it). In a released app the env vars
-//! below do nothing: any process of the same user could relaunch Dial8 with
+//! below do nothing: any process of the same user could relaunch Native Intelligence with
 //! them and run its own JavaScript in the page that holds the app's IPC
 //! (security review 2026-10-31).
 //!
 //! INERT UNLESS ASKED FOR. It starts only when BOTH env vars are set at launch:
 //!
-//!   DIAL8_AUTOMATION_PORT   an integer from 1024 to 65535
-//!   DIAL8_AUTOMATION_TOKEN  32+ visible ASCII characters (no spaces)
+//!   NI_AUTOMATION_PORT   an integer from 1024 to 65535
+//!   NI_AUTOMATION_TOKEN  32+ visible ASCII characters (no spaces)
 //!
 //! Neither set: nothing happens, no log line. Only one set, or a bad value:
 //! one warning in the debug log, and nothing starts. Both good: the server
 //! binds 127.0.0.1:<port> (never 0.0.0.0 or ::), the main web view gets
-//! `window.__DIAL8_AUTOMATION__ = Object.freeze({ version: 1 })` at document
+//! `window.__NI_AUTOMATION__ = Object.freeze({ version: 1 })` at document
 //! start of every load (the web app's own automation API keys off it), and
 //! one line is logged: `automation bridge listening on 127.0.0.1:<port>`. The
 //! token is never logged.
 //!
-//! QUIT DIAL8 FIRST. The env vars only reach a NEW process. If Dial8 is
+//! QUIT NATIVE INTELLIGENCE FIRST. The env vars only reach a NEW process. If Native Intelligence is
 //! already running, Launch Services just activates it (env ignored), and a
 //! second process started some other way is told off by the single-instance
 //! plugin (its unix socket, /tmp/ai_dial8_desktop_si.sock) and exits before
 //! setup, so the bridge never starts. A fresh launch is unaffected: with no
 //! running instance the socket connect fails and this process becomes the
-//! instance, with its own env. So the recorder must quit Dial8 (a real quit,
+//! instance, with its own env. So the recorder must quit Native Intelligence (a real quit,
 //! not close-to-tray), wait for the process to be gone
 //! (`NSRunningApplication.isTerminated`), then launch it with the vars
 //! (`NSWorkspace.openApplication` with `OpenConfiguration.environment`), and
@@ -60,8 +60,12 @@ use crate::log_to_file;
 /// Protocol version, `/health`'s `bridge` and the page flag's `version`.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-pub const PORT_VAR: &str = "DIAL8_AUTOMATION_PORT";
-pub const TOKEN_VAR: &str = "DIAL8_AUTOMATION_TOKEN";
+pub const PORT_VAR: &str = "NI_AUTOMATION_PORT";
+pub const TOKEN_VAR: &str = "NI_AUTOMATION_TOKEN";
+// TODO(rename-compat): the names a recorder written before the rename still sets.
+// Read only when the NI_ variable is unset; drop once recorders use the new names.
+const LEGACY_PORT_VAR: &str = "DIAL8_AUTOMATION_PORT";
+const LEGACY_TOKEN_VAR: &str = "DIAL8_AUTOMATION_TOKEN";
 
 /// The shortest token accepted.
 const MIN_TOKEN_CHARS: usize = 32;
@@ -78,7 +82,7 @@ enum Activation {
 
 /// Decide from the two variables' values (None: unset).
 ///
-/// An empty value counts as unset, so `DIAL8_AUTOMATION_PORT=` alone is the
+/// An empty value counts as unset, so `NI_AUTOMATION_PORT=` alone is the
 /// normal app rather than a warning.
 fn parse_activation(port: Option<&str>, token: Option<&str>) -> Activation {
     let port = port.filter(|p| !p.is_empty());
@@ -107,8 +111,8 @@ fn parse_activation(port: Option<&str>, token: Option<&str>) -> Activation {
 /// after the main window exists. Never panics: a bridge that can't start
 /// leaves the app exactly as it would be without the variables.
 pub fn start(app: &tauri::AppHandle) {
-    let port = std::env::var(PORT_VAR).ok();
-    let token = std::env::var(TOKEN_VAR).ok();
+    let port = std::env::var(PORT_VAR).or_else(|_| std::env::var(LEGACY_PORT_VAR)).ok();
+    let token = std::env::var(TOKEN_VAR).or_else(|_| std::env::var(LEGACY_TOKEN_VAR)).ok();
     let (port, token) = match parse_activation(port.as_deref(), token.as_deref()) {
         Activation::Absent => return,
         Activation::Invalid(why) => {

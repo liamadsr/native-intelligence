@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * A bot's page opens as a card (P5): `openTeammateChatTab` (the bubble's
- * Open, the desktop overlay's Open in Dial8) asks the
+ * Open, the desktop overlay's Open in Native Intelligence) asks the
  * dashboard, and TeammateChatTabBridge answers with a `bot` card for a
  * teammate the roster holds — on one of its items when asked. A teammate the
  * roster doesn't hold is left alone, so the caller falls back.

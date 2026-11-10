@@ -1,5 +1,5 @@
 /**
- * POST /api/presence: a Dial8 app saying its person is (or is not) at it, and
+ * POST /api/presence: a Native Intelligence app saying its person is (or is not) at it, and
  * optionally how far they have read their home thread
  * (docs/plans/reach-follows-you.md §1 and §2). Nothing reads these yet; the
  * router (part C) will, to choose between a banner and a text.
@@ -13,7 +13,7 @@
  *
  * Auth: requireUser, so a cookie for the web and the desktop and a Bearer JWT
  * for iOS. Presence is per person, not per workspace, so no membership check.
- * A capture-device token (`Bearer d8d_…`) is refused: a hardware recorder is
+ * A capture-device token (`Bearer nid_…`) is refused: a hardware recorder is
  * not the person, and a ping from one would hold their texts back.
  *
  * Writes run on the service client (user_presence grants nothing to signed-in

@@ -22,8 +22,8 @@ import { COMPACTION_THRESHOLD_PERCENT, selectionWithPolicy, validModelPolicy, wi
  */
 const NO_SPEC = '[work-agent] no run spec for this session (its prompt and tools could not be loaded) — refusing to run the work blind'
 
-/** Thrown when the spec names a ChatGPT plan this agent can't read: never fall back to a model Dial8 pays for. */
-const BAD_PLAN = "[work-agent] the run's spec names a ChatGPT plan this agent can't read — refusing to run it on Dial8's models"
+/** Thrown when the spec names a ChatGPT plan this agent can't read: never fall back to a model Native Intelligence pays for. */
+const BAD_PLAN = "[work-agent] the run's spec names a ChatGPT plan this agent can't read — refusing to run it on Native Intelligence's models"
 
 /**
  * Work-agent — the executor for approved work proposals (Loops v3,

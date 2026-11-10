@@ -52,7 +52,7 @@ import { resolveEntityWorkspace } from './_shared'
  * ATTENDED ONLY (ATTENDED_ONLY_TOOL_NAMES): the main chat and the person's own
  * MCP connector hold them; no run, bot or device ask does. Named for bots, as
  * list_bot_work is: `delete_agent` is the MCP's persona delete
- * (dial8_delete_agent), and the agents list_agents reads are personas.
+ * (ni_delete_agent), and the agents list_agents reads are personas.
  */
 
 export interface BotManageToolsContext {

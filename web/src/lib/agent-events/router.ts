@@ -107,7 +107,7 @@
  * retried pass changes nothing it already routed, and the face notice is
  * looked up by its group key before it is sent. Everything outside text in a
  * row (a title, a subject) reaches Jev only inside its labelled-untrusted
- * state, and a notice only as a clipped title in Dial8's own sentence.
+ * state, and a notice only as a clipped title in Native Intelligence's own sentence.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { MEETING_SOON_WINDOW_MS, NOTICE_KINDS, WAITING_KINDS, type AgentEventKind, type AgentEventOutcome, type AgentEventRow } from './types'
@@ -264,7 +264,7 @@ export function turnRuleFor(row: Pick<AgentEventRow, 'kind' | 'facts'>): string 
   return null
 }
 
-/** Jev's input for a row: Dial8's own kind and numbers, plus the row's templated facts. Pure. */
+/** Jev's input for a row: Native Intelligence's own kind and numbers, plus the row's templated facts. Pure. */
 export function eventNeedsPersonInput(row: Pick<AgentEventRow, 'kind' | 'priority' | 'facts' | 'occurs_at'>, nowMs: number): EventNeedsPersonInput {
   const occurs = Date.parse(row.occurs_at)
   const timeBound = row.kind === 'meeting.soon'

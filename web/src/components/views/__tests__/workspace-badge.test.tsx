@@ -57,7 +57,7 @@ import { isForeignWorkspace, rowWorkspace, rowWorkspaceHeaders } from '../row-wo
 import type { ViewConfig } from '../hooks/use-view'
 import type { GroupedResults } from '@/lib/views/types'
 
-const HOME = { id: 'ws-1', name: 'Dial8', slug: 'dial8', logo_url: null }
+const HOME = { id: 'ws-1', name: 'Native Intelligence', slug: 'dial8', logo_url: null }
 const OTHER = { id: 'ws-2', name: 'Acme Sales', slug: 'acme', logo_url: null }
 
 function action(over: Record<string, unknown> = {}): Record<string, unknown> {

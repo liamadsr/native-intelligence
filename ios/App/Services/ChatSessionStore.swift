@@ -1,6 +1,6 @@
 //
 //  ChatSessionStore.swift
-//  dial8
+//  Native Intelligence
 //
 //  Owns the ONE general-chat view model for the whole iOS app, and remembers
 //  which conversation is active across launches.

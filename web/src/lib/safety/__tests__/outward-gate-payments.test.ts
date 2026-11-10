@@ -74,7 +74,7 @@ describe('send_payment_link at the outward gate', () => {
 
   it('a readiness lookup that fails holds it', async () => {
     mocks.ready = 'throws'
-    expect(await outwardHoldOf({ workspaceId: 'w', userId: 'u', toolName: 'dial8_send_payment_link', input: INPUT })).toMatchObject({ reason: 'payment_link' })
+    expect(await outwardHoldOf({ workspaceId: 'w', userId: 'u', toolName: 'ni_send_payment_link', input: INPUT })).toMatchObject({ reason: 'payment_link' })
   })
 
   it('an input the tool would refuse anyway (no recipient, a bad amount) is not carded', async () => {

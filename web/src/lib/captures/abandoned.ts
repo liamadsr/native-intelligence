@@ -7,7 +7,7 @@ import { shouldRunPostLiveBatch } from '@/lib/live-agent/default-agent'
  * Only the recording client finishes a capture: its Stop stamps `ended_at` and
  * runs the end-of-meeting pass (the batch, or index-content closing a live
  * record), which is what emits `flow/capture.processed` → Triage. When the
- * recorder dies mid-meeting (2026-09-28: an update restarted Dial8 mid-
+ * recorder dies mid-meeting (2026-09-28: an update restarted Native Intelligence mid-
  * recording and macOS's audio daemon then deadlocked, twice in one afternoon)
  * no Stop ever comes, and nothing on the server finished the capture: the
  * index-reconciler heals only captures that already have an ai_summary, and the

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Third-party license notices — sourced by dev.sh, build.sh and release.sh.
 #
-# licenses_stage builds Dial8.app/Contents/Resources/Licenses/ from scratch:
+# licenses_stage builds Native Intelligence.app/Contents/Resources/Licenses/ from scratch:
 #
 #   dial8-desktop/          the Rust crates linked into the main executable
 #                           (scripts/licenses/rust_crates.py, from Cargo's build
@@ -34,7 +34,7 @@
 
 LICENSES_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/licenses"
 
-# $1 = Dial8.app, $2 = release (default) | dev.
+# $1 = Native Intelligence.app, $2 = release (default) | dev.
 # Returns non-zero (and leaves no Licenses/ folder) on any failure: a crate,
 # the standard library or a sidecar whose notices can't be produced is never
 # skipped. The one exception is dev: a staged sidecar whose build wrote no
@@ -131,7 +131,7 @@ licenses_stage_into() {
 }
 
 # Fail unless the staged notices hold every expected part.
-# $1 = Dial8.app, $2... = parts that must be there, each with license texts
+# $1 = Native Intelligence.app, $2... = parts that must be there, each with license texts
 # (e.g. dial8-desktop rust-std vad local-stt).
 licenses_verify() {
     local app="$1"

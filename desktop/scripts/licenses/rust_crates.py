@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Third-party notices for the Rust crates linked into the Dial8 app binary.
+"""Third-party notices for the Rust crates linked into the Native Intelligence app binary.
 
     rust_crates.py [--manifest-dir DIR] [--package NAME] [--target TRIPLE]
                    [--features LIST] OUT
@@ -31,7 +31,7 @@ source directory) — never the crate list: its resolve graph merges build-time
 features and weak optional dependencies (`dep?/feature`) in, and lists crates
 the binary does not contain. As a regression check, crates that only ever run
 at build time (NOT_LINKED) must not be in the set. Path packages inside
---manifest-dir are Dial8's own code and are skipped.
+--manifest-dir are Native Intelligence's own code and are skipped.
 
 Which files: every file in the crate's source directory (and below it) whose
 name starts with LICENSE, LICENCE, COPYING, COPYRIGHT, NOTICE, UNLICENSE or
@@ -468,7 +468,7 @@ def build_graph(manifest_dir: str, package: str, target: str, features: str) -> 
 
 
 def linked_crates(meta: dict, graph: set, package: str, manifest_dir: str) -> list:
-    """The metadata packages for the build graph, minus Dial8's own."""
+    """The metadata packages for the build graph, minus Native Intelligence's own."""
     by_name_version = {}
     for pkg in meta["packages"]:
         by_name_version.setdefault((pkg["name"], pkg["version"]), []).append(pkg)
@@ -668,7 +668,7 @@ def header(count: int, target: str, bins: list) -> str:
         return textwrap.fill(" ".join(text.split()), width=78)
 
     return "\n\n".join([
-        f"Rust crates in the Dial8 app's main executable ({count} crates)",
+        f"Rust crates in the Native Intelligence app's main executable ({count} crates)",
         "Ships as:\n" + ("\n".join(f"  {ships_as(target, b)}" for b in bins) or "  (no binary target)"),
         para(f"The app's main executable is written in Rust. It statically links the {count} "
              f"third-party crates below: exactly the crates Cargo compiles into it for {target}, "

@@ -79,21 +79,21 @@ export interface CallTurnDeps {
 export function callTurnSkipNotice(reason: HomeTurnSkip | 'busy' | 'failed' | 'unfinished' | 'held'): string | null {
   switch (reason) {
     case 'question_pending':
-      return "There's a question from me waiting for you in the Dial8 app. Answer it there first, then ask me again."
+      return "There's a question from me waiting for you in the Native Intelligence app. Answer it there first, then ask me again."
     case 'autonomy_off':
-      return "Dial8's agent is switched off for this workspace in Settings, so I can't act on calls right now."
+      return "Native Intelligence's agent is switched off for this workspace in Settings, so I can't act on calls right now."
     case 'usage_limited':
-      return "You've reached your Dial8 usage limit, so I can't answer right now."
+      return "You've reached your Native Intelligence usage limit, so I can't answer right now."
     case 'not_member':
     case 'no_conversation':
     case 'not_home':
-      return "I couldn't find your Dial8 workspace for this number."
+      return "I couldn't find your Native Intelligence workspace for this number."
     case 'busy':
-      return "I'm still busy with something else in Dial8. Try me again in a minute."
+      return "I'm still busy with something else in Native Intelligence. Try me again in a minute."
     case 'unfinished':
-      return "That's taking me a while. I'll keep working on it, and the answer will be in the Dial8 app."
+      return "That's taking me a while. I'll keep working on it, and the answer will be in the Native Intelligence app."
     case 'held':
-      return "That needs your OK first. It's waiting for you in the Dial8 app."
+      return "That needs your OK first. It's waiting for you in the Native Intelligence app."
     case 'failed':
     case 'no_session':
     case 'lookup_failed':

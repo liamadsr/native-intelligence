@@ -105,19 +105,19 @@ describe("the guest's notices", () => {
     for (const reason of ['usage_limited', 'not_member', 'busy', 'unfinished', 'held', 'failed', 'question_pending'] as const) {
       const notice = guestTextTurnSkipNotice(reason, 'Liam')
       expect(notice, reason).toBeTruthy()
-      expect(notice, reason).not.toMatch(/Settings|Billing|open Dial8|in Dial8/i)
+      expect(notice, reason).not.toMatch(/Settings|Billing|open (Native Intelligence|Dial8)|in (Native Intelligence|Dial8)/i)
     }
     expect(guestTextTurnSkipNotice('held', 'Liam')).toBe("That needs Liam's OK first. I've asked them.")
     // The person's own wording is unchanged.
-    expect(textTurnSkipNotice('held')).toBe("That needs your OK first. It's waiting for you in Dial8.")
+    expect(textTurnSkipNotice('held')).toBe("That needs your OK first. It's waiting for you in Native Intelligence.")
   })
 
-  it('a long reply is never cut: every word goes, with no "..." and no link to a Dial8 they don’t have', () => {
+  it('a long reply is never cut: every word goes, with no "..." and no link to a Native Intelligence they don’t have', () => {
     const long = 'word '.repeat(600)
-    const texts = formatSmsReply(long, { origin: 'https://dial8.ai' })
+    const texts = formatSmsReply(long, { origin: 'https://nativeintelligence.dev' })
     expect(texts.join(' ').split(' ')).toHaveLength(600)
     expect(texts.join(' ')).not.toContain('...')
-    expect(texts.join(' ')).not.toContain('dial8.ai')
+    expect(texts.join(' ')).not.toMatch(/nativeintelligence\.dev|dial8\.ai/)
   })
 })
 
@@ -129,9 +129,9 @@ describe('withinBudget: one reply never outruns the day\'s cap or SMS_REPLY_MAX_
   })
 
   it('past the per-reply limit, the person\'s last text says where the rest is; a guest\'s just stops', () => {
-    const person = withinBudget(texts(25), 50, 'The rest is in Dial8.')
+    const person = withinBudget(texts(25), 50, 'The rest is in Native Intelligence.')
     expect(person).toHaveLength(SMS_REPLY_MAX_TEXTS)
-    expect(person.at(-1)).toBe('The rest is in Dial8.')
+    expect(person.at(-1)).toBe('The rest is in Native Intelligence.')
     expect(withinBudget(texts(25), 50)).toEqual(texts(SMS_REPLY_MAX_TEXTS))
   })
 
@@ -175,7 +175,7 @@ describe('textGuest', () => {
   it('texts an active guest and records it as theirs', async () => {
     const f = fakeSupabase()
     const send = vi.fn(async () => ({ ok: true as const, sid: 'SMout' }))
-    expect(await textGuest(f.supabase, args, { send, origin: 'https://dial8.ai' })).toEqual({ sent: true, sid: 'SMout' })
+    expect(await textGuest(f.supabase, args, { send, origin: 'https://nativeintelligence.dev' })).toEqual({ sent: true, sid: 'SMout' })
     expect(send).toHaveBeenCalledWith('+15551234567', 'Liam is free at 3.')
     expect(f.inserts).toEqual([expect.objectContaining({ direction: 'out', kind: 'guest_reply', guest_id: GUEST, user_id: null })])
   })
@@ -184,7 +184,7 @@ describe('textGuest', () => {
     const body = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} is here to make this reply long enough to split.`).join(' ')
     const f = fakeSupabase()
     const send = vi.fn(async () => ({ ok: true as const, sid: `SM${send.mock.calls.length}` }))
-    expect(await textGuest(f.supabase, { ...args, body }, { send, origin: 'https://dial8.ai' })).toEqual({ sent: true, sid: 'SM1' })
+    expect(await textGuest(f.supabase, { ...args, body }, { send, origin: 'https://nativeintelligence.dev' })).toEqual({ sent: true, sid: 'SM1' })
     const sent = send.mock.calls.map((c) => (c as unknown as [string, string])[1])
     expect(sent.length).toBeGreaterThan(1)
     expect(sent.join(' ')).toBe(body)

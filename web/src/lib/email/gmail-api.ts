@@ -2,7 +2,7 @@
  * The Gmail calls the push path makes: the history since a checkpoint (which
  * threads changed) and the profile (a fresh checkpoint). No message bodies
  * are fetched here: the index reads each thread's metadata
- * (src/lib/crm/email-sync.ts), and Dial8 stores no mail (2026-10-15).
+ * (src/lib/crm/email-sync.ts), and Native Intelligence stores no mail (2026-10-15).
  */
 
 // =====================================================================

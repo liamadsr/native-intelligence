@@ -105,8 +105,8 @@ let container: HTMLDivElement
 let root: Root
 const originalFetch = globalThis.fetch
 
-const STORAGE_KEY_GLOBAL = 'dial8:active-view:ws-1:capture:noteam:global'
-const storageKeyForTeam = (teamId: string) => `dial8:active-view:ws-1:capture:${teamId}:global`
+const STORAGE_KEY_GLOBAL = 'ni:active-view:ws-1:capture:noteam:global'
+const storageKeyForTeam = (teamId: string) => `ni:active-view:ws-1:capture:${teamId}:global`
 
 beforeEach(() => {
   pending = []

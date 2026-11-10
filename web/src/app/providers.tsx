@@ -10,23 +10,23 @@ import { PublicSky } from '@/components/sky/public-sky'
 /**
  * Desktop-only escape hatch for a debugging session, read from localStorage —
  * NOT a NEXT_PUBLIC_* build-time env var. The desktop shell loads the already
- * deployed production bundle from dial8.ai, so a build-time flag cannot vary
+ * deployed production bundle from nativeintelligence.dev, so a build-time flag cannot vary
  * per desktop build; it would have to be flipped for every web visitor too.
  * To re-enable replay in the desktop app for one session, run in the webview
  * devtools console and reload:
- *   localStorage.setItem('dial8:posthog-replay', 'on')
+ *   localStorage.setItem('ni:posthog-replay', 'on')
  * (remove the key to go back to the default off). Wrapped in try/catch because
  * localStorage throws outright in some privacy modes rather than returning null.
  */
 function isDesktopReplayForced(): boolean {
   try {
-    return localStorage.getItem('dial8:posthog-replay') === 'on'
+    return localStorage.getItem('ni:posthog-replay') === 'on'
   } catch {
     return false
   }
 }
 
-// HUD windows (/hud/*, the desktop app's overlays) aren't visits to Dial8, and
+// HUD windows (/hud/*, the desktop app's overlays) aren't visits to Native Intelligence, and
 // a texted single-use link's pages (/l/*) carry its token in the path, which
 // must never reach analytics (src/lib/links/one-time.ts).
 // (The agent browser's live view and computer card are not routes: their DOM —
@@ -60,7 +60,7 @@ if (
     // exists to prevent, so make it visible once at init rather than leaving
     // the shell quietly recording for days.
     console.warn(
-      '[dial8] PostHog session replay force-enabled via localStorage dial8:posthog-replay — remove the key to restore the default',
+      '[ni] PostHog session replay force-enabled via localStorage ni:posthog-replay — remove the key to restore the default',
     )
   }
 

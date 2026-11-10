@@ -138,7 +138,7 @@ describe('routeEvent (the rules)', () => {
 })
 
 describe('eventNeedsPersonInput / jevShadowFrom', () => {
-  it('hands Jev Dial8’s kind and numbers plus the templated facts; minutes only for a meeting', () => {
+  it('hands Jev Native Intelligence’s kind and numbers plus the templated facts; minutes only for a meeting', () => {
     expect(eventNeedsPersonInput({ kind: 'meeting.soon', priority: 2, facts: { title: 'Acme', prepReady: true }, occurs_at: at(20) }, NOW)).toEqual({
       kind: 'meeting.soon',
       priority: 2,

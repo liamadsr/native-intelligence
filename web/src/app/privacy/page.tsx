@@ -1,16 +1,17 @@
 import type { Metadata } from 'next'
 import Privacy from './client'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description:
-    'How Dial8 collects, uses, and protects your data. Read our privacy policy.',
+    'How Native Intelligence collects, uses, and protects your data. Read our privacy policy.',
   alternates: { canonical: '/privacy' },
   openGraph: {
-    title: 'Privacy Policy – Dial8',
+    title: 'Privacy Policy – Native Intelligence',
     description:
-      'How Dial8 collects, uses, and protects your data. Read our privacy policy.',
-    url: 'https://dial8.ai/privacy',
+      'How Native Intelligence collects, uses, and protects your data. Read our privacy policy.',
+    url: `${appUrl()}/privacy`,
     type: 'website',
   },
 }

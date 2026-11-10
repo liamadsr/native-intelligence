@@ -19,7 +19,7 @@ export default function ReleaseNotes() {
         <PageHeader
           eyebrow="Product Updates"
           title="Release Notes"
-          description="Stay up to date with the latest features, improvements, and fixes to Dial8."
+          description="Stay up to date with the latest features, improvements, and fixes to Native Intelligence."
         />
 
         <main className="pb-24">

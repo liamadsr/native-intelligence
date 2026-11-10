@@ -212,7 +212,7 @@ describe('EntityRow — the action row leads with the platform mark', () => {
     expect(mark()!.compareDocumentPosition(identifier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('a Dial8-only action still gets a mark, so the column never shifts', async () => {
+  it('an NI-only action still gets a mark, so the column never shifts', async () => {
     await renderRow({ id: 'act-1', identifier: 'ENG-42', title: 'Ship it', external_links: [] })
     expect(mark()!.getAttribute('data-platform-icon')).toBe('dial8')
   })
@@ -398,7 +398,7 @@ describe('BoardCard — the mark sits in the header without breaking drag', () =
  * pinned in push-compose-panel.test.tsx.
  */
 describe('EntityRow — compose replaces the property strip', () => {
-  it('shows the Dial8 property chips until compose begins', async () => {
+  it('shows the Native Intelligence property chips until compose begins', async () => {
     await renderRow({
       id: 'act-1',
       identifier: 'ENG-42',

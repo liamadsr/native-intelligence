@@ -3,7 +3,7 @@
  * checks, the ceiling and the call context behind GET /api/local-agent/agent/spec
  * and POST /api/local-agent/agent/tool.
  *
- * The Mac body is the main Dial8 agent running on the person's Mac
+ * The Mac body is the main Native Intelligence agent running on the person's Mac
  * (agents/chat-agent, packaged into the desktop app). It reaches the server
  * with the job's session token (`la1.…`, ./tokens.ts), never the shared
  * internal secret, which must never ship to a Mac. So every call proves, on
@@ -31,8 +31,8 @@
  *   - never the attended-only tools its caller class is denied (caller.ts);
  *   - plus `web_fetch` and `web_search`, run here (./web-tools.ts), and the
  *     Mac's own teammate tools (C4, ./agent-seams.ts).
- * The job's `mode` (read or edit) is the Mac's folder fence, not a Dial8
- * permission: it doesn't narrow the Dial8 tools (writes in the person's own
+ * The job's `mode` (read or edit) is the Mac's folder fence, not a Native Intelligence
+ * permission: it doesn't narrow the Native Intelligence tools (writes in the person's own
  * workspace stay apply-with-undo).
  *
  * Its caller class ({@link macCallerClass}): `person_remote` only on a
@@ -48,7 +48,7 @@
  * injection-exposed caller. The reviewer's evidence is the person's words as
  * the server stored them at the job's start or join ({@link macPersonWords}),
  * never what the Mac posts. A held call's card asks in the person's home
- * thread (nobody reads the Mac's turns in a chat), names "Dial8 on <Mac>" and
+ * thread (nobody reads the Mac's turns in a chat), names "Native Intelligence on <Mac>" and
  * the job (`context.localAgent`), and at most five cards per job wait at once
  * (createToolApproval's per-job cap, APPROVAL_PENDING_MAX_PER_MAC_JOB).
  *
@@ -56,7 +56,7 @@
  * {@link localModelFromClaimBody}) gets no web tools, and every RISKY call
  * (outward, delete, automation-write, an outside tool) is held as the
  * person's card, whatever the reviewer says ({@link localModelGate}).
- * Internal Dial8 writes stay uncarded: apply with undo.
+ * Internal Native Intelligence writes stay uncarded: apply with undo.
  */
 import type { Tool } from 'ai'
 import type { z } from 'zod'
@@ -90,7 +90,7 @@ import { LOCAL_AGENT_MODEL_SLUG, checkSessionToken, type TokenSessionRow } from 
 import type { ModelTokenClaims } from './tokens'
 import { MAC_WEB_TOOL_DEFINITIONS, MAC_WEB_TOOL_NAMES } from './web-tools'
 
-/** The host the spec names for the Mac body (C2's `DIAL8_AGENT_HOST=mac`). */
+/** The host the spec names for the Mac body (C2's `NI_AGENT_HOST=mac`). */
 export const MAC_HOST = 'mac' as const
 
 /** The claim body's field that says the Mac runs this job on a local model. */
@@ -145,7 +145,7 @@ export interface MacSession {
   startWords: string[]
   /** The Mac runs this job on a model on the Mac. */
   localModel: boolean
-  /** For its cards: "Dial8 on <deviceName>", in <folderLabel>. */
+  /** For its cards: "Native Intelligence on <deviceName>", in <folderLabel>. */
   deviceName: string
   folderLabel: string
 }
@@ -302,7 +302,7 @@ export const MAC_ORIGIN = Object.freeze({ actor: 'agent' as const, depth: 1 })
 
 /**
  * The job, on every approval it raises: the per-job cap counts by it, and the
- * card's words name "Dial8 on <Mac>" and the job (WS-D's copy reads it).
+ * card's words name "Native Intelligence on <Mac>" and the job (WS-D's copy reads it).
  */
 export interface MacApprovalJob {
   sessionId: string
@@ -432,7 +432,7 @@ export function macDispatchContext(supabase: SupabaseClient, body: MacBody): Too
 
 /** What the model on the Mac reads about a card it raised: where it waits, and to carry on. */
 export function macHeldMessage(toolName: string): string {
-  return `Nothing ran yet. ${toolName} needs the person's approval: its card is waiting in their Dial8 home chat, and it runs once they approve it there. Carry on without it, say in your report that it is waiting, and do not call it again.`
+  return `Nothing ran yet. ${toolName} needs the person's approval: its card is waiting in their Native Intelligence home chat, and it runs once they approve it there. Carry on without it, say in your report that it is waiting, and do not call it again.`
 }
 
 /**
@@ -510,7 +510,7 @@ export function localModelGate(body: MacBody): typeof gateRiskyCall {
       personMessageSeq: request.personMessageSeq ?? null,
       card: {
         title: `Approve ${request.toolName}?`,
-        why: `Dial8 on ${body.session.deviceName} (in ${body.session.folderLabel}) is running on a model on your Mac, so anything that changes or sends something outside your workspace waits for you. This runs ${request.toolName} once, with exactly the inputs below.`,
+        why: `Native Intelligence on ${body.session.deviceName} (in ${body.session.folderLabel}) is running on a model on your Mac, so anything that changes or sends something outside your workspace waits for you. This runs ${request.toolName} once, with exactly the inputs below.`,
       },
     })
     const output: HeldCallOutput = {

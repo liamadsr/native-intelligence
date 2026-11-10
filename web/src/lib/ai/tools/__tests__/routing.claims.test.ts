@@ -55,7 +55,7 @@ const WS_OTHER = 'ws-2'
 const WS_THIRD = 'ws-3'
 
 const WORKSPACES = [
-  { id: WS_ACTIVE, name: 'Dial8 Marketing' },
+  { id: WS_ACTIVE, name: 'Native Intelligence Marketing' },
   { id: WS_OTHER, name: 'Engineering' },
   { id: WS_THIRD, name: 'Personal' },
 ]
@@ -223,7 +223,7 @@ describe("create_claim — policy 'explicit', no workspace_id", () => {
     expect(res.success).toBe(false)
     expect(res.error_type).toBe('needs_workspace')
     expect(res.candidates).toEqual([
-      { id: WS_ACTIVE, name: 'Dial8 Marketing', is_active: true },
+      { id: WS_ACTIVE, name: 'Native Intelligence Marketing', is_active: true },
       { id: WS_OTHER, name: 'Engineering', is_active: false },
       { id: WS_THIRD, name: 'Personal', is_active: false },
     ])

@@ -125,8 +125,8 @@ export function PrimeStep({
         transition={{ type: 'spring', duration: 0.6 }}
       >
         <img
-          src="/screenshots/icon_128x128@2x 1.png"
-          alt="Dial8"
+          src="/brand/ni-mark.png"
+          alt="Native Intelligence"
           className="h-12 w-12 brightness-0 dark:invert"
         />
       </motion.div>
@@ -581,13 +581,13 @@ export function DesktopDownloadTile() {
       <div className="flex items-center gap-4">
         <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-muted">
           <img
-            src="/screenshots/icon_128x128@2x 1.png"
-            alt="Dial8"
+            src="/brand/ni-mark.png"
+            alt="Native Intelligence"
             className="h-8 w-8 brightness-0 dark:invert"
           />
         </div>
         <div className="text-left">
-          <div className="font-semibold">Dial8 for macOS</div>
+          <div className="font-semibold">Native Intelligence for macOS</div>
           <div className="text-sm text-muted-foreground">
             Auto-capture meetings, extract actions
           </div>

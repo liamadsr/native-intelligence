@@ -1,6 +1,6 @@
 /**
- * "Sign in with Google" on dial8.ai. Dial8 runs Google's OAuth flow itself,
- * so the browser goes dial8.ai → accounts.google.com → dial8.ai and never
+ * "Sign in with Google" on nativeintelligence.dev. Native Intelligence runs Google's OAuth flow itself,
+ * so the browser goes nativeintelligence.dev → accounts.google.com → nativeintelligence.dev and never
  * visits <project>.supabase.co. Supabase's own flow calls back to its project
  * URL, which Google's account chooser then shows the person ("to continue to
  * bzfthjzyzevjokbuhqci.supabase.co"); the custom-domain add-on that would
@@ -50,7 +50,7 @@ export function googleSignInClient(): GoogleSignInClient | null {
   return clientId && clientSecret ? { clientId, clientSecret } : null
 }
 
-/** Does "Sign in with Google" run on dial8.ai? */
+/** Does "Sign in with Google" run on nativeintelligence.dev? */
 export function isGoogleSignInEnabled(): boolean {
   return googleSignInClient() !== null
 }

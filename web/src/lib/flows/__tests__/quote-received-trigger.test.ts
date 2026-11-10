@@ -64,12 +64,12 @@ describe('the trigger config and its token', () => {
   })
 
   it('{{trigger.quote_id}} renders the fire’s quote, and is a known token', () => {
-    const ctx = buildTemplateContext(null, { type: 'quote_received', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-11-01T00:00:00Z', quote_id: 'q-42' }, 'https://dial8.ai', { workspaceId: 'ws-1' })
+    const ctx = buildTemplateContext(null, { type: 'quote_received', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-11-01T00:00:00Z', quote_id: 'q-42' }, 'https://nativeintelligence.dev', { workspaceId: 'ws-1' })
     expect(renderTemplate('Read quote {{trigger.quote_id}} with get_quote', ctx)).toBe('Read quote q-42 with get_quote')
     expect(TEMPLATE_TOKENS).toContain('{{trigger.quote_id}}')
     expect(isKnownTemplatePath(['trigger', 'quote_id'])).toBe(true)
     // Any other fire has none.
-    const other = buildTemplateContext(null, { type: 'schedule', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '' }, 'https://dial8.ai', { workspaceId: 'ws-1' })
+    const other = buildTemplateContext(null, { type: 'schedule', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '' }, 'https://nativeintelligence.dev', { workspaceId: 'ws-1' })
     expect(other.trigger.quote_id).toBeNull()
   })
 })

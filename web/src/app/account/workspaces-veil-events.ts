@@ -5,7 +5,7 @@
  * providers, and the veil imports the workspace switcher, so the switcher
  * can't import the veil back.
  */
-export const OPEN_WORKSPACES_EVENT = 'dial8:open-workspaces'
+export const OPEN_WORKSPACES_EVENT = 'ni:open-workspaces'
 
 /** Send the app into the background and show every workspace. */
 export function openWorkspacesVeil(): void {

@@ -4,6 +4,7 @@ import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { blog } from '@/lib/source';
 import { BlogPostWrapper } from './wrapper';
 import { StructuredData, blogPostingSchema } from '@/components/structured-data';
+import { appUrl } from '@/lib/app-url'
 
 export default async function BlogPostPage(props: {
   params: Promise<{ slug: string }>;
@@ -14,7 +15,7 @@ export default async function BlogPostPage(props: {
   if (!page) notFound();
   const Mdx = page.data.body;
 
-  const postUrl = `https://dial8.ai/blog/${params.slug}`;
+  const postUrl = `${appUrl()}/blog/${params.slug}`;
   const jsonLd = blogPostingSchema({
     title: page.data.title,
     description: page.data.description,
@@ -94,7 +95,7 @@ export async function generateMetadata(props: {
   const page = blog.getPage([params.slug]);
   if (!page) notFound();
 
-  const url = `https://dial8.ai/blog/${params.slug}`;
+  const url = `${appUrl()}/blog/${params.slug}`;
   return {
     title: page.data.title,
     description: page.data.description,

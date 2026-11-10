@@ -15,7 +15,7 @@ describe('RelayClient', () => {
     expect(await client.next()).toEqual({ command: { id: 'c', command: 'run_task' } })
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://relay.test/api/browser-relay/next?v=build%201')
-    expect(init.headers).toEqual({ 'x-dial8-relay': '1' })
+    expect(init.headers).toEqual({ 'x-ni-relay': '1' })
   })
 
   it('tells the relay to restart when the app moved to another build', async () => {
@@ -28,7 +28,7 @@ describe('RelayClient', () => {
     const client = new RelayClient('https://relay.test', 'b', fetchImpl as unknown as typeof fetch)
     expect(await client.claim('c')).toBeNull()
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect(init).toMatchObject({ method: 'POST', body: '{}', headers: { 'x-dial8-relay': '1', 'content-type': 'application/json' } })
+    expect(init).toMatchObject({ method: 'POST', body: '{}', headers: { 'x-ni-relay': '1', 'content-type': 'application/json' } })
   })
 
   it('retries a settle that failed in transit, not one the route refused', async () => {

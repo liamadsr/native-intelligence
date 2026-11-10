@@ -30,6 +30,8 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const RESEND_API_KEY = process.env.RESEND_API_KEY!
 const UNSUBSCRIBE_SECRET = process.env.UNSUBSCRIBE_SECRET!
 // Default to prod: these emails go to real people, so a localhost link must be an explicit opt-in.
+// TODO(rename-compat): the default stays on the old domain until nativeintelligence.dev serves the app;
+// this script is run by hand, so it does not read the deployment's NEXT_PUBLIC_APP_URL.
 const BASE_URL = (process.env.INVITE_BASE_URL || 'https://dial8.ai').replace(/\/+$/, '')
 const FROM_EMAIL = process.env.EMAIL_FROM?.trim() ?? ''
 

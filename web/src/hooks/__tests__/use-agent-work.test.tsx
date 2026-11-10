@@ -591,7 +591,7 @@ describe('useAgentWork', () => {
     await flush()
     expect(lightFetches()).toBe(3)
     // Any other storage write is none of its business.
-    await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: 'dial8:bots:cast', newValue: '{}' })))
+    await act(async () => window.dispatchEvent(new StorageEvent('storage', { key: 'ni:bots:cast', newValue: '{}' })))
     await flush()
     expect(lightFetches()).toBe(3)
     // Unmounted: nobody reloads.

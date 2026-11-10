@@ -38,8 +38,8 @@ beforeEach(async () => {
   hf.env.backends.onnx.wasm = {}
   hf.processorLoad.mockClear()
   hf.modelLoad.mockClear()
-  // The origin a Turbopack blob: worker reports (blob:https://dial8.ai/<uuid>).
-  fakeSelf = { location: { origin: 'https://dial8.ai' }, postMessage: vi.fn(), onmessage: null }
+  // The origin a Turbopack blob: worker reports (blob:https://nativeintelligence.dev/<uuid>).
+  fakeSelf = { location: { origin: 'https://nativeintelligence.dev' }, postMessage: vi.fn(), onmessage: null }
   vi.stubGlobal('self', fakeSelf)
   await import('../voice-embedding-worker')
 })
@@ -50,7 +50,7 @@ afterEach(() => {
 
 describe('the voice-embedding worker', () => {
   it("loads ONNX Runtime from this origin, under the bundled runtime's version", () => {
-    expect(hf.env.backends.onnx.wasm.wasmPaths).toBe('https://dial8.ai/ort/9.9.9-dev.1/')
+    expect(hf.env.backends.onnx.wasm.wasmPaths).toBe('https://nativeintelligence.dev/ort/9.9.9-dev.1/')
   })
 
   it('loads the processor and the model at one pinned commit, never main', async () => {

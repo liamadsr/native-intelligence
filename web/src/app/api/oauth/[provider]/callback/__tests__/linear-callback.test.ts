@@ -109,7 +109,7 @@ function signedState(overrides: Record<string, unknown> = {}) {
 function callback(provider: string, state = signedState()) {
   return GET(
     new Request(
-      `https://dial8.ai/api/oauth/${provider}/callback?code=auth-code&state=${state}`,
+      `https://nativeintelligence.dev/api/oauth/${provider}/callback?code=auth-code&state=${state}`,
       { headers: { cookie: 'oauth_nonce=nonce-1' } },
     ),
     { params: Promise.resolve({ provider }) },
@@ -161,7 +161,7 @@ beforeEach(() => {
   vi.stubEnv('OAUTH_STATE_SECRET', 'state-secret')
   vi.stubEnv('LINEAR_CLIENT_ID', 'linear-client')
   vi.stubEnv('LINEAR_CLIENT_SECRET', 'linear-secret')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   // getRedirectUri() prefers OAUTH_REDIRECT_BASE_URL over NEXT_PUBLIC_APP_URL,
   // so a value inherited from the shell would change the token exchange's
   // redirect_uri. Unset it so the base comes from NEXT_PUBLIC_APP_URL above.
@@ -234,7 +234,7 @@ describe('GET /api/oauth/linear/callback — viewer identity lookup', () => {
     expect(body.get('client_id')).toBe('linear-client')
     expect(body.get('client_secret')).toBe('linear-secret')
     expect(body.get('grant_type')).toBe('authorization_code')
-    expect(body.get('redirect_uri')).toBe('https://dial8.ai/api/oauth/linear/callback')
+    expect(body.get('redirect_uri')).toBe('https://nativeintelligence.dev/api/oauth/linear/callback')
   })
 })
 
@@ -424,7 +424,7 @@ describe('GET /api/oauth/[provider]/callback — desktop hand-back', () => {
   it('hands a provider error back the same way', async () => {
     const res = await GET(
       new Request(
-        `https://dial8.ai/api/oauth/linear/callback?error=access_denied&state=${signedState({ source: 'desktop' })}`,
+        `https://nativeintelligence.dev/api/oauth/linear/callback?error=access_denied&state=${signedState({ source: 'desktop' })}`,
       ),
       { params: Promise.resolve({ provider: 'linear' }) },
     )

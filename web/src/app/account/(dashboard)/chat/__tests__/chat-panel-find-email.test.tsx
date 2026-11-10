@@ -3,7 +3,7 @@
  * The contact panel → Find-email handoff, at the ChatPanel handle.
  *
  * "Find email" on a contact's empty email row dispatches
- * `dial8:find-contact-email`; the shell forwards it to the ACTIVE tab's panel
+ * `ni:find-contact-email`; the shell forwards it to the ACTIVE tab's panel
  * via `findContactEmail`. What this pins:
  *
  *   • the panel selects the `find-email` system skill, so the turn runs inside
@@ -218,7 +218,7 @@ describe('ChatPanel.findContactEmail', () => {
    * as the prospecting-start test (DashboardShell has never been mounted in a
    * test), and enough to prove the detail survives the event boundary.
    */
-  it('a dispatched dial8:find-contact-email reaches the handle with its detail intact', async () => {
+  it('a dispatched ni:find-contact-email reaches the handle with its detail intact', async () => {
     await mount()
     const listener = (e: Event) => {
       const detail = (e as CustomEvent).detail as FindContactEmailContext | undefined

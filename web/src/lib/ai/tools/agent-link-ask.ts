@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 /**
  * ask_agent (agent links, migration 435): the person's main agent asks
- * another Dial8 user's agent something for them, over a link both people set
+ * another Native Intelligence user's agent something for them, over a link both people set
  * up (People > Their agent). The other side answers through the agent its
  * owner set up for this person, within what they let it share; the answer
  * comes back to this chat on its own (an agent_answer update). A schema twin
@@ -46,7 +46,7 @@ export function createAgentLinkAskTools() {
   return {
     ask_agent: tool({
       description:
-        "Ask another Dial8 user's agent something for the person (someone they linked agents with: a teammate, or someone in another workspace), such as when they're free or the status of something they share. " +
+        "Ask another Native Intelligence user's agent something for the person (someone they linked agents with: a teammate, or someone in another workspace), such as when they're free or the status of something they share. " +
         'Their agent answers within what its owner lets it share; the answer comes back to this chat on its own, so tell the person you asked and do not wait. ' +
         "When the person asks you to ask, message or check with someone's agent, call this with `to` set to that person's name: you don't need to know first whether they're linked, because an unlinked name sends nothing and the result lists who is. " +
         'Start a conversation for something the person asked for (asking that agent, or a request that needs that person\'s answer: a time to meet, the status of work they share), or, in a background update, for work that needs one; follow up with exchange_id. ' +

@@ -4,10 +4,12 @@ import { PostHogProvider } from './providers'
 import { DeepLinkHandler } from '@/components/desktop/deep-link-handler'
 import { CloseStaleBotsOverlay } from '@/components/desktop/close-stale-bots-overlay'
 import { DesktopNativeFeel } from '@/components/desktop/desktop-native-feel'
+import { StorageRenameScript } from '@/components/storage-rename-script'
 import { ThemeScript } from '@/components/theme-script'
 import { SystemThemeListener } from '@/components/system-theme-listener'
 import { CacheBusterScript } from '@/components/desktop/cache-buster-script'
 import { Inter, Noto_Serif } from 'next/font/google'
+import { appUrl } from '@/lib/app-url'
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 const notoSerif = Noto_Serif({ subsets: ['latin'], variable: '--font-heading' })
@@ -15,21 +17,21 @@ const notoSerif = Noto_Serif({ subsets: ['latin'], variable: '--font-heading' })
 // Site-wide defaults. The homepage overrides both with its own sales metadata
 // (src/app/page.tsx); these are what every page WITHOUT its own title falls
 // back to, plus the og:/twitter: cards for those pages.
-const SITE_TITLE = 'Dial8 — the end-to-end AI sales platform'
+const SITE_TITLE = 'Native Intelligence — the end-to-end AI sales platform'
 const SITE_DESCRIPTION =
-  'Dial8 gives every rep your whole team’s knowledge live on the call — no bot joins the meeting — then updates the CRM, queues follow-ups, and feeds what the call taught back to the team.'
+  'Native Intelligence gives every rep your whole team’s knowledge live on the call — no bot joins the meeting — then updates the CRM, queues follow-ups, and feeds what the call taught back to the team.'
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://dial8.ai'),
+  metadataBase: new URL(appUrl()),
   title: {
-    template: '%s - Dial8',
+    template: '%s - Native Intelligence',
     default: SITE_TITLE,
   },
   description: SITE_DESCRIPTION,
-  applicationName: 'Dial8',
-  authors: [{ name: 'Dial8' }],
-  creator: 'Dial8',
-  publisher: 'Dial8',
+  applicationName: 'Native Intelligence',
+  authors: [{ name: 'Native Intelligence' }],
+  creator: 'Native Intelligence',
+  publisher: 'Native Intelligence',
   alternates: {
     canonical: '/',
   },
@@ -43,8 +45,8 @@ export const metadata: Metadata = {
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
     type: 'website',
-    siteName: 'Dial8',
-    url: 'https://dial8.ai',
+    siteName: 'Native Intelligence',
+    url: appUrl(),
   },
   twitter: {
     card: 'summary_large_image',
@@ -66,9 +68,11 @@ export default function RootLayout({
         <link
           rel="alternate"
           type="application/rss+xml"
-          title="Dial8 Blog"
+          title="Native Intelligence Blog"
           href="/blog/feed.xml"
         />
+        {/* First: the theme script below already reads storage. */}
+        <StorageRenameScript />
         <ThemeScript />
         <CacheBusterScript />
       </head>

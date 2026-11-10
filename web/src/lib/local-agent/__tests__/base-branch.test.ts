@@ -34,7 +34,7 @@ beforeEach(() => {
 })
 
 const beat = (body: Record<string, unknown> = {}) =>
-  parseHeartbeat({ deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '0.2.94', grants: [{ grantId: 'g1', label: 'dial8-website', path: '/p', mode: 'edit', isGit: true }], ...body })
+  parseHeartbeat({ deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '0.2.94', grants: [{ grantId: 'g1', label: 'native-intelligence', path: '/p', mode: 'edit', isGit: true }], ...body })
 
 const start = (mode: 'read' | 'edit', folderId = FOLDER) =>
   createSession(db as never, { userId: USER, workspaceId: WS, folderId, conversationId: CONV, request: 'Do it', mode, startedBy: 'agent' })

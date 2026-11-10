@@ -3,7 +3,7 @@
  * mode's (../read-aloud/settings, ../voice/settings).
  *
  * One tiny localStorage key, written only when it differs from the default:
- *   dial8:sounds:effects  "0" when sound effects are off (absent = on)
+ *   ni:sounds:effects  "0" when sound effects are off (absent = on)
  * Every access is wrapped: storage that throws or is full reads as the default.
  * Every window of the app shares it (same origin), and a change in one window
  * reaches the others' toggles through the `storage` event.
@@ -11,7 +11,7 @@
 
 import { useSyncExternalStore } from 'react'
 
-export const SOUND_EFFECTS_KEY = 'dial8:sounds:effects'
+export const SOUND_EFFECTS_KEY = 'ni:sounds:effects'
 
 const listeners = new Set<() => void>()
 

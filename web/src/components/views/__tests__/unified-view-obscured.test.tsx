@@ -136,7 +136,7 @@ describe('UnifiedViewLayout obscured containment', () => {
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent('dial8:entity-updated', {
+        new CustomEvent('ni:entity-updated', {
           detail: { entityType: 'action', id: 'a1', fields: { title: 'Renamed' } },
         }),
       )
@@ -149,7 +149,7 @@ describe('UnifiedViewLayout obscured containment', () => {
   it('still refetches on realtime reconnect while obscured', () => {
     render(layout(true))
 
-    act(() => { window.dispatchEvent(new CustomEvent('dial8:realtime-recovered')) })
+    act(() => { window.dispatchEvent(new CustomEvent('ni:realtime-recovered')) })
 
     expect(refetch).toHaveBeenCalled()
   })

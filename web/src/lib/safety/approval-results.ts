@@ -27,7 +27,7 @@
  * after it ran (PROD 11-02). The guest's own agent reads the same outcomes
  * worded for it (src/lib/guests/guest-approvals.ts).
  *
- * The result is another service's text (or a Dial8 tool's output, which can
+ * The result is another service's text (or a Native Intelligence tool's output, which can
  * quote outside text too), so it reaches the model only inside the untrusted
  * fence, kind TOOL. Our own templated words sit outside it.
  */
@@ -190,7 +190,7 @@ function contentText(parts: unknown[]): string {
 /**
  * The text of a stored result (tool_approval.result, approvals.ts capResult):
  * an MCP result's parts, a result too long to keep whole (its preview), a
- * failure's error, or a Dial8 tool's output as JSON. Empty when there is none.
+ * failure's error, or a Native Intelligence tool's output as JSON. Empty when there is none.
  */
 function storedResultText(stored: unknown): string {
   if (stored === null || stored === undefined) return ''

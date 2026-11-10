@@ -30,7 +30,7 @@ import {
  *
  *  1. THERE IS NO PRIORITY FIELD. Not "we don't support it" — Asana has no native
  *     priority at all; it exists only as a per-project enum custom field, which
- *     Dial8 has no schema knowledge of. So the lens reports `priority: null` and
+ *     Native Intelligence has no schema knowledge of. So the lens reports `priority: null` and
  *     `editable.priority: false`, and the PATCH parser rejects `priority_id` by
  *     name. Same stance push-overrides.ts already takes for the create path.
  *

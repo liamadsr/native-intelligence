@@ -558,7 +558,7 @@ export function useCalendarEvents(): UseCalendarEvents {
 
     const currentFilterKey = filterAccountIds?.slice().sort().join(',') ?? ''
 
-    // `recovered` = this call came from 'dial8:realtime-recovered', which fires
+    // `recovered` = this call came from 'ni:realtime-recovered', which fires
     // on every wake (use-realtime-entities latches hadFailure on any ≥30s hide,
     // even when the socket was healthy). The visibility/focus wave already
     // force-fetches on the same wake, so without this the two waves each issue
@@ -746,7 +746,7 @@ export function useCalendarEvents(): UseCalendarEvents {
   }, [fetchEvents])
   useEntityListSync(['calendar_event'], busFetch, { refetchOnRecovered: false })
 
-  // 'dial8:realtime-recovered' catch-up, registered directly so it can be
+  // 'ni:realtime-recovered' catch-up, registered directly so it can be
   // tagged `recovered` (see the recency guard in fetchEvents).
   //
   // useEntityListSync's 300 ms recovered debounce is deliberately dropped
@@ -756,8 +756,8 @@ export function useCalendarEvents(): UseCalendarEvents {
   useEffect(() => {
     if (typeof window === 'undefined') return
     const onRecovered = () => fetchRef.current({ force: true, recovered: true })
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
-    return () => window.removeEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
+    return () => window.removeEventListener('ni:realtime-recovered', onRecovered)
   }, [])
 
   const forcedFetch = useCallback(() => fetchEvents({ force: true }), [fetchEvents])

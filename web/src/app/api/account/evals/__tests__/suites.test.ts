@@ -281,7 +281,7 @@ describe('POST /api/account/evals/suites', () => {
   it('creates and returns 201', async () => {
     hoisted.suiteInsert.mockResolvedValue({ data: SUITE, error: null })
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { name: 'Sales Discovery', target_kind: 'agent' },
       }),
     )
@@ -291,7 +291,7 @@ describe('POST /api/account/evals/suites', () => {
 
   it('rejects an unknown target_kind', async () => {
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { name: 'X', target_kind: 'wizard' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { name: 'X', target_kind: 'wizard' } }),
     )
     expect(res.status).toBe(400)
     expect(await res.json()).toMatchObject({ code: 'BAD_REQUEST' })
@@ -300,7 +300,7 @@ describe('POST /api/account/evals/suites', () => {
 
   it('rejects an unknown key rather than storing it', async () => {
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { name: 'X', target_kind: 'agent', watchh: true },
       }),
     )
@@ -310,7 +310,7 @@ describe('POST /api/account/evals/suites', () => {
 
   it('rejects an unparseable body before touching the database', async () => {
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: '{oops', raw: true }),
+      nextRequest('https://nativeintelligence.dev/x', { body: '{oops', raw: true }),
     )
     expect(res.status).toBe(400)
     expect(hoisted.suiteInsert).not.toHaveBeenCalled()
@@ -323,7 +323,7 @@ describe('POST /api/account/evals/suites', () => {
   it('refuses a target_recipe_id the caller cannot read on its OWN client', async () => {
     hoisted.recipeSelect.mockResolvedValue({ data: null, error: null })
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: {
           name: 'X',
           target_kind: 'agent',
@@ -339,7 +339,7 @@ describe('POST /api/account/evals/suites', () => {
     hoisted.recipeSelect.mockResolvedValue({ data: { id: 'recipe-1' }, error: null })
     hoisted.suiteInsert.mockResolvedValue({ data: SUITE, error: null })
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: {
           name: 'X',
           target_kind: 'agent',
@@ -357,7 +357,7 @@ describe('POST /api/account/evals/suites', () => {
   it('500s when the recipe visibility read itself fails', async () => {
     hoisted.recipeSelect.mockResolvedValue({ data: null, error: { message: 'timeout' } })
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: {
           name: 'X',
           target_kind: 'agent',
@@ -372,7 +372,7 @@ describe('POST /api/account/evals/suites', () => {
   it('maps a DB error to a 500 with no upstream text', async () => {
     hoisted.suiteInsert.mockResolvedValue({ data: null, error: { message: 'relation missing' } })
     const res = await suitesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { name: 'X', target_kind: 'agent' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { name: 'X', target_kind: 'agent' } }),
     )
     expect(res.status).toBe(500)
     expect(await res.json()).toEqual({ error: 'Internal server error', code: 'INTERNAL' })
@@ -387,7 +387,7 @@ describe('/api/account/evals/suites/[id]', () => {
   it('GET returns the suite, its cases and its runs', async () => {
     hoisted.listCases.mockResolvedValue([{ id: 'case-1' }])
     hoisted.listRuns.mockResolvedValue([{ id: 'run-1' }])
-    const res = await suiteRoute.GET(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       suite: SUITE,
@@ -409,7 +409,7 @@ describe('/api/account/evals/suites/[id]', () => {
       data: { id: 'recipe-1', name: 'Sales Copilot', category: 'agent' },
       error: null,
     })
-    const res = await suiteRoute.GET(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({
       target: { id: 'recipe-1', name: 'Sales Copilot', category: 'agent' },
@@ -421,21 +421,21 @@ describe('/api/account/evals/suites/[id]', () => {
     // detail payload — the suite still loads and simply says "an agent".
     hoisted.getSuite.mockResolvedValue({ ...SUITE, target_recipe_id: 'recipe-gone' })
     hoisted.recipeSelect.mockResolvedValue({ data: null, error: { message: 'nope' } })
-    const res = await suiteRoute.GET(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ suite: expect.any(Object), target: null })
   })
 
   it('GET returns 404 for a cross-workspace id — never 403', async () => {
     hoisted.getSuite.mockResolvedValue(null)
-    const res = await suiteRoute.GET(nextRequest('https://dial8.ai/x'), params('other-ws'))
+    const res = await suiteRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('other-ws'))
     expect(res.status).toBe(404)
   })
 
   it('PATCH updates only the fields the body named', async () => {
     hoisted.suiteUpdate.mockResolvedValue({ data: { ...SUITE, watch: true }, error: null })
     const res = await suiteRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { watch: true } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { watch: true } }),
       params('suite-1'),
     )
     expect(res.status).toBe(200)
@@ -445,7 +445,7 @@ describe('/api/account/evals/suites/[id]', () => {
   it('PATCH returns 404 when the update matched no row in this workspace', async () => {
     hoisted.suiteUpdate.mockResolvedValue({ data: null, error: null })
     const res = await suiteRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { watch: true } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { watch: true } }),
       params('suite-1'),
     )
     expect(res.status).toBe(404)
@@ -453,7 +453,7 @@ describe('/api/account/evals/suites/[id]', () => {
 
   it('DELETE refuses with 409 while a run is live', async () => {
     hoisted.evalRunSelect.mockResolvedValue({ data: [{ id: 'run-1' }], error: null })
-    const res = await suiteRoute.DELETE(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ code: 'RUN_ALREADY_LIVE' })
     expect(hoisted.suiteDelete).not.toHaveBeenCalled()
@@ -465,7 +465,7 @@ describe('/api/account/evals/suites/[id]', () => {
       data: [{ id: 'case-1', capture_id: 'cap-1' }, { id: 'case-2', capture_id: 'cap-2' }],
       error: null,
     })
-    const res = await suiteRoute.DELETE(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ deleted: true, id: 'suite-1' })
     expect(hoisted.suiteDelete).toHaveBeenCalled()
@@ -480,7 +480,7 @@ describe('/api/account/evals/suites/[id]', () => {
 
   it('DELETE returns 404 for a cross-workspace id and touches nothing', async () => {
     hoisted.getSuite.mockResolvedValue(null)
-    const res = await suiteRoute.DELETE(nextRequest('https://dial8.ai/x'), params('other-ws'))
+    const res = await suiteRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('other-ws'))
     expect(res.status).toBe(404)
     expect(hoisted.suiteDelete).not.toHaveBeenCalled()
     expect(hoisted.captureDelete).not.toHaveBeenCalled()
@@ -495,7 +495,7 @@ describe('/api/account/evals/suites/[id]', () => {
       data: [{ capture_id: 'clone-1' }, { capture_id: 'clone-2' }],
       error: null,
     })
-    const res = await suiteRoute.DELETE(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(200)
     expect(captureFilters).toEqual([
       { id: ['cap-1', 'clone-1', 'clone-2'], workspace_id: WS, is_eval: true },
@@ -515,7 +515,7 @@ describe('/api/account/evals/suites/[id]', () => {
   it('PATCH refuses a target_recipe_id that does not resolve on the caller client', async () => {
     hoisted.recipeSelect.mockResolvedValue({ data: null, error: null })
     const res = await suiteRoute.PATCH(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         method: 'PATCH',
         body: { target_recipe_id: '22222222-2222-4222-8222-222222222222' },
       }),
@@ -529,7 +529,7 @@ describe('/api/account/evals/suites/[id]', () => {
     hoisted.recipeSelect.mockResolvedValue({ data: { id: 'recipe-1' }, error: null })
     hoisted.suiteUpdate.mockResolvedValue({ data: SUITE, error: null })
     const res = await suiteRoute.PATCH(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         method: 'PATCH',
         body: { target_recipe_id: '22222222-2222-4222-8222-222222222222' },
       }),
@@ -542,7 +542,7 @@ describe('/api/account/evals/suites/[id]', () => {
   it('PATCH clearing the target to null skips the recipe check entirely', async () => {
     hoisted.suiteUpdate.mockResolvedValue({ data: SUITE, error: null })
     const res = await suiteRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { target_recipe_id: null } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { target_recipe_id: null } }),
       params('suite-1'),
     )
     expect(res.status).toBe(200)
@@ -557,14 +557,14 @@ describe('/api/account/evals/suites/[id]', () => {
 describe('/api/account/evals/suites/[id]/cases', () => {
   it('GET returns the suite cases', async () => {
     hoisted.listCases.mockResolvedValue([{ id: 'case-1' }])
-    const res = await suiteCasesRoute.GET(nextRequest('https://dial8.ai/x'), params('suite-1'))
+    const res = await suiteCasesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('suite-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ cases: [{ id: 'case-1' }] })
   })
 
   it('GET 404s on an unknown suite before listing anything', async () => {
     hoisted.getSuite.mockResolvedValue(null)
-    const res = await suiteCasesRoute.GET(nextRequest('https://dial8.ai/x'), params('nope'))
+    const res = await suiteCasesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('nope'))
     expect(res.status).toBe(404)
     expect(hoisted.listCases).not.toHaveBeenCalled()
   })
@@ -572,7 +572,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
   it('POST creates the case through the SERVICE client and returns 201', async () => {
     hoisted.createEvalCase.mockResolvedValue(CASE)
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: {
           name: 'Prospect stalls on pricing',
           script: SCRIPT,
@@ -594,7 +594,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
   it('POST verifies the suite on the USER client before the service write', async () => {
     hoisted.getSuite.mockResolvedValue(null)
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { name: 'X', script: SCRIPT } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { name: 'X', script: SCRIPT } }),
       params('other-ws'),
     )
     expect(res.status).toBe(404)
@@ -603,7 +603,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
 
   it('POST rejects an empty script', async () => {
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { name: 'X', script: [] } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { name: 'X', script: [] } }),
       params('suite-1'),
     )
     expect(res.status).toBe(400)
@@ -612,7 +612,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
 
   it('POST rejects a script segment on an unknown stream', async () => {
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { name: 'X', script: [{ t_ms: 0, speaker: 'A', stream: 'headset', text: 'hi' }] },
       }),
       params('suite-1'),
@@ -626,7 +626,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
   // agent regression rather than a mislabeled script.
   it('POST rejects an is_self participant that is not labeled local_1', async () => {
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: {
           name: 'X',
           script: SCRIPT,
@@ -641,7 +641,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
 
   it('POST rejects a misspelled expected key rather than grading an empty expectation', async () => {
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { name: 'X', script: SCRIPT, expected: { proposal: [] } },
       }),
       params('suite-1'),
@@ -653,7 +653,7 @@ describe('/api/account/evals/suites/[id]/cases', () => {
   it('POST maps a thrown lib error to a 500', async () => {
     hoisted.createEvalCase.mockRejectedValue(new Error('capture insert failed'))
     const res = await suiteCasesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { name: 'X', script: SCRIPT } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { name: 'X', script: SCRIPT } }),
       params('suite-1'),
     )
     expect(res.status).toBe(500)
@@ -680,7 +680,7 @@ describe('/api/account/evals/cases/[id]', () => {
     })
     // `is_self` lives on the capture_participant row, not in the jsonb.
     hoisted.captureSelfSelect.mockResolvedValue({ data: { speaker_label: 'local_1' }, error: null })
-    const res = await caseRoute.GET(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       case: CASE,
@@ -693,14 +693,14 @@ describe('/api/account/evals/cases/[id]', () => {
 
   it('GET still returns the case when the template capture cannot be read', async () => {
     hoisted.captureSelect.mockResolvedValue({ data: null, error: { message: 'rls' } })
-    const res = await caseRoute.GET(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ case: CASE, participants: [] })
   })
 
   it('PATCH rejects an is_self participant that is not labeled local_1', async () => {
     const res = await caseRoute.PATCH(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         method: 'PATCH',
         body: { participants: [{ speaker_label: 'mic_a', display: 'Me', is_self: true }] },
       }),
@@ -712,14 +712,14 @@ describe('/api/account/evals/cases/[id]', () => {
 
   it('GET 404s a case belonging to another workspace', async () => {
     hoisted.getCase.mockResolvedValue({ ...CASE, workspace_id: 'ws-other' })
-    const res = await caseRoute.GET(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(404)
   })
 
   it('PATCH refines the case through the service client', async () => {
     hoisted.updateEvalCase.mockResolvedValue({ ...CASE, name: 'Renamed' })
     const res = await caseRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { name: 'Renamed' } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { name: 'Renamed' } }),
       params('case-1'),
     )
     expect(res.status).toBe(200)
@@ -733,7 +733,7 @@ describe('/api/account/evals/cases/[id]', () => {
   it('PATCH 404s a cross-workspace case before the service write', async () => {
     hoisted.getCase.mockResolvedValue({ ...CASE, workspace_id: 'ws-other' })
     const res = await caseRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { name: 'X' } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { name: 'X' } }),
       params('case-1'),
     )
     expect(res.status).toBe(404)
@@ -742,7 +742,7 @@ describe('/api/account/evals/cases/[id]', () => {
 
   it('PATCH rejects an invalid script before the service write', async () => {
     const res = await caseRoute.PATCH(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         method: 'PATCH',
         body: { script: [{ t_ms: -1, speaker: 'A', stream: 'mic', text: 'hi' }] },
       }),
@@ -753,7 +753,7 @@ describe('/api/account/evals/cases/[id]', () => {
   })
 
   it('DELETE removes the case AND its template capture, is_eval-guarded', async () => {
-    const res = await caseRoute.DELETE(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ deleted: true, id: 'case-1' })
     expect(hoisted.caseDelete).toHaveBeenCalled()
@@ -767,7 +767,7 @@ describe('/api/account/evals/cases/[id]', () => {
       data: [{ capture_id: 'clone-1' }],
       error: null,
     })
-    const res = await caseRoute.DELETE(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(200)
     expect(captureFilters).toEqual([
       { id: ['cap-1', 'clone-1'], workspace_id: WS, is_eval: true },
@@ -776,7 +776,7 @@ describe('/api/account/evals/cases/[id]', () => {
 
   it('DELETE 404s a cross-workspace case and deletes nothing', async () => {
     hoisted.getCase.mockResolvedValue(null)
-    const res = await caseRoute.DELETE(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(404)
     expect(hoisted.caseDelete).not.toHaveBeenCalled()
     expect(captureFilters).toHaveLength(0)
@@ -784,7 +784,7 @@ describe('/api/account/evals/cases/[id]', () => {
 
   it('DELETE surfaces a failed case delete as a 500 and skips the capture cleanup', async () => {
     hoisted.caseDelete.mockResolvedValue({ error: { message: 'fk violation' } })
-    const res = await caseRoute.DELETE(nextRequest('https://dial8.ai/x'), params('case-1'))
+    const res = await caseRoute.DELETE(nextRequest('https://nativeintelligence.dev/x'), params('case-1'))
     expect(res.status).toBe(500)
     expect(captureFilters).toHaveLength(0)
   })

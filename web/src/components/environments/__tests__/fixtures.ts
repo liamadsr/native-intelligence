@@ -20,7 +20,7 @@ export function mac(over: Partial<MacEnvironmentItem> = {}): MacEnvironmentItem 
     online: true,
     supportsBaseBranch: true,
     folders: [
-      { id: 'f-1', label: 'dial8-website', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'liamadsr/dial8-website' },
+      { id: 'f-1', label: 'native-intelligence', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'liamadsr/native-intelligence' },
       { id: 'f-2', label: 'notes', mode: 'read', isGit: false, baseBranch: null, repoFullName: null },
     ],
     createdAt: '2026-10-01T00:00:00Z',

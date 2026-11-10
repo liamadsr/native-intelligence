@@ -9,7 +9,7 @@ import {
   sealGoogleTransaction,
 } from '../google-sign-in'
 
-const REDIRECT = 'https://dial8.ai/auth/google/callback'
+const REDIRECT = 'https://nativeintelligence.dev/auth/google/callback'
 
 beforeAll(() => {
   vi.stubEnv('CREDENTIAL_ENCRYPTION_KEY', randomBytes(32).toString('base64'))

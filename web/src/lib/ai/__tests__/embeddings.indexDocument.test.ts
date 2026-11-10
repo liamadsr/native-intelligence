@@ -81,12 +81,12 @@ function fake(opts: { existing?: Array<{ chunk_text: string; heading: string | n
   return { client: client as unknown as SupabaseClient, rpcCalls, deletes, inserts, reads }
 }
 
-const BODY = '# Product\n\nDial8 captures meetings and files the follow-ups.\n\n## Positioning\nFor founders who run their own sales calls.\n\n### Real alternative\nGranola plus Linear plus a CRM.'
+const BODY = '# Product\n\nNative Intelligence captures meetings and files the follow-ups.\n\n## Positioning\nFor founders who run their own sales calls.\n\n### Real alternative\nGranola plus Linear plus a CRM.'
 
 describe('chunkDocument', () => {
   it('chunks by section, each chunk with its heading path, headings not repeated as text', () => {
     expect(chunkDocument(BODY)).toEqual([
-      { text: 'Dial8 captures meetings and files the follow-ups.', heading: 'Product' },
+      { text: 'Native Intelligence captures meetings and files the follow-ups.', heading: 'Product' },
       { text: 'For founders who run their own sales calls.', heading: 'Product > Positioning' },
       { text: 'Granola plus Linear plus a CRM.', heading: 'Product > Positioning > Real alternative' },
     ])
@@ -146,7 +146,7 @@ describe('indexDocument', () => {
   it('re-embeds only what changed; unchanged chunks reuse their vector', async () => {
     const f = fake({
       existing: [
-        { chunk_text: 'Dial8 captures meetings and files the follow-ups.', heading: 'Product' },
+        { chunk_text: 'Native Intelligence captures meetings and files the follow-ups.', heading: 'Product' },
         { chunk_text: 'Granola plus Linear plus a CRM.', heading: 'Product > Positioning > Real alternative' },
       ],
     })
@@ -173,7 +173,7 @@ describe('indexDocument', () => {
   })
 
   it('before migration 365 (no RPC): delete-then-insert, still after embedding everything', async () => {
-    const f = fake({ existing: [{ chunk_text: 'Dial8 captures meetings and files the follow-ups.', heading: 'Product' }], rpc: [{ error: { code: 'PGRST202', message: 'not found' } }] })
+    const f = fake({ existing: [{ chunk_text: 'Native Intelligence captures meetings and files the follow-ups.', heading: 'Product' }], rpc: [{ error: { code: 'PGRST202', message: 'not found' } }] })
     const res = await indexDocument(f.client, DOC_ID, USER_ID, PROJECT_ID, BODY, WORKSPACE_ID)
     expect(res).toEqual({ chunksCreated: 3, chunksEmbedded: 3 })
     expect(f.deletes).toEqual([['document_id', DOC_ID]])
@@ -184,7 +184,7 @@ describe('indexDocument', () => {
 
   it('a reuse that misses re-embeds everything and swaps once more', async () => {
     const f = fake({
-      existing: [{ chunk_text: 'Dial8 captures meetings and files the follow-ups.', heading: 'Product' }],
+      existing: [{ chunk_text: 'Native Intelligence captures meetings and files the follow-ups.', heading: 'Product' }],
       rpc: [{ error: { code: '23502', message: 'null value in column "embedding"' } }, { error: null }],
     })
     const res = await indexDocument(f.client, DOC_ID, USER_ID, PROJECT_ID, BODY, WORKSPACE_ID)
@@ -206,7 +206,7 @@ describe('indexDocument', () => {
 
   it('a refused swap (the document is not in that workspace) is not retried, even when a reuse was planned', async () => {
     const f = fake({
-      existing: [{ chunk_text: 'Dial8 captures meetings and files the follow-ups.', heading: 'Product' }],
+      existing: [{ chunk_text: 'Native Intelligence captures meetings and files the follow-ups.', heading: 'Product' }],
       rpc: [{ error: { code: '42501', message: 'document is not in workspace' } }],
     })
     await expect(indexDocument(f.client, DOC_ID, USER_ID, PROJECT_ID, BODY, WORKSPACE_ID)).rejects.toMatchObject({ code: '42501' })

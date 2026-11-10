@@ -53,7 +53,7 @@ impl Backdrop {
         }
     }
 
-    /// window_helper.h DIAL8_BACKDROP_MODE_*, blur radius.
+    /// window_helper.h NI_BACKDROP_MODE_*, blur radius.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn native_args(self) -> (i32, i32) {
         match self {
@@ -106,7 +106,7 @@ extern "C" {
     fn window_set_glass_panel(ns_window: *mut std::ffi::c_void, on: i32, appearance: i32, corner_radius: f64) -> i32;
 }
 
-/// window_helper.h DIAL8_BACKDROP_APPEARANCE_*.
+/// window_helper.h NI_BACKDROP_APPEARANCE_*.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn appearance_arg(dark: Option<bool>) -> i32 {
     match dark {

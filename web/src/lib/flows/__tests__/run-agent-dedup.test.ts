@@ -111,7 +111,7 @@ function makeExecutor(fireId: string | null) {
 async function run(executor: ReturnType<typeof createRunAgentExecutor>) {
   return executor(
     agentAction({ agent_id: AGENT, repo: 'owner/repo', instructions: 'do it' }),
-    { entity: null, trigger, appBaseUrl: 'https://dial8.ai', capture: null },
+    { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', capture: null },
   )
 }
 

@@ -13,7 +13,7 @@ export default defineEval({
     t.check(turn, satisfies(answered, 'the turn ran and the agent answered'))
     const calls = callsOf([turn])
     t.check(callsOutside(calls, READ_ONLY_QUESTION_TOOLS), equals([])).label('only read tools')
-    // "Never narrate your permissions or Dial8's machinery" (chat-agent instructions): no raw tool name in the reply.
+    // "Never narrate your permissions or Native Intelligence's machinery" (chat-agent instructions): no raw tool name in the reply.
     t.check(toolNamesIn(turn.message, [...SAFE_READ_TOOLS, ...calls.map((c) => c.name)]), equals([])).label('no tool names in the reply')
   },
 })

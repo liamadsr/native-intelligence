@@ -5,12 +5,14 @@
  * Vercel Connect connector, and bot tokens come from Connect at runtime
  * (./connect.ts). Nothing in this app ever holds them.
  *
- *   SLACK_CONNECTOR  the Connect connector (uid like `slack/dial8-public`, or
+ *   SLACK_CONNECTOR  the Connect connector (uid like `slack/ni-public`, or
  *                    its `scl_…` id). Unset: Slack is off, and the Settings
  *                    card doesn't show.
  *   SLACK_APP_ID     our Slack app's id (A…). The events route drops any
  *                    payload whose api_app_id isn't this (fails closed).
  */
+
+import { appUrl } from '@/lib/app-url'
 
 /** The Connect connector, or null when Slack is not set up on this deployment. */
 export function slackConnector(): string | null {
@@ -30,7 +32,7 @@ export function slackConfigured(): boolean {
 }
 
 /**
- * True once people can add Dial8 to a new Slack workspace from Settings
+ * True once people can add Native Intelligence to a new Slack workspace from Settings
  * (`SLACK_SELF_INSTALL=1`): Connect's installation requests are feature-gated
  * per Vercel team, so until Vercel turns them on, workspaces are added from
  * the Connect dashboard and the page hides "Add to Slack".
@@ -41,7 +43,7 @@ export function slackSelfInstallOpen(): boolean {
 
 /** The app's public origin, for links the bot sends and Connect's return URL. */
 export function appOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /** Slack's page under Settings › Connectors (slack-connector-view.tsx). */

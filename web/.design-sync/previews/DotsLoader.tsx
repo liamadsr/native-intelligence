@@ -1,4 +1,4 @@
-import { DotsLoader } from '@dial8/ui'
+import { DotsLoader } from '@native-intelligence/ui'
 
 const surface: React.CSSProperties = {
   display: 'flex',

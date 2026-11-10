@@ -22,7 +22,7 @@ import { localDevOffVercel, sharedSecretAuth } from '../lib/auth.js'
  * `$eve.title` from the first 125 characters of the first message
  * (deriveSessionTitle in eve's execution/eve-workflow-attributes.js) and keeps
  * that run metadata even with `retention: 0`. Utility messages carry workspace
- * content such as mail bodies, which Dial8 never stores, so the title must
+ * content such as mail bodies, which Native Intelligence never stores, so the title must
  * never come from the message.
  */
 const UTILITY_SESSION_TITLE = 'utility'

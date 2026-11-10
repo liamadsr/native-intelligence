@@ -251,7 +251,7 @@ describe('ActionPlatformCell — the row payload is the source', () => {
     expect(mark().getAttribute('data-platform-icon')).toBe('asana,jira')
   })
 
-  it('a row with no links is a Dial8 action', async () => {
+  it('a row with no links is a Native Intelligence action', async () => {
     installFetch()
     await render({ id: 'act-1', title: 'Ship it', external_links: [] })
     expect(mark().getAttribute('data-platform-icon')).toBe('dial8')

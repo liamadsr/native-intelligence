@@ -171,7 +171,7 @@ export function BillingView() {
       {upgraded && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
           <p className="text-sm font-medium text-primary">
-            Welcome to Dial8 Pro! Your subscription is now active.
+            Welcome to Native Intelligence Pro! Your subscription is now active.
           </p>
         </div>
       )}
@@ -230,7 +230,7 @@ export function BillingView() {
                   </p>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    Start a free trial to use Dial8.
+                    Start a free trial to use Native Intelligence.
                   </p>
                 )}
               </div>

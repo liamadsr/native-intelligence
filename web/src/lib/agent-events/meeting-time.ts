@@ -1,7 +1,7 @@
 /**
  * A meeting's time as the person reads it, in their own zone (Liam,
  * 2026-10-17: at 6:47 PM his chat still called that morning's 12:00 meeting
- * "still ahead"). Every line Dial8 writes about a meeting names its start in
+ * "still ahead"). Every line Native Intelligence writes about a meeting names its start in
  * local time, with the zone where the line outlives the moment (a prep's
  * task, a digest line, a report), so a message kept in the thread all day
  * still reads as time-bound. Pure and client-safe.

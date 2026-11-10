@@ -75,7 +75,7 @@ interface ResolvedUser {
  * hardware devices, MCP). Kept in sync with the resolver in api-auth.ts.
  *
  * When resolved from a Supabase Bearer JWT, returns a client bound to that
- * token so downstream RLS queries run AS the user. A device token (`d8d_…`)
+ * token so downstream RLS queries run AS the user. A device token (`nid_…`)
  * is opaque, not a JWT, so no client can be bound to it and this returns null
  * — device callers pin the workspace separately, which
  * `getCurrentWorkspaceId` handles through `deviceTokenWorkspace()` BEFORE it
@@ -91,7 +91,7 @@ async function resolveUser(supabase: SupabaseClient): Promise<ResolvedUser | nul
     const authHeader = headerStore.get('authorization')
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7)
-      // Opaque Dial8 device token: not a JWT, can't bind a client to it.
+      // Opaque Native Intelligence device token: not a JWT, can't bind a client to it.
       if (isDeviceToken(token)) return null
       // Validate the Supabase access token AND bind a client to it so the
       // membership queries below run as this user rather than as anon.

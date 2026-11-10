@@ -11,7 +11,7 @@
  *
  * FLAT COST, NO TIMERS. Nothing polls:
  *   - every same-origin `/api/` response carries the deployment's build id in
- *     `x-dial8-build` (next.config.mjs headers), which the existing fetch patch
+ *     `x-ni-build` (next.config.mjs headers), which the existing fetch patch
  *     hands to {@link noteServerBuild} (lib/workspace-fetch.ts) for free;
  *   - on `visibilitychange` (to visible) and `focus`, a window that has not
  *     heard from the server for {@link RECHECK_AFTER_MS} asks `/api/version`
@@ -34,9 +34,9 @@
 import { clientBuildId } from './build-id'
 
 /** The response header a deployment stamps with its build id (next.config.mjs). */
-export const BUILD_HEADER = 'x-dial8-build'
+export const BUILD_HEADER = 'x-ni-build'
 /** Where a window notes the server build it last reloaded for (survives the reload). */
-export const RELOADED_FOR_KEY = 'dial8:deploy-reloaded-for'
+export const RELOADED_FOR_KEY = 'ni:deploy-reloaded-for'
 /** A window back in view re-asks the server only if it has not heard from it for this long. */
 export const RECHECK_AFTER_MS = 60_000
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * window.__dial8Automation exists only in the desktop app launched with the
+ * window.__niAutomation exists only in the desktop app launched with the
  * automation bridge (its flag, version 1): absent in a browser, absent in the
  * desktop app launched normally, and its code is never even fetched there.
  */
@@ -18,9 +18,9 @@ vi.mock('../automation-bridge', () => {
   return {
     AutomationBridge: function AutomationBridge() {
       useEffect(() => {
-        window.__dial8Automation = { version: 1 } as typeof window.__dial8Automation
+        window.__niAutomation = { version: 1 } as typeof window.__niAutomation
         return () => {
-          delete window.__dial8Automation
+          delete window.__niAutomation
         }
       }, [])
       return null
@@ -45,9 +45,10 @@ async function mount() {
 afterEach(() => {
   act(() => root?.unmount())
   root = null
+  delete window.__NI_AUTOMATION__
   delete window.__DIAL8_AUTOMATION__
   delete window.__TAURI_INTERNALS__
-  delete window.__dial8Automation
+  delete window.__niAutomation
 })
 
 describe('the automation API', () => {
@@ -55,35 +56,44 @@ describe('the automation API', () => {
     window.__TAURI_INTERNALS__ = {}
     expect(automationFlagged()).toBe(false)
     await mount()
-    expect(window.__dial8Automation).toBeUndefined()
+    expect(window.__niAutomation).toBeUndefined()
     expect(loads.n).toBe(0)
   })
 
   it('is absent outside the desktop app, flag or not', async () => {
-    window.__DIAL8_AUTOMATION__ = Object.freeze({ version: 1 })
+    window.__NI_AUTOMATION__ = Object.freeze({ version: 1 })
     expect(automationFlagged()).toBe(false)
     await mount()
-    expect(window.__dial8Automation).toBeUndefined()
+    expect(window.__niAutomation).toBeUndefined()
     expect(loads.n).toBe(0)
   })
 
   it('is absent for another protocol version', async () => {
     window.__TAURI_INTERNALS__ = {}
-    window.__DIAL8_AUTOMATION__ = Object.freeze({ version: 2 })
+    window.__NI_AUTOMATION__ = Object.freeze({ version: 2 })
     expect(automationFlagged()).toBe(false)
     await mount()
-    expect(window.__dial8Automation).toBeUndefined()
+    expect(window.__niAutomation).toBeUndefined()
   })
 
-  it('is registered in the desktop app launched with the bridge, and goes with its mount', async () => {
+  it('is registered for a desktop build made before the rename, which sets the flag under its old name', async () => {
     window.__TAURI_INTERNALS__ = {}
     window.__DIAL8_AUTOMATION__ = Object.freeze({ version: 1 })
     expect(automationFlagged()).toBe(true)
     await mount()
-    expect(window.__dial8Automation?.version).toBe(1)
+    expect(loads.n).toBe(1)
+    delete window.__DIAL8_AUTOMATION__
+  })
+
+  it('is registered in the desktop app launched with the bridge, and goes with its mount', async () => {
+    window.__TAURI_INTERNALS__ = {}
+    window.__NI_AUTOMATION__ = Object.freeze({ version: 1 })
+    expect(automationFlagged()).toBe(true)
+    await mount()
+    expect(window.__niAutomation?.version).toBe(1)
     expect(loads.n).toBe(1)
     act(() => root?.unmount())
     root = null
-    expect(window.__dial8Automation).toBeUndefined()
+    expect(window.__niAutomation).toBeUndefined()
   })
 })

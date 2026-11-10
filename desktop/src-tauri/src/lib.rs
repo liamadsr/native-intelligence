@@ -203,7 +203,7 @@ pub(crate) fn clear_window_background(_ns_window: *mut std::ffi::c_void) {}
 /// old behavior.
 #[cfg(target_os = "macos")]
 pub(crate) fn make_overlay_panel(ns_window: *mut std::ffi::c_void) -> Result<(), &'static str> {
-    // window_helper.h DIAL8_OVERLAY_*
+    // window_helper.h NI_OVERLAY_*
     match unsafe { window_make_overlay_panel(ns_window) } {
         0 => Ok(()),
         1 => Err("its class is not a plain NSWindow subclass"),
@@ -270,19 +270,19 @@ pub fn redirect_log(path: Option<std::path::PathBuf>) {
 /// `None` when redirected to nowhere. Unit tests (`cfg(test)`) never log.
 fn log_path(sink: Option<&Option<std::path::PathBuf>>) -> Option<std::path::PathBuf> {
     match sink {
-        None => Some(std::env::temp_dir().join("dial8-debug.log")),
+        None => Some(std::env::temp_dir().join("native-intelligence-debug.log")),
         Some(path) => path.clone(),
     }
 }
 
-/// The single rotation backup beside `path` (`dial8-debug.log.1`).
+/// The single rotation backup beside `path` (`native-intelligence-debug.log.1`).
 fn log_backup(path: &std::path::Path) -> std::path::PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".1");
     path.with_file_name(name)
 }
 
-/// Where a side log (`dial8-meeting.log`, `dial8-tray.log`) lives: `/tmp` on
+/// Where a side log (`native-intelligence-meeting.log`, `native-intelligence-tray.log`) lives: `/tmp` on
 /// macOS, where people already look for them; elsewhere the user's own temp
 /// folder (`%TEMP%` on Windows has no `/tmp`).
 pub(crate) fn side_log_path(name: &str) -> std::path::PathBuf {
@@ -353,10 +353,10 @@ mod log_tests {
 
     #[test]
     fn the_app_logs_to_the_debug_log_unless_redirected() {
-        let debug = std::env::temp_dir().join("dial8-debug.log");
+        let debug = std::env::temp_dir().join("native-intelligence-debug.log");
         assert_eq!(log_path(None), Some(debug.clone()), "the app: unchanged");
-        assert_eq!(log_backup(&debug), std::env::temp_dir().join("dial8-debug.log.1"), "its backup: unchanged");
-        let replay = std::env::temp_dir().join("dial8-voice-replay.log");
+        assert_eq!(log_backup(&debug), std::env::temp_dir().join("native-intelligence-debug.log.1"), "its backup: unchanged");
+        let replay = std::env::temp_dir().join("native-intelligence-voice-replay.log");
         assert_eq!(log_path(Some(&Some(replay.clone()))), Some(replay));
         assert_eq!(log_path(Some(&None)), None, "nowhere");
     }
@@ -375,12 +375,12 @@ mod log_tests {
         let dir = tempfile::tempdir().unwrap();
 
         // New: created 0600.
-        let new = dir.path().join("dial8-meeting.log");
+        let new = dir.path().join("native-intelligence-meeting.log");
         writeln!(open_log(&new).unwrap(), "one").unwrap();
         assert_eq!(mode(&new), 0o600);
 
         // An older build's 0644 log is made 0600, and appended to.
-        let old = dir.path().join("dial8-tray.log");
+        let old = dir.path().join("native-intelligence-tray.log");
         std::fs::write(&old, "before\n").unwrap();
         std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
         writeln!(open_log(&old).unwrap(), "after").unwrap();
@@ -390,7 +390,7 @@ mod log_tests {
         // A symlink planted at the log's path is never followed.
         let target = dir.path().join("someone-elses-file");
         std::fs::write(&target, "keep\n").unwrap();
-        let link = dir.path().join("dial8-debug.log");
+        let link = dir.path().join("native-intelligence-debug.log");
         std::os::unix::fs::symlink(&target, &link).unwrap();
         assert!(open_log(&link).is_err());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep\n");
@@ -403,7 +403,7 @@ mod bundle_config_tests {
     /// deep-link plugin config (it doesn't merge). An http/https entry once
     /// silently dropped `dial8desktop`, which breaks desktop sign-in / OAuth
     /// callbacks. Every configured deep-link scheme must be declared in
-    /// Info.plist too, and http/https never are: Dial8 hands web links to the
+    /// Info.plist too, and http/https never are: Native Intelligence hands web links to the
     /// system browser and is never a default-browser choice.
     #[test]
     fn info_plist_declares_every_deep_link_scheme() {
@@ -422,7 +422,7 @@ mod bundle_config_tests {
             );
         }
         assert!(plist.contains("<string>dial8desktop</string>"), "Info.plist must declare dial8desktop");
-        // Dial8 must never offer itself as a web browser to the OS.
+        // Native Intelligence must never offer itself as a web browser to the OS.
         assert!(
             !plist.contains("<string>http</string>") && !plist.contains("<string>https</string>"),
             "Info.plist must not declare http/https URL schemes"
@@ -461,8 +461,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         // Top-level navigation allowlist for every webview (main, workspace
-        // popouts, HUDs). Keeps a Dial8 window from ever
-        // rendering a non-Dial8 origin; external web links are handed to the
+        // popouts, HUDs). Keeps a Native Intelligence window from ever
+        // rendering an origin that isn't Native Intelligence's; external web links are handed to the
         // system browser instead. Registered after the opener plugin because it
         // calls into it. See nav_guard.rs.
         .plugin(crate::nav_guard::init());
@@ -470,13 +470,13 @@ pub fn run() {
     // The updater must never run in debug builds. tauri.conf.json's version
     // trails the released one, so the frontend's auto-check (app-updater.tsx,
     // ~5s after launch) would downloadAndInstall() the notarized production
-    // app OVER the debug bundle at target/debug/bundle/macos/Dial8.app. That
+    // app OVER the debug bundle at target/debug/bundle/macos/Native Intelligence.app. That
     // on-disk swap makes tccd's static-code validation of the running client
     // fail mid-session ("Failed to match existing code requirement" /
     // SecStaticCodeCreateWithPath -67011), which silently kills the
     // microphone grant: cpal keeps delivering zero-filled buffers with no
     // prompt and no error, and the next launch from that path is secretly
-    // production pointed at https://dial8.ai. See docs/PERMISSIONS.md.
+    // production pointed at https://nativeintelligence.dev. See docs/PERMISSIONS.md.
     // The frontend tolerates the missing plugin: checkForUpdate() rejects and
     // app-updater.tsx catches it and treats it as "no update".
     #[cfg(not(debug_assertions))]
@@ -522,7 +522,7 @@ pub fn run() {
                     commands::hud::on_agent_hud_page_load_started();
                 }
             }
-            // The main window has painted: Dial8's own CoreAudio can start
+            // The main window has painted: Native Intelligence's own CoreAudio can start
             // (audio::launch_gate).
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
                 && webview.label() == "main"
@@ -534,7 +534,7 @@ pub fn run() {
             // CLOSE-TO-TRAY. Closing the MAIN window hides it instead of
             // destroying it: the process, tray, webview, realtime subscription,
             // and any in-flight recording all keep running. Quitting for real is
-            // Cmd+Q or the tray's "Quit Dial8" — see the RunEvent::ExitRequested
+            // Cmd+Q or the tray's "Quit Native Intelligence" — see the RunEvent::ExitRequested
             // arm at the bottom of this file for why the interception CANNOT
             // live there.
             //
@@ -703,14 +703,14 @@ pub fn run() {
 
             // Surface the MAIN window's focus state to the web app as
             // `main-focus-changed` (bool = focused). This is the reliable
-            // "user switched away from Dial8" signal for the live-agent HUD:
+            // "user switched away from Native Intelligence" signal for the live-agent HUD:
             // unlike the page Visibility API, WindowEvent::Focused fires on a
-            // plain cmd-tab to another app even when Dial8 stays partially on
+            // plain cmd-tab to another app even when Native Intelligence stays partially on
             // screen (the common case when the user is on their video call).
             //
             // SELF-FOCUS GUARD: focus handed to one of OUR OWN windows (the
             // agent HUD, meeting HUD, or a workspace popout) is NOT the user
-            // leaving Dial8 — e.g. dragging the draggable HUD steals key status
+            // leaving Native Intelligence — e.g. dragging the draggable HUD steals key status
             // from `main`. On a main-blur we consult the app's currently-focused
             // window and suppress the "backgrounded" report if it's one of ours,
             // so the HUD doesn't treat interacting with itself as a background.
@@ -1061,11 +1061,11 @@ pub fn run() {
                 // bar; Windows shows a native one, and the window's name in
                 // Alt-Tab and the taskbar.
                 #[cfg(not(target_os = "macos"))]
-                let _ = window.set_title("Dial8");
+                let _ = window.set_title("Native Intelligence");
                 // Point the main window at the right frontend. A *built* debug
                 // bundle (what dev.sh produces) does NOT honor tauri.conf.json's
                 // `devUrl` — that only applies under `tauri dev` — so the window
-                // loads `frontendDist` (production dial8.ai) even in debug. The
+                // loads `frontendDist` (production nativeintelligence.dev) even in debug. The
                 // tray + secondary windows already switch on `debug_assertions`
                 // via `api_base_url()`; do the same for the main window so a
                 // local debug build loads the dev server instead of prod.
@@ -1122,7 +1122,7 @@ pub fn run() {
             crate::native::retired_browser_stores::remove_all();
 
             // The automation bridge (automation/mod.rs): inert unless launched
-            // with DIAL8_AUTOMATION_PORT and DIAL8_AUTOMATION_TOKEN, and not in
+            // with NI_AUTOMATION_PORT and NI_AUTOMATION_TOKEN, and not in
             // a release build at all. After the main window's own setup, since
             // it loads that window again.
             #[cfg(any(debug_assertions, feature = "automation-bridge"))]
@@ -1132,7 +1132,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while running Dial8 desktop application")
+        .expect("error while running Native Intelligence desktop application")
         .run(|app_handle, event| {
             // On app exit, finalize recording, release the voice mic, stop
             // the read-aloud sidecar and the local agents before the process
@@ -1142,7 +1142,7 @@ pub fn run() {
             //
             // ⚠️ DO NOT ADD api.prevent_exit() HERE — not for close-to-tray, not
             // for anything. ExitRequested is the funnel for the tray's "Quit
-            // Dial8" (app.exit(0)), request_restart() and the last window
+            // Native Intelligence" (app.exit(0)), request_restart() and the last window
             // closing. They arrive as the same variant and are NOT
             // distinguishable here — the `code` field only separates
             // user-interaction (None) from programmatic (Some(_)) exits. A

@@ -781,7 +781,7 @@ describe('EveChatTransport — input.requested (HITL)', () => {
 
 // ── ask_user HITL: the REAL eve approval-request shape + the dead-Submit race ──
 //
-// Dial8's ask_user is gated with `approval: always()`, so eve pauses it as an
+// Native Intelligence's ask_user is gated with `approval: always()`, so eve pauses it as an
 // APPROVAL request — options [{id:'approve'},{id:'cancel'}], display 'confirmation',
 // action.toolName 'ask_user', action.input { questions }, and a requestId that is
 // the approvalId (DISTINCT from action.callId). These tests use that exact shape.

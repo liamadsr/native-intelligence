@@ -27,8 +27,8 @@ export async function setupGmailWatch(
         topicName,
         // Changes to inbox and sent mail only. A star on an inbox message still
         // notifies (it carries INBOX). DRAFT is left out: every draft save,
-        // including the replies Dial8 drafts on arrival, would otherwise push a
-        // sync run; Dial8's own drafts are indexed when they are written.
+        // including the replies Native Intelligence drafts on arrival, would otherwise push a
+        // sync run; Native Intelligence's own drafts are indexed when they are written.
         labelIds: ['INBOX', 'SENT'],
         labelFilterBehavior: 'INCLUDE',
       }),

@@ -48,7 +48,7 @@ function makeSupabase() {
 const { GET } = await import('@/app/api/account/contacts/[id]/card/route')
 
 function call(id: string) {
-  const request = buildRequest({ url: `https://dial8.ai/api/account/contacts/${id}/card`, method: 'GET' }) as unknown as NextRequest
+  const request = buildRequest({ url: `https://nativeintelligence.dev/api/account/contacts/${id}/card`, method: 'GET' }) as unknown as NextRequest
   return GET(request, { params: Promise.resolve({ id }) })
 }
 

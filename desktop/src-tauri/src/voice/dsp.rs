@@ -40,7 +40,7 @@
 //!   the user's run opens while the speech goes on.
 //! - **The system-audio reference** ([`super::system_ref`]): on speakers a
 //!   session may also run the system-audio tap (everything playing on the
-//!   Mac but Dial8). Its frames are summed into the read-aloud frames
+//!   Mac but Native Intelligence). Its frames are summed into the read-aloud frames
 //!   (conversation, interactive) or rendered alone (dictation, or while the
 //!   playback reference isn't flowing). The sidecar delivers them late, so
 //!   while the tap runs ([`DspShared::system_ref_on`]) every mic frame is

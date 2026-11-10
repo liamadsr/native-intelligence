@@ -1,6 +1,6 @@
 /// C-callable helpers to smooth out live-resize on the macOS WKWebView.
 ///
-/// Dial8 is a Tauri shell hosting a web app inside a WKWebView. During a live
+/// Native Intelligence is a Tauri shell hosting a web app inside a WKWebView. During a live
 /// window resize, AppKit resizes the NSWindow frame synchronously with the
 /// drag, but the WKWebView re-lays-out and repaints a frame (or more) behind.
 /// In that gap the window's *backgroundColor* shows through — which by default
@@ -98,27 +98,27 @@ bool window_style_traffic_lights(void *ns_window, double diameter, double center
 /// Swaps the window's class to a runtime NSPanel subclass that keeps what tao's
 /// window class adds (its methods and ivars: focusability, background drag)
 /// and never becomes main, then sets the non-activating style, keeps it showing
-/// when Dial8 isn't the active app (an NSPanel hides on deactivate by default),
+/// when Native Intelligence isn't the active app (an NSPanel hides on deactivate by default),
 /// floats it, and lets it join every Space including full-screen ones. It also
-/// stays up when the user hides Dial8 (Cmd+H). Run on the main thread, before
+/// stays up when the user hides Native Intelligence (Cmd+H). Run on the main thread, before
 /// the window is first shown. Idempotent: on a window that is already a panel
 /// it only re-asserts the Space behavior and level.
 ///
-/// Returns DIAL8_OVERLAY_OK, or why it left the window a plain window (every
+/// Returns NI_OVERLAY_OK, or why it left the window a plain window (every
 /// normal Space, not full-screen ones, but still up on Cmd+H): its class isn't
 /// a direct NSWindow subclass (a KVO subclass, say), tao's class has a
 /// destructor the copy can't carry, or the panel class would need more memory
 /// than the window was allocated with or move tao's ivars.
-#define DIAL8_OVERLAY_OK 0
-#define DIAL8_OVERLAY_NOT_A_PLAIN_WINDOW 1
-#define DIAL8_OVERLAY_CLASS_NOT_COPYABLE 2
-#define DIAL8_OVERLAY_DID_NOT_FIT 3
+#define NI_OVERLAY_OK 0
+#define NI_OVERLAY_NOT_A_PLAIN_WINDOW 1
+#define NI_OVERLAY_CLASS_NOT_COPYABLE 2
+#define NI_OVERLAY_DID_NOT_FIT 3
 int window_make_overlay_panel(void *ns_window);
 
 /// Bring a window to the front WITHOUT making it key: `orderFrontRegardless`,
 /// where tao's show is `makeKeyAndOrderFront:`. For the agent HUD, a
 /// non-activating panel that can become key, a plain show would take the
-/// keyboard from whatever the user is typing in (their call app, Dial8's main
+/// keyboard from whatever the user is typing in (their call app, Native Intelligence's main
 /// window). Main thread.
 void window_order_front_without_focus(void *ns_window);
 
@@ -135,17 +135,17 @@ void window_order_front_without_focus(void *ns_window);
 /// the blur. Not an NSVisualEffectView: its behind-window blur switches off
 /// entirely as soon as the view is faded at all, so it can't be dialled down.
 ///
-/// `mode` is a DIAL8_BACKDROP_MODE_*; `blur_radius` 0 is unblurred. Off
+/// `mode` is a NI_BACKDROP_MODE_*; `blur_radius` 0 is unblurred. Off
 /// re-applies window_apply_background (and turns the web view's own
 /// background back on), so it returns the window to exactly how setup left
 /// it. Idempotent; main thread.
 ///
-/// Returns DIAL8_BACKDROP_OK, or why nothing changed.
-#define DIAL8_BACKDROP_MODE_OFF 0
-#define DIAL8_BACKDROP_MODE_GLASS 1
-#define DIAL8_BACKDROP_OK 0
-#define DIAL8_BACKDROP_NO_WINDOW 1
-#define DIAL8_BACKDROP_NO_WEBVIEW 2
+/// Returns NI_BACKDROP_OK, or why nothing changed.
+#define NI_BACKDROP_MODE_OFF 0
+#define NI_BACKDROP_MODE_GLASS 1
+#define NI_BACKDROP_OK 0
+#define NI_BACKDROP_NO_WINDOW 1
+#define NI_BACKDROP_NO_WEBVIEW 2
 int window_set_backdrop(void *ns_window, int mode, int blur_radius);
 
 /// Glass for a floating panel that is already transparent (the live agent's
@@ -156,12 +156,12 @@ int window_set_backdrop(void *ns_window, int mode, int blur_radius);
 /// faded (a faded NSVisualEffectView drops its blur); the page tints on top.
 ///
 /// `on` adds or updates the layer, 0 removes it (the panel stays
-/// transparent). `appearance` is a DIAL8_BACKDROP_APPEARANCE_*: the panel's
+/// transparent). `appearance` is a NI_BACKDROP_APPEARANCE_*: the panel's
 /// theme can differ from the Mac's. `corner_radius` matches the page's sheet.
-/// Idempotent; main thread. Returns DIAL8_BACKDROP_OK or why nothing changed.
-#define DIAL8_BACKDROP_APPEARANCE_SYSTEM 0
-#define DIAL8_BACKDROP_APPEARANCE_LIGHT 1
-#define DIAL8_BACKDROP_APPEARANCE_DARK 2
+/// Idempotent; main thread. Returns NI_BACKDROP_OK or why nothing changed.
+#define NI_BACKDROP_APPEARANCE_SYSTEM 0
+#define NI_BACKDROP_APPEARANCE_LIGHT 1
+#define NI_BACKDROP_APPEARANCE_DARK 2
 int window_set_glass_panel(void *ns_window, int on, int appearance, double corner_radius);
 
 #endif

@@ -1,7 +1,7 @@
 /**
  * Per-conversation web_fetch abuse cap for the chat-agent.
  *
- * Web access is ALWAYS ON for every Dial8 agent (no toggle — matching how
+ * Web access is ALWAYS ON for every Native Intelligence agent (no toggle — matching how
  * Anthropic's own agents browse). The founder waived cost concerns, so this cap
  * is NOT a budget knob: it's invisible, generous abuse insurance against a
  * runaway loop that fetches thousands of pages in one conversation. A normal

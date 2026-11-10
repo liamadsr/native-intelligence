@@ -11,7 +11,7 @@
  * Generic: no word list beyond the fillers themselves.
  */
 
-export const REMOVE_FILLERS_KEY = 'dial8:dictation:remove-fillers'
+export const REMOVE_FILLERS_KEY = 'ni:dictation:remove-fillers'
 
 const FILLER = /^(u+m+|u+h+m*|e+r+m*|a+h+|h+m+|m+h*m+)$/i
 

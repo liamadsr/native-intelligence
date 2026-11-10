@@ -28,7 +28,7 @@ const seed = () => ({
     { capture_id: 'c-1', member_id: null, external_name: 'Dana Whitlock', contact_id: 'ct-1', company: 'Northwind Partners LLC', is_self: false },
     // A guest on the private call who is in no CRM: only the call knows her.
     { capture_id: 'c-1', member_id: null, external_name: 'Priya Raman', contact_id: null, company: null, is_self: false },
-    { capture_id: 'c-1', member_id: 'm-1', external_name: null, contact_id: null, company: 'Dial8', is_self: true },
+    { capture_id: 'c-1', member_id: 'm-1', external_name: null, contact_id: null, company: 'Native Intelligence', is_self: true },
     { capture_id: 'c-2', member_id: 'm-1', external_name: null, contact_id: null, company: null, is_self: false, 'captures.created_at': daysAgo(5) },
     { capture_id: 'c-2', member_id: null, external_name: 'Speaker 2', contact_id: null, company: null, is_self: false },
     { capture_id: 'c-3', member_id: null, external_name: 'Old Contact', contact_id: null, company: 'Oldco', is_self: false },
@@ -40,7 +40,7 @@ const seed = () => ({
   company: [
     { id: 'co-1', workspace_id: 'ws-1', name: 'Northwind Partners', is_workspace_company: false },
     { id: 'co-2', workspace_id: 'ws-1', name: 'Globex', is_workspace_company: false },
-    { id: 'co-own', workspace_id: 'ws-1', name: 'Dial8', is_workspace_company: true },
+    { id: 'co-own', workspace_id: 'ws-1', name: 'Native Intelligence', is_workspace_company: true },
   ],
 })
 

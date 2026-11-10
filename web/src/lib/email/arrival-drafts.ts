@@ -190,7 +190,7 @@ export async function draftingBlocked(
   if (await isDormant(supabase, workspaceId).catch(() => false)) return 'dormant'
   // Opted in to the ChatGPT free tier: a person on their own plan passes. Their
   // drafts (generateEmailDrafts) and their reply and arrival decisions
-  // (runDecision's plan route) then run on their plan, never Dial8's models.
+  // (runDecision's plan route) then run on their plan, never Native Intelligence's models.
   const checkUsage = deps.checkUsage ?? ((id: string) => checkUsageLimits(id, undefined, { chatgptPlan: true }))
   const allowance = await checkUsage(userId).catch(() => undefined)
   if (!allowance?.allowed) return 'usage'
@@ -252,7 +252,7 @@ export async function draftRepliesToNewMail(
   const result = await (deps.generate ?? generateEmailDrafts)(userId, workspaceId, {
     thread_ids: threadIds,
     max_drafts: Math.min(remaining, threadIds.length),
-    // No tone: the draft writes the way the person does (what Dial8 learned).
+    // No tone: the draft writes the way the person does (what Native Intelligence learned).
     replyIntent: 'automatic',
     allowAnother: dailyCapCheck(supabase, userId, workspaceId),
     // The 'draft-replies' step's own clock (see ARRIVAL_DRAFT_BUDGET_MS).

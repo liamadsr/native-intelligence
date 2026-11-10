@@ -1,15 +1,15 @@
 # local-agent: the Mac host
 
-**The Mac body of the one Dial8 agent** (contract C2, `docs/plans/teammate-agent.md`):
-the main chat agent, `agents/chat-agent`, built with `DIAL8_AGENT_HOST=mac` and
+**The Mac body of the one Native Intelligence agent** (contract C2, `docs/plans/teammate-agent.md`):
+the main chat agent, `agents/chat-agent`, built with `NI_AGENT_HOST=mac` and
 run **on the person's Mac**, in one folder they granted, as a teammate of the
 cloud body (`docs/plans/local-agents.md` for the history: L0 was the Mac-only
-spike, L1–L3 the Dial8 model relay with a per-session token, and **edit mode**:
+spike, L1–L3 the Native Intelligence model relay with a per-session token, and **edit mode**:
 a git worktree the desktop makes, writable except its `.git`, committed by the
 desktop on `finish`). This folder is no longer an agent of its own: it is the
 host that body runs in. It holds the launcher and its request guard, the fence
 (the sandbox), the model, the channel and the Mac-only tools; the agent's
-instructions, Dial8 tools, memory and hooks are the chat agent's.
+instructions, Native Intelligence tools, memory and hooks are the chat agent's.
 
 - **Built from one source.** `scripts/local-agent/mac-body.sh` copies
   `agents/chat-agent` and this folder into a throwaway stage, leaves out what
@@ -17,7 +17,7 @@ instructions, Dial8 tools, memory and hooks are the chat agent's.
   puts this folder's `channels/eve.ts` in place of the cloud's channel, adds
   this folder's `sandbox.ts`, `tools/finish.ts` and
   `tools/request_folder_access.ts`, and runs `eve build` with
-  `DIAL8_AGENT_HOST=mac`. It also replaces the chat agent's
+  `NI_AGENT_HOST=mac`. It also replaces the chat agent's
   `lib/mac-slots.ts`, a stub that throws, with re-exports of this folder's
   model, token reader and mode text: the chat agent's only door into this
   folder, so none of it reaches the cloud bundle. Everything else that differs
@@ -28,7 +28,7 @@ instructions, Dial8 tools, memory and hooks are the chat agent's.
   over 2 s old (`lib/mac-guard.ts`, so a Stop that lands mid-step is refused),
   `ask_user`, no tool-result images, the Mac instructions). The cloud build is
   unchanged.
-- **Its Dial8 tools come from the app** (C1): the spec and every tool call go
+- **Its Native Intelligence tools come from the app** (C1): the spec and every tool call go
   to `/api/local-agent/agent/{spec,tool}` with the session token, never the
   shared secret (`agents/chat-agent/lib/mac-host.ts`).
 
@@ -309,7 +309,7 @@ with a relay URL or a dev key: a half-configured route never falls back to
 another. The job dir must not overlap the folder or `.git` (it holds the token).
 
 The server's environment is built from scratch too: the grant, the model's
-variables, `DIAL8_AGENT_HOST=mac` (eve imports each module again at runtime,
+variables, `NI_AGENT_HOST=mac` (eve imports each module again at runtime,
 and it must pick the Mac host as the build did), the token file's path as
 `LOCAL_AGENT_SESSION_TOKEN_FILE` (C1) and, in relay runs, as
 `LOCAL_AGENT_MODEL_TOKEN_FILE` (the model), `LOCAL_AGENT_API_ORIGIN` when set,
@@ -479,7 +479,7 @@ an idle session always reports `waiting`.
 ## Build, test, smoke
 
 ```bash
-scripts/local-agent/build.sh                  # the Mac body (mac-body.sh, DIAL8_AGENT_HOST=mac) → agents/local-agent/.output/
+scripts/local-agent/build.sh                  # the Mac body (mac-body.sh, NI_AGENT_HOST=mac) → agents/local-agent/.output/
 npx vitest run agents/local-agent             # profile, provider + edit mode (darwin: real sandbox-exec, real
                                               # git worktree), model route, launcher, relay (fake app, built Mac body)
 npx vitest run agents/chat-agent              # the chat agent, cloud and Mac (lib/__tests__/mac-host.test.ts, mac-body.test.ts)
@@ -527,7 +527,7 @@ node scripts/local-agent/smoke.ts --agent-dir <out-dir> --node <node 24>        
 node scripts/local-agent/smoke.ts --mode edit --agent-dir <out-dir> --node <node 24>
 ```
 
-`bundle.sh` builds the Mac body in a throwaway copy at `/tmp/dial8-local-agent-build`
+`bundle.sh` builds the Mac body in a throwaway copy at `/tmp/ni-local-agent-build`
 (`mac-body.sh`), bundles the launcher with `eve/client` and `prompts.ts` inlined
 (`launcher/launcher.mjs`), keeps `launcher/server-guard.ts` as is (Node strips
 its types), copies `.output/`, and, when `workers/` exists, runs its

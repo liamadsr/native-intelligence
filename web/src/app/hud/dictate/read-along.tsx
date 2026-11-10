@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Read-along (spike, Liam 10-25): while Dial8 reads aloud, the HUD shows the
+ * Read-along (spike, Liam 10-25): while Native Intelligence reads aloud, the HUD shows the
  * word being said, one at a time, flipping past in step with the voice. Each
  * word centred, clean of the punctuation round it (a comma or a quote on its
  * own reads as noise at that pace). The desktop sends each word a moment

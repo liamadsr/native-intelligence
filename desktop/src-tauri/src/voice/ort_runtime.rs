@@ -3,7 +3,7 @@
 //! links ONNX Runtime and never downloads it.
 //!
 //! Where the dylib is looked for, first hit wins:
-//! 1. debug builds only: `$DIAL8_ORT_DYLIB`, when set (tests, debugging):
+//! 1. debug builds only: `$NI_ORT_DYLIB`, when set (tests, debugging):
 //!    that file and nothing else. A release build never takes a library
 //!    path from its environment ([`dylib_override`]);
 //! 2. `<exe>/../Frameworks/` — `sidecars_stage` (scripts/sidecars.sh) copies
@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// Overrides where the ONNX Runtime dylib is loaded from.
-pub const DYLIB_ENV: &str = "DIAL8_ORT_DYLIB";
+pub const DYLIB_ENV: &str = "NI_ORT_DYLIB";
 
 /// local-tts's build script: the one place the ONNX Runtime version is set.
 const LOCAL_TTS_BUILD_SH: &str = include_str!("../../sidecars/local-tts/build.sh");
@@ -108,7 +108,7 @@ fn dev_manifest_dir() -> Option<&'static Path> {
     None
 }
 
-/// `$DIAL8_ORT_DYLIB`, in a debug build. A release build ignores it: any
+/// `$NI_ORT_DYLIB`, in a debug build. A release build ignores it: any
 /// process of the same user can set it for every app it starts (`launchctl
 /// setenv`), and the dylib would load into the process that holds the mic,
 /// screen and Accessibility grants (security review 2026-10-31).
@@ -157,7 +157,7 @@ pub fn load(path: &Path) -> Result<(), String> {
     if cfg!(windows) && !looks_like_pe(path) {
         return Err(format!("{} is not a DLL (no PE header), so not ONNX Runtime", path.display()));
     }
-    let loaded = std::panic::catch_unwind(|| ort::init_from(path).map(|env| env.with_name("dial8-vad").commit()));
+    let loaded = std::panic::catch_unwind(|| ort::init_from(path).map(|env| env.with_name("ni-vad").commit()));
     match loaded {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(e)) => Err(format!("ONNX Runtime: {e}")),
@@ -185,7 +185,7 @@ pub fn init() -> Result<&'static Path, String> {
 pub(crate) mod tests {
     use super::*;
 
-    /// A dylib for tests that need ONNX Runtime: `$DIAL8_ORT_DYLIB`, else the
+    /// A dylib for tests that need ONNX Runtime: `$NI_ORT_DYLIB`, else the
     /// normal lookup (local-tts built in this checkout). None: the caller skips.
     pub(crate) fn test_runtime() -> Option<&'static Path> {
         match init() {
@@ -211,12 +211,12 @@ pub(crate) mod tests {
 
     #[test]
     fn frameworks_first_then_the_dev_build() {
-        let exe = Path::new("/Apps/Dial8.app/Contents/MacOS/dial8-desktop");
+        let exe = Path::new("/Apps/Native Intelligence.app/Contents/MacOS/dial8-desktop");
         let dirs = search_dirs(Some(exe), Some(Path::new("/src/src-tauri")));
         assert_eq!(
             dirs,
             vec![
-                PathBuf::from("/Apps/Dial8.app/Contents/MacOS/../Frameworks"),
+                PathBuf::from("/Apps/Native Intelligence.app/Contents/MacOS/../Frameworks"),
                 PathBuf::from("/src/src-tauri/sidecars/local-tts/.out/lib"),
             ]
         );

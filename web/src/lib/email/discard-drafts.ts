@@ -1,11 +1,11 @@
 /**
- * Discard email drafts Dial8 wrote, at the person's word (GEN-1165): the
+ * Discard email drafts Native Intelligence wrote, at the person's word (GEN-1165): the
  * main agent's `discard_email_draft`, and Dismiss on a Mail draft item
  * through `settle_work_item` (src/lib/bots/bot-work-acts.ts). "Clean up my
- * junk drafts" ends with them gone from the mailbox and from Dial8's pending
+ * junk drafts" ends with them gone from the mailbox and from Native Intelligence's pending
  * list, in one turn.
  *
- * Which drafts. Only Dial8's own: an `email_draft` row of the caller's
+ * Which drafts. Only Native Intelligence's own: an `email_draft` row of the caller's
  * (`user_id = the caller`, in a workspace they are a member of), named by its
  * row id, by the list item id that carries it (`draft:<row id>`), or by the
  * mailbox draft (message) id the row names. A draft the person wrote in their
@@ -15,8 +15,8 @@
  * Per draft, in this order:
  *   1. the mailbox copy is deleted, at the mailbox the row names
  *      (deleteDraftOfRow), and its thread indexed again. When the mailbox
- *      can't delete it (no token, a refusal), nothing changes in Dial8
- *      either, so Dial8 and the mailbox never disagree, and the answer says
+ *      can't delete it (no token, a refusal), nothing changes in Native Intelligence
+ *      either, so Native Intelligence and the mailbox never disagree, and the answer says
  *      so: MAILBOX_FAILED. When nothing in the mailbox holds that id any more
  *      (`mailbox: 'not_found'`: sent or deleted there, or, at Gmail, saved
  *      again there under a new id) the row still goes, and the answer says it
@@ -108,7 +108,7 @@ export type DiscardOutcome =
       workspace_id: string
       /**
        * 'deleted': gone from the mailbox too. 'none': it had no mailbox copy
-       * (Dial8 only). 'not_found': nothing in the mailbox held that id any
+       * (Native Intelligence only). 'not_found': nothing in the mailbox held that id any
        * more (sent or deleted there, or edited there since: then it may still
        * be in their Drafts; `note` says so).
        */
@@ -134,9 +134,9 @@ export interface DiscardDraftsInput {
   by?: 'agent' | 'person'
 }
 
-const NOT_FOUND_ERROR = "No draft Dial8 wrote for you with that id. Drafts the person wrote themselves can't be discarded here."
+const NOT_FOUND_ERROR = "No draft Native Intelligence wrote for you with that id. Drafts the person wrote themselves can't be discarded here."
 const MAILBOX_NOT_FOUND_NOTE =
-  "The mailbox no longer had it under the id Dial8 saved: already sent or deleted there, or edited in their mailbox since (then it may still be in their Drafts for them to delete)."
+  "The mailbox no longer had it under the id Native Intelligence saved: already sent or deleted there, or edited in their mailbox since (then it may still be in their Drafts for them to delete)."
 
 /** An id as the discard reads it: a row id (from `draft:<id>` too), or a mailbox draft id. */
 function parseId(raw: string): { rowId: string } | { providerId: string } | null {
@@ -148,7 +148,7 @@ function parseId(raw: string): { rowId: string } | { providerId: string } | null
 }
 
 /**
- * The caller's own Dial8 draft rows for `ids`, each id with its row or none.
+ * The caller's own Native Intelligence draft rows for `ids`, each id with its row or none.
  * Fenced on `user_id = the caller` and the caller's workspaces. Throws on a
  * failed read.
  */
@@ -239,7 +239,7 @@ export async function discardEmailDrafts(supabase: SupabaseClient, userId: strin
     }
   }
 
-  // 1. The mailbox first: a draft the mailbox kept stays in Dial8 too.
+  // 1. The mailbox first: a draft the mailbox kept stays in Native Intelligence too.
   const mailbox = await inPool(work, MAILBOX_CONCURRENCY, async ({ row }) =>
     row.provider_draft_id ? deleteDraftOfRow(userId, { ...row, provider_draft_id: row.provider_draft_id }) : ('none' as const),
   )
@@ -252,7 +252,7 @@ export async function discardEmailDrafts(supabase: SupabaseClient, userId: strin
         discarded: false,
         draft_row_id: row.id,
         code: 'MAILBOX_FAILED',
-        error: "The mailbox wouldn't delete it just now (it is still in their Drafts), so it was left in Dial8 too. Try again later, or they can delete it in their mailbox.",
+        error: "The mailbox wouldn't delete it just now (it is still in their Drafts), so it was left in Native Intelligence too. Try again later, or they can delete it in their mailbox.",
       })
     } else going.push({ id, row, mailbox: m })
   })
@@ -270,7 +270,7 @@ export async function discardEmailDrafts(supabase: SupabaseClient, userId: strin
         discarded: false,
         draft_row_id: g.row.id,
         code: 'FAILED',
-        error: `${g.mailbox === 'none' ? 'It' : 'It is gone from the mailbox, but it'} is still listed in Dial8 (the delete didn't go through). Try again.`,
+        error: `${g.mailbox === 'none' ? 'It' : 'It is gone from the mailbox, but it'} is still listed in Native Intelligence (the delete didn't go through). Try again.`,
       })
     }
     going = going.filter((g) => !left.has(g.row.id))
@@ -303,8 +303,8 @@ export async function discardEmailDrafts(supabase: SupabaseClient, userId: strin
       ? missed === 0
         ? 'Nothing to discard: those drafts were already sent or dismissed.'
         : 'Nothing was discarded: see each result.'
-      : `Discarded ${discarded} draft${discarded === 1 ? '' : 's'}${going.some((g) => g.mailbox === 'deleted') ? ', in Dial8 and in the mailbox' : ' in Dial8'}.` +
-        (notFound ? ` ${notFound} ${notFound === 1 ? 'was' : 'were'} no longer in the mailbox under the id Dial8 saved: if they edited ${notFound === 1 ? 'it' : 'them'} in their mailbox, ${notFound === 1 ? 'it' : 'they'} may still be in their Drafts.` : '') +
+      : `Discarded ${discarded} draft${discarded === 1 ? '' : 's'}${going.some((g) => g.mailbox === 'deleted') ? ', in Native Intelligence and in the mailbox' : ' in Native Intelligence'}.` +
+        (notFound ? ` ${notFound} ${notFound === 1 ? 'was' : 'were'} no longer in the mailbox under the id Native Intelligence saved: if they edited ${notFound === 1 ? 'it' : 'them'} in their mailbox, ${notFound === 1 ? 'it' : 'they'} may still be in their Drafts.` : '') +
         (missed ? ` ${missed} could not be: see each result.` : '') +
         ' Nothing was sent.'
   return { success: discarded > 0 || missed === 0, discarded, results: ordered, message }

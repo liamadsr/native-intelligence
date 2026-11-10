@@ -9,12 +9,12 @@
  * again. Liam, 2026-09-06: "make sure if you rename the list it updates it in
  * the CRM and anywhere else it's shown or used as a filtered view."
  *
- * Same shape as the other window-event pairs (`dial8:prospecting-start`,
- * `dial8:prospect-entry-action`): one module owns the name and the payload so
+ * Same shape as the other window-event pairs (`ni:prospecting-start`,
+ * `ni:prospect-entry-action`): one module owns the name and the payload so
  * the two sides cannot drift.
  */
 
-export const PROSPECT_LIST_CHANGED_EVENT = 'dial8:prospect-list-changed'
+export const PROSPECT_LIST_CHANGED_EVENT = 'ni:prospect-list-changed'
 
 export interface ProspectListChangedDetail {
   id: string

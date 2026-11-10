@@ -6,7 +6,7 @@ import { setRequestsOpen } from '@/lib/guests/store'
 /**
  * PATCH { open: boolean } → { code, open }: the People tab's "Let people ask"
  * (guest access, PR5). While open, someone who texts "JOIN <code>" to the
- * Dial8 number lands on the tab as a request for the owner to allow or ignore.
+ * Native Intelligence number lands on the tab as a request for the owner to allow or ignore.
  */
 export async function PATCH(req: Request) {
   const auth = await requireWorkspaceMember()

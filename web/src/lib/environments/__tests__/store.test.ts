@@ -87,7 +87,7 @@ beforeEach(() => {
       { user_id: TEAMMATE, id: TEAMMATE_MAC, name: 'Dana’s Mac', platform: 'macos', app_version: '0.2.93', last_seen_at: recent() },
     ],
     device_folder: [
-      { id: FOLDER, user_id: ME, device_id: MAC, grant_id: 'g1', label: 'dial8-website', path: '/Users/l/code/dial8-website', mode: 'edit', is_git: true, revoked_at: null },
+      { id: FOLDER, user_id: ME, device_id: MAC, grant_id: 'g1', label: 'native-intelligence', path: '/Users/l/code/native-intelligence', mode: 'edit', is_git: true, revoked_at: null },
       { id: FOLDER_GONE, user_id: ME, device_id: MAC, grant_id: 'g2', label: 'old', path: '/Users/l/old', mode: 'read', is_git: false, revoked_at: stale },
       { id: FOLDER_TEAMMATE, user_id: TEAMMATE, device_id: TEAMMATE_MAC, grant_id: 'g3', label: 'theirs', path: '/Users/d/x', mode: 'edit', is_git: true, revoked_at: null },
     ],
@@ -118,7 +118,7 @@ describe('listEnvironments', () => {
     expect(envs.map((e) => e.kind)).toEqual(['mac', 'mac', 'cloud', 'cloud'])
     const [mine, old] = macsOf(envs)
     expect(mine).toMatchObject({ id: MAC_ENV, name: 'Liam’s MacBook Pro', deviceId: MAC, online: true, appVersion: '0.2.93' })
-    expect(mine.folders).toEqual([{ id: FOLDER, label: 'dial8-website', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'dial8/website' }])
+    expect(mine.folders).toEqual([{ id: FOLDER, label: 'native-intelligence', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'dial8/website' }])
     expect(JSON.stringify(envs)).not.toContain('/Users/')
     // The Mac with no environment got one, named by the fallback.
     expect(old).toMatchObject({ deviceId: OLD_MAC, name: 'My Mac', online: false, folders: [] })

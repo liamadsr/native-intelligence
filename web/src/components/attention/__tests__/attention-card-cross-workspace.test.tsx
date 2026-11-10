@@ -36,14 +36,14 @@ vi.mock('posthog-js/react', () => ({ usePostHog: () => ({ capture: vi.fn() }) })
 
 /** The cards the card asked for (the tabs provider isn't mounted: the requests are the result). */
 const opened = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-window.addEventListener('dial8:open-card', (e) => opened.push((e as CustomEvent).detail))
+window.addEventListener('ni:open-card', (e) => opened.push((e as CustomEvent).detail))
 
 // ws-1 is active; ws-2 is another workspace the user belongs to; ws-9 is one the
 // cache can't name (a card can outlive the membership that named it).
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaces: () => ({
     workspaces: [
-      { id: 'ws-1', name: 'Dial8' },
+      { id: 'ws-1', name: 'Native Intelligence' },
       { id: 'ws-2', name: 'Acme Corp' },
     ],
     currentId: 'ws-1',
@@ -135,7 +135,7 @@ describe('AttentionCard — cards from another workspace', () => {
   it('shows no badge on a card for the ACTIVE workspace', () => {
     renderCard(actionItem({ workspace_id: 'ws-1' }))
     expect(container.textContent).not.toContain('Acme Corp')
-    expect(container.textContent).not.toContain('Dial8')
+    expect(container.textContent).not.toContain('Native Intelligence')
   })
 
   it('shows no badge when the workspace cache cannot name the workspace', () => {

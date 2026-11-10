@@ -5,7 +5,7 @@
  * A browser attaches the person's session cookies to a request any page
  * makes, so the cookie alone does not prove the person's own app sent it.
  * SameSite=Lax keeps other sites' POSTs cookie-less, but not a sibling
- * subdomain's: to a browser every *.dial8.ai is the same site. So the request
+ * subdomain's: to a browser every *.nativeintelligence.dev is the same site. So the request
  * must also show it came from this origin:
  *   - an `Origin` header, when there is one, must be exactly this app's origin;
  *   - without one, `Sec-Fetch-Site` must be `same-origin` or `none` (the
@@ -17,7 +17,7 @@
  *     rides no ambient cookie (the relay's e2e scripts, scripts/local-agent).
  *
  * "This app's origin" is the origin the request was sent to: X-Forwarded-Host
- * (else Host) with the request's scheme, which is https://dial8.ai in the
+ * (else Host) with the request's scheme, which is https://nativeintelligence.dev in the
  * desktop webview and a browser, and http://localhost:3000 in dev. A browser
  * sets Host itself and can't set X-Forwarded-Host cross-origin. Not for the
  * Mac body's routes: they take the session's la1 bearer, never a cookie.
@@ -59,5 +59,5 @@ export function crossSiteRefusal(request: Request): Response | null {
 }
 
 function refused(): Response {
-  return apiError('This request must come from Dial8 itself', { status: 403, code: CROSS_SITE_REQUEST })
+  return apiError('This request must come from Native Intelligence itself', { status: 403, code: CROSS_SITE_REQUEST })
 }

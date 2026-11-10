@@ -1,6 +1,6 @@
 //
 //  iOSNotesHomeView.swift
-//  dial8
+//  Native Intelligence
 //
 //  Primary home screen for iOS.
 //

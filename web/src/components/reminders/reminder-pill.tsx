@@ -19,7 +19,7 @@ import { ReminderPickerPopover } from './reminder-picker'
  *
  * The label is relative ("13 hours from now"), so it goes stale on its own — a
  * 60s tick re-renders it. Cross-surface writes (toolbar button, row context
- * menu) arrive through the `dial8:reminder-changed` window event rather than a
+ * menu) arrive through the `ni:reminder-changed` window event rather than a
  * shared store; the pill and the picker never share a React tree. DELIVERY
  * arrives on the same event: notification-context re-emits it when the cron's
  * `reminder` notification lands, and the "now" poll below covers the case where
@@ -82,7 +82,7 @@ export function ReminderHeaderPill({
   const label = reminder ? formatFromNow(reminder.remind_at) : null
 
   // Belt and braces for delivery. The realtime `reminder` notification already
-  // triggers a refetch via `dial8:reminder-changed`, but the cron sweeps on a
+  // triggers a refetch via `ni:reminder-changed`, but the cron sweeps on a
   // 5-minute tick and the row can be delivered while realtime is down. Once the
   // label collapses to "now" the target is past, so poll the truth a couple of
   // times rather than sitting on "now" forever with a phantom Remove row.

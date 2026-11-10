@@ -93,7 +93,7 @@ describe('browserSelectionToSentences — Outlook (the desktop gives the highlig
     ],
   }
 
-  it('reads the thread like Dial8 Mail: from and about, the messages without signatures or history, who wrote each', () => {
+  it('reads the thread like Native Intelligence Mail: from and about, the messages without signatures or history, who wrote each', () => {
     expect(readMail(THREAD, '(the page text, not read when the mail is given)')).toEqual([
       'From Ann, about Q3 renewal.',
       'Hi all, the renewal is signed.',
@@ -106,7 +106,7 @@ describe('browserSelectionToSentences — Outlook (the desktop gives the highlig
 
   it('without the subject highlighted: "Ann wrote: …"', () => {
     expect(readMail({ messages: [{ from: 'LEE, Ann', html: '<p>the renewal is signed</p>' }] })).toEqual([
-      // As Dial8 Mail reads a body: its words as written.
+      // As Native Intelligence Mail reads a body: its words as written.
       'Ann wrote: the renewal is signed',
     ])
     expect(
@@ -284,7 +284,7 @@ describe('browserSelectionToSentences — any page', () => {
   it('reads plain text exactly as plainTextToSentences does', () => {
     const text = 'Getting started\nInstall the app. Then sign in!\n\nIt takes a minute'
     expect(read(text)).toEqual(plainTextToSentences(text))
-    expect(read('Use *bold* at https://docs.dial8.ai/api?x=1 🎉')).toEqual(['Use *bold* at docs.dial8.ai.'])
+    expect(read('Use *bold* at https://docs.nativeintelligence.dev/api?x=1 🎉')).toEqual(['Use *bold* at docs.nativeintelligence.dev.'])
   })
 
   it('drops footnote markers and lines that are only a page control, nothing more', () => {

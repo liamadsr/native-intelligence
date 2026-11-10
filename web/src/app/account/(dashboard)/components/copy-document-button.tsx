@@ -14,8 +14,8 @@ interface CopyDocumentButtonProps {
 
 /**
  * Copy the whole document so it pastes well into another tool (P9, decision
- * 9): a newsletter Dial8 drafted goes into Substack, HubSpot or Mailchimp by
- * the person's own paste. Dial8 never sends it. The markdown rides as plain
+ * 9): a newsletter Native Intelligence drafted goes into Substack, HubSpot or Mailchimp by
+ * the person's own paste. Native Intelligence never sends it. The markdown rides as plain
  * text and its HTML as rich text, so headings, lists and links survive.
  * Beside Copy ID, the same look; the host hides it when the document is empty
  * (hide empty widgets).

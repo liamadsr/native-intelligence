@@ -38,7 +38,7 @@ function makeSupabase() {
 }
 
 function req(refs: string): NextRequest {
-  return { nextUrl: new URL(`https://dial8.ai/api/account/entities/resolve?refs=${encodeURIComponent(refs)}`) } as unknown as NextRequest
+  return { nextUrl: new URL(`https://nativeintelligence.dev/api/account/entities/resolve?refs=${encodeURIComponent(refs)}`) } as unknown as NextRequest
 }
 
 function row(identifier: string, workspaceId: string, over: Record<string, unknown> = {}) {

@@ -39,8 +39,8 @@
  *   weekly_newsletter       "Write my newsletter every Friday": a weekly
  *                           schedule → the content-newsletter skill → a document the
  *                           person shapes in the chat and copies into their
- *                           own tool. Dial8 never sends it (decision 9).
- *   ci_fix_loop             "Fix failing CI on the PRs Dial8 opens" (P10
+ *                           own tool. Native Intelligence never sends it (decision 9).
+ *   ci_fix_loop             "Fix failing CI on the PRs Native Intelligence opens" (P10
  *                           F7): a pr_status_changed loop on one repo whose
  *                           run_agent step is marked fix_ci. The step runs
  *                           nothing; the loop switched on is its owner's
@@ -241,7 +241,7 @@ export function recipeFlow(recipe: FlowRecipe, options: RecipeOptions = {}): Rec
       return {
         recipe,
         name: 'Weekly newsletter',
-        description: 'A newsletter draft from your week as a document you shape in the chat and copy into your own newsletter tool. Dial8 never sends it.',
+        description: 'A newsletter draft from your week as a document you shape in the chat and copy into your own newsletter tool. Native Intelligence never sends it.',
         trigger: { type: 'schedule', cadence: 'weekly', weekday: weekday(options.weekday, 5), time: time(options.time, '15:00'), ...zone(options.timezone) },
         actions: [{ id: 'newsletter', type: 'run_skill', skill: RECIPE_SKILL_IDS['content-newsletter'], deliver_to: 'document', document_title: 'Newsletter — {date}' }],
         note: 'A document each week; ask here to change it, then copy it into Substack, HubSpot or wherever you send from. Nothing is sent.',
@@ -253,7 +253,7 @@ export function recipeFlow(recipe: FlowRecipe, options: RecipeOptions = {}): Rec
       }
       return {
         recipe,
-        name: `Fix failing CI on Dial8's PRs in ${repo}`,
+        name: `Fix failing CI on Native Intelligence's PRs in ${repo}`,
         description: `When a check fails on a pull request one of your coding runs opened in ${repo}, a coding agent fixes it on a side branch; only a fix the reviewer approves moves the pull request. At most 2 fix runs per pull request, then a "CI still red" card.`,
         trigger: { type: 'pr_status_changed', repo_full_name: repo, pr_state: 'open' },
         actions: [{ id: 'ci', type: 'run_agent', use_triggering_action_context: true, fix_ci: true }],

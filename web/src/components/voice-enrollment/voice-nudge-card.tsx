@@ -14,7 +14,7 @@ import {
 } from '@/lib/onboarding/sign-in-count'
 
 /**
- * Dashboard nudge that invites the user to teach Dial8 their voice. A standalone
+ * Dashboard nudge that invites the user to teach Native Intelligence their voice. A standalone
  * surface — deliberately NOT spliced into OnboardingChecklist (its 5-step
  * completion ring would miscount for existing users) nor faked into the
  * AttentionDeck (server/realtime-driven proposal infra). It borrows only the
@@ -112,11 +112,11 @@ export function VoiceNudgeCard() {
           <div className="flex items-center gap-1.5">
             <AudioWaveform className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="text-[13px] font-medium leading-tight">
-              Teach Dial8 your voice
+              Teach Native Intelligence your voice
             </span>
           </div>
           <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-            60 seconds, once — Dial8 will always know which voice is yours.
+            60 seconds, once — Native Intelligence will always know which voice is yours.
           </p>
 
           <div className="mt-2 flex items-center gap-1.5">
@@ -126,7 +126,7 @@ export function VoiceNudgeCard() {
               size="sm"
               className="h-6 shrink-0 self-center px-2.5 text-[11px]"
             >
-              <Link href="/account/voice-enrollment">Teach Dial8</Link>
+              <Link href="/account/voice-enrollment">Teach Native Intelligence</Link>
             </Button>
             <Button
               variant="ghost"

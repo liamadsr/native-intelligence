@@ -60,7 +60,7 @@ export const NOTIFICATION_TYPES = [
   'agent_look_ahead',
   // The agent wrote to the person while they were at an app and hadn't read
   // it (migration 454, docs/plans/reach-follows-you.md): one bubble from the
-  // Assistant, a native banner on the desktop when no Dial8 window is
+  // Assistant, a native banner on the desktop when no Native Intelligence window is
   // focused; no target, so a click opens the home thread. Sent by the router,
   // src/lib/reach/route.ts.
   'agent_message',

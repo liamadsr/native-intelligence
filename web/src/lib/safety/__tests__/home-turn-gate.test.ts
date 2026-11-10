@@ -1,9 +1,9 @@
 /**
  * A home turn acts on its own, and every send waits for the person's yes
  * (Liam, 2026-10-26). Through the gate (action-review.ts, GateRequest.homeTurn):
- * work inside Dial8 runs, a delete of Dial8's own items runs, a plain read of
+ * work inside Native Intelligence runs, a delete of Native Intelligence's own items runs, a plain read of
  * a connected app runs, the person's own calendar with nobody else on it
- * runs; anything that reaches another person or leaves Dial8 is held as the
+ * runs; anything that reaches another person or leaves Native Intelligence is held as the
  * person's approval card in their home thread (never a refusal), and they are
  * pinged (reachPerson). And the outward gate now holds an invite to anyone
  * but the person, teammates included.
@@ -53,7 +53,7 @@ describe('homeTurnRunsOnItsOwn', () => {
     // Its name stands in when the policy doesn't carry it.
     expect(homeTurnRunsOnItsOwn({ toolName: 'mcp__notion__search_pages', sideEffect: 'unclassified', externalTool: { serverName: 'Notion', requiresApproval: false } })).toBe(true)
     expect(homeTurnRunsOnItsOwn({ toolName: 'create_calendar_event', sideEffect: 'external-write' })).toBe(true)
-    expect(homeTurnRunsOnItsOwn({ toolName: 'dial8_update_calendar_event', sideEffect: 'external-write' })).toBe(true)
+    expect(homeTurnRunsOnItsOwn({ toolName: 'ni_update_calendar_event', sideEffect: 'external-write' })).toBe(true)
     // A write the person freed to run without asking still waits: nothing is sent without their yes.
     expect(homeTurnRunsOnItsOwn({ toolName: 'mcp__slack__post_message', sideEffect: 'unclassified', externalTool: { serverName: 'Slack', requiresApproval: false, toolName: 'post_message' } })).toBe(false)
     // A read its server can't make a write (the GitHub integration's): runs whatever its name.
@@ -86,12 +86,12 @@ describe('a home turn through the gate', () => {
     expect(mocks.approve).not.toHaveBeenCalled()
   })
 
-  it('a delete of Dial8\'s own items runs', async () => {
+  it('a delete of Native Intelligence\'s own items runs', async () => {
     expect(await gateRiskyCall({ ...home, toolName: 'delete_action', input: { action_id: 'a1' }, sideEffect: 'delete' }, run, false)).toMatchObject({ held: false })
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it('anything else that leaves Dial8 is the person\'s card, whatever the reviewer\'s mode', async () => {
+  it('anything else that leaves Native Intelligence is the person\'s card, whatever the reviewer\'s mode', async () => {
     for (const enforce of [false, true]) {
       const gated = await gateRiskyCall({ ...home, toolName: 'push_action_to_jira', input: { action_id: 'a1' } }, run, enforce)
       expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED' } })

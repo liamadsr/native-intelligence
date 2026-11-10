@@ -110,7 +110,7 @@ afterEach(() => {
 async function fireRecovered() {
   await act(async () => {
     window.dispatchEvent(
-      new CustomEvent('dial8:realtime-recovered', { detail: { repairId: 0 } }),
+      new CustomEvent('ni:realtime-recovered', { detail: { repairId: 0 } }),
     )
     await Promise.resolve()
   })

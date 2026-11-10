@@ -1,7 +1,7 @@
 //! Pins what `capabilities/default.json` may grant (security review
 //! 2026-10-31, P0-3).
 //!
-//! WHY: every Dial8 webview runs code the server sends, so every permission in
+//! WHY: every Native Intelligence webview runs code the server sends, so every permission in
 //! the capability is reachable by whoever controls that server (or any XSS on
 //! a granted origin). Three grants turned that into native power:
 //!   - `core:menu` / `core:tray` (inside `core:default`): the tray's
@@ -100,11 +100,37 @@ fn remote_origins_are_exact_hosts() {
     }
 }
 
-/// A released app grants native access to dial8.ai and nothing else: no
-/// subdomain, no localhost.
+/// A released app grants native access to the app's own domains and nothing
+/// else: the new one, and dial8.ai while it still serves the app (nav_guard.rs
+/// `APP_DOMAINS`, which this list must match). No subdomain, no localhost.
 #[test]
-fn the_release_capability_allows_exactly_dial8_ai() {
-    assert_eq!(remote_urls(&capability()), ["https://dial8.ai/*"]);
+fn the_release_capability_allows_exactly_the_apps_domains() {
+    assert_eq!(remote_urls(&capability()), ["https://nativeintelligence.dev/*", "https://dial8.ai/*"]);
+    let nav_guard = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/nav_guard.rs")).unwrap();
+    assert!(
+        nav_guard.contains(r#"pub(crate) const APP_DOMAINS: [&str; 2] = ["nativeintelligence.dev", "dial8.ai"];"#),
+        "nav_guard.rs APP_DOMAINS and capabilities/default.json remote.urls must list the same domains"
+    );
+}
+
+/// The address a build loads is the same everywhere it is written: the
+/// constant the app calls its API on, the committed `frontendDist` (the
+/// Windows build uses it as it is) and release.sh's value for the Mac build.
+#[test]
+fn the_app_address_is_the_same_in_every_place_it_is_written() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let conf: serde_json::Value = serde_json::from_str(&fs::read_to_string(dir.join("tauri.conf.json")).unwrap()).unwrap();
+    let address = conf["build"]["frontendDist"].as_str().unwrap();
+    assert_eq!(address, "https://nativeintelligence.dev");
+    let nav_guard = fs::read_to_string(dir.join("src/nav_guard.rs")).unwrap();
+    assert!(nav_guard.contains(&format!(r#"pub(crate) const APP_URL: &str = "{address}";"#)), "nav_guard.rs APP_URL");
+    let release = fs::read_to_string(dir.join("../release.sh")).unwrap();
+    assert!(release.contains(&format!(r#"PRODUCTION_URL="{address}""#)), "release.sh PRODUCTION_URL");
+    // The updater asks the new address first, then the old one.
+    let endpoints: Vec<&str> = conf["plugins"]["updater"]["endpoints"].as_array().unwrap().iter().map(|e| e.as_str().unwrap()).collect();
+    assert_eq!(endpoints.len(), 2);
+    assert!(endpoints[0].starts_with(&format!("{address}/api/desktop/update/")), "{endpoints:?}");
+    assert!(endpoints[1].starts_with("https://dial8.ai/api/desktop/update/"), "{endpoints:?}");
 }
 
 /// dev.json is default.json for the local dev server: the same windows and
@@ -154,5 +180,5 @@ fn this_build_resolved_the_capabilities_for_its_profile() {
     let ids: Vec<&String> = resolved.as_object().unwrap().keys().collect();
     let want: &[&str] = if cfg!(debug_assertions) { &["default", "dev-localhost"] } else { &["default"] };
     assert_eq!(ids, want);
-    assert_eq!(remote_urls(&resolved["default"]), ["https://dial8.ai/*"]);
+    assert_eq!(remote_urls(&resolved["default"]), ["https://nativeintelligence.dev/*", "https://dial8.ai/*"]);
 }

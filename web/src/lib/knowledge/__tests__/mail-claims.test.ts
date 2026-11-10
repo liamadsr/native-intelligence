@@ -1,5 +1,5 @@
 /**
- * Dial8 doesn't learn from mail (2026-10-15, migration 341). A claim with ANY
+ * Native Intelligence doesn't learn from mail (2026-10-15, migration 341). A claim with ANY
  * email source is shown to no one: not the workspace, not the person whose
  * mail it came from. These tests pin the app's copy of the rule
  * (src/lib/knowledge/claim-visibility.ts) and the SQL file that closes the

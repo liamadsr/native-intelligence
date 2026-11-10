@@ -39,7 +39,7 @@ import { ChevronDown, Plug } from 'lucide-react'
 import { hasDownload } from '@/lib/app-download'
 
 const sections: Section[] = [
-  { id: 'hero', label: 'Dial8' },
+  { id: 'hero', label: 'Native Intelligence' },
   { id: 'features', label: 'Features' },
   { id: 'desktop', label: 'Desktop App' },
   { id: 'integrations', label: 'Integrations' },
@@ -246,7 +246,7 @@ function FeaturesSection() {
           Get the most out of every meeting
         </h2>
         <p className="mt-6 mx-auto max-w-2xl text-lg text-muted-foreground">
-          Dial8 captures and organizes everything from your conversations, so
+          Native Intelligence captures and organizes everything from your conversations, so
           you can focus on the conversation instead of the note-taking.
         </p>
       </motion.div>
@@ -271,7 +271,7 @@ function FeaturesSection() {
         <FeaturePanel
           flip
           title="Accurate, speaker-by-speaker transcription"
-          description="Every speaker identified by name — Dial8 recognizes voices it has met before. Technical terms handled, recording kept alongside the notes."
+          description="Every speaker identified by name — Native Intelligence recognizes voices it has met before. Technical terms handled, recording kept alongside the notes."
           visual={<SpeakerIdDemo />}
         />
       </div>
@@ -395,7 +395,7 @@ function IntegrationsSection() {
     {
       icon: <Plug className="h-6 w-6 text-muted-foreground" />,
       name: 'MCP',
-      body: 'Connect AI apps like ChatGPT, Claude, and Cursor to your Dial8 workspace.',
+      body: 'Connect AI apps like ChatGPT, Claude, and Cursor to your Native Intelligence workspace.',
     },
   ]
 
@@ -443,15 +443,15 @@ function IntegrationsSection() {
 // ─── Section 5: FAQ ──────────────────────────────────────────
 const FAQ_ITEMS = [
   {
-    q: 'Does Dial8 work for in-person meetings?',
+    q: 'Does Native Intelligence work for in-person meetings?',
     a: 'Yes. Record from the desktop app or your browser microphone — no video call required.',
   },
   {
-    q: 'Can I use Dial8 without a bot joining my calls?',
+    q: 'Can I use Native Intelligence without a bot joining my calls?',
     a: 'Yes — that’s the default. The desktop app records from your computer, so nothing ever joins the meeting.',
   },
   {
-    q: 'What meeting platforms does Dial8 work with?',
+    q: 'What meeting platforms does Native Intelligence work with?',
     a: 'Any meeting you join from your computer: Zoom, Google Meet, Microsoft Teams, Webex, Slack huddles, phone calls, and more.',
   },
   {
@@ -459,7 +459,7 @@ const FAQ_ITEMS = [
     a: 'No. Your conversations and notes are never used to train AI models.',
   },
   {
-    q: 'Does Dial8 do more than meeting notes?',
+    q: 'Does Native Intelligence do more than meeting notes?',
     a: 'Yes. Notes flow into a full workspace: task tracking with sprints, a CRM with interaction history, email, and an AI assistant that knows your work.',
   },
   {

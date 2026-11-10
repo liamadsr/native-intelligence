@@ -1,0 +1,36 @@
+# What `docker build -f deploy/app/Dockerfile .` sends from the repository root.
+# BuildKit reads this file because it sits beside the Dockerfile and carries its name.
+# Everything is left out except the web app and this folder.
+*
+!web
+!deploy/app
+
+# Never from a developer's checkout: secrets, and another build's output.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/.vercel
+**/node_modules
+**/.DS_Store
+web/.next
+web/.next-preview
+web/.eve
+web/.output
+web/agents/*/.eve
+web/agents/*/.output
+web/agents/*/.workflow-data
+web/evals/*/.eve
+web/public/cloud-browser
+web/public/ort
+web/packages/*/dist
+web/coverage
+web/scratch
+web/**/*.tsbuildinfo
+
+# Not needed to build or run the app: the database, the browser tests, editor tooling.
+web/supabase
+web/e2e
+web/.claude
+web/.agents
+web/.design-sync

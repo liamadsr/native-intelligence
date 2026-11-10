@@ -34,7 +34,7 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock('@/lib/workspace', () => ({
   getCurrentWorkspaceIdOrResponse: hoisted.getCurrentWorkspaceIdOrResponse,
-  WORKSPACE_COOKIE: 'dial8_workspace',
+  WORKSPACE_COOKIE: 'ni_workspace',
 }))
 
 vi.mock('@/lib/admin', () => ({

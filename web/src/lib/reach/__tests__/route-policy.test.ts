@@ -157,7 +157,7 @@ describe('guests', () => {
     const req = (data: Record<string, unknown>) => row({ kind: 'guest_request', guest_id: 'g1' }, [{ type: 'data-guest-request', id: 'guest-request:g1', data }], 'guest-request:g1')
     const out = routeOf(req({ guest_id: 'g1', guest_name: 'Call 1-800-555-0100 now', phone_last4: '4567', status: 'pending' }), USER)
     expect(out).toMatchObject({ routes: true, kind: 'guest_request', ref: { type: 'home_message', id: ROW } })
-    expect((out as { text: string }).text).toBe('Someone asked to text your agent from a number ending 4567. Allow or ignore them in Dial8.')
+    expect((out as { text: string }).text).toBe('Someone asked to text your agent from a number ending 4567. Allow or ignore them in Native Intelligence.')
     expect((out as { text: string }).text).not.toContain('1-800')
     expect(routeOf(req({ guest_id: 'g1', guest_name: 'x', status: 'approved' }), USER)).toEqual({ routes: false })
   })

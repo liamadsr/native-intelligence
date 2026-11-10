@@ -160,13 +160,13 @@ export async function connectWebsite(svc: Svc, who: Who, input: { repo: string; 
     const changed = live ? (await recentChanges(svc, who.workspaceId, live.id, 1)).length > 0 : false
     keepAddress ||= !!live && changed && sameRepo
     if (live && changed && !sameRepo) {
-      return fail('SWITCH_IN_APP', `Their website is already connected (${live.repoFullName}) and has had changes. Switching it to another repo happens in the Dial8 app, not by text: tell them.`)
+      return fail('SWITCH_IN_APP', `Their website is already connected (${live.repoFullName}) and has had changes. Switching it to another repo happens in the Native Intelligence app, not by text: tell them.`)
     }
     if (live && changed && input.siteUrl && !sameSiteHost(siteUrlOf(input.siteUrl), live.siteUrl)) {
-      return fail('SWITCH_IN_APP', 'Their website’s address is set and it has had changes. Changing the address happens in the Dial8 app, not by text: tell them.')
+      return fail('SWITCH_IN_APP', 'Their website’s address is set and it has had changes. Changing the address happens in the Native Intelligence app, not by text: tell them.')
     }
     if (!sameRepo && !(await isListedChoice(svc, who, token, input.repo, deps))) {
-      return fail('NOT_LISTED', 'By text I can connect one of the repos on the numbered list (list_website_repos). Another repo is connected in the Dial8 app: tell them.')
+      return fail('NOT_LISTED', 'By text I can connect one of the repos on the numbered list (list_website_repos). Another repo is connected in the Native Intelligence app: tell them.')
     }
   }
   // A change in flight runs against this repo and address: neither moves under it.
@@ -213,7 +213,7 @@ export async function connectWebsite(svc: Svc, who: Who, input: { repo: string; 
     forms: inspection.forms.slice(0, 3).map((f) => ({ path: f.path, kind: f.kind, sends_to: f.submits, fields: f.fields.slice(0, 10) })),
     next: inspection.forms.length
       ? inspection.forms[0].submits === 'dial8'
-        ? 'The form already posts to Dial8: nothing to wire. Tell them, and that you can change the site for them by text now.'
+        ? 'The form already posts to Native Intelligence: nothing to wire. Tell them, and that you can change the site for them by text now.'
         : 'Tell them what you found in two short lines (the words in `found`), then ask whether you should connect the form so its requests reach you too, keeping what it does today. On their yes, call wire_website_form.'
       : 'Tell them you could not find a form customers fill in, and ask which page has it (then call wire_website_form with form_path), or carry on: you can still change the site by text.',
     // A changed site's address is changed in the app, not by text: no hint that would lead into a refusal.
@@ -361,7 +361,7 @@ export async function startWiring(svc: Svc, who: Who, input: { formPath?: string
   if (!site.siteUrl) return fail('NO_SITE_URL', 'Ask them for their live website address first, then call connect_website again with site_url: the form is checked live once the change is up.')
   const form = pickForm(site.inspection, input.formPath)
   if (!form) return fail('NO_FORM', 'No form was found on the site. Ask them which page has it, then call wire_website_form with form_path.')
-  if (form.submits === 'dial8' && !input.formPath) return fail('ALREADY_WIRED', 'That form already posts to Dial8. Nothing was started.')
+  if (form.submits === 'dial8' && !input.formPath) return fail('ALREADY_WIRED', 'That form already posts to Native Intelligence. Nothing was started.')
   const key = generateIntakeKey()
   // The address's redirects count too (a bare domain to www, a host's domain to the real one): customers post from where they land.
   const origins = siteOrigins(site.siteUrl, [await finalSiteUrl(site.siteUrl, deps), ...(site.inspection?.alsoUrls ?? [])])
@@ -388,7 +388,7 @@ export async function startWiring(svc: Svc, who: Who, input: { formPath?: string
     intakeOrigins: origins,
   })
   if (!inserted.ok) return fail('OPEN_CHANGE', inserted.open ? openChangeWords(inserted.open) : 'Another website change is open. Nothing new was started.')
-  return launchRun(svc, who, site, inserted.change, `Send website ${form.kind === 'other' ? 'form' : form.kind} requests to Dial8`, deps)
+  return launchRun(svc, who, site, inserted.change, `Send website ${form.kind === 'other' ? 'form' : form.kind} requests to Native Intelligence`, deps)
 }
 
 /** An edit the owner asked for by text (step 6). */
@@ -438,7 +438,7 @@ export async function startUndo(svc: Svc, who: Who, input: { changeId?: string |
     revertsChangeId: target.id,
   })
   if (!inserted.ok) return fail('OPEN_CHANGE', inserted.open ? openChangeWords(inserted.open) : 'Another website change is open. Nothing new was started.')
-  const reverted = await revertPull(gh, { nodeId: pull.value.nodeId, title: `Undo: ${pull.value.title}`.slice(0, 200), body: `Owner summary: This puts your website back the way it was before "${pull.value.title}".\n\nAsked for by text through Dial8.` })
+  const reverted = await revertPull(gh, { nodeId: pull.value.nodeId, title: `Undo: ${pull.value.title}`.slice(0, 200), body: `Owner summary: This puts your website back the way it was before "${pull.value.title}".\n\nAsked for by text through Native Intelligence.` })
   if (!reverted.ok) {
     await updateChange(svc, who.workspaceId, inserted.change.id, { state: 'failed', error: reverted.error }, ['preparing'])
     return fail('REVERT_FAILED', `${failedText({ kind: 'revert', reason: 'GitHub could not make the undo' })} Tell them.`)

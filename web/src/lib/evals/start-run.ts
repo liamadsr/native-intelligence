@@ -205,7 +205,7 @@ export async function startEvalRun(
 ): Promise<{ run: EvalRunRow; adopted: boolean; estimated_cost_usd: number }> {
   // A person on their own ChatGPT plan (the free tier) runs evals on it: the
   // trials and the judges (the eval lane passes the plan to gradeTrial), so
-  // the run costs Dial8 nothing and is priced at $0 below (its $0 ceiling
+  // the run costs Native Intelligence nothing and is priced at $0 below (its $0 ceiling
   // stops it should anything about it ever spend). Read whichever door it came
   // in by (the route, the chat's start_eval_run, MCP). Fails closed: a check
   // that can't be read queues nothing.
@@ -306,7 +306,7 @@ export async function startEvalRun(
   })
 
   // ── Money, before anything runs ───────────────────────────────────────────
-  // On the person's own plan nothing is Dial8's to pay: $0, and a $0 ceiling.
+  // On the person's own plan nothing is Native Intelligence's to pay: $0, and a $0 ceiling.
   const estimated = onPlan
     ? 0
     : estimateRunCostUsd({

@@ -2,7 +2,7 @@
 ///
 /// - macOS: Uses a Swift sidecar process that captures via Core Audio Taps
 ///   and streams 16kHz mono PCM float32 to stdout.
-/// - Windows: WASAPI process loopback of everything playing EXCEPT Dial8's
+/// - Windows: WASAPI process loopback of everything playing EXCEPT Native Intelligence's
 ///   own process tree (the Mac tap leaves out its own PID the same way, so
 ///   read-aloud never lands in a recording), 48 kHz stereo from the engine,
 ///   downmixed and resampled to 16 kHz mono here ([`windows_loopback`]).
@@ -308,7 +308,7 @@ impl SystemCapture {
             perm.as_str()
         ));
         if perm == crate::permissions::SystemAudioPermission::Denied {
-            return Err("System audio permission denied — enable Dial8 under System Settings → Privacy & Security → Screen & System Audio Recording".into());
+            return Err("System audio permission denied — enable Native Intelligence under System Settings → Privacy & Security → Screen & System Audio Recording".into());
         }
 
         let sidecar_path = Self::sidecar_path()
@@ -627,7 +627,7 @@ impl SystemCapture {
             return Err(e);
         }
         self.reader_thread = Some(thread);
-        crate::log_to_file("[SystemCapture] Windows system audio capture started (process loopback, Dial8 excluded)");
+        crate::log_to_file("[SystemCapture] Windows system audio capture started (process loopback, Native Intelligence excluded)");
         Ok(())
     }
 

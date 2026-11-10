@@ -1,15 +1,15 @@
 /**
  * discard_email_draft's logic (GEN-1165, ../discard-drafts.ts): "clean up my
- * junk drafts" ends with them gone from the mailbox and from Dial8's pending
+ * junk drafts" ends with them gone from the mailbox and from Native Intelligence's pending
  * list, and the reason kept for the drafting passes.
  *
- *  - a Dial8 draft named by its row id, its list item id (draft:…) or its
+ *  - a Native Intelligence draft named by its row id, its list item id (draft:…) or its
  *    mailbox id: the mailbox copy goes first (at the mailbox the row names),
  *    then the row, then the work that delivered it stops waiting;
  *  - only the caller's own rows, in their workspaces: a draft with no row (one
  *    the person wrote), someone else's, or one in a workspace they left is
  *    not found, and nothing is deleted anywhere;
- *  - the mailbox refuses: nothing changes in Dial8 either;
+ *  - the mailbox refuses: nothing changes in Native Intelligence either;
  *  - a sent or dismissed draft is left as it is;
  *  - two drafts on one thread share a hold: discarding one keeps the hold
  *    (the other's review row stays), discarding both releases it;
@@ -106,7 +106,7 @@ describe('discardEmailDrafts', () => {
     expect(draftIds()).not.toContain(ROW)
     expect(resolveWorkForDeliverable).toHaveBeenCalledWith(fake, { type: 'email_draft', id: ROW }, expect.anything())
     expect(resolveWorkForDeliverable).toHaveBeenCalledWith(fake, { type: 'email_draft', id: 'm-1' }, expect.anything())
-    expect(out.message).toMatch(/in Dial8 and in the mailbox/)
+    expect(out.message).toMatch(/in Native Intelligence and in the mailbox/)
     expect(out.message).toMatch(/Nothing was sent/)
     // The person's verdict: dormancy reads it.
     expect(fake.rows('mail_review_activity')).toEqual([expect.objectContaining({ user_id: 'user-1', workspace_id: WS })])
@@ -159,12 +159,12 @@ describe('discardEmailDrafts', () => {
     expect(fake.rows('email_thread_index').find((r) => r.id === 'idx-1')?.needs_reply).toBe(true)
   })
 
-  it('nothing in the mailbox holds that id any more (edited in Gmail, say): gone from Dial8, and it says it may still be in Drafts', async () => {
+  it('nothing in the mailbox holds that id any more (edited in Gmail, say): gone from Native Intelligence, and it says it may still be in Drafts', async () => {
     deleteDraftOfRow.mockImplementation(async () => 'not_found')
     const out = await discardEmailDrafts(fake as never, 'user-1', { draftIds: [ROW], reason: 'no_reply_needed' })
     expect(out.results[0]).toMatchObject({ discarded: true, mailbox: 'not_found', note: expect.stringMatching(/may still be in their Drafts/) })
-    expect(out.message).toMatch(/^Discarded 1 draft in Dial8\. 1 was no longer in the mailbox/)
-    expect(out.message).not.toMatch(/in Dial8 and in the mailbox/)
+    expect(out.message).toMatch(/^Discarded 1 draft in Native Intelligence\. 1 was no longer in the mailbox/)
+    expect(out.message).not.toMatch(/in Native Intelligence and in the mailbox/)
     expect(draftIds()).not.toContain(ROW)
   })
 
@@ -178,11 +178,11 @@ describe('discardEmailDrafts', () => {
       return { ...q, delete: () => failed }
     }
     const out = await discardEmailDrafts(fake as never, 'user-1', { draftIds: [ROW], reason: 'no_reply_needed' })
-    expect(out).toMatchObject({ success: false, discarded: 0, results: [{ discarded: false, code: 'FAILED', error: expect.stringMatching(/gone from the mailbox, but it is still listed in Dial8/) }] })
+    expect(out).toMatchObject({ success: false, discarded: 0, results: [{ discarded: false, code: 'FAILED', error: expect.stringMatching(/gone from the mailbox, but it is still listed in Native Intelligence/) }] })
     expect(fake.rows('eval_candidate')).toHaveLength(0)
   })
 
-  it('never reaches a draft Dial8 did not write, someone else’s, or one in a workspace the caller left', async () => {
+  it('never reaches a draft Native Intelligence did not write, someone else’s, or one in a workspace the caller left', async () => {
     const out = await discardEmailDrafts(fake as never, 'user-1', {
       draftIds: ['m-written-in-gmail', ANAS_ROW, 'm-ana', LEFT_ROW, 'not an id'],
       reason: 'no_reply_needed',
@@ -194,7 +194,7 @@ describe('discardEmailDrafts', () => {
     expect(fake.rows('eval_candidate')).toHaveLength(0)
   })
 
-  it('a mailbox that refuses changes nothing in Dial8 either, and says so', async () => {
+  it('a mailbox that refuses changes nothing in Native Intelligence either, and says so', async () => {
     deleteDraftOfRow.mockImplementation(async () => 'failed')
     const out = await discardEmailDrafts(fake as never, 'user-1', { draftIds: [ROW], reason: 'no_reply_needed' })
     expect(out).toMatchObject({ success: false, discarded: 0, results: [{ discarded: false, code: 'MAILBOX_FAILED' }] })
@@ -209,7 +209,7 @@ describe('discardEmailDrafts', () => {
     expect(deleteDraftOfRow).not.toHaveBeenCalled()
   })
 
-  it('a draft with no mailbox copy is discarded in Dial8 only', async () => {
+  it('a draft with no mailbox copy is discarded in Native Intelligence only', async () => {
     const out = await discardEmailDrafts(fake as never, 'user-1', { draftIds: [LOCAL_ROW], reason: 'other' })
     expect(out.results[0]).toMatchObject({ discarded: true, mailbox: 'none' })
     expect(deleteDraftOfRow).not.toHaveBeenCalled()

@@ -1,7 +1,7 @@
 //! Desktop Google and ChatGPT sign-in in an ASWebAuthenticationSession.
 //!
 //! The sign-in page runs in the system's web-authentication sheet over the
-//! calling Dial8 window (native/web_links_helper.m), and the session catches
+//! calling Native Intelligence window (native/web_links_helper.m), and the session catches
 //! the `dial8desktop://` callback itself, so the callback URL comes back as this
 //! command's result instead of as an OS deep link. The web login form falls
 //! back to opening the page with the opener when this command is missing.
@@ -31,16 +31,20 @@ extern "C" {
 
 /// The pages a sign-in session may start on, as (host, path): Supabase's
 /// authorize endpoint (Google sign-in through Supabase, login-form.tsx), and
-/// Dial8's own Google and ChatGPT sign-ins (`/auth/google`, `/auth/chatgpt`).
+/// Native Intelligence's own Google and ChatGPT sign-ins (`/auth/google`, `/auth/chatgpt`).
 /// The web uses `/auth/google` once its Google client is configured
 /// (src/lib/auth/google-sign-in.ts), so the person never sees the Supabase
 /// project's URL; it falls back to Supabase's flow on a build that refuses
 /// it. The session shares the person's Safari cookies, so any other page
 /// could be an OAuth consent they've already given, ending on a
 /// `dial8desktop://` URL the page reads (security review 2026-10-31). The
-/// production Supabase project and dial8.ai, which a release build loads.
+/// production Supabase project and the app's own domains (nav_guard.rs
+/// `APP_DOMAINS`), one of which a release build loads.
 const SIGN_IN_PAGES: &[(&str, &str)] = &[
     ("bzfthjzyzevjokbuhqci.supabase.co", SUPABASE_AUTHORIZE),
+    ("nativeintelligence.dev", GOOGLE_SIGN_IN),
+    ("nativeintelligence.dev", CHATGPT_SIGN_IN),
+    // TODO(rename-compat): the old domain, while it still serves the app (nav_guard.rs `APP_DOMAINS`).
     ("dial8.ai", GOOGLE_SIGN_IN),
     ("dial8.ai", CHATGPT_SIGN_IN),
 ];
@@ -110,7 +114,7 @@ extern "C" fn on_done(ctx: *mut c_void, callback_url: *const c_char, error: *con
 #[tauri::command]
 pub async fn auth_web_session_cmd(window: tauri::WebviewWindow, url: String) -> AuthResult {
     if !session_url_allowed(&url) {
-        return Err("not a Dial8 sign-in page".into());
+        return Err("not a Native Intelligence sign-in page".into());
     }
     #[cfg(target_os = "macos")]
     {
@@ -144,15 +148,25 @@ mod tests {
     use super::*;
 
     const GOOGLE: &str = "https://bzfthjzyzevjokbuhqci.supabase.co/auth/v1/authorize?provider=google&redirect_to=https%3A%2F%2Fdial8.ai%2Fauth%2Fdesktop-callback&code_challenge=abc&code_challenge_method=s256";
-    const DIAL8_GOOGLE: &str = "https://dial8.ai/auth/google?desktop=1&bind=0123abcd";
+    const NI_GOOGLE: &str = "https://dial8.ai/auth/google?desktop=1&bind=0123abcd";
     const CHATGPT: &str = "https://dial8.ai/auth/chatgpt?desktop=1&bind=0123abcd";
+    const NEW_GOOGLE: &str = "https://nativeintelligence.dev/auth/google?desktop=1&bind=0123abcd";
+    const NEW_CHATGPT: &str = "https://nativeintelligence.dev/auth/chatgpt?desktop=1&bind=0123abcd";
 
     #[test]
     fn the_sign_in_pages_the_web_opens_are_allowed() {
         for debug_build in [false, true] {
             assert!(page_allowed(GOOGLE, debug_build));
-            assert!(page_allowed(DIAL8_GOOGLE, debug_build));
+            assert!(page_allowed(NI_GOOGLE, debug_build));
             assert!(page_allowed(CHATGPT, debug_build));
+            assert!(page_allowed(NEW_GOOGLE, debug_build));
+            assert!(page_allowed(NEW_CHATGPT, debug_build));
+        }
+        // Every sign-in page of the app is on one of its domains, and each domain has both.
+        for domain in crate::nav_guard::APP_DOMAINS {
+            for path in [GOOGLE_SIGN_IN, CHATGPT_SIGN_IN] {
+                assert!(SIGN_IN_PAGES.contains(&(domain, path)), "{domain}{path}");
+            }
         }
     }
 
@@ -178,6 +192,21 @@ mod tests {
             "https://user:pw@dial8.ai/auth/chatgpt",
             "https://dial8.ai:8443/auth/chatgpt",
             "https://dial8.ai/auth/chatgpt#x",
+            // The same for the new domain.
+            "https://nativeintelligence.dev/account",
+            "https://nativeintelligence.dev/auth/chatgpt/callback?code=x",
+            "https://nativeintelligence.dev/auth/google/callback?code=x",
+            "https://www.nativeintelligence.dev/auth/google",
+            "https://www.nativeintelligence.dev/auth/chatgpt",
+            "https://share.nativeintelligence.dev/auth/chatgpt",
+            "https://browser-relay.nativeintelligence.dev/auth/chatgpt",
+            "https://nativeintelligence.dev.evil.example/auth/chatgpt",
+            "https://notnativeintelligence.dev/auth/chatgpt",
+            "https://nativeintelligence.dev@evil.example/auth/chatgpt",
+            "https://user:pw@nativeintelligence.dev/auth/chatgpt",
+            "https://nativeintelligence.dev:8443/auth/chatgpt",
+            "https://nativeintelligence.dev/auth/chatgpt#x",
+            "http://nativeintelligence.dev/auth/chatgpt",
             // Not https.
             "http://dial8.ai/auth/chatgpt",
             "http://bzfthjzyzevjokbuhqci.supabase.co/auth/v1/authorize",

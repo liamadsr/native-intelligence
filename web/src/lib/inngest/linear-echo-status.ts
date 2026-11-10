@@ -25,9 +25,9 @@ import {
 } from '@/lib/tasks/lifecycle'
 
 // =====================================================================
-// Dial8 → Linear status echo
+// Native Intelligence → Linear status echo
 //
-// The write half of two-way status sync: when a Dial8 action moves to a new
+// The write half of two-way status sync: when a Native Intelligence action moves to a new
 // workflow state, every Linear issue linked to it is moved to the matching
 // workflow state.
 //
@@ -51,7 +51,7 @@ import {
 //
 // THE CURRENT STATE IS STILL READ FIRST, and for one of the three reasons Jira
 // reads it: THE LOOP BREAKER. The read-back (linear-apply-remote) moves the
-// Dial8 action, which emits `flow/entity.status_changed`, which wakes THIS
+// Native Intelligence action, which emits `flow/entity.status_changed`, which wakes THIS
 // function. Without the pre-check that round-trips a Linear-originated change
 // straight back out — a write against the customer's issue for a change they
 // made in the customer's own tool. The pre-check compares BUCKETS rather than
@@ -266,7 +266,7 @@ export const linearEchoStatus = inngest.createFunction(
         // A remote CANCELED/DUPLICATE issue also satisfies a `done` bucket.
         //
         // This is the bounce-back guard, and it exists because of a shared
-        // fallback: when a remote cancellation is applied to a Dial8 team that
+        // fallback: when a remote cancellation is applied to a Native Intelligence team that
         // has no canceled-category workflow state, applyRemoteTaskState lands
         // the action on the team's DONE state instead — which emits a status
         // change whose bucket is 'done' and wakes this function. Strict equality
@@ -275,7 +275,7 @@ export const linearEchoStatus = inngest.createFunction(
         // Jira sibling never sees this because its categories fold done and
         // canceled together; linearBucketForStateType deliberately does not.)
         //
-        // Deliberately ONE-WAY: a Dial8-side cancel must still be written out to
+        // Deliberately ONE-WAY: an NI-side cancel must still be written out to
         // an issue sitting on a done state, or the cancel would never reach the
         // customer's team at all. Only a remote terminal state satisfies `done`
         // — a terminal abandonment must never be "upgraded" to shipped.
@@ -285,7 +285,7 @@ export const linearEchoStatus = inngest.createFunction(
         // unknown types alone — and it is loop-safe precisely BECAUSE of that:
         // a state this build cannot classify can never be a change the read-back
         // just imported, so there is no loop to break, and overwriting on a
-        // bucket mismatch is the echo's ordinary Dial8-wins behavior.
+        // bucket mismatch is the echo's ordinary NI-wins behavior.
         const satisfied =
           currentBucket === bucket ||
           (bucket === 'done' && (currentBucket === 'canceled' || currentBucket === 'done'))

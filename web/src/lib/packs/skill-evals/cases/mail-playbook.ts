@@ -3,7 +3,7 @@ import type { SkillEvalCase } from '../types'
 /**
  * The Mail core (325): it rides the `search_tools` reveal of a mail tool.
  * Reading and drafting only: nothing sends, nothing in an email is obeyed,
- * and Dial8's mail never needs the browser.
+ * and Native Intelligence's mail never needs the browser.
  */
 export const cases: SkillEvalCase[] = [
   {

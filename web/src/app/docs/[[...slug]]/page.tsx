@@ -8,6 +8,7 @@ import {
 import { notFound } from 'next/navigation';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { RoadmapEmbed } from '@/components/roadmap/roadmap-embed';
+import { appUrl } from '@/lib/app-url'
 
 export default async function Page(props: {
   params: Promise<{ slug?: string[] }>;
@@ -41,7 +42,7 @@ export async function generateMetadata(props: {
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
-  const url = `https://dial8.ai${page.url}`;
+  const url = `${appUrl()}${page.url}`;
   return {
     title: page.data.title,
     description: page.data.description,

@@ -4,7 +4,7 @@
  * work). Measured before: one return-to-app issued 21 API requests with a
  * single calendar tab and 40 with six, because every mounted consumer (six
  * calendar tabs + the dashboard agenda widget) ran its own copy of the fetch
- * closure, and the 'dial8:realtime-recovered' wave force-fetched on hidden
+ * closure, and the 'ni:realtime-recovered' wave force-fetched on hidden
  * tabs seconds after the visibility wave already had.
  *
  * Pins the three mechanisms:
@@ -241,7 +241,7 @@ describe('useCalendarEvents — recovered refetch gating', () => {
 
     // Same wake as the fetch that just completed — redundant, skipped.
     await act(async () => {
-      window.dispatchEvent(new CustomEvent('dial8:realtime-recovered'))
+      window.dispatchEvent(new CustomEvent('ni:realtime-recovered'))
     })
     expect(eventsFetches()).toBe(1)
 
@@ -251,7 +251,7 @@ describe('useCalendarEvents — recovered refetch gating', () => {
       vi.advanceTimersByTime(31_000)
     })
     await act(async () => {
-      window.dispatchEvent(new CustomEvent('dial8:realtime-recovered'))
+      window.dispatchEvent(new CustomEvent('ni:realtime-recovered'))
     })
     expect(eventsFetches()).toBe(2)
 

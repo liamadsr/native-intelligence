@@ -349,7 +349,7 @@ export const WORK_RESOURCE_LABEL_MAX_CHARS = 80
  *     system_prompt and agent_config, and an act-mode `run_skill` flow runs that
  *     skill on its OWN ceiling (computeSkillCeiling → computeToolCeiling, which
  *     does not subtract this list); `create_skill` also accepts
- *     visibility:'public' (Discover, every Dial8 tenant). (Whether a caller may
+ *     visibility:'public' (Discover, every Native Intelligence tenant). (Whether a caller may
  *     publish to Discover at all is a separate role gate, canPublishPublic,
  *     applied by the HTTP routes, MCP and chat's skill tools alike. Both skill
  *     tools are attended only besides, ATTENDED_ONLY_TOOL_NAMES.) `accept_proposal` hands staged
@@ -410,7 +410,7 @@ export const WORK_RESOURCE_LABEL_MAX_CHARS = 80
  * those tools.
  *
  * OPEN — needs Liam's product call: web_fetch egress. NOT YET DECIDED. Liam's
- * decision is that web access is on for every Dial8 agent; nobody has decided
+ * decision is that web access is on for every Native Intelligence agent; nobody has decided
  * that the exfiltration channel below is acceptable. The work-agent's live
  * `web_fetch` (agents/work-agent/tools/web_fetch.ts) GETs any public https URL
  * the model picks. SSRF is covered (url-guard + eve's per-hop public-IP DNS

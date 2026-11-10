@@ -146,15 +146,15 @@ export function StartTrialView({
     description = (
       <>
         We couldn&apos;t charge the card on file for your ${SEAT_PRICE_USD}/month seat. Update your
-        payment method to keep using Dial8.
+        payment method to keep using Native Intelligence.
       </>
     )
     cta = 'Update payment method'
   } else if (secondTime) {
-    title = 'Subscribe to Dial8'
+    title = 'Subscribe to Native Intelligence'
     description = (
       <>
-        Your free trial has already been used. Dial8 is ${SEAT_PRICE_USD} per user per month,
+        Your free trial has already been used. Native Intelligence is ${SEAT_PRICE_USD} per user per month,
         billed monthly. Cancel any time.
       </>
     )

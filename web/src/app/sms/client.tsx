@@ -34,11 +34,14 @@ function Screenshot({ src, alt }: { src: string; alt: string }) {
   )
 }
 
+/** The name on this page, header and footer included, until the 10DLC campaign names the new one. */
+const HELD_BRAND = 'Dial8'
+
 export default function SmsProgram() {
   return (
-    <PageLayout sections={sections}>
+    <PageLayout sections={sections} brandName={HELD_BRAND}>
       <div>
-        <Navbar />
+        <Navbar brandName={HELD_BRAND} />
         <PageHeader title="Text Messaging (SMS)" meta="Last Updated: October 24, 2026" />
 
         <main className="pb-24">
@@ -106,7 +109,7 @@ export default function SmsProgram() {
           </ContentSection>
         </main>
       </div>
-      <Footer />
+      <Footer brandName={HELD_BRAND} />
     </PageLayout>
   )
 }

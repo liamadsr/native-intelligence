@@ -105,7 +105,7 @@ describe('turn usage accumulator', () => {
     const acc = foldAll([
       turnStarted(0),
       stepStarted('anthropic/claude-haiku-4.5'),
-      actions('search_tools', 'dial8_list_actions'),
+      actions('search_tools', 'ni_list_actions'),
       stepCompleted({ inputTokens: 1000, outputTokens: 50, cacheReadTokens: 800 }, 'gen_1'),
       stepStarted('anthropic/claude-haiku-4.5', 1),
       stepCompleted({ inputTokens: 1200, outputTokens: 90, cacheWriteTokens: 100 }, 'gen_2', 1, 5),

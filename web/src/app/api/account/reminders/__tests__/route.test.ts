@@ -156,7 +156,7 @@ function makeFakeSupabase(opts: SupabaseOpts = {}) {
 function makeAuthContext(supabaseOpts?: SupabaseOpts) {
   return {
     supabase: makeFakeSupabase(supabaseOpts),
-    user: { id: 'user-1', email: 'test@dial8.test' },
+    user: { id: 'user-1', email: 'test@nativeintelligence.test' },
     workspaceId: 'workspace-1',
     member: { id: 'member-1', role: 'owner' },
   }
@@ -170,7 +170,7 @@ const UNAUTHED_RESPONSE = new Response(JSON.stringify({ error: 'Unauthorized' })
 const { GET, POST, DELETE } = await import('@/app/api/account/reminders/route')
 
 function queryReq(method: 'GET' | 'DELETE', query: string): NextRequest {
-  const url = `https://dial8.ai/api/account/reminders?${query}`
+  const url = `https://nativeintelligence.dev/api/account/reminders?${query}`
   const req = buildRequest({ url, method })
   // next/server NextRequest exposes nextUrl; polyfill it for tests
   Object.defineProperty(req, 'nextUrl', { value: new URL(url) })
@@ -178,7 +178,7 @@ function queryReq(method: 'GET' | 'DELETE', query: string): NextRequest {
 }
 
 function postReq(body: unknown): NextRequest {
-  const url = 'https://dial8.ai/api/account/reminders'
+  const url = 'https://nativeintelligence.dev/api/account/reminders'
   const req = buildRequest({ url, method: 'POST', body })
   Object.defineProperty(req, 'nextUrl', { value: new URL(url) })
   return req as unknown as NextRequest

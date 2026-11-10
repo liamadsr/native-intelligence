@@ -407,7 +407,7 @@ export function ActionDetailPanel({
    * `'dial8'` (the groups that were always here) or a provider this action is
    * linked to, in which case the Properties group's CONTENTS are replaced by the
    * linked ticket's live fields. Only the Properties group: Labels, Project,
-   * Links, Documents, GitHub and Attachments are Dial8's own relationships and
+   * Links, Documents, GitHub and Attachments are Native Intelligence's own relationships and
    * mean the same thing whatever lens is up, so they stay exactly where they are.
    *
    * The switcher is drawn only when a link exists, so an action that was never
@@ -510,7 +510,7 @@ export function ActionDetailPanel({
    * THE STICKY LENS IS CONSTRAINED TO LENSES THAT STILL EXIST.
    *
    * `activeLens` deliberately survives re-renders (a user who switched back to
-   * Dial8 must not be flipped to Jira when the links resolve), but "survives" is
+   * Native Intelligence must not be flipped to Jira when the links resolve), but "survives" is
    * not "is trusted": the links it names can go away underneath it. The live path
    * is an in-place unlink from the toolbar menu — `onUnlinked` empties
    * `externalLinks`, `lensProviders` goes to `[]`, and the switcher unmounts
@@ -520,7 +520,7 @@ export function ActionDetailPanel({
    * switcher left to escape through.
    *
    * So a lens naming a provider this action is no longer linked to falls back to
-   * the default — which, with no links at all, is Dial8: the sidebar the action
+   * the default — which, with no links at all, is Native Intelligence: the sidebar the action
    * had before it was ever pushed.
    */
   const lens =
@@ -2100,7 +2100,7 @@ export function ActionDetailPanel({
               {showLensSwitcher && !composeProviderName && (
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs text-muted-foreground">
-                    {lens === 'dial8' ? 'Dial8 properties' : 'Live from the linked ticket'}
+                    {lens === 'dial8' ? 'Native Intelligence properties' : 'Live from the linked ticket'}
                   </p>
                   <PropertyLensSwitcher
                     providers={['dial8', ...lensProviders]}
@@ -2114,7 +2114,7 @@ export function ActionDetailPanel({
                   Under a provider lens this group keeps its frame and title and
                   exchanges only its CONTENTS — the linked ticket's fields, in
                   `stack` layout, which is the same labelled-column shape the
-                  Dial8 fields below use. Every OTHER group in this sidebar is
+                  Native Intelligence fields below use. Every OTHER group in this sidebar is
                   untouched by the lens. */}
               <PropertyGroup title="Properties">
                 {lensProvider ? (

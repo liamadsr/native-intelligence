@@ -25,7 +25,7 @@
  *   1. GCP: a service account for the push (e.g. gmail-push@<project>.iam.gserviceaccount.com),
  *      and on the topic's push subscription, "Enable authentication" with that
  *      account. The default audience (the endpoint URL) works; an explicit one
- *      should be `https://dial8.ai/api/webhooks/gmail` (the Pub/Sub service
+ *      should be `<the app's address>/api/webhooks/gmail` (the Pub/Sub service
  *      agent needs roles/iam.serviceAccountTokenCreator on the account, which
  *      the console offers to grant).
  *   2. Vercel (production, and preview if it has its own subscription):
@@ -37,6 +37,7 @@
  */
 import { timingSafeEqual } from 'crypto'
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose'
+import { APP_DOMAINS, appDomainOf } from '@/lib/app-url'
 
 export const PUSH_SERVICE_ACCOUNT_ENV = 'GMAIL_PUSH_SERVICE_ACCOUNT'
 export const PUSH_AUDIENCE_ENV = 'GMAIL_PUSH_AUDIENCE'
@@ -63,8 +64,13 @@ function nonEmpty(v: string | undefined): string | null {
  * compared on origin and path only. A subscription left on Pub/Sub's default
  * audience signs the push endpoint's URL, which still carries `?token=` while
  * the static token is being retired. Null when neither is known.
+ *
+ * While the hosted app answers on two domains (src/lib/app-url.ts), an address
+ * on one of them also takes the same endpoint on the other: the subscription
+ * keeps signing the endpoint it was created with until it is re-pointed, which
+ * may be before or after NEXT_PUBLIC_APP_URL moves.
  */
-export type PushAudience = { exact: string } | { endpoint: string }
+export type PushAudience = { exact: string } | { endpoints: string[] }
 
 /** A URL's origin and path (no query, no fragment), or null when it isn't one. */
 function endpointOf(url: string): string | null {
@@ -82,8 +88,14 @@ export function pushAudience(): PushAudience | null {
   const app = nonEmpty(process.env.NEXT_PUBLIC_APP_URL)
   if (!app) return null
   try {
-    const endpoint = endpointOf(new URL('/api/webhooks/gmail', app).toString())
-    return endpoint ? { endpoint } : null
+    const url = new URL('/api/webhooks/gmail', app)
+    const endpoint = endpointOf(url.toString())
+    if (!endpoint) return null
+    const domain = appDomainOf(url.hostname)
+    if (!domain || url.protocol !== 'https:') return { endpoints: [endpoint] }
+    // The same host on each of the app's domains: apex for apex, www for www.
+    const twins = APP_DOMAINS.map((other) => `https://${url.hostname.toLowerCase().replace(domain, other)}${url.pathname}`)
+    return { endpoints: [...new Set([endpoint, ...twins])] }
   } catch {
     return null
   }
@@ -93,7 +105,7 @@ export function pushAudience(): PushAudience | null {
 function audienceMatches(aud: unknown, expected: PushAudience): boolean {
   const values = Array.isArray(aud) ? aud : [aud]
   return values.some(
-    (v) => typeof v === 'string' && ('exact' in expected ? v === expected.exact : endpointOf(v) === expected.endpoint),
+    (v) => typeof v === 'string' && ('exact' in expected ? v === expected.exact : expected.endpoints.includes(endpointOf(v) ?? '')),
   )
 }
 

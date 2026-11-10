@@ -15,7 +15,7 @@ export function isPre343Error(error: { code?: string | null; message?: string | 
 /**
  * The holding pattern (migration 343; no stored mail, 2026-10-15).
  *
- * Dial8 keeps no copy of the person's mail, with ONE exception: a thread it
+ * Native Intelligence keeps no copy of the person's mail, with ONE exception: a thread it
  * drafted a reply to. That thread's copy (its subject, and for each message
  * the sender, recipients, date, plain-text body and attachment names) waits in
  * `email_hold` beside the draft until the person acts:
@@ -277,7 +277,7 @@ export async function draftRowsFor(
     draftId?: string | null
     providerDraftId?: string | null
     providerThreadId?: string | null
-    /** The thread fallback only when exactly one open Dial8 draft is on it (a discard must not release another). */
+    /** The thread fallback only when exactly one open Native Intelligence draft is on it (a discard must not release another). */
     onlyIfSingle?: boolean
   },
 ): Promise<HeldDraftRow[]> {

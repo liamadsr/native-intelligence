@@ -21,15 +21,16 @@ import {
   loadJiraSyncState,
 } from './jira-config'
 import type { JiraPushOverrides } from './push-overrides'
+import { appUrl } from '@/lib/app-url'
 
 /**
- * Push ONE Dial8 action to Jira as an issue, and record the link.
+ * Push ONE Native Intelligence action to Jira as an issue, and record the link.
  *
  * The single implementation behind all three push surfaces — the "Push to…"
  * menu (`PushToTrackerMenu`, in the action detail panel's toolbar and on a
  * capture's extracted action items, both via POST
  * /api/account/actions/[id]/jira), the AI chat tool `push_action_to_jira`, and
- * its MCP twin `dial8_push_action_to_jira`. They differ only in how they resolve
+ * its MCP twin `ni_push_action_to_jira`. They differ only in how they resolve
  * the action and shape the reply.
  *
  * Step-for-step sibling of asana-push.ts, including the idempotency model: a
@@ -67,7 +68,7 @@ export type JiraPushFailureCode =
   /**
    * Jira REJECTED the create over specific fields, and none of them is one we
    * may drop (see OPTIONAL_CREATE_FIELDS) — typically a required custom field
-   * the project's create screen demands and Dial8 never sends. A destination
+   * the project's create screen demands and Native Intelligence never sends. A destination
    * problem the user has to fix in Jira, so it is reported like every other
    * coded failure instead of thrown into the route's catch-all, where it became
    * an uncoded 500 carrying the raw gateway URL.
@@ -128,9 +129,9 @@ interface PushArgs {
   overrides?: JiraPushOverrides
 }
 
-/** App origin for the "back to Dial8" deep link. */
+/** App origin for the "back to Native Intelligence" deep link. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /**
@@ -180,8 +181,8 @@ export function issueBrowseUrl(
  * doc, and "no description" is better expressed by not sending one. That path
  * is reachable in exactly one way: attribution off AND no description.
  *
- * `attribution` gates Dial8's two fingerprints — the bold identifier paragraph
- * and the "Pushed from Dial8" provenance paragraph — as ONE unit, because they
+ * `attribution` gates Native Intelligence's two fingerprints — the bold identifier paragraph
+ * and the "Pushed from Native Intelligence" provenance paragraph — as ONE unit, because they
  * are one idea: this issue came from somewhere, and here is the way back.
  * Defaulted to true so a caller that forgets to thread it gets today's
  * behaviour rather than silently stripping provenance.
@@ -217,7 +218,7 @@ export function buildAdfDescription(args: {
     content.push({
       type: 'paragraph',
       content: [
-        { type: 'text', text: 'Pushed from Dial8: ' },
+        { type: 'text', text: 'Pushed from Native Intelligence: ' },
         {
           type: 'text',
           text: identifier || 'this action',
@@ -253,7 +254,7 @@ export function dueDateFor(dueAt: string | null | undefined): string | undefined
 }
 
 /**
- * Fields the create sends that Dial8 can do without.
+ * Fields the create sends that Native Intelligence can do without.
  *
  * The create screen is per project AND per issue type, and admins routinely
  * hide fields from it; anything on this list is worth dropping to keep the
@@ -339,7 +340,7 @@ interface ActionRow {
 }
 
 /**
- * Best-effort assignee email for a Dial8 member.
+ * Best-effort assignee email for a Native Intelligence member.
  *
  * The email lives on auth.users (member carries only display_name), which needs
  * the service client. Returns null on any failure — an unassigned Jira issue is

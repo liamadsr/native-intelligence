@@ -1,6 +1,6 @@
 /**
  * Signing up by text (roadmap track A1): a number nobody linked texts the
- * Dial8 number, and after inbound.ts has run STOP / START / HELP, the opt-out,
+ * Native Intelligence number, and after inbound.ts has run STOP / START / HELP, the opt-out,
  * the rate limit and the guest checks, the text comes here. In this order:
  *
  *   1. only a US/Canada number can sign up (a +1 long code under 10DLC, and
@@ -27,8 +27,8 @@
  *      silence.
  *
  * Never says whether a number has an account: a number reaches this only when
- * no verified Dial8-line user_phone row has it (a business line, migration
- * 464, is another account's on a business's own number, never the Dial8
+ * no verified NI-line user_phone row has it (a business line, migration
+ * 464, is another account's on a business's own number, never the Native Intelligence
  * one's), every such number is treated the same,
  * and a number an older account once held is freed for the new one only after
  * the code proved who holds it (./signup-account.ts).
@@ -131,7 +131,7 @@ export function hashSignupCode(code: string, phone: string, key: string): string
   return createHmac('sha256', key).update(`signup-code:${phone}:${code}`).digest('hex')
 }
 
-/** Handle a text from a number nobody linked, on the Dial8 line. Throws only on a failed store call. */
+/** Handle a text from a number nobody linked, on the Native Intelligence line. Throws only on a failed store call. */
 export async function handleSignupText(input: { phone: string; text: string; sid: string | null }, deps: SignupDeps): Promise<SignupResult> {
   const { phone, sid } = input
   const now = deps.now

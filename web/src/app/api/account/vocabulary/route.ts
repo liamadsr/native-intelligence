@@ -18,7 +18,7 @@ import {
  *
  *   GET                 → { terms, automatic }: the workspace's words and the
  *                         caller's own (every status; harvested ones are
- *                         source 'workspace'), and the names Dial8 adds
+ *                         source 'workspace'), and the names Native Intelligence adds
  *                         automatically.
  *   GET ?view=compiled  → { entries, version, counts, workspaceId, userId }:
  *                         what transcription uses (src/lib/vocabulary/client.ts

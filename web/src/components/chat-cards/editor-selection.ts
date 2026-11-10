@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react'
 
-export const EDITOR_SELECTION_EVENT = 'dial8:editor-selection'
+export const EDITOR_SELECTION_EVENT = 'ni:editor-selection'
 
 export interface EditorSelection {
   entityType: string

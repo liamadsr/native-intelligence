@@ -39,7 +39,7 @@ describe('renderSignupInviteEmail', () => {
 
   it('links to the token and escapes the note', () => {
     const { subject, html } = renderSignupInviteEmail({ token: 'abc123', note: '<b>hi</b> & bye' })
-    expect(subject).toContain('Dial8')
+    expect(subject).toContain('Native Intelligence')
     expect(html).toContain('/login?invite=abc123')
     expect(html).toContain('&lt;b&gt;hi&lt;/b&gt; &amp; bye')
     expect(html).not.toContain('<b>hi</b>')

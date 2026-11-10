@@ -4,7 +4,7 @@
  * service role. The routes call these after their own auth; every function
  * takes the signed-in user's id and touches only links they are on.
  *
- * A link is two Dial8 users whose agents may talk. Each person's half is
+ * A link is two Native Intelligence users whose agents may talk. Each person's half is
  * their agent_guest row for the other, with 'dial8' (their agent) in its
  * channels: what the OTHER person's agent may ask theirs, set and changed
  * only by its owner (decision 1: one set of tools per person, whichever way
@@ -12,7 +12,7 @@
  *
  *   requestLink   ask a teammate (by user id) or anyone (by email) to link.
  *                 Writes the requester's half (invited, with dial8) and the
- *                 request. An email that is no Dial8 user answers the same
+ *                 request. An email that is no Native Intelligence user answers the same
  *                 as one that is (decision 3). At most AGENT_LINK_PENDING_MAX
  *                 waiting at once.
  *   acceptLink    the person asked says yes from one of their workspaces
@@ -187,7 +187,7 @@ export async function cardContextForHalf(supabase: SupabaseClient, half: Pick<Ag
   }
 }
 
-/** An owner's half for a Dial8 user: their agent_guest row for them, unless removed. Throws on a failed read. */
+/** An owner's half for a Native Intelligence user: their agent_guest row for them, unless removed. Throws on a failed read. */
 export async function halfFor(supabase: SupabaseClient, ownerUserId: string, peerUserId: string): Promise<AgentGuest | null> {
   const { data, error } = await supabase
     .from('agent_guest')
@@ -202,7 +202,7 @@ export async function halfFor(supabase: SupabaseClient, ownerUserId: string, pee
 
 /**
  * A person already on the owner's list (Sam, by Text) becoming the half for
- * this Dial8 user: their own row, not removed, for nobody else. Anything else
+ * this Native Intelligence user: their own row, not removed, for nobody else. Anything else
  * is refused (not_found), never a second row. Throws on a failed read.
  */
 async function ownRowFor(supabase: SupabaseClient, ownerUserId: string, guestId: string, peerUserId: string): Promise<AgentGuest> {
@@ -323,7 +323,7 @@ async function ensureHalf(
  * learned). A half still invited for an email request has no peer yet: it
  * goes too.
  */
-async function dropDial8(supabase: SupabaseClient, ownerUserId: string, guestId: string, now: number): Promise<void> {
+async function dropNi(supabase: SupabaseClient, ownerUserId: string, guestId: string, now: number): Promise<void> {
   const { data, error } = await supabase.from('agent_guest').select(AGENT_GUEST_SELECT).eq('id', guestId).eq('owner_user_id', ownerUserId).maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) return
@@ -385,7 +385,7 @@ export interface RequestLinkInput extends HalfInput {
   /** What the requester calls them (People shows it until they accept). */
   displayName: string
   /**
-   * Who an email belongs to, when it's a Dial8 user: the outside-workspace
+   * Who an email belongs to, when it's a Native Intelligence user: the outside-workspace
    * phase's lookup (it never says either way to the requester). Left out,
    * an email request is stored for that email alone.
    */
@@ -462,7 +462,7 @@ export async function requestLink(supabase: SupabaseClient, input: RequestLinkIn
       if ((data ?? []).length > 0) return { ok: false, reason: 'already_linked' }
     }
 
-    // An email request to someone not on Dial8 yet keeps its half invited with no peer (435's agent_guest_dial8_has_peer).
+    // An email request to someone not on Native Intelligence yet keeps its half invited with no peer (435's agent_guest_dial8_has_peer).
     const half = peerUserId
       ? await ensureHalf(
           supabase,
@@ -550,7 +550,7 @@ async function insertEmailHalf(supabase: SupabaseClient, input: RequestLinkInput
 async function markExpired(supabase: SupabaseClient, link: AgentLink, now: number): Promise<void> {
   const { error } = await supabase.from('agent_link').update({ state: 'expired', updated_at: new Date(now).toISOString() }).eq('id', link.id).eq('state', 'requested')
   if (error) throw new Error(error.message)
-  await dropDial8(supabase, link.requesterUserId, link.requesterGuestId, now)
+  await dropNi(supabase, link.requesterUserId, link.requesterGuestId, now)
 }
 
 export interface AcceptLinkInput extends HalfInput {
@@ -583,7 +583,7 @@ export async function acceptLink(supabase: SupabaseClient, input: AcceptLinkInpu
     const requester = await memberIn(supabase, link.requesterUserId, link.requesterWorkspaceId)
     const mineHalf = await ensureHalf(
       supabase,
-      { ownerUserId: input.userId, workspaceId: input.workspaceId, peerUserId: link.requesterUserId, displayName: requester?.display_name ?? 'Dial8 user', state: 'active', half: input },
+      { ownerUserId: input.userId, workspaceId: input.workspaceId, peerUserId: link.requesterUserId, displayName: requester?.display_name ?? 'Native Intelligence user', state: 'active', half: input },
       now,
     )
     const { data, error } = await supabase
@@ -642,7 +642,7 @@ export async function ignoreLink(supabase: SupabaseClient, input: { linkId: stri
       .maybeSingle()
     if (error) return refused(error)
     if (!data) return { ok: false, reason: 'wrong_state' }
-    await dropDial8(supabase, link.requesterUserId, link.requesterGuestId, now)
+    await dropNi(supabase, link.requesterUserId, link.requesterGuestId, now)
     return { ok: true, link: toLink(data as AgentLinkRow) }
   } catch (error) {
     return refused(error)
@@ -694,8 +694,8 @@ async function finishEnd(supabase: SupabaseClient, link: AgentLink, byUserId: st
   if (!data) return { ok: false, reason: 'wrong_state' }
   const { error: closeError } = await supabase.from('agent_link_exchange').update({ state: 'done', closed_at: at }).eq('link_id', link.id).eq('state', 'open')
   if (closeError) return { ok: false, reason: 'failed' }
-  await dropDial8(supabase, link.requesterUserId, link.requesterGuestId, now)
-  if (link.targetUserId && link.targetGuestId) await dropDial8(supabase, link.targetUserId, link.targetGuestId, now)
+  await dropNi(supabase, link.requesterUserId, link.requesterGuestId, now)
+  if (link.targetUserId && link.targetGuestId) await dropNi(supabase, link.targetUserId, link.targetGuestId, now)
   return { ok: true, link: toLink(data as AgentLinkRow) }
 }
 
@@ -759,7 +759,7 @@ export async function listLinks(supabase: SupabaseClient, userId: string, worksp
     const theirHalf = theirHalfId ? guests.get(theirHalfId) : undefined
     const peerMember = peerId ? (members.find((m) => m.user_id === peerId && m.workspace_id === peerWorkspace) ?? members.find((m) => m.user_id === peerId && m.workspace_id === workspaceId)) : undefined
     // Until it's active, an outgoing request shows the name I typed: never whether an email is anyone's.
-    const name = outgoing && link.state !== 'active' ? (myHalf?.display_name ?? 'Dial8 user') : (peerMember?.display_name ?? myHalf?.display_name ?? 'Dial8 user')
+    const name = outgoing && link.state !== 'active' ? (myHalf?.display_name ?? 'Native Intelligence user') : (peerMember?.display_name ?? myHalf?.display_name ?? 'Native Intelligence user')
     return {
       id: link.id,
       state: link.state,

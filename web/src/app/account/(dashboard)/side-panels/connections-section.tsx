@@ -80,7 +80,7 @@ export function connectingIdOf(row: ConnectionRow): string {
 /**
  * What a row's action does, here and on Settings › Connectors: manage opens
  * the connector's page (`open`, given its settingsPath), and so does every
- * action on Dial8's own Slack app (adding it takes steps there); a catalog MCP
+ * action on Native Intelligence's own Slack app (adding it takes steps there); a catalog MCP
  * app runs its OAuth start; a custom MCP server is fixed on its own page;
  * every other row runs the provider's connect (for the account that needs it).
  */

@@ -34,7 +34,7 @@ const callTool: CallToolExecutor = async (_a, ctx) => {
   seen.push(ctx.steps)
   return { status: 'pending', request_summary: { method: 'TOOL', url: 't', header_names: [], body_byte_length: 0 }, response_status_code: null, response_body_preview: 'Waiting', error_message: null, duration_ms: 0, parked: { approval_id: 'a1', card_id: 'c1', title: 'Run append_block on Notion?' } }
 }
-const args = () => ({ flow, flowRunId: RUN, lensRow, captureId: 'cap-1', workspaceId: 'ws-1', trigger, extras: { workspaceId: 'ws-1' }, fireId: 'fire-1', appBaseUrl: 'https://dial8.ai', executors: { call_tool: callTool }, readOutsideText: false })
+const args = () => ({ flow, flowRunId: RUN, lensRow, captureId: 'cap-1', workspaceId: 'ws-1', trigger, extras: { workspaceId: 'ws-1' }, fireId: 'fire-1', appBaseUrl: 'https://nativeintelligence.dev', executors: { call_tool: callTool }, readOutsideText: false })
 
 beforeEach(() => {
   db = makeFakeSupabase()

@@ -66,8 +66,8 @@ describe('parseSlackPayload', () => {
 
 describe('slackTextToPlain', () => {
   it('turns Slack markup into plain words', () => {
-    expect(slackTextToPlain('<@UBOT> remind <@U1|liam> about <https://dial8.ai|the site> &amp; <#C1|general>', { botUserId: 'UBOT' })).toBe(
-      'remind @liam about the site (https://dial8.ai) & #general',
+    expect(slackTextToPlain('<@UBOT> remind <@U1|liam> about <https://nativeintelligence.dev|the site> &amp; <#C1|general>', { botUserId: 'UBOT' })).toBe(
+      'remind @liam about the site (https://nativeintelligence.dev) & #general',
     )
     expect(slackTextToPlain('&lt;b&gt; <https://x.y>')).toBe('<b> https://x.y')
   })

@@ -157,7 +157,7 @@ function args(supabase: SupabaseClient) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
   hoistedConfig.loadAsanaSyncState.mockResolvedValue(SYNC_STATE)
   hoistedToken.getValidTokenForAccount.mockResolvedValue({
     token: 'tok',
@@ -373,7 +373,7 @@ describe('pushActionToAsana — payload shape', () => {
     const payload = hoistedApi.createTask.mock.calls[0][1]
     expect(payload.html_notes.startsWith('<body>')).toBe(true)
     expect(payload.html_notes.endsWith('</body>')).toBe(true)
-    expect(payload.html_notes).toContain('https://dial8.ai/account?action=act-1')
+    expect(payload.html_notes).toContain('https://nativeintelligence.dev/account?action=act-1')
     expect(payload.html_notes).toContain('ENG-42')
     // The description's angle brackets/ampersand are escaped, not injected.
     expect(payload.html_notes).toContain('Do &lt;the&gt; work &amp; ship it')
@@ -402,8 +402,8 @@ describe('pushActionToAsana — payload shape', () => {
 
     const payload = hoistedApi.createTask.mock.calls[0][1]
     expect(payload.html_notes).toBe('<body>Do &lt;the&gt; work &amp; ship it</body>')
-    expect(payload.html_notes).not.toContain('Pushed from Dial8')
-    expect(payload.html_notes).not.toContain('dial8.ai')
+    expect(payload.html_notes).not.toContain('Pushed from Native Intelligence')
+    expect(payload.html_notes).not.toMatch(/nativeintelligence\.dev|dial8\.ai/)
     expect(payload.html_notes).not.toContain('ENG-42')
   })
 
@@ -415,7 +415,7 @@ describe('pushActionToAsana — payload shape', () => {
     const db = makeDb({ action: ACTION })
     await pushActionToAsana(args(db.client))
 
-    expect(hoistedApi.createTask.mock.calls[0][1].html_notes).toContain('Pushed from Dial8')
+    expect(hoistedApi.createTask.mock.calls[0][1].html_notes).toContain('Pushed from Native Intelligence')
   })
 
   it('keeps attribution when the key is ABSENT — every existing connection', async () => {
@@ -427,7 +427,7 @@ describe('pushActionToAsana — payload shape', () => {
     const payload = hoistedApi.createTask.mock.calls[0][1]
     expect(payload.html_notes).toBe(
       '<body><strong>ENG-42</strong>\n\nDo &lt;the&gt; work &amp; ship it\n\n' +
-        'Pushed from Dial8: <a href="https://dial8.ai/account?action=act-1">ENG-42</a></body>',
+        'Pushed from Native Intelligence: <a href="https://nativeintelligence.dev/account?action=act-1">ENG-42</a></body>',
     )
   })
 })
@@ -596,7 +596,7 @@ describe('buildHtmlNotes', () => {
   it('always carries the deep link, even with no identifier or description', () => {
     const notes = buildHtmlNotes({ actionId: 'act-9', identifier: null, description: null })
     expect(notes).toBe(
-      '<body>Pushed from Dial8: <a href="https://dial8.ai/account?action=act-9">this action</a></body>',
+      '<body>Pushed from Native Intelligence: <a href="https://nativeintelligence.dev/account?action=act-9">this action</a></body>',
     )
   })
 
@@ -626,7 +626,7 @@ describe('buildHtmlNotes', () => {
     })
     expect(notes).toBe(
       '<body><strong>ENG-1</strong>\n\nDo the work\n\n' +
-        'Pushed from Dial8: <a href="https://dial8.ai/account?action=act-9">ENG-1</a></body>',
+        'Pushed from Native Intelligence: <a href="https://nativeintelligence.dev/account?action=act-9">ENG-1</a></body>',
     )
   })
 
@@ -655,9 +655,9 @@ describe('buildHtmlNotes', () => {
     // What remains is the description and nothing else — the true-case output
     // minus exactly the two attribution parts.
     expect(notes).toBe('<body>Do the work</body>')
-    expect(notes).not.toContain('Pushed from Dial8')
+    expect(notes).not.toContain('Pushed from Native Intelligence')
     expect(notes).not.toContain('ENG-1')
-    expect(notes).not.toContain('dial8.ai')
+    expect(notes).not.toMatch(/nativeintelligence\.dev|dial8\.ai/)
   })
 
   it('emits empty notes when attribution is off and the action has no description', () => {
@@ -674,7 +674,7 @@ describe('buildHtmlNotes', () => {
   })
 
   it('still escapes the description when attribution is off', () => {
-    // Dropping the Dial8 parts must not drop the escaping of the user's own.
+    // Dropping the Native Intelligence parts must not drop the escaping of the user's own.
     const notes = buildHtmlNotes({
       actionId: 'act-9',
       identifier: 'ENG-1',

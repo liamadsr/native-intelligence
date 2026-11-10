@@ -94,7 +94,7 @@ async function pdfWithPages(n: number, padBytesPerPage = 0): Promise<Buffer> {
       // Incompressible bytes hung off each page, so every page range really is
       // this big and copyPages carries the padding into each slice.
       const pad = doc.context.register(doc.context.stream(new Uint8Array(randomBytes(padBytesPerPage))))
-      page.node.set(PDFName.of('Dial8TestPad'), pad)
+      page.node.set(PDFName.of('NiTestPad'), pad)
     }
   }
   return Buffer.from(await doc.save())

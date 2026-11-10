@@ -14,7 +14,7 @@
  *     doesn't say is dropped, and so are a mail's headings and links; a
  *     booking from mail needs a time in the span that its mail writes and a
  *     title in its own words;
- *   - the message: Dial8's template, the calendar's place when the mail gave
+ *   - the message: Native Intelligence's template, the calendar's place when the mail gave
  *     none, a country dropped, nothing at all with no lines; without the
  *     model only travel and early items go out;
  *   - the writes: once per slot and date (the message id), then the log line
@@ -493,7 +493,7 @@ describe('the message', () => {
   const lunch = candidate({ id: 'l', title: 'Lunch', startIso: at('11:00'), location: 'Tartine' }, ['place'], '11:00')
   const extra = { localTime: '08:15', title: 'Table at Nopa', place: '560 Divisadero St', bring: [], confirmation: 'ABC123' }
 
-  it('Dial8’s template over the checked facts, the calendar’s place when the mail gave none, bookings from mail in time order', () => {
+  it('Native Intelligence’s template over the checked facts, the calendar’s place when the mail gave none, bookings from mail in time order', () => {
     const lines = lookAheadLines(
       [rental, dentist],
       [
@@ -541,7 +541,7 @@ describe('the message', () => {
     expect(scrub('Gate opens at 7:30')).toBe('Gate opens at 7:30')
   })
 
-  it('things to bring go out in Dial8’s own words; a text names a mail’s place only when it is a street address', () => {
+  it('things to bring go out in Native Intelligence’s own words; a text names a mail’s place only when it is a street address', () => {
     expect(canonicalBring('a valid driver’s license')).toBe("driver's license")
     expect(canonicalBring('credit card in your name')).toBe('a payment card in your name')
     expect(canonicalBring('card number and CVV for the deposit')).toBe('a payment card')

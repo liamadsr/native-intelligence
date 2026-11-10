@@ -1,5 +1,5 @@
 //! earshot 1.2.2 (pure Rust, MIT OR Apache-2.0): the VAD when ONNX Runtime
-//! can't be loaded (dial8-website/docs/plans/chat-voice.md §3.3a).
+//! can't be loaded (web/docs/plans/chat-voice.md §3.3a).
 //!
 //! 256-sample frames (16 ms at 16 kHz) — half of Silero's, so the caller asks
 //! [`Vad::frame_len`]. In the S2 bake-off its probabilities worked with the

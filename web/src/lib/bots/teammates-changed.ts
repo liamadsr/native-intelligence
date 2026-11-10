@@ -11,10 +11,10 @@
  * ping: they share storage, and the desktop's main window relays the overlay's
  * bubble from its own roster, whichever window the edit was made in).
  */
-export const TEAMMATES_CHANGED_EVENT = 'dial8:teammates-changed'
+export const TEAMMATES_CHANGED_EVENT = 'ni:teammates-changed'
 
 /** The storage key the app's other windows hear a change on: each ping is a new value, so each one is heard. */
-export const TEAMMATES_CHANGED_KEY = 'dial8:teammates-changed'
+export const TEAMMATES_CHANGED_KEY = 'ni:teammates-changed'
 
 let pings = 0
 

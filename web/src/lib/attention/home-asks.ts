@@ -29,7 +29,7 @@
  *     src/lib/safety/approvals.ts), at most ASKS_PER_MESSAGE;
  *   - groups them, with what the batch's runs added, by source: the call
  *     (`capture_id`), else the run;
- *   - writes ONE agent message: per source a line in Dial8's own words ("From
+ *   - writes ONE agent message: per source a line in Native Intelligence's own words ("From
  *     your call “Acme sync”: added 2 actions (ENG-51, ENG-52), and one
  *     suggestion to look at.") and a `data-ask-cards` part (chat-ask-card.tsx
  *     ChatAskCardGroup: the added items each with Undo, then the cards). Its id
@@ -156,7 +156,7 @@ export interface AskCardRow {
 
 export interface AskGroup {
   key: string
-  /** Dial8's words for where they came from ("your call “Acme sync”"). */
+  /** Native Intelligence's words for where they came from ("your call “Acme sync”"). */
   source: string
   added: AddedItem[]
   cards: AskCardRow[]
@@ -228,7 +228,7 @@ export function addedPhrase(added: readonly AddedItem[]): string {
 }
 
 /**
- * One group's line, in Dial8's words around the source's title. Pure. The
+ * One group's line, in Native Intelligence's words around the source's title. Pure. The
  * line is markdown in the agent's voice, so the title (a calendar invite's,
  * a skill's name: anyone's text) is escaped: it can never become a link or
  * emphasis there.

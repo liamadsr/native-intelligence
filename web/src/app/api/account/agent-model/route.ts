@@ -20,7 +20,7 @@ import { PLAN_MAIN_MODEL, planModelLabel } from '@/lib/chatgpt/plan-models'
  *  • PUT `{ model }`: `auto` or one of AGENT_MODEL_IDS, saved through the
  *    admin API keyed on the verified user (as the profile PATCH saves the
  *    agent's name). The plan isn't checked here: each turn applies it.
- *  • A device token (the ESP32 hardware's `d8d_…`) is refused: it is no
+ *  • A device token (the ESP32 hardware's `nid_…`) is refused: it is no
  *    signed-in session, and a pick can raise the person's spend.
  */
 function deviceTokenRefusal(request: Request): Response | null {

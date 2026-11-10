@@ -19,7 +19,7 @@ import { isDesktopApp } from '@/lib/platform'
 import { tauriBridge } from '@/lib/tauri-bridge'
 
 /** Set once a Mac's first onboarding has turned Auto-record on. */
-const AUTO_RECORD_DEFAULT_KEY = 'dial8:auto-record-default-applied'
+const AUTO_RECORD_DEFAULT_KEY = 'ni:auto-record-default-applied'
 
 // ─── Types ───────────────────────────────────────────────────
 

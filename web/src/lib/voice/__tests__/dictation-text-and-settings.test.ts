@@ -126,7 +126,7 @@ describe('voice mode settings', () => {
     expect(voiceStartOptions().noiseProfile).toBe('quiet')
     expect(interactiveStartOptions()).toEqual({ endSilenceMs: 1200, noiseProfile: 'quiet' })
     for (const stored of ['noisy', 'auto', 'quiet']) {
-      window.localStorage.setItem('dial8:voice:noise', stored)
+      window.localStorage.setItem('ni:voice:noise', stored)
       expect(voiceStartOptions().noiseProfile).toBe('quiet')
       expect(interactiveStartOptions().noiseProfile).toBe('quiet')
     }

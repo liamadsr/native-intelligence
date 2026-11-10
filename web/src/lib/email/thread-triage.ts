@@ -28,7 +28,7 @@ import { mailboxesForThread, type LiveMailbox } from './thread-mailbox'
  *   labels    Gmail labels by name (a missing one is created on add, and
  *             stays in the label list after an undo); Outlook categories on
  *             every message.
- *   mute      neither provider lets an app mute, so Dial8 keeps the list
+ *   mute      neither provider lets an app mute, so Native Intelligence keeps the list
  *             (email_thread_mute, migration 441): the thread is archived now,
  *             and the arrival triage archives it again when a new message
  *             lands (rearchiveMutedArrivals). Unmute leaves it where it is.

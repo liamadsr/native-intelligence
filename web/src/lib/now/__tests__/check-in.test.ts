@@ -9,7 +9,7 @@
  *     count) and items a check-in's helper is still on; an answered tracked
  *     ask; a stale In flight / Waiting on others line dated before today
  *     whose item isn't done, only until the day's first check-in ran;
- *   - the body: Dial8's templates only, the line numbers, the item's
+ *   - the body: Native Intelligence's templates only, the line numbers, the item's
  *     status, title and times, never a run's summary or question, the events
  *     as log lines, a retry said;
  *   - the cron's plan: every skip in code (no home thread, the slot's turn,
@@ -17,7 +17,7 @@
  *     tracks, the person active in the last 30 minutes, nothing due), and the
  *     request's slot and Inngest id;
  *   - the start: an empty note (none, or no lines) is started once a day
- *     from what is in motion for the person in Dial8's own records (open
+ *     from what is in motion for the person in Native Intelligence's own records (open
  *     work, started actions assigned to them, pull requests left open),
  *     each line with its item key, under its own guidance;
  *   - the digest's one member scan finds the slot hours too.
@@ -268,7 +268,7 @@ describe('checkInDue: stale lines', () => {
 })
 
 describe('checkInBody', () => {
-  it('is Dial8’s templates: the line, its number and section and item, the item’s state, the events as log lines', () => {
+  it('is Native Intelligence’s templates: the line, its number and section and item, the item’s state, the events as log lines', () => {
     const state = workItemState({ id: W1, title: 'Acme follow-up draft', status: 'needs_review', started_at: '2026-10-26T19:10:00.000Z', result_summary: 'SECRET SUMMARY', needs: 'WHAT IT ASKED' } as never, ZONE)
     const due = checkInDue(quiet({ events: [event({ kind: 'work.needs_review' })], states: new Map([[`work:${W1}`, state]]) }))
     const body = checkInBody(due, { date: TODAY, hour: 12, timeZone: ZONE, revision: 14 })
@@ -302,7 +302,7 @@ describe('checkInBody', () => {
     expect(again?.lines[1]).toBe('- Item: work item "API docs run", failed; finished 2026-10-26 16:00; a check-in already retried it (that helper: failed)')
   })
 
-  it('a merged pull request reads as Dial8’s own words, never its title (eval 10)', () => {
+  it('a merged pull request reads as Native Intelligence’s own words, never its title (eval 10)', () => {
     const merged = event({ id: '9', kind: 'pr.changed', ref_type: 'github_pr', ref_id: 'acme/web#7', facts: { repo: 'acme/web', prNumber: 7, prState: 'merged' } })
     const state = prState('acme/web#7', merged, ZONE)
     const body = checkInBody(checkInDue(quiet({ events: [merged], states: new Map([['pr:acme/web#7', state]]) })), { date: TODAY, hour: 14, timeZone: ZONE, revision: 2 })
@@ -319,7 +319,7 @@ describe('checkInBody', () => {
     const body = checkInBody(checkInDue(quiet({ events: [event({})] })), { date: TODAY, hour: 10, timeZone: ZONE, revision: 9 })!
     const text = buildHomeTurnBody('row-1', 'check_in', { checkIn: body })!
     const lines = text.split('\n')
-    expect(lines[0]).toBe('[BACKGROUND UPDATE · home-turn row-1] Not from the person: Dial8 sent this on its own, and nobody typed it.')
+    expect(lines[0]).toBe('[BACKGROUND UPDATE · home-turn row-1] Not from the person: Native Intelligence sent this on its own, and nobody typed it.')
     expect(lines[1]).toContain('Check-in: it is 10:00 for the person (2026-10-27, America/New_York).')
     expect(lines[1]).toContain('revision 9')
     expect(lines[2]).toBe(CHECK_IN_GUIDANCE)

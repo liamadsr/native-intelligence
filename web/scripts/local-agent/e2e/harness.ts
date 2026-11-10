@@ -159,11 +159,11 @@ export interface Fixtures {
 /** A read folder and a git repo (one commit, a pre-commit hook that must never run) under `root`. */
 export function makeFixtures(root: string, home: string): Fixtures {
   const readFolder = join(root, 'e2e-read-folder')
-  const gitRepo = join(root, 'dial8-e2e-app')
+  const gitRepo = join(root, 'ni-e2e-app')
   const hookMarker = join(root, 'hook-ran')
   const toolPath = [dirname(process.execPath), '/usr/bin', '/bin'].join(':')
   const hostGit = (gitArgs: string[]) =>
-    execFileSync('git', ['-c', 'user.name=Dial8 e2e', '-c', 'user.email=e2e@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
+    execFileSync('git', ['-c', 'user.name=Native Intelligence e2e', '-c', 'user.email=e2e@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
       encoding: 'utf8',
       // Cast: Next's global types make ProcessEnv require NODE_ENV, which git doesn't need.
       env: { PATH: toolPath, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string> as NodeJS.ProcessEnv,

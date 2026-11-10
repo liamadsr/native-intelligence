@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
  *
  * ── The component vs. the token-level mirrors ──────────────────────────────
  *
- * Dial8 draws this same pill in two different ways ON PURPOSE, and the split is
+ * Native Intelligence draws this same pill in two different ways ON PURPOSE, and the split is
  * load-bearing. Do not "finish the job" by collapsing one into the other.
  *
  *   • THIS COMPONENT owns the pill wherever the trigger is a plain `<button>`

@@ -13,7 +13,7 @@ export interface WebsiteSiteView {
   siteUrl: string | null
   /** What reading the repo found, as the agent tells the owner. */
   found: string
-  /** Its form already sends customers' requests to Dial8. */
+  /** Its form already sends customers' requests to Native Intelligence. */
   wired: boolean
   /** A form was found that can be connected. */
   hasForm: boolean

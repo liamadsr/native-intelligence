@@ -176,7 +176,7 @@ describe('the right side panel', () => {
 
   it('floating, it ends above the composer, following its height; making room, at the window’s bottom', () => {
     const strip = document.createElement('div')
-    strip.id = 'dial8-chat-strip-slot'
+    strip.id = 'ni-chat-strip-slot'
     const dock = document.createElement('div')
     dock.setAttribute('data-chat-composer-dock', '')
     let height = 120

@@ -1,7 +1,7 @@
 /**
  * The MCP response envelope — shared by the tool registrar and the dispatcher.
  *
- * These three were private to ./index.ts until `dial8_call_tool` needed to
+ * These three were private to ./index.ts until `ni_call_tool` needed to
  * return results and errors that are INDISTINGUISHABLE from a direct call:
  * same `active_workspace` stamp, same error categories, same shape. A second
  * copy would have drifted the first time one of them changed, so they live
@@ -24,7 +24,7 @@ export function withoutMcpImage(result: unknown): unknown {
 /**
  * Merge `active_workspace: { id, name }` into the response of every tool call.
  *
- * Why: agents (Codex, Claude Code, the Dial8 live agent) routinely misroute
+ * Why: agents (Codex, Claude Code, the Native Intelligence live agent) routinely misroute
  * tool calls when they're unsure which workspace they're in. The server-level
  * `instructions` blob tells them once at connect; this injection acts as a
  * constant in-band reminder so the active workspace is visible on every
@@ -162,7 +162,7 @@ export function buildMcpErrorContent(
  * of the block, and an older guard (or a hand-written registrar that doesn't
  * attach it) simply reads `null`.
  */
-const TARGET_WORKSPACE = Symbol('dial8.mcp.targetWorkspace')
+const TARGET_WORKSPACE = Symbol('ni.mcp.targetWorkspace')
 
 /**
  * Pull the workspace a tool result claims to have acted in.

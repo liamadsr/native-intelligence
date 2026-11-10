@@ -13,6 +13,7 @@ import { completeOAuthConnect } from '@/lib/oauth/complete-connect'
 import { handleTextConnectCallback } from '@/lib/links/text-connect-callback'
 import { confirmTextConnect } from '@/lib/links/oauth-link'
 import { getServiceClient } from '@/lib/supabase/service'
+import { requestOrigin } from '@/lib/security/same-origin'
 
 /**
  * GET /api/oauth/[provider]/callback — where the provider sends the person
@@ -51,12 +52,26 @@ import { getServiceClient } from '@/lib/supabase/service'
  *   only the server ever sends one, only to the account's verified number
  *   (never to the model, a web chat or MCP), once, for 15 minutes; the page
  *   names the masked number before its button; and the connected address is
- *   emailed which Dial8 account it joined. A link the owner forwards still
+ *   emailed which Native Intelligence account it joined. A link the owner forwards still
  *   connects whoever taps it: the residual risk this design accepts
  *   (roadmap track A, 2026-11-01), for the founder to weigh.
  *
  * Every state carries a signed `exp` (10 minutes); an expired state is refused.
+ *
+ * ── A connect that began on the app's other domain
+ * The hosted app answers on two domains while it moves (src/lib/app-url.ts),
+ * and each provider knows ONE callback (getRedirectUri). A web connect that
+ * began on the other domain has its nonce cookie and its opener there, so
+ * this route would refuse it. A hosted page's state says where it began
+ * (`origin`, signed, one of the app's page origins): when that is not the
+ * origin this request came to, the provider's answer is handed over to that
+ * domain's callback, unspent, which finishes it as usual, and the connect
+ * always returns to the page it began on. The redirect_uri sent to the
+ * provider is the same on both, so the exchange still matches. `handed`
+ * marks an answer that has been handed over once.
  */
+const HANDED_OVER = 'handed'
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> },
@@ -78,10 +93,18 @@ export async function GET(
   const userId = state.userId
   const capability: OAuthCapability = state.capability && isValidCapability(state.capability) ? state.capability : 'calendar'
 
+  if (source === 'web' && state.origin && !url.searchParams.has(HANDED_OVER) && state.origin !== requestOrigin(req)) {
+    const there = new URL(`/api/oauth/${encodeURIComponent(provider)}/callback`, state.origin)
+    there.search = url.search
+    there.searchParams.set(HANDED_OVER, '1')
+    return NextResponse.redirect(there)
+  }
+
   function buildRedirect(path: string, query: Record<string, string>) {
     const qs = new URLSearchParams(query).toString()
     if (source === 'web') {
-      const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      // Back to the hosted page it began on (state.origin); a page that is not the hosted app's returns to the app's address.
+      const base = state.origin ?? (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
       // Honour return_to if set (e.g. from onboarding), validating it's a relative path
       const webPath =
         state.returnTo && state.returnTo.startsWith('/') && !state.returnTo.includes('//')

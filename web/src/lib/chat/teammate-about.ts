@@ -535,7 +535,7 @@ function fenced(text: string, max = ABOUT_FIELD_CHARS): string {
   return fenceTeammateText(one.length <= max ? one : `${one.slice(0, max - 1).trimEnd()}…`)
 }
 
-/** A label Dial8 writes (a kind, a status): lower-case words only, else '?'. */
+/** A label Native Intelligence writes (a kind, a status): lower-case words only, else '?'. */
 function label(value: string | null | undefined): string {
   return value && WORD.test(value) ? value.replace(/_/g, ' ') : '?'
 }
@@ -548,7 +548,7 @@ function day(iso: string | null | undefined): string | null {
 }
 
 /**
- * The section's text, or null when there's nothing to say. Lines are Dial8's
+ * The section's text, or null when there's nothing to say. Lines are Native Intelligence's
  * template; every string a run or the workspace wrote is fenced. Past
  * ABOUT_BLOCK_CHARS the remaining lines are left out (whole lines, so no fence
  * is ever cut) and the section says so.

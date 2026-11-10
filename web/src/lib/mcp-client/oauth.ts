@@ -1,5 +1,5 @@
 /**
- * MCP OAuth 2.1 client helpers — Dial8 acting as the *client* against an
+ * MCP OAuth 2.1 client helpers — Native Intelligence acting as the *client* against an
  * external MCP server that advertises an OAuth-protected resource.
  *
  * Flow per the MCP authorization spec (which composes RFC 9728 + 8414 + 7591
@@ -59,7 +59,7 @@ export interface TokenResponse {
   scope?: string
 }
 
-const USER_AGENT = 'dial8-mcp-client/1.0'
+const USER_AGENT = 'native-intelligence-mcp-client/1.0'
 
 /** Discovery's options: a signal that really aborts its requests (connect's time bound). */
 export interface DiscoveryOptions {
@@ -130,7 +130,7 @@ export async function probeProtectedResourceMetadataUrl(
         params: {
           protocolVersion: '2025-06-18',
           capabilities: {},
-          clientInfo: { name: 'dial8-probe', version: '1.0' },
+          clientInfo: { name: 'ni-probe', version: '1.0' },
         },
       }),
     })
@@ -224,7 +224,7 @@ export async function registerClient(
       'User-Agent': USER_AGENT,
     },
     body: JSON.stringify({
-      client_name: options.client_name ?? 'Dial8',
+      client_name: options.client_name ?? 'Native Intelligence',
       redirect_uris: [redirectUri],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],

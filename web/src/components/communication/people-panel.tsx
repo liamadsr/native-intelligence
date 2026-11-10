@@ -21,7 +21,7 @@
  *                     permissions over every tool a guest can be given (Liam,
  *                     2026-10-24: reuse it, a whole section or tool by tool). Create invite shows the invite once: a
  *                     QR code and the text their phone sends, and what to DM
- *                     the Dial8 app on Slack.
+ *                     the Native Intelligence app on Slack.
  *   A person's page   where they reach it, their preset, what their agent can do (Tool
  *                     permissions, saved as you go), what always asks you, your notes for their
  *                     agent, the addresses their calendar invites come from (migration 455:
@@ -91,7 +91,7 @@ interface SlackRead {
 interface PeopleRead {
   guests: GuestView[]
   requests: { code: string; open: boolean } | null
-  dial8Number: string | null
+  niNumber: string | null
   available: boolean
 }
 
@@ -161,7 +161,7 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<{ o
     if (!res.ok) return { ok: false, error: await errorOf(res, 'Couldn’t save that. Try again.') }
     return { ok: true, data: (await res.json()) as T }
   } catch {
-    return { ok: false, error: 'Couldn’t reach Dial8. Check your connection and try again.' }
+    return { ok: false, error: 'Couldn’t reach Native Intelligence. Check your connection and try again.' }
   }
 }
 
@@ -290,7 +290,7 @@ export function withPicked(picks: GuestPicks, names: readonly string[], permissi
 
 /**
  * A whole section set at once. Always allow there turns every tool on, but a
- * tool that sends or changes something outside Dial8, or deletes, stays on
+ * tool that sends or changes something outside Native Intelligence, or deletes, stays on
  * Needs approval unless it already was Always allow: one click on a section
  * never lets those run without a card. Each is set on its own row. Every
  * other choice is withPicked's.
@@ -422,7 +422,7 @@ function PresetPicker({ value, onChange, name, disabled }: { value: GuestPresetV
   )
 }
 
-/** Where people can reach the agent on this Dial8: Text needs the Dial8 number, Slack a workspace with the Dial8 app. */
+/** Where people can reach the agent here: Text needs the Native Intelligence number, Slack a workspace with the Native Intelligence app. */
 interface Reach {
   text: boolean
   slackTeam: string | null
@@ -433,7 +433,7 @@ interface Reach {
 }
 
 /**
- * Where they reach the agent: Text, Slack, their own Dial8 agent, or any of
+ * Where they reach the agent: Text, Slack, their own Native Intelligence agent, or any of
  * them, as cards like the presets (at least one stays picked). `fixed` are
  * shown but not toggled here (a linked person's agent: Disconnect ends it).
  */
@@ -455,11 +455,11 @@ function ChannelPicker({
     if (next.length > 0) onChange(next)
   }
   const cards: Array<{ id: GuestChannelId; blurb: string; available: boolean }> = [
-    { id: 'sms', blurb: reach.text ? 'They text the Dial8 number.' : 'Texting isn’t set up on this Dial8 yet.', available: reach.text },
-    { id: 'slack', blurb: reach.slackTeam ? `They DM the Dial8 app in ${reach.slackTeam}.` : 'Add Dial8 to your Slack first.', available: reach.slackTeam !== null },
+    { id: 'sms', blurb: reach.text ? 'They text the Native Intelligence number.' : 'Texting isn’t set up here yet.', available: reach.text },
+    { id: 'slack', blurb: reach.slackTeam ? `They DM the Native Intelligence app in ${reach.slackTeam}.` : 'Add Native Intelligence to your Slack first.', available: reach.slackTeam !== null },
     {
       id: 'dial8',
-      blurb: reach.links ? 'Their Dial8 agent and yours can ask each other. They accept first.' : 'Agent links aren’t set up on this Dial8 yet.',
+      blurb: reach.links ? 'Their Native Intelligence agent and yours can ask each other. They accept first.' : 'Agent links aren’t set up here yet.',
       available: reach.links,
     },
   ]
@@ -632,7 +632,7 @@ export function PeoplePanel({
   const people = access?.people ?? null
   const guests = people?.guests ?? []
   const reach: Reach = {
-    text: access?.phone?.available !== false && Boolean(people?.dial8Number),
+    text: access?.phone?.available !== false && Boolean(people?.niNumber),
     slackTeam: access?.slack?.installations?.[0]?.teamName ?? null,
     setUpSlack: access?.slack?.configured === false ? undefined : () => onOpenTab('slack'),
     links: Boolean(access?.links),
@@ -811,7 +811,7 @@ export function PeoplePanel({
       {people?.requests && (
         <LetPeopleAsk
           state={people.requests}
-          dial8Number={people.dial8Number}
+          niNumber={people.niNumber}
           name={name}
           onChange={(requests) => updatePeople((p) => ({ ...p, requests }))}
         />
@@ -1088,7 +1088,7 @@ function AddPerson({
 
   const link = async (): Promise<{ done: Linked; error?: string } | { error: string }> => {
     const half = { displayName: displayName.trim(), preset, tools: picks.tools, askTools: picks.askTools, askBefore: picks.askBefore }
-    // The answer to an email is the same whoever it is (it never says whether they're on Dial8).
+    // The answer to an email is the same whoever it is (it never says whether they're on Native Intelligence).
     const asked =
       by === 'link'
         ? await send<{ link: LinkView | null; url: string }>('/api/account/agent-links/connect', 'POST', half)
@@ -1189,12 +1189,12 @@ function AddPerson({
                   onChange={(e) => setEmail(e.target.value)}
                   type="email"
                   inputMode="email"
-                  placeholder="The email they sign in to Dial8 with"
+                  placeholder="The email they sign in to Native Intelligence with"
                   aria-label="Their email"
                   disabled={busy}
                   data-people-email=""
                 />
-                <p className="mt-1.5 text-xs text-muted-foreground">They get an email to accept, and can join Dial8 from it if they aren&apos;t on it yet.</p>
+                <p className="mt-1.5 text-xs text-muted-foreground">They get an email to accept, and can join Native Intelligence from it if they aren&apos;t on it yet.</p>
               </>
             )}
             {by === 'link' && (
@@ -1269,7 +1269,7 @@ function SentCard({ linked, onDone }: { linked: Linked; onDone: () => void }) {
 
 /**
  * The invite, shown once, for each channel they still have to join on: the
- * QR code their phone scans and the text it sends, and what they DM the Dial8
+ * QR code their phone scans and the text it sends, and what they DM the Native Intelligence
  * app on Slack. One code works on each.
  */
 function InviteCard({
@@ -1286,13 +1286,13 @@ function InviteCard({
   onDone: () => void
 }) {
   const first = guest.displayName.split(/\s+/)[0]
-  const number = invite.dial8Number
+  const number = invite.niNumber
   const shown = number ? formatE164ForDisplay(number) : null
   const owed = guest.state === 'active' ? guest.unbound : guest.channels
   const text = owed.includes('sms')
   const slack = owed.includes('slack')
   const textMessage = shown ? `Text "${invite.text}" to ${shown} to reach ${agentName}.` : invite.text
-  const slackWhere = slackTeam ? `the Dial8 app in ${slackTeam}` : 'the Dial8 app'
+  const slackWhere = slackTeam ? `the Native Intelligence app in ${slackTeam}` : 'the Native Intelligence app'
   const slackMessage = `On Slack, send ${slackWhere} a DM: "${invite.text}" to reach ${agentName}.`
   return (
     <Section
@@ -1309,7 +1309,7 @@ function InviteCard({
         {text && (
           <div data-people-invite-channel="sms">
             <p className="text-sm text-muted-foreground">
-              When {first} texts &ldquo;{invite.text}&rdquo; to {shown ?? 'the Dial8 number'}, {agentName} answers. It has to come from {first}&apos;s number.
+              When {first} texts &ldquo;{invite.text}&rdquo; to {shown ?? 'the Native Intelligence number'}, {agentName} answers. It has to come from {first}&apos;s number.
             </p>
             <div className="mt-3 flex items-center gap-4">
               {number && (
@@ -1349,12 +1349,12 @@ function InviteCard({
 /** "Let people ask": your request code, and its switch. */
 function LetPeopleAsk({
   state,
-  dial8Number,
+  niNumber,
   name,
   onChange,
 }: {
   state: { code: string; open: boolean }
-  dial8Number: string | null
+  niNumber: string | null
   name: string
   onChange: (state: { code: string; open: boolean }) => void
 }) {
@@ -1369,7 +1369,7 @@ function LetPeopleAsk({
     onChange(result.data)
   }
   const join = `JOIN ${state.code}`
-  const shown = dial8Number ? formatE164ForDisplay(dial8Number) : null
+  const shown = niNumber ? formatE164ForDisplay(niNumber) : null
   return (
     <section className="rounded-xl border p-3" data-people-ask-open={state.open ? 'on' : 'off'}>
       <div className="flex items-center gap-3">

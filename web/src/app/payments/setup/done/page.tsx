@@ -17,16 +17,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Why setup stopped, in the owner's words (the routes' `e`). */
 const ERRORS: Record<string, string> = {
-  expired: 'That setup link had expired. Text your Dial8 agent “connect Stripe” for a fresh one.',
-  used: 'That setup link was already used. Text your Dial8 agent “connect Stripe” for a fresh one.',
-  invalid: 'That link doesn’t work. Text your Dial8 agent “connect Stripe” for a fresh one.',
+  expired: 'That setup link had expired. Text your Native Intelligence agent “connect Stripe” for a fresh one.',
+  used: 'That setup link was already used. Text your Native Intelligence agent “connect Stripe” for a fresh one.',
+  invalid: 'That link doesn’t work. Text your Native Intelligence agent “connect Stripe” for a fresh one.',
   not_admin: 'Only a workspace owner or admin can connect Stripe.',
   already_connected: 'Stripe is already connected for this business.',
-  already_linked: 'That Stripe account already takes payments for another Dial8 business. Use another account, or set up a new one.',
+  already_linked: 'That Stripe account already takes payments for another Native Intelligence business. Use another account, or set up a new one.',
   oauth_off: 'Linking an existing Stripe account isn’t available yet. Set up a new one from a fresh link instead.',
   denied: 'Stripe wasn’t connected: the connection was cancelled on Stripe’s page.',
   bad_state: 'Stripe wasn’t connected: finish it in the same browser you started in, from a fresh link.',
-  payments_off: 'Card payments aren’t switched on for Dial8 yet.',
+  payments_off: 'Card payments aren’t switched on for Native Intelligence yet.',
   stripe_failed: 'Stripe couldn’t finish this just now. Try again from a fresh link.',
   store_failed: 'Something went wrong on our side. Try again from a fresh link.',
   server: 'Something went wrong on our side. Try again from a fresh link.',
@@ -36,7 +36,7 @@ const ERRORS: Record<string, string> = {
 const TEXTED: Record<string, string> = {
   sent: 'Stripe’s page timed out, so we texted you a fresh link. Tap it to pick up where you left off.',
   too_soon: 'We texted you a fresh link a moment ago. Tap it to pick up where you left off.',
-  daily_cap: 'We’ve sent several setup links today. Text your Dial8 agent “connect Stripe” tomorrow, or contact support.',
+  daily_cap: 'We’ve sent several setup links today. Text your Native Intelligence agent “connect Stripe” tomorrow, or contact support.',
   no_phone: 'Stripe’s page timed out, and we couldn’t text you a fresh link: no phone is verified on your account.',
 }
 

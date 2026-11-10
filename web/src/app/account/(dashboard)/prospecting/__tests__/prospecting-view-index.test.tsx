@@ -213,7 +213,7 @@ describe('Prospecting index — opening a list', () => {
 describe('Prospecting index — a newly created list', () => {
   /**
    * `loadLists` refreshes this page's empty/non-empty DECISION; it does not
-   * touch the layout's own query. `dial8:entity-created` is the seam that list
+   * touch the layout's own query. `ni:entity-created` is the seam that list
    * already listens on, and without it a list created from the sheet or the
    * Custom card would not appear until a reload.
    */
@@ -224,7 +224,7 @@ describe('Prospecting index — a newly created list', () => {
     const onCreated = (e: Event) => {
       events.push(((e as CustomEvent).detail as { entityType: string }).entityType)
     }
-    window.addEventListener('dial8:entity-created', onCreated)
+    window.addEventListener('ni:entity-created', onCreated)
     try {
       await render()
       // The Custom starter card's inline box — the one create path reachable
@@ -248,7 +248,7 @@ describe('Prospecting index — a newly created list', () => {
       expect(createList).toHaveBeenCalled()
       expect(events).toContain('prospect_list')
     } finally {
-      window.removeEventListener('dial8:entity-created', onCreated)
+      window.removeEventListener('ni:entity-created', onCreated)
     }
   })
 

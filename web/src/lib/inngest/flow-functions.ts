@@ -48,11 +48,12 @@ import type {
 import { USER_STATUS_CHANGE_ORIGIN } from '@/lib/flows/emit-status-change'
 import { decideReconcileSkip } from '@/lib/flows/reconcile-decision'
 import { AGENT_PAUSED_REASON, checkAgentPaused } from '@/lib/work/agent-paused'
+import { DEFAULT_APP_URL } from '@/lib/app-url'
 
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
   process.env.VERCEL_URL ??
-  'https://dial8.ai'
+  DEFAULT_APP_URL
 
 /**
  * Cost posture (NORTH-STAR §"loops are free until there's something to do"): a

@@ -10,14 +10,14 @@
  *     LOCAL_AGENT_LOCAL_MODEL_SERVER (`ollama` | `lmstudio`). The provider is
  *     `createOpenAICompatible` with a `fetch` (localModelFetch) that refuses
  *     any URL outside that loopback server and any redirect, so model calls
- *     never leave the Mac. Only the Dial8 tool calls do (C1), and a relay or
+ *     never leave the Mac. Only the Native Intelligence tool calls do (C1), and a relay or
  *     Gateway credential beside a local model is refused. The fetch probes the
  *     server before the first request: is it up, is the model there, is it
  *     really on this Mac (not an Ollama cloud model), can it call tools, and
  *     how much context did the server give it (eve compacts before that; below
  *     32K it refuses). The server's failures become sentences the person can
  *     act on.
- *   - **The Dial8 model relay** (L1, the default in the app). The desktop gives
+ *   - **The Native Intelligence model relay** (L1, the default in the app). The desktop gives
  *     the launcher LOCAL_AGENT_MODEL_BASE_URL (built by Rust from the app's own
  *     origin: `<origin>/api/local-agent/model`) and a short-lived per-session
  *     LOCAL_AGENT_MODEL_TOKEN. The launcher writes the token to a 0600 file in
@@ -185,7 +185,7 @@ export function relayBaseUrl(raw: string | undefined): string | null {
  * Which way this server reaches the model, from its environment. A model on
  * this Mac when LOCAL_AGENT_LOCAL_MODEL_BASE_URL or LOCAL_AGENT_LOCAL_MODEL_ID
  * is set: then both must be valid, and no relay or Gateway credential may be
- * set beside them (the C1 session token for the Dial8 tool routes comes as
+ * set beside them (the C1 session token for the Native Intelligence tool routes comes as
  * LOCAL_AGENT_SESSION_TOKEN_FILE, which the model never reads). Otherwise relay when both LOCAL_AGENT_MODEL_BASE_URL and
  * LOCAL_AGENT_MODEL_TOKEN_FILE are set; dev when neither is. Anything in
  * between throws: a half-configured route must not fall back to another.
@@ -565,7 +565,7 @@ export function createLocalAgentModel(env: ModelEnv = process.env, base?: Fetch)
   const route = modelRouteFromEnv(env)
   if (route.kind === 'dev') return createGateway({ ...(base ? { fetch: base } : {}) })(LOCAL_AGENT_MODEL)
   if (route.kind === 'local') {
-    // No apiKey: nothing to authenticate on loopback, and no Dial8 credential is ever sent there.
+    // No apiKey: nothing to authenticate on loopback, and no Native Intelligence credential is ever sent there.
     return createOpenAICompatible({ name: 'local', baseURL: route.baseURL, includeUsage: true, fetch: localModelFetch(route, base) })(route.modelId)
   }
   return createGateway({ baseURL: route.baseURL, apiKey: RELAY_PLACEHOLDER_KEY, fetch: relayFetch(route, base) })(LOCAL_AGENT_MODEL)

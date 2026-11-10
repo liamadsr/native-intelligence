@@ -71,7 +71,7 @@ beforeEach(async () => {
         return jsonRes({
           workspaces: [
             { id: 'ws-1', name: "Liam Alizadeh's Workspace", slug: 'liam', logo_url: null, plan: 'pro', role: 'owner' },
-            { id: 'ws-2', name: 'Dial8', slug: 'dial8', logo_url: null, plan: 'pro', role: 'member' },
+            { id: 'ws-2', name: 'Native Intelligence', slug: 'dial8', logo_url: null, plan: 'pro', role: 'member' },
           ],
         })
       }
@@ -113,7 +113,7 @@ describe('the workspace pill', () => {
     // The menu is in the pill's liquid — not portaled to <body> — and live.
     expect(liquid().contains(menu())).toBe(true)
     expect(menu().hasAttribute('inert')).toBe(false)
-    expect(menu().textContent).toContain('Dial8')
+    expect(menu().textContent).toContain('Native Intelligence')
   })
 
   it('opens on a click too, and a second click leaves it open', () => {

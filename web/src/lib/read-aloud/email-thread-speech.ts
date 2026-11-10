@@ -32,7 +32,7 @@
  * Who: the user's own messages are "you" (`mine`, the caller's call: fails
  * safe to the sender's name). Anyone else by the given name ("Sarah"), or the
  * whole name when two senders share one ("Sarah Chen", "Sarah Park"); a name
- * that isn't a person's ("Acme Support", "The Dial8 Team") whole. Tags such as
+ * that isn't a person's ("Acme Support", "The Native Intelligence Team") whole. Tags such as
  * "(EXT)" go, "Lee, Ann" is Ann Lee, and Outlook's "Ann LEE" is Ann Lee. With
  * no name, the address's own part as a name ("jordan.lee@…" is Jordan Lee),
  * never "at acme dot com". The same sender twice in a row "followed up" (or

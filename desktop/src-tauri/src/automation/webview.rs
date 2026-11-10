@@ -35,9 +35,9 @@ use super::server::{Backend, EvalRequest};
 use super::PROTOCOL_VERSION;
 use crate::log_to_file;
 
-/// What the page sees while the bridge is up (dial8-website src/lib/automation).
+/// What the page sees while the bridge is up (web/src/lib/automation).
 fn flag_source() -> String {
-    format!("window.__DIAL8_AUTOMATION__ = Object.freeze({{ version: {PROTOCOL_VERSION} }});")
+    format!("window.__NI_AUTOMATION__ = Object.freeze({{ version: {PROTOCOL_VERSION} }});")
 }
 
 /// The main window's web view, as the bridge's [`Backend`].
@@ -103,7 +103,7 @@ pub fn install_flag(app: &AppHandle) {
 }
 
 /// Load the main window's page again: its current (or pending) URL when it is
-/// the app's own (dial8.ai, or the dev server in a debug build, as `setup()`
+/// the app's own (nativeintelligence.dev, or the dev server in a debug build, as `setup()`
 /// points it), else the app's base URL. A navigation rather than `-reload`,
 /// which does nothing while the first load hasn't committed.
 fn reload_main(app: &AppHandle) {
@@ -349,36 +349,36 @@ unsafe fn error_message(error: *mut AnyObject) -> String {
 /// The script goes on its own lines so a trailing `//` comment can't swallow
 /// the wrapper.
 fn wrap(script: &str) -> String {
-    const BEFORE: &str = "let __dial8_value;\ntry {\n__dial8_value = await (async () => {\n";
+    const BEFORE: &str = "let __ni_value;\ntry {\n__ni_value = await (async () => {\n";
     const AFTER: &str = r#"
 })();
-} catch (__dial8_error) {
-  let __dial8_message = 'the script threw', __dial8_stack;
+} catch (__ni_error) {
+  let __ni_message = 'the script threw', __ni_stack;
   try {
-    __dial8_message = __dial8_error instanceof Error
-      ? String(__dial8_error.message || __dial8_error.name || 'Error')
-      : String(__dial8_error);
-    if (__dial8_error && typeof __dial8_error.stack === 'string' && __dial8_error.stack) __dial8_stack = __dial8_error.stack;
+    __ni_message = __ni_error instanceof Error
+      ? String(__ni_error.message || __ni_error.name || 'Error')
+      : String(__ni_error);
+    if (__ni_error && typeof __ni_error.stack === 'string' && __ni_error.stack) __ni_stack = __ni_error.stack;
   } catch (_) {}
-  return JSON.stringify(__dial8_stack === undefined
-    ? { ok: false, error: __dial8_message }
-    : { ok: false, error: __dial8_message, stack: __dial8_stack });
+  return JSON.stringify(__ni_stack === undefined
+    ? { ok: false, error: __ni_message }
+    : { ok: false, error: __ni_message, stack: __ni_stack });
 }
-let __dial8_json;
+let __ni_json;
 try {
-  __dial8_json = JSON.stringify(__dial8_value === undefined ? null : __dial8_value, function (_key, __dial8_v) {
-    const __dial8_type = typeof __dial8_v;
-    if (__dial8_type === 'function' || __dial8_type === 'symbol' || __dial8_type === 'bigint') throw 0;
-    if (__dial8_v !== null && __dial8_type === 'object' && !Array.isArray(__dial8_v)) {
-      const __dial8_proto = Object.getPrototypeOf(__dial8_v);
-      if (__dial8_proto !== Object.prototype && __dial8_proto !== null) throw 0;
+  __ni_json = JSON.stringify(__ni_value === undefined ? null : __ni_value, function (_key, __ni_v) {
+    const __ni_type = typeof __ni_v;
+    if (__ni_type === 'function' || __ni_type === 'symbol' || __ni_type === 'bigint') throw 0;
+    if (__ni_v !== null && __ni_type === 'object' && !Array.isArray(__ni_v)) {
+      const __ni_proto = Object.getPrototypeOf(__ni_v);
+      if (__ni_proto !== Object.prototype && __ni_proto !== null) throw 0;
     }
-    return __dial8_v;
+    return __ni_v;
   });
 } catch (_) {
   return '{"ok":false,"error":"result is not JSON-serializable"}';
 }
-return '{"ok":true,"value":' + (__dial8_json === undefined ? 'null' : __dial8_json) + '}';
+return '{"ok":true,"value":' + (__ni_json === undefined ? 'null' : __ni_json) + '}';
 "#;
     [BEFORE, script, AFTER].concat()
 }

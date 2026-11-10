@@ -10,7 +10,7 @@ import { readTestUser, signInWithPassword } from '../fixtures/auth'
  * tested via component tests; this journey verifies the full auth →
  * workspace → action-create → action-list pipeline end-to-end.
  *
- * If this breaks, the whole "create things in Dial8" feature is broken.
+ * If this breaks, the whole "create things in Native Intelligence" feature is broken.
  */
 
 const user = readTestUser('alice')

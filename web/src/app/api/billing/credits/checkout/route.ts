@@ -94,7 +94,7 @@ export async function POST(request: Request) {
             currency: 'usd',
             unit_amount: amountUsd * 100,
             product_data: {
-              name: `Dial8 AI credits — $${amountUsd}`,
+              name: `Native Intelligence AI credits — $${amountUsd}`,
               description: `$${amountUsd} of AI usage credits`,
             },
           },

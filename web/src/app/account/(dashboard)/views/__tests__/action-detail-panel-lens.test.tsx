@@ -7,7 +7,7 @@
  * exactly ONE of them. That containment is the whole claim of this file, because
  * the failure mode is silent: a lens that also swallowed the Labels or Project
  * group would look fine on a linked action and would have quietly removed
- * Dial8's own relationships from the only surface that edits them.
+ * Native Intelligence's own relationships from the only surface that edits them.
  *
  * The three rules pinned here:
  *
@@ -15,7 +15,7 @@
  *    the sidebar it always had — this is the requirement that keeps the feature
  *    invisible to actions it does not apply to.
  *  - A PROVIDER LENS REPLACES THE PROPERTIES GROUP'S CONTENTS, AND ONLY THOSE.
- *    Every other group is still there, and Dial8's status/priority controls are
+ *    Every other group is still there, and Native Intelligence's status/priority controls are
  *    gone from the column (they are what the lens stands in for).
  *  - COMPOSE WINS. While a push form is up the sidebar is committed to a
  *    create-in-progress; swapping the group under it to a provider's live fields
@@ -387,13 +387,13 @@ afterEach(() => {
 
 describe('ActionDetailPanel — the property lens', () => {
   /** THE INVISIBILITY REQUIREMENT, on the panel side. */
-  it('an unlinked action gets no switcher and keeps its Dial8 property controls', async () => {
+  it('an unlinked action gets no switcher and keeps its Native Intelligence property controls', async () => {
     installFetch({ linkedProviders: [] })
     await mountPanel()
 
     expect(container.querySelector('[data-lens-switcher]')).toBeNull()
     expect(container.querySelector('[data-lens-surface]')).toBeNull()
-    // Dial8's own status control is still in the column.
+    // Native Intelligence's own status control is still in the column.
     expect(container.textContent).toContain('Todo')
   })
 
@@ -421,7 +421,7 @@ describe('ActionDetailPanel — the property lens', () => {
 
   /**
    * THE CONTAINMENT CLAIM, and the one that would catch the worst silent bug: a
-   * lens that swallowed the sidebar's other groups would remove Dial8's own
+   * lens that swallowed the sidebar's other groups would remove Native Intelligence's own
    * labels/project/links editing from the only surface that does it.
    */
   it('replaces ONLY the Properties group — every other group survives', async () => {
@@ -432,7 +432,7 @@ describe('ActionDetailPanel — the property lens', () => {
     expect(titles).toContain('Properties')
     // The sidebar's other groups have all become rows INSIDE Properties, so
     // the containment claim is now about the controls, not group titles: a
-    // lens that swallowed them would take Dial8's own editing with it.
+    // lens that swallowed them would take Native Intelligence's own editing with it.
     expect(container.textContent).toContain('Add label')
     expect(container.textContent).toContain('Set project')
     expect(container.textContent).toContain('Add link')
@@ -444,7 +444,7 @@ describe('ActionDetailPanel — the property lens', () => {
     expect(container.querySelector('[data-lens-field="project"]')!.textContent).toContain('Kanban')
   })
 
-  it('switching to Dial8 restores the native property controls', async () => {
+  it('switching to Native Intelligence restores the native property controls', async () => {
     installFetch({ linkedProviders: ['jira'] })
     await mountPanel()
     expect(container.querySelector('[data-lens-surface]')).toBeTruthy()
@@ -480,7 +480,7 @@ describe('ActionDetailPanel — the property lens', () => {
   /**
    * THE STICKY LENS SURVIVES A RE-RENDER BUT NOT AN UNLINK.
    *
-   * `activeLens` is deliberately sticky — a user who switched back to Dial8 must
+   * `activeLens` is deliberately sticky — a user who switched back to Native Intelligence must
    * not be flipped to Jira when the links resolve — and the trap is that the links
    * it names can be removed underneath it FROM THIS PANEL, through the toolbar
    * menu's Unlink. That empties the link rows, so the switcher unmounts (it reads
@@ -499,11 +499,11 @@ describe('ActionDetailPanel — the property lens', () => {
    * Only the stored one can outlive the link it names — a version of this test
    * that relied on the default passed against the unguarded code.
    */
-  it('falls back to Dial8 when the active lens is unlinked from under it', async () => {
+  it('falls back to Native Intelligence when the active lens is unlinked from under it', async () => {
     installFetch({ linkedProviders: ['jira'] })
     await mountPanel()
 
-    // Precondition: the Jira lens is up and Dial8's own status control is NOT in
+    // Precondition: the Jira lens is up and Native Intelligence's own status control is NOT in
     // the column (the lens stands in for it). Clicked, so `activeLens` is set.
     await act(async () => {
       container
@@ -540,7 +540,7 @@ describe('ActionDetailPanel — the property lens', () => {
     // No switcher either: an action with no links is one the feature does not
     // apply to, exactly as if it had never been pushed.
     expect(container.querySelector('[data-lens-switcher]')).toBeNull()
-    // And Dial8's own properties are back in the column.
+    // And Native Intelligence's own properties are back in the column.
     expect(container.textContent).toContain('Todo')
   })
 

@@ -1,7 +1,7 @@
 /**
  * The Claude Code adapter: the person's own `claude` CLI, signed in with
  * their own account (Anthropic allows a person's unmodified binary inside
- * another product; Dial8 never touches the login), run as
+ * another product; Native Intelligence never touches the login), run as
  *
  *   claude -p --verbose --input-format stream-json --output-format stream-json
  *     --include-partial-messages --replay-user-messages
@@ -10,7 +10,7 @@
  *     --setting-sources ''             none of the person's or the folder's settings: no hooks,
  *                                      plugins, permission rules or env from settings files
  *     --strict-mcp-config --mcp-config <file>   only the fence's MCP server
- *     --allowedTools mcp__dial8_folder__bash,...   those tools run without a prompt
+ *     --allowedTools mcp__ni_folder__bash,...   those tools run without a prompt
  *     --disable-slash-commands         no skills
  *     --append-system-prompt <job>     instructions.ts
  *     [--restricted] [--permission-prompts none] [--no-chrome]   when this version has them
@@ -26,7 +26,7 @@
  * and the fence server must be connected, or the job fails before the model
  * acts; work before a passing init is fatal too. A stop kills the process:
  * the CLI's stream-json `interrupt` can leave it unable to take the next
- * message (Dial8's own Claude Code chat hit this, src/lib/claude-session,
+ * message (Native Intelligence's own Claude Code chat hit this, src/lib/claude-session,
  * removed 2026-10), and the transcript Claude Code keeps on disk makes
  * `--resume` lossless.
  */
@@ -112,7 +112,7 @@ const WORD_JOINER = '\u2060'
  * (read by the CLI, whose profile reaches its own state: `~/.claude.json`, other
  * sessions), and a message starting with `/`, `!`, `#` or `&` is a command
  * (slash command, shell, memory, background). Messages are words from the
- * Dial8 agent or the person (invariant 2), so each of those gets a word
+ * Native Intelligence agent or the person (invariant 2), so each of those gets a word
  * joiner in front: the model reads the same text, and the parser matches
  * nothing (U+2060 is not whitespace, so the `@` no longer starts a word). An
  * `@` inside a word (an email address) is not a mention and is left as is.
@@ -176,7 +176,7 @@ export function settingsReferencedFiles(home: string, read: (path: string) => st
   return [...found].sort()
 }
 
-/** One user message on stdin (the envelope Dial8's desktop used with Claude Code until 2026-10). */
+/** One user message on stdin (the envelope Native Intelligence's desktop used with Claude Code until 2026-10). */
 export function claudeUserLine(text: string, sessionId: string | null): string {
   return `${JSON.stringify({ type: 'user', message: { role: 'user', content: neutralizeClaudeText(text) }, parent_tool_use_id: null, session_id: sessionId ?? '' })}\n`
 }
@@ -188,7 +188,7 @@ async function probeClaude(run: ProbeRunner): Promise<CliProbe> {
   const help = await run(['--help'])
   const flags = helpFlags(help.stdout)
   const missing = CLAUDE_REQUIRED_FLAGS.filter((f) => !flags.has(f))
-  if (missing.length) throw new WorkerLaunchError(`This Claude Code (${version}) is too old for Dial8: it has no ${missing.join(', ')}. ${UPDATE_HINT}`)
+  if (missing.length) throw new WorkerLaunchError(`This Claude Code (${version}) is too old for Native Intelligence: it has no ${missing.join(', ')}. ${UPDATE_HINT}`)
   // Only when `auth` is a listed command: on a CLI without it, `claude auth status` would be a prompt.
   if (/^\s+auth\b/m.test(help.stdout)) {
     const auth = await run(['auth', 'status', '--json'])
@@ -359,8 +359,8 @@ export function createClaudeNormalizer() {
         const subtype = (e.request as { subtype?: unknown } | undefined)?.subtype
         const response =
           subtype === 'can_use_tool'
-            ? { subtype: 'success', request_id: id, response: { behavior: 'deny', message: "Only the folder tools (dial8_folder) can be used in this job." } }
-            : { subtype: 'error', request_id: id, error: 'not supported by the Dial8 worker' }
+            ? { subtype: 'success', request_id: id, response: { behavior: 'deny', message: "Only the folder tools (ni_folder) can be used in this job." } }
+            : { subtype: 'error', request_id: id, error: 'not supported by the Native Intelligence worker' }
         return [{ kind: 'reply', line: `${JSON.stringify({ type: 'control_response', response })}\n` }]
       }
       default:
@@ -411,7 +411,7 @@ export const claudeCodeAdapter: CliAdapter = {
     CLAUDE_CODE_TMPDIR: ctx.cliTmp,
     // The auto-updater would rewrite the binary under a running job (its install is read-only to it anyway).
     DISABLE_AUTOUPDATER: '1',
-    // A Dial8 job neither writes what it read into the person's Claude memory nor loads that memory.
+    // A Native Intelligence job neither writes what it read into the person's Claude memory nor loads that memory.
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     // A fence command may run for minutes (fence-tools.ts BASH_MAX_TIMEOUT_MS) plus margin.
     MCP_TOOL_TIMEOUT: String(11 * 60_000),
@@ -421,7 +421,7 @@ export const claudeCodeAdapter: CliAdapter = {
   input: (_ctx, text, opts) => claudeUserLine(text, opts.sessionId),
   createNormalizer: createClaudeNormalizer,
   describeExit(code, signal, stderrTail) {
-    if (/unknown option|unexpected argument/i.test(stderrTail)) return `This Claude Code is too old for Dial8 (${lastLine(stderrTail)}). ${UPDATE_HINT}`
+    if (/unknown option|unexpected argument/i.test(stderrTail)) return `This Claude Code is too old for Native Intelligence (${lastLine(stderrTail)}). ${UPDATE_HINT}`
     if (/not logged in|\/login|authenticat/i.test(stderrTail)) return SIGN_IN
     const why = lastLine(stderrTail)
     return `Claude Code stopped unexpectedly (${signal ?? `exit ${code}`})${why ? `: ${truncateText(why, 500)}` : ''}.`

@@ -9,14 +9,15 @@ import { StructuredData } from '@/components/structured-data'
 import {
   COMPETITORS,
   VS_COMPETITOR_SLUGS,
-  DIAL8_STRENGTHS,
+  NI_STRENGTHS,
   getCompetitor,
   type Cell,
   type Competitor,
 } from '@/data/vs-competitors'
 import { hasDownload } from '@/lib/app-download'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 
 // Only the listed competitors: any other slug is a 404, including ones that
 // would hit an inherited property on COMPETITORS ('constructor', 'toString').
@@ -37,7 +38,7 @@ export async function generateMetadata({
 
   const canonical = `/vs/${competitor.slug}`
   return {
-    // metaTitle already leads with "Dial8", so bypass the root "%s - Dial8"
+    // metaTitle already leads with "Native Intelligence", so bypass the root "%s - Native Intelligence"
     // template to avoid a doubled brand name in the rendered <title>.
     title: { absolute: competitor.metaTitle },
     description: competitor.metaDescription,
@@ -83,10 +84,10 @@ function Hero({ competitor }: { competitor: Competitor }) {
           Comparison
         </p>
         <h1 className="mt-2 text-pretty text-4xl font-medium tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-          Dial8 vs {competitor.name}
+          Native Intelligence vs {competitor.name}
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-2xl leading-relaxed">
-          {competitor.name} is {competitor.tagline}. Dial8 takes the meeting
+          {competitor.name} is {competitor.tagline}. Native Intelligence takes the meeting
           further — turning it into tracked work, live projects, a self-updating
           CRM, and agents that execute. Here is an honest, side-by-side look.
         </p>
@@ -154,7 +155,7 @@ function Matrix({ competitor }: { competitor: Competitor }) {
         <div className="mt-8 overflow-x-auto rounded-2xl border border-border">
           <table className="w-full min-w-[560px] border-collapse text-left">
             <caption className="sr-only">
-              Feature comparison between Dial8 and {competitor.name}
+              Feature comparison between Native Intelligence and {competitor.name}
             </caption>
             <thead>
               <tr className="border-b border-border bg-muted/40">
@@ -168,7 +169,7 @@ function Matrix({ competitor }: { competitor: Competitor }) {
                   scope="col"
                   className="px-4 py-4 text-sm font-semibold text-foreground w-[26%]"
                 >
-                  Dial8
+                  Native Intelligence
                 </th>
                 <th
                   scope="col"
@@ -190,7 +191,7 @@ function Matrix({ competitor }: { competitor: Competitor }) {
                     )}
                   </th>
                   <td className="px-4 py-4">
-                    <CellContent value={r.dial8} />
+                    <CellContent value={r.ni} />
                   </td>
                   <td className="px-4 py-4">
                     <CellContent value={r.competitor} />
@@ -241,15 +242,15 @@ function DialWins({ competitor }: { competitor: Competitor }) {
       <SectionDivider />
       <div className="mx-auto max-w-4xl">
         <h2 className="text-2xl font-medium tracking-tight text-foreground sm:text-3xl">
-          Where Dial8 wins
+          Where Native Intelligence wins
         </h2>
         <p className="mt-3 text-muted-foreground">
           {competitor.name}&rsquo;s output lives in notes and hands off to other
-          tools. With Dial8, the meeting output is the tracker — the work gets
+          tools. With Native Intelligence, the meeting output is the tracker — the work gets
           done in the same system.
         </p>
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          {DIAL8_STRENGTHS.map((s) => (
+          {NI_STRENGTHS.map((s) => (
             <div key={s.title} className="rounded-2xl border border-border p-6">
               <h3 className="text-sm font-medium text-foreground">{s.title}</h3>
               <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{s.body}</p>
@@ -323,7 +324,7 @@ function CompareNav({ current }: { current: string }) {
     <section className="px-6 lg:px-8 py-16 relative">
       <SectionDivider />
       <div className="mx-auto max-w-4xl">
-        <p className="text-sm font-medium text-muted-foreground">Compare Dial8 with</p>
+        <p className="text-sm font-medium text-muted-foreground">Compare Native Intelligence with</p>
         <nav className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
           {VS_COMPETITOR_SLUGS.map((slug, i) => {
             const c = COMPETITORS[slug]

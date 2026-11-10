@@ -38,7 +38,7 @@ import { POST } from '../route'
 const WS_OTHER = '11111111-0000-4000-8000-000000000001'
 const params = { params: Promise.resolve({ id: 'cap-1', changeId: 'ch-1' }) }
 const post = (body?: unknown) =>
-  POST(new Request('https://dial8.ai/x', { method: 'POST', ...(body ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : {}) }) as never, params)
+  POST(new Request('https://nativeintelligence.dev/x', { method: 'POST', ...(body ? { body: JSON.stringify(body), headers: { 'content-type': 'application/json' } } : {}) }) as never, params)
 
 beforeEach(() => {
   h.user = { id: 'user-1' }

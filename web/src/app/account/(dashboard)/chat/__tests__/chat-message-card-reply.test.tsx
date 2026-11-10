@@ -26,7 +26,7 @@ const CARD = {
   id: '22222222-2222-4222-8222-222222222222',
   workspaceId: '11111111-1111-4111-8111-111111111111',
   verb: 'Fix',
-  sentence: 'the failing dial8-website build on Vercel, now five production deploys in a row',
+  sentence: 'the failing native-intelligence build on Vercel, now five production deploys in a row',
   subkind: 'action_card',
 }
 

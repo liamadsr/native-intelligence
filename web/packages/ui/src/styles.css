@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
 /*
-  Static stylesheet for @dial8/ui.
+  Static stylesheet for @native-intelligence/ui.
 
   Tailwind v4 generates utilities by scanning source. We point @source at the
   app components this package re-exports so the compiled dist/styles.css carries

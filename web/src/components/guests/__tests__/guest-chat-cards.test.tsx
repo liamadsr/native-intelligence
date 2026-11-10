@@ -71,9 +71,9 @@ describe('a guest’s activity', () => {
     expect(container.querySelector('[data-guest-activity-meta]')!.textContent).toMatch(/^Sam · Household · 3 things · \d/)
     const opened: unknown[] = []
     const onOpen = (e: Event) => opened.push((e as CustomEvent).detail)
-    window.addEventListener('dial8:open-card', onOpen)
+    window.addEventListener('ni:open-card', onOpen)
     await act(async () => card.click())
-    window.removeEventListener('dial8:open-card', onOpen)
+    window.removeEventListener('ni:open-card', onOpen)
     expect(opened).toEqual([expect.objectContaining({ spec: expect.objectContaining({ kind: 'guest', target: { type: 'guest', id: GUEST, label: 'Sam' } }), seed: { at: { type: 'guest_message', id: 'sms-in:SM7' } }, reuse: true })])
   })
 })

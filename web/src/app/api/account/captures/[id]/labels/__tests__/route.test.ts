@@ -123,14 +123,14 @@ function makeParams(id: string) {
 
 function getReq(): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/capture-1/labels',
+    url: 'https://nativeintelligence.dev/api/account/captures/capture-1/labels',
     method: 'GET',
   }) as unknown as NextRequest
 }
 
 function postReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/capture-1/labels',
+    url: 'https://nativeintelligence.dev/api/account/captures/capture-1/labels',
     method: 'POST',
     body,
   }) as unknown as NextRequest

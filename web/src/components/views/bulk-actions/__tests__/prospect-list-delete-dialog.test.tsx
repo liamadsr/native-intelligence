@@ -123,8 +123,8 @@ describe('ProspectListDeleteDialog', () => {
       if (d.entityType === 'prospect_list') deletedEvents.push(d.id)
     }
     const onChangedEvent = (e: Event) => changedEvents.push(((e as CustomEvent).detail as { id: string }).id)
-    window.addEventListener('dial8:entity-deleted', onDeletedEvent)
-    window.addEventListener('dial8:prospect-list-changed', onChangedEvent)
+    window.addEventListener('ni:entity-deleted', onDeletedEvent)
+    window.addEventListener('ni:prospect-list-changed', onChangedEvent)
 
     const { onDeleted, onOpenChange } = render({ listIds: ['l1', 'l2'], listName: undefined })
     await confirm()
@@ -139,8 +139,8 @@ describe('ProspectListDeleteDialog', () => {
     expect(deletedEvents).toEqual(['l1', 'l2'])
     expect(changedEvents).toEqual(['l1', 'l2'])
 
-    window.removeEventListener('dial8:entity-deleted', onDeletedEvent)
-    window.removeEventListener('dial8:prospect-list-changed', onChangedEvent)
+    window.removeEventListener('ni:entity-deleted', onDeletedEvent)
+    window.removeEventListener('ni:prospect-list-changed', onChangedEvent)
   })
 
   it("a refusal keeps the dialog open with the server's reason, and deletes nothing it was told not to", async () => {

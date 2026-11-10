@@ -1,4 +1,4 @@
-//! The Mac exit for the agent's cloud browser (dial8-website
+//! The Mac exit for the agent's cloud browser (web
 //! docs/plans/cloud-browser.md, C4): the app's side of `crates/browser-exit`.
 //!
 //! The signed-in main window hands over a token and the hub's URL when the

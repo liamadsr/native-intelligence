@@ -35,7 +35,7 @@ vi.mock('@/lib/ai/auth', () => ({
 const { POST } = await import('@/app/api/deepgram-token/route')
 
 function req(): Request {
-  return new Request('https://dial8.ai/api/deepgram-token', { method: 'POST' })
+  return new Request('https://nativeintelligence.dev/api/deepgram-token', { method: 'POST' })
 }
 
 beforeEach(() => {

@@ -2,7 +2,7 @@
  * Tripwire (eve-everywhere): no in-process model call outside a short, pinned
  * allowlist.
  *
- * THE RULE. A Dial8 server model call goes through an eve agent (chat-agent,
+ * THE RULE. A Native Intelligence server model call goes through an eve agent (chat-agent,
  * skill-runner, coding-agent, work-agent, live-agent, utility,
  * onboarding-researcher). It never calls an AI SDK entry point or a provider
  * model in process. eve is where the ceilings, the session-ownership ACL,
@@ -191,7 +191,7 @@ const AI_VALUE_FILE_PINS: Record<string, string[]> = {
   gateway: ['src/lib/ai/tools/web-search.ts', 'agents/utility/lib/spec-client.ts', 'agents/chat-agent/lib/browser-dispatch-model.ts'],
   wrapLanguageModel: ['agents/utility/lib/spec-client.ts', 'agents/chat-agent/lib/browser-dispatch-model.ts'],
   // Founder decision 7 (docs/plans/local-agents.md §9, 2026-10-20): the local agent's
-  // Gateway provider pointed at the Dial8 model relay (a per-session token, the
+  // Gateway provider pointed at the Native Intelligence model relay (a per-session token, the
   // gateway key stays on the server). It builds the LanguageModel handed to eve
   // in agents/local-agent/agent.ts; eve owns every call.
   createGateway: ['agents/local-agent/lib/model.ts'],

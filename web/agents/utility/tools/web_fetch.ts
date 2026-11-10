@@ -1,4 +1,4 @@
-// NO web access on the utility agent — unlike every other Dial8 agent. Its
+// NO web access on the utility agent — unlike every other Native Intelligence agent. Its
 // prompts are built from workspace data (meeting summaries, email threads,
 // claims) and its answers are written straight back into the workspace, so a
 // fetched page could only ever be an injection vector; no generator here needs

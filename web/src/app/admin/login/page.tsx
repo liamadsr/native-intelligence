@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export default function AdminLoginPage() {
   return (
     <Suspense>
-      <LoginForm googleOnDial8={isGoogleSignInEnabled()} adminDomain={adminEmailDomain()} />
+      <LoginForm googleOnNi={isGoogleSignInEnabled()} adminDomain={adminEmailDomain()} />
     </Suspense>
   )
 }

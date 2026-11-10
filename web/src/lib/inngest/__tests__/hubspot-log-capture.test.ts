@@ -231,7 +231,7 @@ describe('hubspot-log-capture — registration', () => {
 // ---- Capture visibility (external writeback) -------------------------------
 //
 // A private capture ("Only me") must never reach an external CRM: unlike every
-// in-product surface, a HubSpot engagement is outside Dial8's visibility model
+// in-product surface, a HubSpot engagement is outside Native Intelligence's visibility model
 // entirely — it cannot be revoked by flipping the capture back. The gate is an
 // independent re-read of the row, NOT the event's flow_eligible flag, because
 // the triage reconciler emits capture.processed unflagged.
@@ -401,7 +401,7 @@ describe('hubspot-log-capture — happy path', () => {
     expect(input.hs_timestamp).toBe(String(Date.parse('2026-07-25T10:00:00.000Z')))
     expect(input.hs_meeting_start_time).toBe(String(Date.parse('2026-07-25T10:00:00.000Z')))
     expect(input.hs_meeting_end_time).toBe(String(Date.parse('2026-07-25T10:30:00.000Z')))
-    // Body: summary + action items + link back to the Dial8 capture.
+    // Body: summary + action items + link back to the Native Intelligence capture.
     expect(input.hs_meeting_body).toContain('billing rework')
     expect(input.hs_meeting_body).toContain('Action items:')
     expect(input.hs_meeting_body).toContain('- Send the QA report')

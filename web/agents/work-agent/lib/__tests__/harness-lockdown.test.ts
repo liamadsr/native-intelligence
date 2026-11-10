@@ -25,7 +25,7 @@ import { isWebSearchToolDefinition } from 'eve/tools/web_search'
  * request_user_input alone.
  *
  * WEB IS NO LONGER PART OF THAT LOCKDOWN. web_search + web_fetch are ALWAYS ON
- * for every Dial8 agent (no toggle — matching how Anthropic's own agents browse),
+ * for every Native Intelligence agent (no toggle — matching how Anthropic's own agents browse),
  * and web sits OUTSIDE the ceiling mechanism entirely: the ceiling filters the
  * workspace proxies, not the framework's provider/app tools. web_fetch was
  * previously a disableTool() sentinel whose stated reason was the MISSING SSRF

@@ -36,7 +36,7 @@ const reconcileEvent = (id: string) => ({
 })
 
 function request(bearer?: string): NextRequest {
-  return new NextRequest('https://dial8.ai/api/cron/asana-sync', {
+  return new NextRequest('https://nativeintelligence.dev/api/cron/asana-sync', {
     headers: bearer !== undefined ? { authorization: bearer } : {},
   })
 }

@@ -58,7 +58,7 @@ export async function downloadFile(url: string, fallbackName: string): Promise<s
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (/not found|unknown/i.test(message)) {
-        throw new Error('Saving files needs a newer Dial8 desktop app — please update.')
+        throw new Error('Saving files needs a newer Native Intelligence desktop app — please update.')
       }
       throw new Error(message)
     }

@@ -34,7 +34,7 @@ beforeEach(() => {
 
 const put = async (body: Record<string, unknown>) => {
   const { PUT } = await import('../route')
-  return PUT(buildRequest({ url: `https://dial8.ai/api/account/documents/${DOC}/draft`, method: 'PUT', body }) as unknown as NextRequest, {
+  return PUT(buildRequest({ url: `https://nativeintelligence.dev/api/account/documents/${DOC}/draft`, method: 'PUT', body }) as unknown as NextRequest, {
     params: Promise.resolve({ id: DOC }),
   })
 }

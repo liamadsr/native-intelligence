@@ -379,7 +379,7 @@ describe('startRecordingWithCapture concurrency', () => {
     })
     expect(startRecordingCalls).toBe(1)
     expect(holder.captureId).toBe('cap-live')
-    expect(JSON.parse(localStorage.getItem('dial8-active-capture')!).captureId).toBe('cap-live')
+    expect(JSON.parse(localStorage.getItem('ni-active-capture')!).captureId).toBe('cap-live')
   })
 
   it('serializes a new start behind an in-flight stop (no ref clobbering mid-stop)', async () => {
@@ -469,7 +469,7 @@ describe('startRecordingWithCapture concurrency', () => {
     // can't validate; the two-window scenario has the other window writing
     // its marker while this one is already open.
     localStorage.setItem(
-      'dial8-active-capture',
+      'ni-active-capture',
       JSON.stringify({ captureId: 'other-window-cap', elapsed: 5, savedAt: Date.now() }),
     )
 
@@ -486,7 +486,7 @@ describe('startRecordingWithCapture concurrency', () => {
 
     // Undo ran (row deleted) but the other window's marker survived.
     expect(fetchCalls.some((c) => c.method === 'DELETE')).toBe(true)
-    const marker = JSON.parse(localStorage.getItem('dial8-active-capture') ?? 'null')
+    const marker = JSON.parse(localStorage.getItem('ni-active-capture') ?? 'null')
     expect(marker?.captureId).toBe('other-window-cap')
   })
 })
@@ -698,7 +698,7 @@ describe('stop-path local fan-out', () => {
     const emitted: { entityType: string; id: string; fields: Record<string, unknown> }[] = []
     const onUpdated = (e: Event) =>
       emitted.push((e as CustomEvent).detail as (typeof emitted)[number])
-    window.addEventListener('dial8:entity-updated', onUpdated)
+    window.addEventListener('ni:entity-updated', onUpdated)
     try {
       mockRecording.isRecording = false
       await act(async () => { await holder.stopFn!() })
@@ -722,7 +722,7 @@ describe('stop-path local fan-out', () => {
       expect(typeof stopEmit!.fields.ended_at).toBe('string')
       expect(typeof stopEmit!.fields.duration_seconds).toBe('number')
     } finally {
-      window.removeEventListener('dial8:entity-updated', onUpdated)
+      window.removeEventListener('ni:entity-updated', onUpdated)
     }
   })
 })

@@ -5,7 +5,7 @@ import { readTestUser, signInWithPassword, cookieHeader } from '../fixtures/auth
  * J-PageLoad: every authed dashboard view renders without crashing,
  * and the core authed API endpoints return 2xx.
  *
- * The Dial8 dashboard is a SPA — there are no per-page routes like
+ * The Native Intelligence dashboard is a SPA — there are no per-page routes like
  * `/account/captures` or `/account/projects`. All views live under
  * `/account` and switch in-place via the sidebar (or keyboard shortcuts).
  *

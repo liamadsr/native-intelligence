@@ -1,6 +1,6 @@
 import type { SkillEvalCase } from '../types'
 
-/** `everything-about` (knowledge, global): one entity walked across Dial8, cheapest first. */
+/** `everything-about` (knowledge, global): one entity walked across Native Intelligence, cheapest first. */
 export const cases: SkillEvalCase[] = [
   {
     request: 'tell me everything about Acme',

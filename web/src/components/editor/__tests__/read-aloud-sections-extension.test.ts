@@ -77,7 +77,7 @@ const CONTENT: JSONContent = {
     hd(2, 'Plan'),
     p(t(LONG)),
     { type: 'bulletList', content: [{ type: 'listItem', content: [p(t('Book the room'))] }] },
-    { type: 'linkPreview', attrs: { url: 'https://dial8.ai' } },
+    { type: 'linkPreview', attrs: { url: 'https://nativeintelligence.dev' } },
     hd(2, 'Tiny'),
     p(t('Too short to play.')),
     hd(2, 'Wrap-up'),

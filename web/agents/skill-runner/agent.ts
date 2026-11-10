@@ -20,8 +20,8 @@ import { COMPACTION_THRESHOLD_PERCENT, selectionWithPolicy, validModelPolicy, wi
  */
 const NO_SPEC = '[skill-runner] no run spec for this session (its prompt and tools could not be loaded) — refusing to run the skill blind'
 
-/** Thrown when the spec names a ChatGPT plan this agent can't read: never fall back to a model Dial8 pays for. */
-const BAD_PLAN = "[skill-runner] the run's spec names a ChatGPT plan this agent can't read — refusing to run it on Dial8's models"
+/** Thrown when the spec names a ChatGPT plan this agent can't read: never fall back to a model Native Intelligence pays for. */
+const BAD_PLAN = "[skill-runner] the run's spec names a ChatGPT plan this agent can't read — refusing to run it on Native Intelligence's models"
 
 /**
  * Skill-runner agent — Phase 2 of the eve migration (docs/plans/eve-migration-plan.md).

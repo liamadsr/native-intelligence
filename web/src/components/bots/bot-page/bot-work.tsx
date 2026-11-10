@@ -15,8 +15,8 @@
  * it, and a handoff reviewed with its root isn't.
  *
  * An area face (Captures, Mail, Prospecting, Evals, CRM; one-agent plan S3)
- * adds "What I've learned": what Dial8 has learned about you in its area
- * (S2's WhatDial8Learned, `area`), editable there. There is no Conversations
+ * adds "What I've learned": what Native Intelligence has learned about you in its area
+ * (S2's WhatNiLearned, `area`), editable there. There is no Conversations
  * card: the main chat is one conversation with the main agent
  * (docs/plans/one-chat.md, Slice 2).
  *

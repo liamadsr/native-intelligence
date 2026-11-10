@@ -168,20 +168,20 @@ function makeSupabase(opts: {
 }
 
 function req() {
-  return new Request('https://app.dial8.ai/api/account/onboarding/research', {
+  return new Request('https://app.nativeintelligence.dev/api/account/onboarding/research', {
     method: 'POST',
-    headers: { cookie: 'sb-access-token=abc', 'x-forwarded-host': 'app.dial8.ai', 'x-forwarded-proto': 'https' },
+    headers: { cookie: 'sb-access-token=abc', 'x-forwarded-host': 'app.nativeintelligence.dev', 'x-forwarded-proto': 'https' },
   }) as never
 }
 
 /** A kickoff request carrying an optional priming body ({ role, focus }). */
 function reqWithBody(body: unknown) {
-  return new Request('https://app.dial8.ai/api/account/onboarding/research', {
+  return new Request('https://app.nativeintelligence.dev/api/account/onboarding/research', {
     method: 'POST',
     headers: {
       cookie: 'sb-access-token=abc',
       'content-type': 'application/json',
-      'x-forwarded-host': 'app.dial8.ai',
+      'x-forwarded-host': 'app.nativeintelligence.dev',
       'x-forwarded-proto': 'https',
     },
     body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -193,7 +193,7 @@ beforeEach(() => {
   // The secret the kickoff vouches for a session create with (the researcher
   // refuses any other create), and the deployment origin it dispatches to.
   vi.stubEnv('AGENT_RUN_INTERNAL_SECRET', 'agent-run-secret')
-  vi.stubEnv('VERCEL_URL', 'app.dial8.ai')
+  vi.stubEnv('VERCEL_URL', 'app.nativeintelligence.dev')
   hoisted.clientFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true, sessionId: 'wrun_NEW' }) })
   hoisted.getServiceClient.mockReturnValue(makeService({ initialResearch: null }).service)
 })
@@ -263,7 +263,7 @@ describe('POST /api/account/onboarding/research', () => {
     expect(verifyAgentRunToken(sent['x-agent-run-token'])).toMatchObject({ userId: 'user-1', workspaceId: 'ws-1' })
   })
 
-  it("skips research when the person's plan can't be read: never Dial8's models for a free user", async () => {
+  it("skips research when the person's plan can't be read: never Native Intelligence's models for a free user", async () => {
     const { service } = makeService({ initialResearch: null, claimWins: true })
     hoisted.getServiceClient.mockReturnValue(service)
     const { supabase, rpc } = makeSupabase({
@@ -343,7 +343,7 @@ describe('POST /api/account/onboarding/research', () => {
     // request header: the secret rides the call), session started with the brief
     expect(hoisted.clientCtor).toHaveBeenCalledWith(
       expect.objectContaining({
-        host: 'https://app.dial8.ai/eve/onboarding-researcher',
+        host: 'https://app.nativeintelligence.dev/eve/onboarding-researcher',
       }),
     )
     // The create is vouched for with the internal secret, beside the caller's cookie.

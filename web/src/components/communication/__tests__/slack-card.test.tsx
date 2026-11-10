@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * The agent panel's Slack tab (slack-card.tsx): the Phone tab's card, for
- * Slack. Not linked: Get my code. The code: to copy, Open Dial8 in Slack, a
+ * Slack. Not linked: Get my code. The code: to copy, Open Native Intelligence in Slack, a
  * new code. Linked: who you are there, each workspace at the foot with
  * Unlink. No alerts switch. The routes are stubbed.
  */
@@ -58,7 +58,7 @@ async function mount() {
 }
 
 describe('the Slack card', () => {
-  it('not linked: Get my code, then the code to send Dial8, to copy, with Open Dial8 in Slack', async () => {
+  it('not linked: Get my code, then the code to send Native Intelligence, to copy, with Open Native Intelligence in Slack', async () => {
     await mount()
     expect(q('[data-slack-step="setup"]')!.textContent).toContain('Message Joseph in Slack')
     await act(async () => q<HTMLButtonElement>('[data-slack-get-code]')!.click())
@@ -68,7 +68,7 @@ describe('the Slack card', () => {
     expect(host.textContent).toContain('Works once, for 15 minutes')
   })
 
-  it('linked: who you are there, Open Dial8 in Slack, each workspace at the foot with Unlink; no alerts switch', async () => {
+  it('linked: who you are there, Open Native Intelligence in Slack, each workspace at the foot with Unlink; no alerts switch', async () => {
     myLink = { slackUserName: 'liam', alertsOn: true }
     await mount()
     const linked = q('[data-slack-step="linked"]')!
@@ -82,9 +82,9 @@ describe('the Slack card', () => {
     expect(calls).toContain('DELETE /api/account/integrations/slack/link?team=T1')
   })
 
-  it('Slack not set up on this Dial8: says so', async () => {
+  it('Slack not set up here: says so', async () => {
     configured = false
     await mount()
-    expect(host.textContent).toContain("Slack isn't set up on this Dial8 yet.")
+    expect(host.textContent).toContain("Slack isn't set up here yet.")
   })
 })

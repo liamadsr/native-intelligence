@@ -5,7 +5,7 @@ import { emailLinkTarget, emailLinkType, isPkceTokenHash } from '../email-link'
 
 /**
  * The Supabase Auth email templates (supabase/templates, pasted into the
- * dashboard) link to dial8.ai's /auth/confirm with the fields it reads, and
+ * dashboard) link to nativeintelligence.dev's /auth/confirm with the fields it reads, and
  * nothing in them points at supabase.co.
  */
 
@@ -51,16 +51,16 @@ describe('email link fields', () => {
   })
 
   it("lands on the sign-in's own redirect when it is on this origin, else where the type does", () => {
-    const origin = 'https://dial8.ai'
-    expect(emailLinkTarget('https://dial8.ai/auth/desktop-callback', 'magiclink', origin).toString()).toBe(
-      'https://dial8.ai/auth/desktop-callback',
+    const origin = 'https://nativeintelligence.dev'
+    expect(emailLinkTarget('https://nativeintelligence.dev/auth/desktop-callback', 'magiclink', origin).toString()).toBe(
+      'https://nativeintelligence.dev/auth/desktop-callback',
     )
-    expect(emailLinkTarget('https://dial8.ai/reset-password#x', 'recovery', origin).toString()).toBe(
-      'https://dial8.ai/reset-password',
+    expect(emailLinkTarget('https://nativeintelligence.dev/reset-password#x', 'recovery', origin).toString()).toBe(
+      'https://nativeintelligence.dev/reset-password',
     )
-    for (const other of [null, '', 'not a url', '/auth/callback', 'https://evil.example/auth/callback', 'http://dial8.ai/auth/callback']) {
-      expect(emailLinkTarget(other, 'signup', origin).toString(), String(other)).toBe('https://dial8.ai/auth/callback')
-      expect(emailLinkTarget(other, 'recovery', origin).toString(), String(other)).toBe('https://dial8.ai/reset-password')
+    for (const other of [null, '', 'not a url', '/auth/callback', 'https://evil.example/auth/callback', 'http://nativeintelligence.dev/auth/callback']) {
+      expect(emailLinkTarget(other, 'signup', origin).toString(), String(other)).toBe('https://nativeintelligence.dev/auth/callback')
+      expect(emailLinkTarget(other, 'recovery', origin).toString(), String(other)).toBe('https://nativeintelligence.dev/reset-password')
     }
   })
 })

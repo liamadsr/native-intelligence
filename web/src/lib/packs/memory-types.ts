@@ -1,5 +1,5 @@
 /**
- * What Dial8 has learned (plan Part 3, "Memory"; migration 317): the shape of
+ * What Native Intelligence has learned (plan Part 3, "Memory"; migration 317): the shape of
  * one line of an area's note. Plain data, client-safe: the editor, the chip,
  * the routes, the `remember` tool and the pack loader all read it.
  *
@@ -8,9 +8,9 @@
  *   workspace  everyone in it (our ideal prospects, how the team triages).
  * A line is `active` (it loads with the pack) or `proposed` (it waits: a
  * workspace line, for an owner or admin). Its source says where it came from:
- * `told` in chat, `learned` by Dial8 (the nightly passes, the capture pass),
- * `edited` in the editor. A personal line Dial8 learned is active at once and
- * marked "Dial8 noticed this", with a one-tap remove (Liam, 2026-10-17:
+ * `told` in chat, `learned` by Native Intelligence (the nightly passes, the capture pass),
+ * `edited` in the editor. A personal line Native Intelligence learned is active at once and
+ * marked "Native Intelligence noticed this", with a one-tap remove (Liam, 2026-10-17:
  * learning on by default); a workspace line it learned still waits.
  */
 import type { AreaKey } from './registry'
@@ -36,16 +36,16 @@ export const MEMORY_NOTE_MAX_LINES = 50
 
 /**
  * The most proposals one author has waiting in a note: a member's workspace
- * proposals, or Dial8's own (its lines have no author, and count as one).
+ * proposals, or Native Intelligence's own (its lines have no author, and count as one).
  * Proposals never count toward MEMORY_NOTE_MAX_LINES, so this keeps them from
  * piling up instead.
  */
 export const MEMORY_PROPOSALS_PER_AUTHOR = 10
 
 /**
- * The most lines Dial8 learned (no author) one personal note holds, active or
+ * The most lines Native Intelligence learned (no author) one personal note holds, active or
  * waiting. They go live without anyone accepting them (2026-10-17), so this
- * keeps what Dial8 noticed from crowding out what the person said: the same
+ * keeps what Native Intelligence noticed from crowding out what the person said: the same
  * allowance its proposals had. Removing one makes room.
  */
 export const MEMORY_LEARNED_PER_NOTE = MEMORY_PROPOSALS_PER_AUTHOR
@@ -62,7 +62,7 @@ export interface MemoryLine {
   status: MemoryStatus
   source: MemorySource
   text: string
-  /** Who made it; null for a line Dial8 learned. */
+  /** Who made it; null for a line Native Intelligence learned. */
   created_by: string | null
   created_at: string
   updated_at: string

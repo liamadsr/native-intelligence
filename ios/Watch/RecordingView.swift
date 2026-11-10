@@ -68,7 +68,7 @@ struct RecordingView: View {
             }
             .buttonStyle(.plain)
 
-            // Where "Dial8" used to be. Same type, same weight, same place — it
+            // Where the product name used to be. Same type, same weight, same place — it
             // now says something useful and, when there is a choice to make, it
             // can be tapped or scrubbed with the Crown.
             WorkspaceSelector()

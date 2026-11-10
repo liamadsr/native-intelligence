@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { SMS_MESSAGE_SEGMENTS, formatSmsReply, gsmLength, plainSmsText, smsSegments, splitSmsText } from '../sms-format'
 
-const ORIGIN = 'https://dial8.ai'
+const ORIGIN = 'https://nativeintelligence.dev'
 
 describe('plainSmsText: markdown off, GSM-friendly', () => {
   it('drops headings, emphasis, code and quote marks; keeps the words', () => {
@@ -11,7 +11,7 @@ describe('plainSmsText: markdown off, GSM-friendly', () => {
 
   it('turns links into "text (url)", making app links absolute, and drops non-web links to their label', () => {
     expect(plainSmsText('See [ENG-42](/account/actions/ENG-42) and [docs](https://x.dev/a).', ORIGIN)).toBe(
-      'See ENG-42 (https://dial8.ai/account/actions/ENG-42) and docs (https://x.dev/a).',
+      'See ENG-42 (https://nativeintelligence.dev/account/actions/ENG-42) and docs (https://x.dev/a).',
     )
     expect(plainSmsText('[Dana](dial8://contact/1) called', ORIGIN)).toBe('Dana called')
     expect(plainSmsText('[https://x.dev](https://x.dev)', ORIGIN)).toBe('https://x.dev')
@@ -54,7 +54,7 @@ describe('formatSmsReply: never cut, long replies go as several texts', () => {
       expect(text.endsWith('.')).toBe(true)
     }
     expect(out.join(' ')).toBe(long)
-    expect(out.join(' ')).not.toContain('More in Dial8')
+    expect(out.join(' ')).not.toMatch(/More in (Native Intelligence|Dial8)/)
   })
 
   it('prefers a paragraph break, then a line break, over a sentence end', () => {

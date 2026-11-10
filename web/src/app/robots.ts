@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 
 // Robots policy for crawlers. We allow the public marketing surface (including
 // the public docs) and block everything that is either private (the app,

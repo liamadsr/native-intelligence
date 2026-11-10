@@ -271,8 +271,8 @@ export interface FireExtras {
  * actions were all skipped, or which has no actions, is 'success').
  *
  * `appBaseUrl` builds the `action.url` token in body templates so automations
- * can deep-link back into Dial8. Pass `process.env.NEXT_PUBLIC_APP_URL` ??
- * 'https://dial8.ai'.
+ * can deep-link back into Native Intelligence. Pass `process.env.NEXT_PUBLIC_APP_URL` ??
+ * 'https://nativeintelligence.dev'.
  *
  * `entity` is null for workspace-scoped fires (schedule / capture_processed):
  * conditions on entity fields evaluate against empty sets and the entity

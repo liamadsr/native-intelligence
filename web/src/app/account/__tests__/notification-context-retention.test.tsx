@@ -20,7 +20,7 @@
  * INVARIANT, asserted throughout: list.length ≤ (rows fetched) + 200.
  *
  * Plus: one socket repair must cost this provider ONE refetch, not two (its own
- * SUBSCRIBED-after-failure AND the app-wide `dial8:realtime-recovered`).
+ * SUBSCRIBED-after-failure AND the app-wide `ni:realtime-recovered`).
  *
  * The REAL provider is mounted; only supabase, fetch, the member id and the
  * toast/desktop side effects are stubbed.
@@ -222,7 +222,7 @@ describe('NotificationProvider two-pool retention', () => {
     // The app-wide recovery event with no self-catch-up: one first-page refetch.
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
       )
       await Promise.resolve()
     })
@@ -302,7 +302,7 @@ describe('NotificationProvider recovery refetch dedup', () => {
       // Mirror the real dispatch (use-realtime-entities.ts): the event carries the
       // watchdog's CURRENT repair id, which is what a self-refetch mark stamps.
       window.dispatchEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
       )
       await Promise.resolve()
     })

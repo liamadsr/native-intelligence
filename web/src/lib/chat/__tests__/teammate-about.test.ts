@@ -352,7 +352,7 @@ describe('renderTeammateAboutBlock', () => {
         documents: [{ id: DOC, title: evil }],
       }),
     )!
-    // The only closing tags are Dial8's own fences: one per opening.
+    // The only closing tags are Native Intelligence's own fences: one per opening.
     expect(block.match(/<teammate-text>/g)!.length).toBe(block.match(/<\/teammate-text>/g)!.length)
     expect(block).not.toMatch(/<\/?(section|turn-context)/)
     // Each line holds whole fences (nothing a run wrote breaks a line).

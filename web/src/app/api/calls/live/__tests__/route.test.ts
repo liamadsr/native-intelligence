@@ -59,7 +59,7 @@ function delivery(event: unknown, opts: { secret?: Buffer; ts?: number } = {}): 
   const body = JSON.stringify(event)
   const ts = opts.ts ?? Math.floor(Date.now() / 1000)
   const sig = createHmac('sha256', new Uint8Array(opts.secret ?? KEY)).update(`wh_1.${ts}.${body}`).digest('base64')
-  return new Request('https://dial8.test/api/calls/live', {
+  return new Request('https://nativeintelligence.test/api/calls/live', {
     method: 'POST',
     headers: { 'webhook-id': 'wh_1', 'webhook-timestamp': String(ts), 'webhook-signature': `v1,${sig}` },
     body,
@@ -78,7 +78,7 @@ const incoming = (from = '<sip:+14155550100@sip.twilio.com>;tag=1', verstat: str
     sip_headers: [
       { name: 'From', value: from },
       ...(verstat ? [{ name: 'X-Twilio-VerStat', value: verstat }] : []),
-      ...(trunk ? [{ name: 'X-Dial8-Trunk', value: trunk }] : []),
+      ...(trunk ? [{ name: 'X-NI-Trunk', value: trunk }] : []),
     ],
   },
 })
@@ -169,7 +169,7 @@ describe('POST /api/calls/live', () => {
     }
     expect(h.accepts).toEqual([])
     expect(h.rejects).toHaveLength(4)
-    expect((console.info as unknown as { mock: { calls: string[][] } }).mock.calls.at(-1)?.[0]).toContain('outcome=unattested headers=from,x-dial8-trunk,x-twilio-verstat')
+    expect((console.info as unknown as { mock: { calls: string[][] } }).mock.calls.at(-1)?.[0]).toContain('outcome=unattested headers=from,x-ni-trunk,x-twilio-verstat')
   })
 
   it('in local dev only, GPT_LIVE_DEV_SKIP_ATTESTATION answers an unattested call', async () => {

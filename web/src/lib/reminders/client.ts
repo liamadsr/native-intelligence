@@ -12,7 +12,7 @@
  */
 import type { Reminder, ReminderEntityType } from './types'
 
-const REMINDER_CHANGED_EVENT = 'dial8:reminder-changed'
+const REMINDER_CHANGED_EVENT = 'ni:reminder-changed'
 
 export interface ReminderChangedDetail {
   entityType: ReminderEntityType

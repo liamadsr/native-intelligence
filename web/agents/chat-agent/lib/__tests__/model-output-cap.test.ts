@@ -57,6 +57,6 @@ describe('capToolModelOutput', () => {
   it('applies to every workspace tool through expertiseModelOutput', () => {
     const out = expertiseModelOutput({ page: 'p'.repeat(TOOL_RESULT_MODEL_MAX_CHARS + 10) })
     expect(out.type).toBe('text')
-    expect((out as { value: string }).value).toContain('Dial8 cut this result')
+    expect((out as { value: string }).value).toContain('Native Intelligence cut this result')
   })
 })

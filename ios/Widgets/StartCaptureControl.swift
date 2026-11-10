@@ -30,13 +30,13 @@ struct StartCaptureControl: ControlWidget {
         StaticControlConfiguration(kind: Self.kind) {
             ControlWidgetButton(action: StartCaptureIntent()) {
                 // The hint is read out after the app name on the Action Button
-                // ("Dial8 — Start capture"), so it leads with a verb.
+                // ("NI — Start capture"), so it leads with a verb.
                 Label("Capture", systemImage: "waveform")
                     .controlWidgetActionHint("Start capture")
             }
             .tint(Self.neutralTint)
         }
         .displayName("Start Capture")
-        .description("Open Dial8 and start capturing.")
+        .description("Open Native Intelligence and start capturing.")
     }
 }

@@ -44,7 +44,7 @@ export const RECENT_COMPLETION_MS = 72 * 60 * 60 * 1000
 const CLOCK_SKEW_MS = 30 * 1000
 
 /** The adopt-once flags' localStorage prefix (the dev reset clears them all). */
-export const HOME_ADOPTED_KEY_PREFIX = 'dial8:home-conversation-adopted:'
+export const HOME_ADOPTED_KEY_PREFIX = 'ni:home-conversation-adopted:'
 
 /** localStorage key for the per-workspace adopt-once flag. */
 export function homeAdoptedKey(workspaceId: string): string {

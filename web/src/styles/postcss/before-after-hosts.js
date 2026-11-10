@@ -144,7 +144,7 @@ function resolvedSelectors(rule) {
 /** @type {import('postcss').PluginCreator<void>} */
 function beforeAfterHosts() {
   return {
-    postcssPlugin: 'dial8-before-after-hosts',
+    postcssPlugin: 'ni-before-after-hosts',
     OnceExit(root, { result }) {
       const hosts = { before: new Set(RUNTIME_HOSTS), after: new Set(RUNTIME_HOSTS) }
       /** @type {import('postcss').Rule[]} */

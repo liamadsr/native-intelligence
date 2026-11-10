@@ -65,7 +65,7 @@ describe('authenticateUser', () => {
   function request(authHeader?: string): Request {
     const headers = new Headers()
     if (authHeader) headers.set('authorization', authHeader)
-    return new Request('https://dial8.ai/api/ai', { headers })
+    return new Request('https://nativeintelligence.dev/api/ai', { headers })
   }
 
   it('uses JWT path when Authorization: Bearer is present and valid', async () => {

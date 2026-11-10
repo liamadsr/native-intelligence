@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         deepLink: deepLink.toString(),
         body: `<p>Sign-in didn't complete.</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">
-      Return to Dial8 and try again, or
+      Return to Native Intelligence and try again, or
       <a href="${escapeHtml(loginUrl.toString())}" style="color: #60a5fa;">sign in on the web</a>.
     </p>`,
       }),
@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
   // Return an HTML page that redirects to the deep link.
   // We can't do a 302 redirect to a custom scheme, so we use JS + meta refresh.
   const html = callbackPage({
-    title: 'Signing in to Dial8...',
+    title: 'Signing in to Native Intelligence...',
     deepLink: deepLink.toString(),
-    body: `<p>Signing you in to Dial8...</p>
+    body: `<p>Signing you in to Native Intelligence...</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">
       If the app doesn't open automatically,
       <a href="${escapeHtml(deepLink.toString())}" style="color: #60a5fa;">click here</a>.

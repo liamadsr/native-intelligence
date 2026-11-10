@@ -56,7 +56,7 @@ export function createNotificationTools(userId: string, supabase: SupabaseClient
      * eventSummaryParts), over the last 7 days, told or not.
      *
      * The name stays `get_notifications`: the MCP bridges it as
-     * `dial8_get_notifications` and the live agent lists it (its spec, this
+     * `ni_get_notifications` and the live agent lists it (its spec, this
      * description included, is pinned byte for byte by
      * live-agent/__tests__/fixtures/live-agent-pre-port.json).
      *

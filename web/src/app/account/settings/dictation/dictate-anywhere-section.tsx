@@ -3,7 +3,7 @@
 /**
  * Settings → Dictation → Dictate anywhere: tap the right Option key in any app,
  * talk, tap it again, and the words are pasted where the cursor is
- * (dial8-desktop src-tauri/src/dictate.rs; docs/plans/dictate-anywhere.md).
+ * (desktop/src-tauri/src/dictate.rs; docs/plans/dictate-anywhere.md).
  *
  * One switch and nothing else to set up (Liam, 2026-10-25: less
  * configuration). It needs the Accessibility permission Read anywhere asks
@@ -110,7 +110,7 @@ export function DictateAnywhereSection() {
 
         {status.enabled && status.error === 'no_event_tap' && (
           <p className="text-[11px] text-red-700 dark:text-red-400">
-            Dial8 can’t watch the right ⌥ key yet. Allow access above, then turn this off and on.
+            Native Intelligence can’t watch the right ⌥ key yet. Allow access above, then turn this off and on.
           </p>
         )}
         {error && <p className="text-[11px] text-red-700 dark:text-red-400">{error}</p>}

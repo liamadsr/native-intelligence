@@ -102,7 +102,7 @@ describe('createRunAgentExecutor — disarmed (v1 inert)', () => {
     const result = await executor(agentAction({ agent_id: '11111111-2222-4333-8444-555555555555', repo: 'owner/repo', instructions: 'do it' }), {
       entity: null,
       trigger,
-      appBaseUrl: 'https://dial8.ai',
+      appBaseUrl: 'https://nativeintelligence.dev',
       capture: null,
     })
 
@@ -126,7 +126,7 @@ describe('createRunAgentExecutor — disarmed (v1 inert)', () => {
     })
     const result = await executor(
       agentAction({ agent_id: '11111111-2222-4333-8444-555555555555', repo: '', instructions: '' }),
-      { entity: null, trigger, appBaseUrl: 'https://dial8.ai', capture: null },
+      { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', capture: null },
     )
     expect(result.status).toBe('failed')
     expect(result.dispatched).toBe(false)
@@ -144,7 +144,7 @@ describe('createRunAgentExecutor — disarmed (v1 inert)', () => {
     // Valid repo + github token, but no agent_id and no action-context override.
     const result = await executor(
       agentAction({ agent_id: '', repo: 'owner/repo', instructions: '' }),
-      { entity: null, trigger, appBaseUrl: 'https://dial8.ai', capture: null },
+      { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', capture: null },
     )
     expect(result.status).toBe('failed')
     expect(result.dispatched).toBe(false)

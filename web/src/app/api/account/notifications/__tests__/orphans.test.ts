@@ -92,7 +92,7 @@ beforeEach(() => {
 })
 
 function getRequest(query: string) {
-  return { nextUrl: new URL(`https://dial8.ai/api/account/notifications${query}`) } as never
+  return { nextUrl: new URL(`https://nativeintelligence.dev/api/account/notifications${query}`) } as never
 }
 
 describe('an orphaned bot’s notices are plain ones', () => {

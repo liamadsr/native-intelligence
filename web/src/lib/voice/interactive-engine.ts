@@ -58,7 +58,7 @@
  * focus on, each turn waits (at most VOICE_FOCUS.VERDICT_WAIT_MS, then it
  * counts anyway) on whose voice it was before the flow sees it; turns stay in
  * order, and one whose session ends during the wait goes with it. A voice
- * Dial8 doesn't know is dropped like a turn without the name: the name in it
+ * Native Intelligence doesn't know is dropped like a turn without the name: the name in it
  * included (a partial that woke the flow goes back to listening, and the
  * reading resumes). Off, a turn is handled at once, exactly as without it,
  * and its score is only logged.
@@ -377,7 +377,7 @@ export class InteractiveEngine {
         if (this.stage === 'heard' || this.stage === 'awaiting') this.backToListening()
         // The desktop ended it because this window went away (closed to the
         // tray, hidden): no restart on a timer, which could reopen the mic
-        // while Dial8 sits in the tray if the page never reports itself
+        // while Native Intelligence sits in the tray if the page never reports itself
         // hidden. It starts again when the user comes back (windowReturned).
         if (ev.reason === 'page') {
           this.awaitingReturn = true
@@ -458,7 +458,7 @@ export class InteractiveEngine {
     }
   }
 
-  /** A turn in a voice Dial8 doesn't know (Voice focus): as if nothing was
+  /** A turn in a voice Native Intelligence doesn't know (Voice focus): as if nothing was
    *  said to it. The name heard in its partials woke the flow for nothing:
    *  back to listening, and the reading resumes. */
   private onIgnoredTurn(): void {

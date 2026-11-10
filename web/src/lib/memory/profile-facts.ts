@@ -12,7 +12,7 @@
  * the capture pass (A2c) all go through, mirroring saveMemoryLine:
  *   - a told or typed fact is active at once, and so is a learned one (Liam,
  *     2026-10-17: learning on by default; it keeps its `learned` source so
- *     What Dial8 has learned marks it "Dial8 noticed this", with a one-tap
+ *     What Native Intelligence has learned marks it "Native Intelligence noticed this", with a one-tap
  *     remove). Only `proposeOnly` saves a proposal the person accepts;
  *   - the same fact twice is saved once (`already`), except that restating a
  *     proposal accepts it, so what the person says always ends up loading;
@@ -36,8 +36,8 @@ export const PROFILE_FACTS_MAX_CHARS = 4_000
 /** The most proposals waiting for one person, so they can't pile up. */
 export const PROFILE_PROPOSALS_MAX = 20
 /**
- * The most live facts Dial8 learned (source `learned`) one person has. They go
- * live without being accepted (2026-10-17), so this keeps what Dial8 noticed
+ * The most live facts Native Intelligence learned (source `learned`) one person has. They go
+ * live without being accepted (2026-10-17), so this keeps what Native Intelligence noticed
  * from filling the room meant for what the person said: the same allowance
  * its proposals had. Removing one makes room.
  */
@@ -85,7 +85,7 @@ const DUPLICATE_ERROR = 'The person already has that fact.'
 /** Live facts read to judge a save: every active fact and proposal, with room to spare. */
 const READ_LIMIT = 500
 
-const FULL_FIX = 'Ask the person to delete or merge some in What Dial8 has learned (Settings → Memory), About you, first.'
+const FULL_FIX = 'Ask the person to delete or merge some in What Native Intelligence has learned (Settings → Memory), About you, first.'
 
 /**
  * Why a fact can't be saved, in words that name the fix, or null when it can.
@@ -188,7 +188,7 @@ export async function saveProfileFact(
     const full = capProblem(active, text)
     if (full) return { ok: false, code: 'PROFILE_FULL', error: full }
     if (args.source === 'learned' && active.filter((f) => f.source === 'learned').length >= PROFILE_LEARNED_MAX) {
-      return { ok: false, code: 'PROFILE_FULL', error: `The person already has ${PROFILE_LEARNED_MAX} facts Dial8 noticed. ${FULL_FIX}` }
+      return { ok: false, code: 'PROFILE_FULL', error: `The person already has ${PROFILE_LEARNED_MAX} facts Native Intelligence noticed. ${FULL_FIX}` }
     }
   } else if (facts.filter((f) => f.status === 'proposed').length >= PROFILE_PROPOSALS_MAX) {
     return {

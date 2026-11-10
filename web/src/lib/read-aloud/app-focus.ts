@@ -1,8 +1,8 @@
 /**
- * Whether this Dial8 window is the one the user is in: the OS focus. The
+ * Whether this Native Intelligence window is the one the user is in: the OS focus. The
  * desktop app can have several windows (a workspace each), sharing one voice;
  * listen mode follows the user from one to another
- * (components/read-aloud/listen-target.tsx). Leaving Dial8 for another app
+ * (components/read-aloud/listen-target.tsx). Leaving Native Intelligence for another app
  * changes nothing else: listening on while working elsewhere is the point.
  *
  * A module store: the window's focus and blur events are bound the first

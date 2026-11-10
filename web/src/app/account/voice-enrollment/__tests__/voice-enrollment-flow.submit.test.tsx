@@ -246,7 +246,7 @@ async function driveAllPassages(dirs: [number, number, number] = [0, 0, 0]) {
 describe('VoiceEnrollmentFlow — consistent profile POST', () => {
   it('POSTs EVERY quality-accepted chunk (no per-passage downsample) and lands on done', async () => {
     await driveAllPassages()
-    expect(text()).toMatch(/knows your voice|Dial8 knows/i)
+    expect(text()).toMatch(/knows your voice|Native Intelligence knows/i)
 
     const postCall = fetchMock.mock.calls.find(
       (c) => c[0] === '/api/account/voice-profile' && c[1]?.method === 'POST',
@@ -309,7 +309,7 @@ describe('VoiceEnrollmentFlow — consistency outlier bounce', () => {
     embed.dir = 0
     await completePassage()
     await flush()
-    expect(text()).toMatch(/knows your voice|Dial8 knows/i)
+    expect(text()).toMatch(/knows your voice|Native Intelligence knows/i)
     const postCall = fetchMock.mock.calls.find(
       (c) => c[0] === '/api/account/voice-profile' && c[1]?.method === 'POST',
     )

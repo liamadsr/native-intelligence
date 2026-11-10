@@ -811,7 +811,7 @@ describe('runViaEve — dispatch origin (this deployment, through Deployment Pro
 
   it("on Vercel dispatches to THIS deployment (VERCEL_URL), never the production NEXT_PUBLIC_APP_URL, with the bypass header", async () => {
     vi.stubEnv('VERCEL_URL', 'dial8-git-branch.vercel.app')
-    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
     vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', 'bypass-123')
     await runViaEve({ spec: baseSpec(), hasCapture: false, timeoutMs: 120_000 })
     expect(clientOpts().host).toBe('https://dial8-git-branch.vercel.app/eve/skill-runner')

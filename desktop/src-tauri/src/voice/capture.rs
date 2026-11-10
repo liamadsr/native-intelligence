@@ -3,15 +3,15 @@
 //! offline ([`super::replay`]).
 //!
 //! **Off by default, and debug builds only** (the dev app). On only when the
-//! app is launched with `DIAL8_VOICE_CAPTURE=1` (into
+//! app is launched with `NI_VOICE_CAPTURE=1` (into
 //! `~/Library/Application Support/ai.dial8.desktop/voice-captures/`) or
-//! `DIAL8_VOICE_CAPTURE=<dir>`. The dev app is a bundle started by `open`, so
+//! `NI_VOICE_CAPTURE=<dir>`. The dev app is a bundle started by `open`, so
 //! the variable goes in with `open --env` on a quit app (a running one
 //! ignores it):
 //!
 //! ```text
-//! osascript -e 'quit app "Dial8"'
-//! open --env DIAL8_VOICE_CAPTURE=1 src-tauri/target/debug/bundle/macos/Dial8.app
+//! osascript -e 'quit app "Native Intelligence"'
+//! open --env NI_VOICE_CAPTURE=1 "src-tauri/target/debug/bundle/macos/Native Intelligence.app"
 //! ```
 //!
 //! Each session writes
@@ -58,7 +58,7 @@ use crate::audio::aec::{AecMetrics, AEC_FRAME};
 use crate::audio::wav_writer::WavWriter;
 
 /// The switch.
-pub const ENV: &str = "DIAL8_VOICE_CAPTURE";
+pub const ENV: &str = "NI_VOICE_CAPTURE";
 /// 30 minutes of mic audio.
 pub const MAX_AUDIO_SAMPLES: u64 = 30 * 60 * SAMPLE_RATE;
 /// 500 MB written.

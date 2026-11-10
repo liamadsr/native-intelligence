@@ -1,7 +1,7 @@
 /**
  * The Mac body's host switch and its link to the app (contract C2,
  * docs/plans/teammate-agent.md): pure pieces. Pins:
- *   - the host is 'cloud' unless DIAL8_AGENT_HOST is exactly 'mac'; anything
+ *   - the host is 'cloud' unless NI_AGENT_HOST is exactly 'mac'; anything
  *     else throws, and 'mac' never runs on Vercel;
  *   - C1's origin: LOCAL_AGENT_API_ORIGIN (an origin only), else the relay
  *     URL's origin, both under the relay URL's rule;
@@ -62,21 +62,21 @@ const TOKEN_B = 'la1.test-session-token-B'
 describe('agentHost', () => {
   it('is the cloud by default and the Mac only for exactly "mac"', () => {
     expect(agentHost({})).toBe('cloud')
-    expect(agentHost({ DIAL8_AGENT_HOST: '' })).toBe('cloud')
-    expect(agentHost({ DIAL8_AGENT_HOST: 'cloud' })).toBe('cloud')
-    expect(agentHost({ DIAL8_AGENT_HOST: 'mac' })).toBe('mac')
-    expect(agentHost({ DIAL8_AGENT_HOST: 'mac', VERCEL: '' })).toBe('mac')
-    expect(isMacHost({ DIAL8_AGENT_HOST: 'mac' })).toBe(true)
+    expect(agentHost({ NI_AGENT_HOST: '' })).toBe('cloud')
+    expect(agentHost({ NI_AGENT_HOST: 'cloud' })).toBe('cloud')
+    expect(agentHost({ NI_AGENT_HOST: 'mac' })).toBe('mac')
+    expect(agentHost({ NI_AGENT_HOST: 'mac', VERCEL: '' })).toBe('mac')
+    expect(isMacHost({ NI_AGENT_HOST: 'mac' })).toBe(true)
     expect(isMacHost({})).toBe(false)
   })
 
   it('throws on any other value, and on the Mac host on Vercel', () => {
-    for (const bad of ['Mac', 'macos', 'true', '1', ' mac']) expect(() => agentHost({ DIAL8_AGENT_HOST: bad })).toThrow(/not a host/)
-    expect(() => agentHost({ DIAL8_AGENT_HOST: 'mac', VERCEL: '1' })).toThrow(/never runs there/)
+    for (const bad of ['Mac', 'macos', 'true', '1', ' mac']) expect(() => agentHost({ NI_AGENT_HOST: bad })).toThrow(/not a host/)
+    expect(() => agentHost({ NI_AGENT_HOST: 'mac', VERCEL: '1' })).toThrow(/never runs there/)
   })
 
   it('reads the process environment by default (unset in this test run: the cloud)', () => {
-    expect(process.env.DIAL8_AGENT_HOST).toBeUndefined()
+    expect(process.env.NI_AGENT_HOST).toBeUndefined()
     expect(isMacHost()).toBe(false)
   })
 })
@@ -92,11 +92,11 @@ describe('C1 from the Mac', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   it('finds the origin: LOCAL_AGENT_API_ORIGIN, else the relay URL; with both, only one origin', () => {
-    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai', LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model' })).toBe('https://dial8.ai')
-    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai', LOCAL_AGENT_MODEL_BASE_URL: 'https://other.test/api/local-agent/model' })).toBeNull()
-    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai/' })).toBe('https://dial8.ai')
+    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev', LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model' })).toBe('https://nativeintelligence.dev')
+    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev', LOCAL_AGENT_MODEL_BASE_URL: 'https://other.test/api/local-agent/model' })).toBeNull()
+    expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev/' })).toBe('https://nativeintelligence.dev')
     expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'http://127.0.0.1:3001' })).toBe('http://127.0.0.1:3001')
-    expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model' })).toBe('https://dial8.ai')
+    expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model' })).toBe('https://nativeintelligence.dev')
     expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'http://127.0.0.1:3001/api/local-agent/model' })).toBe('http://127.0.0.1:3001')
     expect(macApiOrigin({})).toBeNull()
   })
@@ -104,34 +104,34 @@ describe('C1 from the Mac', () => {
   it('refuses an origin that is not one, or not https off loopback', () => {
     // A dev origin on localhost works, as the relay URL's rule allows.
     expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: 'http://localhost:3000' })).toBe('http://localhost:3000')
-    for (const bad of ['http://dial8.ai', 'http://10.0.0.2:3000', 'https://dial8.ai/api', 'https://u:p@dial8.ai', 'https://dial8.ai?x=1', 'not a url']) {
+    for (const bad of ['http://nativeintelligence.dev', 'http://10.0.0.2:3000', 'https://nativeintelligence.dev/api', 'https://u:p@dial8.ai', 'https://nativeintelligence.dev?x=1', 'not a url']) {
       expect(macApiOrigin({ LOCAL_AGENT_API_ORIGIN: bad })).toBeNull()
     }
     expect(macApiOrigin({ LOCAL_AGENT_MODEL_BASE_URL: 'http://10.0.0.2/api/local-agent/model' })).toBeNull()
   })
 
   it('has no route without a session token file or an origin', () => {
-    expect(macRouteUnavailable({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toMatch(/no session token/)
-    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toMatch(/not absolute/)
+    expect(macRouteUnavailable({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toMatch(/no session token/)
+    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toMatch(/not absolute/)
     expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile })).toMatch(/no app origin/)
-    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBeNull()
+    expect(macRouteUnavailable({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBeNull()
     expect(() => macRouteTarget('spec', {})).toThrow(/not reachable/)
   })
 
   it('is the dev path only with no token file at all; a token without a route is misconfigured', () => {
     expect(macRouteState({})).toBe('no-token')
-    expect(macRouteState({ LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('no-token')
+    expect(macRouteState({ LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('no-token')
     expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile })).toBe('misconfigured')
-    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('misconfigured')
+    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: 'relative', LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('misconfigured')
     expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'http://10.0.0.2' })).toBe('misconfigured')
-    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' })).toBe('ok')
+    expect(macRouteState({ LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' })).toBe('ok')
   })
 
   it('reads the token file on every call, so a refresh lands on the next one', () => {
-    const env = { LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' }
-    expect(macRouteTarget('spec', env)).toEqual({ url: 'https://dial8.ai/api/local-agent/agent/spec', headers: { authorization: `Bearer ${TOKEN_A}` } })
+    const env = { LOCAL_AGENT_SESSION_TOKEN_FILE: tokenFile, LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' }
+    expect(macRouteTarget('spec', env)).toEqual({ url: 'https://nativeintelligence.dev/api/local-agent/agent/spec', headers: { authorization: `Bearer ${TOKEN_A}` } })
     writeFileSync(tokenFile, TOKEN_B)
-    expect(macRouteTarget('tool', env)).toEqual({ url: 'https://dial8.ai/api/local-agent/agent/tool', headers: { authorization: `Bearer ${TOKEN_B}` } })
+    expect(macRouteTarget('tool', env)).toEqual({ url: 'https://nativeintelligence.dev/api/local-agent/agent/tool', headers: { authorization: `Bearer ${TOKEN_B}` } })
     writeFileSync(tokenFile, 'not a token')
     expect(() => macRouteTarget('tool', env)).toThrow(/does not hold a token/)
   })
@@ -155,7 +155,7 @@ describe('judgeMacLiveness (fails closed)', () => {
   beforeEach(() => {
     resetMacLivenessForTests()
     dir = mkdtempSync(join(tmpdir(), 'mac-live-test-'))
-    env = { LOCAL_AGENT_SESSION_TOKEN_FILE: join(dir, '.model-token'), LOCAL_AGENT_API_ORIGIN: 'https://dial8.ai' }
+    env = { LOCAL_AGENT_SESSION_TOKEN_FILE: join(dir, '.model-token'), LOCAL_AGENT_API_ORIGIN: 'https://nativeintelligence.dev' }
     writeFileSync(env.LOCAL_AGENT_SESSION_TOKEN_FILE, tokenWithExp(NOW + 3600), { mode: 0o600 })
   })
   afterEach(() => {
@@ -229,19 +229,19 @@ describe('the Mac channel (agents/local-agent/channels/eve.ts)', () => {
   beforeEach(async () => {
     process.env.LOCAL_AGENT_SECRET = SECRET
     process.env.LOCAL_AGENT_JOB_ID = 'job-1'
-    process.env.DIAL8_AGENT_HOST = 'mac'
+    process.env.NI_AGENT_HOST = 'mac'
     vi.resetModules()
     ;({ macChannelAuth } = (await import('../../../local-agent/channels/eve')) as unknown as ChannelModule)
   })
   afterEach(() => {
     delete process.env.LOCAL_AGENT_SECRET
     delete process.env.LOCAL_AGENT_JOB_ID
-    delete process.env.DIAL8_AGENT_HOST
+    delete process.env.NI_AGENT_HOST
   })
   const req = (bearer?: string) => new Request('http://127.0.0.1:4000/eve/v1/session', { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} })
 
   it('refuses to load outside the Mac body', async () => {
-    delete process.env.DIAL8_AGENT_HOST
+    delete process.env.NI_AGENT_HOST
     vi.resetModules()
     await expect(import('../../../local-agent/channels/eve')).rejects.toThrow(/outside the Mac body/)
   })
@@ -303,12 +303,12 @@ describe('the Mac instructions', () => {
     expect(withBoth).toContain('`report_to_person`')
     expect(withBoth).toContain('`message_teammate`')
     expect(withBoth).toContain('call it on its own, never beside another tool')
-    expect(withBoth).toContain('Your Dial8 tools work as they do in the chat')
-    // No spec (no session token, or the app unreachable): no teammate tools, no Dial8 tools.
+    expect(withBoth).toContain('Your Native Intelligence tools work as they do in the chat')
+    // No spec (no session token, or the app unreachable): no teammate tools, no Native Intelligence tools.
     const without = macHostInstructions('read', undefined)
     expect(without).not.toContain('report_to_person')
     expect(without).not.toContain('message_teammate')
     expect(without).toContain('put what you found, what was blocked and any question in your `finish` summary')
-    expect(without).toContain('no Dial8 tools')
+    expect(without).toContain('no Native Intelligence tools')
   })
 })

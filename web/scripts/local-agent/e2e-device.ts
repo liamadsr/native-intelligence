@@ -12,7 +12,7 @@
  *        ▼
  *   fake Rust, its own process (e2e/fake-rust.ts) ──spawn──▶ launcher.ts (real) ──▶ eve server (real build)
  *
- * The agent is the Mac body (the Dial8 agent built for the Mac, contract C2,
+ * The agent is the Mac body (the Native Intelligence agent built for the Mac, contract C2,
  * scripts/local-agent/build.sh).
  *
  * The model: the dev path by default (LOCAL_AGENT_DEV_ENV_FILE; the launcher
@@ -30,7 +30,7 @@
  *      calls, and every event uploaded under the real runId.
  *   A2 a person's steer while the turn runs: `[From Liam] …`, same turn.
  *   A3 the agent's question ends the turn (scripted: `message_teammate`
- *      through C1) → waiting → the Dial8 agent's answer
+ *      through C1) → waiting → the Native Intelligence agent's answer
  *      (`[From the Dial8 agent] …`) → the turn resumes. What the server does
  *      with message_teammate (needs_input, the cloud body's home turn) is
  *      WS-C's and not covered here.
@@ -165,7 +165,7 @@ const root = join(home, `.dial8-local-agent-e2e-${tag}`)
 const appData = join(root, 'app-data')
 const worktreesRoot = join(root, 'worktrees')
 const readFolder = join(root, 'e2e-read-folder')
-const gitRepo = join(root, 'dial8-e2e-app')
+const gitRepo = join(root, 'ni-e2e-app')
 const hookMarker = join(root, 'hook-ran')
 const README = '# E2E fixture\n\nA tiny project for the local-agent e2e.\nIt has a README, a source file and some notes.\n'
 const jobTmps: string[] = []
@@ -173,7 +173,7 @@ const launcherPids = new Set<number>()
 
 const toolPath = [dirname(process.execPath), '/usr/bin', '/bin'].join(':')
 function hostGit(gitArgs: string[]): string {
-  return execFileSync('git', ['-c', 'user.name=Dial8 e2e', '-c', 'user.email=e2e@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
+  return execFileSync('git', ['-c', 'user.name=Native Intelligence e2e', '-c', 'user.email=e2e@dial8.invalid', '-c', 'init.defaultBranch=main', ...gitArgs], {
     encoding: 'utf8',
     // Cast: Next's global types make ProcessEnv require NODE_ENV, which git doesn't need.
     env: { PATH: toolPath, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } as Record<string, string> as NodeJS.ProcessEnv,
@@ -457,7 +457,7 @@ async function main() {
   }, { skipIf: skipA ?? (a1 ? null : 'A1 did not complete') })
 
   let answerId = ''
-  const a3 = await step('A3 the question ends the turn → waiting → the Dial8 agent answers → the agent resumes', async () => {
+  const a3 = await step('A3 the question ends the turn → waiting → the Native Intelligence agent answers → the agent resumes', async () => {
     const ringAsked = await ringOf(rust, A)
     const ask = fakeModel?.c1.find((r) => r.route === 'tool' && r.toolName === 'message_teammate')
     const asked = {
@@ -482,7 +482,7 @@ async function main() {
     })
     return {
       ...asked,
-      prefixedAsTheDial8Agent: answer?.text === `[From the Dial8 agent] ${T.answer}`,
+      prefixedAsTheNiAgent: answer?.text === `[From the Dial8 agent] ${T.answer}`,
       sameLauncher: answer?.runId === runA1,
       agentResumed: resumed,
     }
@@ -615,7 +615,7 @@ async function main() {
     const finishAt = ring.findIndex((e) => e.event.kind === 'finish')
     const branchAt = ring.findIndex((e) => e.event.kind === 'branch')
     const worktree = join(realpathSync(worktreesRoot), B)
-    const expectedBranch = `dial8/dial8-e2e-app-${B.replace(/-/g, '').slice(0, 8)}`
+    const expectedBranch = `dial8/ni-e2e-app-${B.replace(/-/g, '').slice(0, 8)}`
     const committed = hostGit(['-C', gitRepo, 'show', '--name-only', '--format=', expectedBranch]).trim().split('\n').sort()
     const subject = hostGit(['-C', gitRepo, 'log', '-1', '--format=%s', expectedBranch]).trim()
     const stored = deviceEvents(B).find((e) => e.kind === 'branch')

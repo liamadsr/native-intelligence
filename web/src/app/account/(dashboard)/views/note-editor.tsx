@@ -110,7 +110,7 @@ const horizontalRule = HorizontalRule.configure({
 
 const table = Table.configure({
   HTMLAttributes: {
-    class: cx('not-prose dial8-table'),
+    class: cx('not-prose ni-table'),
   },
   resizable: true,
   lastColumnResizable: true,
@@ -119,11 +119,11 @@ const table = Table.configure({
 const tableRow = TableRow.configure({})
 
 const tableHeader = TableHeader.configure({
-  HTMLAttributes: { class: cx('dial8-table-header') },
+  HTMLAttributes: { class: cx('ni-table-header') },
 })
 
 const tableCell = TableCell.configure({
-  HTMLAttributes: { class: cx('dial8-table-cell') },
+  HTMLAttributes: { class: cx('ni-table-cell') },
 })
 
 // Enables per-cell column alignment from GFM `:---:` delimiters.

@@ -6,7 +6,7 @@
  * The person's own texts have no cap (Liam, 2026-10-31).
  *
  * One phone, two accounts (migration 464): a phone has at most one
- * Dial8-line row (`line = 'dial8'`, the account the Dial8 number reaches) and
+ * NI-line row (`line = 'dial8'`, the account the Native Intelligence number reaches) and
  * any number of business-line rows (`line = 'business'`, an account reached
  * only on the business number of a workspace its person belongs to). Each
  * person still has one row.
@@ -53,7 +53,7 @@ export type SmsOutboundKind =
 export const SMS_INBOUND_RATE_LIMIT = 20
 export const SMS_INBOUND_RATE_WINDOW_MS = 10 * 60_000
 /**
- * Replies to texts Dial8 can't tie to a person (HELP, START, an unknown
+ * Replies to texts Native Intelligence can't tie to a person (HELP, START, an unknown
  * sender) across ALL numbers in an hour: anyone can trigger them, so they are
  * capped globally against SMS pumping. Past it, those texts get no reply.
  */
@@ -68,7 +68,7 @@ export const SMS_AUTO_REPLY_KINDS: readonly SmsOutboundKind[] = ['unknown_reply'
 
 /**
  * Which number reaches a verified phone's account (migration 464): 'dial8' the
- * Dial8 number (one account per phone), 'business' only the business number
+ * Native Intelligence number (one account per phone), 'business' only the business number
  * of a workspace its person belongs to.
  */
 export type PhoneLine = 'dial8' | 'business'
@@ -107,7 +107,7 @@ function toLinked(row: UserPhoneRow): LinkedPhone {
 }
 
 /**
- * The account the Dial8 number reaches from `phone`: its verified Dial8-line
+ * The account the Native Intelligence number reaches from `phone`: its verified NI-line
  * row, or null. A business-line row is never it (that account is reached on a
  * business's own number only). Throws on a failed read.
  */
@@ -134,7 +134,7 @@ async function membersAmong(supabase: SupabaseClient, workspaceId: string, userI
 /**
  * Who is texting a business's own number from `phone` when it is one of that
  * business's own people: the phone's verified row whose person is a member of
- * `workspaceId`. A business-line row first, then the Dial8-line one; between
+ * `workspaceId`. A business-line row first, then the NI-line one; between
  * two rows on one line, the oldest (then the lowest id), so the answer never
  * flips. Null when none is (a customer). The row is returned as stored: the
  * caller puts the business's workspace on it. Throws on a failed read.
@@ -165,8 +165,8 @@ export async function linkedPhoneForUser(supabase: SupabaseClient, userId: strin
 }
 
 /**
- * Set or clear the opt-out of the phone's Dial8-line row: a STOP / START to
- * the Dial8 number, or Twilio's 21610 on a text from it. Its business-line
+ * Set or clear the opt-out of the phone's NI-line row: a STOP / START to
+ * the Native Intelligence number, or Twilio's 21610 on a text from it. Its business-line
  * rows are left alone: an opt-out is per sending number at the carrier
  * (Twilio's own, `OptOutType`), and they are texted from business numbers
  * only. Throws on a failed write.
@@ -185,7 +185,7 @@ export async function setPhoneOptOut(supabase: SupabaseClient, phone: string, op
  * Set or clear one row's opt-out, on either line: a STOP / START to a
  * business's number toggles the row that number resolves the phone to
  * ({@link findBusinessPerson}), and Twilio's 21610 on a text from it the row
- * of the person texted, which is the same row (Dial8 texts someone from a
+ * of the person texted, which is the same row (Native Intelligence texts someone from a
  * business's number only when a text back would reach them:
  * ./workspace-line.ts). Throws on a failed write.
  */
@@ -307,7 +307,7 @@ export async function countOutboundKindsSince(supabase: SupabaseClient, kinds: r
   return count ?? 0
 }
 
-/** True when Dial8 already sent `phone` a text of `kind` (since `sinceMs`, when given). Throws on a failed read. */
+/** True when Native Intelligence already sent `phone` a text of `kind` (since `sinceMs`, when given). Throws on a failed read. */
 export async function hasOutbound(supabase: SupabaseClient, phone: string, kind: SmsOutboundKind, sinceMs?: number): Promise<boolean> {
   let query = supabase.from('sms_message').select('id').eq('phone_e164', phone).eq('direction', 'out').eq('kind', kind)
   if (sinceMs !== undefined) query = query.gte('created_at', new Date(sinceMs).toISOString())

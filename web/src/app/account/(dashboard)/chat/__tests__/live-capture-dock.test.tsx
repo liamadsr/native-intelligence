@@ -62,7 +62,7 @@ function render(props: { attach?: boolean; fullScreen?: boolean } = {}) {
     root.render(
       h(
         'div',
-        { id: 'dial8-chat-strip-slot' },
+        { id: 'ni-chat-strip-slot' },
         h(LiveCaptureDockLayout, {
           children: h(FakeCard, { attach: props.attach, fullScreen: props.fullScreen }),
         }),

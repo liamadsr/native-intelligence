@@ -34,7 +34,7 @@
  *
  * `priority` deserves its own note. It is a system field, but its valid values
  * are per priority-SCHEME since 2024, and the endpoint that lists them
- * (`/priority/search`) needs `manage:jira-configuration` — a scope Dial8 neither
+ * (`/priority/search`) needs `manage:jira-configuration` — a scope Native Intelligence neither
  * holds nor should request for a dropdown. createmeta's `allowedValues` on the
  * priority field is the same answer, in scope, in a call the panel already makes.
  */

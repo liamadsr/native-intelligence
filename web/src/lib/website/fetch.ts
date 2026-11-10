@@ -7,6 +7,7 @@
  * writes, so none of this trusts it.
  */
 
+import { appUrl } from '@/lib/app-url'
 const MAX_REDIRECTS = 4
 const BLOCKED_HOST = /^(localhost|.*\.localhost|.*\.local|.*\.internal|.*\.lan|metadata\.google\.internal)$/i
 
@@ -39,7 +40,7 @@ export async function fetchPublic(url: string, opts: { fetchImpl?: typeof fetch;
       res = await (opts.fetchImpl ?? fetch)(current.toString(), {
         redirect: 'manual',
         signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
-        headers: { 'User-Agent': 'Dial8 website check (+https://dial8.ai)' },
+        headers: { 'User-Agent': `Native Intelligence website check (+${appUrl()})` },
       })
     } catch {
       return null

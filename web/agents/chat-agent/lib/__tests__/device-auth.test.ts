@@ -7,7 +7,7 @@ import { join } from 'node:path'
  * Device-token principals on the user-facing chat-agent channel
  * (/api/device/ask's one-shot task sessions).
  *
- * The device relays its OWN `d8d_` token; the channel resolves it to the owning
+ * The device relays its OWN `nid_` token; the channel resolves it to the owning
  * user + active workspace (twin of src/lib/device-tokens.ts) and runs the SAME
  * session-ownership ACL the Supabase entry runs. Pinned here:
  *   - resolution: unknown / expired / non-device bearers skip; the token's active
@@ -89,8 +89,8 @@ import {
 import { mintChatRunToken } from '@/lib/chat/chat-run-token'
 
 const MOUNT = 'https://app/eve/chat-agent/v1'
-const DEVICE_A = 'd8d_device-of-user-1'
-const DEVICE_B = 'd8d_device-of-user-2'
+const DEVICE_A = 'nid_device-of-user-1'
+const DEVICE_B = 'nid_device-of-user-2'
 
 const req = (path: string, bearer?: string, extra: Record<string, string> = {}) =>
   new Request(`${MOUNT}${path}`, {
@@ -128,6 +128,13 @@ describe('resolveDeviceTokenSession', () => {
     expect(lookup.eqs).toEqual([['token_hash', hashOf(DEVICE_A)]])
   })
 
+  it('a token minted before the rename (d8d_…) is still that device', async () => {
+    const before = 'd8d_device-of-user-1'
+    state.devices[hashOf(before)] = { user_id: 'user-1', active_workspace_id: 'ws-1', expires_at: null }
+    expect(await resolveDeviceTokenSession(req('/session', before))).toEqual({ userId: 'user-1', workspaceId: 'ws-1' })
+    expect(await resolveSupabaseSession(req('/session', before))).toBeNull()
+  })
+
   it('no active workspace → the owner’s oldest membership (same fallback as the Next side)', async () => {
     state.devices[hashOf(DEVICE_A)].active_workspace_id = null
     expect(await resolveDeviceTokenSession(req('/session', DEVICE_A))).toEqual({ userId: 'user-1', workspaceId: 'ws-oldest' })
@@ -142,7 +149,7 @@ describe('resolveDeviceTokenSession', () => {
     expect(await resolveDeviceTokenSession(req('/session'))).toBeNull()
     expect(await resolveDeviceTokenSession(req('/session', 'eyJhbGciOi.jwt.sig'))).toBeNull()
     expect(state.queries).toHaveLength(0) // a JWT never costs a device_token lookup
-    expect(await resolveDeviceTokenSession(req('/session', 'd8d_unknown'))).toBeNull()
+    expect(await resolveDeviceTokenSession(req('/session', 'nid_unknown'))).toBeNull()
     state.devices[hashOf(DEVICE_A)].expires_at = '2020-01-01T00:00:00Z'
     expect(await resolveDeviceTokenSession(req('/session', DEVICE_A))).toBeNull()
   })
@@ -199,7 +206,7 @@ describe('deviceTokenAuthWithAcl — a device session is driven only by its owne
   })
 })
 
-describe('deviceTokenAuthWithAcl — a d8d_ token is bound to its own device ask', () => {
+describe('deviceTokenAuthWithAcl — a nid_ token is bound to its own device ask', () => {
   const auth = deviceTokenAuthWithAcl()
 
   it('no run token: the device may NOT create a (token-less, ungated) session', async () => {
@@ -280,7 +287,7 @@ describe('deviceTokenAuthWithAcl — a d8d_ token is bound to its own device ask
   })
 })
 
-describe('a d8d_ bearer walks PAST the Supabase entry to the device entry', () => {
+describe('a nid_ bearer walks PAST the Supabase entry to the device entry', () => {
   it('resolveSupabaseSession skips (null) a device token: never forwarded as a JWT, never validated as one', async () => {
     const getUser = vi.fn(async (..._a: unknown[]) => ({ data: { user: null }, error: null }))
     vi.mocked(createServerClient).mockReturnValue({ auth: { getUser } } as never)
@@ -288,7 +295,7 @@ describe('a d8d_ bearer walks PAST the Supabase entry to the device entry', () =
     // Not forwarded to PostgREST as an Authorization header (isJwtBearer)…
     const opts = vi.mocked(createServerClient).mock.calls[0][2] as { global?: unknown }
     expect(opts.global).toBeUndefined()
-    // …and never handed to auth.getUser(token) (resolveUser's d8d_ skip).
+    // …and never handed to auth.getUser(token) (resolveUser's nid_ skip).
     for (const call of getUser.mock.calls) expect(call).not.toContain(DEVICE_A)
   })
 

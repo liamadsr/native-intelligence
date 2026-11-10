@@ -1,7 +1,7 @@
 /// Canonical resolver for sidecar executables (see scripts/sidecars.sh for the
 /// build convention: every folder in src-tauri/sidecars/ builds into
 /// `.out/bin/<executable>`, which release/dev scripts stage into
-/// `Dial8.app/Contents/MacOS/`).
+/// `Native Intelligence.app/Contents/MacOS/`).
 ///
 /// Every caller must use this so dev and production resolve sidecars the same
 /// way. The bundled copy is always preferred: macOS associates a sidecar's TCC
@@ -50,7 +50,7 @@ fn exe_name(name: &str) -> String {
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// Every child process the app starts runs without a console window. On
-/// Windows Dial8 is a GUI-subsystem exe with no console to share, so a
+/// Windows Native Intelligence is a GUI-subsystem exe with no console to share, so a
 /// console program it spawns (a sidecar, node, git) would otherwise flash a
 /// terminal window of its own. Elsewhere this does nothing.
 pub trait NoConsole {

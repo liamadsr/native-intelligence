@@ -6,11 +6,12 @@ import {
   softwareApplicationSchema,
 } from '@/components/structured-data'
 import CompanyBrainPage from './company-brain-page'
+import { appUrl } from '@/lib/app-url'
 
-const BASE_URL = 'https://dial8.ai'
+const BASE_URL = appUrl()
 const TITLE = 'Company Brain — One brain. Every tool. Always in sync.'
 const DESCRIPTION =
-  'Dial8 captures your meetings live, turns them into action items, and pushes them into Slack, Jira, Linear, or Asana — while staying the one place that always knows what is true.'
+  'Native Intelligence captures your meetings live, turns them into action items, and pushes them into Slack, Jira, Linear, or Asana — while staying the one place that always knows what is true.'
 
 // The social cards describe THIS page rather than inheriting layout.tsx's sales
 // pitch. The card image is ./opengraph-image.tsx — without it, defining
@@ -25,7 +26,7 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     url: `${BASE_URL}/company-brain`,
     type: 'website',
-    siteName: 'Dial8',
+    siteName: 'Native Intelligence',
   },
   twitter: {
     card: 'summary_large_image',

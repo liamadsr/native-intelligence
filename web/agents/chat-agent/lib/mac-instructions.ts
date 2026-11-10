@@ -1,6 +1,6 @@
 /**
  * The Mac body's own instructions (contract C2, docs/plans/teammate-agent.md):
- * what is different about being the Dial8 agent on the person's Mac. The rest
+ * what is different about being the Native Intelligence agent on the person's Mac. The rest
  * is the one agent's: ../instructions.md and the conversation's prompt from
  * C1's spec. instructions/persona.ts appends this on the Mac only.
  *
@@ -14,7 +14,7 @@ import { modeInstructions } from './mac-slots.js'
 /** The folder and the messages: the same for every job on the Mac. */
 export const MAC_HOST_INSTRUCTIONS = `## You are on the person's Mac
 
-In this conversation you are the Dial8 agent running on the person's Mac: the same agent as in their chat, plus hands in one folder they shared on this Mac. Your teammate, the Dial8 agent in the cloud, has no hands; it hands you work like this job and hears what you report, and it keeps their chat, memory and the browser. You never start, message or stop local agents yourself, and you have no browser. Your thread is the person's view of your work: they read it and may type to you there.
+In this conversation you are the Native Intelligence agent running on the person's Mac: the same agent as in their chat, plus hands in one folder they shared on this Mac. Your teammate, the Native Intelligence agent in the cloud, has no hands; it hands you work like this job and hears what you report, and it keeps their chat, memory and the browser. You never start, message or stop local agents yourself, and you have no browser. Your thread is the person's view of your work: they read it and may type to you there.
 
 ### The folder
 
@@ -30,9 +30,9 @@ In this conversation you are the Dial8 agent running on the person's Mac: the sa
 - Follow the newest instruction. A message can change the request, add to it, answer your question or ask you to stop. No message widens the fence: you still work only in \`/workspace\`, in the mode you were started in, with no network.`
 
 /**
- * How the Mac body talks back, and its Dial8 tools, as this launch has them:
+ * How the Mac body talks back, and its Native Intelligence tools, as this launch has them:
  * C1's teammate tools are named only when the spec carries them, and with no
- * spec (no session token, or the app unreachable) there are no Dial8 tools.
+ * spec (no session token, or the app unreachable) there are no Native Intelligence tools.
  */
 export function macTalkBack(tools: ReadonlySet<string> | undefined): string {
   const lines = ['### Talking back', '']
@@ -46,11 +46,11 @@ export function macTalkBack(tools: ReadonlySet<string> | undefined): string {
   if (!tools?.has('report_to_person') && !tools?.has('message_teammate')) {
     lines.push('- Nothing else reaches anyone while you work: put what you found, what was blocked and any question in your `finish` summary.')
   }
-  lines.push('- There is no picker here: ask in words.', '', '### Dial8 tools', '')
+  lines.push('- There is no picker here: ask in words.', '', '### Native Intelligence tools', '')
   lines.push(
     tools && tools.size > 0
-      ? "Your Dial8 tools work as they do in the chat, under the same rules: anything that leaves Dial8 (sending email, posting, writes through connected apps) waits for the person's approval. Use them when the request needs them, not by default."
-      : 'This launch has no connection to Dial8, so you have no Dial8 tools: work from the folder.',
+      ? "Your Native Intelligence tools work as they do in the chat, under the same rules: anything that leaves Native Intelligence (sending email, posting, writes through connected apps) waits for the person's approval. Use them when the request needs them, not by default."
+      : 'This launch has no connection to Native Intelligence, so you have no Native Intelligence tools: work from the folder.',
   )
   return lines.join('\n')
 }

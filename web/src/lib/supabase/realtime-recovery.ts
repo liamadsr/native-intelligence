@@ -261,7 +261,7 @@ function settleBatch(batch: Resolver[], repaired: boolean): void {
 
 // Monotonic id of the last pass that ACTUALLY repaired a dead socket. Callers
 // use it to tell "a real gap happened" from "a healthy wake did nothing", and
-// the entities channel stamps it on the `dial8:realtime-recovered` event so
+// the entities channel stamps it on the `ni:realtime-recovered` event so
 // downstream listeners can correlate one fan-out with one repair.
 let lastRepairId = 0
 
@@ -372,7 +372,7 @@ export function requestRecovery(): Promise<boolean> {
 // shell singleton (attention rail, live work runs, in-app messages,
 // notifications, the email inbox) refetches from its OWN channel's
 // SUBSCRIBED-after-failure — and then AGAIN when the entities channel's
-// recovery dispatches `dial8:realtime-recovered`. That is the double-refetch
+// recovery dispatches `ni:realtime-recovered`. That is the double-refetch
 // half of the measured wake storm (21 requests with one calendar tab, 40 with
 // six). A hook marks its own catch-up here and skips the global event's
 // duplicate if it lands inside the window.
@@ -413,7 +413,7 @@ export function markSelfRefetched(key: string, windowMs: number = SELF_REFETCH_W
  * True iff `key` marked its own catch-up for the SAME gap the caller is now
  * reacting to, and that mark is still inside its window.
  *
- * `repairId` is the id carried on the `dial8:realtime-recovered` event. When
+ * `repairId` is the id carried on the `ni:realtime-recovered` event. When
  * given, it must match the id stamped at mark time: the mark then suppresses
  * only the echo of the repair it actually accounted for, so a SECOND real repair
  * landing inside the same 3s window still gets its catch-up refetch (the purely
@@ -436,7 +436,7 @@ export function wasSelfRefetchedRecently(key: string, repairId?: number): boolea
 }
 
 /**
- * The repair id stamped on a `dial8:realtime-recovered` event, or undefined when
+ * The repair id stamped on a `ni:realtime-recovered` event, or undefined when
  * the event carries none (a hand-rolled dispatch, or an older bundle). Pass the
  * result straight to wasSelfRefetchedRecently: undefined degrades that check to
  * the time-window behaviour, so a missing id can never make the dedup WRONG,

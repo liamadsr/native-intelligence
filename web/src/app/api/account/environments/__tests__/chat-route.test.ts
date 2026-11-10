@@ -79,7 +79,7 @@ describe('GET /api/account/environments/chat', () => {
   })
 
   it('refuses a capture-device token, and passes an auth failure through', async () => {
-    const res = await get(undefined, { authorization: 'Bearer d8d_abc' })
+    const res = await get(undefined, { authorization: 'Bearer nid_abc' })
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ code: 'DEVICE_TOKEN_REFUSED' })
     expect(hoisted.requireWorkspace).not.toHaveBeenCalled()
@@ -111,7 +111,7 @@ describe('PUT /api/account/environments/chat', () => {
   it('someone else’s chat, or an environment that isn’t mine to see, is a 404; a device token a 403', async () => {
     expect((await put({ conversationId: THEIR_CONV, environmentId: SHARED })).status).toBe(404)
     expect((await put({ conversationId: CONV, environmentId: '99999999-9999-4999-8999-999999999999' })).status).toBe(404)
-    expect((await put({ conversationId: CONV, environmentId: SHARED }, { authorization: 'Bearer d8d_abc' })).status).toBe(403)
+    expect((await put({ conversationId: CONV, environmentId: SHARED }, { authorization: 'Bearer nid_abc' })).status).toBe(403)
     expect(db.tables.chat_conversations.map((c) => c.environment_id)).toEqual([null, null])
   })
 })

@@ -99,7 +99,7 @@ describe('bridged results carry the routed workspace to the audit log', () => {
       readOnly: false,
       audit,
     })
-    const res = (await handlers.get('dial8_create_action')!({ title: 'x' })) as {
+    const res = (await handlers.get('ni_create_action')!({ title: 'x' })) as {
       content: Array<{ text: string }>
     }
     return { audit, body: JSON.parse(res.content[0].text) }
@@ -113,7 +113,7 @@ describe('bridged results carry the routed workspace to the audit log', () => {
     })
 
     expect(audit).toHaveBeenCalledWith(
-      'dial8_create_action',
+      'ni_create_action',
       true,
       expect.any(Number),
       undefined,
@@ -155,10 +155,10 @@ describe('bridged results carry the routed workspace to the audit log', () => {
       audit,
     })
 
-    const res = (await handlers.get('dial8_create_action')!({ title: 'x' })) as { isError?: boolean }
+    const res = (await handlers.get('ni_create_action')!({ title: 'x' })) as { isError?: boolean }
     expect(res.isError).toBe(true)
     expect(audit).toHaveBeenCalledWith(
-      'dial8_create_action',
+      'ni_create_action',
       false,
       expect.any(Number),
       'execution_error',

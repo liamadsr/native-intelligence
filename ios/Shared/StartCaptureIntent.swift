@@ -93,7 +93,7 @@ enum PendingCaptureStart {
 
 // MARK: - Intent
 
-/// Opens Dial8 and starts a capture.
+/// Opens Native Intelligence and starts a capture.
 ///
 /// `openAppWhenRun` is true and non-negotiable: recording needs the microphone,
 /// the on-device speech model, the capture pipeline and a Live Activity, all of
@@ -102,7 +102,7 @@ struct StartCaptureIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Capture"
 
     static var description = IntentDescription(
-        "Opens Dial8 and starts capturing.",
+        "Opens Native Intelligence and starts capturing.",
         categoryName: "Capture",
         searchKeywords: ["capture", "record", "recording", "note", "meeting", "transcribe"]
     )

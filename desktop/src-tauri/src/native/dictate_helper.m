@@ -1,5 +1,5 @@
 // Dictate anywhere: see dictate_helper.h. The spike that settled the approach:
-// dial8-website/docs/plans/dictate-anywhere.md §6.
+// web/docs/plans/dictate-anywhere.md §6.
 #import <Cocoa/Cocoa.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
@@ -11,7 +11,7 @@
 #include "dictate_helper.h"
 
 // Device-dependent modifier bits (IOLLEvent.h): which Option key is down.
-#define DIAL8_NX_DEVICERALTKEYMASK 0x00000040
+#define NI_NX_DEVICERALTKEYMASK 0x00000040
 /// When the clipboard is put back after ⌘V: late enough for the app to have read it.
 static const double RESTORE_AFTER_SECONDS = 0.5;
 
@@ -22,7 +22,7 @@ static CFRunLoopSourceRef g_source = NULL;
 static CFAbsoluteTime g_right_down_at = 0;
 /// Something else happened while it was down: not a tap.
 static bool g_other = false;
-/// Dictation is listening: Esc is Dial8's (it cancels), not the app's in front.
+/// Dictation is listening: Esc is Native Intelligence's (it cancels), not the app's in front.
 static volatile bool g_capture_escape = false;
 /// The Esc whose key-down was kept back: its key-up is kept back too.
 static bool g_escape_held_back = false;
@@ -47,7 +47,7 @@ static CGEventRef on_event(CGEventTapProxy proxy, CGEventType type, CGEventRef e
     CGEventFlags flags = CGEventGetFlags(event);
     if (type == kCGEventFlagsChanged) {
         if (code == kVK_RightOption) {
-            if (flags & DIAL8_NX_DEVICERALTKEYMASK) {
+            if (flags & NI_NX_DEVICERALTKEYMASK) {
                 if (g_right_down_at > 0) return event; // a repeat: already down
                 g_right_down_at = CFAbsoluteTimeGetCurrent();
                 // Pressed with ⌘, ⌃, ⇧ or fn already held: a shortcut, not ours.
@@ -384,7 +384,7 @@ void dictate_watch_hover(void *ns_window, dictate_hover_cb cb) {
         NSWindow *window = (__bridge NSWindow *)ns_window;
         g_hover = [DictateHoverWatcher new];
         g_hover.callback = cb;
-        // Active always: the panel is never the key window, nor Dial8 the
+        // Active always: the panel is never the key window, nor Native Intelligence the
         // active app, while it's up.
         NSTrackingArea *area = [[NSTrackingArea alloc]
             initWithRect:NSZeroRect

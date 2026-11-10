@@ -9,7 +9,7 @@ import { createClient } from '@/lib/supabase/client'
 import { createAutomationApi } from './api'
 
 /**
- * Registers `window.__dial8Automation` (README.md) for as long as it is
+ * Registers `window.__niAutomation` (README.md) for as long as it is
  * mounted, inside the dashboard's providers so the API reads the same state
  * the app does. Loaded on demand by AutomationMount, only when flagged.
  */
@@ -35,8 +35,11 @@ export function AutomationBridge() {
       storedChat: storedChatSummary,
       composer: () => activeComposer()?.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer-input"]') ?? null,
     })
+    window.__niAutomation = api
+    // TODO(rename-compat): the older name, for a recorder written before the rename (flag.ts).
     window.__dial8Automation = api
     return () => {
+      if (window.__niAutomation === api) delete window.__niAutomation
       if (window.__dial8Automation === api) delete window.__dial8Automation
     }
   }, [readChat, resetChat])

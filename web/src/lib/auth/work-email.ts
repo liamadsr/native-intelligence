@@ -1,7 +1,7 @@
 /**
  * Work-email signup policy.
  *
- * Dial8 is a team product for businesses, so a NEW account must be created
+ * Native Intelligence is a team product for businesses, so a NEW account must be created
  * with an email on a company-owned domain. Personal / free-mail addresses
  * (Gmail, Yahoo, Outlook.com, iCloud, …) cannot sign up.
  *
@@ -70,7 +70,7 @@ export const FREE_EMAIL_DOMAINS: ReadonlySet<string> = new Set([
  * identically. Also used as the marker the OAuth callback matches on.
  */
 export const WORK_EMAIL_REQUIRED_MESSAGE =
-  'Dial8 requires a business email to sign up. Personal addresses like Gmail or Yahoo aren\'t accepted.'
+  'Native Intelligence requires a business email to sign up. Personal addresses like Gmail or Yahoo aren\'t accepted.'
 
 /** Short hint shown under the email field on the signup form. */
 export const WORK_EMAIL_HINT = 'Business email required.'
@@ -111,7 +111,7 @@ export function isWorkEmail(email: string | null | undefined): boolean {
  * Matched on wording rather than a code because Supabase Auth forwards a
  * Postgres hook's `message` verbatim and does not surface a stable code for
  * hook rejections. The phrase "business email" appears in no other error
- * Dial8 or Supabase emits on the signup path.
+ * Native Intelligence or Supabase emits on the signup path.
  */
 export function isWorkEmailRejection(message: string | null | undefined): boolean {
   return !!message && /business email/i.test(message)

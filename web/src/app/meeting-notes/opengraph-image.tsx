@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { appHost } from '@/lib/app-url'
 
 // Social-card image for /meeting-notes: the site-wide card's design (see
 // ../opengraph-image.tsx) with this pitch's headline as the tagline, so a
@@ -7,7 +8,7 @@ import { ImageResponse } from 'next/og'
 // for the same reason: it cannot fail the build.
 
 export const runtime = 'nodejs'
-export const alt = 'Dial8 — Remarkably good meeting notes'
+export const alt = 'Native Intelligence — Remarkably good meeting notes'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -49,7 +50,7 @@ export default function OpengraphImage() {
             lineHeight: 1,
           }}
         >
-          Dial8
+          Native Intelligence
         </div>
         <div
           style={{
@@ -74,7 +75,7 @@ export default function OpengraphImage() {
             letterSpacing: '0.01em',
           }}
         >
-          dial8.ai
+          {appHost()}
         </div>
       </div>
     ),

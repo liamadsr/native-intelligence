@@ -973,7 +973,7 @@ const EMPTY_ASK_GUIDANCE =
  * so it never parks on a question; it finishes with what it has.
  */
 const NO_ASK_GUIDANCE =
-  'Nobody can answer questions on this run: Dial8 started it on its own, ahead of time. ' +
+  'Nobody can answer questions on this run: Native Intelligence started it on its own, ahead of time. ' +
   'Do not ask again. Finish with what you have, and note any assumption you made in your summary.'
 
 /**

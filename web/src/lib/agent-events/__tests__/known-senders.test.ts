@@ -48,7 +48,7 @@ describe('knownSenders', () => {
         'dana.lee@gmail.example', // a contact's secondary address
         'merged@acme.example', // a merged-away tombstone
         'elsewhere@acme.example', // another workspace's contact
-        'sam@beta.example', // a draft once sent through Dial8 (no longer evidence: sent drafts are deleted)
+        'sam@beta.example', // a draft once sent through Native Intelligence (no longer evidence: sent drafts are deleted)
         'pending@beta.example', // a draft not sent
         'theirs@beta.example', // someone else's sent draft
         'kim@gamma.example', // on a thread whose newest message is theirs

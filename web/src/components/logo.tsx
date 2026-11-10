@@ -3,21 +3,22 @@
 import { clsx } from 'clsx'
 import { motion } from 'framer-motion'
 
-export function Logo({ className }: { className?: string }) {
+/**
+ * The mark and the wordmark. `name` replaces both with that name as plain text:
+ * only the /sms page passes it, to show the name carriers have on file there
+ * (src/app/sms/client.tsx).
+ */
+export function Logo({ className, name }: { className?: string; name?: string }) {
   return (
-    <div className={`flex items-center gap-0.5 ${className}`}>
-      <img
-        src="/screenshots/icon_128x128@2x 1.png"
-        alt="Dial8 logo"
-        className="h-6 w-6 brightness-0 dark:invert"
-      />
-      <span className="text-xl font-semibold text-gray-950 dark:text-white">ial8</span>
+    <div className={`flex items-center gap-2 ${className}`}>
+      {!name && <img src="/brand/ni-mark.png" alt="" aria-hidden className="h-5 w-5 brightness-0 dark:invert" />}
+      <span className="text-lg font-semibold tracking-tight whitespace-nowrap text-gray-950 dark:text-white">{name ?? 'Native Intelligence'}</span>
     </div>
   )
 }
 
 /**
- * The Dial8 icon on its own — the SAME asset <Logo> uses, so every surface
+ * The Native Intelligence mark (NI) on its own — the SAME asset <Logo> uses, so every surface
  * (login, invites, trial wall, 404, marketing clusters) shows one mark. The
  * previous SVG here was a ring-of-dots glyph left over from an earlier
  * product and is gone for good; do not reintroduce a second mark.
@@ -29,8 +30,8 @@ export function Logo({ className }: { className?: string }) {
 export function Mark({ className }: { className?: string }) {
   return (
     <img
-      src="/screenshots/icon_128x128@2x 1.png"
-      alt="Dial8"
+      src="/brand/ni-mark.png"
+      alt="Native Intelligence"
       className={clsx('w-auto brightness-0 dark:invert', className)}
     />
   )

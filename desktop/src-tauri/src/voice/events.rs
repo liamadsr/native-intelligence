@@ -1,4 +1,4 @@
-//! The `voice://*` events (dial8-website/docs/plans/chat-voice.md §3.3).
+//! The `voice://*` events (web/docs/plans/chat-voice.md §3.3).
 //!
 //! Every payload carries `sessionId`, in camelCase, field for field what the
 //! web's `toVoiceEvent` (src/lib/tauri-bridge.ts) parses. They are broadcast

@@ -12,7 +12,7 @@
  *   focus    the part a narrow card shows: 'work' by default, since opening
  *            a bot's page asks for its work (the bubble's "Open Triage's
  *            page", a bot opened with nothing new: open-teammate.ts), or
- *            'chat'. A page asked nothing (Open in Dial8's chat) shows its
+ *            'chat'. A page asked nothing (Open in Native Intelligence's chat) shows its
  *            chat.
  *
  * The part rides beside the open, not in the card. A page mounted in a moment

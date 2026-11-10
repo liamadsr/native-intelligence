@@ -1,5 +1,5 @@
 //! Acoustic echo cancellation: the shared `audio::aec` component
-//! (dial8-website/docs/plans/chat-voice.md §3.3a).
+//! (web/docs/plans/chat-voice.md §3.3a).
 //!
 //! The voice session runs it on 10 ms frames of 16 kHz mono: every far-end
 //! (render) frame that has arrived goes in through [`EchoCanceller::render`]

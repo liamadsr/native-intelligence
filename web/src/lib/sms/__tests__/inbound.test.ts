@@ -288,24 +288,24 @@ describe('guests (a number no one linked)', () => {
 
 /**
  * The `To`-number rule, this side of it (roadmap track A): a stranger texting
- * the Dial8 number is signing up. A business's own number is track B's
- * (businessLine / businessText, liamadsr/dial8-website#1012), which runs after
+ * the Native Intelligence number is signing up. A business's own number is track B's
+ * (businessLine / businessText, liamadsr/native-intelligence#1012), which runs after
  * the shared compliance steps and before this, so signupText only ever sees
- * strangers on the Dial8 line.
+ * strangers on the Native Intelligence line.
  */
 describe('the line, by the number texted (`To`)', () => {
-  const DIAL8 = '+19287698774'
+  const NI = '+19287698774'
 
-  it('a stranger texting the Dial8 number is a sign-up', async () => {
+  it('a stranger texting the Native Intelligence number is a sign-up', async () => {
     const stranger = fakeDeps({ linked: null })
     const signupText = vi.fn(async () => ({ outcome: 'signup_code_sent' as const, reply: 'CODE' }))
-    expect(await handleInboundSms(sms('hi', { to: DIAL8 }), { ...stranger.deps, signupText })).toEqual({ outcome: 'signup_code_sent', reply: 'CODE' })
+    expect(await handleInboundSms(sms('hi', { to: NI }), { ...stranger.deps, signupText })).toEqual({ outcome: 'signup_code_sent', reply: 'CODE' })
     expect(signupText).toHaveBeenCalledWith({ phone: PHONE, text: 'hi', sid: expect.any(String) }, expect.objectContaining({ autoReply: expect.any(Function) }))
   })
 
   it("a linked person's text reaches their agent whatever `To` says, and never signs anyone up", async () => {
     const signupText = vi.fn()
-    for (const to of [DIAL8, '+16265550142', null, undefined]) {
+    for (const to of [NI, '+16265550142', null, undefined]) {
       const owner = fakeDeps()
       expect(await handleInboundSms(sms('Move my 3pm', { to }), { ...owner.deps, signupText }), String(to)).toEqual({ outcome: 'queued', reply: null })
     }

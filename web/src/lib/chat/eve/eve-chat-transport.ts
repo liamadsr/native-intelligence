@@ -711,7 +711,7 @@ interface TurnState {
    * Per open requestId, the facts answerPermission needs to resume it correctly:
    *  - `callId` — the tool part's toolCallId (for flipping the accumulated part).
    *  - `isApproval` — whether eve gated this as an APPROVAL request (options
-   *    approve/cancel, `display: 'confirmation'`). Dial8's `ask_user` is gated with
+   *    approve/cancel, `display: 'confirmation'`). Native Intelligence's `ask_user` is gated with
    *    `approval: always()`, so its pause IS an approval request. eve's
    *    `resolveApprovalOutcome` (harness/input-request-resolution.js) will NOT
    *    resolve an approval unless the response's `optionId` picks one of the
@@ -3268,7 +3268,7 @@ export class EveChatTransport implements ChatTransport<UIMessage> {
       if (meta) turn.inputRequestMeta.set(requestId, meta)
     }
 
-    // Build the eve resume payload. Dial8's ask_user pauses as an APPROVAL request
+    // Build the eve resume payload. Native Intelligence's ask_user pauses as an APPROVAL request
     // (approval: always() → options approve/cancel). Two facts from eve's dist
     // source (harness/input-request-resolution.js, harness/hitl/*) shape this:
     //
@@ -3610,7 +3610,7 @@ function usageLimitMintMessage(body: Record<string, unknown>): string {
   const resetDate = str(body.usageResetDate)
   // No free tier (migration 243): the one reason with a clear next step.
   if (reason === 'subscription_required') {
-    return 'Your Dial8 trial or subscription isn\'t active. Start a free trial or update billing in Settings → Billing to keep going.'
+    return 'Your Native Intelligence trial or subscription isn\'t active. Start a free trial or update billing in Settings → Billing to keep going.'
   }
   let message = reason ? `${headline}: ${reason}` : headline
   if (!/[.!?]$/.test(message)) message += '.'
@@ -4678,7 +4678,7 @@ function holdsSessionLimit(turn: TurnState): boolean {
  *
  * An APPROVAL gate has exactly two options [{id:'approve'},{id:'cancel'}] with
  * `display: 'confirmation'` — eve builds these for any tool gated with an
- * `approval` (Dial8's ask_user uses `approval: always()`). Ground truth in the
+ * `approval` (Native Intelligence's ask_user uses `approval: always()`). Ground truth in the
  * installed eve (re-verified at 0.66.3): `harness/input-extraction.js` `extractApprovalRequests`
  * emits literally `options:[{id:'approve',label:'Approve'},{id:'cancel',
  * label:'Cancel'}]`. eve 0.32.0 renamed this negative verb from 'deny' to

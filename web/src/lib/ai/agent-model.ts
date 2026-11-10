@@ -32,7 +32,7 @@
  *
  * On the free tier (the person's own ChatGPT plan) every turn runs the plan's
  * model, never a Gateway one, so there is nothing to pick: the setting is
- * hidden there and a saved pick waits until they're on a Dial8 plan.
+ * hidden there and a saved pick waits until they're on a Native Intelligence plan.
  *
  * Client-safe and pure.
  */

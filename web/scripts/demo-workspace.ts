@@ -30,7 +30,7 @@
  *             workspace: the demo person's chat conversations and every
  *             capture the script didn't seed, with what came from them
  *             (see clearActivity). The browser keeps the main chat too, under
- *             localStorage `dial8-chat:<workspace id>`.
+ *             localStorage `ni-chat:<workspace id>`.
  *   --link    also print a one-time sign-in link for the demo person that
  *             works against a local `next dev` on http://localhost:3000
  *             (src/app/auth/demo-link/route.ts redeems it). Open it in the

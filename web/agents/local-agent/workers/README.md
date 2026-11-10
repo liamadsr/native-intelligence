@@ -1,7 +1,7 @@
 # Workers: Claude Code and Codex on the local agent's rails
 
 L4 in `docs/plans/teammate-agent.md`. A job can run the person's own Claude
-Code or Codex CLI as its worker instead of Dial8's eve agent. The rails stay
+Code or Codex CLI as its worker instead of Native Intelligence's eve agent. The rails stay
 the same: the session, the ledger, the bridge and the grant. The desktop
 starts an adapter here instead of the launcher; the adapter speaks the
 launcher's JSON lines and keeps every command, read and write inside the
@@ -151,7 +151,7 @@ handling apply as for the launcher.
   never searched and nothing is installed.
 
 No relay URL, session token or dev key is passed, and any of them in the
-environment (`DIAL8_CREDENTIALS` in `lib/env.ts`) makes the job fatal: a
+environment (`NI_CREDENTIALS` in `lib/env.ts`) makes the job fatal: a
 worker runs on the person's own login. If `LOCAL_AGENT_LOCAL_MODEL_*` is set,
 the job is fatal too: a worker sends the folder to its vendor, which a
 local-model setting rules out.
@@ -207,7 +207,7 @@ also fatal. A later failure is an `error` event, and the job goes back to
   `--session-id`, `--replay-user-messages` and the other `CLAUDE_REQUIRED_FLAGS` in `--help`.
   2.1.292 does. It must be signed in with the person's own account: `claude`
   in Terminal, then `/login`. The login stays theirs, in their keychain, and
-  Dial8 never reads it. The probe runs `claude auth status --json` (only when
+  Native Intelligence never reads it. The probe runs `claude auth status --json` (only when
   `--help` lists `auth`) and says "not signed in" before anything starts.
 - **One process per session.** Every message is a stream-json `user` line.
 - **Turn boundary:** the `result` line. Its `queued_turn_count` says whether
@@ -218,13 +218,13 @@ also fatal. A later failure is an `error` event, and the job goes back to
   `/private/tmp/dial8-cli-*`, 0700, removed at exit). It needs a short path
   because Claude Code keeps unix sockets there and refuses long paths.
   `DISABLE_AUTOUPDATER=1` and `MCP_TOOL_TIMEOUT` (11 min) are also set.
-- **The MCP server is named `dial8_folder`,** not `workspace`: Claude Code
+- **The MCP server is named `ni_folder`,** not `workspace`: Claude Code
   reserves that name and drops a server called so (found by running the real
   CLI).
 - **Doesn't map:**
   - Steer goes in as a queued message: the CLI takes no input into a running step.
   - A stop kills the process instead of sending a stream-json `interrupt`,
-    which can leave the CLI unable to take the next message (Dial8's own
+    which can leave the CLI unable to take the next message (Native Intelligence's own
     Claude Code chat hit this until 2026-10). The transcript on disk makes the
     next `--resume` lossless.
   - Subagents, web fetch and search, and skills aren't available.
@@ -244,7 +244,7 @@ also fatal. A later failure is an `error` event, and the job goes back to
 - **One process per turn:** `codex exec --json … -` with the prompt on stdin,
   then `codex exec --json … resume <thread> -`. The first prompt opens with
   the job instructions (`exec` has no system-prompt flag).
-- **The fence server** comes in through `-c mcp_servers.dial8_folder.*`, with
+- **The fence server** comes in through `-c mcp_servers.ni_folder.*`, with
   `required = true`, an 11 min tool timeout and `default_tools_approval_mode
   = "approve"`. The bearer goes in the environment
   (`bearer_token_env_var`), never the arguments.

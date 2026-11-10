@@ -11,13 +11,13 @@ import {
 } from '@/lib/tasks/apply-remote-task-state'
 
 // =====================================================================
-// Asana → Dial8 read-back (webhook fast path)
+// Asana → Native Intelligence read-back (webhook fast path)
 //
 // Fired by the receiver (src/app/api/webhooks/asana/[syncStateId]/route.ts) with
 // the task gids named in one delivery. Asana events are COMPACT — they carry no
 // state at all — so every gid is re-GET against the API for its current
 // `completed` flag, and the shared applyRemoteTaskState decides what (if
-// anything) that means for the Dial8 action. The reconcile sweep
+// anything) that means for the Native Intelligence action. The reconcile sweep
 // (asana-reconcile.ts) calls the same helper, so the two paths cannot drift.
 //
 // HOUSE RULE — no `step.*` inside a `step.run` callback: nesting them deadlocks

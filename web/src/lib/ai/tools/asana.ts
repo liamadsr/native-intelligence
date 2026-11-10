@@ -18,8 +18,8 @@ import { resolveEntityWorkspace } from './_shared'
  * value nothing can store.
  *
  * Registered through createTools(), which means the MCP registrar also exposes
- * it automatically as `dial8_push_action_to_asana` (src/lib/mcp/tools/index.ts
- * prefixes every AI-SDK tool with `dial8_`).
+ * it automatically as `ni_push_action_to_asana` (src/lib/mcp/tools/index.ts
+ * prefixes every AI-SDK tool with `ni_`).
  *
  * WORKSPACE ROUTING: the action is resolved to ITS OWN workspace via
  * `resolveEntityWorkspace` before the push, and that resolved workspace — never
@@ -38,8 +38,8 @@ export function createAsanaTools(
   return {
     push_action_to_asana: tool({
       description:
-        'Push a Dial8 action to the workspace\'s connected Asana project as a task, ' +
-        'and link the two so later Dial8 status changes update the Asana task. ' +
+        'Push a Native Intelligence action to the workspace\'s connected Asana project as a task, ' +
+        'and link the two so later Native Intelligence status changes update the Asana task. ' +
         'Accepts the action UUID or its identifier (e.g. ENG-42). ' +
         'Requires an Asana connection with a project chosen in Settings → Connectors → Asana.',
       inputSchema: z.object({

@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { Resend, type CreateEmailOptions, type CreateEmailResponse } from 'resend'
 import { getServiceClient } from '@/lib/admin'
 import { getPostHogServerClient, serverDefaultProperties } from '@/lib/posthog'
+import { appUrl } from '@/lib/app-url'
 
 // --- Resend client (lazy init to avoid build-time errors when key is missing) ---
 
@@ -13,8 +14,9 @@ export function getResend(): Resend {
   return _resend
 }
 
+/** Where links in the app's emails point: the app's address (src/lib/app-url.ts) in production. */
 export const BASE_URL = process.env.NODE_ENV === 'production'
-  ? 'https://dial8.ai'
+  ? appUrl()
   : 'http://localhost:3000'
 
 /**

@@ -1,4 +1,4 @@
-//! The exit node: this Mac's end of the tunnel (dial8-website
+//! The exit node: this Mac's end of the tunnel (web
 //! docs/plans/cloud-browser.md, C4). An outbound WebSocket to the person's own
 //! cloud browser hub (nothing listens on the Mac); the hub asks for streams,
 //! and each one this Mac allows ([`crate::policy`]) becomes a TCP connection

@@ -197,7 +197,7 @@ describe('the chat’s bottom anchor', () => {
    */
   function scroller({ scrollHeight, clientHeight, scrollTop }: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
     document.body.innerHTML =
-      '<div id="dial8-chat-strip-slot"><div role="log"><div data-scroll=""><div data-main-chat-thread=""></div></div></div></div>'
+      '<div id="ni-chat-strip-slot"><div role="log"><div data-scroll=""><div data-main-chat-thread=""></div></div></div></div>'
     const el = document.querySelector<HTMLElement>('[data-scroll]')!
     const log = document.querySelector<HTMLElement>('[role="log"]')!
     let height = scrollHeight

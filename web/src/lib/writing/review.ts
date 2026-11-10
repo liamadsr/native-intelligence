@@ -115,7 +115,7 @@ export interface ReviewDraftArgs {
   /**
    * The person runs on their own ChatGPT plan (the free tier): the review
    * runs on it too, on the plan's other model (planReviewerModel), never
-   * Dial8's models.
+   * Native Intelligence's models.
    */
   chatgptPlan?: boolean
 }

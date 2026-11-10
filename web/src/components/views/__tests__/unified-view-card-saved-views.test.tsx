@@ -119,7 +119,7 @@ describe('a list card laid out as a window', () => {
     expect(shown.calls.at(-1)).toMatchObject({ activeViewId: null, config: { filters: CARD_FILTERS, layout: 'list' } })
     expect(reports.at(-1)!.config.filters).toEqual(CARD_FILTERS)
 
-    expect(Object.keys(window.localStorage).filter((k) => k.startsWith('dial8:active-view:') || k.startsWith('dial8:view-draft:'))).toEqual([])
+    expect(Object.keys(window.localStorage).filter((k) => k.startsWith('ni:active-view:') || k.startsWith('ni:view-draft:'))).toEqual([])
   })
 
   it('gives the header up while a record is open over the list', async () => {

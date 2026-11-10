@@ -67,7 +67,7 @@ describe('POST /api/presence', () => {
   })
 
   it('refuses a capture-device token before it resolves anyone', async () => {
-    const res = await POST(post({ clientId: CLIENT, surface: 'web', state: 'active' }, { authorization: 'Bearer d8d_abcdefghijklmnop' }))
+    const res = await POST(post({ clientId: CLIENT, surface: 'web', state: 'active' }, { authorization: 'Bearer nid_abcdefghijklmnop' }))
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ code: 'DEVICE_TOKEN_REFUSED' })
     expect(m.calls).toEqual([])

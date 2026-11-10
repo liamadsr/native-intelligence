@@ -60,7 +60,7 @@ describe('createMcpAuditLogger', () => {
       workspaceId: WS_SESSION,
     })
 
-    audit('dial8_create_action', true, 42, undefined, WS_TARGET)
+    audit('ni_create_action', true, 42, undefined, WS_TARGET)
 
     expect(inserts).toHaveLength(1)
     expect(inserts[0]).toMatchObject({
@@ -68,7 +68,7 @@ describe('createMcpAuditLogger', () => {
       user_id: USER,
       workspace_id: WS_SESSION,
       target_workspace_id: WS_TARGET,
-      tool_name: 'dial8_create_action',
+      tool_name: 'ni_create_action',
       ok: true,
       duration_ms: 42,
     })
@@ -84,7 +84,7 @@ describe('createMcpAuditLogger', () => {
       workspaceId: WS_SESSION,
     })
 
-    audit('dial8_list_actions', true, 7)
+    audit('ni_list_actions', true, 7)
 
     expect(inserts[0].target_workspace_id).toBeNull()
   })
@@ -117,8 +117,8 @@ describe('installMcpGuard target handoff', () => {
     const audit = vi.fn() as McpAuditFn & ReturnType<typeof vi.fn>
     const { server, handlers } = captureHandlers()
     installMcpGuard(server as never, { readOnly: false, audit })
-    server.tool('dial8_create_action', 'desc', {}, async () => result)
-    await handlers.get('dial8_create_action')!({})
+    server.tool('ni_create_action', 'desc', {}, async () => result)
+    await handlers.get('ni_create_action')!({})
     return audit
   }
 
@@ -129,7 +129,7 @@ describe('installMcpGuard target handoff', () => {
     )
     const audit = await guarded(content)
 
-    expect(audit).toHaveBeenCalledWith('dial8_create_action', true, expect.any(Number), undefined, WS_TARGET)
+    expect(audit).toHaveBeenCalledWith('ni_create_action', true, expect.any(Number), undefined, WS_TARGET)
   })
 
   it('never lets the marker reach the wire', () => {
@@ -148,20 +148,20 @@ describe('installMcpGuard target handoff', () => {
   it('audits null for a handler that attaches nothing (hand-written registrars)', async () => {
     const audit = await guarded({ content: [{ type: 'text', text: '{}' }] })
 
-    expect(audit).toHaveBeenCalledWith('dial8_create_action', true, expect.any(Number), undefined, null)
+    expect(audit).toHaveBeenCalledWith('ni_create_action', true, expect.any(Number), undefined, null)
   })
 
   it('leaves a blocked read-only write auditing null', async () => {
     const audit = vi.fn() as McpAuditFn & ReturnType<typeof vi.fn>
     const { server, handlers } = captureHandlers()
     installMcpGuard(server as never, { readOnly: true, audit })
-    server.tool('dial8_create_action', 'desc', {}, async () => {
+    server.tool('ni_create_action', 'desc', {}, async () => {
       throw new Error('handler must never run')
     })
 
-    const res = (await handlers.get('dial8_create_action')!({})) as { isError?: boolean }
+    const res = (await handlers.get('ni_create_action')!({})) as { isError?: boolean }
     expect(res.isError).toBe(true)
     // Nothing was written, so there is no target to record.
-    expect(audit).toHaveBeenCalledWith('dial8_create_action', false, 0, 'forbidden_read_only')
+    expect(audit).toHaveBeenCalledWith('ni_create_action', false, 0, 'forbidden_read_only')
   })
 })

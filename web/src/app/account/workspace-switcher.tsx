@@ -322,7 +322,7 @@ export function WorkspaceCacheProvider({ children }: { children: React.ReactNode
   //
   // `currentId` is null until the first /api/account/workspace GET below lands,
   // and `setClientWorkspaceId(null)` clears BOTH the module-level id and
-  // localStorage['dial8-workspace-id']. Unguarded, this effect therefore WIPED
+  // localStorage['ni-workspace-id']. Unguarded, this effect therefore WIPED
   // the seed that workspace-fetch had just restored at module load (from
   // localStorage, or from a `?switch_to=<uuid>` URL param) — and it wiped it
   // before the load effect below fired its first GET, because effects run in

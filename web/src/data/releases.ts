@@ -1,7 +1,7 @@
 export interface ReleaseNote {
   version: string
   date: string // YYYY-MM-DD format
-  title?: string // Optional custom title, defaults to "What's New in Dial8 {version}"
+  title?: string // Optional custom title, defaults to "What's New in Native Intelligence {version}"
   warning?: string // Optional breaking-change / compatibility warning shown prominently
   changes: {
     features?: string[]
@@ -14,10 +14,10 @@ export const releases: ReleaseNote[] = [
   {
     version: '2.15.0',
     date: '2026-02-28',
-    warning: 'This update requires macOS 26 or later. If you are running an older version of macOS, do not update — your current version of Dial8 will continue to work.',
+    warning: 'This update requires macOS 26 or later. If you are running an older version of macOS, do not update — your current version of Native Intelligence will continue to work.',
     changes: {
       features: [
-        'Meeting capture — Dial8 now records meetings and automatically extracts action items so nothing falls through the cracks',
+        'Meeting capture — Native Intelligence now records meetings and automatically extracts action items so nothing falls through the cracks',
         'Email and calendar integration — connect your email and calendar to see upcoming meetings and stay on top of follow-ups',
         'Action items dashboard — a single view of everything that needs your attention, pulled from calls, meetings, and emails',
         'Folders — organise your conversations and action items into folders',
@@ -78,7 +78,7 @@ export function getLatestRelease(): ReleaseNote {
 
 // Helper function to format release for display
 export function formatReleaseTitle(release: ReleaseNote): string {
-  return release.title || `What's New in Dial8 ${release.version}`
+  return release.title || `What's New in Native Intelligence ${release.version}`
 }
 
 // Helper function to get all changes as a flat list (for Sparkle)

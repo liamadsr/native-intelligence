@@ -48,7 +48,7 @@ const { GET } = await import('@/app/api/account/captures/[id]/participants/route
 
 function getReq(): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/capture-1/participants',
+    url: 'https://nativeintelligence.dev/api/account/captures/capture-1/participants',
     method: 'GET',
   }) as unknown as NextRequest
 }

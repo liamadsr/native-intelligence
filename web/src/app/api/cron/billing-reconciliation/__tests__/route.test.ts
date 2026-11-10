@@ -84,7 +84,7 @@ const { GET } = await import('@/app/api/cron/billing-reconciliation/route')
 function req(bearer?: string): Request {
   const headers: Record<string, string> = {}
   if (bearer !== undefined) headers.authorization = bearer
-  return new Request('https://dial8.ai/api/cron/billing-reconciliation', {
+  return new Request('https://nativeintelligence.dev/api/cron/billing-reconciliation', {
     method: 'GET',
     headers,
   })

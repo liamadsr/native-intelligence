@@ -158,7 +158,7 @@ describe('patchFetch 401 refresh-and-retry', () => {
     })
 
     const expired = vi.fn()
-    window.addEventListener('dial8:session-expired', expired)
+    window.addEventListener('ni:session-expired', expired)
 
     const res = await window.fetch('/api/account/views')
 
@@ -273,7 +273,7 @@ describe('setClientWorkspaceId persist: false', () => {
     const OTHER = '99999999-8888-7777-6666-555555555555'
     const underlying = vi.fn().mockResolvedValue(jsonResponse(200))
     const mod = await loadWithFetch(underlying as unknown as typeof fetch)
-    expect(localStorage.getItem('dial8-workspace-id')).toBe(WS_ID)
+    expect(localStorage.getItem('ni-workspace-id')).toBe(WS_ID)
 
     mod.setClientWorkspaceId(OTHER, { persist: false })
     await window.fetch('/api/account/contacts?search=a')
@@ -281,6 +281,6 @@ describe('setClientWorkspaceId persist: false', () => {
     const [, init] = underlying.mock.calls[0]
     expect(new Headers(init.headers).get('x-workspace-id')).toBe(OTHER)
     expect(mod.getClientWorkspaceId()).toBe(OTHER)
-    expect(localStorage.getItem('dial8-workspace-id')).toBe(WS_ID)
+    expect(localStorage.getItem('ni-workspace-id')).toBe(WS_ID)
   })
 })

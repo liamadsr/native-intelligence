@@ -193,7 +193,7 @@ export function renderPostWeekBlock(m: PostWeekMaterial): string {
 
 /**
  * The newsletter's block (P9, decision 9): the same week, for a weekly
- * newsletter the person copies out of Dial8 into their own tool. Public, so
+ * newsletter the person copies out of Native Intelligence into their own tool. Public, so
  * the same rule: themes in their words, never a name, a company, a customer,
  * a price or a deal. A slow week still gets a short issue (one lesson, one
  * question), never filler. Pure.
@@ -217,7 +217,7 @@ export function renderNewsletterBlock(m: Pick<PostWeekMaterial, 'moments' | 'shi
     m.slow
       ? 'A slow week: write a short issue anyway, one lesson in their voice and one question for their readers. Never filler, never this week\'s work that did not happen.'
       : 'Write this week\'s issue from this material.',
-    'It is a document the person edits here and copies into their own newsletter tool. Dial8 never sends it.',
+    'It is a document the person edits here and copies into their own newsletter tool. Native Intelligence never sends it.',
   )
   return lines.join('\n')
 }

@@ -209,7 +209,7 @@ function saveSelection(): HTMLButtonElement | undefined {
 async function publishOne(id: string) {
   await act(async () => {
     window.dispatchEvent(
-      new CustomEvent('dial8:prospect-entry-action', {
+      new CustomEvent('ni:prospect-entry-action', {
         detail: { action: 'save', entryIds: [id], confirmUnverified: true },
       }),
     )

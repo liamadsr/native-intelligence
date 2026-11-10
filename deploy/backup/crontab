@@ -1,0 +1,26 @@
+# One line per backup job. Times are UTC.
+#
+# A job is `backup-postgres <name>` (a database) or `backup-storage <name>`
+# (the files of a Supabase Storage service). Its settings come from the
+# environment as BACKUP_<NAME>_* (see compose.yaml, compose.supabase.yaml and
+# .env.example), and its files land under <name>/ in the bucket. Output goes
+# to the container log.
+#
+# A job whose settings are not there is not scheduled: the container says so
+# when it starts. That is how the two Supabase jobs stay off until
+# compose.supabase.yaml is switched on (README.md).
+#
+# To add a job: add a line here, add its BACKUP_<NAME>_* block to a compose
+# file and .env, attach the container to that database's network, then
+# `sudo docker compose up -d --build`.
+
+# min hour day month weekday  command
+
+# Inngest's Postgres, nightly.
+17 7 * * * backup-postgres inngest >/proc/1/fd/1 2>&1
+
+# The app's own database (Supabase), every hour. 48 hourly and 30 daily kept.
+43 * * * * backup-postgres supabase >/proc/1/fd/1 2>&1
+
+# The app's stored files (Supabase Storage), nightly.
+27 7 * * * backup-storage supabase-storage >/proc/1/fd/1 2>&1

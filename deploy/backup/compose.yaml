@@ -1,0 +1,45 @@
+# Scheduled, encrypted database backups to Backblaze B2.
+#
+# One small container running cron. Each line in ./crontab is a job; today
+# there is one, the nightly dump of Inngest's Postgres. README.md in this
+# folder has the restore steps.
+#
+# Run from this folder, as root so the root-only .env can be read:
+#   sudo docker compose up -d --build
+name: ni-backup
+
+services:
+  backup:
+    build: .
+    image: ni-backup:local
+    container_name: ni-backup
+    restart: unless-stopped
+    # A real init as PID 1, so cron's children are reaped and stop is prompt.
+    init: true
+    environment:
+      # Where the files go.
+      B2_KEY_ID: ${B2_KEY_ID:?set B2_KEY_ID in .env}
+      B2_APPLICATION_KEY: ${B2_APPLICATION_KEY:?set B2_APPLICATION_KEY in .env}
+      B2_BUCKET: ${B2_BUCKET:?set B2_BUCKET in .env}
+      # What they are encrypted with.
+      BACKUP_PASSWORD: ${BACKUP_PASSWORD:?set BACKUP_PASSWORD in .env}
+      BACKUP_SALT: ${BACKUP_SALT:?set BACKUP_SALT in .env}
+
+      # Job: inngest (Inngest's Postgres, ../inngest).
+      BACKUP_INNGEST_PGHOST: ni-inngest-postgres
+      BACKUP_INNGEST_PGUSER: inngest
+      BACKUP_INNGEST_PGDATABASE: inngest
+      BACKUP_INNGEST_PGPASSWORD: ${BACKUP_INNGEST_PGPASSWORD:?set BACKUP_INNGEST_PGPASSWORD in .env}
+      BACKUP_INNGEST_RETENTION_DAYS: ${BACKUP_INNGEST_RETENTION_DAYS:-30}
+      BACKUP_INNGEST_PING_URL: ${BACKUP_INNGEST_PING_URL:-}
+    networks:
+      # The way out to B2 and the ping URL.
+      - default
+      # One network per database it dumps.
+      - inngest
+    stop_grace_period: 30s
+
+networks:
+  inngest:
+    name: ni-inngest
+    external: true

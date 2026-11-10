@@ -9,13 +9,13 @@
  * We deliberately do NOT depend on a YAML library. The frontmatter we import is
  * flat `key: value` — a hand-rolled tolerant parser covers it and keeps the
  * import path dependency-free. Anything structured/nested/unknown in the
- * frontmatter is dropped with a warning rather than parsed, because Dial8 only
- * imports `name` + `description`; tool access is set inside Dial8 after import
- * (the SKILL.md → Dial8 contract per Phase 3).
+ * frontmatter is dropped with a warning rather than parsed, because Native Intelligence only
+ * imports `name` + `description`; tool access is set inside Native Intelligence after import
+ * (the SKILL.md → Native Intelligence contract per Phase 3).
  *
  * Export is the inverse and STRICT: `serializeSkillMd` writes only standard
  * frontmatter (`name`, `description`) plus the body and any appended prose
- * sections. The export route folds Dial8-specific config (context_rules,
+ * sections. The export route folds NI-specific config (context_rules,
  * response_style) in as those prose sections rather than as custom frontmatter
  * keys, so the file stays portable to any SKILL.md consumer.
  */
@@ -33,12 +33,12 @@ const KNOWN_KEYS = new Set(['name', 'description'])
 /**
  * Human-facing warning for a frontmatter key we recognize by name but do not
  * import. `allowed-tools` gets a bespoke message pointing at where tool access
- * actually lives in Dial8; other recognized-but-unsupported keys get a generic
+ * actually lives in Native Intelligence; other recognized-but-unsupported keys get a generic
  * "not imported" note.
  */
 function unsupportedKeyWarning(key: string): string {
   if (key === 'allowed-tools') {
-    return 'allowed-tools is not imported — set tool access in Dial8 after import'
+    return 'allowed-tools is not imported — set tool access in Native Intelligence after import'
   }
   return `${key} is not imported`
 }
@@ -123,7 +123,7 @@ export interface SerializeSkillMdInput {
  * Serialize a skill to SKILL.md text.
  *
  * STRICTLY standard frontmatter: `name` (from the slug) and `description`, and
- * nothing else — no Dial8-specific keys leak into the frontmatter. The body is
+ * nothing else — no NI-specific keys leak into the frontmatter. The body is
  * written verbatim; each extraSection is appended as `## <heading>` followed by
  * its lines. Frontmatter values that contain YAML-significant characters are
  * quoted/escaped.

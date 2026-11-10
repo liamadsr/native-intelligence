@@ -393,9 +393,9 @@ describe('a guest’s held call (guest access)', () => {
     expect(container.querySelector('[data-chat-ask="approval"]')!.firstElementChild).toBe(line)
     const opened: unknown[] = []
     const onOpen = (e: Event) => opened.push((e as CustomEvent).detail)
-    window.addEventListener('dial8:open-card', onOpen)
+    window.addEventListener('ni:open-card', onOpen)
     await act(async () => line.click())
-    window.removeEventListener('dial8:open-card', onOpen)
+    window.removeEventListener('ni:open-card', onOpen)
     expect(opened).toEqual([expect.objectContaining({ spec: { kind: 'guest', title: 'Jason Lee', target: { type: 'guest', id: GUEST, label: 'Jason Lee' } }, reuse: true, from: 'guest' })])
   })
 

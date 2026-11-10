@@ -6,7 +6,7 @@
  */
 
 /**
- * A call from the Dial8 agent on the person's Mac (C1, the Mac body's tool
+ * A call from the Native Intelligence agent on the person's Mac (C1, the Mac body's tool
  * route): which job, on which Mac, in which folder. Set by that route from
  * the verified session, never from anything model-visible. Its cards land in
  * the home thread, are capped per job (APPROVAL_PENDING_MAX_PER_MAC_JOB),
@@ -20,13 +20,13 @@ export interface LocalAgentApprovalContext {
   folderLabel?: string | null
 }
 
-/** "Dial8 on Liam's MacBook" (one line, capped), or "Dial8 on your Mac". */
+/** "Native Intelligence on Liam's MacBook" (one line, capped), or "Native Intelligence on your Mac". */
 export function macJobAgentName(job: Pick<LocalAgentApprovalContext, 'deviceName'>): string {
   const name = (job.deviceName ?? '').replace(/\s+/g, ' ').trim().slice(0, 60)
-  return name ? `Dial8 on ${name}` : 'Dial8 on your Mac'
+  return name ? `Native Intelligence on ${name}` : 'Native Intelligence on your Mac'
 }
 
-/** "its job in dial8-website" (one line, capped), or "its job". */
+/** "its job in web" (one line, capped), or "its job". */
 export function macJobPlace(job: Pick<LocalAgentApprovalContext, 'folderLabel'>): string {
   const label = (job.folderLabel ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)
   return label ? `its job in ${label}` : 'its job'

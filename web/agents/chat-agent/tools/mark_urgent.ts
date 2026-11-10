@@ -64,7 +64,7 @@ export const MARK_URGENT_PAST: MarkUrgentOutput = { marked: false, note: 'Not ma
 
 export const MARK_URGENT_DESCRIPTION =
   'In a background update ([BACKGROUND UPDATE …]) only: mark the message you are about to write as urgent, because the person must know or act before `by`. ' +
-  'Dial8 decides where it goes; urgent only lets it reach them during the night when `by` is before about 10 am tomorrow. Anything later waits for their morning like every other message. ' +
+  'Native Intelligence decides where it goes; urgent only lets it reach them during the night when `by` is before about 10 am tomorrow. Anything later waits for their morning like every other message. ' +
   'Use it rarely: a meeting moved or cancelled before tomorrow morning, someone waiting on them tonight. Never for routine news. ' +
   '`by` is an ISO 8601 time with their UTC offset (2026-11-01T09:00:00-04:00). Call it once, then write the message.'
 

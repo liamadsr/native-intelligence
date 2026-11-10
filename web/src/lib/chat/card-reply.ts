@@ -27,7 +27,7 @@
 import { isAboutId } from './teammate-about-ref'
 
 /** Window event name. Listened for in main-chat-host.tsx. */
-export const CARD_REPLY_EVENT = 'dial8:card-reply'
+export const CARD_REPLY_EVENT = 'ni:card-reply'
 
 /**
  * What a card is, for the agent: an attention card (`card`: a suggested

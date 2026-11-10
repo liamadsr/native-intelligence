@@ -239,7 +239,7 @@ describe('ListDetail — hand-add by domain', () => {
  * chips above all — reads it again. Everything keyed on the id needs nothing.
  */
 describe('ListDetail — rename from the title', () => {
-  const EVENT = 'dial8:prospect-list-changed'
+  const EVENT = 'ni:prospect-list-changed'
 
   function titleButton(): HTMLButtonElement | null {
     return container.querySelector('button[data-prospect-list-name]') as HTMLButtonElement | null

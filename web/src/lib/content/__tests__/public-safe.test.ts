@@ -36,8 +36,8 @@ describe('publicSafeProblem', () => {
   })
 
   it('links are fine in a post, not in a moment', () => {
-    expect(publicSafeProblem('More: https://dial8.ai', [], { links: true })).toBeNull()
-    expect(publicSafeProblem('More: https://dial8.ai', [], { links: false })?.reason).toBe('has an address or a link in it')
+    expect(publicSafeProblem('More: https://nativeintelligence.dev', [], { links: true })).toBeNull()
+    expect(publicSafeProblem('More: https://nativeintelligence.dev', [], { links: false })?.reason).toBe('has an address or a link in it')
   })
 })
 

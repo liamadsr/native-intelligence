@@ -69,7 +69,7 @@ vi.mock('@/lib/work/enrichment-mirror', () => ({
 const { POST } = await import('@/app/api/account/contacts/[id]/enrich/route')
 
 function post(id = 'ct-1') {
-  const req = buildRequest({ url: `https://dial8.ai/api/account/contacts/${id}/enrich`, method: 'POST' }) as unknown as NextRequest
+  const req = buildRequest({ url: `https://nativeintelligence.dev/api/account/contacts/${id}/enrich`, method: 'POST' }) as unknown as NextRequest
   return POST(req, { params: Promise.resolve({ id }) })
 }
 

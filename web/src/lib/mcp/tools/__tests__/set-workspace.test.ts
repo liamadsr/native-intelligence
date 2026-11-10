@@ -4,7 +4,7 @@ import { registerWorkspaceTools } from '../workspaces'
 /**
  * Regression guard for the "chat dies when an MCP client switches workspace" bug.
  *
- * Root cause was that dial8_set_workspace fired its persistence callback
+ * Root cause was that ni_set_workspace fired its persistence callback
  * (onWorkspaceChanged → write active_workspace_id) WITHOUT awaiting it, then
  * returned `success`. Because the MCP server is stateless (fresh server per
  * POST) the next tool call re-reads active_workspace_id to scope itself — so if
@@ -24,7 +24,7 @@ type ToolHandler = (args: Record<string, unknown>) => Promise<{
 
 /**
  * A minimal fake McpServer that records the handler registered for each tool
- * name, so a test can invoke dial8_set_workspace's handler directly. server.tool
+ * name, so a test can invoke ni_set_workspace's handler directly. server.tool
  * is overloaded — (name, desc, handler) and (name, desc, schema, handler); the
  * handler is always the LAST argument.
  */
@@ -41,7 +41,7 @@ function captureHandlers() {
 }
 
 /**
- * A Supabase stub good enough for dial8_set_workspace, which does exactly two
+ * A Supabase stub good enough for ni_set_workspace, which does exactly two
  * reads: member membership check (.single) and workspace name lookup (.single).
  * Every from().select().eq()/.is() chain is a thenable resolving to `result`.
  */
@@ -66,12 +66,12 @@ function getSetWorkspaceHandler(opts: {
     opts.membership ?? { data: { workspace_id: 'ws-2', role: 'owner' }, error: null },
   )
   registerWorkspaceTools(server as never, 'user-1', supabase, 'ws-1', opts.onWorkspaceChanged)
-  const handler = handlers.get('dial8_set_workspace')
-  if (!handler) throw new Error('dial8_set_workspace was not registered')
+  const handler = handlers.get('ni_set_workspace')
+  if (!handler) throw new Error('ni_set_workspace was not registered')
   return handler
 }
 
-describe('dial8_set_workspace persistence', () => {
+describe('ni_set_workspace persistence', () => {
   it('AWAITS onWorkspaceChanged before returning success', async () => {
     const order: string[] = []
     let releaseWrite!: () => void

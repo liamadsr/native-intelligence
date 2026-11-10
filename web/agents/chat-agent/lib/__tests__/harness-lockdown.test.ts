@@ -13,7 +13,7 @@ import { isWebSearchToolDefinition } from 'eve/tools/web_search'
  * SANDBOX-backed defaults (shell + filesystem) stay disabled STRUCTURALLY (a
  * disableTool() file at each slug), never left inert incidentally.
  *
- * WEB IS DIFFERENT NOW. web_search + web_fetch are ALWAYS ON for every Dial8
+ * WEB IS DIFFERENT NOW. web_search + web_fetch are ALWAYS ON for every Native Intelligence
  * agent (no toggle — matching how Anthropic's own agents browse). This test pins
  * the NEW contract: the sandbox tools are disabled, web_search is LIVE and PINNED
  * to Exa by an explicit `webSearch({ provider: 'exa' })` file (previously the slug

@@ -31,7 +31,7 @@
 //!   that folder's workers aren't asked about again for
 //!   [`super::Timing::worker_backoff`] ([`backed_off`]). A yes lasts
 //!   [`super::Timing::worker_yes_for`]: the worker takes the follow-up
-//!   messages Dial8 sends meanwhile (the confirm says so), and then it is
+//!   messages Native Intelligence sends meanwhile (the confirm says so), and then it is
 //!   parked, so the next message resumes it and the person is asked again.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -143,9 +143,9 @@ pub fn started_notice(label: &str, mode: GrantMode, resumed: bool) -> (String, S
         GrantMode::Edit => "to make changes on its own branch",
     };
     (
-        format!("Dial8's agent {verb} in {}", shown(label, SHOWN_LABEL)),
+        format!("Agent {verb} in {}", shown(label, SHOWN_LABEL)),
         format!(
-            "A Dial8 cloud agent or one of your loops {verb} it, {what}. You can stop it from Dial8 in the menu bar."
+            "A Native Intelligence cloud agent or one of your loops {verb} it, {what}. You can stop it from the menu bar's Local Agents menu."
         ),
     )
 }
@@ -153,11 +153,11 @@ pub fn started_notice(label: &str, mode: GrantMode, resumed: bool) -> (String, S
 /// The banner when the hour's starts run out: (title, body).
 pub fn cap_notice(max: usize) -> (String, String) {
     (
-        "Dial8 is refusing more local agents for now".into(),
+        "Refusing more local agents for now".into(),
         format!(
-            "Cloud agents and loops started {max} local agents on this Mac in the last hour, the most Dial8 allows, \
-             so it refuses more until the hour is up. If you didn't expect this, turn Local Agents off in Dial8's \
-             menu bar menu."
+            "Cloud agents and loops started {max} local agents on this Mac in the last hour, the most Native Intelligence allows, \
+             so it refuses more until the hour is up. If you didn't expect this, turn Local Agents off in the menu \
+             bar."
         ),
     )
 }
@@ -191,7 +191,7 @@ pub fn unanswered(worker: Worker, wait: Duration) -> String {
 pub fn backed_off(left: Duration) -> String {
     format!(
         "a coding agent wasn't allowed in this folder on this Mac a few minutes ago, so this didn't run and won't \
-         be tried again; Dial8 won't ask the person about one there for {}",
+         be tried again; Native Intelligence won't ask the person about one there for {}",
         minutes(left)
     )
 }
@@ -277,23 +277,23 @@ mod tests {
 
     #[test]
     fn the_words_say_which_folder_and_who_started_it() {
-        let (title, body) = started_notice("dial8-website", GrantMode::Read, false);
-        assert_eq!(title, "Dial8's agent started in dial8-website");
+        let (title, body) = started_notice("native-intelligence", GrantMode::Read, false);
+        assert_eq!(title, "Agent started in native-intelligence");
         assert_eq!(
             body,
-            "A Dial8 cloud agent or one of your loops started it, to read this folder. You can stop it from \
-             Dial8 in the menu bar."
+            "A Native Intelligence cloud agent or one of your loops started it, to read this folder. You can stop it from \
+             the menu bar's Local Agents menu."
         );
         let (title, body) = started_notice("site", GrantMode::Edit, true);
-        assert_eq!(title, "Dial8's agent resumed in site");
+        assert_eq!(title, "Agent resumed in site");
         assert!(body.contains("resumed it, to make changes on its own branch"), "{body}");
         let (odd, _) = started_notice("a\u{202E}b\ncd", GrantMode::Read, false);
-        assert_eq!(odd, "Dial8's agent started in ab cd", "no invisible or control characters");
+        assert_eq!(odd, "Agent started in ab cd", "no invisible or control characters");
         let (long, _) = started_notice(&"n".repeat(200), GrantMode::Read, false);
         assert!(long.chars().count() < 100 && long.ends_with('\u{2026}'), "{long}");
 
         let (title, body) = cap_notice(20);
-        assert_eq!(title, "Dial8 is refusing more local agents for now");
+        assert_eq!(title, "Refusing more local agents for now");
         assert!(body.contains("started 20 local agents on this Mac in the last hour"), "{body}");
         assert!(body.contains("turn Local Agents off"), "{body}");
         assert_eq!(

@@ -8,7 +8,7 @@ export const maxDuration = 60
 /**
  * GET /api/cron/jira-sync
  *
- * Every 30 min, keeps the Jira→Dial8 read-back alive. Two events per connected
+ * Every 30 min, keeps the Jira→Native Intelligence read-back alive. Two events per connected
  * sync state, both idempotent and both cheaply no-op'd by their function's own
  * gate:
  *

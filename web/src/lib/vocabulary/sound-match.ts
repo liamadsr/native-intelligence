@@ -3,7 +3,7 @@
  *
  * A finished utterance is compared, one to three words at a time, with the
  * vocabulary by how it SOUNDS: each term and each span becomes a consonant
- * skeleton of how it is said ("Dial8" → "dial eight" → `dlAt`, "Superbase" →
+ * skeleton of how it is said ("Route8" → "route eight" → `rtAt`, "Superbase" →
  * `sprbs` vs Supabase `spbs`). A strong match is rewritten to the term's
  * spelling; a span whose letters equal a term's is respelled ("post hog" →
  * PostHog). The speech engine is never touched, so this works the same on
@@ -17,7 +17,7 @@
  *   4. a multi-word span holding a filler word is never joined into a term
  *      ("a very" → Avery).
  *
- * A port of the measured Python harness (dial8-desktop/.claude/boost-test/v2/
+ * A port of the measured Python harness (desktop/.claude/boost-test/v2/
  * sm.py + phonetic.py + phonetic2.py, rules v2, forms policy), including
  * difflib's SequenceMatcher.ratio; checked edit for edit against it. Three
  * guards were added after review (2026-10-24), also mirrored in the harness

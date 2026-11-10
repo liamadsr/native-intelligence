@@ -16,9 +16,9 @@
  * on that thread, updateProviderDraft). A sent or dismissed draft is refused.
  *
  * The mailbox first, then the row: when the mailbox's draft can't be written
- * (gone, edited since, not a draft), the row is left as it was, so Dial8 and
+ * (gone, edited since, not a draft), the row is left as it was, so Native Intelligence and
  * Mail never disagree about what the draft says. A pass's row whose mailbox
- * copy was never saved (provider_draft_id NULL) is revised in Dial8 only, and
+ * copy was never saved (provider_draft_id NULL) is revised in Native Intelligence only, and
  * says so. Sending stays the person's click. A mailbox draft a plain-text
  * rewrite would strip (attachments, inline images, an Outlook HTML body) is
  * refused, NOT_REVISABLE (updateProviderDraft's `rich`).
@@ -53,7 +53,7 @@ export type ReviseDraftResult =
       draft_row_id: string | null
       /** The mailbox draft's message id now (a new one at Gmail), when it was written. */
       draft_id: string | null
-      /** False when the row had no mailbox copy to write (revised in Dial8 only). */
+      /** False when the row had no mailbox copy to write (revised in Native Intelligence only). */
       mailbox_updated: boolean
       subject: string
       to: string[]
@@ -110,7 +110,7 @@ export async function reviseEmailDraft(
         : null
     if (!row && !threadId) return { success: false, code: 'NOT_FOUND', error: 'No draft of yours with that id in this workspace.' }
 
-    // A pass's row whose mailbox copy was never saved: Dial8 only.
+    // A pass's row whose mailbox copy was never saved: Native Intelligence only.
     if (row && (!messageId || !threadId)) {
       const edits = parseDraftEdits({
         to: revision.to ?? row.to_emails ?? [],
@@ -120,7 +120,7 @@ export async function reviseEmailDraft(
       })
       if (!edits || edits === 'invalid') return invalid()
       await writeRow(supabase, userId, row.id, edits, null)
-      return ok(row.id, null, false, edits, `Revised in Dial8 (this draft has no copy in the mailbox). ${NOT_SENT}`)
+      return ok(row.id, null, false, edits, `Revised in Native Intelligence (this draft has no copy in the mailbox). ${NOT_SENT}`)
     }
 
     const updated = await updateProviderDraft(userId, workspaceId, threadId!, messageId!, revision)
@@ -148,7 +148,7 @@ export async function reviseEmailDraft(
     if (updated.messageId !== messageId) {
       await repointDeliverables(supabase, userId, workspaceId, messageId!, updated.messageId)
     }
-    return ok(row?.id ?? null, updated.messageId, true, updated.edits, `Revised in Dial8 and in the mailbox (the body is plain text now). ${NOT_SENT}`)
+    return ok(row?.id ?? null, updated.messageId, true, updated.edits, `Revised in Native Intelligence and in the mailbox (the body is plain text now). ${NOT_SENT}`)
   } catch (err) {
     console.warn('[revise-draft] failed:', err instanceof Error ? err.message : err)
     return { success: false, code: 'FAILED', error: 'The draft could not be revised just now.' }

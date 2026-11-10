@@ -13,6 +13,7 @@ import {
   openAsanaWebhookPending,
   saveAsanaWebhookRegistration,
 } from './asana-config'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * Asana webhook registration lifecycle — CONVERGENT, not event-sourced.
@@ -88,7 +89,7 @@ export function asanaWebhookPath(syncStateId: string): string {
 
 /** App origin for the webhook target (same source as the action deep links). */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /**

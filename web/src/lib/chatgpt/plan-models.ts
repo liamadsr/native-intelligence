@@ -63,7 +63,7 @@ export function planModelLabel(model: string): string {
 /**
  * The model id a plan run carries and logs, `chatgpt-plan/<model>`, as eve
  * names a plan step: usageProviderLabel bills it to the plan (nothing to
- * Dial8), and a utility token signed with it runs on the plan.
+ * Native Intelligence), and a utility token signed with it runs on the plan.
  */
 export function planModelSlug(model: string): string {
   return `${CHATGPT_PLAN_PROVIDER}/${model}`
@@ -82,7 +82,7 @@ export function planModelFromSlug(slug: string | null | undefined): string | nul
  * `openai/<model>`, as eve names a plan step on the search model (the chat's,
  * CHATGPT_PLAN_SEARCH_PROVIDER in agents/chat-agent/lib/chatgpt-plan-model.ts,
  * which maps it back before reporting; this is the backstop). Never a Gateway
- * step: no Gateway model Dial8 runs is a plan model (plan-models.test.ts pins
+ * step: no Gateway model Native Intelligence runs is a plan model (plan-models.test.ts pins
  * it). Null for any other id.
  */
 export function planModelOfStep(modelId: string | null | undefined): string | null {
@@ -104,9 +104,9 @@ export function isChatGptPlanUsage(row: { reason?: string | null } | null | unde
 
 /**
  * Why a coding run doesn't start for a person on their own ChatGPT plan: it
- * runs Sonnet in a cloud sandbox, which Dial8 pays for (the free tier costs
- * Dial8 nothing). Shown on the run and returned by Start.
+ * runs Sonnet in a cloud sandbox, which Native Intelligence pays for (the free tier costs
+ * Native Intelligence nothing). Shown on the run and returned by Start.
  */
 export const CHATGPT_PLAN_NO_CODING_REASON =
-  "Coding agents aren't included when you use Dial8 on your ChatGPT plan: they run on Dial8's own models in a cloud sandbox."
+  "Coding agents aren't included when you use Native Intelligence on your ChatGPT plan: they run on Native Intelligence's own models in a cloud sandbox."
 

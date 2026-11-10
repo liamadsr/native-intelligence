@@ -520,8 +520,8 @@ describe("the meeting's scheduled time", () => {
     expect(store.get().schedule).toEqual(SCHEDULE)
     expect(bar()).not.toBeNull()
     // The event re-linked mid-call: read again; another capture's edit: not.
-    await act(async () => window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: 'cap-9' } })))
-    await act(async () => window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: 'cap-1' } })))
+    await act(async () => window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: 'cap-9' } })))
+    await act(async () => window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: 'cap-1' } })))
     await flush()
     expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('fields=schedule'))).toHaveLength(2)
   })
@@ -583,8 +583,8 @@ describe("the person's pre-call brief", () => {
     await flush()
     expect(store.get().brief).toEqual(BRIEF)
     expect(line()).not.toBeNull()
-    await act(async () => window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: 'cap-9' } })))
-    await act(async () => window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: 'cap-1' } })))
+    await act(async () => window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: 'cap-9' } })))
+    await act(async () => window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: 'cap-1' } })))
     await flush()
     expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('fields=brief'))).toHaveLength(2)
     // A goal saved mid-call: its own capture's, or one naming no capture, re-reads; another capture's doesn't.

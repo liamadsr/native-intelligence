@@ -156,7 +156,7 @@ import {
   callMessagePrefix,
   CHANNEL_TURN_MAX_MESSAGES,
   CHANNEL_TURN_WINDOW_MS,
-  DIAL8_CHANNEL,
+  NI_CHANNEL,
   LEGACY_TEXT_MESSAGE_KIND,
   SLACK_CHANNEL,
   SMS_CHANNEL,
@@ -294,7 +294,7 @@ export interface HomeTurnPlan {
    * The person runs on their own ChatGPT plan (the free tier): the send's
    * token says so, as the browser mint's does, so the turn stays on their plan
    * even when the chat agent can't read its spec (chatGptPlanForTurn's
-   * fallback), never Dial8's fallback model.
+   * fallback), never Native Intelligence's fallback model.
    */
   chatgptPlan?: true
 }
@@ -346,7 +346,7 @@ export function guestTurnConversationOk(conv: Pick<ConversationRow, 'agent_guest
 export function serverTurnConversationOk(conv: Pick<ConversationRow, 'is_home' | 'outside_channel' | 'agent_guest_id'>, reason: HomeTurnReason): boolean {
   const channel = channelOfReason(reason)
   // A linked agent's message only ever reaches a half's thread (guestTurnConversationOk binds which).
-  if (channel === DIAL8_CHANNEL) return !!conv.agent_guest_id && conv.is_home !== true
+  if (channel === NI_CHANNEL) return !!conv.agent_guest_id && conv.is_home !== true
   // A team chat mention only ever reaches the person's own conversation for that channel (474), never the home thread.
   if (channel === TEAM_CHAT_CHANNEL) return conv.is_home !== true && !conv.agent_guest_id && conv.outside_channel === TEAM_CHAT_CHANNEL
   if (conv.is_home === true) return true
@@ -428,7 +428,7 @@ export async function undeliveredReports(
 export function channelOfReason(reason: HomeTurnReason): MessageChannel | null {
   if (reason === 'slack') return SLACK_CHANNEL
   if (reason === 'text') return SMS_CHANNEL
-  if (reason === 'agent_ask') return DIAL8_CHANNEL
+  if (reason === 'agent_ask') return NI_CHANNEL
   if (reason === 'call') return CALL_CHANNEL
   if (reason === 'team_chat') return TEAM_CHAT_CHANNEL
   return null
@@ -1077,7 +1077,7 @@ export async function planHomeTurn(
 
     // Billed to the person (decision 8): never past their limits. Opted in to
     // the ChatGPT free tier: a person on their own plan passes, and the turn's
-    // rebuild runs it on their plan (chat-run-rebuild.ts), never Dial8's models.
+    // rebuild runs it on their plan (chat-run-rebuild.ts), never Native Intelligence's models.
     let chatgptPlan: boolean
     try {
       const usage = await (deps.checkUsage ?? ((userId: string) => checkUsageLimits(userId, undefined, { chatgptPlan: true })))(data.userId)

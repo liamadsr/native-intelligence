@@ -240,7 +240,7 @@ export function SettingsOverlayProvider({ children }: { children: ReactNode }) {
       setSubPath(normalizeSettingsSubPath(match[1] || ''))
       return
     }
-    // Non-settings destinations (e.g. the Voice view's "Teach Dial8" CTA →
+    // Non-settings destinations (e.g. the Voice view's "Teach Native Intelligence" CTA →
     // /account/voice-enrollment) have no overlay equivalent — close the overlay
     // and hard-navigate to the full-page route so the click isn't a silent no-op.
     setIsOpen(false)

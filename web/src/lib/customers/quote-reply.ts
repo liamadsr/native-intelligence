@@ -8,7 +8,7 @@
  *                business's name, what it's for, the price, and its booking
  *                link (/book/<slug>) to pick a time, or "reply to pick a
  *                time" when it has none. By text from the business's own
- *                number (never the Dial8 one; US and Canadian numbers only;
+ *                number (never the Native Intelligence one; US and Canadian numbers only;
  *                never a number that said STOP); with no business number or
  *                no number to text, by email from the owner's own mailbox.
  *                The quote is marked sent.

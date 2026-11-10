@@ -1,9 +1,9 @@
 /**
  * POST /api/account/integrations/slack/link-code
  *
- * A one-time code the person sends the Dial8 bot in a Slack DM
+ * A one-time code the person sends the Native Intelligence bot in a Slack DM
  * (src/lib/slack/link-code.ts). It links the Slack account it comes from to
- * this Dial8 account, in the current workspace; an admin's code also connects
+ * this Native Intelligence account, in the current workspace; an admin's code also connects
  * a Slack workspace that isn't connected yet. Shown once; only its hash is
  * kept; it stops working after 15 minutes, after one use, or when the person
  * asks for a new one.

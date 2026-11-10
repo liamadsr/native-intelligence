@@ -390,7 +390,7 @@ describe('defaultLens / orderLensProviders — the default-lens rule', () => {
 })
 
 describe('PropertyLensSwitcher', () => {
-  it('renders one tab per provider, Dial8 included, and marks the active one', async () => {
+  it('renders one tab per provider, Native Intelligence included, and marks the active one', async () => {
     await act(async () => {
       root.render(
         h(PropertyLensSwitcher, {
@@ -419,7 +419,7 @@ describe('PropertyLensSwitcher', () => {
       'View Asana properties',
     )
     expect(container.querySelector('[data-lens-tab="dial8"]')!.getAttribute('aria-label')).toBe(
-      'View Dial8 properties',
+      'View Native Intelligence properties',
     )
   })
 
@@ -546,7 +546,7 @@ describe('TaskLens — editable versus read-only', () => {
   })
 
   /**
-   * STATUS IS NEVER WRITTEN. It already has an owner — the Dial8→provider echo —
+   * STATUS IS NEVER WRITTEN. It already has an owner — the Native Intelligence→provider echo —
    * and a second writer would race the CAS loop-breaker the read-back depends on.
    */
   it('never offers status as an editable control', async () => {

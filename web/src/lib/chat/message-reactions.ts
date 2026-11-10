@@ -27,7 +27,7 @@
  *     can go in the background to the agent"): the reaction is on the
  *     bubble, and the agent's answer follows.
  *   - A reaction is never permission for something that can't be undone or
- *     leaves Dial8 (a send, a post, a delete, a payment): a 👍 on "Shall I
+ *     leaves Native Intelligence (a send, a post, a delete, a payment): a 👍 on "Shall I
  *     send it?" means "ready"; the agent gets it ready and asks for the send.
  *
  * Pure and client-safe: the thread, the panel, the route and the prompt
@@ -305,7 +305,7 @@ export const REACTION_RULES =
   'On anything else, 👍 means "OK, got it" and 👀 means they saw it and are looking: neither asks you to do anything. ' +
   'A ❤️ or 🎉 is appreciation; a 👎 on an update means it was wrong or not what they wanted: if the message shows a lasting preference, keep it as you would one they told you, never from one reaction alone. ' +
   'A ❓ or 🤔 means they don\'t follow: explain that message more plainly, in a few lines. ' +
-  'A reaction is never permission for anything that cannot be undone or leaves Dial8 (sending, posting, deleting, paying): a 👍 on "shall I send it?" means it is ready; get it ready and ask them to send it, or show its approval.'
+  'A reaction is never permission for anything that cannot be undone or leaves Native Intelligence (sending, posting, deleting, paying): a 👍 on "shall I send it?" means it is ready; get it ready and ask them to send it, or show its approval.'
 
 function agoText(at: string, now: number): string {
   const minutes = Math.max(0, Math.round((now - Date.parse(at)) / 60_000))

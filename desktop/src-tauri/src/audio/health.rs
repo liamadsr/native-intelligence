@@ -206,7 +206,7 @@ fn probe_once() {
 pub fn restart_daemon() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        const SCRIPT: &str = r#"do shell script "/usr/bin/killall -9 coreaudiod" with prompt "Dial8 needs your password to restart macOS audio." with administrator privileges"#;
+        const SCRIPT: &str = r#"do shell script "/usr/bin/killall -9 coreaudiod" with prompt "Native Intelligence needs your password to restart macOS audio." with administrator privileges"#;
         let out = std::process::Command::new("/usr/bin/osascript")
             .args(["-e", SCRIPT])
             .output()

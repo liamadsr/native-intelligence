@@ -73,17 +73,25 @@ describe('trunkSecretCheck', () => {
   const from = { name: 'From', value: '<sip:+14155550100@sip.twilio.com>' }
   it('passes only the exact secret our trunk adds (header name in any case)', () => {
     const env = { GPT_LIVE_TRUNK_SECRET: 's3cret-value' }
-    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 's3cret-value' }], env)).toBe('ok')
-    expect(trunkSecretCheck([from, { name: 'x-dial8-trunk', value: ' s3cret-value ' }], env)).toBe('ok')
-    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 's3cret-valu' }], env)).toBe('mismatch')
-    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 's3cret-value2' }], env)).toBe('mismatch')
+    expect(trunkSecretCheck([from, { name: 'X-NI-Trunk', value: 's3cret-value' }], env)).toBe('ok')
+    expect(trunkSecretCheck([from, { name: 'x-ni-trunk', value: ' s3cret-value ' }], env)).toBe('ok')
+    expect(trunkSecretCheck([from, { name: 'X-NI-Trunk', value: 's3cret-valu' }], env)).toBe('mismatch')
+    expect(trunkSecretCheck([from, { name: 'X-NI-Trunk', value: 's3cret-value2' }], env)).toBe('mismatch')
     expect(trunkSecretCheck([from], env)).toBe('mismatch')
+  })
+
+  it('still passes a trunk set up before the rename, which sends the header under its old name', () => {
+    const env = { GPT_LIVE_TRUNK_SECRET: 's3cret-value' }
+    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 's3cret-value' }], env)).toBe('ok')
+    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 'wrong' }], env)).toBe('mismatch')
+    // The new name wins when both are there.
+    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 's3cret-value' }, { name: 'X-NI-Trunk', value: 'wrong' }], env)).toBe('mismatch')
   })
 
   it('without the secret set, every call is refused, local dev included', () => {
     expect(trunkSecretCheck([from], {})).toBe('not_configured')
     expect(trunkSecretCheck([from], { NODE_ENV: 'production' })).toBe('not_configured')
-    expect(trunkSecretCheck([from, { name: 'X-Dial8-Trunk', value: 'anything' }], { NODE_ENV: 'development' })).toBe('not_configured')
+    expect(trunkSecretCheck([from, { name: 'X-NI-Trunk', value: 'anything' }], { NODE_ENV: 'development' })).toBe('not_configured')
   })
 })
 

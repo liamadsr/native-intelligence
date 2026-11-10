@@ -8,7 +8,7 @@ export const maxDuration = 60
 /**
  * GET /api/cron/linear-sync
  *
- * Every 30 min, keeps the Linear→Dial8 read-back honest. ONE event per connected
+ * Every 30 min, keeps the Linear→Native Intelligence read-back honest. ONE event per connected
  * sync state:
  *
  *   tasks/linear-reconcile — the drift sweep. Linear retries a failed delivery

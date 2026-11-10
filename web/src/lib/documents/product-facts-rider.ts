@@ -33,8 +33,10 @@ export const PRODUCT_FACTS_SECTION_KEY = 'product-facts'
 /** The product template's facts section. */
 export const PRODUCT_FACTS_HEADING_TEXT = CANON_TEMPLATES.product.sections[0].heading
 
+// TODO(rename-compat): the pattern still knows "dial8", because people who knew the product
+// under that name still ask about it that way. Drop it when that stops.
 const PRODUCT_WORDS =
-  /\b(?:pricing|prices?|priced|how much (?:is|does|do)|features?|integrat(?:e|es|ion|ions)|roadmap|positioning|competitors?|competition|value prop(?:osition)?s?|icp|ideal customer|messaging|tagline|one[- ]pager|case stud(?:y|ies)|landing page|pitch(?:es|ing)?|sales (?:deck|email|call)|our product|the product|product (?:doc|facts|page)|what (?:does|do|can) (?:we|dial8|it) (?:do|offer|support)|(?:does|can) (?:it|dial8|we) (?:support|integrate|work with|connect to)|launch (?:post|announcement|email)|announcement)\b/i
+  /\b(?:pricing|prices?|priced|how much (?:is|does|do)|features?|integrat(?:e|es|ion|ions)|roadmap|positioning|competitors?|competition|value prop(?:osition)?s?|icp|ideal customer|messaging|tagline|one[- ]pager|case stud(?:y|ies)|landing page|pitch(?:es|ing)?|sales (?:deck|email|call)|our product|the product|product (?:doc|facts|page)|what (?:does|do|can) (?:we|dial8|native intelligence|ni|it) (?:do|offer|support)|(?:does|can) (?:it|dial8|native intelligence|ni|we) (?:support|integrate|work with|connect to)|launch (?:post|announcement|email)|announcement)\b/i
 
 /** Whether a message needs product facts. Pure, no model call. */
 export function needsProductFacts(text: unknown): boolean {

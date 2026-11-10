@@ -30,7 +30,7 @@ describe('composeActionTaskPrompt', () => {
       description: 'Build the widget.',
     })
     const expected = [
-      'Work on Dial8 issue ENG-42:',
+      'Work on Native Intelligence issue ENG-42:',
       ISSUE_UNTRUSTED_NOTE,
       '<issue identifier="ENG-42">',
       `<title>${fence('Add a widget')}</title>`,
@@ -63,7 +63,7 @@ describe('composeActionTaskPrompt', () => {
       description: null,
     })
     const expected = [
-      'Work on Dial8 issue GEN-7:',
+      'Work on Native Intelligence issue GEN-7:',
       ISSUE_UNTRUSTED_NOTE,
       '<issue identifier="GEN-7">',
       `<title>${fence('Minimal')}</title>`,
@@ -147,7 +147,7 @@ describe('composeActionTaskPrompt — description cap', () => {
 
 describe('fenceUntrustedValue', () => {
   it('leaves ids, links and status words raw, and fences free text', () => {
-    for (const plain of ['', 'a-1', 'ENG-42', 'https://dial8.ai/account?action=a-1', '2026-10-19T10:00:00.000Z', 'started']) {
+    for (const plain of ['', 'a-1', 'ENG-42', 'https://nativeintelligence.dev/account?action=a-1', '2026-10-19T10:00:00.000Z', 'started']) {
       expect(fenceUntrustedValue(plain)).toBe(plain)
     }
     expect(fenceUntrustedValue('Fix the login bug')).toBe(fence('Fix the login bug'))

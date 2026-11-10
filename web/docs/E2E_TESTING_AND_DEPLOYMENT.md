@@ -9,7 +9,7 @@ Status: **Design — not yet implemented.**
 ## Goals
 
 1. Run UI tests remotely as part of CI/CD to catch regressions before they reach prod.
-2. Support the agent-driven development flow (Dial8 MCP creates PRs → tests run → results returned to agent for retry).
+2. Support the agent-driven development flow (Native Intelligence MCP creates PRs → tests run → results returned to agent for retry).
 3. Keep test infra clean — no piles of orphaned branches, workspaces, or test data.
 4. Tier testing depth by environment so PRs get fast feedback and dev gets exhaustive coverage.
 
@@ -17,7 +17,7 @@ Status: **Design — not yet implemented.**
 
 ## Cross-app architecture
 
-The desktop app (`../dial8-desktop`) is a **Tauri shell that loads `https://dial8.ai` as its webview**, plus a Rust core exposing native commands (audio capture, meeting detection) over IPC. It is **not** a separate frontend.
+The desktop app (`../desktop`) is a **Tauri shell that loads `https://nativeintelligence.dev` as its webview**, plus a Rust core exposing native commands (audio capture, meeting detection) over IPC. It is **not** a separate frontend.
 
 ### Test tiers
 
@@ -195,7 +195,7 @@ Posted as a PR comment with `<!-- e2e-results -->` marker. CI **updates** the ex
 
 | Branch | Environment | URL | Supabase | Deploy trigger |
 |---|---|---|---|---|
-| `main` | Production | `dial8.ai` | Prod project | Manual promote from dev |
+| `main` | Production | `nativeintelligence.dev` (and `dial8.ai` while it still serves) | Prod project | Manual promote from dev |
 | `dev` | Dev | `dev.dial8.ai` | Dev project (persistent) | Auto on merge to `dev` |
 | `agent/*` `feat/*` `fix/*` | Preview | Vercel preview URL | Ephemeral `e2e-pr-{N}` branch | Auto on push |
 | `hotfix/*` | Preview → Prod | Vercel preview URL | Ephemeral branch | Targets `main` directly |
@@ -292,7 +292,7 @@ Rationale:
      - Pass → GEN-42 moves to "Ready for QA"
      - Fail → auto-revert merge, ping engineering
 8. Daily 9am: release manager reviews dev change list (auto-posted to
-   Dial8 as a capture), smoke-tests UI, fast-forwards dev → main
+   Native Intelligence as a capture), smoke-tests UI, fast-forwards dev → main
 9. Prod deploys, prod smoke runs (~2 min)
 10. Released actions move to "Done"
 ```
@@ -301,7 +301,7 @@ Rationale:
 
 ## Auto-generated dev release list
 
-On every push to `dev`, a GitHub Action posts a Dial8 capture titled "Dev release — manual QA list" with the diff of PRs merged since last prod release. Dogfoods Dial8, gives release manager a structured worklist.
+On every push to `dev`, a GitHub Action posts a Native Intelligence capture titled "Dev release — manual QA list" with the diff of PRs merged since last prod release. Dogfoods Native Intelligence, gives release manager a structured worklist.
 
 ---
 

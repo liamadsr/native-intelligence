@@ -2,7 +2,7 @@
  * POST /api/local-agent/sessions/[id]/pull-request: C5's server fallback
  * (docs/plans/teammate-agent.md). The desktop already pushed the edit job's own
  * `dial8/…` branch, as the person, after their yes on the Mac, and has no
- * signed-in gh; the server opens the pull request with the person's Dial8
+ * signed-in gh; the server opens the pull request with the person's Native Intelligence
  * GitHub sign-in (src/lib/local-agent/open-pull-request.ts).
  *
  * Auth: `Authorization: Bearer <the session's la1 token>` (the one the
@@ -44,6 +44,6 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     return NextResponse.json({ url: result.url, ...(result.reused ? { reused: true } : {}) })
   } catch (err) {
     console.error('[local-agent] pull request failed:', err instanceof Error ? err.message : err)
-    return apiError("Dial8 couldn't open the pull request right now", { status: 503, code: 'UNAVAILABLE' })
+    return apiError("Native Intelligence couldn't open the pull request right now", { status: 503, code: 'UNAVAILABLE' })
   }
 }

@@ -39,7 +39,7 @@ afterEach(() => mount.unmount())
 
 describe('LibraryCard', () => {
   it("keeps its own type, and never reads or writes the page's remembered one", async () => {
-    window.localStorage.setItem('dial8-agents-type', 'skill')
+    window.localStorage.setItem('ni-agents-type', 'skill')
     const spec: PageCardSpec = { kind: 'library', title: 'Agents' }
     await mount.render(
       React.createElement(
@@ -51,7 +51,7 @@ describe('LibraryCard', () => {
     )
     expect(mount.container.querySelector('[data-real-page] [data-collection]')?.getAttribute('data-collection')).toBe('skill')
     expect(mount.container.querySelector('[data-card-page] [data-collection]')?.getAttribute('data-collection')).toBe('agent')
-    expect(window.localStorage.getItem('dial8-agents-type')).toBe('skill')
+    expect(window.localStorage.getItem('ni-agents-type')).toBe('skill')
   })
 
   it('opens on the skills tab when that is what the agent showed', async () => {

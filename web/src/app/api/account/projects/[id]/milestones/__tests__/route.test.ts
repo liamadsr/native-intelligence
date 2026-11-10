@@ -97,7 +97,7 @@ const { GET } = await import('@/app/api/account/projects/[id]/milestones/route')
 
 function getReq(): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/projects/proj-1/milestones',
+    url: 'https://nativeintelligence.dev/api/account/projects/proj-1/milestones',
     method: 'GET',
   }) as unknown as NextRequest
 }

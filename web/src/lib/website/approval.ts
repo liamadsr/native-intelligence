@@ -92,7 +92,7 @@ const notifyOf = (deps: ApprovalDeps) => deps.notify ?? notifyOwner
 
 // ── Ready: the card ──────────────────────────────────────────────────────────
 
-/** The hosts a change may add without being called out: Dial8's own (the intake) and the site's. Pure. */
+/** The hosts a change may add without being called out: Native Intelligence's own (the intake) and the site's. Pure. */
 function knownHosts(site: Pick<WebsiteSite, 'siteUrl'>): Set<string> {
   const hosts = new Set<string>()
   for (const url of [appOrigin(), site.siteUrl]) {
@@ -171,7 +171,7 @@ export async function raiseMergeCard(
         change: label,
         ...(asked ? { you_asked: asked } : {}),
         what_changes: summary ?? 'See the pull request.',
-        ...(replaces ? { replaces_current: 'Yes: the form stops what it does today (its emails or form service) and sends only to Dial8.' } : {}),
+        ...(replaces ? { replaces_current: 'Yes: the form stops what it does today (its emails or form service) and sends only to Native Intelligence.' } : {}),
         ...(outside.length ? { adds_outside_addresses: outside.join(', ') } : {}),
         ...(unchecked ? { not_all_checked: 'Some files were too big or too many to check for outside links: look at the pull request before saying yes.' } : {}),
         ...(change.kind === 'wire_form' ? { accepts_requests_from: change.intakeOrigins.length ? change.intakeOrigins.join(', ') : 'any website (the secret link is the gate)' } : {}),
@@ -252,7 +252,7 @@ export async function mergeWebsiteChange(svc: Svc, args: { userId: string; works
   // The kill switch: a paused workspace's agent puts nothing live, even on a yes. The card is answered; they ask again once it's back on.
   if (await (deps.paused ?? isAgentPaused)(svc, change.workspaceId)) {
     await updateChange(svc, change.workspaceId, change.id, { state: 'failed', error: 'the agent is paused' }, ['awaiting_yes'])
-    return { success: false, code: 'AGENT_PAUSED', error: 'Your Dial8 agent is paused, so nothing was merged. Turn it back on, then ask for the change again.' }
+    return { success: false, code: 'AGENT_PAUSED', error: 'Your Native Intelligence agent is paused, so nothing was merged. Turn it back on, then ask for the change again.' }
   }
   const merging = await updateChange(svc, change.workspaceId, change.id, { state: 'merging' }, ['awaiting_yes'])
   if (!merging) return { success: false, error: 'That website change was already answered. Nothing more was done.' }

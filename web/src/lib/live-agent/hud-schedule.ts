@@ -6,7 +6,7 @@
  * The time is the capture's own (`captures.scheduled_start` / `scheduled_end`,
  * stamped from its calendar event), read once per call through the capture
  * route's `?fields=schedule` variant, and again when the capture's event is
- * re-linked mid-call (`dial8:content-edited` for it). The web HUD reads it in
+ * re-linked mid-call (`ni:content-edited` for it). The web HUD reads it in
  * its own page (components/live-hud/in-page-hud-feed.tsx); the desktop's HUD
  * window hears it from the recording window's publisher
  * (components/capture/voice-id-hud-publisher.tsx):

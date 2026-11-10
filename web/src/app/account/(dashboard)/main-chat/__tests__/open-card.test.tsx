@@ -75,8 +75,8 @@ const ACTION = { type: 'action' as const, id: 'a-1', title: 'GEN-1 Pricing' }
 
 /** The chat a workspace keeps on this device, and the pointer at it. */
 function storeChat(workspaceId: string, chatSessionId: string) {
-  localStorage.setItem(`dial8-chat:${workspaceId}`, JSON.stringify({ chatSessionId, chatMessages: [], chatInput: '' }))
-  localStorage.setItem('dial8-chat:last-workspace', workspaceId)
+  localStorage.setItem(`ni-chat:${workspaceId}`, JSON.stringify({ chatSessionId, chatMessages: [], chatInput: '' }))
+  localStorage.setItem('ni-chat:last-workspace', workspaceId)
 }
 const sessionNow = () => state!.chat.chatSessionId
 
@@ -142,7 +142,7 @@ describe('a card asked for from anywhere', () => {
     workspaceArrives(WS_B)
     expect(delivered).toHaveLength(1)
     expect(delivered[0].chatSessionId).toBe(sessionNow())
-    expect(localStorage.getItem(`dial8-chat:${WS_B}`)).toContain(sessionNow())
+    expect(localStorage.getItem(`ni-chat:${WS_B}`)).toContain(sessionNow())
   })
 
   it('a refused switch (a capture recording) drops it: a later switch never replays it', () => {
@@ -219,7 +219,7 @@ describe('boot deep links open cards', () => {
 
   it('booted from the pointer: waits for the real workspace, then lands in its chat', () => {
     storeChat(WS_B, 's-b')
-    localStorage.setItem('dial8-chat:last-workspace', WS_A)
+    localStorage.setItem('ni-chat:last-workspace', WS_A)
     currentWorkspaceId = null
     window.history.replaceState({}, '', '/account?sequence=00000000-0000-4000-8000-000000000001')
     render()
@@ -240,7 +240,7 @@ describe('boot deep links open cards', () => {
     expect(delivered[0].chatSessionId).not.toBe('s-a')
     expect(delivered[0].chatSessionId).toBe(sessionNow())
     // A's chat went back to A's key.
-    expect(localStorage.getItem(`dial8-chat:${WS_A}`)).toContain('s-a')
+    expect(localStorage.getItem(`ni-chat:${WS_A}`)).toContain('s-a')
   })
 
   it('no pointer and nothing stored: lands in the chat in memory once the id arrives, which is then stored', () => {
@@ -251,7 +251,7 @@ describe('boot deep links open cards', () => {
     workspaceArrives(WS_A)
     expect(delivered).toHaveLength(1)
     expect(delivered[0].chatSessionId).toBe(sessionNow())
-    expect(localStorage.getItem(`dial8-chat:${WS_A}`)).toContain(sessionNow())
+    expect(localStorage.getItem(`ni-chat:${WS_A}`)).toContain(sessionNow())
   })
 
   it.each([

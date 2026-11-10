@@ -5,8 +5,8 @@
  * — the docked chat strip beside the page does (Liam's decision 2: Scout shares
  * the tab the user is already on, no separate tab). So the page DISPATCHES a
  * window event and the shell's listener (dashboard-shell.tsx) forwards it to the
- * active tab's ChatPanel, exactly like `dial8:chat-about-proposal`,
- * `dial8:trigger-skill` and the other four pairs.
+ * active tab's ChatPanel, exactly like `ni:chat-about-proposal`,
+ * `ni:trigger-skill` and the other four pairs.
  *
  * Keeping the name, the detail shape and the dispatcher in one module means the
  * UI package imports a function rather than hand-rolling a CustomEvent — the two
@@ -14,7 +14,7 @@
  */
 
 /** Window event name. Listened for in dashboard-shell.tsx. */
-export const PROSPECTING_START_EVENT = 'dial8:prospecting-start'
+export const PROSPECTING_START_EVENT = 'ni:prospecting-start'
 
 export interface ProspectingStartDetail {
   /** The company domain we already know (from the signed-in email or the typed
@@ -96,7 +96,7 @@ export function isStickySkill(slug: string | null | undefined): boolean {
 // ─── "Ask about this list" (B7) ────────────────────────────────────────────────────────
 // A SECOND handoff, with the opposite posture to the one above.
 //
-// `dial8:prospecting-start` auto-sends a seeded turn: the user pressed a button
+// `ni:prospecting-start` auto-sends a seeded turn: the user pressed a button
 // that means one specific thing ("learn about my company"), so there is nothing
 // left to ask. "Ask about this list" is the other case — the user has rows selected and a
 // question of their own. Sending anything on their behalf would be a guess, and
@@ -112,7 +112,7 @@ export function isStickySkill(slug: string | null | undefined): boolean {
 // second, staler copy of the same fact.
 
 /** Window event name. Listened for in dashboard-shell.tsx, beside the start event. */
-export const PROSPECTING_ASK_EVENT = 'dial8:prospecting-ask'
+export const PROSPECTING_ASK_EVENT = 'ni:prospecting-ask'
 
 export interface ProspectingAskDetail {
   /** The list the user is on — only used for the composer hint's wording. */
@@ -152,7 +152,7 @@ export function buildAskAboutListHint(detail: ProspectingAskDetail): string {
 // duplicate that shape without separating anything — the shell already imports
 // this file for the other two.
 //
-// Posture: AUTO-SEND, like `dial8:prospecting-start` and unlike "Ask about this list".
+// Posture: AUTO-SEND, like `ni:prospecting-start` and unlike "Ask about this list".
 // The click means one specific thing ("find this person's work email"), so
 // there is nothing left to ask — and the seed says the user clicked, which is
 // what authorizes the skill to save without a second confirmation. Unlike
@@ -160,7 +160,7 @@ export function buildAskAboutListHint(detail: ProspectingAskDetail): string {
 // user's next message in that thread is usually about something else.
 
 /** Window event name. Listened for in dashboard-shell.tsx. */
-export const FIND_CONTACT_EMAIL_EVENT = 'dial8:find-contact-email'
+export const FIND_CONTACT_EMAIL_EVENT = 'ni:find-contact-email'
 
 /** The slug of the system skill that drives this flow (migration 263). */
 export const FIND_EMAIL_SKILL_SLUG = 'find-email'

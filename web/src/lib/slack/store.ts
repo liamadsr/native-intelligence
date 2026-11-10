@@ -51,7 +51,7 @@ export async function getInstallation(svc: Svc, teamId: string): Promise<SlackIn
   return data ?? null
 }
 
-/** The live Slack teams bound to a Dial8 workspace, oldest first. Throws on a failed read. */
+/** The live Slack teams bound to a Native Intelligence workspace, oldest first. Throws on a failed read. */
 export async function installationsForWorkspace(svc: Svc, workspaceId: string): Promise<SlackInstallation[]> {
   const { data, error } = await svc
     .from('slack_installation')
@@ -77,7 +77,7 @@ export interface BindInstallationInput {
 export type BindResult = { ok: true; rebound: boolean } | { ok: false; reason: 'other_workspace' | 'failed' }
 
 /**
- * Bind a Slack team to a Dial8 workspace. A team is bound to ONE workspace:
+ * Bind a Slack team to a Native Intelligence workspace. A team is bound to ONE workspace:
  * live and bound elsewhere → refused. A revoked row for another workspace is
  * deleted first (its links go with it, by cascade); a row for this workspace
  * is brought back to life with its links kept.
@@ -116,7 +116,7 @@ export async function bindInstallation(svc: Svc, input: BindInstallationInput): 
   return error ? { ok: false, reason: 'failed' } : { ok: true, rebound: false }
 }
 
-/** Mark a team's installation revoked (uninstalled in Slack, or disconnected in Dial8). */
+/** Mark a team's installation revoked (uninstalled in Slack, or disconnected in Native Intelligence). */
 export async function markInstallationRevoked(svc: Svc, teamId: string, workspaceId?: string): Promise<boolean> {
   let query = svc
     .from('slack_installation')
@@ -130,7 +130,7 @@ export async function markInstallationRevoked(svc: Svc, teamId: string, workspac
 
 // ── Person links ────────────────────────────────────────────────────────────
 
-/** The Dial8 user a Slack user is linked to in a team, or null. Throws on a failed read. */
+/** The Native Intelligence user a Slack user is linked to in a team, or null. Throws on a failed read. */
 export async function linkForSlackUser(svc: Svc, teamId: string, slackUserId: string): Promise<SlackUserLink | null> {
   const { data, error } = await svc
     .from('slack_user_link')
@@ -151,7 +151,7 @@ export async function linksForUser(svc: Svc, userId: string, teamIds: readonly s
 }
 
 /**
- * Link a Slack user to a Dial8 user in a team. The Slack account decides: a
+ * Link a Slack user to a Native Intelligence user in a team. The Slack account decides: a
  * code sent from it replaces whatever it was linked to before, and the
  * person's own earlier Slack account in that team is unlinked (one each way).
  */

@@ -31,7 +31,7 @@ begin
   insert into public.chatgpt_connection (user_id, issuer, subject, client_id, access_token_enc, expires_at, plan_enabled, status)
   values (u, 'https://auth.openai.com', 't407-sub', 'oaiapp_t407', 'v1.x.y.z', now() + interval '1 hour', true, 'active');
   -- A caller that doesn't run on the person's plan (no opt-in): refused, so no
-  -- unconverted path can spend Dial8's models on a free user.
+  -- unconverted path can spend Native Intelligence's models on a free user.
   select * into r from public.check_ai_usage_limit(u);
   if r.allowed or r.reason <> 'chatgpt_plan_unsupported' then
     raise exception '409: no opt-in expected refused chatgpt_plan_unsupported, got % %', r.allowed, r.reason;
@@ -51,7 +51,7 @@ begin
   end if;
   update public.chatgpt_connection set plan_enabled = true where user_id = u;
 
-  -- Out of plan credits: an opted-in caller may still try (it costs Dial8
+  -- Out of plan credits: an opted-in caller may still try (it costs Native Intelligence
   -- nothing), named; every other caller is still refused.
   update public.chatgpt_connection set status = 'exhausted' where user_id = u;
   select * into r from public.check_ai_usage_limit(u, true);
@@ -70,7 +70,7 @@ begin
     raise exception '409: revoked expected subscription_required, got % %', r.allowed, r.reason;
   end if;
 
-  -- A paying person keeps Dial8's plan even with a connection.
+  -- A paying person keeps Native Intelligence's plan even with a connection.
   update public.chatgpt_connection set status = 'active' where user_id = u;
   insert into public.subscriptions (user_id, stripe_subscription_id, stripe_customer_id, status, current_period_start, current_period_end)
   values (u, 'sub_t407', 'cus_t407', 'active', now() - interval '1 day', now() + interval '29 days');

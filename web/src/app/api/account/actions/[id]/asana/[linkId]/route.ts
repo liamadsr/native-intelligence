@@ -14,9 +14,9 @@ import { parseLensUpdate } from '@/lib/tasks/task-lens'
 /**
  * DELETE /api/account/actions/[id]/asana/[linkId] — Unlink an Asana task.
  *
- * Dial8-side ONLY: this drops the link row so the action stops echoing status
+ * NI-side ONLY: this drops the link row so the action stops echoing status
  * changes. The Asana task itself is never touched — deleting someone's task out
- * from under them because a Dial8 user tidied up a panel would be unrecoverable.
+ * from under them because a Native Intelligence user tidied up a panel would be unrecoverable.
  */
 export async function DELETE(
   _request: Request,
@@ -53,7 +53,7 @@ export async function DELETE(
  * established for the compose panel, applied to edits. See parseLensUpdate.
  *
  * `priority_id` IS REJECTED BY NAME, not silently dropped: Asana has no native
- * priority field at all — it exists only as a per-project enum custom field Dial8
+ * priority field at all — it exists only as a per-project enum custom field Native Intelligence
  * has no schema knowledge of — so the create path excludes it for the same reason.
  *
  * Tags are diffed rather than replaced wholesale, because Asana gives no choice:

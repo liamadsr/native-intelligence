@@ -3,7 +3,7 @@
  * Discord): a chat reads the way the in-app browser reads a highlight (Liam,
  * 2026-10-22: "smart enough to know not to read the full person's name ...
  * Emily said something, and then Jianmin said something"). The desktop
- * (dial8-desktop read_selection.rs) sends the selected text here and speaks
+ * (desktop read_selection.rs) sends the selected text here and speaks
  * the sentences that come back; this is the browser's own chat reader,
  * ./browser-speech (chatSelectionToSentences), given the text alone, as for
  * any chat page it has no labels for. Text that isn't a chat (an email body,

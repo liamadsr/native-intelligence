@@ -73,8 +73,8 @@ describe('publish_post / schedule_post', () => {
     expect(screened.opts).toEqual([{}, { userId: 'u-1' }])
   })
 
-  it('names the two sending tools (and their dial8_ names)', () => {
-    expect(isPostSendTool('publish_post') && isPostSendTool('dial8_schedule_post')).toBe(true)
+  it('names the two sending tools (and their ni_ names)', () => {
+    expect(isPostSendTool('publish_post') && isPostSendTool('ni_schedule_post')).toBe(true)
     expect(isPostSendTool('lint_post')).toBe(false)
   })
 })

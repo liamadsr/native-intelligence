@@ -46,7 +46,7 @@ const OTHER = '33333333-3333-4333-8333-333333333333'
 
 const WORKSPACES = {
   workspaces: [
-    { id: DST, name: 'Dial8', slug: 'dial8', role: 'owner' },
+    { id: DST, name: 'Native Intelligence', slug: 'dial8', role: 'owner' },
     { id: SRC, name: 'Coherix', slug: 'coherix', role: 'owner' },
     { id: OTHER, name: 'Shared', slug: 'shared', role: 'admin' },
   ],
@@ -61,7 +61,7 @@ const PREFLIGHT = {
   ok: true,
   blockers: [],
   source: { id: SRC, name: 'Coherix', slug: 'coherix' },
-  destination: { id: DST, name: 'Dial8', slug: 'dial8' },
+  destination: { id: DST, name: 'Native Intelligence', slug: 'dial8' },
   busy: { live_captures: [], agent_runs: 0, flow_runs: 0, tracked_jobs: 0 },
   drift: { source: [], destination: [] },
   people: { joining: [{ user_id: 'u1', display_name: 'A', role: 'member' }], in_both: [], destination_members: 2, invites_moving: 0, invites_dropped: 0 },
@@ -83,7 +83,7 @@ const FOLDED = {
 }
 const MERGED = {
   ok: true,
-  merge: { merge_id: 'm1', source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Dial8' }, counts: {}, rows_before: { actions: 12, member: 2 } },
+  merge: { merge_id: 'm1', source: { id: SRC, name: 'Coherix' }, destination: { id: DST, name: 'Native Intelligence' }, counts: {}, rows_before: { actions: 12, member: 2 } },
   snapshot: { prefix: `${SRC}/snap`, total_rows: 40, total_pages: 2 },
   members_told: 1,
 }
@@ -113,7 +113,7 @@ let lastProps: Props
 
 async function render(props: Partial<Props> = {}) {
   root = createRoot(container)
-  lastProps = { open: true, onClose: vi.fn(), destination: { id: DST, name: 'Dial8' }, navigateDelayMs: 0, ...props }
+  lastProps = { open: true, onClose: vi.fn(), destination: { id: DST, name: 'Native Intelligence' }, navigateDelayMs: 0, ...props }
   await act(async () => root!.render(h(MergeWorkspaceSheet, lastProps)))
   await flush()
 }
@@ -210,11 +210,11 @@ describe('MergeWorkspaceSheet', () => {
     await render()
     expect(direction()).toContain('From')
     expect(direction()).toContain('A workspace you own')
-    expect(direction()).toMatch(/Into.*You are here.*Dial8/)
-    expect(container.textContent).toContain('Which workspace should move into Dial8?')
+    expect(direction()).toMatch(/Into.*You are here.*Native Intelligence/)
+    expect(container.textContent).toContain('Which workspace should move into Native Intelligence?')
     await pickSource()
-    expect(direction()).toMatch(/From.*Coherix.*Into.*Dial8/)
-    expect(mergeButton().textContent).toBe('Merge Coherix into Dial8')
+    expect(direction()).toMatch(/From.*Coherix.*Into.*Native Intelligence/)
+    expect(mergeButton().textContent).toBe('Merge Coherix into Native Intelligence')
   })
 
   it('a first preflight that fails goes back to choosing, and the header no longer names a source', async () => {
@@ -236,7 +236,7 @@ describe('MergeWorkspaceSheet', () => {
   })
 
   it('says so when there is nothing to merge in', async () => {
-    listResponse = () => ({ status: 200, body: { workspaces: [{ id: DST, name: 'Dial8', slug: 'dial8', role: 'owner' }] } })
+    listResponse = () => ({ status: 200, body: { workspaces: [{ id: DST, name: 'Native Intelligence', slug: 'dial8', role: 'owner' }] } })
     await render()
     expect(container.querySelectorAll('button[data-source-id]')).toHaveLength(0)
     expect(container.textContent).toMatch(/not the owner of another workspace/i)
@@ -385,7 +385,7 @@ describe('MergeWorkspaceSheet', () => {
     expect(cancelButton()).toBeNull()
     expect(closeButton()).toBeNull()
     expect(container.querySelector('button[data-testid="merge-confirm"]')).toBeNull()
-    expect(container.querySelector('[data-testid="merging"]')!.textContent).toContain('Merging Coherix into Dial8')
+    expect(container.querySelector('[data-testid="merging"]')!.textContent).toContain('Merging Coherix into Native Intelligence')
     expect(container.textContent).toContain('0:00 elapsed')
     expect(container.querySelector('[role="timer"]')!.textContent).toContain('elapsed')
     expect(container.textContent).toContain('This window stays open until the merge finishes.')
@@ -399,7 +399,7 @@ describe('MergeWorkspaceSheet', () => {
 
     await act(async () => release({ status: 200, body: MERGED }))
     await flush()
-    expect(container.textContent).toContain('Merged into Dial8')
+    expect(container.textContent).toContain('Merged into Native Intelligence')
     expect(cancelButton()).toBeNull()
     expect(closeButton()).toBeNull()
   })
@@ -449,7 +449,7 @@ describe('MergeWorkspaceSheet', () => {
     mergeResponse = () => ({ status: 0, body: {} })
     await render()
     await pickSource()
-    listResponse = () => ({ status: 200, body: { workspaces: [{ id: DST, name: 'Dial8', slug: 'dial8', role: 'owner' }] } })
+    listResponse = () => ({ status: 200, body: { workspaces: [{ id: DST, name: 'Native Intelligence', slug: 'dial8', role: 'owner' }] } })
     await typeAndMerge()
     expect(container.textContent).toContain('Merged')
     expect(container.textContent).toContain('Everything came over.')

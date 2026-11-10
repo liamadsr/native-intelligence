@@ -1,4 +1,4 @@
-//! Dictate anywhere (dial8-website/docs/plans/dictate-anywhere.md): tap the
+//! Dictate anywhere (web/docs/plans/dictate-anywhere.md): tap the
 //! RIGHT Option key, talk, tap it again, and what was said is pasted where the
 //! cursor is, in any app.
 //!
@@ -885,7 +885,7 @@ fn build_panel(app: &AppHandle, x: f64, y: f64) -> Option<tauri::WebviewWindow> 
 }
 
 /// Hide the panel, leaving the app you were in in front: Esc on the panel
-/// must never bring Dial8 forward (dictate_hide_window).
+/// must never bring Native Intelligence forward (dictate_hide_window).
 fn hide_panel(app: &AppHandle) {
     let Some(w) = app.get_webview_window(PANEL) else { return };
     #[cfg(target_os = "macos")]
@@ -897,7 +897,7 @@ fn hide_panel(app: &AppHandle) {
                 let seen = sys::hide_window(ns, back_to);
                 if seen & 4 != 0 {
                     crate::log_to_file(&format!(
-                        "[dictate] hidden with Dial8 in front (active before: {}, panel key: {}){}",
+                        "[dictate] hidden with Native Intelligence in front (active before: {}, panel key: {}){}",
                         seen & 1 != 0,
                         seen & 2 != 0,
                         if seen & 8 != 0 { "; handed back to the app you were in" } else { "" }
@@ -1357,7 +1357,7 @@ pub struct Status {
     enabled: bool,
     /// The Accessibility permission (watching the key, reading the field).
     accessibility: bool,
-    /// macOS lets Dial8 post ⌘V.
+    /// macOS lets Native Intelligence post ⌘V.
     keystrokes: bool,
     /// On, but the key can't be watched: "needs_permission" or "no_event_tap".
     error: Option<String>,

@@ -83,7 +83,7 @@
  * replies too when `voice.readReplies` (the Read aloud setting's auto-read
  * decides). It's one conversation per page: starting it ends the composer's
  * voice mode, and the composer's ends it. No greeting: the host has said what
- * it has. A refusal (another Dial8 window has the voice, modules not set up,
+ * it has. A refusal (another Native Intelligence window has the voice, modules not set up,
  * no mic) shows in the label above the box. `voice.onState` hears whether it's
  * listening and whether a reply is being read, and how to stop that reading;
  * `voice.onTypedSend`, that a typed message went out. The label (the phase and
@@ -372,7 +372,7 @@ export interface TeammateChatAbout {
 
 /** Why a focused conversation's agent can't be changed here (one-agent S3). */
 function focusedAgentReason(area: string): string {
-  return `This chat is Dial8's main agent, focused on ${area}: its agent can't change here. For anything else, use the main chat.`
+  return `This chat is Native Intelligence's main agent, focused on ${area}: its agent can't change here. For anything else, use the main chat.`
 }
 
 /** How answering a run's question in the box went, for the line (per run). */
@@ -679,7 +679,7 @@ function VoicedTeammateChat({
     }
     setNotice(null)
     const refusal = await start()
-    // Another Dial8 window has the voice (busy), the mic's denied, …: say so here.
+    // Another Native Intelligence window has the voice (busy), the mic's denied, …: say so here.
     if (refusal) setNotice(voiceRefusalMessage(refusal.code, refusal.detail))
   }, [talking, availability.blocked, availability.conversation, start, end])
 

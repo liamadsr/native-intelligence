@@ -1,6 +1,6 @@
 /**
  * A person's agent's own number (agent-number.ts): the pool is the messaging
- * service's numbers of Dial8's names that nobody holds; getting one takes the
+ * service's numbers of Native Intelligence's names that nobody holds; getting one takes the
  * spare longest in the service and never buys; a held number is the sender
  * until carriers refuse it; the balance (one at a time) dates freed numbers,
  * buys up to the target under the cap, and releases only never-held spares or
@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import {
-  DIAL8_FALLBACK_MS,
+  NI_FALLBACK_MS,
   FREE_PREFIX,
   HELD_NAME,
   IDLE_RECLAIM_MS,
@@ -26,9 +26,9 @@ import {
 } from '../agent-number'
 
 const pn = (n: number) => `PN${String(n).padStart(32, '0')}`
-const DIAL8 = '+19287698774'
+const NI = '+19287698774'
 const SIGNUP = '+19287690000'
-const config = { accountSid: 'AC1', authToken: 't', fromNumber: DIAL8, messagingServiceSid: 'MG1' }
+const config = { accountSid: 'AC1', authToken: 't', fromNumber: NI, messagingServiceSid: 'MG1' }
 const NOW = Date.parse('2026-11-02T12:00:00Z')
 const DAY = 24 * 60 * 60_000
 const TODAY = '2026-11-02'
@@ -88,11 +88,11 @@ beforeEach(() => {
   vi.stubEnv('TWILIO_SIGNUP_NUMBER', SIGNUP)
   tables = { agent_phone_number: [], business_phone_number: [], user_phone: [], sms_message: [] }
   pool = [
-    { sid: pn(1), phone_number: DIAL8, date_created: at(90 * DAY), name: 'Dial8' },
+    { sid: pn(1), phone_number: NI, date_created: at(90 * DAY), name: 'Native Intelligence' },
     { sid: pn(2), phone_number: SIGNUP, date_created: at(80 * DAY), name: SPARE_NAME },
     { sid: pn(3), phone_number: '+16465550103', date_created: at(2 * DAY), name: SPARE_NAME },
     { sid: pn(4), phone_number: '+16465550104', date_created: at(5 * DAY), name: SPARE_NAME },
-    // Added to the service by hand: never Dial8's to give or release.
+    // Added to the service by hand: never Native Intelligence's to give or release.
     { sid: pn(5), phone_number: '+16465550105', date_created: at(60 * DAY) },
   ]
   addToServiceOk = true
@@ -105,7 +105,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('where there is a pool', () => {
-  it('production only, with a messaging service and the Dial8 number', () => {
+  it('production only, with a messaging service and the Native Intelligence number', () => {
     expect(agentNumbersAvailable(deps())).toBe(true)
     expect(agentNumbersAvailable({ ...deps(), production: false })).toBe(false)
     expect(agentNumbersAvailable({ ...deps(), config: { ...config, messagingServiceSid: null } })).toBe(false)
@@ -125,13 +125,13 @@ describe('getAgentNumber', () => {
     expect(fetchFake).not.toHaveBeenCalled()
   })
 
-  it('the spare longest in the service, of Dial8’s names only: never the Dial8, sign-up or hand-added number', async () => {
+  it('the spare longest in the service, of Native Intelligence’s names only: never the Native Intelligence, sign-up or hand-added number', async () => {
     const got = await getAgentNumber(db(), { userId: 'u1' }, deps())
     expect(got).toMatchObject({ ok: true, fresh: true, number: { phone: '+16465550104', twilioSid: pn(4), userId: 'u1' } })
     expect(tables.agent_phone_number).toHaveLength(1)
   })
 
-  it('names it held and gives it the Dial8 number’s webhooks, its trunk too; asks for a replacement; never buys', async () => {
+  it('names it held and gives it the Native Intelligence number’s webhooks, its trunk too; asks for a replacement; never buys', async () => {
     await getAgentNumber(db(), { userId: 'u1' }, deps())
     expect(Object.fromEntries(posts(`/IncomingPhoneNumbers/${pn(4)}.json`)[0].form)).toEqual({ FriendlyName: HELD_NAME, SmsUrl: 'https://dial8.ai/api/twilio/sms', SmsMethod: 'POST', TrunkSid: 'TK1' })
     expect(requestBalance).toHaveBeenCalledTimes(1)
@@ -168,8 +168,8 @@ describe('getAgentNumber', () => {
     expect(calls.some((c) => c.url.includes('AvailablePhoneNumbers'))).toBe(false)
   })
 
-  it('a service without the Dial8 number hands nothing out (every other text is pinned to it)', async () => {
-    pool = pool.filter((p) => p.phone_number !== DIAL8)
+  it('a service without the Native Intelligence number hands nothing out (every other text is pinned to it)', async () => {
+    pool = pool.filter((p) => p.phone_number !== NI)
     expect(await getAgentNumber(db(), { userId: 'u1' }, deps())).toEqual({ ok: false, reason: 'twilio_refused' })
     expect(tables.agent_phone_number).toHaveLength(0)
   })
@@ -181,16 +181,16 @@ describe('getAgentNumber', () => {
 })
 
 describe('agentSender', () => {
-  it('the number while carriers take it; the Dial8 number (null) for a while after they refused it', async () => {
+  it('the number while carriers take it; the Native Intelligence number (null) for a while after they refused it', async () => {
     tables.agent_phone_number.push({ user_id: 'u1', phone_e164: '+16465550104', twilio_sid: pn(4), dial8_until: null, created_at: at(DAY) })
     expect(await agentSender(db(), 'u1', NOW)).toBe('+16465550104')
     expect(await holdAgentNumber(db(), '+16465550104', NOW)).toBe(true)
-    expect(tables.agent_phone_number[0].dial8_until).toBe(new Date(NOW + DIAL8_FALLBACK_MS).toISOString())
+    expect(tables.agent_phone_number[0].dial8_until).toBe(new Date(NOW + NI_FALLBACK_MS).toISOString())
     expect(await agentSender(db(), 'u1', NOW + 1000)).toBeNull()
-    expect(await agentSender(db(), 'u1', NOW + DIAL8_FALLBACK_MS + 1)).toBe('+16465550104')
+    expect(await agentSender(db(), 'u1', NOW + NI_FALLBACK_MS + 1)).toBe('+16465550104')
   })
 
-  it('none, or a failed read: the Dial8 number', async () => {
+  it('none, or a failed read: the Native Intelligence number', async () => {
     expect(await agentSender(db(), 'u1', NOW)).toBeNull()
     const broken = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'down' } }) }) }) }) }
     expect(await agentSender(broken as never, 'u1', NOW)).toBeNull()
@@ -291,7 +291,7 @@ describe('balanceSpares', () => {
     const failRename = fetchFake.getMockImplementation()!
     fetchFake.mockImplementationOnce(failRename) // the service list
     fetchFake.mockImplementationOnce(failRename) // the account's names
-    fetchFake.mockImplementationOnce(failRename) // the Dial8 number's voice
+    fetchFake.mockImplementationOnce(failRename) // the Native Intelligence number's voice
     fetchFake.mockImplementationOnce(async () => new Response('{}', { status: 503 })) // the rename to held
     expect(await getAgentNumber(db(), { userId: 'u1' }, deps())).toMatchObject({ ok: true, number: { phone: '+16465550104' } })
     expect(pool.find((p) => p.sid === pn(4))!.name).toBe(SPARE_NAME)

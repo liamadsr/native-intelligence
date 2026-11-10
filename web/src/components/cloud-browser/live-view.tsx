@@ -273,9 +273,9 @@ function LiveViewWindow() {
     : phase.kind === 'error' ? phase.message : ''
 
   return (
-    // data-dial8-browser + ph-no-capture: the screen and the blocked sites are the person's browsing,
+    // data-ni-browser + ph-no-capture: the screen and the blocked sites are the person's browsing,
     // kept out of Sentry breadcrumbs (isInBrowserSurface) and PostHog capture and replay.
-    <div data-cloud-browser-live-view="" data-dial8-browser="" className="ph-no-capture fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]">
+    <div data-cloud-browser-live-view="" data-ni-browser="" className="ph-no-capture fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[2px]">
       <div role="dialog" aria-modal="true" aria-label={`${name}’s computer`}
         // As wide as fits: the screen keeps 16:10 under the header and the driving note.
         className="flex max-h-full w-full max-w-[min(1280px,calc((100dvh_-_7.5rem)*1.6))] flex-col overflow-hidden rounded-2xl border border-border/60 bg-background shadow-2xl">

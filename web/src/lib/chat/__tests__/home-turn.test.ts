@@ -234,7 +234,7 @@ describe('the chat-agent is told what a background update is', () => {
     // (docs/plans/now-file.md); the check-in is the one background update that
     // writes it, from a session of its own. Said once, in "The Now file".
     expect(md).toContain('Helpers, background updates, texts and Slack don\'t write it')
-    expect(md).toContain("The one exception is your check-in, a background update that says so, in a session of its own that holds only the note and Dial8's own records: there you keep it, as its guidance says.")
+    expect(md).toContain("The one exception is your check-in, a background update that says so, in a session of its own that holds only the note and Native Intelligence's own records: there you keep it, as its guidance says.")
   })
 })
 

@@ -7,7 +7,7 @@ import { AuthSessionPinger } from '@/components/analytics/auth-session-pinger'
 import { StartTrialView } from './start-trial-view'
 
 export const metadata = {
-  title: 'Start your trial – Dial8',
+  title: 'Start your trial',
   robots: { index: false, follow: false },
 }
 

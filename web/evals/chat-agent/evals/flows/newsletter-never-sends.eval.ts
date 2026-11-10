@@ -35,7 +35,7 @@ function sendingLoop(call: EveEvalToolCall): boolean {
 }
 
 /**
- * Decision 9 (P9): a newsletter is a document the person copies out; Dial8
+ * Decision 9 (P9): a newsletter is a document the person copies out; Native Intelligence
  * never sends it, keeps no list and offers no sending service. Even asked to
  * "send it to my subscribers", the agent calls no send tool, builds no loop
  * that sends, and builds the newsletter recipe (or asks). create_flow is

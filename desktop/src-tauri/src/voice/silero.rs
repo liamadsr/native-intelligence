@@ -1,5 +1,5 @@
 //! Silero VAD v6.2.3, the 16 kHz opset-15 model, on ONNX Runtime
-//! (dial8-website/docs/plans/chat-voice.md §3.3a; picked by the S2 bake-off).
+//! (web/docs/plans/chat-voice.md §3.3a; picked by the S2 bake-off).
 //!
 //! The model (1.3 MB, MIT, `resources/vad/`, see its UPSTREAM.md) is built
 //! into the executable and handed to ONNX Runtime from memory; ONNX Runtime is

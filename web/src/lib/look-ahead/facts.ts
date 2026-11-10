@@ -6,7 +6,7 @@
  * text it came from.
  *
  * WHAT GOES OUT. Only checked fields (LookAheadFacts) leave this module: never
- * a mail's words. The message is Dial8's template over them (./message.ts),
+ * a mail's words. The message is Native Intelligence's template over them (./message.ts),
  * so a planted line in a mail can't reach the person. A field that doesn't
  * appear in its event or its mail is dropped (an invented address, a
  * requirement nobody wrote), and so is anything carrying a link.

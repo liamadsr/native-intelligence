@@ -7,8 +7,8 @@ import { codeFrom } from '../code-input'
 
 describe('codeFrom', () => {
   it('reads the code out of a whole text, not the other digits in it', () => {
-    expect(codeFrom('Your Dial8 code is 123 456. It expires in 10 minutes.', 6)).toBe('123456')
-    expect(codeFrom('Dial8: 654321 is your code', 6)).toBe('654321')
+    expect(codeFrom('Your Native Intelligence code is 123 456. It expires in 10 minutes.', 6)).toBe('123456')
+    expect(codeFrom('Native Intelligence: 654321 is your code', 6)).toBe('654321')
     expect(codeFrom('123-456', 6)).toBe('123456')
   })
 

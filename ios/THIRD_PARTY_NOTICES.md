@@ -1,7 +1,7 @@
 # Third-party notices
 
 `App/Resources/EveBotAvatar.html` is a bundle exported from the website's bot renderer.
-Besides Dial8's own code it contains these packages, both under the MIT License:
+Besides Native Intelligence's own code it contains these packages, both under the MIT License:
 
 - **bot-avatars** 0.1.1, Copyright (c) 2026 Jakub Antalik
   (https://github.com/Jakubantalik/Libraries.dev, `packages/bot-avatars`)

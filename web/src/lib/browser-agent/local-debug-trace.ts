@@ -29,7 +29,8 @@ export function browserErrorDiagnostics(error: unknown): { name: string; statusC
 export async function writeBrowserDebugTrace(context: TraceContext, stage: TraceStage, data: unknown): Promise<void> {
   if (process.env.NODE_ENV !== 'development' || process.env.VERCEL || !context.runId || !UUID.test(context.runId)) return
   try {
-    const scopePath = process.env.DIAL8_BROWSER_TRACE_SCOPE_FILE ?? join(tmpdir(), 'dial8-browser-trace-scope.json')
+    // TODO(rename-compat): DIAL8_BROWSER_TRACE_SCOPE_FILE is the name an .env.local written before the rename uses.
+    const scopePath = process.env.NI_BROWSER_TRACE_SCOPE_FILE ?? process.env.DIAL8_BROWSER_TRACE_SCOPE_FILE ?? join(tmpdir(), 'ni-browser-trace-scope.json')
     const scope = JSON.parse(await readFile(scopePath, 'utf8'))
     const expiry = Date.parse(scope.expiresAt)
     if (scope.userId !== context.userId || scope.workspaceId !== context.workspaceId ||

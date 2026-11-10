@@ -7,11 +7,11 @@
  * hand-written registrars — workspaces, github, library, evals — build their own
  * `content` blocks, so the adapter never saw them: they were the only results in
  * a ~165-tool catalog that didn't say which workspace they came from, and
- * `dial8_list_workspaces` (the tool an agent reaches for when it is UNSURE of
+ * `ni_list_workspaces` (the tool an agent reaches for when it is UNSURE of
  * its scope) was among them.
  *
  * Pinned here: every JSON success payload from those registrars carries the
- * stamp, `dial8_set_workspace` reports the NEW workspace rather than the one the
+ * stamp, `ni_set_workspace` reports the NEW workspace rather than the one the
  * call started in, and error payloads are left exactly as they were.
  */
 import { describe, it, expect, vi } from 'vitest'
@@ -55,7 +55,7 @@ function supabaseStub(result: { data: unknown; error: unknown }) {
 
 const body = (r: { content: Array<{ text: string }> }) => JSON.parse(r.content[0].text)
 
-describe('dial8_list_workspaces', () => {
+describe('ni_list_workspaces', () => {
   it('stamps the active workspace onto the result', async () => {
     const { server, handlers } = captureHandlers()
     registerWorkspaceTools(
@@ -67,7 +67,7 @@ describe('dial8_list_workspaces', () => {
       WS_NAME,
     )
 
-    const res = await handlers.get('dial8_list_workspaces')!({})
+    const res = await handlers.get('ni_list_workspaces')!({})
     const parsed = body(res)
     expect(parsed.active_workspace).toEqual({ id: WS_ID, name: WS_NAME })
     // The stamp is additive — the payload itself is untouched.
@@ -78,7 +78,7 @@ describe('dial8_list_workspaces', () => {
     const { server, handlers } = captureHandlers()
     registerWorkspaceTools(server as never, USER_ID, supabaseStub({ data: [], error: null }), WS_ID)
 
-    expect(body(await handlers.get('dial8_list_workspaces')!({})).active_workspace).toEqual({
+    expect(body(await handlers.get('ni_list_workspaces')!({})).active_workspace).toEqual({
       id: WS_ID,
       name: null,
     })
@@ -95,13 +95,13 @@ describe('dial8_list_workspaces', () => {
       WS_NAME,
     )
 
-    const res = await handlers.get('dial8_list_workspaces')!({})
+    const res = await handlers.get('ni_list_workspaces')!({})
     expect(res.isError).toBe(true)
     expect(body(res)).toEqual({ error: 'boom' })
   })
 })
 
-describe('dial8_get_workspace', () => {
+describe('ni_get_workspace', () => {
   it('stamps the active workspace', async () => {
     const { server, handlers } = captureHandlers()
     // This handler mixes a .single() read (the workspace row) with two awaited
@@ -127,14 +127,14 @@ describe('dial8_get_workspace', () => {
 
     registerWorkspaceTools(server as never, USER_ID, supabase, WS_ID, undefined, WS_NAME)
 
-    expect(body(await handlers.get('dial8_get_workspace')!({})).active_workspace).toEqual({
+    expect(body(await handlers.get('ni_get_workspace')!({})).active_workspace).toEqual({
       id: WS_ID,
       name: WS_NAME,
     })
   })
 })
 
-describe('dial8_set_workspace', () => {
+describe('ni_set_workspace', () => {
   it('reports the NEW workspace as active_workspace, not the one it started in', async () => {
     const { server, handlers } = captureHandlers()
     registerWorkspaceTools(
@@ -147,7 +147,7 @@ describe('dial8_set_workspace', () => {
       WS_NAME,
     )
 
-    const parsed = body(await handlers.get('dial8_set_workspace')!({ workspace_id: 'ws-2' }))
+    const parsed = body(await handlers.get('ni_set_workspace')!({ workspace_id: 'ws-2' }))
     expect(parsed.success).toBe(true)
     // By the time this returns the switch is committed, so the stamp has to name
     // the workspace every SUBSEQUENT call will run in.
@@ -156,12 +156,12 @@ describe('dial8_set_workspace', () => {
   })
 })
 
-describe('dial8_get_pr_status (github registrar)', () => {
+describe('ni_get_pr_status (github registrar)', () => {
   it('stamps the active workspace', async () => {
     const { server, handlers } = captureHandlers()
     registerGitHubTools(server as never, USER_ID, supabaseStub({ data: [], error: null }), WS_ID, WS_NAME)
 
-    const parsed = body(await handlers.get('dial8_get_pr_status')!({ action_id: 'a-1' }))
+    const parsed = body(await handlers.get('ni_get_pr_status')!({ action_id: 'a-1' }))
     expect(parsed.active_workspace).toEqual({ id: WS_ID, name: WS_NAME })
     expect(parsed.prs).toEqual([])
   })
@@ -176,13 +176,13 @@ describe('dial8_get_pr_status (github registrar)', () => {
       WS_NAME,
     )
 
-    const res = await handlers.get('dial8_get_pr_status')!({ action_id: 'a-1' })
+    const res = await handlers.get('ni_get_pr_status')!({ action_id: 'a-1' })
     expect(res.isError).toBe(true)
     expect(body(res)).toEqual({ error: 'db down' })
   })
 })
 
-describe('dial8_list_skills (library registrar)', () => {
+describe('ni_list_skills (library registrar)', () => {
   it('stamps the active workspace', async () => {
     const { server, handlers } = captureHandlers()
     // `workspace` answers the edition lookup (which drives the feature gate);
@@ -206,7 +206,7 @@ describe('dial8_list_skills (library registrar)', () => {
 
     registerLibraryTools(server as never, USER_ID, supabase, WS_ID, WS_NAME)
 
-    const parsed = body(await handlers.get('dial8_list_skills')!({}))
+    const parsed = body(await handlers.get('ni_list_skills')!({}))
     expect(parsed.active_workspace).toEqual({ id: WS_ID, name: WS_NAME })
     expect(parsed.skills).toHaveLength(1)
   })

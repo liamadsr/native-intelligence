@@ -4,7 +4,7 @@
  * Read anywhere's shortcut: its keys as chips, a pencil to record a new one
  * and a bin to go back to the default. Recording happens on the desktop,
  * which watches the keyboard (so fn works, which a web page never sees) and
- * checks the combo (dial8-desktop src-tauri/src/read_selection/keys.rs); a
+ * checks the combo (desktop/src-tauri/src/read_selection/keys.rs); a
  * refusal is one short line.
  */
 

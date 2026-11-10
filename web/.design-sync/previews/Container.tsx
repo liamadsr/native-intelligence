@@ -1,4 +1,4 @@
-import { Container } from '@dial8/ui'
+import { Container } from '@native-intelligence/ui'
 
 export function Centered() {
   return (
@@ -11,7 +11,7 @@ export function Centered() {
           <p style={{ marginTop: 12, marginBottom: 0, fontSize: 16, color: '#4b5563' }}>
             Container constrains its children to a centered max-width with
             responsive horizontal padding — the backbone of every marketing
-            section on dial8.ai.
+            section on nativeintelligence.dev.
           </p>
         </div>
       </Container>

@@ -185,7 +185,7 @@ function makeFakeSupabase(
 
 function patchReq(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/captures/${CAPTURE_ID}`,
+    url: `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}`,
     method: 'PATCH',
     body,
   }) as unknown as NextRequest
@@ -194,7 +194,7 @@ function patchReq(body: unknown): NextRequest {
 // GET reads request.nextUrl.searchParams (the `fields` variant selector), which
 // a plain Request doesn't have — attach a nextUrl shaped like NextRequest's.
 function getReq(fields?: string): NextRequest {
-  const url = `https://dial8.ai/api/account/captures/${CAPTURE_ID}${fields ? `?fields=${fields}` : ''}`
+  const url = `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}${fields ? `?fields=${fields}` : ''}`
   return { nextUrl: new URL(url) } as unknown as NextRequest
 }
 
@@ -254,7 +254,7 @@ const { GET, PATCH, DELETE } = await import('@/app/api/account/captures/[id]/rou
 // The DELETE handler reads request.nextUrl.searchParams, which a plain Request
 // (buildRequest) doesn't have — attach a nextUrl shaped like NextRequest's.
 function deleteReq(permanent: boolean): NextRequest {
-  const url = `https://dial8.ai/api/account/captures/${CAPTURE_ID}${permanent ? '?permanent=true' : ''}`
+  const url = `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}${permanent ? '?permanent=true' : ''}`
   return { nextUrl: new URL(url) } as unknown as NextRequest
 }
 

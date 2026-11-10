@@ -68,7 +68,7 @@ afterEach(() => {
 describe('QuestionCard: a local agent’s question', () => {
   it('is never stale: Answer opens the item, no Stop waiting', () => {
     const r = row()
-    render(r, { item: { ...(r as unknown as WorkItem), title: 'Your Mac · dial8-website: Look around' }, run: null })
+    render(r, { item: { ...(r as unknown as WorkItem), title: 'Your Mac · native-intelligence: Look around' }, run: null })
     expect(container.querySelector('[data-question-card-text]')?.textContent).toContain('Should I look at the desktop repo too?')
     expect(container.querySelector('[data-question-card-stop]')).toBeNull()
     expect(buttons()).toContain('Answer')

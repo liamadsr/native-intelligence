@@ -32,7 +32,7 @@ const WS_THIRD = 'ws-3'
 const WS_UNKNOWN = 'ws-nope'
 
 const WORKSPACES = [
-  { id: WS_ACTIVE, name: 'Dial8 Marketing' },
+  { id: WS_ACTIVE, name: 'Native Intelligence Marketing' },
   { id: WS_OTHER, name: 'Engineering' },
   { id: WS_THIRD, name: 'Personal' },
 ]
@@ -124,7 +124,7 @@ describe("policy 'explicit' — the MCP bridge", () => {
     expect(res).toEqual({
       ok: true,
       workspaceId: WS_ACTIVE,
-      workspaceName: 'Dial8 Marketing',
+      workspaceName: 'Native Intelligence Marketing',
       crossWorkspace: false,
     })
   })
@@ -146,7 +146,7 @@ describe("policy 'explicit' — the MCP bridge", () => {
     expect(err.error_type).toBe('needs_workspace')
     // Active first, so a client that truncates still shows the likely answer.
     expect(err.candidates).toEqual([
-      { id: WS_ACTIVE, name: 'Dial8 Marketing', is_active: true },
+      { id: WS_ACTIVE, name: 'Native Intelligence Marketing', is_active: true },
       { id: WS_OTHER, name: 'Engineering', is_active: false },
       { id: WS_THIRD, name: 'Personal', is_active: false },
     ])
@@ -154,7 +154,7 @@ describe("policy 'explicit' — the MCP bridge", () => {
     // answerable on its own: how many, which, and where to find the id.
     expect(err.error).toBe(
       'Specify workspace_id: you belong to 3 workspaces ' +
-        '(Dial8 Marketing [active], Engineering, Personal). ' +
+        '(Native Intelligence Marketing [active], Engineering, Personal). ' +
         'Use the workspace_id from the rows you read, or active_workspace.',
     )
   })
@@ -275,8 +275,8 @@ describe('workspaceEcho', () => {
   })
 
   it('trims the name', () => {
-    expect(workspaceEcho(WS_ACTIVE, '  Dial8 Marketing ')).toEqual({
-      workspace: { id: WS_ACTIVE, name: 'Dial8 Marketing' },
+    expect(workspaceEcho(WS_ACTIVE, '  Native Intelligence Marketing ')).toEqual({
+      workspace: { id: WS_ACTIVE, name: 'Native Intelligence Marketing' },
     })
   })
 })

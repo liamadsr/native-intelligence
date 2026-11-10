@@ -228,7 +228,7 @@ interface FolderRowModel {
   label: string
   mode: 'read' | 'edit'
   isGit: boolean
-  /** The person's own view of where it is (`~/code/dial8-v2`); empty when the Mac's store hasn't said. */
+  /** The person's own view of where it is (`~/code/native-intelligence`); empty when the Mac's store hasn't said. */
   parent: string
   baseBranch: string | null
   repoFullName: string | null
@@ -382,7 +382,7 @@ function MacForm({ environment, onClose, onSaved, onGone }: FormProps<MacEnviron
           ) : (
             <span
               data-environment-add-elsewhere=""
-              title="Folders are shared from the Dial8 desktop app, on the Mac they're on."
+              title="Folders are shared from the Native Intelligence desktop app, on the Mac they're on."
               className="text-[12px] text-muted-foreground"
             >
               Add on {mac.name}
@@ -461,7 +461,7 @@ function MacForm({ environment, onClose, onSaved, onGone }: FormProps<MacEnviron
           </ul>
         )}
         <p className="text-[12px] leading-relaxed text-muted-foreground">
-          Dial8 edits on a <span className="font-mono">dial8/…</span> branch in its own worktree, so your checkout is never touched.
+          Native Intelligence edits on a <span className="font-mono">dial8/…</span> branch in its own worktree, so your checkout is never touched.
           {mac.supportsBaseBranch ? ' A base branch is where those branches start.' : ''} A linked repo lets a job move to the cloud
           while this Mac is offline, once you say so.
         </p>
@@ -495,7 +495,7 @@ function MacForm({ environment, onClose, onSaved, onGone }: FormProps<MacEnviron
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
         title="Remove this Mac?"
-        description={`${mac.name} leaves Dial8: its folders stop being shared, and chats that used it move to your next default. Its jobs, branches and pull requests stay. Share a folder on that Mac to bring it back.`}
+        description={`${mac.name} leaves Native Intelligence: its folders stop being shared, and chats that used it move to your next default. Its jobs, branches and pull requests stay. Share a folder on that Mac to bring it back.`}
         confirmLabel="Remove"
         busyLabel="Removing…"
         busy={removing}

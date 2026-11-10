@@ -19,10 +19,10 @@
  *   2. the workspace is named "My business" until setup renames it, and
  *      takes the service-business edition (adoptBusinessEdition), so the app
  *      and the agent say the owner's words: jobs, customers, calls;
- *   3. the number is linked and verified on user_phone, on the Dial8 line,
+ *   3. the number is linked and verified on user_phone, on the Native Intelligence line,
  *      with the sign-up words' consent version (alert texts on: consent.ts),
  *      and any other row for the number is removed, business lines too (a
- *      sign-up runs only for a number with no Dial8-line holder, and the code
+ *      sign-up runs only for a number with no NI-line holder, and the code
  *      just proved who holds the phone now: privacy first);
  *   4. the member row skips the web wizard (onboarding_completed_at) and
  *      carries `onboarding_progress.text_signup`, which turns the setup by
@@ -73,7 +73,7 @@ export async function createPhoneAccount(supabase: SupabaseClient, args: { phone
     let created = await create()
     if (created.error?.code === 'phone_exists') {
       // An older account's auth row still carries the number, but no verified
-      // Dial8-line link does (else this text would have gone to that account's
+      // NI-line link does (else this text would have gone to that account's
       // agent; a business line is reached on a business's number only).
       const released = await supabase.rpc('release_signup_number', { p_phone: phone })
       if (released.error) return { ok: false, error: `release failed: ${released.error.message}` }

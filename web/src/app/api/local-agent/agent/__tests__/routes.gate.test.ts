@@ -100,7 +100,7 @@ describe('the real gate, for a job acting for the person (person_remote)', () =>
       conversationId: null,
       reason: 'mcp_write',
       personMessageSeq: null,
-      context: expect.objectContaining({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } }),
+      context: expect.objectContaining({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } }),
     }))
   })
 

@@ -159,7 +159,7 @@ beforeEach(() => {
 describe('GET /api/account/prospecting/lists', () => {
   it('returns the workspace lists', async () => {
     hoisted.listLists.mockResolvedValue({ ok: true, lists: [{ id: 'list-1' }] })
-    const res = await listsRoute.GET(nextRequest('https://dial8.ai/api/account/prospecting/lists'))
+    const res = await listsRoute.GET(nextRequest('https://nativeintelligence.dev/api/account/prospecting/lists'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ lists: [{ id: 'list-1' }] })
     expect(hoisted.listLists).toHaveBeenCalledWith(supabase, { workspaceId: WS, includeArchived: false })
@@ -168,14 +168,14 @@ describe('GET /api/account/prospecting/lists', () => {
   it('passes include_archived through', async () => {
     hoisted.listLists.mockResolvedValue({ ok: true, lists: [] })
     await listsRoute.GET(
-      nextRequest('https://dial8.ai/api/account/prospecting/lists?include_archived=true'),
+      nextRequest('https://nativeintelligence.dev/api/account/prospecting/lists?include_archived=true'),
     )
     expect(hoisted.listLists).toHaveBeenCalledWith(supabase, { workspaceId: WS, includeArchived: true })
   })
 
   it('propagates the auth Response untouched', async () => {
     hoisted.requireWorkspace.mockResolvedValue(new Response('nope', { status: 401 }))
-    const res = await listsRoute.GET(nextRequest('https://dial8.ai/api/account/prospecting/lists'))
+    const res = await listsRoute.GET(nextRequest('https://nativeintelligence.dev/api/account/prospecting/lists'))
     expect(res.status).toBe(401)
     expect(hoisted.listLists).not.toHaveBeenCalled()
   })
@@ -185,7 +185,7 @@ describe('POST /api/account/prospecting/lists', () => {
   it('creates and returns 201', async () => {
     hoisted.createList.mockResolvedValue({ ok: true, list: { id: 'list-1' } })
     const res = await listsRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { name: 'Big sales teams', purpose: 'buyers' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { name: 'Big sales teams', purpose: 'buyers' } }),
     )
     expect(res.status).toBe(201)
     expect(await res.json()).toEqual({ list: { id: 'list-1' } })
@@ -201,21 +201,21 @@ describe('POST /api/account/prospecting/lists', () => {
       code: 'LIST_NAME_TAKEN',
       error: 'A list called "Dupe" already exists in this workspace',
     })
-    const res = await listsRoute.POST(nextRequest('https://dial8.ai/x', { body: { name: 'Dupe' } }))
+    const res = await listsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: { name: 'Dupe' } }))
     expect(res.status).toBe(409)
     expect(await res.json()).toMatchObject({ code: 'LIST_NAME_TAKEN' })
   })
 
   it('maps INVALID_INPUT to 400 and a DB error to 500', async () => {
     hoisted.createList.mockResolvedValue({ ok: false, code: 'INVALID_INPUT', error: 'name is required' })
-    expect((await listsRoute.POST(nextRequest('https://dial8.ai/x', { body: {} }))).status).toBe(400)
+    expect((await listsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: {} }))).status).toBe(400)
 
     hoisted.createList.mockResolvedValue({ ok: false, code: 'DB_ERROR', error: 'boom' })
-    expect((await listsRoute.POST(nextRequest('https://dial8.ai/x', { body: { name: 'X' } }))).status).toBe(500)
+    expect((await listsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: { name: 'X' } }))).status).toBe(500)
   })
 
   it('rejects an unparseable body before calling the lib', async () => {
-    const res = await listsRoute.POST(nextRequest('https://dial8.ai/x', { body: '{oops', raw: true }))
+    const res = await listsRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: '{oops', raw: true }))
     expect(res.status).toBe(400)
     expect(hoisted.createList).not.toHaveBeenCalled()
   })
@@ -234,7 +234,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
       entry_counts: { total: 1 },
     })
     const res = await listDetailRoute.GET(
-      nextRequest('https://dial8.ai/api/account/prospecting/lists/list-1'),
+      nextRequest('https://nativeintelligence.dev/api/account/prospecting/lists/list-1'),
       params('list-1'),
     )
     expect(res.status).toBe(200)
@@ -247,10 +247,10 @@ describe('/api/account/prospecting/lists/[id]', () => {
 
   it('GET passes a valid ?stage through and ignores an invalid one', async () => {
     hoisted.getList.mockResolvedValue({ ok: true, list: {}, entries: [], entry_counts: {} })
-    await listDetailRoute.GET(nextRequest('https://dial8.ai/x?stage=saved'), params('list-1'))
+    await listDetailRoute.GET(nextRequest('https://nativeintelligence.dev/x?stage=saved'), params('list-1'))
     expect(hoisted.getList.mock.calls[0][1].stage).toBe('saved')
 
-    await listDetailRoute.GET(nextRequest('https://dial8.ai/x?stage=bogus'), params('list-1'))
+    await listDetailRoute.GET(nextRequest('https://nativeintelligence.dev/x?stage=bogus'), params('list-1'))
     expect(hoisted.getList.mock.calls[1][1].stage).toBeUndefined()
   })
 
@@ -260,7 +260,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
     // with no further validation.
     hoisted.getList.mockResolvedValue({ ok: true, list: {}, entries: [], entry_counts: {} })
     await listDetailRoute.GET(
-      nextRequest('https://dial8.ai/x?min_fit_score=80&kind=company'),
+      nextRequest('https://nativeintelligence.dev/x?min_fit_score=80&kind=company'),
       params('list-1'),
     )
     expect(hoisted.getList.mock.calls[0][1]).toMatchObject({
@@ -268,14 +268,14 @@ describe('/api/account/prospecting/lists/[id]', () => {
       kind: 'company',
     })
 
-    await listDetailRoute.GET(nextRequest('https://dial8.ai/x?min_fit_score=0'), params('list-1'))
+    await listDetailRoute.GET(nextRequest('https://nativeintelligence.dev/x?min_fit_score=0'), params('list-1'))
     expect(hoisted.getList.mock.calls[1][1].min_fit_score).toBe(0)
   })
 
   it('GET DROPS an unknown score floor or kind rather than passing it to a query', async () => {
     hoisted.getList.mockResolvedValue({ ok: true, list: {}, entries: [], entry_counts: {} })
     await listDetailRoute.GET(
-      nextRequest('https://dial8.ai/x?min_fit_score=hot&kind=robot'),
+      nextRequest('https://nativeintelligence.dev/x?min_fit_score=hot&kind=robot'),
       params('list-1'),
     )
     const args = hoisted.getList.mock.calls[0][1]
@@ -285,7 +285,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
 
   it('GET returns 404 for a cross-workspace id — never 403', async () => {
     hoisted.getList.mockResolvedValue({ ok: false, code: 'NOT_FOUND', error: 'List not found' })
-    const res = await listDetailRoute.GET(nextRequest('https://dial8.ai/x'), params('other-ws'))
+    const res = await listDetailRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('other-ws'))
     expect(res.status).toBe(404)
   })
 
@@ -296,7 +296,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
       icp_version_bumped: true,
     })
     const res = await listDetailRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { icp: {} } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { icp: {} } }),
       params('list-1'),
     )
     expect(await res.json()).toMatchObject({ icp_version_bumped: true })
@@ -307,7 +307,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
     expect(
       (
         await listDetailRoute.PATCH(
-          nextRequest('https://dial8.ai/x', { method: 'PATCH', body: {} }),
+          nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: {} }),
           params('list-1'),
         )
       ).status,
@@ -317,7 +317,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
     expect(
       (
         await listDetailRoute.PATCH(
-          nextRequest('https://dial8.ai/x', { method: 'PATCH', body: {} }),
+          nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: {} }),
           params('list-1'),
         )
       ).status,
@@ -334,7 +334,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
       unpublished: { companies: 2, contacts: 5 },
     })
     const res = await listDetailRoute.DELETE(
-      nextRequest('https://dial8.ai/x', { method: 'DELETE' }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'DELETE' }),
       params('list-1'),
     )
     expect(res.status).toBe(200)
@@ -354,7 +354,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
       error: 'A run is still going on this list — stop it before deleting',
     })
     const res = await listDetailRoute.DELETE(
-      nextRequest('https://dial8.ai/x', { method: 'DELETE' }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'DELETE' }),
       params('list-1'),
     )
     expect(res.status).toBe(409)
@@ -364,7 +364,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
   it('DELETE 404s a list the caller cannot see', async () => {
     hoisted.deleteList.mockResolvedValue({ ok: false, code: 'NOT_FOUND', error: 'List not found' })
     const res = await listDetailRoute.DELETE(
-      nextRequest('https://dial8.ai/x', { method: 'DELETE' }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'DELETE' }),
       params('list-other'),
     )
     expect(res.status).toBe(404)
@@ -378,7 +378,7 @@ describe('/api/account/prospecting/lists/[id]', () => {
 describe('/api/account/prospecting/lists/[id]/entries', () => {
   it('GET returns 404 for a list the caller cannot see, rather than an empty array', async () => {
     hoisted.getList.mockResolvedValue({ ok: false, code: 'NOT_FOUND', error: 'x' })
-    const res = await entriesRoute.GET(nextRequest('https://dial8.ai/x'), params('other-ws'))
+    const res = await entriesRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('other-ws'))
     expect(res.status).toBe(404)
   })
 
@@ -388,7 +388,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
     // `parseEntryFilters`.
     hoisted.getList.mockResolvedValue({ ok: true, list: {}, entries: [], entry_counts: {} })
     await entriesRoute.GET(
-      nextRequest('https://dial8.ai/x?stage=saved&min_fit_score=60&kind=person'),
+      nextRequest('https://nativeintelligence.dev/x?stage=saved&min_fit_score=60&kind=person'),
       params('list-1'),
     )
     expect(hoisted.getList.mock.calls[0][1]).toMatchObject({
@@ -401,7 +401,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
   it('POST checks the list exists in THIS workspace before inserting', async () => {
     hoisted.listMaybeSingle.mockResolvedValue({ data: null, error: null })
     const res = await entriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { domain: 'acme.test' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { domain: 'acme.test' } }),
       params('other-ws'),
     )
     expect(res.status).toBe(404)
@@ -413,7 +413,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
     hoisted.addEntryByDomain.mockResolvedValue({ ok: true, status: 'created', entry: { id: 'e1' } })
     hoisted.createRun.mockResolvedValue({ ok: true, run: { id: 'run-auto' } })
     const res = await entriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { domain: 'acme.test', name: 'Acme' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { domain: 'acme.test', name: 'Acme' } }),
       params('list-1'),
     )
     expect(res.status).toBe(201)
@@ -431,7 +431,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
     hoisted.addEntryByDomain.mockResolvedValue({ ok: true, status: 'created', entry: { id: 'e1' } })
     hoisted.createRun.mockResolvedValue({ ok: true, run: { id: 'run-auto' } })
     const res = await entriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { domain: 'acme.test' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { domain: 'acme.test' } }),
       params('list-1'),
     )
     expect(hoisted.createRun.mock.calls[0][1]).toEqual({
@@ -449,7 +449,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
     hoisted.addEntryByDomain.mockResolvedValue({ ok: true, status: 'created', entry: { id: 'e1' } })
     hoisted.createRun.mockResolvedValue({ ok: false, code: 'RUN_ALREADY_LIVE', error: 'busy' })
     const res = await entriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { domain: 'acme.test' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { domain: 'acme.test' } }),
       params('list-1'),
     )
     expect(res.status).toBe(201)
@@ -464,7 +464,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
       entry: { id: 'e-existing' },
     })
     const res = await entriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { domain: 'acme.test' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { domain: 'acme.test' } }),
       params('list-1'),
     )
     expect(res.status).toBe(200)
@@ -478,7 +478,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
   })
 
   it('POST 400s a missing domain and a personal one, with a distinguishable code', async () => {
-    const res = await entriesRoute.POST(nextRequest('https://dial8.ai/x', { body: {} }), params('list-1'))
+    const res = await entriesRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: {} }), params('list-1'))
     expect(res.status).toBe(400)
     expect(hoisted.addEntryByDomain).not.toHaveBeenCalled()
 
@@ -489,7 +489,7 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
       error: 'That is a personal email domain, not a company',
     })
     const personal = await entriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { domain: 'gmail.com' } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { domain: 'gmail.com' } }),
       params('list-1'),
     )
     expect(personal.status).toBe(400)
@@ -508,14 +508,14 @@ describe('/api/account/prospecting/lists/[id]/entries', () => {
 describe('/api/account/prospecting/entries/[id]', () => {
   it('GET returns 404 for an entry in another workspace', async () => {
     hoisted.entryMaybeSingle.mockResolvedValue({ data: null, error: null })
-    const res = await entryRoute.GET(nextRequest('https://dial8.ai/x'), params('e1'))
+    const res = await entryRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('e1'))
     expect(res.status).toBe(404)
   })
 
   it('PATCH forwards the stage and reason with the caller as dismisser', async () => {
     hoisted.updateEntryStage.mockResolvedValue({ ok: true, entry: { id: 'e1', stage: 'dismissed' } })
     const res = await entryRoute.PATCH(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         method: 'PATCH',
         body: { stage: 'dismissed', dismissed_reason: 'competitor' },
       }),
@@ -533,7 +533,7 @@ describe('/api/account/prospecting/entries/[id]', () => {
 
   it('PATCH 400s a missing stage before calling the lib', async () => {
     const res = await entryRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: {} }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: {} }),
       params('e1'),
     )
     expect(res.status).toBe(400)
@@ -547,7 +547,7 @@ describe('/api/account/prospecting/entries/[id]', () => {
       error: "'saved' is set by saving to the CRM, not by a stage edit",
     })
     const res = await entryRoute.PATCH(
-      nextRequest('https://dial8.ai/x', { method: 'PATCH', body: { stage: 'saved' } }),
+      nextRequest('https://nativeintelligence.dev/x', { method: 'PATCH', body: { stage: 'saved' } }),
       params('e1'),
     )
     expect(res.status).toBe(400)
@@ -569,7 +569,7 @@ describe('POST /api/account/prospecting/entries/save', () => {
       skipped: [{ entry_id: 'e2', list_id: '', reason: 'not_found' }],
     })
     const res = await saveRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { entry_ids: ['e1', 'e2'] } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids: ['e1', 'e2'] } }),
     )
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
@@ -584,18 +584,18 @@ describe('POST /api/account/prospecting/entries/save', () => {
   it('ignores include_unverified — the identity gate lives at publish time now', async () => {
     hoisted.saveEntriesToList.mockResolvedValue({ ok: true, saved: [], skipped: [] })
     await saveRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { entry_ids: ['e1'], include_unverified: true } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids: ['e1'], include_unverified: true } }),
     )
     expect(hoisted.saveEntriesToList.mock.calls[0][1]).not.toHaveProperty('includeUnverified')
   })
 
   it('400s a non-array, an empty selection, and an over-cap batch', async () => {
     for (const entry_ids of [undefined, 'e1', [], ['', null]]) {
-      const res = await saveRoute.POST(nextRequest('https://dial8.ai/x', { body: { entry_ids } }))
+      const res = await saveRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids } }))
       expect(res.status).toBe(400)
     }
     const tooMany = await saveRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { entry_ids: Array.from({ length: 101 }, (_, i) => `e${i}`) },
       }),
     )
@@ -625,7 +625,7 @@ describe('POST /api/account/prospecting/entries/publish', () => {
       published_at: '2026-09-06T00:00:00.000Z',
     })
     const res = await publishEntriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { entry_ids: ['e1', 'e2', 'e3'] } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids: ['e1', 'e2', 'e3'] } }),
     )
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
@@ -648,7 +648,7 @@ describe('POST /api/account/prospecting/entries/publish', () => {
       published_at: null,
     })
     const res = await publishEntriesRoute.POST(
-      nextRequest('https://dial8.ai/x', { body: { entry_ids: ['e1'] } }),
+      nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids: ['e1'] } }),
     )
     expect(res.status).toBe(200)
     expect((await res.json()).skipped).toHaveLength(1)
@@ -656,14 +656,14 @@ describe('POST /api/account/prospecting/entries/publish', () => {
 
   it('defaults include_unverified to FALSE — a bulk publish never overrides the identity gate', async () => {
     hoisted.publishEntries.mockResolvedValue({ ok: true, saved: [], skipped: [], list_ids: [], published_at: null })
-    await publishEntriesRoute.POST(nextRequest('https://dial8.ai/x', { body: { entry_ids: ['e1'] } }))
+    await publishEntriesRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids: ['e1'] } }))
     expect(hoisted.publishEntries.mock.calls[0][1].includeUnverified).toBe(false)
 
     // Only an explicit `true` opts in; a truthy string does not.
     for (const raw of ['true', 1, null]) {
       hoisted.publishEntries.mockClear()
       await publishEntriesRoute.POST(
-        nextRequest('https://dial8.ai/x', { body: { entry_ids: ['e1'], include_unverified: raw } }),
+        nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids: ['e1'], include_unverified: raw } }),
       )
       expect(hoisted.publishEntries.mock.calls[0][1].includeUnverified).toBe(false)
     }
@@ -672,7 +672,7 @@ describe('POST /api/account/prospecting/entries/publish', () => {
   it('passes include_unverified through for the per-row confirm', async () => {
     hoisted.publishEntries.mockResolvedValue({ ok: true, saved: [], skipped: [], list_ids: [], published_at: null })
     await publishEntriesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { entry_ids: ['e1'], include_unverified: true },
       }),
     )
@@ -684,11 +684,11 @@ describe('POST /api/account/prospecting/entries/publish', () => {
 
   it('400s a non-array, an empty selection, and an over-cap batch', async () => {
     for (const entry_ids of [undefined, 'e1', [], ['', null]]) {
-      const res = await publishEntriesRoute.POST(nextRequest('https://dial8.ai/x', { body: { entry_ids } }))
+      const res = await publishEntriesRoute.POST(nextRequest('https://nativeintelligence.dev/x', { body: { entry_ids } }))
       expect(res.status).toBe(400)
     }
     const tooMany = await publishEntriesRoute.POST(
-      nextRequest('https://dial8.ai/x', {
+      nextRequest('https://nativeintelligence.dev/x', {
         body: { entry_ids: Array.from({ length: 101 }, (_, i) => `e${i}`) },
       }),
     )
@@ -712,7 +712,7 @@ describe('POST /api/account/prospecting/lists/[id]/publish', () => {
       published_at: '2026-09-06T00:00:00.000Z',
       list_name: 'Q4 outbound',
     })
-    const res = await publishListRoute.POST(nextRequest('https://dial8.ai/x', { method: 'POST' }), params('list-1'))
+    const res = await publishListRoute.POST(nextRequest('https://nativeintelligence.dev/x', { method: 'POST' }), params('list-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       saved: [{ entry_id: 'e1', list_id: 'list-1', kind: 'company', company_id: 'co-1' }],
@@ -726,11 +726,11 @@ describe('POST /api/account/prospecting/lists/[id]/publish', () => {
 
   it('404s a cross-workspace list, 400s an archived one, and 500s a DB error', async () => {
     hoisted.publishList.mockResolvedValue({ ok: false, code: 'NOT_FOUND', error: 'List not found' })
-    expect((await publishListRoute.POST(nextRequest('https://dial8.ai/x', { method: 'POST' }), params('list-9'))).status).toBe(404)
+    expect((await publishListRoute.POST(nextRequest('https://nativeintelligence.dev/x', { method: 'POST' }), params('list-9'))).status).toBe(404)
     hoisted.publishList.mockResolvedValue({ ok: false, code: 'INVALID_INPUT', error: 'This list is archived' })
-    expect((await publishListRoute.POST(nextRequest('https://dial8.ai/x', { method: 'POST' }), params('list-1'))).status).toBe(400)
+    expect((await publishListRoute.POST(nextRequest('https://nativeintelligence.dev/x', { method: 'POST' }), params('list-1'))).status).toBe(400)
     hoisted.publishList.mockResolvedValue({ ok: false, code: 'DB_ERROR', error: 'boom' })
-    expect((await publishListRoute.POST(nextRequest('https://dial8.ai/x', { method: 'POST' }), params('list-1'))).status).toBe(500)
+    expect((await publishListRoute.POST(nextRequest('https://nativeintelligence.dev/x', { method: 'POST' }), params('list-1'))).status).toBe(500)
   })
 })
 
@@ -744,7 +744,7 @@ describe('GET /api/account/prospecting/lists/[id]/sequenced', () => {
       ok: true,
       sequenced: { c1: { status: 'active', sequence_id: 's1', sequence_name: 'Q4 outbound' } },
     })
-    const res = await sequencedRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await sequencedRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       sequenced: { c1: { status: 'active', sequence_id: 's1', sequence_name: 'Q4 outbound' } },
@@ -757,14 +757,14 @@ describe('GET /api/account/prospecting/lists/[id]/sequenced', () => {
 
   it('is an EMPTY map for a list with nothing sequenced, not a 404', async () => {
     hoisted.listSequencedByList.mockResolvedValue({ ok: true, sequenced: {} })
-    const res = await sequencedRoute.GET(nextRequest('https://dial8.ai/x'), params('foreign'))
+    const res = await sequencedRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('foreign'))
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ sequenced: {} })
   })
 
   it('maps a lib DB_ERROR to a 500', async () => {
     hoisted.listSequencedByList.mockResolvedValue({ ok: false, code: 'DB_ERROR', error: 'boom' })
-    const res = await sequencedRoute.GET(nextRequest('https://dial8.ai/x'), params('list-1'))
+    const res = await sequencedRoute.GET(nextRequest('https://nativeintelligence.dev/x'), params('list-1'))
     expect(res.status).toBe(500)
   })
 })
@@ -780,8 +780,8 @@ describe('/api/account/prospecting/source', () => {
   const post = (body?: unknown) =>
     sourceRoute.POST(
       body === undefined
-        ? (new Request('https://dial8.ai/x', { method: 'POST' }) as never)
-        : nextRequest('https://dial8.ai/x', { body }),
+        ? (new Request('https://nativeintelligence.dev/x', { method: 'POST' }) as never)
+        : nextRequest('https://nativeintelligence.dev/x', { body }),
     )
 
   it('GET returns the source, how it resolved, a draft per purpose, and the counts', async () => {

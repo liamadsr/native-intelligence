@@ -399,7 +399,7 @@ export function ContactDetailPanel({
   const syncSequenceData = useCallback(() => {
     refetchEnrollments()
     window.dispatchEvent(
-      new CustomEvent('dial8:entity-created', { detail: { entityType: 'sequence' } }),
+      new CustomEvent('ni:entity-created', { detail: { entityType: 'sequence' } }),
     )
   }, [refetchEnrollments])
 

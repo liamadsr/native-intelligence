@@ -61,7 +61,7 @@ vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 const { POST } = await import('@/app/api/ai/skill-draft/route')
 
 function request(body: unknown) {
-  return new Request('https://dial8.ai/api/ai/skill-draft', {
+  return new Request('https://nativeintelligence.dev/api/ai/skill-draft', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

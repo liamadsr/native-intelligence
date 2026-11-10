@@ -38,7 +38,7 @@
 //! out of it.
 //!
 //! The launcher's environment is built from scratch ([`launcher_env`]): the
-//! app's own environment (its tokens, `DIAL8_*`, anything a parent shell
+//! app's own environment (its tokens, `NI_*`, anything a parent shell
 //! exported) never reaches it.
 
 use crate::sidecar::NoConsole;
@@ -57,9 +57,9 @@ use super::runtime::Runtime;
 pub const FALLBACK_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 /// The login shell probe, at most.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
-const PATH_MARK: &str = "__DIAL8_LA_PATH__";
-const NODE_MARK: &str = "__DIAL8_LA_NODE__";
-const END_MARK: &str = "__DIAL8_LA_END__";
+const PATH_MARK: &str = "__NI_LA_PATH__";
+const NODE_MARK: &str = "__NI_LA_NODE__";
+const END_MARK: &str = "__NI_LA_END__";
 /// Node major the launcher's type stripping is written for.
 const NODE_MAJOR: u64 = 24;
 /// A complete packaged agent: what dev.sh, build.sh and release.sh stage
@@ -244,7 +244,7 @@ pub async fn shell_probe(shell: &Path, timeout: Duration) -> Option<Probe> {
     }
 }
 
-/// The path of the Dial8 model relay under the app's API origin.
+/// The path of the Native Intelligence model relay under the app's API origin.
 pub const MODEL_RELAY_PATH: &str = "/api/local-agent/model";
 
 /// The model relay's base URL, built from the app's own API origin
@@ -298,7 +298,7 @@ pub struct LaunchEnv<'a> {
 }
 
 /// The launcher's environment, from scratch (contract §1). With a model
-/// token, the model goes through the Dial8 relay; without one (the dev page)
+/// token, the model goes through the Native Intelligence relay; without one (the dev page)
 /// a debug build falls back to the dev env file's gateway key.
 pub fn launcher_env(l: &LaunchConfig, e: LaunchEnv<'_>) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = [
@@ -761,11 +761,11 @@ mod tests {
             env_file: Some("/w/.env.local".into()),
             tool_path: "/n/bin:/usr/bin:/bin".into(),
             home: "/Users/x".into(),
-            model_base_url: model_base_url("https://dial8.ai"),
+            model_base_url: model_base_url("https://nativeintelligence.dev"),
             git: "/usr/bin/git".into(),
             git_env: Vec::new(),
             gh: None,
-            api_origin: "https://dial8.ai".into(),
+            api_origin: "https://nativeintelligence.dev".into(),
         }
     }
 
@@ -784,8 +784,8 @@ mod tests {
     #[test]
     fn the_model_url_is_the_api_origin_plus_the_relay_path() {
         assert_eq!(
-            model_base_url("https://dial8.ai"),
-            "https://dial8.ai/api/local-agent/model"
+            model_base_url("https://nativeintelligence.dev"),
+            "https://nativeintelligence.dev/api/local-agent/model"
         );
         assert_eq!(
             model_base_url("http://localhost:3000/"),
@@ -794,7 +794,7 @@ mod tests {
         // What the app itself resolves: the tray's origin, debug or release.
         let built = model_base_url(crate::tray::api_base_url());
         assert!(
-            built == "http://localhost:3000/api/local-agent/model" || built == "https://dial8.ai/api/local-agent/model",
+            built == "http://localhost:3000/api/local-agent/model" || built == "https://nativeintelligence.dev/api/local-agent/model",
             "{built}"
         );
     }
@@ -811,7 +811,7 @@ mod tests {
         let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
         assert_eq!(
             get("LOCAL_AGENT_MODEL_BASE_URL"),
-            Some("https://dial8.ai/api/local-agent/model")
+            Some("https://nativeintelligence.dev/api/local-agent/model")
         );
         assert_eq!(get("LOCAL_AGENT_MODEL_TOKEN"), Some("tok.abc"));
         assert_eq!(get("LOCAL_AGENT_DEV_ENV_FILE"), None, "the dev key is only a fallback");

@@ -1,6 +1,6 @@
 /**
  * readEmailThread: a thread as the model reads it (read_email, and the chat's
- * email reply context). Always live, from the thread's own mailbox: Dial8
+ * email reply context). Always live, from the thread's own mailbox: Native Intelligence
  * keeps no copy of mail. What a reply needs from it on every path: each message's Cc (a reply
  * to all includes them) and whether it is an unsent draft (never the message a
  * reply answers), and the participants drawn from From, To and Cc. Provider

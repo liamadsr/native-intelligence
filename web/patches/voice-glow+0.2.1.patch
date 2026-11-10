@@ -7,7 +7,7 @@ index 046c35e..c8bdf8e 100644
  const Xe = /* @__PURE__ */ new Set();
  let $e = null, ut = 0;
 -const Za = 1e3 / 60 - 2, en = 22, tn = 500, an = 4e3;
-+// Dial8 patch: 30 frames a second, not 60 (the 2 ms slack keeps a 60 or
++// Native Intelligence patch: 30 frames a second, not 60 (the 2 ms slack keeps a 60 or
 +// 120 Hz display on every second or fourth frame). The motion is time-based,
 +// so it moves at the same speed; each frame restyles and repaints the whole
 +// beam, so this halves its CPU and GPU cost in WebKit.
@@ -24,7 +24,7 @@ index 046c35e..c8bdf8e 100644
    const { canvas: r, ctx: t, el: s, config: o } = n;
    if (!r || !t) return;
 -  const i = s.clientWidth, u = s.clientHeight;
-+  // Dial8 patch: the size the frame loop read before this frame's style
++  // Native Intelligence patch: the size the frame loop read before this frame's style
 +  // writes. Reading clientWidth here, after them, forced a whole style
 +  // recalc and layout of the beam mid-frame, on top of the one the frame
 +  // does anyway (WebKit: a fifth of the beam's main-thread time).

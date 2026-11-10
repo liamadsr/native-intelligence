@@ -50,7 +50,7 @@ const MAC = {
   lastSeenAt: '2026-10-22T10:00:00Z',
   online: true,
   supportsBaseBranch: true,
-  folders: [{ id: 'f-1', label: 'dial8-website', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'liamadsr/dial8-website' }],
+  folders: [{ id: 'f-1', label: 'native-intelligence', mode: 'edit', isGit: true, baseBranch: 'main', repoFullName: 'liamadsr/native-intelligence' }],
   createdAt: 't',
   updatedAt: 't',
 }

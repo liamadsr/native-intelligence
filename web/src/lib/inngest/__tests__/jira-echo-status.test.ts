@@ -615,7 +615,7 @@ describe('jira-echo-status — transitions', () => {
 /**
  * The gate the whole echo now hangs off. It decides "leave the customer's issue
  * exactly where it is" vs "transition it", and both errors are expensive: too
- * lax and a Dial8 column move stops mirroring, too strict and the echo bounces a
+ * lax and a Native Intelligence column move stops mirroring, too strict and the echo bounces a
  * status a human just set.
  */
 describe('statusSatisfiesBucket', () => {
@@ -641,7 +641,7 @@ describe('statusSatisfiesBucket', () => {
    * enforced the cancel-name rule — `done` rejected "Won't Do", `canceled`
    * rejected a plain "Done" — and both directions caused harm:
    *
-   *  - a Dial8 Done-column move against an issue a user had parked on "Won't Do"
+   *  - a Native Intelligence Done-column move against an issue a user had parked on "Won't Do"
    *    stopped reporting `already_synced` and started FIGHTING that cancellation
    *    (or stamping `no_transition` on a perfectly healthy link when nothing
    *    else in the done category was reachable);
@@ -697,7 +697,7 @@ describe('statusSatisfiesBucket', () => {
 describe('jira-echo-status — the issue is already where the bucket wants it', () => {
   it('does NOT transition a Done issue to "Won\u2019t Do" for a done-bucket echo', async () => {
     // The exact production shape: a user drags the issue to Done in Jira → the
-    // read-back completes the Dial8 action → that emits status_changed → this
+    // read-back completes the Native Intelligence action → that emits status_changed → this
     // echo wakes with bucket=done. From Done the workflow offers Won't Do and a
     // reopen, so tier (c) used to pick Won't Do.
     hoistedApi.getIssue.mockResolvedValue({
@@ -762,7 +762,7 @@ describe('jira-echo-status — the issue is already where the bucket wants it', 
    * The pre-check is a guard, not a mute button: an issue that genuinely
    * disagrees with the bucket still moves.
    *
-   * The shape below is a real disagreement — a Dial8 action sitting in an
+   * The shape below is a real disagreement — a Native Intelligence action sitting in an
    * unstarted column while its issue is In Progress. It is NOT the shape a Jira
    * REOPEN produces any more: the read-back now lands an `indeterminate` reopen
    * in the team's started state, so the echo it wakes agrees with the issue and
@@ -786,13 +786,13 @@ describe('jira-echo-status — the issue is already where the bucket wants it', 
 
   /**
    * REGRESSION (round-1 audit, echo group issue 3). A user parks an issue on
-   * "Won't Do" in Jira and then moves the Dial8 action to a Done column. With
+   * "Won't Do" in Jira and then moves the Native Intelligence action to a Done column. With
    * the name rule inside this check the echo refused to accept the issue's
    * status, went looking for a transition, and either dragged the issue out of
    * the cancellation the user had just chosen or — with nothing else in the done
    * category reachable — stamped `no_transition` on a healthy link.
    *
-   * With N2 landing a Jira cancellation in a Dial8 CANCELED state this pairing
+   * With N2 landing a Jira cancellation in a Native Intelligence CANCELED state this pairing
    * is rare, but "rare" is not "impossible": the user can still drag the action
    * to Done by hand. The correct answer is to leave the issue alone.
    */

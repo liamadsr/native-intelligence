@@ -46,7 +46,7 @@ describe('isLocalHostname', () => {
     expect(isLocalHostname('localhost')).toBe(true)
     expect(isLocalHostname('127.0.0.1')).toBe(true)
     expect(isLocalHostname('[::1]')).toBe(true)
-    expect(isLocalHostname('dial8.ai')).toBe(false)
+    expect(isLocalHostname('nativeintelligence.dev')).toBe(false)
     expect(isLocalHostname('localhost.example')).toBe(false)
     expect(isLocalHostname(null)).toBe(false)
   })

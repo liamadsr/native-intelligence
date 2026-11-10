@@ -143,7 +143,7 @@ describe('evalRunnerAuth: skips everything that is not an eval bearer', () => {
   it.each([
     ['no auth header', {}],
     ['a Supabase JWT', { authorization: 'Bearer eyJhbGciOi.payload.sig' }],
-    ['a device token', { authorization: 'Bearer d8d_abc' }],
+    ['a device token', { authorization: 'Bearer nid_abc' }],
     ['basic auth', { authorization: 'Basic dXNlcjpwYXNz' }],
     ['the chat secret header', { 'x-chat-run-secret': CHAT_SECRET }],
   ])('%s → null, without touching the database', async (_label, headers) => {

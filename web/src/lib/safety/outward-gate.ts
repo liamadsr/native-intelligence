@@ -1,6 +1,6 @@
 /**
  * The outward gate (always-on safety fixes, 2026-10-15): DETERMINISTIC holds
- * for calls that reach people or services outside Dial8, applied at every door
+ * for calls that reach people or services outside Native Intelligence, applied at every door
  * beside the reviewer (action-review.ts gateRiskyCall) and holding whether or
  * not the reviewer is enforced.
  *
@@ -9,7 +9,7 @@
  * calendar invite or call a connected app's write tool with no one's yes.
  *
  * What it holds:
- *   - create_calendar_event / update_calendar_event (and their dial8_ names)
+ *   - create_calendar_event / update_calendar_event (and their ni_ names)
  *     with ANY attendee other than the person themselves, teammates included
  *     (Liam, 2026-10-26: nothing reaches another person without the person's
  *     final yes). The provider invites them (Microsoft Graph emails every
@@ -63,6 +63,7 @@ import { mailboxAddresses } from '@/lib/email/reply-policy'
 import { paymentsReady } from '@/lib/payments/ready'
 import { paymentLinkCard, parsePaymentLinkCall, SEND_PAYMENT_LINK } from '@/lib/payments/tool-input'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** The calendar writes that invite attendees (bare names). */
 const CALENDAR_INVITE_TOOLS: ReadonlySet<string> = new Set(['create_calendar_event', 'update_calendar_event'])
@@ -183,17 +184,17 @@ async function unsubscribeHold(check: OutwardCheck): Promise<OutwardHold> {
   const quoted = (text: string) => `"${text.replace(/\s+/g, ' ').trim().slice(0, 120)}${text.length > 120 ? '…' : ''}"`
   const does =
     method?.kind === 'one_click'
-      ? `Dial8 will use the sender's one-click unsubscribe link (${host ?? 'their site'}).`
+      ? `Native Intelligence will use the sender's one-click unsubscribe link (${host ?? 'their site'}).`
       : method?.kind === 'mailto'
-        ? `Dial8 will send an unsubscribe email from ${mailbox} to ${method.to}, subject ${quoted(method.subject)}${method.body === 'unsubscribe' ? '' : `, saying ${quoted(method.body)}`}.`
+        ? `Native Intelligence will send an unsubscribe email from ${mailbox} to ${method.to}, subject ${quoted(method.subject)}${method.body === 'unsubscribe' ? '' : `, saying ${quoted(method.body)}`}.`
         : method?.kind === 'link'
           ? 'This sender only offers a web page: accepting gets you its link to open yourself, and nothing is sent.'
-          : "Dial8 will use the sender's unsubscribe link, or send an unsubscribe email from your mailbox, whichever the list offers."
+          : "Native Intelligence will use the sender's unsubscribe link, or send an unsubscribe email from your mailbox, whichever the list offers."
   return {
     reason: 'unsubscribe',
     card: {
       title: `Unsubscribe from ${sender ?? 'this mailing list'}?`,
-      why: `${does} It leaves Dial8 and can't be undone here. It runs once, with exactly the inputs below, when you accept.`,
+      why: `${does} It leaves Native Intelligence and can't be undone here. It runs once, with exactly the inputs below, when you accept.`,
     },
     refusal:
       'Nothing was sent. unsubscribe_thread only ever runs on the person\'s own approval card, and nobody is here to give it. ' +
@@ -269,7 +270,7 @@ async function quoteReplyOutwardHold(check: OutwardCheck, bare: string): Promise
  * throws: a membership lookup that fails counts nobody as a member (held).
  */
 export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | null> {
-  const bare = check.toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(check.toolName)
   // A post through the person's Typefully (C2a): ALWAYS their card, whatever
   // trust anyone has earned (decision 2, "user always approves"). The card
   // says exactly what goes out, from the call's own input.
@@ -374,7 +375,7 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
       reason: 'mcp_write',
       card: {
         title: `Approve ${check.toolName}?`,
-        why: `This runs a tool on ${server} that can change something outside Dial8. It runs once, with exactly the inputs below, when you accept. You can let this tool run without asking in Settings > Connectors, on this app's page.`,
+        why: `This runs a tool on ${server} that can change something outside Native Intelligence. It runs once, with exactly the inputs below, when you accept. You can let this tool run without asking in Settings > Connectors, on this app's page.`,
       },
       refusal:
         `Nothing ran. ${check.toolName} changes something in ${server}, which needs the person's approval, and nobody is here to give it. ` +

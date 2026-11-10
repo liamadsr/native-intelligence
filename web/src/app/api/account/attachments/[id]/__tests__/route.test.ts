@@ -126,7 +126,7 @@ const ATT_ID = '11111111-2222-3333-4444-555555555555'
 
 function deleteRequest(id: string) {
   return [
-    new Request(`https://dial8.ai/api/account/attachments/${id}`, { method: 'DELETE' }),
+    new Request(`https://nativeintelligence.dev/api/account/attachments/${id}`, { method: 'DELETE' }),
     { params: Promise.resolve({ id }) },
   ] as const
 }

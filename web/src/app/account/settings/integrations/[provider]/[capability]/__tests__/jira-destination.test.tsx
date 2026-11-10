@@ -757,14 +757,14 @@ describe('Jira picker failures', () => {
 // ---- attribution opt-out ---------------------------------------------------
 
 /**
- * The "Pushed from Dial8" toggle — the Asana twin. Provider-level, so unlike
+ * The "Pushed from Native Intelligence" toggle — the Asana twin. Provider-level, so unlike
  * every other control in this section it is NOT gated on a destination being
  * picked, and it survives the site switch that invalidates everything else.
  */
 describe('Jira attribution toggle', () => {
   function attributionSwitch(): HTMLElement {
     const el = container.querySelector(
-      '[aria-label="Include a “Pushed from Dial8” link on pushed tasks"]',
+      '[aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"]',
     )
     expect(el, 'attribution switch').toBeTruthy()
     return el as HTMLElement
@@ -775,7 +775,7 @@ describe('Jira attribution toggle', () => {
     await mount()
 
     expect(container.textContent).toContain(
-      'Include a “Pushed from Dial8” link on pushed tasks',
+      'Include a “Pushed from Native Intelligence” link on pushed tasks',
     )
     // Absent in the saved config = ON, the server's default.
     expect(attributionSwitch().getAttribute('data-state')).toBe('checked')

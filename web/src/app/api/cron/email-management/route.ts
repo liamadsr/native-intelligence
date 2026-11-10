@@ -293,7 +293,7 @@ async function syncAllUsersEmail(): Promise<{ users_synced: number; drafts_gener
       // 3. Generate drafts. Always on, with no setting (the old
       // auto_email_drafts / email_tone prefs had no writer and sat on a column
       // member doesn't have), in the person's own style: no tone is passed,
-      // so the draft follows what Dial8 learned about how they write, and is
+      // so the draft follows what Native Intelligence learned about how they write, and is
       // professional only when it has learned nothing (2026-10-17).
       const memberId = (member?.id as string | undefined) ?? null
       pass = memberId ? draftPassRecorder(supabaseAdmin, { workspaceId, memberId }) : null

@@ -42,7 +42,7 @@ export default async function InvitesPage() {
     <div>
       <AdminPageHeader
         title="Invites"
-        description="Invite someone to create a Dial8 account. Invited people bypass the business-email requirement; per invite you choose whether they also skip the paywall."
+        description="Invite someone to create a Native Intelligence account. Invited people bypass the business-email requirement; per invite you choose whether they also skip the paywall."
       />
 
       <div className="mt-6 grid grid-cols-3 gap-4">

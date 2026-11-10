@@ -20,7 +20,7 @@
  * text (agent_run.outside_reads, migration 374; src/lib/safety/outside-text.ts:
  * the web, a connected app, an attachment or ingest, mail from a sender the
  * person doesn't know) records those tools on its entries
- * (source.outside_reads), so What Dial8 has learned labels them ("learned
+ * (source.outside_reads), so What Native Intelligence has learned labels them ("learned
  * from a web page") for the person to spot and remove. Nothing waits to be
  * accepted.
  */

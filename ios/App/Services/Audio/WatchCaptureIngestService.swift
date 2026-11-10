@@ -1,8 +1,8 @@
 //
 //  WatchCaptureIngestService.swift
-//  dial8
+//  Native Intelligence
 //
-//  Turns a finished Watch recording into a Dial8 capture.
+//  Turns a finished Watch recording into a Native Intelligence capture.
 //
 //  A RECORDING IS A SESSION OF CHUNKS
 //  ----------------------------------
@@ -564,7 +564,7 @@ final class WatchCaptureIngestService: ObservableObject {
         // A background flip mid-analysis (the user pockets the phone) otherwise
         // suspends us seconds into it. Same assertion pattern iOSRecordingService
         // uses for its post-capture batch.
-        let backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "dial8.watch.chunk") {
+        let backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "ni.watch.chunk") {
             print("⚠️ [WatchIngest] Background time expired transcribing chunk \(shortId)…")
         }
         defer {
@@ -646,7 +646,7 @@ final class WatchCaptureIngestService: ObservableObject {
         let store = PendingWatchCaptures.shared
         let shortId = session.sessionId.uuidString.prefix(8)
 
-        let backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "dial8.watch.finalize") {
+        let backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "ni.watch.finalize") {
             print("⚠️ [WatchIngest] Background time expired finalizing session \(shortId)…")
         }
         defer {

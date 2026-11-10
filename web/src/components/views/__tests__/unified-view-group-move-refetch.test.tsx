@@ -127,7 +127,7 @@ describe('UnifiedViewLayout group-move fallback coalescing', () => {
     // A teammate bulk-completes three actions → three realtime UPDATEs whose
     // destination column is absent from this view.
     for (const id of ['a1', 'a2', 'a3']) {
-      dispatch('dial8:entity-updated', {
+      dispatch('ni:entity-updated', {
         entityType: 'action', id, fields: { status_id: 's-done' },
       })
     }
@@ -152,7 +152,7 @@ describe('UnifiedViewLayout group-move fallback coalescing', () => {
     ]
     render()
 
-    dispatch('dial8:entity-updated', {
+    dispatch('ni:entity-updated', {
       entityType: 'action', id: 'a1', fields: { status_id: 's-done' },
     })
 

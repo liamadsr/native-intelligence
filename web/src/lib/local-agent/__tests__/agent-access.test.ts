@@ -79,7 +79,7 @@ function macBody(over: Partial<MacBody['session']> = {}, caller: MacBody['caller
     claims: { sid: SID, uid: USER, wid: WS, exp: Math.floor(Date.now() / 1000) + 3600 },
     session: {
       id: SID, userId: USER, workspaceId: WS, conversationId: CONV, startedBy: 'agent', mode: 'read', request: 'look at the repo',
-      createdAt: '2026-10-21T20:00:00.000Z', startWords: [], localModel: false, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website', ...over,
+      createdAt: '2026-10-21T20:00:00.000Z', startWords: [], localModel: false, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence', ...over,
     },
     caller,
   }
@@ -190,7 +190,7 @@ describe('authorizeMacBody: every call proves the token, the session, the worksp
 
   it('names the job for its cards: the Mac and the folder', async () => {
     const body = (await authorizeMacBody(request(), db() as unknown as SupabaseClient)) as MacBody
-    expect(body.session).toMatchObject({ deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website', request: 'fix the login redirect', startWords: [] })
+    expect(body.session).toMatchObject({ deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence', request: 'fix the login redirect', startWords: [] })
   })
 
   it('a job a loop started (WS-D’s key prefix) is unattended', async () => {
@@ -394,7 +394,7 @@ describe('localModelGate: on a model on the Mac, every risky call is the person�
       conversationId: CONV,
       reason: 'local_model',
       context: { tools: { strictWorkspace: true } },
-      card: expect.objectContaining({ why: expect.stringMatching(/Dial8 on Liam’s MacBook \(in dial8-website\)/) }),
+      card: expect.objectContaining({ why: expect.stringMatching(/Native Intelligence on Liam’s MacBook \(in native-intelligence\)/) }),
     }))
   })
 
@@ -425,8 +425,8 @@ describe('the reviewer’s evidence: the person’s words as the server stored t
         { session_id: SID, user_id: USER, author: 'person', text: 'and open a PR', created_at: at(10) },
       ],
     })
-    const words = await macPersonWords(svc as unknown as SupabaseClient, macBody({ startWords: ['fix the login redirect in dial8-website'] }).session)()
-    expect(words).toEqual(['fix the login redirect in dial8-website', 'and run the tests too', 'and open a PR'])
+    const words = await macPersonWords(svc as unknown as SupabaseClient, macBody({ startWords: ['fix the login redirect in native-intelligence'] }).session)()
+    expect(words).toEqual(['fix the login redirect in native-intelligence', 'and run the tests too', 'and open a PR'])
     expect(words).not.toContain('not evidence')
     expect(words.join(' ')).not.toMatch(/delete every action/)
   })
@@ -471,7 +471,7 @@ describe('an unattended job (a loop’s start) runs inside a loop run’s fence'
   })
 
   it('every approval names the job, for the per-job cap and the card’s words', () => {
-    expect(macApprovalContext(macBody())).toMatchObject({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } })
+    expect(macApprovalContext(macBody())).toMatchObject({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } })
   })
 })
 

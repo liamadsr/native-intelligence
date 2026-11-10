@@ -109,14 +109,14 @@ describe('matchCallPlaybook', () => {
 })
 
 describe('suggestPlaybookForCall', () => {
-  it('picks nothing without a brief, or when the goal alone ties ("Pitch Dial8")', () => {
+  it('picks nothing without a brief, or when the goal alone ties ("Pitch Native Intelligence")', () => {
     expect(suggestPlaybookForCall(null)).toBeNull()
-    expect(suggestPlaybookForCall({ goal: 'Pitch Dial8', prep: null })).toBeNull()
+    expect(suggestPlaybookForCall({ goal: 'Pitch Native Intelligence', prep: null })).toBeNull()
   })
 
   it('picks investor-pitch when the prep shows an investor', () => {
     const prep = { documentId: 'd', title: 'Owen (Gaingels)', top: 'Venture scout for an angel syndicate.' }
-    expect(suggestPlaybookForCall({ goal: 'Pitch Dial8', prep })).toBe('investor-pitch')
+    expect(suggestPlaybookForCall({ goal: 'Pitch Native Intelligence', prep })).toBe('investor-pitch')
   })
 
   it('never picks from one common word that also means something else', () => {
@@ -300,13 +300,13 @@ describe('buildCallPlaybookSection', () => {
 
   it('a loaded playbook wins over the goal', async () => {
     const { sb } = fakeSupabase({ livePlaybook: 'discovery' })
-    const out = await buildCallPlaybookSection(sb, { ...args, brief: { goal: 'Pitch Dial8', prep: investorPrep } })
+    const out = await buildCallPlaybookSection(sb, { ...args, brief: { goal: 'Pitch Native Intelligence', prep: investorPrep } })
     expect(out).toContain(BUILT_IN_CALL_PLAYBOOKS[2].markdown)
   })
 
   it('without one, the goal and prep pick it', async () => {
     const { sb } = fakeSupabase({})
-    const out = await buildCallPlaybookSection(sb, { ...args, brief: { goal: 'Pitch Dial8', prep: investorPrep } })
+    const out = await buildCallPlaybookSection(sb, { ...args, brief: { goal: 'Pitch Native Intelligence', prep: investorPrep } })
     expect(out).toContain(BUILT_IN_CALL_PLAYBOOKS[0].markdown)
   })
 

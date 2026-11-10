@@ -34,7 +34,7 @@ export async function POST(req: Request) {
     case 'too_many_attempts':
       return rateLimited('Too many tries. Send a new code.')
     case 'not_configured':
-      return apiError('Texting is not set up on this Dial8 yet.', { status: 503, code: 'SMS_NOT_CONFIGURED' })
+      return apiError('Texting is not set up here yet.', { status: 503, code: 'SMS_NOT_CONFIGURED' })
     default:
       return serverError('Could not verify the code')
   }

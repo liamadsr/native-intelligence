@@ -494,7 +494,7 @@ describe('PushToTrackerMenu — already linked', () => {
     expect(calls.some((c) => c.url === '/api/account/actions/act-1/asana')).toBe(true)
   })
 
-  it('unlinks Dial8-side only and says so', async () => {
+  it('unlinks NI-side only and says so', async () => {
     installFetch({ destinations: [ASANA_CONFIGURED], links: [LINK] })
     const onUnlinked = vi.fn()
     await render({ actionId: 'act-1', onUnlinked })
@@ -1137,7 +1137,7 @@ describe('PushToTrackerMenu — compose before push', () => {
    *
    * The due date is the equivalent free choice that needs no option list (the
    * fixture returns empty sections and users), so it can carry the same claim
-   * unchanged. The date is picked through Dial8's own calendar, which is what
+   * unchanged. The date is picked through Native Intelligence's own calendar, which is what
    * the strip now renders in place of an `<input type="date">`.
    */
   it('sends an override body once a field is actually changed', async () => {
@@ -1270,7 +1270,7 @@ describe('PushToTrackerMenu — a caller-supplied trigger', () => {
 
   it('reports linksKnown=false on a compact row that has never asked', async () => {
     // The row payload said nothing and the menu has not opened — an icon that
-    // drew "Dial8 only" here would be answering a question nobody put.
+    // drew "Native Intelligence only" here would be answering a question nobody put.
     installFetch({ destinations: [ASANA_CONFIGURED], links: [LINK] })
     const seen: boolean[] = []
     await render({
@@ -1363,7 +1363,7 @@ describe('PushToTrackerMenu — a push that lost something still says so', () =>
  * exactly one of the menu's four mount sites. The detail-panel toolbar (the
  * original, primary push surface) and the capture proposal card pass neither
  * callback, so a push made there left every list row and board card showing the
- * Dial8 mark for an action that is now in Jira.
+ * Native Intelligence mark for an action that is now in Jira.
  *
  * The emit therefore belongs to the MENU, the one place that holds the full
  * post-mutation link set: a caller-side callback cannot compute it (the detail
@@ -1393,11 +1393,11 @@ describe('PushToTrackerMenu — republishes external_links on the entity bus', (
   beforeEach(() => {
     seen = []
     listener = (e: Event) => seen.push((e as CustomEvent<BusDetail>).detail)
-    window.addEventListener('dial8:entity-updated', listener)
+    window.addEventListener('ni:entity-updated', listener)
   })
 
   afterEach(() => {
-    window.removeEventListener('dial8:entity-updated', listener)
+    window.removeEventListener('ni:entity-updated', listener)
   })
 
   it('emits the FULL link row after a push from a callback-less mount', async () => {
@@ -1423,7 +1423,7 @@ describe('PushToTrackerMenu — republishes external_links on the entity bus', (
 
   it('emits the REMAINING full rows after an unlink, not an empty array', async () => {
     // Two links: unlinking one must not tell every surface the action is now
-    // Dial8-only, which is what emitting a bare [] would do.
+    // NI-only, which is what emitting a bare [] would do.
     installFetch({ destinations: [ASANA_CONFIGURED, JIRA_CONFIGURED], links: [LINK, JIRA_LINK] })
     await render({ actionId: 'act-1' })
     await openMenu()

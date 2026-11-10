@@ -117,7 +117,7 @@ describe('decideAction for a guest', () => {
 
   it('never the owner’s memory: remember is attended-only', () => {
     expect(callerMayCall('guest', 'remember', trusting)).toBe(false)
-    expect(callerMayCall('guest', 'dial8_remember', trusting)).toBe(false)
+    expect(callerMayCall('guest', 'ni_remember', trusting)).toBe(false)
   })
 
   it('the guest-only tools run for a guest and nobody else', () => {

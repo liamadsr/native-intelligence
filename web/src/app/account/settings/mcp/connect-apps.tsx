@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Settings › Dial8 MCP's "Pick your app": the server URL to copy, a tile per
+ * Settings › Native Intelligence MCP's "Pick your app": the server URL to copy, a tile per
  * AI app, and the picked app's own way in: its one-click install link, the
  * command to paste, or the steps in its settings. What each app takes lives
  * in lib/mcp/connect-clients.ts; this only draws it.
@@ -24,11 +24,15 @@ import {
 } from '@/lib/mcp/connect-clients'
 import { cn } from '@/lib/utils'
 import { ConnectAppIcon } from './connect-app-icon'
+import { APP_PAGE_ORIGINS, appUrl, isAppPageHost } from '@/lib/app-url'
 
-// The origin the apps add. SSR and the first client render both use dial8.ai
-// (no hydration mismatch); on a local dev server a later commit swaps in its
-// own origin. Nothing changes the hostname mid-session, so subscribe is a no-op.
-const PROD_ORIGIN = 'https://dial8.ai'
+// The origin the apps add. SSR and the first client render both use the app's
+// address (no hydration mismatch); on a local dev server, or on the hosted
+// app's other domain, a later commit swaps in the page's own origin. Nothing
+// changes the hostname mid-session, so subscribe is a no-op.
+const PROD_ORIGIN = appUrl()
+/** The hosted app itself: anything else (a local dev server, a deploy whose address is its own) is added under the dev name, so it never replaces the hosted entry in an app's config. */
+const isHosted = (origin: string) => APP_PAGE_ORIGINS.includes(origin)
 function subscribeToHostname() {
   return () => {}
 }
@@ -38,16 +42,16 @@ function getServerOrigin() {
 function getClientOrigin() {
   if (typeof window === 'undefined') return PROD_ORIGIN
   const host = window.location.hostname
-  return host === 'localhost' || host === '127.0.0.1' ? window.location.origin : PROD_ORIGIN
+  return host === 'localhost' || host === '127.0.0.1' || isAppPageHost(host) ? window.location.origin : PROD_ORIGIN
 }
 
 const SECTION_HEADING = 'mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'
-const PANEL_ID = 'dial8-mcp-app-panel'
-const tabId = (id: ConnectClientId) => `dial8-mcp-app-${id}`
+const PANEL_ID = 'ni-mcp-app-panel'
+const tabId = (id: ConnectClientId) => `ni-mcp-app-${id}`
 
 export function ConnectApps() {
   const origin = useSyncExternalStore(subscribeToHostname, getClientOrigin, getServerOrigin)
-  const server = useMemo(() => connectServer(origin, origin !== PROD_ORIGIN), [origin])
+  const server = useMemo(() => connectServer(origin, !isHosted(origin)), [origin])
   const [picked, setPicked] = useState<ConnectClientId>(CONNECT_CLIENTS[0].id)
   const client = connectClient(picked)
   const tabs = useRef<Partial<Record<ConnectClientId, HTMLButtonElement | null>>>({})
@@ -71,8 +75,8 @@ export function ConnectApps() {
 
   return (
     <div className="space-y-8">
-      <section aria-labelledby="dial8-mcp-url">
-        <h2 id="dial8-mcp-url" className={SECTION_HEADING}>
+      <section aria-labelledby="ni-mcp-url">
+        <h2 id="ni-mcp-url" className={SECTION_HEADING}>
           Server URL
         </h2>
         <div className="flex items-center gap-2 rounded-xl border bg-muted/40 py-1.5 pl-3 pr-1.5">
@@ -80,18 +84,18 @@ export function ConnectApps() {
           <CopyButton text={server.url} label="Copy URL" what="the server URL" />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Every app signs in with your Dial8 account. No API key to make or paste.
+          Every app signs in with your Native Intelligence account. No API key to make or paste.
         </p>
       </section>
 
-      <section aria-labelledby="dial8-mcp-apps">
-        <h2 id="dial8-mcp-apps" className={SECTION_HEADING}>
+      <section aria-labelledby="ni-mcp-apps">
+        <h2 id="ni-mcp-apps" className={SECTION_HEADING}>
           Pick your app
         </h2>
         {/* One row at the page's full width, wrapping in a narrow pane. */}
         <div
           role="tablist"
-          aria-labelledby="dial8-mcp-apps"
+          aria-labelledby="ni-mcp-apps"
           onKeyDown={onTabKey}
           className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2"
         >
@@ -166,13 +170,13 @@ function AppPanel({ client, server }: { client: ConnectClient; server: ConnectSe
     >
       <div className="flex items-center gap-3">
         <ConnectAppIcon id={client.id} />
-        <h3 className="text-sm font-semibold">Add Dial8 to {client.name}</h3>
+        <h3 className="text-sm font-semibold">Add Native Intelligence to {client.name}</h3>
       </div>
 
       {local && (
         <p className="flex gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
           <TriangleAlert aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
-          {client.name} connects from its own servers, so it can&apos;t reach this local dev server. Use dial8.ai, or a
+          {client.name} connects from its own servers, so it can&apos;t reach this local dev server. Use the hosted app, or a
           public tunnel to this machine.
         </p>
       )}
@@ -186,7 +190,7 @@ function AppPanel({ client, server }: { client: ConnectClient; server: ConnectSe
             </a>
           </Button>
           <p className="mt-2 text-xs text-muted-foreground">
-            Opens {client.name}, which asks you to confirm. Then sign in with your Dial8 account when it asks.
+            Opens {client.name}, which asks you to confirm. Then sign in with your Native Intelligence account when it asks.
           </p>
         </div>
       )}

@@ -93,7 +93,7 @@ export interface EntityTypeDescriptor {
   }
   /**
    * The kind's own table streams through the shared Supabase Realtime channel
-   * (src/hooks/use-realtime-entities.ts) onto the `dial8:entity-*` bus. True
+   * (src/hooks/use-realtime-entities.ts) onto the `ni:entity-*` bus. True
    * requires the table to be in the `supabase_realtime` publication with
    * REPLICA IDENTITY FULL (migration 187). The binding is filtered by
    * workspace_id when `workspaceScoped` is a column, unfiltered (RLS-gated)
@@ -310,7 +310,7 @@ export const ENTITY_REGISTRY = [
     linkable: true,
     activity: false,
     customFields: false,
-    // Dial8 doesn't learn from mail (2026-10-15, migration 341): a claim may
+    // Native Intelligence doesn't learn from mail (2026-10-15, migration 341): a claim may
     // never cite an email, so no claim_source row, no mirrored cites edge, no
     // `create_claim` source. Kept linkable so a work item's declared resources
     // still round-trip; claim reads drop email neighbours and never resolve

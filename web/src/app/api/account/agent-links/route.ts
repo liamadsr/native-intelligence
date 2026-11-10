@@ -18,7 +18,7 @@ import { claimEmailRequests, requestLinkByEmail, type OutsideRequestResult } fro
  *      → 201 { link: LinkView }
  *        Asks them; nothing flows until they accept. By email, one email goes
  *        out with a connect link, and the answer is the same whether or not
- *        the address is on Dial8 (decision 3; at most 10 a day). `tools`/`askTools` are
+ *        the address is on Native Intelligence (decision 3; at most 10 a day). `tools`/`askTools` are
  *        this user's half: what THEIR agent may ask this user's. `guestId`
  *        makes someone already on their list the half, keeping its tools.
  */

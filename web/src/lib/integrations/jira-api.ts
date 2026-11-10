@@ -2,7 +2,7 @@
  * Jira Cloud REST API v3 HTTP client (OAuth 2.0 3LO).
  *
  * Thin wrapper over the Atlassian gateway used by the action push
- * (src/lib/tasks/jira-push.ts), the Dial8→Jira status echo
+ * (src/lib/tasks/jira-push.ts), the Native Intelligence→Jira status echo
  * (src/lib/inngest/jira-echo-status.ts) and the destination picker routes
  * (/api/account/jira/*).
  *
@@ -545,7 +545,7 @@ export async function listCreateMetaIssueTypes(
  *    400 with "Field 'duedate' cannot be set. It is not on the appropriate
  *    screen, or unknown". Detection, never create-and-retry.
  *  - `required` answers "must this push carry a value".
- *  - `allowedValues` answers "can Dial8 render it at all": a select-shaped field
+ *  - `allowedValues` answers "can Native Intelligence render it at all": a select-shaped field
  *    becomes a dropdown, a free-text one cannot be answered generically and is
  *    what the panel's required-field wall refuses on.
  *  - `hasDefaultValue` is the escape hatch that makes a required field harmless:
@@ -924,7 +924,7 @@ export async function deleteIssue(
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic webhooks (Jira → Dial8 read-back)
+// Dynamic webhooks (Jira → Native Intelligence read-back)
 // ---------------------------------------------------------------------------
 
 /**

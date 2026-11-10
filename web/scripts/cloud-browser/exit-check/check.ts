@@ -1,7 +1,7 @@
 /**
  * The Mac exit end to end (docs/plans/cloud-browser.md, C4): a test sandbox's
  * Chrome (from the base snapshot: behind the relay's SOCKS proxy) and this
- * Mac's real exit node (dial8-desktop crates/browser-exit, its example
+ * Mac's real exit node (desktop/crates/browser-exit, its example
  * binary), through the hub's published port. Checks:
  *   1. with no Mac, the browser leaves from the cloud (cloud mode);
  *   2. this Mac's exit connects with a token naming the hub, and the browser
@@ -13,7 +13,7 @@
  * with the hub port published, the Vercel CLI, and the desktop repo:
  *   vercel sandbox create --name <test> --snapshot <base> --publish-port 4000 --timeout 30m --non-persistent
  *   node scripts/cloud-browser/build-assets.mjs
- *   npx tsx scripts/cloud-browser/exit-check/check.ts --sandbox <test> --hub https://<the 4000 route> --desktop <dial8-desktop checkout>
+ *   npx tsx scripts/cloud-browser/exit-check/check.ts --sandbox <test> --hub https://<the 4000 route> --desktop <desktop folder>
  * Only the check's own pages go through this Mac (checkip, example.com).
  * Remove the sandbox afterwards.
  */
@@ -31,7 +31,7 @@ const arg = (name: string) => { const i = process.argv.indexOf(`--${name}`); ret
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const sandbox = arg('sandbox') ?? '', desktop = arg('desktop') ?? ''
 const hub = arg('hub')?.replace(/\/$/, '') ?? ''
-if (!sandbox || !hub || !desktop) { console.error('usage: check.ts --sandbox <name> --hub https://<route> --desktop <dial8-desktop>'); process.exit(2) }
+if (!sandbox || !hub || !desktop) { console.error('usage: check.ts --sandbox <name> --hub https://<route> --desktop <desktop folder>'); process.exit(2) }
 const project = process.env.PROJECT ?? 'dial8-website'
 const team = vercelTeam(project)
 const scope = [`--project=${project}`, ...(team ? [`--scope=${team}`] : [])]

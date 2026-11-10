@@ -138,7 +138,7 @@ function allCallsFor(table: string): Call[][] {
 
 /** NextRequest's `nextUrl` is what the route reads; a plain Request has none. */
 function getRequest(query = '') {
-  const url = new URL(`https://dial8.ai/api/account/notifications${query}`)
+  const url = new URL(`https://nativeintelligence.dev/api/account/notifications${query}`)
   return { nextUrl: url } as never
 }
 

@@ -1,18 +1,19 @@
 /**
  * Payments through the owner's own Stripe (roadmap track C, migration 459):
- * Stripe Connect, with Dial8's Stripe account as the platform. This file is
+ * Stripe Connect, with Native Intelligence's Stripe account as the platform. This file is
  * the env and the one switch; nothing here talks to Stripe.
  *
- * Dial8's own billing (src/lib/billing/*, the stripe-webhook edge function)
+ * Native Intelligence's own billing (src/lib/billing/*, the stripe-webhook edge function)
  * shares the Stripe account and its secret key (getStripe), and nothing else:
  * Connect has its own webhook endpoints, secrets and tables.
  *
- * Live mode is off until Dial8's Connect platform profile is approved
+ * Live mode is off until Native Intelligence's Connect platform profile is approved
  * (docs/plans/stripe-connect-payments.md "Before going live"): with a live
  * secret key, Connect refuses unless STRIPE_CONNECT_LIVE is '1'. A test key
  * always works. So deploying this to production moves no real money.
  */
 
+import { DEFAULT_APP_URL } from '@/lib/app-url'
 function env(name: string): string | null {
   const value = process.env[name]?.trim()
   return value ? value : null
@@ -53,7 +54,7 @@ export function connectV2WebhookSecret(): string | null {
 
 /** The app's public origin, for links in texts and Stripe's redirect URLs. */
 export function paymentsOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || DEFAULT_APP_URL).replace(/\/$/, '')
 }
 
 /** The paths Stripe and the texts send people to. */

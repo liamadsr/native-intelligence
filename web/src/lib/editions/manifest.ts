@@ -1,7 +1,7 @@
 /**
  * Persona editions — the ONE place an edition is defined.
  *
- * Dial8 runs four GTM motions (sales, meeting-notes, second-brain, and the
+ * Native Intelligence runs four GTM motions (sales, meeting-notes, second-brain, and the
  * service business an agent runs by text) against one app. An "edition" is the
  * workspace-level answer to "which product is this person here for", determined
  * at signup by the landing page they came from (or by signing up by text) and
@@ -199,7 +199,7 @@ export interface FeatureDefinition {
 }
 
 /** The feature every workspace has, always. Meetings in, work out — the
- *  irreducible Dial8. Not toggleable: switching it off would leave a workspace
+ *  irreducible Native Intelligence. Not toggleable: switching it off would leave a workspace
  *  with no way to capture or act on anything. */
 export const CORE_FEATURE: FeatureKey = 'core'
 
@@ -1105,7 +1105,7 @@ const EDITION_SPECS: Record<EditionId, EditionSpec> = {
     id: 'full',
     label: 'Full',
     description:
-      'Everything Dial8 does — meetings, projects, knowledge, CRM, and outreach in one workspace.',
+      'Everything Native Intelligence does — meetings, projects, knowledge, CRM, and outreach in one workspace.',
     // `'all'`, not an enumerated feature list: this is what preserves the
     // inherit-all sentinels (null tool ceiling, unrestricted auto-create) that
     // make a full workspace byte-identical to the pre-editions app.

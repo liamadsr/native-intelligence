@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Tests for useRealtimeEntities' postgres_changes → dial8:entity-* translation,
+ * Tests for useRealtimeEntities' postgres_changes → ni:entity-* translation,
  * focused on the UPDATE diff (changedFields):
  *   1. Unchanged columns are DROPPED from the forwarded fields — downstream
  *      patch-vs-refetch checks (unified-view-layout's joined-FK presence
@@ -413,7 +413,7 @@ describe('cross-workspace actions binding', () => {
   })
 })
 
-// ── `dial8:realtime-recovered` latch (the wake-storm fix) ──────────────────
+// ── `ni:realtime-recovered` latch (the wake-storm fix) ──────────────────
 //
 // The app-wide event drives a refetch in every mounted list, the attention
 // rail, the notification/in-app-message providers and the email inbox — one
@@ -433,7 +433,7 @@ describe('realtime-recovered dispatch', () => {
   function recoveredEvents(run: () => void): CustomEvent[] {
     const seen: CustomEvent[] = []
     const onRecovered = (e: Event) => seen.push(e as CustomEvent)
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     try {
       run()
       // Flush the 0–2s dispatch jitter.
@@ -441,7 +441,7 @@ describe('realtime-recovered dispatch', () => {
         vi.advanceTimersByTime(2500)
       })
     } finally {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
     }
     return seen
   }

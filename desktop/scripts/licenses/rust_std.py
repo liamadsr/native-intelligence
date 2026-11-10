@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Third-party notices for the Rust standard library in the Dial8 app binary.
+"""Third-party notices for the Rust standard library in the Native Intelligence app binary.
 
     rust_std.py [--manifest-dir DIR] [--target TRIPLE] OUT
 
@@ -200,7 +200,7 @@ def html_to_text(raw: str) -> str:
 def to_text(html_path: str) -> str:
     # textutil on macOS (what the Mac bundle has always shipped); elsewhere
     # (the Windows build) the same layout from html_to_text.
-    if shutil.which("textutil") and not os.environ.get("DIAL8_LICENSES_NO_TEXTUTIL"):
+    if shutil.which("textutil") and not os.environ.get("NI_LICENSES_NO_TEXTUTIL"):
         text = run(["textutil", "-convert", "txt", "-stdout", html_path], os.path.dirname(html_path))
     else:
         with open(html_path, encoding="utf-8") as f:

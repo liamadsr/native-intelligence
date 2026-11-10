@@ -1,6 +1,6 @@
 //
 //  iOSMarkdownToolbar.swift
-//  dial8
+//  Native Intelligence
 //
 //  Basic markdown formatting toolbar for iOS note-taking.
 //  Provides quick-insert buttons for common markdown syntax.

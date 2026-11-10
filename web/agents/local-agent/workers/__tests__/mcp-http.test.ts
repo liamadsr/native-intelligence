@@ -13,7 +13,7 @@ describe('handleRpcMessage', () => {
   it('initializes on the client version when known, else the newest', async () => {
     expect(await handleRpcMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }, ctx())).toMatchObject({
       id: 1,
-      result: { protocolVersion: '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'dial8-workspace' } },
+      result: { protocolVersion: '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'ni-workspace' } },
     })
     expect(await handleRpcMessage({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '2099-01-01' } }, ctx())).toMatchObject({
       result: { protocolVersion: SUPPORTED_PROTOCOL_VERSIONS[0] },

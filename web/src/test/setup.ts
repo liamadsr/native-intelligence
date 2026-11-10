@@ -114,7 +114,7 @@ if (typeof RealWebSocket === 'function') {
 // secrets) into the BUILD environment, and `npm run build` runs this test
 // suite — so without this, a test driving the real run-skill/agent-run/chat
 // control flow can mint real tokens and make live network calls (the salvage
-// suite failed exactly this way: its "timed out" assertion received dial8.ai's
+// suite failed exactly this way: its "timed out" assertion received the production site's
 // production 404 HTML). Tests that need one of these set it explicitly per-test.
 for (const flag of [
   'RUN_SKILL_INTERNAL_SECRET',
@@ -156,11 +156,11 @@ for (const flag of [
   // production project. Scrubbed → getPostHogServerClient() returns null.
   // posthog-auth-session.test.ts sets its own value per-test.
   'NEXT_PUBLIC_POSTHOG_KEY',
-  // NEXT_PUBLIC_APP_URL is the production domain (https://dial8.ai) in the
-  // Vercel BUILD env where this suite runs. The eve dispatch origin
+  // NEXT_PUBLIC_APP_URL is the production address in the Vercel BUILD env
+  // where this suite runs. The eve dispatch origin
   // (src/lib/eve/dispatch-origin.ts) and the utility spec-client fall back to
   // it off Vercel, so an inherited value turns their localhost URL assertions
-  // into dial8.ai (and points unmocked internal calls at prod). Tests that need
+  // into the production host (and points unmocked internal calls at prod). Tests that need
   // a value set it explicitly per-test.
   'NEXT_PUBLIC_APP_URL',
   // Inngest. The Vercel BUILD env carries the production event + signing keys,
@@ -182,6 +182,9 @@ for (const flag of [
   'INNGEST_SERVE_HOST',
   'INNGEST_SERVE_ORIGIN',
   'INNGEST_SERVE_PATH',
+  // The app's own switch (src/lib/inngest/client.ts). Set in the build env the
+  // day checkpointing has to go off; the suite must not change with it.
+  'INNGEST_CHECKPOINTING',
   // Billed or user-visible outbound services, also injected into the build
   // env. Unset locally, so every suite already runs (and passes) without them,
   // and the ones that need a key stub their own. Scrubbed, an unmocked path

@@ -29,7 +29,7 @@ describe('formatNanp', () => {
 })
 
 describe('isCompleteNanp and isImpossibleNanp', () => {
-  it('a full number Dial8 can text, and one that can never be', () => {
+  it('a full number Native Intelligence can text, and one that can never be', () => {
     expect(isCompleteNanp('4155551234')).toBe(true)
     expect(isCompleteNanp('415555123')).toBe(false)
     expect(isCompleteNanp('1155551234')).toBe(false)

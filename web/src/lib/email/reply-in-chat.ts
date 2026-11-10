@@ -19,7 +19,7 @@
 import { isDraftAddress } from './draft-edits'
 
 /** Window event name. Listened for in dashboard-shell.tsx. */
-export const EMAIL_REPLY_EVENT = 'dial8:email-reply'
+export const EMAIL_REPLY_EVENT = 'ni:email-reply'
 
 export interface EmailReplyRequest {
   /** The thread's provider id, as Mail and the email tools name it. */

@@ -159,7 +159,7 @@ export function AgentModelSection() {
             </p>
             <p className="text-[13px] text-muted-foreground">
               {onPlan
-                ? `Your assistant runs on your ChatGPT plan’s model${loaded?.planModel ? `, ${loaded.planModel}` : ''}. You can pick another model on a Dial8 plan.`
+                ? `Your assistant runs on your ChatGPT plan’s model${loaded?.planModel ? `, ${loaded.planModel}` : ''}. You can pick another model on a Native Intelligence plan.`
                 : 'What your assistant runs on, wherever you talk to it. It still picks the right model for each helper it starts.'}
             </p>
           </div>
