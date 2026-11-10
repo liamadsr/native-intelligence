@@ -1,0 +1,169 @@
+# Self-hosted Inngest: the server, its own Postgres 17 (apps, functions, run
+# history) and its own Redis 7 (the queue and the state of runs in flight).
+#
+# Nothing here publishes a port on the host. The only way in from outside is
+# Caddy (../edge), which reaches the server over the shared `ni-edge` network
+# and lets through only the paths an app's SDK calls. The dashboard has no
+# login, so it is reached over an SSH tunnel (see ../README.md).
+#
+# Run from this folder, as root so the root-only .env can be read:
+#   sudo docker compose up -d
+name: ni-inngest
+
+services:
+  inngest:
+    # Pinned on purpose. To upgrade: read the release notes, change the tag,
+    # `sudo docker compose pull inngest && sudo docker compose up -d inngest`.
+    image: inngest/inngest:v1.51.0
+    container_name: ni-inngest
+    restart: unless-stopped
+    command:
+      - inngest
+      - start
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8288"
+      - --redis-uri
+      - redis://redis:6379
+      # No --sdk-url, on purpose. Given an app's URL, v1.51.0 `start` stores
+      # that app as "unreachable" and sends it a sync request (a PUT) at
+      # startup and then every poll interval until the app registers HERE
+      # (pkg/devserver/service.go, pollSDKs). Before cut-over the app still
+      # registers with Inngest Cloud, so each of those requests would make
+      # production re-register there, once a minute, for as long as this
+      # server sits idle. The app is asked to sync by the `sync` service below
+      # instead, which is off until cut-over; the app then registers itself
+      # (POST /fn/register). The interval below still applies to a registered
+      # app that is in an error state.
+      - --poll-interval
+      - "60"
+    environment:
+      # Secrets stay out of the command line. `inngest start` reads any flag
+      # from INNGEST_<FLAG_NAME>.
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:?set INNGEST_EVENT_KEY in .env}
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:?set INNGEST_SIGNING_KEY in .env}
+      INNGEST_POSTGRES_URI: postgres://inngest:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/inngest?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      # Private: Postgres and Redis.
+      internal: {}
+      # Shared with Caddy. The fixed address is what the dashboard SSH tunnel
+      # in ../README.md points at. It is below 172.30.0.128, the half of the
+      # network Docker never hands out by itself (see `docker network create`
+      # in ../README.md), so no other container can be given it first.
+      edge:
+        ipv4_address: 172.30.0.10
+    healthcheck:
+      test: ["CMD", "inngest", "alpha", "doctor", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Time to finish the steps in hand before Docker kills the process.
+    stop_grace_period: 1m
+
+  # Keeps the function list current. `inngest start` does not re-sync an app
+  # that synced without an error (v1.51.0 wires its "poll" switch to
+  # `inngest dev` only), so a deploy that adds or changes a function would
+  # never reach the server. This sends the app a PUT every minute, the same
+  # request the server's own poll would send; the app answers by registering
+  # with the server. A registration that changes nothing is a no-op there.
+  #
+  # Off until COMPOSE_PROFILES=sync is set in .env, which is done at cut-over:
+  # the app registers with whichever Inngest IT is configured for, so before
+  # it points at this server every one of these requests would make it
+  # re-register with the Inngest it still uses.
+  sync:
+    profiles: ["sync"]
+    image: curlimages/curl:8.23.0
+    container_name: ni-inngest-sync
+    restart: unless-stopped
+    environment:
+      INNGEST_SDK_URL: ${INNGEST_SDK_URL:?set INNGEST_SDK_URL in .env}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-60}
+    # The app registers with the server, so the server has to be up first.
+    depends_on:
+      inngest:
+        condition: service_healthy
+    volumes:
+      # Long form so a missing file is an error. The short form would create
+      # an empty folder called sync.sh and mount that.
+      - type: bind
+        source: ./sync.sh
+        target: /usr/local/bin/ni-sync
+        read_only: true
+        bind:
+          create_host_path: false
+    entrypoint: ["/bin/sh", "/usr/local/bin/ni-sync"]
+    networks:
+      # Only needs a way out to the app.
+      - edge
+    stop_grace_period: 5s
+
+  postgres:
+    image: postgres:17
+    container_name: ni-inngest-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inngest
+      POSTGRES_USER: inngest
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inngest -d inngest"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    stop_grace_period: 1m
+
+  redis:
+    image: redis:7-alpine
+    container_name: ni-inngest-redis
+    restart: unless-stopped
+    # Redis holds the queue and every run in flight, so it is durable:
+    # append-only file, fsync once a second. Never evict: a dropped key is a
+    # lost run.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: 30s
+
+volumes:
+  postgres-data:
+    name: ni-inngest-postgres
+  redis-data:
+    name: ni-inngest-redis
+
+networks:
+  # No route to the internet, and no other stack on it except the backup
+  # container (../backup), which joins it by name to reach Postgres.
+  internal:
+    name: ni-inngest
+    internal: true
+  # Created once by hand (see ../README.md) so neither stack owns it.
+  edge:
+    name: ni-edge
+    external: true

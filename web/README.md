@@ -183,7 +183,7 @@ end-to-end tests, and how the hosted project's deploy pipeline is planned.
   - `/api/twilio/sms` and `/api/twilio/sms/status`;
   - `/api/calls/live`;
   - `/api/slack/events` and `/api/slack/interactivity`;
-  - `/api/inngest`, for Inngest Cloud in production.
+  - `/api/inngest`, for the Inngest server in production.
 - **Stripe billing's webhook isn't in this app.** It's a Supabase Edge Function
   (`supabase/functions/stripe-webhook/`). Deploy it with the Supabase CLI and set its
   secrets there.

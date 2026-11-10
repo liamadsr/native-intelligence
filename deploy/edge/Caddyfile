@@ -1,0 +1,184 @@
+# The only public door on the server: ports 80 and 443.
+#
+# Two hosts, both named from the environment (see compose.yaml and .env.example):
+#   INNGEST_HOST   an allowlist in front of the self-hosted Inngest server
+#   SUPABASE_HOST  a pass-through to SUPABASE_UPSTREAM
+#
+# Check a change before reloading:
+#   sudo docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
+#   sudo docker compose exec caddy caddy reload   --config /etc/caddy/Caddyfile
+{
+	# Caddy's own log: everything that is not an access log. When an upstream
+	# is down, the error Caddy logs carries the whole request, so the secrets
+	# kept out of the two access logs below are scrubbed here as well: the
+	# Inngest event key in the path, the Supabase key and one-time tokens in
+	# the query string, and any other long run of key characters.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>headers>Apikey delete
+				request>uri multi_regexp {
+					regexp "^/e/[^/?]+" "/e/REDACTED"
+					regexp "([?&](apikey|token|access_token|refresh_token|code)=)[^&]*" "${1}REDACTED"
+					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
+				}
+			}
+		}
+	}
+
+	# Only TCP 80 and 443 are open, so no HTTP/3 (which is UDP 443).
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_header 1m
+			idle 15m
+		}
+	}
+}
+
+# Everything a proxied request needs. Caddy already sets X-Forwarded-For,
+# X-Forwarded-Proto and X-Forwarded-Host and drops any a client sent.
+(proxy) {
+	header_up X-Real-IP {remote_host}
+
+	# Write every chunk to the client as it arrives: streamed responses and
+	# server-sent events are never held back. WebSockets pass through as is.
+	flush_interval -1
+
+	transport http {
+		dial_timeout 30s
+		# An upstream may take 15 minutes to start answering, and may go
+		# quiet for 15 minutes in the middle of a body.
+		response_header_timeout 15m
+		read_timeout 15m
+		write_timeout 15m
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Inngest
+#
+# The dashboard, its GraphQL API (/v0/gql), /metrics, /debug (the Go profiler)
+# and the MCP endpoint have no login, so this host is an allowlist. What is
+# let through is what an app's Inngest SDK (inngest 4.0.0, serving over HTTP)
+# calls on the server, and each of those checks the event key or the signing
+# key itself. Everything else answers 404 here and never reaches Inngest.
+# ../README.md has the list with where each path comes from, and the SDK
+# paths that are deliberately left closed.
+#
+# Each rule matches the method and the cleaned path, then rebuilds the path it
+# forwards from what matched, so Inngest only ever sees one of the exact
+# shapes below (no doubled slashes, dot segments or escapes).
+# ---------------------------------------------------------------------------
+{$INNGEST_HOST:inngest.nativeintelligence.dev} {
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				# The event key is part of the path. Keep it out of the logs:
+				# the segment after /e/, and any other run of 32 or more key
+				# characters (a key sent on an odd path; run ids are 26).
+				request>uri multi_regexp {
+					regexp "^/e/[^/?]+" "/e/REDACTED"
+					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
+				}
+			}
+		}
+	}
+
+	# Send events: inngest.send() and step.sendEvent().
+	@events {
+		method POST
+		path_regexp events ^/e/([A-Za-z0-9_-]+)$
+	}
+	handle @events {
+		rewrite * /e/{re.events.1}
+		reverse_proxy ni-inngest:8288 {
+			import proxy
+		}
+	}
+
+	# Sync: the app registers its functions when it is asked to (a PUT to its
+	# serve endpoint, from the sync loop, or from the server while a registered
+	# app is in an error state).
+	@register {
+		method POST
+		path /fn/register
+	}
+	handle @register {
+		rewrite * /fn/register
+		reverse_proxy ni-inngest:8288 {
+			import proxy
+		}
+	}
+
+	# A run whose steps or events are too large to send with the request:
+	# the SDK fetches them instead.
+	@run_state {
+		method GET
+		path_regexp run_state ^/v0/runs/([0-9A-Za-z]+)/(actions|batch)$
+	}
+	handle @run_state {
+		rewrite * /v0/runs/{re.run_state.1}/{re.run_state.2}
+		reverse_proxy ni-inngest:8288 {
+			import proxy
+		}
+	}
+
+	# Checkpointing (on by default in SDK v4): the app reports each finished
+	# step while the request that runs the function is still open.
+	@checkpoint {
+		method POST
+		path_regexp checkpoint ^/v1/checkpoint/([0-9A-Za-z]+)/async$
+	}
+	handle @checkpoint {
+		rewrite * /v1/checkpoint/{re.checkpoint.1}/async
+		reverse_proxy ni-inngest:8288 {
+			import proxy
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Supabase
+#
+# A plain pass-through to SUPABASE_UPSTREAM: today the hosted project's URL,
+# later the self-hosted stack on this server. The Host header is rewritten to
+# the upstream's own name, which a hosted project needs to route the request.
+# ---------------------------------------------------------------------------
+{$SUPABASE_HOST:sb.nativeintelligence.dev} {
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				# The project's API key travels in a header on every request
+				# and in the query string of the Realtime WebSocket, and auth
+				# links carry one-time tokens.
+				request>headers>Apikey delete
+				request>uri query {
+					replace apikey REDACTED
+					replace token REDACTED
+					replace access_token REDACTED
+					replace refresh_token REDACTED
+					replace code REDACTED
+				}
+			}
+		}
+	}
+
+	reverse_proxy {$SUPABASE_UPSTREAM} {
+		import proxy
+
+		# The bare host name, as a browser would send it ({upstream_hostport}
+		# would add ":443"). It matches the name the upstream's certificate
+		# is checked against.
+		header_up Host {http.reverse_proxy.upstream.host}
+	}
+}
