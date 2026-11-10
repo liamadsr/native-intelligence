@@ -1,0 +1,33 @@
+# Generated from web/vercel.json by deploy/app/cron/generate.mjs. Do not edit:
+# change web/vercel.json, then run `node deploy/app/cron/generate.mjs`.
+# Times are UTC, as on Vercel (the image sets TZ=UTC).
+0 5 * * * node /app/deploy/app/cron/call.mjs /api/cron/email-management
+0 14 * * * node /app/deploy/app/cron/call.mjs /api/cron/drip-campaign
+0 * * * * node /app/deploy/app/cron/call.mjs /api/cron/in-app-campaigns
+0 6 * * * node /app/deploy/app/cron/call.mjs /api/cron/renew-email-watches
+0 3 * * * node /app/deploy/app/cron/call.mjs /api/cron/mcp-cleanup
+5 0 * * * node /app/deploy/app/cron/call.mjs /api/cron/reset-ai-usage-plans
+0 4 * * * node /app/deploy/app/cron/call.mjs /api/cron/wiki-maintenance
+15 9 * * * node /app/deploy/app/cron/call.mjs /api/cron/weave
+20 6 * * * node /app/deploy/app/cron/call.mjs /api/cron/memory-learning
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/flow-schedule
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/sequence-dispatch
+30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/triage-reconciler
+30 2 * * * node /app/deploy/app/cron/call.mjs /api/cron/reconcile-subscriptions
+45 1 * * * node /app/deploy/app/cron/call.mjs /api/cron/reconcile-deepgram
+0 3 * * 1 node /app/deploy/app/cron/call.mjs /api/cron/billing-reconciliation
+*/30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/inngest-sync
+50 2 * * * node /app/deploy/app/cron/call.mjs /api/cron/proposal-age-out
+40 * * * * node /app/deploy/app/cron/call.mjs /api/cron/index-reconciler
+*/15 * * * * node /app/deploy/app/cron/call.mjs /api/cron/crm-sync
+*/30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/asana-sync
+*/30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/jira-sync
+*/30 * * * * node /app/deploy/app/cron/call.mjs /api/cron/linear-sync
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/prospecting-watchdog
+0 4 * * 0 node /app/deploy/app/cron/call.mjs /api/cron/prospecting-prune
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/browser-command-reaper
+*/5 * * * * node /app/deploy/app/cron/call.mjs /api/cron/cloud-browser-idle
+40 3 * * * node /app/deploy/app/cron/call.mjs /api/cron/cloud-browser-reconcile
+25 * * * * node /app/deploy/app/cron/call.mjs /api/cron/approval-expiry
+20 3 * * * node /app/deploy/app/cron/call.mjs /api/cron/notification-purge
+40 3 * * * node /app/deploy/app/cron/call.mjs /api/cron/local-agent-purge

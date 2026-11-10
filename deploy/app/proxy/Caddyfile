@@ -1,0 +1,78 @@
+# The test stack's proxy (compose.yaml). Two listeners:
+#
+#   :8080  the app's one public origin. /eve/<name>/v1/* goes straight to that
+#          agent's container, so a long agent stream never passes through Next's
+#          own rewrite proxy, which gives up after 30 seconds. /api/inngest goes to
+#          the worker. Everything else goes to web.
+#   :8081  inside the stack only: what the web role's EVE_NEXT_PRODUCTION_ORIGIN
+#          points at. `next build` rewrites /eve/<name>/v1/* to
+#          /_eve_internal/eve/<name>/eve/v1/* on that origin, for any request that
+#          reaches web without going through :8080.
+#
+# An agent serves its routes at /eve/v1/*, whatever its public mount, so both
+# listeners rewrite to that. Caddy puts no time limit on a proxied response, and
+# flush_interval -1 passes each streamed chunk on as it arrives.
+{
+	admin off
+	auto_https off
+}
+
+# /eve/<name>/v1/x  ->  agent-<name>:3000/eve/v1/x
+(agent) {
+	handle_path /eve/{args[0]}/* {
+		rewrite * /eve{uri}
+		reverse_proxy agent-{args[0]}:3000 {
+			flush_interval -1
+		}
+	}
+}
+
+# /_eve_internal/eve/<name>/eve/v1/x  ->  agent-<name>:3000/eve/v1/x
+(agent_internal) {
+	handle_path /_eve_internal/eve/{args[0]}/* {
+		reverse_proxy agent-{args[0]}:3000 {
+			flush_interval -1
+		}
+	}
+}
+
+http://:8080 {
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	import agent onboarding-researcher
+	import agent skill-runner
+	import agent coding-agent
+	import agent work-agent
+	import agent chat-agent
+	import agent utility
+	import agent live-agent
+	import agent web-research
+
+	@inngest path /api/inngest /api/inngest/*
+	handle @inngest {
+		reverse_proxy worker:3000
+	}
+
+	handle {
+		reverse_proxy web:3000 {
+			flush_interval -1
+		}
+	}
+}
+
+http://:8081 {
+	import agent_internal onboarding-researcher
+	import agent_internal skill-runner
+	import agent_internal coding-agent
+	import agent_internal work-agent
+	import agent_internal chat-agent
+	import agent_internal utility
+	import agent_internal live-agent
+	import agent_internal web-research
+
+	handle {
+		respond "no such agent" 404
+	}
+}
