@@ -559,6 +559,12 @@ It prints what it generated. Then fill in the rest, starting with `DASHBOARD_USE
 sudo nano .env
 ```
 
+Most of what comes from the hosted project (groups 1 and 3 below) does not have to be typed. From your own machine, [`supabase/pull-hosted-settings.sh`](supabase/pull-hosted-settings.sh) reads it from the hosted project with your Supabase login and writes it into this file, without showing a secret anywhere. It says what it wrote and what the hosted project has that this stack has no setting for:
+
+```bash
+deploy/supabase/pull-hosted-settings.sh <project ref> <user>@<server>
+```
+
 [`supabase/.env.example`](supabase/.env.example) describes every line. Three groups matter most:
 
 1. **Copied from the hosted project** (section 2): `JWT_SECRET`, `ANON_KEY` and `SERVICE_ROLE_KEY`, **replacing** what the script just generated for those three, and `JWT_EXPIRY`. With the hosted project's own secret and keys, the keys compiled into the apps and every signed-in session keep working after the switch. The six "new key" settings below them stay empty.
