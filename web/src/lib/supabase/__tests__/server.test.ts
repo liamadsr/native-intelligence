@@ -154,6 +154,56 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+describe('createClient() — the cookie name is pinned when the address is not the project\'s own', () => {
+  // The project is reached through an address of ours, whose first label is
+  // not the project ref. Sessions are still stored under the ref's name.
+  const PROXY_URL = 'https://db.example.test'
+  const PINNED_KEY = 'sb-fixturetestref-auth-token'
+  const ADDRESS_KEY = 'sb-db-auth-token'
+
+  const cookieName = () =>
+    (hoisted.lastOptions as { cookieOptions?: { name?: string } } | null)?.cookieOptions?.name
+
+  it('unpinned: no cookie name is passed, so the library derives it as before', async () => {
+    await createClient()
+    expect(cookieName()).toBeUndefined()
+  })
+
+  it('pinned: the SSR client is given the pinned name', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', PROXY_URL)
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    await createClient()
+    expect(cookieName()).toBe(PINNED_KEY)
+  })
+
+  it('pinned: the identity guard reads the session under the pinned name (different sub → no forward)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', PROXY_URL)
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    hoisted.cookies.set(PINNED_KEY, makeAuthCookieValue('user-A'))
+    hoisted.authHeader = `Bearer ${makeJwt('user-B')}`
+    await createClient()
+    expect(forwardedAuth()).toBeUndefined()
+  })
+
+  it('pinned: a cookie under the address-derived name is not a session (the SSR client does not see it either)', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', PROXY_URL)
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    hoisted.cookies.set(ADDRESS_KEY, makeAuthCookieValue('user-A'))
+    hoisted.authHeader = `Bearer ${makeJwt('user-B')}`
+    await createClient()
+    expect(forwardedAuth()).toBe(hoisted.authHeader)
+  })
+
+  it('unpinned on such an address: the guard follows the library to the address-derived name', async () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', PROXY_URL)
+    hoisted.cookies.set(ADDRESS_KEY, makeAuthCookieValue('user-A'))
+    hoisted.authHeader = `Bearer ${makeJwt('user-B')}`
+    await createClient()
+    expect(cookieName()).toBeUndefined()
+    expect(forwardedAuth()).toBeUndefined()
+  })
+})
+
 describe('createClient() — dual-credential identity guard', () => {
   it('cookie-only (no Authorization header) → does not forward', async () => {
     hoisted.cookies.set(AUTH_COOKIE_KEY, makeAuthCookieValue('user-A'))

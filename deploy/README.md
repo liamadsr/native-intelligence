@@ -773,8 +773,8 @@ Production moves here. For everything that reaches Supabase through `sb.nativein
 
 **Gate 1, days before: every client uses `sb.nativeintelligence.dev`.** Do not start step 18 until all of this is true.
 
-- **The web app.** Every Supabase URL in its production environment (`NEXT_PUBLIC_SUPABASE_URL`, and any other that names the project, such as `PROD_SUPABASE_URL`) is `https://sb.nativeintelligence.dev`, and a deployment built with them is live.
-- **The desktop app.** A release that takes its Supabase address from the same setting is what people run. As this repository stands, `desktop/src-tauri/src/commands/auth_session.rs` only lets a sign-in start on the hosted project's own host; a build that still has that list cannot sign in with Google through Supabase after the switch.
+- **The desktop app, before the web app.** The web decides where a Google sign-in starts, and the desktop app only opens its sign-in window on the hosts in `desktop/src-tauri/src/commands/auth_session.rs` (`SIGN_IN_PAGES`). That list has both of the project's addresses, the hosted one and `sb.nativeintelligence.dev`. A build from before it had the second refuses every Google sign-in from the day the web app moves, so a release with it has to be what people run first.
+- **The web app, in two settings, in this order.** First `NEXT_PUBLIC_SUPABASE_PROJECT_REF`, set to the hosted project's ref. The session cookie is named after the first label of the Supabase address (`sb-<label>-auth-token`); move the address without the pin and the cookie is renamed, which signs every person out at once, and production's cloud browsers start sharing a name with every development machine ([`web/src/lib/supabase/project.ts`](../web/src/lib/supabase/project.ts)). With the pin, the name stays what it was. Then every Supabase URL in the production environment (`NEXT_PUBLIC_SUPABASE_URL`, and any other that names the project, such as `PROD_SUPABASE_URL`) becomes `https://sb.nativeintelligence.dev`, and a deployment built with all of them is live. The pin stays for good: after the switch it is what keeps the sessions made before it.
 - **The iOS app.** As this repository stands, `ios/Core/Config/SupabaseConfig.swift` builds the hosted project's own address into the app. Every copy of such a build goes on talking to the hosted project whatever is done here. A build that uses `sb.nativeintelligence.dev` has to be in the App Store, and old builds have to be gone or made to update, before this step.
 - **The repository agrees.** From a full checkout (not the server's), this must print nothing but tests and comments:
 
@@ -782,7 +782,7 @@ Production moves here. For everything that reaches Supabase through `sb.nativein
   git grep -nE '[a-z0-9]{20}\.supabase\.co' -- web desktop ios
   ```
 
-  Today it prints the two files above.
+  Today it prints two files: `auth_session.rs`, which keeps the hosted address on purpose until the hosted project is retired, and the iOS configuration.
 - **The hosted project agrees.** This is the proof, because it sees what people actually run. Everything that comes through Caddy reaches the hosted project from one address, this server's. In the hosted dashboard, under Logs, look at the API gateway's requests (`edge_logs`) for as many days back as the plan keeps, by the request header `cf-connecting-ip` ([their field list](https://supabase.com/docs/guides/observability/log-field-reference)): every request must come from this server's address. The header `x-client-info` on any that do not says which client library sent it. Expect Stripe's own addresses on `/functions/v1/stripe-webhook` until step 2 moves that.
 
 **Gate 2, days before: the rest.**
