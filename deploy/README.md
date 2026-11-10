@@ -1007,8 +1007,16 @@ It ends with the twelve containers and their state; every one must be `healthy`.
 APP_HOSTS=test.nativeintelligence.dev
 ```
 
+Several names go on that line separated by spaces. Never a comma alone between two names: Caddy then refuses its whole configuration and the names it already serves go down with it. Check before every change takes effect; this runs beside the live Caddy and changes nothing:
+
 ```bash
-cd /opt/native-intelligence/deploy/edge && sudo docker compose up -d
+cd /opt/native-intelligence/deploy/edge && sudo docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile
+```
+
+It must end in `Valid configuration`. Then:
+
+```bash
+sudo docker compose up -d
 ```
 
 Caddy is replaced by a new container to read the new line: both public names it already serves are interrupted for a few seconds, and every Supabase live-update connection reconnects. Pick a quiet moment. Then, in `supabase/stack/.env`, add `https://test.nativeintelligence.dev/auth/callback` to `ADDITIONAL_REDIRECT_URLS` (comma-separated) and `cd ../supabase/stack && sudo sh run.sh recreate auth`: without it, a sign-in on the test address is sent back to the site URL instead. Auth restarts in a few seconds.
@@ -1022,9 +1030,12 @@ Caddy is replaced by a new container to read the new line: both public names it 
 | `curl -s https://test.nativeintelligence.dev/api/version` | `{"buildId":"<the first 8 characters of the commit>"}`. |
 | Sign in with Google on the test address | Google, then `sb.nativeintelligence.dev/auth/v1/callback`, then back on the test address, signed in. |
 | A chat message to the agent there | A reply streams in. |
+| A message that makes the agent search the web | The search's result comes back into the reply. That is a helper agent calling back into the session, through the public address (`EVE_CALLBACK_BASE_URL`). |
 | On the server: `sudo docker compose logs --tail 20 cron` | One line per job each time one is due, each saying it was skipped: nothing is called. |
 
 Everything you do on the test address is real: it is production's database. What it does not do is the scheduled jobs, and it is never given production's background work. Leave it running as long as it is useful; it costs the server memory and nothing else.
+
+Do not, on the test address: connect a mail account, get a phone number, or open the cloud browser. The first two register a webhook address with Microsoft, Google or Twilio, built from the address the copy runs under, and production's mail and texts would then arrive at the test name. The cloud browser uses the same sandbox names as production's.
 
 ## 21. The app: the switch
 
@@ -1033,6 +1044,7 @@ The app's names move here from its current host. For the people using it, the sw
 **Gate 1, days before: the settings.** Do not start until all of this is true.
 
 - **Every setting is in `app/.env`.** `pull-settings.sh` ends with what is still empty. The first list (values that must be the same as on the current host) has to be empty: `CREDENTIAL_ENCRYPTION_KEY`, `RUN_SKILL_INTERNAL_SECRET`, `CLOUD_BROWSER_SIGNING_KEY`, `BROWSER_INTERNAL_SECRET`, the webhook secrets and the provider keys. The current host shows none of them to anyone: they come from the password manager, or from the provider that issued them (a new Stripe or Twilio key can be made there, a webhook secret can be read in the provider's dashboard). [`app/README.md`](app/README.md#settings) says why each must be the same, and what "the same" means for a value that was pasted with a line break.
+- **Values that were stored with a line break.** Two of the readable ones end in one (`OAUTH_STATE_SECRET`, `OUTLOOK_WEBHOOK_SECRET`), almost certainly added with `echo … |`, and the app uses them with it. A write-only one added the same way has one too, and `set-secret.sh` trims what is typed: give such a name as `NAME+nl` to keep the line break (`RUN_SKILL_INTERNAL_SECRET+nl`). Whoever added the value knows how; if nobody does, test it before step 3 against something production made with it. An agent link (`https://<name>/link/<token>`, sent by production) is looked up by a hash made with `RUN_SKILL_INTERNAL_SECRET`: with the same token on the test address, the page finds the request only if the server's value is the same byte for byte. Opening the page only shows the request. If it says the link is not valid, enter the value again with `+nl` and `sudo ./deploy.sh --no-build`.
 - **No stand-ins left.** `pull-settings.sh` names any value still starting with `rehearsal-`. The containers refuse to start live with one.
 - **The cloud browser's sandboxes.** They stay on the current host's sandbox service, logged in with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID` (an access token of that account, scoped to the team) and with `CLOUD_BROWSER_RELAY_ORIGIN=https://browser-relay.nativeintelligence.dev`. Without them the cloud browser does not start.
 - **Slack.** It reaches the app through the current host's connector service, which logs in with that host's own token: off the host it fails in both directions. Either register a Slack app of the business's own and point it here, or accept that Slack is off from the switch until that is done.
@@ -1044,10 +1056,10 @@ The app's names move here from its current host. For the people using it, the sw
 - Know the current values of those records: they are the undo.
 - `https://sb.nativeintelligence.dev/auth/v1/callback` and the app's redirect URLs are what they were: nothing in this step changes sign-in.
 
-**1. Build for production.** With the app still serving from its current host. In `app/.env`, run the pull again without the test address, so that `NEXT_PUBLIC_APP_URL` is production's again, then build only:
+**1. Build for production.** With the app still serving from its current host. Run the pull again with production's address (the value `NEXT_PUBLIC_APP_URL` has on the current host, given here so that nothing of the rehearsal can stay behind), then build only:
 
 ```bash
-PULL_PROJECT=<project id> PULL_TEAM=<team id> deploy/app/pull-settings.sh <user>@<server>
+PULL_PROJECT=<project id> PULL_TEAM=<team id> deploy/app/pull-settings.sh <user>@<server> NEXT_PUBLIC_APP_URL=https://dial8.ai
 ```
 
 ```bash
@@ -1066,17 +1078,17 @@ NI_LIVE=1
 sudo ./deploy.sh --no-build
 ```
 
-The containers start with production's address and start the schedule. Nothing reaches them from outside yet: the names still point at the current host, which goes on serving, and Inngest still calls the app there.
+The containers start with production's address and start the schedule. Every image is labelled with the address it was built for, and `deploy.sh` refuses one that is not the address in `.env`. So the image before this one, the rehearsal's, cannot be gone back to with `--rollback`: until the next production build, going back is step 22. Nothing reaches them from outside yet: the names still point at the current host, which goes on serving, and Inngest still calls the app there.
 
-**4. The names, one at a time.** For each, in this order: `www.nativeintelligence.dev`, `browser-relay.nativeintelligence.dev`, `nativeintelligence.dev`, `www.dial8.ai`, `browser-relay.dial8.ai`, `dial8.ai`:
+**4. The names, one at a time.** The name in `NEXT_PUBLIC_APP_URL` goes first. The containers here reach each other through it: web calls the agents at that address, the agents call web and each other back at it, and Inngest calls the worker there. Until it points here, those calls from this server land on the current host, which knows nothing of this server's sessions. So, with `https://dial8.ai` there: `dial8.ai`, `www.dial8.ai`, `browser-relay.dial8.ai`, `nativeintelligence.dev`, `www.nativeintelligence.dev`, `browser-relay.nativeintelligence.dev`. For each:
 
 1. Point its DNS record at `<server>`: an `A` record in place of the record that points at the current host.
 2. Wait until it answers from here: `dig +short <name> @1.1.1.1` prints `<server>`.
-3. Add it to `APP_HOSTS` in `edge/.env` and `cd /opt/native-intelligence/deploy/edge && sudo docker compose up -d`. Caddy gets the name's certificate within seconds; check with `curl -sI https://<name>/api/version`.
+3. Add it to `APP_HOSTS` in `edge/.env`, separated from the others by a space. Check (`sudo docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile` in `deploy/edge`, as in step 20.4), then `sudo docker compose up -d`. Caddy gets the name's certificate within seconds; check with `curl -sI https://<name>/api/version`.
 
 Between the record changing and step 3, anyone whose resolver already has the new address gets a certificate error. With the TTL at 60 seconds that is a minute or two per name. (Adding the name to Caddy first does not help: the certificate authority checks the name against this server, and before the record changes it finds the current host.) Each `up -d` interrupts the server's other public names for a few seconds.
 
-Inngest calls the app at `https://dial8.ai/api/inngest`. From the moment that name answers from here, its calls come to this server's worker: they are the same functions with the same keys, so a call that still reaches the current host during the change works there too. The sync loop on this server makes the app register again within a minute; the answer is `modified: false`, because the address is the same.
+Inngest calls the app at the address in `INNGEST_SDK_URL` (`inngest/.env`), today `https://dial8.ai/api/inngest`. From the moment that name answers from here, its calls come to this server's worker: they are the same functions with the same keys, so a call that still reaches the current host during the change works there too. The sync loop on this server makes the app register again within a minute; the answer is `modified: false` as long as that address's origin is `NEXT_PUBLIC_APP_URL`, which the app gives Inngest as its own (`INNGEST_SERVE_ORIGIN`). If the two differ, the app registers its own address instead, which also works, since both names reach a live copy.
 
 **5. Check.** Every one at once; a doubt is a reason for step 22.
 
@@ -1092,15 +1104,16 @@ Inngest calls the app at `https://dial8.ai/api/inngest`. From the moment that na
 | A connected Gmail or Outlook account | New mail still arrives (the push webhooks reach this server). |
 | The current host's logs, a few minutes later | No requests but from resolvers that have not caught up. |
 
-**6. Afterwards.** Leave the current host's deployment running, with its cron jobs off, for a week: it is the undo. Add `:compose.app.yaml` to `COMPOSE_FILE` in `backup/.env` and `sudo docker compose up -d --build` in `backup/` to back the agents up. Then retire it: remove the names from that project (they already point here), and keep the team only for the cloud browser's sandboxes and the AI Gateway, which stay there.
+**6. Afterwards.** Take the test name out: from `APP_HOSTS` (check and `up -d` as in step 4), from `ADDITIONAL_REDIRECT_URLS` in `supabase/stack/.env` (then `sudo sh run.sh recreate auth` there), and its DNS record. Otherwise a second production address stays open. Leave the current host's deployment running, with its cron jobs off, for a week: it is the undo. Add `:compose.app.yaml` to `COMPOSE_FILE` in `backup/.env` and `sudo docker compose up -d --build` in `backup/` to back the agents up. Then retire it: remove the names from that project (they already point here), and keep the team only for the cloud browser's sandboxes and the AI Gateway, which stay there.
 
 ## 22. The undo
 
 The names go back, in the reverse order of step 21.4, and the scheduled jobs with them.
 
 1. **The DNS records back** to the values written down in Gate 2. The current host still has every name attached, and its deployment has production's settings.
-2. **The scheduled jobs.** In `app/.env`, `NI_LIVE=` (empty), then `sudo ./deploy.sh --no-build`: the copy here stops calling them, and can no longer register with Inngest. Then enable the current host's cron jobs again.
+2. **The scheduled jobs.** Wait one TTL (a minute) for resolvers to catch up. Then in `app/.env`, `NI_LIVE=` (empty), and `sudo ./deploy.sh --no-build`: the copy here stops calling them, and can no longer register with Inngest. Then enable the current host's cron jobs again. (Until then, a call from Inngest that still reaches this server's worker is served correctly: it is signed with the same key.)
 3. **Inngest** follows the name `dial8.ai` back by itself: the sync loop asks that address every minute and the app there registers the same address.
+4. **The edge.** Take the names out of `APP_HOSTS` (check and `up -d` as in step 21.4); otherwise Caddy keeps trying to renew certificates for names that no longer point at it.
 
 Nothing is lost by going back: the database is the same for both copies. What a person did on the server's copy stays done. Agent conversations started on this server stay in its agents' volumes and do not exist on the current host: the app starts a new one there, as it does after any change of agents.
 

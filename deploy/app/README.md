@@ -59,7 +59,11 @@ reply streaming from that agent at that moment is cut), the worker and web witho
 a gap (a second container starts beside the first, takes requests once healthy, and
 the first stops with its grace period: 900 s and 120 s), and the scheduler last (a
 job that is running is let finish). `--rollback` swaps the two images and rolls out
-again, without a build.
+again, without a build. One request can still fail in a replacement: one already
+sent to the old web or worker on a kept-open connection at the moment it closes.
+Every image is labelled with the public address it was built for (`ni.app-url`),
+and `deploy.sh` refuses to put one into service while `.env` names another: the
+rehearsal's image, built for the test address, never serves production.
 
 Merging to `main` does not deploy here. Someone runs `git pull` and `deploy.sh` on
 the server.
@@ -105,9 +109,13 @@ has, because what they sign or encrypt is already stored or held elsewhere:
 (`OAUTH_STATE_SECRET`, `OUTLOOK_WEBHOOK_SECRET`) end in a line break, almost
 certainly pasted with one, and the app uses them with it; `pull-settings.sh`
 carries it. A write-only value may have one too, and `set-secret.sh` trims what is
-typed. For the secrets in the table that sign stored data, check after the switch
-that the stored data still verifies (an unsubscribe link from an old mail, a
-connected account that still syncs) before the earlier host is retired.
+typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For the
+secrets in the table that sign stored data, check that the stored data still
+verifies on the server before the switch where that can be done (an agent link
+sent by production, opened on the test address: `../README.md` step 21, Gate 1),
+and after it (an unsubscribe
+link from an old mail, a connected account that still syncs) before the earlier
+host is retired.
 
 `AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET` and `LOCAL_AGENT_TOKEN_SECRET`
 may be new on the server (`PULL_GENERATE=1` makes them): they sign tokens that live

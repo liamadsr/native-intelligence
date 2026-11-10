@@ -92,6 +92,9 @@ services:
       # Which commit the image was built from (deploy.sh sets it).
       labels:
         org.opencontainers.image.revision: ${NI_APP_COMMIT:-unknown}
+        # The public address compiled in: deploy.sh refuses an image built for
+        # another one than .env names.
+        ni.app-url: ${NEXT_PUBLIC_APP_URL:-}
       args:
         # What `next build` compiles in. All from .env; the build stops when one of
         # the required ones is empty (Dockerfile). NEXT_PUBLIC_APP_URL is the app's

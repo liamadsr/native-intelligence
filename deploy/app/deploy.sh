@@ -22,9 +22,11 @@
 #      for up to 15 minutes.
 #   5. The proxy is restarted only if proxy/Caddyfile changed since it started.
 #
-# What ran before is kept as the image ni-app:previous, so --rollback needs no
-# build. The image built before that is deleted. ni-app:running names what the last
-# finished roll-out put into service.
+# Each image is labelled with the public address it was built for, and none is put
+# into service while .env names another (a rehearsal's image is built for its test
+# address). What ran before is kept as the image ni-app:previous, so --rollback
+# needs no build. The image built before that is deleted. ni-app:running names
+# what the last finished roll-out put into service.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -40,7 +42,7 @@ case "${1:-}" in
 --no-build) mode=no-build ;;
 --rollback) mode=rollback ;;
 --build-only) mode=build-only ;;
--h | --help) sed -n '2,26p' "$0"; exit 0 ;;
+-h | --help) awk 'NR > 1 && /^set -euo/ { exit } NR > 1' "$0"; exit 0 ;;
 *) die "unknown option $1 (see --help)" ;;
 esac
 
@@ -56,20 +58,39 @@ quiet() { docker compose --progress quiet "$@"; }
 # running it as root once left root-owned files in .git, so ask as its owner.
 repo="$(cd ../.. && pwd)"
 owner="$(stat -c %U "$repo")"
-commit="$(sudo -u "$owner" git -C "$repo" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+commit="$(sudo -u "$owner" git -C "$repo" rev-parse --short=12 HEAD 2>/dev/null || true)"
+
+# One value from the resolved stack (Compose reads .env): a build argument of web.
+build_arg() {
+	compose config --format json 2>/dev/null |
+		python3 -I -c "import json,sys; print(json.load(sys.stdin)['services']['web']['build']['args'].get(sys.argv[1]) or '')" "$1"
+}
+
+# The public address an image was built for (compose.yaml labels it). The client
+# code, its links and the sign-in returns all carry it, so an image built for a
+# rehearsal's test address must never serve production, nor the other way round.
+image_url() { docker image inspect -f '{{index .Config.Labels "ni.app-url"}}' "$1" 2>/dev/null || true; }
+check_image_url() { # check_image_url <image>
+	local want got
+	want="$(build_arg NEXT_PUBLIC_APP_URL)"
+	got="$(image_url "$1")"
+	[ "$got" = "$want" ] ||
+		die "$1 was built for '${got:-an unknown address}', but .env says NEXT_PUBLIC_APP_URL=$want. Build again (sudo ./deploy.sh), or put the address back in .env."
+}
 
 # The settings that `next build` compiles in must be there before ten minutes are
 # spent on a build that cannot work.
 check_build_settings() {
 	local name missing=""
 	for name in NEXT_PUBLIC_APP_URL NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
-		[ -n "$(compose config --format json 2>/dev/null | python3 -I -c "import json,sys; print(json.load(sys.stdin)['services']['web']['build']['args'].get('$name') or '')")" ] || missing="$missing $name"
+		[ -n "$(build_arg "$name")" ] || missing="$missing $name"
 	done
 	[ -z "$missing" ] || die "empty in .env:$missing."
+	[ -n "$commit" ] || die "cannot read the checkout's commit (git rev-parse in $repo, as $owner)."
 }
 
-running_ids() { # running_ids <service>: its containers, oldest first
-	docker ps --filter "label=com.docker.compose.project=ni-app" \
+running_ids() { # running_ids <service> [-a]: its containers, oldest first (-a: stopped ones too)
+	docker ps ${2:-} --filter "label=com.docker.compose.project=ni-app" \
 		--filter "label=com.docker.compose.service=$1" --format '{{.CreatedAt}} {{.ID}}' |
 		sort | awk '{ print $NF }'
 }
@@ -108,7 +129,8 @@ roll() {
 	fi
 	echo "$(ts) $service: starting a new container beside $(echo "$old" | wc -w | tr -d ' ') running"
 	quiet up -d --no-deps --no-recreate --scale "$service=$(($(echo "$old" | wc -w) + 1))" "$service"
-	new="$(running_ids "$service" | grep -vxF "$old" || true)"
+	# -a: a new container that stopped at once must be found too, to be removed.
+	new="$(running_ids "$service" -a | grep -vxF "$old" || true)"
 	[ -n "$new" ] || die "$service: no new container appeared."
 	for id in $new; do
 		if ! wait_healthy "$id" 300; then
@@ -175,19 +197,31 @@ rollout() {
 case "$mode" in
 deploy | build-only)
 	check_build_settings
-	say "Building the image from $commit (the app keeps serving meanwhile)"
+	# What runs keeps a name through the build. Normally ni-app:running names it; on
+	# a server whose stack was started some other way, ni-app:live is what runs
+	# until the build moves that tag.
+	if ! docker image inspect ni-app:running >/dev/null 2>&1 && docker image inspect ni-app:live >/dev/null 2>&1; then
+		docker tag ni-app:live ni-app:running
+	fi
+	say "Building the image from $commit for $(build_arg NEXT_PUBLIC_APP_URL) (the app keeps serving meanwhile)"
 	started=$SECONDS
 	NI_APP_COMMIT="$commit" compose build web
 	echo "$(ts) built in $(((SECONDS - started) / 60)) min $(((SECONDS - started) % 60)) s"
 	[ "$mode" = build-only ] && exit 0
+	check_image_url ni-app:live
 	rollout
 	;;
 no-build)
 	docker image inspect ni-app:live >/dev/null 2>&1 || die "there is no image ni-app:live yet; build first."
+	check_image_url ni-app:live
 	rollout
 	;;
 rollback)
 	docker image inspect ni-app:previous >/dev/null 2>&1 || die "there is no ni-app:previous to go back to."
+	# Checked before the tags move: the image before the first production roll-out
+	# is the rehearsal's, built for the test address. Going back from there is
+	# ../README.md step 22, not this.
+	check_image_url ni-app:previous
 	say "Going back to ni-app:previous"
 	# Swap the two tags, so that a second --rollback goes forward again.
 	docker tag ni-app:live ni-app:rollback-swap
