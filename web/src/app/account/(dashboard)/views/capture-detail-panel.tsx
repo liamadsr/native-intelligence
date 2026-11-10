@@ -75,7 +75,7 @@ import {
   type CaptureVisibility,
 } from '../components/capture-visibility-control'
 import { DraftFollowUpDialog } from '../components/draft-followup-dialog'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { CopyTranscriptButton } from '../components/copy-transcript-button'
 import { InlineCommentProvider } from '@/components/inline-comments/inline-comment-context'
 import { AnnotatedContent } from '@/components/inline-comments/annotated-content'
@@ -3153,7 +3153,7 @@ export function CaptureDetailPanel({
               </Tooltip>
             </TooltipProvider>
           )}
-          <CopyIdButton entityType="capture" id={captureId} />
+          <EntityActionsMenu entity={{ type: 'capture', id: captureId, label: capture?.title ?? '' }} omit={PANEL_OMIT} />
           <CopyTranscriptButton
             isActiveRecording={isActiveRecording}
             liveIsThisCapture={holdsLiveSegments}

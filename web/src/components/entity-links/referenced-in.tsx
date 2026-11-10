@@ -33,6 +33,7 @@ import { useEntityListSync } from '@/hooks/use-entity-sync'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import type { EntityReference } from '@/lib/entity-links/references'
+import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 
 export const entityReferencesUrl = (type: string, id: string) =>
   `/api/account/entities/${encodeURIComponent(type)}/${encodeURIComponent(id)}/references`
@@ -125,21 +126,27 @@ export function ReferencedInList({ references }: { references: readonly EntityRe
               </span>
             </>
           )
+          // Right-click a row: the source's own actions (the one entity actions menu).
+          const entity = { type: r.type, id: r.id, label: r.label }
           return (
             <li key={`${r.type}:${r.id}`}>
               {target ? (
-                <button
-                  type="button"
-                  data-reference={r.type}
-                  onClick={() => openTarget(target, { from: 'referenced_in' })}
-                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/60"
-                >
-                  {body}
-                </button>
+                <EntityContextMenu entity={entity} from="referenced_in">
+                  <button
+                    type="button"
+                    data-reference={r.type}
+                    onClick={() => openTarget(target, { from: 'referenced_in' })}
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/60"
+                  >
+                    {body}
+                  </button>
+                </EntityContextMenu>
               ) : (
-                <div data-reference={r.type} className="flex items-start gap-2 px-2 py-1.5">
-                  {body}
-                </div>
+                <EntityContextMenu entity={entity} from="referenced_in">
+                  <div data-reference={r.type} className="flex items-start gap-2 px-2 py-1.5">
+                    {body}
+                  </div>
+                </EntityContextMenu>
               )}
             </li>
           )

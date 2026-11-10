@@ -41,6 +41,8 @@ import { act, createElement as h, type ReactNode } from 'react'
 // carries (on a Vercel build, prod; src/test/setup.ts fences fetch, not sockets).
 vi.mock('@/hooks/use-row-changes', () => ({ useRowChanges: () => {} }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+// The entity actions menu has its own suite; this one mocks the dropdown primitives it is built from.
+vi.mock('@/components/entities/entity-actions-menu', () => ({ EntityActionsMenu: () => null, PANEL_OMIT: [] }))
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaceId: () => 'ws-1',
   useCurrentMemberId: () => 'm-1',

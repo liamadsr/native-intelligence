@@ -23,7 +23,7 @@ import {
 import { cn } from '@/lib/utils'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { ContentTransition } from './transitions'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
@@ -321,7 +321,7 @@ export function CompanyDetailPanel({
           {/* Enrich from web — fills empty fields from public sources and files
                     the provenance under Enrichment in the properties sidebar. */}
           {company && <EnrichButton onClick={enrich} busy={enriching} />}
-          {company && <CopyIdButton entityType="company" id={companyId} />}
+          {company && <EntityActionsMenu entity={{ type: 'company', id: companyId, label: company.name }} omit={PANEL_OMIT} />}
           {/* Delete — cascades to every person at the company, so the dialog
                     dry-runs the delete and shows the exact people count first. */}
           <PreferenceActionButton

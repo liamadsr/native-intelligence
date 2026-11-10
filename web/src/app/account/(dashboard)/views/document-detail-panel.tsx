@@ -57,7 +57,7 @@ import {
 } from '../components/visibility-control'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 import { emitEntityUpdated } from '@/lib/entity-events'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { CopyDocumentButton } from '../components/copy-document-button'
 import { ListenTarget } from '@/components/read-aloud/listen-target'
 import { titledMarkdownToSentences } from '@/lib/read-aloud/speech-text'
@@ -846,7 +846,7 @@ export function DocumentDetailPanel({
           />
           {/* P9 (decision 9): copy the whole text out, e.g. a newsletter into Substack. Hidden when empty. */}
           {(doc.content ?? '').trim() && <CopyDocumentButton getMarkdown={() => latestContentRef.current ?? doc.content ?? ''} />}
-          <CopyIdButton entityType="document" id={documentId} />
+          <EntityActionsMenu entity={{ type: 'document', id: documentId, label: doc.title ?? '' }} state={{ archived: doc.status === 'archived', status: doc.status }} omit={PANEL_OMIT} />
           {!isNowFile && <ShareDialog shareableType="document" shareableId={documentId} />}
           {/* Move to another workspace — same post-move handling as delete:
                       the document leaves this workspace's lists either way.

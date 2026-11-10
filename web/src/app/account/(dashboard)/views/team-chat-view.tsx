@@ -46,6 +46,7 @@ import {
 } from '@/lib/team-chat/types'
 import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
+import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 import { menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 
 interface Member {
@@ -857,16 +858,18 @@ function MessageRow({
               if (!seg.mention) return <span key={i}>{seg.text}</span>
               // A record's mention opens its card; a person's is a highlight.
               const record = recordMentionFor(message, seg.text)
+              // Right-click: the record's own actions (the one entity actions menu).
               return record ? (
-                <button
-                  key={i}
-                  type="button"
-                  data-record-mention={record.type}
-                  onClick={() => openRecordMention(record)}
-                  className="rounded bg-primary/10 px-0.5 font-medium text-primary underline-offset-2 hover:underline"
-                >
-                  {seg.text}
-                </button>
+                <EntityContextMenu key={i} entity={{ type: record.type, id: record.id, label: record.label }} from="team_chat">
+                  <button
+                    type="button"
+                    data-record-mention={record.type}
+                    onClick={() => openRecordMention(record)}
+                    className="rounded bg-primary/10 px-0.5 font-medium text-primary underline-offset-2 hover:underline"
+                  >
+                    {seg.text}
+                  </button>
+                </EntityContextMenu>
               ) : (
                 <span key={i} className="rounded bg-primary/10 px-0.5 font-medium text-primary">
                   {seg.text}

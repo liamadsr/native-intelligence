@@ -41,6 +41,8 @@ import {
 import { LIBRARY_CATEGORY_ICONS } from '@/lib/types/library-icons'
 import { ReminderPickerContent } from '@/components/reminders/reminder-picker'
 import { RowWorkspaceBadge } from '../workspace-badge'
+import { EntityActionsMenuItems, useEntityRenameDialog } from '@/components/entities/entity-actions-menu'
+import { isArchivedRow, supportedEntityActions } from '@/lib/entities/entity-actions-registry'
 import { DelegateWorkBadge } from '@/components/work/delegate-work-badge'
 import type { ReminderEntityType } from '@/lib/reminders/types'
 import { cn } from '@/lib/utils'
@@ -322,6 +324,19 @@ function EntityRowImpl({
   }, [])
   const reminderEntityType = remindableEntityType(entityType)
 
+  // The one entity actions menu, on the row's right-click (entity-actions-menu.tsx).
+  const rowTitle = getTitle(entityType, item)
+  const rowWorkspaceId = typeof item.workspace_id === 'string' ? item.workspace_id : null
+  const entityRef = React.useMemo(
+    () => ({ type: entityType, id: itemId, label: rowTitle, workspaceId: rowWorkspaceId }),
+    [entityType, itemId, rowTitle, rowWorkspaceId],
+  )
+  const rowArchived = isArchivedRow(entityType, item)
+  const rowStatus = typeof item.status === 'string' ? item.status : null
+  const entityMenuState = React.useMemo(() => ({ archived: rowArchived, status: rowStatus }), [rowArchived, rowStatus])
+  const hasEntityActions = supportedEntityActions(entityType).some((a) => a !== 'open')
+  const { openRename, renameDialog } = useEntityRenameDialog(entityRef)
+
   const row = (
     <div
       // A capture's row, for UI automation (src/lib/automation/README.md).
@@ -506,9 +521,10 @@ function EntityRowImpl({
 
   // Rows with no menu content render exactly as before — no Radix wrapper,
   // no extra state cost, and no change to any existing interaction.
-  if (!reminderEntityType && !hasSequenceItem) return row
+  if (!reminderEntityType && !hasSequenceItem && !hasEntityActions) return row
 
   return (
+    <>
     <ContextMenu modal={false} onOpenChange={handleMenuOpenChange}>
       {/* `asChild`: the row IS the trigger. A wrapper element here would sit
           between the virtualizer's slot and the flex row and break the layout. */}
@@ -540,10 +556,27 @@ function EntityRowImpl({
             Add to sequence
           </ContextMenuItem>
         )}
+        {/* The one entity actions menu (Open is the row's own click). */}
+        {hasEntityActions && (
+          <EntityActionsMenuItems
+            entity={entityRef}
+            state={entityMenuState}
+            variant="context"
+            omit={ROW_OMIT}
+            onRename={openRename}
+            leadingSeparator={!!reminderEntityType || hasSequenceItem}
+            from="list_row"
+          />
+        )}
       </ContextMenuContent>
     </ContextMenu>
+    {renameDialog}
+    </>
   )
 }
+
+/** A list row's menu leaves out Open: a click on the row opens it, in its list's own way. */
+const ROW_OMIT = ['open'] as const
 
 /**
  * Memoized so an unrelated parent re-render (e.g. a realtime UPDATE patch that

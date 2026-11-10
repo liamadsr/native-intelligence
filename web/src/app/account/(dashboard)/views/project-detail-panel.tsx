@@ -93,7 +93,7 @@ import type { AttachmentItem } from './capture-utils'
 import { ContentTransition } from './transitions'
 import { NoteEditor } from './note-editor-lazy'
 import { Comments } from '../components/comments'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
 import { EmojiIconPicker } from '@/components/ui/emoji-icon-picker'
 import { Markdown } from '@/components/ui/markdown'
@@ -603,7 +603,7 @@ export function ProjectDetailPanel({
         </div>
         <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
-          <CopyIdButton entityType="project" id={projectId} />
+          <EntityActionsMenu entity={{ type: 'project', id: projectId, label: project?.name ?? '' }} state={{ archived: project?.is_archived ?? null }} omit={PANEL_OMIT} />
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
                     the popover has somewhere to point when the hotkey fires. */}
           <ReminderPickerPopover

@@ -19,6 +19,7 @@ import { describeChanges, type Deal, type DealEvent, type DealPipeline } from '@
 import { formatDealValue } from '@/lib/crm/deal-format'
 import { cn } from '@/lib/utils'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { ContentTransition } from './transitions'
 
 interface DealDetail {
@@ -154,7 +155,8 @@ export function DealDetailPanel({
 
   return (
     <div className="relative flex h-full flex-col" data-deal-panel={dealId}>
-      <div className="flex h-10 shrink-0 items-center justify-end px-3">
+      <div className="flex h-10 shrink-0 items-center justify-end gap-1 px-3">
+        {detail && <EntityActionsMenu entity={{ type: 'deal', id: dealId, label: detail.deal.name }} omit={PANEL_OMIT} />}
         <button
           type="button"
           aria-label="Delete deal"

@@ -70,4 +70,23 @@ describe('ReferencedIn', () => {
     act(() => (rows[1] as HTMLButtonElement).click())
     expect(opened).toEqual([{ type: 'document', id: 'doc-1', title: 'Q4 renewals plan' }])
   })
+
+  it("right-click on a row opens the source's own actions (the one entity actions menu)", async () => {
+    answer = {
+      status: 200,
+      body: {
+        references: [
+          { type: 'document', id: 'doc-1', label: 'Q4 renewals plan', relations: ['mentions'], created_at: new Date().toISOString(), context: null },
+        ],
+      },
+    }
+    await render()
+    const row = container.querySelector('[data-reference="document"]') as HTMLElement
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+    })
+    const items = [...document.querySelectorAll('[data-entity-action]')].map((el) => el.getAttribute('data-entity-action'))
+    // No chat here to open cards in: no Open; the rest of a document's menu.
+    expect(items).toEqual(['copy_link', 'copy_id', 'rename', 'share', 'make_task', 'archive'])
+  })
 })

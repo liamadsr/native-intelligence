@@ -142,7 +142,7 @@ import { uploadAttachment, AttachmentUploadError } from '@/lib/attachments/uploa
 import { ATTACHMENT_ACCEPT_ATTR, isAllowedAttachmentFile } from '@/lib/attachments/constants'
 import { ContentTransition } from './transitions'
 import { Comments } from '../components/comments'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { ListenBrief } from '@/components/read-aloud/listen-brief'
 import { plainLine } from '@/lib/read-aloud/listen-briefs'
 import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
@@ -1600,8 +1600,9 @@ export function ActionDetailPanel({
           {action && (
             <ListenBrief kind="action" id={action.id} fallback={() => plainLine(action.title)} />
           )}
-          {/* Copy ID — drop "action <uuid>" into clipboard for AI prompts / MCP */}
-          {action && <CopyIdButton entityType="action" id={action.id} />}
+          {/* The one entity actions menu: Copy link, Copy ID ("action <uuid>",
+                    for AI prompts / MCP), Share, and the rest the kind offers. */}
+          {action && <EntityActionsMenu entity={{ type: 'action', id: action.id, label: action.title ?? '' }} omit={PANEL_OMIT} />}
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
                     the popover has somewhere to point when the hotkey fires. */}
           <ReminderPickerPopover

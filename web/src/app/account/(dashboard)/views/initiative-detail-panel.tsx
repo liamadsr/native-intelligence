@@ -54,7 +54,7 @@ import { WindowProperties, WindowActions } from '@/components/views/window-prope
 import { UnifiedViewLayout, useIsWindowFocused } from '@/components/views/unified-view-layout'
 import { PropertyGroup } from '@/components/views/property-group'
 import { MemberPanelField, DatePanelField, EnumPanelField, type MemberOption } from '@/components/views/properties'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { MoveToWorkspaceButton } from '@/components/move/move-to-workspace-button'
 import { useEntityDetailSync, useEntityListSync } from '@/hooks/use-entity-sync'
 import { emitEntityUpdated } from '@/lib/entity-events'
@@ -513,7 +513,7 @@ export function InitiativeDetailPanel({
         </div>
         <WindowActions reveal={reminderOpen} className="ml-auto flex items-center gap-1">
           {saving && <span className="text-xs text-muted-foreground">Saving...</span>}
-          <CopyIdButton entityType="initiative" id={initiativeId} />
+          <EntityActionsMenu entity={{ type: 'initiative', id: initiativeId, label: initiative?.name ?? '' }} state={{ archived: initiative ? initiative.status === 'archived' : null, status: initiative?.status ?? null }} omit={PANEL_OMIT} />
           {/* Remind me — the same picker ⇧H opens, anchored on its own button so
                     the popover has somewhere to point when the hotkey fires. */}
           <ReminderPickerPopover
