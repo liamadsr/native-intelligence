@@ -11,7 +11,8 @@
 #
 #   deploy/supabase/set-secret.sh <user>@<server> GOOGLE_SECRET SMTP_PASS
 #
-# It asks for each one in turn. A name the file has no line for is refused.
+# It asks for each one in turn. A name the file has no line for is refused. An
+# empty answer (just Enter) leaves that one as it is and goes on to the next.
 #
 # NAME=pattern asks for one part of a value. What you type is percent-encoded
 # and put where the pattern has {}. That is how a database password goes into

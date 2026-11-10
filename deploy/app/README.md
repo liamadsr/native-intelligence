@@ -17,6 +17,7 @@ deploy/app/
 ├── .env              its settings (root only, never in git; .env.example lists them)
 ├── deploy.sh         build the image here and roll it out; --rollback goes back
 ├── pull-settings.sh  run on your own machine: fills .env from the earlier host
+├── check-settings.sh run on your own machine: checks .env before the switch
 └── proxy/Caddyfile   the stack's router
 ```
 
@@ -90,36 +91,114 @@ containers also refuse to start while a value in `.env` still starts with
 `pull-settings.sh` fills `.env` without showing a value. The earlier host gives out
 its production settings, except those stored as write-only ("sensitive"): nobody can
 read those back, so they are entered by hand with
-`deploy/supabase/set-secret.sh` (hidden typing), from the password manager or from
-the provider that issued them. Some values must be exactly what the earlier host
-has, because what they sign or encrypt is already stored or held elsewhere:
+`deploy/supabase/set-secret.sh` (hidden typing, several names at once; an empty
+answer leaves that one as it is), from the password manager or from the provider
+that issued them. `check-settings.sh` then says, without showing a value, which are
+set and, where the server can tell, which are right (`../README.md` step 21, Gate 1).
 
-| Setting | Why it must not change |
-|---|---|
-| `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. |
-| `RUN_SKILL_INTERNAL_SECRET` | Keys stored link-token hashes and the reply codes already texted to people. |
-| `CLOUD_BROWSER_SIGNING_KEY` | Its public half is built into released desktop apps. |
-| `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. |
-| `OUTLOOK_WEBHOOK_SECRET` | Part of every live Outlook subscription. |
-| `BROWSER_INTERNAL_SECRET` | Running cloud browsers hold tokens made with it (6 hours). |
-| Webhook and provider secrets (Stripe, Twilio, GPT-Live, GitHub, Linear, Slack, Gmail) | The provider holds the same value. |
-| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | The Inngest server's; `pull-settings.sh` copies them from `../inngest/.env`. |
+Some values must be exactly what the earlier host has, because what they sign or
+encrypt is already stored or held elsewhere:
+
+| Setting | Why it must not change | Checked against |
+|---|---|---|
+| `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. | Every stored token ciphertext must open. |
+| `RUN_SKILL_INTERNAL_SECRET` | Keys the stored link, invite and phone-code hashes, and the reply codes already texted. | A stored phone code's hash must come out of it. |
+| `CLOUD_BROWSER_SIGNING_KEY` | Its public half is built into released desktop apps. | That pinned public key. |
+| `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. | Readable; `pull-settings.sh` brings it. |
+| `OUTLOOK_WEBHOOK_SECRET`, `GMAIL_WEBHOOK_TOKEN` | Part of every live mail subscription. | Readable; brought. |
+| `GPT_LIVE_TRUNK_SECRET` | The phone trunk sends it with every call. | The Twilio trunk's origination address (`--fill` brings it from there). |
+| `GPT_LIVE_WEBHOOK_SECRET`, `LINEAR_WEBHOOK_SECRET`, `GITHUB_WEBHOOK_SECRET` | The provider signs its webhooks with it (GitHub: a repository's webhook to `/api/webhooks/github`). | Nothing here: the provider's dashboard. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | The number, the messaging service and the trunk belong to that account; Twilio signs its webhooks with the account's current token. | Twilio accepts them; the number and the service are the account's. |
+| `STRIPE_SECRET_KEY` | Any secret key of the account and mode the stored customers and prices are in. | Stored customers read with it. |
+| The OAuth apps' client ids (`*_CLIENT_ID`) | Stored connections were made with that app: keep the app, and its client secret may be a new one. | Nothing here: a connection's next refresh. |
+| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | The Inngest server's; `pull-settings.sh` copies them from `../inngest/.env`. | |
 
 **Exactly** means byte for byte. Two of the readable values on the earlier host
 (`OAUTH_STATE_SECRET`, `OUTLOOK_WEBHOOK_SECRET`) end in a line break, almost
 certainly pasted with one, and the app uses them with it; `pull-settings.sh`
 carries it. A write-only value may have one too, and `set-secret.sh` trims what is
-typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For the
-secrets in the table that sign stored data, check that the stored data still
-verifies on the server before the switch where that can be done (an agent link
-sent by production, opened on the test address: `../README.md` step 21, Gate 1),
-and after it (an unsubscribe
-link from an old mail, a connected account that still syncs) before the earlier
-host is retired.
+typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For
+`RUN_SKILL_INTERNAL_SECRET`, `check-settings.sh` says which form is production's.
+After the switch, before the earlier host is retired, check what only real use
+shows: an unsubscribe link from an old mail, a connected account that still syncs.
 
-`AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET` and `LOCAL_AGENT_TOKEN_SECRET`
-may be new on the server (`PULL_GENERATE=1` makes them): they sign tokens that live
-for minutes or hours, between web and the agents, which all start together here.
+These may be new on the server (`PULL_GENERATE=1` makes the first three):
+
+- `AGENT_RUN_INTERNAL_SECRET`: run tokens of an hour, and the coding sandbox's push
+  token of six; only runs in flight across the switch fail.
+- `CHAT_INTERNAL_SECRET`: chat-run tokens of an hour or so. Usage rows the chat
+  agent left in `chat_usage_outbox` within the last half hour are then billed to the
+  session's owner rather than the token's payer.
+- `LOCAL_AGENT_TOKEN_SECRET`: the Mac's model token, valid two hours. A job running
+  on a Mac across the switch is refused until its token is renewed, which happens at
+  three quarters of its life or when the page reloads.
+- `BROWSER_INTERNAL_SECRET`: cloud browsers running at the switch hold relay tokens
+  made with it for up to six hours; they have to be opened again.
+
+Each of them falls back to `RUN_SKILL_INTERNAL_SECRET` when empty
+(`web/src/lib/eve/internal-secret.ts`), so give each its own value.
+
+### Sealed copy
+
+The earlier host never shows its write-only settings to anyone, but its production
+builds have them. So one production build hands them over sealed: encrypted to a
+key only this server can open, printed into that build's log, opened here.
+
+- `web/scripts/seal-settings.mjs` is the last step of `npm run build` (the earlier
+  host keeps only the end of a build log past 4 MB, and the test suite fills that). It does
+  nothing unless `NI_SEAL_SETTINGS=1` is set for the build and the build is
+  production. Then it reads the settings in its `NAMES` list from the build's
+  environment, exactly as stored, and prints one block: them, encrypted to the
+  public key in `web/scripts/seal-settings.pub` (X25519, HKDF-SHA256,
+  AES-256-GCM; Node's own crypto). It prints no value, only how many it sealed and
+  the names the build did not have. Not in the list: `AI_GATEWAY_API_KEY` (the
+  server has a key of its own, revocable on its own) and the Inngest keys (the
+  server's Inngest's own).
+- `sealed_settings.py` (on the server, as root) made the key pair: the private half
+  is `/root/ni-seal/settings.key`, mode 600, and never leaves the server; the
+  public half is the committed file, so a change to it shows in review. It opens
+  the block, writes each value through `envfile.py`, says per name whether it
+  filled an empty value, replaced another or found the same, and then deletes the
+  private half: a block opens once.
+- `sealed-copy.sh` (on your own machine) runs both ends: `new-key` made the pair;
+  `open <user>@<server> <deployment>` reads that deployment's build log from the
+  earlier host, cuts the block out, sends it to the server, and then runs
+  `check-settings.sh --fill`, which proves what can be proven.
+
+In order, each step on the owner's word:
+
+1. This folder's change is merged (it carries the public key).
+2. On the earlier host, the setting `NI_SEAL_SETTINGS` = `1`, Production only, and a
+   production build: the next merge to `main`, or a redeploy of the live
+   deployment. That build becomes the live deployment like any other; the step
+   only adds the block to its log.
+3. The setting removed again.
+4. From your own machine:
+
+   ```bash
+   PULL_TEAM=<team id> PULL_PROJECT=<project id> deploy/app/sealed-copy.sh open <user>@<server> <that deployment's id>
+   ```
+
+   The public key is public, so anyone could seal a block to it: the server takes
+   one only if it names that deployment, the one whose log it was cut from, of the
+   app's project, and was sealed while that deployment was built. The script warns
+   if `NI_SEAL_SETTINGS` is still set.
+5. `sudo ./deploy.sh --no-build` here, for the containers to take the values.
+6. A change that takes the step out again: `seal-settings.mjs`, its `.pub` and its
+   place in `npm run build`. Left in, a key swapped in some later change would make
+   the next build with the setting seal to someone else.
+7. On the earlier host, delete the sealing deployment, and with it the block.
+
+What to know: the earlier host keeps a build log for as long as the deployment
+exists and shows it to the team's members only; once the private half is deleted
+nobody can open the block. Deleting the key overwrites the file, then removes it;
+on an SSD or under a snapshot the old bytes may survive, which is why step 7
+deletes the block itself. Its write-only
+values are in the build's environment (it redacts them from build logs "during
+builds"), but none of this has run there yet: the first run names, at the end of
+the block's line, any the build did not have. A value
+the build did not have is named at the end of the block's line and in `open`'s
+report ("not in the block"): enter that one by hand.
 
 ## The container test
 
@@ -289,5 +368,7 @@ still run the same schedule against the same database: switch those off first
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |
 | `deploy.sh` | Build and roll out on the server, or go back. |
 | `pull-settings.sh` | Fill the server's `.env` from the earlier host, unseen. |
+| `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/` is its test. |
+| `sealed-copy.sh`, `sealed_settings.py` | The sealed copy of the earlier host's write-only settings (with `web/scripts/seal-settings.mjs`). |
 | `smoke/compose.yaml`, `smoke/.env.example` | The container test's stack. |
 | `smoke.sh` | The container test. |
