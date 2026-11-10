@@ -32,6 +32,7 @@ import { SEARCH_FLIGHT_KEY, flightWaiting } from '@/lib/chat/card-reply-flight'
 import { OPEN_SEARCH_EVENT, flySearchBack, launchSearchFlight, searchButton } from '@/lib/chat/open-search'
 import {
   MENTION_RECORD_KINDS,
+  menuRowMention,
   mentionRecordLabel,
   toMentionRecord,
   type MentionRecord,
@@ -821,8 +822,19 @@ export const ChatInput = memo(function ChatInput({
     mentionList?.onPick(option)
   }
 
-  // A record picked to go in the message: by its own kind's way in.
+  // A record picked to go in the message: by its own kind's way in. A host
+  // that mentions records itself (team chat: mentionList.records) gets the
+  // row, and its `@label` goes in the words like one of its options (no chip).
   const handleMention = (row: MenuSearchRow) => {
+    const hostRecords = mentionList?.records
+    if (hostRecords) {
+      const mention = menuRowMention(row)
+      if (!mention) return
+      setPickedOptionLabels((prev) => (prev.includes(mention.label) ? prev : [...prev, mention.label]))
+      insertMention(mention.label)
+      hostRecords.onPick(row)
+      return
+    }
     if (row.kind === 'capture') handleNoteSelect(row.capture)
     else if (row.kind === 'contact') handleContactSelect(row.contact)
     else if (row.kind === 'company') handleCompanySelect(row.company)
@@ -1621,7 +1633,7 @@ export const ChatInput = memo(function ChatInput({
         trigger={menuToken?.trigger ?? '/'}
         query={menuToken?.query ?? ''}
         {...menuPicks}
-        mentionList={mentionList ? { options: mentionList.options, onPick: handleOptionPick } : undefined}
+        mentionList={mentionList ? { options: mentionList.options, onPick: handleOptionPick, records: mentionList.records } : undefined}
         onDismiss={handleMenuDismiss}
         onUnclaimedEnter={onSubmit}
         anchorRef={anchorRef}

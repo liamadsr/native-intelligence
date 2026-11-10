@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { captureRequester, resolveEntityWorkspace } from './_shared'
 import { gatherPersonContext } from '@/lib/crm/person-context'
 import { gatherCompanyContext } from '@/lib/crm/company-context'
-import { isContactVisibleTo } from '@/lib/crm/contact-visibility'
+import { isContactVisibleTo, isContactWritableTo } from '@/lib/crm/contact-visibility'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { COMPANY_WEB_FIELDS, fenceWebFields } from './web-derived'
 
@@ -197,7 +197,8 @@ export function createCrmTools(
         if (!resolved) return { success: false, error: 'Contact not found' }
         // No writes to another member's private/team contact: this may run
         // service-role, where RLS does not hide it (contact-visibility.ts).
-        if (!(await isContactVisibleTo(supabase, contact_id, userId))) {
+        // A per-item grant opens it to read, never to write (migration 495).
+        if (!(await isContactWritableTo(supabase, contact_id, userId))) {
           return { success: false, error: 'Contact not found' }
         }
 

@@ -20,18 +20,24 @@ import {
 } from '@/lib/crm/deals'
 import {
   CUSTOM_FIELD_ENTITIES,
+  CUSTOM_FIELD_KIND_NOUNS,
   CUSTOM_FIELD_TYPES,
+  customFieldKindList,
+  customFieldNotFound,
+  customFieldTable,
   defineCustomField,
   listCustomFieldDefinitions,
   setRecordCustomFields,
 } from '@/lib/crm/custom-fields'
+import { customFieldWriteRefusal } from '@/lib/crm/custom-field-access'
 import { formatDealValue } from '@/lib/crm/deal-format'
 import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type CreateWorkspacePolicy } from './_shared'
-import { isCompanyVisibleTo, isContactVisibleTo } from '@/lib/crm/contact-visibility'
 
 /**
- * Deals (roadmap #8): the agent creates, finds, updates and moves deals and
- * sets custom fields on deals, contacts and companies. See src/lib/crm/deals.ts.
+ * Deals (roadmap #8): the agent creates, finds, updates and moves deals, and
+ * defines and sets custom fields on every kind the entity registry marks
+ * `customFields` (deals, contacts, companies, tasks, projects, initiatives,
+ * documents). See src/lib/crm/deals.ts and src/lib/crm/custom-fields.ts.
  *
  * Apply with undo (Liam's rule): when an email, a meeting or a text clearly
  * moves a deal (a signed contract, a lost deal, a new amount), the agent
@@ -263,8 +269,7 @@ export function createDealTools(
     }),
 
     define_custom_field: tool({
-      description:
-        'Add a custom field to every deal, contact or company in the workspace: text, number, date or select (with options). A field of that name already there is returned as it is.',
+      description: `Add a custom field to every one of a kind of record in the workspace (${customFieldKindList()}; a task is entity_type "action"): text, number, date or select (with options). A field of that name already there is returned as it is.`,
       inputSchema: z.object({
         entity_type: z.enum(CUSTOM_FIELD_ENTITIES),
         label: z.string().min(1).max(60).describe('e.g. "Contract length (months)".'),
@@ -281,17 +286,16 @@ export function createDealTools(
           ...workspaceEcho(ws.workspaceId, ws.workspaceName),
           success: true,
           field: { key: result.field.key, label: result.field.label, field_type: result.field.field_type, options: result.field.options },
-          message: result.existed ? `"${result.field.label}" already exists.` : `Added "${result.field.label}" to ${input.entity_type === 'company' ? 'companies' : `${input.entity_type}s`}.`,
+          message: result.existed ? `"${result.field.label}" already exists.` : `Added "${result.field.label}" to ${CUSTOM_FIELD_KIND_NOUNS[input.entity_type].many}.`,
         }
       },
     }),
 
     set_custom_fields: tool({
-      description:
-        "Set custom field values on a deal, contact or company, by field name; null clears one. Lists the fields when a name is unknown. (A deal's are undoable like any deal change.)",
+      description: `Set custom field values on one record (${customFieldKindList('one', 'or')}; a task is entity_type "action"), by field name; null clears one. Lists the fields when a name is unknown. (A deal's are undoable like any deal change.)`,
       inputSchema: z.object({
         entity_type: z.enum(CUSTOM_FIELD_ENTITIES),
-        id: z.string().describe('The deal, contact or company id.'),
+        id: z.string().describe('The record id.'),
         values: z.record(z.string(), z.union([z.string(), z.number(), z.null()])),
         because: becauseSchema,
       }),
@@ -303,12 +307,13 @@ export function createDealTools(
           if (!result.ok) return { success: false, error: result.error }
           return { success: true, custom_fields: result.deal.custom_fields, change_id: result.eventId }
         }
-        const resolved = await resolveEntityWorkspace(supabase, userId, entity_type, id, workspaceId, strictWorkspace)
-        const notFound = { success: false, error: `${entity_type === 'contact' ? 'Contact' : 'Company'} not found` }
-        if (!resolved) return notFound
-        // A contact or company the person can't see is not found (service-role client).
-        const visible = entity_type === 'contact' ? await isContactVisibleTo(supabase, id, userId) : await isCompanyVisibleTo(supabase, id, userId)
-        if (!visible) return notFound
+        const resolved = await resolveEntityWorkspace(supabase, userId, customFieldTable(entity_type), id, workspaceId, strictWorkspace)
+        if (!resolved) return { success: false, error: customFieldNotFound(entity_type) }
+        // These tools may run on a service-role client: the kind's own edit
+        // rule, for this person, before the write (a record they only view
+        // through a grant is not theirs to change).
+        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id)
+        if (refusal) return { success: false, error: refusal.error }
         const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values)
         if (!result.ok) {
           const defs = await listCustomFieldDefinitions(supabase, resolved.workspaceId, entity_type).catch(() => [])

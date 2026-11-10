@@ -328,7 +328,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'invalid or expired run token' }, { status: 401 })
   }
 
-  const supabase = getServiceClient()
+  // Its writes are the agent's, for this person (the activity log).
+  const supabase = getServiceClient({ agentFor: claims.userId })
 
   // Gate 3 (surface tokens only): the run must still own its ephemeral row.
   // /api/device/ask deletes that row when the ask ends, so an uncancellable

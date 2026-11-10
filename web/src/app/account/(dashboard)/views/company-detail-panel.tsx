@@ -21,8 +21,11 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import { ContentTransition } from './transitions'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
 import { usePropertiesVisible } from '@/components/views/use-properties-visible'
 import { WindowProperties, WindowActions } from '@/components/views/window-properties'
@@ -320,7 +323,7 @@ export function CompanyDetailPanel({
           {/* Enrich from web — fills empty fields from public sources and files
                     the provenance under Enrichment in the properties sidebar. */}
           {company && <EnrichButton onClick={enrich} busy={enriching} />}
-          {company && <CopyIdButton entityType="company" id={companyId} />}
+          {company && <EntityActionsMenu entity={{ type: 'company', id: companyId, label: company.name }} omit={PANEL_OMIT} />}
           {/* Delete — cascades to every person at the company, so the dialog
                     dry-runs the delete and shows the exact people count first. */}
           <PreferenceActionButton
@@ -605,6 +608,10 @@ export function CompanyDetailPanel({
                         enrichment={company.metadata?.enrichment}
                         onViewDetails={() => setActiveTab('details')}
                       />
+                      {/* The workspace's own fields on this kind (hidden while it has none). */}
+                      <CustomFieldsGroup entityType="company" recordId={companyId} />
+                      <ReferencedIn entityType="company" entityId={companyId} />
+                      <RecordHistory entityType="company" entityId={companyId} />
                     </div>
                   </WindowProperties>
           </div>

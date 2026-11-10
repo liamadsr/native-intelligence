@@ -3,6 +3,7 @@ import {
   combineChunks,
   stringFromBase64URL,
 } from '@supabase/ssr'
+import { authCookieOptions, pinnedAuthCookieName } from '@/lib/supabase/project'
 import { cookies, headers } from 'next/headers'
 import { isDeviceToken } from '@/lib/device-tokens'
 
@@ -56,12 +57,16 @@ export function decodeJwtSub(token: string): string | null {
 /**
  * Derive the Supabase auth-token storage key the SSR client uses for its
  * session cookie. supabase-js computes this as
- * `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token` (unless
- * `cookieOptions.name` overrides it — we never set that). We mirror that
- * derivation so the cookie we read is exactly the one the SSR client wrote.
- * Returns null if the URL can't be parsed.
+ * `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`, unless
+ * `cookieOptions.name` overrides it. We set that in exactly one case: when
+ * NEXT_PUBLIC_SUPABASE_PROJECT_REF pins the name (src/lib/supabase/project.ts),
+ * and createClient() below passes the same authCookieOptions() to the SSR
+ * client. Both sides ask the same function, so the cookie we read is exactly
+ * the one the SSR client wrote. Returns null if the URL can't be parsed.
  */
 function authTokenStorageKey(): string | null {
+  const pinned = pinnedAuthCookieName()
+  if (pinned) return pinned
   try {
     const host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname
     const ref = host.split('.')[0]
@@ -202,6 +207,8 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       ...global,
+      // Must be the same call readCookieSub() rests on (authTokenStorageKey).
+      ...authCookieOptions(),
       cookies: {
         getAll() {
           return cookieStore.getAll()

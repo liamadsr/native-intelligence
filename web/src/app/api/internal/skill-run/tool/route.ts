@@ -120,7 +120,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'missing toolName' }, { status: 400 })
   }
 
-  const supabase = getServiceClient()
+  // Its writes are the agent's, for the person it runs as (the activity log).
+  const supabase = getServiceClient({ agentFor: claims.runAsUserId })
 
   // ── The run's plan (A4): the skill-runner's native update_plan ─────────────
   // Not a workspace tool (no createTools entry, so no ceiling and no MCP): the

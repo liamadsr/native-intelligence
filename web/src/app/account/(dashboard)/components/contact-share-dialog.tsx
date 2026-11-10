@@ -23,6 +23,7 @@ import {
 import { Check, Eye, Globe, Loader2, Lock, Pencil, Search, Shield, Share2, UserPlus, Users2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { EntityAccessSection } from './entity-access-section'
 
 interface ContactShareDialogProps {
   contactId: string
@@ -459,6 +460,9 @@ export function ContactShareDialog({
                 </div>
               )}
             </div>
+
+            {/* The channels it was shared to from team chat (migration 492), to see and take back. */}
+            <EntityAccessSection type="contact" id={contactId} listOnly />
           </div>
         )}
       </DialogContent>

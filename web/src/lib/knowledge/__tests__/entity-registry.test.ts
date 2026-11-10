@@ -28,6 +28,7 @@ import {
   LABEL_TABLE,
   LINKABLE_ENTITY_TYPES,
   NON_ENTITY_SOURCE_TYPES,
+  REALTIME_ENTITY_TABLES,
   RELATIONS,
   SOURCE_ENTITY_TYPES,
   SOURCE_TYPES,
@@ -36,6 +37,7 @@ import {
   entityDescriptor,
   type EntityTypeDescriptor,
 } from '../entity-registry'
+import { PRIVATE_GRAPH_KINDS } from '../entity-fences'
 
 // `ENTITY_REGISTRY` is `as const satisfies` so each entry keeps its exact
 // literal type — which means an entry without `anchor` has no such key at all.
@@ -76,8 +78,8 @@ describe('registry self-consistency', () => {
   })
 
   it('only links types that are linkable', () => {
-    // Everything registered today is linkable; citable/sourceable/anchor all
-    // presuppose a graph endpoint, so none may be set on a non-linkable type.
+    // citable/sourceable/anchor all presuppose a graph endpoint, so none may be
+    // set on a non-linkable type.
     for (const e of ENTRIES) {
       if (e.citable || e.sourceable || e.anchor) expect(e.linkable, e.id).toBe(true)
     }
@@ -129,6 +131,36 @@ describe('registry self-consistency', () => {
     expect(LINKABLE_ENTITY_TYPES).toContain('milestone')
     // campaign arrived with slice 2b (its table is migration 267).
     expect(LINKABLE_ENTITY_TYPES).toContain('campaign')
+  })
+
+  it('links the kinds the shared entity layer added, after every older one', () => {
+    const added = ['deal', 'flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message']
+    expect(LINKABLE_ENTITY_TYPES.slice(-added.length)).toEqual(added)
+    // None is citable: the claim_source CHECK (264) does not list them.
+    for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
+  })
+
+  it('links a private kind only once its fence exists (entity-fences.ts)', () => {
+    // Private to a person or a channel, or without a workspace_id: the graph's
+    // workspace_id fence alone would leak them (see the registry comment), so
+    // every linkable private kind must be one entity-fences.ts fences.
+    for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision']) {
+      expect(LINKABLE_ENTITY_TYPES as readonly string[], id).toContain(id)
+      expect(PRIVATE_GRAPH_KINDS as readonly string[], id).toContain(id)
+    }
+    // decision has no workspace_id: entityInWorkspace must not filter on one.
+    expect((WORKSPACE_SCOPED_TABLE as Record<string, string>).decision).toBeUndefined()
+    expect(WORKSPACE_SCOPED_TABLE.calendar_event).toBe('local_calendar_event')
+  })
+
+  it('keeps kinds outside the graph out of every graph vocabulary', () => {
+    const outside = ENTRIES.filter((e) => !e.linkable).map((e) => e.id)
+    expect(outside).toContain('comment')
+    expect(outside).toContain('eval_run')
+    for (const id of outside) {
+      expect(LINKABLE_ENTITY_TYPES as readonly string[], id).not.toContain(id)
+      expect(CITABLE_SOURCE_TYPES.has(id), id).toBe(false)
+    }
   })
 
   it("campaign's anchor text carries name, objective, description and channels", () => {
@@ -188,9 +220,9 @@ describe('derived constants are projections of the registry', () => {
     )
   })
 
-  it('WORKSPACE_SCOPED_TABLE holds exactly the column-scoped types', () => {
+  it('WORKSPACE_SCOPED_TABLE holds exactly the column-scoped linkable types', () => {
     const expected = Object.fromEntries(
-      ENTRIES.filter((e) => e.workspaceScoped.kind === 'column').map((e) => [
+      ENTRIES.filter((e) => e.linkable && e.workspaceScoped.kind === 'column').map((e) => [
         e.id,
         e.table,
       ]),
@@ -201,6 +233,25 @@ describe('derived constants are projections of the registry', () => {
     expect(WORKSPACE_SCOPED_TABLE.cycle).toBeUndefined()
     expect(WORKSPACE_SCOPED_TABLE.milestone).toBeUndefined()
     expect(WORKSPACE_SCOPED_TABLE.company).toBe('company')
+    // A kind outside the graph is never an edge endpoint, so it has no fence.
+    expect((WORKSPACE_SCOPED_TABLE as Record<string, string>).label).toBeUndefined()
+  })
+
+  it('REALTIME_ENTITY_TABLES is every realtime kind, filtered exactly when column-scoped', () => {
+    expect(REALTIME_ENTITY_TABLES).toEqual(
+      ENTRIES.filter((e) => e.realtime).map((e) => ({
+        table: e.table,
+        entityType: e.id,
+        filtered: e.workspaceScoped.kind === 'column',
+      })),
+    )
+    const byTable = Object.fromEntries(REALTIME_ENTITY_TABLES.map((t) => [t.table, t]))
+    expect(byTable.local_calendar_event).toEqual({ table: 'local_calendar_event', entityType: 'calendar_event', filtered: true })
+    expect(byTable.decision.filtered).toBe(false)
+    // Too churny for the shared channel; email-layout.tsx runs its own.
+    expect(byTable.email_thread_index).toBeUndefined()
+    // Team chat runs its own channel.
+    expect(byTable.team_chat_message).toBeUndefined()
   })
 
   it('LABEL_TABLE covers every registered type', () => {
@@ -252,7 +303,10 @@ describe('one-entry addition', () => {
     table: 'widgets',
     workspaceScoped: { kind: 'column', table: 'widgets' },
     label: { table: 'widgets', columns: 'name', render: (r) => String(r.name ?? '') },
+    realtime: true,
     linkable: true,
+    activity: true,
+    customFields: true,
     citable: true,
     sourceable: false,
     anchor: {
@@ -268,10 +322,11 @@ describe('one-entry addition', () => {
   const linkable = extended.filter((e) => e.linkable).map((e) => e.id)
   const citable = new Set(extended.filter((e) => e.citable).map((e) => e.id))
   const scoped = Object.fromEntries(
-    extended.filter((e) => e.workspaceScoped.kind === 'column').map((e) => [e.id, e.table]),
+    extended.filter((e) => e.linkable && e.workspaceScoped.kind === 'column').map((e) => [e.id, e.table]),
   )
   const labels = Object.fromEntries(extended.map((e) => [e.id, e.label]))
   const anchors = extended.filter((e) => e.anchor).map((e) => e.id)
+  const customFieldKinds = extended.filter((e) => e.customFields).map((e) => e.id)
 
   it('widens every derived vocabulary from the single new entry', () => {
     expect(linkable).toContain('widget')
@@ -279,6 +334,7 @@ describe('one-entry addition', () => {
     expect(scoped.widget).toBe('widgets')
     expect(labels.widget.render({ name: 'W' })).toBe('W')
     expect(anchors).toContain('widget')
+    expect(customFieldKinds).toContain('widget')
   })
 
   it('leaves every pre-existing entry untouched', () => {

@@ -41,6 +41,7 @@ import { UnauthenticatedError, localDev, type AuthFn } from 'eve/channels/auth'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient, type CookieMethodsServer } from '@supabase/ssr'
 import { parse as parseCookie } from 'cookie'
+import { pinnedCookieOptions } from './session-cookie-name.js'
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 
 /** Kept in sync with `WORKSPACE_HEADER` / `WORKSPACE_COOKIE` in src/lib/workspace.ts. */
@@ -139,6 +140,8 @@ function supabaseFromRequest(request: Request, bearer: string | null): SupabaseC
     env('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
     {
       cookies,
+      // The same cookie name the app's own clients use (session-cookie-name.ts).
+      ...pinnedCookieOptions(),
       ...(bearer ? { global: { headers: { Authorization: `Bearer ${bearer}` } } } : {}),
     }
   )

@@ -18,14 +18,20 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 type HeartbeatStatus = 'sent' | 'ok' | 'error' | 'timeout' | 'disconnected'
 
 let capturedHeartbeatCallback: ((status: HeartbeatStatus) => void) | undefined
+let capturedCookieName: string | undefined
 const connect = vi.fn()
 
 // Mock createBrowserClient so we can (a) capture the realtime options it's
 // constructed with and (b) return a client whose realtime.connect we can spy on.
 vi.mock('@supabase/ssr', () => ({
   createBrowserClient: vi.fn(
-    (_url: string, _key: string, opts?: { realtime?: { heartbeatCallback?: (s: HeartbeatStatus) => void } }) => {
+    (
+      _url: string,
+      _key: string,
+      opts?: { realtime?: { heartbeatCallback?: (s: HeartbeatStatus) => void }; cookieOptions?: { name?: string } },
+    ) => {
       capturedHeartbeatCallback = opts?.realtime?.heartbeatCallback
+      capturedCookieName = opts?.cookieOptions?.name
       return { realtime: { connect } }
     },
   ),
@@ -42,6 +48,30 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
+})
+
+describe('createClient session cookie name', () => {
+  it('passes no name for a pin that names another project than the address does', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://anotherproject.supabase.co')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    createClient()
+    expect(capturedCookieName).toBeUndefined()
+  })
+
+  it('passes no name when the project ref is not pinned (the library derives it from the address)', () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', '')
+    createClient()
+    expect(capturedCookieName).toBeUndefined()
+  })
+
+  it('passes the pinned name, so the browser and the server agree when the address has moved', () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.example.test')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    createClient()
+    expect(capturedCookieName).toBe('sb-fixturetestref-auth-token')
+  })
 })
 
 describe('createClient realtime heartbeatCallback', () => {

@@ -12,14 +12,21 @@ import {
   WORKSPACE_SCOPED_TABLE,
   type LinkableEntityType,
 } from '@/lib/knowledge/entity-registry'
-import { resolveEntityWorkspace } from './_shared'
+import { hiddenPrivateRefs, isPrivateGraphKind } from '@/lib/knowledge/entity-fences'
+import { captureRequester, resolveEntityWorkspace } from './_shared'
 
 export function createEntityLinkTools(
   userId: string,
   supabase: SupabaseClient,
   workspaceId: string,
   strictWorkspace = false,
+  /** An unattended run: no private graph kind's row is the run's to see (as claims.ts). */
+  omitPrivate = false,
 ) {
+  // The private graph kinds (calendar events, team-chat channels and messages,
+  // decisions: src/lib/knowledge/entity-fences.ts) are fenced to the person,
+  // and to no one on an unattended run. This may run service-role.
+  const requester = captureRequester(userId, omitPrivate)
   /**
    * Route `unlink_entities` by the SOURCE entity's own workspace, not the
    * session one — the edge itself may live wherever the source resolved.
@@ -70,6 +77,16 @@ export function createEntityLinkTools(
       }) => {
         const targetWs = await resolveSourceWorkspace(source_type, source_id)
         if (!targetWs) return { success: false, error: 'Source entity not found' }
+        // Never an edge of a private row the person can't read (someone
+        // else's calendar event, a DM they're not in): not theirs to remove.
+        const ends = [
+          { type: source_type as string, id: source_id },
+          { type: target_type as string, id: target_id },
+        ]
+        if (ends.some((e) => isPrivateGraphKind(e.type))) {
+          const hidden = await hiddenPrivateRefs(supabase, ends, requester, targetWs)
+          if (hidden.size > 0) return { success: false, error: 'Entity not found' }
+        }
 
         let query = supabase
           .from('entity_link')
@@ -172,6 +189,24 @@ export function createEntityLinkTools(
           const { data, error } = await inboundQuery()
           if (error) return { success: false, error: error.message }
           results.inbound = (data || []) as typeof results.inbound
+        }
+
+        // A private row the person can't read: a hidden centre lists nothing,
+        // a hidden neighbour is left out (not even its id). One batched fence.
+        const privateRefs = [
+          { type: entity_type as string, id: entity_id },
+          ...results.outbound.map((e) => ({ type: e.target_type, id: e.target_id })),
+          ...results.inbound.map((e) => ({ type: e.source_type, id: e.source_id })),
+        ].filter((r) => isPrivateGraphKind(r.type))
+        if (privateRefs.length > 0) {
+          const hidden = await hiddenPrivateRefs(supabase, privateRefs, requester, workspaceId)
+          if (hidden.has(`${entity_type}:${entity_id}`)) {
+            results.outbound = []
+            results.inbound = []
+          } else {
+            results.outbound = results.outbound.filter((e) => !hidden.has(`${e.target_type}:${e.target_id}`))
+            results.inbound = results.inbound.filter((e) => !hidden.has(`${e.source_type}:${e.source_id}`))
+          }
         }
 
         return {

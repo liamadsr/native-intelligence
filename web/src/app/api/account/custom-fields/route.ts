@@ -2,23 +2,25 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
 import {
-  CUSTOM_FIELD_ENTITIES,
   CUSTOM_FIELD_TYPES,
+  CUSTOM_FIELD_ENTITIES,
   defineCustomField,
+  isCustomFieldEntity as isEntity,
   listCustomFieldDefinitions,
-  type CustomFieldEntity,
   type CustomFieldType,
 } from '@/lib/crm/custom-fields'
 
-const isEntity = (v: unknown): v is CustomFieldEntity => (CUSTOM_FIELD_ENTITIES as readonly unknown[]).includes(v)
 const isType = (v: unknown): v is CustomFieldType => (CUSTOM_FIELD_TYPES as readonly unknown[]).includes(v)
 
-/** GET ?entity_type=deal|contact|company: the workspace's custom fields. POST: define one. */
+/**
+ * GET ?entity_type=<kind>: the workspace's custom fields (every kind's when
+ * absent). POST: define one. The kinds are the registry's `customFields` flag.
+ */
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
   const entity = request.nextUrl.searchParams.get('entity_type')
-  if (entity !== null && !isEntity(entity)) return badRequest('entity_type is deal, contact or company')
+  if (entity !== null && !isEntity(entity)) return badRequest(`entity_type is one of: ${CUSTOM_FIELD_ENTITIES.join(', ')}`)
   try {
     return NextResponse.json({ fields: await listCustomFieldDefinitions(auth.supabase, auth.workspaceId, entity ?? undefined) })
   } catch (e) {

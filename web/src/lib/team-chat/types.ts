@@ -11,7 +11,12 @@
  * the author's own agent (`mentions_agent`, or `@<their assistant name>` in
  * the words): that runs a chat-agent turn as the author, in their own
  * conversation for the channel, and the reply is posted back as their agent.
+ * It may also @-mention records (`record_mentions`, migration 480: a task, a
+ * doc, a deal, …), each written to the graph as a `mentions` edge
+ * (src/lib/entity-links/mentions.ts).
  */
+import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
+
 
 /** The most characters a message holds (migration 474's check). */
 export const TEAM_CHAT_MESSAGE_MAX = 8000
@@ -62,14 +67,23 @@ export interface TeamChatMessage {
   body: string
   mentions: string[]
   mentions_agent: boolean
+  /**
+   * The records the message @-mentions (migration 480), as the words show
+   * them; each is also a `mentions` edge in the graph. Absent on a row from
+   * before 480 (and on an old realtime payload): none.
+   */
+  record_mentions?: TeamChatRecordMention[]
   created_at: string
   edited_at: string | null
   deleted_at: string | null
 }
 
+/** A record a message @-mentions: its kind and id, and the label its `@…` shows. */
+export type TeamChatRecordMention = LabeledMentionRef
+
 /** The columns a message is read with. */
 export const TEAM_CHAT_MESSAGE_COLUMNS =
-  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, body, mentions, mentions_agent, created_at, edited_at, deleted_at'
+  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, body, mentions, mentions_agent, record_mentions, created_at, edited_at, deleted_at'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 

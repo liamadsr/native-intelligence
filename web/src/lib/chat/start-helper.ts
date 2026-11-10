@@ -304,7 +304,7 @@ async function admitHelper(
   deps: StartHelperDeps,
 ): Promise<Record<string, unknown>> {
   const claims = { workspaceId: admission.workspaceId, userId: admission.userId, conversationId: admission.conversationId }
-  const resources = await snapshotResources(supabase, input.resources?.map((r) => ({ ...r, label: r.label ?? r.type })), claims.workspaceId)
+  const resources = await snapshotResources(supabase, input.resources?.map((r) => ({ ...r, label: r.label ?? r.type })), claims.workspaceId, claims.userId)
   const areas = input.areas && input.areas.length > 0 ? [...new Set(input.areas)] : null
   const { data, error } = await supabase.rpc('start_chat_helper', {
     p_workspace_id: claims.workspaceId,

@@ -21,6 +21,8 @@ import {
 } from 'react'
 import { OPEN_CARD_EVENT, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { useSwitchWorkspace, useWorkspaceId } from '@/app/account/workspace-switcher'
+import { DEEP_LINK_TYPES } from '@/lib/entities/entity-actions-registry'
+import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { prunePersistedEvents } from '@/calendar/persisted-events'
 import {
   createChatSlice,
@@ -70,19 +72,24 @@ export function useCanOpenCards(): boolean {
 const DEEP_LINK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * The boot deep links, as the cards they open: `?sequence=` (getSequenceUrl),
- * `?prospect_list=` (getProspectListUrl), `?action=` (the links the Linear,
- * Jira and Asana pushes and flow templates hand out), `?project=` and
- * `?initiative=` (flow templates). Uuids only. One per boot.
+ * The boot deep links, as the cards they open: `?<kind>=<id>` for every kind
+ * with a link in the entity actions registry (DEEP_LINK_TYPES): `?sequence=`
+ * (getSequenceUrl), `?prospect_list=` (getProspectListUrl), `?action=` (the
+ * links the Linear, Jira and Asana pushes and flow templates hand out),
+ * `?project=` and `?initiative=` (flow templates), and the record a menu's
+ * Copy link copied (a doc, a capture, a contact, a company, a deal, a flow).
+ * Uuids only. One per boot.
  */
 export function deepLinkCard(params: URLSearchParams): { param: string; request: OpenCardRequest } | null {
-  for (const param of ['sequence', 'prospect_list', 'action', 'project', 'initiative'] as const) {
+  for (const param of DEEP_LINK_TYPES) {
     const id = params.get(param)
     // Ids only: a link is outside input, and every one of these is a uuid.
     if (!id || !DEEP_LINK_ID.test(id)) continue
-    const card = cardForTarget({ type: param, id })
+    const target = entityOpenTarget(param, id)
+    const card = target ? cardForTarget(target) : null
     if (!card) continue
-    return { param, request: { spec: card.spec, from: 'link' } }
+    // The seed is where inside the card it starts (a flow's editor).
+    return { param, request: { spec: card.spec, from: 'link', ...(card.seed ? { seed: card.seed } : {}) } }
   }
   return null
 }

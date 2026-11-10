@@ -55,11 +55,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import { useCurrentMemberId } from '@/app/account/workspace-switcher'
 import { ContentTransition } from './transitions'
 import { NoteEditor } from './note-editor-lazy'
 import { Comments } from '../components/comments'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { EmailThreadDetail } from '@/components/email/email-thread-detail'
 import { ContactShareDialog } from '../components/contact-share-dialog'
 import { ContactDuplicatesDialog } from '../components/contact-duplicates-dialog'
@@ -693,7 +696,7 @@ export function ContactDetailPanel({
           {/* Enrich from web — fills empty fields from public sources and files
                     the provenance under Enrichment in the properties sidebar. */}
           {contact && <EnrichButton onClick={enrich} busy={enriching} />}
-          {contact && <CopyIdButton entityType="contact" id={contactId} />}
+          {contact && <EntityActionsMenu entity={{ type: 'contact', id: contactId, label: contact.full_name }} omit={PANEL_OMIT} />}
           {/* Find & merge duplicates */}
           {contact && (
             <PreferenceActionButton
@@ -1146,6 +1149,10 @@ export function ContactDetailPanel({
                         showSummary={false}
                         onViewDetails={() => setActiveTab('details')}
                       />
+                      {/* The workspace's own fields on this kind (hidden while it has none). */}
+                      <CustomFieldsGroup entityType="contact" recordId={contactId} />
+                      <ReferencedIn entityType="contact" entityId={contactId} />
+                      <RecordHistory entityType="contact" entityId={contactId} />
                     </div>
                   </WindowProperties>
           </div>

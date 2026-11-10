@@ -350,6 +350,48 @@ async function searchCompanies(ctx: MenuQueryContext): Promise<MenuSearchRow[]> 
   )
 }
 
+// ── Deals and flows (names only; every member reads them) ────────────────────
+
+interface DealRow {
+  id: string
+  name: string | null
+  stage: { name: string | null } | null
+}
+
+async function searchDeals(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  const { supabase, workspaceId, query, limit } = ctx
+  const words = matchWords(query)
+  const base = supabase.from('deal').select('id, name, stage:deal_stage!stage_id(name)').eq('workspace_id', workspaceId)
+  const rows = await rowsOf<DealRow>(
+    'deal',
+    words.reduce((b, w) => b.ilike('name', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit),
+  )
+  return rank(
+    rows.map((d) => ({ kind: 'deal', id: d.id, title: d.name || 'Untitled deal', status: d.stage?.name ?? null, score: scoreText(d.name, query) })),
+    limit,
+  )
+}
+
+interface FlowRow {
+  id: string
+  name: string | null
+  enabled: boolean | null
+}
+
+async function searchFlows(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  const { supabase, workspaceId, query, limit } = ctx
+  const words = matchWords(query)
+  const base = supabase.from('flow').select('id, name, enabled').eq('workspace_id', workspaceId)
+  const rows = await rowsOf<FlowRow>(
+    'flow',
+    words.reduce((b, w) => b.ilike('name', `%${w}%`), base).order('updated_at', { ascending: false }).limit(words.length ? FETCH : limit),
+  )
+  return rank(
+    rows.map((f) => ({ kind: 'flow', id: f.id, title: f.name || 'Untitled flow', status: f.enabled ? 'On' : 'Off', score: scoreText(f.name, query) })),
+    limit,
+  )
+}
+
 // ── Agents ───────────────────────────────────────────────────────────────────
 
 async function searchAgents(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
@@ -381,5 +423,7 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   capture: searchCaptures,
   contact: searchContacts,
   company: searchCompanies,
+  deal: searchDeals,
+  flow: searchFlows,
   agent: searchAgents,
 }

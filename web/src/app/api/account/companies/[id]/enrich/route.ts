@@ -50,12 +50,18 @@ export async function POST(
     )
   }
 
-  const { error: markErr } = await supabase
+  // The mark is the claim: the run writes the company back service-role, so
+  // it goes ahead only when the person may write it themselves. A company
+  // they read only through a per-item grant (view only, migration 494) marks
+  // no row, and is "not found" as it was before grants.
+  const { data: marked, error: markErr } = await supabase
     .from('company')
     .update({ enrichment_status: 'pending' })
     .eq('id', id)
     .eq('workspace_id', workspaceId)
+    .select('id')
   if (markErr) return serverError(markErr.message)
+  if (!marked || marked.length === 0) return notFound('Company not found')
 
   // The Activity row for this click (owned by the clicker); the handler settles
   // it by the run key the event carries. Fail-soft: no row, no key.
