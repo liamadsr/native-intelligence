@@ -4,7 +4,8 @@
  *   PATCH { body, mentions?, records? } → { message } edited (edited_at
  *         stamped). An edit never calls the agent again. Never their agent's
  *         reply. `records` as on a post; the message's `mentions` edges
- *         follow the edit (added and removed).
+ *         follow the edit (added and removed). No `records` (a client from
+ *         before 480): it keeps the ones it had that the words still name.
  *   DELETE → { ok: true } deleted (soft: its words are cleared for everyone):
  *         their own message, or their own agent's reply. Its `mentions`
  *         edges are removed.
@@ -14,7 +15,7 @@ import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound } from '@/lib/api-errors'
 import { deleteMessage, editMessage, workspaceMemberIds } from '@/lib/team-chat/store'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
-import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
+import { fenceRecordMentions, storedRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { isUuid, tidyBody, tidyMentionIds } from '@/lib/team-chat/types'
 
 type Params = { params: Promise<{ id: string }> }
@@ -35,7 +36,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   try {
     const mentions = await workspaceMemberIds(auth.supabase, auth.workspaceId, tidyMentionIds(input.mentions))
     const scope = { workspaceId: auth.workspaceId, userId: auth.user.id }
-    const recordMentions = await fenceRecordMentions(auth.supabase, scope, input.records, body)
+    // A client from before 480 sends no `records`: the message keeps the ones
+    // it had that its words still name (never wiped by an older tab's edit).
+    const records = input.records !== undefined ? input.records : await storedRecordMentions(auth.supabase, id)
+    const recordMentions = await fenceRecordMentions(auth.supabase, scope, records, body)
     const message = await editMessage(auth.supabase, id, { body, mentions, recordMentions })
     if (!message) return notFound()
     // The edges follow the edit: new mentions added, the ones taken out removed.

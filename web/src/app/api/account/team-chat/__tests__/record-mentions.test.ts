@@ -142,4 +142,18 @@ describe('editing and deleting', () => {
     expect(edges()).toEqual([])
     expect(tables.entity_link.map((e) => e.id)).toEqual(['other-edge'])
   })
+
+  it('an edit from an older client (no `records`) keeps the mentions its words still name', async () => {
+    const message = await post('@GEN-42 and @Fernhill renewal', [
+      { type: 'action', id: ACTION, label: 'GEN-42' },
+      { type: 'deal', id: DEAL, label: 'Fernhill renewal' },
+    ])
+    const edited = await editMessage(
+      req(`/api/account/team-chat/messages/${message.id}`, { body: 'just @GEN-42 now' }, 'PATCH'),
+      params(message.id),
+    )
+    expect(edited.status).toBe(200)
+    expect((await edited.json()).message.record_mentions).toEqual([{ type: 'action', id: ACTION, label: 'GEN-42' }])
+    expect(edges()).toEqual([`action:${ACTION}`])
+  })
 })

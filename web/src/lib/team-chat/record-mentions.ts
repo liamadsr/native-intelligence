@@ -46,3 +46,14 @@ export async function syncMessageMentions(
   })
   if (result.error) console.warn(`[team-chat] mention edges for message=${input.messageId} failed:`, result.error)
 }
+
+/**
+ * The records a message mentions now (its `record_mentions`), read through the
+ * caller's RLS: what an edit from a client that sends no `records` (one from
+ * before 480) keeps. None when it can't be read.
+ */
+export async function storedRecordMentions(supabase: SupabaseClient, messageId: string): Promise<unknown> {
+  const { data, error } = await supabase.from('team_chat_message').select('record_mentions').eq('id', messageId).maybeSingle()
+  if (error || !data) return []
+  return (data as { record_mentions?: unknown }).record_mentions ?? []
+}
