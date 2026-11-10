@@ -42,6 +42,7 @@ import {
   CalendarDays,
   CircleCheck,
   FileText,
+  Hash,
   FlaskConical,
   FolderKanban,
   Handshake,
@@ -52,6 +53,7 @@ import {
   Send,
   Target,
   Telescope,
+  User,
   Users,
   Workflow,
   type LucideIcon,
@@ -94,6 +96,11 @@ import { isDirectEntityAction, runEntityAction } from '@/lib/entities/actions'
 import { entityActionsDescriptor, supportedEntityActions } from '@/lib/entities/entity-actions-registry'
 import { ENTITY_ACTION_ICONS, ENTITY_ACTION_LABELS } from '@/components/entities/entity-actions-menu'
 import type { RecordActionsSource } from './command-menu-model'
+import { usePaletteFeed } from './use-palette-feed'
+import { describeFeedEvent, type FeedEntry } from '@/lib/entities/feed-model'
+import { entityOpenTarget } from '@/lib/entity-links/open-entity'
+import { openTarget } from '@/lib/chat-cards/open-card'
+import { formatDistanceToNowStrict } from 'date-fns'
 
 /** What the composer's field hands the inline menu: its keys. */
 export interface CommandMenuHandle {
@@ -212,6 +219,8 @@ export function CommandMenu({
   // entity actions menu's, less Rename and Share, which need more input).
   const front = useSyncExternalStore(subscribeFrontCard, frontCard, noFrontCard)
   const recordActions = useMemo(() => (palette ? recordActionsFor(front) : null), [palette, front])
+  // The palette's first view: what's waiting on the person, and what they touched last.
+  const feed = usePaletteFeed(palette && open)
   // The tabs and sections in the workspace's words ("Jobs", "Customers" in a service business).
   const edition = useWorkspaceEdition()
   const mentionKey = onMentionRecord ? mentionKinds.join(',') : ''
@@ -264,8 +273,16 @@ export function CommandMenu({
               ? buildMenu('@', 'all', query, hostOffer, { pages: NO_PAGES, skills: NO_SKILLS, records: found.records, edition })
               : undefined,
           )
-        : buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition, recordActions }),
-    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition, recordActions],
+        : buildMenu(activeTrigger, currentTab, query, offer, {
+            pages: offeredPages,
+            skills,
+            records: found.records,
+            edition,
+            recordActions,
+            inbox: palette ? feed.inbox : null,
+            recent: palette ? feed.recent : null,
+          }),
+    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition, recordActions, palette, feed],
   )
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections])
 
@@ -303,6 +320,10 @@ export function CommandMenu({
       if (!item) return
       if (item.kind === 'entity_action') {
         void runEntityAction(item.action, item.entity, { from: 'palette' })
+        onDismiss()
+      } else if (item.kind === 'feed') {
+        const target = entityOpenTarget(item.entry.type, item.entry.id, item.entry.label)
+        if (target) openTarget(target, { from: 'palette' })
         onDismiss()
       } else if (item.kind === 'page') onSelectPage?.(item.page)
       else if (item.kind === 'skill') onSelectSkill(item.skill)
@@ -827,6 +848,8 @@ function rowKey(item: MenuItem): string {
       return `option:${item.option.id}`
     case 'entity_action':
       return `entity_action:${item.action}`
+    case 'feed':
+      return `feed:${item.entry.type}:${item.entry.id}`
   }
 }
 
@@ -859,6 +882,8 @@ function rowData(item: MenuItem): Record<string, string> {
       return { 'data-mention-option': item.option.id }
     case 'entity_action':
       return { 'data-entity-action': item.action }
+    case 'feed':
+      return { 'data-feed-item': `${item.entry.type}:${item.entry.id}` }
   }
 }
 
@@ -929,6 +954,7 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
   }
   if (item.kind === 'option') return { title: item.option.label, detail: item.option.hint || null, meta: null }
   if (item.kind === 'entity_action') return { title: item.label, detail: null, meta: null }
+  if (item.kind === 'feed') return feedRowText(item.entry)
   const row = item.row
   switch (row.kind) {
     case 'action':
@@ -958,6 +984,17 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
   }
 }
 
+/** A feed row: the record, what happened (and where), and how long ago. */
+function feedRowText(entry: FeedEntry): { title: string; detail: string | null; meta: ReactNode } {
+  const what = describeFeedEvent(entry.last)
+  const by = entry.last.actor.me || entry.last.actor.kind === 'system' ? null : entry.last.actor.name
+  return {
+    title: entry.label,
+    detail: [what, by, entry.context].filter(Boolean).join(' · '),
+    meta: formatDistanceToNowStrict(new Date(entry.last.at)),
+  }
+}
+
 /** `in_progress` → "In progress". */
 function statusLabel(status: string): string {
   const s = status.replace(/_/g, ' ')
@@ -978,6 +1015,14 @@ const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = {
   deal: Handshake,
   flow: Workflow,
   agent: Boxes,
+}
+
+/** A feed row's kind, as a glyph on a tile. */
+const FEED_ICONS: Partial<Record<FeedEntry['type'], LucideIcon>> = {
+  ...RECORD_ICONS,
+  contact: User,
+  company: Building2,
+  team_chat_message: Hash,
 }
 
 function RowIcon({ item }: { item: MenuItem }) {
@@ -1011,6 +1056,14 @@ function RowIcon({ item }: { item: MenuItem }) {
       </span>
     ) : (
       <span className={cn(TILE, 'rounded-full bg-primary/10 text-[11px] font-semibold text-primary')}>{initials(item.option.label)}</span>
+    )
+  }
+  if (item.kind === 'feed') {
+    const Icon = FEED_ICONS[item.entry.type] ?? Building2
+    return (
+      <span className={cn(TILE, MUTED_TILE, 'text-muted-foreground')}>
+        <Icon className="size-4" strokeWidth={1.75} />
+      </span>
     )
   }
   const row = item.row

@@ -30,6 +30,7 @@ import { filterPages, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { normalizeQuery, scoreText, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { SkillCommand } from './chat-panel'
 import type { DirectEntityActionId, EntityRef } from '@/lib/entities/actions'
+import type { FeedEntry } from '@/lib/entities/feed-model'
 
 export type MenuTrigger = '/' | '@'
 
@@ -190,8 +191,13 @@ export function appendMention(value: string, text: string): { value: string; car
 
 /** The record kinds, as the menu's sections name them. */
 export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'agents'
-/** `record_actions`: the actions on the record whose card is in front (the palette only; never a tab). */
-export type MenuKind = 'pages' | 'skills' | 'record_actions' | RecordMenuKind
+/**
+ * `record_actions`: the actions on the record whose card is in front. `inbox`
+ * and `recent`: the palette's first view, from the activity feed (what
+ * mentions or was assigned to the person; what they touched last). The
+ * palette's only; never tabs.
+ */
+export type MenuKind = 'pages' | 'skills' | 'record_actions' | 'inbox' | 'recent' | RecordMenuKind
 export type MenuTab = 'all' | MenuKind
 
 export const TAB_LABELS: Record<MenuTab, string> = {
@@ -199,6 +205,8 @@ export const TAB_LABELS: Record<MenuTab, string> = {
   pages: 'Pages',
   skills: 'Skills',
   record_actions: 'This record',
+  inbox: 'Inbox',
+  recent: 'Recent',
   actions: 'Actions',
   docs: 'Docs',
   projects: 'Projects',
@@ -261,7 +269,7 @@ export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
 }
 
 export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
-  return kind !== 'pages' && kind !== 'skills' && kind !== 'record_actions'
+  return kind !== 'pages' && kind !== 'skills' && kind !== 'record_actions' && kind !== 'inbox' && kind !== 'recent'
 }
 
 export type MenuItem =
@@ -272,6 +280,8 @@ export type MenuItem =
   | { kind: 'option'; option: ComposerMentionOption }
   /** One of the entity actions menu's actions, on the record whose card is in front (src/lib/entities/actions.ts). */
   | { kind: 'entity_action'; action: DirectEntityActionId; entity: EntityRef; label: string }
+  /** A record from the activity feed (the palette's Inbox and Recent), opened as its card. */
+  | { kind: 'feed'; entry: FeedEntry }
 
 /**
  * One of a host's own `@` options (team chat: the person's agent and the
@@ -379,7 +389,7 @@ export function offeredKinds(trigger: MenuTrigger, offer: MenuOffer): MenuKind[]
 /** What Enter does to a row: `/` opens it (a skill is used), `@` attaches it. */
 export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
   if (item.kind === 'skill' || item.kind === 'entity_action') return 'use'
-  if (item.kind === 'page') return 'open'
+  if (item.kind === 'page' || item.kind === 'feed') return 'open'
   if (item.kind === 'option') return 'mention'
   return trigger === '@' ? 'mention' : 'open'
 }
@@ -476,6 +486,28 @@ export interface MenuSources {
   edition?: Pick<EditionDefinition, 'words'> | null
   /** The palette, with a record's card in front: that record's own actions, listed first. */
   recordActions?: RecordActionsSource | null
+  /** The palette's first view: what mentions or was assigned to the person, newest first (the feed's Inbox). */
+  inbox?: readonly FeedEntry[] | null
+  /** The palette's first view: the records the person touched last (the feed's Recent). */
+  recent?: readonly FeedEntry[] | null
+}
+
+/** How many of the Inbox and Recent the palette's first view shows. */
+export const INBOX_CAP = 4
+export const RECENT_CAP = 5
+
+/** The palette's Inbox and Recent sections, before anything is typed; a record in both shows once, in the Inbox. */
+export function feedSections(sources: Pick<MenuSources, 'inbox' | 'recent'>): Array<Omit<MenuSection, 'offset'>> {
+  const out: Array<Omit<MenuSection, 'offset'>> = []
+  const inbox = (sources.inbox ?? []).slice(0, INBOX_CAP)
+  const seen = new Set(inbox.map((e) => `${e.type}:${e.id}`))
+  const recent = (sources.recent ?? []).filter((e) => !seen.has(`${e.type}:${e.id}`)).slice(0, RECENT_CAP)
+  for (const [key, entries] of [['inbox', inbox], ['recent', recent]] as const) {
+    if (!entries.length) continue
+    const items = entries.map((entry): MenuItem => ({ kind: 'feed', entry }))
+    out.push({ key, label: TAB_LABELS[key], items, total: items.length, totalKnown: true })
+  }
+  return out
 }
 
 /** The actions on the record in front, for the palette (the entity actions menu's, less what needs more input). */
@@ -564,6 +596,8 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
     const items = filterRecordActions(sources.recordActions, query)
     if (items.length) sections.push({ key: 'record_actions', label: sources.recordActions.label, items, total: items.length, totalKnown: true })
   }
+  // `/` on All, nothing typed: what's waiting on the person, then what they touched last.
+  if (trigger === '/' && tab === 'all' && !q) sections.push(...feedSections(sources))
   for (const { kind } of ordered) {
     const items = all.get(kind)!.items
     if (!items.length) continue
