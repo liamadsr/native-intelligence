@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inChunks } from '@/lib/supabase/paging'
+import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
 
 /**
  * FENCES FOR THE PRIVATE GRAPH KINDS: calendar events, team-chat channels and
@@ -300,17 +301,18 @@ export const LINK_FENCED_KINDS = [
   'company',
   'claim',
   'attachment',
-  'email',
+  'email_thread',
   'conversation',
   'calendar_event',
   'team_chat_channel',
   'team_chat_message',
   'decision',
-] as const
+] as const satisfies readonly LinkableEntityType[]
 export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
 
+/** A retired name counts as the kind it names now: an `email` end is fenced as `email_thread` (503). */
 export function isLinkFencedKind(type: string): type is LinkFencedKind {
-  return (LINK_FENCED_KINDS as readonly string[]).includes(type)
+  return (LINK_FENCED_KINDS as readonly string[]).includes(canonicalEntityType(type))
 }
 
 /**

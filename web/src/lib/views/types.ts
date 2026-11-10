@@ -25,9 +25,9 @@ export const NO_MATCH_FILTER_VALUE = '__no_match__'
 export const BULK_MAX_IDS = 100
 
 /**
- * Registered entity kinds a view can list, plus three view-only names:
- * 'email_thread' (the registry's `email`, see EntityKind in entity-events.ts),
- * and 'agent' / 'skill' (recipes, listed as two libraries).
+ * Registered entity kinds a view can list, plus two view-only names, 'agent'
+ * and 'skill' (recipes, listed as two libraries). Mail is `email_thread`, the
+ * same name as everywhere else (migration 503).
  */
 export type ViewEntityType =
   | EntityTypeSubset<
@@ -47,8 +47,8 @@ export type ViewEntityType =
       | 'eval_run'
       | 'claim'
       | 'deal'
+      | 'email_thread'
     >
-  | 'email_thread'
   | 'agent'
   | 'skill'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'

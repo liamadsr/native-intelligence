@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { entityKindEnum } from '@/lib/knowledge/entity-kind-schema'
 // These two tools used to carry their own, drifted copies of the vocabulary
 // (7 entity types, 8 relations), so `unlink_entities` could not remove an edge
 // `link_entities` had just created: a claim / email / attachment / member /
@@ -58,9 +59,9 @@ export function createEntityLinkTools(
         'Remove a link between two entities. Deletes all links matching the given source and target (optionally filtered by relation). ' +
         'Use this to detach a document from an action or project, or to remove any entity graph edge.',
       inputSchema: z.object({
-        source_type: z.enum(ENTITY_TYPES).describe('Type of the source entity'),
+        source_type: entityKindEnum(ENTITY_TYPES).describe('Type of the source entity'),
         source_id: z.string().describe('UUID of the source entity'),
-        target_type: z.enum(ENTITY_TYPES).describe('Type of the target entity'),
+        target_type: entityKindEnum(ENTITY_TYPES).describe('Type of the target entity'),
         target_id: z.string().describe('UUID of the target entity'),
         relation: z
           .enum(RELATIONS)
@@ -122,7 +123,7 @@ export function createEntityLinkTools(
         'Use this to discover what documents, actions, or projects are associated with a given entity. ' +
         'Also used to verify a link was created by link_entities.',
       inputSchema: z.object({
-        entity_type: z.enum(ENTITY_TYPES).describe('Type of the entity'),
+        entity_type: entityKindEnum(ENTITY_TYPES).describe('Type of the entity'),
         entity_id: z.string().describe('UUID of the entity'),
         direction: z
           .enum(['outbound', 'inbound', 'both'])

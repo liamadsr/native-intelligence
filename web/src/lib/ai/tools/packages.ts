@@ -4,6 +4,7 @@ import { excludeClaimsHiddenFrom } from '@/lib/knowledge/claim-visibility'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { entityKindEnum } from '@/lib/knowledge/entity-kind-schema'
 import { entityInWorkspace, LINKABLE_ENTITY_TYPES } from './claims'
 import {
   resolveCreateWorkspace,
@@ -224,7 +225,7 @@ export function createPackageTools(
         pins: z
           .array(
             z.object({
-              entity_type: z.enum(LINKABLE_ENTITY_TYPES),
+              entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
               entity_id: z.string(),
             }),
           )
@@ -481,7 +482,7 @@ export function createPackageTools(
         'Pin an entity (claim, document, capture, project, contact, action, ...) into a knowledge package. Pinning a project does NOT auto-include its claims — set rules.projects for that; pinning is for hand-picked items.',
       inputSchema: z.object({
         package_id: z.string(),
-        entity_type: z.enum(LINKABLE_ENTITY_TYPES),
+        entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
         entity_id: z.string(),
       }),
       execute: async ({ package_id, entity_type, entity_id }) => {
@@ -513,7 +514,7 @@ export function createPackageTools(
       description: 'Remove a pinned entity from a knowledge package.',
       inputSchema: z.object({
         package_id: z.string(),
-        entity_type: z.enum(LINKABLE_ENTITY_TYPES),
+        entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
         entity_id: z.string(),
       }),
       execute: async ({ package_id, entity_type, entity_id }) => {

@@ -24,6 +24,14 @@ const selectPolicy = (() => {
   return code.slice(start, code.indexOf(';', start))
 })()
 
+/**
+ * A kind's name when 500 was written: 503 renamed the graph's `email` to
+ * `email_thread` (and redefines this policy and function under the new
+ * name, pinned by migration-503.test.ts), so 500 is read here as written.
+ */
+const NAME_IN_500: Record<string, string> = { email_thread: 'email' }
+const in500 = (kind: string) => NAME_IN_500[kind] ?? kind
+
 /** Linkable kinds every member of the workspace reads (their tables' RLS is membership only). */
 const OPEN_KINDS = ['project', 'action', 'initiative', 'cycle', 'member', 'campaign', 'milestone', 'deal', 'flow']
 
@@ -47,7 +55,7 @@ describe('migration 500: entity_link reads follow both ends', () => {
     expect(selectPolicy).toContain("(target_type <> 'claim' or not (target_id in (select private.claims_hidden_from_me())))")
     const lists = [...selectPolicy.matchAll(/<> all \('\{([a-z_,]+)\}'::text\[\]\)/g)].map((m) => m[1].split(','))
     expect(lists).toHaveLength(2)
-    const expected = LINK_FENCED_KINDS.filter((k) => k !== 'claim')
+    const expected = LINK_FENCED_KINDS.filter((k) => k !== 'claim').map(in500)
     for (const list of lists) expect([...list].sort()).toEqual([...expected].sort())
     expect(selectPolicy).toContain('public.entity_visible_to(source_type, source_id, workspace_id, (select auth.uid()))')
     expect(selectPolicy).toContain('public.entity_visible_to(target_type, target_id, workspace_id, (select auth.uid()))')
@@ -56,7 +64,7 @@ describe('migration 500: entity_link reads follow both ends', () => {
 
   it('entity_visible_to has a branch for every fenced kind but claim-in-policy, and answers a signed-in caller only about themself', () => {
     const fn = code.slice(code.indexOf('create or replace function public.entity_visible_to'), code.indexOf('create or replace function public.entity_refs_hidden'))
-    for (const kind of LINK_FENCED_KINDS) expect(fn, kind).toMatch(new RegExp(`'${kind}'`))
+    for (const kind of LINK_FENCED_KINDS) expect(fn, kind).toMatch(new RegExp(`'${in500(kind)}'`))
     expect(fn).toContain('if auth.uid() is not null and p_user is distinct from auth.uid() then return false; end if;')
     expect(fn).toContain('security definer')
     expect(fn).toContain('set search_path = public, pg_temp')

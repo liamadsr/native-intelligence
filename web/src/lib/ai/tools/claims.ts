@@ -14,6 +14,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { entityKindEnum } from '@/lib/knowledge/entity-kind-schema'
 import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { withGrantedIds } from '@/lib/entity-access/grants'
 import {
@@ -475,7 +476,7 @@ export async function dropHiddenFromBundle(
 }
 
 const linkSchema = z.object({
-  entity_type: z.enum(LINKABLE_ENTITY_TYPES),
+  entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
   entity_id: z.string(),
   relation: z.enum(RELATIONS).optional().default('about'),
 })
@@ -639,8 +640,7 @@ export function createClaimTools(
         'Set `cross_workspace: true` to list claims across every workspace the user belongs to (each row is tagged with `workspace_id` + `workspace_name`); not supported together with `group_by_change`. ' +
         'Note: `status` defaults to `active`, which hides superseded/corrected facts — `group_by_change` unions superseded rows in for you.',
       inputSchema: z.object({
-        entity_type: z
-          .enum(LINKABLE_ENTITY_TYPES)
+        entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES)
           .optional()
           .describe('Filter to claims linked to this entity type'),
         entity_id: z
@@ -1711,9 +1711,9 @@ export function createClaimTools(
       description:
         'Create a graph edge between two entities. Use this to record that a claim is "about" a contact, a project "depends_on" another project, a document "cites" a capture, etc. The link is workspace-scoped.',
       inputSchema: z.object({
-        source_type: z.enum(LINKABLE_ENTITY_TYPES),
+        source_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
         source_id: z.string(),
-        target_type: z.enum(LINKABLE_ENTITY_TYPES),
+        target_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
         target_id: z.string(),
         relation: z.enum(RELATIONS).optional().default('mentions'),
         weight: z.number().optional(),
@@ -2006,7 +2006,7 @@ export function createClaimTools(
         'Walk the entity graph one hop. Returns entities linked to a given entity, each WITH a resolved label so you usually don\'t need a follow-up get_* call. Use direction="outbound" for what the entity links to, "inbound" for what links to it, "both" for everything. Filter by relation. For multi-hop context in one call, prefer get_context_bundle. ' +
         'The entity lives in exactly ONE workspace; set `cross_workspace: true` to resolve which of the user\'s workspaces holds this entity_id (e.g. an id copied from another workspace) and traverse there.',
       inputSchema: z.object({
-        entity_type: z.enum(LINKABLE_ENTITY_TYPES),
+        entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
         entity_id: z.string(),
         direction: z
           .enum(['outbound', 'inbound', 'both'])
@@ -2184,7 +2184,7 @@ export function createClaimTools(
         'Assemble the connected knowledge subgraph around an entity in ONE call — claims about it, the entities they link to, and the edges between them, with labels resolved. Prefer this over chaining get_claim + traverse + get_* when you need context for a contact, project, capture, action, or claim. Returns a compact { center, depth, nodes, edges } graph. Use depth 1 for immediate neighbors, 2 (default) for a richer bundle. ' +
         'The entity lives in exactly ONE workspace; set `cross_workspace: true` to resolve which of the user\'s workspaces holds this entity_id (e.g. an id copied from another workspace) and build the bundle there.',
       inputSchema: z.object({
-        entity_type: z.enum(LINKABLE_ENTITY_TYPES),
+        entity_type: entityKindEnum(LINKABLE_ENTITY_TYPES),
         entity_id: z.string(),
         depth: z
           .number()

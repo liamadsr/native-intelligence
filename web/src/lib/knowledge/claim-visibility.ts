@@ -40,8 +40,14 @@ import { CITABLE_SOURCE_TYPES } from '@/lib/knowledge/entity-registry'
  * published doc (those fork a new shared claim instead).
  */
 
-/** `claim_source.source_type` / entity types that are mail. */
-export const MAIL_SOURCE_TYPES: ReadonlySet<string> = new Set(['email'])
+/**
+ * `claim_source.source_type` / entity types that are mail: the graph kind
+ * `email_thread`, and the retired `email` (the graph's name for it until
+ * migration 503, and the only mail value `claim_source` ever held: its CHECK
+ * keeps that one as a tombstone and never admits mail under the new name,
+ * since mail is never cited, migration 341).
+ */
+export const MAIL_SOURCE_TYPES: ReadonlySet<string> = new Set(['email_thread', 'email'])
 
 export function isMailSourceType(type: string | null | undefined): boolean {
   return typeof type === 'string' && MAIL_SOURCE_TYPES.has(type)
