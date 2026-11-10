@@ -13,6 +13,7 @@
  */
 
 import crypto from 'crypto'
+import { APP_PAGE_ORIGINS } from '@/lib/app-url'
 
 /** The state param's life — matches the oauth_nonce cookie's 10-minute maxAge. */
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000
@@ -169,6 +170,14 @@ export interface OAuthStateData {
   then: string[]
   /** A texted link's capabilities already connected. */
   done: string[]
+  /**
+   * The app page origin a web connect began on, when the provider calls back
+   * another one (the hosted app answers on two domains while it moves, and
+   * each provider knows one callback). The callback hands the provider's
+   * answer over to it: that is where the nonce cookie and the opener are.
+   * Null otherwise, and always one of the app's own page origins.
+   */
+  origin: string | null
 }
 
 /**
@@ -226,6 +235,7 @@ export function verifyOAuthState(
       via,
       then: via ? strs(raw.then) : [],
       done: via ? strs(raw.done) : [],
+      origin: source === 'web' && !via && APP_PAGE_ORIGINS.includes(str(raw.origin) ?? '') ? str(raw.origin) : null,
     },
   }
 }

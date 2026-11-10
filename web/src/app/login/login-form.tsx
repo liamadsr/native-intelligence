@@ -1,7 +1,7 @@
 'use client'
 
 import { Link } from '@/components/link'
-import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect } from '@/lib/auth/login-redirect'
+import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '@/lib/auth/login-redirect'
 import { Logo } from '@/components/logo'
 import { Button } from '@/components/ui/button'
 import {
@@ -304,7 +304,7 @@ export function LoginForm({
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: signInReturnUrl('browser', window.location.origin),
         },
       })
 
@@ -322,7 +322,7 @@ export function LoginForm({
     const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/desktop-callback`,
+        redirectTo: signInReturnUrl('desktop', window.location.origin),
         skipBrowserRedirect: true,
       },
     })
@@ -413,14 +413,13 @@ export function LoginForm({
     setSuccess('')
     setEmailLoading(true)
 
-    const callbackPath = isDesktop ? '/auth/desktop-callback' : '/auth/callback'
 
     const supabase = createClient()
     const { data, error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}${callbackPath}`,
+        emailRedirectTo: signInReturnUrl(isDesktop ? 'desktop' : 'browser', window.location.origin),
       },
     })
 
@@ -463,13 +462,12 @@ export function LoginForm({
     setSuccess('')
     setEmailLoading(true)
 
-    const callbackPath = isDesktop ? '/auth/desktop-callback' : '/auth/callback'
 
     const supabase = createClient()
     const { error: magicLinkError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
       options: {
-        emailRedirectTo: `${window.location.origin}${callbackPath}`,
+        emailRedirectTo: signInReturnUrl(isDesktop ? 'desktop' : 'browser', window.location.origin),
       },
     })
 

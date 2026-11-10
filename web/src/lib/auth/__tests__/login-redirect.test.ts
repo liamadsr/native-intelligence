@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect } from '../login-redirect'
+import { isInviteRedirectPath, isMcpTarget, mcpRedirectTarget, resolvePostAuthRedirect, signInReturnUrl } from '../login-redirect'
 import { APP_DOMAINS } from '@/lib/app-url'
 
 // The hosted app answers on two domains while it moves (src/lib/app-url.ts): every case below runs on each.
@@ -52,6 +52,22 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
         expect(mcpRedirectTarget(`https://${host}/api/mcp/oauth/authorize?client_id=x`, ORIGIN, undefined), host).toBeNull()
       }
       expect(mcpRedirectTarget(`http://${OTHER}/api/mcp/oauth/authorize?client_id=x`, ORIGIN, undefined)).toBeNull()
+    })
+  })
+
+  describe('signInReturnUrl (where Supabase sends a sign-in back)', () => {
+    const OTHER = APP_DOMAINS.find((d) => d !== DOMAIN)!
+
+    it("a desktop sign-in comes back through the app's address, whatever origin the app's window is on", () => {
+      // The window on this domain, the address (and Supabase's redirect list) on the other.
+      expect(signInReturnUrl('desktop', ORIGIN, `https://${OTHER}`)).toBe(`https://${OTHER}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', ORIGIN, ORIGIN)).toBe(`${ORIGIN}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', 'http://localhost:3000', 'http://localhost:3000')).toBe('http://localhost:3000/auth/desktop-callback')
+    })
+
+    it("a browser's comes back to the page's own origin, where its verifier cookie is", () => {
+      expect(signInReturnUrl('browser', ORIGIN, `https://${OTHER}`)).toBe(`${ORIGIN}/auth/callback`)
+      expect(signInReturnUrl('browser', `https://www.${DOMAIN}`, `https://${OTHER}`)).toBe(`https://www.${DOMAIN}/auth/callback`)
     })
   })
 

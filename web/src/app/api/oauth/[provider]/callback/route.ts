@@ -13,6 +13,7 @@ import { completeOAuthConnect } from '@/lib/oauth/complete-connect'
 import { handleTextConnectCallback } from '@/lib/links/text-connect-callback'
 import { confirmTextConnect } from '@/lib/links/oauth-link'
 import { getServiceClient } from '@/lib/supabase/service'
+import { requestOrigin } from '@/lib/security/same-origin'
 
 /**
  * GET /api/oauth/[provider]/callback — where the provider sends the person
@@ -56,7 +57,19 @@ import { getServiceClient } from '@/lib/supabase/service'
  *   (roadmap track A, 2026-11-01), for the founder to weigh.
  *
  * Every state carries a signed `exp` (10 minutes); an expired state is refused.
+ *
+ * ── A connect that began on the app's other domain
+ * The hosted app answers on two domains while it moves (src/lib/app-url.ts),
+ * and each provider knows ONE callback, on the app's address. A web connect
+ * that began on the other domain has its nonce cookie and its opener there,
+ * so this route would refuse it. Its state says where it began (`origin`,
+ * signed, one of the app's page origins), and the provider's answer is handed
+ * over to that domain's callback, unspent, which finishes it as usual. The
+ * redirect_uri sent to the provider is the same on both, so the exchange
+ * still matches. `handed` marks an answer that has been handed over once.
  */
+const HANDED_OVER = 'handed'
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ provider: string }> },
@@ -78,10 +91,18 @@ export async function GET(
   const userId = state.userId
   const capability: OAuthCapability = state.capability && isValidCapability(state.capability) ? state.capability : 'calendar'
 
+  if (source === 'web' && state.origin && !url.searchParams.has(HANDED_OVER) && state.origin !== requestOrigin(req)) {
+    const there = new URL(`/api/oauth/${encodeURIComponent(provider)}/callback`, state.origin)
+    there.search = url.search
+    there.searchParams.set(HANDED_OVER, '1')
+    return NextResponse.redirect(there)
+  }
+
   function buildRedirect(path: string, query: Record<string, string>) {
     const qs = new URLSearchParams(query).toString()
     if (source === 'web') {
-      const base = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      // Back to the page it began on: the app's address, or its other domain (state.origin).
+      const base = state.origin ?? (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
       // Honour return_to if set (e.g. from onboarding), validating it's a relative path
       const webPath =
         state.returnTo && state.returnTo.startsWith('/') && !state.returnTo.includes('//')

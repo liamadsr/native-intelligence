@@ -4,7 +4,7 @@
  * every target is checked here, on the way in (the login form's cookie) and
  * on the way out (the OAuth callback, the password sign-in).
  */
-import { APP_PAGE_ORIGINS } from '@/lib/app-url'
+import { APP_PAGE_ORIGINS, appUrl } from '@/lib/app-url'
 
 /**
  * The page's own origin, the app's configured one (NEXT_PUBLIC_APP_URL), which
@@ -68,6 +68,26 @@ export function resolvePostAuthRedirect(redirectPath: string | null, origin: str
     return redirectPath
   }
   return '/account'
+}
+
+/**
+ * Where Supabase sends a sign-in back to once the person has proved who they
+ * are (its `redirectTo` / `emailRedirectTo`).
+ *
+ * In a browser: /auth/callback on the page's own origin, because that route
+ * redeems the code with the verifier cookie this origin holds.
+ *
+ * In the desktop app: /auth/desktop-callback on the app's address
+ * (NEXT_PUBLIC_APP_URL), whatever origin the app's window is on. That page
+ * only hands the code to the app (a dial8desktop:// link) and the app's own
+ * webview redeems it, so any of the app's domains would do, and the app's
+ * address is the one Supabase's redirect list is sure to hold. A redirect
+ * Supabase does not list falls back to its Site URL, where a desktop sign-in
+ * ends nowhere: that is what a build loading another of the app's domains
+ * would get if this followed the page.
+ */
+export function signInReturnUrl(where: 'desktop' | 'browser', pageOrigin: string, appAddress: string = appUrl()): string {
+  return where === 'desktop' ? `${appAddress}/auth/desktop-callback` : `${pageOrigin}/auth/callback`
 }
 
 /** Whether a sign-in target needs a full page load (an API route the client router can't open). */

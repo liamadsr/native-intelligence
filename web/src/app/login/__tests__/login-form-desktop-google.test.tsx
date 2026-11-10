@@ -53,6 +53,8 @@ describe('LoginForm desktop Google sign-in', () => {
   let root: Root
 
   beforeEach(async () => {
+    // The app's address, on another domain than the page: a desktop sign-in comes back through the address (login-redirect.ts signInReturnUrl).
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
     for (const m of Object.values(mocks)) m.mockClear()
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -63,6 +65,7 @@ describe('LoginForm desktop Google sign-in', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     container.remove()
+    vi.unstubAllEnvs()
   })
 
   function googleButton(): HTMLButtonElement {
@@ -85,7 +88,7 @@ describe('LoginForm desktop Google sign-in', () => {
     await clickGoogle()
     expect(mocks.signInWithOAuth).toHaveBeenCalledWith({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/desktop-callback`, skipBrowserRedirect: true },
+      options: { redirectTo: 'https://dial8.ai/auth/desktop-callback', skipBrowserRedirect: true },
     })
     expect(mocks.authWebSession).toHaveBeenCalledWith('https://abc.supabase.co/auth/v1/authorize?provider=google')
     expect(mocks.exchange).toHaveBeenCalledWith('abc')

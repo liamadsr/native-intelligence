@@ -58,6 +58,8 @@ describe('LoginForm Google sign-in on nativeintelligence.dev', () => {
   let root: Root
 
   beforeEach(() => {
+    // The app's address, on another domain than the page: a desktop sign-in comes back through the address (login-redirect.ts signInReturnUrl).
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
     mocks.desktop = false
     for (const m of [mocks.push, mocks.signInWithOAuth, mocks.exchange, mocks.verifyOtp, mocks.authWebSession]) m.mockClear()
     localStorage.clear()
@@ -69,6 +71,7 @@ describe('LoginForm Google sign-in on nativeintelligence.dev', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     container.remove()
+    vi.unstubAllEnvs()
   })
 
   async function render() {
@@ -144,7 +147,7 @@ describe('LoginForm Google sign-in on nativeintelligence.dev', () => {
 
     expect(mocks.signInWithOAuth).toHaveBeenCalledWith({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/desktop-callback`, skipBrowserRedirect: true },
+      options: { redirectTo: 'https://dial8.ai/auth/desktop-callback', skipBrowserRedirect: true },
     })
     expect(mocks.authWebSession).toHaveBeenLastCalledWith('https://abc.supabase.co/auth/v1/authorize?provider=google')
     expect(mocks.exchange).toHaveBeenCalledWith('abc')
