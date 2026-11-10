@@ -10,7 +10,8 @@ export default async function ResetPasswordPage({
 }: {
   searchParams: Promise<{ error?: string | string[] }>
 }) {
-  // A reset link that failed lands here with ?error= (src/app/auth/confirm).
+  // A reset link that failed lands here with ?error= (src/app/auth/confirm,
+  // or the desktop app's deep-link handler).
   const { error } = await searchParams
-  return <ResetPasswordForm linkFailed={error !== undefined} />
+  return <ResetPasswordForm linkError={error === undefined ? undefined : [error].flat()[0] ?? ''} />
 }
