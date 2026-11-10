@@ -1,6 +1,6 @@
 # Backups
 
-One small container (`ni-backup`) that runs cron. Each line in [`crontab`](crontab) is a job. Today there is one: every night it dumps Inngest's Postgres, encrypts the dump and uploads it to a Backblaze B2 bucket, deletes backups older than 30 days, then requests a dead-man URL. Setting it up is step 9 of [`../README.md`](../README.md). This page is about what the backups are and how to get one back.
+One small container (`ni-backup`) that runs cron. Each line in [`crontab`](crontab) is a job. Today there is one: every night it dumps Inngest's Postgres, encrypts the dump and uploads it to a Backblaze B2 bucket, deletes backups older than 30 days, then requests a dead-man URL. Setting it up is step 11 of [`../README.md`](../README.md). This page is about what the backups are and how to get one back.
 
 ## What a backup is
 

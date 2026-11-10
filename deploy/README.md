@@ -241,7 +241,8 @@ What ends up where:
 
 Docker volumes   ni-inngest-postgres   ni-inngest-redis
                  ni-edge-caddy-data    ni-edge-caddy-config
-Docker networks  ni-edge      shared by Caddy and whatever it proxies to (172.30.0.0/24)
+Docker networks  ni-edge      shared by Caddy and whatever it proxies to (172.30.0.0/24;
+                              fixed addresses below .128, Docker hands out the rest)
                  ni-inngest   Inngest, its Postgres and Redis, and the backup container; no route out
 ```
 
@@ -253,10 +254,10 @@ Docker networks  ni-edge      shared by Caddy and whatever it proxies to (172.30
 
 Each one is created the same way, shown in the steps below: `sudo install -m 600 -o root -g root .env.example .env`, then `sudoedit .env`.
 
-**The shared network.** Create it once. Caddy and Inngest both join it by name, and the fixed range is what gives the Inngest dashboard a fixed address for the tunnel in step 10.
+**The shared network.** Create it once. Caddy and Inngest both join it by name, and the fixed range is what gives the Inngest dashboard a fixed address for the tunnel in step 10. `--ip-range` makes Docker hand out addresses from the upper half only (`.128` and up), so the lower half is free for fixed addresses such as Inngest's `172.30.0.10`. Without it, any container that joined first could be given that address, and Inngest would then fail to start.
 
 ```bash
-sudo docker network create --subnet 172.30.0.0/24 ni-edge
+sudo docker network create --subnet 172.30.0.0/24 --ip-range 172.30.0.128/25 ni-edge
 ```
 
 ## 8. Inngest
@@ -289,7 +290,7 @@ sudo install -m 600 -o root -g root .env.example .env
 sudoedit .env
 ```
 
-Fill in `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`, `POSTGRES_PASSWORD` and `INNGEST_SDK_URL`. The last is the app's public serve endpoint, `https://<the app's production domain>/api/inngest`: the domain production answers on today, without a redirect. Leave `COMPOSE_PROFILES` commented until step 13.
+Fill in `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`, `POSTGRES_PASSWORD` and `INNGEST_SDK_URL`. The last is the app's public serve endpoint, `https://<the app's production domain>/api/inngest`: the domain production answers on today, without a redirect. Nothing uses it until step 13: only the sync loop reads it, and the server itself is not given the app's address. Leave `COMPOSE_PROFILES` commented until step 13.
 
 ```bash
 sudo docker compose up -d
@@ -304,7 +305,7 @@ After about a minute all three (`ni-inngest`, `ni-inngest-postgres`, `ni-inngest
 Two things to know:
 
 - `POSTGRES_PASSWORD` is only read the first time Postgres starts on an empty volume. Changing it in `.env` later does not change the database's password.
-- Until step 13 the dashboard will show the app with an error or with no functions. That is expected: the app still talks to Inngest Cloud.
+- Until step 13 the dashboard shows no app at all. That is expected: the server is not told about the app, and the app still talks to Inngest Cloud. Nothing here sends production a request before step 13.
 
 ## 9. Caddy
 
@@ -369,7 +370,7 @@ And the pass-through must answer the way the hosted project does: `200` or `401`
 curl -s -o /dev/null -w '%{http_code}\n' https://sb.nativeintelligence.dev/auth/v1/health
 ```
 
-After changing the `Caddyfile` (by hand or with `git pull`), check it and reload without dropping connections:
+After changing the `Caddyfile` (by hand or with `git pull`), check it and reload. Ordinary requests in flight are not dropped. Open WebSockets are: once the app uses the Supabase host, a reload closes every live-update connection at once and each client reconnects by itself, so reload at a quiet moment.
 
 ```bash
 sudo docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
@@ -447,12 +448,12 @@ Without `--apply` it only counts:
 sudo /opt/native-intelligence/deploy/inngest/prune-history.sh
 ```
 
-Once the server has run for a month, schedule it for the first of each month:
+Once the server has run for a month, schedule it for the first of each month. The hour is 10:23 UTC on purpose: step 4 lets the server reboot itself at 08:30 UTC when an update needs it, and a prune that started just before would be cut off part-way.
 
 ```bash
 sudo tee /etc/cron.d/ni-inngest-prune >/dev/null <<'EOF'
 # Monthly prune of finished Inngest runs older than 30 days. See deploy/README.md.
-23 8 1 * * root /opt/native-intelligence/deploy/inngest/prune-history.sh --apply 2>&1 | logger -t ni-inngest-prune
+23 10 1 * * root /opt/native-intelligence/deploy/inngest/prune-history.sh --apply 2>&1 | logger -t ni-inngest-prune
 EOF
 ```
 
@@ -487,7 +488,7 @@ Until this step the server is idle and the app still uses Inngest Cloud. The swi
    Within a minute it should log `functions changed`. In the dashboard (step 10) the app `native-intelligence` must show its functions and no error, at the URL from `INNGEST_SDK_URL`.
 5. **Watch one real run** go through in the dashboard.
 
-Why the sync loop exists: `inngest start` asks an app for its function list once at startup, and afterwards only while that app is in an error state. A deploy that adds or changes a function would otherwise never reach the server. The loop sends the app the same request every 60 seconds (`SYNC_INTERVAL_SECONDS`); a registration that changes nothing is ignored. It is kept off before this step because the app registers with whichever Inngest *it* is configured for.
+Why the sync loop exists: `inngest start` only asks an app for its function list while that app is in an error state. A deploy that adds or changes a function would otherwise never reach the server. The server is deliberately not started with the app's address (`--sdk-url`): given one, it sends the app a sync request at startup and then every minute until the app registers with it, and before this step each of those would make production re-register with Inngest Cloud. The loop sends the app the same request every 60 seconds (`SYNC_INTERVAL_SECONDS`); a registration that changes nothing is ignored. It is kept off before this step because the app registers with whichever Inngest *it* is configured for.
 
 If the app's host puts a bot challenge or deployment protection in front of the production domain, `/api/inngest` has to be exempt: the server calls it from this machine's address, and so does the sync loop.
 
@@ -557,6 +558,8 @@ Tested, on a throwaway Docker host with the real images (Inngest v1.51.0, Postgr
 - Backblaze B2: uploads, the application key's permissions and deletes for retention ran against a local folder, not B2.
 - The pass-through against the real hosted Supabase project.
 - The monthly cron line and the prune at real table sizes.
+- The server started without `--sdk-url`, which is how `inngest/compose.yaml` now runs it. The stack above was tested with that flag set; the flag was removed afterwards, from reading the server's source (`pkg/devserver/service.go` at v1.51.0), because with it an idle server asks production to sync every minute. Registration through the sync loop, the path cut-over uses, was tested. Check on first start that the server comes up healthy and, at step 13, that the app appears.
+- The `--ip-range` on the shared network (step 7): added afterwards for the same reason, not run.
 
 **Open items:**
 

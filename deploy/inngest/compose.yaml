@@ -26,12 +26,16 @@ services:
       - "8288"
       - --redis-uri
       - redis://redis:6379
-      # The app's serve endpoint. The server PUTs this URL and the app answers
-      # by registering its functions (POST /fn/register). In v1.51.0 `start`
-      # does that once at startup, then every poll interval only while the
-      # app is in an error state: see the `sync` service below.
-      - --sdk-url
-      - ${INNGEST_SDK_URL:?set INNGEST_SDK_URL in .env}
+      # No --sdk-url, on purpose. Given an app's URL, v1.51.0 `start` stores
+      # that app as "unreachable" and sends it a sync request (a PUT) at
+      # startup and then every poll interval until the app registers HERE
+      # (pkg/devserver/service.go, pollSDKs). Before cut-over the app still
+      # registers with Inngest Cloud, so each of those requests would make
+      # production re-register there, once a minute, for as long as this
+      # server sits idle. The app is asked to sync by the `sync` service below
+      # instead, which is off until cut-over; the app then registers itself
+      # (POST /fn/register). The interval below still applies to a registered
+      # app that is in an error state.
       - --poll-interval
       - "60"
     environment:
@@ -49,7 +53,9 @@ services:
       # Private: Postgres and Redis.
       internal: {}
       # Shared with Caddy. The fixed address is what the dashboard SSH tunnel
-      # in ../README.md points at.
+      # in ../README.md points at. It is below 172.30.0.128, the half of the
+      # network Docker never hands out by itself (see `docker network create`
+      # in ../README.md), so no other container can be given it first.
       edge:
         ipv4_address: 172.30.0.10
     healthcheck:

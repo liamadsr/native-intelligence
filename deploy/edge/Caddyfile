@@ -82,7 +82,8 @@
 	}
 
 	# Sync: the app registers its functions when it is asked to (a PUT to its
-	# serve endpoint, from the server at startup or from the sync loop).
+	# serve endpoint, from the sync loop, or from the server while a registered
+	# app is in an error state).
 	@register {
 		method POST
 		path /fn/register
