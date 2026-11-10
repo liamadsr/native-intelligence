@@ -1,5 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { authCookieOptions } from '@/lib/supabase/project'
 
 // createBrowserClient is a module-level singleton in the browser (@supabase/ssr
 // caches it), so these realtime options are applied ONCE for the whole app on
@@ -32,6 +33,8 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // The session cookie keeps its name when the project's address moves.
+      ...authCookieOptions(),
       realtime: {
         heartbeatCallback: (status) => {
           if (status === 'timeout' || status === 'disconnected') {

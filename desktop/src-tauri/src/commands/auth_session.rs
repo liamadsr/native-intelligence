@@ -40,8 +40,16 @@ extern "C" {
 /// `dial8desktop://` URL the page reads (security review 2026-10-31). The
 /// production Supabase project and the app's own domains (nav_guard.rs
 /// `APP_DOMAINS`), one of which a release build loads.
+///
+/// The production project has two addresses: Supabase's own, and ours in
+/// front of it (`sb.`). Which one a sign-in starts on is the web's setting
+/// (NEXT_PUBLIC_SUPABASE_URL), and it moves from the first to the second. A
+/// build that lists only the first refuses every Google sign-in from the day
+/// the web moves, so both are here, and the first stays for as long as any
+/// deployment can still be using it.
 const SIGN_IN_PAGES: &[(&str, &str)] = &[
     ("bzfthjzyzevjokbuhqci.supabase.co", SUPABASE_AUTHORIZE),
+    ("sb.nativeintelligence.dev", SUPABASE_AUTHORIZE),
     ("nativeintelligence.dev", GOOGLE_SIGN_IN),
     ("nativeintelligence.dev", CHATGPT_SIGN_IN),
     // TODO(rename-compat): the old domain, while it still serves the app (nav_guard.rs `APP_DOMAINS`).
@@ -148,6 +156,7 @@ mod tests {
     use super::*;
 
     const GOOGLE: &str = "https://bzfthjzyzevjokbuhqci.supabase.co/auth/v1/authorize?provider=google&redirect_to=https%3A%2F%2Fdial8.ai%2Fauth%2Fdesktop-callback&code_challenge=abc&code_challenge_method=s256";
+    const GOOGLE_VIA_OUR_ADDRESS: &str = "https://sb.nativeintelligence.dev/auth/v1/authorize?provider=google&redirect_to=https%3A%2F%2Fdial8.ai%2Fauth%2Fdesktop-callback&code_challenge=abc&code_challenge_method=s256";
     const NI_GOOGLE: &str = "https://dial8.ai/auth/google?desktop=1&bind=0123abcd";
     const CHATGPT: &str = "https://dial8.ai/auth/chatgpt?desktop=1&bind=0123abcd";
     const NEW_GOOGLE: &str = "https://nativeintelligence.dev/auth/google?desktop=1&bind=0123abcd";
@@ -157,6 +166,7 @@ mod tests {
     fn the_sign_in_pages_the_web_opens_are_allowed() {
         for debug_build in [false, true] {
             assert!(page_allowed(GOOGLE, debug_build));
+            assert!(page_allowed(GOOGLE_VIA_OUR_ADDRESS, debug_build));
             assert!(page_allowed(NI_GOOGLE, debug_build));
             assert!(page_allowed(CHATGPT, debug_build));
             assert!(page_allowed(NEW_GOOGLE, debug_build));
@@ -180,6 +190,23 @@ mod tests {
             "https://abc.supabase.co/auth/v1/authorize?provider=google",
             "https://bzfthjzyzevjokbuhqci.supabase.co/auth/v1/verify?token=x",
             "https://bzfthjzyzevjokbuhqci.supabase.co/auth/v1/authorize/../admin",
+            // Our own address for the project: the authorize page and nothing else on it,
+            // and no other host under the domain gets that page.
+            "https://sb.nativeintelligence.dev/auth/v1/verify?token=x",
+            "https://sb.nativeintelligence.dev/auth/v1/authorize/../admin",
+            "https://sb.nativeintelligence.dev/auth/v1/callback?code=x",
+            "https://sb.nativeintelligence.dev/",
+            "https://sb.nativeintelligence.dev/auth/google",
+            "https://sb.nativeintelligence.dev/auth/chatgpt",
+            "https://nativeintelligence.dev/auth/v1/authorize?provider=google",
+            "https://inngest.nativeintelligence.dev/auth/v1/authorize?provider=google",
+            "https://x.sb.nativeintelligence.dev/auth/v1/authorize?provider=google",
+            "https://sb.nativeintelligence.dev.evil.example/auth/v1/authorize?provider=google",
+            "https://sb.nativeintelligence.dev@evil.example/auth/v1/authorize?provider=google",
+            "https://user:pw@sb.nativeintelligence.dev/auth/v1/authorize?provider=google",
+            "https://sb.nativeintelligence.dev:8443/auth/v1/authorize?provider=google",
+            "http://sb.nativeintelligence.dev/auth/v1/authorize?provider=google",
+            "https://sb.dial8.ai/auth/v1/authorize?provider=google",
             // Another page on dial8.ai, a subdomain, a look-alike.
             "https://dial8.ai/account",
             "https://dial8.ai/auth/chatgpt/callback?code=x",

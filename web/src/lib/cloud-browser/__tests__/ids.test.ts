@@ -40,4 +40,23 @@ describe('cloud browser ids', () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321'
     expect(cloudBrowserNamespace()).toBe('local')
   })
+
+  it('keeps the project\'s namespace when the project is reached through another address', () => {
+    const before = { url: process.env.NEXT_PUBLIC_SUPABASE_URL, ref: process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF }
+    try {
+      // Unpinned, an address of ours names no project: that reads as `local`,
+      // the namespace every development machine uses.
+      process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://db.example.test'
+      delete process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF
+      expect(cloudBrowserNamespace()).toBe('local')
+      // Pinned, it is the same namespace the project's own address gave.
+      process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF = 'bzfthjzyzevjokbuhqci'
+      expect(cloudBrowserNamespace()).toBe('bzfthjzy')
+    } finally {
+      if (before.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = before.url
+      if (before.ref === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF
+      else process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF = before.ref
+    }
+  })
 })
