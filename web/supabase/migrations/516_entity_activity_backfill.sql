@@ -11,17 +11,23 @@
 --                    project's user_id, a document's created_by, a contact's
 --                    created_by_member_id, a deal's created_by_user_id, a
 --                    loop's created_by), as a member of the record's own
---                    workspace; the system otherwise. The same rows the live
+--                    workspace; the system otherwise. An agent's, as the
+--                    live trigger credits one (actor 'agent', for the member
+--                    it worked for), where the row says an agent made it: a
+--                    task from a chat or a meeting's extraction, a deal made
+--                    from a meeting. The same rows the live
 --                    triggers leave out stay out: suggested tasks,
 --                    evaluation captures, synced or imported contacts and
 --                    companies, contacts merged into another.
 --   archived         a document, capture, project or initiative archived
 --                    now, at its updated_at (no column keeps the moment
 --                    itself; the last write is the closest the data has).
+--                    The system's: nothing says who archived it.
 --   status_changed   a task in a completed or canceled state, at its
 --                    completed_at; a deal whose stage moved after it was
 --                    made, at its stage_changed_at. Detail {from: null, to}:
---                    the state or stage it is in now.
+--                    the state or stage it is in now. The system's: nothing
+--                    says who moved it.
 --   commented        every comment, at its created_at, by its author (488's
 --                    commented kinds: task, capture, document, project,
 --                    contact).
@@ -41,7 +47,10 @@
 --     indexed probe of (entity_type, entity_id) per candidate;
 --   - each backfilled row's id is derived from what it records
 --     (entity_activity_backfill_id), so a second run, or two at once,
---     conflicts on the primary key and writes nothing.
+--     conflicts on the primary key and writes nothing;
+--   - a record batch takes its locks in one statement and writes in the
+--     next, so the probe reads a snapshot taken after every change it waited
+--     on (an archive or a completion committed meanwhile, with its live row).
 --
 -- Batched: entity_activity_backfill_step() does ONE batch of one source
 -- (1000 rows by default, in primary-key order past where the last batch
@@ -66,9 +75,14 @@
 --     entity_activity_writable (not inside a merge, the workspace still
 --     there) gates every row, as it gates every trigger.
 --
+-- A run that wrote nothing, while documents, projects, initiatives, deals or
+-- loops exist (the catalog's row count, which row security cannot hide),
+-- fails its last step instead of finishing: the owner most likely reads
+-- through row security.
+--
 -- Who may do what: nothing here is callable by anon or authenticated; the
--- step and the tick run as their owner. The progress table has row security
--- on and no policies.
+-- step and the tick run as their owner. The progress and run tables have
+-- row security on and no policies.
 --
 -- Idempotent (if not exists, create or replace, on conflict do nothing).
 -- No backslashes anywhere in this file.
@@ -160,6 +174,8 @@ declare
   v_last uuid;
   v_seen integer := 0;
   v_rows integer := 0;
+  v_ids uuid[];
+  v_rows_held numeric;
   kinds constant text[] := array['action', 'document', 'capture', 'project', 'initiative', 'contact', 'company', 'deal', 'flow', 'team_chat_message'];
 begin
   if p_limit is null or p_limit < 1 or p_limit > 10000 then
@@ -188,18 +204,23 @@ begin
 
   -- ── Tasks: created; a finished one's state ────────────────────────────────
   if p.source = 'action' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.actions x
+             where x.id > v_after
+               and x.confirmation is distinct from 'suggested'
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
-      select x.id, x.workspace_id, x.user_id, x.created_at, x.completed_at, x.status_id
+      select x.id, x.workspace_id, x.user_id, x.created_at, x.completed_at, x.status_id,
+             -- Made by an agent: from a chat, a meeting's extraction or a chat suggestion.
+             coalesce(x.source_type in ('chat_suggestion', 'meeting_extraction') or x.context_source in ('ai_chat', 'meeting_note'), false) as by_agent
         from public.actions x
-       where x.id > v_after
-         and x.confirmation is distinct from 'suggested'
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('action', b.id::text, v.action), b.workspace_id, 'action', b.id, v.action,
-             case when m.id is null then 'system' else 'member' end, m.id, v.detail, v.at, true
+             case when v.action <> 'created' or m.id is null then 'system' when b.by_agent then 'agent' else 'member' end, case when v.action = 'created' then m.id end, v.detail, v.at, true
         from b
         left join public.member m on m.user_id = b.user_id and m.workspace_id = b.workspace_id
         cross join lateral (values
@@ -214,22 +235,24 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Documents: created; archived ──────────────────────────────────────────
   elsif p.source = 'document' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.document x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.created_by, x.created_at, x.updated_at, x.status
         from public.document x
-       where x.id > v_after
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('document', b.id::text, v.action), b.workspace_id, 'document', b.id, v.action,
-             case when m.id is null then 'system' else 'member' end, m.id, '{}'::jsonb, v.at, true
+             case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end, '{}'::jsonb, v.at, true
         from b
         left join public.member m on m.id = b.created_by and m.workspace_id = b.workspace_id
         cross join lateral (values
@@ -242,23 +265,25 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Captures: created; archived (never an evaluation capture) ─────────────
   elsif p.source = 'capture' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.captures x
+             where x.id > v_after
+               and x.is_eval is not true
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.user_id, x.created_at, x.updated_at, x.status
         from public.captures x
-       where x.id > v_after
-         and x.is_eval is not true
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('capture', b.id::text, v.action), b.workspace_id, 'capture', b.id, v.action,
-             case when m.id is null then 'system' else 'member' end, m.id, '{}'::jsonb, v.at, true
+             case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end, '{}'::jsonb, v.at, true
         from b
         left join public.member m on m.user_id = b.user_id and m.workspace_id = b.workspace_id
         cross join lateral (values
@@ -271,22 +296,24 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Projects: created; archived ───────────────────────────────────────────
   elsif p.source = 'project' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.projects x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.user_id, x.created_at, x.updated_at, x.is_archived
         from public.projects x
-       where x.id > v_after
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('project', b.id::text, v.action), b.workspace_id, 'project', b.id, v.action,
-             case when m.id is null then 'system' else 'member' end, m.id, '{}'::jsonb, v.at, true
+             case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end, '{}'::jsonb, v.at, true
         from b
         left join public.member m on m.user_id = b.user_id and m.workspace_id = b.workspace_id
         cross join lateral (values
@@ -299,18 +326,20 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Initiatives: created; archived (no column names a maker) ──────────────
   elsif p.source = 'initiative' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.initiative x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.created_at, x.updated_at, x.status::text as status
         from public.initiative x
-       where x.id > v_after
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('initiative', b.id::text, v.action), b.workspace_id, 'initiative', b.id, v.action,
@@ -326,20 +355,22 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Contacts: created by hand or by an agent (never a sync, an import or a merged one) ──
   elsif p.source = 'contact' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.contact x
+             where x.id > v_after
+               and (x.source is null or x.source = 'manual')
+               and x.merged_into_contact_id is null
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.created_by_member_id, x.created_at
         from public.contact x
-       where x.id > v_after
-         and (x.source is null or x.source = 'manual')
-         and x.merged_into_contact_id is null
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('contact', b.id::text, 'created'), b.workspace_id, 'contact', b.id, 'created',
@@ -351,19 +382,21 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Companies: created by hand (never a provider's); no column names a maker ──
   elsif p.source = 'company' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.company x
+             where x.id > v_after
+               and x.source_provider is null
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.created_at
         from public.company x
-       where x.id > v_after
-         and x.source_provider is null
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('company', b.id::text, 'created'), b.workspace_id, 'company', b.id, 'created',
@@ -374,22 +407,26 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Deals: created; the stage it moved to ─────────────────────────────────
   elsif p.source = 'deal' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.deal x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
-      select x.id, x.workspace_id, x.created_by_user_id, x.created_at, x.stage_id, x.stage_changed_at
+      select x.id, x.workspace_id, x.created_by_user_id, x.created_at, x.stage_id, x.stage_changed_at,
+             -- Made by an agent from a meeting (the capture-to-deal path).
+             x.source is not distinct from 'capture' as by_agent
         from public.deal x
-       where x.id > v_after
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('deal', b.id::text, v.action), b.workspace_id, 'deal', b.id, v.action,
-             case when m.id is null then 'system' else 'member' end, m.id, v.detail, v.at, true
+             case when v.action <> 'created' or m.id is null then 'system' when b.by_agent then 'agent' else 'member' end, case when v.action = 'created' then m.id end, v.detail, v.at, true
         from b
         left join public.member m on m.user_id = b.created_by_user_id and m.workspace_id = b.workspace_id
         cross join lateral (values
@@ -403,18 +440,20 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Loops: created ────────────────────────────────────────────────────────
   elsif p.source = 'flow' then
+    select coalesce(array_agg(s.id order by s.id), '{}') into v_ids
+      from (select x.id from public.flow x
+             where x.id > v_after
+             order by x.id
+             limit p_limit
+               for share of x) s;
     with b as (
       select x.id, x.workspace_id, x.created_by, x.created_at
         from public.flow x
-       where x.id > v_after
-       order by x.id
-       limit p_limit
-         for share of x
+       where x.id = any(v_ids)
     ), ins as (
       insert into public.entity_activity (id, workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, detail, created_at, backfilled)
       select public.entity_activity_backfill_id('flow', b.id::text, 'created'), b.workspace_id, 'flow', b.id, 'created',
@@ -426,8 +465,7 @@ begin
       on conflict (id) do nothing
       returning 1
     )
-    select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
-      into v_last, v_seen, v_rows;
+    select count(*)::int into v_rows from ins;
 
   -- ── Comments: 'commented' on the record, in its workspace now ─────────────
   elsif p.source = 'comment' then
@@ -511,6 +549,30 @@ begin
     select (select b.id from b order by b.id desc limit 1), (select count(*)::int from b), (select count(*)::int from ins)
       into v_last, v_seen, v_rows;
   end if;
+  -- A record batch: what it locked is what it read.
+  if v_ids is not null then
+    v_seen := cardinality(v_ids);
+    v_last := v_ids[v_seen];
+  end if;
+
+  -- The last source done, and nothing ever written, while the sources hold
+  -- rows (the catalog's count, which row security cannot hide): the owner
+  -- most likely reads through row security. Fail the step (the source stays
+  -- open, the tick records the error) instead of calling it done.
+  if v_seen < p_limit
+     and not exists (select 1 from public.entity_activity_backfill_progress q where q.done_at is null and q.source <> p.source)
+     and not exists (select 1 from public.entity_activity e where e.backfilled) then
+    select coalesce(sum(greatest(c.reltuples, 0)), 0) into v_rows_held
+      from pg_catalog.pg_class c
+     -- The kinds whose every row is logged (contacts, companies and edges
+     -- may all be synced, imported or claims').
+     where c.oid in ('public.document'::regclass, 'public.projects'::regclass, 'public.initiative'::regclass,
+                     'public.deal'::regclass, 'public.flow'::regclass);
+    if v_rows_held > 0 then
+      raise exception 'entity_activity_backfill: every source was read and nothing was written, yet the source tables hold about % rows. Does %, this function''s owner, bypass row security (rolbypassrls) or own those tables?',
+        v_rows_held::bigint, current_user using errcode = 'P0001';
+    end if;
+  end if;
 
   update public.entity_activity_backfill_progress
      set after_id = coalesce(v_last, after_id),
@@ -528,11 +590,53 @@ $$;
 
 revoke all on function public.entity_activity_backfill_step(integer) from public, anon, authenticated;
 
+-- ── The run: when 517 started it, when a batch last moved, why it stopped ──
+create table if not exists public.entity_activity_backfill_run (
+  id boolean primary key default true check (id),
+  scheduled_at timestamptz not null default now(),
+  last_progress_at timestamptz not null default now(),
+  stopped_at timestamptz null,
+  stop_reason text null
+);
+
+alter table public.entity_activity_backfill_run enable row level security;
+revoke all on public.entity_activity_backfill_run from anon, authenticated;
+
+-- ── Stop the job: unschedule it; its run log is cleared if it can be ───────
+create or replace function public.entity_activity_backfill_unschedule()
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  -- The run log is housekeeping: a role that may not delete it still stops the job.
+  begin
+    delete from cron.job_run_details where jobid in (select jobid from cron.job where jobname = 'entity-activity-backfill');
+  exception when others then
+    raise warning 'entity_activity_backfill: run log not cleared: %', sqlerrm;
+  end;
+  if exists (select 1 from cron.job where jobname = 'entity-activity-backfill') then
+    perform cron.unschedule('entity-activity-backfill');
+  end if;
+end;
+$$;
+
+revoke all on function public.entity_activity_backfill_unschedule() from public, anon, authenticated;
+
 -- ── The pg_cron tick (517 schedules it) ─────────────────────────────────────
--- One batch per tick. Done: the job unschedules itself and clears its run
--- log. A failing batch (a lock wait past 2 s, say) is retried on the next
--- tick; 30 failures in a row stop the job and leave the error on the
--- source's progress row for a person to read.
+-- One batch per tick. The job unschedules itself, with the reason on
+-- entity_activity_backfill_run, when:
+--   - every source is done;
+--   - 30 batches in a row failed (a lock wait past 2 s is retried; the error
+--     is on the source's progress row);
+--   - a merge job has been queued for more than 10 minutes (the backfill
+--     waits for merges; run 517 again once it is through);
+--   - no batch moved for 10 minutes, or 60 minutes passed since 517
+--     scheduled it, whatever the reason.
+-- A tick that never runs at all (pg_cron cannot connect) cannot stop
+-- itself: cron.job_run_details shows it, and
+-- select cron.unschedule('entity-activity-backfill') stops it.
 create or replace function public.entity_activity_backfill_tick()
 returns void
 language plpgsql
@@ -542,21 +646,52 @@ as $$
 declare
   r jsonb;
   v_msg text;
-  v_stop boolean := false;
+  v_stop text;
+  v_run public.entity_activity_backfill_run%rowtype;
+  v_merge_since timestamptz;
 begin
-  begin
-    r := public.entity_activity_backfill_step(1000);
-    v_stop := coalesce((r ->> 'finished')::boolean, false);
-  exception when others then
-    get stacked diagnostics v_msg = message_text;
-    update public.entity_activity_backfill_progress
-       set failures = failures + 1, last_error = left(v_msg, 500), updated_at = now()
-     where source = (select q.source from public.entity_activity_backfill_progress q where q.done_at is null order by q.ord limit 1);
-    v_stop := exists (select 1 from public.entity_activity_backfill_progress where done_at is null and failures >= 30);
-  end;
-  if v_stop and exists (select 1 from cron.job where jobname = 'entity-activity-backfill') then
-    delete from cron.job_run_details where jobid in (select jobid from cron.job where jobname = 'entity-activity-backfill');
-    perform cron.unschedule('entity-activity-backfill');
+  insert into public.entity_activity_backfill_run (id) values (true) on conflict (id) do nothing;
+  select * into v_run from public.entity_activity_backfill_run where id;
+
+  if v_run.stopped_at is not null then
+    v_stop := v_run.stop_reason;
+  elsif now() > v_run.scheduled_at + interval '60 minutes' then
+    v_stop := 'ran past its 60-minute limit';
+  elsif now() > v_run.last_progress_at + interval '10 minutes' then
+    v_stop := 'no batch moved for 10 minutes';
+  else
+    begin
+      r := public.entity_activity_backfill_step(1000);
+      if r ? 'source' then
+        update public.entity_activity_backfill_run set last_progress_at = now() where id;
+      end if;
+      if coalesce((r ->> 'finished')::boolean, false) then
+        v_stop := 'finished';
+      elsif r ? 'waiting' then
+        select min(j.created_at) into v_merge_since from public.workspace_merge_job j where j.status = 'queued';
+        if v_merge_since < now() - interval '10 minutes' then
+          v_stop := 'a merge job has been queued since ' || v_merge_since::text || '; apply 517 again once it is through';
+          update public.entity_activity_backfill_progress
+             set last_error = v_stop, updated_at = now()
+           where source = (select q.source from public.entity_activity_backfill_progress q where q.done_at is null order by q.ord limit 1);
+        end if;
+      end if;
+    exception when others then
+      get stacked diagnostics v_msg = message_text;
+      update public.entity_activity_backfill_progress
+         set failures = failures + 1, last_error = left(v_msg, 500), updated_at = now()
+       where source = (select q.source from public.entity_activity_backfill_progress q where q.done_at is null order by q.ord limit 1);
+      if exists (select 1 from public.entity_activity_backfill_progress where done_at is null and failures >= 30) then
+        v_stop := 'failed 30 times in a row: ' || left(v_msg, 300);
+      end if;
+    end;
+  end if;
+
+  if v_stop is not null then
+    update public.entity_activity_backfill_run
+       set stopped_at = coalesce(stopped_at, now()), stop_reason = coalesce(stop_reason, v_stop)
+     where id;
+    perform public.entity_activity_backfill_unschedule();
   end if;
 end;
 $$;

@@ -32,6 +32,7 @@ const fn = (name: string) => new RegExp(`create or replace function public\\.${n
 const step = fn('entity_activity_backfill_step')
 const home = fn('entity_activity_backfill_home')
 const tick = fn('entity_activity_backfill_tick')
+const unschedule = fn('entity_activity_backfill_unschedule')
 
 /** The step's branches, by source. */
 const branches = new Map(
@@ -58,9 +59,13 @@ describe('migration 516: the activity log, backfilled', () => {
     for (const kind of RECORD_SOURCES) {
       const body = branches.get(kind) ?? ''
       expect(body, kind).toContain(`from public.${tableOf.get(kind)} x`)
-      // The batch: key order past where the last one stopped, locked for its moves.
-      expect(body, kind).toMatch(/where x\.id > v_after[\s\S]*order by x\.id\s+limit p_limit\s+for share of x/)
+      // The batch: key order past where the last one stopped, locked for its moves,
+      // in a statement of its own; the write reads what it locked with a fresh snapshot.
+      expect(body, kind).toMatch(/into v_ids\s+from \(select x\.id from public\.\w+ x\s+where x\.id > v_after[\s\S]*?order by x\.id\s+limit p_limit\s+for share of x\) s;\n    with b as \(/)
+      expect(body, kind).toContain('where x.id = any(v_ids)')
+      expect(body, kind).toContain('select count(*)::int into v_rows from ins;')
     }
+    expect(step).toMatch(/v_seen := cardinality\(v_ids\);\s+v_last := v_ids\[v_seen\];/)
   })
 
   it('finds every logged kind’s home, locked, and never a record the log leaves out', () => {
@@ -89,6 +94,30 @@ describe('migration 516: the activity log, backfilled', () => {
     expect(branches.get('contact')).toContain('x.merged_into_contact_id is null')
     expect(branches.get('company')).toContain('x.source_provider is null')
     expect(branches.get('entity_link')).toContain("l.source_type <> 'claim'")
+  })
+
+  it('credits only a record’s making to its maker (or its agent); an archive or a move is the system’s', () => {
+    const maker = "case when v.action = 'created' and m.id is not null then 'member' else 'system' end, case when v.action = 'created' then m.id end"
+    const agent = "case when v.action <> 'created' or m.id is null then 'system' when b.by_agent then 'agent' else 'member' end, case when v.action = 'created' then m.id end"
+    for (const kind of ['document', 'capture', 'project']) expect(branches.get(kind), kind).toContain(maker)
+    for (const kind of ['action', 'deal']) expect(branches.get(kind), kind).toContain(agent)
+    expect(branches.get('action')).toMatch(/source_type in \('chat_suggestion', 'meeting_extraction'\) or x\.context_source in \('ai_chat', 'meeting_note'\), false\) as by_agent/)
+    expect(branches.get('deal')).toContain("x.source is not distinct from 'capture' as by_agent")
+    // A branch with more than 'created' never credits a member without asking which action it is.
+    for (const [source, body] of branches) {
+      if (/\('(archived|status_changed)'/.test(body)) expect(body, source).not.toContain("case when m.id is null then 'system' else 'member' end, m.id")
+    }
+    expect(branches.get('initiative')).toContain("'system', null, '{}'::jsonb, v.at, true")
+  })
+
+  it('does not call a run done when it wrote nothing while its sources hold rows', () => {
+    const guard = step.slice(step.indexOf('nothing ever written'), step.indexOf('update public.entity_activity_backfill_progress'))
+    expect(guard).toContain('not exists (select 1 from public.entity_activity e where e.backfilled)')
+    expect(guard).toMatch(/q\.done_at is null and q\.source <> p\.source/)
+    expect(guard).toContain('from pg_catalog.pg_class c')
+    expect(guard).toMatch(/raise exception 'entity_activity_backfill: every source was read and nothing was written/)
+    // It runs before the source is marked done.
+    expect(step.indexOf('raise exception \'entity_activity_backfill: every source')).toBeLessThan(step.lastIndexOf('done_at = case when v_seen < p_limit then now() end'))
   })
 
   it('respects merges and moves as 489 does', () => {
@@ -125,6 +154,9 @@ describe('migration 516: the activity log, backfilled', () => {
     expect(sql).toContain('revoke all on function public.entity_activity_backfill_tick() from public, anon, authenticated;')
     expect(sql).toContain('revoke all on function public.entity_activity_backfill_home(text, uuid) from public, anon, authenticated;')
     expect(sql).toContain('revoke all on function public.entity_activity_backfill_id(text[]) from public, anon, authenticated;')
+    expect(sql).toContain('revoke all on function public.entity_activity_backfill_unschedule() from public, anon, authenticated;')
+    expect(sql).toContain('alter table public.entity_activity_backfill_run enable row level security;')
+    expect(sql).toContain('revoke all on public.entity_activity_backfill_run from anon, authenticated;')
     expect(sql).toContain('alter table public.entity_activity_backfill_progress enable row level security;')
     expect(sql).toContain('revoke all on public.entity_activity_backfill_progress from anon, authenticated;')
     // No subtransaction per row: the tick's one handler is per batch.
@@ -143,10 +175,25 @@ describe('migration 516: the activity log, backfilled', () => {
 describe('migration 517: the backfill runs from pg_cron', () => {
   it('schedules one batch per tick, only while a source is left, and the tick unschedules the same job', () => {
     expect(run).toMatch(
-      /if exists \(select 1 from public\.entity_activity_backfill_progress where done_at is null\) then\s+perform cron\.schedule\('entity-activity-backfill', '2 seconds', 'select public\.entity_activity_backfill_tick\(\)'\);/,
+      /if exists \(select 1 from public\.entity_activity_backfill_progress where done_at is null\) then[\s\S]*?perform cron\.schedule\('entity-activity-backfill', '2 seconds', 'select public\.entity_activity_backfill_tick\(\)'\);/,
     )
-    expect(tick).toContain("perform cron.unschedule('entity-activity-backfill');")
+    expect(unschedule).toContain("perform cron.unschedule('entity-activity-backfill');")
+    expect(tick).toContain('perform public.entity_activity_backfill_unschedule();')
     expect(tick).toContain('public.entity_activity_backfill_step(1000)')
+    // 517 starts the run's clock.
+    expect(run).toMatch(/insert into public\.entity_activity_backfill_run[\s\S]*on conflict \(id\) do update[\s\S]*stopped_at = null, stop_reason = null;\s+perform cron\.schedule/)
+  })
+
+  it('always stops: clearing the run log cannot fail the stop, and the tick has a deadline, a stall limit and a merge limit', () => {
+    expect(unschedule).toMatch(/begin\s+delete from cron\.job_run_details[\s\S]*?exception when others then\s+raise warning/)
+    expect(unschedule.indexOf('exception when others')).toBeLessThan(unschedule.indexOf('perform cron.unschedule'))
+    expect(tick).toContain("now() > v_run.scheduled_at + interval '60 minutes'")
+    expect(tick).toContain("now() > v_run.last_progress_at + interval '10 minutes'")
+    expect(tick).toContain("v_merge_since < now() - interval '10 minutes'")
+    expect(tick).toMatch(/if r \? 'source' then\s+update public\.entity_activity_backfill_run set last_progress_at = now\(\) where id;/)
+    expect(tick).toContain('failures >= 30')
+    // A stopped run stays stopped (its unschedule is retried, never its batches).
+    expect(tick).toMatch(/if v_run\.stopped_at is not null then\s+v_stop := v_run\.stop_reason;/)
     expect(run).not.toMatch(/\\/)
   })
 })
