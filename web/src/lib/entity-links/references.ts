@@ -91,7 +91,7 @@ export async function loadReferenceEdges(
 }
 
 /** A team-chat message's channel as a short place name: "#launch", or "Direct message". */
-async function messageChannels(supabase: SupabaseClient, messageIds: string[]): Promise<Map<string, string>> {
+export async function messageChannels(supabase: SupabaseClient, messageIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>()
   if (messageIds.length === 0) return out
   const { data: messages } = await supabase.from('team_chat_message').select('id, channel_id').in('id', [...new Set(messageIds)])
