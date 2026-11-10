@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# backup-postgres <job>
+#
+# Dumps one Postgres database, encrypts it and uploads it, deletes backups
+# past their retention, then pings the job's dead-man URL. The ping is the
+# last step and only happens when everything before it worked, so a missing
+# ping means: no fresh backup.
+#
+# Settings, from the environment (NAME is the job name in capitals):
+#   BACKUP_<NAME>_PGHOST          database host
+#   BACKUP_<NAME>_PGPORT          port                  (default 5432)
+#   BACKUP_<NAME>_PGUSER          role to connect as
+#   BACKUP_<NAME>_PGPASSWORD      its password
+#   BACKUP_<NAME>_PGDATABASE      database to dump
+#   BACKUP_<NAME>_RETENTION_DAYS  delete backups older than this (default 30, 0 = keep all)
+#   BACKUP_<NAME>_PING_URL        requested after a good run (optional)
+#
+# Files land at  <job>/<YYYY>/<MM>/<job>-<UTC timestamp>.dump  inside the
+# `vault:` remote (see backup-entrypoint), which encrypts them and stores them
+# with a .bin suffix.
+set -euo pipefail
+
+job="${1:?usage: backup-postgres <job>}"
+case "$job" in *[!a-z0-9-]* | '') echo "job name must be lower-case letters, digits and dashes" >&2; exit 2 ;; esac
+
+prefix="BACKUP_$(printf '%s' "$job" | tr 'a-z-' 'A-Z_')_"
+setting() { # setting <NAME> [default]
+	local name="${prefix}$1"
+	printf '%s' "${!name:-${2-}}"
+}
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [${job}] $*"; }
+die() {
+	log "FAILED: $*"
+	exit 1
+}
+
+PGHOST="$(setting PGHOST)"
+PGPORT="$(setting PGPORT 5432)"
+PGUSER="$(setting PGUSER)"
+PGPASSWORD="$(setting PGPASSWORD)"
+PGDATABASE="$(setting PGDATABASE)"
+retention_days="$(setting RETENTION_DAYS 30)"
+ping_url="$(setting PING_URL)"
+export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
+export PGCONNECT_TIMEOUT=15
+
+for required in PGHOST PGUSER PGPASSWORD PGDATABASE; do
+	[ -n "${!required}" ] || die "${prefix}${required} is not set"
+done
+case "$retention_days" in *[!0-9]* | '') die "${prefix}RETENTION_DAYS must be a whole number" ;; esac
+
+# One run of a job at a time: an hourly job must not pile up behind a slow one.
+exec 9>"/tmp/backup-${job}.lock"
+flock -n 9 || die "the previous run of this job is still going"
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+object="${job}/$(date -u +%Y/%m)/${job}-${stamp}.dump"
+started=$SECONDS
+
+# Straight from pg_dump into the encrypted upload: the plain dump never
+# touches a disk. Custom format: compressed, and pg_restore can pick from it.
+log "dumping ${PGDATABASE} on ${PGHOST} to vault:${object}"
+# (--size-only: an encrypted remote has no checksum to compare afterwards, and
+# says so on every run otherwise. B2 itself checks a SHA-1 of what it receives.)
+if ! pg_dump --format=custom --no-password | rclone rcat --size-only "vault:${object}"; then
+	# rclone cannot know its input was cut short. Do not leave half a dump
+	# behind looking like a backup.
+	rclone deletefile "vault:${object}" 2>/dev/null || true
+	die "dump or upload failed"
+fi
+
+# Read it back through the vault: the first bytes of a custom-format dump are
+# "PGDMP". This proves the file is there, decrypts with this password, and is
+# a dump.
+magic="$(rclone cat --count 5 "vault:${object}" 2>/dev/null || true)"
+if [ "$magic" != "PGDMP" ]; then
+	die "uploaded file did not read back as a Postgres dump"
+fi
+size="$(rclone lsf --format s "vault:${object}")"
+log "uploaded ${size} bytes in $((SECONDS - started))s"
+
+if [ "$retention_days" -gt 0 ]; then
+	# Only ever after a good upload, so the newest backup is never the one
+	# that expires.
+	log "deleting backups older than ${retention_days} days"
+	rclone delete --min-age "${retention_days}d" "vault:${job}/" || die "retention failed"
+fi
+log "backups held: $(rclone lsf --recursive --files-only "vault:${job}/" | wc -l)"
+
+if [ -n "$ping_url" ]; then
+	pinged=false
+	for _ in 1 2 3; do
+		if wget -q -T 15 -O /dev/null "$ping_url"; then
+			pinged=true
+			break
+		fi
+		sleep 5
+	done
+	"$pinged" || die "backup is good but the dead-man ping did not go through"
+fi
+
+log "done"
