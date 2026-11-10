@@ -42,8 +42,20 @@ describe('readProjectRefPin', () => {
   const OWN = 'https://fixturetestref.supabase.co'
   const OURS = 'https://db.example.test'
 
+  const LOCAL = [
+    'http://127.0.0.1:54321',
+    'http://127.8.9.10',
+    'http://localhost:8000',
+    'http://LOCALHOST.:8000',
+    'http://kong.localhost:8000',
+    'http://[::1]:54321',
+    'http://0.0.0.0:8000',
+    'http://studio.local',
+    'http://host.docker.internal:54321',
+  ]
+
   it('no pin: nothing is pinned, on any address', () => {
-    for (const address of [OWN, OURS, undefined, 'not a url']) {
+    for (const address of [OWN, OURS, undefined, 'not a url', ...LOCAL]) {
       expect(readProjectRefPin(undefined, address)).toEqual({ ref: null, problem: null })
       expect(readProjectRefPin('', address)).toEqual({ ref: null, problem: null })
       expect(readProjectRefPin('   ', address)).toEqual({ ref: null, problem: null })
@@ -65,6 +77,44 @@ describe('readProjectRefPin', () => {
       ref: null,
       problem: 'contradicts-address',
     })
+  })
+
+  it('the dot a fully qualified name ends in does not hide which project an address names', () => {
+    expect(readProjectRefPin('fixturetestref', 'https://fixturetestref.supabase.co.')).toEqual({
+      ref: 'fixturetestref',
+      problem: null,
+    })
+    expect(readProjectRefPin('fixturetestref', 'https://anotherproject.supabase.co./')).toEqual({
+      ref: null,
+      problem: 'contradicts-address',
+    })
+  })
+
+  it('the other domains the client library treats as Supabase\'s own count as the project\'s address too', () => {
+    for (const domain of ['in', 'red']) {
+      expect(readProjectRefPin('fixturetestref', `https://fixturetestref.supabase.${domain}`)).toEqual({
+        ref: 'fixturetestref',
+        problem: null,
+      })
+      expect(readProjectRefPin('fixturetestref', `https://anotherproject.supabase.${domain}`)).toEqual({
+        ref: null,
+        problem: 'contradicts-address',
+      })
+    }
+  })
+
+  it('a pin is not used on a local address', () => {
+    // A development or restore stack that has picked up production's pin. Used
+    // there, it would put that stack's cloud browsers in production's namespace.
+    for (const address of LOCAL) {
+      expect(readProjectRefPin('fixturetestref', address), address).toEqual({ ref: null, problem: 'local-address' })
+    }
+  })
+
+  it('a name that only looks local is an address of ours', () => {
+    for (const address of ['https://localhost.example.test', 'https://db.internal.example.test', 'https://127.example.test']) {
+      expect(readProjectRefPin('fixturetestref', address), address).toEqual({ ref: 'fixturetestref', problem: null })
+    }
   })
 
   it('a value that could not be the first label of an address is not used', () => {
@@ -110,30 +160,108 @@ describe('the pinned cookie name', () => {
 })
 
 describe('a pin that cannot be used is loud', () => {
-  it('says so once per kind of problem, and passes nothing to the clients', () => {
+  /** The module as a fresh process would load it, so what it has already said is forgotten. */
+  const fresh = async () => {
+    vi.resetModules()
+    return import('@/lib/supabase/project')
+  }
+  const said = (error: { mock: { calls: unknown[][] } }) => error.mock.calls.map((c) => String(c[0]))
+
+  it('says so exactly once when it names another project, and passes nothing to the clients', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://anotherproject.supabase.co')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
-    expect(authCookieOptions()).toEqual({})
-    expect(authCookieOptions()).toEqual({})
-    const said = error.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('names a different project'))
-    expect(said.length).toBeLessThanOrEqual(1)
-    expect(error.mock.calls.every((c) => String(c[0]).includes('NEXT_PUBLIC_SUPABASE_PROJECT_REF'))).toBe(true)
+    const project = await fresh()
+    expect(project.authCookieOptions()).toEqual({})
+    expect(project.authCookieOptions()).toEqual({})
+    expect(project.supabaseProjectRef()).toBeNull()
+    expect(said(error).filter((m) => m.includes('names a different project'))).toHaveLength(1)
+    expect(said(error)).toHaveLength(1)
   })
 
-  it('on the server, an invalid pin stops the module from loading, so the build that carries it fails', async () => {
+  it('says so exactly once on a local address, and passes nothing to the clients', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://127.0.0.1:54321')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    const project = await fresh()
+    expect(project.authCookieOptions()).toEqual({})
+    expect(project.pinnedAuthCookieName()).toBeNull()
+    expect(said(error).filter((m) => m.includes('local address'))).toHaveLength(1)
+    expect(said(error)).toHaveLength(1)
+  })
+
+  it('a pin that can be used says nothing', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.example.test')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    const project = await fresh()
+    expect(project.authCookieOptions()).toEqual({ cookieOptions: { name: 'sb-fixturetestref-auth-token' } })
+    expect(said(error)).toHaveLength(0)
+  })
+})
+
+describe('what stops the build (the server loads this module while the app is built)', () => {
+  const load = () => {
     vi.resetModules()
+    return import('@/lib/supabase/project')
+  }
+
+  it('a value that could not be a first label, in any environment', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'https://fixturetestref.supabase.co')
-    await expect(import('@/lib/supabase/project')).rejects.toThrow(/NEXT_PUBLIC_SUPABASE_PROJECT_REF/)
+    await expect(load()).rejects.toThrow(/NEXT_PUBLIC_SUPABASE_PROJECT_REF/)
   })
 
-  it('a pin that only contradicts the address does not stop the build (a preview pointed at another project)', async () => {
-    vi.resetModules()
+  it('production on Vercel, the pin naming another project than the hosted address: a wrong pin, caught before the address moves', async () => {
+    // Step one of a move sets the pin while the address is still Supabase's.
+    // A mistyped ref does nothing that day. Left alone it is used from the day
+    // the address moves, and that signs every person out.
+    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
+    await expect(load()).rejects.toThrow(/production build/)
+  })
+
+  it('a production build off Vercel (the container image), the same', async () => {
+    vi.stubEnv('VERCEL_ENV', '')
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
+    await expect(load()).rejects.toThrow(/production build/)
+  })
+
+  it('production, the right pin on the hosted address: builds, and the name is the one the cookie already has', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    const project = await load()
+    expect(project.pinnedAuthCookieName()).toBe(libraryStorageKey('https://fixturetestref.supabase.co'))
+  })
+
+  it('production, the pin on an address of ours: builds, and the pin is used', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.example.test')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    const project = await load()
+    expect(project.pinnedAuthCookieName()).toBe('sb-fixturetestref-auth-token')
+  })
+
+  it.each(['preview', 'development'])('%s, the pin naming another project: the pin has leaked, so it builds and is not used', async (env) => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('VERCEL_ENV', env)
+    vi.stubEnv('NODE_ENV', 'production') // every build on Vercel is a production build of Next
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://anotherproject.supabase.co')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
-    const fresh = await import('@/lib/supabase/project')
-    expect(fresh.authCookieOptions()).toEqual({})
+    const project = await load()
+    expect(project.authCookieOptions()).toEqual({})
+  })
+
+  it('a local address with a pin never stops a build, production or not', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('VERCEL_ENV', 'production')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'http://localhost:8000')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    const project = await load()
+    expect(project.authCookieOptions()).toEqual({})
   })
 })
 
@@ -151,7 +279,23 @@ describe('the agents\' copies of the rule', () => {
     'https://anotherproject.supabase.co',
     'https://db.example.test',
     'https://fixturetestref.storage.supabase.co',
+    'https://fixturetestref.supabase.co.',
+    'https://anotherproject.supabase.co.',
+    'https://fixturetestref.supabase.in',
+    'https://anotherproject.supabase.in',
+    'https://anotherproject.supabase.red',
+    'https://fixturetestref.supabase.com',
     'http://127.0.0.1:54321',
+    'http://127.8.9.10',
+    'http://localhost:8000',
+    'http://LOCALHOST.:8000',
+    'http://kong.localhost:8000',
+    'http://[::1]:54321',
+    'http://0.0.0.0:8000',
+    'http://studio.local',
+    'http://host.docker.internal:54321',
+    'https://localhost.example.test',
+    'https://db.internal.example.test',
   ]
 
   it.each([
@@ -168,10 +312,30 @@ describe('the agents\' copies of the rule', () => {
     }
   })
 
+  const read = (agent: string) => readFileSync(join(web, 'agents', agent, 'lib', 'session-cookie-name.ts'), 'utf8')
+
   it('are the same file', () => {
-    const read = (agent: string) => readFileSync(join(web, 'agents', agent, 'lib', 'session-cookie-name.ts'), 'utf8')
     expect(read('onboarding-researcher')).toBe(read('chat-agent'))
   })
+
+  // The table above only knows the inputs somebody thought of. How an address
+  // is read is the part that grows (a new kind of local address, another
+  // domain of Supabase's), so that code is also held to the original as text:
+  // change it in one place and this fails until the other has the same change.
+  const original = readFileSync(join(web, 'src', 'lib', 'supabase', 'project.ts'), 'utf8')
+  const piece = (text: string, opening: string) => {
+    const start = text.indexOf(opening)
+    expect(start, opening).toBeGreaterThan(-1)
+    const end = opening.startsWith('function') ? text.indexOf('\n}\n', start) + 2 : text.indexOf('\n', start)
+    return text.slice(start, end)
+  }
+
+  it.each(['const LABEL =', 'function hostOf(', 'function refInOwnAddress(', 'function isLocalAddress('])(
+    'read an address with the same code as the app: %s',
+    (opening) => {
+      expect(piece(read('chat-agent'), opening)).toBe(piece(original, opening))
+    },
+  )
 })
 
 describe('every cookie-backed client uses the pin', () => {
@@ -191,12 +355,17 @@ describe('every cookie-backed client uses the pin', () => {
       else if (/\.(ts|tsx|mts|js|mjs)$/.test(entry) && !/\.test\.[tj]sx?$/.test(entry)) files.push(full)
     }
   }
-  for (const root of ['src', 'agents', 'scripts', 'packages']) {
+  for (const root of ['src', 'agents', 'scripts', 'packages', 'e2e', 'tests', 'supabase']) {
     try {
       walk(join(web, root))
     } catch {
       // not every checkout has every folder
     }
+  }
+  // And the files that sit in the app's own folder, beside those.
+  for (const entry of readdirSync(web)) {
+    const full = join(web, entry)
+    if (/\.(ts|tsx|mts|js|mjs)$/.test(entry) && statSync(full).isFile()) files.push(full)
   }
   const users = files.filter((f) => /['"]@supabase\/ssr['"]/.test(readFileSync(f, 'utf8')))
   const code = (file: string) =>
@@ -216,17 +385,36 @@ describe('every cookie-backed client uses the pin', () => {
     )
   })
 
+  /** What is between the brackets of each call that makes a cookie-backed client. */
+  const clientCalls = (text: string): string[] => {
+    const calls: string[] = []
+    for (const match of text.matchAll(/\bcreate(?:Server|Browser)Client\s*(?:<[^()]*>)?\s*\(/g)) {
+      let depth = 1
+      let at = match.index + match[0].length
+      const from = at
+      while (at < text.length && depth > 0) {
+        if (text[at] === '(') depth++
+        else if (text[at] === ')') depth--
+        at++
+      }
+      calls.push(text.slice(from, at - 1))
+    }
+    return calls
+  }
+
   it.each(users.map((f) => [relative(web, f), f]))('%s passes the pin on every client it makes', (_name, file) => {
-    const text = code(file as string)
-    const creates = (text.match(/\bcreate(?:Server|Browser)Client\s*\(/g) ?? []).length
-    const pins = (text.match(/\.\.\.(?:authCookieOptions|pinnedCookieOptions)\(\)/g) ?? []).length
-    expect(creates).toBeGreaterThan(0)
-    expect(pins).toBe(creates)
+    const calls = clientCalls(code(file as string))
+    expect(calls.length).toBeGreaterThan(0)
+    for (const call of calls) {
+      // Once, in this very call: two on one client and none on the next is not "every client".
+      expect(call.match(/\.\.\.(?:authCookieOptions|pinnedCookieOptions)\(\)/g) ?? [], call).toHaveLength(1)
+    }
   })
 
   it.each(users.map((f) => [relative(web, f), f]))('%s names the cookie no other way', (_name, file) => {
+    // The bare words, so the shorthand (`{ storageKey }`) is caught as well.
     const text = code(file as string)
-    expect(text).not.toMatch(/\bstorageKey\s*:/)
-    expect(text).not.toMatch(/\bcookieOptions\s*:/)
+    expect(text).not.toMatch(/\bstorageKey\b/)
+    expect(text).not.toMatch(/\bcookieOptions\b/)
   })
 })

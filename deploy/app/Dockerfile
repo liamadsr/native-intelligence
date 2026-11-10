@@ -10,6 +10,9 @@
 #     --build-arg NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co \
 #     --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key> .
 #
+# Add --build-arg NEXT_PUBLIC_SUPABASE_PROJECT_REF=<ref> when the Supabase address
+# above is not the one the project's sessions were made under (README.md here).
+#
 # compose.yaml builds it with made-up values for the container test.
 #
 # One image, four roles, chosen by the command (entrypoint.sh):
@@ -104,6 +107,10 @@ ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_SITE_URL=
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+# The name the session cookie keeps when the Supabase address is not the one the
+# sessions were made under (web/src/lib/supabase/project.ts). Empty: not pinned.
+# The build stops on a value that cannot be right.
+ARG NEXT_PUBLIC_SUPABASE_PROJECT_REF=
 ARG NEXT_PUBLIC_POSTHOG_KEY=
 ARG NEXT_PUBLIC_POSTHOG_HOST=
 ARG APP_DOWNLOAD_URL=
@@ -117,6 +124,7 @@ RUN NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
     NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
     NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
     NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+    NEXT_PUBLIC_SUPABASE_PROJECT_REF="$NEXT_PUBLIC_SUPABASE_PROJECT_REF" \
     NEXT_PUBLIC_POSTHOG_KEY="$NEXT_PUBLIC_POSTHOG_KEY" \
     NEXT_PUBLIC_POSTHOG_HOST="$NEXT_PUBLIC_POSTHOG_HOST" \
     APP_DOWNLOAD_URL="$APP_DOWNLOAD_URL" \

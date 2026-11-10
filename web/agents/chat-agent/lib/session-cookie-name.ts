@@ -17,20 +17,39 @@
 
 const LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
 
-function refInOwnAddress(supabaseUrl: string | undefined): string | null {
+function hostOf(supabaseUrl: string | undefined): string | null {
   try {
-    const labels = new URL((supabaseUrl ?? '').trim()).hostname.toLowerCase().split('.')
-    return labels.length === 3 && labels[1] === 'supabase' && labels[2] === 'co' ? labels[0] : null
+    return new URL((supabaseUrl ?? '').trim()).hostname.toLowerCase().replace(/\.$/, '') || null
   } catch {
     return null
   }
+}
+
+// The ref an address of Supabase's own names, or null for any other address.
+function refInOwnAddress(host: string | null): string | null {
+  const labels = (host ?? '').split('.')
+  return labels.length === 3 && labels[1] === 'supabase' && /^(co|in|red)$/.test(labels[2]) ? labels[0] : null
+}
+
+// A development or restore stack: the pin is production's and is not used there.
+function isLocalAddress(host: string | null): boolean {
+  if (!host) return false
+  return (
+    host === 'localhost' ||
+    host === '0.0.0.0' ||
+    host === '[::1]' ||
+    /^127(\.\d{1,3}){3}$/.test(host) ||
+    /\.(localhost|local|internal)$/.test(host)
+  )
 }
 
 /** The pinned cookie name for this pin and address, or null when nothing is pinned or the pin cannot be used. */
 export function pinnedSessionCookieName(pin: string | undefined, supabaseUrl: string | undefined): string | null {
   const raw = pin?.trim().toLowerCase()
   if (!raw || !LABEL.test(raw)) return null
-  const own = refInOwnAddress(supabaseUrl)
+  const host = hostOf(supabaseUrl)
+  if (isLocalAddress(host)) return null
+  const own = refInOwnAddress(host)
   if (own && own !== raw) return null
   return `sb-${raw}-auth-token`
 }
