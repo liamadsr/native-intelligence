@@ -120,7 +120,9 @@ function makeSupabase(opts: { memberOf: string[]; companies?: Row[] }) {
     if (table === 'company') return tableChain('company', companies, log)
     return tableChain(table, [], log)
   })
-  return { supabase: { from } as never, companies, log }
+  // update_company's write gate (512): the person may change it by its own rule.
+  const rpc = async (fn: string) => ({ data: fn === 'company_visible_to_ungranted', error: null })
+  return { supabase: { from, rpc } as never, companies, log }
 }
 
 const tools = (supabase: never, strict = false, policy: 'session' | 'explicit' = 'session') =>

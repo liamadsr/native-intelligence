@@ -81,7 +81,8 @@ describe('custom field tools on every kind', () => {
     // Seen (through the grant) but not editable: refused as such.
     expect(contact).toEqual({ success: false, error: "You can't edit this contact" })
     expect(f.writes).toEqual([])
-    expect(f.rpcCalls.map((c) => c.fn)).toEqual(['company_visible_to_ungranted', 'entity_edit_granted', 'contact_editable_by', 'entity_edit_granted', 'contact_visible_to'])
+    // Built without editGrants (as a home turn's): 512's question is never asked.
+    expect(f.rpcCalls.map((c) => c.fn)).toEqual(['company_visible_to_ungranted', 'contact_editable_by', 'contact_visible_to'])
   })
 
   it("never writes a contact the person can see but not edit (a view share, a teammate's team contact)", async () => {

@@ -23,7 +23,7 @@
  *           creator could: its text, title, tags and fields. Never the
  *           product doc or a spec page, and never what it is or who has it:
  *           its visibility, creator, status (archive), publishing, slug,
- *           type, canon key or project (512's column guard). They never
+ *           type, canon key, project, team or pin (512's column guard). They never
  *           delete it. The loaders read edit grants only when asked
  *           (`editGrants`), so every other caller is exactly as before.
  *   GUARD   (the 359 trigger) a non-admin never changes created_by; a
@@ -228,7 +228,7 @@ const stampOf = (frontmatter: unknown, key: string = MEETING_PREP_KEY): unknown 
     : undefined
 
 /** The columns an edit grant never changes (512's column guard on document). */
-const GRANT_FIXED_COLUMNS = ['created_by', 'visibility', 'status', 'published_status', 'slug', 'type', 'canon_key', 'project_id'] as const
+const GRANT_FIXED_COLUMNS = ['created_by', 'visibility', 'status', 'published_status', 'slug', 'type', 'canon_key', 'project_id', 'team_id', 'is_pinned'] as const
 
 /**
  * Why this update would be refused (the RLS USING and WITH CHECK, and the 359

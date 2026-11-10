@@ -42,6 +42,11 @@ export function createCommentTools(
   // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
   // was shared with the person stays theirs, never their guest's.
   omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // Comments on a capture or a document are derived content: they are hidden
   // with it (a private capture, 223; a private document, 369).
@@ -88,7 +93,7 @@ export function createCommentTools(
       const visible =
         access === 'read'
           ? !!(await documentReadAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, !omitGrants))
-          : !!(await documentCommentAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, !omitGrants))
+          : !!(await documentCommentAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, editGrants))
       return visible ? routed.workspaceId : null
     }
     if (type !== 'capture') return routed.workspaceId
@@ -97,7 +102,7 @@ export function createCommentTools(
     const visible =
       access === 'read'
         ? !!(await captureReadAccess(supabase, id, routed.workspaceId, requester, undefined, !omitGrants))
-        : !!(await captureWriteAccess(supabase, id, routed.workspaceId, requester, !omitGrants))
+        : !!(await captureWriteAccess(supabase, id, routed.workspaceId, requester, editGrants))
     return visible ? routed.workspaceId : null
   }
 

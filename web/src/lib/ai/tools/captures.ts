@@ -112,6 +112,11 @@ export function createCaptureTools(
   // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
   // was shared with the person stays theirs, never their guest's.
   omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // Every capture read below runs on a service-role client in the MCP / unattended
   // paths, so this requester — not RLS — enforces "only me" scope.
@@ -142,8 +147,8 @@ export function createCaptureTools(
   const resolveEditableCapture = async (captureId: string) => {
     const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!wsResolved) return null
-    const access = await captureWriteAccess(supabase, captureId, wsResolved.workspaceId, requester, !omitGrants)
-    return access ? wsResolved : null
+    const access = await captureWriteAccess(supabase, captureId, wsResolved.workspaceId, requester, editGrants)
+    return access ? { ...wsResolved, viaGrant: access === 'grant' } : null
   }
 
   /**
@@ -532,6 +537,10 @@ export function createCaptureTools(
       }) => {
         const wsResolved = await resolveEditableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
+        // Shared to edit (512): what it says, never where it lives (512's column guard, restated).
+        if (wsResolved.viaGrant && (project_id !== undefined || is_pinned !== undefined)) {
+          return { success: false, error: 'This capture is shared with you to edit what it says; its project and pin stay its owner\'s.' }
+        }
 
         const updates: Record<string, unknown> = {}
         if (title !== undefined) updates.title = title

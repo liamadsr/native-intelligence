@@ -28,7 +28,13 @@
 --   - who owns it, who sees it, where it lives, whether it is archived: a
 --     column guard (below) refuses a change to those columns from a caller
 --     who may write the row ONLY through an edit grant, admins included (369
---     gives an admin no override on a private record);
+--     gives an admin no override on a private record). That includes what
+--     moves visibility indirectly: a company's domain (its adoption trigger
+--     pulls in other members' contacts, which open the company to their
+--     readers) and a contact's company (directly, or by an email the autolink
+--     trigger files under a company, which a granted contact then opens);
+--     and where a record sits: project, team, folder, packages, pin;
+--   - rewriting someone else's comment: an edit grantee only resolves it;
 --   - sharing it on: entity_access_can_share is unchanged (the creator, or
 --     an admin for contacts and companies);
 --   - deleting someone else's comment: an edit grantee deletes their own;
@@ -552,7 +558,9 @@ create trigger entity_edit_grant_column_guard
      or old.slug is distinct from new.slug
      or old.type is distinct from new.type
      or old.canon_key is distinct from new.canon_key
-     or old.project_id is distinct from new.project_id)
+     or old.project_id is distinct from new.project_id
+     or old.team_id is distinct from new.team_id
+     or old.is_pinned is distinct from new.is_pinned)
   execute function public.entity_edit_grant_column_guard('document');
 
 drop trigger if exists entity_edit_grant_column_guard on public.captures;
@@ -563,7 +571,12 @@ create trigger entity_edit_grant_column_guard
      or old.user_id is distinct from new.user_id
      or old.visibility is distinct from new.visibility
      or old.is_eval is distinct from new.is_eval
-     or (old.status = 'archived') is distinct from (new.status = 'archived'))
+     or (old.status = 'archived') is distinct from (new.status = 'archived')
+     or old.project_id is distinct from new.project_id
+     or old.team_id is distinct from new.team_id
+     or old.folder_id is distinct from new.folder_id
+     or old.package_ids is distinct from new.package_ids
+     or old.is_pinned is distinct from new.is_pinned)
   execute function public.entity_edit_grant_column_guard('capture');
 
 drop trigger if exists entity_edit_grant_column_guard on public.contact;
@@ -573,7 +586,8 @@ create trigger entity_edit_grant_column_guard
   when (old.workspace_id is distinct from new.workspace_id
      or old.created_by_member_id is distinct from new.created_by_member_id
      or old.visibility is distinct from new.visibility
-     or old.merged_into_contact_id is distinct from new.merged_into_contact_id)
+     or old.merged_into_contact_id is distinct from new.merged_into_contact_id
+     or old.company_id is distinct from new.company_id)
   execute function public.entity_edit_grant_column_guard('contact');
 
 drop trigger if exists entity_edit_grant_column_guard on public.company;
@@ -581,8 +595,46 @@ create trigger entity_edit_grant_column_guard
   before update on public.company
   for each row
   when (old.workspace_id is distinct from new.workspace_id
-     or old.is_workspace_company is distinct from new.is_workspace_company)
+     or old.is_workspace_company is distinct from new.is_workspace_company
+     or old.domain is distinct from new.domain)
   execute function public.entity_edit_grant_column_guard('company');
+
+-- ── Comments: an edit grantee resolves others' comments, never rewrites them ─
+-- The "resolve comments" UPDATE policy has no author check (any member who
+-- can see the record), and 494's restrictive no longer stops an edit
+-- grantee. So a caller who sees the record only through grants may change
+-- ONLY is_resolved on someone else's comment; their own they edit in full.
+-- Fires only when something other than is_resolved changes.
+create or replace function public.entity_edit_grant_comment_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if current_user not in ('authenticated', 'anon') or auth.uid() is null then
+    return new;
+  end if;
+  if old.author_user_id is not null and old.author_user_id = auth.uid() then
+    return new;
+  end if;
+  if old.author_id is not null and old.author_id in (select m.id from public.member m where m.user_id = auth.uid()) then
+    return new;
+  end if;
+  if public.entity_grant_only(old.commentable_type::text, old.commentable_id) then
+    raise exception 'shared to edit: you can resolve this comment, not rewrite it' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.entity_edit_grant_comment_guard() from public, anon, authenticated;
+
+drop trigger if exists entity_edit_grant_comment_guard on public.comment;
+create trigger entity_edit_grant_comment_guard
+  before update on public.comment
+  for each row
+  when ((to_jsonb(old) - 'is_resolved') is distinct from (to_jsonb(new) - 'is_resolved'))
+  execute function public.entity_edit_grant_comment_guard();
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- entity_access: grants of either level, and a grant's level can change

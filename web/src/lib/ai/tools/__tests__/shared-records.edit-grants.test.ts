@@ -16,6 +16,7 @@ import { createDocumentTools } from '../documents'
 import { createCaptureTools } from '../captures'
 import { createCommentTools } from '../comments'
 import { createDecisionTools } from '../decisions'
+import { createTools } from '../index'
 
 const WS = 'ws-1'
 const ME = 'user-me'
@@ -131,10 +132,11 @@ type Result = Record<string, unknown> & { success: boolean; error?: string }
 const run = (t: { execute?: unknown }, args: Record<string, unknown>) =>
   (t as { execute: (a: unknown, o: unknown) => Promise<Result> }).execute(args, OPTS)
 
+// As createTools builds them: edit grants only on an attended turn that reads grants.
 const docTools = (db: ReturnType<typeof world>, omitPrivate = false, omitGrants = false) =>
-  createDocumentTools(ME, client(db), WS, false, 'session', omitPrivate, undefined, { omitGrants })
+  createDocumentTools(ME, client(db), WS, false, 'session', omitPrivate, undefined, { omitGrants, editGrants: !omitGrants && !omitPrivate })
 const captureTools = (db: ReturnType<typeof world>, omitPrivate = false, omitGrants = false) =>
-  createCaptureTools(ME, client(db), WS, undefined, false, omitPrivate, 'session', omitGrants)
+  createCaptureTools(ME, client(db), WS, undefined, false, omitPrivate, 'session', omitGrants, !omitGrants && !omitPrivate)
 const docRow = (db: ReturnType<typeof world>, id: string) => db.rows('document').find((d) => d.id === id)
 const capRow = (db: ReturnType<typeof world>, id: string) => db.rows('captures').find((c) => c.id === id)
 
@@ -195,7 +197,7 @@ describe('documents: a view grant still refuses every write, an edit grant edits
 
   it('add_comment: view refused, edit lands', async () => {
     const db = world()
-    const t = createCommentTools(ME, client(db), WS)
+    const t = createCommentTools(ME, client(db), WS, false, false, 'session', false, true)
     expect((await run(t.add_comment, { commentable_type: 'document', commentable_id: DOC_VIEW, body: 'Hi' })).success).toBe(false)
     expect((await run(t.add_comment, { commentable_type: 'document', commentable_id: DOC_EDIT, body: 'Hi' })).success).toBe(true)
     expect(db.rows('comment').map((c) => c.commentable_id)).toEqual([DOC_EDIT])
@@ -237,7 +239,7 @@ describe('captures: a view grant still refuses every write, an edit grant edits'
 
   it('decisions: confirming on a view-shared capture is refused, on an edit-shared one it lands', async () => {
     const db = world()
-    const t = createDecisionTools(ME, client(db), WS)
+    const t = createDecisionTools(ME, client(db), WS, false, 'session', false, undefined, false, true)
     expect((await run(t.confirm_decision, { decision_id: 'dec-view' })).success).toBe(false)
     expect(db.rows('decision').find((d) => d.id === 'dec-view')?.confirmation).toBe('suggested')
     // (The double answers an update with its patch, so the tool's echo of the
@@ -248,7 +250,7 @@ describe('captures: a view grant still refuses every write, an edit grant edits'
 
   it('add_comment on a capture: view refused, edit lands', async () => {
     const db = world()
-    const t = createCommentTools(ME, client(db), WS)
+    const t = createCommentTools(ME, client(db), WS, false, false, 'session', false, true)
     expect((await run(t.add_comment, { commentable_type: 'capture', commentable_id: CAP_VIEW, body: 'Hi' })).success).toBe(false)
     expect((await run(t.add_comment, { commentable_type: 'capture', commentable_id: CAP_EDIT, body: 'Hi' })).success).toBe(true)
   })
@@ -286,5 +288,113 @@ describe('a guest’s or a linked agent’s turn (omitGrants): no grant of the o
     expect((await run(c.add_comment, { commentable_type: 'capture', commentable_id: CAP_EDIT, body: 'Hi' })).success).toBe(false)
     expect(capRow(db, CAP_EDIT)?.title).toBe(`Meeting ${CAP_EDIT.slice(-2)}`)
     expect(db.rows('decision').find((x) => x.id === 'dec-edit')?.confirmation).toBe('suggested')
+  })
+})
+
+describe('through createTools: one flag decides, and a home turn never edits through a grant', () => {
+  const CT_EDIT = '00000000-0000-4000-8000-0000000000a1'
+  const CO_EDIT = '00000000-0000-4000-8000-0000000000a2'
+  const CO_MINE = '00000000-0000-4000-8000-0000000000a3'
+  const CO_OTHER = '00000000-0000-4000-8000-0000000000a4'
+
+  function crmWorld() {
+    const db = makeFakeSupabase({
+      rpc: {
+        entity_grant_ids_for: () => ({ data: [], error: null }),
+        // Neither is the person's by its own rule; both are shared with them to edit.
+        contact_editable_by: () => ({ data: false, error: null }),
+        contact_visible_to: () => ({ data: true, error: null }),
+        company_visible_to_ungranted: () => ({ data: false, error: null }),
+        entity_edit_granted: (a) => ({ data: a.p_user_id === ME && (a.p_id === CT_EDIT || a.p_id === CO_EDIT), error: null }),
+      },
+    })
+    const base = world()
+    for (const t of ['member', 'document', 'captures', 'entity_access', 'decision']) db.seed(t, base.rows(t))
+    db.seed('contact', [{ id: CT_EDIT, workspace_id: WS, full_name: 'Rosa Diaz', email: 'rosa@harbor.example', visibility: 'private', created_by_member_id: ZOE }])
+    db.seed('company', [
+      { id: CO_EDIT, workspace_id: WS, name: 'Northwind Traders', domain: 'northwind.example' },
+      { id: CO_MINE, workspace_id: WS, name: 'Lantern Books', domain: null },
+      { id: CO_OTHER, workspace_id: WS, name: 'Harbor Coffee', domain: null },
+    ])
+    // The person's agent made Lantern Books a minute ago: no contacts yet.
+    db.seed('entity_activity', [
+      { id: 'act-1', workspace_id: WS, entity_type: 'company', entity_id: CO_MINE, action: 'created', actor_kind: 'agent', actor_member_id: MY_MEMBER, created_at: '2026-11-10T10:00:00Z' },
+    ])
+    return db
+  }
+
+  const HOME = { unattended: true, automaticDrafts: true, actionRules: { unattended: true, fileActionsAsSuggested: true } }
+  const tools = (db: ReturnType<typeof makeFakeSupabase>, opts: Record<string, unknown> = {}) =>
+    createTools(ME, client(db as never), WS, undefined, opts as never) as unknown as Record<string, { execute?: unknown }>
+
+  it('an attended turn edits a document, capture, decision, comment, contact and company shared to edit', async () => {
+    const db = crmWorld()
+    const t = tools(db)
+    expect((await run(t.update_document, { document_id: DOC_EDIT, title: 'Changed', base_revision: 1 })).success).toBe(true)
+    expect((await run(t.update_capture, { capture_id: CAP_EDIT, title: 'Changed' })).success).toBe(true)
+    await run(t.confirm_decision, { decision_id: 'dec-edit' }).catch(() => null)
+    expect(db.rows('decision').find((d) => d.id === 'dec-edit')?.confirmation).toBe('confirmed')
+    expect((await run(t.add_comment, { commentable_type: 'document', commentable_id: DOC_EDIT, body: 'Hi' })).success).toBe(true)
+    expect((await run(t.update_contact, { contact_id: CT_EDIT, job_title: 'Owner' })).success).toBe(true)
+    expect((await run(t.update_company, { company_id: CO_EDIT, industry: 'Retail' })).success).toBe(true)
+  })
+
+  it('a home turn (unattended) never edits through a grant, on any path', async () => {
+    const db = crmWorld()
+    const t = tools(db, HOME)
+    expect((await run(t.update_document, { document_id: DOC_EDIT, title: 'Changed', base_revision: 1 })).success).toBe(false)
+    expect((await run(t.edit_document_content, { document_id: DOC_EDIT, old_text: 'body', new_text: 'bodies' })).success).toBe(false)
+    expect((await run(t.update_capture, { capture_id: CAP_EDIT, title: 'Changed' })).success).toBe(false)
+    expect((await run(t.edit_capture_content, { capture_id: CAP_EDIT, field: 'content', old_text: 'notes', new_text: 'more' })).success).toBe(false)
+    expect((await run(t.create_decision, { capture_id: CAP_EDIT, content: 'Ship it' })).success).toBe(false)
+    expect((await run(t.add_comment, { commentable_type: 'capture', commentable_id: CAP_EDIT, body: 'Hi' })).success).toBe(false)
+    expect((await run(t.add_comment, { commentable_type: 'document', commentable_id: DOC_EDIT, body: 'Hi' })).success).toBe(false)
+    expect((await run(t.update_contact, { contact_id: CT_EDIT, job_title: 'Owner' })).success).toBe(false)
+    expect((await run(t.update_crm_contact, { contact_id: CT_EDIT, notes: 'x' })).success).toBe(false)
+    expect((await run(t.update_company, { company_id: CO_EDIT, industry: 'Retail' })).success).toBe(false)
+    expect((await run(t.set_custom_fields, { entity_type: 'company', id: CO_EDIT, values: { Tier: 'Gold' } })).success).toBe(false)
+    expect(docRow(db, DOC_EDIT)?.title).toBe(`Title ${DOC_EDIT.slice(-2)}`)
+    expect(capRow(db, CAP_EDIT)?.title).toBe(`Meeting ${CAP_EDIT.slice(-2)}`)
+    expect(db.rows('comment')).toHaveLength(0)
+    expect(db.rows('decision').filter((d) => d.capture_id === CAP_EDIT)).toHaveLength(1)
+    expect(db.rows('contact')[0].job_title).toBeUndefined()
+    expect(db.rows('company').find((c) => c.id === CO_EDIT)?.industry).toBeUndefined()
+    // Never even asked.
+    expect(db.rpcCalls.map((c) => c.fn)).not.toContain('entity_edit_granted')
+  })
+
+  it("a guest's or linked agent's turn (omitGrants) never edits through a grant either", async () => {
+    const db = crmWorld()
+    const t = tools(db, { omitGrants: true })
+    expect((await run(t.update_contact, { contact_id: CT_EDIT, job_title: 'Owner' })).success).toBe(false)
+    expect((await run(t.update_company, { company_id: CO_EDIT, industry: 'Retail' })).success).toBe(false)
+    expect((await run(t.update_document, { document_id: DOC_EDIT, title: 'Changed', base_revision: 1 })).success).toBe(false)
+  })
+
+  it('an edit grant never moves a contact or company: no email, no domain, no enrichment', async () => {
+    const db = crmWorld()
+    const t = tools(db)
+    expect((await run(t.update_contact, { contact_id: CT_EDIT, email: 'rosa@northwind.example' })).success).toBe(false)
+    expect(db.rows('contact')[0].email).toBe('rosa@harbor.example')
+    expect((await run(t.update_company, { company_id: CO_EDIT, domain: 'harbor.example' })).success).toBe(false)
+    expect(db.rows('company').find((c) => c.id === CO_EDIT)?.domain).toBe('northwind.example')
+    expect((await run(t.enrich_contact, { contact_id: CT_EDIT, confirmed_with_user: true })).success).not.toBe(true)
+  })
+
+  it('update_company has a write gate: a company the person may not change is not found; one they just made is theirs', async () => {
+    const db = crmWorld()
+    const t = tools(db)
+    expect(await run(t.update_company, { company_id: CO_OTHER, industry: 'Retail' })).toEqual({ success: false, error: 'Company not found' })
+    expect(db.rows('company').find((c) => c.id === CO_OTHER)?.industry).toBeUndefined()
+    expect((await run(t.update_company, { company_id: CO_MINE, industry: 'Books' })).success).toBe(true)
+    expect(db.rows('company').find((c) => c.id === CO_MINE)?.industry).toBe('Books')
+  })
+
+  it('update_capture keeps a grant off where the capture lives', async () => {
+    const db = crmWorld()
+    const t = tools(db)
+    expect((await run(t.update_capture, { capture_id: CAP_EDIT, project_id: '00000000-0000-4000-8000-0000000000b1' })).success).toBe(false)
+    expect((await run(t.update_capture, { capture_id: CAP_EDIT, is_pinned: true })).success).toBe(false)
+    expect(capRow(db, CAP_EDIT)?.project_id).toBeNull()
   })
 })

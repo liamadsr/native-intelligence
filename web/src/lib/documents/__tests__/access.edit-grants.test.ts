@@ -94,6 +94,8 @@ describe('what an edit grant never does', () => {
       { type: 'analysis' },
       { canon_key: 'pricing' },
       { project_id: 'proj-1' },
+      { team_id: 'team-1' },
+      { is_pinned: true },
     ]) {
       expect(documentUpdateRefusal(a, patch), JSON.stringify(patch)).toBe(GRANT_EDIT_REFUSAL)
     }

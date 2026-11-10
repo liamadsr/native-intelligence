@@ -27,6 +27,9 @@
  *   company name                       0          1          1 (admin rule)   0           0      1
  *   company is_workspace_company       0          42501      1 (admin rule)   0           0      1
  *   company delete                     0          0          1 (admin rule)   0           0      1
+ *   rewrite the owner's comment body   0          42501      42501            0           0      1
+ *   doc / capture team or pin          0          42501      42501            0           0      1
+ *   contact company / company domain   0          42501      1 (admin rule)   0           0      1
  *   re-share the doc (a new grant)     42501      42501      42501            42501       42501  1
  *   raise their own grant to edit      0          0          0                0           0      -
  *   own edit rule + entity_edit_       false      true       true             false       false  true
@@ -149,16 +152,30 @@ describe('migration 512: the write policies', () => {
     expect(guard).toContain('if public.entity_edit_grant_only(tg_argv[0], old.id) then')
     expect(guard).toContain("errcode = '42501'")
     const expected: Record<string, [string, string[]]> = {
-      document: ['document', ['workspace_id', 'created_by', 'visibility', 'status', 'published_status', 'slug', 'type', 'canon_key', 'project_id']],
-      captures: ['capture', ['workspace_id', 'user_id', 'visibility', 'is_eval', "(old.status = 'archived') is distinct from (new.status = 'archived')"]],
-      contact: ['contact', ['workspace_id', 'created_by_member_id', 'visibility', 'merged_into_contact_id']],
-      company: ['company', ['workspace_id', 'is_workspace_company']],
+      document: ['document', ['workspace_id', 'created_by', 'visibility', 'status', 'published_status', 'slug', 'type', 'canon_key', 'project_id', 'team_id', 'is_pinned']],
+      captures: [
+        'capture',
+        ['workspace_id', 'user_id', 'visibility', 'is_eval', "(old.status = 'archived') is distinct from (new.status = 'archived')", 'project_id', 'team_id', 'folder_id', 'package_ids', 'is_pinned'],
+      ],
+      // A contact's company moves who can see that company (a granted contact opens it); the email autolink sets it too.
+      contact: ['contact', ['workspace_id', 'created_by_member_id', 'visibility', 'merged_into_contact_id', 'company_id']],
+      // A company's domain fires its adoption trigger, which pulls other members' contacts in.
+      company: ['company', ['workspace_id', 'is_workspace_company', 'domain']],
     }
     for (const [table, [kind, cols]] of Object.entries(expected)) {
       const trig = new RegExp(`create trigger entity_edit_grant_column_guard\\s+before update on public\\.${table}[\\s\\S]*?;`).exec(sql512)?.[0] ?? ''
       expect(trig, table).toContain(`execute function public.entity_edit_grant_column_guard('${kind}')`)
       for (const c of cols) expect(trig, `${table}.${c}`).toContain(c.startsWith('(') ? c : `old.${c} is distinct from new.${c}`)
     }
+  })
+
+  it('an edit grantee resolves someone else’s comment, never rewrites it', () => {
+    const guard = fn(sql512, 'entity_edit_grant_comment_guard')
+    expect(guard).toContain("if current_user not in ('authenticated', 'anon') or auth.uid() is null then")
+    expect(guard).toContain('if old.author_user_id is not null and old.author_user_id = auth.uid() then')
+    expect(guard).toContain('old.author_id in (select m.id from public.member m where m.user_id = auth.uid())')
+    expect(guard).toContain('if public.entity_grant_only(old.commentable_type::text, old.commentable_id) then')
+    expect(sql512).toMatch(/create trigger entity_edit_grant_comment_guard\s+before update on public\.comment\s+for each row\s+when \(\(to_jsonb\(old\) - 'is_resolved'\) is distinct from \(to_jsonb\(new\) - 'is_resolved'\)\)/)
   })
 
   it('a grant takes either level; only its level changes after, by whoever may share', () => {
@@ -213,6 +230,9 @@ describe('migration 513: a share is an activity row', () => {
     expect(body).toContain('public.entity_activity_writable(n.workspace_id)')
     expect(body).toContain('exception when others then')
     expect(sql513).toMatch(/after insert on public\.entity_access\s+referencing new table as new_rows\s+for each statement/)
+    // Raising a grant to edit says so in the Inbox; lowering one writes nothing.
+    expect(sql513).toMatch(/after update of level on public\.entity_access\s+for each row\s+when \(old\.level = 'view' and new\.level = 'edit'\)/)
+    expect(fn(sql513, 'entity_activity_entity_access_level')).toContain("case when new.grantee_kind = 'member' then new.grantee_member_id end")
     expect(sql513).not.toContain('\\')
     expect(sql513.trim().endsWith("notify pgrst, 'reload schema';")).toBe(true)
   })

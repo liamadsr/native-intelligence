@@ -68,8 +68,24 @@ export async function isContactWritableTo(
   userId: string,
   opts: { grants?: boolean } = {},
 ): Promise<boolean> {
-  if (await contactEditableBy(supabase, contactId, userId)) return true
-  return opts.grants !== false && (await editGranted(supabase, 'contact', contactId, userId))
+  return (await contactWriteAccess(supabase, contactId, userId, opts)) !== null
+}
+
+/**
+ * isContactWritableTo, saying how: 'rule' (its own edit rule), 'grant' (only
+ * an edit grant, 512: the tool then keeps to what the contact SAYS, never
+ * its company or email, whose autolink files it under a company a granted
+ * contact would open), or null.
+ */
+export async function contactWriteAccess(
+  supabase: SupabaseClient,
+  contactId: string,
+  userId: string,
+  opts: { grants?: boolean } = {},
+): Promise<'rule' | 'grant' | null> {
+  if (await contactEditableBy(supabase, contactId, userId)) return 'rule'
+  if (opts.grants === false) return null
+  return (await editGranted(supabase, 'contact', contactId, userId)) ? 'grant' : null
 }
 
 /** 498's contact_editable_by, the contact's own edit rule. */
@@ -133,17 +149,32 @@ export async function isCompanyWritableTo(
   userId: string,
   opts: { grants?: boolean } = {},
 ): Promise<boolean> {
+  return (await companyWriteAccess(supabase, companyId, userId, opts)) !== null
+}
+
+/**
+ * isCompanyWritableTo, saying how: 'rule', 'grant' (only an edit grant: the
+ * tool then never changes its domain, whose adoption trigger pulls other
+ * members' contacts in and opens the company to their readers), or null.
+ */
+export async function companyWriteAccess(
+  supabase: SupabaseClient,
+  companyId: string,
+  userId: string,
+  opts: { grants?: boolean } = {},
+): Promise<'rule' | 'grant' | null> {
   try {
     const { data, error } = await supabase.rpc('company_visible_to_ungranted', {
       p_company_id: companyId,
       p_user_id: userId,
     })
     if (error) console.warn('[contact-visibility] company_visible_to_ungranted failed:', error.message)
-    else if (data === true) return true
+    else if (data === true) return 'rule'
   } catch (e) {
     console.warn('[contact-visibility] company_visible_to_ungranted threw:', e)
   }
-  return opts.grants !== false && (await editGranted(supabase, 'company', companyId, userId))
+  if (opts.grants === false) return null
+  return (await editGranted(supabase, 'company', companyId, userId)) ? 'grant' : null
 }
 
 /** 512's entity_edit_granted: an EDIT grant on this contact or company reaches the user. Fails CLOSED. */

@@ -30,12 +30,12 @@ export function createCrmTools(
   // param inserted ahead of it would silently reinterpret that argument.
   // See resolveEntityWorkspace in ./_shared.ts.
   strictWorkspace = false,
-  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
-  // was shared with the owner (an edit grant, 512) never lets it write.
-  omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
-  // An edit grant (512) edits only on the person's own, attended turn.
-  const editGrants = !omitGrants && !omitPrivateCaptures
   // get_contact_details / get_company_overview read captures (via the
   // person/company context helpers) on a service-role client (MCP /
   // unattended runs) — this requester, not RLS, is the real enforcement.

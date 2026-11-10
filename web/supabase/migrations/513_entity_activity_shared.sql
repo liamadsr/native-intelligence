@@ -20,9 +20,11 @@
 --   record's History and in no one's Inbox. A share by @-mention already
 --   tells the channel in the message itself.
 --
--- Changing a grant's level, or removing one, writes nothing: the Inbox row
--- of a removed grant drops out on its own (the feed reads each record's
--- label through the viewer's RLS, and they can no longer read it).
+-- Raising a grant from view to edit (512) writes one more 'shared' row, so
+-- the Inbox says "…shared this with you to edit". Lowering one, or removing
+-- one, writes nothing: the Inbox row of a removed grant drops out on its own
+-- (the feed reads each record's label through the viewer's RLS, and they
+-- can no longer read it).
 --
 -- Cost: one statement-level trigger (the transition table, 488's way): one
 -- insert per statement however many grants it adds. Logging never fails the
@@ -76,5 +78,41 @@ create trigger entity_activity_insert
   after insert on public.entity_access
   referencing new table as new_rows
   for each statement execute function public.entity_activity_entity_access_insert();
+
+-- ── A grant raised to edit (512) ─────────────────────────────────────────────
+create or replace function public.entity_activity_entity_access_level()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  a record;
+begin
+  if not public.entity_activity_writable(new.workspace_id) then
+    return null;
+  end if;
+  begin
+    select * into a from public.entity_activity_actor();
+    insert into public.entity_activity (workspace_id, entity_type, entity_id, action, actor_kind, actor_member_id, subject_member_id, detail)
+    values (new.workspace_id, new.entity_type, new.entity_id, 'shared', a.actor_kind,
+            public.entity_activity_member(a.actor_user_id, new.workspace_id),
+            case when new.grantee_kind = 'member' then new.grantee_member_id end,
+            jsonb_build_object('level', new.level, 'grantee_kind', new.grantee_kind, 'source', new.source));
+  exception when others then
+    raise warning 'entity_activity (entity_access level): % %', sqlstate, sqlerrm;
+  end;
+  return null;
+end;
+$$;
+
+revoke all on function public.entity_activity_entity_access_level() from public, anon, authenticated;
+
+drop trigger if exists entity_activity_level on public.entity_access;
+create trigger entity_activity_level
+  after update of level on public.entity_access
+  for each row
+  when (old.level = 'view' and new.level = 'edit')
+  execute function public.entity_activity_entity_access_level();
 
 notify pgrst, 'reload schema';

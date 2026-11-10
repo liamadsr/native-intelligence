@@ -9,7 +9,7 @@ import {
   type CreateWorkspacePolicy,
 } from './_shared'
 import { inngest } from '@/lib/inngest/client'
-import { filterVisibleContacts, isContactWritableTo } from '@/lib/crm/contact-visibility'
+import { contactWriteAccess, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
 import { CONTACT_WEB_FIELDS, fenceContactForModel, fenceWebFields } from './web-derived'
 
@@ -43,12 +43,12 @@ export function createContactTools(
   // and the sweep skip a held row until a person edits the contact (Sequence
   // step 2, plan A.1). See CreateToolsOptions.unattended in ./index.ts.
   unattended = false,
-  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
-  // was shared with the owner (an edit grant, 512) never lets it write.
-  omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
-  // An edit grant (512) edits only on the person's own, attended turn.
-  const editGrants = !omitGrants && !unattended
   return {
     list_contacts: tool({
       description:
@@ -315,8 +315,14 @@ export function createContactTools(
         if (!wsResolved) return { success: false, error: 'Contact not found' }
         // No writes to a contact the caller cannot see (same error as missing),
         // nor to one a per-item grant only lets them read (migration 495).
-        if (!(await isContactWritableTo(supabase, contact_id, userId, { grants: editGrants }))) {
+        const access = await contactWriteAccess(supabase, contact_id, userId, { grants: editGrants })
+        if (!access) {
           return { success: false, error: 'Contact not found' }
+        }
+        // Shared to edit (512): what it says, never its email, which the
+        // autolink trigger would file under a company (opening that company).
+        if (access === 'grant' && email !== undefined) {
+          return { success: false, error: "This contact is shared with you to edit its details; its email stays its owner's to change." }
         }
 
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }

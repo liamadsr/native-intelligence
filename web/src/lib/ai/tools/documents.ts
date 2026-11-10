@@ -186,6 +186,11 @@ export function createDocumentTools(
     nowReadable?: boolean
     /** A guest's or a linked agent's turn: no grant (492) opens a document (CreateToolsOptions.omitGrants). */
     omitGrants?: boolean
+    /**
+     * An edit grant (512) lets this turn's writes through: createTools's one
+     * flag (never a guest's, linked agent's or unattended turn). Off unless said.
+     */
+    editGrants?: boolean
   } = {},
 ) {
   const nowReadable = extra.nowReadable === true
@@ -283,7 +288,7 @@ export function createDocumentTools(
     refusalTail = 'Use propose_document_edit to save the change as your own draft for the creator or an admin to review.',
     opts: { canonText?: 'allow' } = {},
   ): Promise<{ access: DocumentAccess } | { refused: { success: false; error: string; use_instead?: 'propose_document_edit' | 'propose_section_edit' | 'update_now' } }> {
-    const { access, error } = await loadDocumentAccess(supabase, targetWs, userId, documentId, { editGrants: !omitPrivate && !extra.omitGrants })
+    const { access, error } = await loadDocumentAccess(supabase, targetWs, userId, documentId, { editGrants: !omitPrivate && extra.editGrants === true })
     if (error) return { refused: { success: false, error } }
     // loadDocumentAccess already hides someone else's private document (one
     // shared to edit aside: the rules below then keep it to its text); a run
@@ -373,7 +378,7 @@ export function createDocumentTools(
       if (!data) return { success: false as const, error: 'Document not found' }
       if (
         !isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, await requesterIn(opts.targetWs)) &&
-        (omitPrivate || !grantee || !(await hasEditGrant(supabase, { userId: grantee, workspaceId: opts.targetWs }, 'document', opts.documentId)))
+        (omitPrivate || extra.editGrants !== true || !(await hasEditGrant(supabase, { userId, workspaceId: opts.targetWs }, 'document', opts.documentId)))
       ) {
         return { success: false as const, error: 'Document not found' }
       }

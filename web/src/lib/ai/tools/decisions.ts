@@ -29,6 +29,11 @@ export function createDecisionTools(
   // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
   // was shared with the person stays theirs, never their guest's.
   omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // These tools run on a service-role client for MCP and unattended runs, so
   // this requester — not RLS — is what keeps a teammate's private capture (and
@@ -61,7 +66,7 @@ export function createDecisionTools(
 
     // A decision's writes follow the capture's write access: its own rule, or
     // an EDIT grant on it (512, captureWriteAccess); a view grant never.
-    const writable = await captureWriteAccess(supabase, captureId, routed.workspaceId, requester, !omitGrants)
+    const writable = await captureWriteAccess(supabase, captureId, routed.workspaceId, requester, editGrants)
     return writable ? routed.workspaceId : null
   }
 
