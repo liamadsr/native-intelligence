@@ -27,6 +27,11 @@ vi.mock('node:dns/promises', async (importOriginal) => ({
 
 // Consistent environment defaults for tests. Tests can override with vi.stubEnv.
 process.env.NEXT_PUBLIC_SUPABASE_URL ??= 'https://test.supabase.co'
+// Forced, not defaulted: a production build runs this suite with production's
+// environment, where the pin is set (src/lib/supabase/project.ts). Left in
+// place it would rename the session cookie under every test that builds one.
+// A test that wants a pin stubs it.
+process.env.NEXT_PUBLIC_SUPABASE_PROJECT_REF = ''
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key'
 

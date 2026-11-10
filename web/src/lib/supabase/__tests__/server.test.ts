@@ -194,6 +194,30 @@ describe('createClient() — the cookie name is pinned when the address is not t
     expect(forwardedAuth()).toBe(hoisted.authHeader)
   })
 
+  it('a pin that is not a ref is not used: no name is passed and the guard follows the address', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', PROXY_URL)
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'https://fixturetestref.supabase.co')
+    hoisted.cookies.set(ADDRESS_KEY, makeAuthCookieValue('user-A'))
+    hoisted.authHeader = `Bearer ${makeJwt('user-B')}`
+    await createClient()
+    expect(cookieName()).toBeUndefined()
+    expect(forwardedAuth()).toBeUndefined()
+    vi.restoreAllMocks()
+  })
+
+  it('a pin for another project than the address names is not used either', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    // TEST_SUPABASE_URL is a supabase.co address for the project `fixturetestref`.
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'anotherproject')
+    hoisted.cookies.set(AUTH_COOKIE_KEY, makeAuthCookieValue('user-A'))
+    hoisted.authHeader = `Bearer ${makeJwt('user-B')}`
+    await createClient()
+    expect(cookieName()).toBeUndefined()
+    expect(forwardedAuth()).toBeUndefined()
+    vi.restoreAllMocks()
+  })
+
   it('unpinned on such an address: the guard follows the library to the address-derived name', async () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', PROXY_URL)
     hoisted.cookies.set(ADDRESS_KEY, makeAuthCookieValue('user-A'))

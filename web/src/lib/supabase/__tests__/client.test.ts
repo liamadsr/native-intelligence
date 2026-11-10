@@ -52,6 +52,14 @@ afterEach(() => {
 })
 
 describe('createClient session cookie name', () => {
+  it('passes no name for a pin that names another project than the address does', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://anotherproject.supabase.co')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
+    createClient()
+    expect(capturedCookieName).toBeUndefined()
+  })
+
   it('passes no name when the project ref is not pinned (the library derives it from the address)', () => {
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', '')
     createClient()
@@ -59,6 +67,7 @@ describe('createClient session cookie name', () => {
   })
 
   it('passes the pinned name, so the browser and the server agree when the address has moved', () => {
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://db.example.test')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestref')
     createClient()
     expect(capturedCookieName).toBe('sb-fixturetestref-auth-token')
