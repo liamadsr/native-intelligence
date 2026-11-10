@@ -34,6 +34,7 @@ export const PAGE_KIND_NAMES = [
   'flows',
   'evals',
   'campaigns',
+  'tables',
   'knowledge',
   'library',
   'teams',
@@ -147,6 +148,15 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
     rows: 'campaigns',
     view: 'campaigns',
   },
+  // Tables (phase 1, migration 520): the workspace's own databases. Gated with
+  // Docs, where a workspace keeps what it writes down. The person opens it
+  // (from `/`); `show` offers it with the agent's table tools (phase 5).
+  tables: {
+    label: 'Tables',
+    rows: 'tables',
+    view: 'docs',
+    personOnly: true,
+  },
   knowledge: {
     label: 'Knowledge',
     rows: 'claims',
@@ -217,7 +227,7 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
 }
 
 /** The page kinds `show` offers: every one the person alone doesn't open. */
-export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat'>[]
+export const SHOW_PAGE_KIND_NAMES = PAGE_KIND_NAMES.filter((k) => !PAGE_KINDS[k].personOnly) as Exclude<PageKind, 'bot' | 'work_item' | 'guest' | 'agent_link' | 'team_chat' | 'tables'>[]
 
 /** What each place is called, in the note and in refusals. */
 export const PLACE_NOUN: Record<PagePlaceType, string> = {

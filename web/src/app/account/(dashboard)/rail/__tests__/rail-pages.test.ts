@@ -34,7 +34,7 @@ describe('the rail pages', () => {
   it('keep the reference order first, then the plans, the customers and the agents', () => {
     expect(RAIL_PAGES.map((d) => d.id)).toEqual([
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
-      'projects', 'initiatives', 'knowledge', 'flows',
+      'projects', 'initiatives', 'knowledge', 'flows', 'tables',
       'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
       'agents', 'evals', 'teams',
     ])

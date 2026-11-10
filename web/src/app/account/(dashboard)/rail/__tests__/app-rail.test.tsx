@@ -88,7 +88,7 @@ describe('the app rail', () => {
     const nav = container.querySelector<HTMLElement>('[data-app-rail-nav]')!
     expect(Array.from(nav.querySelectorAll<HTMLElement>('[data-app-rail-item]')).map((el) => el.dataset.appRailItem)).toEqual([
       'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
-      'projects', 'initiatives', 'knowledge', 'flows',
+      'projects', 'initiatives', 'knowledge', 'flows', 'tables',
       'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
       'agents', 'evals', 'teams',
       // Customize bar, at its end (Liam, 11-09).
@@ -219,7 +219,7 @@ const savedBar = () => {
 }
 const DEFAULT_BAR = [
   'docs', 'mail', 'team-chat', 'actions', 'calendar', 'captures',
-  'projects', 'initiatives', 'knowledge', 'flows',
+  'projects', 'initiatives', 'knowledge', 'flows', 'tables',
   'companies', 'contacts', 'deals', 'prospecting', 'sequences', 'campaigns',
   'agents', 'evals', 'teams',
 ]
@@ -278,7 +278,7 @@ describe('the person’s bar', () => {
     })
     expect(bar().slice(0, 5)).toEqual(['docs', 'mail', 'team-chat', 'calendar', 'actions'])
     expect(document.activeElement).toBe(item('calendar'))
-    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 19')
+    expect(container.querySelector('[data-app-rail-announce]')?.textContent).toBe('Calendar moved to 4 of 20')
     expect(lines()).toBe(0)
     await act(async () => {
       item('calendar')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }))

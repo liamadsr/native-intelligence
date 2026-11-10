@@ -5,7 +5,7 @@
  * in four groups, Liam's reference order first:
  *
  *   your work   Docs, Mail, Team chat, My Actions, Calendar, Captures
- *   plans       Projects, Initiatives, Knowledge, Flows
+ *   plans       Projects, Initiatives, Knowledge, Flows, Tables
  *   customers   Companies, Contacts, Deals, Prospecting, Sequences, Campaigns
  *   agents      Agents & skills, Evals, Teams
  *
@@ -57,6 +57,7 @@ export const RAIL_PAGES: readonly RailPageDef[] = [
   def('initiatives', 'plans', { entities: ['initiative'] }),
   def('knowledge', 'plans', { kinds: ['knowledge'] }),
   def('flows', 'plans', { kinds: ['flows'] }),
+  def('tables', 'plans', { kinds: ['tables'] }),
   def('companies', 'customers', { entities: ['company'] }),
   def('contacts', 'customers', { entities: ['contact'] }),
   def('deals', 'customers', { entities: ['deal'] }),

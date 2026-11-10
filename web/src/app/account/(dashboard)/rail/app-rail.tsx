@@ -66,6 +66,7 @@ import {
   Mail,
   Megaphone,
   MessagesSquare,
+  Table2,
   Search,
   Send,
   Settings2,
@@ -130,6 +131,7 @@ const HAIRLINE = 'my-1 h-px w-5 shrink-0 bg-foreground/10'
 /** Each page's icon: the rail's own for Liam's reference pages, the `/` menu's for the rest (command-menu.tsx). */
 const PAGE_ICONS: Record<RailPageId, LucideIcon> = {
   docs: Folder,
+  tables: Table2,
   mail: Mail,
   'team-chat': MessagesSquare,
   actions: ListChecks,

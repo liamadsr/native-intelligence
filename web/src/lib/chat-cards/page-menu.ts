@@ -105,6 +105,8 @@ export const CARD_PAGES: readonly CardPage[] = [
   },
   { slug: 'captures', label: 'Captures', description: 'Your meetings and notes', kind: 'list', view: 'captures', keywords: ['meetings', 'notes', 'recordings'], spec: list('Captures', 'capture') },
   { slug: 'docs', label: 'Docs', description: 'Every doc', kind: 'list', view: 'docs', keywords: ['documents'], spec: list('Docs', 'document') },
+  // The workspace's own databases (Tables, phase 1). Gated with Docs.
+  { slug: 'tables', label: 'Tables', description: 'Your own tables of anything', kind: 'tables', view: 'docs', keywords: ['databases', 'spreadsheets', 'lists'], spec: page('tables', 'Tables') },
   { slug: 'knowledge', label: 'Knowledge', description: 'What Native Intelligence knows', kind: 'knowledge', view: 'knowledge', keywords: ['claims', 'graph'], spec: page('knowledge', 'Knowledge') },
   { slug: 'initiatives', label: 'Initiatives', description: 'Every initiative', kind: 'list', view: 'initiatives', spec: list('Initiatives', 'initiative') },
   { slug: 'projects', label: 'Projects', description: 'Every project', kind: 'list', view: 'projects', spec: list('Projects', 'project') },
