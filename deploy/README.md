@@ -1,6 +1,6 @@
 # The server
 
-Everything Native Intelligence runs on its own server lives in this folder. It is being moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (still on Vercel) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files.
+Everything Native Intelligence runs on its own server lives in this folder. It is being moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (still on Vercel) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files. The third (steps 20 to 22) is the app itself: the web app, its eight agents and its scheduled jobs, from the container image in [`app/`](app).
 
 | Folder | What it runs | Public? |
 | --- | --- | --- |
@@ -8,6 +8,7 @@ Everything Native Intelligence runs on its own server lives in this folder. It i
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
 | [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
 | [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
+| [`app/`](app) | The app: web, a worker for background jobs, the eight eve agents and the scheduler, from one image built on the server, behind the stack's own proxy. | No ports on the host |
 | [`server/`](server) | Not a container: [`setup.sh`](server/setup.sh), which does steps 3 to 7 below on a fresh server in one go. | |
 | [`move/`](move) | Not a container: [`move.sh`](move/move.sh), which moves everything here to another server. | |
 
@@ -251,9 +252,10 @@ What ends up where:
 ├── edge/       compose.yaml  compose.supabase.yaml  Caddyfile        .env
 ├── inngest/    compose.yaml  sync.sh  prune-history.sh  prune-history.sql  .env
 ├── backup/     compose.yaml  compose.supabase.yaml  Dockerfile  crontab  bin/  .env
-└── supabase/   compose.override.yaml  postgres/  gateway/  check-env.sh  .env.example
-    ├── stack/      Supabase's own files, never edited            .env
-    └── migrate/    the move from the hosted project              .env
+├── supabase/   compose.override.yaml  postgres/  gateway/  check-env.sh  .env.example
+│   ├── stack/      Supabase's own files, never edited            .env
+│   └── migrate/    the move from the hosted project              .env
+└── app/        compose.yaml  deploy.sh  proxy/  Dockerfile  entrypoint.sh  .env
 
 Docker volumes   ni-inngest-postgres   ni-inngest-redis
                  ni-edge-caddy-data    ni-edge-caddy-config
@@ -959,6 +961,149 @@ What the undo cannot do is carry back what happened here in the meantime. From t
 
 Once you are sure: pause or delete the hosted project (its dashboard), delete the S3 access key made for the move, and from then on never remove the data volumes again.
 
+## 20. The app: the stack, and a rehearsal
+
+This puts the app on the server next to the copy that serves today, with production's settings and on production's database, at a test address. It touches nothing the people using the app reach: the real names keep pointing where they point, and the copy here is kept from doing anything nobody asked it to (the scheduled jobs, and taking production's background work from Inngest). [`app/README.md`](app/README.md) says how each part works.
+
+**What it costs the server.** One image of about 5 GB, plus Docker's build cache. Twelve containers. See [What was tested](#steps-20-to-22-the-app) for what they used here.
+
+**1. The whole repository on the server.** The image is built here from `web/`, so the checkout needs it (about 110 MB):
+
+```bash
+cd /opt/native-intelligence && git sparse-checkout add web
+```
+
+**2. The settings file.**
+
+```bash
+cd /opt/native-intelligence/deploy/app && sudo install -m 600 -o root -g root .env.example .env
+```
+
+From your own machine, fill it from the app's current host. Its command-line tool must be logged in there; `PULL_PROJECT` and `PULL_TEAM` are the project and team ids the app runs under. The last argument is the test address, here `test.nativeintelligence.dev`:
+
+```bash
+PULL_PROJECT=<project id> PULL_TEAM=<team id> PULL_GENERATE=1 PULL_REHEARSAL=1 deploy/app/pull-settings.sh <user>@<server> NEXT_PUBLIC_APP_URL=https://test.nativeintelligence.dev
+```
+
+It writes every production setting the current host gives out, copies the Inngest keys from `inngest/.env`, checks the two Supabase keys against `supabase/stack/.env`, makes new values for the three internal secrets that may be new (`PULL_GENERATE`), puts stand-ins starting with `rehearsal-` into the two the app cannot start without (`PULL_REHEARSAL`), and ends with two lists of what is still empty. Nothing in the first list ("must be the value the earlier host has") is needed for a rehearsal. `AI_GATEWAY_API_KEY` is, for any agent to answer: make a key for the server in the AI Gateway's settings and enter it, and the rest when you have them, with hidden typing:
+
+```bash
+PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env deploy/supabase/set-secret.sh <user>@<server> AI_GATEWAY_API_KEY
+```
+
+Leave `NI_LIVE` empty: that is what makes this a rehearsal.
+
+**3. Build and start.** About ten minutes the first time.
+
+```bash
+cd /opt/native-intelligence/deploy/app && sudo ./deploy.sh
+```
+
+It ends with the twelve containers and their state; every one must be `healthy`.
+
+**4. The test address.** A DNS record, `A test.nativeintelligence.dev` pointing at `<server>`, and the name in `edge/.env`:
+
+```text
+APP_HOSTS=test.nativeintelligence.dev
+```
+
+```bash
+cd /opt/native-intelligence/deploy/edge && sudo docker compose up -d
+```
+
+Caddy is replaced by a new container to read the new line: both public names it already serves are interrupted for a few seconds, and every Supabase live-update connection reconnects. Pick a quiet moment. Then, in `supabase/stack/.env`, add `https://test.nativeintelligence.dev/auth/callback` to `ADDITIONAL_REDIRECT_URLS` (comma-separated) and `cd ../supabase/stack && sudo sh run.sh recreate auth`: without it, a sign-in on the test address is sent back to the site URL instead. Auth restarts in a few seconds.
+
+**5. Check.** From your own machine:
+
+| Check | What it must show |
+| --- | --- |
+| `https://test.nativeintelligence.dev/` and `/login` | The pages, over HTTPS. |
+| `curl -sI https://test.nativeintelligence.dev/sign-out` | `location: https://test.nativeintelligence.dev/login`, not `0.0.0.0` or `localhost`. |
+| `curl -s https://test.nativeintelligence.dev/api/version` | `{"buildId":"<the first 8 characters of the commit>"}`. |
+| Sign in with Google on the test address | Google, then `sb.nativeintelligence.dev/auth/v1/callback`, then back on the test address, signed in. |
+| A chat message to the agent there | A reply streams in. |
+| On the server: `sudo docker compose logs --tail 20 cron` | One line per job each time one is due, each saying it was skipped: nothing is called. |
+
+Everything you do on the test address is real: it is production's database. What it does not do is the scheduled jobs, and it is never given production's background work. Leave it running as long as it is useful; it costs the server memory and nothing else.
+
+## 21. The app: the switch
+
+The app's names move here from its current host. For the people using it, the switch is a DNS change per name; the rest of this step is making sure that, from the first minute, exactly one copy of the app runs the scheduled jobs and takes Inngest's calls, and that this one has every setting production needs.
+
+**Gate 1, days before: the settings.** Do not start until all of this is true.
+
+- **Every setting is in `app/.env`.** `pull-settings.sh` ends with what is still empty. The first list (values that must be the same as on the current host) has to be empty: `CREDENTIAL_ENCRYPTION_KEY`, `RUN_SKILL_INTERNAL_SECRET`, `CLOUD_BROWSER_SIGNING_KEY`, `BROWSER_INTERNAL_SECRET`, the webhook secrets and the provider keys. The current host shows none of them to anyone: they come from the password manager, or from the provider that issued them (a new Stripe or Twilio key can be made there, a webhook secret can be read in the provider's dashboard). [`app/README.md`](app/README.md#settings) says why each must be the same, and what "the same" means for a value that was pasted with a line break.
+- **No stand-ins left.** `pull-settings.sh` names any value still starting with `rehearsal-`. The containers refuse to start live with one.
+- **The cloud browser's sandboxes.** They stay on the current host's sandbox service, logged in with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID` (an access token of that account, scoped to the team) and with `CLOUD_BROWSER_RELAY_ORIGIN=https://browser-relay.nativeintelligence.dev`. Without them the cloud browser does not start.
+- **Slack.** It reaches the app through the current host's connector service, which logs in with that host's own token: off the host it fails in both directions. Either register a Slack app of the business's own and point it here, or accept that Slack is off from the switch until that is done.
+- **The rehearsal (step 20) ended well**, including the Google sign-in and a chat reply.
+
+**Gate 2, the day before.**
+
+- Lower the TTL of the app's DNS records (`nativeintelligence.dev`, `www`, `dial8.ai`, `www`, both `browser-relay` names) to 60 seconds, so that the switch and the undo each take about a minute to reach people.
+- Know the current values of those records: they are the undo.
+- `https://sb.nativeintelligence.dev/auth/v1/callback` and the app's redirect URLs are what they were: nothing in this step changes sign-in.
+
+**1. Build for production.** With the app still serving from its current host. In `app/.env`, run the pull again without the test address, so that `NEXT_PUBLIC_APP_URL` is production's again, then build only:
+
+```bash
+PULL_PROJECT=<project id> PULL_TEAM=<team id> deploy/app/pull-settings.sh <user>@<server>
+```
+
+```bash
+cd /opt/native-intelligence/deploy/app && sudo ./deploy.sh --build-only
+```
+
+**2. Switch off the current host's scheduled jobs.** In its project settings, under Cron Jobs: disable. Its jobs and this server's must never both run: they would send the same texts and mails twice. From here until step 4 no scheduled job runs anywhere; a job that was due runs at its next turn.
+
+**3. Live.** In `app/.env`:
+
+```text
+NI_LIVE=1
+```
+
+```bash
+sudo ./deploy.sh --no-build
+```
+
+The containers start with production's address and start the schedule. Nothing reaches them from outside yet: the names still point at the current host, which goes on serving, and Inngest still calls the app there.
+
+**4. The names, one at a time.** For each, in this order: `www.nativeintelligence.dev`, `browser-relay.nativeintelligence.dev`, `nativeintelligence.dev`, `www.dial8.ai`, `browser-relay.dial8.ai`, `dial8.ai`:
+
+1. Point its DNS record at `<server>`: an `A` record in place of the record that points at the current host.
+2. Wait until it answers from here: `dig +short <name> @1.1.1.1` prints `<server>`.
+3. Add it to `APP_HOSTS` in `edge/.env` and `cd /opt/native-intelligence/deploy/edge && sudo docker compose up -d`. Caddy gets the name's certificate within seconds; check with `curl -sI https://<name>/api/version`.
+
+Between the record changing and step 3, anyone whose resolver already has the new address gets a certificate error. With the TTL at 60 seconds that is a minute or two per name. (Adding the name to Caddy first does not help: the certificate authority checks the name against this server, and before the record changes it finds the current host.) Each `up -d` interrupts the server's other public names for a few seconds.
+
+Inngest calls the app at `https://dial8.ai/api/inngest`. From the moment that name answers from here, its calls come to this server's worker: they are the same functions with the same keys, so a call that still reaches the current host during the change works there too. The sync loop on this server makes the app register again within a minute; the answer is `modified: false`, because the address is the same.
+
+**5. Check.** Every one at once; a doubt is a reason for step 22.
+
+| Check | What it must show |
+| --- | --- |
+| The web app on both names, where you were signed in | Still signed in. The session cookie keeps its name, and the database did not move. |
+| The desktop app | Loads, and is still signed in (it loads the same names). |
+| Sign out, sign in with Google | A full round trip, back on the name you started from. |
+| A chat message, and one that makes the agent search the web | Replies stream; a helper's result comes back into the chat. |
+| The Inngest dashboard (step 10) | The app with its functions and no error, and runs finishing. |
+| `sudo docker compose logs --tail 50 cron` in `app/` | Jobs called, each with a `2xx`. |
+| `sudo docker compose ps` in `app/` | Every container `healthy`. |
+| A connected Gmail or Outlook account | New mail still arrives (the push webhooks reach this server). |
+| The current host's logs, a few minutes later | No requests but from resolvers that have not caught up. |
+
+**6. Afterwards.** Leave the current host's deployment running, with its cron jobs off, for a week: it is the undo. Add `:compose.app.yaml` to `COMPOSE_FILE` in `backup/.env` and `sudo docker compose up -d --build` in `backup/` to back the agents up. Then retire it: remove the names from that project (they already point here), and keep the team only for the cloud browser's sandboxes and the AI Gateway, which stay there.
+
+## 22. The undo
+
+The names go back, in the reverse order of step 21.4, and the scheduled jobs with them.
+
+1. **The DNS records back** to the values written down in Gate 2. The current host still has every name attached, and its deployment has production's settings.
+2. **The scheduled jobs.** In `app/.env`, `NI_LIVE=` (empty), then `sudo ./deploy.sh --no-build`: the copy here stops calling them, and can no longer register with Inngest. Then enable the current host's cron jobs again.
+3. **Inngest** follows the name `dial8.ai` back by itself: the sync loop asks that address every minute and the app there registers the same address.
+
+Nothing is lost by going back: the database is the same for both copies. What a person did on the server's copy stays done. Agent conversations started on this server stay in its agents' volumes and do not exist on the current host: the app starts a new one there, as it does after any change of agents.
+
 ## Day to day
 
 Run these from the stack's own folder. The Supabase stack has its own commands (`sudo sh run.sh …` in `supabase/stack`) and its own way of taking a new release: [`supabase/README.md`](supabase/README.md#day-to-day).
@@ -971,6 +1116,8 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Pick up changes to this folder | `cd /opt/native-intelligence && git pull`, then `sudo docker compose up -d` in each stack that changed (`--build` for `backup/`) |
 | Upgrade Inngest | Read the release notes, change the image tag in `inngest/compose.yaml`, then `sudo docker compose pull inngest && sudo docker compose up -d inngest` |
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
+| Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
+| Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
 
 Stopping and starting is safe: Redis writes every change to disk within a second and Postgres is Postgres. `sudo docker compose down` keeps the volumes. **`down -v` deletes them.** In `supabase/stack` that is the app's whole database and every stored file: never run it there.
 

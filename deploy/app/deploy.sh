@@ -23,7 +23,8 @@
 #   5. The proxy is restarted only if proxy/Caddyfile changed since it started.
 #
 # What ran before is kept as the image ni-app:previous, so --rollback needs no
-# build. The image built before that is deleted.
+# build. The image built before that is deleted. ni-app:running names what the last
+# finished roll-out put into service.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -143,17 +144,15 @@ restart_proxy_if_changed() {
 rollout() {
 	local agents
 	say "Rolling out ni-app:live ($(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ni-app:live 2>/dev/null || echo '?'))"
-	# Remember what ran, as the way back. The web container's image is what the
-	# app served; on a first roll-out there is none.
-	local current
-	current="$(running_ids web | tail -n 1)"
-	if [ -n "$current" ]; then
-		local ran
-		ran="$(docker inspect -f '{{.Image}}' "$current")"
-		if [ "$ran" != "$(docker image inspect -f '{{.Id}}' ni-app:live)" ]; then
-			docker tag "$ran" ni-app:previous
-			echo "$(ts) kept what ran as ni-app:previous"
-		fi
+	# The way back. ni-app:running is what the last finished roll-out put into
+	# service; it becomes ni-app:previous now, and this image becomes
+	# ni-app:running at the end. (Docker's image store drops an image as soon as no
+	# tag names it, even while a container runs from it, so what ran must keep a
+	# tag of its own: the build has already moved ni-app:live.)
+	if docker image inspect ni-app:running >/dev/null 2>&1 &&
+		[ "$(docker image inspect -f '{{.Id}}' ni-app:running)" != "$(docker image inspect -f '{{.Id}}' ni-app:live)" ]; then
+		docker tag ni-app:running ni-app:previous
+		echo "$(ts) kept what ran as ni-app:previous"
 	fi
 	quiet up -d --no-deps --wait proxy
 	agents="$(compose config --services | grep '^agent-' || true)"
@@ -163,6 +162,7 @@ rollout() {
 	echo "$(ts) cron (waits for a job that is running)"
 	replace cron
 	restart_proxy_if_changed
+	docker tag ni-app:live ni-app:running
 	say "Running"
 	compose ps --format 'table {{.Service}}\t{{.Status}}'
 	# Images no tag points at any more: the build before last.
