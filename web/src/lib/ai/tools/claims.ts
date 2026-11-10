@@ -16,6 +16,13 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import {
+  PRIVATE_GRAPH_KINDS,
+  PRIVATE_KIND_LABEL,
+  isPrivateGraphKind,
+  visiblePrivateKindIds,
+  type PrivateGraphKind,
+} from '@/lib/knowledge/entity-fences'
+import {
   CONVERSATION_SOURCE_TYPE,
   claimIdsHiddenFrom,
   conversationIdsHiddenFrom,
@@ -66,13 +73,25 @@ export {
  * True if `id` names a row of `type` inside `workspaceId`. Returns true
  * (can't-verify → allow) for types without a direct workspace_id column
  * (`cycle` via its team, `milestone` via its project).
+ *
+ * The private graph kinds (calendar events, team-chat channels and messages,
+ * decisions: src/lib/knowledge/entity-fences.ts) also need `requesterUserId`,
+ * who must be able to read the row; with none they FAIL CLOSED. A caller that
+ * writes into something the whole workspace reads (a knowledge package) passes
+ * none, so a private row never lands there.
  */
 export async function entityInWorkspace(
   supabase: SupabaseClient,
   workspaceId: string,
   type: LinkableEntityType,
   id: string,
+  requesterUserId?: string | null,
 ): Promise<boolean> {
+  if (isPrivateGraphKind(type)) {
+    if (!requesterUserId) return false
+    const visible = await visiblePrivateKindIds(supabase, type, requesterUserId, [id], workspaceId)
+    return visible.has(id)
+  }
   const table = WORKSPACE_SCOPED_TABLE[type]
   if (!table) return true
   const { data } = await supabase
@@ -303,16 +322,37 @@ export const PRIVATE_CONTACT_LABEL = 'Contact (private)'
  */
 export const PRIVATE_COMPANY_LABEL = 'Company (private)'
 
-/** The graph node types whose labels are fenced, with their check and placeholder. */
-const FENCED_LABEL_TYPES: Record<
-  string,
-  {
-    filterVisible: (supabase: SupabaseClient, userId: string, rows: Array<{ id: string }>) => Promise<Array<{ id: string }>>
-    placeholder: string
+interface LabelFence {
+  /** The rows `userId` may see (inside `workspaceId` when given), failing closed. */
+  filterVisible: (
+    supabase: SupabaseClient,
+    userId: string,
+    rows: Array<{ id: string }>,
+    workspaceId?: string,
+  ) => Promise<Array<{ id: string }>>
+  placeholder: string
+}
+
+/** A private graph kind's fence (src/lib/knowledge/entity-fences.ts), as a label fence. */
+function privateKindLabelFence(type: PrivateGraphKind): LabelFence {
+  return {
+    filterVisible: async (supabase, userId, rows, workspaceId) => {
+      const visible = await visiblePrivateKindIds(supabase, type, userId, rows.map((r) => r.id), workspaceId)
+      return rows.filter((r) => visible.has(r.id))
+    },
+    placeholder: PRIVATE_KIND_LABEL[type],
   }
-> = {
+}
+
+/**
+ * The graph node types whose labels are fenced, with their check and
+ * placeholder. Every private graph kind is here: a kind joins the graph
+ * (`linkable` in the registry) only once its fence is.
+ */
+export const FENCED_LABEL_TYPES: Readonly<Record<string, LabelFence>> = {
   contact: { filterVisible: filterVisibleContacts, placeholder: PRIVATE_CONTACT_LABEL },
   company: { filterVisible: filterVisibleCompanies, placeholder: PRIVATE_COMPANY_LABEL },
+  ...Object.fromEntries(PRIVATE_GRAPH_KINDS.map((type) => [type, privateKindLabelFence(type)])),
 }
 
 /**
@@ -476,10 +516,17 @@ export function createClaimTools(
   // return a label. Those stay label-less, exactly as before the registry.
   // Never a mail label: a subject is one person's mail, and this may run
   // service-role with only a workspace fence (migration 341).
+  //
+  // The one indirect type that IS labelable is a private graph kind (a
+  // decision): its fence (FENCED_LABEL_TYPES, given `ws`) proves the workspace
+  // through the decision's capture, so its query skips the workspace_id filter
+  // its table can't take. Every private kind's label goes through its fence.
+  const hasWorkspaceColumn = (type: string) => WORKSPACE_SCOPED_TABLE[type as LinkableEntityType] !== undefined
   const labelable = (type: string) =>
     !isMailSourceType(type) &&
     !!LABEL_TABLE[type] &&
-    WORKSPACE_SCOPED_TABLE[type as LinkableEntityType] !== undefined
+    (hasWorkspaceColumn(type) ||
+      (isPrivateGraphKind(type) && (LINKABLE_ENTITY_TYPES as readonly string[]).includes(type)))
   const resolveLabels = async (
     refs: Array<{ type: string; id: string }>,
     ws: string = workspaceId,
@@ -493,12 +540,13 @@ export function createClaimTools(
     await Promise.all(
       [...byType.entries()].map(async ([type, ids]) => {
         const cfg = LABEL_TABLE[type]
-        // member has workspace_id; all the others do too. Scope to workspace.
-        let query = supabase
+        // Scope to the workspace where the table can take it (a decision's
+        // fence below proves it instead).
+        const base = supabase
           .from(cfg.table)
           .select(`id, ${cfg.columns}`)
-          .eq('workspace_id', ws)
           .in('id', [...ids])
+        let query = hasWorkspaceColumn(type) ? base.eq('workspace_id', ws) : base
         // A capture hidden from the requester must not have its title resolved —
         // traverse reads entity_link directly, so this predicate (not the hardened
         // claim_neighborhood RPC) is what keeps a private capture's title out.
@@ -510,17 +558,23 @@ export function createClaimTools(
         // Another member's private/team contact, or a company none of whose
         // contacts the caller can see: RLS hides the row on a user client, but
         // this may run service-role. The node keeps its id; its label is a
-        // neutral placeholder, never the name.
+        // neutral placeholder, never the name. A private graph kind (someone's
+        // calendar event, a DM) is fenced to the requester, and to no one on an
+        // unattended run (omitPrivateCaptures), as a private capture is.
         const fence = FENCED_LABEL_TYPES[type]
+        const fenceUser = isPrivateGraphKind(type) ? requestingUserId : userId
         const visible = fence
           ? new Set(
-              (
-                await fence.filterVisible(
-                  supabase,
-                  userId,
-                  rows.filter((r): r is Record<string, unknown> & { id: string } => typeof r.id === 'string'),
-                )
-              ).map((r) => r.id),
+              fenceUser
+                ? (
+                    await fence.filterVisible(
+                      supabase,
+                      fenceUser,
+                      rows.filter((r): r is Record<string, unknown> & { id: string } => typeof r.id === 'string'),
+                      ws,
+                    )
+                  ).map((r) => r.id)
+                : [],
             )
           : null
         for (const r of rows) {
@@ -1315,6 +1369,7 @@ export function createClaimTools(
             targetWs,
             s.source_type as (typeof LINKABLE_ENTITY_TYPES)[number],
             s.source_id,
+            requestingUserId,
           )
           if (!ok) {
             return {
@@ -1329,6 +1384,7 @@ export function createClaimTools(
             targetWs,
             l.entity_type,
             l.entity_id,
+            requestingUserId,
           )
           if (!ok) {
             return {
@@ -1668,6 +1724,7 @@ export function createClaimTools(
           linkWs,
           source_type,
           source_id,
+          requestingUserId,
         )
         if (!srcOk) {
           return {
@@ -1680,6 +1737,7 @@ export function createClaimTools(
           linkWs,
           target_type,
           target_id,
+          requestingUserId,
         )
         if (!tgtOk) {
           return {

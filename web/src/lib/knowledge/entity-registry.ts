@@ -375,25 +375,25 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
 
-  // ── Kinds outside the knowledge graph: registered so every other vocabulary
-  // (the entity event bus, realtime, menus) derives from this one list.
-  //
-  // The first four are NOT linkable yet, deliberately: the graph's only fences
-  // are workspace_id (or none, for indirect kinds), which is too weak for them.
+  // ── The PRIVATE graph kinds (phase 2 of the shared entity layer, 2026-11-09).
+  // Only some members may read each, so the graph's workspace_id fence is not
+  // enough; each has its own fence in src/lib/knowledge/entity-fences.ts, wired
+  // into FENCED_LABEL_TYPES / resolveLabels and entityInWorkspace (claims.ts)
+  // and resourceIdInWorkspace (work/start-work-item.ts):
   //   calendar_event — private to its owner (RLS auth.uid() = user_id);
   //   team_chat_*    — DMs and team channels are readable only through
   //                    team_chat_can_read (migration 474);
-  //   decision       — no workspace_id; resourceIdInWorkspace and
-  //                    entityInWorkspace would let a foreign id through.
-  // Making one linkable needs its own fence in FENCED_LABEL_TYPES (claims.ts)
-  // and resourceIdInWorkspace (work/start-work-item.ts) first.
+  //   decision       — no workspace_id; fenced through its capture's workspace
+  //                    and visibility (the decision table's RLS).
+  // A kind joins the graph (linkable) only once its fence is in all three.
+  // None is citable: the claim_source CHECK (264) does not list them.
   {
     id: 'calendar_event',
     table: 'local_calendar_event',
     workspaceScoped: { kind: 'column', table: 'local_calendar_event' },
     label: { table: 'local_calendar_event', columns: 'title', render: (r) => str(r.title) },
     realtime: true,
-    linkable: false,
+    linkable: true,
     citable: false,
     sourceable: false,
   },
@@ -404,7 +404,7 @@ export const ENTITY_REGISTRY = [
     workspaceScoped: { kind: 'indirect', via: 'captures' },
     label: { table: 'decision', columns: 'content', render: (r) => str(r.content).slice(0, 140) },
     realtime: true,
-    linkable: false,
+    linkable: true,
     citable: false,
     sourceable: false,
   },
@@ -415,7 +415,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'team_chat_channel', columns: 'name', render: (r) => str(r.name) },
     // Team chat runs its own channel (src/lib/team-chat), not the shared one.
     realtime: false,
-    linkable: false,
+    linkable: true,
     citable: false,
     sourceable: false,
   },
@@ -425,10 +425,13 @@ export const ENTITY_REGISTRY = [
     workspaceScoped: { kind: 'column', table: 'team_chat_message' },
     label: { table: 'team_chat_message', columns: 'body', render: (r) => str(r.body).slice(0, 140) },
     realtime: false,
-    linkable: false,
+    linkable: true,
     citable: false,
     sourceable: false,
   },
+
+  // ── Kinds outside the knowledge graph: registered so every other vocabulary
+  // (the entity event bus, realtime, menus) derives from this one list.
   {
     id: 'comment',
     table: 'comment',

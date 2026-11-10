@@ -37,6 +37,7 @@ import {
   entityDescriptor,
   type EntityTypeDescriptor,
 } from '../entity-registry'
+import { PRIVATE_GRAPH_KINDS } from '../entity-fences'
 
 // `ENTITY_REGISTRY` is `as const satisfies` so each entry keeps its exact
 // literal type — which means an entry without `anchor` has no such key at all.
@@ -133,19 +134,23 @@ describe('registry self-consistency', () => {
   })
 
   it('links the kinds the shared entity layer added, after every older one', () => {
-    const added = ['deal', 'flow']
+    const added = ['deal', 'flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message']
     expect(LINKABLE_ENTITY_TYPES.slice(-added.length)).toEqual(added)
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
   })
 
-  it('keeps kinds without a strong enough fence out of the graph', () => {
+  it('links a private kind only once its fence exists (entity-fences.ts)', () => {
     // Private to a person or a channel, or without a workspace_id: the graph's
-    // workspace_id fence would leak them (see the registry comment).
+    // workspace_id fence alone would leak them (see the registry comment), so
+    // every linkable private kind must be one entity-fences.ts fences.
     for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision']) {
-      expect(LINKABLE_ENTITY_TYPES as readonly string[], id).not.toContain(id)
-      expect((WORKSPACE_SCOPED_TABLE as Record<string, string>)[id], id).toBeUndefined()
+      expect(LINKABLE_ENTITY_TYPES as readonly string[], id).toContain(id)
+      expect(PRIVATE_GRAPH_KINDS as readonly string[], id).toContain(id)
     }
+    // decision has no workspace_id: entityInWorkspace must not filter on one.
+    expect((WORKSPACE_SCOPED_TABLE as Record<string, string>).decision).toBeUndefined()
+    expect(WORKSPACE_SCOPED_TABLE.calendar_event).toBe('local_calendar_event')
   })
 
   it('keeps kinds outside the graph out of every graph vocabulary', () => {

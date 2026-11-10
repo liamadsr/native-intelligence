@@ -498,7 +498,7 @@ async function createChild(
 ): Promise<string | null> {
   const { parent, input } = args
   const taskPrompt = renderDelegationTask(input, args.from)
-  const resources = await snapshotResources(supabase, input.resources, parent.workspace_id)
+  const resources = await snapshotResources(supabase, input.resources, parent.workspace_id, parent.triggered_by)
   const expects = input.expects ?? [...DEFAULT_EXPECTS_BY_ROLE[input.role]]
   // Work under a chat-delegated root stays inside what that chat could call.
   const chatCeiling = chatCeilingForChild(parent)
