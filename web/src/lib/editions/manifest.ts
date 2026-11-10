@@ -48,6 +48,8 @@
  * member-readable through the existing workspace RLS.
  */
 
+import type { EntityTypeSubset } from '@/lib/knowledge/entity-registry'
+
 /**
  * The pages a workspace can have on (each shown as a card in the chat: see
  * src/lib/chat-cards, whose page kinds and `/` pages gate on these with
@@ -105,15 +107,9 @@ export const ALWAYS_ALLOWED_VIEWS: readonly EditionView[] = ['teams'] as const
  * Manual accepts bypass this entirely by design (they call `applyChange`
  * directly and never reach the gate).
  */
-export type EditionEntityType =
-  | 'action'
-  | 'decision'
-  | 'contact'
-  | 'company'
-  | 'project'
-  | 'milestone'
-  | 'document'
-  | 'claim'
+export type EditionEntityType = EntityTypeSubset<
+  'action' | 'decision' | 'contact' | 'company' | 'project' | 'milestone' | 'document' | 'claim'
+>
 
 /**
  * A FEATURE — the unit an edition is assembled from, and the unit a user

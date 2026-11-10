@@ -10,9 +10,20 @@
  */
 import type { CaptureListItem } from '@/app/account/(dashboard)/views/capture-utils'
 import type { OpenTarget } from '@/lib/chat-cards/open-card'
+import type { EntityType } from '@/lib/knowledge/entity-registry'
 
 /** The kinds the search finds, in the order the menu lists them by default. */
-export const MENU_SEARCH_KINDS = ['action', 'document', 'project', 'initiative', 'capture', 'contact', 'company', 'agent'] as const
+/** Registered entity kinds, plus 'agent' (a recipe offered as someone to @). */
+export const MENU_SEARCH_KINDS = [
+  'action',
+  'document',
+  'project',
+  'initiative',
+  'capture',
+  'contact',
+  'company',
+  'agent',
+] as const satisfies readonly (EntityType | 'agent')[]
 export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
 
 export function isMenuSearchKind(v: unknown): v is MenuSearchKind {

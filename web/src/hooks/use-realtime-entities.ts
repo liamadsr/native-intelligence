@@ -26,8 +26,11 @@ import {
   wasRecentlyMutatedLocally,
   type EntityKind,
 } from '@/lib/entity-events'
+import { REALTIME_ENTITY_TABLES } from '@/lib/knowledge/entity-registry'
 
-// Table → emitted entity kind.
+// Table → emitted entity kind: every registry kind with `realtime: true`
+// (src/lib/knowledge/entity-registry.ts), plus the two bindings that are not
+// an entity's own table, listed below.
 //
 // `filtered: false` marks tables without a workspace_id column (scoped via
 // team_id or a parent row instead). Those subscribe UNFILTERED: RLS still
@@ -51,51 +54,18 @@ import {
 // would saturate the bus. email-layout.tsx runs its own narrowly-scoped
 // channel for the inbox instead. email_message is excluded for the same
 // reason — the thread's index-row UPDATE is the client signal.
-const TABLES: Array<{ table: string; entityType: EntityKind; filtered?: boolean }> = [
-  { table: 'actions', entityType: 'action' },
-  { table: 'projects', entityType: 'project' },
-  { table: 'initiative', entityType: 'initiative' },
-  { table: 'captures', entityType: 'capture' },
-  { table: 'document', entityType: 'document' },
-  { table: 'contact', entityType: 'contact' },
-  { table: 'company', entityType: 'company' },
-  { table: 'deal', entityType: 'deal' },
-  { table: 'claim', entityType: 'claim' },
-  { table: 'entity_link', entityType: 'entity_link' },
-  { table: 'comment', entityType: 'comment', filtered: false },
-  { table: 'decision', entityType: 'decision', filtered: false },
-  { table: 'cycle', entityType: 'cycle', filtered: false },
-  { table: 'milestone', entityType: 'milestone', filtered: false },
-  { table: 'workflow_state', entityType: 'workflow_state', filtered: false },
-  { table: 'label', entityType: 'label' },
-  { table: 'team', entityType: 'team' },
+//
+// Eval cases and runs stream as their own kinds, not only through the suite
+// row: the suite detail page's Cases and Runs tabs are scoped views over the
+// CHILD tables, so a case authored by the assistant or a trial settling
+// mid-run has to reach those lists as an event about the child.
+export const TABLES: ReadonlyArray<{ table: string; entityType: EntityKind; filtered: boolean }> = [
+  ...REALTIME_ENTITY_TABLES,
+  // An edge, not an entity: graph panels repaint off link inserts/deletes.
+  { table: 'entity_link', entityType: 'entity_link', filtered: true },
+  // Membership changes repaint the team itself, so they emit kind 'team' with
+  // the TEAM's id (eventId below). No workspace_id column.
   { table: 'team_member', entityType: 'team', filtered: false },
-  { table: 'member', entityType: 'member' },
-  { table: 'recipe', entityType: 'recipe' },
-  { table: 'flow', entityType: 'flow' },
-  { table: 'flow_run', entityType: 'flow_run', filtered: false },
-  { table: 'email_draft', entityType: 'email_draft' },
-  { table: 'contact_interaction', entityType: 'contact_interaction' },
-  { table: 'local_calendar_event', entityType: 'calendar_event' },
-  { table: 'agent_run', entityType: 'agent_run' },
-  { table: 'capture_participant', entityType: 'capture_participant', filtered: false },
-  // Sequences (migration 227): both are in the publication with REPLICA
-  // IDENTITY FULL. The detail page live-updates its enrollment table (send
-  // progress, replied-exits) off these events.
-  { table: 'sequence', entityType: 'sequence' },
-  { table: 'sequence_enrollment', entityType: 'sequence_enrollment' },
-  // Eval suites (migration 255) and their two children (migration 257, which
-  // added both to the publication with REPLICA IDENTITY FULL).
-  //
-  // The suite subscription alone used to be enough because 255's triggers
-  // land every case and run change on the suite row. It is not enough any
-  // more: the suite detail page's Cases and Runs tabs are now scoped views
-  // over the CHILD tables, so a case authored by the assistant or a trial
-  // settling mid-run has to reach those lists as an event about the child —
-  // a suite-row update tells them nothing about which of their rows moved.
-  { table: 'eval_suite', entityType: 'eval_suite' },
-  { table: 'eval_case', entityType: 'eval_case' },
-  { table: 'eval_run', entityType: 'eval_run' },
 ]
 
 // ── Cross-workspace actions and projects ─────────────────────────────────

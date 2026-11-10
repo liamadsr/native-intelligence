@@ -1,5 +1,7 @@
 // Proposed changes: types for the universal staging system
 
+import type { EntityTypeSubset } from '@/lib/knowledge/entity-registry'
+
 export type ChangeType =
   | 'create'
   | 'update'
@@ -8,13 +10,10 @@ export type ChangeType =
   | 'send_email'
   | 'mcp_call'
 
+/** A registered entity kind (src/lib/knowledge/entity-registry.ts), or
+ *  'external': a side effect outside the workspace with no entity row. */
 export type EntityType =
-  | 'action'
-  | 'project'
-  | 'decision'
-  | 'milestone'
-  | 'initiative'
-  | 'contact'
+  | EntityTypeSubset<'action' | 'project' | 'decision' | 'milestone' | 'initiative' | 'contact'>
   | 'external'
 
 /** 'expired': nobody acted before expires_at, or the change was made another

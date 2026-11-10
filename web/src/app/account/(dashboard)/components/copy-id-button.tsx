@@ -4,6 +4,7 @@ import { PreferenceActionButton } from '@/components/views/preference-action'
 
 import { useEffect, useRef, useState } from 'react'
 import { copyTextToClipboard } from '@/lib/clipboard'
+import type { EntityType } from '@/lib/knowledge/entity-registry'
 import { toast } from 'sonner'
 import { Copy, Check } from 'lucide-react'
 import {
@@ -13,10 +14,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
-type EntityType = 'action' | 'capture' | 'document' | 'project' | 'initiative' | 'contact' | 'company'
-
 interface CopyIdButtonProps {
-  /** The entity type, used as the label prefix in the copied text. */
+  /** The entity type (any registered kind), used as the label prefix in the copied text. */
   entityType: EntityType
   /** The entity's UUID. */
   id: string

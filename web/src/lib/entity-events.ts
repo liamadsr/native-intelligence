@@ -28,47 +28,21 @@
  *   channel on email_thread_index with provider-id matching), NOT through
  *   use-realtime-entities.ts. In-tab/cross-tab emits still work normally.
  *
- * use-realtime-entities.ts is the authoritative table→kind map; migration
- * 187_realtime_sync_coverage.sql is the authoritative publication list.
- * If you add a kind here, wire it there too — a kind without a realtime
- * source only updates the emitting browser, never teammates or MCP/cron
- * writes.
+ * The kinds come from the entity registry (src/lib/knowledge/entity-registry.ts):
+ * add a kind there, never here. Its `realtime` flag decides whether
+ * use-realtime-entities.ts streams the kind's table; migration
+ * 187_realtime_sync_coverage.sql is the authoritative publication list. A
+ * kind without a realtime source only updates the emitting browser, never
+ * teammates or MCP/cron writes.
+ *
+ * Two kinds are not registry entries:
+ *   entity_link  — an edge between entities, not an entity.
+ *   email_thread — the UI's name for the registry's `email` kind (same
+ *                  email_thread_index row). `email` is the stored graph value
+ *                  (entity_link / claim rows), so unifying the two names needs
+ *                  a data migration.
  */
-export type EntityKind =
-  | 'action'
-  | 'project'
-  | 'initiative'
-  | 'capture'
-  | 'document'
-  | 'contact'
-  | 'company'
-  | 'deal'
-  | 'email_thread'
-  | 'label'
-  | 'flow'
-  | 'flow_run'
-  | 'claim'
-  | 'entity_link'
-  | 'comment'
-  | 'decision'
-  | 'calendar_event'
-  | 'cycle'
-  | 'milestone'
-  | 'workflow_state'
-  | 'team'
-  | 'member'
-  | 'recipe'
-  | 'email_draft'
-  | 'contact_interaction'
-  | 'agent_run'
-  | 'capture_participant'
-  | 'sequence'
-  | 'sequence_enrollment'
-  | 'prospect_list'
-  | 'prospect_list_entry'
-  | 'eval_suite'
-  | 'eval_case'
-  | 'eval_run'
+export type EntityKind = EntityType | 'entity_link' | 'email_thread'
 
 export interface EntityUpdatedDetail {
   entityType: EntityKind
@@ -111,6 +85,7 @@ export interface EntityCreatedDetail {
 // early app boot before the workspace context has been set.
 
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
+import type { EntityType } from '@/lib/knowledge/entity-registry'
 
 const BROADCAST_CHANNEL_NAME = 'dial8:entity-events'
 const TAB_ID =

@@ -2,6 +2,8 @@
 // View System Types
 // ============================================================
 
+import type { EntityTypeSubset } from '@/lib/knowledge/entity-registry'
+
 /**
  * Sentinel filter value meaning "match nothing". Lives here (not in
  * query-engine) so client components can import it without pulling in the
@@ -22,7 +24,33 @@ export const NO_MATCH_FILTER_VALUE = '__no_match__'
  */
 export const BULK_MAX_IDS = 100
 
-export type ViewEntityType = 'action' | 'capture' | 'contact' | 'company' | 'email_thread' | 'document' | 'initiative' | 'project' | 'flow' | 'sequence' | 'prospect_list' | 'prospect_list_entry' | 'eval_suite' | 'eval_case' | 'eval_run' | 'claim' | 'agent' | 'skill' | 'deal'
+/**
+ * Registered entity kinds a view can list, plus three view-only names:
+ * 'email_thread' (the registry's `email`, see EntityKind in entity-events.ts),
+ * and 'agent' / 'skill' (recipes, listed as two libraries).
+ */
+export type ViewEntityType =
+  | EntityTypeSubset<
+      | 'action'
+      | 'capture'
+      | 'contact'
+      | 'company'
+      | 'document'
+      | 'initiative'
+      | 'project'
+      | 'flow'
+      | 'sequence'
+      | 'prospect_list'
+      | 'prospect_list_entry'
+      | 'eval_suite'
+      | 'eval_case'
+      | 'eval_run'
+      | 'claim'
+      | 'deal'
+    >
+  | 'email_thread'
+  | 'agent'
+  | 'skill'
 export type LibraryScope = 'all' | 'mine' | 'workspace' | 'discover'
 /**
  * How a view is drawn. `graph` is the knowledge map — a WebGL canvas of claims
