@@ -26,6 +26,7 @@
  */
 import { applyChatRetention } from '@/lib/chat/message-retention'
 import { scrubMailToolOutputsForStorage } from '@/lib/chat/mail-tool-scrub'
+import { storageKeyAfterRename } from '@/lib/storage-key-rename'
 import { isTabStateWipeActive } from './state-wipe'
 import type { ChatSlice } from './types'
 
@@ -123,7 +124,7 @@ export function sweepLegacyTabKeys(): number {
     // Collect, then remove: removing while walking localStorage.key(i) shifts the indices.
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key && isLegacyTabKey(key)) doomed.push(key)
+      if (key && isLegacyTabKey(storageKeyAfterRename(key))) doomed.push(key)
     }
     for (const key of doomed) localStorage.removeItem(key)
     return doomed.length
@@ -166,7 +167,7 @@ export function sweepClaudeCodeKeys(): number {
     const doomed: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key && isClaudeCodeKey(key)) doomed.push(key)
+      if (key && isClaudeCodeKey(storageKeyAfterRename(key))) doomed.push(key)
     }
     for (const key of doomed) localStorage.removeItem(key)
     localStorage.setItem(CLAUDE_CODE_KEYS_SWEPT_KEY, '1')

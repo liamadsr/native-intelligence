@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import { STORAGE_RENAME_MARK, STORAGE_RENAME_SCRIPT } from '../storage-rename-script'
+import { storageKeyAfterRename } from '@/lib/storage-key-rename'
 
 /** Run the inline script exactly as the page does. */
 const run = () => new Function(STORAGE_RENAME_SCRIPT)()
@@ -102,6 +103,46 @@ describe('the storage rename script', () => {
     // The small one still fits beside its copy.
     expect(local.data.get('ni-theme')).toBe('ocean')
     expect(local.data.get('dial8-theme')).toBe('ocean')
+  })
+
+  it('marks the storage before it copies, so copies that fill it still count as done', () => {
+    // Room for the first copy, not the second: with the mark written last it would not have fit.
+    const local = smallStorage(139, { 'dial8:draft': 'd'.repeat(40), 'dial8-app-background': 'x'.repeat(59) })
+    const session = smallStorage(100, {})
+    const load = () => new Function('window', STORAGE_RENAME_SCRIPT)({ localStorage: local, sessionStorage: session })
+    load()
+    expect(local.data.get(STORAGE_RENAME_MARK)).toBe('1')
+    expect(local.data.get('ni:draft')).toBe('d'.repeat(40))
+    expect(local.data.get('ni-app-background')).toBe('x'.repeat(59))
+    // The person sends the draft; later loads never bring it back.
+    local.removeItem('ni:draft')
+    load()
+    load()
+    expect(local.data.has('ni:draft')).toBe(false)
+  })
+
+  it('moves every key when even the mark does not fit, so nothing is left beside them to bring back', () => {
+    const local = smallStorage(100, { other: 'o'.repeat(60), 'dial8:draft': 'd'.repeat(40) })
+    const session = smallStorage(100, {})
+    const load = () => new Function('window', STORAGE_RENAME_SCRIPT)({ localStorage: local, sessionStorage: session })
+    load()
+    expect(local.data.has(STORAGE_RENAME_MARK)).toBe(false)
+    expect(local.data.get('ni:draft')).toBe('d'.repeat(40))
+    expect(local.data.has('dial8:draft')).toBe(false)
+    local.removeItem('ni:draft')
+    load()
+    expect(local.data.has('ni:draft')).toBe(false)
+    expect(local.data.get('other')).toBe('o'.repeat(60))
+  })
+
+  it('names a key the way the sweeps do (lib/storage-key-rename.ts)', () => {
+    for (const key of ['dial8:read-aloud:voice', 'dial8-theme', 'dial8.sky.lastReading.v2', 'dial8_build_id']) localStorage.setItem(key, '1')
+    run()
+    for (const key of ['dial8:read-aloud:voice', 'dial8-theme', 'dial8.sky.lastReading.v2', 'dial8_build_id']) {
+      expect(localStorage.getItem(storageKeyAfterRename(key)), key).toBe('1')
+      expect(storageKeyAfterRename(key)).not.toBe(key)
+    }
+    for (const key of ['theme', 'dial8', 'sb-dial8-auth-token', 'ni-theme', 'dial8theme']) expect(storageKeyAfterRename(key)).toBe(key)
   })
 
   it('never throws when storage is blocked', () => {

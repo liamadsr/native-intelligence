@@ -13,10 +13,16 @@
  * ones this build keeps up to date, so a later load must not bring back a
  * value the person has since changed or cleared from the old key beside it. A
  * key that already exists under the new name is left as it is for the same
- * reason.
+ * reason. The mark is written before the copies, while there is room for it:
+ * the copies can fill the storage, and a copy that could not be marked done
+ * would run again on every load. Where even the mark does not fit, keys are
+ * moved, which leaves nothing beside them to bring back.
  *
  * A value too large to hold twice (a custom background image) is moved
  * instead, so this build keeps it.
+ *
+ * A sweep that deletes keys by name takes the old copy with it
+ * (lib/storage-key-rename.ts), and so does the sign-out wipe (state-wipe.ts).
  */
 // TODO(rename-compat): one release after the rename, delete the old keys, then remove this script.
 export const STORAGE_RENAME_MARK = 'ni:storage-renamed'
@@ -31,12 +37,15 @@ export const STORAGE_RENAME_SCRIPT = `
       var key = storage.key(i);
       if (key && old.test(key)) keys.push(key);
     }
+    var marked = true;
+    try { storage.setItem(mark, '1'); } catch (_) { marked = false; }
     for (var j = 0; j < keys.length; j++) {
       try {
         var next = keys[j].replace(old, 'ni$1');
         if (storage.getItem(next) !== null) continue;
         var value = storage.getItem(keys[j]);
         if (value === null) continue;
+        if (!marked) storage.removeItem(keys[j]);
         try {
           storage.setItem(next, value);
         } catch (_) {
@@ -45,7 +54,6 @@ export const STORAGE_RENAME_SCRIPT = `
         }
       } catch (_) {}
     }
-    try { storage.setItem(mark, '1'); } catch (_) {}
   }
   try { copy(window.localStorage); } catch (_) {}
   try { copy(window.sessionStorage); } catch (_) {}
