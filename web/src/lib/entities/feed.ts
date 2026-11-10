@@ -4,10 +4,12 @@
  * every private kind's visibility, labels what's left and groups it per
  * record. The one reader behind GET /api/account/feed.
  *
- * SESSION CLIENT ONLY. The log's own RLS is "a member of the workspace", which
- * is not enough: a row about someone else's private document, a DM the
- * viewer isn't in or another member's capture must never reach them, nor its
- * label. So before anything is answered:
+ * SESSION CLIENT ONLY. The log's own RLS (migration 489) already lets a row
+ * through only when the viewer can read its record and the record its detail
+ * names; this file fences again, so the feed never rests on one rule alone:
+ * a row about someone else's private document, a DM the viewer isn't in or
+ * another member's capture must never reach them, nor its label. So before
+ * anything is answered:
  *   1. the private graph kinds are fenced for the viewer
  *      (hiddenPrivateRefs: team chat, calendar events, decisions), and
  *   2. every record a row names (the record itself, and the one that
@@ -19,7 +21,8 @@
  * from those two reads.
  *
  * Flat cost, whatever the page: one read of the log (indexed for each
- * filter), at most two reads of the edges for `linked_to`, one fence read
+ * filter), for `linked_to` one fence and one label read of the record named
+ * (it must be readable) and at most two reads of its edges, one fence read
  * per private kind present, one label read per kind, one read of member
  * names, and at most one read each of task states, deal stages and message
  * channels.
@@ -118,6 +121,14 @@ async function linkedRefs(supabase: SupabaseClient, workspaceId: string, ref: { 
   return [...refs.values()]
 }
 
+/** Whether the viewer can read one record: past the private-kind fences, and labelled through their RLS. */
+async function canRead(supabase: SupabaseClient, viewer: FeedViewer, ref: { type: string; id: string }): Promise<boolean> {
+  const hidden = await hiddenPrivateRefs(supabase, [ref], viewer.userId, viewer.workspaceId)
+  if (hidden.has(key(ref.type, ref.id))) return false
+  const labels = await resolveEntityLabels(supabase, viewer.workspaceId, new Map([[ref.type, new Set([ref.id])]]))
+  return labels.has(key(ref.type, ref.id))
+}
+
 /** Read the log's rows for a filter, newest first. */
 async function readRows(
   supabase: SupabaseClient,
@@ -131,6 +142,9 @@ async function readRows(
   let linkedIds: string[] = []
   if (filter.linkedTo) {
     try {
+      // The record named must be one the viewer can read: otherwise the
+      // answer would say what a private record is linked to.
+      if (!(await canRead(supabase, viewer, filter.linkedTo))) return { rows: [], read: 0, want }
       const refs = await linkedRefs(supabase, viewer.workspaceId, filter.linkedTo)
       if (!refs.length) return { rows: [], read: 0, want }
       linked = new Set(refs.map((r) => key(r.type, r.id)))

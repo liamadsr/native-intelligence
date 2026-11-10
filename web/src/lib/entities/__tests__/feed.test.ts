@@ -86,6 +86,8 @@ function db(): SupabaseClient {
     workflow_state: [{ id: IN_PROGRESS, name: 'In progress' }],
     entity_link: [
       { id: 'l1', workspace_id: WS, source_type: 'document', source_id: DOC, target_type: 'action', target_id: TASK, relation: 'related_to' },
+      // Edges are fenced only by workspace: one touching another member's private doc is in this view.
+      { id: 'l2', workspace_id: WS, source_type: 'document', source_id: PRIVATE_DOC, target_type: 'action', target_id: OWN_TASK, relation: 'related_to' },
     ],
     entity_activity: [
       act('2026-11-09T08:00:00.000000+00:00', 'document', DOC, 'created', { actor_member_id: ANA }),
@@ -196,6 +198,13 @@ describe('linked_to', () => {
   it('is the activity on the records linked to one', async () => {
     const feed = await run(db(), { linkedTo: { type: 'document', id: DOC } })
     expect(feed.entries?.map((e) => [e.id, describeFeedEvent(e.last)])).toEqual([[TASK, 'Assigned to you']])
+  })
+
+  it('says nothing of what a record the viewer can’t read is linked to', async () => {
+    const feed = await run(db(), { linkedTo: { type: 'document', id: PRIVATE_DOC } })
+    expect(feed).toEqual({ entries: [], next_cursor: null })
+    const dm = await run(db(), { linkedTo: { type: 'team_chat_message', id: DM_MSG }, group: 'none' })
+    expect(dm).toEqual({ events: [], next_cursor: null })
   })
 })
 
