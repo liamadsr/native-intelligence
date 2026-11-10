@@ -99,7 +99,7 @@ describe('SystemAudioWarning — grant flow', () => {
     await clickButton()
     expect(bridge.requestSystem).toHaveBeenCalledTimes(2)
     expect(host.textContent).toContain(
-      'System Settings opened — turn on Native Intelligence under Screen & System Audio Recording, then stop and restart the capture.',
+      'System Settings opened — turn on Native Intelligence (listed as Dial8 in older versions) under Screen & System Audio Recording, then stop and restart the capture.',
     )
     expect(button()).toBeNull()
   })

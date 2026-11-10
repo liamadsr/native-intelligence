@@ -8,6 +8,7 @@ import { trackRecordingEvent } from '@/lib/recording-telemetry'
 import { hasDownload } from '@/lib/app-download'
 import { cn } from '@/lib/utils'
 import { useDesktopOS } from '@/components/desktop-titlebar'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 /** What the last grant click came back with. `legacy` = the answer came from
  *  the old tap probe (a desktop build without request_system_audio_permission),
@@ -26,7 +27,7 @@ function grantMessage({ result, legacy }: GrantOutcome): string {
     return 'Permission granted. Stop and restart the capture to include system audio.'
   }
   if (result === 'opened-settings') {
-    return 'System Settings opened — turn on Native Intelligence under Screen & System Audio Recording, then stop and restart the capture.'
+    return `System Settings opened — turn on ${APP_IN_SYSTEM_SETTINGS} under Screen & System Audio Recording, then stop and restart the capture.`
   }
   if (!legacy && result === 'unsupported') {
     return 'System audio capture needs macOS 14.4 or later.'
