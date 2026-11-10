@@ -330,7 +330,7 @@ async function main() {
     try {
       const lines = readFileSync(nextLog, 'utf8')
         .split('\n')
-        .filter((l) => /\/api\/inngest\?fnId=dial8-work-run-(execute|resume)/.test(l))
+        .filter((l) => /\/api\/inngest\?fnId=native-intelligence-work-run-(execute|resume)/.test(l))
       console.log(`\n/api/inngest requests for the work-run functions (${lines.length}):`)
       for (const l of lines) console.log('  ' + l.replace(/\x1b\[[0-9;]*m/g, '').trim())
     } catch (e) {
