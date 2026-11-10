@@ -43,6 +43,7 @@ import {
   FileText,
   FlaskConical,
   FolderKanban,
+  Handshake,
   LayoutList,
   Mail,
   Megaphone,
@@ -66,6 +67,7 @@ import {
   menuTabLabel,
   buildMenu,
   cycleTab,
+  hostRecordOffer,
   isRecordKind,
   menuTakesEnter,
   mentionOptionsMenu,
@@ -164,6 +166,9 @@ function verbLabel(verb: MenuVerb, item: MenuItem | undefined): string {
 
 /** The record kinds no composer mentions (nothing to attach them by). */
 const NO_MENTIONS: readonly MenuSearchKind[] = []
+/** A host's record search lists no pages or skills. */
+const NO_PAGES: readonly OfferedPage[] = []
+const NO_SKILLS: readonly SkillCommand[] = []
 
 export function CommandMenu({
   open,
@@ -212,9 +217,25 @@ export function CommandMenu({
   const offered = useMemo(() => offeredKinds(activeTrigger, offer), [activeTrigger, offer])
   const currentTab = tab === 'all' || offered.includes(tab) ? tab : 'all'
 
+  // A host's own list may also find records (team chat: mentionList.records),
+  // listed under its options once something is typed.
+  const hostRecordKey = hostOptions && mentionList?.records ? mentionList.records.kinds.join(',') : ''
+  const hostOffer = useMemo(
+    () => (hostRecordKey ? hostRecordOffer(hostRecordKey.split(',') as MenuSearchKind[]) : null),
+    [hostRecordKey],
+  )
+  const hostOffered = useMemo(() => (hostOffer ? offeredKinds('@', hostOffer) : []), [hostOffer])
+  const hostSearches = !!hostOffer && query.trim().length > 0
+
   // Records come from the server (one request a keystroke, debounced); pages
   // and skills are searched here, at once, on every key.
-  const wanted = open && !hostOptions ? serverSearch(activeTrigger, currentTab, query, offered) : null
+  const wanted = !open
+    ? null
+    : hostOptions
+      ? hostSearches
+        ? serverSearch('@', 'all', query, hostOffered)
+        : null
+      : serverSearch(activeTrigger, currentTab, query, offered)
   const found = useMenuSearch(wanted, query, exclude)
   // Closed: what each shows first (recent people…) is fetched ahead, so the first `/` or `@` doesn't shift under it.
   const firstSlash = useMemo(() => serverSearch('/', 'all', '', offeredKinds('/', offer)), [offer])
@@ -225,9 +246,15 @@ export function CommandMenu({
   const { sections, tabs } = useMemo(
     () =>
       hostOptions
-        ? mentionOptionsMenu(hostOptions, query)
+        ? mentionOptionsMenu(
+            hostOptions,
+            query,
+            hostOffer && hostSearches
+              ? buildMenu('@', 'all', query, hostOffer, { pages: NO_PAGES, skills: NO_SKILLS, records: found.records, edition })
+              : undefined,
+          )
         : buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition }),
-    [hostOptions, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition],
+    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition],
   )
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections])
 
@@ -243,6 +270,8 @@ export function CommandMenu({
   // was turned to a tab of its own. Nothing matching what's typed: it steps
   // aside, and the keys are the box's again (Enter sends `/usr/bin`).
   // Loading counts only where records show (a Pages tab never waits on the server).
+  // A host's records never hold the keys while they load: its Enter picks its
+  // own option at once, or sends (team chat's "@Joseph what changed?⏎").
   const showsRecords = !hostOptions && searchedKinds(activeTrigger, currentTab, query, offered).some(isRecordKind)
   const loadingFirst = found.loading && items.length === 0 && showsRecords
   // The answer for what's typed is still on its way: it may put a better row on top.
@@ -869,6 +898,9 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
     case 'project':
     case 'initiative':
       return { title: row.title, detail: row.status ? statusLabel(row.status) : null, meta: null }
+    case 'deal':
+    case 'flow':
+      return { title: row.title, detail: row.status, meta: null }
     case 'agent':
       return { title: row.title, detail: row.description, meta: null }
     case 'contact':
@@ -903,6 +935,8 @@ const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = {
   project: FolderKanban,
   initiative: Target,
   capture: AudioLines,
+  deal: Handshake,
+  flow: Workflow,
   agent: Boxes,
 }
 

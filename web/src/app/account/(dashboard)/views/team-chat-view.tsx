@@ -34,8 +34,18 @@ import { ChatInput, type ChatInputUnavailable, type ChatInputVoice } from '@/app
 import { useVoiceAvailability } from '@/hooks/use-voice-availability'
 import { useOptionalRecordingStable } from '@/hooks/recording-context'
 import type { ComposerMentionList, ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
-import { continuesGroup, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
-import { agentDisplayName, mentionsAssistantName, TEAM_CHAT_MESSAGE_MAX, TEAM_CHAT_PAGE_SIZE, type TeamChatChannel, type TeamChatMessage } from '@/lib/team-chat/types'
+import { continuesGroup, hasMention, mentionSegments, mentionsStillIn, messageTime } from '@/lib/team-chat/compose'
+import {
+  agentDisplayName,
+  mentionsAssistantName,
+  TEAM_CHAT_MESSAGE_MAX,
+  TEAM_CHAT_PAGE_SIZE,
+  type TeamChatChannel,
+  type TeamChatMessage,
+  type TeamChatRecordMention,
+} from '@/lib/team-chat/types'
+import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
+import { menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 
 interface Member {
   id: string
@@ -771,6 +781,42 @@ function ChannelPane({
   )
 }
 
+/** The record kinds team chat's `@` finds, beside the people (contacts aren't: its people are teammates). */
+const TEAM_CHAT_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow'] as const
+
+/** The card a record mention opens, or null for a kind no card draws. */
+function recordMentionTarget(r: TeamChatRecordMention): OpenTarget | null {
+  switch (r.type) {
+    case 'action':
+    case 'document':
+    case 'project':
+    case 'initiative':
+    case 'capture':
+    case 'contact':
+    case 'company':
+    case 'deal':
+      return { type: r.type, id: r.id, title: r.label }
+    case 'flow':
+      return { type: 'flow', id: r.id, title: r.label }
+    case 'calendar_event':
+      return { type: 'calendar-event', id: r.id, title: r.label }
+    default:
+      return null
+  }
+}
+
+/** The record an `@label` run of a message's words names (an openable one), if any. */
+function recordMentionFor(message: TeamChatMessage, text: string): TeamChatRecordMention | null {
+  const label = text.replace(/^@/, '').toLowerCase()
+  const found = (message.record_mentions ?? []).find((r) => r.label.toLowerCase() === label)
+  return found && recordMentionTarget(found) ? found : null
+}
+
+function openRecordMention(r: TeamChatRecordMention) {
+  const target = recordMentionTarget(r)
+  if (target) openTarget(target, { from: 'team_chat' })
+}
+
 function MessageRow({
   message,
   grouped,
@@ -822,15 +868,26 @@ function MessageRow({
           <p className="text-[15px] italic leading-relaxed text-muted-foreground">This message was deleted.</p>
         ) : (
           <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground">
-            {mentionSegments(message.body, labels).map((seg, i) =>
-              seg.mention ? (
+            {mentionSegments(message.body, [...labels, ...(message.record_mentions ?? []).map((r) => r.label)]).map((seg, i) => {
+              if (!seg.mention) return <span key={i}>{seg.text}</span>
+              // A record's mention opens its card; a person's is a highlight.
+              const record = recordMentionFor(message, seg.text)
+              return record ? (
+                <button
+                  key={i}
+                  type="button"
+                  data-record-mention={record.type}
+                  onClick={() => openRecordMention(record)}
+                  className="rounded bg-primary/10 px-0.5 font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  {seg.text}
+                </button>
+              ) : (
                 <span key={i} className="rounded bg-primary/10 px-0.5 font-medium text-primary">
                   {seg.text}
                 </span>
-              ) : (
-                <span key={i}>{seg.text}</span>
-              ),
-            )}
+              )
+            })}
             {message.edited_at && <span className="ml-1 text-[11px] text-muted-foreground">(edited)</span>}
           </p>
         )}
@@ -861,10 +918,12 @@ function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMes
     setSaving(true)
     // The mentions the words still hold (an edit may have taken one out).
     const picked = message.mentions.map((id) => ({ id, label: memberName(members.find((m) => m.id === id)) }))
+    // The same for its records: the ones still named go with the edit (the server drops the rest's edges).
+    const records = (message.record_mentions ?? []).filter((r) => hasMention(body, r.label))
     const res = await fetch(`/api/account/team-chat/messages/${message.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ body, mentions: mentionsStillIn(body, picked) }),
+      body: JSON.stringify({ body, mentions: mentionsStillIn(body, picked), records }),
     })
     setSaving(false)
     if (!res.ok) return
@@ -907,8 +966,10 @@ const noop = () => {}
 /**
  * The box: the main chat's composer (ChatInput, not the main one) in its
  * one-row pill (`layout="inline"`: +, the field, the mic, send), with its
- * `@` listing the person's agent and the members (mentionList) in place of
- * the record search. Enter sends, Shift+Enter is a new line. Text only: no
+ * `@` listing the person's agent and the members (mentionList), then, once
+ * something is typed, records (tasks, docs, projects, captures, companies,
+ * deals, flows: mentionList.records), each sent as a record mention (a graph
+ * edge). Enter sends, Shift+Enter is a new line. Text only: no
  * files (dimmed in +, with why), dictation but no voice mode, no skills.
  */
 function Composer({
@@ -939,6 +1000,8 @@ function Composer({
     [availability],
   )
   const [picked, setPicked] = useState<Array<{ id: string; label: string }>>([])
+  // Records picked from `@` (a task, a doc, a deal…): they go with the message while "@label" is in it.
+  const [pickedRecords, setPickedRecords] = useState<TeamChatRecordMention[]>([])
   const [sending, setSending] = useState(false)
   const [failed, setFailed] = useState(false)
 
@@ -959,19 +1022,29 @@ function Composer({
         if (o.agent) return
         setPicked((prev) => (prev.some((p) => p.id === o.id) ? prev : [...prev, { id: o.id, label: o.label }]))
       },
+      // Any record, found by the composer's own search; each mention is a graph edge once sent.
+      records: {
+        kinds: TEAM_CHAT_RECORD_KINDS,
+        onPick: (row: MenuSearchRow) => {
+          const m = menuRowMention(row)
+          if (!m) return
+          setPickedRecords((prev) => (prev.some((p) => p.type === m.type && p.id === m.id) ? prev : [...prev, m]))
+        },
+      },
     }),
     [options],
   )
 
   // The latest of what a send reads, so the send handed to the (memoized) box stays one function.
-  const latest = useRef({ text, picked, sending, channelId, assistantName, members, onSent })
-  latest.current = { text, picked, sending, channelId, assistantName, members, onSent }
+  const latest = useRef({ text, picked, pickedRecords, sending, channelId, assistantName, members, onSent })
+  latest.current = { text, picked, pickedRecords, sending, channelId, assistantName, members, onSent }
 
   const send = useCallback(async () => {
-    const { text, picked, sending, channelId, assistantName, members, onSent } = latest.current
+    const { text, picked, pickedRecords, sending, channelId, assistantName, members, onSent } = latest.current
     const body = text.trim()
     if (!body || sending) return
     const still = mentionsStillIn(body, picked)
+    const records = pickedRecords.filter((r) => hasMention(body, r.label))
     // "@<agent name>" in the words, picked or typed, calls the agent: by name,
     // never a teammate whose name starts with it ("@Joseph Lee").
     const mentionsAgent = mentionsAssistantName(body, assistantName, members.map((m) => m.display_name))
@@ -982,7 +1055,7 @@ function Composer({
       const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ body, mentions: still, mentionsAgent }),
+        body: JSON.stringify({ body, mentions: still, mentionsAgent, ...(records.length ? { records } : {}) }),
       })
       if (!res.ok) throw new Error('send failed')
       const json = (await res.json()) as { message?: TeamChatMessage }
@@ -992,6 +1065,7 @@ function Composer({
       if (!typedSince) {
         setText('')
         setPicked([])
+        setPickedRecords([])
       }
     } catch {
       setFailed(true)
