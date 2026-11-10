@@ -21,6 +21,10 @@
 #     deploy/supabase/set-secret.sh <user>@<server> \
 #     'SOURCE_DB_URL=postgresql://postgres.<ref>:{}@<pooler host>:5432/postgres'
 #
+# NAME+nl keeps a line break at the end of the value. Typing trims it, so this
+# is for a value stored elsewhere with one, that the app uses with one (a secret
+# once added with `echo ... |`): deploy/app/README.md, "Settings".
+#
 # It is for the values pull-hosted-settings.sh cannot bring (the hosted
 # project never gives out provider secrets or the SMTP password), and for the
 # ones that come from somewhere else altogether (Stripe).
@@ -47,6 +51,7 @@ shift
 names=""
 for arg in "$@"; do
 	name="${arg%%=*}"
+	name="${name%+nl}"
 	case "$name" in "" | *[!A-Za-z0-9_]* | [0-9]*) die "'$name' is not a setting name." ;; esac
 	# Quoted for the far shell: a pattern holds characters it would act on.
 	names="$names $(printf '%q' "$arg")"

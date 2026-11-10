@@ -10,6 +10,7 @@ Nothing on a server is set up by hand, which is what makes this possible:
 | What runs, and at which version | the compose files in this repository | `prepare` checks out the same commit the old server is on |
 | The settings and secrets | one `.env` file per folder, on the server only | `prepare` copies them across; their contents are never shown |
 | The data | Docker volumes whose names start with `ni-` | `sync` and `cutover` copy them, server to server |
+| The app's image | built on the server from the checkout, never pulled from a registry | `prepare` builds it there (about ten minutes), with the app's own [`../app/deploy.sh`](../app/deploy.sh) |
 | The public names | DNS records | you change them, after `cutover` |
 
 ## What it costs
@@ -50,7 +51,7 @@ deploy/move/move.sh check
 
 ## 2. Prepare the new server
 
-Runs `setup.sh` there, checks out the commit the old server is on, copies the `.env` files, pulls and builds the images, and creates the containers without starting them. The old server is not touched and keeps serving. It can be run again.
+Runs `setup.sh` there, checks out the commit the old server is on, copies the `.env` files, pulls and builds the images, and creates the containers without starting them. The old server is not touched and keeps serving. It can be run again. Once the app runs on the server (step 20 of [`../README.md`](../README.md)), building its image is most of this step's time: about ten minutes.
 
 ```bash
 deploy/move/move.sh prepare
@@ -96,6 +97,8 @@ Change every DNS record that pointed at the old server's address so it points at
 ```bash
 dig +short inngest.nativeintelligence.dev sb.nativeintelligence.dev
 ```
+
+Once the app runs on the server, its names (`APP_HOSTS` in `edge/.env`) are among those records, and while they still point at the old server the app is down. Change those first.
 
 Then check the platform itself, the same way as after the first installation: the checks at the end of step 9 in [`../README.md`](../README.md), the Inngest dashboard (step 10) showing the app with its functions and no error, and one backup taken by hand (step 11).
 

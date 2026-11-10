@@ -10,7 +10,10 @@ Two ways in:
                                      one part of a value: what is typed is
                                      percent-encoded and put where the pattern
                                      has {}, which is how a password goes into
-                                     a connection string
+                                     a connection string. NAME+nl keeps a line
+                                     break at the end of what is typed, for a
+                                     value that was stored somewhere else with
+                                     one and is used with it (typing trims it)
 
 Both only replace the value of a line the file already has. A name the file
 does not have is refused, so a typo cannot add a setting that nothing reads.
@@ -41,16 +44,19 @@ def fmt(name, value):
     Checked against `docker compose config`: bare for plain values; single
     quotes (taken literally) for the rest; double quotes with \\\\, \\" and \\$
     escaped only where single quotes cannot work, which is a value containing
-    a single quote or ending in a backslash.
+    a single quote or ending in a backslash, or a line break: in double quotes
+    Compose reads \\n as one (checked with a container's environment). Some
+    values carry one by accident (pasted with it) and the app uses them with it,
+    so it has to arrive. Any other control character is refused.
     """
     v = "" if value is None else str(value)
-    if any(ord(c) < 32 or ord(c) == 127 or c in "\x85\u2028\u2029" for c in v):
-        die("%s contains a line break or control character; that cannot go into an env file." % name)
+    if any((ord(c) < 32 and c != "\n") or ord(c) == 127 or c in "\x85\u2028\u2029" for c in v):
+        die("%s contains a control character; that cannot go into an env file." % name)
     if re.fullmatch(r"[A-Za-z0-9_./:@,+=-]*", v):
         return v
-    if "'" not in v and not v.endswith("\\"):
+    if "'" not in v and not v.endswith("\\") and "\n" not in v:
         return "'" + v + "'"
-    return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+    return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("\n", "\\n") + '"'
 
 
 def known_names(path):
@@ -123,8 +129,14 @@ def main():
         apply(path, new)
         return
     asks = []
+    newline = set()
     for arg in sys.argv[3:]:
         name, has_pattern, pattern = arg.partition("=")
+        if name.endswith("+nl"):
+            name = name[:-3]
+            if has_pattern:
+                die("%s: +nl and a pattern cannot go together." % name)
+            newline.add(name)
         if has_pattern and pattern.count("{}") != 1:
             die("%s: the pattern after = needs {} exactly once, where the typed part goes." % name)
         asks.append((name, pattern if has_pattern else None))
@@ -156,7 +168,9 @@ def main():
         # with a message about the wrong thing.
         if pattern and ("://" in value or value.startswith("[")):
             die("%s: that looks like an address or a placeholder, not a password. Only the password goes here; nothing was changed." % name)
-        print("   %s: %d characters" % (name, len(value)))
+        if name in newline:
+            value += "\n"
+        print("   %s: %d characters%s" % (name, len(value), ", the last a line break" if name in newline else ""))
         # In a connection string the characters @ : / ? # and the like would
         # be read as part of the address, so every one of them is encoded.
         new[name] = pattern.replace("{}", urllib.parse.quote(value, safe="")) if pattern else value

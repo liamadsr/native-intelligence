@@ -1,0 +1,51 @@
+# The app's agents (../app), backed up nightly. Layered on compose.yaml once the
+# app runs on this server, by adding it to the COMPOSE_FILE line in .env:
+#
+#   COMPOSE_FILE=compose.yaml:compose.supabase.yaml:compose.app.yaml
+#
+# Without it the container never hears of the app and does not schedule the job.
+#
+#   app-agents   every night: each agent's workflow runs and its sandbox's files,
+#                read from the agents' own volumes, mounted here read-only. 7 days
+#                kept. Losing them is survivable (the app replaces a conversation
+#                whose session is gone), so a week is enough.
+#
+# Two agents are left out on purpose: utility and web-research. They carry mail
+# text and other workspace content in their runs and are set to keep nothing once a
+# run ends (agents/utility/agent.ts, "retention: 0"). The file store eve uses on
+# this server does not honour that setting, so their runs stay on their volumes;
+# a backup would copy that text off the server for a week as well.
+services:
+  backup:
+    environment:
+      BACKUP_APP_AGENTS_DIR: /volumes/app-agents
+      BACKUP_APP_AGENTS_RETENTION_DAYS: ${BACKUP_APP_AGENTS_RETENTION_DAYS:-7}
+      BACKUP_APP_AGENTS_PING_URL: ${BACKUP_APP_AGENTS_PING_URL:-}
+    volumes:
+      - chat-agent-workflow:/volumes/app-agents/chat-agent/workflow:ro
+      - chat-agent-sandbox:/volumes/app-agents/chat-agent/sandbox:ro
+      - work-agent-workflow:/volumes/app-agents/work-agent/workflow:ro
+      - work-agent-sandbox:/volumes/app-agents/work-agent/sandbox:ro
+      - coding-agent-workflow:/volumes/app-agents/coding-agent/workflow:ro
+      - coding-agent-sandbox:/volumes/app-agents/coding-agent/sandbox:ro
+      - skill-runner-workflow:/volumes/app-agents/skill-runner/workflow:ro
+      - skill-runner-sandbox:/volumes/app-agents/skill-runner/sandbox:ro
+      - live-agent-workflow:/volumes/app-agents/live-agent/workflow:ro
+      - live-agent-sandbox:/volumes/app-agents/live-agent/sandbox:ro
+      - onboarding-researcher-workflow:/volumes/app-agents/onboarding-researcher/workflow:ro
+      - onboarding-researcher-sandbox:/volumes/app-agents/onboarding-researcher/sandbox:ro
+
+# Made by the app's stack (../app/compose.yaml); this file only reads them.
+volumes:
+  chat-agent-workflow: { name: ni-app-chat-agent-workflow, external: true }
+  chat-agent-sandbox: { name: ni-app-chat-agent-sandbox, external: true }
+  work-agent-workflow: { name: ni-app-work-agent-workflow, external: true }
+  work-agent-sandbox: { name: ni-app-work-agent-sandbox, external: true }
+  coding-agent-workflow: { name: ni-app-coding-agent-workflow, external: true }
+  coding-agent-sandbox: { name: ni-app-coding-agent-sandbox, external: true }
+  skill-runner-workflow: { name: ni-app-skill-runner-workflow, external: true }
+  skill-runner-sandbox: { name: ni-app-skill-runner-sandbox, external: true }
+  live-agent-workflow: { name: ni-app-live-agent-workflow, external: true }
+  live-agent-sandbox: { name: ni-app-live-agent-sandbox, external: true }
+  onboarding-researcher-workflow: { name: ni-app-onboarding-researcher-workflow, external: true }
+  onboarding-researcher-sandbox: { name: ni-app-onboarding-researcher-sandbox, external: true }
