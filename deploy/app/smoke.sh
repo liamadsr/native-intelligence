@@ -7,9 +7,10 @@
 #   NI_KEEP=1 deploy/app/smoke.sh    leave the stack running afterwards
 #
 # No secret is needed and none is used: every value below is made up for the run.
-# With made-up values there is no database and no model, so this proves that the
-# roles start and reach each other and that an agent's workflow engine runs, not
-# that an agent can finish a turn.
+# With made-up values there is no database and no model. So this shows that every
+# role starts, that the proxy, web and the agents are wired to each other, and that
+# an agent's workflow engine runs. It does not show an agent finishing a turn or
+# calling the app back, nor a cron route doing its work.
 #
 # Prints one line per check, writes the same as Markdown to $GITHUB_STEP_SUMMARY when
 # that is set, and exits non-zero if any check failed.
@@ -45,37 +46,48 @@ check() { # <ok|FAIL> <what> <detail>
 
 finish() {
   local status=$?
-  if [ "${NI_KEEP:-}" != 1 ]; then
+  if [ "${NI_KEEP:-}" = 1 ]; then
+    echo "== left running at http://127.0.0.1:$PORT. Its made-up values are in $NI_ENV_FILE; stop it with:"
+    echo "   NI_ENV_FILE=$NI_ENV_FILE docker compose -f $HERE/compose.yaml down --volumes"
+  else
     compose down --volumes --remove-orphans > /dev/null 2>&1
+    rm -rf "$work"
   fi
-  rm -rf "$work"
   exit "$status"
 }
 trap finish EXIT
 
-# One HTTP GET from inside a container (the image has node, not curl): prints
-# "<status> <first 200 characters of the body>".
-get_from() { # <service> <url> [authorization]
-  compose exec -T -e URL="$2" -e AUTH="${3:-}" "$1" node -e '
-    const headers = process.env.AUTH ? { authorization: process.env.AUTH } : {}
-    fetch(process.env.URL, { headers, redirect: "manual", signal: AbortSignal.timeout(20000) })
-      .then(async response => console.log(response.status, (await response.text()).replace(/\s+/g, " ").slice(0, 200)))
-      .catch(error => console.log("000", error?.cause?.code ?? error.message))
+# One HTTP GET from this machine, through the proxy's published port. Prints
+# "<status> [<the container that answered>] <first 200 characters of the body>":
+# the proxy names the container in X-NI-Upstream.
+get() { # <path>
+  local status upstream
+  status="$(curl -sS -m 20 -D "$work/headers" -o "$work/body" -w '%{http_code}' "http://127.0.0.1:$PORT$1" 2> /dev/null)"
+  upstream="$(tr -d '\r' < "$work/headers" 2> /dev/null | awk 'tolower($1) == "x-ni-upstream:" { print $2 }')"
+  printf '%s [%s] %s\n' "${status:-000}" "${upstream:--}" "$(tr -s '[:space:]' ' ' < "$work/body" 2> /dev/null | cut -c1-200)"
+}
+# The same from inside a container (the image has node, not curl).
+get_from() { # <service> <url>
+  compose exec -T -e URL="$2" "$1" node -e '
+    fetch(process.env.URL, { redirect: "manual", signal: AbortSignal.timeout(20000) })
+      .then(async response => console.log(
+        response.status,
+        `[${response.headers.get("x-ni-upstream") ?? "-"}]`,
+        (await response.text()).replace(/\s+/g, " ").slice(0, 200),
+      ))
+      .catch(error => console.log("000 [-]", error?.cause?.code ?? error.message))
   ' 2> /dev/null
 }
-# The same from this machine, through the proxy's published port.
-get() { # <path>
-  local body status
-  body="$(curl -sS -m 20 -o - -w '\n%{http_code}' "http://127.0.0.1:$PORT$1" 2> /dev/null)"
-  status="${body##*$'\n'}"
-  printf '%s %s\n' "${status:-000}" "$(printf '%s' "${body%$'\n'*}" | tr -s '[:space:]' ' ' | cut -c1-200)"
-}
-expect() { # <what> <"status body"> <wanted status> [body must contain]
-  local status="${2%% *}" body="${2#* }"
-  if [ "$status" = "$3" ] && { [ -z "${4:-}" ] || [[ "$body" == *"$4"* ]]; }; then
-    check ok "$1" "$status ${body:0:90}"
+expect() { # <what> <"status rest"> <wanted status> [text the rest must contain]...
+  local what="$1" status="${2%% *}" rest="${2#* }" wanted="$3" missing="" text
+  shift 3
+  for text in "$@"; do
+    [[ "$rest" == *"$text"* ]] || missing="$missing $text"
+  done
+  if [ "$status" = "$wanted" ] && [ -z "$missing" ]; then
+    check ok "$what" "$status ${rest:0:110}"
   else
-    check FAIL "$1" "wanted $3${4:+ with $4}, got $status ${body:0:160}"
+    check FAIL "$what" "wanted $wanted${missing:+ with$missing}, got $status ${rest:0:160}"
   fi
 }
 
@@ -100,19 +112,18 @@ count="$(printf '%s\n' "$agents" | grep -c .)"
 [ "$count" -eq 8 ] && check ok "agents in the image" "$count: $(echo $agents)" \
   || check FAIL "agents in the image" "wanted 8, found $count: $(echo $agents)"
 
-# web: through the proxy, and the worker's /api/inngest (Inngest's own status reply,
-# which says how many functions the server loaded).
-expect "web /api/version" "$(get /api/version)" 200 '"buildId"'
-expect "worker /api/inngest" "$(get /api/inngest)" 200 'function_count'
-expect "worker /api/version (direct)" "$(get_from worker http://127.0.0.1:3000/api/version)" 200 '"buildId"'
+# web, and the worker's /api/inngest: Inngest's own status reply, which says how many
+# functions the server loaded. The proxy must have sent each to the right container.
+expect "web /api/version" "$(get /api/version)" 200 '[web:3000]' '"buildId"'
+expect "worker /api/inngest" "$(get /api/inngest)" 200 '[worker:3000]' '"function_count"'
 
 for name in $agents; do
-  # The agent's own health route, straight through the proxy.
-  expect "agent $name health" "$(get "/eve/$name/v1/health")" 200 '"status":"ready"'
+  # The agent's own health route, straight from the proxy to the agent.
+  expect "agent $name health" "$(get "/eve/$name/v1/health")" 200 "[agent-$name:3000]" '"status":"ready"'
   # The same through Next's rewrite: web -> EVE_NEXT_PRODUCTION_ORIGIN -> the agent.
-  expect "agent $name via web's rewrite" "$(get_from web "http://127.0.0.1:3000/eve/$name/v1/health")" 200 '"status":"ready"'
+  expect "agent $name via web's rewrite" "$(get_from web "http://127.0.0.1:3000/eve/$name/v1/health")" 200 "[agent-$name:3000]" '"status":"ready"'
   # A protected route with no credentials: the agent's own auth must refuse it.
-  expect "agent $name refuses anonymous" "$(get "/eve/$name/v1/info")" 401
+  expect "agent $name refuses anonymous" "$(get "/eve/$name/v1/info")" 401 "[agent-$name:3000]"
   # The sandbox the build prepared, and what the running container offers: no Docker
   # and no /dev/kvm (so nothing but just-bash), the package beside the server, and a
   # folder for session files that the agent may write to.
@@ -164,19 +175,31 @@ else
     || check FAIL "the run survives a new container" "before: ${events:-none}; after: ${again:-none}"
 fi
 
-# cron: the crontab parses, the cron container reaches web, and web accepts the
-# secret (a wrong one is 401; the right one gets past auth to the route itself).
+# cron. The stack's scheduler is a dry run (compose.yaml says why), so the calls are
+# made here, with the script the crontab runs. One route, chosen because it does
+# nothing without a database: its 500 with "ok":false is the route itself answering,
+# past the secret check.
+cron_call() { # [NAME=value]...: one call from the cron container; prints its line
+  local pair env=()
+  for pair in "$@"; do env+=(-e "$pair"); done
+  compose exec -T "${env[@]}" cron node /app/deploy/app/cron/call.mjs /api/cron/approval-expiry 2>&1 | tr -s '[:space:]' ' '
+}
+contains() { # <what> <text> <wanted>...
+  local what="$1" text="$2" missing="" wanted
+  shift 2
+  for wanted in "$@"; do
+    [[ "$text" == *"$wanted"* ]] || missing="$missing $wanted"
+  done
+  [ -z "$missing" ] && check ok "$what" "${text:0:120}" || check FAIL "$what" "wanted$missing, got ${text:0:160}"
+}
 if compose exec -T cron supercronic -test /app/deploy/app/cron/crontab > "$work/crontab.log" 2>&1; then
   check ok "cron crontab parses" "$(grep -c call.mjs "$HERE/cron/crontab") jobs"
 else
   check FAIL "cron crontab parses" "$(tail -n 2 "$work/crontab.log" | tr '\n' ' ')"
 fi
-expect "cron route refuses a wrong secret" "$(get_from cron http://web:3000/api/cron/approval-expiry 'Bearer wrong')" 401
-accepted="$(get_from cron http://web:3000/api/cron/approval-expiry "Bearer $cron_secret")"
-case "${accepted%% *}" in
-  401 | 503 | 000) check FAIL "cron route accepts CRON_SECRET" "got $accepted" ;;
-  *) check ok "cron route accepts CRON_SECRET" "past auth: ${accepted:0:90}" ;;
-esac
+contains "cron is a dry run in this stack" "$(cron_call)" 'skipped'
+contains "cron call with a wrong secret is refused" "$(cron_call CRON_DRY_RUN= CRON_SECRET=wrong)" ': 401 '
+contains "cron call with CRON_SECRET reaches the route" "$(cron_call CRON_DRY_RUN=)" ': 500 ' '"ok":false'
 
 if [ "$failed" -ne 0 ]; then
   echo "== logs (a check failed)"

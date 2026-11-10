@@ -7,6 +7,7 @@
 //   CRON_TARGET_URL        the web role's origin, e.g. http://web:3000
 //   CRON_SECRET            the same secret the web role has
 //   CRON_TIMEOUT_SECONDS   default 900 (the routes' own limits are 30 to 300 seconds)
+//   CRON_DRY_RUN           1: say which route would be called, and call nothing
 const path = process.argv[2]
 const target = process.env.CRON_TARGET_URL?.replace(/\/+$/, '')
 const secret = process.env.CRON_SECRET
@@ -18,6 +19,10 @@ function fail(message) {
 }
 
 if (!path?.startsWith('/')) fail('usage: call.mjs /api/cron/<name>')
+if (process.env.CRON_DRY_RUN === '1') {
+  console.log(`cron ${path}: skipped, CRON_DRY_RUN is set`)
+  process.exit(0)
+}
 if (!target) fail('CRON_TARGET_URL is not set')
 if (!secret) fail('CRON_SECRET is not set')
 if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) fail('CRON_TIMEOUT_SECONDS must be a positive number')

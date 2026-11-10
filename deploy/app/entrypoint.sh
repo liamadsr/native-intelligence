@@ -6,7 +6,8 @@
 #                  (agents run elsewhere; no agent starts in this container).
 #   worker         the same server. Route only /api/inngest to it.
 #   agent <name>   eve start for one agent on $PORT.
-#   cron           supercronic with cron/crontab: calls CRON_TARGET_URL/api/cron/*.
+#   cron           supercronic with cron/crontab: calls CRON_TARGET_URL/api/cron/*
+#                  (CRON_DRY_RUN=1: logs each job and calls nothing).
 #   agents         print the agents built into this image, one per line.
 #
 # Anything else runs as a command (`docker run ... ni-app node --version`).
@@ -64,6 +65,7 @@ case "$role" in
     [ -n "${CRON_TARGET_URL:-}" ] || die "cron needs CRON_TARGET_URL (the web role's origin, e.g. http://web:3000)"
     [ -n "${CRON_SECRET:-}" ] || die "cron needs CRON_SECRET (the web role's)"
     remember_role cron
+    [ "${CRON_DRY_RUN:-}" != 1 ] || echo "entrypoint: cron is a dry run (CRON_DRY_RUN=1): jobs are logged, nothing is called"
     # -passthrough-logs: each job's one line as call.mjs printed it.
     exec supercronic -passthrough-logs "$DEPLOY/cron/crontab"
     ;;

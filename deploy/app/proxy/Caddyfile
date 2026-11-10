@@ -10,29 +10,38 @@
 #          reaches web without going through :8080.
 #
 # An agent serves its routes at /eve/v1/*, whatever its public mount, so both
-# listeners rewrite to that. Caddy puts no time limit on a proxied response, and
-# flush_interval -1 passes each streamed chunk on as it arrives.
+# listeners rewrite to that, and to nothing else on the agent. Caddy puts no time
+# limit on a proxied response, and flush_interval -1 passes each streamed chunk on
+# as it arrives.
+#
+# Every response names the container that answered it (X-NI-Upstream), so smoke.sh
+# can tell a request that went straight to an agent from one that went the long way
+# round through web. This is a test proxy: a public one would not say.
 {
 	admin off
 	auto_https off
 }
 
+(upstream) {
+	reverse_proxy {args[0]} {
+		flush_interval -1
+		header_down X-NI-Upstream {args[0]}
+	}
+}
+
 # /eve/<name>/v1/x  ->  agent-<name>:3000/eve/v1/x
 (agent) {
-	handle_path /eve/{args[0]}/* {
-		rewrite * /eve{uri}
-		reverse_proxy agent-{args[0]}:3000 {
-			flush_interval -1
-		}
+	handle_path /eve/{args[0]}/v1/* {
+		rewrite * /eve/v1{uri}
+		import upstream agent-{args[0]}:3000
 	}
 }
 
 # /_eve_internal/eve/<name>/eve/v1/x  ->  agent-<name>:3000/eve/v1/x
 (agent_internal) {
-	handle_path /_eve_internal/eve/{args[0]}/* {
-		reverse_proxy agent-{args[0]}:3000 {
-			flush_interval -1
-		}
+	handle_path /_eve_internal/eve/{args[0]}/eve/v1/* {
+		rewrite * /eve/v1{uri}
+		import upstream agent-{args[0]}:3000
 	}
 }
 
@@ -52,13 +61,11 @@ http://:8080 {
 
 	@inngest path /api/inngest /api/inngest/*
 	handle @inngest {
-		reverse_proxy worker:3000
+		import upstream worker:3000
 	}
 
 	handle {
-		reverse_proxy web:3000 {
-			flush_interval -1
-		}
+		import upstream web:3000
 	}
 }
 

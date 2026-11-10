@@ -37,9 +37,10 @@ The role is the container's command (`entrypoint.sh`):
 | `agent <name>` | `eve start` for one agent. |
 | `cron` | supercronic with `cron/crontab`: calls the web role's `/api/cron/*` routes. |
 
-All roles listen on `$PORT` (3000) and run as the `node` user. The image's health
-check asks the role's own route: `/api/version` for web and worker,
-`/eve/v1/health` for an agent.
+Every role runs as the `node` user. web, worker and each agent listen on `$PORT`
+(3000); cron listens on nothing. The image's health check asks the role's own
+route: `/api/version` for web and worker, `/eve/v1/health` for an agent. For cron
+it checks that supercronic is running.
 
 ## What is fixed when the image is built
 
@@ -62,6 +63,11 @@ seconds and an agent's stream can run far longer. `/api/inngest` goes to the
 worker and everything else to web.
 
 ## State
+
+web and worker write into their own folder: Next's cache, the docs index
+(`.source`, rewritten at each start) and every page Next regenerates, which it
+saves beside the built ones in `.next/server/app`. So those two containers are not
+read-only; the agents and cron are.
 
 An agent writes in two places, and `compose.yaml` puts a volume on each:
 
@@ -87,6 +93,20 @@ node deploy/app/cron/generate.mjs
 Run it after changing `web/vercel.json` and commit the result. The `--check` flag
 fails when the two disagree; the image build and `.github/workflows/crontab.yml`
 both run it.
+
+Each job is one `GET` with `Authorization: Bearer $CRON_SECRET` (`cron/call.mjs`),
+at the same UTC times as Vercel Cron. Two differences from Vercel:
+
+- supercronic does not start a job again while its last run is still going; Vercel
+  would. A route that hangs therefore delays its own next run.
+- Nothing ends a route at its `maxDuration`: `next start` ignores it. `call.mjs`
+  gives up after 15 minutes, which does not stop the work on the server.
+
+In the test stack the scheduler is a dry run (`CRON_DRY_RUN=1` in `compose.yaml`):
+it logs each job and calls nothing. Do not turn that off while Vercel Cron still
+runs the same schedule against the same database. Note also that
+`/api/cron/inngest-sync`, off Vercel, re-registers the production app with
+Inngest rather than this one.
 
 ## Files
 

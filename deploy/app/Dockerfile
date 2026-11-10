@@ -36,16 +36,18 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 WORKDIR /app/web
 
 # --- deps: node_modules, with web/patches applied -----------------------------------
-# `npm ci` runs the root postinstall, which is patch-package: a patch that no longer
-# applies fails the install, and so the image.
+# `npm ci` runs the root postinstall, patch-package. Outside CI that exits 0 even
+# when a patch no longer applies, so it runs once more with --error-on-fail (a no-op
+# on packages already patched): a stale patch fails the image.
 # ONNXRUNTIME_NODE_INSTALL_CUDA=skip: onnxruntime-node's install script otherwise
 # downloads 340 MB of NVIDIA GPU libraries that nothing here can use.
 FROM base AS deps
 COPY web/package.json web/package-lock.json ./
 COPY web/packages/ui/package.json packages/ui/package.json
 COPY web/patches patches
-RUN --mount=type=cache,target=/root/.npm \
-    ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci
+RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci \
+ && node_modules/.bin/patch-package --error-on-fail \
+ && rm -rf /root/.npm
 
 # --- build: the eight `eve build`s, then `next build` -------------------------------
 FROM deps AS build
@@ -107,14 +109,16 @@ COPY --link --from=supercronic /out/supercronic /usr/local/bin/supercronic
 COPY --link --from=build /app/deploy /app/deploy
 COPY --link --from=build /app/web /app/web
 
-# Runs as `node` (uid 1000), which owns only the folders that are written while the
-# app runs: Next's cache, the docs index that `next start` regenerates (.source), and
-# each agent's state under .eve (workflow runs, sandbox sessions). compose.yaml puts
-# volumes on the last two; a new volume takes its owner from these folders.
+# Runs as `node` (uid 1000), which owns only what is written while the app runs:
+# - web and worker: Next's cache, the pages it regenerates (it saves them beside the
+#   built ones, in .next/server/app), and the docs index that `next start` writes
+#   again each time it loads next.config.mjs (.source).
+# - each agent: its state under .eve (workflow runs, sandbox sessions). compose.yaml
+#   puts volumes there; a new volume takes its owner from these folders.
 RUN supercronic -test /app/deploy/app/cron/crontab \
  && mkdir -p .next/cache .source \
  && /app/deploy/app/build-agents.sh --state-dirs | xargs mkdir -p \
- && /app/deploy/app/build-agents.sh --state-dirs | xargs chown node:node .next/cache .source
+ && /app/deploy/app/build-agents.sh --state-dirs | xargs chown -R node:node .next/cache .next/server/app .source
 USER node
 
 EXPOSE 3000
