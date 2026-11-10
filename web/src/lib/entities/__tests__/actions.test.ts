@@ -215,7 +215,23 @@ describe('share to a channel', () => {
         ],
       },
     })
-    expect(await loadShareChannels(deps)).toEqual([{ id: 'ch-1', name: 'sales', kind: 'channel' }])
+    expect(await loadShareChannels(null, deps)).toEqual([{ id: 'ch-1', name: 'sales', kind: 'channel' }])
+    expect(calls[0].headers).toEqual({})
+  })
+
+  it("lists a record from another workspace with that workspace's channels, and posts there", async () => {
+    replies.push({ status: 200, body: { channels: [{ id: 'ch-9', name: 'ops', kind: 'channel', archived_at: null }] } })
+    const channels = await loadShareChannels('ws-2', deps)
+    expect(calls[0]).toMatchObject({ url: '/api/account/team-chat/channels', headers: { 'x-workspace-id': 'ws-2' } })
+    replies.push({ status: 200, body: { message: { id: 'msg-9' } } })
+    await shareEntityToChannel({ ...DOC, workspaceId: 'ws-2' }, channels[0], deps)
+    expect(calls[1].headers['x-workspace-id']).toBe('ws-2')
+  })
+
+  it("says the post's refusal (a channel the person can't post in) and offers no undo", async () => {
+    replies.push({ status: 404, body: { error: 'Not found' } })
+    expect(await shareEntityToChannel(DOC, { id: 'ch-x', name: 'leadership', kind: 'channel' }, deps)).toBe(false)
+    expect(toasts).toEqual([{ kind: 'error', message: 'Not found' }])
   })
 
   it('never shares a kind that is not shared', async () => {
@@ -239,6 +255,13 @@ describe('make a task from this', () => {
     ])
     toasts[0].open!()
     expect(opened).toEqual([{ type: 'action', id: 'a-9', title: 'Follow up: Q4 renewals plan' }])
+  })
+
+  it("says the route's refusal (a record the person can't see) and tells no list", async () => {
+    replies.push({ status: 400, body: { error: 'about must be a record you can see in this workspace' } })
+    expect(await makeTaskFromEntity(DOC, deps)).toBeNull()
+    expect(toasts).toEqual([{ kind: 'error', message: 'about must be a record you can see in this workspace' }])
+    expect(events).toEqual([])
   })
 
   it('makes none from a task', async () => {

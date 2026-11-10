@@ -210,7 +210,7 @@ function ShareSubmenu({ entity, P }: { entity: EntityRef; P: Primitives }) {
       onOpenChange={(open) => {
         if (!open) return
         setChannels(null)
-        void loadShareChannels().then(setChannels)
+        void loadShareChannels(entity.workspaceId ?? null).then(setChannels)
       }}
     >
       <P.SubTrigger data-entity-action="share">

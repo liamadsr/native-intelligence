@@ -238,10 +238,21 @@ export function shareMentionLabel(label: string): string {
   return label.replace(/\s+/g, ' ').trim().slice(0, MENTION_LABEL_MAX).trim()
 }
 
-/** The channels the person may post in, for the Share submenu (DMs and archived channels left out). */
-export async function loadShareChannels(deps: EntityActionDeps = defaultEntityActionDeps): Promise<ShareChannel[]> {
+/**
+ * The channels the person may post in, for the Share submenu (DMs and archived
+ * channels left out). `workspaceId`: the record's workspace, when it may not be
+ * the one on screen. A record is shared only in its own workspace's channels
+ * (the post refuses another's), so those are the ones listed.
+ */
+export async function loadShareChannels(
+  workspaceId: string | null = null,
+  deps: EntityActionDeps = defaultEntityActionDeps,
+): Promise<ShareChannel[]> {
   try {
-    const res = await deps.fetch('/api/account/team-chat/channels', { cache: 'no-store' })
+    const res = await deps.fetch('/api/account/team-chat/channels', {
+      cache: 'no-store',
+      ...(workspaceId ? { headers: { 'x-workspace-id': workspaceId } } : {}),
+    })
     if (!res.ok) return []
     const data = (await res.json()) as { channels?: Array<ShareChannel & { archived_at?: string | null }> }
     return (data.channels ?? []).filter((c) => c.kind === 'channel' && !c.archived_at).map(({ id, name, kind: k }) => ({ id, name, kind: k }))
