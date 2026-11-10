@@ -129,4 +129,24 @@ If you are giving up on the move rather than trying again, run `finish` as well:
 
 ## What was tested
 
-Nothing on this page has been run end to end yet. This section is replaced with the record of the first real move.
+One real move, on 2026-11-10: from a 2-core virtual server to a 6-core dedicated one in the same region, carrying three stacks (Inngest with its Postgres and Redis, Caddy, the backups), four volumes and 144 MB of data.
+
+| Step | What happened |
+| --- | --- |
+| `prepare` | Set the new server up from nothing, copied three settings files, pulled and built the images, created six containers stopped. |
+| `sync` | 1,379 files, 144 MB, server to server, with the old server running. |
+| `cutover` | 21 seconds from the first container stopping to the last one healthy on the new server. The content-comparing copy re-sent 60 files (96 MB). |
+| DNS | Two records with a 60-second lifetime, changed two seconds after the cutover finished. |
+| Back in service | The app registered with the new server 78 seconds after the cutover began. |
+| `finish` | Temporary key gone from both servers. |
+
+Afterwards: HTTPS answered on the first request with the certificates that came along, the job server showed the app with all its functions and no error, the next scheduled jobs ran on the new server, and a backup taken there landed beside the old server's.
+
+The first run also found two bugs that reading had not: the setup script stopped silently at the firewall step, and the check for running containers could not fail. Both are fixed here, and the fixed script is what did the move.
+
+Not tested:
+
+- `rollback`. It has never been run.
+- A large database. The content-comparing copy at cutover reads every file on both servers, so its time grows with the data; nothing here measures that beyond 144 MB.
+- The Supabase stack, which was not installed yet. It is a Compose project like the others, so it should be picked up by name, but that is untested.
+- `NEW` given as a DNS name rather than an address, and an old server whose user needs a password for `sudo`.
