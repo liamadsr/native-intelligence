@@ -6,7 +6,11 @@ Two ways in:
   envfile.py apply <file>            new values arrive on stdin as one JSON
                                      object, {"NAME": "value", ...}
   envfile.py prompt <file> NAME...   asks for each value at the terminal, with
-                                     the typing hidden
+                                     the typing hidden. NAME=pattern asks for
+                                     one part of a value: what is typed is
+                                     percent-encoded and put where the pattern
+                                     has {}, which is how a password goes into
+                                     a connection string
 
 Both only replace the value of a line the file already has. A name the file
 does not have is refused, so a typo cannot add a setting that nothing reads.
@@ -23,6 +27,7 @@ import re
 import stat
 import sys
 import tempfile
+import urllib.parse
 import warnings
 
 
@@ -117,7 +122,13 @@ def main():
             die("what arrived was not a set of values; the file was not changed.")
         apply(path, new)
         return
-    names = sys.argv[3:]
+    asks = []
+    for arg in sys.argv[3:]:
+        name, has_pattern, pattern = arg.partition("=")
+        if has_pattern and pattern.count("{}") != 1:
+            die("%s: the pattern after = needs {} exactly once, where the typed part goes." % name)
+        asks.append((name, pattern if has_pattern else None))
+    names = [name for name, _ in asks]
     if not names:
         die("name the settings to ask for.")
     if not sys.stdin.isatty():
@@ -132,15 +143,18 @@ def main():
     # secret on the screen.
     warnings.simplefilter("error", getpass.GetPassWarning)
     new = {}
-    for name in names:
+    for name, pattern in asks:
+        label = "%s, the password that goes into it" % name if pattern else name
         try:
-            value = getpass.getpass("%s (hidden as you paste, then Enter): " % name).strip()
+            value = getpass.getpass("%s (hidden as you paste, then Enter): " % label).strip()
         except getpass.GetPassWarning:
             die("this terminal cannot hide what is typed; nothing was changed.")
         if not value:
             die("%s was left empty; nothing was changed." % name)
         print("   %s: %d characters" % (name, len(value)))
-        new[name] = value
+        # In a connection string the characters @ : / ? # and the like would
+        # be read as part of the address, so every one of them is encoded.
+        new[name] = pattern.replace("{}", urllib.parse.quote(value, safe="")) if pattern else value
     apply(path, new)
 
 

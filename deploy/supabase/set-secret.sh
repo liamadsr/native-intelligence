@@ -12,6 +12,15 @@
 #   deploy/supabase/set-secret.sh <user>@<server> GOOGLE_SECRET SMTP_PASS
 #
 # It asks for each one in turn. A name the file has no line for is refused.
+#
+# NAME=pattern asks for one part of a value. What you type is percent-encoded
+# and put where the pattern has {}. That is how a database password goes into
+# a connection string without you having to encode it by hand:
+#
+#   PULL_ENV_FILE=/opt/native-intelligence/deploy/supabase/migrate/.env \
+#     deploy/supabase/set-secret.sh <user>@<server> \
+#     'SOURCE_DB_URL=postgresql://postgres.<ref>:{}@<pooler host>:5432/postgres'
+#
 # It is for the values pull-hosted-settings.sh cannot bring (the hosted
 # project never gives out provider secrets or the SMTP password), and for the
 # ones that come from somewhere else altogether (Stripe).
@@ -36,9 +45,11 @@ case "$server" in *@*) ;; *) die "usage: set-secret.sh <user>@<server> NAME [NAM
 shift
 [ $# -gt 0 ] || die "name at least one setting."
 names=""
-for name in "$@"; do
+for arg in "$@"; do
+	name="${arg%%=*}"
 	case "$name" in "" | *[!A-Za-z0-9_]* | [0-9]*) die "'$name' is not a setting name." ;; esac
-	names="$names $name"
+	# Quoted for the far shell: a pattern holds characters it would act on.
+	names="$names $(printf '%q' "$arg")"
 done
 : "${PULL_SSH_OPTS:=}" "${PULL_ENV_FILE:=/opt/native-intelligence/deploy/supabase/stack/.env}"
 [ -t 0 ] || die "this needs a terminal: it asks for each value with the typing hidden."
