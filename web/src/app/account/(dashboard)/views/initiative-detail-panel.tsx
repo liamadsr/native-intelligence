@@ -45,6 +45,7 @@ import {
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
 import { NoteEditor } from './note-editor-lazy'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { useCurrentMemberId } from '@/app/account/workspace-switcher'
 import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
@@ -818,6 +819,7 @@ export function InitiativeDetailPanel({
                   </div>
                 )}
               </PropertyGroup>
+              <ReferencedIn entityType="initiative" entityId={initiativeId} />
             </div>
           </WindowProperties>
       </div>

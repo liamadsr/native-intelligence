@@ -65,6 +65,7 @@ import {
 } from 'lucide-react'
 import { SiGithub } from '@icons-pack/react-simple-icons'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { useCurrentMemberId, useWorkspaceId } from '@/app/account/workspace-switcher'
 import { cachedJson } from '@/lib/cached-fetch'
 import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
@@ -1081,6 +1082,7 @@ export function ProjectDetailPanel({
 
                       </PropertyGroup>
 
+                      <ReferencedIn entityType="project" entityId={projectId} />
                     </div>
                   </WindowProperties>
           </div>

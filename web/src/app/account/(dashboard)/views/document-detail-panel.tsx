@@ -41,6 +41,7 @@ import {
   Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { composeSectionChoice, conflictingSections, patchDocumentFields, planConflict, rollbackPatch, snapshotKeys, unmountAction, type ConflictPlan } from './document-field-save'
 import { merge3 } from '@/lib/documents/line-diff'
 import { describeRevisionAuthor, type RevisionSummary } from '@/lib/documents/revision-format'
@@ -1054,6 +1055,8 @@ export function DocumentDetailPanel({
                             />
                           </div>
                         </div>
+
+                        <ReferencedIn entityType="document" entityId={documentId} />
 
                         {/* Inline comment popover is rendered at root level */}
                       </div>

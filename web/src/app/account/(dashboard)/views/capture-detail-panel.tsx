@@ -64,6 +64,7 @@ import { WindowProperties, WindowActions } from '@/components/views/window-prope
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import dynamic from 'next/dynamic'
 import { usePanelSection } from './use-panel-section'
 import { ShareDialog } from '../components/share-dialog'
@@ -3749,6 +3750,8 @@ export function CaptureDetailPanel({
                             </div>
                           </div>
                         )}
+
+                        <ReferencedIn entityType="capture" entityId={captureId} />
 
                         {/* Inline comment popover is rendered at root level */}
                       </div>

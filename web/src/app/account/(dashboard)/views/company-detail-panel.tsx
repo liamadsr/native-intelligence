@@ -21,6 +21,7 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { ContentTransition } from './transitions'
 import { CopyIdButton } from '../components/copy-id-button'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
@@ -605,6 +606,7 @@ export function CompanyDetailPanel({
                         enrichment={company.metadata?.enrichment}
                         onViewDetails={() => setActiveTab('details')}
                       />
+                      <ReferencedIn entityType="company" entityId={companyId} />
                     </div>
                   </WindowProperties>
           </div>

@@ -55,6 +55,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { useCurrentMemberId } from '@/app/account/workspace-switcher'
 import { ContentTransition } from './transitions'
 import { NoteEditor } from './note-editor-lazy'
@@ -1146,6 +1147,7 @@ export function ContactDetailPanel({
                         showSummary={false}
                         onViewDetails={() => setActiveTab('details')}
                       />
+                      <ReferencedIn entityType="contact" entityId={contactId} />
                     </div>
                   </WindowProperties>
           </div>

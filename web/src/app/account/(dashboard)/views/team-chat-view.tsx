@@ -45,6 +45,7 @@ import {
   type TeamChatRecordMention,
 } from '@/lib/team-chat/types'
 import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
+import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 
 interface Member {
@@ -786,23 +787,7 @@ const TEAM_CHAT_RECORD_KINDS = ['action', 'document', 'project', 'initiative', '
 
 /** The card a record mention opens, or null for a kind no card draws. */
 function recordMentionTarget(r: TeamChatRecordMention): OpenTarget | null {
-  switch (r.type) {
-    case 'action':
-    case 'document':
-    case 'project':
-    case 'initiative':
-    case 'capture':
-    case 'contact':
-    case 'company':
-    case 'deal':
-      return { type: r.type, id: r.id, title: r.label }
-    case 'flow':
-      return { type: 'flow', id: r.id, title: r.label }
-    case 'calendar_event':
-      return { type: 'calendar-event', id: r.id, title: r.label }
-    default:
-      return null
-  }
+  return entityOpenTarget(r.type, r.id, r.label)
 }
 
 /** The record an `@label` run of a message's words names (an openable one), if any. */

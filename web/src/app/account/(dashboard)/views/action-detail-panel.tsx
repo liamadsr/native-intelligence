@@ -123,6 +123,7 @@ import {
 import { useSettingsOverlay } from '../settings-overlay'
 import { SiGithub } from '@icons-pack/react-simple-icons'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { useCurrentMemberId, useWorkspaceId } from '@/app/account/workspace-switcher'
 import {
   readActionCache,
@@ -2700,6 +2701,7 @@ export function ActionDetailPanel({
                   <span>{uploadError}</span>
                 </div>
               )}
+              <ReferencedIn entityType="action" entityId={actionId} />
             </div>
           </WindowProperties>
       )}

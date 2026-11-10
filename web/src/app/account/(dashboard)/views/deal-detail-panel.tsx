@@ -18,6 +18,7 @@ import { emitEntityDeleted, emitEntityUpdated } from '@/lib/entity-events'
 import { describeChanges, type Deal, type DealEvent, type DealPipeline } from '@/lib/crm/deals'
 import { formatDealValue } from '@/lib/crm/deal-format'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { ContentTransition } from './transitions'
 
 interface DealDetail {
@@ -343,6 +344,7 @@ export function DealDetailPanel({
                 onChanged={() => void load()}
               />
 
+              <ReferencedIn entityType="deal" entityId={dealId} />
 
               <PropertyGroup title="History">
                 <ul className="space-y-1 px-3" data-deal-history="">
