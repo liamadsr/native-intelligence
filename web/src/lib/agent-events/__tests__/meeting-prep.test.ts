@@ -249,6 +249,18 @@ describe('prepBrief', () => {
   // Nothing enriches on its own any more: Native Intelligence offers it, under the prep's
   // report, for the outside attendees not enriched yet. The brief carries their
   // contact ids (no calendar text) so the report can name them.
+  it('reads the contacts back from a prep that started before the rename (its stored task says Dial8)', () => {
+    const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+    const { taskPrompt } = prepBrief(meeting(), { ...NY, enrichContactIds: ids })
+    const now = 'Not enriched yet (under your report, Native Intelligence offers the person to pull their details from the web): '
+    const before = 'Not enriched yet (under your report, Dial8 offers the person to pull their details from the web): '
+    expect(taskPrompt).toContain(now)
+    const stored = taskPrompt.replace(now, before)
+    expect(stored).not.toContain('Native Intelligence offers')
+    expect(parsePrepTaskIds(stored)).toEqual(parsePrepTaskIds(taskPrompt))
+    expect(parsePrepTaskIds(stored).enrichContactIds).toEqual(ids)
+  })
+
   it('an external meeting names the contacts its report offers to enrich, and gives them back', () => {
     const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
     const { input, taskPrompt } = prepBrief(meeting(), { ...NY, enrichContactIds: ids })

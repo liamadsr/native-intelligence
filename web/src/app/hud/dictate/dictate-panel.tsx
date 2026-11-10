@@ -53,6 +53,7 @@ import { AudioLines } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ReadAlongWord, fitSize } from './read-along'
 import { TalkRing, type TalkRingState } from './talk-ring'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 /** The card's size bounds (desktop dictate.rs PANEL_*): it starts small and grows with the words. */
 export const CARD_MIN_W = 112
@@ -145,7 +146,7 @@ export function pasteNote(result: DictatePasteResult, text: string): string | nu
     case 'focus_changed':
       return 'Copied. Press ⌘V to paste'
     case 'no_keys':
-      return 'Copied. Press ⌘V (allow Native Intelligence in Accessibility to paste for you)'
+      return `Copied. Press ⌘V. To have it pasted for you, allow ${APP_IN_SYSTEM_SETTINGS} in Accessibility.`
     default:
       return text.trim() ? `Not pasted: ${tail(text, NOT_PASTED_CHARS)}` : null
   }

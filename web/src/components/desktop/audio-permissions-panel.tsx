@@ -36,13 +36,14 @@ import {
 } from '@/hooks/use-audio-permissions'
 import { trackRecordingEvent } from '@/lib/recording-telemetry'
 import { cn } from '@/lib/utils'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 const MIC_DENIED_HELP =
-  'Turn on Native Intelligence under System Settings → Privacy & Security → Microphone. This page updates automatically.'
+  `Turn on ${APP_IN_SYSTEM_SETTINGS} under System Settings → Privacy & Security → Microphone. This page updates automatically.`
 const MIC_DENIED_HELP_WINDOWS =
   'Turn on Microphone access and “Let desktop apps access your microphone” under Settings → Privacy & security → Microphone. This page updates automatically.'
 const SYSTEM_DENIED_HELP =
-  'Turn on Native Intelligence under System Settings → Privacy & Security → Screen & System Audio Recording. This page updates automatically.'
+  `Turn on ${APP_IN_SYSTEM_SETTINGS} under System Settings → Privacy & Security → Screen & System Audio Recording. This page updates automatically.`
 const UNKNOWN_HELP = "Update Native Intelligence to see this permission's status."
 
 export function AudioPermissionsPanel() {

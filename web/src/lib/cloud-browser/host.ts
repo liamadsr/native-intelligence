@@ -3,7 +3,7 @@ import { Sandbox, Snapshot, type NetworkPolicy } from '@vercel/sandbox'
 import { CLOUD_BROWSER, cloudBrowserBaseSnapshotId, cloudBrowserNamespace, cloudBrowserRelayOrigin } from './config'
 import { cloudBrowserNamePrefix, cloudBrowserSandboxName } from './ids'
 import { createHash } from 'node:crypto'
-import { mintBrowserRelayToken, RELAY_MARK_HEADER, RELAY_TOKEN_HEADER } from './relay-token'
+import { LEGACY_RELAY_MARK_HEADER, LEGACY_RELAY_TOKEN_HEADER, mintBrowserRelayToken, RELAY_MARK_HEADER, RELAY_TOKEN_HEADER } from './relay-token'
 import type { CloudBrowserExitMode as ExitMode } from './store'
 import { ringComputer } from '@/lib/browser-agent/queue'
 import { RELAY_START, readRelayProbe, relayProbeScript } from './relay-start'
@@ -187,10 +187,20 @@ const PRIVATE_CIDRS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.
  *   tried to go direct (it never does) would find no way out.
  */
 export function relayNetworkPolicy(origin: string, token: string, bypass?: string | null, mode: ExitMode = 'cloud'): NetworkPolicy {
-  const headers: Record<string, string> = { [RELAY_TOKEN_HEADER]: token, ...(bypass ? { 'x-vercel-protection-bypass': bypass } : {}) }
+  /** Requests marked with `mark` get the token under `tokenHeader` (and the preview bypass). */
+  const marked = (mark: string, tokenHeader: string) => ({
+    match: { headers: [{ key: { exact: mark }, value: { exact: '1' } }] },
+    transform: [{ headers: { [tokenHeader]: token, ...(bypass ? { 'x-vercel-protection-bypass': bypass } : {}) } }],
+  })
   return {
     allow: {
-      [new URL(origin).hostname]: [{ match: { headers: [{ key: { exact: RELAY_MARK_HEADER }, value: { exact: '1' } }] }, transform: [{ headers }] }],
+      [new URL(origin).hostname]: [
+        marked(RELAY_MARK_HEADER, RELAY_TOKEN_HEADER),
+        // TODO(rename-compat): a relay started before the rename marks its requests with the
+        // older header. This policy is set again while such a relay still runs (setExitMode),
+        // and without this rule its requests would then carry no token until its next start.
+        marked(LEGACY_RELAY_MARK_HEADER, LEGACY_RELAY_TOKEN_HEADER),
+      ],
       ...(mode === 'cloud' ? { '*': [] } : {}),
     },
     subnets: { deny: PRIVATE_CIDRS },

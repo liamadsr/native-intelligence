@@ -48,6 +48,7 @@ import { clsx } from 'clsx'
 import { tauriBridge } from '@/lib/tauri-bridge'
 import { requestSystemAudioWithFallback } from '@/hooks/use-audio-permissions'
 import { useDesktopOS } from '@/components/desktop-titlebar'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 /** Where each permission ended up when the user continued — for analytics. */
 export interface PermissionsOutcome {
@@ -320,7 +321,7 @@ export function PermissionsStep({
             mic === 'denied'
               ? windows
                 ? 'Microphone access is turned off in Settings → Privacy & security → Microphone. Turn on Microphone access and “Let desktop apps access your microphone”, and we’ll detect it here automatically.'
-                : 'Microphone access is turned off in System Settings. Flip the toggle for Native Intelligence and we’ll detect it here automatically.'
+                : `Microphone access is turned off in System Settings. Flip the toggle for ${APP_IN_SYSTEM_SETTINGS} and we’ll detect it here automatically.`
               : 'Native Intelligence only uses your microphone while you’re recording a meeting.'
           }
           state={
@@ -348,8 +349,8 @@ export function PermissionsStep({
             body={
               system === 'denied'
                 ? systemLegacy
-                  ? 'System audio is blocked. Enable Native Intelligence under Screen & System Audio Recording in System Settings, then check again.'
-                  : 'System audio is blocked. Enable Native Intelligence under Screen & System Audio Recording in System Settings — we’ll detect it here automatically.'
+                  ? `System audio is blocked. Enable ${APP_IN_SYSTEM_SETTINGS} under Screen & System Audio Recording in System Settings, then check again.`
+                  : `System audio is blocked. Enable ${APP_IN_SYSTEM_SETTINGS} under Screen & System Audio Recording in System Settings — we’ll detect it here automatically.`
                 : 'Lets Native Intelligence hear the other people in your meetings — captured only while you’re recording.'
             }
             state={
