@@ -159,4 +159,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        # Ctrl-C at a prompt: say so in a line instead of a page of traceback.
+        print()
+        die("cancelled; nothing was changed.")
