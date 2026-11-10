@@ -58,11 +58,28 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
   describe('signInReturnUrl (where Supabase sends a sign-in back)', () => {
     const OTHER = APP_DOMAINS.find((d) => d !== DOMAIN)!
 
-    it("a desktop sign-in comes back through the app's address, whatever origin the app's window is on", () => {
+    it("a desktop window on the app's other domain comes back through the app's address", () => {
       // The window on this domain, the address (and Supabase's redirect list) on the other.
       expect(signInReturnUrl('desktop', ORIGIN, `https://${OTHER}`)).toBe(`https://${OTHER}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', `https://www.${DOMAIN}`, `https://${OTHER}`)).toBe(`https://${OTHER}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', ORIGIN, `https://www.${OTHER}`)).toBe(`https://www.${OTHER}/auth/desktop-callback`)
+    })
+
+    it("any other desktop window comes back to its own origin, exactly as before the app had two domains", () => {
+      // On the address's own domain, whichever of its two hosts each is on.
       expect(signInReturnUrl('desktop', ORIGIN, ORIGIN)).toBe(`${ORIGIN}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', ORIGIN, `https://www.${DOMAIN}`)).toBe(`${ORIGIN}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', `https://www.${DOMAIN}`, ORIGIN)).toBe(`https://www.${DOMAIN}/auth/desktop-callback`)
+      // Local dev and a preview, whatever the address says (unset, it is the hosted app's).
       expect(signInReturnUrl('desktop', 'http://localhost:3000', 'http://localhost:3000')).toBe('http://localhost:3000/auth/desktop-callback')
+      expect(signInReturnUrl('desktop', 'http://localhost:3000', ORIGIN)).toBe('http://localhost:3000/auth/desktop-callback')
+      expect(signInReturnUrl('desktop', 'https://branch-abc.vercel.app', ORIGIN)).toBe('https://branch-abc.vercel.app/auth/desktop-callback')
+      // A page that only looks like the app's is not moved either.
+      expect(signInReturnUrl('desktop', `https://${DOMAIN}.evil.example`, `https://${OTHER}`)).toBe(`https://${DOMAIN}.evil.example/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', `http://${DOMAIN}`, `https://${OTHER}`)).toBe(`http://${DOMAIN}/auth/desktop-callback`)
+      // An address that is not the hosted app's (a self-hosted copy) or cannot be read: the page's own.
+      expect(signInReturnUrl('desktop', ORIGIN, 'https://app.example.com')).toBe(`${ORIGIN}/auth/desktop-callback`)
+      expect(signInReturnUrl('desktop', ORIGIN, 'not a url')).toBe(`${ORIGIN}/auth/desktop-callback`)
     })
 
     it("a browser's comes back to the page's own origin, where its verifier cookie is", () => {

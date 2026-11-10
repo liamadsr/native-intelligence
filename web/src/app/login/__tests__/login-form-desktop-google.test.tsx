@@ -53,7 +53,7 @@ describe('LoginForm desktop Google sign-in', () => {
   let root: Root
 
   beforeEach(async () => {
-    // The app's address, on another domain than the page: a desktop sign-in comes back through the address (login-redirect.ts signInReturnUrl).
+    // The app's address, on the hosted app's older domain (login-redirect.ts signInReturnUrl decides where a desktop sign-in returns).
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
     for (const m of Object.values(mocks)) m.mockClear()
     container = document.createElement('div')
@@ -88,12 +88,33 @@ describe('LoginForm desktop Google sign-in', () => {
     await clickGoogle()
     expect(mocks.signInWithOAuth).toHaveBeenCalledWith({
       provider: 'google',
-      options: { redirectTo: 'https://dial8.ai/auth/desktop-callback', skipBrowserRedirect: true },
+      // This page is not one of the hosted app's (the test's own origin): it returns to itself, whatever the address says.
+      options: { redirectTo: `${window.location.origin}/auth/desktop-callback`, skipBrowserRedirect: true },
     })
     expect(mocks.authWebSession).toHaveBeenCalledWith('https://abc.supabase.co/auth/v1/authorize?provider=google')
     expect(mocks.exchange).toHaveBeenCalledWith('abc')
     expect(mocks.push).toHaveBeenCalledWith('/account')
     expect(mocks.openUrl).not.toHaveBeenCalled()
+  })
+
+  it("a build whose window is on the app's other domain asks to come back through the app's address", async () => {
+    // A desktop build that loads nativeintelligence.dev while the address, and Supabase's redirect list, are on dial8.ai.
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'location')
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { href: 'https://nativeintelligence.dev/login', origin: 'https://nativeintelligence.dev', pathname: '/login', search: '', hash: '', assign: vi.fn() },
+    })
+    try {
+      mocks.authWebSession.mockResolvedValueOnce({ kind: 'callback', url: 'dial8desktop://auth/callback?code=abc' })
+      await clickGoogle()
+      expect(mocks.signInWithOAuth).toHaveBeenCalledWith({
+        provider: 'google',
+        options: { redirectTo: 'https://dial8.ai/auth/desktop-callback', skipBrowserRedirect: true },
+      })
+      expect(mocks.exchange).toHaveBeenCalledWith('abc')
+    } finally {
+      if (descriptor) Object.defineProperty(window, 'location', descriptor)
+    }
   })
 
   it('just resets when the user closes the sign-in sheet', async () => {
