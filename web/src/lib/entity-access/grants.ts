@@ -124,9 +124,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * EVERY id of `type` in `workspaceId` a grant reaches `userId` for, most
  * recently granted first, at most LIST_GRANT_CAP: migration 506's
  * entity_grant_ids_for, the same rule as grantedEntityIds above in one call.
- * For the list reads that filter by a predicate rather than check ids they
+ * The SQL answers only records that still exist and that only a grant opens
+ * (another member's private document or capture, never an eval capture), so
+ * a deleted record or one the person reads anyway never takes a place. For
+ * the list reads that filter by a predicate rather than check ids they
  * already hold (list_documents, list_captures, …): the ids join the
  * predicate's OR. Only ever well-formed uuids (they go into a filter).
+ *
+ * `truncated`: more than LIST_GRANT_CAP were shared with the person, so the
+ * list leaves the oldest shares out; the tool says so rather than dropping
+ * them in silence.
  *
  * Empty for no user, an unattended run's null user, or a failed read (fails
  * CLOSED: the list is what it was without grants).
@@ -135,9 +142,10 @@ export async function grantedIdsIn(
   supabase: SupabaseClient,
   scope: { userId: string | null | undefined; workspaceId: string },
   type: GrantableType,
-): Promise<string[]> {
+): Promise<{ ids: string[]; truncated: boolean }> {
+  const none = { ids: [] as string[], truncated: false }
   const { userId, workspaceId } = scope
-  if (!userId || !workspaceId) return []
+  if (!userId || !workspaceId) return none
   try {
     const { data, error } = await supabase.rpc('entity_grant_ids_for', {
       p_type: type,
@@ -146,13 +154,14 @@ export async function grantedIdsIn(
     })
     if (error) {
       console.warn('[entity-access] entity_grant_ids_for failed:', error.message)
-      return []
+      return none
     }
-    if (!Array.isArray(data)) return []
-    return uniq((data as unknown[]).filter((id): id is string => typeof id === 'string' && UUID_RE.test(id))).slice(0, LIST_GRANT_CAP)
+    if (!Array.isArray(data)) return none
+    const ids = uniq((data as unknown[]).filter((id): id is string => typeof id === 'string' && UUID_RE.test(id)))
+    return { ids: ids.slice(0, LIST_GRANT_CAP), truncated: ids.length > LIST_GRANT_CAP }
   } catch (err) {
     console.warn('[entity-access] entity_grant_ids_for threw:', err instanceof Error ? err.message : 'unknown')
-    return []
+    return none
   }
 }
 

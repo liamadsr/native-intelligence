@@ -29,8 +29,8 @@
  *   company delete                     0          0          1 (admin rule)   0           0      1
  *   re-share the doc (a new grant)     42501      42501      42501            42501       42501  1
  *   raise their own grant to edit      0          0          0                0           0      -
- *   contact_editable_by / company_     false      true       true             false       false  true
- *     editable_by (service role)
+ *   own edit rule + entity_edit_       false      true       true             false       false  true
+ *     granted (service role)
  * Before 512 every Cai/Dee cell on a private record was 0 or 42501 (view-only,
  * 494); Ana's, Ben's, Gus's and Nia's cells were the same before and after.
  * These pin the shape that made it so.
@@ -173,15 +173,21 @@ describe('migration 512: the write policies', () => {
     expect(update.match(/public\.entity_access_can_share\(entity_type, entity_id, workspace_id\)/g)?.length).toBe(2)
   })
 
-  it('the agent’s explicit-user edit rules gain the arm once', () => {
+  it('the agent’s edit rules stay their own; the edit grant is a separate question', () => {
+    // 498's contact_editable_by and 496's company_visible_to_ungranted keep no
+    // grant arm: a guest's or linked agent's turn asks them and nothing else.
     const contact = fn(sql512, 'contact_editable_by')
-    expect(contact.match(/entity_edit_grant_reaches\('contact'/g)?.length).toBe(1)
+    expect(contact).not.toMatch(/entity_edit_grant|entity_access/)
     expect(contact).toContain("cs.access_level = 'edit'")
-    expect(contact).toContain('IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN RETURN FALSE; END IF;')
-    const company = fn(sql512, 'company_editable_by')
-    expect(company).toContain('public.company_visible_to_ungranted(p_company_id, p_user_id)')
-    expect(company).toContain("public.entity_edit_grant_reaches('company', p_company_id, v_workspace_id, p_user_id)")
-    expect(company).toContain('IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN RETURN FALSE; END IF;')
+    expect(sql512).not.toContain('create or replace function public.company_visible_to_ungranted')
+    expect(sql512).toContain('drop function if exists public.company_editable_by(uuid, uuid);')
+    const granted = fn(sql512, 'entity_edit_granted')
+    expect(granted).toMatch(/security definer\s+set search_path = public, pg_temp/)
+    expect(granted).toContain('IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN RETURN FALSE; END IF;')
+    expect(granted).toContain('RETURN public.entity_edit_grant_reaches(p_type, p_id, v_workspace_id, p_user_id);')
+    expect(granted).toContain("IF p_type = 'contact' THEN")
+    expect(granted).toContain("ELSIF p_type = 'company' THEN")
+    expect(sql512).toContain('revoke all on function public.entity_edit_granted(text, uuid, uuid) from public, anon;')
   })
 
   it('is re-runnable, reloads the API schema, and carries no backslash', () => {

@@ -71,7 +71,9 @@ describe('custom field tools on every kind', () => {
       contact_visible_to: () => true,
       company_visible_to: () => true,
       contact_editable_by: () => false,
-      company_editable_by: () => false,
+      company_visible_to_ungranted: () => false,
+      // A view grant: 512's edit-grant question says no.
+      entity_edit_granted: () => false,
     })
     const company = await exec(tools, 'set_custom_fields')({ entity_type: 'company', id: 'co-granted', values: { Tier: 'Gold' } }, {})
     expect(company).toEqual({ success: false, error: 'Company not found' })
@@ -79,7 +81,7 @@ describe('custom field tools on every kind', () => {
     // Seen (through the grant) but not editable: refused as such.
     expect(contact).toEqual({ success: false, error: "You can't edit this contact" })
     expect(f.writes).toEqual([])
-    expect(f.rpcCalls.map((c) => c.fn)).toEqual(['company_editable_by', 'contact_editable_by', 'contact_visible_to'])
+    expect(f.rpcCalls.map((c) => c.fn)).toEqual(['company_visible_to_ungranted', 'entity_edit_granted', 'contact_editable_by', 'entity_edit_granted', 'contact_visible_to'])
   })
 
   it("never writes a contact the person can see but not edit (a view share, a teammate's team contact)", async () => {

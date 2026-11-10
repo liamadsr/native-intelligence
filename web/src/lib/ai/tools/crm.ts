@@ -30,7 +30,12 @@ export function createCrmTools(
   // param inserted ahead of it would silently reinterpret that argument.
   // See resolveEntityWorkspace in ./_shared.ts.
   strictWorkspace = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the owner (an edit grant, 512) never lets it write.
+  omitGrants = false,
 ) {
+  // An edit grant (512) edits only on the person's own, attended turn.
+  const editGrants = !omitGrants && !omitPrivateCaptures
   // get_contact_details / get_company_overview read captures (via the
   // person/company context helpers) on a service-role client (MCP /
   // unattended runs) — this requester, not RLS, is the real enforcement.
@@ -208,7 +213,7 @@ export function createCrmTools(
         // No writes to another member's private/team contact: this may run
         // service-role, where RLS does not hide it (contact-visibility.ts).
         // A per-item grant opens it to read, never to write (migration 495).
-        if (!(await isContactWritableTo(supabase, contact_id, userId))) {
+        if (!(await isContactWritableTo(supabase, contact_id, userId, { grants: editGrants }))) {
           return { success: false, error: 'Contact not found' }
         }
 

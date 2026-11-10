@@ -43,7 +43,12 @@ export function createContactTools(
   // and the sweep skip a held row until a person edits the contact (Sequence
   // step 2, plan A.1). See CreateToolsOptions.unattended in ./index.ts.
   unattended = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the owner (an edit grant, 512) never lets it write.
+  omitGrants = false,
 ) {
+  // An edit grant (512) edits only on the person's own, attended turn.
+  const editGrants = !omitGrants && !unattended
   return {
     list_contacts: tool({
       description:
@@ -310,7 +315,7 @@ export function createContactTools(
         if (!wsResolved) return { success: false, error: 'Contact not found' }
         // No writes to a contact the caller cannot see (same error as missing),
         // nor to one a per-item grant only lets them read (migration 495).
-        if (!(await isContactWritableTo(supabase, contact_id, userId))) {
+        if (!(await isContactWritableTo(supabase, contact_id, userId, { grants: editGrants }))) {
           return { success: false, error: 'Contact not found' }
         }
 

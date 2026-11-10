@@ -15,7 +15,9 @@
  *   - a shared capture's review queue (proposed_change, which never followed
  *     grants) stays its owner's.
  */
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
 import type { ToolExecutionOptions } from 'ai'
 import { makeFakeSupabase } from '@/lib/work/__tests__/fake-supabase'
 import { createDocumentTools } from '../documents'
@@ -23,7 +25,12 @@ import { createCaptureTools } from '../captures'
 import { createCommentTools } from '../comments'
 import { createDecisionTools } from '../decisions'
 import { createProjectTools } from '../projects'
-import { applyCaptureVisibility, applyDocumentVisibility, isCaptureVisible, isDocumentVisible } from '../_shared'
+import { createAttachmentTools } from '../attachments'
+import { dropGrantOnlyHits } from '../search'
+import { applyCaptureVisibility, applyDocumentVisibility, GRANTS_TRUNCATED_NOTE, isCaptureVisible, isDocumentVisible } from '../_shared'
+import { LIST_GRANT_CAP } from '@/lib/entity-access/grants'
+
+vi.mock('@/lib/inngest/client', () => ({ inngest: { send: vi.fn(async () => {}) } }))
 
 const WS = 'ws-1'
 const OTHER_WS = 'ws-2'
@@ -115,12 +122,15 @@ function grantIdsFor(db: ReturnType<typeof makeFakeSupabase>) {
   }
 }
 
-function world(opts: { rpcFails?: boolean } = {}) {
+function world(opts: { rpcFails?: boolean; extraGrantIds?: string[] } = {}) {
   let db: ReturnType<typeof makeFakeSupabase>
   db = makeFakeSupabase({
     rpc: {
-      entity_grant_ids_for: (args) =>
-        opts.rpcFails ? { data: null, error: { message: 'boom' } } : grantIdsFor(db)(args),
+      entity_grant_ids_for: (args) => {
+        if (opts.rpcFails) return { data: null, error: { message: 'boom' } }
+        const real = grantIdsFor(db)(args)
+        return { data: [...(real.data as string[]), ...(opts.extraGrantIds ?? [])], error: null }
+      },
     },
   })
   db.seed('member', [
@@ -373,5 +383,145 @@ describe('the predicates', () => {
     expect(isDocumentVisible(d, MY_MEMBER)).toBe(false)
     expect(isDocumentVisible(d, MY_MEMBER, new Set([DOC_SHARED]))).toBe(true)
     expect(isDocumentVisible(d, null, new Set([DOC_SHARED]))).toBe(false)
+  })
+})
+
+describe("a guest's or a linked agent's turn reads no grant", () => {
+  // createTools passes omitGrants to each family on those turns (guest-tools.ts).
+  const guestDocs = (db: ReturnType<typeof world>) => createDocumentTools(ME, client(db), WS, false, 'session', false, 'workspace', { omitGrants: true })
+  const guestCaptures = (db: ReturnType<typeof world>) => createCaptureTools(ME, client(db), WS, undefined, false, false, 'session', true)
+
+  it('the guest route builds its tools with omitGrants', () => {
+    const src = readFileSync(join(process.cwd(), 'src/lib/guests/guest-tools.ts'), 'utf8')
+    expect(src).toMatch(/searchDefaultWindow: 'all_time',[\s\S]{0,200}omitGrants: true,/)
+  })
+
+  it('documents: not read, not listed, never asked about; the owner’s own reads stay', async () => {
+    const db = world()
+    const t = guestDocs(db)
+    expect((await run(t.get_document, { document_id: DOC_SHARED })).success).toBe(false)
+    expect((await run(t.list_document_revisions, { document_id: DOC_SHARED })).success).toBe(false)
+    const ids = ((await run(t.list_documents, { limit: 20 })).documents as Array<{ id: string }>).map((r) => r.id)
+    expect(ids).not.toContain(DOC_SHARED)
+    expect(ids).toContain(DOC_TEAM)
+    expect(ids).toContain(DOC_MINE)
+    expect(db.rpcCalls.filter((c) => c.fn === 'entity_grant_ids_for')).toHaveLength(0)
+  })
+
+  it('captures: content, transcript and lists leave it out', async () => {
+    const t = guestCaptures(world())
+    expect((await run(t.get_capture_content, { capture_id: CAP_SHARED })).success).toBe(false)
+    expect((await run(t.get_capture_transcript, { capture_id: CAP_SHARED })).success).toBe(false)
+    const ids = ((await run(t.list_captures, {})).captures as Array<{ id: string }>).map((r) => r.id)
+    expect(ids).toEqual([CAP_TEAM])
+  })
+
+  it('comments, decisions and a project’s notes leave it out', async () => {
+    const db = world()
+    const comments = createCommentTools(ME, client(db), WS, false, false, 'session', true)
+    expect((await run(comments.list_comments, { commentable_type: 'document', commentable_id: DOC_SHARED })).success).toBe(false)
+    const decisions = createDecisionTools(ME, client(db), WS, false, 'session', false, {}, true)
+    expect((await run(decisions.list_decisions, { capture_id: CAP_SHARED })).success).toBe(false)
+    const projects = createProjectTools(ME, client(db), WS, false, false, 'session', true)
+    const notes = (await run(projects.get_project_context, { project_id: PROJECT })).recent_notes as Array<{ id: string }>
+    expect(notes.map((n) => n.id)).not.toContain(CAP_SHARED)
+    expect(notes.map((n) => n.id)).toContain(CAP_TEAM)
+  })
+
+  it('an attachment on it is not found', async () => {
+    const db = world()
+    db.seed('attachments', [
+      { id: 'att-1', workspace_id: WS, note_id: CAP_SHARED, file_name: 'deck.pdf', storage_path: `${ZOE_USER}/x/deck.pdf`, created_at: '2026-10-02T00:00:00Z' },
+    ])
+    const res = await run(createAttachmentTools(ME, client(db), WS, false, false, true).get_attachment_content, { attachment_id: 'att-1' })
+    expect(res.success).toBe(false)
+  })
+
+  it('find and search drop what only a grant found, and keep the rest', async () => {
+    const db = world()
+    const rows = [
+      { result_type: 'document', result_id: DOC_SHARED, metadata: null },
+      { result_type: 'document', result_id: DOC_TEAM, metadata: null },
+      { result_type: 'document', result_id: DOC_MINE, metadata: null },
+      { result_type: 'capture', result_id: CAP_SHARED, metadata: null },
+      { result_type: 'capture', result_id: CAP_TEAM, metadata: null },
+      { result_type: 'decision', result_id: 'dec-shared-open', metadata: { capture_id: CAP_SHARED, confirmation: 'suggested' } },
+      { result_type: 'decision', result_id: 'dec-shared-confirmed', metadata: { capture_id: CAP_SHARED, confirmation: 'confirmed' } },
+      { result_type: 'claim', result_id: 'claim-1', metadata: null },
+    ]
+    const kept = (await dropGrantOnlyHits(client(db), rows, ME)).map((r) => r.result_id)
+    expect(kept).toEqual([DOC_TEAM, DOC_MINE, CAP_TEAM, 'dec-shared-confirmed', 'claim-1'])
+  })
+
+  it('a failed read drops every hit of its kind (fails closed)', async () => {
+    const failing = { data: null, error: { message: 'boom' } }
+    const broken = { from: () => ({ select: () => ({ in: async () => failing, eq: async () => failing }) }) }
+    const rows = [
+      { result_type: 'document', result_id: DOC_TEAM, metadata: null },
+      { result_type: 'capture', result_id: CAP_TEAM, metadata: null },
+      { result_type: 'claim', result_id: 'claim-1', metadata: null },
+    ]
+    expect((await dropGrantOnlyHits(broken as never, rows, ME)).map((r) => r.result_id)).toEqual(['claim-1'])
+  })
+})
+
+describe('more shares than one list names', () => {
+  const many = Array.from({ length: LIST_GRANT_CAP + 5 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1000).padStart(12, '0')}`)
+
+  it('list_documents and list_captures say so, keeping the most recent shares', async () => {
+    const docs = await run(docTools(world({ extraGrantIds: many })).list_documents, { limit: 20 })
+    expect(docs.shared_note).toBe(GRANTS_TRUNCATED_NOTE)
+    expect((docs.documents as Array<{ id: string }>).map((d) => d.id)).toContain(DOC_SHARED)
+    const caps = await run(captureTools(world({ extraGrantIds: many })).list_captures, {})
+    expect(caps.shared_note).toBe(GRANTS_TRUNCATED_NOTE)
+    expect((caps.captures as Array<{ id: string }>).map((c) => c.id)).toContain(CAP_SHARED)
+  })
+
+  it('and say nothing when everything fits', async () => {
+    expect((await run(docTools(world()).list_documents, { limit: 20 })).shared_note).toBeUndefined()
+    expect((await run(captureTools(world()).list_captures, {})).shared_note).toBeUndefined()
+  })
+})
+
+describe('someone’s Now file stays theirs in the lists', () => {
+  const THEIR_NOW = '00000000-0000-4000-8000-0000000000d7'
+
+  it('list_action_documents leaves out a teammate’s Now file linked to a task, shared or not', async () => {
+    const db = world()
+    db.seed('actions', [{ id: 'act-1', workspace_id: WS, title: 'Ship it' }])
+    db.seed('document', [doc(THEIR_NOW, { visibility: 'private', created_by: ZOE, kind: 'now', frontmatter: { now: {} } })])
+    db.seed('entity_access', [grant('document', THEIR_NOW, { id: 'g-now-2' })])
+    // The fake hands back the embed the test seeds, as PostgREST would join it.
+    const embed = (id: string, kind: string) => ({ id, workspace_id: WS, title: `Title ${id.slice(-2)}`, updated_at: '2026-10-01T00:00:00Z', visibility: 'private', kind, owner: ZOE, created_by: { id: ZOE, display_name: 'Zoe Quill' } })
+    db.seed('action_document', [
+      { id: 'ad-1', action_id: 'act-1', document_id: DOC_SHARED, created_at: '2026-10-04T00:00:00Z', document: embed(DOC_SHARED, 'doc') },
+      { id: 'ad-2', action_id: 'act-1', document_id: THEIR_NOW, created_at: '2026-10-04T00:00:00Z', document: embed(THEIR_NOW, 'now') },
+    ])
+    const res = await run(docTools(db).list_action_documents, { action_id: 'act-1' })
+    expect(res.success).toBe(true)
+    const ids = (res.documents as Array<{ id: string }>).map((d) => d.id)
+    expect(ids).toContain(DOC_SHARED)
+    expect(ids).not.toContain(THEIR_NOW)
+  })
+})
+
+describe('attach_chat_file onto a capture', () => {
+  const upload = { storage_path: `${ME}/chat-uploads/notes-1.pdf`, file_name: 'notes.pdf', file_size: 10, mime_type: 'application/pdf' }
+
+  it('refuses a capture the person may only read (a grant) or not see at all, even with a task named', async () => {
+    const db = world()
+    db.seed('actions', [{ id: 'act-1', workspace_id: WS, title: 'Ship it', project_id: null }])
+    const t = createAttachmentTools(ME, client(db), WS)
+    expect((await run(t.attach_chat_file, { ...upload, capture_id: CAP_SHARED })).success).toBe(false)
+    expect((await run(t.attach_chat_file, { ...upload, capture_id: CAP_PRIVATE })).success).toBe(false)
+    expect((await run(t.attach_chat_file, { ...upload, action_id: 'act-1', capture_id: CAP_PRIVATE })).success).toBe(false)
+    expect(db.rows('attachments')).toHaveLength(0)
+  })
+
+  it('attaches to a capture the person may change', async () => {
+    const db = world()
+    const res = await run(createAttachmentTools(ME, client(db), WS).attach_chat_file, { ...upload, capture_id: CAP_TEAM })
+    expect(res, JSON.stringify(res)).toMatchObject({ success: true })
+    expect(db.rows('attachments')).toHaveLength(1)
   })
 })

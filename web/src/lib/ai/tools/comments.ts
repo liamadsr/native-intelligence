@@ -39,6 +39,9 @@ export function createCommentTools(
   omitPrivateCaptures = false,
   strictWorkspace = false,
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
 ) {
   // Comments on a capture or a document are derived content: they are hidden
   // with it (a private capture, 223; a private document, 369).
@@ -84,8 +87,8 @@ export function createCommentTools(
     if (type === 'document') {
       const visible =
         access === 'read'
-          ? !!(await documentReadAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures))
-          : !!(await documentCommentAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures))
+          ? !!(await documentReadAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, !omitGrants))
+          : !!(await documentCommentAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, !omitGrants))
       return visible ? routed.workspaceId : null
     }
     if (type !== 'capture') return routed.workspaceId
@@ -93,8 +96,8 @@ export function createCommentTools(
     // not in the session's.
     const visible =
       access === 'read'
-        ? !!(await captureReadAccess(supabase, id, routed.workspaceId, requester))
-        : !!(await captureWriteAccess(supabase, id, routed.workspaceId, requester))
+        ? !!(await captureReadAccess(supabase, id, routed.workspaceId, requester, undefined, !omitGrants))
+        : !!(await captureWriteAccess(supabase, id, routed.workspaceId, requester, !omitGrants))
     return visible ? routed.workspaceId : null
   }
 

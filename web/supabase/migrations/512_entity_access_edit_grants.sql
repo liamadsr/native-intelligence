@@ -55,11 +55,11 @@
 --   entity_edit_grant_reaches(type, id, workspace, user)  has_entity_edit_
 --        grant for an explicit user (service role; a signed-in caller about
 --        themself only), for the agent's write gates below.
---   contact_editable_by (498)  gains the edit-grant arm: the agent's contact
---        writes (src/lib/crm/contact-visibility.ts isContactWritableTo).
---   company_editable_by(company, user)  new: 496's company_visible_to_
---        ungranted plus the edit-grant arm, for the agent's company writes
---        (isCompanyWritableTo). The ungranted twin stays as it was.
+--   entity_edit_granted(type, id, user)  entity_edit_grant_reaches in the
+--        record's own workspace, for the agent's contact and company writes
+--        (src/lib/crm/contact-visibility.ts), asked APART from their own edit
+--        rules (498's contact_editable_by, 496's company_visible_to_ungranted,
+--        both unchanged) so a guest's or linked agent's turn never asks it.
 --
 -- entity_access itself: the insert policy takes 'view' or 'edit'; a new
 -- update policy lets whoever may share the record change a grant's LEVEL (a
@@ -618,9 +618,51 @@ create policy entity_access_update on public.entity_access
   );
 
 -- ════════════════════════════════════════════════════════════════════════════
--- The explicit-user edit rules the agent's writes ask
+-- The agent's writes: an edit grant for an explicit user, asked apart
 -- ════════════════════════════════════════════════════════════════════════════
--- 498's body, plus an edit grant on the contact that reaches this user.
+-- The agent's contact and company writes run on a service-role client and
+-- ask contact_editable_by (498) and company_visible_to_ungranted (496), the
+-- tables' own edit rules. Both stay exactly as they are: a guest's turn and
+-- a linked agent's turn run the owner's tools, and what was shared with the
+-- owner must never reach them (src/lib/guests/guest-tools.ts, omitGrants).
+-- So the grant is a second, separate question the app asks only on the
+-- person's own turns (src/lib/crm/contact-visibility.ts):
+--
+--   entity_edit_granted(type, id, user)  an EDIT grant on this record, in
+--        its own workspace, reaches the user (entity_edit_grant_reaches; never
+--        a guest). Asked by the service role, or by a signed-in user about
+--        themself only. Contacts and companies (the kinds whose agent writes
+--        ask SQL); a company only by a grant on the company itself.
+-- (512 as first applied on DEV gave contact_editable_by the arm and added a
+-- company_editable_by; both are undone here, so the file leaves 498's body.)
+create or replace function public.entity_edit_granted(p_type text, p_id uuid, p_user_id uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $function$
+DECLARE
+  v_workspace_id uuid;
+BEGIN
+  IF p_id IS NULL OR p_user_id IS NULL THEN RETURN FALSE; END IF;
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN RETURN FALSE; END IF;
+  IF p_type = 'contact' THEN
+    SELECT c.workspace_id INTO v_workspace_id FROM public.contact c WHERE c.id = p_id;
+  ELSIF p_type = 'company' THEN
+    SELECT c.workspace_id INTO v_workspace_id FROM public.company c WHERE c.id = p_id;
+  ELSE
+    RETURN FALSE;
+  END IF;
+  IF v_workspace_id IS NULL THEN RETURN FALSE; END IF;
+  RETURN public.entity_edit_grant_reaches(p_type, p_id, v_workspace_id, p_user_id);
+END
+$function$;
+
+revoke all on function public.entity_edit_granted(text, uuid, uuid) from public, anon;
+grant execute on function public.entity_edit_granted(text, uuid, uuid) to authenticated, service_role;
+
+-- 498's contact_editable_by, exactly (undoing the first DEV apply's arm).
 create or replace function public.contact_editable_by(p_contact_id uuid, p_user_id uuid)
 returns boolean
 language plpgsql
@@ -665,39 +707,10 @@ BEGIN
           AND cs.access_level = 'edit'
   ) THEN RETURN TRUE; END IF;
 
-  -- 512: an edit grant (any view grant never counts).
-  IF public.entity_edit_grant_reaches('contact', p_contact_id, v_c.workspace_id, p_user_id) THEN RETURN TRUE; END IF;
-
   RETURN FALSE;
 END
 $function$;
 
-revoke all on function public.contact_editable_by(uuid, uuid) from public, anon;
-grant execute on function public.contact_editable_by(uuid, uuid) to authenticated, service_role;
-
--- 496's company_visible_to_ungranted (the company write rule), plus an edit
--- grant on the company itself. Asked by the service role, or by a signed-in
--- user about themself only.
-create or replace function public.company_editable_by(p_company_id uuid, p_user_id uuid)
-returns boolean
-language plpgsql
-stable
-security definer
-set search_path = public, pg_temp
-as $function$
-DECLARE
-  v_workspace_id uuid;
-BEGIN
-  IF p_company_id IS NULL OR p_user_id IS NULL THEN RETURN FALSE; END IF;
-  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN RETURN FALSE; END IF;
-  SELECT c.workspace_id INTO v_workspace_id FROM public.company c WHERE c.id = p_company_id;
-  IF v_workspace_id IS NULL THEN RETURN FALSE; END IF;
-  IF public.company_visible_to_ungranted(p_company_id, p_user_id) THEN RETURN TRUE; END IF;
-  RETURN public.entity_edit_grant_reaches('company', p_company_id, v_workspace_id, p_user_id);
-END
-$function$;
-
-revoke all on function public.company_editable_by(uuid, uuid) from public, anon;
-grant execute on function public.company_editable_by(uuid, uuid) to authenticated, service_role;
+drop function if exists public.company_editable_by(uuid, uuid);
 
 notify pgrst, 'reload schema';

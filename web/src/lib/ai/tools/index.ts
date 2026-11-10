@@ -161,6 +161,17 @@ export interface CreateToolsOptions {
    */
   createWorkspacePolicy?: CreateWorkspacePolicy
   /**
+   * The turn is someone else's conversation with the person's agent: a
+   * guest's, or a linked agent's (src/lib/guests/guest-tools.ts). Such a
+   * turn runs the person's tools, but a per-item grant (492) shared a record
+   * with the PERSON, not with whoever they let talk to their agent: with
+   * this set, no read tool lets a grant through (the documents, captures,
+   * comments, decisions, attachments, project notes and claim labels the
+   * grant would open, and find / search drop what only a grant found).
+   * Everything else reads as before. Absent: the person's own turn.
+   */
+  omitGrants?: boolean
+  /**
    * Who the tools' status writes are, for the flow dispatcher's LOOP GUARD
    * (flows/types.ts StatusChangeOrigin). Unattended runs (work-run, skill-run)
    * pass `{ actor: 'agent', depth, run_id }`; absent = a person at depth 0
@@ -349,12 +360,14 @@ export function createTools(
   // unattended work-run / skill-run paths could not fence the newly-routed
   // cycle/decision/comment/link/attachment/integration writes.
   const createPolicy = options?.createWorkspacePolicy ?? 'session'
+  // A guest's or a linked agent's turn reads no grant (CreateToolsOptions.omitGrants).
+  const omitGrants = options?.omitGrants ?? false
   // Every capture read below is fenced against eval captures by the
   // default-EXCLUDE in ./_shared.ts — no opt-in exists here on purpose (see
   // CreateToolsOptions).
   return {
     ...createActionTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy, options?.origin, options?.actionRules),
-    ...createCaptureTools(userId, supabase, workspaceId, accessToken, strict, omitPrivate, createPolicy),
+    ...createCaptureTools(userId, supabase, workspaceId, accessToken, strict, omitPrivate, createPolicy, omitGrants),
     ...createNoteTakerTools(userId, supabase, workspaceId, options?.unattended ?? false),
     // A run that writes for one person (defaultDocumentVisibility 'private')
     // reads that person's own private documents too, as it reads their mail:
@@ -373,6 +386,7 @@ export function createTools(
         approvedCall: options?.approvedCall,
         approvalContext: options?.approvalContext,
         nowReadable: options?.nowContext?.readable === true,
+        omitGrants,
       },
     ),
     // Canon documents (D1/D2): read and edited by key, in the session workspace only.
@@ -383,8 +397,8 @@ export function createTools(
     }),
     // Posts (content C0): the deterministic check and the fresh-eyes review. Nothing posts.
     ...createContentTools(userId, supabase, workspaceId, { writerModel: options?.contentContext?.writerModel ?? null, approvedCall: options?.approvedCall, unattended: options?.unattended === true }),
-    ...createDecisionTools(userId, supabase, workspaceId, strict, createPolicy, omitPrivate, options?.actionRules),
-    ...createContactTools(userId, supabase, workspaceId, strict, createPolicy, options?.unattended ?? false),
+    ...createDecisionTools(userId, supabase, workspaceId, strict, createPolicy, omitPrivate, options?.actionRules, omitGrants),
+    ...createContactTools(userId, supabase, workspaceId, strict, createPolicy, options?.unattended ?? false, omitGrants),
     // The business's front door (roadmap B): customers' quotes, its profile, booking slots and bookings. See ./business.ts.
     // send_quote / book_quote run only as the owner's approved call (roadmap F3).
     // move_booking / cancel_booking text the customer: never an unattended run's.
@@ -395,7 +409,7 @@ export function createTools(
     // ONE account you can already name; these are the index and the writes.
     ...createCompanyTools(userId, supabase, workspaceId, strict, createPolicy),
     // Deals and custom fields (roadmap #8): apply with undo, every change logged. See ./deals.ts.
-    ...createDealTools(userId, supabase, workspaceId, strict, createPolicy),
+    ...createDealTools(userId, supabase, workspaceId, strict, createPolicy, omitGrants),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).
@@ -406,7 +420,7 @@ export function createTools(
       unattended: options?.unattended === true,
     }),
     ...createInitiativeTools(userId, supabase, workspaceId, strict, createPolicy),
-    ...createProjectTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy),
+    ...createProjectTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy, omitGrants),
     ...createCycleTools(userId, supabase, workspaceId, strict, createPolicy),
     // get_calendar_events reads and writes times in the person's zone: this turn's browser zone, else their saved one.
     ...createCalendarTools(userId, workspaceId, { supabase, timeZone: options?.timeZone }),
@@ -414,25 +428,25 @@ export function createTools(
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),
     }),
-    ...createCommentTools(userId, supabase, workspaceId, omitPrivate, strict, createPolicy),
+    ...createCommentTools(userId, supabase, workspaceId, omitPrivate, strict, createPolicy, omitGrants),
     ...createDashboardTools(userId, supabase, workspaceId, omitPrivate),
-    ...createSearchTools(userId, supabase, workspaceId, omitPrivate, options?.searchDefaultWindow ?? 'all_time', strict, options?.nowContext?.readable === true),
+    ...createSearchTools(userId, supabase, workspaceId, omitPrivate, options?.searchDefaultWindow ?? 'all_time', strict, options?.nowContext?.readable === true, omitGrants),
     ...createNotificationTools(userId, supabase, workspaceId),
     ...createBrowserTools(userId, supabase, workspaceId, options?.browserAttribution, options?.browserSourceRequest, options?.approvedCall),
     ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate),
     // The person's goal for one of their meetings (the prep card's composer writes the same store).
     ...createMeetingGoalTools(userId, supabase, workspaceId, options?.unattended ?? false),
     ...createVocabularyTools(userId, supabase, workspaceId, { omitPrivate, unattended: options?.unattended ?? false }),
-    ...createCrmTools(userId, supabase, workspaceId, omitPrivate, strict),
+    ...createCrmTools(userId, supabase, workspaceId, omitPrivate, strict, omitGrants),
     // enrich_contact: one paid web search for one contact, only on the person's
     // yes (confirmed_with_user), the same run as the contact page's Enrich
     // button. Nothing enriches on its own. See ./enrich-contact.ts.
-    ...createEnrichContactTools(userId, supabase, workspaceId, strict),
+    ...createEnrichContactTools(userId, supabase, workspaceId, strict, omitGrants),
     // Review requests (roadmap D3): the owner's Google review link, and the
     // jobs they say are done, each sending that customer the link once.
     ...createReviewTools(userId, supabase, workspaceId, strict, { unattended: options?.unattended === true }),
     ...createEmailManagementTools(userId, supabase, workspaceId, accessToken),
-    ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate),
+    ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants),
     // The browser zone: a schedule loop with no timezone takes the person's.
     // The chat's conversation counts the flow cards it raises (approval caps);
     // a replayed approval runs the stored change (F1, ../flows/flow-approvals.ts).
@@ -452,7 +466,7 @@ export function createTools(
     ...createApprovalResultTools(userId, supabase, workspaceId),
     // One guest's conversation with the agent the person made for them (guest access): a read of their own guests.
     ...createGuestConversationTools(userId, supabase, workspaceId),
-    ...createClaimTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy),
+    ...createClaimTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy, omitGrants),
     ...createEntityLinkTools(userId, supabase, workspaceId, strict, omitPrivate),
     ...createPackageTools(userId, supabase, workspaceId, strict, createPolicy),
     ...createAsanaTools(userId, supabase, workspaceId, strict),

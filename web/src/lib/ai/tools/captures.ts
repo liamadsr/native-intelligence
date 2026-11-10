@@ -14,6 +14,8 @@ import {
   applyEmbeddedCaptureVisibility,
   captureReadAccess,
   captureRequester,
+  GRANTS_TRUNCATED_NOTE,
+  grantReader,
   captureVisibleToRequester,
   captureWriteAccess,
   isCaptureVisible,
@@ -107,10 +109,15 @@ export function createCaptureTools(
   // ./index.ts threads them. 'session' keeps chat byte-identical; the MCP
   // bridge passes 'explicit'.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
 ) {
   // Every capture read below runs on a service-role client in the MCP / unattended
   // paths, so this requester — not RLS — enforces "only me" scope.
   const requester = captureRequester(userId, omitPrivateCaptures)
+  // Whom a grant (492) may open a capture to on this turn: the requester, or no one.
+  const grantee = grantReader(requester, omitGrants)
 
   /**
    * Resolve a capture id to its workspace AND confirm it is visible to the
@@ -135,7 +142,7 @@ export function createCaptureTools(
   const resolveEditableCapture = async (captureId: string) => {
     const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!wsResolved) return null
-    const access = await captureWriteAccess(supabase, captureId, wsResolved.workspaceId, requester)
+    const access = await captureWriteAccess(supabase, captureId, wsResolved.workspaceId, requester, !omitGrants)
     return access ? wsResolved : null
   }
 
@@ -148,7 +155,7 @@ export function createCaptureTools(
   const resolveReadableCapture = async (captureId: string) => {
     const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!wsResolved) return null
-    const access = await captureReadAccess(supabase, captureId, wsResolved.workspaceId, requester)
+    const access = await captureReadAccess(supabase, captureId, wsResolved.workspaceId, requester, undefined, !omitGrants)
     if (!access) return null
     const viaGrant = access === 'grant'
     const toEdit = viaGrant && (await hasEditGrant(supabase, { userId: requester, workspaceId: wsResolved.workspaceId }, 'capture', captureId))
@@ -194,7 +201,7 @@ export function createCaptureTools(
           .limit(cappedLimit)
 
         // Plus the private captures shared with the person (a grant, 492): a read.
-        const { capture: granted } = await readGrants(supabase, requester, workspaceId, ['capture'])
+        const { capture: granted, truncated: grantsTruncated } = await readGrants(supabase, grantee, workspaceId, ['capture'])
         query = applyCaptureVisibility(query, requester, undefined, granted)
 
         if (project_id) query = query.eq('project_id', project_id)
@@ -224,7 +231,15 @@ export function createCaptureTools(
           }
         })
 
-        return { success: true, captures, count: captures.length, since: sinceISO, until: untilISO, time_field: timeField }
+        return {
+          success: true,
+          captures,
+          count: captures.length,
+          since: sinceISO,
+          until: untilISO,
+          time_field: timeField,
+          ...(grantsTruncated ? { shared_note: GRANTS_TRUNCATED_NOTE } : {}),
+        }
       },
     }),
 
@@ -275,7 +290,7 @@ export function createCaptureTools(
               .order('started_at', { ascending: false, nullsFirst: false })
               .limit(cappedLimit)
             // Grants are per workspace: each one's own (a read).
-            const { capture: granted } = await readGrants(supabase, requester, w.id, ['capture'])
+            const { capture: granted } = await readGrants(supabase, grantee, w.id, ['capture'])
             q = applyCaptureVisibility(q, requester, undefined, granted)
             if (sinceISO) q = q.gte(timeField, sinceISO)
             if (untilISO) q = q.lte(timeField, untilISO)
@@ -370,7 +385,7 @@ export function createCaptureTools(
           .limit(cappedLimit)
 
         // Plus the private meetings shared with the person (a grant): a read.
-        const { capture: grantedList } = await readGrants(supabase, requester, resolved.workspaceId, ['capture'])
+        const { capture: grantedList } = await readGrants(supabase, grantee, resolved.workspaceId, ['capture'])
         const granted = new Set(grantedList)
         participantQuery = applyEmbeddedCaptureVisibility(participantQuery, requester, 'capture', undefined, grantedList)
 

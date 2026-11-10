@@ -108,7 +108,7 @@ describe('loadDocumentAccess and edit grants', () => {
   function db(level: 'view' | 'edit' | null, role = 'member') {
     const fake = makeFakeSupabase()
     fake.seed('member', [{ id: 'mem-ben', user_id: 'user-ben', workspace_id: WS, role, display_name: 'Ben Ortiz' }])
-    fake.seed('document', [row()])
+    fake.seed('document', [{ ...row() }])
     if (level) {
       fake.seed('entity_access', [
         { id: 'g-1', workspace_id: WS, entity_type: 'document', entity_id: DOC, grantee_kind: 'member', grantee_member_id: 'mem-ben', grantee_team_id: null, grantee_channel_id: null, level },

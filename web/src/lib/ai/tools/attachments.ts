@@ -12,6 +12,8 @@ import {
   applyCaptureVisibility,
   captureReadAccess,
   captureRequester,
+  grantReader,
+  captureVisibleToRequester,
   FUZZY_MATCH_LIMIT,
   listMatches,
   soleMatch,
@@ -27,6 +29,9 @@ export function createAttachmentTools(
   workspaceId: string,
   strictWorkspace = false,
   omitPrivateCaptures = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
 ) {
   // Attachments are shared workspace rows, but one on a capture is only as
   // visible as that capture (RLS `attachments_workspace_select`, migration
@@ -46,7 +51,7 @@ export function createAttachmentTools(
       requester,
     )
     const visible = (data || []).map((c) => c.id as string)
-    return withGrantedIds(supabase, { userId: requester, workspaceId }, 'capture', captureIds, visible)
+    return withGrantedIds(supabase, { userId: grantReader(requester, omitGrants), workspaceId }, 'capture', captureIds, visible)
   }
 
   return {
@@ -307,6 +312,15 @@ export function createAttachmentTools(
           }
         }
 
+        // Attaching is a WRITE to the capture: its own rule, in the workspace
+        // the file lands in, whichever branch routed it (an action named too
+        // must not carry the file onto a capture nobody checked). A teammate's
+        // private capture, even one shared with the person to read, is not
+        // found; an unattended run reaches workspace captures only.
+        if (capture_id && !(await captureVisibleToRequester(supabase, capture_id, targetWs, requester))) {
+          return { success: false, error: 'Capture not found in this workspace' }
+        }
+
         const ext = file_name.split('.').pop()?.toLowerCase() || 'bin'
         const isImage = mime_type.startsWith('image/')
         const fileCategory = isImage ? 'image' : 'document'
@@ -390,7 +404,7 @@ export function createAttachmentTools(
         // grant) — a teammate's private meeting's file reads as absent.
         if (
           attachment.note_id &&
-          !(await captureReadAccess(supabase, attachment.note_id as string, workspaceId, requester))
+          !(await captureReadAccess(supabase, attachment.note_id as string, workspaceId, requester, undefined, !omitGrants))
         ) {
           return { success: false, error: 'Attachment not found' }
         }

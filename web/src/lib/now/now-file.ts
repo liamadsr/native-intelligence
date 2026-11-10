@@ -812,15 +812,31 @@ export async function updateNowNote(supabase: SupabaseClient, args: UpdateNowArg
  * list: `result_type` 'document', `result_id` its id), for a caller outside the
  * person's main chat. One read, only when there are document hits. A failed
  * read drops every document hit (fail closed). Never throws.
+ *
+ * `keepOwnOf`: the person's own main chat, where THEIR Now file may come back.
+ * Only theirs: another member's Now file (which a grant could otherwise open)
+ * is dropped all the same, one more read (their member rows) when a Now file
+ * is among the hits.
  */
-export async function dropNowDocuments<T extends { result_type: string; result_id: string }>(supabase: SupabaseClient, rows: T[]): Promise<T[]> {
+export async function dropNowDocuments<T extends { result_type: string; result_id: string }>(
+  supabase: SupabaseClient,
+  rows: T[],
+  keepOwnOf?: string | null,
+): Promise<T[]> {
   const ids = [...new Set(rows.filter((r) => r.result_type === 'document').map((r) => r.result_id))]
   if (ids.length === 0) return rows
   try {
-    const { data, error } = await supabase.from('document').select('id').in('id', ids).eq('kind', NOW_KEY)
+    const { data, error } = await supabase.from('document').select('id, created_by').in('id', ids).eq('kind', NOW_KEY)
     if (error) return rows.filter((r) => r.result_type !== 'document')
-    const now = new Set(((data as Array<{ id?: unknown }> | null) ?? []).map((d) => d.id))
-    return now.size === 0 ? rows : rows.filter((r) => !(r.result_type === 'document' && now.has(r.result_id)))
+    const nowRows = (data as Array<{ id?: unknown; created_by?: unknown }> | null) ?? []
+    if (nowRows.length === 0) return rows
+    let mine = new Set<unknown>()
+    if (keepOwnOf) {
+      const members = await supabase.from('member').select('id').eq('user_id', keepOwnOf)
+      if (!members.error) mine = new Set(((members.data as Array<{ id?: unknown }> | null) ?? []).map((m) => m.id))
+    }
+    const drop = new Set(nowRows.filter((d) => !(d.created_by != null && mine.has(d.created_by))).map((d) => d.id))
+    return drop.size === 0 ? rows : rows.filter((r) => !(r.result_type === 'document' && drop.has(r.result_id)))
   } catch {
     return rows.filter((r) => r.result_type !== 'document')
   }

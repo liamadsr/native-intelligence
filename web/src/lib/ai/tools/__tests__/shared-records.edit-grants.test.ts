@@ -131,8 +131,10 @@ type Result = Record<string, unknown> & { success: boolean; error?: string }
 const run = (t: { execute?: unknown }, args: Record<string, unknown>) =>
   (t as { execute: (a: unknown, o: unknown) => Promise<Result> }).execute(args, OPTS)
 
-const docTools = (db: ReturnType<typeof world>, omitPrivate = false) => createDocumentTools(ME, client(db), WS, false, 'session', omitPrivate)
-const captureTools = (db: ReturnType<typeof world>, omitPrivate = false) => createCaptureTools(ME, client(db), WS, undefined, false, omitPrivate)
+const docTools = (db: ReturnType<typeof world>, omitPrivate = false, omitGrants = false) =>
+  createDocumentTools(ME, client(db), WS, false, 'session', omitPrivate, undefined, { omitGrants })
+const captureTools = (db: ReturnType<typeof world>, omitPrivate = false, omitGrants = false) =>
+  createCaptureTools(ME, client(db), WS, undefined, false, omitPrivate, 'session', omitGrants)
 const docRow = (db: ReturnType<typeof world>, id: string) => db.rows('document').find((d) => d.id === id)
 const capRow = (db: ReturnType<typeof world>, id: string) => db.rows('captures').find((c) => c.id === id)
 
@@ -257,5 +259,32 @@ describe('captures: a view grant still refuses every write, an edit grant edits'
     const unattended = world()
     expect((await run(captureTools(unattended, true).update_capture, { capture_id: CAP_EDIT, title: 'Changed' })).success).toBe(false)
     expect(capRow(unattended, CAP_EDIT)?.title).toBe(`Meeting ${CAP_EDIT.slice(-2)}`)
+  })
+})
+
+describe('a guest’s or a linked agent’s turn (omitGrants): no grant of the owner’s ever edits', () => {
+  it('documents: update, edit text and comment are all refused, and nothing changes', async () => {
+    const db = world()
+    const t = docTools(db, false, true)
+    expect((await run(t.update_document, { document_id: DOC_EDIT, title: 'Changed', base_revision: 1 })).success).toBe(false)
+    expect((await run(t.edit_document_content, { document_id: DOC_EDIT, old_text: 'body', new_text: 'bodies' })).success).toBe(false)
+    const c = createCommentTools(ME, client(db), WS, false, false, 'session', true)
+    expect((await run(c.add_comment, { commentable_type: 'document', commentable_id: DOC_EDIT, body: 'Hi' })).success).toBe(false)
+    expect(docRow(db, DOC_EDIT)?.title).toBe(`Title ${DOC_EDIT.slice(-2)}`)
+    expect(docRow(db, DOC_EDIT)?.content).toBe(`body of ${DOC_EDIT}`)
+    expect(db.rows('comment')).toHaveLength(0)
+  })
+
+  it('captures: update, edit text, decisions and comments are all refused', async () => {
+    const db = world()
+    const t = captureTools(db, false, true)
+    expect((await run(t.update_capture, { capture_id: CAP_EDIT, title: 'Changed' })).success).toBe(false)
+    expect((await run(t.edit_capture_content, { capture_id: CAP_EDIT, field: 'content', old_text: 'notes', new_text: 'more notes' })).success).toBe(false)
+    const d = createDecisionTools(ME, client(db), WS, false, 'session', false, undefined, true)
+    expect((await run(d.confirm_decision, { decision_id: 'dec-edit' })).success).toBe(false)
+    const c = createCommentTools(ME, client(db), WS, false, false, 'session', true)
+    expect((await run(c.add_comment, { commentable_type: 'capture', commentable_id: CAP_EDIT, body: 'Hi' })).success).toBe(false)
+    expect(capRow(db, CAP_EDIT)?.title).toBe(`Meeting ${CAP_EDIT.slice(-2)}`)
+    expect(db.rows('decision').find((x) => x.id === 'dec-edit')?.confirmation).toBe('suggested')
   })
 })

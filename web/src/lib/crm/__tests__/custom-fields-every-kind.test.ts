@@ -149,7 +149,7 @@ describe('customFieldWriteRefusal: each kind’s own edit rule', () => {
         rpcs: {
           contact_editable_by: (a) => a.p_contact_id === 'c-own',
           contact_visible_to: (a) => a.p_contact_id === 'c-view-share',
-          company_editable_by: (a) => a.p_company_id === 'co-own',
+          company_visible_to_ungranted: (a) => a.p_company_id === 'co-own',
         },
       },
     )
@@ -159,18 +159,43 @@ describe('customFieldWriteRefusal: each kind’s own edit rule', () => {
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-view-share')).toEqual({ reason: 'forbidden', error: "You can't edit this contact" })
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'company', 'co-own')).toBeNull()
     expect(await customFieldWriteRefusal(db(f), USER, WS, 'company', 'co-granted')).toEqual({ reason: 'not_found', error: 'Company not found' })
+    // Each refusal by its own rule asks 512's edit-grant question next (none stubbed here: no).
     expect(f.rpcCalls.map((c) => c.fn)).toEqual([
       'contact_editable_by',
       'contact_editable_by',
+      'entity_edit_granted',
       'contact_visible_to',
       'contact_editable_by',
+      'entity_edit_granted',
       'contact_visible_to',
-      'company_editable_by',
-      'company_editable_by',
+      'company_visible_to_ungranted',
+      'company_visible_to_ungranted',
+      'entity_edit_granted',
     ])
     // An rpc that errors refuses.
     const broken = fakeRecordsDb({}, { rpcs: {} })
     expect(await customFieldWriteRefusal(db(broken), USER, WS, 'company', 'co-own')).toMatchObject({ reason: 'not_found' })
+  })
+
+  it('an EDIT grant (512) sets a shared contact’s and company’s fields; a guest’s turn never asks', async () => {
+    const f = fakeRecordsDb(
+      {},
+      {
+        rpcs: {
+          contact_editable_by: () => false,
+          contact_visible_to: () => true,
+          company_visible_to_ungranted: () => false,
+          entity_edit_granted: (a) => a.p_id === 'c-edit' || a.p_id === 'co-edit',
+        },
+      },
+    )
+    expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-edit')).toBeNull()
+    expect(await customFieldWriteRefusal(db(f), USER, WS, 'company', 'co-edit')).toBeNull()
+    expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-view')).toEqual({ reason: 'forbidden', error: "You can't edit this contact" })
+    const before = f.rpcCalls.length
+    expect(await customFieldWriteRefusal(db(f), USER, WS, 'contact', 'c-edit', { grants: false })).toEqual({ reason: 'forbidden', error: "You can't edit this contact" })
+    expect(await customFieldWriteRefusal(db(f), USER, WS, 'company', 'co-edit', { grants: false })).toEqual({ reason: 'not_found', error: 'Company not found' })
+    expect(f.rpcCalls.slice(before).map((c) => c.fn)).not.toContain('entity_edit_granted')
   })
 
   it('document: the document edit rule; a private one is its creator’s, a grant never edits', async () => {

@@ -271,6 +271,9 @@ export function createEnrichContactTools(
   // Hard-fences the cross-workspace resolve to `workspaceId` for unattended
   // runs (resolveEntityWorkspace in ./_shared.ts), as every contact write does.
   strictWorkspace = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the owner (an edit grant, 512) never lets it write.
+  omitGrants = false,
 ) {
   return {
     enrich_contact: tool({
@@ -294,7 +297,7 @@ export function createEnrichContactTools(
         // where RLS does not hide it (contact-visibility.ts). Same error as missing.
         // An enrichment writes the contact: a per-item grant (read only) is not
         // enough (migration 495).
-        if (!(await isContactWritableTo(supabase, contact_id, userId))) return NOT_FOUND
+        if (!(await isContactWritableTo(supabase, contact_id, userId, { grants: !omitGrants && !strictWorkspace }))) return NOT_FOUND
         const targetWs = resolved.workspaceId
 
         const inFlight = await runInFlight(supabase, contact_id, targetWs)
