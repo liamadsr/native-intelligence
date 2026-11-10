@@ -58,18 +58,20 @@ deploy/move/move.sh prepare
 
 Two things it may tell you:
 
-- **Files that are not in git.** If someone edited a file in the old server's checkout by hand (the `Caddyfile`, say) and never committed it, that edit would not move. `prepare` lists such files and stops. Commit them, or copy them yourself and run it again with `MOVE_ALLOW_DIRTY=1`.
+- **Files that are not in git.** If someone edited a file in the old server's checkout by hand (the `Caddyfile`, say) and never committed it, that edit would not move. `prepare` lists such files and stops. Commit them and update the old server. If that is not possible, run `prepare` again with `MOVE_ALLOW_DIRTY=1` and copy those files to the new server yourself afterwards, in that order: the checkout has to exist there first.
 - **A reboot is waiting.** A fresh server usually installs a kernel update during setup. Reboot it when `prepare` says so, before the next step; otherwise it reboots itself at its nightly time, which could be in the middle of the move.
 
 ## 3. Copy the data
 
-Copies every `ni-` volume straight from the old server to the new one. The old server keeps running, so this copy is not consistent yet; its only purpose is to make the next step short. Run it as often as you like, and once more shortly before the cutover if the data is large. It may say that some files changed while they were being copied: with a database running underneath, that is expected, and the cutover copies them again.
+Copies every `ni-` volume straight from the old server to the new one. The old server keeps running, so this copy is not consistent yet; its only purpose is to make the next step short. Run it as often as you like, and once more shortly before the cutover if the data is large. With a database running underneath, some files vanish or change while they are being copied. `sync` then shows what rsync said and carries on, and the cutover copies those files again. Read that list once: a line about permissions or an unreadable file is a real error, and it would stop the cutover too.
 
 ```bash
 deploy/move/move.sh sync
 ```
 
-The copy travels between the two servers, not through your machine. For that, `sync` makes a temporary key on the new server and allows it on the old one: no terminal and no forwarding, and only from the new server's address when `NEW` is an address or a name that resolves to one. It is still a login: until step 6 removes it, the new server can run commands on the old one as that user. Do not leave a move half done for days.
+The copy travels between the two servers, not through your machine. For that, `sync` makes a temporary key on the new server and allows it on the old one: no terminal and no forwarding, and only from the new server's IPv4 address when `NEW` is one or a name that resolves to one. It is still a login, and that user can `sudo`: until step 6 removes the key, whoever controls the new server controls the old one. Do not leave a move half done for days.
+
+Only one copy runs at a time. If your connection drops during a copy, it keeps running on the new server; the next `sync` or `cutover` waits to be run until it has ended, and says so.
 
 ## 4. Cut over
 
@@ -83,7 +85,7 @@ deploy/move/move.sh cutover
 
 It prints how long that took. The certificates came along with the data, so the new server answers on HTTPS as soon as a request reaches it.
 
-If it stops half-way, it says what state things are in. Running `cutover` again carries on from there; `rollback` starts the old server again.
+If it stops half-way, it says what state things are in and what to do. Before anything was started on the new server, running `cutover` again carries on. If it stopped while starting the containers there, some of them are running: look at why, stop them, and run `cutover` again, or go back. `rollback` starts the old server again in either case.
 
 A finished cutover leaves a marker on the new server (`/root/.ni-move-live`). While it is there, `prepare`, `sync` and `cutover` refuse to run against that server: copying onto it again would replace everything it has written since with the old server's data.
 
@@ -115,7 +117,7 @@ Within minutes of a cutover that went wrong:
 deploy/move/move.sh rollback
 ```
 
-It stops the new server's containers and starts the old one's, with the data as it was at the cutover, removes the marker, and tells you to point the DNS records back. Whatever was written on the new server in between is left behind, which is why this is only for the first minutes. Later than that, fix the new server instead, or move again in the other direction with `OLD` and `NEW` swapped.
+It shows since when the new server has been live and always asks first, even with `MOVE_YES=1`. Then it stops the new server's containers and starts the old one's, with the data as it was at the cutover, removes the marker, and tells you to point the DNS records back. Whatever was written on the new server in between is left behind, which is why this is only for the first minutes. Later than that, fix the new server instead, or move again in the other direction with `OLD` and `NEW` swapped.
 
 If you are giving up on the move rather than trying again, run `finish` as well: the temporary key is still in place after a rollback.
 
@@ -125,7 +127,7 @@ If you are giving up on the move rather than trying again, run `finish` as well:
 - **Things held by the provider or by other services**: the DNS records themselves, reverse DNS for the new address, the provider's own monitoring or backups, and any allowlist somewhere else that names the old address.
 - **Containers that are not started with Docker Compose.** Every stack here is a Compose project today. A stack run another way needs its own lines in `move.sh` before it can move.
 - **A different version.** The new server starts on the commit the old one was on, so the compose files are the same. Images named by a moving tag (`postgres:17`, `redis:7-alpine`) are pulled fresh, so the new server may run a newer patch release than the old one did; within one major version the data is compatible. Change versions on purpose afterwards, as a separate step.
-- **Files in the checkout that are not in git**, as step 2 explains.
+- **Files in the checkout that are not in git**, as step 2 explains. That includes folders a stack fills at run time and git ignores, such as the SQL snippets Supabase Studio saves.
 
 ## What was tested
 
@@ -148,5 +150,6 @@ Not tested:
 
 - `rollback`. It has never been run.
 - A large database. The content-comparing copy at cutover reads every file on both servers, so its time grows with the data; nothing here measures that beyond 144 MB.
-- The Supabase stack, which was not installed yet. It is a Compose project like the others, so it should be picked up by name, but that is untested.
+- The Supabase stack, which was not installed yet. It is a Compose project like the others, so it should be picked up by name, and the extra folders of the repository it reads are carried over to the new checkout, but none of that has been run.
+- A copy interrupted half-way, and a cutover that failed while starting containers. The guards for both are written and reviewed, not exercised.
 - `NEW` given as a DNS name rather than an address, and an old server whose user needs a password for `sudo`.

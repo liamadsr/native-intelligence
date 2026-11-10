@@ -13,7 +13,7 @@ Everything Native Intelligence runs on its own server lives in this folder. It i
 
 Everything runs on one server, and is kept movable: [`move/README.md`](move/README.md) is how the whole of it goes to another machine.
 
-Follow this page top to bottom on a fresh server. Steps 3 to 7 are also available as one script, [`server/setup.sh`](server/setup.sh), which does exactly what those steps describe and can be run again safely. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end: nothing here has run on a real server yet.
+Follow this page top to bottom on a fresh server. Steps 3 to 7 are also available as one script, [`server/setup.sh`](server/setup.sh), which does what those steps describe and can be run again: it only adds what is missing, and restarts nothing that has not changed. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end. Steps 1 to 13 have since run on two real servers, the second time through `server/setup.sh` and [`move/`](move); steps 14 to 19 have not run on a real server yet.
 
 ## 1. What you need
 

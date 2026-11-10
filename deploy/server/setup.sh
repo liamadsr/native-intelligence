@@ -3,7 +3,11 @@
 # of deploy/README.md as one script. It is safe to run again: every step looks
 # first and only changes what is missing.
 #
-#   sudo ./setup.sh --login-user <user> --repo <https address of this repository> [--ref <commit>]
+#   sudo ./setup.sh --login-user <user> --repo <https address of this repository> [--ref <commit>] [--paths "<folders>"]
+#
+# --paths names further folders of the repository the server needs beside
+# deploy/ (the Supabase stack reads two under web/supabase). Folders already
+# checked out are kept: this only ever adds.
 #
 # From your own machine, before the repository is on the server:
 #
@@ -27,6 +31,7 @@ repo=""
 ref=""
 root=/opt/native-intelligence
 reboot_time="08:37"
+paths=""
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -35,6 +40,7 @@ while [ $# -gt 0 ]; do
 	--ref) ref="${2:?}"; shift 2 ;;
 	--root) root="${2:?}"; shift 2 ;;
 	--reboot-time) reboot_time="${2:?}"; shift 2 ;;
+	--paths) paths="${2-}"; shift 2 ;;
 	*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -60,14 +66,15 @@ export DEBIAN_FRONTEND=noninteractive
 # Writes stdin to a file only when the content differs. Returns 0 when it wrote.
 write_if_changed() {
 	local path="$1" tmp
-	tmp="$(mktemp)"
-	cat >"$tmp"
+	# This function is used as an "if" condition, where a failing command does
+	# not stop the script by itself, so each step is checked by hand. A file
+	# cut short by a full disk must never be put in place.
+	tmp="$(mktemp)" || die "could not make a temporary file."
+	cat >"$tmp" || die "could not write a temporary file for $path."
 	if [ -f "$path" ] && cmp -s "$tmp" "$path"; then
 		rm -f "$tmp"
 		return 1
 	fi
-	# This function is used as an "if" condition, where a failing command does
-	# not stop the script by itself.
 	install -m 644 -o root -g root "$tmp" "$path" || die "could not write $path."
 	rm -f "$tmp"
 	return 0
@@ -116,10 +123,12 @@ say "Firewall: SSH, 80 and 443 only"
 # the connection this is running over.
 # awk reads to the end on purpose: leaving early would close the pipe on sshd,
 # and with pipefail that counts as a failure.
-ssh_port="$(sshd -T | awk '$1 == "port" { port = $2 } END { print port }')"
+ssh_ports="$(sshd -T | awk '$1 == "port" { print $2 }' | tr '\n' ' ')"
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-ufw limit "${ssh_port:-22}/tcp" comment 'SSH' >/dev/null
+for ssh_port in ${ssh_ports:-22}; do
+	ufw limit "$ssh_port/tcp" comment 'SSH' >/dev/null
+done
 ufw allow 80/tcp comment 'HTTP (redirects, certificates)' >/dev/null
 ufw allow 443/tcp comment 'HTTPS' >/dev/null
 ufw --force enable >/dev/null
@@ -167,8 +176,11 @@ if [ ! -d "$root/.git" ]; then
 	as_user git clone --quiet --depth 1 --filter=blob:none --sparse "$repo" "$root"
 fi
 # Every run, not only the first: a clone that was cut off leaves .git behind
-# without this having happened.
-as_user git -C "$root" sparse-checkout set deploy
+# without this having happened. "add", never "set": set would take away the
+# folders a later step added, and the containers that read them would find
+# them empty.
+# shellcheck disable=SC2086
+as_user git -C "$root" sparse-checkout add deploy $paths
 if [ -n "$ref" ] && [ "$(as_user git -C "$root" rev-parse HEAD)" != "$ref" ]; then
 	as_user git -C "$root" fetch --quiet --depth 1 origin "$ref"
 	as_user git -C "$root" checkout --quiet --detach "$ref"
