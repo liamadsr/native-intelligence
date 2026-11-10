@@ -1253,10 +1253,16 @@ Tested on the real server, 2026-11-10, with production's settings and on product
 - **Roll-out without a gap.** `deploy.sh` replaced all twelve containers in about 45 seconds while web, the worker and a page were asked every 0.2 seconds through the proxy: 402 requests, every one `200`.
 - **The app's own calls** to `sb.`, `inngest.` and its own public name leave the container and come back in through the edge (Docker sends a container's request for the server's own address to the published ports). They arrive from one address, `ni-edge`'s gateway.
 - **Backups.** The agents' job ran on the server: packed, encrypted, uploaded to B2, read back, retention applied.
+- **Over HTTPS at `test.nativeintelligence.dev`** (a DNS record, the name in `APP_HOSTS`, the callback in Auth's redirect list): a Let's Encrypt certificate within seconds; pages `200`, plain HTTP `308` to HTTPS, sign-out and `/account` redirect to the test name's `/login`, an agent's health `200`, and no `X-NI-Upstream` header outside. Restarting Caddy for the new name interrupted `sb.` and `inngest.` for about 6 seconds, restarting Auth for the redirect list about 6 more.
+- **Sign-in with Google** on the test name, by a person: Google, `sb.nativeintelligence.dev/auth/v1/callback`, the test name's `/auth/callback`, the code exchange (PKCE, `200`), then the account pages.
+- **A chat reply**, by a person: the browser opened a session on the server's chat agent (`202`) and streamed it (`200`); the agent called the app back through the public name (spec, memory, reply, usage, all `200`); the conversation was saved. A conversation started on the earlier host was refused by the server's agent (`409`: the session lives in the other host's store) and the app opened a fresh one, as it should.
+- **The AI Gateway key** made for the server works from inside an agent's container.
+- Within minutes of its certificate being issued, the new name was probed for `.env`, `.git` and the like (certificates are public). Every such request was answered `404`.
 
 **Not tested yet, and why:**
 
-- **Anything at the test address over HTTPS**, sign-in with Google included, and a chat reply: the DNS record for the test address was not made yet, and no AI Gateway key for the server exists yet.
+- **A helper agent calling back into a chat** (`EVE_CALLBACK_BASE_URL`): the chat that was sent used no helper.
+- **Connections** (Gmail, GitHub and the like) on the rehearsal: their stored logins are encrypted with `CREDENTIAL_ENCRYPTION_KEY`, one of the values that must come from the earlier host and is not entered yet. Until it is, listing a connector's tools fails ("is not set" in web's log).
 - **The live switch** (step 21) and its undo: by design, nothing here took production's traffic, scheduled jobs or background work.
 - **The cloud browser:** needs the access token, team and project ids for its sandboxes. Not started on the rehearsal on purpose either: it would share production's sandbox names.
 - **The coding agent.** Off its earlier host every agent's shell is eve's `just-bash`, an emulated shell in the container, not a VM. The coding agent's restricted and isolated runs refuse to start there (they need a sandbox that can enforce a network policy), and its GitHub credentials come from a broker that exists only on the earlier host. Expect coding runs to fail until its sandbox runs on that host's sandbox service with the token above, which is a change to `web/agents/coding-agent/sandbox.ts`, not written.
