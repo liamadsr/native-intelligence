@@ -1,0 +1,34 @@
+# The server's settings tools (deploy/app/check_settings.py, deploy/supabase/envfile.py)
+# never show a value, so their tests are the only place their output is read whole.
+# Ubuntu's own python3-cryptography, the package the server uses.
+name: Deploy scripts
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/**/*.py'
+      - 'deploy/**/*.sh'
+      - 'deploy/app/.env.example'
+      - '.github/workflows/deploy-scripts.yml'
+      # What check_settings.py's proofs copy from the app:
+      - 'web/src/lib/crypto/credentials.ts'
+      - 'web/src/lib/sms/phone-verification.ts'
+      - 'web/src/lib/cloud-browser/viewer-token.ts'
+      - 'web/src/lib/calls/caller.ts'
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Settings tools
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-cryptography
+      - run: /usr/bin/python3 -m unittest discover -s deploy/app/tests -v
+      - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
+      - run: for f in deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh; do bash -n "$f"; done
