@@ -9,8 +9,13 @@
  * and what an edit grant never does: archive or delete the record, change
  * who sees it, or work for a guest or an unattended run.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ToolExecutionOptions } from 'ai'
+
+// An edit that lands re-indexes the document; keep that (and the usage log it
+// writes) off the network, as the other document tool tests do.
+vi.mock('@/lib/ai/embeddings', () => ({ indexDocument: vi.fn(async () => ({ chunksCreated: 0 })) }))
+vi.mock('@/lib/inngest/client', () => ({ inngest: { send: vi.fn(async () => {}) } }))
 import { makeFakeSupabase } from '@/lib/work/__tests__/fake-supabase'
 import { createDocumentTools } from '../documents'
 import { createCaptureTools } from '../captures'
