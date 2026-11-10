@@ -208,6 +208,39 @@ describe('ensureCloudBrowser', () => {
     expect(store.recordExit).toHaveBeenCalledWith(ref, 'cloud', { up: false })
   })
 
+  it('an exit switch keeps both marks’ rules, in mac mode too, and names the relay host the running relay calls', async () => {
+    await host.ensureCloudBrowser(ref)
+    type Rule = { match: unknown; transform: { headers: Record<string, string> }[] }
+    const latest = () => sdk.sandboxes.get(NAME)!.session.policies.at(-1) as { allow: Record<string, Rule[]> }
+    // The relay was started with the app's current relay host: nothing else is named.
+    await host.setExitMode(ref, 'mac', { up: true })
+    expect(Object.keys(latest().allow)).toEqual(['relay.test'])
+    expect(latest().allow['relay.test'].map((rule) => rule.match)).toEqual([
+      { headers: [{ key: { exact: 'x-ni-relay' }, value: { exact: '1' } }] },
+      { headers: [{ key: { exact: 'x-dial8-relay' }, value: { exact: '1' } }] },
+    ])
+    // A relay started before the app's address moved still calls the other domain's relay host:
+    // the rule follows the host it called on, or its requests would lose their token.
+    await host.setExitMode(ref, 'mac', { up: true }, 'https://browser-relay.dial8.ai')
+    expect(Object.keys(latest().allow)).toEqual(['browser-relay.dial8.ai'])
+    const [rule, older] = latest().allow['browser-relay.dial8.ai']
+    expect(Object.keys(rule.transform[0].headers)).toEqual(['x-ni-relay-token'])
+    expect(older.transform).toEqual([{ headers: { 'x-dial8-relay-token': rule.transform[0].headers['x-ni-relay-token'] } }])
+    await host.setExitMode(ref, 'cloud', { up: false }, 'https://browser-relay.dial8.ai')
+    expect(Object.keys(latest().allow).sort()).toEqual(['*', 'browser-relay.dial8.ai'])
+    // No host given (not one of the app's relay hosts): the app's current one.
+    await host.setExitMode(ref, 'cloud', { up: false }, null)
+    expect(Object.keys(latest().allow).sort()).toEqual(['*', 'relay.test'])
+  })
+
+  it('a protected preview’s bypass rides both marks’ rules', () => {
+    const policy = host.relayNetworkPolicy('https://relay.test', 'tok', 'bypass-secret', 'mac') as { allow: Record<string, { transform: { headers: Record<string, string> }[] }[]> }
+    expect(policy.allow['relay.test'].map((rule) => rule.transform[0].headers)).toEqual([
+      { 'x-ni-relay-token': 'tok', 'x-vercel-protection-bypass': 'bypass-secret' },
+      { 'x-dial8-relay-token': 'tok', 'x-vercel-protection-bypass': 'bypass-secret' },
+    ])
+  })
+
   it('rings the person’s Mac when the browser comes up, not on every ensure, and when it stops (C4)', async () => {
     rings.length = 0
     await host.ensureCloudBrowser(ref)

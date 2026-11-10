@@ -60,13 +60,15 @@ import { requestOrigin } from '@/lib/security/same-origin'
  *
  * ── A connect that began on the app's other domain
  * The hosted app answers on two domains while it moves (src/lib/app-url.ts),
- * and each provider knows ONE callback, on the app's address. A web connect
- * that began on the other domain has its nonce cookie and its opener there,
- * so this route would refuse it. Its state says where it began (`origin`,
- * signed, one of the app's page origins), and the provider's answer is handed
- * over to that domain's callback, unspent, which finishes it as usual. The
- * redirect_uri sent to the provider is the same on both, so the exchange
- * still matches. `handed` marks an answer that has been handed over once.
+ * and each provider knows ONE callback (getRedirectUri). A web connect that
+ * began on the other domain has its nonce cookie and its opener there, so
+ * this route would refuse it. A hosted page's state says where it began
+ * (`origin`, signed, one of the app's page origins): when that is not the
+ * origin this request came to, the provider's answer is handed over to that
+ * domain's callback, unspent, which finishes it as usual, and the connect
+ * always returns to the page it began on. The redirect_uri sent to the
+ * provider is the same on both, so the exchange still matches. `handed`
+ * marks an answer that has been handed over once.
  */
 const HANDED_OVER = 'handed'
 
@@ -101,7 +103,7 @@ export async function GET(
   function buildRedirect(path: string, query: Record<string, string>) {
     const qs = new URLSearchParams(query).toString()
     if (source === 'web') {
-      // Back to the page it began on: the app's address, or its other domain (state.origin).
+      // Back to the hosted page it began on (state.origin); a page that is not the hosted app's returns to the app's address.
       const base = state.origin ?? (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
       // Honour return_to if set (e.g. from onboarding), validating it's a relative path
       const webPath =

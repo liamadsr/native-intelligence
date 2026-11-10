@@ -207,9 +207,13 @@ export function relayNetworkPolicy(origin: string, token: string, bypass?: strin
   }
 }
 
-/** The session's policy for `mode`, with a fresh relay token. */
-async function applyNetworkPolicy(sandbox: Sandbox, ref: CloudBrowserRef, name: string, mode: ExitMode, signal?: AbortSignal): Promise<void> {
-  const origin = cloudBrowserRelayOrigin()
+/**
+ * The session's policy for `mode`, with a fresh relay token. `relayOrigin` is
+ * the relay host a relay that is already running calls (setExitMode); a start
+ * uses the app's current one, which the relay is then started with.
+ */
+async function applyNetworkPolicy(sandbox: Sandbox, ref: CloudBrowserRef, name: string, mode: ExitMode, signal?: AbortSignal, relayOrigin?: string | null): Promise<void> {
+  const origin = relayOrigin ?? cloudBrowserRelayOrigin()
   if (!origin) throw new Error('[cloud-browser] no relay origin: set CLOUD_BROWSER_RELAY_ORIGIN')
   const token = mintBrowserRelayToken({ userId: ref.userId, workspaceId: ref.workspaceId, sandbox: name }, CLOUD_BROWSER.sessionTimeoutMs)
   await sandbox.currentSession().update({ networkPolicy: relayNetworkPolicy(origin, token, process.env.VERCEL_AUTOMATION_BYPASS_SECRET, mode) }, { signal })
@@ -220,11 +224,19 @@ async function applyNetworkPolicy(sandbox: Sandbox, ref: CloudBrowserRef, name: 
  * network policy follows, and the row records it (and the Mac's tunnel) so
  * the next start applies the same policy and the card shows the Mac.
  */
-export async function setExitMode(ref: CloudBrowserRef, mode: ExitMode, tunnel: { up: boolean; deviceId?: string | null }): Promise<void> {
+export async function setExitMode(
+  ref: CloudBrowserRef,
+  mode: ExitMode,
+  tunnel: { up: boolean; deviceId?: string | null },
+  relayOrigin?: string | null,
+): Promise<void> {
   const name = nameFor(ref)
   const sandbox = await getExisting(name, false)
   if (!sandbox || sandbox.status !== 'running') throw new Error('cloud browser not running')
-  await applyNetworkPolicy(sandbox, ref, name, mode)
+  // The running relay keeps the relay host it was started with (the app's other
+  // domain, for a relay started before the app's address moved): the rule is
+  // set for the host it calls, or its requests would lose their token.
+  await applyNetworkPolicy(sandbox, ref, name, mode, undefined, relayOrigin)
   await store.recordExit(ref, mode, tunnel)
 }
 

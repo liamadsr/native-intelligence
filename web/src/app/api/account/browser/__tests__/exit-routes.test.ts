@@ -24,9 +24,14 @@ import { POST as SWITCH } from '@/app/api/browser-relay/exit/route'
 const { privateKey } = generateKeyPairSync('ed25519')
 const SANDBOX = cloudBrowserSandboxName('u1', 'w1', 'local')
 const ticket = (body: unknown = {}) => TICKET(new Request('http://localhost/api/account/browser/exit', { method: 'POST', body: JSON.stringify(body) }))
-const relaySwitch = (body: unknown, token: string | null = mintBrowserRelayToken({ userId: 'u1', workspaceId: 'w1', sandbox: SANDBOX }, 60_000)) =>
-  SWITCH(new Request('https://browser-relay.nativeintelligence.dev/api/browser-relay/exit', { method: 'POST', body: JSON.stringify(body),
-    headers: token ? { [RELAY_TOKEN_HEADER]: token, [RELAY_MARK_HEADER]: '1' } : {} }))
+const relaySwitch = (
+  body: unknown,
+  token: string | null = mintBrowserRelayToken({ userId: 'u1', workspaceId: 'w1', sandbox: SANDBOX }, 60_000),
+  host = 'https://browser-relay.nativeintelligence.dev',
+  extra: Record<string, string> = {},
+) =>
+  SWITCH(new Request(`${host}/api/browser-relay/exit`, { method: 'POST', body: JSON.stringify(body),
+    headers: token ? { [RELAY_TOKEN_HEADER]: token, [RELAY_MARK_HEADER]: '1', ...extra } : extra }))
 
 beforeEach(() => {
   vi.stubEnv('CLOUD_BROWSER_SIGNING_KEY', privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64'))
@@ -69,8 +74,32 @@ describe('the relay’s exit switch', () => {
 
   it('switches the mode with the tunnel’s state, for the token’s own browser, and refreshes the card', async () => {
     expect((await relaySwitch({ mode: 'mac', tunnel: { up: true, deviceId: 'mac-1' } })).status).toBe(200)
-    expect(mock.setExit).toHaveBeenCalledWith({ userId: 'u1', workspaceId: 'w1' }, 'mac', { up: true, deviceId: 'mac-1' })
+    expect(mock.setExit).toHaveBeenCalledWith({ userId: 'u1', workspaceId: 'w1' }, 'mac', { up: true, deviceId: 'mac-1' }, 'https://browser-relay.nativeintelligence.dev')
     expect(mock.rings).toEqual(['computer-changed'])
     expect((await relaySwitch({ mode: 'somewhere' })).status).toBe(400)
+  })
+
+  it('names the relay host the relay called on, so a relay started before the app’s address moved keeps its token', async () => {
+    const token = mintBrowserRelayToken({ userId: 'u1', workspaceId: 'w1', sandbox: SANDBOX }, 60_000)
+    const calledWith = async (host: string, extra: Record<string, string> = {}) => {
+      mock.setExit.mockClear()
+      expect((await relaySwitch({ mode: 'cloud' }, token, host, extra)).status).toBe(200)
+      return mock.setExit.mock.calls[0][3]
+    }
+    // Either of the app's relay hosts, as the platform forwards it too.
+    expect(await calledWith('https://browser-relay.dial8.ai')).toBe('https://browser-relay.dial8.ai')
+    expect(await calledWith('https://internal.example', { 'x-forwarded-host': 'browser-relay.dial8.ai', 'x-forwarded-proto': 'https' })).toBe('https://browser-relay.dial8.ai')
+    // Anything else (a preview, local dev, a page host, a look-alike, plain http): the app's own current relay host.
+    for (const host of [
+      'https://branch-abc.vercel.app',
+      'http://localhost:3000',
+      'https://dial8.ai',
+      'https://nativeintelligence.dev',
+      'https://browser-relay.dial8.ai.evil.example',
+      'https://evil-browser-relay.dial8.ai',
+      'http://browser-relay.dial8.ai',
+    ]) {
+      expect(await calledWith(host), host).toBeNull()
+    }
   })
 })

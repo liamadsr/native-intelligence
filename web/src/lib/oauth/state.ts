@@ -171,11 +171,12 @@ export interface OAuthStateData {
   /** A texted link's capabilities already connected. */
   done: string[]
   /**
-   * The app page origin a web connect began on, when the provider calls back
-   * another one (the hosted app answers on two domains while it moves, and
-   * each provider knows one callback). The callback hands the provider's
-   * answer over to it: that is where the nonce cookie and the opener are.
-   * Null otherwise, and always one of the app's own page origins.
+   * The hosted app page origin a web connect began on. The hosted app answers
+   * on two domains while it moves, and each provider knows one callback: when
+   * that callback is on the other domain, it hands the provider's answer over
+   * to this origin, where the nonce cookie and the opener are, and the connect
+   * returns here either way. Null for a page that is not the hosted app's,
+   * and always one of the app's own page origins.
    */
   origin: string | null
 }

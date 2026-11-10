@@ -71,8 +71,8 @@ export async function GET(
       source,
       returnTo: url.searchParams.get('redirect') || null,
       loginHint: url.searchParams.get('login_hint'),
-      // The cookie below is set on this origin: when the provider calls back
-      // another of the app's domains, the callback hands its answer over here.
+      // The cookie below is set on this origin, so the connect finishes here: when the
+      // provider calls back another of the app's domains, the callback hands its answer over.
       pageOrigin: source === 'web' ? requestOrigin(req) : null,
     })
 

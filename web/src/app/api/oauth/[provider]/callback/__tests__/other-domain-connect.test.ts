@@ -142,6 +142,7 @@ describe.each([
   { setting: 'https://dial8.ai', other: 'https://nativeintelligence.dev' },
   { setting: 'https://nativeintelligence.dev', other: 'https://dial8.ai' },
   { setting: 'https://dial8.ai', other: 'https://www.dial8.ai' },
+  { setting: 'https://dial8.ai', other: 'https://www.nativeintelligence.dev' },
 ])('the app at $setting, a connect begun on $other', ({ setting, other }) => {
   beforeEach(() => {
     vi.stubEnv('NEXT_PUBLIC_APP_URL', setting)
@@ -216,8 +217,9 @@ describe.each([
 
   it('a connect begun on the app address is not handed anywhere', async () => {
     const started = await startOn(setting, 'alice')
-    expect(stateData(started.state).origin).toBeUndefined()
+    expect(stateData(started.state).origin).toBe(setting)
     const res = await callbackOn(setting, answer(started.state), started.cookie)
+    expect(location(res).pathname).toBe('/account/settings/connectors')
     expect(location(res).origin).toBe(setting)
     expect(location(res).searchParams.get('integration_success')).toBe('true')
     expect(hoisted.tokenRows).toHaveLength(1)
@@ -228,6 +230,41 @@ describe.each([
     expect(stateData(started.state).origin).toBeUndefined()
     const res = await callbackOn(setting, answer(started.state))
     expect(res.headers.get('location')).toMatch(/^dial8desktop:\/\/oauth\/complete\?/)
+  })
+})
+
+// The registered callbacks kept on the older domain (OAUTH_REDIRECT_BASE_URL) after the app's address has moved.
+describe('the callbacks pinned to https://dial8.ai, the app at https://nativeintelligence.dev', () => {
+  const PINNED = 'https://dial8.ai'
+  const APP = 'https://nativeintelligence.dev'
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', APP)
+    vi.stubEnv('OAUTH_REDIRECT_BASE_URL', PINNED)
+  })
+
+  it('a connect begun on the callback’s own domain finishes there and returns there, not to the app address', async () => {
+    const started = await startOn(PINNED, 'alice', { redirect: '/oauth-popup-callback' })
+    expect(new URL(started.url).searchParams.get('redirect_uri')).toBe(`${PINNED}/api/oauth/linear/callback`)
+    const res = await callbackOn(PINNED, answer(started.state), started.cookie)
+    // The popup's opener is on this origin: a return to the app address would never reach it.
+    expect(location(res).origin).toBe(PINNED)
+    expect(location(res).pathname).toBe('/oauth-popup-callback')
+    expect(location(res).searchParams.get('integration_success')).toBe('true')
+    expect(hoisted.tokenRows).toHaveLength(1)
+  })
+
+  it('a connect begun on the app address is handed back to it from the pinned callback', async () => {
+    const started = await startOn(APP, 'alice', { redirect: '/oauth-popup-callback' })
+    expect(new URL(started.url).searchParams.get('redirect_uri')).toBe(`${PINNED}/api/oauth/linear/callback`)
+    const handed = location(await callbackOn(PINNED, answer(started.state)))
+    expect(handed.origin).toBe(APP)
+    expect(handed.searchParams.get('handed')).toBe('1')
+    expect(hoisted.tokenBodies).toHaveLength(0)
+    const res = await callbackOn(APP, handed.search.slice(1), started.cookie)
+    expect(location(res).origin).toBe(APP)
+    expect(location(res).searchParams.get('integration_success')).toBe('true')
+    expect(new URLSearchParams(hoisted.tokenBodies[0]).get('redirect_uri')).toBe(`${PINNED}/api/oauth/linear/callback`)
+    expect(hoisted.tokenRows[0].user_id).toBe('alice')
   })
 })
 
@@ -270,12 +307,17 @@ describe('only the app’s own page origins are ever a place to hand an answer t
     'http://nativeintelligence.dev',
     'https://nativeintelligence.dev/',
     'https://nativeintelligence.dev@evil.example',
-  ])('a signed state naming %s is not followed', async (origin) => {
-    const state = sign({ nonce: 'n-1', user_id: 'alice', capability: 'tasks', source: 'web', exp: Date.now() + 60_000, origin })
+  ])('a signed state naming %s is not followed: the connect is finished here, with this browser’s cookie', async (origin) => {
+    const state = sign({ nonce: 'n-1', user_id: 'alice', workspace_id: 'ws-1', capability: 'tasks', source: 'web', exp: Date.now() + 60_000, origin })
     const res = await callbackOn('https://dial8.ai', answer(state), 'oauth_nonce=n-1')
     const to = location(res)
+    // Judged here, with this browser's cookie, and sent to this app's own page: never handed anywhere.
     expect(to.origin).toBe('https://dial8.ai')
     expect(to.pathname).toBe('/account/settings/connectors')
+    expect(to.searchParams.has('handed')).toBe(false)
+    expect(to.searchParams.has('code')).toBe(false)
+    expect(to.searchParams.get('integration_success')).toBe('true')
+    expect(hoisted.tokenRows).toHaveLength(1)
   })
 
   it('a state whose signature does not match is refused before any hand-over', async () => {

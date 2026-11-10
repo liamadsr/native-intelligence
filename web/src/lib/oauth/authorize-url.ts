@@ -57,8 +57,8 @@ export interface OAuthStartArgs {
   text?: TextConnectLegs | null
   /**
    * The origin of the page a web connect began on. Kept in the state only when
-   * it is one of the app's page origins and not the one the provider calls
-   * back, so the callback can hand the answer over to it (state.ts `origin`).
+   * it is one of the hosted app's page origins, so the callback can finish
+   * there, handing the answer over to it if need be (state.ts `origin`).
    */
   pageOrigin?: string | null
   now?: number
@@ -88,18 +88,15 @@ export function oauthClientId(provider: OAuthProvider): string | undefined {
 }
 
 /**
- * The origin to hand a web connect's answer back to: the page's, when it is one
- * of the app's own page origins and the provider calls back a different origin.
- * Null when the callback is already on the page's origin, and for any page
- * that is not the hosted app's (local dev, a preview).
+ * The origin a web connect is finished on and returns to: the page's, when it
+ * is one of the hosted app's own page origins. The provider calls back the one
+ * registered address (getRedirectUri), which can be on the app's other domain,
+ * and the nonce cookie and the popup's opener are on the page's. Null for any
+ * page that is not the hosted app's (local dev, a preview): those finish on
+ * the app's address, as they always have.
  */
-export function connectHomeOrigin(pageOrigin: string | null, redirectUri: string): string | null {
-  if (!pageOrigin || !APP_PAGE_ORIGINS.includes(pageOrigin)) return null
-  try {
-    return new URL(redirectUri).origin === pageOrigin ? null : pageOrigin
-  } catch {
-    return null
-  }
+export function connectHomeOrigin(pageOrigin: string | null): string | null {
+  return pageOrigin && APP_PAGE_ORIGINS.includes(pageOrigin) ? pageOrigin : null
 }
 
 /** The signed state and the provider's authorize URL for one connect. Throws when the state secret is missing in production. */
@@ -123,7 +120,7 @@ export function buildOAuthStart(args: OAuthStartArgs): OAuthStart {
   // be stockpiled and replayed later (security review P0-2).
   const exp = (args.now ?? Date.now()) + OAUTH_STATE_TTL_MS
   const text = source === 'web' ? (args.text ?? null) : null
-  const origin = source === 'web' && !text ? connectHomeOrigin(args.pageOrigin ?? null, redirectUri) : null
+  const origin = source === 'web' && !text ? connectHomeOrigin(args.pageOrigin ?? null) : null
   const statePayload = JSON.stringify({
     nonce,
     user_id: userId,
@@ -136,7 +133,7 @@ export function buildOAuthStart(args: OAuthStartArgs): OAuthStart {
     ...(claimSecret && { claim: claimHash(claimSecret) }),
     // A texted link's connect: the callback confirms in the text thread and chains the next leg.
     ...(text && { via: 'text', then: text.then, done: text.done }),
-    // Began on the app's other domain: the callback hands the answer over to it.
+    // The hosted page it began on: the callback finishes there, handing the answer over when the provider called back the app's other domain.
     ...(origin && { origin }),
   })
   const stateB64 = Buffer.from(statePayload).toString('base64url')
