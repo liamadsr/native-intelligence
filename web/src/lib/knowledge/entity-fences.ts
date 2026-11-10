@@ -288,10 +288,11 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
 
 /**
  * GRAPH EDGES FOLLOW BOTH ENDS (migration 500). The kinds an edge's end is
- * checked for: every linkable kind some members can't read. The SELECT
- * policy on entity_link lists exactly these (claims through the claim
- * table's own hidden set, the rest through entity_visible_to); a test holds
- * the two equal. Every other linkable kind is every member's.
+ * checked for: every linkable kind some members can't read. The SELECT and
+ * INSERT policies on entity_link (migration 501) list exactly these (claims
+ * and companies through their set-based hidden sets, the rest through
+ * entity_visible_to); a test holds the two equal. Every other linkable kind
+ * is every member's.
  */
 export const LINK_FENCED_KINDS = [
   'document',
