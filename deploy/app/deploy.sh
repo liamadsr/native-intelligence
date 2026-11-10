@@ -165,8 +165,11 @@ rollout() {
 	docker tag ni-app:live ni-app:running
 	say "Running"
 	compose ps --format 'table {{.Service}}\t{{.Status}}'
-	# Images no tag points at any more: the build before last.
+	# Images no tag points at any more: the build before last. And Docker's build
+	# cache, which grows by several gigabytes a build: the newest 12 GB stay, enough
+	# for the next build to reuse its dependency layers.
 	docker image prune -f >/dev/null
+	docker builder prune -f --max-used-space 12gb >/dev/null || true
 }
 
 case "$mode" in
