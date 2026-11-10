@@ -965,7 +965,7 @@ Once you are sure: pause or delete the hosted project (its dashboard), delete th
 
 This puts the app on the server next to the copy that serves today, with production's settings and on production's database, at a test address. It touches nothing the people using the app reach: the real names keep pointing where they point, and the copy here is kept from doing anything nobody asked it to (the scheduled jobs, and taking production's background work from Inngest). [`app/README.md`](app/README.md) says how each part works.
 
-**What it costs the server.** One image of about 5 GB, plus Docker's build cache. Twelve containers. See [What was tested](#steps-20-to-22-the-app) for what they used here.
+**What it costs the server.** Twelve containers using about 1.6 GB of memory when idle, two images of about 5 GB each (the running one and the one before it), and up to 12 GB of Docker's build cache. [What was tested](#steps-20-to-22-the-app) has the measurements.
 
 **1. The whole repository on the server.** The image is built here from `web/`, so the checkout needs it (about 110 MB):
 
@@ -1226,3 +1226,32 @@ Tested, on a throwaway Docker host (4 CPUs, 16 GB) with the real images of Supab
 - **Supabase's `postgres` role cannot write to every table their own dump contains** (`storage.buckets_vectors`, `storage.vector_indexes`). Both are empty on a project that does not use vector buckets, and the restore leaves empty ones out. If the hosted project has rows in them, the restore stops and says so.
 - **Storage's S3 endpoint accepts a request only for the host name in `SUPABASE_PUBLIC_URL`.** The backup and the migration depend on that, by calling the gateway under that name inside Docker. It is how release 0.8.4 behaves; it is not documented by them. If a release changes it, the nightly file backup fails and its dead-man check says so.
 - **Auth settings beyond the ones listed** in [`supabase/README.md`](supabase/README.md#auth-settings) (rate limits, password rules, CAPTCHA) fall back to defaults unless they are carried over by hand.
+
+### Steps 20 to 22: the app
+
+Tested on the real server, 2026-11-10, with production's settings and on production's database, in rehearsal mode (`NI_LIVE` empty), the app's names still on its current host:
+
+- The image built on the server from the checkout in 6 to 7 minutes (4.9 GB). All twelve containers healthy. Idle they used about 1.6 GB of memory together (each agent 105 to 120 MB, web and worker about 330 MB each); everything on the server together used 4.9 GB of 64.
+- **Disk:** from 19 to 41 GB used, mostly the image and Docker's build cache (19 GB after two builds; `deploy.sh` now keeps it to 12 GB). A roll-out keeps a second image (`ni-app:previous`), about 5 GB more.
+- **Pages and roles** through the stack's proxy, with the test address as the host: `/` and `/login` `200`, `/api/version` gives the commit, an agent's health `200` from that agent's own container, `/api/inngest` from the worker.
+- **Redirects.** Before the fix in `web/patches/next+16.1.1.patch`, the sign-in callback, sign-out and admin sign-out sent the browser to `https://0.0.0.0:3000/login`. After it, each goes to `https://<the public name>/login`; a forged `X-Forwarded-Host` carrying a path is ignored.
+- **Inngest.** A signed request to the worker, signed inside the container with the server's key, as Inngest signs them: accepted, production mode, 97 functions, events to the self-hosted server, registration pointed at a closed port (rehearsal). An event sent from the copy's web container through the app's own client reached the self-hosted server and started its function, which completed (run by the copy that is registered, the current host's).
+- **The scheduler.** Every job fired on its minute and was skipped. One job (`browser-command-reaper`, which only expires commands nobody can still use) was called by hand: `200` in 0.2 s.
+- **Roll-out without a gap.** `deploy.sh` replaced all twelve containers in about 45 seconds while web, the worker and a page were asked every 0.2 seconds through the proxy: 402 requests, every one `200`.
+- **The app's own calls** to `sb.`, `inngest.` and its own public name leave the container and come back in through the edge (Docker sends a container's request for the server's own address to the published ports). They arrive from one address, `ni-edge`'s gateway.
+- **Backups.** The agents' job ran on the server: packed, encrypted, uploaded to B2, read back, retention applied.
+
+**Not tested yet, and why:**
+
+- **Anything at the test address over HTTPS**, sign-in with Google included, and a chat reply: the DNS record for the test address was not made yet, and no AI Gateway key for the server exists yet.
+- **The live switch** (step 21) and its undo: by design, nothing here took production's traffic, scheduled jobs or background work.
+- **The cloud browser:** needs the access token, team and project ids for its sandboxes. Not started on the rehearsal on purpose either: it would share production's sandbox names.
+- **The coding agent.** Off its earlier host every agent's shell is eve's `just-bash`, an emulated shell in the container, not a VM. The coding agent's restricted and isolated runs refuse to start there (they need a sandbox that can enforce a network policy), and its GitHub credentials come from a broker that exists only on the earlier host. Expect coding runs to fail until its sandbox runs on that host's sandbox service with the token above, which is a change to `web/agents/coding-agent/sandbox.ts`, not written.
+- **Slack:** both directions log in with the earlier host's own token (step 21, Gate 1).
+
+**Not done:**
+
+- **Deleting the finished runs of utility and web-research.** They set `experimental.workflow.retention: 0` so that the mail text in their runs is kept nowhere; eve's file store here does not honour it, so the runs stay on their volumes. They are left out of the backup; a job that deletes their finished runs is still to be written, once the store's layout has been looked at with real runs in it.
+- **Every server-side call to Supabase arrives from one address**, so Auth's per-address limits (token refresh: 150 an hour by default) count all of the app's own refreshes and sign-ins together. On the current host they come from a handful of addresses, so this is not new, but it is tighter. The fix is for the app to pass the person's address along on its server-side Auth calls.
+- **Deploys are by hand:** merging to `main` does not deploy here. A workflow that runs `deploy.sh` over SSH after a merge would need a deploy key on the server and in GitHub.
+- **An agent's live stream is cut when that agent is replaced** (eve's store allows one process per agent), and a phone call older than two minutes is cut when web is.

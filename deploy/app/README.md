@@ -237,8 +237,8 @@ That store does not honour `experimental.workflow.retention: 0`, which two agent
 (utility and web-research) set so that the mail text and other workspace content in
 their runs is deleted as soon as a run ends. Here it stays on their volumes. The
 nightly backup leaves those two volumes out (`../backup/compose.app.yaml`); deleting
-their finished runs on the server is still to be written (`../README.md`, step 20,
-"Not done").
+their finished runs on the server is still to be written ("Not done" under
+[steps 20 to 22](../README.md#steps-20-to-22-the-app) in `../README.md`).
 
 Backups: every other agent's two volumes, nightly, 7 days kept
 (`../backup/compose.app.yaml`).
