@@ -33,6 +33,7 @@ import { LOCAL_TTS_MODULE_ID, isLocalModuleUsable } from '@/lib/local-modules'
 import { syncReadAnywhereVoice } from '@/lib/read-aloud/read-anywhere-voice'
 import { tauriBridge, type ReadSelectionStatus } from '@/lib/tauri-bridge'
 import { ShortcutField } from './shortcut-field'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 /** How often the section re-checks the grant while it waits for the user to
  *  turn Native Intelligence on in System Settings. */
@@ -156,7 +157,7 @@ export function PermissionRow({
     ? 'Read anywhere needs the Device Control and Data Access permission (called Accessibility before macOS 27). Native Intelligence uses it only to read the text you select when you press the shortcut.'
     : 'Native Intelligence can read most apps now. To read terminals like Warp, it also needs to copy your selection with ⌘C.'
   const hint = missingAll
-    ? 'In System Settings, turn on Native Intelligence. This page updates on its own.'
+    ? `In System Settings, turn on ${APP_IN_SYSTEM_SETTINGS}. This page updates on its own.`
     : 'If nothing changes, relaunch Native Intelligence: macOS can apply the change only after a restart.'
 
   return (
