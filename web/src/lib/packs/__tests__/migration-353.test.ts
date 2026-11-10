@@ -41,9 +41,14 @@ describe('migration 353', () => {
     // 365 and 369 (documents phase 1, private documents) carry 353's bodies
     // forward, adding only document terms (their own migration tests pin that);
     // 503 (one name for mail) carries claim_neighborhood forward from 369,
-    // changing only its two mail checks (migration-503.test.ts).
+    // changing only its two mail checks (migration-503.test.ts); 506 (the
+    // agent reads shared records) carries hybrid_search forward from 369,
+    // adding only a grant arm to its capture and document predicates.
     for (const fn of ['claim_visible_to', 'claim_neighborhood', 'hybrid_search']) {
-      expect(['353_learn_by_default.sql', '365_document_search_everywhere.sql', '369_document_visibility.sql', '503_one_name_for_mail.sql'], fn).toContain(latestDefinition(fn).file)
+      expect(
+        ['353_learn_by_default.sql', '365_document_search_everywhere.sql', '369_document_visibility.sql', '503_one_name_for_mail.sql', '506_agent_reads_shared_records.sql'],
+        fn,
+      ).toContain(latestDefinition(fn).file)
     }
   })
 

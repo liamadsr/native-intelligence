@@ -169,12 +169,15 @@ describe('migration 341: a claim is readable only when one of its sources is', (
     // those bodies, adding only a document arm (migration-369.test.ts). 503
     // (one name for mail) redefines claim_neighborhood on 369's, changing
     // only its two mail checks to name `email_thread` too (migration-503.test.ts).
+    // 506 (the agent reads shared records) redefines hybrid_search on 369's,
+    // adding only a grant arm to its capture and document predicates
+    // (migration-506.test.ts); its claim arms are untouched.
     for (const fn of ['claim_visible_to', 'hybrid_search', 'claim_neighborhood']) {
       expect(
         [
           '341_hide_mail_claims.sql',
           '353_learn_by_default.sql',
-          ...(fn === 'hybrid_search' ? ['365_document_search_everywhere.sql'] : []),
+          ...(fn === 'hybrid_search' ? ['365_document_search_everywhere.sql', '506_agent_reads_shared_records.sql'] : []),
           '369_document_visibility.sql',
           ...(fn === 'claim_neighborhood' ? ['503_one_name_for_mail.sql'] : []),
         ],

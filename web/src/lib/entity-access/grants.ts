@@ -104,6 +104,47 @@ export async function grantedEntityIds(
   }
 }
 
+/** The most ids a list filter names (`id.in.(…)` in the request URL), most recently granted first. */
+export const LIST_GRANT_CAP = 200
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * EVERY id of `type` in `workspaceId` a grant reaches `userId` for, most
+ * recently granted first, at most LIST_GRANT_CAP: migration 506's
+ * entity_grant_ids_for, the same rule as grantedEntityIds above in one call.
+ * For the list reads that filter by a predicate rather than check ids they
+ * already hold (list_documents, list_captures, …): the ids join the
+ * predicate's OR. Only ever well-formed uuids (they go into a filter).
+ *
+ * Empty for no user, an unattended run's null user, or a failed read (fails
+ * CLOSED: the list is what it was without grants).
+ */
+export async function grantedIdsIn(
+  supabase: SupabaseClient,
+  scope: { userId: string | null | undefined; workspaceId: string },
+  type: GrantableType,
+): Promise<string[]> {
+  const { userId, workspaceId } = scope
+  if (!userId || !workspaceId) return []
+  try {
+    const { data, error } = await supabase.rpc('entity_grant_ids_for', {
+      p_type: type,
+      p_workspace: workspaceId,
+      p_user: userId,
+    })
+    if (error) {
+      console.warn('[entity-access] entity_grant_ids_for failed:', error.message)
+      return []
+    }
+    if (!Array.isArray(data)) return []
+    return uniq((data as unknown[]).filter((id): id is string => typeof id === 'string' && UUID_RE.test(id))).slice(0, LIST_GRANT_CAP)
+  } catch (err) {
+    console.warn('[entity-access] entity_grant_ids_for threw:', err instanceof Error ? err.message : 'unknown')
+    return []
+  }
+}
+
 /** The teams among `teamIds` that live in `workspaceId` and have `memberId` in them. */
 async function teamsOf(supabase: SupabaseClient, memberId: string, workspaceId: string, teamIds: string[]): Promise<Set<string>> {
   const [teams, memberships] = await Promise.all([
