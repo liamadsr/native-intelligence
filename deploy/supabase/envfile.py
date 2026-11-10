@@ -13,7 +13,9 @@ Two ways in:
                                      a connection string. NAME+nl keeps a line
                                      break at the end of what is typed, for a
                                      value that was stored somewhere else with
-                                     one and is used with it (typing trims it)
+                                     one and is used with it (typing trims it).
+                                     An empty answer leaves that one as it is;
+                                     the others are still written
 
 Both only replace the value of a line the file already has. A name the file
 does not have is refused, so a typo cannot add a setting that nothing reads.
@@ -162,7 +164,9 @@ def main():
         except getpass.GetPassWarning:
             die("this terminal cannot hide what is typed; nothing was changed.")
         if not value:
-            die("%s was left empty; nothing was changed." % name)
+            # Nothing at hand for this one: the rest of what was typed still counts.
+            print("   %s: left as it was" % name)
+            continue
         # The pattern already holds the address. An address pasted where the
         # password belongs would be accepted, encoded, and fail much later
         # with a message about the wrong thing.
@@ -174,6 +178,9 @@ def main():
         # In a connection string the characters @ : / ? # and the like would
         # be read as part of the address, so every one of them is encoded.
         new[name] = pattern.replace("{}", urllib.parse.quote(value, safe="")) if pattern else value
+    if not new:
+        print("Nothing was entered; the file was not changed.")
+        return
     apply(path, new)
 
 
