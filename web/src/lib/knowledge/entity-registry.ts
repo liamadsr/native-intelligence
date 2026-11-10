@@ -9,8 +9,12 @@
  *     non-entity cache kind, `entity_link`;
  *   - the realtime table map (src/hooks/use-realtime-entities.ts) is every
  *     entry with `realtime: true`;
- *   - detail-page siblings, proposed-change targets, the copy-id button and
- *     the composer's search kinds are `EntityType` subsets.
+ *   - detail-page siblings, proposed-change targets and the composer's
+ *     search kinds are `EntityType` subsets;
+ *   - how each kind is opened and acted on (the one entity actions menu) is
+ *     `ENTITY_ACTIONS` in src/lib/entities/entity-actions-registry.ts, a
+ *     `Record<EntityType, …>`: registering a kind here without deciding there
+ *     does not compile.
  * Knowledge-graph membership is the `linkable` flag: a kind registered for the
  * other vocabularies but not linkable never becomes a graph endpoint.
  *
