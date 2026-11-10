@@ -10,6 +10,9 @@
  *   - nobody but the triggers writes the log; members read it;
  *   - churny writers stay out (mail, claims' edges, syncs and imports,
  *     evaluation captures, suggested tasks).
+ * Migration 489 replaces every trigger body, the actor function and the read
+ * policy (no subtransaction per row, reads follow the record, only the
+ * service role names an agent): ./migration-489.test.ts holds what is live.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
