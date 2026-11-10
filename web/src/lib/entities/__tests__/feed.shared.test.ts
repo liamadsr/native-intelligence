@@ -47,6 +47,7 @@ function act(at: string, entity_type: string, entity_id: string, extra: Record<s
     actor_member_id: ANA,
     subject_member_id: BEN,
     detail: { level: 'view', grantee_kind: 'member', source: 'manual' },
+    backfilled: false,
     created_at: at,
     ...extra,
   }
