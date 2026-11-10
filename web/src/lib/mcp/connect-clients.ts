@@ -69,7 +69,7 @@ export interface ConnectClient {
 
 /** Native Intelligence's MCP endpoint on an origin. */
 export function connectServer(origin: string, local: boolean): ConnectServer {
-  return { name: local ? 'dial8-dev' : 'dial8', url: `${origin.replace(/\/+$/, '')}/api/mcp` }
+  return { name: local ? 'native-intelligence-dev' : 'native-intelligence', url: `${origin.replace(/\/+$/, '')}/api/mcp` }
 }
 
 /** Base64 of an ASCII JSON string (a server URL and a name are ASCII). */

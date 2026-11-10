@@ -196,7 +196,7 @@ const ARGS = {
   question: 'what is on my plate today?',
   model: 'deepseek-v4-flash',
   timeoutMs: 55_000,
-  credential: { bearer: 'd8d_device_token' } as const,
+  credential: { bearer: 'nid_device_token' } as const,
   appBaseUrl: 'https://app.test',
 }
 
@@ -245,7 +245,7 @@ describe('runDeviceAskViaEve — dispatch', () => {
     mockSession([messageCompleted('ok'), boundary('session.completed')])
     await runDeviceAskViaEve(ARGS)
     const { auth, headers } = clientOpts()
-    expect(auth).toEqual({ bearer: 'd8d_device_token' })
+    expect(auth).toEqual({ bearer: 'nid_device_token' })
     expect(JSON.stringify(clientOpts())).not.toContain(SECRET)
     expect(headers['x-workspace-id']).toBe('ws-1')
     const claims = verifyChatRunToken(headers['x-chat-run-token'])
@@ -256,7 +256,7 @@ describe('runDeviceAskViaEve — dispatch', () => {
       surface: 'device_ask',
     })
     expect(claims!.agentId).toBeUndefined()
-    // A d8d_ device token is never sealed into the run token: the endpoints the
+    // A nid_ device token is never sealed into the run token: the endpoints the
     // email-draft tools call never accepted it (the old route gained nothing).
     expect(claims!.cred).toBeUndefined()
   })
@@ -763,12 +763,12 @@ describe('deviceAskBilledModel — bill the model that ACTUALLY ran', () => {
 describe('deviceAskCredential — relays the credential that AUTHENTICATED', () => {
   const r = (headers: Record<string, string>) => new Request('https://x/api/device/ask', { method: 'POST', headers })
   it('device / jwt → the bearer; cookie → the cookie', () => {
-    expect(deviceAskCredential(r({ authorization: 'Bearer d8d_x', cookie: 'a=b' }), 'device')).toEqual({ bearer: 'd8d_x' })
+    expect(deviceAskCredential(r({ authorization: 'Bearer nid_x', cookie: 'a=b' }), 'device')).toEqual({ bearer: 'nid_x' })
     expect(deviceAskCredential(r({ authorization: 'Bearer eyJ.jwt', cookie: 'a=b' }), 'jwt')).toEqual({ bearer: 'eyJ.jwt' })
     expect(deviceAskCredential(r({ cookie: 'a=b' }), 'cookie')).toEqual({ cookie: 'a=b' })
   })
   it('a stale bearer that fell through to the cookie relays the COOKIE, never the dead bearer', () => {
-    expect(deviceAskCredential(r({ authorization: 'Bearer d8d_expired', cookie: 'a=b' }), 'cookie')).toEqual({ cookie: 'a=b' })
+    expect(deviceAskCredential(r({ authorization: 'Bearer nid_expired', cookie: 'a=b' }), 'cookie')).toEqual({ cookie: 'a=b' })
     expect(deviceAskCredential(r({ authorization: 'Bearer eyJ.stale', cookie: 'a=b' }), 'cookie')).toEqual({ cookie: 'a=b' })
   })
   it('null when the named credential is not on the request', () => {

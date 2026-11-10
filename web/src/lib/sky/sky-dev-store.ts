@@ -16,7 +16,7 @@
 import { useSyncExternalStore } from 'react'
 import { SKY_PRESETS, type SkyOverride } from './dev-override'
 
-export const SKY_DEV_STORAGE_KEY = 'dial8.sky.devOverride.v1'
+export const SKY_DEV_STORAGE_KEY = 'ni.sky.devOverride.v1'
 
 export interface SkyDevPlace {
   label: string

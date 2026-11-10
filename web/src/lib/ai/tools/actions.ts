@@ -707,7 +707,7 @@ export function createActionTools(
           .optional()
           .describe(
             'UUID of the workflow state to start this action in. Must belong to the default team. ' +
-              'Defaults to the team\'s default state (usually "Todo"). Get IDs from dial8_get_workspace.',
+              'Defaults to the team\'s default state (usually "Todo"). Get IDs from ni_get_workspace.',
           ),
         status_name: z
           .string()
@@ -1214,8 +1214,8 @@ export function createActionTools(
       description:
         'Update an existing action. Can find by ID, identifier, or title match. ' +
         'To move the action to a different workflow state (e.g. Todo → In Progress, In Progress → Done, → Canceled, → Blocked), ' +
-        'pass `status_name` (e.g. "In Progress") or `status_id` (UUID from dial8_get_workspace). ' +
-        'Workflow states are per-team and customizable — call dial8_get_workspace first to see the available states for the relevant team.',
+        'pass `status_name` (e.g. "In Progress") or `status_id` (UUID from ni_get_workspace). ' +
+        'Workflow states are per-team and customizable — call ni_get_workspace first to see the available states for the relevant team.',
       inputSchema: z.object({
         action_id: z.string().optional().describe('UUID of the action'),
         identifier: z.string().optional().describe('Action identifier like ENG-42'),
@@ -1244,7 +1244,7 @@ export function createActionTools(
           .optional()
           .describe(
             'UUID of the workflow state to move this action into. Must belong to the action\'s team. ' +
-              'Prefer this if you have the ID from dial8_get_workspace. Mutually exclusive with status_name (status_id wins).',
+              'Prefer this if you have the ID from ni_get_workspace. Mutually exclusive with status_name (status_id wins).',
           ),
         status_name: z
           .string()
@@ -2123,7 +2123,7 @@ export function createActionTools(
             confirmation: row.confirmation ?? null,
             created_at: row.created_at ?? null,
           },
-          // Deliberately NOT get_document's "call dial8_set_workspace" advice: an
+          // Deliberately NOT get_document's "call ni_set_workspace" advice: an
           // agent that switches the session here would silently re-scope every
           // later call. The action's workspace travels on the row instead.
           ...(crossWorkspace

@@ -55,8 +55,12 @@ function env(name: string): string {
   return value
 }
 
-/** A `d8d_` device token is not a Supabase JWT (see src/lib/device-tokens.ts). */
-const DEVICE_BEARER_PREFIX = 'd8d_'
+/** A `nid_` device token is not a Supabase JWT (see src/lib/device-tokens.ts). */
+const DEVICE_BEARER_PREFIX = 'nid_'
+// TODO(rename-compat): device tokens minted before the rename start with `d8d_`
+// (kept in sync with isDeviceToken in src/lib/device-tokens.ts).
+const LEGACY_DEVICE_BEARER_PREFIX = 'd8d_'
+const isDeviceBearer = (token: string) => token.startsWith(DEVICE_BEARER_PREFIX) || token.startsWith(LEGACY_DEVICE_BEARER_PREFIX)
 
 /**
  * The 401 this channel answers when the caller's Supabase session has EXPIRED.
@@ -103,7 +107,7 @@ function jwtBearer(request: Request): string | null {
   const authHeader = request.headers.get('authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   const token = authHeader.slice(7).trim()
-  if (!token || token.startsWith(DEVICE_BEARER_PREFIX)) return null
+  if (!token || isDeviceBearer(token)) return null
   return token
 }
 
@@ -175,7 +179,7 @@ async function cookieUser(supabase: SupabaseClient): Promise<User | null> {
  *     its JWT and retries once);
  *   - an auth-service outage (retryable fetch error) → throw (fail closed as a
  *     server error, never a misleading "session expired").
- * No JWT Bearer (or a `d8d_` device token, handled elsewhere) → the cookie
+ * No JWT Bearer (or a `nid_` device token, handled elsewhere) → the cookie
  * session alone, returning null (skip) when there is none, as before.
  */
 async function resolveUserAndClient(

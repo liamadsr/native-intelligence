@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Native Intelligence is a cross-platform workspace combining meeting capture, project management, and CRM — think Linear meets Granola. This repository contains the web application (Next.js) which serves both the marketing site and the full SaaS dashboard.
 
-A companion desktop app (in `../dial8-desktop/`) provides native audio capture and meeting detection.
+A companion desktop app (in `../desktop/`) provides native audio capture and meeting detection.
 
 ## Commands
 

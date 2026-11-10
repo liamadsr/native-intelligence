@@ -4,7 +4,7 @@ use crate::state::AppState;
 
 fn tlog(msg: &str) {
     use std::io::Write;
-    if let Ok(mut f) = crate::open_log(&crate::side_log_path("dial8-tray.log")) {
+    if let Ok(mut f) = crate::open_log(&crate::side_log_path("native-intelligence-tray.log")) {
         let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
     }
     eprintln!("[tray] {}", msg);

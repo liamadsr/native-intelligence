@@ -162,7 +162,7 @@ export function TrayStartCaptureHandler() {
           })
         }
         // Tell the capture detail panel to refetch so it shows the updated event
-        window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: cid } }))
+        window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: cid } }))
       } catch {
         // Silent — best-effort link update
       }

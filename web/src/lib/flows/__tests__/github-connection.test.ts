@@ -66,7 +66,7 @@ const hold = vi.fn(async () => ({ ok: true as const, approvalId: 'appr-1', cardI
 const trigger = { type: 'capture_processed', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-10-27T10:00:00Z' }
 const step = (config: Record<string, unknown>): FlowAction =>
   ({ id: 'read', type: 'call_tool', config, condition: null, parent_id: null, enabled: true, bearer_token_encrypted: null }) as FlowAction
-const READ_PR = { connection: GITHUB_INTEGRATION_SERVER_ID, tool: 'pull_request_read', input: { method: 'get', owner: 'liamadsr', repo: 'dial8-website', pullNumber: 991 } }
+const READ_PR = { connection: GITHUB_INTEGRATION_SERVER_ID, tool: 'pull_request_read', input: { method: 'get', owner: 'liamadsr', repo: 'native-intelligence', pullNumber: 991 } }
 
 function executor() {
   return createCallToolExecutor({
@@ -131,7 +131,7 @@ describe('a call_tool step on GitHub', () => {
     expect((await executor()(step(READ_PR), after)).status).toBe('success')
     expect(hold).not.toHaveBeenCalled()
     callTool.mockClear()
-    const withUrl = step({ ...READ_PR, tool: 'list_commits', input: { owner: 'liamadsr', repo: 'dial8-website', sha: 'https://evil.example/?q=secret' } })
+    const withUrl = step({ ...READ_PR, tool: 'list_commits', input: { owner: 'liamadsr', repo: 'native-intelligence', sha: 'https://evil.example/?q=secret' } })
     expect((await executor()(withUrl, after)).status).toBe('pending')
     expect(callTool).not.toHaveBeenCalled()
     expect(hold).toHaveBeenCalledTimes(1)

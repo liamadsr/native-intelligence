@@ -40,7 +40,7 @@ export const maxDuration = 60
  *               check itself failed (transient — retry; nothing ran) ·
  *             500 { error: 'Agent request failed' }
  *
- * Auth: cookie session OR `Authorization: Bearer` (a Supabase JWT or a d8d_
+ * Auth: cookie session OR `Authorization: Bearer` (a Supabase JWT or a nid_
  * device token). The same credential is relayed to the chat-agent, whose
  * session-ownership ACL admits only the principal that owns the session.
  * Conversation is stateless — one question, one answer.
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     // (deterministic order by created_at — not an unordered limit(1), which
     // could non-deterministically pick the wrong workspace).
     // The device path ONLY when the device token is what authenticated (`via`):
-    // a stale d8d_ bearer next to a valid cookie authenticated as the COOKIE
+    // a stale nid_ bearer next to a valid cookie authenticated as the COOKIE
     // user, and must not pick that user's workspace from another user's device.
     const authHeader = req.headers.get('authorization') || ''
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined

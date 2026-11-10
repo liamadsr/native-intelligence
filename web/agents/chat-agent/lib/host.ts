@@ -3,9 +3,9 @@
  * docs/plans/teammate-agent.md): the same source, built twice.
  *
  *   - 'cloud': the Vercel build, as it has always been. The default: nothing
- *     sets DIAL8_AGENT_HOST there, so every switch below keeps today's path.
+ *     sets NI_AGENT_HOST there, so every switch below keeps today's path.
  *   - 'mac': the desktop bundle (scripts/local-agent/build.sh and bundle.sh set
- *     DIAL8_AGENT_HOST=mac for `eve build`). The launcher sets it again in the
+ *     NI_AGENT_HOST=mac for `eve build`). The launcher sets it again in the
  *     eve server's environment, because eve compiles each module at build time
  *     and imports it again at runtime, and both must see the same host.
  *
@@ -22,7 +22,7 @@
 export type AgentHost = 'cloud' | 'mac'
 
 /** The environment variable the Mac build and the launcher set. */
-export const AGENT_HOST_ENV = 'DIAL8_AGENT_HOST'
+export const AGENT_HOST_ENV = 'NI_AGENT_HOST'
 
 type HostEnv = Readonly<Record<string, string | undefined>>
 

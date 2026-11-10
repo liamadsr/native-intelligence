@@ -42,8 +42,8 @@ function getClientOrigin() {
 }
 
 const SECTION_HEADING = 'mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground'
-const PANEL_ID = 'dial8-mcp-app-panel'
-const tabId = (id: ConnectClientId) => `dial8-mcp-app-${id}`
+const PANEL_ID = 'ni-mcp-app-panel'
+const tabId = (id: ConnectClientId) => `ni-mcp-app-${id}`
 
 export function ConnectApps() {
   const origin = useSyncExternalStore(subscribeToHostname, getClientOrigin, getServerOrigin)
@@ -71,8 +71,8 @@ export function ConnectApps() {
 
   return (
     <div className="space-y-8">
-      <section aria-labelledby="dial8-mcp-url">
-        <h2 id="dial8-mcp-url" className={SECTION_HEADING}>
+      <section aria-labelledby="ni-mcp-url">
+        <h2 id="ni-mcp-url" className={SECTION_HEADING}>
           Server URL
         </h2>
         <div className="flex items-center gap-2 rounded-xl border bg-muted/40 py-1.5 pl-3 pr-1.5">
@@ -84,14 +84,14 @@ export function ConnectApps() {
         </p>
       </section>
 
-      <section aria-labelledby="dial8-mcp-apps">
-        <h2 id="dial8-mcp-apps" className={SECTION_HEADING}>
+      <section aria-labelledby="ni-mcp-apps">
+        <h2 id="ni-mcp-apps" className={SECTION_HEADING}>
           Pick your app
         </h2>
         {/* One row at the page's full width, wrapping in a narrow pane. */}
         <div
           role="tablist"
-          aria-labelledby="dial8-mcp-apps"
+          aria-labelledby="ni-mcp-apps"
           onKeyDown={onTabKey}
           className="grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-2"
         >

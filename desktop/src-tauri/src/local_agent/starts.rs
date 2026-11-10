@@ -277,8 +277,8 @@ mod tests {
 
     #[test]
     fn the_words_say_which_folder_and_who_started_it() {
-        let (title, body) = started_notice("dial8-website", GrantMode::Read, false);
-        assert_eq!(title, "Agent started in dial8-website");
+        let (title, body) = started_notice("native-intelligence", GrantMode::Read, false);
+        assert_eq!(title, "Agent started in native-intelligence");
         assert_eq!(
             body,
             "A Native Intelligence cloud agent or one of your loops started it, to read this folder. You can stop it from \

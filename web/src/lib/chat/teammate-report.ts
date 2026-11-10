@@ -126,7 +126,7 @@ export interface TeammateReport {
   /**
    * A local agent's turn (work kind `local_agent`, src/lib/local-agent/ledger.ts):
    * the folder it works in (the Mac's own label) and its session, so the
-   * report reads as "Your Mac (dial8-website) finished …" and the Native Intelligence agent
+   * report reads as "Your Mac (web) finished …" and the Native Intelligence agent
    * can follow up with read_local_agent / message_local_agent.
    */
   local_agent?: TeammateReportLocalAgent
@@ -401,7 +401,7 @@ function isLocalAgentReport(r: TeammateReport): r is TeammateReport & { local_ag
 
 /**
  * The person-facing text of a local agent's report: "Native Intelligence on Liam's MacBook
- * Pro (dial8-website) finished **…**" (a report from before the teammate
+ * Pro (web) finished **…**" (a report from before the teammate
  * plan, with no Mac name: "Native Intelligence on your Mac (…)").
  */
 function localAgentReportText(r: TeammateReport & { local_agent: TeammateReportLocalAgent }): string {

@@ -203,7 +203,7 @@ describe('createToolApproval', () => {
   })
 
   it('caps a Mac job’s pending approvals per job: its cards have no conversation of their own (C1)', async () => {
-    const mac = (sessionId: string): NewApproval => ({ ...held, conversationId: null, context: { localAgent: { sessionId, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } } })
+    const mac = (sessionId: string): NewApproval => ({ ...held, conversationId: null, context: { localAgent: { sessionId, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } } })
     for (let i = 0; i < APPROVAL_PENDING_MAX_PER_MAC_JOB; i++) await raise({ ...mac('sess-1'), input: { action_id: `GEN-${i}` } })
     expect(db.rows('tool_approval')[0]).toMatchObject({ conversation_id: null, context: { localAgent: { sessionId: 'sess-1' } } })
     expect(await createToolApproval(db as never, { ...mac('sess-1'), input: { action_id: 'GEN-99' } })).toMatchObject({ ok: false, code: 'TOO_MANY_PENDING', error: expect.stringContaining('job on the Mac') })

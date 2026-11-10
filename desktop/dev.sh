@@ -50,7 +50,7 @@ DEV_ENTITLEMENTS="$TAURI_DIR/entitlements.plist"
 # for local dev). Non-fatal if the identity is missing — dev must keep working.
 sign_debug_bundle() {
     if [ -z "$SIGNING_IDENTITY" ] || ! security find-identity -v -p codesigning | grep -qF "$SIGNING_IDENTITY"; then
-        echo "[dev] WARNING: Developer ID '$SIGNING_IDENTITY' not set (DIAL8_SIGNING_IDENTITY in .env.release) or not in keychain."
+        echo "[dev] WARNING: Developer ID '$SIGNING_IDENTITY' not set (NI_SIGNING_IDENTITY in .env.release) or not in keychain."
         echo "[dev] This debug build stays AD-HOC SIGNED and WILL poison the"
         echo "[dev] production app's microphone permission (macOS re-prompts on"
         echo "[dev] the next production launch). See docs/PERMISSIONS.md. Continuing."

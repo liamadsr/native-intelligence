@@ -13,7 +13,7 @@
  *
  * Auth: requireUser, so a cookie for the web and the desktop and a Bearer JWT
  * for iOS. Presence is per person, not per workspace, so no membership check.
- * A capture-device token (`Bearer d8d_…`) is refused: a hardware recorder is
+ * A capture-device token (`Bearer nid_…`) is refused: a hardware recorder is
  * not the person, and a ping from one would hold their texts back.
  *
  * Writes run on the service client (user_presence grants nothing to signed-in

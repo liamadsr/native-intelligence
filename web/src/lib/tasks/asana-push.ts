@@ -24,7 +24,7 @@ import type { AsanaPushOverrides } from './push-overrides'
  * menu (`PushToTrackerMenu`, in the action detail panel's toolbar and on a
  * capture's extracted action items, both via POST
  * /api/account/actions/[id]/asana), the AI chat tool `push_action_to_asana`,
- * and its MCP twin `dial8_push_action_to_asana`. They differ only in how they
+ * and its MCP twin `ni_push_action_to_asana`. They differ only in how they
  * resolve the action and shape the reply.
  *
  * v1 is deliberately MANUAL: nothing pushes automatically. Every gate returns a

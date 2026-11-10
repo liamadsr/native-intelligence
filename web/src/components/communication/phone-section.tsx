@@ -65,7 +65,7 @@ interface LinkedPhone {
 interface PhoneState {
   phone: LinkedPhone | null
   /** The number they text: their agent's own, else the Native Intelligence one. */
-  dial8Number: string | null
+  niNumber: string | null
   /** Their agent's own number, when it has one. */
   agentNumber?: string | null
   /** It has none, and this deployment can give one. */
@@ -113,8 +113,8 @@ export function PhoneSection({ compact = false, name: nameProp }: { compact?: bo
   const load = useCallback(() => {
     fetch('/api/account/phone')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: PhoneState | null) => setState(d ?? { phone: null, dial8Number: null, available: false }))
-      .catch(() => setState({ phone: null, dial8Number: null, available: false }))
+      .then((d: PhoneState | null) => setState(d ?? { phone: null, niNumber: null, available: false }))
+      .catch(() => setState({ phone: null, niNumber: null, available: false }))
   }, [])
 
   useEffect(() => {
@@ -202,13 +202,13 @@ export function PhoneSection({ compact = false, name: nameProp }: { compact?: bo
         <Loader2 aria-label="Loading" className="mx-auto my-16 size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
       ) : state.phone ? (
         <section className="flex flex-col items-center text-center" data-phone-step="linked">
-          {state.phone.optedOut || !state.dial8Number ? (
+          {state.phone.optedOut || !state.niNumber ? (
             <>
               <Heading>{state.phone.optedOut ? 'Texts are off' : `Text ${name}`}</Heading>
               <Lead>{state.phone.optedOut ? 'You replied STOP. Text START to turn them back on.' : 'Your phone is linked.'}</Lead>
             </>
           ) : (
-            <StartTexting name={name} agentNumber={state.dial8Number} />
+            <StartTexting name={name} agentNumber={state.niNumber} />
           )}
           {state.canGetNumber && !state.phone.optedOut && (
             <button

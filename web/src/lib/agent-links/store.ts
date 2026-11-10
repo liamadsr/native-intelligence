@@ -323,7 +323,7 @@ async function ensureHalf(
  * learned). A half still invited for an email request has no peer yet: it
  * goes too.
  */
-async function dropDial8(supabase: SupabaseClient, ownerUserId: string, guestId: string, now: number): Promise<void> {
+async function dropNi(supabase: SupabaseClient, ownerUserId: string, guestId: string, now: number): Promise<void> {
   const { data, error } = await supabase.from('agent_guest').select(AGENT_GUEST_SELECT).eq('id', guestId).eq('owner_user_id', ownerUserId).maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) return
@@ -550,7 +550,7 @@ async function insertEmailHalf(supabase: SupabaseClient, input: RequestLinkInput
 async function markExpired(supabase: SupabaseClient, link: AgentLink, now: number): Promise<void> {
   const { error } = await supabase.from('agent_link').update({ state: 'expired', updated_at: new Date(now).toISOString() }).eq('id', link.id).eq('state', 'requested')
   if (error) throw new Error(error.message)
-  await dropDial8(supabase, link.requesterUserId, link.requesterGuestId, now)
+  await dropNi(supabase, link.requesterUserId, link.requesterGuestId, now)
 }
 
 export interface AcceptLinkInput extends HalfInput {
@@ -642,7 +642,7 @@ export async function ignoreLink(supabase: SupabaseClient, input: { linkId: stri
       .maybeSingle()
     if (error) return refused(error)
     if (!data) return { ok: false, reason: 'wrong_state' }
-    await dropDial8(supabase, link.requesterUserId, link.requesterGuestId, now)
+    await dropNi(supabase, link.requesterUserId, link.requesterGuestId, now)
     return { ok: true, link: toLink(data as AgentLinkRow) }
   } catch (error) {
     return refused(error)
@@ -694,8 +694,8 @@ async function finishEnd(supabase: SupabaseClient, link: AgentLink, byUserId: st
   if (!data) return { ok: false, reason: 'wrong_state' }
   const { error: closeError } = await supabase.from('agent_link_exchange').update({ state: 'done', closed_at: at }).eq('link_id', link.id).eq('state', 'open')
   if (closeError) return { ok: false, reason: 'failed' }
-  await dropDial8(supabase, link.requesterUserId, link.requesterGuestId, now)
-  if (link.targetUserId && link.targetGuestId) await dropDial8(supabase, link.targetUserId, link.targetGuestId, now)
+  await dropNi(supabase, link.requesterUserId, link.requesterGuestId, now)
+  if (link.targetUserId && link.targetGuestId) await dropNi(supabase, link.targetUserId, link.targetGuestId, now)
   return { ok: true, link: toLink(data as AgentLinkRow) }
 }
 

@@ -8,7 +8,7 @@
  * person's browser comes up (`browser-up`), it asks the server for an exit
  * ticket and hands it to the app, which checks the token itself (it serves the
  * account it is signed into, and never asks) and holds the tunnel
- * (dial8-desktop browser_exit.rs). At `browser-down` it lets go. No switch:
+ * (desktop browser_exit.rs). At `browser-down` it lets go. No switch:
  * the agent uses the person's network whenever this Mac is online. The
  * computer card shows this Mac's state.
  */

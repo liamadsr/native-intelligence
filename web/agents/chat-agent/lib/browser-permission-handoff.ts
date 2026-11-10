@@ -167,7 +167,7 @@ export function browserPermissionHandoffSelection(selection: ModelSelection, tur
     inputTokens: { total: undefined, noCache: 0, cacheRead: 0, cacheWrite: 0 },
     outputTokens: { total: 0, text: 0, reasoning: 0 },
   }
-  const providerMetadata = { gateway: { cost: 0 }, dial8Control: { kind: 'browser_task_handoff', local: true } }
+  const providerMetadata = { gateway: { cost: 0 }, niControl: { kind: 'browser_task_handoff', local: true } }
   const model: LocalModel = {
     specificationVersion: 'v4', provider, modelId, supportedUrls: {},
     async doGenerate(params) {

@@ -2430,7 +2430,7 @@ describe('PushComposePanel — the date chip preserves the wire format', () => {
  */
 describe('PushComposePanel — the strip stops offering what the card already says', () => {
   const BASE = {
-    config: { cloud_id: 'cloud-1', site_name: 'dial8', project_id: 'proj-1', project_key: 'ENG', issue_type_id: 'it-1' },
+    config: { cloud_id: 'cloud-1', site_name: 'acme', project_id: 'proj-1', project_key: 'ENG', issue_type_id: 'it-1' },
     jiraProjects: [{ id: 'proj-1', key: 'ENG', name: 'Engineering' }],
     jiraIssueTypes: [{ id: 'it-1', name: 'Task' }],
   }
@@ -2448,20 +2448,20 @@ describe('PushComposePanel — the strip stops offering what the card already sa
   })
 
   /**
-   * The site caption is gone because it named a value v1 cannot change. Liam's
-   * own Jira site is called "dial8", so on a Native Intelligence screen "In dial8" read as
-   * noise rather than as context — which is the fixture used here.
+   * The site caption is gone because it named a value v1 cannot change. A Jira
+   * site is often named for the company, so on that company's own screen "In acme"
+   * read as noise rather than as context — which is the fixture used here.
    */
   it('NO "In {site}" CAPTION — the site rides on the project chip instead', async () => {
     installFetch(BASE)
     await render({ provider: 'jira', providerName: 'Jira' })
 
     expect(container.querySelector('[data-compose-site]')).toBeNull()
-    expect(container.querySelector('[data-compose-scroller]')!.textContent).not.toContain('In dial8')
+    expect(container.querySelector('[data-compose-scroller]')!.textContent).not.toContain('In acme')
 
     // Still reachable, on the field the site actually scopes.
     const project = container.querySelector('[data-compose-project-trigger]')!
-    expect(project.getAttribute('title')).toBe('In dial8')
+    expect(project.getAttribute('title')).toBe('In acme')
   })
 
   it('the stack sidebar drops the title field too', async () => {

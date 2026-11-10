@@ -10,12 +10,12 @@ import { registerTools } from '../index'
 /**
  * Regression suite for the 2026-08-11 prod outage: PR #316 added `list_skills`
  * (and get/create/update_skill) to the AI chat toolset, whose auto-prefixed
- * MCP name `dial8_list_skills` collided with the hand-registered library tool.
+ * MCP name `ni_list_skills` collided with the hand-registered library tool.
  * McpServer.tool throws on duplicate names, so EVERY authenticated /api/mcp
  * request 500'd at server construction.
  *
  * These tests register the REAL chat toolset through the REAL registration
- * path, so any future chat tool whose `dial8_`-prefixed name collides with a
+ * path, so any future chat tool whose `ni_`-prefixed name collides with a
  * hand-registered MCP tool fails here instead of in production.
  */
 
@@ -34,7 +34,7 @@ function chainableStub(): unknown {
 const fakeSupabase = chainableStub() as SupabaseClient
 
 async function buildRegisteredServer(): Promise<McpServer> {
-  const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+  const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
   await registerTools(server, 'user-1', fakeSupabase, 'ws-1', 'Test Workspace')
   return server
 }
@@ -51,7 +51,7 @@ async function buildServerWithSettings(settings: Record<string, unknown>): Promi
       }),
     }),
   } as unknown as SupabaseClient
-  const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+  const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
   await registerTools(server, 'user-1', supabase, 'ws-1', 'Test Workspace')
   return server
 }
@@ -69,10 +69,10 @@ describe('discovery and dispatch', () => {
    * stale session can reach a tool that shipped since. Renaming either one
    * silently breaks that, so the names are pinned here.
    */
-  it('exposes dial8_search_tools and dial8_call_tool through the real registration path', async () => {
+  it('exposes ni_search_tools and ni_call_tool through the real registration path', async () => {
     const tools = registeredToolMap(await buildRegisteredServer())
-    expect(tools['dial8_search_tools']).toBeDefined()
-    expect(tools['dial8_call_tool']).toBeDefined()
+    expect(tools['ni_search_tools']).toBeDefined()
+    expect(tools['ni_call_tool']).toBeDefined()
   })
 
   it('does not let them collide with a bridged chat tool', async () => {
@@ -90,11 +90,11 @@ describe('registerTools name collisions', () => {
   it('keeps the hand-registered MCP variant when a chat tool shares its name', async () => {
     const tools = registeredToolMap(await buildRegisteredServer())
 
-    // The MCP-specific description references `dial8_get_skill`; the chat
+    // The MCP-specific description references `ni_get_skill`; the chat
     // variant references bare `get_skill`. If the chat variant ever wins the
     // name, the MCP safety defaults (visibility='personal', lightweight list
     // fields) are silently lost.
-    expect(tools['dial8_list_skills']?.description).toContain('dial8_get_skill')
+    expect(tools['ni_list_skills']?.description).toContain('ni_get_skill')
   })
 
   it('still exposes every executable chat tool that does not collide', async () => {
@@ -120,10 +120,10 @@ describe('registerTools name collisions', () => {
       // unsubscribe_thread (GEN-1166): only on the person's approval card in the app.
       // connect_link: a texted link goes only to the person's phone, from their own text turn.
       if (['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread', 'connect_link'].includes(name)) {
-        expect(tools[`dial8_${name}`], `dial8_${name} is withheld from MCP`).toBeUndefined()
+        expect(tools[`ni_${name}`], `ni_${name} is withheld from MCP`).toBeUndefined()
         continue
       }
-      expect(tools[`dial8_${name}`], `dial8_${name} missing from MCP registry`).toBeDefined()
+      expect(tools[`ni_${name}`], `ni_${name} missing from MCP registry`).toBeDefined()
     }
   })
 
@@ -136,28 +136,28 @@ describe('registerTools name collisions', () => {
     expect(Object.keys(tools).filter((n) => n.includes('eval'))).toEqual([])
   })
 
-  it('keeps a feature-off tool out of dial8_search_tools / dial8_call_tool too', async () => {
+  it('keeps a feature-off tool out of ni_search_tools / ni_call_tool too', async () => {
     const tools = registeredToolMap(
       await buildServerWithSettings({ feature_overrides: offOverrides(['evals']) }),
     ) as unknown as Record<
       string,
       { handler: (args: Record<string, unknown>, extra: unknown) => Promise<{ content: { text: string }[] }> }
     >
-    const found = await tools['dial8_search_tools'].handler({ name: 'start_eval_run' }, {})
+    const found = await tools['ni_search_tools'].handler({ name: 'start_eval_run' }, {})
     expect(JSON.parse(found.content[0].text).found).toBe(false)
   })
 
   it('registers the hand-written eval tools on a workspace with no overrides', async () => {
     const tools = registeredToolMap(await buildServerWithSettings({}))
-    expect(tools['dial8_list_evals']).toBeDefined()
-    expect(tools['dial8_create_eval_suite']).toBeDefined()
+    expect(tools['ni_list_evals']).toBeDefined()
+    expect(tools['ni_create_eval_suite']).toBeDefined()
   })
 
   it('would have caught the PR #316 outage: duplicate registration throws in the SDK', () => {
     // Sanity-check the failure mode this suite guards against — if the SDK
     // ever stops throwing on duplicates, the skip logic (and this suite's
     // premise) should be revisited.
-    const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+    const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
     const noop = async () => ({ content: [] })
     server.tool('dup', 'first', { a: z.string() }, noop)
     expect(() => server.tool('dup', 'second', { a: z.string() }, noop)).toThrow(
@@ -169,8 +169,8 @@ describe('registerTools name collisions', () => {
 // bots-v4 Phase A1 / A2: the main agent's bot-work tools (the two reads, and
 // the two writes on that work) reach a person's own connector
 // (src/lib/mcp/attended-tools.ts).
-describe('the bot-work tools (dial8_list_bot_work, dial8_get_bot_item, dial8_settle_work_item, dial8_send_work_answer)', () => {
-  const NAMES = ['dial8_list_bot_work', 'dial8_get_bot_item', 'dial8_settle_work_item', 'dial8_send_work_answer']
+describe('the bot-work tools (ni_list_bot_work, ni_get_bot_item, ni_settle_work_item, ni_send_work_answer)', () => {
+  const NAMES = ['ni_list_bot_work', 'ni_get_bot_item', 'ni_settle_work_item', 'ni_send_work_answer']
 
   it('a person’s own connector has all four', async () => {
     const tools = registeredToolMap(await buildRegisteredServer())
@@ -178,7 +178,7 @@ describe('the bot-work tools (dial8_list_bot_work, dial8_get_bot_item, dial8_set
   })
 
   it('speaks of the person’s agent in the third person (one face): it’s a client acting for them, not the agent', async () => {
-    const description = registeredToolMap(await buildRegisteredServer()).dial8_list_bot_work.description ?? ''
+    const description = registeredToolMap(await buildRegisteredServer()).ni_list_bot_work.description ?? ''
     expect(description).toContain("The agent marked self is the person's own Native Intelligence agent")
     expect(description).toContain("'Your agent…'")
     expect(description).not.toContain('The agent marked self is you')
@@ -187,27 +187,27 @@ describe('the bot-work tools (dial8_list_bot_work, dial8_get_bot_item, dial8_set
 
 // A1b review H1: the loop builders are attended only. A person's own connector
 // is the person acting, so it keeps them (src/lib/mcp/attended-tools.ts).
-describe('the loop builders (dial8_create_flow, dial8_update_flow, dial8_delete_flow)', () => {
-  const NAMES = ['dial8_create_flow', 'dial8_update_flow', 'dial8_delete_flow']
+describe('the loop builders (ni_create_flow, ni_update_flow, ni_delete_flow)', () => {
+  const NAMES = ['ni_create_flow', 'ni_update_flow', 'ni_delete_flow']
 
   it('a person’s own connector has all three, and the reads', async () => {
     const tools = registeredToolMap(await buildRegisteredServer())
-    for (const name of [...NAMES, 'dial8_list_flows', 'dial8_list_flow_runs']) expect(tools[name], name).toBeDefined()
+    for (const name of [...NAMES, 'ni_list_flows', 'ni_list_flow_runs']) expect(tools[name], name).toBeDefined()
   })
 })
 
 // The library writers: a person's own connector holds all six (hand-registered
-// over MCP: dial8_create/update/delete_skill and _agent), and the reads.
-describe('the library writers (dial8_create/update/delete_skill and _agent)', () => {
+// over MCP: ni_create/update/delete_skill and _agent), and the reads.
+describe('the library writers (ni_create/update/delete_skill and _agent)', () => {
   const NAMES = [
-    'dial8_create_skill',
-    'dial8_update_skill',
-    'dial8_delete_skill',
-    'dial8_create_agent',
-    'dial8_update_agent',
-    'dial8_delete_agent',
+    'ni_create_skill',
+    'ni_update_skill',
+    'ni_delete_skill',
+    'ni_create_agent',
+    'ni_update_agent',
+    'ni_delete_agent',
   ]
-  const READS = ['dial8_list_skills', 'dial8_get_skill', 'dial8_list_agents', 'dial8_get_agent']
+  const READS = ['ni_list_skills', 'ni_get_skill', 'ni_list_agents', 'ni_get_agent']
 
   it('a person’s own connector has all six, and the reads', async () => {
     const tools = registeredToolMap(await buildRegisteredServer())

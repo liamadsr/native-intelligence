@@ -22,9 +22,9 @@ import { isDesktopApp } from '@/lib/platform'
 import { isLocalExchangeEnabledForWorkspace, setEnabledWorkspaceIds } from '@/lib/integrations/calendar-local'
 import type { LocalCalendarStatus, ExchangeCalendarInfo } from '@/lib/tauri-bridge'
 
-const STORAGE_KEY_DISABLED_CALENDARS = 'dial8:local-exchange:disabled-calendars'
-const STORAGE_KEY_SYNC_CONTACTS = 'dial8:local-exchange:sync-contacts'
-const STORAGE_KEY_ENABLED_WORKSPACES = 'dial8:local-exchange:enabled-workspaces'
+const STORAGE_KEY_DISABLED_CALENDARS = 'ni:local-exchange:disabled-calendars'
+const STORAGE_KEY_SYNC_CONTACTS = 'ni:local-exchange:sync-contacts'
+const STORAGE_KEY_ENABLED_WORKSPACES = 'ni:local-exchange:enabled-workspaces'
 
 interface Workspace {
   id: string

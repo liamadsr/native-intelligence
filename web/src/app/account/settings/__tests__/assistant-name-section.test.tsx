@@ -6,7 +6,7 @@
  *  - it shows the saved name, or Joseph when the user never picked one, and
  *    saves nothing until the name changes;
  *  - a valid name (trimmed, 1–30 letters, spaces, hyphens, apostrophes) saves
- *    to the account and the device's copy (dial8:voice:assistant-name), says
+ *    to the account and the device's copy (ni:voice:assistant-name), says
  *    so, and is the name in effect at once (Interactive mode's wake word);
  *  - an invalid one says why and can't be saved; the account refusing says so
  *    and keeps the old name;
@@ -46,7 +46,7 @@ async function type(value: string) {
   })
 }
 
-const KEY = 'dial8:voice:assistant-name'
+const KEY = 'ni:voice:assistant-name'
 /** The device's copy of a name, as the store keeps it. */
 const copy = (name: string) => JSON.stringify(name)
 

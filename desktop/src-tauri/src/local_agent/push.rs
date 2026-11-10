@@ -671,7 +671,7 @@ pub async fn target(git: &Git, repo: &Path, branch: &str) -> Result<Target, Stri
 
 /// A folder of gh's own, empty: no checkout's config can steer it.
 fn gh_dir() -> std::io::Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("dial8-gh-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("ni-gh-{}", uuid::Uuid::new_v4()));
     super::state::create_private_dir(&dir)?;
     Ok(dir)
 }
@@ -1064,8 +1064,8 @@ mod tests {
     fn hosted_remotes_name_their_repo_and_local_ones_dont() {
         let gh = |h: &str, o: &str, r: &str| Some((h.to_string(), o.to_string(), r.to_string()));
         assert_eq!(
-            repo_of("https://github.com/liamadsr/dial8-website.git"),
-            gh("github.com", "liamadsr", "dial8-website")
+            repo_of("https://github.com/liamadsr/native-intelligence.git"),
+            gh("github.com", "liamadsr", "native-intelligence")
         );
         assert_eq!(repo_of("https://x:y@GitHub.com/o/r/"), gh("github.com", "o", "r"));
         assert_eq!(repo_of("git@github.com:o/r.git"), gh("github.com", "o", "r"));

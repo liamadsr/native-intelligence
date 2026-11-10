@@ -28,7 +28,7 @@
 import { parseRevealDetail } from './home-message'
 
 /** Window event: show the home thread in the main chat. Handled by MainChatHost. */
-export const OPEN_HOME_THREAD_EVENT = 'dial8:open-home-thread'
+export const OPEN_HOME_THREAD_EVENT = 'ni:open-home-thread'
 
 export interface OpenHomeThreadDetail {
   /** Moot since one-chat Slice 1 (the chat is always on screen); kept in the detail for its callers. */

@@ -39,7 +39,7 @@ const click = (over: Record<string, unknown> = {}) => ({
   api_app_id: APP,
   team: { id: 'T111' },
   user: { id: 'U222', team_id: 'T111' },
-  actions: [{ action_id: 'dial8_approve', value: CARD }],
+  actions: [{ action_id: 'ni_approve', value: CARD }],
   response_url: 'https://hooks.slack.com/actions/x',
   ...over,
 })
@@ -54,7 +54,7 @@ const req = (payload: unknown, headers: Record<string, string> = {}) =>
 const fetchMock = vi.fn(async () => new Response('ok'))
 
 beforeEach(() => {
-  vi.stubEnv('SLACK_CONNECTOR', 'slack/dial8-public')
+  vi.stubEnv('SLACK_CONNECTOR', 'slack/ni-public')
   vi.stubEnv('SLACK_APP_ID', APP)
   vi.stubGlobal('fetch', fetchMock)
   fetchMock.mockClear()

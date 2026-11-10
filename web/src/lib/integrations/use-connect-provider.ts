@@ -71,10 +71,10 @@ export interface UseConnectProvider {
   connectingId: string | null
 }
 
-const POPUP_NAME = 'dial8-oauth'
+const POPUP_NAME = 'ni-oauth'
 const POPUP_FEATURES = 'width=600,height=700,popup=yes'
-const OAUTH_POPUP_MESSAGE = 'dial8:oauth-popup-result'
-const MCP_POPUP_MESSAGE = 'dial8:mcp-oauth-popup-result'
+const OAUTH_POPUP_MESSAGE = 'ni:oauth-popup-result'
+const MCP_POPUP_MESSAGE = 'ni:mcp-oauth-popup-result'
 const POPUP_CLOSED_POLL_MS = 500
 /**
  * Backstop for a desktop MCP connect that never refocuses the window (the user

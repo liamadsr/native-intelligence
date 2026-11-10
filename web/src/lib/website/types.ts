@@ -207,5 +207,10 @@ export interface WebsiteApprovalContext {
   unchecked?: true
 }
 
-/** The field a live check's test post carries (the intake takes it as the check, never as a quote). */
+/**
+ * The field a live check's test post carries (the intake takes it as the check,
+ * never as a quote). It keeps the name it had before the rename: the post goes
+ * through the form code already deployed on a customer's website on its way
+ * back to the intake, and that code is not ours to update.
+ */
 export const INTAKE_TEST_FIELD = '_dial8_test'

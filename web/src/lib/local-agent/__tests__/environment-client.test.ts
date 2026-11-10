@@ -42,8 +42,8 @@ const FOLDER = {
   id: 'f-1',
   deviceId: THIS_MAC,
   grantId: 'g-1',
-  label: 'dial8-website',
-  path: '/Users/liam/code/dial8-v2/dial8-website',
+  label: 'native-intelligence',
+  path: '/Users/liam/code/native-intelligence/web',
   mode: 'edit',
   isGit: true,
   deviceName: "Liam's MacBook Pro",
@@ -71,9 +71,9 @@ function deps(s: ReturnType<typeof server>, over: Partial<EnvironmentDeps> = {})
     isDesktop: () => true,
     status: async () => STATUS,
     device: async () => ({ ok: true as const, value: { deviceId: THIS_MAC, name: "Liam's MacBook Pro", platform: 'macos', appVersion: '0.3.0' } }),
-    pickFolder: async () => ({ ok: true as const, value: { id: 'g-1', path: FOLDER.path, label: 'dial8-website', mode: 'edit' as const, addedAt: 't', isGit: true } }),
+    pickFolder: async () => ({ ok: true as const, value: { id: 'g-1', path: FOLDER.path, label: 'native-intelligence', mode: 'edit' as const, addedAt: 't', isGit: true } }),
     removeGrant: vi.fn(async () => ({ ok: true as const, value: undefined })),
-    refreshMirror: vi.fn(async () => ({ folders: [{ id: 'f-1', grantId: 'g-1', label: 'dial8-website', mode: 'edit' as const, isGit: true }] })),
+    refreshMirror: vi.fn(async () => ({ folders: [{ id: 'f-1', grantId: 'g-1', label: 'native-intelligence', mode: 'edit' as const, isGit: true }] })),
     stop: vi.fn(async () => ({ ok: true as const, value: undefined })),
     now: () => now,
     sleep: async (ms: number) => {
@@ -112,7 +112,7 @@ describe('the pure pieces', () => {
     expect(abbreviateHome('/Users/liam/code')).toBe('~/code')
     expect(abbreviateHome('/Users/liam')).toBe('~')
     expect(abbreviateHome('/Volumes/Work/x')).toBe('/Volumes/Work/x')
-    expect(folderParent('/Users/sam/code/dial8-v2/dial8-website')).toBe('~/code/dial8-v2')
+    expect(folderParent('/Users/sam/code/native-intelligence/web')).toBe('~/code/native-intelligence')
     expect(folderParent('/Users/liam/notes/')).toBe('~')
     expect(folderParent('/srv')).toBe('')
     const cut = truncateMiddle('claude/agent-orchestration-local-fc09cf', 26)
@@ -162,7 +162,7 @@ describe('reading', () => {
     expect(getEnvironmentSnapshot()).toMatchObject({ canEdit: false, thisDeviceId: null })
     expect(status).not.toHaveBeenCalled()
     await removeEnvironmentFolder('f-1')
-    expect(toastError).toHaveBeenCalledWith("Remove dial8-website in Native Intelligence on Liam's MacBook Pro")
+    expect(toastError).toHaveBeenCalledWith("Remove native-intelligence in Native Intelligence on Liam's MacBook Pro")
   })
 })
 
@@ -222,7 +222,7 @@ describe('removing', () => {
   it('Rust refuses while a local agent works there: the toast, and the folder stays', async () => {
     const { d } = await ready({ removeGrant: vi.fn(async () => ({ ok: false as const, unavailable: false, error: 'a local agent is running in this folder; stop it first' })) })
     await removeEnvironmentFolder('f-1')
-    expect(toastError).toHaveBeenCalledWith("Couldn't remove dial8-website", { description: 'A local agent is running in this folder; stop it first.' })
+    expect(toastError).toHaveBeenCalledWith("Couldn't remove native-intelligence", { description: 'A local agent is running in this folder; stop it first.' })
     expect(d.refreshMirror).not.toHaveBeenCalled()
     expect(getEnvironmentSnapshot().folders.map((f) => f.id)).toEqual(['f-1', 'f-2'])
   })
@@ -265,7 +265,7 @@ describe('removing', () => {
     expect(stop).not.toHaveBeenCalled()
     expect(removeGrant).toHaveBeenCalledTimes(1)
     const [title, opts] = toastError.mock.calls[0] as [string, { description: string; action: { label: string; onClick: () => void } }]
-    expect(title).toBe('A local agent is working in dial8-website')
+    expect(title).toBe('A local agent is working in native-intelligence')
     expect(opts.action.label).toBe('Stop and remove')
     expect(getEnvironmentSnapshot().folders.map((f) => f.id)).toEqual(['f-1', 'f-2'])
     // The person chose Stop and remove.

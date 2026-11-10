@@ -58,7 +58,7 @@
  * ── Device-token principals (/api/device/ask) ────────────────────────────────
  * The chat-agent is also driven by /api/device/ask (the ESP32 one-shot), which
  * runs one one-shot session here per question. It relays the DEVICE's own
- * credential — a `d8d_` device token, which is not a Supabase JWT — so a second
+ * credential — a `nid_` device token, which is not a Supabase JWT — so a second
  * resolver ({@link resolveDeviceTokenSession}) maps that token to its owning
  * user + active workspace, exactly like src/lib/device-tokens.ts. The device
  * principal then goes through the SAME ownership ACL as a browser principal
@@ -68,7 +68,7 @@
  * an unregistered id is refused. A device principal is further bound to its own
  * ask: every request must carry a verified 'device_ask' chat-run token for the
  * same user + workspace, and a targeted session must be registered on the very
- * row that token was minted for — so a d8d_ token can never create a token-less
+ * row that token was minted for — so a nid_ token can never create a token-less
  * session or reach the user's in-app chats.
  *
  * ── The server principal (idle-time compaction, home turns) ──────────────────
@@ -122,8 +122,12 @@ function env(name: string): string {
   return value
 }
 
-/** A `d8d_` device token is not a Supabase JWT (see src/lib/device-tokens.ts). */
-const DEVICE_BEARER_PREFIX = 'd8d_'
+/** A `nid_` device token is not a Supabase JWT (see src/lib/device-tokens.ts). */
+const DEVICE_BEARER_PREFIX = 'nid_'
+// TODO(rename-compat): device tokens minted before the rename start with `d8d_`
+// (kept in sync with isDeviceToken in src/lib/device-tokens.ts).
+const LEGACY_DEVICE_BEARER_PREFIX = 'd8d_'
+const isDeviceBearer = (token: string) => token.startsWith(DEVICE_BEARER_PREFIX) || token.startsWith(LEGACY_DEVICE_BEARER_PREFIX)
 
 /**
  * The 401 this channel answers when the caller's Supabase session has EXPIRED.
@@ -171,7 +175,7 @@ function jwtBearer(request: Request): string | null {
   const authHeader = request.headers.get('authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   const token = authHeader.slice(7).trim()
-  if (!token || token.startsWith(DEVICE_BEARER_PREFIX)) return null
+  if (!token || isDeviceBearer(token)) return null
   return token
 }
 
@@ -243,7 +247,7 @@ async function cookieUser(supabase: SupabaseClient): Promise<User | null> {
  *     its JWT and retries once);
  *   - an auth-service outage (retryable fetch error) → throw (fail closed as a
  *     server error, never a misleading "session expired").
- * No JWT Bearer (or a `d8d_` device token, handled elsewhere) → the cookie
+ * No JWT Bearer (or a `nid_` device token, handled elsewhere) → the cookie
  * session alone, returning null (skip) when there is none, as before.
  */
 async function resolveUserAndClient(
@@ -576,11 +580,8 @@ function serverSendTargetOk(owner: { isHome: boolean; outsideChannel: string | n
 // Device-token principals (/api/device/ask)
 // ---------------------------------------------------------------------------
 
-/** Kept in sync with DEVICE_TOKEN_PREFIX in src/lib/device-tokens.ts. */
-const DEVICE_TOKEN_PREFIX = 'd8d_'
-
 /**
- * Resolve a `Bearer d8d_…` device token to its owning user + active workspace,
+ * Resolve a `Bearer nid_…` device token to its owning user + active workspace,
  * mirroring resolveDeviceToken() in src/lib/device-tokens.ts (which this eve root
  * cannot import): look the SHA-256 hash up in `device_token`, refuse an unknown
  * or expired token, and scope to the token's `active_workspace_id`, else the
@@ -597,7 +598,7 @@ export async function resolveDeviceTokenSession(
   const authHeader = request.headers.get('authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
   const token = authHeader.slice(7)
-  if (!token.startsWith(DEVICE_TOKEN_PREFIX)) return null
+  if (!isDeviceBearer(token)) return null
 
   const supabase = serviceClient()
   const tokenHash = createHash('sha256').update(token).digest('hex')
@@ -908,7 +909,7 @@ export async function assertTurnRunToken(
 }
 
 /**
- * AuthFn for a device-token principal. A `d8d_` token is a long-lived hardware
+ * AuthFn for a device-token principal. A `nid_` token is a long-lived hardware
  * credential whose ONLY use on this channel is /api/device/ask's one-shot task
  * session, so the device principal is bound to exactly that:
  *   1. resolve the device (owner + active workspace);

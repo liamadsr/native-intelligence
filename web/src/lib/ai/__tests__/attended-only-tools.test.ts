@@ -16,7 +16,7 @@
  *                        holds settle_card, revise_email_draft, the four
  *                        bot-work tools, remember, the loop builders and the
  *                        skill writers (a run's token holds none of them, nor
- *                        the hand-registered dial8_*_skill and dial8_*_agent
+ *                        the hand-registered ni_*_skill and ni_*_agent
  *                        writers)
  *   the bot-work tools:  no bot is granted them, so no bot's chat, bot
  *                        conversation or run chat holds them either

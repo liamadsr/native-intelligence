@@ -44,7 +44,7 @@ let warnSpy: ReturnType<typeof vi.spyOn>
 function forcedReplayWarnings(): string[] {
   return warnSpy.mock.calls
     .map((call) => String(call[0]))
-    .filter((message) => message.includes('dial8:posthog-replay'))
+    .filter((message) => message.includes('ni:posthog-replay'))
 }
 
 function lastInitConfig(): Record<string, unknown> {
@@ -120,7 +120,7 @@ describe('PostHog init: desktop session-replay gate', () => {
 
   it('re-enables replay on desktop when the localStorage debug flag is set, and warns once', async () => {
     window.__TAURI_INTERNALS__ = {}
-    localStorage.setItem('dial8:posthog-replay', 'on')
+    localStorage.setItem('ni:posthog-replay', 'on')
 
     await import('../providers')
 
@@ -130,7 +130,7 @@ describe('PostHog init: desktop session-replay gate', () => {
     const warnings = forcedReplayWarnings()
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain(
-      'PostHog session replay force-enabled via localStorage dial8:posthog-replay',
+      'PostHog session replay force-enabled via localStorage ni:posthog-replay',
     )
     expect(warnings[0]).toContain('remove the key to restore the default')
   })
@@ -141,7 +141,7 @@ describe('PostHog init: desktop session-replay gate', () => {
     // ran for `__TAURI_INTERNALS__`, older shells would be stuck with replay
     // off and no way to turn it back on for a debugging session.
     window.__TAURI__ = {}
-    localStorage.setItem('dial8:posthog-replay', 'on')
+    localStorage.setItem('ni:posthog-replay', 'on')
 
     await import('../providers')
 
@@ -149,13 +149,13 @@ describe('PostHog init: desktop session-replay gate', () => {
     const warnings = forcedReplayWarnings()
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain(
-      'PostHog session replay force-enabled via localStorage dial8:posthog-replay',
+      'PostHog session replay force-enabled via localStorage ni:posthog-replay',
     )
   })
 
   it('ignores any localStorage value other than the exact "on" opt-in', async () => {
     window.__TAURI_INTERNALS__ = {}
-    localStorage.setItem('dial8:posthog-replay', 'true')
+    localStorage.setItem('ni:posthog-replay', 'true')
 
     await import('../providers')
 
@@ -174,7 +174,7 @@ describe('PostHog init: desktop session-replay gate', () => {
   it('does not warn on the web even when the override key is set', async () => {
     // The key is desktop-only: on web replay is already on, so there is
     // nothing forced and nothing to warn about.
-    localStorage.setItem('dial8:posthog-replay', 'on')
+    localStorage.setItem('ni:posthog-replay', 'on')
 
     await import('../providers')
 

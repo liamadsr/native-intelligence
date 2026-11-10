@@ -204,7 +204,7 @@ describe('ActionDetailPanel — a live agent run without polling', () => {
     const before = prsCalls()
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:entity-updated', {
+        new CustomEvent('ni:entity-updated', {
           detail: { entityType: 'action', id: 'act-1', fields: { agent_run_status: 'pr_open' } },
         }),
       )
@@ -216,7 +216,7 @@ describe('ActionDetailPanel — a live agent run without polling', () => {
     // A second, unrelated update does not refetch again.
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:entity-updated', {
+        new CustomEvent('ni:entity-updated', {
           detail: { entityType: 'action', id: 'act-1', fields: { title: 'Renamed' } },
         }),
       )

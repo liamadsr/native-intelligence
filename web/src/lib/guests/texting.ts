@@ -29,7 +29,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { persistEveMessage } from '@/lib/chat/eve-message-writer'
 import type { HomeTurnRequestedData } from '@/lib/chat/home-turn'
-import { CHANNEL_MESSAGE_KIND, DIAL8_CHANNEL, SLACK_CHANNEL, SMS_CHANNEL, smsMessageId } from '@/lib/chat/channel-turn'
+import { CHANNEL_MESSAGE_KIND, NI_CHANNEL, SLACK_CHANNEL, SMS_CHANNEL, smsMessageId } from '@/lib/chat/channel-turn'
 import { TEXT_TURN_REQUESTED_EVENT } from '@/lib/chat/text-turn'
 import { CODE_ALPHABET, REPLY_CODE_LENGTH } from '@/lib/safety/caller'
 import { countGuestMessagesSince, countInboundKindSince, markInboundGuest } from '@/lib/sms/store'
@@ -211,7 +211,7 @@ export async function handleGuestText(
 export async function ensureGuestThread(
   supabase: SupabaseClient,
   guest: Pick<AgentGuest, 'id' | 'ownerUserId' | 'workspaceId' | 'displayName'>,
-  channel: typeof SMS_CHANNEL | typeof SLACK_CHANNEL | typeof DIAL8_CHANNEL = SMS_CHANNEL,
+  channel: typeof SMS_CHANNEL | typeof SLACK_CHANNEL | typeof NI_CHANNEL = SMS_CHANNEL,
 ): Promise<{ id: string }> {
   const find = async () => {
     const { data, error } = await supabase
@@ -232,7 +232,7 @@ export async function ensureGuestThread(
       workspace_id: guest.workspaceId,
       agent_guest_id: guest.id,
       outside_channel: channel,
-      title: (channel === DIAL8_CHANNEL ? `${guest.displayName}'s agent` : `${channel === SLACK_CHANNEL ? 'Slack' : 'Texts'} with ${guest.displayName}`).slice(0, 120),
+      title: (channel === NI_CHANNEL ? `${guest.displayName}'s agent` : `${channel === SLACK_CHANNEL ? 'Slack' : 'Texts'} with ${guest.displayName}`).slice(0, 120),
     })
     .select('id')
     .single<{ id: string }>()

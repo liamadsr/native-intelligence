@@ -55,7 +55,7 @@ const deps: UnattendedDeps = { reviewerMode: () => 'default', paused: async () =
 function db(): FakeDb {
   return seeded({
     device_folder: [
-      { id: FOLDER, user_id: USER, device_id: DEVICE, grant_id: 'g1', label: 'dial8-website', path: '/Users/l/code/dial8-website', mode: 'edit', is_git: true, revoked_at: null },
+      { id: FOLDER, user_id: USER, device_id: DEVICE, grant_id: 'g1', label: 'native-intelligence', path: '/Users/l/code/native-intelligence', mode: 'edit', is_git: true, revoked_at: null },
       { id: READ_ONLY, user_id: USER, device_id: DEVICE, grant_id: 'g2', label: 'notes', path: '/Users/l/notes', mode: 'read', is_git: false, revoked_at: null },
     ],
   })
@@ -104,7 +104,7 @@ describe('startUnattendedLocalAgent', () => {
   it('starts a read job in a shared folder that reports in the home thread', async () => {
     const d = db()
     const out = await startUnattendedLocalAgent(d as never, input, deps)
-    expect(out).toMatchObject({ status: 'started', created: true, deviceOnline: true, session: { status: 'queued', mode: 'read', conversationId: CONV, folderLabel: 'dial8-website' } })
+    expect(out).toMatchObject({ status: 'started', created: true, deviceOnline: true, session: { status: 'queued', mode: 'read', conversationId: CONV, folderLabel: 'native-intelligence' } })
     const row = d.tables.local_agent_session[0]
     expect(row).toMatchObject({
       user_id: USER, conversation_id: CONV, started_by: 'agent', mode: 'read',
@@ -149,7 +149,7 @@ describe('startUnattendedLocalAgent', () => {
       Object.assign(row, { status: end, ended_at: new Date().toISOString() })
       const retried = await startUnattendedLocalAgent(d as never, next, deps)
       expect(retried, end).toMatchObject({ status: 'skipped', code: 'ALREADY_SENT', sessionId: first.session.id })
-      expect((retried as { reason: string }).reason, end).toMatch(/already went to this step's job in dial8-website on .+, which has since (been stopped|failed|expired), so it isn't run again/)
+      expect((retried as { reason: string }).reason, end).toMatch(/already went to this step's job in native-intelligence on .+, which has since (been stopped|failed|expired), so it isn't run again/)
       expect(d.tables.local_agent_session, end).toHaveLength(1)
       expect((d.tables.local_agent_message ?? []).map((m) => m.text), end).toEqual(['[From one of your loops] Look again'])
       // A fire that never reached it starts its own job, and asking the ended one wrote nothing there.
@@ -196,7 +196,7 @@ describe('startUnattendedLocalAgent', () => {
     const d = db()
     await startUnattendedLocalAgent(d as never, input, deps)
     const other = { ...input, origin: { flowId: '99999999-9999-4999-8999-999999999999', actionId: 'step-9', fireKey: 'run-9' } }
-    expect(await startUnattendedLocalAgent(d as never, other, deps)).toMatchObject({ status: 'skipped', code: 'FOLDER_BUSY', reason: expect.stringContaining('dial8-website') })
+    expect(await startUnattendedLocalAgent(d as never, other, deps)).toMatchObject({ status: 'skipped', code: 'FOLDER_BUSY', reason: expect.stringContaining('native-intelligence') })
     expect(d.tables.local_agent_session).toHaveLength(1)
     // In another folder it is its own job.
     expect(await startUnattendedLocalAgent(d as never, { ...other, folderId: READ_ONLY }, deps)).toMatchObject({ status: 'started', created: true })

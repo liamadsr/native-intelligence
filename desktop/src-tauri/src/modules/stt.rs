@@ -2,7 +2,7 @@
 //! its Deepgram-shaped messages to one of two consumers.
 //!
 //! **Meeting capture → the web** ([`start`]). Bridge contract
-//! (dial8-website/docs/plans/local-modules.md §1.6). Every payload carries the
+//! (web/docs/plans/local-modules.md §1.6). Every payload carries the
 //! recording's `session` id so a straggler from a finished session can never
 //! land in the next one:
 //! - `stt://message`        { session, stream: "mic" | "system", message }  Deepgram-shaped
@@ -12,7 +12,7 @@
 //! **Voice session → Rust** ([`start_voice`]). One stream (`mic`), no
 //! diarizer. Messages arrive as parsed [`VoiceSttEvent`]s on an mpsc
 //! receiver, never as webview events, and [`VoiceSttControl::finalize`] ends
-//! the current utterance on demand (dial8-website/docs/plans/chat-voice.md
+//! the current utterance on demand (web/docs/plans/chat-voice.md
 //! §3.2): it resolves
 //! once the sidecar's `finalized` ack is in, by which time every event for
 //! the audio pushed before the call is already in the receiver.

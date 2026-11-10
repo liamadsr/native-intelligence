@@ -35,7 +35,7 @@ import {
   teammateReportContextLine,
   type TeammateReport,
 } from './teammate-report'
-import { CALL_CHANNEL, DIAL8_CHANNEL, renderChannelTurnBody, SLACK_CHANNEL, SMS_CHANNEL, TEAM_CHAT_CHANNEL, type PlannedChannelMessage } from './channel-turn'
+import { CALL_CHANNEL, NI_CHANNEL, renderChannelTurnBody, SLACK_CHANNEL, SMS_CHANNEL, TEAM_CHAT_CHANNEL, type PlannedChannelMessage } from './channel-turn'
 import { guestAskTurnLines, type HomeTurnGuestAsks } from '@/lib/guests/guest-ask-lines'
 import { AGENT_ANSWER_GUIDANCE, agentAnswerTurnLines, type HomeTurnAgentAnswers } from '@/lib/agent-links/answer-lines'
 import { isIsoInstant } from '@/lib/presence/presence'
@@ -602,7 +602,7 @@ export function buildHomeTurnBody(
       return renderChannelTurnBody(CALL_CHANNEL, homeTurnTag(rowId), input.channelMessages ?? [])
     case 'agent_ask':
       // Another person's agent's words to the half made for them, framed as data (./channel-turn.ts).
-      return renderChannelTurnBody(DIAL8_CHANNEL, homeTurnTag(rowId), input.channelMessages ?? [])
+      return renderChannelTurnBody(NI_CHANNEL, homeTurnTag(rowId), input.channelMessages ?? [])
     case 'agent_answer': {
       const answers = input.agentAnswers?.answers ?? []
       if (answers.length === 0) return null

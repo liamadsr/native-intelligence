@@ -1,10 +1,10 @@
 # Automation API
 
-`window.__dial8Automation` lets a recorder (content-machine's product videos) drive the real Native Intelligence desktop app. The recorder runs JavaScript in the main web view through the desktop app's automation bridge (`dial8-desktop/src-tauri/src/automation`), and moves the real mouse and keyboard itself.
+`window.__niAutomation` lets a recorder (content-machine's product videos) drive the real Native Intelligence desktop app. The recorder runs JavaScript in the main web view through the desktop app's automation bridge (`desktop/src-tauri/src/automation`), and moves the real mouse and keyboard itself.
 
 ## When it exists
 
-Only in the desktop app (`isDesktopApp()`), and only when the bridge set its flag at document start: `window.__DIAL8_AUTOMATION__.version === 1`. That happens only when the app was launched with `DIAL8_AUTOMATION_PORT` and `DIAL8_AUTOMATION_TOKEN`.
+Only in the desktop app (`isDesktopApp()`), and only when the bridge set its flag at document start: `window.__NI_AUTOMATION__.version === 1`. That happens only when the app was launched with `NI_AUTOMATION_PORT` and `NI_AUTOMATION_TOKEN`.
 
 Everywhere else nothing is registered, and the implementation is never fetched. The always-bundled part is `flag.ts` plus the `AutomationMount` gate (`automation-mount.tsx`) that the dashboard shell mounts. `api.ts` and `automation-bridge.tsx` load on demand.
 
@@ -13,8 +13,8 @@ Everywhere else nothing is registered, and the implementation is never fetched. 
 The order that works from a cold launch:
 
 1. Poll the bridge's `/health` until it answers.
-2. `/eval` until `typeof window.__dial8Automation === 'object'`. The bridge answers before the page has loaded, and the page loads twice at launch (the bridge loads it again once its flag is in).
-3. `await __dial8Automation.ready()`.
+2. `/eval` until `typeof window.__niAutomation === 'object'`. The bridge answers before the page has loaded, and the page loads twice at launch (the bridge loads it again once its flag is in).
+3. `await __niAutomation.ready()`.
 
 A script running when the page navigates answers `{"ok":false,"error":"Completion handler for function call is no longer reachable"}` (WebKit's own error). Retry it.
 
@@ -23,7 +23,7 @@ While Native Intelligence's window is covered by other windows, WebKit stops ren
 ## API (version 1)
 
 ```ts
-window.__dial8Automation = {
+window.__niAutomation = {
   version: 1,
   info(): { buildId: string | null; route: string; workspaceId: string | null },
   ready(opts?: { timeoutMs?: number }): Promise<void>,
@@ -57,7 +57,7 @@ Returns the UI to a clean, known state. It does not touch server data, the sessi
   - The old panel's card store goes with it.
 - An open menu is closed with Escape.
 
-It resolves once all of that has landed, including the new chat stored in `localStorage` (`dial8-chat:<workspace>`). A relaunch therefore comes back to the same chat, and the next `/captures` opens the Captures list.
+It resolves once all of that has landed, including the new chat stored in `localStorage` (`ni-chat:<workspace>`). A relaunch therefore comes back to the same chat, and the next `/captures` opens the Captures list.
 
 Two calls run one after the other.
 

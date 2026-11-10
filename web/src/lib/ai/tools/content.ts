@@ -42,6 +42,7 @@ import { reviewPost } from '@/lib/content/review'
 import { sendToTypefully, type TypefullyWhen } from '@/lib/content/typefully'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
 import { wrapUntrusted } from '@/lib/email/untrusted'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** A writer model id as the envelope may carry it (a bare id or a Gateway slug). */
 const MODEL_ID_RE = /^[a-z0-9][a-z0-9._:/-]{0,99}$/i
@@ -78,7 +79,7 @@ export const POST_SEND_TOOLS = { publish_post: 'now', schedule_post: 'next_free_
 export type PostSendTool = keyof typeof POST_SEND_TOOLS
 
 export function isPostSendTool(name: string): name is PostSendTool {
-  return Object.hasOwn(POST_SEND_TOOLS, name.replace(/^dial8_/, ''))
+  return Object.hasOwn(POST_SEND_TOOLS, bareToolName(name))
 }
 
 const sendInput = z.object({

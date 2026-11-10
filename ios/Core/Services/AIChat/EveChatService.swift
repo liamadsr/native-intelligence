@@ -6,7 +6,9 @@ final class EveChatAPI {
     static let shared = EveChatAPI()
     static var appBaseURL: URL {
         #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["DIAL8_API_BASE_URL"], let url = URL(string: override) { return url }
+        // TODO(rename-compat): DIAL8_API_BASE_URL is the name an Xcode scheme set up before the rename uses.
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["NI_API_BASE_URL"] ?? environment["DIAL8_API_BASE_URL"], let url = URL(string: override) { return url }
         return URL(string: "http://localhost:3000")!
         #else
         return URL(string: "https://dial8.ai")!

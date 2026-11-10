@@ -31,7 +31,7 @@ export async function authenticateUser(req: Request) {
   const authHeader = req.headers.get('authorization') || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
 
-  // Device token: opaque `d8d_…` secret resolving to a user. These endpoints
+  // Device token: opaque `nid_…` secret resolving to a user. These endpoints
   // pass user.id / workspaceId explicitly and don't lean on RLS, so a
   // service-role client is the right scoped client to hand back.
   if (token && isDeviceToken(token)) {

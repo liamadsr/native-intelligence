@@ -93,12 +93,12 @@ describe('ActionPlatformIcon — what it claims', () => {
    * as the favicon. Sitting in a row beside the Jira, Asana and Linear brand
    * marks, anything else reads as a fourth vendor.
    *
-   * Asserted through `data-dial8-mark` rather than by hunting the svg paths the
+   * Asserted through `data-ni-mark` rather than by hunting the svg paths the
    * old glyph had: the point is WHICH artwork, and the artwork is now a raster.
    */
   it('draws the APP icon, not the marketing glyph', async () => {
     await render({ links: [] })
-    const glyph = container.querySelector('[data-dial8-mark]') as HTMLElement
+    const glyph = container.querySelector('[data-ni-mark]') as HTMLElement
     expect(glyph).toBeTruthy()
     // The marketing Mark is an <svg> of ~20 circles; the app mark is not.
     expect(container.querySelector('svg')).toBeNull()
@@ -113,7 +113,7 @@ describe('ActionPlatformIcon — what it claims', () => {
    */
   it('tints itself with currentColor rather than baking in black', async () => {
     await render({ links: [] })
-    const glyph = container.querySelector('[data-dial8-mark]') as HTMLElement
+    const glyph = container.querySelector('[data-ni-mark]') as HTMLElement
     expect(glyph.style.backgroundColor).toBe('currentcolor')
     expect(glyph.style.maskImage).toContain('/icon.png')
     expect(glyph.style.maskSize).toBe('contain')
@@ -127,7 +127,7 @@ describe('ActionPlatformIcon — what it claims', () => {
     // The mark answers "whose item is this?" — an action in Jira is not a Native Intelligence
     // item any more, so the glyph is replaced rather than accompanied.
     await render({ links: [{ provider: 'jira' }] })
-    expect(container.querySelector('[data-dial8-mark]')).toBeNull()
+    expect(container.querySelector('[data-ni-mark]')).toBeNull()
   })
 
   it('treats absent links exactly like empty links', async () => {

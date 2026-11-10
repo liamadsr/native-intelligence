@@ -1209,8 +1209,8 @@ function ComposeFields(props: ComposeFieldsProps) {
 
           THE SITE IS NOT A CAPTION either. "In {siteName}" was a leading label
           for a value nobody can change in v1, and on the common setup where the
-          Jira site is named for the workspace it read as noise ("In dial8", on
-          a Native Intelligence screen). It survives where it is actually useful — as the
+          Jira site is named for the workspace it read as noise ("In acme", on
+          Acme's own screen). It survives where it is actually useful — as the
           Project chip's `title`, i.e. on hover of the field the site scopes. */}
 
       {provider === 'jira' && (
@@ -1482,7 +1482,7 @@ function JiraFields({
         layout={layout}
         label="Project"
         // WHERE THE SITE NAME WENT. It used to be a leading caption on the
-        // strip ("In dial8") — a label for a value v1 cannot change, which on a
+        // strip ("In acme") — a label for a value v1 cannot change, which on a
         // site named after the workspace read as noise rather than as context.
         // The project is the thing the site actually scopes, so the fact rides
         // on that chip's tooltip: reachable when someone wonders which Jira

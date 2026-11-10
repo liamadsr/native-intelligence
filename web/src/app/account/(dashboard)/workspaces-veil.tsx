@@ -23,7 +23,7 @@ import { OPEN_WORKSPACES_EVENT } from '../workspaces-veil-events'
  * app is out of sight, then brings the app forward out of THAT card — so the
  * switch needs no curtain of its own: the veil is the curtain.
  *
- * The app moves as one piece — `#dial8-shell-root`, scaled and faded with the
+ * The app moves as one piece — `#ni-shell-root`, scaled and faded with the
  * Web Animations API — so nothing inside it is laid out again or remounted:
  * it's the same live app, just further away. While the veil is up the app is
  * inert (no focus, no pointer), and keys stop at the veil, so the app's
@@ -39,7 +39,7 @@ import { OPEN_WORKSPACES_EVENT } from '../workspaces-veil-events'
  */
 type Phase = 'closed' | 'receding' | 'open' | 'switching' | 'emerging'
 
-const SHELL_ID = 'dial8-shell-root'
+const SHELL_ID = 'ni-shell-root'
 /** Above the veil (z-46) while the app is in flight, so it's seen shrinking
  *  over the cards and growing back over them. */
 const SHELL_FLIGHT_Z = '47'

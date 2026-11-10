@@ -24,7 +24,7 @@ const opening = instructions.slice(0, instructions.indexOf('\n\n')).replace(/\s+
 describe('chat-agent instructions.md: who the model is', () => {
   it('opens by making it depend on the conversation, not with an unconditional identity', () => {
     expect(opening.startsWith('Who you are depends on the conversation.')).toBe(true)
-    // The always-on framing, the same as the base prompt's opening (src/lib/ai/system-prompt.ts DIAL8_IDENTITY).
+    // The always-on framing, the same as the base prompt's opening (src/lib/ai/system-prompt.ts NI_IDENTITY).
     expect(opening).toContain("In the user's main in-app chat you are their always-on agent, under the name they gave you in Settings → Preferences (\"Assistant\" by default; Native Intelligence is the product):")
     // No line anywhere states an identity on its own.
     expect(instructions.match(/^You are /gm)).toBeNull()

@@ -471,7 +471,7 @@ describe('buildAgentRunSpec — base branch is the repo default, and the prompt 
     expect(prompt).toContain('finish_run')
     expect(prompt).toContain('git push')
     expect(prompt).toContain('Do not open the pull request yourself')
-    expect(prompt).not.toMatch(/dial8_(link_pr|update_action|find|get_action|complete_action|get_project_context)/)
+    expect(prompt).not.toMatch(/ni_(link_pr|update_action|find|get_action|complete_action|get_project_context)/)
     expect(prompt).not.toContain('4. Open a pull request')
     expect(prompt).toContain('You are a careful engineer.')
   })

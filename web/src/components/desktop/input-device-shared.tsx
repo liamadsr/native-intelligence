@@ -52,7 +52,7 @@ export const BLUETOOTH_HINT =
 
 /** Set once the one-time Bluetooth note has shown (a Bluetooth mic first
  *  moved to #1). */
-export const BLUETOOTH_NOTE_KEY = 'dial8.inputDevices.bluetoothNoteSeen'
+export const BLUETOOTH_NOTE_KEY = 'ni.inputDevices.bluetoothNoteSeen'
 
 export function hasSeenBluetoothNote(): boolean {
   try {

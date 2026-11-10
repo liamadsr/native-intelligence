@@ -21,7 +21,7 @@
 import { useSyncExternalStore } from 'react'
 
 /** Asks the dashboard for a bot's page: `detail` is OpenTeammateChatDetail. Cancelled (preventDefault) once it's opened. */
-export const OPEN_TEAMMATE_CHAT_EVENT = 'dial8:open-teammate-chat'
+export const OPEN_TEAMMATE_CHAT_EVENT = 'ni:open-teammate-chat'
 
 /** One of a teammate's work items, as its page opens on it: its id and its title (the item's own, for its label). */
 export interface TeammateChatItem {

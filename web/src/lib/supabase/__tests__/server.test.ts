@@ -248,8 +248,8 @@ describe('createClient() — dual-credential identity guard', () => {
     expect(forwardedAuth()).toBeUndefined()
   })
 
-  it('d8d_ device token → never forwarded (with or without cookie)', async () => {
-    hoisted.authHeader = 'Bearer d8d_opaque_secret'
+  it('nid_ device token → never forwarded (with or without cookie)', async () => {
+    hoisted.authHeader = 'Bearer nid_opaque_secret'
     await createClient()
     expect(forwardedAuth()).toBeUndefined()
 

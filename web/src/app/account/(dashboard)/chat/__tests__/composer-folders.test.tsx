@@ -36,7 +36,7 @@ import {
 import type { LocalAgentStatus } from '@/lib/tauri-bridge'
 
 const THIS_MAC = 'dev-this'
-const ROW = { id: 'f-1', deviceId: THIS_MAC, grantId: 'g-1', label: 'dial8-website', path: '/Users/liam/code/dial8-website', mode: 'edit', isGit: true, deviceName: "Liam's MacBook Pro", online: true }
+const ROW = { id: 'f-1', deviceId: THIS_MAC, grantId: 'g-1', label: 'native-intelligence', path: '/Users/liam/code/native-intelligence', mode: 'edit', isGit: true, deviceName: "Liam's MacBook Pro", online: true }
 const STUDIO = { ...ROW, id: 'f-2', deviceId: 'dev-studio', grantId: 'g-9', label: 'notes', path: '/Users/liam/notes', mode: 'read', deviceName: 'Studio' }
 const STATUS = { available: true, reason: null, node: null, agentDir: null, built: true, grants: [], jobs: [] } as LocalAgentStatus
 
@@ -59,9 +59,9 @@ function deps(s: ReturnType<typeof server>, over: Partial<EnvironmentDeps> = {})
     isDesktop: () => true,
     status: async () => STATUS,
     device: async () => ({ ok: true as const, value: { deviceId: THIS_MAC, name: "Liam's MacBook Pro", platform: 'macos', appVersion: '0.3.0' } }),
-    pickFolder: async () => ({ ok: true as const, value: { id: 'g-1', path: ROW.path, label: 'dial8-website', mode: 'edit' as const, addedAt: 't', isGit: true } }),
+    pickFolder: async () => ({ ok: true as const, value: { id: 'g-1', path: ROW.path, label: 'native-intelligence', mode: 'edit' as const, addedAt: 't', isGit: true } }),
     removeGrant: vi.fn(async () => ({ ok: true as const, value: undefined })),
-    refreshMirror: vi.fn(async () => ({ folders: [{ id: 'f-1', grantId: 'g-1', label: 'dial8-website', mode: 'edit' as const, isGit: true }] })),
+    refreshMirror: vi.fn(async () => ({ folders: [{ id: 'f-1', grantId: 'g-1', label: 'native-intelligence', mode: 'edit' as const, isGit: true }] })),
     ...over,
   }
 }

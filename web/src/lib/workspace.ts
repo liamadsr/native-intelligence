@@ -75,7 +75,7 @@ interface ResolvedUser {
  * hardware devices, MCP). Kept in sync with the resolver in api-auth.ts.
  *
  * When resolved from a Supabase Bearer JWT, returns a client bound to that
- * token so downstream RLS queries run AS the user. A device token (`d8d_…`)
+ * token so downstream RLS queries run AS the user. A device token (`nid_…`)
  * is opaque, not a JWT, so no client can be bound to it and this returns null
  * — device callers pin the workspace separately, which
  * `getCurrentWorkspaceId` handles through `deviceTokenWorkspace()` BEFORE it

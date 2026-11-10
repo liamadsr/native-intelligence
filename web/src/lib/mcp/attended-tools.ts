@@ -12,10 +12,10 @@
  *   is said to the Captures bot (or the main chat) about the pass in view.
  *   list_bot_work and get_bot_item (bots-v4 Phase A1: what the person's bots
  *   have waiting on them) are in: they only read the caller's own rows and
- *   cards (dial8_list_bot_work, dial8_get_bot_item). So are settle_work_item
+ *   cards (ni_list_bot_work, ni_get_bot_item). So are settle_work_item
  *   and send_work_answer (Phase A2: Reviewed or Dismiss on one of the caller's
  *   reviews, the caller's answer to a question their own run waits on), as the
- *   person's own clicks (dial8_settle_work_item, dial8_send_work_answer).
+ *   person's own clicks (ni_settle_work_item, ni_send_work_answer).
  *   And rename_bot, delete_bot and merge_bots (GEN-1168): the person
  *   managing their own agents from their own client, under the agent
  *   editor's rules; a delete or merge lands as their card in the app, exactly
@@ -23,7 +23,7 @@
  *   And remember (one-agent plan Part 3): the person saying what Native Intelligence
  *   should remember, from their own client, lands in the same note (or, with
  *   scope 'profile', in the facts about them); they see and undo it in What
- *   Native Intelligence has learned (dial8_remember).
+ *   Native Intelligence has learned (ni_remember).
  *   And the loop builders (create_flow, update_flow, delete_flow): the
  *   person's own client building or switching on their loops is the person
  *   acting, as it was before they became attended-only. The tools' own
@@ -34,8 +34,8 @@
  *   (its skills run as them; nothing is sent or delivered).
  *   And the skill writers (create_skill, update_skill): the person authoring
  *   their own skills from their own client. Over MCP these are the
- *   hand-registered dial8_create_skill / dial8_update_skill (plus
- *   dial8_delete_skill, which chat doesn't have, and the agent writers).
+ *   hand-registered ni_create_skill / ni_update_skill (plus
+ *   ni_delete_skill, which chat doesn't have, and the agent writers).
  *   And restore_document_revision: the person rolling one of the documents
  *   they may edit back to an earlier version, from their own client; the
  *   restore is a new revision, so it can be undone the same way. So is
@@ -60,7 +60,7 @@
  *   (docs/plans/getting-started-skill.md) is the app's chat walking someone
  *   new through Native Intelligence, so only that chat ends it.
  *   And update_email_thread (GEN-1166): the person sorting their own inbox
- *   from their own client (dial8_update_email_thread); every change comes
+ *   from their own client (ni_update_email_thread); every change comes
  *   back with its undo, and over ten threads still waits for their yes
  *   (confirmed_with_user). unsubscribe_thread stays out: it runs only on the
  *   person's approval card in the app.

@@ -7,7 +7,7 @@ import { sandboxSigningKey, sandboxVerifyKey } from '@/lib/cloud-browser/viewer-
  * secret, and the public IP the request came from. The desktop checks an exit
  * token with the key before its Mac connects anywhere, and blocks its own
  * public IP (a router answers there: the hairpin) whatever a hub says
- * (dial8-desktop crates/browser-exit; docs/plans/cloud-browser.md C4). It
+ * (desktop/crates/browser-exit; docs/plans/cloud-browser.md C4). It
  * fetches both from the app's own origin, never from the page. Not cached: the
  * IP is the caller's.
  *

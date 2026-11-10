@@ -53,7 +53,7 @@ describe('homeTurnRunsOnItsOwn', () => {
     // Its name stands in when the policy doesn't carry it.
     expect(homeTurnRunsOnItsOwn({ toolName: 'mcp__notion__search_pages', sideEffect: 'unclassified', externalTool: { serverName: 'Notion', requiresApproval: false } })).toBe(true)
     expect(homeTurnRunsOnItsOwn({ toolName: 'create_calendar_event', sideEffect: 'external-write' })).toBe(true)
-    expect(homeTurnRunsOnItsOwn({ toolName: 'dial8_update_calendar_event', sideEffect: 'external-write' })).toBe(true)
+    expect(homeTurnRunsOnItsOwn({ toolName: 'ni_update_calendar_event', sideEffect: 'external-write' })).toBe(true)
     // A write the person freed to run without asking still waits: nothing is sent without their yes.
     expect(homeTurnRunsOnItsOwn({ toolName: 'mcp__slack__post_message', sideEffect: 'unclassified', externalTool: { serverName: 'Slack', requiresApproval: false, toolName: 'post_message' } })).toBe(false)
     // A read its server can't make a write (the GitHub integration's): runs whatever its name.

@@ -14,7 +14,7 @@ vi.mock('@vercel/connect', async (importOriginal) => {
   }
 })
 
-vi.mock('../config', () => ({ slackConnector: () => 'slack/dial8-public' }))
+vi.mock('../config', () => ({ slackConnector: () => 'slack/ni-public' }))
 
 import { ConnectError } from '@vercel/connect'
 import { SlackInstallUnavailableError, startSlackInstall } from '../connect'
@@ -29,7 +29,7 @@ describe('startSlackInstall', () => {
   it('returns Connect\'s installation URL', async () => {
     startInstallation.mockResolvedValue({ url: 'https://vercel.com/install/x' })
     await expect(startSlackInstall('https://dial8.ai/back')).resolves.toBe('https://vercel.com/install/x')
-    expect(startInstallation).toHaveBeenCalledWith('slack/dial8-public', {}, { returnUrl: 'https://dial8.ai/back' })
+    expect(startInstallation).toHaveBeenCalledWith('slack/ni-public', {}, { returnUrl: 'https://dial8.ai/back' })
   })
 
   it.each([403, 404])('says installs are unavailable on a %i, and never falls back to an app authorization', async (status) => {

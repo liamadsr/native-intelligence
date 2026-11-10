@@ -1,6 +1,6 @@
 //
 //  LiveActivityManager.swift
-//  dial8
+//  Native Intelligence
 //
 //  Manages the recording Live Activity lifecycle.
 //  Starts the activity when recording begins, updates it every second,

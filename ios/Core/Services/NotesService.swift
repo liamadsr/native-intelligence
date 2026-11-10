@@ -1,6 +1,6 @@
 //
 //  NotesService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Service for managing notes with Supabase backend and vector search
 //

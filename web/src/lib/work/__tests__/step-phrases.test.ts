@@ -8,8 +8,8 @@ describe('phraseForTool', () => {
   })
 
   it('strips MCP / dial8 prefixes before the lookup', () => {
-    expect(phraseForTool('mcp__dial8__dial8_read_email')).toBe('Reading an email thread')
-    expect(phraseForTool('dial8_search_contacts')).toBe('Looking up a contact')
+    expect(phraseForTool('mcp__dial8__ni_read_email')).toBe('Reading an email thread')
+    expect(phraseForTool('ni_search_contacts')).toBe('Looking up a contact')
   })
 
   it('degrades an unknown tool to "Running <name>"', () => {

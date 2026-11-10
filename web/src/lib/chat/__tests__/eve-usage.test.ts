@@ -152,9 +152,9 @@ describe('mapEveTurnUsage', () => {
 
   it('counts tool calls and flags search_tools as a discovery', () => {
     const m = mapEveTurnUsage([
-      actionsRequested(['search_tools', 'dial8_create_action']),
+      actionsRequested(['search_tools', 'ni_create_action']),
       stepCompleted({ inputTokens: 10, outputTokens: 5 }),
-      actionsRequested(['dial8_list_actions']),
+      actionsRequested(['ni_list_actions']),
     ])
     expect(m.toolCalls).toBe(3)
     expect(m.toolDiscoveries).toBe(1)
@@ -185,7 +185,7 @@ describe('mapEveTurnUsage', () => {
 
     it('a turn with no Exa result keeps a trusted positive cost and reports webSearchCostUsd null', () => {
       const m = mapEveTurnUsage([
-        actionResult('dial8_list_actions', { rows: [] }),
+        actionResult('ni_list_actions', { rows: [] }),
         stepCompleted({ inputTokens: 100, outputTokens: 10, costUsd: 0.02 }),
       ])
       expect(m.costUsd).toBeCloseTo(0.02)

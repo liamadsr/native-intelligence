@@ -38,7 +38,7 @@
 //! out of it.
 //!
 //! The launcher's environment is built from scratch ([`launcher_env`]): the
-//! app's own environment (its tokens, `DIAL8_*`, anything a parent shell
+//! app's own environment (its tokens, `NI_*`, anything a parent shell
 //! exported) never reaches it.
 
 use crate::sidecar::NoConsole;
@@ -57,9 +57,9 @@ use super::runtime::Runtime;
 pub const FALLBACK_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 /// The login shell probe, at most.
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
-const PATH_MARK: &str = "__DIAL8_LA_PATH__";
-const NODE_MARK: &str = "__DIAL8_LA_NODE__";
-const END_MARK: &str = "__DIAL8_LA_END__";
+const PATH_MARK: &str = "__NI_LA_PATH__";
+const NODE_MARK: &str = "__NI_LA_NODE__";
+const END_MARK: &str = "__NI_LA_END__";
 /// Node major the launcher's type stripping is written for.
 const NODE_MAJOR: u64 = 24;
 /// A complete packaged agent: what dev.sh, build.sh and release.sh stage

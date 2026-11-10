@@ -36,7 +36,7 @@ const fetchMock = vi.fn(async (url: string) => {
 beforeEach(() => {
   fake = makeFakeSupabase()
   fake.seed('connected_account', [
-    { id: 'acct-dial8', user_id: 'user-1', provider: 'google', capability: 'email', account_email: 'liam@dial8.ai' },
+    { id: 'acct-ni', user_id: 'user-1', provider: 'google', capability: 'email', account_email: 'liam@dial8.ai' },
     { id: 'acct-other', user_id: 'user-1', provider: 'google', capability: 'email', account_email: 'other@x.com' },
   ])
   tokens.google = { token: 'g-tok', email: 'liam@dial8.ai' }
@@ -57,7 +57,7 @@ describe('createEmailDraft — the draft is indexed where Mail and the work item
     expect(rows[0]).toMatchObject({
       workspace_id: WS,
       user_id: 'user-1',
-      account_id: 'acct-dial8',
+      account_id: 'acct-ni',
       provider: 'google',
       provider_thread_id: '1a0e8b6b5baa5eb0',
       provider_message_id: '1a0e8b6b5baa5eb0',
@@ -71,13 +71,13 @@ describe('createEmailDraft — the draft is indexed where Mail and the work item
 
   it('a reply draft on a thread the sync already indexed updates that row (no second row), keeping its folder and subject', async () => {
     fake.seed('email_thread_index', [
-      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', account_id: 'acct-dial8', provider: 'google', provider_thread_id: 'thr-9', provider_message_id: 'm-last', subject: 'Pricing', folder: 'inbox', is_draft: false },
+      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', account_id: 'acct-ni', provider: 'google', provider_thread_id: 'thr-9', provider_message_id: 'm-last', subject: 'Pricing', folder: 'inbox', is_draft: false },
     ])
     created.push({ id: 'm-draft', threadId: 'thr-9' })
     await createEmailDraft('user-1', { ...draft, subject: 'Re: Pricing', thread_id: 'thr-9' }, WS)
     const rows = fake.rows('email_thread_index')
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ id: 'idx-1', provider_message_id: 'm-draft', is_draft: true, account_id: 'acct-dial8', folder: 'inbox', subject: 'Pricing' })
+    expect(rows[0]).toMatchObject({ id: 'idx-1', provider_message_id: 'm-draft', is_draft: true, account_id: 'acct-ni', folder: 'inbox', subject: 'Pricing' })
   })
 
   it('from a named account: that account’s id', async () => {
@@ -112,11 +112,11 @@ describe('createEmailDraft — a mailbox linked to several workspaces', () => {
 
   it('the draft is indexed into every workspace the mailbox is linked to, so it shows wherever the mailbox does', async () => {
     fake.seed('connected_account_workspace', [
-      { account_id: 'acct-dial8', workspace_id: WS },
-      { account_id: 'acct-dial8', workspace_id: WS2 },
+      { account_id: 'acct-ni', workspace_id: WS },
+      { account_id: 'acct-ni', workspace_id: WS2 },
     ])
     fake.seed('email_thread_index', [
-      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', account_id: 'acct-dial8', provider: 'google', provider_thread_id: 'thr-9', subject: 'Pricing', folder: 'inbox', is_draft: false },
+      { id: 'idx-1', workspace_id: WS, user_id: 'user-1', account_id: 'acct-ni', provider: 'google', provider_thread_id: 'thr-9', subject: 'Pricing', folder: 'inbox', is_draft: false },
     ])
     created.push({ id: 'm-draft', threadId: 'thr-9' })
     await createEmailDraft('user-1', { ...draft, thread_id: 'thr-9' }, WS2)

@@ -569,7 +569,7 @@ pub fn get_audio_levels(state: State<'_, AppState>) -> AudioLevelPayload {
 /// Last AVAuthorizationStatus that check_mic_permission logged (i32::MIN =
 /// nothing logged yet). The permissions surfaces poll check_mic_permission
 /// every 1.5s, and a line per poll would bury the capture diagnostics in
-/// dial8-debug.log, so it logs on change only (first call included) — like
+/// native-intelligence-debug.log, so it logs on change only (first call included) — like
 /// permissions::log_status_if_changed. The capture-start gate calls it too, so
 /// the status a capture started under is always the last one logged. A racy
 /// double-log of one transition from two concurrent callers is harmless.

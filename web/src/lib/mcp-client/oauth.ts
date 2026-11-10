@@ -59,7 +59,7 @@ export interface TokenResponse {
   scope?: string
 }
 
-const USER_AGENT = 'dial8-mcp-client/1.0'
+const USER_AGENT = 'native-intelligence-mcp-client/1.0'
 
 /** Discovery's options: a signal that really aborts its requests (connect's time bound). */
 export interface DiscoveryOptions {
@@ -130,7 +130,7 @@ export async function probeProtectedResourceMetadataUrl(
         params: {
           protocolVersion: '2025-06-18',
           capabilities: {},
-          clientInfo: { name: 'dial8-probe', version: '1.0' },
+          clientInfo: { name: 'ni-probe', version: '1.0' },
         },
       }),
     })

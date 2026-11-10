@@ -1,4 +1,4 @@
-// Dictate anywhere (dial8-website/docs/plans/dictate-anywhere.md): the right-Option
+// Dictate anywhere (web/docs/plans/dictate-anywhere.md): the right-Option
 // tap that starts and stops dictation, and the paste into the app being typed in.
 #pragma once
 #include <stdbool.h>

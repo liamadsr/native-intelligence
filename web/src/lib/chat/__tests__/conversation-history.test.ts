@@ -228,7 +228,7 @@ describe('renderClaimSourceTranscript (claim extraction reads a chat)', () => {
       ]).lines.join('\n')
     expect(turn({ type: 'tool-find', input: { query: 'x', types: ['email'] } })).not.toContain('MAIL WORDS')
     expect(turn({ type: 'tool-search', input: { query: 'x' }, output: { results: [{ result_type: 'email' }] } })).not.toContain('MAIL WORDS')
-    expect(turn({ type: 'dynamic-tool', toolName: 'mcp__dial8__dial8_list_emails' })).not.toContain('MAIL WORDS')
+    expect(turn({ type: 'dynamic-tool', toolName: 'mcp__dial8__ni_list_emails' })).not.toContain('MAIL WORDS')
     expect(turn({ type: 'tool-get_email_summary' })).not.toContain('MAIL WORDS')
     // A search that touched no mail keeps the assistant's words.
     expect(turn({ type: 'tool-find', input: { query: 'x' }, output: { results: [{ result_type: 'claim' }] } })).toContain('MAIL WORDS')

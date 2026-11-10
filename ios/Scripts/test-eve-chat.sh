@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TASK_TMP=$(mktemp -d /tmp/dial8-eve-tests.XXXXXX)
+TASK_TMP=$(mktemp -d /tmp/ni-eve-tests.XXXXXX)
 python3 Tests/EveChat/fixture_server.py "$TASK_TMP/port" > "$TASK_TMP/server.log" 2>&1 &
 TASK_SERVER_PID=$!
 trap 'kill "$TASK_SERVER_PID" 2>/dev/null || true; cat "$TASK_TMP/server.log"; rm -rf "$TASK_TMP"' EXIT

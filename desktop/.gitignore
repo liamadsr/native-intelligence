@@ -16,7 +16,7 @@ src-tauri/crates/*/target/
 **/.build/
 
 # Debug logs
-dial8-debug.log
+native-intelligence-debug.log
 
 # Tauri generated
 src-tauri/gen/schemas/

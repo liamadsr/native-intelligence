@@ -17,7 +17,7 @@ export default function McpOAuthPopupCallback() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const message = {
-      type: 'dial8:mcp-oauth-popup-result',
+      type: 'ni:mcp-oauth-popup-result',
       success: params.get('success') === 'true',
       name: params.get('name') || '',
       tool_count: Number(params.get('tool_count') || 0),

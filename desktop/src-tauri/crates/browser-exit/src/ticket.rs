@@ -1,4 +1,4 @@
-//! The exit token, checked on this Mac before it connects anywhere (dial8-website
+//! The exit token, checked on this Mac before it connects anywhere (web
 //! `src/lib/cloud-browser/viewer-token.ts`, audience `browser-exit`).
 //!
 //! The web page hands the app a token and the hub's URL. The page is not

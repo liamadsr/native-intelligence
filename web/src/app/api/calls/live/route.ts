@@ -26,7 +26,7 @@ const DECLINE = 603
  *   2. Anything but an incoming SIP call (the same call's
  *      `realtime.call.incoming`, other events) → 200, ignored: "the first
  *      successful accept selects the runtime surface".
- *   3. Our trunk's secret header (X-Dial8-Trunk = GPT_LIVE_TRUNK_SECRET): OpenAI
+ *   3. Our trunk's secret header (X-NI-Trunk = GPT_LIVE_TRUNK_SECRET): OpenAI
  *      takes a SIP call from anyone who knows the project id, so a call that
  *      didn't come through our Twilio trunk is declined before anything else
  *      (and every call, local dev included, while the secret is unset).

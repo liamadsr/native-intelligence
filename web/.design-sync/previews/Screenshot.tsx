@@ -1,4 +1,4 @@
-import { Screenshot } from '@dial8/ui'
+import { Screenshot } from '@native-intelligence/ui'
 
 export function Dashboard() {
   return (

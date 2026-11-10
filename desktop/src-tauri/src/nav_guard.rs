@@ -35,7 +35,7 @@ use tauri_plugin_opener::OpenerExt;
 /// into it). Generic over the runtime so the compiler infers `R` at the call
 /// site; the plugin has no config (`C = ()`).
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    tauri::plugin::Builder::new("dial8-nav-guard")
+    tauri::plugin::Builder::new("ni-nav-guard")
         .on_navigation(on_navigation)
         .build()
 }

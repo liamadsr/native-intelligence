@@ -76,7 +76,7 @@ function sessionRow(over: Partial<SessionRow> = {}): SessionRow {
   return {
     id: SID,
     folderId: 'f1',
-    folderLabel: 'dial8-website',
+    folderLabel: 'native-intelligence',
     deviceId: 'd1',
     deviceName: 'Liam’s MacBook',
     conversationId: 'c1',
@@ -110,7 +110,7 @@ const EVENTS = [
     id: 9,
     source: 'device',
     kind: 'branch',
-    payload: { kind: 'branch', branch: 'dial8/dial8-website-1a2b', commit: 'abcdef1234567', filesChanged: 3, insertions: 10, deletions: 2 },
+    payload: { kind: 'branch', branch: 'dial8/native-intelligence-1a2b', commit: 'abcdef1234567', filesChanged: 3, insertions: 10, deletions: 2 },
   },
 ]
 
@@ -181,7 +181,7 @@ describe('LocalAgentPanel', () => {
     expect(fetchMock.mock.calls[0][0]).toBe(`/api/local-agent/sessions/${SID}?afterId=9`)
     // The header: the teammate (Native Intelligence on its Mac), where it works, whether it edits, its status, Stop.
     expect(q('[data-local-agent-teammate-name]')?.textContent).toBe('Native Intelligence on Liam’s MacBook')
-    expect(q('[data-local-agent-header]')?.textContent).toContain('dial8-website')
+    expect(q('[data-local-agent-header]')?.textContent).toContain('native-intelligence')
     expect(q('[data-local-agent-mode]')?.textContent).toBe('Read only')
     expect(q('[data-local-agent-status-line]')?.textContent).toBe('Working')
     expect(q('[data-local-agent-stop]')).not.toBeNull()
@@ -198,7 +198,7 @@ describe('LocalAgentPanel', () => {
     expect(q('[data-local-agent-text]')?.textContent).toContain('It is a Next.js app.')
     expect(q('[data-local-agent-highlight="ask"]')?.textContent).toContain('Should I look at the desktop repo too?')
     expect(q('[data-local-agent-highlight="finish"]')?.textContent).toContain('Mapped the app.')
-    expect(q('[data-local-agent-branch]')?.textContent).toContain('dial8/dial8-website-1a2b')
+    expect(q('[data-local-agent-branch]')?.textContent).toContain('dial8/native-intelligence-1a2b')
     expect(q('[data-local-agent-branch]')?.textContent).toContain('3 files changed · +10 −2')
   })
 

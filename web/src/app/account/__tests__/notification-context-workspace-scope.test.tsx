@@ -91,7 +91,7 @@ import {
 } from '@/lib/workspace-span'
 
 /** The old inbox's own toggle, before the app-wide switch replaced it. */
-const LEGACY_SCOPE_STORAGE_KEY = 'dial8:notifications-scope'
+const LEGACY_SCOPE_STORAGE_KEY = 'ni:notifications-scope'
 /** The switch's per-device cache, as lib/workspace-span writes it. */
 const cachedSpan = () => JSON.parse(window.localStorage.getItem(WORKSPACE_SPAN_STORAGE_KEY) ?? 'null')?.all
 const MEMBERSHIPS = [
@@ -381,7 +381,7 @@ describe("workspaceScope 'all'", () => {
     // The app-wide recovery event with no self-catch-up: one first-page refetch.
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
       )
       await Promise.resolve()
     })
@@ -413,7 +413,7 @@ describe("workspaceScope 'all'", () => {
     // which channel's mark answers for it.
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
       )
       await Promise.resolve()
     })

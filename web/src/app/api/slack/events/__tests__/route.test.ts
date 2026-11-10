@@ -38,7 +38,7 @@ const req = (body: unknown, auth = 'Bearer oidc') =>
   new Request('https://dial8.ai/api/slack/events', { method: 'POST', headers: { authorization: auth, 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
 beforeEach(() => {
-  vi.stubEnv('SLACK_CONNECTOR', 'slack/dial8-public')
+  vi.stubEnv('SLACK_CONNECTOR', 'slack/ni-public')
   vi.stubEnv('SLACK_APP_ID', APP)
   m.verify.mockReset().mockResolvedValue(true)
   m.firstDelivery.mockReset().mockResolvedValue(true)

@@ -1,7 +1,7 @@
 /**
  * The vocabulary's debug log (Liam, 2026-10-25: "add logging so we can see
  * exactly what happens and do real comparison"). Each corrected utterance
- * writes a few lines into the desktop's debug log (`dial8-debug.log` in the
+ * writes a few lines into the desktop's debug log (`native-intelligence-debug.log` in the
  * Mac's temp folder, through `voice_log`), and into the console on the web:
  *
  *   [voice-focus] dict-… vocab ready: 2431 terms (v1a2b3c), workspace aa5dc58b

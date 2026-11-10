@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { registerWorkspaceTools } from '../workspaces'
 
 /**
- * dial8_get_workspace reads a workspace, its teams (+ workflow states) and its
+ * ni_get_workspace reads a workspace, its teams (+ workflow states) and its
  * member roster by a CALLER-SUPPLIED id, on the MCP server's SERVICE-ROLE
  * Supabase client — RLS is bypassed, so the app-layer membership check is the
  * only gate. Without it, `{ workspace_id: <any uuid> }` dumped another tenant's
@@ -89,12 +89,12 @@ function getHandler(opts: { memberOf: string[] }) {
   const { server, handlers } = captureHandlers()
   const { supabase, reads, from } = makeSupabase(opts.memberOf)
   registerWorkspaceTools(server as never, 'user-1', supabase, ACTIVE_WS)
-  const handler = handlers.get('dial8_get_workspace')
-  if (!handler) throw new Error('dial8_get_workspace was not registered')
+  const handler = handlers.get('ni_get_workspace')
+  if (!handler) throw new Error('ni_get_workspace was not registered')
   return { handler, reads, from }
 }
 
-describe('dial8_get_workspace — workspace scoping', () => {
+describe('ni_get_workspace — workspace scoping', () => {
   it('reads the ACTIVE workspace with no membership probe when workspace_id is omitted', async () => {
     const { handler, reads } = getHandler({ memberOf: [ACTIVE_WS] })
 
@@ -125,7 +125,7 @@ describe('dial8_get_workspace — workspace scoping', () => {
     expect(result.isError).toBe(true)
     const body = JSON.parse(result.content[0].text)
     expect(body.error).toMatch(/not a member/i)
-    // Identical to dial8_set_workspace's refusal: it must not say whether the
+    // Identical to ni_set_workspace's refusal: it must not say whether the
     // workspace exists.
     expect(body.error).not.toMatch(new RegExp(FOREIGN_WS))
     // The probe is all that ran — no workspace row, no teams, no roster.

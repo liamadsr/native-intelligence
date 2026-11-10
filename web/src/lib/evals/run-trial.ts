@@ -22,7 +22,7 @@
  * dishonest — and (b) is mintable server-side without a browser session.
  *
  * There are exactly two bearer paths in `src/lib/ai/auth.ts`: a Supabase access
- * JWT, and an opaque Native Intelligence DEVICE TOKEN (`d8d_…`). We cannot mint a Supabase
+ * JWT, and an opaque Native Intelligence DEVICE TOKEN (`nid_…`). We cannot mint a Supabase
  * JWT for another user without their password or a refresh token, so the device
  * token is the supported path — the same one the hardware capture device uses.
  * `resolveDeviceToken` hands `authenticateUser` the user and a service-role

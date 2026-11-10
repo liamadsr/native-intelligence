@@ -27,7 +27,7 @@ interface CopyIdButtonProps {
  *
  * Designed to be pasted into AI prompts so the agent can address a specific
  * entity by ID without ambiguity. E.g. clicking on a capture's button copies
- * `capture c78450b4-…` which the agent can route to `dial8_get_capture`.
+ * `capture c78450b4-…` which the agent can route to `ni_get_capture`.
  *
  * Shows a green check + "Copied!" tooltip for 1.5s after click.
  */

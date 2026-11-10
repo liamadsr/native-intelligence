@@ -397,9 +397,9 @@ export const MainChatHost = memo(function MainChatHost({
       )
     }
     const events: Array<[string, (e: Event) => void]> = [
-      ['dial8:chat-about-proposal', onProposal],
-      ['dial8:trigger-skill', onTriggerSkill],
-      ['dial8:editor-selection', onEditorSelection],
+      ['ni:chat-about-proposal', onProposal],
+      ['ni:trigger-skill', onTriggerSkill],
+      ['ni:editor-selection', onEditorSelection],
       [PROSPECTING_START_EVENT, onProspectingStart],
       [PROSPECTING_ASK_EVENT, onProspectingAsk],
       [FIND_CONTACT_EMAIL_EVENT, onFindContactEmail],

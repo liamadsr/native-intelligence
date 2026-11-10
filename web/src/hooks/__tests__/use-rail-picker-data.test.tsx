@@ -163,7 +163,7 @@ describe('useRailPickerData — per-workspace picker cache', () => {
 
       act(() => {
         window.dispatchEvent(
-          new CustomEvent('dial8:entity-created', { detail: { entityType: 'project', id: 'p-new' } }),
+          new CustomEvent('ni:entity-created', { detail: { entityType: 'project', id: 'p-new' } }),
         )
       })
       // Debounced 1s by the hook (pickers aren't latency-sensitive).

@@ -8,11 +8,11 @@
 // passkeys work) and catches the dial8desktop:// callback itself
 // (callbackURLScheme), so the result never travels as an OS deep link.
 
-@interface Dial8AuthPresenter : NSObject <ASWebAuthenticationPresentationContextProviding>
+@interface NiAuthPresenter : NSObject <ASWebAuthenticationPresentationContextProviding>
 @property(nonatomic, weak) NSWindow *window;
 @end
 
-@implementation Dial8AuthPresenter
+@implementation NiAuthPresenter
 - (ASPresentationAnchor)presentationAnchorForWebAuthenticationSession:(ASWebAuthenticationSession *)session {
     NSWindow *w = self.window;
     if (w != nil) return w;
@@ -25,7 +25,7 @@
 // The running session and its presenter (the session holds its provider
 // weakly). Main thread only.
 static ASWebAuthenticationSession *g_auth_session = nil;
-static Dial8AuthPresenter *g_auth_presenter = nil;
+static NiAuthPresenter *g_auth_presenter = nil;
 
 void web_links_auth_session_start(const char *url, const char *callback_scheme, void *ns_window,
                                   void *ctx, WebLinksAuthDone done) {
@@ -50,7 +50,7 @@ void web_links_auth_session_start(const char *url, const char *callback_scheme, 
         // One sign-in at a time: a second click replaces the first.
         if (g_auth_session != nil) [g_auth_session cancel];
 
-        Dial8AuthPresenter *presenter = [[Dial8AuthPresenter alloc] init];
+        NiAuthPresenter *presenter = [[NiAuthPresenter alloc] init];
         presenter.window = window;
         __block ASWebAuthenticationSession *session = nil;
         session = [[ASWebAuthenticationSession alloc]

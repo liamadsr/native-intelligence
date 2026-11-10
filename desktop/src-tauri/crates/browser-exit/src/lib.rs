@@ -1,4 +1,4 @@
-//! The Mac exit for the agent's cloud browser (dial8-website
+//! The Mac exit for the agent's cloud browser (web
 //! docs/plans/cloud-browser.md, C4): when this Mac is online, the sites the
 //! agent's browser visits see this Mac's internet connection, and nothing of
 //! this Mac or its network is reachable through it.

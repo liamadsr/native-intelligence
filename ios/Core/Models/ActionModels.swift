@@ -1,6 +1,6 @@
 //
 //  ActionModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Core models for AI-powered actions and tasks
 //

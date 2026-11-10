@@ -17,19 +17,19 @@ export interface SoftNavigateDetail {
 
 /** Fire when an OAuth integration callback completes (desktop deep link) */
 export function emitOAuthCallback(detail: OAuthCallbackDetail) {
-  window.dispatchEvent(new CustomEvent('dial8:oauth-callback', { detail }))
+  window.dispatchEvent(new CustomEvent('ni:oauth-callback', { detail }))
 }
 
 /** Fire to request soft navigation (avoids window.location.href) */
 export function emitSoftNavigate(detail: SoftNavigateDetail) {
-  window.dispatchEvent(new CustomEvent('dial8:soft-navigate', { detail }))
+  window.dispatchEvent(new CustomEvent('ni:soft-navigate', { detail }))
 }
 
 /** Subscribe to OAuth callbacks */
 export function onOAuthCallback(handler: (detail: OAuthCallbackDetail) => void): () => void {
   const listener = (e: Event) => handler((e as CustomEvent<OAuthCallbackDetail>).detail)
-  window.addEventListener('dial8:oauth-callback', listener)
-  return () => window.removeEventListener('dial8:oauth-callback', listener)
+  window.addEventListener('ni:oauth-callback', listener)
+  return () => window.removeEventListener('ni:oauth-callback', listener)
 }
 
 /**
@@ -50,19 +50,19 @@ export type McpOAuthCallbackDetail =
 
 /** Fire when a desktop MCP connect's claim settles (desktop-oauth-claims.ts). */
 export function emitMcpOAuthCallback(detail: McpOAuthCallbackDetail) {
-  window.dispatchEvent(new CustomEvent('dial8:mcp-oauth-callback', { detail }))
+  window.dispatchEvent(new CustomEvent('ni:mcp-oauth-callback', { detail }))
 }
 
 /** Subscribe to desktop MCP connect outcomes. */
 export function onMcpOAuthCallback(handler: (detail: McpOAuthCallbackDetail) => void): () => void {
   const listener = (e: Event) => handler((e as CustomEvent<McpOAuthCallbackDetail>).detail)
-  window.addEventListener('dial8:mcp-oauth-callback', listener)
-  return () => window.removeEventListener('dial8:mcp-oauth-callback', listener)
+  window.addEventListener('ni:mcp-oauth-callback', listener)
+  return () => window.removeEventListener('ni:mcp-oauth-callback', listener)
 }
 
 /** Subscribe to soft navigation requests */
 export function onSoftNavigate(handler: (detail: SoftNavigateDetail) => void): () => void {
   const listener = (e: Event) => handler((e as CustomEvent<SoftNavigateDetail>).detail)
-  window.addEventListener('dial8:soft-navigate', listener)
-  return () => window.removeEventListener('dial8:soft-navigate', listener)
+  window.addEventListener('ni:soft-navigate', listener)
+  return () => window.removeEventListener('ni:soft-navigate', listener)
 }

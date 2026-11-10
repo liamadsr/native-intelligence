@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { isTeammateReportMessage, teammateReportTranscriptLine } from './teammate-report'
 import { signedUploadOf } from './fresh-upload-url'
 import { wrapUntrusted } from '@/lib/email/untrusted'
+import { bareToolName as withoutMcpPrefix } from '@/lib/mcp/tool-names'
 
 /**
  * Text renderings of a chat conversation's persisted messages
@@ -369,10 +370,10 @@ export const MAIL_TOOL_NAMES: ReadonlySet<string> = new Set([
 /** Search tools whose results can include email hits. */
 const SEARCH_TOOL_NAMES: ReadonlySet<string> = new Set(['find', 'search'])
 
-/** A tool name without a server prefix (`mcp__dial8__read_email`, `dial8_read_email`). */
+/** A tool name without a server prefix (`mcp__<server>__read_email`, `ni_read_email`). */
 function bareToolName(name: string): string {
   const afterServer = name.includes('__') ? name.slice(name.lastIndexOf('__') + 2) : name
-  return afterServer.startsWith('dial8_') ? afterServer.slice('dial8_'.length) : afterServer
+  return withoutMcpPrefix(afterServer)
 }
 
 /** Whether one tool part read mail: a mail tool, or a search that asked for or returned email. */

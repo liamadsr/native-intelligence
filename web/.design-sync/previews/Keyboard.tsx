@@ -1,4 +1,4 @@
-import { Keyboard } from '@dial8/ui'
+import { Keyboard } from '@native-intelligence/ui'
 
 export function QuickCapture() {
   return (

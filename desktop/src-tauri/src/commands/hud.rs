@@ -492,7 +492,7 @@ fn agent_hud_presence(app: &AppHandle) -> AgentHudPresence {
 /// drops them all, as a new meeting's window always has.
 ///
 /// Logs what it did unless the HUD was simply up, so the next "the HUD
-/// vanished" has a trace in /tmp/dial8-meeting.log.
+/// vanished" has a trace in /tmp/native-intelligence-meeting.log.
 fn ensure_agent_hud_inner(app: &AppHandle, reason: &str, capture_id: Option<&str>) -> AgentHudPlan {
     let presence = agent_hud_presence(app);
     let plan = plan_agent_hud(presence);

@@ -33,14 +33,14 @@ const mac = { environmentId: MAC_ENV, name: 'Liam’s MacBook Pro', online: true
 describe('renderEnvironmentSection', () => {
   it('a Mac: online, its folders with id, mode and base branch, the other Macs, the tail; never a path', () => {
     const folders: EnvironmentFolder[] = [
-      { id: F(1), label: 'dial8-website', mode: 'edit', baseBranch: 'main' },
+      { id: F(1), label: 'native-intelligence', mode: 'edit', baseBranch: 'main' },
       { id: F(2), label: 'notes', mode: 'read', baseBranch: 'main' },
     ]
     const md = renderEnvironmentSection({ kind: 'mac', mac, folders, otherMacs: [{ environmentId: STUDIO_ENV, name: 'Studio', online: false, supportsBaseBranch: false }] })
     expect(md.split('\n')).toEqual([
       'This chat\'s environment, where you send work: the person\'s Mac "Liam’s MacBook Pro" (online).',
       'Its folders, most recently used first (start_local_agent takes the folder_id):',
-      `- "dial8-website": folder_id ${F(1)}, edits allowed, edits branch from main`,
+      `- "native-intelligence": folder_id ${F(1)}, edits allowed, edits branch from main`,
       `- "notes": folder_id ${F(2)}, read-only`,
       'The person\'s other Macs: "Studio" (offline) (local_agents lists their folders).',
       ENVIRONMENT_SECTION_TAIL,

@@ -7,7 +7,7 @@
  *     -c approval_policy="never" -c project_doc_max_bytes=0 -c web_search="disabled" -c tools.view_image=false
  *     -c features.<f>=false            each of CODEX_FEATURES_OFF that this version knows
  *                                      (shell_tool, unified_exec, multi_agent, hooks, ...)
- *     -c mcp_servers.dial8_folder.url=... (+ bearer_token_env_var, required, timeouts, approve)
+ *     -c mcp_servers.ni_folder.url=... (+ bearer_token_env_var, required, timeouts, approve)
  *     [resume <thread id>] -           the prompt comes on stdin
  *
  *   - `--ignore-user-config` drops `~/.codex/config.toml`: none of the
@@ -60,7 +60,7 @@ export const CODEX_FEATURES_OFF = [
 /** Turned on when this version knows it: older versions reach HTTP MCP servers only through it. */
 export const CODEX_FEATURES_ON = ['rmcp_client'] as const
 
-export const CODEX_TOKEN_ENV = 'DIAL8_WORKSPACE_MCP_TOKEN'
+export const CODEX_TOKEN_ENV = 'NI_WORKSPACE_MCP_TOKEN'
 
 const UPDATE_HINT = 'Update it (`npm install -g @openai/codex@latest`, or `brew upgrade codex`), then try again.'
 const SIGN_IN = "Codex isn't signed in on this Mac, or its login expired. Open Terminal, run `codex login`, then try again."

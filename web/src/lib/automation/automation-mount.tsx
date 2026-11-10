@@ -9,7 +9,7 @@ const AutomationBridge = lazyComponent(() => import('./automation-bridge').then(
 const subscribe = () => () => {}
 
 /**
- * Mounted once by the dashboard shell: registers `window.__dial8Automation`
+ * Mounted once by the dashboard shell: registers `window.__niAutomation`
  * (README.md) when the desktop app was launched with the automation bridge.
  * Everywhere else it renders nothing and never fetches the API's code. The
  * flag is set before the page's scripts and never changes, so it is read

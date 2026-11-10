@@ -31,7 +31,7 @@ vi.mock('@/calendar/adapters', () => ({
   actionToIEvent: (a: unknown) => a,
 }))
 
-const KEY = (ws: string) => `dial8:calendar-events:v1:${ws}`
+const KEY = (ws: string) => `ni:calendar-events:v1:${ws}`
 const HOUR = 60 * 60 * 1000
 const BUDGET_BYTES = 2_000_000
 
@@ -46,7 +46,7 @@ function calendarBytes(): number {
   let total = 0
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)!
-    if (key.startsWith('dial8:calendar-events:v1:')) total += (key.length + localStorage.getItem(key)!.length) * 2
+    if (key.startsWith('ni:calendar-events:v1:')) total += (key.length + localStorage.getItem(key)!.length) * 2
   }
   return total
 }
@@ -109,7 +109,7 @@ describe('the calendar warm-start copy stays inside its budget', () => {
     localStorage.setItem(KEY('ws-older'), storedCopy(now - 2 * HOUR, 600_000))
     localStorage.setItem(KEY('ws-recent'), storedCopy(now - 1 * HOUR, 600_000))
     // Not a calendar copy: never touched.
-    localStorage.setItem('dial8-tabs-chat:ws-1:tab-a', JSON.stringify({ chatSessionId: 's', chatMessages: [], chatInput: '' }))
+    localStorage.setItem('ni-tabs-chat:ws-1:tab-a', JSON.stringify({ chatSessionId: 's', chatMessages: [], chatInput: '' }))
 
     await mountConsumer()
 
@@ -117,7 +117,7 @@ describe('the calendar warm-start copy stays inside its budget', () => {
     expect(localStorage.getItem(KEY('ws-expired'))).toBeNull()
     expect(localStorage.getItem(KEY('ws-older'))).toBeNull()
     expect(localStorage.getItem(KEY('ws-recent'))).not.toBeNull()
-    expect(localStorage.getItem('dial8-tabs-chat:ws-1:tab-a')).not.toBeNull()
+    expect(localStorage.getItem('ni-tabs-chat:ws-1:tab-a')).not.toBeNull()
     expect(calendarBytes()).toBeLessThanOrEqual(BUDGET_BYTES)
   })
 
@@ -172,7 +172,7 @@ describe('prunePersistedEvents — the boot-time prune, no calendar mounted', ()
     localStorage.setItem(KEY('ws-oldest'), storedCopy(now - 3 * HOUR, 450_000))
     localStorage.setItem(KEY('ws-middle'), storedCopy(now - 2 * HOUR, 450_000))
     localStorage.setItem(KEY('ws-newest'), storedCopy(now - 1 * HOUR, 450_000))
-    localStorage.setItem('dial8-tabs-chat:ws-1:tab-a', JSON.stringify({ chatSessionId: 's', chatMessages: [], chatInput: '' }))
+    localStorage.setItem('ni-tabs-chat:ws-1:tab-a', JSON.stringify({ chatSessionId: 's', chatMessages: [], chatInput: '' }))
 
     prunePersistedEvents()
 
@@ -180,7 +180,7 @@ describe('prunePersistedEvents — the boot-time prune, no calendar mounted', ()
     expect(localStorage.getItem(KEY('ws-oldest'))).toBeNull()
     expect(localStorage.getItem(KEY('ws-middle'))).not.toBeNull()
     expect(localStorage.getItem(KEY('ws-newest'))).not.toBeNull()
-    expect(localStorage.getItem('dial8-tabs-chat:ws-1:tab-a')).not.toBeNull()
+    expect(localStorage.getItem('ni-tabs-chat:ws-1:tab-a')).not.toBeNull()
     expect(calendarBytes()).toBeLessThanOrEqual(BUDGET_BYTES)
   })
 

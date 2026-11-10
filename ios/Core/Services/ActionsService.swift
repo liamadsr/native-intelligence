@@ -1,6 +1,6 @@
 //
 //  ActionsService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Service for managing actions with Supabase backend
 //

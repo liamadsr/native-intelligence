@@ -18,7 +18,7 @@ vi.mock('../sky-dev-panel', async (importOriginal) => {
   return importOriginal()
 })
 
-const KEY = 'dial8.sky.devOverride.v1'
+const KEY = 'ni.sky.devOverride.v1'
 
 let root: Root
 let host: HTMLDivElement

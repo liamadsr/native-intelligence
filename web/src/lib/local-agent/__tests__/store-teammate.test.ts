@@ -108,7 +108,7 @@ describe('one agent per folder', () => {
     expect(err).toBeInstanceOf(LocalAgentError)
     expect(err.code).toBe('conflict')
     expect(err.details).toMatchObject({ code: FOLDER_BUSY_CODE, reason: 'read_only', session: expect.objectContaining({ id: read.session.id }) })
-    expect(err.message).toContain('Native Intelligence on Liam’s MacBook is already working in dial8-website, read-only')
+    expect(err.message).toContain('Native Intelligence on Liam’s MacBook is already working in native-intelligence, read-only')
     expect(db3.tables.local_agent_session).toHaveLength(1)
   })
 

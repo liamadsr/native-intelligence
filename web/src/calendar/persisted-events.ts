@@ -19,7 +19,7 @@ import type { IEvent } from '@/calendar/interfaces'
 // A leaf module (no React, no app imports) so the dashboard's boot sweep can
 // prune the copies without pulling in the calendar hook, whose imports lead
 // back to the tabs.
-const PERSIST_PREFIX = 'dial8:calendar-events:v1:'
+const PERSIST_PREFIX = 'ni:calendar-events:v1:'
 // Counted at 2 bytes a character, which is what WebKit (the desktop app)
 // charges for any string holding a character outside Latin-1 — event titles
 // and invite HTML nearly always do.

@@ -25,8 +25,8 @@
  * choice/apply layer and `dashboard-shell.tsx` for the layers.
  */
 
-export const CUSTOM_BG_LIGHT_KEY = 'dial8-app-background-custom-light'
-export const CUSTOM_BG_DARK_KEY = 'dial8-app-background-custom-dark'
+export const CUSTOM_BG_LIGHT_KEY = 'ni-app-background-custom-light'
+export const CUSTOM_BG_DARK_KEY = 'ni-app-background-custom-dark'
 
 /** CSS custom properties the shell reads for the custom background image. */
 export const CUSTOM_BG_LIGHT_VAR = '--app-bg-custom-light'

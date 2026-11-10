@@ -14,8 +14,8 @@
 import type { SandboxSession } from 'eve/sandbox'
 import type { LocalAgentMode } from '../../lib/seatbelt.js'
 
-/** The MCP server's name: the CLI shows its tools as `mcp__dial8_folder__bash` (Claude Code) or `dial8_folder.bash` (Codex). Not `workspace`: Claude Code reserves that name and drops a server called so. */
-export const FENCE_SERVER = 'dial8_folder'
+/** The MCP server's name: the CLI shows its tools as `mcp__ni_folder__bash` (Claude Code) or `ni_folder.bash` (Codex). Not `workspace`: Claude Code reserves that name and drops a server called so. */
+export const FENCE_SERVER = 'ni_folder'
 
 /** The tools whose calls become their own events instead of tool + tool_result (same as the launcher's). */
 export const MANAGER_TOOLS = new Set(['report', 'ask_manager', 'finish'])

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Shared sidecar helpers — sourced by dev.sh, build.sh and release.sh.
 #
-# Convention (see dial8-website/docs/plans/local-modules.md §1.3): every folder
+# Convention (see web/docs/plans/local-modules.md §1.3): every folder
 # under src-tauri/sidecars/ that has a build.sh (which must be executable) is a
 # sidecar.
 # `build.sh <debug|release>` must leave:

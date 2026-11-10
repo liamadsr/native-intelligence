@@ -101,9 +101,9 @@ export interface PhoneVerificationDeps {
   now?: () => number
   code?: () => string
   /** The NI-line account's deliverable email, or null for a phone-only one (./business-line.ts accountEmail). */
-  dial8HolderEmail?: (userId: string) => Promise<string | null>
+  niHolderEmail?: (userId: string) => Promise<string | null>
   /** Email the NI-line account that its number was also added as a business line (./business-line.ts). */
-  notifyDial8Holder?: (args: { to: string; phone: string }) => Promise<boolean>
+  notifyNiHolder?: (args: { to: string; phone: string }) => Promise<boolean>
 }
 
 /** Start (or restart) a verification. Never throws. */
@@ -239,9 +239,9 @@ export async function verifyPhoneCode(
   let line: PhoneLine = 'dial8'
   let noticeTo: string | null = null
   try {
-    const dial8Holder: LinkedPhone | null = await findLinkedPhone(supabase, pending.phone_e164)
-    if (dial8Holder && dial8Holder.userId !== args.userId && (await isBusinessWorkspace(supabase, pending.workspace_id))) {
-      noticeTo = await (deps.dial8HolderEmail ?? ((userId) => accountEmail(supabase, userId)))(dial8Holder.userId)
+    const niHolder: LinkedPhone | null = await findLinkedPhone(supabase, pending.phone_e164)
+    if (niHolder && niHolder.userId !== args.userId && (await isBusinessWorkspace(supabase, pending.workspace_id))) {
+      noticeTo = await (deps.niHolderEmail ?? ((userId) => accountEmail(supabase, userId)))(niHolder.userId)
       // No email (a phone-only account): it can't learn its number went elsewhere, so the number moves, as before.
       if (noticeTo) line = 'business'
     }
@@ -291,7 +291,7 @@ export async function verifyPhoneCode(
   if (linkError) return { ok: false, reason: 'lookup_failed' }
 
   if (line === 'business' && noticeTo && !alreadyLinked) {
-    await (deps.notifyDial8Holder ?? sendBusinessLineNotice)({ to: noticeTo, phone: pending.phone_e164 }).catch(() => false)
+    await (deps.notifyNiHolder ?? sendBusinessLineNotice)({ to: noticeTo, phone: pending.phone_e164 }).catch(() => false)
   }
 
   let welcomed = false

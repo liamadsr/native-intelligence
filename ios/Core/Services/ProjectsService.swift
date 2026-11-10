@@ -1,6 +1,6 @@
 //
 //  ProjectsService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Service for managing projects with Supabase backend
 //

@@ -1,6 +1,6 @@
 //
 //  SupabaseConfig.swift
-//  dial8
+//  Native Intelligence
 //
 //  Supabase configuration - IMPORTANT: Only use public anon key here
 //

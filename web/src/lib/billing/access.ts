@@ -52,7 +52,7 @@ export type BillingState =
 export type ChatGptPlanStatus = 'active' | 'exhausted' | 'revoked' | null
 
 /** Billing-exempt staff: exactly the admins (ADMIN_EMAILS, a leaf, so this module stays client-safe). */
-export function isDial8Staff(email: string | null | undefined): boolean {
+export function isNiStaff(email: string | null | undefined): boolean {
   return isAdminEmail(email)
 }
 
@@ -102,7 +102,7 @@ function classifySubscription(
   const base = {
     hasUsedTrial,
     canSkipPayment: opts.invitedByAdmin,
-    staff: isDial8Staff(opts.email),
+    staff: isNiStaff(opts.email),
   }
 
   if (base.staff) {

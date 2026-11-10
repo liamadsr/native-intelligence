@@ -67,8 +67,8 @@ import { AGENT_FACE_RESERVED_ERROR, agentFaceRefused } from '@/lib/bots/agent-fa
  *     Publishing to Discover (visibility='public') is owner/admin only, as on
  *     the HTTP routes.
  *
- * Tool naming follows the dial8_<verb>_<noun> convention used elsewhere
- * (dial8_list_skills, dial8_create_agent, etc.) — three separate verb
+ * Tool naming follows the ni_<verb>_<noun> convention used elsewhere
+ * (ni_list_skills, ni_create_agent, etc.) — three separate verb
  * sets per category rather than one generic library tool. Three explicit
  * tools are more discoverable for the LLM than one polymorphic one with a
  * required `category` argument.
@@ -110,7 +110,7 @@ async function gatedRecipeIds(
  *
  * Uses LIBRARY_LIST_FIELDS (lightweight catalog subset) — system_prompt,
  * agent_config, and extraction_config are intentionally excluded. Callers
- * who need the full record should follow up with dial8_get_<category>.
+ * who need the full record should follow up with ni_get_<category>.
  * Without this split, a 20-item list would dump ~thousands of tokens of
  * system prompts into the agent's context just for browsing.
  */
@@ -248,8 +248,8 @@ export function registerLibraryTools(
   // ──────────────── Skills ────────────────
 
   server.tool(
-    'dial8_list_skills',
-    'List Skills available in the active workspace. Skills are chat-invoked AI presets — the user activates one with a slash command (e.g. /weekly-planner) and the chat picks up its system prompt and tool config. Returns both system Skills and the workspace\'s custom Skills. Lightweight catalog only (id, name, description, icon, slug, visibility, fork count) — call dial8_get_skill with an id to fetch the full system_prompt and agent_config.',
+    'ni_list_skills',
+    'List Skills available in the active workspace. Skills are chat-invoked AI presets — the user activates one with a slash command (e.g. /weekly-planner) and the chat picks up its system prompt and tool config. Returns both system Skills and the workspace\'s custom Skills. Lightweight catalog only (id, name, description, icon, slug, visibility, fork count) — call ni_get_skill with an id to fetch the full system_prompt and agent_config.',
     {
       mine_only: z.boolean().optional().describe('If true, only return Skills the authenticated user created.'),
     },
@@ -264,8 +264,8 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_get_skill',
-    'Fetch a single Skill by ID — returns the full record including system_prompt and agent_config. Use dial8_list_skills first to discover IDs.',
+    'ni_get_skill',
+    'Fetch a single Skill by ID — returns the full record including system_prompt and agent_config. Use ni_list_skills first to discover IDs.',
     {
       id: z.string().describe('The Skill UUID.'),
     },
@@ -288,7 +288,7 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_create_skill',
+    'ni_create_skill',
     'Create a new Skill in the active workspace. Defaults to visibility="personal" so it doesn\'t auto-publish to the team. Skills require a slug — a URL-friendly identifier used for slash-command invocation (auto-generated from name if not provided). Reserved slugs: clear, reset, help.',
     {
       name: z.string().describe('Display name, e.g. "Weekly Planner".'),
@@ -351,7 +351,7 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_update_skill',
+    'ni_update_skill',
     'Update a Skill\'s fields. Cannot modify system Skills. Only fields you pass are updated.',
     {
       id: z.string().describe('The Skill UUID.'),
@@ -419,7 +419,7 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_delete_skill',
+    'ni_delete_skill',
     'Delete a custom Skill. Cannot delete system Skills.',
     {
       id: z.string().describe('The Skill UUID.'),
@@ -441,8 +441,8 @@ export function registerLibraryTools(
   // ──────────────── Agents ────────────────
 
   server.tool(
-    'dial8_list_agents',
-    'List Agents available in the active workspace. Agents are autonomous AI that run during a live capture — they listen to the transcript and propose changes (actions, decisions, etc.). The user picks which Agent is active when starting a recording. Returns both system Agents (e.g. "Project Manager") and custom workspace Agents. Lightweight catalog only (id, name, description, icon, visibility, fork count) — call dial8_get_agent with an id to fetch the full system_prompt and config.',
+    'ni_list_agents',
+    'List Agents available in the active workspace. Agents are autonomous AI that run during a live capture — they listen to the transcript and propose changes (actions, decisions, etc.). The user picks which Agent is active when starting a recording. Returns both system Agents (e.g. "Project Manager") and custom workspace Agents. Lightweight catalog only (id, name, description, icon, visibility, fork count) — call ni_get_agent with an id to fetch the full system_prompt and config.',
     {
       mine_only: z.boolean().optional().describe('If true, only return Agents the authenticated user created.'),
     },
@@ -457,8 +457,8 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_get_agent',
-    'Fetch a single Agent by ID — returns the full record including system_prompt and model. Use dial8_list_agents first to discover IDs.',
+    'ni_get_agent',
+    'Fetch a single Agent by ID — returns the full record including system_prompt and model. Use ni_list_agents first to discover IDs.',
     {
       id: z.string().describe('The Agent UUID.'),
     },
@@ -479,7 +479,7 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_create_agent',
+    'ni_create_agent',
     'Create a new Agent in the active workspace. Defaults to visibility="personal". Agents do NOT use slugs (they\'re selected by ID from the live-capture picker). A shared agent (visibility "workspace" or "public") always gets its teammate, made with it (a full teammate for a workspace owner, admin or team lead, otherwise one that speaks for the agent and takes no assignments), on bot_character or, without one, the first character nobody in the workspace has. A personal agent has no teammate.',
     {
       name: z.string().describe('Display name, e.g. "Sales Coach".'),
@@ -551,7 +551,7 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_update_agent',
+    'ni_update_agent',
     'Update an Agent\'s fields. Cannot modify system Agents.',
     {
       id: z.string().describe('The Agent UUID.'),
@@ -596,7 +596,7 @@ export function registerLibraryTools(
   )
 
   server.tool(
-    'dial8_delete_agent',
+    'ni_delete_agent',
     'Delete a custom Agent. Cannot delete system Agents.',
     {
       id: z.string().describe('The Agent UUID.'),

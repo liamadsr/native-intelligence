@@ -1393,11 +1393,11 @@ describe('PushToTrackerMenu — republishes external_links on the entity bus', (
   beforeEach(() => {
     seen = []
     listener = (e: Event) => seen.push((e as CustomEvent<BusDetail>).detail)
-    window.addEventListener('dial8:entity-updated', listener)
+    window.addEventListener('ni:entity-updated', listener)
   })
 
   afterEach(() => {
-    window.removeEventListener('dial8:entity-updated', listener)
+    window.removeEventListener('ni:entity-updated', listener)
   })
 
   it('emits the FULL link row after a push from a callback-less mount', async () => {

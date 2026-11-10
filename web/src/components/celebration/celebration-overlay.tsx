@@ -11,7 +11,7 @@ import {
 
 /**
  * Global confetti overlay. Mounted once (in dashboard-shell) and listens for
- * `dial8:celebrate` events fired via `celebrate()`. Renders a short, cute pop
+ * `ni:celebrate` events fired via `celebrate()`. Renders a short, cute pop
  * of confetti pieces at the requested origin, then cleans itself up.
  *
  * Hand-rolled with framer-motion (already a dependency) — no confetti library.

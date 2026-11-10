@@ -28,7 +28,7 @@ import type { McpToolAnnotations } from './approval-policy'
 export { McpTokenExpiredError, McpTokenRefreshUnavailableError } from './token-refresh'
 
 const CLIENT_INFO = {
-  name: 'dial8',
+  name: 'native-intelligence',
   version: '1.0.0',
 }
 

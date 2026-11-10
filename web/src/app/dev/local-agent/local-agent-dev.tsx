@@ -43,7 +43,7 @@ import {
   type TranscriptItem,
 } from '@/lib/local-agent/transcript-view'
 
-const SELECTED_JOB_KEY = 'dial8.dev.localAgent.selectedJob'
+const SELECTED_JOB_KEY = 'ni.dev.localAgent.selectedJob'
 /** A hidden webview never runs rAF; this timer flushes instead. */
 const FLUSH_FALLBACK_MS = 250
 /** Status events (turn boundaries, exits) → one status() refresh. */

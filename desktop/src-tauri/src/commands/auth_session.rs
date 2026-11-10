@@ -144,14 +144,14 @@ mod tests {
     use super::*;
 
     const GOOGLE: &str = "https://bzfthjzyzevjokbuhqci.supabase.co/auth/v1/authorize?provider=google&redirect_to=https%3A%2F%2Fdial8.ai%2Fauth%2Fdesktop-callback&code_challenge=abc&code_challenge_method=s256";
-    const DIAL8_GOOGLE: &str = "https://dial8.ai/auth/google?desktop=1&bind=0123abcd";
+    const NI_GOOGLE: &str = "https://dial8.ai/auth/google?desktop=1&bind=0123abcd";
     const CHATGPT: &str = "https://dial8.ai/auth/chatgpt?desktop=1&bind=0123abcd";
 
     #[test]
     fn the_sign_in_pages_the_web_opens_are_allowed() {
         for debug_build in [false, true] {
             assert!(page_allowed(GOOGLE, debug_build));
-            assert!(page_allowed(DIAL8_GOOGLE, debug_build));
+            assert!(page_allowed(NI_GOOGLE, debug_build));
             assert!(page_allowed(CHATGPT, debug_build));
         }
     }

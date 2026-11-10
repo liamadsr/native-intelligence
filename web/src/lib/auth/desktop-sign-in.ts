@@ -33,7 +33,7 @@ export type DesktopAuthCallback =
  * returns as an OS deep link, outside the starting page) for 15 minutes and
  * is used once.
  */
-const BIND_KEY = 'dial8.desktop-sign-in.bind'
+const BIND_KEY = 'ni.desktop-sign-in.bind'
 const BIND_TTL_MS = 15 * 60 * 1000
 
 /** Start a desktop sign-in that ends on a token_hash (ChatGPT, or Google on

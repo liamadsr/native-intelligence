@@ -2,10 +2,10 @@
  * What the device keeps of the main chat (docs/plans/one-chat.md, Slice 1):
  * ONE chat per workspace, under its own key.
  *
- *   `dial8-chat:<workspaceId>`    the chat (ChatSlice): its stable session id,
+ *   `ni-chat:<workspaceId>`    the chat (ChatSlice): its stable session id,
  *                                 the conversation it is bound to, the retained
  *                                 thread and the composer's draft.
- *   `dial8-chat:last-workspace`   the workspace whose chat was on screen last,
+ *   `ni-chat:last-workspace`   the workspace whose chat was on screen last,
  *                                 so boot reads the right key before the real
  *                                 workspace id arrives (it is fetched async).
  *
@@ -14,9 +14,9 @@
  * switch. Nothing writes during use: a restored panel catches its thread up
  * from the conversation's rows, so a copy that is behind costs nothing.
  *
- * The tabs this replaced kept `dial8-tabs:*`, `dial8-tabs-chat:*` and
- * `dial8-tabs-head:*`; sweepLegacyTabKeys frees them once. The retired in-app
- * browser's `dial8-tabs-browser*` go with the rest of its data
+ * The tabs this replaced kept `ni-tabs:*`, `ni-tabs-chat:*` and
+ * `ni-tabs-head:*`; sweepLegacyTabKeys frees them once. The retired in-app
+ * browser's `ni-tabs-browser*` go with the rest of its data
  * (lib/cloud-browser/retired-browser-data.ts), never here. The
  * retired local Claude Code pipeline's keys go once per device
  * (sweepClaudeCodeKeys).
@@ -29,7 +29,7 @@ import { scrubMailToolOutputsForStorage } from '@/lib/chat/mail-tool-scrub'
 import { isTabStateWipeActive } from './state-wipe'
 import type { ChatSlice } from './types'
 
-export const CHAT_STORAGE_PREFIX = 'dial8-chat:'
+export const CHAT_STORAGE_PREFIX = 'ni-chat:'
 const LAST_WORKSPACE_KEY = `${CHAT_STORAGE_PREFIX}last-workspace`
 
 /** The key the chat of `workspaceId` is kept under. */
@@ -106,10 +106,10 @@ export function writeLastWorkspaceId(workspaceId: string): void {
   }
 }
 
-/** The tabs' keys (the one-chat rework retired them). `dial8-tabs-browser*` was the in-app browser's: retired-browser-data.ts sweeps it. */
+/** The tabs' keys (the one-chat rework retired them). `ni-tabs-browser*` was the in-app browser's: retired-browser-data.ts sweeps it. */
 function isLegacyTabKey(key: string): boolean {
-  if (key === 'dial8-tabs' || key === 'dial8-tabs-chat') return true
-  return key.startsWith('dial8-tabs:') || key.startsWith('dial8-tabs-chat:') || key.startsWith('dial8-tabs-head:')
+  if (key === 'ni-tabs' || key === 'ni-tabs-chat') return true
+  return key.startsWith('ni-tabs:') || key.startsWith('ni-tabs-chat:') || key.startsWith('ni-tabs-head:')
 }
 
 /**
@@ -134,21 +134,21 @@ export function sweepLegacyTabKeys(): number {
 }
 
 /** Set once sweepClaudeCodeKeys has run on this device. */
-export const CLAUDE_CODE_KEYS_SWEPT_KEY = 'dial8:claude-code-keys-swept'
+export const CLAUDE_CODE_KEYS_SWEPT_KEY = 'ni:claude-code-keys-swept'
 
-/** Keys the retired local Claude Code pipeline wrote that don't start with `dial8_claude_`. */
+/** Keys the retired local Claude Code pipeline wrote that don't start with `ni_claude_`. */
 const CLAUDE_CODE_KEYS: ReadonlySet<string> = new Set([
-  'dial8_chat_use_claude_code',
-  'dial8_device_id',
-  'dial8_preferred_terminal',
+  'ni_chat_use_claude_code',
+  'ni_device_id',
+  'ni_preferred_terminal',
 ])
 
 /** A key the local Claude Code pipeline (chat, settings, Open in Claude Code) wrote. */
 function isClaudeCodeKey(key: string): boolean {
-  // `dial8_claude_*` covers the settings, the CLI session ids
-  // (`dial8_claude_session:<id>`), the folder history and the system prompt.
-  // The in-app browser's own `dial8-device-id` (hyphens) is a different key.
-  return key.startsWith('dial8_claude_') || CLAUDE_CODE_KEYS.has(key)
+  // `ni_claude_*` covers the settings, the CLI session ids
+  // (`ni_claude_session:<id>`), the folder history and the system prompt.
+  // The in-app browser's own `ni-device-id` (hyphens) is a different key.
+  return key.startsWith('ni_claude_') || CLAUDE_CODE_KEYS.has(key)
 }
 
 /**

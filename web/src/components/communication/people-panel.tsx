@@ -91,7 +91,7 @@ interface SlackRead {
 interface PeopleRead {
   guests: GuestView[]
   requests: { code: string; open: boolean } | null
-  dial8Number: string | null
+  niNumber: string | null
   available: boolean
 }
 
@@ -632,7 +632,7 @@ export function PeoplePanel({
   const people = access?.people ?? null
   const guests = people?.guests ?? []
   const reach: Reach = {
-    text: access?.phone?.available !== false && Boolean(people?.dial8Number),
+    text: access?.phone?.available !== false && Boolean(people?.niNumber),
     slackTeam: access?.slack?.installations?.[0]?.teamName ?? null,
     setUpSlack: access?.slack?.configured === false ? undefined : () => onOpenTab('slack'),
     links: Boolean(access?.links),
@@ -811,7 +811,7 @@ export function PeoplePanel({
       {people?.requests && (
         <LetPeopleAsk
           state={people.requests}
-          dial8Number={people.dial8Number}
+          niNumber={people.niNumber}
           name={name}
           onChange={(requests) => updatePeople((p) => ({ ...p, requests }))}
         />
@@ -1286,7 +1286,7 @@ function InviteCard({
   onDone: () => void
 }) {
   const first = guest.displayName.split(/\s+/)[0]
-  const number = invite.dial8Number
+  const number = invite.niNumber
   const shown = number ? formatE164ForDisplay(number) : null
   const owed = guest.state === 'active' ? guest.unbound : guest.channels
   const text = owed.includes('sms')
@@ -1349,12 +1349,12 @@ function InviteCard({
 /** "Let people ask": your request code, and its switch. */
 function LetPeopleAsk({
   state,
-  dial8Number,
+  niNumber,
   name,
   onChange,
 }: {
   state: { code: string; open: boolean }
-  dial8Number: string | null
+  niNumber: string | null
   name: string
   onChange: (state: { code: string; open: boolean }) => void
 }) {
@@ -1369,7 +1369,7 @@ function LetPeopleAsk({
     onChange(result.data)
   }
   const join = `JOIN ${state.code}`
-  const shown = dial8Number ? formatE164ForDisplay(dial8Number) : null
+  const shown = niNumber ? formatE164ForDisplay(niNumber) : null
   return (
     <section className="rounded-xl border p-3" data-people-ask-open={state.open ? 'on' : 'off'}>
       <div className="flex items-center gap-3">

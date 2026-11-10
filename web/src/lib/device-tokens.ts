@@ -2,7 +2,7 @@
  * Device tokens — long-lived, named, revocable bearer credentials for
  * headless clients (the XIAO ESP32S3 capture device and similar).
  *
- * Format: `d8d_<base64url(32 random bytes)>`. The `d8d_` prefix lets the
+ * Format: `nid_<base64url(32 random bytes)>`. The `nid_` prefix lets the
  * Bearer-auth path cheaply tell a device token apart from a Supabase JWT
  * (which is `eyJ…`) so we only hit the device_token table for tokens that
  * are actually device tokens — no wasted round-trips on JWT requests.
@@ -14,12 +14,15 @@
 import crypto from 'crypto'
 import { getServiceClient } from '@/lib/supabase/service'
 
-/** Prefix that identifies a Native Intelligence device token. */
-const DEVICE_TOKEN_PREFIX = 'd8d_'
+/** Prefix of the device tokens this server mints. */
+const DEVICE_TOKEN_PREFIX = 'nid_'
+// TODO(rename-compat): tokens minted before the rename start with `d8d_`. They sit on
+// hardware until it is paired again, so this stays until device_token holds none.
+const LEGACY_DEVICE_TOKEN_PREFIX = 'd8d_'
 
 /** True if a bearer string looks like a device token (vs. a Supabase JWT). */
 export function isDeviceToken(token: string): boolean {
-  return token.startsWith(DEVICE_TOKEN_PREFIX)
+  return token.startsWith(DEVICE_TOKEN_PREFIX) || token.startsWith(LEGACY_DEVICE_TOKEN_PREFIX)
 }
 
 /** SHA-256 hex of the full plaintext token, for storage + lookup. */
@@ -29,7 +32,7 @@ function hashDeviceToken(token: string): string {
 
 /**
  * Mint a fresh plaintext device token. Returned to the caller once; only its
- * hash is stored. The display prefix is the first 12 chars (e.g. `d8d_a1b2c3`).
+ * hash is stored. The display prefix is the first 12 chars (e.g. `nid_a1b2c3`).
  */
 export function generateDeviceToken(): {
   token: string

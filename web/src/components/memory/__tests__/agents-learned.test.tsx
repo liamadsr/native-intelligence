@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h } from 'react'
-import { AgentsLearned, type AgentMemoryEntry } from '../what-dial8-learned'
+import { AgentsLearned, type AgentMemoryEntry } from '../what-ni-learned'
 import { outsideReadLabel } from '@/lib/safety/outside-label'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true

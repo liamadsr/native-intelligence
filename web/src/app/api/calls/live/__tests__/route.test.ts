@@ -78,7 +78,7 @@ const incoming = (from = '<sip:+14155550100@sip.twilio.com>;tag=1', verstat: str
     sip_headers: [
       { name: 'From', value: from },
       ...(verstat ? [{ name: 'X-Twilio-VerStat', value: verstat }] : []),
-      ...(trunk ? [{ name: 'X-Dial8-Trunk', value: trunk }] : []),
+      ...(trunk ? [{ name: 'X-NI-Trunk', value: trunk }] : []),
     ],
   },
 })
@@ -169,7 +169,7 @@ describe('POST /api/calls/live', () => {
     }
     expect(h.accepts).toEqual([])
     expect(h.rejects).toHaveLength(4)
-    expect((console.info as unknown as { mock: { calls: string[][] } }).mock.calls.at(-1)?.[0]).toContain('outcome=unattested headers=from,x-dial8-trunk,x-twilio-verstat')
+    expect((console.info as unknown as { mock: { calls: string[][] } }).mock.calls.at(-1)?.[0]).toContain('outcome=unattested headers=from,x-ni-trunk,x-twilio-verstat')
   })
 
   it('in local dev only, GPT_LIVE_DEV_SKIP_ATTESTATION answers an unattested call', async () => {

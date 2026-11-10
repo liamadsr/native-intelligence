@@ -97,7 +97,7 @@ export async function handleRpcMessage(msg: unknown, ctx: RpcContext, signal?: A
       return rpcResult(msg.id, {
         protocolVersion,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'dial8-workspace', version: '1.0.0' },
+        serverInfo: { name: 'ni-workspace', version: '1.0.0' },
         instructions: SERVER_INSTRUCTIONS,
       })
     }

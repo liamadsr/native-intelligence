@@ -13,7 +13,7 @@ import { SKY_PRESETS, mergeSkyOverrides, parseSkyOverride } from '../dev-overrid
 type DevStore = typeof import('../sky-dev-store')
 type SkyStateModule = typeof import('../sky-state')
 
-const KEY = 'dial8.sky.devOverride.v1'
+const KEY = 'ni.sky.devOverride.v1'
 const NOW = Date.parse('2026-10-10T15:00:00Z')
 
 async function loadStore(): Promise<DevStore> {

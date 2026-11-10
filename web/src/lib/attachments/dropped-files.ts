@@ -49,7 +49,7 @@ export function filesFromTransfer(dt: DataTransfer | null | undefined): File[] {
 }
 
 /** Window event: a capture's attachments changed (its panels refetch them). */
-export const CAPTURE_ATTACHMENTS_EVENT = 'dial8:capture-attachments-changed'
+export const CAPTURE_ATTACHMENTS_EVENT = 'ni:capture-attachments-changed'
 
 export function announceCaptureAttachments(captureId: string): void {
   window.dispatchEvent(new CustomEvent(CAPTURE_ATTACHMENTS_EVENT, { detail: { captureId } }))

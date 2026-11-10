@@ -206,8 +206,8 @@ async function rerender() {
 }
 
 function storeChat(chat: { chatSessionId: string; chatMessages?: UIMessage[]; conversationId?: string }) {
-  localStorage.setItem(`dial8-chat:${WS}`, JSON.stringify({ chatMessages: [], chatInput: '', ...chat }))
-  localStorage.setItem('dial8-chat:last-workspace', WS)
+  localStorage.setItem(`ni-chat:${WS}`, JSON.stringify({ chatMessages: [], chatInput: '', ...chat }))
+  localStorage.setItem('ni-chat:last-workspace', WS)
 }
 
 const flushTranscriptForAgent = vi.fn(async (_captureId: string) => {})
@@ -282,7 +282,7 @@ describe('boot', () => {
   it('a device with no chat stored: a new one, kept with a stable session, and the home thread loads into it', async () => {
     await mount()
     const session = panel.mounts[0].session
-    expect(JSON.parse(localStorage.getItem(`dial8-chat:${WS}`)!).chatSessionId).toBe(session)
+    expect(JSON.parse(localStorage.getItem(`ni-chat:${WS}`)!).chatSessionId).toBe(session)
     expect(panel.loads).toEqual([{ conversationId: 'home-1', ifUntouched: true }])
   })
 

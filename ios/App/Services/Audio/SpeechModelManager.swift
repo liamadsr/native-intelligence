@@ -1,6 +1,6 @@
 //
 //  SpeechModelManager.swift
-//  dial8
+//  Native Intelligence
 //
 //  Readiness gate for Apple's on-device speech stack (iOS 26 SpeechAnalyzer +
 //  SpeechTranscriber). iOS transcription is ENTIRELY on-device: there is no

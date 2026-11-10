@@ -5,7 +5,7 @@
  * Interactive answer only the user and people Native Intelligence recognises by voice
  * (src/lib/voice/voice-focus.ts). Desktop only, and only on a build whose
  * `voice_status` says it sends speech audio (`speechAudio`); otherwise
- * nothing. Device-local (src/lib/voice/settings.ts `dial8:voice:focus`), off
+ * nothing. Device-local (src/lib/voice/settings.ts `ni:voice:focus`), off
  * by default. It needs the voiceprint: untrained, the switch is off and
  * disabled and the card offers the enrollment flow.
  */

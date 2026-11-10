@@ -18,7 +18,7 @@ import { useResizable } from '../use-resizable'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const STORAGE_KEY = 'dial8:test:resizable'
+const STORAGE_KEY = 'ni:test:resizable'
 
 interface Harness {
   /** The element the hook paints (the resize handle's parent). */

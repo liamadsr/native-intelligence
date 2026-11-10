@@ -68,7 +68,7 @@ describe('runLiveCall', () => {
     const summary = await call
     expect(turns).toEqual([{ words: "What's on tomorrow?", delegationId: 'del_1' }])
     expect(sent).toEqual([
-      { type: 'session.commentary.append', delegation_id: 'del_1', content: 'You have two meetings: standup at 9:30 and lunch at 12:15.', event_id: 'dial8_1' },
+      { type: 'session.commentary.append', delegation_id: 'del_1', content: 'You have two meetings: standup at 9:30 and lunch at 12:15.', event_id: 'ni_1' },
     ])
     expect(summary).toMatchObject({ handoffs: 1, replies: 1, closed: 'remote_hangup', callerChars: 19, agentChars: 13 })
   })
@@ -80,7 +80,7 @@ describe('runLiveCall', () => {
       { supabase: {} as SupabaseClient, connect: async () => s.socket, runTurn: async () => ({ kind: 'quiet', outcome: 'quiet' }), hangUp: async () => {}, sleep: async () => {} },
     )
     await flush()
-    expect(s.sent).toEqual([{ type: 'session.commentary.append', delegation_id: null, content: "Hi Liam, it's your Native Intelligence agent. What can I do for you?", event_id: 'dial8_1' }])
+    expect(s.sent).toEqual([{ type: 'session.commentary.append', delegation_id: null, content: "Hi Liam, it's your Native Intelligence agent. What can I do for you?", event_id: 'ni_1' }])
     s.emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).types).toEqual({ 'session.closed': 1 })
   })
@@ -256,7 +256,7 @@ describe('runLiveCall', () => {
     await flush()
     emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).replies).toBe(0)
-    expect(sent).toEqual([{ type: 'session.thinking.append', delegation_id: 'del_1', content: NOTHING_TO_ADD, event_id: 'dial8_1' }])
+    expect(sent).toEqual([{ type: 'session.thinking.append', delegation_id: 'del_1', content: NOTHING_TO_ADD, event_id: 'ni_1' }])
   })
 
   it('waits for a slow turn finishing in the background before it returns', async () => {
@@ -315,8 +315,8 @@ describe('runLiveCall', () => {
     const summary = await call
     expect(runTurn).toHaveBeenCalledTimes(1)
     expect(sent).toEqual([
-      { type: 'session.thinking.append', delegation_id: 'del_empty', content: NO_NEW_WORDS, event_id: 'dial8_1' },
-      { type: 'session.thinking.append', delegation_id: 'del_quiet', content: NOTHING_TO_ADD, event_id: 'dial8_2' },
+      { type: 'session.thinking.append', delegation_id: 'del_empty', content: NO_NEW_WORDS, event_id: 'ni_1' },
+      { type: 'session.thinking.append', delegation_id: 'del_quiet', content: NOTHING_TO_ADD, event_id: 'ni_2' },
     ])
     expect(summary).toMatchObject({ handoffs: 2, empty: 1, quiet: 1, replies: 0 })
   })
@@ -383,7 +383,7 @@ describe('runLiveCall', () => {
         await vi.advanceTimersByTimeAsync(1_001)
         return { ...s, hangups, summary: await call }
       })()
-      expect(capped.sent).toEqual([{ type: 'session.close', event_id: 'dial8_1' }])
+      expect(capped.sent).toEqual([{ type: 'session.close', event_id: 'ni_1' }])
       expect(capped.summary.closed).toBe('max_duration')
       expect(capped.hangups).toEqual(['live_2'])
     } finally {

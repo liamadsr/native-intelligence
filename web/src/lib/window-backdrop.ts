@@ -4,7 +4,7 @@
  * Native Intelligence.
  *
  * Two halves, both needed:
- *   - Native (dial8-desktop `set_window_backdrop`, window_backdrop.rs): the
+ *   - Native (desktop `set_window_backdrop`, window_backdrop.rs): the
  *     NSWindow goes transparent and the window server blurs what's behind it
  *     by `blur` points.
  *   - Page: `<html data-glass-window>` (set here, only once the desktop said
@@ -42,9 +42,9 @@ export const GLASS_WINDOW_UNSUPPORTED_ATTR = 'data-glass-window-unsupported'
 /** The tint's alpha (0–1) over the see-through window. */
 export const WINDOW_TINT_VAR = '--window-tint'
 
-export const GLASS_OPACITY_STORAGE_KEY = 'dial8-glass-opacity'
+export const GLASS_OPACITY_STORAGE_KEY = 'ni-glass-opacity'
 /** Window event fired (on this window) when the Opacity slider moves. */
-export const GLASS_OPACITY_EVENT = 'dial8:glass-opacity'
+export const GLASS_OPACITY_EVENT = 'ni:glass-opacity'
 /** Opacity slider, percent: 0 the most see-through glass, 100 near solid. */
 export const DEFAULT_GLASS_OPACITY = 30
 /** The blur behind the window, in points. */

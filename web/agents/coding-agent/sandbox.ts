@@ -443,10 +443,10 @@ export function prePushGuardScript(args: { branchName: string; remoteUrl: string
     PUSH_GUARD_MARKER,
     `allowed=${shellSingleQuote(`refs/heads/${args.branchName}`)}`,
     `remote_url=${shellSingleQuote(args.remoteUrl)}`,
-    'refuse() { echo "dial8 push guard: $1" >&2; status=1; }',
+    'refuse() { echo "Native Intelligence push guard: $1" >&2; status=1; }',
     'status=0',
     'if [ "$2" != "$remote_url" ]; then',
-    '  echo "dial8 push guard: this run may only push to $remote_url, not $2" >&2',
+    '  echo "Native Intelligence push guard: this run may only push to $remote_url, not $2" >&2',
     '  exit 1',
     'fi',
     'input=$(cat)',
@@ -467,9 +467,9 @@ export function prePushGuardScript(args: { branchName: string; remoteUrl: string
     '      fi',
     '      ;;',
     '  esac',
-    'done <<DIAL8_REFS',
+    'done <<NI_REFS',
     '$input',
-    'DIAL8_REFS',
+    'NI_REFS',
     '[ "$status" -eq 0 ] || exit "$status"',
     ...repoHooksDirShell(args.guardDir),
     'if [ -n "$dir" ] && [ -x "$dir/pre-push" ]; then',
@@ -490,7 +490,7 @@ export function prePushGuardScript(args: { branchName: string; remoteUrl: string
 export function hookChainScript(guardDir: string): string {
   return [
     '#!/bin/sh',
-    '# dial8 hook chain: run the repo\'s own hook of this name, if it has one.',
+    '# The hook chain: run the repo\'s own hook of this name, if it has one.',
     'name=${0##*/}',
     ...repoHooksDirShell(guardDir),
     '[ -n "$dir" ] && [ -x "$dir/$name" ] && exec "$dir/$name" "$@"',
@@ -690,8 +690,8 @@ async function seedWorkspace(
     // can do no more than the gate allows (this run's branch, while it lives).
     await required(
       {
-        command: `git config ${shellSingleQuote(extraHeaderKey(pushUrl))} "$DIAL8_PUSH_AUTH_HEADER"`,
-        env: { DIAL8_PUSH_AUTH_HEADER: `Authorization: ${githubBasicAuth(spec.gitPushToken)}` },
+        command: `git config ${shellSingleQuote(extraHeaderKey(pushUrl))} "$NI_PUSH_AUTH_HEADER"`,
+        env: { NI_PUSH_AUTH_HEADER: `Authorization: ${githubBasicAuth(spec.gitPushToken)}` },
       },
       'git push credential config',
     )

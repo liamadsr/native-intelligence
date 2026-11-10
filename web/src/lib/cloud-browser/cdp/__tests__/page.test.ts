@@ -1,7 +1,7 @@
 /**
  * One cloud tab over CDP (src/lib/cloud-browser/cdp/page.ts), against a fake
  * connection:
- *  - set-up: the runtime at document start in the dial8-agent world, frames
+ *  - set-up: the runtime at document start in the ni-agent world, frames
  *    attached paused, never Runtime.enable;
  *  - the agent world found with createIsolatedWorld (once per document);
  *  - out-of-process frames read through their own session;
@@ -42,7 +42,7 @@ describe('attachSession', () => {
     expect(methods).toEqual(['Page.enable', 'Page.setLifecycleEventsEnabled', 'Page.addScriptToEvaluateOnNewDocument',
       'Target.setAutoAttach', 'Page.getFrameTree', 'Runtime.runIfWaitingForDebugger'])
     const script = conn.calls.find(call => call.method === 'Page.addScriptToEvaluateOnNewDocument')!.params
-    expect(script).toMatchObject({ worldName: 'dial8-agent', runImmediately: true })
+    expect(script).toMatchObject({ worldName: 'ni-agent', runImmediately: true })
     expect(String(script.source)).toContain('window.__dial8Agent')
     expect(conn.calls.find(call => call.method === 'Target.setAutoAttach')!.params)
       .toEqual({ autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'iframe' }] })

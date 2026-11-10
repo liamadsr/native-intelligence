@@ -1,6 +1,6 @@
 //
 //  AttachmentService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Service for managing file attachments with Supabase Storage
 //

@@ -91,8 +91,11 @@ export function callerIdAttested(headers: readonly SipHeader[]): boolean {
   return false
 }
 
-/** The header our Twilio trunk adds to every call (`?X-Dial8-Trunk=<secret>` on its origination URI). */
-export const TRUNK_SECRET_HEADER = 'X-Dial8-Trunk' // gitleaks:allow (a header name, not a secret)
+/** The header our Twilio trunk adds to every call (`?X-NI-Trunk=<secret>` on its origination URI). */
+export const TRUNK_SECRET_HEADER = 'X-NI-Trunk' // gitleaks:allow (a header name, not a secret)
+// TODO(rename-compat): the name a trunk set up before the rename still sends. Drop it
+// once the trunk's origination URI says X-NI-Trunk.
+const LEGACY_TRUNK_SECRET_HEADER = 'X-Dial8-Trunk' // gitleaks:allow (a header name, not a secret)
 
 /**
  * Whether a call came through our own trunk: its {@link TRUNK_SECRET_HEADER}
@@ -104,7 +107,7 @@ export const TRUNK_SECRET_HEADER = 'X-Dial8-Trunk' // gitleaks:allow (a header n
 export function trunkSecretCheck(headers: readonly SipHeader[], env: Record<string, string | undefined> = process.env): 'ok' | 'not_configured' | 'mismatch' {
   const secret = env.GPT_LIVE_TRUNK_SECRET?.trim()
   if (!secret) return 'not_configured'
-  const given = headerValue(headers, TRUNK_SECRET_HEADER)?.trim()
+  const given = (headerValue(headers, TRUNK_SECRET_HEADER) ?? headerValue(headers, LEGACY_TRUNK_SECRET_HEADER))?.trim()
   if (!given) return 'mismatch'
   const a = new Uint8Array(Buffer.from(given, 'utf8'))
   const b = new Uint8Array(Buffer.from(secret, 'utf8'))

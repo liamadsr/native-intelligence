@@ -24,7 +24,7 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : undefined
   calls.push({ url, method, body })
   if (url === '/api/account/phone' && method === 'GET') {
-    return Response.json({ phone: linked, dial8Number: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
+    return Response.json({ phone: linked, niNumber: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
   }
   if (url === '/api/account/agent-number' && method === 'POST') {
     own = '+16465550199'
@@ -255,7 +255,7 @@ describe('its own number (Liam, 2026-11-02)', () => {
   })
 
   it('a refusal shows on the button’s step, and nothing moves on', async () => {
-    fetchMock.mockImplementationOnce(async () => Response.json({ phone: null, dial8Number: '+15550000000', agentNumber: null, canGetNumber: true, available: true }))
+    fetchMock.mockImplementationOnce(async () => Response.json({ phone: null, niNumber: '+15550000000', agentNumber: null, canGetNumber: true, available: true }))
     fetchMock.mockImplementationOnce(async () => Response.json({ error: 'Native Intelligence has no numbers to give right now. Try again later.' }, { status: 409 }))
     await act(async () => root.render(<PhoneSection compact name="Joseph" />))
     await until(() => !!q('[data-phone-step="get-number"]'))
@@ -278,7 +278,7 @@ describe('its own number (Liam, 2026-11-02)', () => {
         own = '+16465550199'
         return Response.json({ number: own })
       }
-      return Response.json({ phone: linked, dial8Number: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
+      return Response.json({ phone: linked, niNumber: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
     })
     try {
       await act(async () => root.render(<PhoneSection compact name="Joseph" />))

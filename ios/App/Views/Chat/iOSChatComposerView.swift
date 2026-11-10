@@ -1,6 +1,6 @@
 //
 //  iOSChatComposerView.swift
-//  dial8
+//  Native Intelligence
 //
 //  The chat composer card: a near-black rounded card holding attached-capture
 //  chips, a growing multiline text field, and a control row (paperclip → attach

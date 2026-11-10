@@ -17,7 +17,7 @@
 import { useEffect } from 'react'
 import { holdLock, isLockHeld, windowId } from './cross-window'
 
-export const QUIET_LOCK_PREFIX = 'dial8-sound:quiet:'
+export const QUIET_LOCK_PREFIX = 'ni-sound:quiet:'
 
 let localHolds = 0
 let holdSeq = 0

@@ -298,7 +298,7 @@ regress that ordering.
 
 1. **Bundle identifier** — `ai.dial8.desktop`. Changing it orphans every existing
    microphone grant.
-2. **Developer ID / team** — the certificate named by `DIAL8_SIGNING_IDENTITY` in
+2. **Developer ID / team** — the certificate named by `NI_SIGNING_IDENTITY` in
    `.env.release` (`scripts/signing.sh`); its team ID is read from its name. A
    different signing identity produces a different DR and re-prompts everyone.
 3. **The designated requirement** — must stay the team-OU Developer ID form, not

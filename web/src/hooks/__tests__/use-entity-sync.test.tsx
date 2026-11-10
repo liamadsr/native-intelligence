@@ -4,10 +4,10 @@
  * realtime UI-sync layer (docs/plans/realtime-ui-sync.md).
  *
  * Exercised against the real window event bus (no Supabase involved — these
- * hooks only consume the dial8:entity-* CustomEvents):
+ * hooks only consume the ni:entity-* CustomEvents):
  *   1. List sync refetches (debounced) on created/updated/deleted for its
  *      kinds, coalesces bursts, ignores other kinds, honors `match`.
- *   2. List sync refetches on dial8:realtime-recovered (and can opt out).
+ *   2. List sync refetches on ni:realtime-recovered (and can opt out).
  *   3. Detail sync patches on id-matched updates, closes on id-matched
  *      deletes, ignores other ids/kinds, refetches on recovered.
  */
@@ -82,7 +82,7 @@ describe('useEntityListSync', () => {
     mount(h(ListHost, { kinds: ['claim'], refetch }))
 
     for (let i = 0; i < 5; i++) {
-      dispatch('dial8:entity-created', { entityType: 'claim', id: `c${i}` })
+      dispatch('ni:entity-created', { entityType: 'claim', id: `c${i}` })
     }
     expect(refetch).not.toHaveBeenCalled()
 
@@ -94,15 +94,15 @@ describe('useEntityListSync', () => {
     const refetch = vi.fn()
     mount(h(ListHost, { kinds: ['decision'], refetch }))
 
-    dispatch('dial8:entity-updated', { entityType: 'decision', id: 'd1', fields: { status: 'confirmed' } })
+    dispatch('ni:entity-updated', { entityType: 'decision', id: 'd1', fields: { status: 'confirmed' } })
     act(() => vi.advanceTimersByTime(350))
     expect(refetch).toHaveBeenCalledTimes(1)
 
-    dispatch('dial8:entity-deleted', { entityType: 'decision', id: 'd1' })
+    dispatch('ni:entity-deleted', { entityType: 'decision', id: 'd1' })
     act(() => vi.advanceTimersByTime(350))
     expect(refetch).toHaveBeenCalledTimes(2)
 
-    dispatch('dial8:entity-created', { entityType: 'action', id: 'a1' })
+    dispatch('ni:entity-created', { entityType: 'action', id: 'a1' })
     act(() => vi.advanceTimersByTime(350))
     expect(refetch).toHaveBeenCalledTimes(2)
   })
@@ -117,13 +117,13 @@ describe('useEntityListSync', () => {
       }),
     )
 
-    dispatch('dial8:entity-created', {
+    dispatch('ni:entity-created', {
       entityType: 'comment', id: 'c1', fields: { commentable_id: 'other' },
     })
     act(() => vi.advanceTimersByTime(350))
     expect(refetch).not.toHaveBeenCalled()
 
-    dispatch('dial8:entity-created', {
+    dispatch('ni:entity-created', {
       entityType: 'comment', id: 'c2', fields: { commentable_id: 'target' },
     })
     act(() => vi.advanceTimersByTime(350))
@@ -133,13 +133,13 @@ describe('useEntityListSync', () => {
   it('refetches on realtime-recovered unless opted out', () => {
     const refetch = vi.fn()
     mount(h(ListHost, { kinds: ['cycle'], refetch }))
-    dispatch('dial8:realtime-recovered', undefined)
+    dispatch('ni:realtime-recovered', undefined)
     act(() => vi.advanceTimersByTime(350))
     expect(refetch).toHaveBeenCalledTimes(1)
 
     const refetch2 = vi.fn()
     mount(h(ListHost, { kinds: ['cycle'], refetch: refetch2, refetchOnRecovered: false }))
-    dispatch('dial8:realtime-recovered', undefined)
+    dispatch('ni:realtime-recovered', undefined)
     act(() => vi.advanceTimersByTime(350))
     expect(refetch2).not.toHaveBeenCalled()
   })
@@ -150,7 +150,7 @@ describe('useEntityListSync', () => {
     act(() => root.unmount())
     root = createRoot(container) // afterEach unmounts this fresh root
 
-    dispatch('dial8:entity-created', { entityType: 'label', id: 'l1' })
+    dispatch('ni:entity-created', { entityType: 'label', id: 'l1' })
     act(() => vi.advanceTimersByTime(350))
     expect(refetch).not.toHaveBeenCalled()
   })
@@ -161,11 +161,11 @@ describe('useEntityDetailSync', () => {
     const onUpdated = vi.fn()
     mount(h(DetailHost, { kind: 'project', id: 'p1', onUpdated }))
 
-    dispatch('dial8:entity-updated', { entityType: 'project', id: 'p2', fields: { name: 'x' } })
-    dispatch('dial8:entity-updated', { entityType: 'action', id: 'p1', fields: { name: 'x' } })
+    dispatch('ni:entity-updated', { entityType: 'project', id: 'p2', fields: { name: 'x' } })
+    dispatch('ni:entity-updated', { entityType: 'action', id: 'p1', fields: { name: 'x' } })
     expect(onUpdated).not.toHaveBeenCalled()
 
-    dispatch('dial8:entity-updated', { entityType: 'project', id: 'p1', fields: { name: 'renamed' } })
+    dispatch('ni:entity-updated', { entityType: 'project', id: 'p1', fields: { name: 'renamed' } })
     expect(onUpdated).toHaveBeenCalledWith({ name: 'renamed' })
   })
 
@@ -173,8 +173,8 @@ describe('useEntityDetailSync', () => {
     const refetch = vi.fn()
     mount(h(DetailHost, { kind: 'contact', id: 'c1', refetch }))
     // A burst of updates coalesces into one refetch.
-    dispatch('dial8:entity-updated', { entityType: 'contact', id: 'c1', fields: { email: 'a@b.c' } })
-    dispatch('dial8:entity-updated', { entityType: 'contact', id: 'c1', fields: { phone: '123' } })
+    dispatch('ni:entity-updated', { entityType: 'contact', id: 'c1', fields: { email: 'a@b.c' } })
+    dispatch('ni:entity-updated', { entityType: 'contact', id: 'c1', fields: { phone: '123' } })
     expect(refetch).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(300))
     expect(refetch).toHaveBeenCalledTimes(1)
@@ -187,7 +187,7 @@ describe('useEntityDetailSync', () => {
     // A local emit arms wasRecentlyMutatedLocally AND dispatches the window
     // event — the detail sync must ignore both it and the realtime echo.
     act(() => emitEntityUpdated({ entityType: 'action', id: 'a9', fields: { title: 'mine' } }))
-    dispatch('dial8:entity-updated', { entityType: 'action', id: 'a9', fields: { title: 'mine' } })
+    dispatch('ni:entity-updated', { entityType: 'action', id: 'a9', fields: { title: 'mine' } })
     act(() => vi.advanceTimersByTime(300))
     expect(refetch).not.toHaveBeenCalled()
   })
@@ -197,13 +197,13 @@ describe('useEntityDetailSync', () => {
     const refetch = vi.fn()
     mount(h(DetailHost, { kind: 'capture', id: 'k1', onDeleted, refetch }))
 
-    dispatch('dial8:entity-deleted', { entityType: 'capture', id: 'other' })
+    dispatch('ni:entity-deleted', { entityType: 'capture', id: 'other' })
     expect(onDeleted).not.toHaveBeenCalled()
 
-    dispatch('dial8:entity-deleted', { entityType: 'capture', id: 'k1' })
+    dispatch('ni:entity-deleted', { entityType: 'capture', id: 'k1' })
     expect(onDeleted).toHaveBeenCalledTimes(1)
 
-    dispatch('dial8:realtime-recovered', undefined)
+    dispatch('ni:realtime-recovered', undefined)
     act(() => vi.advanceTimersByTime(300))
     expect(refetch).toHaveBeenCalledTimes(1)
   })
@@ -212,8 +212,8 @@ describe('useEntityDetailSync', () => {
     const onUpdated = vi.fn()
     const refetch = vi.fn()
     mount(h(DetailHost, { kind: 'document', id: null, onUpdated, refetch }))
-    dispatch('dial8:entity-updated', { entityType: 'document', id: 'd1', fields: { title: 't' } })
-    dispatch('dial8:realtime-recovered', undefined)
+    dispatch('ni:entity-updated', { entityType: 'document', id: 'd1', fields: { title: 't' } })
+    dispatch('ni:realtime-recovered', undefined)
     expect(onUpdated).not.toHaveBeenCalled()
     expect(refetch).not.toHaveBeenCalled()
   })

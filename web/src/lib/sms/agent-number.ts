@@ -22,7 +22,7 @@
  *     Phone tab asks again shortly;
  *   - a text from it carries a status callback: one carriers refuse as not yet
  *     registered (30034 / 30035) is resent from the Native Intelligence number, and its
- *     texts go from there for {@link DIAL8_FALLBACK_MS} (./status.ts).
+ *     texts go from there for {@link NI_FALLBACK_MS} (./status.ts).
  *
  * A number costs Native Intelligence every month it is held (a US local one is about $1.15),
  * so daily:
@@ -61,7 +61,7 @@ export const IDLE_RECLAIM_MS = 30 * 24 * 60 * 60_000
 /** A once-held spare is kept this long after it was freed before it may be released. */
 export const RELEASE_QUARANTINE_MS = 90 * 24 * 60 * 60_000
 /** After carriers refuse a text from a number as not yet registered, its texts go from the Native Intelligence number for this long. */
-export const DIAL8_FALLBACK_MS = 60 * 60_000
+export const NI_FALLBACK_MS = 60 * 60_000
 /** The event that runs {@link balanceSpares}, one at a time. */
 export const AGENT_NUMBERS_BALANCE_EVENT = 'agent-numbers/pool.balance'
 /** The text a person gets when their number goes back to the pool (from the Native Intelligence number). */
@@ -221,7 +221,7 @@ async function readPool(supabase: SupabaseClient, deps: AgentNumberDeps, config:
  * Native Intelligence number does (calls are routed by the caller: src/lib/calls/caller.ts).
  * Empty when it has none, or Twilio didn't say.
  */
-async function dial8Voice(deps: AgentNumberDeps, config: PoolConfig): Promise<Record<string, string>> {
+async function niVoice(deps: AgentNumberDeps, config: PoolConfig): Promise<Record<string, string>> {
   try {
     const res = await twilioRest(config, accountUrl(config, `/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(config.fromNumber)}&PageSize=1`), { method: 'GET' }, deps.fetch)
     const n = Array.isArray(res.json?.incoming_phone_numbers) ? (res.json.incoming_phone_numbers as Array<Record<string, unknown>>)[0] : undefined
@@ -335,7 +335,7 @@ export async function getAgentNumber(supabase: SupabaseClient, args: { userId: s
     for (const spare of pool.spares) {
       const claimed = await claim(supabase, args.userId, spare)
       if (claimed.kind === 'ok') {
-        const voice = await dial8Voice(deps, config)
+        const voice = await niVoice(deps, config)
         if (!(await updateNumber(deps, config, spare.sid, { FriendlyName: HELD_NAME, SmsUrl: deps.webhookUrl ?? twilioSmsWebhookUrl(), SmsMethod: 'POST', ...voice }))) {
           console.warn(`[agent-number] number ${spare.sid} not renamed as held`)
         }
@@ -358,7 +358,7 @@ export async function getAgentNumber(supabase: SupabaseClient, args: { userId: s
 export async function holdAgentNumber(supabase: SupabaseClient, phone: string, now: number = Date.now()): Promise<boolean> {
   const { data, error } = await supabase
     .from('agent_phone_number')
-    .update({ dial8_until: new Date(now + DIAL8_FALLBACK_MS).toISOString() })
+    .update({ dial8_until: new Date(now + NI_FALLBACK_MS).toISOString() })
     .eq('phone_e164', phone)
     .select('user_id')
   if (error) throw new Error(`agent_phone_number update failed: ${error.message}`)
@@ -434,7 +434,7 @@ export async function balanceSpares(supabase: SupabaseClient, opts: { release: b
     let bought = 0
     const short = Math.min(SPARE_TARGET - pool.spares.length, MAX_AGENT_NUMBERS + SPARE_TARGET - pool.ours.length)
     if (short > 0) {
-      const voice = await dial8Voice(deps, config)
+      const voice = await niVoice(deps, config)
       for (let i = 0; i < short; i++) {
         if (!(await buySpare(deps, config, voice))) break
         bought++

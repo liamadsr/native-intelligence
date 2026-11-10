@@ -1222,7 +1222,7 @@ describe.runIf(onMac)('fence grants (darwin)', { timeout: 60_000 }, () => {
     put(join(home, 'bin', 'tool'), '#!/bin/bash\n', 0o755)
     put(join(home, 'apps', 'gh-2.6', 'bin', 'gh'), '#!/bin/bash\n', 0o755)
     symlinkSync(join(home, 'apps', 'gh-2.6', 'bin', 'gh'), join(home, 'bin', 'gh'))
-    put(join(home, 'apps', 'dial8-agent', 'launcher', 'launcher.ts'), '// the agent\n')
+    put(join(home, 'apps', 'ni-agent', 'launcher', 'launcher.ts'), '// the agent\n')
     mkdirSync(join(root, 'tmp'))
     cfg = await resolveHostFolder({ folder: granted, mode: 'read', toolPath: TOOL_PATH }, { sessionId: 'wrun_fence', home, tmpRoot: join(root, 'tmp') })
     ;({ session, killAll } = createHostFolderSession(cfg))
@@ -1242,7 +1242,7 @@ describe.runIf(onMac)('fence grants (darwin)', { timeout: 60_000 }, () => {
       LOCAL_AGENT_MODE: 'read',
       HOME: home,
       LOCAL_AGENT_TOOL_PATH: `${home}/bin:${TOOL_PATH}`,
-      LOCAL_AGENT_DIR: join(home, 'apps', 'dial8-agent'),
+      LOCAL_AGENT_DIR: join(home, 'apps', 'ni-agent'),
     } as LaunchEnv,
     home,
     tmpRoot: join(root, 'tmp'),

@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     if (authHeader?.startsWith('Bearer ')) {
       const token = authHeader.slice(7)
       if (isDeviceToken(token)) {
-        // Native Intelligence device token (`d8d_…`): opaque, resolved against device_token.
+        // Native Intelligence device token (`nid_…`): opaque, resolved against device_token.
         const resolved = await resolveDeviceToken(token)
         if (resolved) user = { id: resolved.userId }
       } else {

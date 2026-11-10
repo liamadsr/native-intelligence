@@ -580,14 +580,14 @@ fn the_tv_room_capture_rerun_closed_matches_its_fixture() {
 }
 
 /// The intro without its mute hold, on a real capture (not committed: a
-/// user's own): `DIAL8_NO_HOLD_CAPTURE=DIR cargo test --lib
+/// user's own): `NI_NO_HOLD_CAPTURE=DIR cargo test --lib
 /// no_hold_on_a_real_capture -- --ignored --nocapture`. Prints the
 /// recording's runs and turns against the replay's with the greeting kept,
 /// then skipped.
 #[test]
 #[ignore]
 fn no_hold_on_a_real_capture() {
-    let Ok(dir) = std::env::var("DIAL8_NO_HOLD_CAPTURE") else { return };
+    let Ok(dir) = std::env::var("NI_NO_HOLD_CAPTURE") else { return };
     let data = CaptureData::load(std::path::Path::new(&dir)).unwrap();
     for extra in [&[][..], &["--skip-greeting".to_string()][..]] {
         let mut args = vec!["--until".to_string(), "15".to_string()];

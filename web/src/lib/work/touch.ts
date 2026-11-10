@@ -26,6 +26,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getToolSideEffect } from '@/lib/ai/tool-registry'
 import type { WorkDeliverable } from './types'
 import type { VerdictLedgerEntry } from '@/lib/flows/types'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 export const TOUCH_VERBS = ['read', 'wrote', 'created', 'proposed', 'delivered'] as const
 export type TouchVerb = (typeof TOUCH_VERBS)[number]
@@ -144,12 +145,14 @@ const OUTPUT_ID_FIELDS: Readonly<Record<string, string>> = Object.freeze({
 })
 
 const CREATE_NAME_RE = /^(create|draft|generate|ingest|save|add)_/
-const PROPOSE_NAME_RE = /^(propose|stage)_|_proposal$|^dial8_propose/
+const PROPOSE_NAME_RE = /^(propose|stage)_|_proposal$/
+/** A proposal by its name, or an MCP-prefixed `propose…` tool. */
+const isProposalName = (toolName: string) => PROPOSE_NAME_RE.test(toolName) || (bareToolName(toolName) !== toolName && bareToolName(toolName).startsWith('propose'))
 const READ_NAME_RE = /^(get|list|read|find|search|deep_search|traverse|download|lookup)(_|$)/
 
 /** The verb a tool's input entities get, from its registry class (or its name when unregistered). */
 function inputVerb(toolName: string): TouchVerb {
-  const bare = toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(toolName)
   const cls = getToolSideEffect(bare)
   if (cls === 'read') return 'read'
   if (cls === undefined && READ_NAME_RE.test(bare)) return 'read'
@@ -159,7 +162,7 @@ function inputVerb(toolName: string): TouchVerb {
 /** The verb a write tool's OUTPUT entities get. Read tools record no outputs. */
 function outputVerb(toolName: string): TouchVerb | null {
   if (inputVerb(toolName) === 'read') return null
-  if (PROPOSE_NAME_RE.test(toolName)) return 'proposed'
+  if (isProposalName(toolName)) return 'proposed'
   if (CREATE_NAME_RE.test(toolName)) return 'created'
   return 'wrote'
 }
@@ -235,7 +238,7 @@ const PROVIDER_THREAD_MAX = 10
 
 /** The provider thread ids an email tool call names (input only). Pure. */
 export function emailThreadRefsIn(toolName: string, input: unknown): string[] {
-  const bare = toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(toolName)
   if (!EMAIL_TOOL_RE.test(bare) || !input || typeof input !== 'object' || Array.isArray(input)) return []
   const rec = input as Record<string, unknown>
   const raw = [rec.thread_id, ...(Array.isArray(rec.thread_ids) ? rec.thread_ids : [])]
@@ -257,7 +260,7 @@ const isProviderId = (v: unknown): v is string => typeof v === 'string' && v.tri
  * returns the new draft's message id as `draft_id` and its `thread_id`). Pure.
  */
 export function emailDraftRefsOut(toolName: string, output: unknown): { messageIds: string[]; threadIds: string[] } {
-  const bare = toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(toolName)
   const none = { messageIds: [], threadIds: [] }
   if (!EMAIL_TOOL_RE.test(bare) || !output || typeof output !== 'object' || Array.isArray(output)) return none
   const rec = output as Record<string, unknown>

@@ -59,7 +59,7 @@ run `xcodegen` and commit both.
 ## Configurations
 
 - **Development** uses the development Supabase project and, for chat, `http://localhost:3000`
-  (set `DIAL8_API_BASE_URL` in the scheme's environment to reach another backend from a device).
+  (set `NI_API_BASE_URL` in the scheme's environment to reach another backend from a device).
 - **Release** uses production and `https://dial8.ai`.
 
 The Supabase URLs and anon keys in `Core/Config/SupabaseConfig.swift` and the PostHog key in

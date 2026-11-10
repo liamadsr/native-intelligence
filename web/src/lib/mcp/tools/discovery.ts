@@ -5,6 +5,7 @@ import { searchRegistry } from '@/lib/ai/tool-discovery'
 import { classifyToolAccess, type McpAuditFn } from '../guard'
 import { describeCatalog, staleCatalogHint, type CatalogStamp } from '../catalog'
 import { buildMcpErrorContent, targetWorkspaceOf, withActiveWorkspace, withTargetWorkspace, withoutMcpImage } from './envelope'
+import { bareToolName, mcpToolName, toolNameInHints } from '@/lib/mcp/tool-names'
 
 /**
  * DISCOVERY AND DISPATCH — the two tools whose names never change.
@@ -25,10 +26,10 @@ import { buildMcpErrorContent, targetWorkspaceOf, withActiveWorkspace, withTarge
  * These two tools close B and C together, by making the CATALOG stop being the
  * unit of change:
  *
- *   `dial8_search_tools` answers "what can you do right now" from the live
+ *   `ni_search_tools` answers "what can you do right now" from the live
  *   registry, so an agent holding a stale list can still see the truth.
  *
- *   `dial8_call_tool` invokes anything by name, so it can ACT on what it
+ *   `ni_call_tool` invokes anything by name, so it can ACT on what it
  *   found. Its `name` is a free-form string on purpose: a client validates
  *   arguments against the schema IT cached, so a value added to an enum is
  *   rejected client-side before the request is sent. That is also why
@@ -62,9 +63,9 @@ interface BridgedTool {
   execute?: (args: Record<string, unknown>, context: unknown) => Promise<unknown>
 }
 
-/** `dial8_list_companies` and `list_companies` are the same request. */
+/** `ni_list_companies` and `list_companies` are the same request. */
 function bareName(name: string): string {
-  return name.trim().replace(/^dial8_/, '')
+  return bareToolName(name.trim())
 }
 
 /** The category a tool sits in, for search results. */
@@ -133,7 +134,7 @@ function closestNames(query: string, names: string[]): string[] {
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score || a.name.length - b.name.length)
     .slice(0, 5)
-  return scored.map((s) => `dial8_${s.name}`)
+  return scored.map((s) => mcpToolName(s.name))
 }
 
 export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOptions): void {
@@ -173,10 +174,10 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
     content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
   })
 
-  // ── dial8_search_tools ────────────────────────────────────────────────
+  // ── ni_search_tools ────────────────────────────────────────────────
   server.tool(
-    'dial8_search_tools',
-    "What this server can do RIGHT NOW, read from its live registry rather than from the tool list your client cached when it connected. Search by topic or category, or pass an exact `name` to get that tool's full argument schema. Anything listed here can be invoked with dial8_call_tool even if it is absent from your own tool list — which is the point: your list may be older than the server. Start here whenever a capability seems to be missing.",
+    'ni_search_tools',
+    "What this server can do RIGHT NOW, read from its live registry rather than from the tool list your client cached when it connected. Search by topic or category, or pass an exact `name` to get that tool's full argument schema. Anything listed here can be invoked with ni_call_tool even if it is absent from your own tool list — which is the point: your list may be older than the server. Start here whenever a capability seems to be missing.",
     {
       query: z
         .string()
@@ -208,7 +209,7 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
         return text({
           found: true,
           tool: {
-            name: `dial8_${bare}`,
+            name: mcpToolName(bare),
             description: tool.description ?? null,
             category: categoryOf(bare),
             access: classifyToolAccess(bare),
@@ -216,7 +217,7 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
             input_schema: inputSchemaOf(tool),
           },
           catalog: stamp,
-          hint: `Call it with dial8_call_tool({ name: "${bare}", input: { … } }).`,
+          hint: `Call it with ${toolNameInHints('call_tool')}: { name: "${bare}", input: { … } }.`,
         })
       }
 
@@ -238,7 +239,7 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
         // token cannot reach) are noise: never advertise what cannot be called.
         .filter((r) => !dispatchable.has(r.name) || !forbiddenForScope(r.name))
         .map((r) => ({
-          name: dispatchable.has(r.name) ? `dial8_${r.name}` : r.name,
+          name: dispatchable.has(r.name) ? mcpToolName(r.name) : r.name,
           description: r.description,
           category: r.category,
           callable: dispatchable.has(r.name),
@@ -249,18 +250,18 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
         tools: results,
         catalog: stamp,
         hint: results.length
-          ? `Call any of these with dial8_call_tool, or ask for one by name to see its arguments. ${staleCatalogHint(stamp)}`
+          ? `Call any of these with ${toolNameInHints('call_tool')}, or ask for one by name to see its arguments. ${staleCatalogHint(stamp)}`
           : `Nothing matched. Browse a category instead: ${TOOL_CATEGORIES.map((c) => c.id).join(', ')}.`,
       })
     },
   )
 
-  // ── dial8_call_tool ───────────────────────────────────────────────────
+  // ── ni_call_tool ───────────────────────────────────────────────────
   server.tool(
-    'dial8_call_tool',
-    'Invoke any Native Intelligence tool by name, including one that is missing from your own tool list because your client cached its catalog before the tool shipped. `name` is the tool name (prefixed or bare) and `input` is its arguments — use dial8_search_tools with an exact `name` first if you need the argument schema. The result is identical to calling the tool directly.',
+    'ni_call_tool',
+    'Invoke any Native Intelligence tool by name, including one that is missing from your own tool list because your client cached its catalog before the tool shipped. `name` is the tool name (prefixed or bare) and `input` is its arguments — use ni_search_tools with an exact `name` first if you need the argument schema. The result is identical to calling the tool directly.',
     {
-      name: z.string().describe('Tool name, e.g. "list_prospect_lists" or "dial8_list_prospect_lists".'),
+      name: z.string().describe('Tool name, e.g. "list_prospect_lists" or "ni_list_prospect_lists".'),
       input: z
         .record(z.string(), z.unknown())
         .optional()
@@ -271,7 +272,7 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
       const tool = dispatchable.get(bare)
 
       if (!tool) {
-        audit?.(`dial8_call_tool:${bare}`, false, 0, 'unknown_tool')
+        audit?.(`ni_call_tool:${bare}`, false, 0, 'unknown_tool')
         return text({
           error: `"${name}" is not a tool on this server.`,
           error_type: 'unknown_tool',
@@ -293,7 +294,7 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
        * dispatcher.
        */
       if (forbiddenForScope(bare)) {
-        audit?.(`dial8_call_tool:${bare}`, false, 0, 'forbidden_read_only')
+        audit?.(`ni_call_tool:${bare}`, false, 0, 'forbidden_read_only')
         return forbidden(bare)
       }
 
@@ -304,14 +305,14 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
       if (typeof tool.inputSchema?.safeParse === 'function') {
         const parsed = tool.inputSchema.safeParse(args)
         if (!parsed.success) {
-          audit?.(`dial8_call_tool:${bare}`, false, 0, 'invalid_input')
+          audit?.(`ni_call_tool:${bare}`, false, 0, 'invalid_input')
           return {
             ...text({
               error: `Invalid input for "${bare}".`,
               error_type: 'invalid_input',
               retryable: true,
               issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-              hint: `Get the argument schema with dial8_search_tools({ name: "${bare}" }).`,
+              hint: `Get the argument schema with ${toolNameInHints('search_tools')}: { name: "${bare}" }.`,
               active_workspace: active,
             }),
             isError: true as const,
@@ -328,11 +329,11 @@ export function registerDiscoveryTools(server: McpServer, opts: DiscoveryToolsOp
         // dispatched create/mutate audits the workspace it actually acted in
         // (mig 271), not just the session's.
         const target = targetWorkspaceOf(result)
-        audit?.(`dial8_call_tool:${bare}`, true, Date.now() - started, undefined, target)
+        audit?.(`ni_call_tool:${bare}`, true, Date.now() - started, undefined, target)
         return withTargetWorkspace(text(withActiveWorkspace(withoutMcpImage(result), active)), target)
       } catch (err) {
-        audit?.(`dial8_call_tool:${bare}`, false, Date.now() - started, 'execution_error')
-        return buildMcpErrorContent(err, `dial8_call_tool:${bare}`, active)
+        audit?.(`ni_call_tool:${bare}`, false, Date.now() - started, 'execution_error')
+        return buildMcpErrorContent(err, `ni_call_tool:${bare}`, active)
       }
     },
   )

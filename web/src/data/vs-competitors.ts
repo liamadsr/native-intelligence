@@ -33,7 +33,7 @@ export interface MatrixRow {
   feature: string
   /** Optional clarifying line under the feature name. */
   detail?: string
-  dial8: Cell
+  ni: Cell
   competitor: Cell
 }
 
@@ -72,7 +72,7 @@ export interface Competitor {
 
 // Native Intelligence's own facts, verified against pricing/page copy in this repo. Reused as
 // the left column across every comparison so the story stays consistent.
-const DIAL8 = {
+const NI = {
   startingPrice: '14-day free trial, then $99 per user / month (Pro)',
   // Compact form used inside the comparison matrix price cell.
   startingPriceShort: '14-day trial, then $99/user/mo',
@@ -96,70 +96,70 @@ type SharedRowKey =
   | 'platforms'
   | 'price'
 
-const DIAL8_ROW: Record<SharedRowKey, { feature: string; detail?: string; dial8: Cell }> = {
+const NI_ROW: Record<SharedRowKey, { feature: string; detail?: string; ni: Cell }> = {
   botFree: {
     feature: 'Bot-free capture',
     detail: 'No bot joins the call as a participant',
-    dial8: true,
+    ni: true,
   },
   transcription: {
     feature: 'Live transcription',
-    dial8: true,
+    ni: true,
   },
   summaries: {
     feature: 'AI summaries',
-    dial8: true,
+    ni: true,
   },
   taskTracker: {
     feature: 'Action items become tracked work',
     detail: 'A real task system with identifiers, boards, and cycles',
-    dial8: true,
+    ni: true,
   },
   liveProjects: {
     feature: 'Projects that update from conversations',
-    dial8: true,
+    ni: true,
   },
   crm: {
     feature: 'Self-updating CRM from calls',
-    dial8: true,
+    ni: true,
   },
   executingAgents: {
     feature: 'AI agents that execute',
     detail: 'Agents that write code, open PRs, and draft docs',
-    dial8: true,
+    ni: true,
   },
   mcp: {
     feature: 'Workspace exposed over MCP',
     detail: 'Bring your own agents; connect external MCP servers',
-    dial8: true,
+    ni: true,
   },
   emailDrafting: {
     feature: 'Email drafting',
-    dial8: true,
+    ni: true,
   },
   knowledgeGraph: {
     feature: 'Persistent knowledge-graph memory',
     detail: 'Facts, decisions, and commitments accumulate with provenance',
-    dial8: true,
+    ni: true,
   },
   platforms: {
     feature: 'Platforms',
-    dial8: DIAL8.platforms,
+    ni: NI.platforms,
   },
   price: {
     feature: 'Starting price',
-    dial8: DIAL8.startingPriceShort,
+    ni: NI.startingPriceShort,
   },
 }
 
 function row(key: SharedRowKey, competitor: Cell): MatrixRow {
-  const base = DIAL8_ROW[key]
-  return { feature: base.feature, detail: base.detail, dial8: base.dial8, competitor }
+  const base = NI_ROW[key]
+  return { feature: base.feature, detail: base.detail, ni: base.ni, competitor }
 }
 
 // What Native Intelligence argues it does that notetakers stop short of. Shared across pages
 // because the structural difference is the same regardless of competitor.
-export const DIAL8_STRENGTHS: { title: string; body: string }[] = [
+export const NI_STRENGTHS: { title: string; body: string }[] = [
   {
     title: 'Meetings become tracked work, not just notes',
     body: 'Action items land in a real task system — identifiers like ENG-42, boards, workflow states, and cycles — so follow-ups are worked, not just written down and forgotten in a summary.',

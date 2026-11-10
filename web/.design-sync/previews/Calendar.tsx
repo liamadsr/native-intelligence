@@ -1,4 +1,4 @@
-import { Calendar } from '@dial8/ui'
+import { Calendar } from '@native-intelligence/ui'
 
 export function Single() {
   return (

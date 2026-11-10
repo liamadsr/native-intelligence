@@ -8,7 +8,7 @@ This folder is the Native Intelligence web app, a Next.js 16 project. It holds:
 - the eve agents that make every model call (`agents/`);
 - the database migrations (`supabase/migrations/`).
 
-Native Intelligence used to be called Dial8, and the code still says Dial8 in places.
+Native Intelligence used to be called Dial8, and a few names in the code still say so on purpose.
 The top-level [README](../README.md) covers the desktop and iOS apps beside this folder.
 
 ## Requirements

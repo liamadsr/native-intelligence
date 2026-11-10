@@ -6,7 +6,7 @@ import { inngest } from './client'
  *
  * Auto-ingest a finished meeting into the knowledge graph. Before this
  * function existed, `claim/extract-from-source` was only ever sent from
- * document publish, dial8_ingest_source, reference-ingest and
+ * document publish, ni_ingest_source, reference-ingest and
  * conversation-ingest — real meetings (the workspace's highest-value source)
  * produced zero claims unless the user explicitly ingested them or accepted
  * decision/action proposals.

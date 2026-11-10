@@ -6,7 +6,7 @@
  *  - not trained: the switch off and disabled, "Train your voice" opens the
  *    enrollment flow (whatever was stored stays unused);
  *  - trained: a working switch, off by default, stored device-locally
- *    (`dial8:voice:focus` = 'on', absent = off).
+ *    (`ni:voice:focus` = 'on', absent = off).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'

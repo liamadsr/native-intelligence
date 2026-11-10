@@ -52,7 +52,7 @@ type TellHome = typeof appendHomeMessage
 import { boundCiFailure, ciFixBranch, type CiCheck, type CiFailure } from './ci-fix-task'
 
 /** The prefix every coding run's branch has (spec-rebuild.ts branchNameFor). */
-export const DIAL8_BRANCH_PREFIX = 'dial8/'
+export const NI_BRANCH_PREFIX = 'dial8/'
 /** Fix runs per PR before the starter is told CI is still red. */
 export const MAX_CI_FIX_RUNS = 2
 /** Conclusions that mean the check failed. Cancelled, neutral, skipped, stale and action_required are not a failure to fix. */
@@ -277,7 +277,7 @@ export async function handleCiFailure(
   deps: { fetchImpl?: typeof fetch; send?: (event: { name: string; data: Record<string, unknown> }) => Promise<unknown>; newId?: () => string; tellHome?: TellHome } = {},
 ): Promise<CiFixOutcome> {
   const fetchImpl = deps.fetchImpl ?? fetch
-  if (!ev.branch.startsWith(DIAL8_BRANCH_PREFIX)) return ignored('not_a_dial8_branch')
+  if (!ev.branch.startsWith(NI_BRANCH_PREFIX)) return ignored('not_a_dial8_branch')
   if (!ev.app || !trustedCheckApps().has(ev.app)) return ignored('check_app_not_trusted')
 
   // The run that created this branch and opened its PR.

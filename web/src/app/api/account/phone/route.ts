@@ -10,8 +10,8 @@ import { maskPhone } from '@/lib/twilio/phone'
  * The person's linked phone (Settings → Phone; docs/plans/text-and-calling.md).
  *
  * GET    → { phone: { number, masked, verifiedAt, optedOut, alertsOn, workspaceId } | null,
- *            dial8Number, agentNumber, canGetNumber, available }: their own
- *            rows, read under RLS. `dial8Number` is the number they text: their
+ *            niNumber, agentNumber, canGetNumber, available }: their own
+ *            rows, read under RLS. `niNumber` is the number they text: their
  *            agent's own (`agentNumber`, POST /api/account/agent-number) when it
  *            has one, else the Native Intelligence one. `canGetNumber`: it has none and this
  *            Native Intelligence has a pool to give one from (src/lib/sms/agent-number.ts).
@@ -52,7 +52,7 @@ export async function GET() {
           workspaceId: data.workspace_id,
         }
       : null,
-    dial8Number: agentNumber ?? twilioPhoneNumber(),
+    niNumber: agentNumber ?? twilioPhoneNumber(),
     agentNumber,
     canGetNumber: !own.error && !agentNumber && agentNumbersAvailable(),
     available: twilioConfig() !== null,

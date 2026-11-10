@@ -26,8 +26,8 @@
 
 export const DEFAULT_ASSISTANT_NAME = 'Joseph'
 export const ASSISTANT_NAME_MAX = 30
-/** Where this device keeps its copy of the name (beside the other dial8:voice:* settings). */
-export const ASSISTANT_NAME_STORAGE_KEY = 'dial8:voice:assistant-name'
+/** Where this device keeps its copy of the name (beside the other ni:voice:* settings). */
+export const ASSISTANT_NAME_STORAGE_KEY = 'ni:voice:assistant-name'
 /** Where the account keeps it: its key in `user_metadata` and in the profile GET/PATCH (api/account/profile). */
 export const ASSISTANT_NAME_PROFILE_FIELD = 'assistant_name'
 

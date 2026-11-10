@@ -91,7 +91,7 @@ function isUsableBackground(id: string): boolean {
   return !!bg && (!bg.desktopOnly || desktopOS() === 'macos')
 }
 
-export const BACKGROUND_STORAGE_KEY = 'dial8-app-background'
+export const BACKGROUND_STORAGE_KEY = 'ni-app-background'
 
 /** The id used when nothing is stored yet. A stale stored id from a removed
  * option (e.g. the old built-in 'photo') fails `getBackgroundById` and falls

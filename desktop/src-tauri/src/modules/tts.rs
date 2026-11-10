@@ -1,5 +1,5 @@
 //! local-tts adapter: read-aloud through the Pocket TTS sidecar, played on the
-//! Mac's speakers (dial8-website/docs/plans/local-modules.md, Part 3).
+//! Mac's speakers (web/docs/plans/local-modules.md, Part 3).
 //!
 //! Commands (bridge contract, optional on the web like the rest):
 //! - `tts_speak { id, text, voice? }` → `Result<(), String>`; errors
@@ -490,7 +490,7 @@ fn spoken_token(token: &str) -> Option<String> {
         return Some(trail.chars().filter(|&c| !matches!(c, ')' | ']' | '>' | '"' | '\'' | '”' | '’' | '`' | '*')).collect());
     }
     // Markdown markers and brackets around it are not speech:
-    // "**github.com/a**" → "Github", "(liamadsr/dial8-website#915" → "number 915".
+    // "**github.com/a**" → "Github", "(liamadsr/native-intelligence#915" → "number 915".
     let unmark = |s: &str| s.chars().filter(|&c| !matches!(c, '`' | '*' | '(' | ')' | '[' | ']' | '<' | '>')).collect::<String>();
     Some(format!("{}{spoken}{}", unmark(lead), unmark(trail)))
 }
@@ -506,7 +506,7 @@ fn spoken_link(core: &str, cut: bool) -> Option<String> {
             }
         }
     }
-    // A cut-off path: "liamadsr/dial8-corss-p…" → "liamadsr". Only with what a
+    // A cut-off path: "liamadsr/web3-starter-p…" → "liamadsr". Only with what a
     // path or repo name has and a list of words doesn't: a path's start, or a
     // 5+ character part with a digit or underscore ("red/green/blue…",
     // "Mon/Tue…", "in-person/remote…", "Q1/Q2…" and "cd a/b/.." stay).

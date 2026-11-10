@@ -1,6 +1,6 @@
 //
 //  CalendarAPIService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Reads the website's upcoming-captures endpoint so Home can show the next
 //  scheduled meeting.

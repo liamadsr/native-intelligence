@@ -9,7 +9,7 @@
  * calendar invite or call a connected app's write tool with no one's yes.
  *
  * What it holds:
- *   - create_calendar_event / update_calendar_event (and their dial8_ names)
+ *   - create_calendar_event / update_calendar_event (and their ni_ names)
  *     with ANY attendee other than the person themselves, teammates included
  *     (Liam, 2026-10-26: nothing reaches another person without the person's
  *     final yes). The provider invites them (Microsoft Graph emails every
@@ -63,6 +63,7 @@ import { mailboxAddresses } from '@/lib/email/reply-policy'
 import { paymentsReady } from '@/lib/payments/ready'
 import { paymentLinkCard, parsePaymentLinkCall, SEND_PAYMENT_LINK } from '@/lib/payments/tool-input'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** The calendar writes that invite attendees (bare names). */
 const CALENDAR_INVITE_TOOLS: ReadonlySet<string> = new Set(['create_calendar_event', 'update_calendar_event'])
@@ -269,7 +270,7 @@ async function quoteReplyOutwardHold(check: OutwardCheck, bare: string): Promise
  * throws: a membership lookup that fails counts nobody as a member (held).
  */
 export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | null> {
-  const bare = check.toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(check.toolName)
   // A post through the person's Typefully (C2a): ALWAYS their card, whatever
   // trust anyone has earned (decision 2, "user always approves"). The card
   // says exactly what goes out, from the call's own input.

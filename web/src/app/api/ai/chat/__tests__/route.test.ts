@@ -1,7 +1,7 @@
 /**
  * /api/ai/chat is removed. Every method answers 410 with the shared
  * `{ error, code }` error shape, so the one out-of-repo client that still
- * POSTs here (the dial8-app AIBackendService) gets a parseable JSON error
+ * POSTs here (the iOS app's AIBackendService) gets a parseable JSON error
  * instead of Next's 404 HTML page. The route must run nothing, so the test
  * also pins that the module imports no model, auth or database code.
  */

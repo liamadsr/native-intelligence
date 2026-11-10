@@ -17,7 +17,7 @@ export function isUuid(v: unknown): v is string {
 }
 
 /**
- * A device token (`d8d_…`) is pinned to a workspace and has no person at the
+ * A device token (`nid_…`) is pinned to a workspace and has no person at the
  * keyboard to type the source's name: it may not merge, or read the preflight
  * that would tell it that name.
  */

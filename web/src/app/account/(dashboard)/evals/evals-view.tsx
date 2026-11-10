@@ -49,7 +49,7 @@
  * fires the `/create-eval` system skill (migration 253), which interviews the
  * user and writes both the suite and its cases through the eval tools. Same
  * gesture the Library uses for `/create-skill`, same window event
- * (`dial8:trigger-skill`) the shell already routes to the active tab's chat.
+ * (`ni:trigger-skill`) the shell already routes to the active tab's chat.
  */
 
 import { Loader2, Plus } from 'lucide-react'
@@ -73,7 +73,7 @@ export const CREATE_EVAL_SKILL_SLUG = 'create-eval'
  */
 export function openCreateEvalSkill() {
   window.dispatchEvent(
-    new CustomEvent('dial8:trigger-skill', { detail: { slug: CREATE_EVAL_SKILL_SLUG } }),
+    new CustomEvent('ni:trigger-skill', { detail: { slug: CREATE_EVAL_SKILL_SLUG } }),
   )
 }
 

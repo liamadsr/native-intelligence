@@ -1085,7 +1085,7 @@ function researchValue(item: Record<string, unknown>, key: string): string | nul
  * events are inert — which is the correct failure mode for a hover affordance:
  * nothing happens, nothing breaks, and no half-written CRM record.
  */
-export const PROSPECT_ENTRY_ACTION_EVENT = 'dial8:prospect-entry-action'
+export const PROSPECT_ENTRY_ACTION_EVENT = 'ni:prospect-entry-action'
 
 /**
  * `sequence` is Save-THEN-enroll, and it is one intent rather than two because

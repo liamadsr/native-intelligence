@@ -22,7 +22,7 @@ const hoisted = vi.hoisted(() => ({
   registrations: [] as Array<{ config: Record<string, unknown>; handler: Handler }>,
   runTrial: vi.fn(),
   gradeTrial: vi.fn(),
-  mintRunToken: vi.fn(async () => ({ token: 'd8d_run', tokenId: 'token-1' })),
+  mintRunToken: vi.fn(async () => ({ token: 'nid_run', tokenId: 'token-1' })),
   revokeRunToken: vi.fn(async () => {}),
   latestCompletedRun: vi.fn(async () => null),
   supabase: { from: vi.fn() },

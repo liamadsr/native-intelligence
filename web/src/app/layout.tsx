@@ -4,6 +4,7 @@ import { PostHogProvider } from './providers'
 import { DeepLinkHandler } from '@/components/desktop/deep-link-handler'
 import { CloseStaleBotsOverlay } from '@/components/desktop/close-stale-bots-overlay'
 import { DesktopNativeFeel } from '@/components/desktop/desktop-native-feel'
+import { StorageRenameScript } from '@/components/storage-rename-script'
 import { ThemeScript } from '@/components/theme-script'
 import { SystemThemeListener } from '@/components/system-theme-listener'
 import { CacheBusterScript } from '@/components/desktop/cache-buster-script'
@@ -69,6 +70,8 @@ export default function RootLayout({
           title="Native Intelligence Blog"
           href="/blog/feed.xml"
         />
+        {/* First: the theme script below already reads storage. */}
+        <StorageRenameScript />
         <ThemeScript />
         <CacheBusterScript />
       </head>

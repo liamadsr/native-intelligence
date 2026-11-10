@@ -10,7 +10,7 @@
  * That route passed the request's bearer straight into
  * createTools(user, supabase, workspace, bearerToken). What that bought:
  *   - a Supabase JWT caller → the two tools worked (the endpoints accept it);
- *   - a `d8d_` device token → nothing: createClient() never forwards a d8d_
+ *   - a `nid_` device token → nothing: createClient() never forwards a nid_
  *     bearer to Supabase, so both endpoints answered 401 and the tools
  *     returned { success: false };
  *   - a cookie caller → no bearer at all → the same 401.

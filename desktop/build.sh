@@ -71,7 +71,7 @@ sign_debug_bundle() {
     local bundle_app="$1"
 
     if [ -z "$SIGNING_IDENTITY" ] || ! security find-identity -v -p codesigning | grep -qF "$SIGNING_IDENTITY"; then
-        warn "Developer ID '$SIGNING_IDENTITY' not set (DIAL8_SIGNING_IDENTITY in .env.release) or not in keychain."
+        warn "Developer ID '$SIGNING_IDENTITY' not set (NI_SIGNING_IDENTITY in .env.release) or not in keychain."
         warn "This debug build will stay AD-HOC SIGNED and WILL poison the"
         warn "production app's microphone permission (macOS re-prompts after the"
         warn "next production launch). See docs/PERMISSIONS.md. Continuing anyway."

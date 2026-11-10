@@ -3,7 +3,7 @@
 /**
  * Settings → Voice → Read anywhere: select text in any app on the Mac (a
  * terminal, a browser, a PDF) and press a shortcut to hear it in the
- * read-aloud voice (dial8-desktop src-tauri/src/read_selection.rs). Its own
+ * read-aloud voice (desktop/src-tauri/src/read_selection.rs). Its own
  * page until 2026-10-22, when Liam folded it in here with no voice picker of
  * its own: it reads in the voice Read aloud picks (@/lib/read-aloud/read-anywhere-voice).
  *

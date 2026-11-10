@@ -6,7 +6,7 @@ import { GUARD_NOTICE_DEDUPE_MS, guardBlocks, guardLease, type GuardLease } from
 /**
  * One Chrome tab driven the way the desktop drives a WKWebView tab
  * (docs/plans/cloud-browser.md, C1): the agent runtime at document start in
- * every frame (out-of-process ones included) in the dial8-agent isolated
+ * every frame (out-of-process ones included) in the ni-agent isolated
  * world, decision snapshots and gated actions across frames (frames.ts), real
  * input, the navigation guard, and the reads the queue's commands use.
  *
@@ -262,7 +262,7 @@ export class CloudPage {
     }
   }
 
-  /** Real input, as a person would produce it (dial8af_send_input's twin). `usable` is checked just before it lands. */
+  /** Real input, as a person would produce it (send_input's twin). `usable` is checked just before it lands. */
   private async deliver(input: RuntimeInput, offset: Point, usable: () => boolean = () => true): Promise<boolean> {
     if (input.kind === 'click' && finite(input.x) && finite(input.y)) {
       const metrics = await this.send<LayoutMetrics>('Page.getLayoutMetrics')

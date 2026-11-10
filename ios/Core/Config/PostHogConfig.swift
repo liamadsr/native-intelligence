@@ -1,6 +1,6 @@
 //
 //  AnalyticsConfig.swift
-//  dial8
+//  Native Intelligence
 //
 //  PostHog analytics configuration
 //

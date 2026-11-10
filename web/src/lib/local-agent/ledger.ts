@@ -116,7 +116,7 @@ export function turnRunKey(sessionId: string, turn: number): string {
   return `local_agent:${sessionId}:${turn}`
 }
 
-/** "Native Intelligence on Liam's MacBook Pro · dial8-website: Take a look at this repository" (the teammate, C4) */
+/** "Native Intelligence on Liam's MacBook Pro · web: Take a look at this repository" (the teammate, C4) */
 export function turnTitle(deviceName: string, folderLabel: string, text: string): string {
   const prefix = `${macTeammateName(oneLine(deviceName, 80))} · `
   const label = oneLine(folderLabel, 80) || 'a folder'

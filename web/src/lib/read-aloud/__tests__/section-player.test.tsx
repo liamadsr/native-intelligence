@@ -203,7 +203,7 @@ describe('section player — a run', () => {
   })
 
   it('passes the chosen voice', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'cosette')
+    localStorage.setItem('ni:read-aloud:voice', 'cosette')
     await play()
     expect(speaks().every((s) => s.voice === 'cosette')).toBe(true)
   })

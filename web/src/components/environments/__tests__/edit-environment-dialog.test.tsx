@@ -61,7 +61,7 @@ async function open(environment: EnvironmentItem | null, opts: { routes?: FakeRo
       local: {
         devices: [{ id: THIS_MAC, name: "Liam's MacBook Pro", online: true }],
         folders: [
-          { id: 'f-1', deviceId: THIS_MAC, grantId: 'g-1', label: 'dial8-website', path: '/Users/liam/code/dial8-v2/dial8-website', mode: 'edit', isGit: true, deviceName: "Liam's MacBook Pro", online: true },
+          { id: 'f-1', deviceId: THIS_MAC, grantId: 'g-1', label: 'native-intelligence', path: '/Users/liam/code/native-intelligence/web', mode: 'edit', isGit: true, deviceName: "Liam's MacBook Pro", online: true },
         ],
         worktrees: [],
       },
@@ -120,7 +120,7 @@ describe('a Mac', () => {
     expect(rows[0].querySelector('[data-environment-mode]')!.textContent).toBe('Edits on a branch · change on your Mac')
     expect(rows[1].querySelector('[data-environment-mode]')!.textContent).toBe('Read only · change on your Mac')
     // The person's own path, dimmed, from the Mac's store.
-    expect(rows[0].textContent).toContain('dial8-website · ~/code/dial8-v2')
+    expect(rows[0].textContent).toContain('native-intelligence · ~/code/native-intelligence')
     expect(q('[data-environment-field="network"]')).toBeNull()
     expect(q('[data-environment-disclosure="env-vars"]')).toBeNull()
     expect(q('[data-environment-field="shared"]')).toBeNull()
@@ -168,12 +168,12 @@ describe('a Mac', () => {
       ],
     })
     type(q('[data-environment-field="name"]')!, 'Studio')
-    type(q('[data-environment-field="repo"]')!, 'liamadsr/dial8-v2')
+    type(q('[data-environment-field="repo"]')!, 'acme/app')
     await submit()
     const writes = f.calls.filter((c) => c.method !== 'GET')
     expect(writes).toEqual([
       { method: 'PATCH', url: '/api/account/environments/env-mac', body: { name: 'Studio' } },
-      { method: 'PATCH', url: '/api/account/environments/folders/f-1', body: { repoFullName: 'liamadsr/dial8-v2' } },
+      { method: 'PATCH', url: '/api/account/environments/folders/f-1', body: { repoFullName: 'acme/app' } },
     ])
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ name: 'Studio' }))
     expect(onOpenChange).toHaveBeenCalledWith(false)

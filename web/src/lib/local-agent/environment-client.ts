@@ -152,7 +152,7 @@ export function abbreviateHome(path: string): string {
   return m ? `~${path.slice(m[0].length)}` : path
 }
 
-/** Where a folder sits: its parent, home abbreviated (`~/code/dial8-v2`); empty for a root. */
+/** Where a folder sits: its parent, home abbreviated (`~/code/native-intelligence`); empty for a root. */
 export function folderParent(path: string): string {
   const trimmed = path.replace(/\/+$/, '')
   const cut = trimmed.lastIndexOf('/')

@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
       fetched = await safeFetchFollowingRedirects(url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; Dial8Bot/1.0)',
+          'User-Agent': 'Mozilla/5.0 (compatible; NativeIntelligenceBot/1.0)',
           Accept: 'text/html',
         },
       })

@@ -1,6 +1,6 @@
 //
 //  SupabaseManager.swift
-//  dial8
+//  Native Intelligence
 //
 //  Manages all Supabase interactions including auth, database, and realtime
 //

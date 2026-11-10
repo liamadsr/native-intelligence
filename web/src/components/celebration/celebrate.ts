@@ -25,7 +25,7 @@ export interface CelebrationOptions {
   intensity?: CelebrationIntensity
 }
 
-export const CELEBRATION_EVENT = 'dial8:celebrate'
+export const CELEBRATION_EVENT = 'ni:celebrate'
 
 /**
  * Fire a confetti celebration. Safe to call from any client code; a no-op

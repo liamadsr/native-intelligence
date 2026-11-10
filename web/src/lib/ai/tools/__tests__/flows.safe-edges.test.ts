@@ -573,7 +573,7 @@ describe('create_flow with a job on the person’s Mac (L5, run_local_agent)', (
   const NOTES = '77777777-7777-4777-8777-777777777777'
   const macWorld = () => world({}, {
     device_folder: [
-      { id: FOLDER, user_id: USER, device_id: 'd-1', grant_id: 'g1', label: 'dial8-website', path: '/Users/l/code/dial8-website', mode: 'edit', is_git: true, revoked_at: null },
+      { id: FOLDER, user_id: USER, device_id: 'd-1', grant_id: 'g1', label: 'native-intelligence', path: '/Users/l/code/native-intelligence', mode: 'edit', is_git: true, revoked_at: null },
       { id: NOTES, user_id: USER, device_id: 'd-1', grant_id: 'g2', label: 'notes', path: '/Users/l/notes', mode: 'read', is_git: false, revoked_at: null },
       { id: '88888888-8888-4888-8888-888888888888', user_id: OTHER, device_id: 'd-2', grant_id: 'g3', label: 'theirs', path: '/x', mode: 'edit', is_git: true, revoked_at: null },
     ],

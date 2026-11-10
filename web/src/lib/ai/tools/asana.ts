@@ -18,8 +18,8 @@ import { resolveEntityWorkspace } from './_shared'
  * value nothing can store.
  *
  * Registered through createTools(), which means the MCP registrar also exposes
- * it automatically as `dial8_push_action_to_asana` (src/lib/mcp/tools/index.ts
- * prefixes every AI-SDK tool with `dial8_`).
+ * it automatically as `ni_push_action_to_asana` (src/lib/mcp/tools/index.ts
+ * prefixes every AI-SDK tool with `ni_`).
  *
  * WORKSPACE ROUTING: the action is resolved to ITS OWN workspace via
  * `resolveEntityWorkspace` before the push, and that resolved workspace — never

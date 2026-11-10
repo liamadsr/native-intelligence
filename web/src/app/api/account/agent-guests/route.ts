@@ -13,11 +13,11 @@ import { guestRefusal, toGuestView, toInvite } from '@/lib/guests/people-server'
  * signed-in user's id. Nothing here texts anyone: guests always text first.
  *
  * GET  → { guests: GuestView[] (invited, requested and active, newest first),
- *          requests: { code, open } | null, dial8Number, available }
+ *          requests: { code, open } | null, niNumber, available }
  *        The request code is made (closed) the first time it's read.
  * POST { displayName, channels?: ('sms' | 'slack')[], phone?, preset: 'household' | 'colleague',
  *        tools?: string[], askTools?: string[], askBefore?: string[], notes? }
- *      → 201 { guest, invite: { code, text, dial8Number, expiresAt } }
+ *      → 201 { guest, invite: { code, text, niNumber, expiresAt } }
  *        Adds a person as invited, on Text when `channels` is left out. A
  *        number is needed for Text, optional for Slack only. `tools` and `askTools` (the Tool
  *        permissions picks: held, and of those the ones that ask) replace the
@@ -36,7 +36,7 @@ export async function GET() {
     return Response.json({
       guests: guests.map(toGuestView),
       requests,
-      dial8Number: twilioPhoneNumber(),
+      niNumber: twilioPhoneNumber(),
       available: twilioConfig() !== null,
     })
   } catch (error) {

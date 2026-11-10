@@ -62,7 +62,7 @@ describe('riskClassOf', () => {
   })
 
   it('never holds the outreach launches either: each raises its own card (every email, every recipient), so a text turn gets one code, not two', () => {
-    for (const name of ['launch_sequence', 'launch_campaign', 'dial8_launch_sequence']) expect(riskClassOf(name)).toBeNull()
+    for (const name of ['launch_sequence', 'launch_campaign', 'ni_launch_sequence']) expect(riskClassOf(name)).toBeNull()
     // Their registry class stays external-write: no work run holds them.
     for (const name of ['launch_sequence', 'launch_campaign']) expect(getToolSideEffect(name)).toBe('external-write')
   })
@@ -72,7 +72,7 @@ describe('riskClassOf', () => {
   })
 
   it('reviews the internal-writes that also write outside Native Intelligence as external (HubSpot writeback, the mailbox draft), without changing their registry class', () => {
-    for (const name of ['create_contact', 'update_crm_contact', 'revise_email_draft', 'dial8_create_contact']) expect(riskClassOf(name)).toBe('external-write')
+    for (const name of ['create_contact', 'update_crm_contact', 'revise_email_draft', 'ni_create_contact']) expect(riskClassOf(name)).toBe('external-write')
     for (const name of ['create_contact', 'update_crm_contact', 'revise_email_draft']) expect(getToolSideEffect(name)).toBe('internal-write')
   })
 })
@@ -521,7 +521,7 @@ describe('blocking: allow, deny, the reviewer unavailable, attended or not', () 
 })
 
 describe('cards from the Native Intelligence agent on the Mac (C1: approval.context.localAgent)', () => {
-  const localAgent = { sessionId: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' }
+  const localAgent = { sessionId: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' }
   const mac = { ...base, caller: 'person_remote' as const, mustEnforce: true as const, approval: { ...base.approval, conversationId: null, context: { localAgent } } }
 
   it('the card names Native Intelligence on the Mac and the job, and why, against the job’s own request', async () => {
@@ -531,7 +531,7 @@ describe('cards from the Native Intelligence agent on the Mac (C1: approval.cont
       conversationId: null, context: { localAgent },
       card: {
         title: 'Approve delete_action from Native Intelligence on Liam’s MacBook?',
-        why: "Native Intelligence on Liam’s MacBook wants this for its job in dial8-website: it deletes something (delete_action), once, with exactly the inputs below; you didn't ask the job for that.",
+        why: "Native Intelligence on Liam’s MacBook wants this for its job in native-intelligence: it deletes something (delete_action), once, with exactly the inputs below; you didn't ask the job for that.",
       },
     }))
     const message = (gated as { output: { message: string } }).output.message
@@ -553,7 +553,7 @@ describe('cards from the Native Intelligence agent on the Mac (C1: approval.cont
     const gated = await gateRiskyCall({ ...mac, toolName: 'mcp__linear__create_issue', sideEffect: 'unclassified', input: { title: 'x' }, externalTool: { serverName: 'Linear', requiresApproval: true } }, async () => 'ran')
     expect(gated).toMatchObject({ held: true, output: { code: 'APPROVAL_REQUIRED' } })
     expect(mocks.approve).toHaveBeenCalledWith(base.approval.supabase, expect.objectContaining({
-      card: expect.objectContaining({ why: expect.stringMatching(/^Native Intelligence on Liam’s MacBook, for its job in dial8-website: This runs a tool on Linear/) }),
+      card: expect.objectContaining({ why: expect.stringMatching(/^Native Intelligence on Liam’s MacBook, for its job in native-intelligence: This runs a tool on Linear/) }),
     }))
   })
 })

@@ -36,7 +36,7 @@ vi.mock('posthog-js/react', () => ({ usePostHog: () => ({ capture: vi.fn() }) })
 
 /** The cards the card asked for (the tabs provider isn't mounted: the requests are the result). */
 const opened = vi.hoisted(() => [] as Array<Record<string, unknown>>)
-window.addEventListener('dial8:open-card', (e) => opened.push((e as CustomEvent).detail))
+window.addEventListener('ni:open-card', (e) => opened.push((e as CustomEvent).detail))
 
 // ws-1 is active; ws-2 is another workspace the user belongs to; ws-9 is one the
 // cache can't name (a card can outlive the membership that named it).

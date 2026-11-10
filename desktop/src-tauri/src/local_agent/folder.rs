@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn dial8s_own_data_is_refused_inside_and_above() {
+    fn the_apps_own_data_is_refused_inside_and_above() {
         let t = tree();
         for p in [
             "Library/Application Support",
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn slugs_are_branch_safe() {
-        assert_eq!(slug("dial8-website"), "dial8-website");
+        assert_eq!(slug("native-intelligence"), "native-intelligence");
         assert_eq!(slug("My Project (v2)"), "my-project-v2");
         assert_eq!(slug("  --weird__name--  "), "weird-name");
         assert_eq!(slug("日本語"), "job");

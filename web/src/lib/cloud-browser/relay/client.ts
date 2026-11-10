@@ -5,7 +5,7 @@
  * that carry it (host.ts `relayNetworkPolicy`).
  */
 
-export const RELAY_MARK = { 'x-dial8-relay': '1' } as const
+export const RELAY_MARK = { 'x-ni-relay': '1' } as const
 
 export interface ClaimedCommand {
   id: string

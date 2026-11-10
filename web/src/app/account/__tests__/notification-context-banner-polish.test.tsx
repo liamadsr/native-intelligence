@@ -249,7 +249,7 @@ describe('a read notice’s banner leaves Notification Center', () => {
         }) as unknown as Response,
     )
     await act(async () => {
-      window.dispatchEvent(new CustomEvent('dial8:realtime-recovered'))
+      window.dispatchEvent(new CustomEvent('ni:realtime-recovered'))
       await flush()
     })
     // Only the banner this page posted: a row it never bannered asks nothing.

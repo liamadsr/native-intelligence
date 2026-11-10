@@ -303,7 +303,7 @@ export const themes: ThemeDefinition[] = [
   },
 ]
 
-export const THEME_STORAGE_KEY = 'dial8-theme'
+export const THEME_STORAGE_KEY = 'ni-theme'
 
 export function getStoredThemeId(): string {
   if (typeof window === 'undefined') return 'default'

@@ -47,7 +47,7 @@ export default async function AccountLoginPage({
     <LoginForm
       invitedEmail={invited?.email ?? null}
       chatGptSignIn={isChatGptSignInEnabled()}
-      googleOnDial8={isGoogleSignInEnabled()}
+      googleOnNi={isGoogleSignInEnabled()}
     />
   )
 }

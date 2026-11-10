@@ -25,14 +25,14 @@ async function realBase(): Promise<string> {
   return (await buildSystemPromptParts('nobody', emptyClient(), undefined, { workspaceId: 'ws-none', webAccess: 'never' })).base
 }
 
-const DIAL8_IDENTITY = "You are Assistant, the user's always-on agent in Native Intelligence, for them and their team."
+const NI_IDENTITY = "You are Assistant, the user's always-on agent in Native Intelligence, for them and their team."
 
 describe('withTeammateIdentity', () => {
   it('swaps only the opening identity sentence for the teammate’s', async () => {
     const base = await realBase()
-    expect(base.startsWith(`${DIAL8_IDENTITY} You know their actions`)).toBe(true)
+    expect(base.startsWith(`${NI_IDENTITY} You know their actions`)).toBe(true)
     const teammate = withTeammateIdentity(base, 'Triage')
-    expect(teammate).toBe(`You are Triage, one of the user's AI teammates in Native Intelligence.${base.slice(DIAL8_IDENTITY.length)}`)
+    expect(teammate).toBe(`You are Triage, one of the user's AI teammates in Native Intelligence.${base.slice(NI_IDENTITY.length)}`)
     expect(teammate).not.toContain('You are Assistant,')
     expect(teammate).not.toContain("the user's always-on agent in Native Intelligence, for them and their team")
   })

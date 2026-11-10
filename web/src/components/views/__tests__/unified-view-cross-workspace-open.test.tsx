@@ -99,7 +99,7 @@ let onItemSelect: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   tabs.opened = []
-  window.addEventListener('dial8:open-card', onOpenCard)
+  window.addEventListener('ni:open-card', onOpenCard)
   listOnItemSelect = null
   onItemSelect = vi.fn()
   container = document.createElement('div')
@@ -113,7 +113,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
-  window.removeEventListener('dial8:open-card', onOpenCard)
+  window.removeEventListener('ni:open-card', onOpenCard)
 })
 
 describe('UnifiedViewLayout — activating a cross-workspace row', () => {

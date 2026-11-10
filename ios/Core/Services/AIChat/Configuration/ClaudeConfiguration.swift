@@ -1,6 +1,6 @@
 //
 //  ClaudeConfiguration.swift
-//  dial8
+//  Native Intelligence
 //
 //  Configuration for Claude AI Chat
 //  Manages models, API keys, and system prompts

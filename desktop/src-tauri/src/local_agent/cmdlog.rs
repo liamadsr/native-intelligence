@@ -35,7 +35,8 @@ const FULL: &str = "the log is full; later commands are not recorded";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Who {
     Agent,
-    Dial8,
+    /// The app itself. Written to the log as `dial8`, the word logs already hold.
+    App,
     Ask,
     You,
     Job,
@@ -45,7 +46,7 @@ impl Who {
     fn as_str(self) -> &'static str {
         match self {
             Who::Agent => "agent",
-            Who::Dial8 => "dial8",
+            Who::App => "dial8",
             Who::Ask => "ask",
             Who::You => "you",
             Who::Job => "job",
@@ -136,7 +137,7 @@ mod tests {
         );
         let odd = entry_line("T", Who::You, "a\nb\rc\td\u{0007}e");
         assert_eq!(odd, "T  you    a\\nb\\rc\\td\\u{0007}e\n");
-        let long = entry_line("T", Who::Dial8, &"x".repeat(MAX_ENTRY * 2));
+        let long = entry_line("T", Who::App, &"x".repeat(MAX_ENTRY * 2));
         assert!(long.len() < MAX_ENTRY + 64 && long.ends_with("\u{2026}\n"));
     }
 

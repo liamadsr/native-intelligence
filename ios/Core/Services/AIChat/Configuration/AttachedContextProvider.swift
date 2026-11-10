@@ -1,6 +1,6 @@
 //
 //  AttachedContextProvider.swift
-//  dial8
+//  Native Intelligence
 //
 //  Generates context blocks from AI context bar attachments
 //  - Initial attachments go in system prompt with full meaningful context

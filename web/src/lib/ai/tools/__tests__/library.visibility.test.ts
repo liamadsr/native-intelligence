@@ -375,32 +375,32 @@ function mcp(role: 'member' | 'admin' = 'member') {
 }
 
 describe('MCP library tools', () => {
-  it('dial8_list_skills and dial8_list_agents hide other members\' personal rows and gated ones', async () => {
+  it('ni_list_skills and ni_list_agents hide other members\' personal rows and gated ones', async () => {
     const { call } = mcp()
-    expect(ids((await call('dial8_list_skills', {})).body.skills)).toEqual([...VISIBLE_SKILLS].sort())
-    expect(ids((await call('dial8_list_agents', {})).body.agents)).toEqual([...VISIBLE_AGENTS].sort())
+    expect(ids((await call('ni_list_skills', {})).body.skills)).toEqual([...VISIBLE_SKILLS].sort())
+    expect(ids((await call('ni_list_agents', {})).body.agents)).toEqual([...VISIBLE_AGENTS].sort())
   })
 
-  it('dial8_get_skill / dial8_get_agent read another member\'s personal row as not found', async () => {
+  it('ni_get_skill / ni_get_agent read another member\'s personal row as not found', async () => {
     const { call } = mcp()
-    expect((await call('dial8_get_skill', { id: 'their-personal-skill' })).isError).toBe(true)
-    expect((await call('dial8_get_agent', { id: 'their-personal-agent' })).isError).toBe(true)
-    expect((await call('dial8_get_skill', { id: 'my-personal-skill' })).isError).toBe(false)
-    expect((await call('dial8_get_agent', { id: 'my-personal-agent' })).isError).toBe(false)
+    expect((await call('ni_get_skill', { id: 'their-personal-skill' })).isError).toBe(true)
+    expect((await call('ni_get_agent', { id: 'their-personal-agent' })).isError).toBe(true)
+    expect((await call('ni_get_skill', { id: 'my-personal-skill' })).isError).toBe(false)
+    expect((await call('ni_get_agent', { id: 'my-personal-agent' })).isError).toBe(false)
   })
 
   it('an admin cannot update or delete another member\'s personal skill', async () => {
     const { call, writes } = mcp('admin')
-    const upd = await call('dial8_update_skill', { id: 'their-personal-skill', description: 'x' })
+    const upd = await call('ni_update_skill', { id: 'their-personal-skill', description: 'x' })
     expect(upd).toEqual({ isError: true, body: { error: 'Not found', code: 'NOT_EDITABLE' } })
-    const del = await call('dial8_delete_skill', { id: 'their-personal-skill' })
+    const del = await call('ni_delete_skill', { id: 'their-personal-skill' })
     expect(del).toEqual({ isError: true, body: { error: 'Not found', code: 'NOT_DELETABLE' } })
     expect(writes).toEqual([])
   })
 
   it('an admin still manages a teammate\'s shared skill', async () => {
     const { call, writes } = mcp('admin')
-    expect((await call('dial8_update_skill', { id: 'shared-skill', description: 'x' })).isError).toBe(false)
+    expect((await call('ni_update_skill', { id: 'shared-skill', description: 'x' })).isError).toBe(false)
     expect(writes.map((w) => [w.op, w.ids])).toEqual([['update', ['shared-skill']]])
   })
 })

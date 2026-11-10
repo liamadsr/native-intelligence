@@ -1,6 +1,6 @@
 # Local agent bundle helpers — sourced by dev.sh, build.sh and release.sh.
 #
-# The local agent (dial8-website agents/local-agent; its docs/plans/
+# The local agent (web/agents/local-agent; its docs/plans/
 # local-agents.md, "Packaging") ships as JavaScript inside the signed app:
 #
 #   src-tauri/resources/local-agent/        vendored by scripts/local-agent-bundle.sh

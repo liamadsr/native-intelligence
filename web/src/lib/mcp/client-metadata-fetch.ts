@@ -92,7 +92,7 @@ export function fetchMetadataDocument(url: string, opts: FetchOptions = {}): Pro
       url,
       {
         method: 'GET',
-        headers: { accept: 'application/json', 'user-agent': 'Dial8-MCP-OAuth (+https://dial8.ai)' },
+        headers: { accept: 'application/json', 'user-agent': 'NativeIntelligence-MCP-OAuth (+https://dial8.ai)' },
         lookup: opts.lookup ?? publicOnlyLookup(),
         agent: false,
       },

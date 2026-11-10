@@ -142,7 +142,7 @@ describe("mint — the caller's JWT rides the token sealed (email-draft tools)",
 
   it("never seals a device token, another user's JWT, or nothing (cookie caller)", async () => {
     ownedRow = { id: 'conv-1' }
-    await POST(req({ action: 'mint', conversationId: 'conv-1' }, { Authorization: 'Bearer d8d_abcdef' }))
+    await POST(req({ action: 'mint', conversationId: 'conv-1' }, { Authorization: 'Bearer nid_abcdef' }))
     await POST(req({ action: 'mint', conversationId: 'conv-1' }, { Authorization: `Bearer ${jwtFor('user-2')}` }))
     await POST(req({ action: 'mint', conversationId: 'conv-1' }))
     expect(sealRunCredential).not.toHaveBeenCalled()

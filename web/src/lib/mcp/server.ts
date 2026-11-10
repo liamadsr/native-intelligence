@@ -12,7 +12,7 @@ import { registerTools } from './tools'
  * Two jobs:
  *
  *   1. Make workspace ROUTING unambiguous from the very first turn. This used
- *      to say "scope is sticky; call dial8_set_workspace first" — true when the
+ *      to say "scope is sticky; call ni_set_workspace first" — true when the
  *      active workspace was a fence. It no longer is: writes route by the
  *      entity's own workspace and creates route by an explicit `workspace_id`,
  *      so the old text now actively causes the bug it was written to prevent.
@@ -45,21 +45,21 @@ function buildInstructions(
     '  • Every row you read carries `workspace_id`, and every result carries `active_workspace`.',
     '  • To act on an existing entity, pass its id. The server routes the call to that entity\'s own workspace — no switch needed.',
     '  • To CREATE, pass `workspace_id`: take it from the rows you just read, or from `active_workspace` when the user means "here". If you belong to more than one workspace, a create without it returns `needs_workspace` listing the candidates — answer it, don\'t guess.',
-    '  • `dial8_set_workspace` is optional. Use it only to pin a long session to one workspace; `dial8_list_workspaces` shows what you have.',
+    '  • `ni_set_workspace` is optional. Use it only to pin a long session to one workspace; `ni_list_workspaces` shows what you have.',
     '',
     // Your tool list was fetched once, when you connected. This server cannot
     // push a new one (its transport offers no server→client stream), so the
     // list can be older than the server — and a missing tool is
     // indistinguishable from a tool that never existed unless you say so.
     'YOUR TOOL LIST MAY BE OUT OF DATE. It was fetched when you connected and this server cannot update it mid-session. If a capability seems to be missing, do NOT conclude it does not exist:',
-    '  1. `dial8_search_tools` — what this server can do right now, read live. Pass an exact `name` for a tool\'s argument schema.',
-    '  2. `dial8_call_tool` — invoke any tool by name, including one absent from your list.',
+    '  1. `ni_search_tools` — what this server can do right now, read live. Pass an exact `name` for a tool\'s argument schema.',
+    '  2. `ni_call_tool` — invoke any tool by name, including one absent from your list.',
     'When that happens, tell the user their Native Intelligence connector is holding an old tool list and reconnecting will refresh it.',
     '',
     'Knowledge loop — this workspace accumulates a knowledge graph of claims (durable facts, decisions, open questions, commitments) extracted from meetings, documents, and conversations, each with provenance:',
     '  1. ORIENT — read the `dial8://brief/workspace` resource (compiled world model) if your client supports MCP resources. Project and package briefs live at `dial8://brief/project/{id}` and `dial8://brief/package/{id}`.',
-    '  2. SEARCH before answering questions about the workspace\'s world: `dial8_search_claims` or `dial8_deep_search` — the graph usually already has the answer. `dial8_get_context_bundle` assembles everything around a project/contact/claim in one ranked call; `dial8_get_package` loads a curated context package by name.',
-    '  3. SAVE durable facts you establish while working: `dial8_create_claim` with a verbatim source excerpt. Always `dial8_search_claims` first — relate, never duplicate.',
+    '  2. SEARCH before answering questions about the workspace\'s world: `ni_search_claims` or `ni_deep_search` — the graph usually already has the answer. `ni_get_context_bundle` assembles everything around a project/contact/claim in one ranked call; `ni_get_package` loads a curated context package by name.',
+    '  3. SAVE durable facts you establish while working: `ni_create_claim` with a verbatim source excerpt. Always `ni_search_claims` first — relate, never duplicate.',
     ...(readOnly
       ? [
           '',
@@ -113,7 +113,7 @@ function registerBriefResources(
     q = scopeId === null ? q.is('scope_id', null) : q.eq('scope_id', scopeId)
     const { data } = await q.maybeSingle()
     if (!data?.content) return null
-    return `> Compiled ${String(data.generated_at).slice(0, 10)} from the workspace knowledge graph. Orientation, not ground truth — verify load-bearing specifics with dial8_search_claims / dial8_get_claim.\n\n${data.content}`
+    return `> Compiled ${String(data.generated_at).slice(0, 10)} from the workspace knowledge graph. Orientation, not ground truth — verify load-bearing specifics with ni_search_claims / ni_get_claim.\n\n${data.content}`
   }
 
   server.registerResource(
@@ -227,7 +227,7 @@ function registerBriefResources(
  * scoped to a specific user and workspace.
  *
  * @param onWorkspaceChanged - callback invoked when the user switches workspaces
- *   via the dial8_set_workspace tool. The caller can use this to persist the change.
+ *   via the ni_set_workspace tool. The caller can use this to persist the change.
  * @param access - the authenticated token's scopes + id; drives read-only
  *   enforcement and audit logging (see ./guard.ts).
  */
@@ -260,7 +260,7 @@ export async function createMcpServer(
 
   const server = new McpServer(
     {
-      name: 'dial8',
+      name: 'native-intelligence',
       version: '1.0.0',
       // What an app shows for the server it added (its connector list, the
       // sign-in prompt), where it reads them.

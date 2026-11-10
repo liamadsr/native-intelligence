@@ -61,7 +61,7 @@ import {
 } from './presence'
 
 /** localStorage key of this browser's (or app install's) presence client id. */
-export const PRESENCE_CLIENT_ID_KEY = 'dial8:presence-client-id'
+export const PRESENCE_CLIENT_ID_KEY = 'ni:presence-client-id'
 
 /** The one interval: every evaluation that isn't triggered by an event. */
 export const PRESENCE_TICK_MS = 60_000

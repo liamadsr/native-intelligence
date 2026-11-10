@@ -162,7 +162,7 @@ describe('coding-agent push guard (real git, login shell)', () => {
     const mainBefore = remoteRef('refs/heads/main')
     const r = git('push', 'origin', 'HEAD:main')
     expect(r.status).not.toBe(0)
-    expect(r.stderr).toContain('dial8 push guard: refusing to push refs/heads/main')
+    expect(r.stderr).toContain('Native Intelligence push guard: refusing to push refs/heads/main')
     expect(git('push', '--force', 'origin', 'HEAD:main').status).not.toBe(0)
     expect(remoteRef('refs/heads/main')).toBe(mainBefore)
   })
@@ -290,7 +290,7 @@ describe('coding-agent push guard (real git, login shell)', () => {
       const mainBefore = remoteRef('refs/heads/main')
       const toMain = git('push', 'origin', 'HEAD:main')
       expect(toMain.status).not.toBe(0)
-      expect(toMain.stderr).toContain('dial8 push guard: refusing to push refs/heads/main')
+      expect(toMain.stderr).toContain('Native Intelligence push guard: refusing to push refs/heads/main')
       expect(remoteRef('refs/heads/main')).toBe(mainBefore)
       // The refused push never reached husky's pre-push.
       expect(existsSync(join(home, 'husky-pre-push'))).toBe(false)

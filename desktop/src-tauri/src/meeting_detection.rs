@@ -23,10 +23,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-/// Write debug log to dial8-meeting.log (`crate::side_log_path`: /tmp on
+/// Write debug log to native-intelligence-meeting.log (`crate::side_log_path`: /tmp on
 /// macOS; 0600, `crate::open_log`)
 pub fn mlog(msg: &str) {
-    if let Ok(mut f) = crate::open_log(&crate::side_log_path("dial8-meeting.log")) {
+    if let Ok(mut f) = crate::open_log(&crate::side_log_path("native-intelligence-meeting.log")) {
         let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
     }
     eprintln!("[meeting-detection] {}", msg);
@@ -1564,7 +1564,7 @@ mod tests {
     }
 
     #[test]
-    fn the_walk_stops_at_dial8_the_shell_and_a_reused_parent() {
+    fn the_walk_stops_at_the_app_the_shell_and_a_reused_parent() {
         // Native Intelligence opened by a link in Chrome: its web view's mic isn't Chrome's.
         let p = procs(&[(20, 4, "chrome.exe"), (30, 20, "dial8.exe"), (31, 30, "msedgewebview2.exe")]);
         assert_eq!(attribute_process(31, &p, 30), None);

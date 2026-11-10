@@ -590,7 +590,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   //  • UPDATE: patch the row in place (e.g. is_read flipped from another device)
   //    and take its banner down once it is read.
   //  • DELETE: drop the row and its banner.
-  // Reliability: refetch on the app-wide `dial8:realtime-recovered` event and on
+  // Reliability: refetch on the app-wide `ni:realtime-recovered` event and on
   // this channel's own re-SUBSCRIBE after a failure — events during the gap were
   // lost. (Mirrors use-realtime-entities.ts's hadFailure pattern.)
   //
@@ -820,10 +820,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       if (channelNames.some((name) => wasSelfRefetchedRecently(name, repairId))) return
       void refetchRef.current()
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
 
     return () => {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       if (rereadTimer) clearTimeout(rereadTimer)
       for (const channel of channels) supabase.removeChannel(channel)
     }

@@ -32,14 +32,14 @@ describe('scrubMailPart', () => {
   })
 
   it('list_emails and get_email_drafts (also as dynamic or prefixed tools)', () => {
-    const list = scrubMailPart({ type: 'dynamic-tool', toolName: 'dial8_list_emails', output: { success: true, count: 1, emails: [{ id: 'e1', threadId: 't1', subject: 'Offer letter', snippet: 'We are pleased' }] } })
+    const list = scrubMailPart({ type: 'dynamic-tool', toolName: 'ni_list_emails', output: { success: true, count: 1, emails: [{ id: 'e1', threadId: 't1', subject: 'Offer letter', snippet: 'We are pleased' }] } })
     expect(list.output).toEqual({ scrubbed: 'mail', success: true, count: 1, email_ids: ['e1'], thread_ids: ['t1'] })
     const drafts = scrubMailPart({ type: 'tool-get_email_drafts', output: { success: true, drafts: [{ id: 'd1', subject: 'Re: Offer', body_text: 'Thanks!' }] } })
     expect(JSON.stringify(drafts)).not.toMatch(/Offer|Thanks/)
   })
 
   it('a part that is already a pointer comes back as it is (its ids kept)', () => {
-    const once = scrubMailPart({ type: 'dynamic-tool', toolName: 'dial8_list_emails', output: { success: true, count: 1, emails: [{ id: 'e1', threadId: 't1', subject: 'Offer letter' }] } })
+    const once = scrubMailPart({ type: 'dynamic-tool', toolName: 'ni_list_emails', output: { success: true, count: 1, emails: [{ id: 'e1', threadId: 't1', subject: 'Offer letter' }] } })
     const twice = scrubMailPart(once)
     expect(twice).toBe(once)
     expect(twice.output).toEqual({ scrubbed: 'mail', success: true, count: 1, email_ids: ['e1'], thread_ids: ['t1'] })

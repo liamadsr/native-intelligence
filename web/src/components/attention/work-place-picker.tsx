@@ -61,7 +61,7 @@ export function runInOf(choice: WorkPlaceChoice | null): WorkRunPlace | null {
 
 // ── The remembered pick (this browser, per workspace) ──────────────────────
 
-const STORE_PREFIX = 'dial8:work-place:'
+const STORE_PREFIX = 'ni:work-place:'
 
 function readRemembered(workspaceId: string): WorkPlaceChoice | null {
   try {
@@ -210,7 +210,7 @@ export function WorkPlacePicker({ state, workspaceId, disabled }: { state: WorkP
   if (!state.shown) return null
 
   const radioValue = current ? (current.kind === 'mac' ? `mac:${current.folderId}` : `cloud:${current.environmentId}:${current.projectId}`) : 'dial8'
-  // A cloud run names its repo too (the environment holds none): "Default · dial8-website".
+  // A cloud run names its repo too (the environment holds none): "Default · web".
   const repoName = current?.kind === 'cloud' ? current.repo.split('/').pop() || '' : ''
   const label = !current
     ? 'Native Intelligence'

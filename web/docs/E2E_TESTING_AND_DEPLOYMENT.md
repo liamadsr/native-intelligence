@@ -17,7 +17,7 @@ Status: **Design — not yet implemented.**
 
 ## Cross-app architecture
 
-The desktop app (`../dial8-desktop`) is a **Tauri shell that loads `https://dial8.ai` as its webview**, plus a Rust core exposing native commands (audio capture, meeting detection) over IPC. It is **not** a separate frontend.
+The desktop app (`../desktop`) is a **Tauri shell that loads `https://dial8.ai` as its webview**, plus a Rust core exposing native commands (audio capture, meeting detection) over IPC. It is **not** a separate frontend.
 
 ### Test tiers
 

@@ -194,7 +194,7 @@ describe('settle_work_item on a Mail draft', () => {
 
   it('the reviewer reads that dismiss as a delete; any other settle keeps its class', () => {
     expect(riskClassOf('settle_work_item', { item_id: `draft:${D1}`, action: 'dismiss' })).toBe('delete')
-    expect(riskClassOf('dial8_settle_work_item', { item_id: `draft:${D1}`, action: 'dismiss' })).toBe('delete')
+    expect(riskClassOf('ni_settle_work_item', { item_id: `draft:${D1}`, action: 'dismiss' })).toBe('delete')
     expect(riskClassOf('settle_work_item', { item_id: `draft:${D1}`, action: 'reviewed' })).toBeNull()
     expect(riskClassOf('settle_work_item', { item_id: '10000000-0000-4000-8000-000000000001', action: 'dismiss' })).toBeNull()
     expect(riskClassOf('settle_work_item')).toBeNull()

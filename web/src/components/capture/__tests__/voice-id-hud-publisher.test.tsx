@@ -368,7 +368,7 @@ describe('VoiceIdHudPublisher', () => {
     const schedules = () => env.sent.filter((s) => s.event === HUD_SCHEDULE_EVENT)
     expect(schedules().at(-1)!.payload).toEqual({ captureId: null })
     env.schedule = { scheduled_start: '2026-10-17T15:00:00Z', scheduled_end: '2026-10-17T15:30:00Z' }
-    await act(async () => window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: 'cap-1' } })))
+    await act(async () => window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: 'cap-1' } })))
     await flush()
     expect(env.fetched.filter((u) => u.endsWith('fields=schedule'))).toHaveLength(2)
     expect(schedules().at(-1)!.payload).toMatchObject({ captureId: 'cap-1', end: Date.parse('2026-10-17T15:30:00Z') })
@@ -387,7 +387,7 @@ describe('VoiceIdHudPublisher', () => {
     expect(briefs()).toHaveLength(before + 1)
     // The capture edited (the goal or its prep changed): read again; gone sends none.
     env.brief = null
-    await act(async () => window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: 'cap-1' } })))
+    await act(async () => window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: 'cap-1' } })))
     await flush()
     expect(env.fetched.filter((u) => u.endsWith('fields=brief'))).toHaveLength(2)
     expect(briefs().at(-1)!.payload).toEqual({ captureId: null })

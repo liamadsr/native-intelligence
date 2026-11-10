@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h } from 'react'
-import { WhatDial8Learned, groupMemoryLines, lineActions } from '../what-dial8-learned'
+import { WhatNiLearned, groupMemoryLines, lineActions } from '../what-ni-learned'
 import type { MemoryLine } from '@/lib/packs/memory-types'
 import type { ProfileFact } from '@/lib/memory/profile-facts'
 
@@ -69,7 +69,7 @@ describe('groupMemoryLines', () => {
   })
 })
 
-describe('WhatDial8Learned', () => {
+describe('WhatNiLearned', () => {
   let container: HTMLDivElement
   let root: Root
   const fetchMock = vi.fn()
@@ -102,7 +102,7 @@ describe('WhatDial8Learned', () => {
   ]
   const mount = async (canManageWorkspace: boolean, area?: 'mail') => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ userId: ME, canManageWorkspace, lines }), { status: 200 }))
-    await act(async () => root.render(h(WhatDial8Learned, area ? { area } : {})))
+    await act(async () => root.render(h(WhatNiLearned, area ? { area } : {})))
   }
   const row = (text: string) => [...container.querySelectorAll('[data-testid="memory-line"]')].find((r) => r.textContent?.includes(text))!
   const buttons = (text: string) => [...row(text).querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())
@@ -211,7 +211,7 @@ describe('WhatDial8Learned', () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ userId: ME, canManageWorkspace: false, lines: [line({ id: 'noticed', text: 'Signs off with Cheers', source: 'learned', created_by: null })] }), { status: 200 }),
     )
-    await act(async () => root.render(h(WhatDial8Learned, {})))
+    await act(async () => root.render(h(WhatNiLearned, {})))
     expect(row('Signs off with Cheers').textContent).toContain('Native Intelligence noticed this')
     expect(buttons('Signs off with Cheers')).toEqual(['Edit', 'Remove'])
 

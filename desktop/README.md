@@ -58,7 +58,7 @@ crate's authors aren't the holders of that text, add a row to `scripts/licenses/
 `./build.sh prod` bundles have no sidecars and no notices: local testing only.
 
 Local modules (a sidecar + downloadable models + an on/off setting) are described
-in `dial8-website/docs/plans/local-modules.md`.
+in `web/docs/plans/local-modules.md`.
 
 The webview loads the Native Intelligence web app — `localhost:3000` in dev, `https://dial8.ai` in production.
 
@@ -68,7 +68,7 @@ The webview loads the Native Intelligence web app — `localhost:3000` in dev, `
 
 ```bash
 # Terminal 1: Start the Next.js dev server
-cd ../dial8-website && npm run dev
+cd ../web && npm run dev
 
 # Terminal 2: Start Tauri dev mode
 cd dial8-desktop && cargo tauri dev
@@ -95,7 +95,7 @@ rm -rf "/Applications/Native Intelligence.app"
 cp -r "src-tauri/target/debug/bundle/macos/Native Intelligence.app" /Applications/
 
 # 4. Start the Next.js dev server
-cd ../dial8-website && npm run dev
+cd ../web && npm run dev
 
 # 5. Open the app
 open "/Applications/Native Intelligence.app"
@@ -161,7 +161,7 @@ Azure Artifact Signing once its repository variables are set (`docs/WINDOWS_SIGN
 and for PR test builds, Windows shows SmartScreen's "Unknown publisher" (More info → Run anyway). Updates verify the minisign
 signature and the installer's own VERSIONINFO, then wait for the person's "Restart now" to run it
 (`src-tauri/src/app_update.rs`). The plan, and what works on Windows in each phase, is in
-`dial8-website/docs/plans/windows-desktop.md`.
+`web/docs/plans/windows-desktop.md`.
 
 ## Config Toggle: Dev vs Production
 

@@ -63,7 +63,7 @@ describe('Settings → Environments', () => {
     await mount([mac(), cloud({ isWorkspaceDefault: true, projectCount: 2 }), cloud({ id: 'env-mine', name: 'Mine', shared: false, canEdit: false })])
     const sections = [...document.querySelectorAll('[data-environments-section]')].map((el) => el.getAttribute('data-environments-section'))
     expect(sections).toEqual(['macs', 'cloud'])
-    expect(q('[data-environments-row="env-mac"]')!.textContent).toContain('2 folders: dial8-website, notes')
+    expect(q('[data-environments-row="env-mac"]')!.textContent).toContain('2 folders: native-intelligence, notes')
     expect(q('[data-environments-row="env-cloud"]')!.textContent).toContain('Used by 2 projects')
     expect(q('[data-environments-row="env-cloud"] [data-environments-default]')).not.toBeNull()
     expect(q('[data-environments-row="env-mine"] [data-environments-only-me]')).not.toBeNull()

@@ -1,10 +1,10 @@
-# design-sync NOTES — Native Intelligence Design System (@dial8/ui)
+# design-sync NOTES — Native Intelligence Design System (@native-intelligence/ui)
 
 Repo-specific gotchas for future syncs. Read this first.
 
 ## What this kit is
 
-`@dial8/ui` is a workspace package (`packages/ui/`) **built from the app's own source**.
+`@native-intelligence/ui` is a workspace package (`packages/ui/`) **built from the app's own source**.
 The app is a Next.js app (`radiant`) with no standalone component library, so instead of
 moving files, the package re-exports the presentational components from
 `<repo>/src/components/**` via the `@/` alias and compiles them with tsup into a real
@@ -12,9 +12,9 @@ moving files, the package re-exports the presentational components from
 unchanged and still imports `@/components/ui/*` directly.
 
 - Public API / what gets synced: `packages/ui/src/index.ts` (the barrel).
-- Build: `npm run build --workspace @dial8/ui` (→ `build:js` tsup + `build:css` tailwind cli).
+- Build: `npm run build --workspace @native-intelligence/ui` (→ `build:js` tsup + `build:css` tailwind cli).
 - design-sync entry: `--entry ./packages/ui/dist/index.js`, `--node-modules ./node_modules`
-  (deps are hoisted to the repo root; `@dial8/ui` is symlinked into root node_modules).
+  (deps are hoisted to the repo root; `@native-intelligence/ui` is symlinked into root node_modules).
 - `cfg.cssEntry` is **package-relative** (`dist/styles.css`), NOT repo-relative — the
   converter resolves it against PKG_DIR (= `packages/ui`). A repo-relative path prints
   "cssEntry … not found — skipped".
@@ -129,7 +129,7 @@ Run `PLAYWRIGHT_BROWSERS_PATH=0 node cardshot.mjs Comp1,Comp2 760`. 760px ≈ th
   the preview server, or point the preview at real https logo URLs. Cosmetic only.
 - **Authored previews are tied to upstream component APIs.** If a `ui/` primitive's props
   change in the app, its `previews/<Name>.tsx` may need updating. Previews import from
-  `'@dial8/ui'` so they track the barrel.
+  `'@native-intelligence/ui'` so they track the barrel.
 - **The 5MB ceiling is a standing constraint.** If you re-add any heavy dep (shiki,
   remark, a 3D/charting lib) to the barrel, re-check `_ds_bundle.js` size before upload.
 - **Build assumes Node 22** (`.nvmrc`) and Tailwind v4. tsup/@tailwindcss/cli are

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * "Sign in with Google" on dial8.ai (`googleOnDial8`): the web navigates to
+ * "Sign in with Google" on dial8.ai (`googleOnNi`): the web navigates to
  * /auth/google; the desktop runs it in the sign-in sheet and redeems the
  * one-time token the callback deep link carries, only when its `bind` is the
  * one this webview started with. A desktop build whose sheet doesn't list
@@ -72,7 +72,7 @@ describe('LoginForm Google sign-in on dial8.ai', () => {
   })
 
   async function render() {
-    await act(async () => root.render(<LoginForm googleOnDial8 />))
+    await act(async () => root.render(<LoginForm googleOnNi />))
   }
 
   // The first button is Google's (by position: a busy button's label no

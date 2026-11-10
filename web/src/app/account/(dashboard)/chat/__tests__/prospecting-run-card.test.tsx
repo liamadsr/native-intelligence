@@ -35,7 +35,7 @@ const navigate = vi.fn()
 const cancelRun = vi.fn()
 
 // The cards a click asks for (P5: the list chip opens the Prospecting card).
-window.addEventListener('dial8:open-card', (e) => navigate((e as CustomEvent).detail))
+window.addEventListener('ni:open-card', (e) => navigate((e as CustomEvent).detail))
 
 vi.mock('../../../workspace-switcher', () => ({
   useWorkspaceEdition: () => 'full',

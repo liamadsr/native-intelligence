@@ -1,5 +1,5 @@
 //! Local agents: our own eve agent running on the person's Mac, in one
-//! folder they granted, driven by Rust over stdio (dial8-website
+//! folder they granted, driven by Rust over stdio (web
 //! docs/plans/local-agents.md; the L0 contract's §1 protocol and §4 desktop,
 //! and the L1 contract's section C).
 //!
@@ -264,7 +264,7 @@ struct AppHost {
 impl AppHost {
     fn new(app: AppHandle) -> Self {
         let drawer = app.clone();
-        let tray = latest_worker("dial8-local-agent-tray", move |view| {
+        let tray = latest_worker("ni-local-agent-tray", move |view| {
             crate::tray::set_local_agents(&drawer, view)
         });
         AppHost { app, tray }
@@ -722,7 +722,7 @@ impl Confirm {
         match tokio::time::timeout(self.wait, self.answer).await {
             Ok(Ok(true)) => Ok(()),
             Ok(_) => Err((Who::You, starts::denied(self.worker))),
-            Err(_) => Err((Who::Dial8, starts::unanswered(self.worker, self.wait))),
+            Err(_) => Err((Who::App, starts::unanswered(self.worker, self.wait))),
         }
     }
 }
@@ -2427,7 +2427,7 @@ impl Actor {
             };
             self.log.append(
                 &job_id,
-                Who::Dial8,
+                Who::App,
                 &format!(
                     "git worktree add {} -b {} (from {from})",
                     p.worktree.dir.display(),
@@ -3069,7 +3069,7 @@ impl Actor {
                 self.save();
                 self.log.append(
                     job_id,
-                    Who::Dial8,
+                    Who::App,
                     &format!(
                         "git commit on {}: {} ({} files changed)",
                         info.branch, info.commit, info.files_changed
@@ -3086,7 +3086,7 @@ impl Actor {
             }
             Err(e) => {
                 crate::log_to_file(&format!("[local-agent:{job_id}] commit failed: {e}"));
-                self.log.append(job_id, Who::Dial8, &format!("git commit: {e}"));
+                self.log.append(job_id, Who::App, &format!("git commit: {e}"));
                 json!({ "kind": "error", "message": format!("the changes couldn't be committed: {e}") })
             }
         };
@@ -3183,7 +3183,7 @@ impl Actor {
             crate::log_to_file(&format!("[local-agent:{job_id}] ignoring a repeat of prompt {id}"));
             self.log.append(
                 job_id,
-                Who::Dial8,
+                Who::App,
                 &format!("{label} {id} asked again; ignored (each prompt is answered once)"),
             );
             return;
@@ -3201,7 +3201,7 @@ impl Actor {
             None
         };
         if let Some(why) = refused {
-            return self.settle_prompt(job_id, &id, label, false, "refused", Some(&why), Who::Dial8);
+            return self.settle_prompt(job_id, &id, label, false, "refused", Some(&why), Who::App);
         }
         let timeout = prompts::prompt_timeout(detail, self.timing.prompt_timeout);
         let result = match kind {
@@ -3211,7 +3211,7 @@ impl Actor {
         };
         if let Err(why) = result {
             self.drop_prompt(job_id, &id);
-            self.settle_prompt(job_id, &id, label, false, "refused", Some(&why), Who::Dial8);
+            self.settle_prompt(job_id, &id, label, false, "refused", Some(&why), Who::App);
         }
     }
 
@@ -3415,7 +3415,7 @@ impl Actor {
         };
         if let Some(why) = refused {
             self.drop_prompt(job_id, &id);
-            self.settle_prompt(job_id, &id, "push", false, "refused", Some(&why), Who::Dial8);
+            self.settle_prompt(job_id, &id, "push", false, "refused", Some(&why), Who::App);
         }
     }
 
@@ -3627,7 +3627,7 @@ impl Actor {
         match result {
             Err(why) => {
                 self.drop_prompt(job_id, id);
-                self.settle_prompt(job_id, id, kind, false, "refused", Some(&why), Who::Dial8);
+                self.settle_prompt(job_id, id, kind, false, "refused", Some(&why), Who::App);
             }
             Ok((prompt, Action::Fence { path, access })) => {
                 let already = self.live.get(job_id).is_some_and(|l| {
@@ -3642,7 +3642,7 @@ impl Actor {
                         path.display()
                     );
                     self.drop_prompt(job_id, id);
-                    self.settle_prompt(job_id, id, kind, true, "allowed", Some(&why), Who::Dial8);
+                    self.settle_prompt(job_id, id, kind, true, "allowed", Some(&why), Who::App);
                 } else {
                     self.ask_person(job_id, prompt, Action::Fence { path, access });
                 }
@@ -3734,7 +3734,7 @@ impl Actor {
             return;
         };
         let why = format!("nobody answered within {}", human(open.timeout));
-        self.settle_prompt(job_id, id, open.kind, false, "expired", Some(&why), Who::Dial8);
+        self.settle_prompt(job_id, id, open.kind, false, "expired", Some(&why), Who::App);
     }
 
     /// Push and open the pull request on a task of its own; the outcome
@@ -3753,7 +3753,7 @@ impl Actor {
         ));
         self.log.append(
             job_id,
-            Who::Dial8,
+            Who::App,
             &format!(
                 "pushing {} ({}) to {} as you, from {}",
                 plan.branch,
@@ -3792,7 +3792,7 @@ impl Actor {
     fn on_pushed(&mut self, job_id: &str, run_id: String, outcome: PushOutcome) {
         self.pushes.remove(job_id);
         for line in &outcome.ran {
-            self.log.append(job_id, Who::Dial8, line);
+            self.log.append(job_id, Who::App, line);
         }
         if let Some(job) = self.state.job_mut(job_id) {
             job.push_running = None;
@@ -3828,7 +3828,7 @@ impl Actor {
             ));
             self.log.append(
                 &job_id,
-                Who::Dial8,
+                Who::App,
                 &format!(
                     "{QUIT_DURING_PUSH} ({} {} to {})",
                     m.branch,

@@ -4,7 +4,7 @@ title = "Native Intelligence desktop"
 useDefault = true
 
 # Fake keys in tests are there on purpose. trufflehog still checks every file,
-# tests included, for keys that are live (dial8-website's scripts/open-source/export.sh,
+# tests included, for keys that are live (web/scripts/open-source/export.sh,
 # which builds one public repo from both).
 [[allowlists]]
 description = "Test files"

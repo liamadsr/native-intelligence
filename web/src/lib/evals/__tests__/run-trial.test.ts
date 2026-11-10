@@ -160,7 +160,7 @@ describe('the run token', () => {
   it('pins the workspace and a TTL, so a leaked log is worthless tomorrow', async () => {
     const { client, queries } = fixture()
     const token = await mintRunToken(client, { userId: USER, workspaceId: WS, runId: 'run-abcdef12' })
-    expect(token.token).toMatch(/^d8d_/)
+    expect(token.token).toMatch(/^nid_/)
     expect(token.tokenId).toBe('token-row-1')
 
     const payload = queries.find((q) => q.table === 'device_token')!.payload as {
@@ -196,13 +196,13 @@ describe('runBatchTrial', () => {
       workspaceId: WS,
       runStarterUserId: USER,
       recipeId: 'recipe-1',
-      token: 'd8d_secret',
+      token: 'nid_secret',
     })
 
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('https://dial8.test/api/ai/live-agent')
     const headers = init.headers as Record<string, string>
-    expect(headers.Authorization).toBe('Bearer d8d_secret')
+    expect(headers.Authorization).toBe('Bearer nid_secret')
     expect(headers['x-workspace-id']).toBe(WS)
     const body = JSON.parse(init.body as string)
     expect(body).toMatchObject({ capture_id: 'clone-1', mode: 'batch', stream: false, allow_auto_archive: false })

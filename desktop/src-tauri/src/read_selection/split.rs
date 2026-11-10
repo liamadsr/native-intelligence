@@ -1,6 +1,6 @@
 //! Selected text → the sentences to speak, one `tts_speak`-sized piece each.
 //!
-//! A port of the web's `plainTextToSentences` (dial8-website
+//! A port of the web's `plainTextToSentences` (web
 //! src/lib/read-aloud/speech-text.ts): bare URLs read as their host, emoji go,
 //! each line reads as its own sentences and ends like one, and a sentence is
 //! never cut at an abbreviation, a decimal, an initial or an ellipsis. Keep

@@ -29,7 +29,7 @@
 //!
 //! WHY NOT `with_webview`: the web view is found in the window's own view tree
 //! instead — `ns_window()`, then depth first from its `contentView` to the
-//! first `WKWebView`, as window_helper.m's `dial8_find_webview` does. On macOS,
+//! first `WKWebView`, as window_helper.m's `ni_find_webview` does. On macOS,
 //! tauri-runtime-wry 2.10.1 builds the `Webview` it hands a `with_webview`
 //! closure from `Retained::into_raw(webview.webview())`,
 //! `Retained::into_raw(webview.manager())` and
@@ -360,7 +360,7 @@ pub fn install<R: tauri::Runtime>(
 }
 
 /// The web view in `ns_window` (a Tauri window has one), found as
-/// window_helper.m's `dial8_find_webview` finds it: depth first from the
+/// window_helper.m's `ni_find_webview` finds it: depth first from the
 /// window's content view, the first view that is a `WKWebView`. None if there
 /// isn't one.
 ///
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(walk(&tree, &[0, 1]), (Some(0), vec![0]));
     }
 
-    /// Depth first, like `dial8_find_webview`: all of the first subview's
+    /// Depth first, like `ni_find_webview`: all of the first subview's
     /// subtree before the second subview, children first to last. With a
     /// match deep under the first subview and another as the second subview,
     /// the deep one is found; breadth first would return the other.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Mac body (the Native Intelligence agent, agents/chat-agent, with
-# DIAL8_AGENT_HOST=mac; scripts/local-agent/mac-body.sh) into
+# NI_AGENT_HOST=mac; scripts/local-agent/mac-body.sh) into
 # agents/local-agent/.output, the self-hosted Nitro server the launcher starts
 # from LOCAL_AGENT_DIR=agents/local-agent in dev (dev.json, smoke.ts,
 # e2e-device.ts), plus the worker adapters in .output/workers/ when there are
@@ -12,7 +12,7 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=mac-body.sh
 . "$repo/scripts/local-agent/mac-body.sh"
 
-stage="$(mktemp -d "${TMPDIR:-/tmp}/dial8-mac-body.XXXXXX")"
+stage="$(mktemp -d "${TMPDIR:-/tmp}/ni-mac-body.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 stage_mac_body "$repo" "$stage"
 build_mac_body "$repo" "$stage" "$@"

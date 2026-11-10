@@ -105,7 +105,7 @@ describe('touchesForToolCall', () => {
   })
 
   it('an unregistered tool is read-shaped by name or a write otherwise', () => {
-    expect(touchesForToolCall({ toolName: 'dial8_get_thing', input: { capture_id: U(1) }, output: { capture: { id: U(1) } } })).toEqual([
+    expect(touchesForToolCall({ toolName: 'ni_get_thing', input: { capture_id: U(1) }, output: { capture: { id: U(1) } } })).toEqual([
       { entityType: 'capture', entityId: U(1), verb: 'read' },
     ])
     expect(touchesForToolCall({ toolName: 'mystery_tool', input: { capture_id: U(1) }, output: {} })).toEqual([
@@ -268,7 +268,7 @@ describe('email threads (row 12)', () => {
 
   it('an email tool’s provider thread ids are the refs; other tools and fields are not', () => {
     expect(emailThreadRefsIn('read_email', { thread_id: '18c0ffee', message_id: 'm1' })).toEqual(['18c0ffee'])
-    expect(emailThreadRefsIn('dial8_generate_email_drafts', { thread_ids: ['a', 'b', 'a', 7] })).toEqual(['a', 'b'])
+    expect(emailThreadRefsIn('ni_generate_email_drafts', { thread_ids: ['a', 'b', 'a', 7] })).toEqual(['a', 'b'])
     expect(emailThreadRefsIn('create_email_draft', { thread_id: '  ' })).toEqual([])
     expect(emailThreadRefsIn('add_comment', { thread_id: 'c-thread' })).toEqual([])
     expect(emailThreadRefsIn('read_email', null)).toEqual([])

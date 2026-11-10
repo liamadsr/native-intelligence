@@ -898,13 +898,13 @@ fn the_worker_streams_while_running_and_stops_without_hanging() {
 }
 
 /// Long far-end-only runs, bleed reduction per 20 s window: a clean tap and
-/// the sidecar's 3906 ppm deficit (left to aec3). Set DIAL8_AEC_LONG_S for
+/// the sidecar's 3906 ppm deficit (left to aec3). Set NI_AEC_LONG_S for
 /// the length (default 180 s).
 /// Research, not a gate: `cargo test --lib deficit_long_run -- --ignored --nocapture`.
 #[test]
 #[ignore]
 fn deficit_long_run() {
-    let secs: f32 = std::env::var("DIAL8_AEC_LONG_S").ok().and_then(|v| v.parse().ok()).unwrap_or(180.0);
+    let secs: f32 = std::env::var("NI_AEC_LONG_S").ok().and_then(|v| v.parse().ok()).unwrap_or(180.0);
     let n = (secs * FS as f32) as usize;
     let far = synthetic_speech(secs, 21);
     let echo = convolve_sparse(&far, &short_echo_path(30.0 + 150.0, 0.9, 13));

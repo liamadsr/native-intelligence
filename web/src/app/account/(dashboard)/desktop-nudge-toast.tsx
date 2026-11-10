@@ -26,7 +26,7 @@ import { MESSAGE_ICON_CHIP, MESSAGE_LABEL } from '../in-app-message-meta'
  * Renders nothing — it only drives the global <Toaster> mounted in the shell.
  */
 
-const DISMISS_KEY = 'dial8:desktop-nudge-dismissed'
+const DISMISS_KEY = 'ni:desktop-nudge-dismissed'
 const TOAST_ID = 'desktop-nudge'
 const SHOW_DELAY_MS = 4000
 

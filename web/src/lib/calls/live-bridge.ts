@@ -204,7 +204,7 @@ export async function runLiveCall(
 
   const send = (event: Record<string, unknown>) => {
     if (closed) return
-    socket.send(JSON.stringify({ ...event, event_id: `dial8_${++sent}` }))
+    socket.send(JSON.stringify({ ...event, event_id: `ni_${++sent}` }))
   }
   const end = (reason: string) => {
     if (closed) return

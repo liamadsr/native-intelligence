@@ -55,7 +55,7 @@ describe('the default mode at the shared chat gate', () => {
       caller: 'person_remote',
       cardConversationId: null,
       keyScope: 'mac:sess-9',
-      approvalContext: { localAgent: { sessionId: 'sess-9', deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } },
+      approvalContext: { localAgent: { sessionId: 'sess-9', deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } },
       reviewOverride: { mustEnforce: true },
     })
     const gated = await chatGate(mac, 'delete_action', { action_id: 'GEN-12' }, scope, run)

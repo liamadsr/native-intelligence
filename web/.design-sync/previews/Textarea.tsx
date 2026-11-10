@@ -1,4 +1,4 @@
-import { Textarea, Label } from '@dial8/ui'
+import { Textarea, Label } from '@native-intelligence/ui'
 
 export function Default() {
   return (

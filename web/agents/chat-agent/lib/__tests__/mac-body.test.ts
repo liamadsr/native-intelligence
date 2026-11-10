@@ -1,7 +1,7 @@
 /**
  * The Mac body (contract C2, docs/plans/teammate-agent.md): what the shared
  * files of the one Native Intelligence agent become when it is built and launched with
- * DIAL8_AGENT_HOST=mac, beside the cloud body they stay for everyone else.
+ * NI_AGENT_HOST=mac, beside the cloud body they stay for everyone else.
  * Pins:
  *   - the harness (bash, read_file, write_file) is eve's own on the Mac and
  *     disabled in the cloud; read_file's description never promises images;
@@ -83,13 +83,13 @@ let dir: string
 let fetchMock: ReturnType<typeof vi.fn>
 
 function setMacEnv() {
-  process.env.DIAL8_AGENT_HOST = 'mac'
+  process.env.NI_AGENT_HOST = 'mac'
   process.env.LOCAL_AGENT_SESSION_TOKEN_FILE = join(dir, '.model-token')
   process.env.LOCAL_AGENT_API_ORIGIN = ORIGIN
   process.env.LOCAL_AGENT_MODE = 'edit'
 }
 function clearMacEnv() {
-  for (const k of ['DIAL8_AGENT_HOST', 'LOCAL_AGENT_SESSION_TOKEN_FILE', 'LOCAL_AGENT_API_ORIGIN', 'LOCAL_AGENT_MODE']) delete process.env[k]
+  for (const k of ['NI_AGENT_HOST', 'LOCAL_AGENT_SESSION_TOKEN_FILE', 'LOCAL_AGENT_API_ORIGIN', 'LOCAL_AGENT_MODE']) delete process.env[k]
 }
 const LOCAL_MODEL_VARS = ['LOCAL_AGENT_LOCAL_MODEL_BASE_URL', 'LOCAL_AGENT_LOCAL_MODEL_ID', 'LOCAL_AGENT_LOCAL_MODEL_SERVER'] as const
 /** lib/mac-model.ts's step.started resolver, as eve calls it. */

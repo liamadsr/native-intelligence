@@ -1,12 +1,13 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { authenticateMcpRequest, hashToken, setActiveWorkspace } from '@/lib/mcp/auth'
 import { createMcpServer } from '@/lib/mcp/server'
+import { withCurrentToolNames } from '@/lib/mcp/tool-names'
 
 /**
  * MCP Streamable HTTP endpoint.
  *
  * Claude Code connects here after completing OAuth:
- *   claude mcp add --transport http dial8 https://dial8.ai/api/mcp
+ *   claude mcp add --transport http native-intelligence https://dial8.ai/api/mcp
  *
  * OAuth discovery happens automatically via:
  *   GET /.well-known/oauth-protected-resource/api/mcp
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
 
     // Persist a workspace switch to the token record. Routed through
     // setActiveWorkspace (not a hand-rolled update) so it throws on a failed
-    // write and the dial8_set_workspace handler can report the failure instead
+    // write and the ni_set_workspace handler can report the failure instead
     // of a false success. The handler AWAITS this before replying (the switch must be
     // committed before the next stateless POST re-reads active_workspace_id).
     const onWorkspaceChanged = (newWorkspaceId: string) =>
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       // cleanly). On our stateless Vercel/Next setup that per-request stream can
       // stall — the result is written but the stream never delivers/closes, so the
       // connected `claude` CLI sits forever on "Running…" (e.g. a plain
-      // dial8_list_workspaces never returns and the chat appears to die). Native Intelligence is
+      // ni_list_workspaces never returns and the chat appears to die). Native Intelligence is
       // pure request/response — no server-initiated messages within a call — so the
       // SSE channel buys us nothing. JSON-response mode resolves a normal Promise
       // with the body and removes the hangable stream entirely. (Pairs with the
@@ -67,7 +68,11 @@ export async function POST(request: Request) {
     })
 
     await mcpServer.connect(transport)
-    return transport.handleRequest(request)
+    // TODO(rename-compat): a client that fetched its tool list before the rename still
+    // calls `dial8_*`; point those calls at today's names. An unreadable body is left
+    // for the transport to refuse.
+    const parsedBody = await request.clone().json().then(withCurrentToolNames, () => undefined)
+    return transport.handleRequest(request, parsedBody === undefined ? undefined : { parsedBody })
   } catch (err) {
     if (err instanceof Response) return err
 
@@ -77,7 +82,7 @@ export async function POST(request: Request) {
     // Provide actionable error messages for common failures
     const isRls = message.includes('row-level security') || message.includes('permission denied')
     const errorMessage = isRls
-      // NOT "call dial8_set_workspace": the active workspace is a default, not a
+      // NOT "call ni_set_workspace": the active workspace is a default, not a
       // fence, so the fix for a cross-workspace call is to route it (pass the
       // entity's own workspace_id) rather than to re-scope the whole session.
       ? "Permission denied — you may not be a member of that workspace. Pass the entity's workspace_id (it's on every row you read) so the call routes to the workspace it belongs to."

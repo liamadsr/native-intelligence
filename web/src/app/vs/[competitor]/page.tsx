@@ -9,7 +9,7 @@ import { StructuredData } from '@/components/structured-data'
 import {
   COMPETITORS,
   VS_COMPETITOR_SLUGS,
-  DIAL8_STRENGTHS,
+  NI_STRENGTHS,
   getCompetitor,
   type Cell,
   type Competitor,
@@ -190,7 +190,7 @@ function Matrix({ competitor }: { competitor: Competitor }) {
                     )}
                   </th>
                   <td className="px-4 py-4">
-                    <CellContent value={r.dial8} />
+                    <CellContent value={r.ni} />
                   </td>
                   <td className="px-4 py-4">
                     <CellContent value={r.competitor} />
@@ -249,7 +249,7 @@ function DialWins({ competitor }: { competitor: Competitor }) {
           done in the same system.
         </p>
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          {DIAL8_STRENGTHS.map((s) => (
+          {NI_STRENGTHS.map((s) => (
             <div key={s.title} className="rounded-2xl border border-border p-6">
               <h3 className="text-sm font-medium text-foreground">{s.title}</h3>
               <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{s.body}</p>

@@ -90,7 +90,7 @@ import { LOCAL_AGENT_MODEL_SLUG, checkSessionToken, type TokenSessionRow } from 
 import type { ModelTokenClaims } from './tokens'
 import { MAC_WEB_TOOL_DEFINITIONS, MAC_WEB_TOOL_NAMES } from './web-tools'
 
-/** The host the spec names for the Mac body (C2's `DIAL8_AGENT_HOST=mac`). */
+/** The host the spec names for the Mac body (C2's `NI_AGENT_HOST=mac`). */
 export const MAC_HOST = 'mac' as const
 
 /** The claim body's field that says the Mac runs this job on a local model. */

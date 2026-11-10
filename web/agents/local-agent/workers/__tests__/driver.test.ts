@@ -276,7 +276,7 @@ describe('Codex: one process per turn', () => {
   it('fails the job when the first turn dies before the thread exists', async () => {
     const t = setup(codexAdapter, probe)
     t.driver.start('first')
-    t.procs[0].exit(1, null, 'Error: MCP client for `dial8_folder` failed to start\n')
+    t.procs[0].exit(1, null, 'Error: MCP client for `ni_folder` failed to start\n')
     await tick()
     expect(t.fatal).toEqual([expect.stringMatching(/couldn't reach the folder's tools/)])
   })

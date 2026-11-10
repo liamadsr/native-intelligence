@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * window.__dial8PerfSnapshot(): what the page holds, in counts, with nothing
+ * window.__niPerfSnapshot(): what the page holds, in counts, with nothing
  * read from what the person wrote (only tags, ids and attribute names).
  */
 import { afterEach, describe, expect, it } from 'vitest'
@@ -13,7 +13,7 @@ afterEach(() => {
 describe('takePerfSnapshot', () => {
   it('counts the parked pages, inline pages asleep, the thread, the capture panels and what sits on body', () => {
     document.body.innerHTML = `
-      <div id="dial8-shell-root">
+      <div id="ni-shell-root">
         <div class="group/msg relative"><p>hello</p></div>
         <div class="group/msg relative"><p>secret words</p><span></span></div>
         <div data-testid="capture-detail" data-capture-id="0b6f7d1e-1111-4222-8333-944455556666"><ul><li></li><li></li></ul></div>
@@ -33,7 +33,7 @@ describe('takePerfSnapshot', () => {
     expect(snap.realtime).toEqual({ channels: 3, topics: [['capture-stream', 2], ['notifications', 1]] })
     // Scripts hold no layout: not listed.
     expect(snap.body.map((b) => b.label)).toEqual([
-      'div#dial8-shell-root',
+      'div#ni-shell-root',
       'div[data-card-body-anchor]',
       'div[data-card-parked=call_1]',
       'div[data-card-parked=call_3]',
@@ -99,11 +99,11 @@ describe('watchPerfChurn', () => {
 describe('installPerfSnapshot', () => {
   it('puts the snapshot and the churn reader on window and takes them away again', () => {
     const remove = installPerfSnapshot()
-    expect(typeof window.__dial8PerfSnapshot).toBe('function')
-    expect(typeof window.__dial8PerfChurn).toBe('function')
-    expect(window.__dial8PerfSnapshot!().elements).toBeGreaterThan(0)
+    expect(typeof window.__niPerfSnapshot).toBe('function')
+    expect(typeof window.__niPerfChurn).toBe('function')
+    expect(window.__niPerfSnapshot!().elements).toBeGreaterThan(0)
     remove()
-    expect(window.__dial8PerfSnapshot).toBeUndefined()
-    expect(window.__dial8PerfChurn).toBeUndefined()
+    expect(window.__niPerfSnapshot).toBeUndefined()
+    expect(window.__niPerfChurn).toBeUndefined()
   })
 })

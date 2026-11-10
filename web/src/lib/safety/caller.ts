@@ -60,6 +60,7 @@
  */
 import { ATTENDED_ONLY_TOOL_NAMES, CHAT_NATIVE_TOOL_NAMES, getToolSideEffect, type ToolSideEffect } from '@/lib/ai/tool-registry'
 import { GUEST_ONLY_TOOL_NAMES } from '@/lib/guests/tools'
+import { bareToolName as withoutMcpPrefix } from '@/lib/mcp/tool-names'
 
 export const CALLER_CLASSES = ['person', 'person_remote', 'agent_unattended', 'other_person', 'guest', 'unknown'] as const
 export type CallerClass = (typeof CALLER_CLASSES)[number]
@@ -298,7 +299,7 @@ export function policyEffectOf(toolName: string): PolicyEffect {
 
 /** A Native Intelligence MCP name without its prefix (the registry's name). */
 function bareToolName(toolName: string): string {
-  return typeof toolName === 'string' ? toolName.replace(/^dial8_/, '') : ''
+  return typeof toolName === 'string' ? withoutMcpPrefix(toolName) : ''
 }
 
 /**

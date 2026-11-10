@@ -1,4 +1,4 @@
-import { BentoCard } from '@dial8/ui'
+import { BentoCard } from '@native-intelligence/ui'
 
 function CaptureGraphic() {
   return (

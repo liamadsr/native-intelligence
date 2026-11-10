@@ -170,8 +170,8 @@ export async function attachBusinessNumber(
   const phone = normalizeE164(args.phone)
   if (!phone || !isNanpNumber(phone)) return { ok: false, reason: 'bad_input', error: 'A US or Canadian number, like +16465550173.' }
   // Native Intelligence's own numbers (the agent's, and a sign-up number when there is one) are never a business's.
-  const dial8 = [config.fromNumber, process.env.TWILIO_SIGNUP_NUMBER].map((n) => normalizeE164(n)).filter(Boolean)
-  if (dial8.includes(phone)) return { ok: false, reason: 'bad_input', error: "That is a Native Intelligence number itself: it can't be a business's." }
+  const own = [config.fromNumber, process.env.TWILIO_SIGNUP_NUMBER].map((n) => normalizeE164(n)).filter(Boolean)
+  if (own.includes(phone)) return { ok: false, reason: 'bad_input', error: "That is a Native Intelligence number itself: it can't be a business's." }
   try {
     if (await activeBusinessNumber(supabase, args.workspaceId)) return { ok: false, reason: 'has_number' }
     const accountUrl = `${TWILIO_API}/Accounts/${encodeURIComponent(config.accountSid)}`

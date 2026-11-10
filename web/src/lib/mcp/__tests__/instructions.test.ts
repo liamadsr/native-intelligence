@@ -2,7 +2,7 @@
  * The server `instructions` blob — the one thing every connected client treats
  * as system prompt for the whole session.
  *
- * It used to say "scope is sticky" and "START by calling dial8_set_workspace".
+ * It used to say "scope is sticky" and "START by calling ni_set_workspace".
  * That was true when the active workspace was a FENCE. It no longer is: writes
  * route by the entity's own workspace and creates route by an explicit
  * `workspace_id`. Left in place, that text now causes the bug it was written to
@@ -71,9 +71,9 @@ describe('workspace-scope section', () => {
     expect(text).toContain('needs_workspace')
   })
 
-  it('demotes dial8_set_workspace to optional pinning', async () => {
+  it('demotes ni_set_workspace to optional pinning', async () => {
     const text = await build()
-    expect(text).toContain('`dial8_set_workspace` is optional')
+    expect(text).toContain('`ni_set_workspace` is optional')
   })
 
   it('drops the sticky-scope and set-workspace-first instructions entirely', async () => {
@@ -89,16 +89,16 @@ describe('the blocks the rewrite must NOT have eaten', () => {
   it('keeps the stale-tool-list escape hatch', async () => {
     const text = await build()
     expect(text).toContain('YOUR TOOL LIST MAY BE OUT OF DATE')
-    expect(text).toContain('`dial8_search_tools`')
-    expect(text).toContain('`dial8_call_tool`')
+    expect(text).toContain('`ni_search_tools`')
+    expect(text).toContain('`ni_call_tool`')
   })
 
   it('keeps the knowledge loop', async () => {
     const text = await build()
     expect(text).toContain('Knowledge loop')
     expect(text).toContain('dial8://brief/workspace')
-    expect(text).toContain('dial8_search_claims')
-    expect(text).toContain('dial8_create_claim')
+    expect(text).toContain('ni_search_claims')
+    expect(text).toContain('ni_create_claim')
   })
 
   it('keeps the read-only line, and only for a read-only token', async () => {

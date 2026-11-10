@@ -1,5 +1,5 @@
 /**
- * dial8_create_agent with `bot_character` (bots-v3 Phase 6): the agent's
+ * ni_create_agent with `bot_character` (bots-v3 Phase 6): the agent's
  * teammate is made with it, by the caller's role (a full teammate for an
  * owner, admin or lead; a work bot for anyone else). The MCP server is on the
  * service role, so these checks are the only fence. A face that isn't a
@@ -39,15 +39,15 @@ function oneRowSingles(db: FakeSupabase): SupabaseClient {
   } as unknown as SupabaseClient
 }
 
-async function call(db: FakeSupabase, args: Record<string, unknown>, tool = 'dial8_create_agent') {
-  const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+async function call(db: FakeSupabase, args: Record<string, unknown>, tool = 'ni_create_agent') {
+  const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
   registerLibraryTools(server, 'user-1', oneRowSingles(db), 'ws-1', 'Test Workspace')
   const registered = (server as unknown as { _registeredTools: Record<string, { handler: Handler }> })._registeredTools
   const res = await registered[tool].handler(args, {})
   return { ...res, body: JSON.parse(res.content[0].text) as Record<string, unknown> }
 }
 
-describe('dial8_create_agent: give it a bot', () => {
+describe('ni_create_agent: give it a bot', () => {
   it('makes an admin’s agent a full teammate wearing the face', async () => {
     const db = world('admin')
     const res = await call(db, { name: 'Coach', system_prompt: 'x', visibility: 'workspace', bot_character: 'coach' })
@@ -83,7 +83,7 @@ describe('dial8_create_agent: give it a bot', () => {
   })
 })
 
-describe('dial8_create_agent: every shared agent gets its bot (bots-v4 B1)', () => {
+describe('ni_create_agent: every shared agent gets its bot (bots-v4 B1)', () => {
   it('a shared agent made with no face gets its bot on the first free face', async () => {
     const db = world('admin')
     const res = await call(db, { name: 'Coach', system_prompt: 'x', visibility: 'workspace' })
@@ -95,19 +95,19 @@ describe('dial8_create_agent: every shared agent gets its bot (bots-v4 B1)', () 
   })
 })
 
-describe('dial8_update_agent: an agent with bots stays shared (bots-v4 B1)', () => {
+describe('ni_update_agent: an agent with bots stays shared (bots-v4 B1)', () => {
   it('refuses making it personal while it has a bot, and changes nothing', async () => {
     const db = world('admin')
     await call(db, { name: 'Coach', system_prompt: 'x', visibility: 'workspace', bot_character: 'coach' })
     const agent = db.rows('recipe').find((r) => r.name === 'Coach')!
-    const res = await call(db, { id: agent.id, visibility: 'personal' }, 'dial8_update_agent')
+    const res = await call(db, { id: agent.id, visibility: 'personal' }, 'ni_update_agent')
     expect(res.isError).toBe(true)
     expect(JSON.stringify(res.body)).toContain('AGENT_HAS_BOTS')
     expect(db.rows('recipe').find((r) => r.id === agent.id)?.visibility).toBe('workspace')
   })
 })
 
-describe('dial8_create_agent: a personal agent has no bot', () => {
+describe('ni_create_agent: a personal agent has no bot', () => {
   it('refuses a bot for a personal agent (the default), and writes nothing', async () => {
     const db = world('member')
     const res = await call(db, { name: 'Mine', system_prompt: 'x', bot_character: 'notes' })
@@ -118,12 +118,12 @@ describe('dial8_create_agent: a personal agent has no bot', () => {
   })
 })
 
-describe('dial8_delete_agent: an agent with a bot', () => {
+describe('ni_delete_agent: an agent with a bot', () => {
   it('deletes a plain member’s agent and its bot with it', async () => {
     const db = world('member')
     await call(db, { name: 'Helper', system_prompt: 'x', visibility: 'workspace', bot_character: 'notes' })
     const agent = db.rows('recipe').find((r) => r.name === 'Helper')!
-    const res = await call(db, { id: agent.id }, 'dial8_delete_agent')
+    const res = await call(db, { id: agent.id }, 'ni_delete_agent')
     expect(res.isError).toBeFalsy()
     expect(db.rows('ai_team_member').filter((r) => r.agent_recipe_id === agent.id)).toHaveLength(0)
     expect(db.rows('recipe').some((r) => r.id === agent.id)).toBe(false)
@@ -133,7 +133,7 @@ describe('dial8_delete_agent: an agent with a bot', () => {
     const db = world('admin')
     await call(db, { name: 'Coach', system_prompt: 'x', visibility: 'workspace', bot_character: 'coach' })
     const agent = db.rows('recipe').find((r) => r.name === 'Coach')!
-    const res = await call(db, { id: agent.id }, 'dial8_delete_agent')
+    const res = await call(db, { id: agent.id }, 'ni_delete_agent')
     expect(res.isError).toBe(true)
     expect(JSON.stringify(res.body)).toContain('AGENT_FIELDED')
     expect(db.rows('recipe').some((r) => r.id === agent.id)).toBe(true)

@@ -1,4 +1,4 @@
-import { FeatureCard } from '@dial8/ui'
+import { FeatureCard } from '@native-intelligence/ui'
 
 // FeatureCard animates in via framer-motion `whileInView` (initial opacity 0,
 // translateY 20). In a headless single-frame capture the in-view trigger may

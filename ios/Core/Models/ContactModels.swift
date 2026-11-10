@@ -1,6 +1,6 @@
 //
 //  ContactModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Core models for CRM/Contacts system
 //

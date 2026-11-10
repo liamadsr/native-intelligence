@@ -18,12 +18,12 @@ const ERROR_MESSAGES: Record<string, string> = {
 }
 
 export function LoginForm({
-  googleOnDial8 = false,
+  googleOnNi = false,
   adminDomain = null,
 }: {
   /** Sign in through Native Intelligence's own Google flow (lib/auth/google-sign-in,
    *  decided by the page) instead of Supabase's. */
-  googleOnDial8?: boolean
+  googleOnNi?: boolean
   /** The domain every admin's address shares (ADMIN_EMAILS), if one: Google's
    *  account-chooser hint. */
   adminDomain?: string | null
@@ -38,7 +38,7 @@ export function LoginForm({
     setError('')
     setGoogleLoading(true)
 
-    if (googleOnDial8) {
+    if (googleOnNi) {
       // /auth/google/callback checks ADMIN_EMAILS and lands on /admin.
       window.location.assign('/auth/google?admin=1')
       return

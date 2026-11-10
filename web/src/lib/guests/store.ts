@@ -249,8 +249,8 @@ export function inviteText(displayName: string, code: string): string {
 }
 
 /** The invite link: Messages, to the Native Intelligence number, with their first text typed in. */
-export function inviteHref(dial8Number: string, displayName: string, code: string): string {
-  return smsHref(dial8Number, inviteText(displayName, code))
+export function inviteHref(niNumber: string, displayName: string, code: string): string {
+  return smsHref(niNumber, inviteText(displayName, code))
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────

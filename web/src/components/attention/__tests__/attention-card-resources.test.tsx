@@ -25,7 +25,7 @@ vi.mock('posthog-js/react', () => ({ usePostHog: () => ({ capture: vi.fn() }) })
 /** The cards the chips asked for (the tabs provider isn't mounted: the requests are the result). */
 const opened = vi.hoisted(() => [] as Array<Record<string, unknown>>)
 const onOpenCard = (e: Event) => opened.push((e as CustomEvent).detail)
-window.addEventListener('dial8:open-card', onOpenCard)
+window.addEventListener('ni:open-card', onOpenCard)
 vi.mock('@/app/account/workspace-switcher', () => ({
   useWorkspaces: () => ({
     workspaces: [

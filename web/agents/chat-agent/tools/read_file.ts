@@ -11,7 +11,7 @@
 // proxies, not framework tools) — see tools/web_search.ts and tools/web_fetch.ts.
 //
 // THE MAC BODY (contract C2, ../lib/host.ts) is the exception: built with
-// DIAL8_AGENT_HOST=mac, this is eve's own `read_file`, bound to the Mac host's
+// NI_AGENT_HOST=mac, this is eve's own `read_file`, bound to the Mac host's
 // sandbox, the host-folder fence (agents/local-agent/sandbox.ts, which the Mac
 // build adds as sandbox.ts): the folder the person shared, enforced by the
 // kernel. The cloud build never has a sandbox file, so this stays off there.

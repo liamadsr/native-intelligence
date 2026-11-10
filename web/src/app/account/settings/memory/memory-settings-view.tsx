@@ -1,6 +1,6 @@
 'use client'
 
-import { WhatDial8Learned } from '@/components/memory/what-dial8-learned'
+import { WhatNiLearned } from '@/components/memory/what-ni-learned'
 
 /**
  * Settings → Memory: what Native Intelligence has learned, every area (one-agent plan
@@ -20,7 +20,7 @@ export function MemorySettingsView() {
         <p className="mt-1 text-sm text-muted-foreground">
           Preferences Native Intelligence follows in each area: yours, and your workspace’s. Edit or remove any line, including what Native Intelligence noticed on its own.
         </p>
-        <WhatDial8Learned className="mt-8" />
+        <WhatNiLearned className="mt-8" />
       </div>
     </div>
   )

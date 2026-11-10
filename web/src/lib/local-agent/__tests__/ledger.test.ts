@@ -78,7 +78,7 @@ function setup(turnStatus: string | null, extra: Partial<LedgerSession> = {}) {
   })
   work.db = db as never
   const s: LedgerSession = {
-    id: SID, userId: USER, workspaceId: WS, conversationId: CONV, folderLabel: 'dial8-website', deviceName: 'Liam’s MacBook',
+    id: SID, userId: USER, workspaceId: WS, conversationId: CONV, folderLabel: 'native-intelligence', deviceName: 'Liam’s MacBook',
     request: 'Take a look at this repository', currentTurn: 1, currentTrackedJobId: jobId, trackedJobId: jobId, ...extra,
   }
   return { db, s, h: jobId ? work.handleFor(jobId) : null }
@@ -100,12 +100,12 @@ describe('the turn row', () => {
       workspaceId: WS,
       memberId: 'member-1',
       kind: 'local_agent',
-      title: 'Native Intelligence on Liam’s MacBook · dial8-website: Take a look at this repository',
+      title: 'Native Intelligence on Liam’s MacBook · native-intelligence: Take a look at this repository',
       actor: 'agent',
       status: 'queued',
       runKey: `local_agent:${SID}:1`,
       origin: 'chat',
-      source: { chat_conversation_id: CONV, local_agent_session_id: SID, folder_label: 'dial8-website', device_name: 'Liam’s MacBook', turn: 1 },
+      source: { chat_conversation_id: CONV, local_agent_session_id: SID, folder_label: 'native-intelligence', device_name: 'Liam’s MacBook', turn: 1 },
       aiTeamMemberId: 'teammate-assistant',
     })
   })

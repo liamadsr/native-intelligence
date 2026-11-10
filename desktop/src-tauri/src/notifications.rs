@@ -532,11 +532,11 @@ pub fn web_may_use_id(id: &str) -> bool {
 ///
 /// It shows even while Native Intelligence is frontmost, when the delegate's `will_present`
 /// keeps every other banner off screen, provided `id` starts `local-agent-`
-/// ([`shows_over_dial8`]). `Err` when this build has no backend (an unbundled
+/// ([`shows_over_the_app`]). `Err` when this build has no backend (an unbundled
 /// dev binary) or the OS refused it.
 /// Whether a banner shows while Native Intelligence is frontmost: only [`show_native`]'s
 /// local-agent ones (see the delegate's `will_present`).
-fn shows_over_dial8(id: &str) -> bool {
+fn shows_over_the_app(id: &str) -> bool {
     id.starts_with("local-agent-")
 }
 
@@ -899,7 +899,7 @@ mod macos {
 
     /// Whether the delegate has been installed. The delegate object itself is
     /// deliberately LEAKED rather than stored in a static: it is a
-    /// `MainThreadOnly` class, so `Retained<Dial8NotificationDelegate>` is
+    /// `MainThreadOnly` class, so `Retained<NiNotificationDelegate>` is
     /// neither `Send` nor `Sync` and cannot live in a static at all. It must
     /// outlive every notification the process shows anyway —
     /// UNUserNotificationCenter holds its delegate WEAKLY, so dropping our
@@ -913,12 +913,12 @@ mod macos {
         // statics, so it carries no ivars.
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "Dial8NotificationDelegate"]
-        struct Dial8NotificationDelegate;
+        #[name = "NiNotificationDelegate"]
+        struct NiNotificationDelegate;
 
-        unsafe impl NSObjectProtocol for Dial8NotificationDelegate {}
+        unsafe impl NSObjectProtocol for NiNotificationDelegate {}
 
-        unsafe impl UNUserNotificationCenterDelegate for Dial8NotificationDelegate {
+        unsafe impl UNUserNotificationCenterDelegate for NiNotificationDelegate {
             /// A click (or dismiss) on one of our notifications. This is also the
             /// COLD-START path: macOS relaunches the app to deliver a click on a
             /// notification from a previous session, and the OS calls this before
@@ -996,7 +996,7 @@ mod macos {
                 completion_handler: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
             ) {
                 let id = notification.request().identifier().to_string();
-                let options = if super::shows_over_dial8(&id) {
+                let options = if super::shows_over_the_app(&id) {
                     UNNotificationPresentationOptions::Banner
                         | UNNotificationPresentationOptions::List
                         | UNNotificationPresentationOptions::Sound
@@ -1071,14 +1071,14 @@ mod macos {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            let delegate: Retained<Dial8NotificationDelegate> = {
-                let this = Dial8NotificationDelegate::alloc(mtm);
+            let delegate: Retained<NiNotificationDelegate> = {
+                let this = NiNotificationDelegate::alloc(mtm);
                 unsafe { msg_send![this, init] }
             };
             // Leak it: the center only holds a weak reference, so this Retained
             // is the sole owner and must never be dropped (see DELEGATE_INSTALLED).
             // into_raw gives up ownership without releasing; we never reclaim it.
-            let delegate: &'static Dial8NotificationDelegate =
+            let delegate: &'static NiNotificationDelegate =
                 // SAFETY: into_raw returns the +1-retained pointer we just
                 // created and never release, so it stays valid for the process
                 // lifetime — which is exactly the 'static we claim here.
@@ -1392,11 +1392,11 @@ mod windows_impl {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn only_local_agent_banners_show_over_dial8() {
-        assert!(super::shows_over_dial8("local-agent-3f2c"));
-        assert!(!super::shows_over_dial8("chat-reply-1"));
-        assert!(!super::shows_over_dial8("x-local-agent-1"));
-        assert!(!super::shows_over_dial8(""));
+    fn only_local_agent_banners_show_over_ni() {
+        assert!(super::shows_over_the_app("local-agent-3f2c"));
+        assert!(!super::shows_over_the_app("chat-reply-1"));
+        assert!(!super::shows_over_the_app("x-local-agent-1"));
+        assert!(!super::shows_over_the_app(""));
     }
 
     use super::*;

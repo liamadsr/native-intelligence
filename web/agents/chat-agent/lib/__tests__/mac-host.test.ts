@@ -1,7 +1,7 @@
 /**
  * The Mac body's host switch and its link to the app (contract C2,
  * docs/plans/teammate-agent.md): pure pieces. Pins:
- *   - the host is 'cloud' unless DIAL8_AGENT_HOST is exactly 'mac'; anything
+ *   - the host is 'cloud' unless NI_AGENT_HOST is exactly 'mac'; anything
  *     else throws, and 'mac' never runs on Vercel;
  *   - C1's origin: LOCAL_AGENT_API_ORIGIN (an origin only), else the relay
  *     URL's origin, both under the relay URL's rule;
@@ -62,21 +62,21 @@ const TOKEN_B = 'la1.test-session-token-B'
 describe('agentHost', () => {
   it('is the cloud by default and the Mac only for exactly "mac"', () => {
     expect(agentHost({})).toBe('cloud')
-    expect(agentHost({ DIAL8_AGENT_HOST: '' })).toBe('cloud')
-    expect(agentHost({ DIAL8_AGENT_HOST: 'cloud' })).toBe('cloud')
-    expect(agentHost({ DIAL8_AGENT_HOST: 'mac' })).toBe('mac')
-    expect(agentHost({ DIAL8_AGENT_HOST: 'mac', VERCEL: '' })).toBe('mac')
-    expect(isMacHost({ DIAL8_AGENT_HOST: 'mac' })).toBe(true)
+    expect(agentHost({ NI_AGENT_HOST: '' })).toBe('cloud')
+    expect(agentHost({ NI_AGENT_HOST: 'cloud' })).toBe('cloud')
+    expect(agentHost({ NI_AGENT_HOST: 'mac' })).toBe('mac')
+    expect(agentHost({ NI_AGENT_HOST: 'mac', VERCEL: '' })).toBe('mac')
+    expect(isMacHost({ NI_AGENT_HOST: 'mac' })).toBe(true)
     expect(isMacHost({})).toBe(false)
   })
 
   it('throws on any other value, and on the Mac host on Vercel', () => {
-    for (const bad of ['Mac', 'macos', 'true', '1', ' mac']) expect(() => agentHost({ DIAL8_AGENT_HOST: bad })).toThrow(/not a host/)
-    expect(() => agentHost({ DIAL8_AGENT_HOST: 'mac', VERCEL: '1' })).toThrow(/never runs there/)
+    for (const bad of ['Mac', 'macos', 'true', '1', ' mac']) expect(() => agentHost({ NI_AGENT_HOST: bad })).toThrow(/not a host/)
+    expect(() => agentHost({ NI_AGENT_HOST: 'mac', VERCEL: '1' })).toThrow(/never runs there/)
   })
 
   it('reads the process environment by default (unset in this test run: the cloud)', () => {
-    expect(process.env.DIAL8_AGENT_HOST).toBeUndefined()
+    expect(process.env.NI_AGENT_HOST).toBeUndefined()
     expect(isMacHost()).toBe(false)
   })
 })
@@ -229,19 +229,19 @@ describe('the Mac channel (agents/local-agent/channels/eve.ts)', () => {
   beforeEach(async () => {
     process.env.LOCAL_AGENT_SECRET = SECRET
     process.env.LOCAL_AGENT_JOB_ID = 'job-1'
-    process.env.DIAL8_AGENT_HOST = 'mac'
+    process.env.NI_AGENT_HOST = 'mac'
     vi.resetModules()
     ;({ macChannelAuth } = (await import('../../../local-agent/channels/eve')) as unknown as ChannelModule)
   })
   afterEach(() => {
     delete process.env.LOCAL_AGENT_SECRET
     delete process.env.LOCAL_AGENT_JOB_ID
-    delete process.env.DIAL8_AGENT_HOST
+    delete process.env.NI_AGENT_HOST
   })
   const req = (bearer?: string) => new Request('http://127.0.0.1:4000/eve/v1/session', { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} })
 
   it('refuses to load outside the Mac body', async () => {
-    delete process.env.DIAL8_AGENT_HOST
+    delete process.env.NI_AGENT_HOST
     vi.resetModules()
     await expect(import('../../../local-agent/channels/eve')).rejects.toThrow(/outside the Mac body/)
   })

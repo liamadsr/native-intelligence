@@ -54,7 +54,7 @@ describe('POST /api/account/workspace/merge/preflight', () => {
   })
 
   it('a device token may not even look (it could read the name it would have to type)', async () => {
-    const res = await POST(req(GOOD, { authorization: 'Bearer d8d_devicetoken' }))
+    const res = await POST(req(GOOD, { authorization: 'Bearer nid_devicetoken' }))
     expect(res.status).toBe(403)
     expect(hoisted.requireWorkspaceMember).not.toHaveBeenCalled()
     expect(hoisted.rpc).not.toHaveBeenCalled()

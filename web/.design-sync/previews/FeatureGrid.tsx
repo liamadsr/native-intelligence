@@ -1,4 +1,4 @@
-import { FeatureGrid, FeatureCard } from '@dial8/ui'
+import { FeatureGrid, FeatureCard } from '@native-intelligence/ui'
 
 // FeatureCard animates in via framer-motion `whileInView`; force the visible
 // rested state so the headless single-frame capture isn't blank.

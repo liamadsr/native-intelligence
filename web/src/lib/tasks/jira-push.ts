@@ -29,7 +29,7 @@ import type { JiraPushOverrides } from './push-overrides'
  * menu (`PushToTrackerMenu`, in the action detail panel's toolbar and on a
  * capture's extracted action items, both via POST
  * /api/account/actions/[id]/jira), the AI chat tool `push_action_to_jira`, and
- * its MCP twin `dial8_push_action_to_jira`. They differ only in how they resolve
+ * its MCP twin `ni_push_action_to_jira`. They differ only in how they resolve
  * the action and shape the reply.
  *
  * Step-for-step sibling of asana-push.ts, including the idempotency model: a

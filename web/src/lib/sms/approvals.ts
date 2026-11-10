@@ -59,6 +59,7 @@ import {
 import { plainReplyDecision, replyNamesACode } from '@/lib/safety/caller'
 import { countInboundKindSince, markInboundKind, recordOutbound, type LinkedPhone, type SmsOutboundKind } from './store'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** Wrong codes one number may text in a day before codes by text pause. */
 export const SMS_CODE_MISS_DAILY_CAP = 5
@@ -89,7 +90,7 @@ export function approvalPromptText(approval: ChannelApproval): string {
   // text the customer gets, who gets it (the title) and from which number,
   // and its only link is the business's own booking link (src/lib/customers/
   // quote-reply.ts keeps every other link out), shown as it will be sent.
-  if (WHOLE_CARD_TOOLS.has((approval.tool ?? '').replace(/^dial8_/, ''))) {
+  if (WHOLE_CARD_TOOLS.has(bareToolName(approval.tool ?? ''))) {
     const one = (s: string) => s.trim().replace(/\s+/g, ' ')
     return `Dial8 needs your OK: ${one(approval.title)} (${one(approval.why)}). Reply yes to approve or no to decline. Reply STOP to opt out.`
   }

@@ -2338,7 +2338,7 @@ async fn a_push_in_finishs_turn_commits_at_once_then_pushes_that_commit_and_open
     assert!(env.contains("GH_PROMPT_DISABLED=1") && env.contains(&format!("HOME={}", rig.base.join("home").display())));
     assert!(!env.contains("LOCAL_AGENT") && !env.contains("tok-test"), "{env}");
     let cwd = std::fs::read_to_string(rig.base.join("gh-cwd")).unwrap();
-    assert!(cwd.contains("dial8-gh-"), "{cwd}");
+    assert!(cwd.contains("ni-gh-"), "{cwd}");
     assert!(!std::path::Path::new(cwd.trim()).exists(), "removed after");
 
     let job = rig.job(&job_id).await;

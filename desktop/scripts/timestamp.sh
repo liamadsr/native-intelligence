@@ -36,7 +36,7 @@ TIMESTAMP_UNAVAILABLE='A timestamp was expected but was not found|The timestamp 
 timestamp_retry() {
     local waits=($TIMESTAMP_RETRY_WAITS)
     local attempts=$((${#waits[@]} + 1)) attempt=1 status log
-    log="$(mktemp -t dial8-timestamp)" || return 1
+    log="$(mktemp -t ni-timestamp)" || return 1
     while :; do
         # PIPESTATUS[0] is the command's status (the pipeline's is tee's). The
         # || list keeps a failed run from tripping the caller's set -e, even
@@ -64,7 +64,7 @@ timestamp_retry() {
 # prints codesign's output to stderr and returns non-zero.
 timestamp_preflight() {
     local identity="$1" dir status=1
-    dir="$(mktemp -d -t dial8-timestamp)" || return 1
+    dir="$(mktemp -d -t ni-timestamp)" || return 1
     if cp /usr/bin/true "$dir/probe" \
         && timestamp_retry codesign --force --options runtime --timestamp \
             --sign "$identity" "$dir/probe" > "$dir/codesign.log" \

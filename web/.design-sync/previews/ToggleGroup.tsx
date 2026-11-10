@@ -1,4 +1,4 @@
-import { ToggleGroup, ToggleGroupItem } from '@dial8/ui'
+import { ToggleGroup, ToggleGroupItem } from '@native-intelligence/ui'
 
 export function SingleSelect() {
   return (

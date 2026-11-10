@@ -316,7 +316,7 @@ export function attachedFilesText(count: number): string {
  * Where the old composer remembered its thinking level per model. The server
  * picks the model now, so nothing reads it: a chat's mount drops it once.
  */
-export const STALE_THINKING_STORAGE_KEY = 'dial8.chat.thinking'
+export const STALE_THINKING_STORAGE_KEY = 'ni.chat.thinking'
 
 let staleModelPicksCleared = false
 

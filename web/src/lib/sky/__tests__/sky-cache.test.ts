@@ -120,13 +120,13 @@ describe('sky cache', () => {
   })
 
   it('is under the v2 key: a v1 reading (cloud cover from the old total) is ignored, and dropped on the next save', () => {
-    expect(SKY_CACHE_KEY).toBe('dial8.sky.lastReading.v2')
+    expect(SKY_CACHE_KEY).toBe('ni.sky.lastReading.v2')
     // A v1 reading of a clear New York sky under cirrus, saved as "Cloudy".
     const v1 = reading({ weather: { ...CLEAR_SKY, cloudCover: 0.914, temperatureC: 14.7, condition: 'Cloudy' } })
-    window.localStorage.setItem('dial8.sky.lastReading.v1', JSON.stringify(v1))
+    window.localStorage.setItem('ni.sky.lastReading.v1', JSON.stringify(v1))
     expect(loadSkyReading(FETCHED + 60_000)).toBeNull()
     saveSkyReading(reading())
-    expect(window.localStorage.getItem('dial8.sky.lastReading.v1')).toBeNull()
+    expect(window.localStorage.getItem('ni.sky.lastReading.v1')).toBeNull()
     expect(loadSkyReading(FETCHED + 60_000)?.weather).toEqual(reading().weather)
   })
 

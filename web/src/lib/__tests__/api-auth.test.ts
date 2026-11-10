@@ -125,7 +125,7 @@ vi.mock('@/lib/workspace', async (importOriginal) => ({
 }))
 
 vi.mock('@/lib/device-tokens', () => ({
-  isDeviceToken: (token: string) => token.startsWith('d8d_'),
+  isDeviceToken: (token: string) => token.startsWith('nid_'),
   resolveDeviceToken: hoisted.resolveDeviceToken,
 }))
 
@@ -398,7 +398,7 @@ describe('requireWorkspace (device token)', () => {
     // Removed from w1 after pinning the device to it: the pin alone must not
     // keep the workspace reachable.
     hoisted.getUser.mockResolvedValue({ data: { user: null }, error: null })
-    hoisted.authHeader = 'Bearer d8d_secret'
+    hoisted.authHeader = 'Bearer nid_secret'
     hoisted.resolveDeviceToken.mockResolvedValue({ userId: 'u1', workspaceId: 'w1' })
     hoisted.candidateLookup.mockResolvedValueOnce({ data: null, error: null })
 
@@ -411,7 +411,7 @@ describe('requireWorkspace (device token)', () => {
 
   it('returns the pinned workspace for a member', async () => {
     hoisted.getUser.mockResolvedValue({ data: { user: null }, error: null })
-    hoisted.authHeader = 'Bearer d8d_secret'
+    hoisted.authHeader = 'Bearer nid_secret'
     hoisted.resolveDeviceToken.mockResolvedValue({ userId: 'u1', workspaceId: 'w1' })
     hoisted.candidateLookup.mockResolvedValueOnce({ data: { id: 'm1' }, error: null })
 
@@ -427,10 +427,10 @@ describe('requireWorkspace (device token)', () => {
 
 describe('requireWorkspaceMember', () => {
   it('returns 403 NOT_MEMBER when a device-pinned workspace has no member row', async () => {
-    // Device-token auth: no cookie session, Bearer d8d_… resolves to a user
+    // Device-token auth: no cookie session, Bearer nid_… resolves to a user
     // pinned to workspace w1 — but the member row no longer exists.
     hoisted.getUser.mockResolvedValue({ data: { user: null }, error: null })
-    hoisted.authHeader = 'Bearer d8d_secret'
+    hoisted.authHeader = 'Bearer nid_secret'
     hoisted.resolveDeviceToken.mockResolvedValue({
       userId: 'u1',
       workspaceId: 'w1',
@@ -447,7 +447,7 @@ describe('requireWorkspaceMember', () => {
 
   it('checks a device-pinned workspace off the cookie client and returns the member row', async () => {
     hoisted.getUser.mockResolvedValue({ data: { user: null }, error: null })
-    hoisted.authHeader = 'Bearer d8d_secret'
+    hoisted.authHeader = 'Bearer nid_secret'
     hoisted.resolveDeviceToken.mockResolvedValue({ userId: 'u1', workspaceId: 'w1' })
     hoisted.candidateLookup.mockResolvedValueOnce({ data: { id: 'm1', role: 'member' }, error: null })
 
@@ -464,7 +464,7 @@ describe('requireWorkspaceMember', () => {
 
   it('returns 500 (not NOT_MEMBER) when the device-pinned membership query errors', async () => {
     hoisted.getUser.mockResolvedValue({ data: { user: null }, error: null })
-    hoisted.authHeader = 'Bearer d8d_secret'
+    hoisted.authHeader = 'Bearer nid_secret'
     hoisted.resolveDeviceToken.mockResolvedValue({ userId: 'u1', workspaceId: 'w1' })
     hoisted.candidateLookup.mockResolvedValueOnce({ data: null, error: { message: 'db down' } })
 

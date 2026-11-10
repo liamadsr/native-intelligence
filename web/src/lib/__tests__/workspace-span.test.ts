@@ -44,7 +44,7 @@ import { __resetAgentLookForTests, useAgentLook } from '../bots/agent-look-store
 import { DEFAULT_AGENT_LOOK } from '../bots/agent-look'
 import { __resetAssistantNameForTests, getAssistantName } from '../voice/assistant-name-store'
 
-const LEGACY_INBOX_KEY = 'dial8:notifications-scope'
+const LEGACY_INBOX_KEY = 'ni:notifications-scope'
 
 /** Every request the store made. The profile GET answers with `account`. */
 let requests: { url: string; init?: RequestInit }[] = []
@@ -321,7 +321,7 @@ describe('following other devices and windows', () => {
     // Another key's event is not this switch's business.
     window.localStorage.setItem(WORKSPACE_SPAN_STORAGE_KEY, JSON.stringify({ all: false, user: 'u1' }))
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'dial8:something-else' }))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'ni:something-else' }))
     })
     expect(reader.seen.at(-1)).toBe(true)
     // Following another window saves nothing: that window already did.

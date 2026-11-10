@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { useTeams } from './teams-context'
 
 /** The element the curtain covers: the dashboard's chat row (dashboard-shell ChatRow). */
-export const CONTENT_PANEL_ID = 'dial8-content-panel'
+export const CONTENT_PANEL_ID = 'ni-content-panel'
 
 /**
  * "Wipe & reveal" workspace transition, scoped to the main content panel.
@@ -34,7 +34,7 @@ export const CONTENT_PANEL_ID = 'dial8-content-panel'
  *   4. REVEAL    — the curtain sweeps away, unveiling the new workspace, with the
  *                  workspace name briefly announced in the center.
  *
- * The curtain mounts into the chat stage (`#dial8-content-panel`,
+ * The curtain mounts into the chat stage (`#ni-content-panel`,
  * CONTENT_PANEL_ID: the dashboard's chat row) via a portal so it inherits its
  * clip. The reveal cue is `useTeams().loading`: teams are
  * cleared+refetched on every workspace change, so its loading edge is a reliable

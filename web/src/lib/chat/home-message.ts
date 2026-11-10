@@ -20,7 +20,7 @@
 export const AGENT_MESSAGE_NOTICE_TYPE = 'agent_message'
 
 /** Window event: a home-thread message was announced. Handled by MainChatHost. */
-export const HOME_MESSAGE_EVENT = 'dial8:home-message'
+export const HOME_MESSAGE_EVENT = 'ni:home-message'
 
 /**
  * The PostHog event a chat sends when it lacked such a message and read it in

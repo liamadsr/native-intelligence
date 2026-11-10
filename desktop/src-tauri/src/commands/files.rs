@@ -69,7 +69,7 @@ fn write_marked(
     mark: impl FnOnce(&std::fs::File, &Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let tmp = dir.join(format!(".dial8-{}.download", uuid::Uuid::new_v4().simple()));
+    let tmp = dir.join(format!(".ni-{}.download", uuid::Uuid::new_v4().simple()));
     let written = (|| {
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         #[cfg(unix)]

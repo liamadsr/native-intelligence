@@ -3,7 +3,7 @@
 #
 # Your own values go in .env.release beside those scripts (gitignored, never
 # committed) or in the environment:
-#   DIAL8_SIGNING_IDENTITY="<SHA-1 of your Developer ID Application certificate>"
+#   NI_SIGNING_IDENTITY="<SHA-1 of your Developer ID Application certificate>"
 #                         (security find-identity -v -p codesigning lists them)
 # The team ID is read from that certificate's name in the keychain. A worktree has
 # no .env.release of its own, so the main checkout's is read.
@@ -21,7 +21,8 @@ signing_load() {
         [ -f "$common/../$prefix.env.release" ]; then
         source "$common/../$prefix.env.release"
     fi
-    SIGNING_IDENTITY=${DIAL8_SIGNING_IDENTITY:-}
+    # TODO(rename-compat): DIAL8_SIGNING_IDENTITY is the name an .env.release written before the rename uses.
+    SIGNING_IDENTITY=${NI_SIGNING_IDENTITY:-${DIAL8_SIGNING_IDENTITY:-}}
     TEAM_ID=""
     if [ -n "$SIGNING_IDENTITY" ]; then
         TEAM_ID=$(security find-identity -v -p codesigning 2>/dev/null | grep -F "$SIGNING_IDENTITY" |

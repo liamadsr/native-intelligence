@@ -24,9 +24,16 @@ import { resolveInternalSecret } from '@/lib/eve/internal-secret'
 const SIGNING_DOMAIN = 'browser-relay.v1.'
 
 /** Added by the sandbox firewall: the token. */
-export const RELAY_TOKEN_HEADER = 'x-dial8-relay-token'
+export const RELAY_TOKEN_HEADER = 'x-ni-relay-token'
 /** Sent by the relay itself: the firewall injects the token only into requests carrying it. */
-export const RELAY_MARK_HEADER = 'x-dial8-relay'
+export const RELAY_MARK_HEADER = 'x-ni-relay'
+// TODO(rename-compat): a relay started before the rename, and the firewall rule set
+// for its sandbox, use these names until its next start (which sets the rule again
+// and starts the current relay). Accepting them lets that relay finish what it is
+// doing and learn that it is out of date. Drop them once no such sandbox can still
+// be running: a session lasts hours.
+const LEGACY_RELAY_TOKEN_HEADER = 'x-dial8-relay-token'
+const LEGACY_RELAY_MARK_HEADER = 'x-dial8-relay'
 
 export interface BrowserRelayClaims {
   aud: 'browser-relay'
@@ -81,6 +88,12 @@ export const relayDeviceId = (claims: BrowserRelayClaims) => `cloud:${claims.san
  * send without a CORS preflight these routes never answer.
  */
 export function requireBrowserRelay(request: Request): BrowserRelayClaims | Response {
-  const claims = request.headers.get(RELAY_MARK_HEADER) === '1' ? verifyBrowserRelayToken(request.headers.get(RELAY_TOKEN_HEADER)) : null
-  return claims ?? Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const { headers } = request
+  const token =
+    headers.get(RELAY_MARK_HEADER) === '1'
+      ? headers.get(RELAY_TOKEN_HEADER)
+      : headers.get(LEGACY_RELAY_MARK_HEADER) === '1'
+        ? headers.get(LEGACY_RELAY_TOKEN_HEADER)
+        : null
+  return verifyBrowserRelayToken(token) ?? Response.json({ error: 'Unauthorized' }, { status: 401 })
 }

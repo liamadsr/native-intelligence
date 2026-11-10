@@ -130,7 +130,7 @@ async function gmailBatchOnce(
   headerNames: readonly string[],
   out: Map<string, GmailMetadata>,
 ): Promise<{ throttled: boolean; retryAfter: number }> {
-  const boundary = `batch_dial8_${ids.length}_${Date.now()}`
+  const boundary = `batch_ni_${ids.length}_${Date.now()}`
   const query = ['format=metadata', ...headerNames.map((h) => `metadataHeaders=${encodeURIComponent(h)}`)].join('&')
   const body =
     ids

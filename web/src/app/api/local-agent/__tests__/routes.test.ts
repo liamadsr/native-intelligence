@@ -81,8 +81,8 @@ describe('device routes', () => {
     const bad = await heartbeatPOST(post({ deviceId: 'x', grants: [] }))
     expect(bad.status).toBe(400)
     expect(await bad.json()).toMatchObject({ code: 'BAD_REQUEST' })
-    const res = await heartbeatPOST(post({ deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '0.3', grants: [{ grantId: 'g1', label: 'dial8-website', path: '/p', mode: 'edit', isGit: true }] }))
-    expect(await res.json()).toEqual({ folders: [{ id: FOLDER, grantId: 'g1', label: 'dial8-website', mode: 'edit', isGit: true }] })
+    const res = await heartbeatPOST(post({ deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '0.3', grants: [{ grantId: 'g1', label: 'native-intelligence', path: '/p', mode: 'edit', isGit: true }] }))
+    expect(await res.json()).toEqual({ folders: [{ id: FOLDER, grantId: 'g1', label: 'native-intelligence', mode: 'edit', isGit: true }] })
   })
 
   it('pending → claim (model token) → state rebind → events', async () => {
@@ -274,9 +274,9 @@ describe('the cookie-authed POSTs refuse a request from another origin', () => {
 })
 
 describe('capture-device tokens are refused', () => {
-  it('a Bearer d8d_ token gets 403 on the device and person routes, before any read', async () => {
+  it('a Bearer nid_ token gets 403 on the device and person routes, before any read', async () => {
     const withDeviceToken = (method = 'POST', body: unknown = {}) =>
-      new Request('http://localhost/api/x', { method, headers: { authorization: 'Bearer d8d_secretish' }, ...(method === 'GET' ? {} : { body: JSON.stringify(body) }) })
+      new Request('http://localhost/api/x', { method, headers: { authorization: 'Bearer nid_secretish' }, ...(method === 'GET' ? {} : { body: JSON.stringify(body) }) })
     const id = await newSession()
     for (const res of [
       await heartbeatPOST(withDeviceToken('POST', { deviceId: DEVICE, grants: [] })),
@@ -343,7 +343,7 @@ describe('person routes', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.devices).toEqual([expect.objectContaining({ id: DEVICE, online: true })])
-    expect(body.folders).toEqual([expect.objectContaining({ id: FOLDER, label: 'dial8-website', mode: 'edit', online: true, path: expect.any(String) })])
+    expect(body.folders).toEqual([expect.objectContaining({ id: FOLDER, label: 'native-intelligence', mode: 'edit', online: true, path: expect.any(String) })])
     expect(body.worktrees).toEqual([expect.objectContaining({ sessionId: 's-edit', folderId: FOLDER, branch: 'dial8/fix-1a2b', live: true })])
     m.user = OTHER
     expect(await (await environmentGET(get())).json()).toEqual({ devices: [], folders: [], worktrees: [] })
@@ -378,7 +378,7 @@ describe('the pull request route (teammate plan C5)', () => {
   it('answers the desktop’s shape: { url } on success, { error, code } otherwise', async () => {
     const sid = await editSession()
     const token = signModelToken({ sid, uid: USER, wid: WS }).token
-    const branch = `dial8/dial8-website-${sid.slice(0, 8)}`
+    const branch = `dial8/native-intelligence-${sid.slice(0, 8)}`
     db.tables.user_oauth_tokens = [{ user_id: USER, provider: 'github', capability: 'github', access_token: 'gho_x', updated_at: '2026-10-01T00:00:00Z' }]
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ html_url: 'https://github.com/o/r/pull/3' }), { status: 201 }))
     vi.stubGlobal('fetch', fetchMock)

@@ -62,7 +62,7 @@ describe('sealRunCredential / openRunCredential', () => {
 
   it('a JWT whose sub is not the binding’s user is refused (never act as someone else)', () => {
     expect(openRunCredential(sealRunCredential(jwtFor('user-2'), BIND), BIND)).toBeNull()
-    expect(openRunCredential(sealRunCredential('d8d_device_token', BIND), BIND)).toBeNull()
+    expect(openRunCredential(sealRunCredential('nid_device_token', BIND), BIND)).toBeNull()
   })
 
   it('sealing needs the secret', () => {

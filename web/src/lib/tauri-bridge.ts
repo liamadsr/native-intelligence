@@ -286,7 +286,7 @@ export interface SttFinishedPayload {
 
 // ── Read anywhere: the desktop's system-wide read-selection hotkey ──────
 // Select text in any app and press the hotkey to hear it in the local-tts
-// voice (dial8-desktop src-tauri/src/read_selection.rs). Off until turned on
+// voice (desktop/src-tauri/src/read_selection.rs). Off until turned on
 // in Settings → Voice → Read anywhere, which is also the only place Native Intelligence asks
 // for the Accessibility permission it needs (no other feature uses it).
 
@@ -2089,7 +2089,7 @@ export const tauriBridge = {
 
   // ── Dictate anywhere (dictate_*) ──────────────────────────────
   // Tap right ⌥, talk, tap it again: pasted where the cursor is, in any app
-  // (dial8-desktop src-tauri/src/dictate.rs; docs/plans/dictate-anywhere.md).
+  // (desktop/src-tauri/src/dictate.rs; docs/plans/dictate-anywhere.md).
   // VERSION SKEW: an older desktop has none of the commands; status then
   // resolves unsupported, and the panel's calls resolve without effect.
 

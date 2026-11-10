@@ -1,6 +1,6 @@
 //
 //  ContactsService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Service for managing contacts with Supabase backend
 //

@@ -63,7 +63,7 @@ export interface StoredCardState {
   savedAt?: number
 }
 
-const PREFIX = 'dial8:chat-card:'
+const PREFIX = 'ni:chat-card:'
 /** A card nobody touched for this long loses its record (it is the agent's page again). */
 export const CARD_STATE_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000
 

@@ -124,9 +124,9 @@ describe('where an approval asks', () => {
   })
 
   it('a Mac job’s card asks at home and names Native Intelligence on the Mac and the job (C1)', () => {
-    const mac = chatAsk({ conversationId: null, context: { localAgent: { sessionId: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } } })
+    const mac = chatAsk({ conversationId: null, context: { localAgent: { sessionId: 'sess-1', deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } } })
     expect(asksAtHome(mac)).toBe(true)
-    expect(askHomeText(mac)).toBe('Native Intelligence on Liam’s MacBook wants to do this for its job in dial8-website. Nothing has run: it waits for your yes.')
+    expect(askHomeText(mac)).toBe('Native Intelligence on Liam’s MacBook wants to do this for its job in native-intelligence. Nothing has run: it waits for your yes.')
     expect(askHomeText(chatAsk({ conversationId: null, context: { localAgent: { sessionId: 'sess-1' } } }))).toBe('Native Intelligence on your Mac wants to do this for its job. Nothing has run: it waits for your yes.')
   })
 })

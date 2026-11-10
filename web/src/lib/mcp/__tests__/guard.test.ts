@@ -34,12 +34,12 @@ describe('classifyToolAccess', () => {
     // /^find$/ pattern it fell closed to 'write' and read-only tokens were
     // blocked from the primary retrieval path.
     expect(classifyToolAccess('find')).toBe('read')
-    expect(classifyToolAccess('dial8_find')).toBe('read')
+    expect(classifyToolAccess('ni_find')).toBe('read')
   })
 
-  it('strips the dial8_ prefix MCP names carry', () => {
-    expect(classifyToolAccess('dial8_list_claims')).toBe('read')
-    expect(classifyToolAccess('dial8_create_claim')).toBe('write')
+  it('strips the ni_ prefix MCP names carry', () => {
+    expect(classifyToolAccess('ni_list_claims')).toBe('read')
+    expect(classifyToolAccess('ni_create_claim')).toBe('write')
   })
 
   it('classifies mutating tools as write', () => {
@@ -68,7 +68,7 @@ describe('classifyToolAccess', () => {
 
   it('allows workspace navigation under read-only (session scope, not data)', () => {
     expect(classifyToolAccess('set_workspace')).toBe('read')
-    expect(classifyToolAccess('dial8_set_workspace')).toBe('read')
+    expect(classifyToolAccess('ni_set_workspace')).toBe('read')
   })
 })
 

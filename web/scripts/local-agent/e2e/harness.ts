@@ -159,7 +159,7 @@ export interface Fixtures {
 /** A read folder and a git repo (one commit, a pre-commit hook that must never run) under `root`. */
 export function makeFixtures(root: string, home: string): Fixtures {
   const readFolder = join(root, 'e2e-read-folder')
-  const gitRepo = join(root, 'dial8-e2e-app')
+  const gitRepo = join(root, 'ni-e2e-app')
   const hookMarker = join(root, 'hook-ran')
   const toolPath = [dirname(process.execPath), '/usr/bin', '/bin'].join(':')
   const hostGit = (gitArgs: string[]) =>

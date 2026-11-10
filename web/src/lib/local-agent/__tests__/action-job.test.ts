@@ -67,7 +67,7 @@ describe('one agent per folder, in its own words', () => {
     db.tables.local_agent_session[0].status = 'running'
     const out = await startAction()
     expect(out).toMatchObject({ status: 'skipped', code: 'FOLDER_BUSY' })
-    expect((out as { reason: string }).reason).toBe('Native Intelligence is already working in dial8-website on Liam’s MacBook. Wait for it to finish, or stop it, then press Start again.')
+    expect((out as { reason: string }).reason).toBe('Native Intelligence is already working in native-intelligence on Liam’s MacBook. Wait for it to finish, or stop it, then press Start again.')
   })
 
   it('a running action job refuses the person’s start, naming it as one of their actions', async () => {
@@ -83,7 +83,7 @@ describe('liveActionMacJob', () => {
   it('finds the action’s live job in the workspace (whoever’s Mac), and nothing once it ended', async () => {
     const out = await startAction()
     const sessionId = (out as { session: { id: string } }).session.id
-    expect(await liveActionMacJob(db as never, { workspaceId: WS, actionId: ACTION })).toMatchObject({ sessionId, userId: USER, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' })
+    expect(await liveActionMacJob(db as never, { workspaceId: WS, actionId: ACTION })).toMatchObject({ sessionId, userId: USER, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' })
     expect(await liveActionMacJob(db as never, { workspaceId: WS, actionId: OTHER_ACTION })).toBeNull()
     expect(await liveActionMacJob(db as never, { workspaceId: '44444444-4444-4444-8444-444444444441', actionId: ACTION })).toBeNull()
     expect(await liveActionMacJob(db as never, { workspaceId: WS, actionId: 'not-a-uuid' })).toBeNull()

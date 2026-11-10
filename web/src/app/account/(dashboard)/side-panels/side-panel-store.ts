@@ -55,7 +55,7 @@ export interface SidePanelState {
 }
 
 /** Remembered per device: the right panel open. */
-export const RIGHT_OPEN_KEY = 'dial8:side-panel:open'
+export const RIGHT_OPEN_KEY = 'ni:side-panel:open'
 /**
  * Remembered per device: which of the right panel's cards are open, as
  * `{"open":[ids]}`. The key held, before the cards closed by default, a plain
@@ -64,15 +64,15 @@ export const RIGHT_OPEN_KEY = 'dial8:side-panel:open'
  * the next open writes the new shape. Missing (never touched), every card is
  * closed.
  */
-export const SECTIONS_KEY = 'dial8:side-panel:collapsed'
+export const SECTIONS_KEY = 'ni:side-panel:collapsed'
 /** Remembered per device: the right panel's cards in the person's order (JSON list of ids). */
-export const ORDER_KEY = 'dial8:side-panel:order'
+export const ORDER_KEY = 'ni:side-panel:order'
 /**
  * Remembered per device: the For you column folded away. A new name (11-09:
  * For you shows whenever it has cards, its toggle always there to fold it):
  * a fold remembered before then doesn't hide it now.
  */
-export const FOR_YOU_COLLAPSED_KEY = 'dial8:for-you-column:folded'
+export const FOR_YOU_COLLAPSED_KEY = 'ni:for-you-column:folded'
 
 /**
  * Every card, in the order it shows until the person drags one. A saved order
@@ -315,7 +315,7 @@ export function reportSpacePlan(leftShown: boolean): void {
  * What scrolls is its parent: use-stick-to-bottom's scroll element, inside
  * the role="log" root, which itself never scrolls.
  */
-export const CHAT_THREAD_SELECTOR = '#dial8-chat-strip-slot [data-main-chat-thread]'
+export const CHAT_THREAD_SELECTOR = '#ni-chat-strip-slot [data-main-chat-thread]'
 
 /** Within this of the bottom, the chat is AT its bottom: use-stick-to-bottom keeps it there. */
 const AT_BOTTOM_PX = 2

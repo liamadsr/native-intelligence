@@ -1001,7 +1001,7 @@ mod tests {
     }
 
     #[test]
-    fn fences_never_reach_credentials_dial8s_data_or_the_persons_checkout() {
+    fn fences_never_reach_credentials_the_apps_data_or_the_persons_checkout() {
         let dir = tempfile::tempdir().unwrap();
         let base = std::fs::canonicalize(dir.path()).unwrap();
         let home = base.join("home");

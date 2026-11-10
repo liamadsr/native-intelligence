@@ -168,9 +168,9 @@ export function useEntityActivity(entityType: EntityActivityType, entityId: stri
       if (wasSelfRefetchedRecently(CHANNEL, repairIdFromRecoveredEvent(event))) return
       void refreshRef.current()
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     return () => {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       supabase.removeChannel(channel)
     }
   }, [entityId, setList])

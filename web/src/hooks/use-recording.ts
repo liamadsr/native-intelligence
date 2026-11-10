@@ -2337,7 +2337,7 @@ export function useRecording(options: UseRecordingOptions = {}) {
 
       // Get the recording result BEFORE closing Deepgram. On desktop the native
       // `tauriBridge.stopRecording()` kills the mic/system tap — it's fast — and
-      // PCM emits are batched in the Rust emitter threads (dial8-desktop
+      // PCM emits are batched in the Rust emitter threads (desktop
       // session.rs), so up to ~120ms of end-of-recording audio sits in their
       // accumulators at click time. The native stop joins those threads, which
       // flushes that tail through the still-armed audio listeners into the

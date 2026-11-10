@@ -87,7 +87,7 @@ import {
   type ComposeLayout,
 } from './compose-fields'
 import {
-  Dial8Mark,
+  NiMark,
   providerDisplayName,
   type PlatformLink,
 } from './action-platform-icon'
@@ -255,7 +255,7 @@ export function useActionLinkProviders(
 // ---------------------------------------------------------------------------
 
 function LensMark({ provider, className }: { provider: string; className?: string }) {
-  if (provider === 'dial8') return <Dial8Mark className={className} />
+  if (provider === 'dial8') return <NiMark className={className} />
   if (provider === 'asana') return <AsanaIcon className={className} />
   if (provider === 'jira') return <JiraIcon className={className} />
   if (provider === 'linear') return <LinearIcon className={className} />

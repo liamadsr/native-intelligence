@@ -1,4 +1,4 @@
-//! L4 on the desktop (dial8-website docs/plans/teammate-agent.md, WS-F):
+//! L4 on the desktop (web/docs/plans/teammate-agent.md, WS-F):
 //! which model this Mac's local agents use, and running a worker adapter
 //! (Claude Code, Codex) instead of eve's launcher when a job asks for one.
 //!

@@ -10,7 +10,7 @@
  *     --setting-sources ''             none of the person's or the folder's settings: no hooks,
  *                                      plugins, permission rules or env from settings files
  *     --strict-mcp-config --mcp-config <file>   only the fence's MCP server
- *     --allowedTools mcp__dial8_folder__bash,...   those tools run without a prompt
+ *     --allowedTools mcp__ni_folder__bash,...   those tools run without a prompt
  *     --disable-slash-commands         no skills
  *     --append-system-prompt <job>     instructions.ts
  *     [--restricted] [--permission-prompts none] [--no-chrome]   when this version has them
@@ -359,7 +359,7 @@ export function createClaudeNormalizer() {
         const subtype = (e.request as { subtype?: unknown } | undefined)?.subtype
         const response =
           subtype === 'can_use_tool'
-            ? { subtype: 'success', request_id: id, response: { behavior: 'deny', message: "Only the folder tools (dial8_folder) can be used in this job." } }
+            ? { subtype: 'success', request_id: id, response: { behavior: 'deny', message: "Only the folder tools (ni_folder) can be used in this job." } }
             : { subtype: 'error', request_id: id, error: 'not supported by the Native Intelligence worker' }
         return [{ kind: 'reply', line: `${JSON.stringify({ type: 'control_response', response })}\n` }]
       }

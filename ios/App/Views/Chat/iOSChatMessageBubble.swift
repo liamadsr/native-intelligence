@@ -1,6 +1,6 @@
 //
 //  iOSChatMessageBubble.swift
-//  dial8
+//  Native Intelligence
 //
 //  Displays a single chat message in the iOS chat sheet.
 //

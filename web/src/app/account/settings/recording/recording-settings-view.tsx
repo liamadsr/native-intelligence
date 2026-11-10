@@ -57,7 +57,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Monitor, Phone, Radio, Play, Square, FlaskConical, AlertCircle, UserRound, CircleHelp, Check, Link2, AlertTriangle, RotateCcw, Timer, AudioLines } from 'lucide-react'
 
 // The local-stt models' licenses — the same pages the desktop's bundled
-// notices link (dial8-desktop sidecars/local-stt/build.sh). The desktop
+// notices link (desktop/sidecars/local-stt/build.sh). The desktop
 // downloads the models straight from NVIDIA's Hugging Face repos.
 const NVIDIA_OPEN_MODEL_LICENSE_URL =
   'https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/'
@@ -504,7 +504,7 @@ export function RecordingSettingsView() {
   const handleStopRecording = useCallback(async () => {
     try {
       // Native stop FIRST: it joins the batched PCM emitter threads
-      // (dial8-desktop session.rs), flushing the ~120ms audio tail through the
+      // (desktop session.rs), flushing the ~120ms audio tail through the
       // still-armed listeners into Deepgram/voice-ID before we close them —
       // stopping Deepgram first would clip the last word's tail.
       const result = await tauriBridge.stopRecording()

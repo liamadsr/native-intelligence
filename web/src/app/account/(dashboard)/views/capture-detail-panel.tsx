@@ -436,7 +436,7 @@ export function commitRefetchedCapture(
 }
 
 /**
- * Put the stop's saved transcript into state (dial8:capture-transcript-saved):
+ * Put the stop's saved transcript into state (ni:capture-transcript-saved):
  * the transcript column alone, `prev` itself when it already holds that text.
  */
 export function mergeSavedTranscript(
@@ -970,7 +970,7 @@ export function CaptureDetailPanel({
       setIsProcessingBatch(false)
       if (wasBatch) {
         window.dispatchEvent(
-          new CustomEvent('dial8:capture-ended', { detail: { captureId } }),
+          new CustomEvent('ni:capture-ended', { detail: { captureId } }),
         )
       }
     },
@@ -1205,8 +1205,8 @@ export function CaptureDetailPanel({
         })
         .catch(() => {})
     }
-    window.addEventListener('dial8:content-edited', handler)
-    return () => window.removeEventListener('dial8:content-edited', handler)
+    window.addEventListener('ni:content-edited', handler)
+    return () => window.removeEventListener('ni:content-edited', handler)
   }, [captureId, setSummaryDirect])
 
   // Listen for capture-ended event — refresh capture data (live agent already produced results)
@@ -1221,8 +1221,8 @@ export function CaptureDetailPanel({
       setIsProcessingBatch(false)
       captureEndedRefetchRef.current()
     }
-    window.addEventListener('dial8:capture-ended', handler)
-    return () => window.removeEventListener('dial8:capture-ended', handler)
+    window.addEventListener('ni:capture-ended', handler)
+    return () => window.removeEventListener('ni:capture-ended', handler)
   }, [captureId])
 
   // Background-processing indicator lifecycle: the end-of-meeting batch run
@@ -1240,11 +1240,11 @@ export function CaptureDetailPanel({
       if (detail.captureId !== captureId) return
       setIsProcessingBatch(false)
     }
-    window.addEventListener('dial8:capture-processing-start', onStart)
-    window.addEventListener('dial8:capture-processing-error', onError)
+    window.addEventListener('ni:capture-processing-start', onStart)
+    window.addEventListener('ni:capture-processing-error', onError)
     return () => {
-      window.removeEventListener('dial8:capture-processing-start', onStart)
-      window.removeEventListener('dial8:capture-processing-error', onError)
+      window.removeEventListener('ni:capture-processing-start', onStart)
+      window.removeEventListener('ni:capture-processing-error', onError)
     }
   }, [captureId])
 
@@ -1262,8 +1262,8 @@ export function CaptureDetailPanel({
       if (detail.captureId !== captureId) return
       captureEndedRefetchRef.current()
     }
-    window.addEventListener('dial8:capture-resumed', handler)
-    return () => window.removeEventListener('dial8:capture-resumed', handler)
+    window.addEventListener('ni:capture-resumed', handler)
+    return () => window.removeEventListener('ni:capture-resumed', handler)
   }, [captureId])
 
   // Selection change handler — reports to parent for AI context
@@ -1711,7 +1711,7 @@ export function CaptureDetailPanel({
   // content or note_attributions; on a long call the transcript alone is
   // ~100KB, downloaded and parsed every tick) and ignores the recorder's own
   // transcript saves (see mergeRefetchedCapture). The transcript catches up when
-  // the recording stops (dial8:capture-transcript-saved, below).
+  // the recording stops (ni:capture-transcript-saved, below).
   const refetchCaptureGuarded = useCallback(
     async (opts?: { pushSummaryToEditor?: boolean; recordingPoll?: boolean }) => {
       // Swallow all failures: every caller invokes this as `void
@@ -1786,8 +1786,8 @@ export function CaptureDetailPanel({
         })
         .catch(() => {})
     }
-    window.addEventListener('dial8:capture-transcript-saved', onSaved)
-    return () => window.removeEventListener('dial8:capture-transcript-saved', onSaved)
+    window.addEventListener('ni:capture-transcript-saved', onSaved)
+    return () => window.removeEventListener('ni:capture-transcript-saved', onSaved)
   }, [captureId])
 
   // ─── Realtime detail sync ──────────────────────────────────
@@ -1827,8 +1827,8 @@ export function CaptureDetailPanel({
       const undoneId = (e as CustomEvent<{ captureId?: string }>).detail?.captureId
       if (undoneId === captureId) closeOnStartUndoneRef.current()
     }
-    window.addEventListener('dial8:capture-start-undone', onUndone)
-    return () => window.removeEventListener('dial8:capture-start-undone', onUndone)
+    window.addEventListener('ni:capture-start-undone', onUndone)
+    return () => window.removeEventListener('ni:capture-start-undone', onUndone)
   }, [captureId])
 
   // Participants list: refetch when a capture_participant row for THIS capture is
@@ -2562,7 +2562,7 @@ export function CaptureDetailPanel({
     void fetchSeriesHistory()
     // The live HUD's meeting time (useCaptureSchedule) and brief re-read the
     // capture on this, as after the tray's re-link (tray-start-capture-handler).
-    window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: captureId } }))
+    window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: captureId } }))
   }
 
   async function handleUnlinkEvent() {
@@ -2582,7 +2582,7 @@ export function CaptureDetailPanel({
       toast.error('Could not unlink event')
       return
     }
-    window.dispatchEvent(new CustomEvent('dial8:content-edited', { detail: { entityId: captureId } }))
+    window.dispatchEvent(new CustomEvent('ni:content-edited', { detail: { entityId: captureId } }))
   }
 
   async function toggleLabel(labelId: string, isAttached: boolean) {

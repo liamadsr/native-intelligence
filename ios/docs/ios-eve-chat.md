@@ -33,13 +33,13 @@ The interaction reference is OpenAI's [Your Dot profile guidance](https://help.o
 
 ## Development and verification
 
-Development chat defaults to `http://localhost:3000`; set the Xcode launch environment variable `DIAL8_API_BASE_URL` to a reachable backend when using a physical device. The backend must use the same Supabase environment as the app. Production builds use `https://dial8.ai`.
+Development chat defaults to `http://localhost:3000`; set the Xcode launch environment variable `NI_API_BASE_URL` to a reachable backend when using a physical device. The backend must use the same Supabase environment as the app. Production builds use `https://dial8.ai`.
 
 ```sh
 Scripts/test-eve-chat.sh
 xcodebuild -project Dial8.xcodeproj -scheme Dial8 \
   -configuration Development -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath /tmp/dial8-eve-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  -derivedDataPath /tmp/ni-eve-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
   CODE_SIGNING_ALLOWED=NO build
 ```
 

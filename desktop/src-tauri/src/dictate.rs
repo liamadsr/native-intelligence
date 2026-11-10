@@ -1,4 +1,4 @@
-//! Dictate anywhere (dial8-website/docs/plans/dictate-anywhere.md): tap the
+//! Dictate anywhere (web/docs/plans/dictate-anywhere.md): tap the
 //! RIGHT Option key, talk, tap it again, and what was said is pasted where the
 //! cursor is, in any app.
 //!

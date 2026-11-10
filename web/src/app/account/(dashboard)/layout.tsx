@@ -67,7 +67,7 @@ export default async function AccountLayout({
   // Pinned by src/app/__tests__/client-fork-hydration.test.tsx.
   return (
     <>
-      <div data-dial8-app-root="" className="fixed inset-0 overflow-hidden overscroll-none bg-background text-foreground">
+      <div data-ni-app-root="" className="fixed inset-0 overflow-hidden overscroll-none bg-background text-foreground">
         <DashboardErrorBoundary>
           <DashboardShell
             userId={user.id}

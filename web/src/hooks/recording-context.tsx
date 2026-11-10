@@ -239,7 +239,7 @@ const APPEND_SERVER_FAIL_FALLBACK_THRESHOLD = 3
 // Persists minimal state to localStorage so an interrupted capture
 // can be resumed after a page reload or hard navigation.
 
-const RECOVERY_KEY = 'dial8-active-capture'
+const RECOVERY_KEY = 'ni-active-capture'
 /** Max age (ms) of a recovery marker before we consider it stale. The marker
  *  is refreshed every 30s while recording, so this is how long a restart may
  *  take: a WebView that froze before it was quit, plus a slow relaunch, used to
@@ -320,7 +320,7 @@ async function runApiBatchExtraction(
   const { toast } = await import('sonner')
   toast.error('Couldn’t process this meeting automatically. Open it and click Reprocess to try again.')
   window.dispatchEvent(
-    new CustomEvent('dial8:capture-processing-error', { detail: { captureId } }),
+    new CustomEvent('ni:capture-processing-error', { detail: { captureId } }),
   )
   return false
 }
@@ -1113,7 +1113,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           }
           if (!conversationId) return
           window.dispatchEvent(
-            new CustomEvent('dial8:live-capture-conversation', {
+            new CustomEvent('ni:live-capture-conversation', {
               // `recipeId` is the agent the conversation is pinned to (the server's
               // answer, not the request): the HUD's chat talks as that agent, and
               // re-pins when a re-fire carries a different one.
@@ -1259,7 +1259,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       // mounted in a background tab (it would sit there live-looking, its
       // edits 404ing silently).
       window.dispatchEvent(
-        new CustomEvent('dial8:capture-start-undone', { detail: { captureId: id } }),
+        new CustomEvent('ni:capture-start-undone', { detail: { captureId: id } }),
       )
       navigateBackRef.current?.(id)
     }
@@ -1318,7 +1318,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     // Dispatched AFTER the create POST is confirmed (not before the await above),
     // so no listener ever hears of a capture we're about to tear back down.
     window.dispatchEvent(
-      new CustomEvent('dial8:capture-started', { detail: { captureId: id } }),
+      new CustomEvent('ni:capture-started', { detail: { captureId: id } }),
     )
 
     // Live mode: get-or-create the capture's chat conversation so the meeting
@@ -1609,7 +1609,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
     // Notify the UI
     window.dispatchEvent(
-      new CustomEvent('dial8:capture-resumed', {
+      new CustomEvent('ni:capture-resumed', {
         detail: { captureId: existingCaptureId },
       }),
     )
@@ -1770,7 +1770,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     // and failure ('capture-processing-error') events below still clear it.
     if (cid && !liveModeEnabledRef.current) {
       window.dispatchEvent(
-        new CustomEvent('dial8:capture-processing-start', { detail: { captureId: cid } }),
+        new CustomEvent('ni:capture-processing-start', { detail: { captureId: cid } }),
       )
     }
 
@@ -1813,7 +1813,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       // particular ended_at has NOT landed yet (its PATCH is the next statement),
       // so a subscriber must treat this as a transcript signal only.
       //
-      // WHY IT IS SEPARATE FROM 'dial8:capture-ended'. capture-ended is an
+      // WHY IT IS SEPARATE FROM 'ni:capture-ended'. capture-ended is an
       // EXTRACTION-lifecycle event: on the default configuration (live mode OFF
       // + panel mounted) the block below hands the batch run to the panel and
       // deliberately does not dispatch it, waiting for the panel's own dispatch
@@ -1836,7 +1836,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       //  • NOT dispatched on discard — that path deletes the row and never
       //    force-saves; there is no durable transcript to announce.
       window.dispatchEvent(
-        new CustomEvent('dial8:capture-transcript-saved', { detail: { captureId: cid } }),
+        new CustomEvent('ni:capture-transcript-saved', { detail: { captureId: cid } }),
       )
 
       // Update capture with ended_at and cumulative duration
@@ -1956,7 +1956,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           const cleanup = () => {
             if (settled) return
             settled = true
-            window.removeEventListener('dial8:capture-ended', onPanelDone)
+            window.removeEventListener('ni:capture-ended', onPanelDone)
             clearTimeout(timeoutId)
             batchRunningRef.current = false
             publishLiveAgentStatus('idle')
@@ -1973,7 +1973,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
             // can Reprocess to re-run if needed.
             cleanup()
           }, 120_000)
-          window.addEventListener('dial8:capture-ended', onPanelDone)
+          window.addEventListener('ni:capture-ended', onPanelDone)
           batchRunningRef.current = true
           publishLiveAgentStatus('finalizing')
           requestStreamingExtraction({
@@ -2003,7 +2003,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           } catch (err) {
             console.warn('[RecordingProvider] End-of-meeting batch run failed:', err)
             window.dispatchEvent(
-              new CustomEvent('dial8:capture-processing-error', { detail: { captureId: cid } }),
+              new CustomEvent('ni:capture-processing-error', { detail: { captureId: cid } }),
             )
             try {
               const { toast } = await import('sonner')
@@ -2019,7 +2019,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           if (extractionSucceeded) {
             runPostExtraction(cid)
             window.dispatchEvent(
-              new CustomEvent('dial8:capture-ended', { detail: { captureId: cid } }),
+              new CustomEvent('ni:capture-ended', { detail: { captureId: cid } }),
             )
           }
         }
@@ -2034,7 +2034,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
         // docs/plans/agent-orchestration-investigation.md §1.1).
         void waitForLiveAgentFinalizing().then(() => runPostExtraction(cid, { captureProcessed: true }))
         window.dispatchEvent(
-          new CustomEvent('dial8:capture-ended', { detail: { captureId: cid } }),
+          new CustomEvent('ni:capture-ended', { detail: { captureId: cid } }),
         )
       }
 

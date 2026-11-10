@@ -58,7 +58,7 @@ import { cn } from '@/lib/utils'
  * unprefixed in every current engine, but WebKit still needs the prefixed
  * `-webkit-mask-*` and React will not infer one from the other.
  */
-const DIAL8_MARK_STYLE: React.CSSProperties = {
+const NI_MARK_STYLE: React.CSSProperties = {
   backgroundColor: 'currentColor',
   WebkitMaskImage: "url('/icon.png')",
   maskImage: "url('/icon.png')",
@@ -73,16 +73,16 @@ const DIAL8_MARK_STYLE: React.CSSProperties = {
 /**
  * The Native Intelligence app mark, tinted by `currentColor`.
  *
- * `data-dial8-mark` is the handle the tests assert through — the glyph is a
+ * `data-ni-mark` is the handle the tests assert through — the glyph is a
  * styled span rather than an identifiable element, and pinning the mask url in a
  * test would pin the asset path rather than the fact that the app mark is drawn.
  */
-export function Dial8Mark({ className }: { className?: string }) {
+export function NiMark({ className }: { className?: string }) {
   return (
     <span
       className={cn('inline-block shrink-0', className)}
-      style={DIAL8_MARK_STYLE}
-      data-dial8-mark=""
+      style={NI_MARK_STYLE}
+      data-ni-mark=""
       aria-hidden="true"
     />
   )
@@ -255,12 +255,12 @@ export const ActionPlatformIcon = React.forwardRef<HTMLButtonElement, ActionPlat
 
     const shown = providers.slice(0, MAX_STACKED)
     const overflow = providers.length - shown.length
-    const isDial8Only = !known || providers.length === 0
+    const isNiOnly = !known || providers.length === 0
 
-    const glyph = isDial8Only ? (
+    const glyph = isNiOnly ? (
       // `text-*` rather than `fill-*`: the mark is a currentColor-filled MASK of
-      // the app icon, not an svg whose paths take a fill. See Dial8Mark.
-      <Dial8Mark className={cn(markSize, 'text-muted-foreground/70')} />
+      // the app icon, not an svg whose paths take a fill. See NiMark.
+      <NiMark className={cn(markSize, 'text-muted-foreground/70')} />
     ) : (
         <span className="flex items-center -space-x-1.5">
           {shown.map((provider) => (
@@ -282,7 +282,7 @@ export const ActionPlatformIcon = React.forwardRef<HTMLButtonElement, ActionPlat
     // the unresolved/unlinked state, the single provider's name when there is
     // exactly one (a stack of 2+ has no one name to show and stays icon-only —
     // the overflow count already speaks for it).
-    const labelText = isDial8Only ? 'NI' : shown.length === 1 ? providerDisplayName(shown[0]) : null
+    const labelText = isNiOnly ? 'NI' : shown.length === 1 ? providerDisplayName(shown[0]) : null
     const showChevron = showLabel && labelText !== null
 
     if (!onOpen) {

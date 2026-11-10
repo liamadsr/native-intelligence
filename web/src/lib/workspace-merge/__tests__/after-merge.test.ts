@@ -42,28 +42,28 @@ class FakeStorage implements StorageLike {
 describe('sweepWorkspaceLocalState', () => {
   it('removes every key naming the source and nothing else', () => {
     const s = new FakeStorage({
-      [`dial8-chat:${SRC}`]: '{}',
-      [`dial8:active-view:${SRC}:actions`]: 'v1',
-      [`dial8:home-conversation-adopted:${SRC}`]: '1',
-      [`dial8:onboarding-checklist-opened:${SRC}`]: '1',
+      [`ni-chat:${SRC}`]: '{}',
+      [`ni:active-view:${SRC}:actions`]: 'v1',
+      [`ni:home-conversation-adopted:${SRC}`]: '1',
+      [`ni:onboarding-checklist-opened:${SRC}`]: '1',
       [`knowledge-view-mode:${SRC}`]: 'grid',
-      [`dial8:calendar-events:v1:${SRC}`]: '[]',
-      [`dial8-chat:${DST}`]: '{}',
-      [`dial8:active-view:${DST}:actions`]: 'v2',
+      [`ni:calendar-events:v1:${SRC}`]: '[]',
+      [`ni-chat:${DST}`]: '{}',
+      [`ni:active-view:${DST}:actions`]: 'v2',
       theme: 'dark',
     })
     const out = sweepWorkspaceLocalState(s, SRC, DST)
     expect(out.removed.sort()).toEqual(
       [
-        `dial8-chat:${SRC}`,
-        `dial8:active-view:${SRC}:actions`,
-        `dial8:home-conversation-adopted:${SRC}`,
-        `dial8:onboarding-checklist-opened:${SRC}`,
+        `ni-chat:${SRC}`,
+        `ni:active-view:${SRC}:actions`,
+        `ni:home-conversation-adopted:${SRC}`,
+        `ni:onboarding-checklist-opened:${SRC}`,
         `knowledge-view-mode:${SRC}`,
-        `dial8:calendar-events:v1:${SRC}`,
+        `ni:calendar-events:v1:${SRC}`,
       ].sort(),
     )
-    expect(s.keys()).toEqual([`dial8-chat:${DST}`, `dial8:active-view:${DST}:actions`, 'theme'])
+    expect(s.keys()).toEqual([`ni-chat:${DST}`, `ni:active-view:${DST}:actions`, 'theme'])
     expect(out.rewritten).toEqual([])
   })
 
@@ -80,11 +80,11 @@ describe('sweepWorkspaceLocalState', () => {
   })
 
   it('re-points the chat’s last-workspace pointer, whose VALUE is the id, and leaves another value alone', () => {
-    const s = new FakeStorage({ [LAST_CHAT_WORKSPACE_KEY]: SRC, [`dial8-chat:${SRC}`]: '{}' })
+    const s = new FakeStorage({ [LAST_CHAT_WORKSPACE_KEY]: SRC, [`ni-chat:${SRC}`]: '{}' })
     const out = sweepWorkspaceLocalState(s, SRC, DST)
     expect(s.getItem(LAST_CHAT_WORKSPACE_KEY)).toBe(DST)
     expect(out.rewritten).toEqual([LAST_CHAT_WORKSPACE_KEY])
-    expect(out.removed).toEqual([`dial8-chat:${SRC}`])
+    expect(out.removed).toEqual([`ni-chat:${SRC}`])
 
     const other = new FakeStorage({ [LAST_CHAT_WORKSPACE_KEY]: OTHER })
     expect(sweepWorkspaceLocalState(other, SRC, DST).rewritten).toEqual([])
@@ -114,13 +114,13 @@ describe('finishWorkspaceMerge', () => {
   beforeEach(() => {
     hoisted.setClientWorkspaceId.mockReset()
     assign.mockReset()
-    storage = new FakeStorage({ [`dial8-chat:${SRC}`]: '{}' })
+    storage = new FakeStorage({ [`ni-chat:${SRC}`]: '{}' })
     vi.stubGlobal('window', { localStorage: storage, location: { assign } })
   })
 
   it('sweeps, points the fetch layer at the destination, then hard-navigates', () => {
     const out = finishWorkspaceMerge(SRC, DST)
-    expect(out.removed).toEqual([`dial8-chat:${SRC}`])
+    expect(out.removed).toEqual([`ni-chat:${SRC}`])
     expect(hoisted.setClientWorkspaceId).toHaveBeenCalledWith(DST)
     expect(assign).toHaveBeenCalledWith('/account')
     expect(hoisted.setClientWorkspaceId.mock.invocationCallOrder[0]).toBeLessThan(assign.mock.invocationCallOrder[0])

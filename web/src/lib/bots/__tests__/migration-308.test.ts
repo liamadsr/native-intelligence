@@ -26,7 +26,7 @@ const BODY = statements(migration('308_bot_voice.sql'))
 /** Migration 305's guard function's body, alone. */
 const GUARD_305 = /create or replace function public\.ai_team_member_guard_limits\(\).*?\$\$(.*?)\$\$;/.exec(statements(migration('305_teammate_limits_and_skills_guard.sql')))?.[1] ?? ''
 
-/** The voices the desktop's catalogue lists today (dial8-desktop, local-tts voices.json). */
+/** The voices the desktop's catalogue lists today (desktop, local-tts voices.json). */
 const DESKTOP_VOICES = ['aba', 'cha', 'ush', 'chichi', 'lori', 'lowli', 'tana', 'milton']
 
 describe('migration 308', () => {

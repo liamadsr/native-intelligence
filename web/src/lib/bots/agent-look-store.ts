@@ -14,7 +14,7 @@ import { createAccountSetting } from '../account-setting'
 import { AGENT_LOOK_PROFILE_FIELD, DEFAULT_AGENT_LOOK, parseAgentLook, sameAgentLook, type AgentLook } from './agent-look'
 
 /** Where this device keeps its copy of the look. */
-export const AGENT_LOOK_STORAGE_KEY = 'dial8:agent-look'
+export const AGENT_LOOK_STORAGE_KEY = 'ni:agent-look'
 
 const setting = createAccountSetting<AgentLook>({
   field: AGENT_LOOK_PROFILE_FIELD,

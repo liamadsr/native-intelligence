@@ -3,7 +3,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 export function Single() {
   return (

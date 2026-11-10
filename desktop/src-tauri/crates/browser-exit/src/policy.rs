@@ -1,4 +1,4 @@
-//! Where the agent's browser may go through this Mac (dial8-website
+//! Where the agent's browser may go through this Mac (web
 //! docs/plans/cloud-browser.md, C4 "Destination policy on the Mac"): the
 //! public internet on ports 80 and 443, and nothing of this Mac's or its
 //! network's. The name is resolved here, every address is checked, and the

@@ -352,7 +352,7 @@ export function DocumentDetailPanel({
         if (!data?.document) return
         // A content save is still queued — this fetch predates it, so its
         // content is stale; merging/pushing it would revert the user's edit.
-        // (Same guard the editor uses for dial8:content-edited refreshes.)
+        // (Same guard the editor uses for ni:content-edited refreshes.)
         if (saveTimeoutRef.current || inFlightRef.current > 0 || conflictRef.current) return
         setDoc((prev) => prev ? { ...prev, ...data.document } : data.document)
         writeDocCache(documentId, data.document)
@@ -371,8 +371,8 @@ export function DocumentDetailPanel({
       if (detail.entityId !== documentId) return
       refetchDocument()
     }
-    window.addEventListener('dial8:content-edited', handler)
-    return () => window.removeEventListener('dial8:content-edited', handler)
+    window.addEventListener('ni:content-edited', handler)
+    return () => window.removeEventListener('ni:content-edited', handler)
   }, [documentId, refetchDocument])
 
   // Live sync: refetch on any remote update (teammate, MCP tool, cron), close on

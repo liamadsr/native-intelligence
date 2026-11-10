@@ -1,5 +1,5 @@
 // Dictate anywhere: see dictate_helper.h. The spike that settled the approach:
-// dial8-website/docs/plans/dictate-anywhere.md §6.
+// web/docs/plans/dictate-anywhere.md §6.
 #import <Cocoa/Cocoa.h>
 #import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
@@ -11,7 +11,7 @@
 #include "dictate_helper.h"
 
 // Device-dependent modifier bits (IOLLEvent.h): which Option key is down.
-#define DIAL8_NX_DEVICERALTKEYMASK 0x00000040
+#define NI_NX_DEVICERALTKEYMASK 0x00000040
 /// When the clipboard is put back after ⌘V: late enough for the app to have read it.
 static const double RESTORE_AFTER_SECONDS = 0.5;
 
@@ -47,7 +47,7 @@ static CGEventRef on_event(CGEventTapProxy proxy, CGEventType type, CGEventRef e
     CGEventFlags flags = CGEventGetFlags(event);
     if (type == kCGEventFlagsChanged) {
         if (code == kVK_RightOption) {
-            if (flags & DIAL8_NX_DEVICERALTKEYMASK) {
+            if (flags & NI_NX_DEVICERALTKEYMASK) {
                 if (g_right_down_at > 0) return event; // a repeat: already down
                 g_right_down_at = CFAbsoluteTimeGetCurrent();
                 // Pressed with ⌘, ⌃, ⇧ or fn already held: a shortcut, not ours.

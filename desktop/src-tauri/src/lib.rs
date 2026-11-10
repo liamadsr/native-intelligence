@@ -203,7 +203,7 @@ pub(crate) fn clear_window_background(_ns_window: *mut std::ffi::c_void) {}
 /// old behavior.
 #[cfg(target_os = "macos")]
 pub(crate) fn make_overlay_panel(ns_window: *mut std::ffi::c_void) -> Result<(), &'static str> {
-    // window_helper.h DIAL8_OVERLAY_*
+    // window_helper.h NI_OVERLAY_*
     match unsafe { window_make_overlay_panel(ns_window) } {
         0 => Ok(()),
         1 => Err("its class is not a plain NSWindow subclass"),
@@ -270,19 +270,19 @@ pub fn redirect_log(path: Option<std::path::PathBuf>) {
 /// `None` when redirected to nowhere. Unit tests (`cfg(test)`) never log.
 fn log_path(sink: Option<&Option<std::path::PathBuf>>) -> Option<std::path::PathBuf> {
     match sink {
-        None => Some(std::env::temp_dir().join("dial8-debug.log")),
+        None => Some(std::env::temp_dir().join("native-intelligence-debug.log")),
         Some(path) => path.clone(),
     }
 }
 
-/// The single rotation backup beside `path` (`dial8-debug.log.1`).
+/// The single rotation backup beside `path` (`native-intelligence-debug.log.1`).
 fn log_backup(path: &std::path::Path) -> std::path::PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".1");
     path.with_file_name(name)
 }
 
-/// Where a side log (`dial8-meeting.log`, `dial8-tray.log`) lives: `/tmp` on
+/// Where a side log (`native-intelligence-meeting.log`, `native-intelligence-tray.log`) lives: `/tmp` on
 /// macOS, where people already look for them; elsewhere the user's own temp
 /// folder (`%TEMP%` on Windows has no `/tmp`).
 pub(crate) fn side_log_path(name: &str) -> std::path::PathBuf {
@@ -353,10 +353,10 @@ mod log_tests {
 
     #[test]
     fn the_app_logs_to_the_debug_log_unless_redirected() {
-        let debug = std::env::temp_dir().join("dial8-debug.log");
+        let debug = std::env::temp_dir().join("native-intelligence-debug.log");
         assert_eq!(log_path(None), Some(debug.clone()), "the app: unchanged");
-        assert_eq!(log_backup(&debug), std::env::temp_dir().join("dial8-debug.log.1"), "its backup: unchanged");
-        let replay = std::env::temp_dir().join("dial8-voice-replay.log");
+        assert_eq!(log_backup(&debug), std::env::temp_dir().join("native-intelligence-debug.log.1"), "its backup: unchanged");
+        let replay = std::env::temp_dir().join("native-intelligence-voice-replay.log");
         assert_eq!(log_path(Some(&Some(replay.clone()))), Some(replay));
         assert_eq!(log_path(Some(&None)), None, "nowhere");
     }
@@ -375,12 +375,12 @@ mod log_tests {
         let dir = tempfile::tempdir().unwrap();
 
         // New: created 0600.
-        let new = dir.path().join("dial8-meeting.log");
+        let new = dir.path().join("native-intelligence-meeting.log");
         writeln!(open_log(&new).unwrap(), "one").unwrap();
         assert_eq!(mode(&new), 0o600);
 
         // An older build's 0644 log is made 0600, and appended to.
-        let old = dir.path().join("dial8-tray.log");
+        let old = dir.path().join("native-intelligence-tray.log");
         std::fs::write(&old, "before\n").unwrap();
         std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
         writeln!(open_log(&old).unwrap(), "after").unwrap();
@@ -390,7 +390,7 @@ mod log_tests {
         // A symlink planted at the log's path is never followed.
         let target = dir.path().join("someone-elses-file");
         std::fs::write(&target, "keep\n").unwrap();
-        let link = dir.path().join("dial8-debug.log");
+        let link = dir.path().join("native-intelligence-debug.log");
         std::os::unix::fs::symlink(&target, &link).unwrap();
         assert!(open_log(&link).is_err());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep\n");
@@ -1122,7 +1122,7 @@ pub fn run() {
             crate::native::retired_browser_stores::remove_all();
 
             // The automation bridge (automation/mod.rs): inert unless launched
-            // with DIAL8_AUTOMATION_PORT and DIAL8_AUTOMATION_TOKEN, and not in
+            // with NI_AUTOMATION_PORT and NI_AUTOMATION_TOKEN, and not in
             // a release build at all. After the main window's own setup, since
             // it loads that window again.
             #[cfg(any(debug_assertions, feature = "automation-bridge"))]

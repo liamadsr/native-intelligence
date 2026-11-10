@@ -108,7 +108,7 @@ beforeEach(() => {
     })),
   )
   shell = document.createElement('div')
-  shell.id = 'dial8-shell-root'
+  shell.id = 'ni-shell-root'
   document.body.appendChild(shell)
   container = document.createElement('div')
   document.body.appendChild(container)

@@ -73,7 +73,7 @@ describe('VoiceModeSection', () => {
   })
 
   it('voice_start always gets barge-in, even with an old stored "off"', () => {
-    window.localStorage.setItem('dial8:voice:barge-in', '0')
+    window.localStorage.setItem('ni:voice:barge-in', '0')
     mount()
     expect(voiceStartOptions().bargeIn).toBe(true)
   })
@@ -94,7 +94,7 @@ describe('VoiceModeSection', () => {
       root = createRoot(container)
     }
     // A room an older build stored is not read.
-    window.localStorage.setItem('dial8:voice:noise', 'noisy')
+    window.localStorage.setItem('ni:voice:noise', 'noisy')
     expect(voiceStartOptions().noiseProfile).toBe('quiet')
   })
 

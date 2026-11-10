@@ -46,7 +46,7 @@ describe('startFindContactEmail', () => {
   })
 
   it('the event name is the one the shell listens for', () => {
-    expect(FIND_CONTACT_EMAIL_EVENT).toBe('dial8:find-contact-email')
+    expect(FIND_CONTACT_EMAIL_EVENT).toBe('ni:find-contact-email')
   })
 
   it('the skill slug matches the system skill migration 263 seeds', () => {

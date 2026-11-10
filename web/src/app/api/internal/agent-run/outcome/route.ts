@@ -8,7 +8,7 @@
  *     pr?: { title, body, head, base } }
  *
  * This is the SINGLE writer of the run's terminal state + the PR link — the three
- * racing writers of the legacy path (in-run MCP dial8_link_pr, Inngest
+ * racing writers of the legacy path (in-run MCP ni_link_pr, Inngest
  * record-outcome, GitHub webhook) collapse to this one on the eve path (the
  * webhook stays as an out-of-band reconciler). It:
  *

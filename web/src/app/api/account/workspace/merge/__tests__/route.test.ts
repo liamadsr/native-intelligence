@@ -107,7 +107,7 @@ describe('POST /api/account/workspace/merge', () => {
   })
 
   it('a device token may not merge', async () => {
-    expect((await POST(req(GOOD, { authorization: 'Bearer d8d_devicetoken' }))).status).toBe(403)
+    expect((await POST(req(GOOD, { authorization: 'Bearer nid_devicetoken' }))).status).toBe(403)
     expect(hoisted.requireWorkspaceMember).not.toHaveBeenCalled()
   })
 

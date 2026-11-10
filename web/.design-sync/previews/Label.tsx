@@ -1,4 +1,4 @@
-import { Label, Input, Switch } from '@dial8/ui'
+import { Label, Input, Switch } from '@native-intelligence/ui'
 
 export function WithInput() {
   return (

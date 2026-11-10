@@ -4,7 +4,7 @@
  * the contract is tested on its own; `page.ts` supplies the frames.
  *
  * Snapshot: the main frame and every child frame answer the same snapshot
- * script, in the dial8-agent world. The main frame's read is required; child
+ * script, in the ni-agent world. The main frame's read is required; child
  * frames share one budget and a slow one is left out, never waited for. Each
  * observation names its own frame path (its index among its parent's frames,
  * from the top), so the newest observation per path is kept, at most 16.
@@ -104,7 +104,7 @@ export interface ActionOptions {
   now?: () => number
 }
 
-/** The runtime's answer minus its delivery instructions, after delivering any input (dial8af_finish_action). */
+/** The runtime's answer minus its delivery instructions, after delivering any input (finish_action). */
 async function finish(json: string | null, offset: Point, deadline: number, options: ActionOptions): Promise<string> {
   const result = parse(json)
   if (!record(result)) return json ?? UNKNOWN
@@ -122,7 +122,7 @@ async function finish(json: string | null, offset: Point, deadline: number, opti
 const read = <F>(frames: AgentFrames<F>, frame: F, expression: string, gesture = false) =>
   frames.evaluate(frame, expression, gesture ? { gesture } : undefined).catch(() => null)
 
-/** One task action (dial8af_action): `request.frame` = {path, ancestors, point} for a control inside a frame. */
+/** One task action (action): `request.frame` = {path, ancestors, point} for a control inside a frame. */
 export async function taskAction<F>(frames: AgentFrames<F>, paths: Map<string, F>, request: Json, options: ActionOptions): Promise<string> {
   const { frame, expectedPoint: _expectedPoint, ...rest } = request
   const action: Json = { ...rest, trustedInput: options.inputCapable }

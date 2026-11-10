@@ -70,6 +70,14 @@ describe('requireBrowserRelay', () => {
     }
   })
 
+  it('still accepts a relay started before the rename, under its old header names', () => {
+    const token = mintBrowserRelayToken(claims, 60_000)
+    expect(requireBrowserRelay(request({ 'x-dial8-relay-token': token, 'x-dial8-relay': '1' }))).toMatchObject(claims)
+    // Never a mix: the token must come under the same name as the mark beside it.
+    const refusedHeaders: Record<string, string>[] = [{ 'x-dial8-relay-token': token }, { 'x-dial8-relay-token': token, [RELAY_MARK_HEADER]: '1' }, { [RELAY_TOKEN_HEADER]: token, 'x-dial8-relay': '1' }]
+    for (const headers of refusedHeaders) expect((requireBrowserRelay(request(headers)) as Response).status).toBe(401)
+  })
+
   it('names the device by its sandbox', () => {
     expect(relayDeviceId({ aud: 'browser-relay', ...claims, exp: 0 })).toBe('cloud:browser-abc')
   })

@@ -259,7 +259,7 @@ fn the_local_agent_model_and_workers_are_set_from_the_tray_only() {
     assert_eq!(found, BTreeSet::from([tray(".set_model("), tray(".allow_worker(")]));
 }
 
-/// Local agents (dial8-website l0-contract §4, l1-contract C): every
+/// Local agents (web l0-contract §4, l1-contract C): every
 /// `local_agent_*` command is granted to the dashboard capability. And the
 /// grant invariant (plan §1, invariant 3) as a tripwire: the folder picker
 /// takes no argument from the page at all, and start / resume name a grant

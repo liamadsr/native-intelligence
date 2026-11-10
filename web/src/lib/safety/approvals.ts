@@ -103,6 +103,7 @@ import { notifyFlowStepSettled, type FlowStepOutcome } from '@/lib/flows/flow-st
 import { connectionProblem, loadOwnerConnection, mcpContentText, toolOf } from '@/lib/mcp-client/owner-connection'
 import { checkToolInputAtRun } from '@/lib/flows/tool-input-schema'
 import { capStepOutput } from '@/lib/flows/redact'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /**
  * Where a held call came from. tool_approval's CHECK still admits a retired
@@ -1009,7 +1010,7 @@ function withoutOffer(context: ApprovalContext | undefined): ApprovalContext {
 
 /** A Native Intelligence MCP name without its prefix (the registry's name). */
 function bareName(tool: string): string {
-  return tool.replace(/^dial8_/, '')
+  return bareToolName(tool)
 }
 
 /** Why an edit of a flow step's inputs doesn't fit the tool's schema now, or null when it does. */

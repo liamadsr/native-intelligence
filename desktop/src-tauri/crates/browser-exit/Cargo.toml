@@ -3,7 +3,7 @@ name = "browser-exit"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "The Mac exit for the agent's cloud browser (dial8-website docs/plans/cloud-browser.md, C4)"
+description = "The Mac exit for the agent's cloud browser (web/docs/plans/cloud-browser.md, C4)"
 
 # Its own crate so its tests build in seconds, without the app:
 #   cargo test --manifest-path src-tauri/crates/browser-exit/Cargo.toml

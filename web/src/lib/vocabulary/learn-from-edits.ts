@@ -34,7 +34,7 @@ export const LEARN_AFTER = 2
 /** The least a fix sounds or is spelled like what was heard (0–1). */
 export const LIKE_ENOUGH = 0.6
 
-const STORE_KEY = 'dial8:vocabulary:learned-fixes'
+const STORE_KEY = 'ni:vocabulary:learned-fixes'
 /** Fixes remembered at most (the oldest go). */
 const STORE_MAX = 200
 

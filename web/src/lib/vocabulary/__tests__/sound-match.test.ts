@@ -5,7 +5,7 @@ import { SoundMatchCorrector, isOrdinary, letters, similarity, soundKey, spoken 
 
 /**
  * Pins the sound-match rules to what the harness measured
- * (docs/plans/custom-vocabulary.md §9; dial8-desktop/.claude/boost-test/v2).
+ * (docs/plans/custom-vocabulary.md §9; desktop/.claude/boost-test/v2).
  * The TS port was checked edit-for-edit against the Python harness on 38
  * recordings (637 edits with the review guards, identical); these cases are
  * the ones that matter.

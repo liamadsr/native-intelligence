@@ -1,4 +1,4 @@
-import { Badge } from '@dial8/ui'
+import { Badge } from '@native-intelligence/ui'
 
 export function Variants() {
   return (

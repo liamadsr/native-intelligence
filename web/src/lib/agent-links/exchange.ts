@@ -30,7 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { persistEveMessage } from '@/lib/chat/eve-message-writer'
 import { resolveHomeConversation } from '@/lib/chat/home-message-writer'
-import { CHANNEL_MESSAGE_KIND, DIAL8_CHANNEL, DIAL8_MESSAGE_ID_PREFIX } from '@/lib/chat/channel-turn'
+import { CHANNEL_MESSAGE_KIND, NI_CHANNEL, NI_MESSAGE_ID_PREFIX } from '@/lib/chat/channel-turn'
 import { HOME_TURN_REQUESTED_EVENT, type HomeTurnRequestedData } from '@/lib/chat/home-turn'
 import { callUuid } from '@/lib/guests/reach-owner'
 import { AGENT_GUEST_SELECT, toGuest, type AgentGuest } from '@/lib/guests/store'
@@ -334,7 +334,7 @@ export async function askAgent(supabase: SupabaseClient, scope: AskAgentScope, i
   if (scope.check) return { success: true, sendable: true, peer_name: peer.name }
 
   // The other half's thread first: when it can't be made, nothing is written (no exchange or ask left behind).
-  const thread = await ensureGuestThread(supabase, theirHalf, DIAL8_CHANNEL)
+  const thread = await ensureGuestThread(supabase, theirHalf, NI_CHANNEL)
 
   // The exchange: a new one is written now (the follow-up's was read above).
   if (!exchange) {
@@ -358,7 +358,7 @@ export async function askAgent(supabase: SupabaseClient, scope: AskAgentScope, i
   const count = inserted.error ? exchange.message_count : await bumpExchange(supabase, exchange, now)
 
   // Into the other half's thread, as their agent's message, and that half's turn.
-  const uiId = `${DIAL8_MESSAGE_ID_PREFIX}${messageId}`
+  const uiId = `${NI_MESSAGE_ID_PREFIX}${messageId}`
   const written = await (deps.persist ?? persistEveMessage)(supabase, {
     conversationId: thread.id,
     userId: side.peerUserId,
@@ -366,7 +366,7 @@ export async function askAgent(supabase: SupabaseClient, scope: AskAgentScope, i
     role: 'user',
     parts: [{ type: 'text', text: clip(message, AGENT_LINK_MESSAGE_MAX) }],
     messageId: uiId,
-    metadata: { kind: CHANNEL_MESSAGE_KIND, channel: DIAL8_CHANNEL, guest_id: theirHalf.id, agent_link: { link_id: side.link.id, exchange_id: exchange.id, message_id: messageId } },
+    metadata: { kind: CHANNEL_MESSAGE_KIND, channel: NI_CHANNEL, guest_id: theirHalf.id, agent_link: { link_id: side.link.id, exchange_id: exchange.id, message_id: messageId } },
   })
   if (!written.written && written.reason) throw new Error(`ask not written (${written.reason})`)
   const send = deps.send ?? (async (event) => (await import('@/lib/inngest/client')).inngest.send(event as never))

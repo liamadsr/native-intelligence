@@ -19,7 +19,7 @@ const result = await build({
   define: { 'process.env.CLOUD_BROWSER_RELAY_BUILD': JSON.stringify(version) },
   // ws reaches for optional native speedups the sandbox never has.
   external: ['bufferutil', 'utf-8-validate'],
-  banner: { js: `// Native Intelligence cloud browser relay ${version}\nimport { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);` },
+  banner: { js: `// Native Intelligence cloud browser relay ${version}\nimport { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);` },
   logLevel: 'warning', metafile: true,
 })
 // Nothing that only runs inside Next belongs in the sandbox.

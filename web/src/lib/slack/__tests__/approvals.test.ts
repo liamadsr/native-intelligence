@@ -88,6 +88,13 @@ describe('parseButtonClick', () => {
     })
   })
 
+  it('reads the buttons on a card posted before the rename as the same two actions', () => {
+    const before = (action_id: string) => parseButtonClick({ ...payload, actions: [{ action_id, value: CARD }] }, APP)
+    expect(before('dial8_approve')).toMatchObject({ action: APPROVE_ACTION, cardId: CARD })
+    expect(before('dial8_decline')).toMatchObject({ action: DECLINE_ACTION, cardId: CARD })
+    for (const other of ['dial8_other', 'constructor', '__proto__', 'toString']) expect(before(other), other).toBeNull()
+  })
+
   it("ignores another app's click, another action, and never trusts a non-Slack response_url", () => {
     expect(parseButtonClick({ ...payload, api_app_id: 'A999' }, APP)).toBeNull()
     expect(parseButtonClick({ ...payload, actions: [{ action_id: 'other', value: CARD }] }, APP)).toBeNull()

@@ -102,7 +102,7 @@ export function AppUpdater() {
       // Track the build ID on first check and persist for cache-buster script
       if (knownBuildId.current === null && currentBuildId) {
         knownBuildId.current = currentBuildId                                                                                                                                             
-        try { localStorage.setItem('dial8_build_id', currentBuildId) } catch {}
+        try { localStorage.setItem('ni_build_id', currentBuildId) } catch {}
       }                                                                                                                                                                                   
 
       const hasWebUpdate = knownBuildId.current !== null                                                                                                                                  
@@ -173,7 +173,7 @@ export function AppUpdater() {
       // Web-only update — reload to get fresh assets                                                                                                                                     
       if (hasWebUpdate) {
         knownBuildId.current = currentBuildId                                                                                                                                             
-        try { localStorage.setItem('dial8_build_id', currentBuildId!) } catch {}
+        try { localStorage.setItem('ni_build_id', currentBuildId!) } catch {}
         if (manual && !recordingRef.current) {
           toast.loading('Applying update...', { id: 'app-update', duration: 2000 })
           setTimeout(() => window.location.reload(), 1000)
@@ -231,7 +231,7 @@ export function AppUpdater() {
     // The WEB half is deliberately NOT elected: JS chunks are per-webview, so a
     // pop-out that never polls runs the old bundle against a new server for as
     // long as it stays open — and worse, main advancing the shared
-    // `dial8_build_id` key makes the pop-out's CacheBusterScript compute
+    // `ni_build_id` key makes the pop-out's CacheBusterScript compute
     // needsReload === false, so even a manual reload skips the hard reload.
     // Each window polls for itself and reloads only itself.
     const elected = getThisWebviewLabel().then(

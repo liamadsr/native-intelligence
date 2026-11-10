@@ -228,8 +228,8 @@ mod tests {
 
     #[test]
     fn the_edit_confirm_says_what_happens() {
-        let (title, body) = edit_confirm_text("dial8-website");
-        assert_eq!(title, "Let Native Intelligence's agent make changes in dial8-website?");
+        let (title, body) = edit_confirm_text("native-intelligence");
+        assert_eq!(title, "Let Native Intelligence's agent make changes in native-intelligence?");
         assert_eq!(
             body,
             "Changes go on a new git branch in a separate copy. Your files and current branch stay as they are, \

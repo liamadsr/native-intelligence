@@ -1,4 +1,4 @@
-import { Container } from '@dial8/ui'
+import { Container } from '@native-intelligence/ui'
 
 export function Centered() {
   return (

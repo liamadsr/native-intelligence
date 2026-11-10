@@ -6,9 +6,9 @@
  * the environment are the L0 contract §1; this folder's README restates them.
  *
  * The server is the Mac body (contract C2, docs/plans/teammate-agent.md): the
- * one Native Intelligence agent, agents/chat-agent, built with DIAL8_AGENT_HOST=mac into
+ * one Native Intelligence agent, agents/chat-agent, built with NI_AGENT_HOST=mac into
  * `<LOCAL_AGENT_DIR>/.output` (scripts/local-agent/build.sh, bundle.sh). The
- * launcher sets DIAL8_AGENT_HOST=mac again in the server's environment: eve
+ * launcher sets NI_AGENT_HOST=mac again in the server's environment: eve
  * imports each module again at runtime, and it must pick the same host as the
  * build did. It refuses an `.output` without the Mac build's host marker
  * (dial8-host.json), and before `ready` it checks the server refuses a
@@ -733,7 +733,7 @@ const REQUIRED_ENV = ['LOCAL_AGENT_JOB_ID', 'LOCAL_AGENT_FOLDER', 'LOCAL_AGENT_M
 /** Passed to the server when set. */
 const OPTIONAL_ENV = ['LOCAL_AGENT_EXTRA_READ'] as const
 /** Which body of the agent the server is (agents/chat-agent/lib/host.ts): always the Mac's here. */
-const AGENT_HOST_ENV = 'DIAL8_AGENT_HOST'
+const AGENT_HOST_ENV = 'NI_AGENT_HOST'
 
 function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {

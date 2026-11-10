@@ -869,7 +869,7 @@ export function createDocumentTools(
           // Only its creator sees a private document (migration 369).
           ...((data as { visibility?: string }).visibility === 'private' ? { visibility: 'private' } : {}),
         }
-        // Deliberately NOT "call dial8_set_workspace to switch": switching is a
+        // Deliberately NOT "call ni_set_workspace to switch": switching is a
         // sticky, session-wide side effect that silently re-points every LATER
         // create in the turn. Now that creates take a `workspace_id`, the
         // correct follow-up is to name this id on the call that needs it.

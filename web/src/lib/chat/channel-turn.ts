@@ -52,15 +52,15 @@ export const CALL_CHANNEL = 'call' as const
  * into the thread of the owner's half for that user (a guest thread), never
  * the home thread.
  */
-export const DIAL8_CHANNEL = 'dial8' as const
+export const NI_CHANNEL = 'dial8' as const
 /**
  * Team chat (roadmap #7, migration 474): the person @-mentioned their agent in
  * a team chat channel or DM. Only ever into their own conversation for that
  * channel (team_chat_agent_thread), never the home thread.
  */
 export const TEAM_CHAT_CHANNEL = 'team_chat' as const
-export type MessageChannel = typeof SLACK_CHANNEL | typeof SMS_CHANNEL | typeof DIAL8_CHANNEL | typeof CALL_CHANNEL | typeof TEAM_CHAT_CHANNEL
-const MESSAGE_CHANNELS: ReadonlySet<unknown> = new Set<MessageChannel>([SLACK_CHANNEL, SMS_CHANNEL, DIAL8_CHANNEL, CALL_CHANNEL, TEAM_CHAT_CHANNEL])
+export type MessageChannel = typeof SLACK_CHANNEL | typeof SMS_CHANNEL | typeof NI_CHANNEL | typeof CALL_CHANNEL | typeof TEAM_CHAT_CHANNEL
+const MESSAGE_CHANNELS: ReadonlySet<unknown> = new Set<MessageChannel>([SLACK_CHANNEL, SMS_CHANNEL, NI_CHANNEL, CALL_CHANNEL, TEAM_CHAT_CHANNEL])
 
 /** The person's Slack message's chat_messages id prefix (`slack-in:<team>:<channel>:<ts>`). */
 export const SLACK_MESSAGE_ID_PREFIX = 'slack-in:'
@@ -69,7 +69,7 @@ export const SLACK_MESSAGE_ID_PREFIX = 'slack-in:'
 export const SMS_MESSAGE_ID_PREFIX = 'sms-in:'
 
 /** A linked agent's message's chat_messages id prefix (`agent-in:<agent_link_message id>`). */
-export const DIAL8_MESSAGE_ID_PREFIX = 'agent-in:'
+export const NI_MESSAGE_ID_PREFIX = 'agent-in:'
 
 /** What the person said on a call's chat_messages id prefix (`call-in:<GPT-Live session>:<delegation>`). */
 export const CALL_MESSAGE_ID_PREFIX = 'call-in:'
@@ -119,7 +119,7 @@ export function isChannelMessageRow(message: unknown): boolean {
   const meta = m.metadata as { kind?: unknown } | null | undefined
   if (m.id.startsWith(SLACK_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
   if (m.id.startsWith(SMS_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND || meta?.kind === LEGACY_TEXT_MESSAGE_KIND
-  if (m.id.startsWith(DIAL8_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
+  if (m.id.startsWith(NI_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
   if (m.id.startsWith(CALL_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
   if (m.id.startsWith(TEAM_CHAT_MESSAGE_ID_PREFIX)) return meta?.kind === CHANNEL_MESSAGE_KIND
   return false

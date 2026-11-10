@@ -804,8 +804,8 @@ mod tests {
     #[test]
     fn branch_names_use_the_label_slug_and_the_job_short_id() {
         assert_eq!(
-            branch_name("dial8-website", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
-            "dial8/dial8-website-38cb0eef"
+            branch_name("native-intelligence", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
+            "dial8/native-intelligence-38cb0eef"
         );
         assert_eq!(
             branch_name("My App", "ABCDEF12-0000-4000-8000-000000000000"),

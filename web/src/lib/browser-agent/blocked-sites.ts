@@ -77,12 +77,12 @@ export function blockedSiteForUrl(url: string | null | undefined, sites: readonl
  * card (or settle anything else) for the person. Production, local dev, and
  * the app's configured origin.
  */
-export const DIAL8_OWN_SITES: readonly string[] = ['dial8.ai', 'localhost', '127.0.0.1']
+export const NI_OWN_SITES: readonly string[] = ['dial8.ai', 'localhost', '127.0.0.1']
 
-/** The app's own sites: DIAL8_OWN_SITES plus the configured app origin's site. */
+/** The app's own sites: NI_OWN_SITES plus the configured app origin's site. */
 export function appOwnSites(appUrl: string | undefined = process.env.NEXT_PUBLIC_APP_URL): string[] {
   const configured = siteForUrl(appUrl)
-  return [...new Set([...DIAL8_OWN_SITES, ...(configured ? [configured] : [])])]
+  return [...new Set([...NI_OWN_SITES, ...(configured ? [configured] : [])])]
 }
 
 /** What the agent is told on Native Intelligence's own pages. */

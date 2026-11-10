@@ -161,7 +161,7 @@ describe('parseWebSearchOutput', () => {
 
 describe('readWebSearchQuery', () => {
   it('reads the Exa gateway shape { query }', () => {
-    expect(readWebSearchQuery({ query: 'dial8 pricing' })).toBe('dial8 pricing')
+    expect(readWebSearchQuery({ query: 'acme pricing' })).toBe('acme pricing')
   })
 
   it('joins a multi-query input { queries: string[] }', () => {

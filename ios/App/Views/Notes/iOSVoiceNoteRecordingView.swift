@@ -1,6 +1,6 @@
 //
 //  iOSVoiceNoteRecordingView.swift
-//  dial8
+//  Native Intelligence
 //
 //  Voice note recording view for iOS. Captures audio and transcribes live via
 //  on-device transcription through iOSRecordingService — the same live

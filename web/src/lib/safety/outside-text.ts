@@ -42,6 +42,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { TOOL_CATEGORIES } from '@/lib/ai/tool-registry'
 import { knownSenders } from '@/lib/agent-events/known-senders'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 export { outsideReadLabel } from './outside-label'
 
@@ -120,7 +121,7 @@ export const INTERNAL_TEXT_TOOLS: ReadonlySet<string> = new Set([
 /** Search tools: internal unless a hit is mail, an attachment, or sourced from one. */
 export const RESULT_CHECKED_SEARCH_TOOLS: ReadonlySet<string> = new Set(['find', 'search', 'deep_search'])
 
-const bare = (name: string) => (typeof name === 'string' ? name.replace(/^dial8_/, '') : '')
+const bare = (name: string) => (typeof name === 'string' ? bareToolName(name) : '')
 
 /** True when the tool's result is outside text whatever it says (no sender check). Pure. */
 export function isOutsideTextTool(toolName: string): boolean {

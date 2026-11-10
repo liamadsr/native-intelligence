@@ -17,7 +17,7 @@
  *   4. a multi-word span holding a filler word is never joined into a term
  *      ("a very" → Avery).
  *
- * A port of the measured Python harness (dial8-desktop/.claude/boost-test/v2/
+ * A port of the measured Python harness (desktop/.claude/boost-test/v2/
  * sm.py + phonetic.py + phonetic2.py, rules v2, forms policy), including
  * difflib's SequenceMatcher.ratio; checked edit for edit against it. Three
  * guards were added after review (2026-10-24), also mirrored in the harness

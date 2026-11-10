@@ -9,7 +9,7 @@ import {
   Button,
   Input,
   Label,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 // The open Dialog renders a `position:fixed inset-0` backdrop that escapes the
 // preview card, so we lead with the resting trigger. The full open dialog

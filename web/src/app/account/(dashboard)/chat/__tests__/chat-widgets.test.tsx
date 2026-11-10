@@ -424,7 +424,7 @@ describe('the Agents section', () => {
         id: 'mac',
         kind: 'local_agent',
         agent_run_id: null,
-        title: 'Your Mac · dial8-website: Take a look at this repository',
+        title: 'Your Mac · native-intelligence: Take a look at this repository',
         current_step: 'Reading README.md',
         source: { chat_conversation_id: CONV, local_agent_session_id: sid },
       }),
@@ -432,7 +432,7 @@ describe('the Agents section', () => {
     ]
     render([])
     const mac = q('[data-agent-row="mac"]')!
-    expect(mac.querySelector('[data-agent-row-title]')!.textContent).toBe('Your Mac · dial8-website: Take a look at this repository')
+    expect(mac.querySelector('[data-agent-row-title]')!.textContent).toBe('Your Mac · native-intelligence: Take a look at this repository')
     expect(mac.querySelector('[data-agent-row-local]')).not.toBeNull()
     expect(mac.textContent).toContain('Reading README.md')
     expect(mac.querySelector('[data-agent-row-steer-toggle]')).not.toBeNull()

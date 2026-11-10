@@ -8,9 +8,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { sendSms } from '../client'
 
-const DIAL8 = '+19287698774'
+const NI = '+19287698774'
 const AGENT = '+16465550104'
-const config = { accountSid: 'AC1', authToken: 't', fromNumber: DIAL8, messagingServiceSid: 'MG1' }
+const config = { accountSid: 'AC1', authToken: 't', fromNumber: NI, messagingServiceSid: 'MG1' }
 
 /** Twilio answering each send in turn (a code is a refusal). */
 function twilio(...answers: Array<number | null>) {
@@ -25,7 +25,7 @@ describe('sendSms through the messaging service', () => {
   it('pins the Native Intelligence number, so Twilio never picks someone’s agent number', async () => {
     const fetch = twilio()
     expect(await sendSms('+14155551234', 'hi', { fetch: fetch as never, config })).toEqual({ ok: true, sid: 'SM1' })
-    expect(forms(fetch)).toEqual([{ To: '+14155551234', Body: 'hi', MessagingServiceSid: 'MG1', From: DIAL8 }])
+    expect(forms(fetch)).toEqual([{ To: '+14155551234', Body: 'hi', MessagingServiceSid: 'MG1', From: NI }])
   })
 
   it('from the agent number when named, with a status callback', async () => {
@@ -39,7 +39,7 @@ describe('sendSms through the messaging service', () => {
     expect(await sendSms('+14155551234', 'hi', { fetch: fetch as never, config, sender: AGENT })).toEqual({ ok: true, sid: 'SM1' })
     expect(forms(fetch).map((f) => [f.From ?? null, f.MessagingServiceSid, f.StatusCallback ?? null])).toEqual([
       [AGENT, 'MG1', 'https://dial8.ai/api/twilio/sms/status'],
-      [DIAL8, 'MG1', null],
+      [NI, 'MG1', null],
       [null, 'MG1', null],
     ])
   })
@@ -47,7 +47,7 @@ describe('sendSms through the messaging service', () => {
   it('an agent number refused outright as unregistered (30035): the Native Intelligence number', async () => {
     const fetch = twilio(30035)
     expect(await sendSms('+14155551234', 'hi', { fetch: fetch as never, config, sender: AGENT })).toEqual({ ok: true, sid: 'SM1' })
-    expect(forms(fetch).map((f) => f.From)).toEqual([AGENT, DIAL8])
+    expect(forms(fetch).map((f) => f.From)).toEqual([AGENT, NI])
   })
 
   it('any other refusal is the answer, never a second send', async () => {
@@ -67,6 +67,6 @@ describe('sendSms without a messaging service', () => {
   it('From the Native Intelligence number, an agent number aside (there is no pool)', async () => {
     const fetch = twilio()
     await sendSms('+14155551234', 'hi', { fetch: fetch as never, config: { ...config, messagingServiceSid: null }, sender: AGENT })
-    expect(forms(fetch)).toEqual([{ To: '+14155551234', Body: 'hi', From: DIAL8 }])
+    expect(forms(fetch)).toEqual([{ To: '+14155551234', Body: 'hi', From: NI }])
   })
 })

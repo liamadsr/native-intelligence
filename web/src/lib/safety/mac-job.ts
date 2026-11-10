@@ -26,7 +26,7 @@ export function macJobAgentName(job: Pick<LocalAgentApprovalContext, 'deviceName
   return name ? `Native Intelligence on ${name}` : 'Native Intelligence on your Mac'
 }
 
-/** "its job in dial8-website" (one line, capped), or "its job". */
+/** "its job in web" (one line, capped), or "its job". */
 export function macJobPlace(job: Pick<LocalAgentApprovalContext, 'folderLabel'>): string {
   const label = (job.folderLabel ?? '').replace(/\s+/g, ' ').trim().slice(0, 80)
   return label ? `its job in ${label}` : 'its job'

@@ -1,5 +1,5 @@
 /**
- * @dial8/ui — Native Intelligence presentational design-system kit.
+ * @native-intelligence/ui — Native Intelligence presentational design-system kit.
  *
  * Re-exports the app's shadcn/ui primitives and clean marketing components
  * from <repo>/src/components/**, via the `@/` path alias. This barrel is the

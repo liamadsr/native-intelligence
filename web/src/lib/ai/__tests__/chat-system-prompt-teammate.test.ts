@@ -20,7 +20,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /** The base prompt's real opening identity sentence, then a stand-in for its rules. */
-const DIAL8_BASE = "You are Assistant, the user's always-on agent in Native Intelligence, for them and their team. BASE_RULES"
+const NI_BASE = "You are Assistant, the user's always-on agent in Native Intelligence, for them and their team. BASE_RULES"
 
 vi.mock('../system-prompt', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../system-prompt')>()),
@@ -30,7 +30,7 @@ vi.mock('../system-prompt', async (importOriginal) => ({
     projects: null,
     captures: null,
     view: null,
-    base: DIAL8_BASE,
+    base: NI_BASE,
     webAccess: null,
   })),
 }))
@@ -253,16 +253,16 @@ describe('buildChatSystemPrompt — teammate chat', () => {
     teammateRow.value = null
     const built = await build()
     expect(built.stable.map((s) => s.key)).toEqual(['agent', 'base', 'profile'])
-    expect(built.stable.find((s) => s.key === 'base')!.markdown).toBe(DIAL8_BASE)
+    expect(built.stable.find((s) => s.key === 'base')!.markdown).toBe(NI_BASE)
   })
 
   it('an ordinary chat is unchanged: the base, with its Native Intelligence identity, leads', async () => {
     const ordinary = await buildChatSystemPrompt({ userId: 'user-1', supabase: supabase(), workspaceId: 'ws-1' })
     expect(ordinary.stable.map((s) => s.key)).toEqual(['base', 'profile'])
-    expect(joinStablePrompt(ordinary.stable).startsWith(DIAL8_BASE)).toBe(true)
+    expect(joinStablePrompt(ordinary.stable).startsWith(NI_BASE)).toBe(true)
   })
 
-  it('the real base prompt opens with the identity sentence DIAL8_BASE stands in for', async () => {
+  it('the real base prompt opens with the identity sentence NI_BASE stands in for', async () => {
     // buildSystemPrompt is the real one (only the parts export is mocked), over
     // a client with no rows: the clock line, a rule, then BASE_PROMPT.
     const empty = (): Record<string, unknown> => {
@@ -274,7 +274,7 @@ describe('buildChatSystemPrompt — teammate chat', () => {
       return c
     }
     const real = await buildSystemPrompt('nobody', { from: empty } as never, undefined, { workspaceId: 'ws-none', webAccess: 'never' })
-    expect(real).toContain(`\n\n---\n\n${DIAL8_BASE.replace(' BASE_RULES', ' You know their actions')}`)
+    expect(real).toContain(`\n\n---\n\n${NI_BASE.replace(' BASE_RULES', ' You know their actions')}`)
   })
 
   it('the joined prompt reads persona, then memory, above the base', async () => {

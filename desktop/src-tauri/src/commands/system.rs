@@ -1,5 +1,5 @@
 //! `system_info`: the Mac the app runs on, for the web's diagnostics
-//! (dial8-website src/lib/speech-diagnostics.ts). The web registers it on
+//! (web/src/lib/speech-diagnostics.ts). The web registers it on
 //! every PostHog event, so failures can be broken down by macOS version and
 //! chip; the webview's user agent can't tell, because WebKit freezes the
 //! macOS version it reports at 10.15.7.
@@ -127,7 +127,7 @@ pub struct PresenceState {
 
 /// `invoke('presence_state')` → `{ idleSeconds: number, locked: boolean }`.
 ///
-/// Whether the person is at this Mac: the web app (dial8-website) reads it so
+/// Whether the person is at this Mac: the web app (web) reads it so
 /// the always-on agent texts them when they're away. Takes nothing from the
 /// page and answers only these two values. No permission prompt: idle time
 /// comes from the HID system event state, the lock from the Quartz session

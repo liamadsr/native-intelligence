@@ -32,7 +32,7 @@
 #     file changes the cloud's compiled manifest.
 # Each swap or addition is a re-export written here, so the source stays
 # where it is. Dot files (.DS_Store, editor files) never enter the copy. Everything else that differs between the bodies is a
-# switch inside the shared files on DIAL8_AGENT_HOST
+# switch inside the shared files on NI_AGENT_HOST
 # (agents/chat-agent/lib/host.ts), set here for `eve build` and again by the
 # launcher for the running server.
 #
@@ -76,7 +76,7 @@ stage_mac_body() {
 build_mac_body() {
   local repo="$1" stage="$2"
   shift 2
-  (cd "$stage/agents/chat-agent" && DIAL8_AGENT_HOST=mac VERCEL= "$repo/node_modules/.bin/eve" build "$@" >"$stage/eve-build.log" 2>&1) || {
+  (cd "$stage/agents/chat-agent" && NI_AGENT_HOST=mac VERCEL= "$repo/node_modules/.bin/eve" build "$@" >"$stage/eve-build.log" 2>&1) || {
     tail -40 "$stage/eve-build.log" >&2
     return 1
   }

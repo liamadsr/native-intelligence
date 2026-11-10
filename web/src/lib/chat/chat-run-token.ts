@@ -252,7 +252,7 @@ export interface ChatRunTokenClaims {
    * opens it for the tools that call back into the app as the user (the
    * email-draft tools), exactly as the in-process routes passed their bearer.
    * Sealed by the browser chat mint (from the mint's own Bearer) and by the
-   * device ask; never set for a device (`d8d_`) token or a cookie-only caller.
+   * device ask; never set for a device (`nid_`) token or a cookie-only caller.
    */
   cred?: string
   /**

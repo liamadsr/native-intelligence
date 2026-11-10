@@ -34,7 +34,7 @@
 import type { VoiceAskContext } from './voice-ask'
 
 /** Window event name. Listened for in dashboard-shell.tsx. */
-export const VOICE_ASK_EVENT = 'dial8:voice-ask'
+export const VOICE_ASK_EVENT = 'ni:voice-ask'
 
 export type VoiceAskOutcome = 'spoken' | 'interrupted' | 'silent' | 'failed'
 

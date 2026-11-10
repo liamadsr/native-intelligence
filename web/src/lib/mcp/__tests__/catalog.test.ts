@@ -8,23 +8,23 @@ import { catalogFingerprint, describeCatalog, staleCatalogHint } from '../catalo
 
 describe('catalogFingerprint', () => {
   it('is stable and independent of order and duplicates', () => {
-    const a = catalogFingerprint(['dial8_b', 'dial8_a', 'dial8_c'])
-    expect(catalogFingerprint(['dial8_a', 'dial8_b', 'dial8_c'])).toBe(a)
-    expect(catalogFingerprint(['dial8_c', 'dial8_c', 'dial8_b', 'dial8_a'])).toBe(a)
+    const a = catalogFingerprint(['ni_b', 'ni_a', 'ni_c'])
+    expect(catalogFingerprint(['ni_a', 'ni_b', 'ni_c'])).toBe(a)
+    expect(catalogFingerprint(['ni_c', 'ni_c', 'ni_b', 'ni_a'])).toBe(a)
     expect(a).toMatch(/^[0-9a-f]{8}$/)
   })
 
   it('changes when a tool is added or removed', () => {
-    const before = catalogFingerprint(['dial8_a', 'dial8_b'])
-    expect(catalogFingerprint(['dial8_a', 'dial8_b', 'dial8_c'])).not.toBe(before)
-    expect(catalogFingerprint(['dial8_a'])).not.toBe(before)
+    const before = catalogFingerprint(['ni_a', 'ni_b'])
+    expect(catalogFingerprint(['ni_a', 'ni_b', 'ni_c'])).not.toBe(before)
+    expect(catalogFingerprint(['ni_a'])).not.toBe(before)
   })
 })
 
 describe('describeCatalog', () => {
   it('counts unique names', () => {
-    expect(describeCatalog(['dial8_a', 'dial8_a', 'dial8_b'])).toEqual({
-      version: catalogFingerprint(['dial8_a', 'dial8_b']),
+    expect(describeCatalog(['ni_a', 'ni_a', 'ni_b'])).toEqual({
+      version: catalogFingerprint(['ni_a', 'ni_b']),
       tool_count: 2,
     })
   })
@@ -35,7 +35,7 @@ describe('staleCatalogHint', () => {
     const hint = staleCatalogHint({ version: 'ab12cd34', tool_count: 165 })
     expect(hint).toContain('165 tools')
     expect(hint).toContain('ab12cd34')
-    expect(hint).toContain('dial8_call_tool')
+    expect(hint).toContain('ni_call_tool')
     expect(hint).toContain('reconnect')
   })
 })

@@ -75,9 +75,9 @@ export function ChatProposalsCard({
     // socket was dead were never delivered. Refetch to pick up any status
     // changes to this card's proposals that we missed during the gap.
     const onRecovered = () => void refetch()
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
     return () => {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       supabase.removeChannel(channel)
     }
   }, [captureId, instanceId, refetch])

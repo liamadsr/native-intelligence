@@ -1,6 +1,6 @@
 //
 //  AIBackendService.swift
-//  dial8
+//  Native Intelligence
 //
 //  HTTP client for Eve chat and Next.js indexing/search routes.
 //  All AI calls go through the website backend,

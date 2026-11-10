@@ -531,7 +531,7 @@ function ProposalCardImpl({
   // listens for this event globally, so no prop threading is needed.
   const handleDraftEmail = () => {
     window.dispatchEvent(
-      new CustomEvent('dial8:chat-about-proposal', {
+      new CustomEvent('ni:chat-about-proposal', {
         detail: {
           captureId: change.capture_id,
           proposalId: change.id,
@@ -764,7 +764,7 @@ function ProposalCardImpl({
                         title="Ask AI about this"
                         onClick={() => {
                           window.dispatchEvent(
-                            new CustomEvent('dial8:chat-about-proposal', {
+                            new CustomEvent('ni:chat-about-proposal', {
                               detail: {
                                 captureId: change.capture_id,
                                 proposalId: change.id,

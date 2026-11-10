@@ -5,7 +5,7 @@
  *
  * The brief is the signed-in person's own (lib/live-agent/precall-brief.ts),
  * read once per call through the capture route's `?fields=brief` variant,
- * again when the capture is edited (`dial8:content-edited` for it) and when a
+ * again when the capture is edited (`ni:content-edited` for it) and when a
  * goal is saved on the page (MEETING_GOAL_CHANGED_EVENT). The web
  * HUD reads it in its own page (components/live-hud/in-page-hud-feed.tsx);
  * the desktop's HUD window hears it from the recording window's publisher

@@ -6,7 +6,7 @@
  * Three of the five are checked here because the other two already have their
  * own guards: `tool-registry-sync.test.ts` gates the build on the registry
  * itself, and `mcp/tools/__tests__/registration.test.ts` asserts every
- * executable chat tool has a `dial8_*` twin.
+ * executable chat tool has a `ni_*` twin.
  *
  * The edition ceiling is the one that is easiest to get wrong and hardest to
  * notice: `computeEditionToolCeiling` INTERSECTS an edition's categories with

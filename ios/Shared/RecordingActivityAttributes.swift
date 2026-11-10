@@ -1,6 +1,6 @@
 //
 //  RecordingActivityAttributes.swift
-//  dial8
+//  Native Intelligence
 //
 //  ActivityKit attributes for the recording Live Activity / Dynamic Island.
 //  Shared between the main app and the dial8Widgets extension.

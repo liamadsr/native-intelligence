@@ -5,7 +5,7 @@
  * Vercel Connect connector, and bot tokens come from Connect at runtime
  * (./connect.ts). Nothing in this app ever holds them.
  *
- *   SLACK_CONNECTOR  the Connect connector (uid like `slack/dial8-public`, or
+ *   SLACK_CONNECTOR  the Connect connector (uid like `slack/ni-public`, or
  *                    its `scl_…` id). Unset: Slack is off, and the Settings
  *                    card doesn't show.
  *   SLACK_APP_ID     our Slack app's id (A…). The events route drops any

@@ -31,7 +31,7 @@ let linkedPhone: { number: string; masked: string; verifiedAt: string; optedOut:
 let slackLink: { slackUserName: string } | null = null
 const fetchMock = vi.fn(async (url: string) => {
   if (url === '/api/account/phone') {
-    return new Response(JSON.stringify({ phone: linkedPhone, dial8Number: '+1 555 000 0000', available: true }), { status: 200 })
+    return new Response(JSON.stringify({ phone: linkedPhone, niNumber: '+1 555 000 0000', available: true }), { status: 200 })
   }
   if (url === '/api/account/integrations/slack') {
     return new Response(

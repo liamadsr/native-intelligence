@@ -198,7 +198,7 @@ describe('useDictation', () => {
   })
 
   it('dictation asks for the quiet room even when an older build stored a noisy one', async () => {
-    window.localStorage.setItem('dial8:voice:noise', 'noisy')
+    window.localStorage.setItem('ni:voice:noise', 'noisy')
     await render()
     await pointer('pointerdown')
     expect(bridge.calls[0]).toEqual(['start', expect.objectContaining({ mode: 'dictation', noiseProfile: 'quiet' })])

@@ -60,9 +60,9 @@ export function InboundMcpSection() {
     <div className="space-y-8">
       {/* Nothing connected yet: no empty list, the picker is the page. */}
       {clients.length > 0 && (
-        <section aria-labelledby="dial8-mcp-connected">
+        <section aria-labelledby="ni-mcp-connected">
           <h2
-            id="dial8-mcp-connected"
+            id="ni-mcp-connected"
             className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
           >
             Connected apps

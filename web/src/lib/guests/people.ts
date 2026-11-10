@@ -45,7 +45,7 @@ export interface GuestInvite {
   /** The first text it types in for them: "Hi, it's Sam · K7Q4MX". */
   text: string
   /** The Native Intelligence number they text, E.164; null when texting isn't set up. */
-  dial8Number: string | null
+  niNumber: string | null
   expiresAt: string | null
 }
 

@@ -16,7 +16,7 @@ import { businessHelpReply, businessStartReply } from '@/lib/customers/texting'
 import type { BusinessNumber } from '@/lib/customers/numbers'
 
 const ORIGIN = 'https://dial8.ai'
-const DIAL8 = '+18885550100'
+const NI = '+18885550100'
 const RUG = '+16465550173'
 const STRANGER = '+12125550199'
 const NUMBER: BusinessNumber = { id: 'bn-1', workspaceId: 'ws-rug', ownerUserId: 'user-owner', phone: RUG, twilioSid: 'PN1' }
@@ -178,10 +178,10 @@ describe("a text to a business's number", () => {
     const start = fakeDeps()
     start.deps.customerStopped = vi.fn(async () => 1)
     await handleInboundSms(sms('START'), start.deps)
-    const dial8 = fakeDeps()
-    dial8.deps.customerStopped = vi.fn(async () => 1)
-    await handleInboundSms(sms('STOP', { to: DIAL8 }), dial8.deps)
-    expect([own, start, dial8].map((x) => (x.deps.customerStopped as ReturnType<typeof vi.fn>).mock.calls.length)).toEqual([0, 0, 0])
+    const ni = fakeDeps()
+    ni.deps.customerStopped = vi.fn(async () => 1)
+    await handleInboundSms(sms('STOP', { to: NI }), ni.deps)
+    expect([own, start, ni].map((x) => (x.deps.customerStopped as ReturnType<typeof vi.fn>).mock.calls.length)).toEqual([0, 0, 0])
   })
 
   it('START from a stranger (a customer) touches no person row: guests, customers and the ledger only', async () => {
@@ -213,7 +213,7 @@ describe("a text to a business's number", () => {
 describe('the same phone texting the Native Intelligence number', () => {
   it("reaches its NI-line account (A) in A's own workspace, never the business's account", async () => {
     const f = fakeDeps({ linked: ACCOUNT_A, person: ACCOUNT_B })
-    await handleInboundSms(sms("what's on tomorrow?", { to: DIAL8 }), f.deps)
+    await handleInboundSms(sms("what's on tomorrow?", { to: NI }), f.deps)
     expect(f.deps.businessText).not.toHaveBeenCalled()
     expect(f.deps.businessPerson).not.toHaveBeenCalled()
     expect(f.deps.deliverText).toHaveBeenCalledWith(expect.objectContaining({ linked: ACCOUNT_A }))
@@ -221,16 +221,16 @@ describe('the same phone texting the Native Intelligence number', () => {
 
   it("a business-line account is not reached there: with no NI-line holder, the phone is a stranger to the Native Intelligence number", async () => {
     const f = fakeDeps({ linked: null, person: ACCOUNT_B })
-    expect(await handleInboundSms(sms('hello', { to: DIAL8 }), f.deps)).toEqual({ outcome: 'unknown_replied', reply: unknownNumberReply(ORIGIN) })
+    expect(await handleInboundSms(sms('hello', { to: NI }), f.deps)).toEqual({ outcome: 'unknown_replied', reply: unknownNumberReply(ORIGIN) })
     expect(f.deps.deliverText).not.toHaveBeenCalled()
   })
 
   it('STOP / START there change the Native Intelligence line only, never the business lines', async () => {
     const f = fakeDeps({ linked: ACCOUNT_A })
-    expect(await handleInboundSms(sms('STOP', { to: DIAL8 }), f.deps)).toEqual({ outcome: 'stop', reply: null })
+    expect(await handleInboundSms(sms('STOP', { to: NI }), f.deps)).toEqual({ outcome: 'stop', reply: null })
     expect(f.deps.setPhoneOptOut).toHaveBeenCalledWith(STRANGER, true)
     expect(f.deps.setPhoneRowOptOut).not.toHaveBeenCalled()
-    expect((await handleInboundSms(sms('START', { to: DIAL8 }), f.deps)).reply).toBe(START_REPLY)
+    expect((await handleInboundSms(sms('START', { to: NI }), f.deps)).reply).toBe(START_REPLY)
     expect(f.deps.setPhoneOptOut).toHaveBeenCalledWith(STRANGER, false)
     expect(f.deps.setPhoneRowOptOut).not.toHaveBeenCalled()
   })
@@ -251,7 +251,7 @@ describe('the real lookup never costs a STOP or a text', () => {
 describe('a text to the Native Intelligence number (track A owns its strangers)', () => {
   it('never asks the customer path; a stranger gets the unknown-number reply as before', async () => {
     const f = fakeDeps()
-    expect(await handleInboundSms(sms('hello', { to: DIAL8 }), f.deps)).toEqual({ outcome: 'unknown_replied', reply: unknownNumberReply(ORIGIN) })
+    expect(await handleInboundSms(sms('hello', { to: NI }), f.deps)).toEqual({ outcome: 'unknown_replied', reply: unknownNumberReply(ORIGIN) })
     expect(f.deps.businessText).not.toHaveBeenCalled()
     expect(f.deps.guestText).toHaveBeenCalled()
   })

@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto'
 import type { MessageStreamEvent } from 'eve/client'
 
 const SECRET = 'test-chat-internal-secret-abcdefghij'
-const DEVICE_TOKEN = 'd8d_the-devices-own-token'
+const DEVICE_TOKEN = 'nid_the-devices-own-token'
 
 const h = vi.hoisted(() => ({
   clients: [] as Array<Record<string, unknown>>,

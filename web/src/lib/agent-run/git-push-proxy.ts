@@ -96,7 +96,7 @@ function githubAuth(token: string): string {
 /** git expects a git/… user agent on smart HTTP; keep the client's when it is one. */
 function userAgent(request: Request): string {
   const ua = request.headers.get('user-agent') ?? ''
-  return /^git\/[\w.\-]+/.test(ua) ? ua.slice(0, 200) : 'git/2.45.0 dial8-push-gate'
+  return /^git\/[\w.\-]+/.test(ua) ? ua.slice(0, 200) : 'git/2.45.0 ni-push-gate'
 }
 
 async function readCapped(request: Request): Promise<Uint8Array<ArrayBuffer> | null> {

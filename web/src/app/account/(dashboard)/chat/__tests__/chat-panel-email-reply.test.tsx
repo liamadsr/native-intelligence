@@ -2,7 +2,7 @@
 /**
  * Mail's Reply / Reply All → the chat, at the ChatPanel handle.
  *
- * The thread view fires `dial8:email-reply`; the shell forwards the checked
+ * The thread view fires `ni:email-reply`; the shell forwards the checked
  * request to the ACTIVE tab's panel via `replyToEmail`. What this pins:
  *
  *   • the panel auto-sends the seeded turn (src/lib/email/reply-in-chat.ts)

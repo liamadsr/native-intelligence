@@ -50,7 +50,7 @@ describe('refuseDeviceToken', () => {
   const req = (auth?: string) => new Request('http://localhost/x', { headers: auth ? { authorization: auth } : {} })
 
   it('refuses a device token and lets a session or a Supabase JWT through', async () => {
-    const refused = refuseDeviceToken(req('Bearer d8d_abcdef'))
+    const refused = refuseDeviceToken(req('Bearer nid_abcdef'))
     expect(refused?.status).toBe(403)
     expect(refuseDeviceToken(req('Bearer eyJhbGciOi.jwt.here'))).toBeNull()
     expect(refuseDeviceToken(req())).toBeNull()

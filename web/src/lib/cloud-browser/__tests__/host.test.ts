@@ -183,8 +183,8 @@ describe('ensureCloudBrowser', () => {
     await host.ensureCloudBrowser(ref)
     const [policy] = sdk.sandboxes.get(NAME)!.session.policies as { allow: Record<string, { match: unknown; transform: { headers: Record<string, string> }[] }[]>; subnets: { deny: string[] } }[]
     const [rule] = policy.allow['relay.test']
-    expect(rule.match).toEqual({ headers: [{ key: { exact: 'x-dial8-relay' }, value: { exact: '1' } }] })
-    const token = rule.transform[0].headers['x-dial8-relay-token']
+    expect(rule.match).toEqual({ headers: [{ key: { exact: 'x-ni-relay' }, value: { exact: '1' } }] })
+    const token = rule.transform[0].headers['x-ni-relay-token']
     const { verifyBrowserRelayToken } = await import('@/lib/cloud-browser/relay-token')
     expect(verifyBrowserRelayToken(token)).toMatchObject({ userId: 'u1', workspaceId: 'w1', sandbox: NAME })
     expect(policy.allow['*']).toEqual([])

@@ -55,7 +55,7 @@ import { QUIET_LOCK_PREFIX } from '@/lib/sounds/quiet'
 import { tauriBridge } from '@/lib/tauri-bridge'
 import { listenScoped } from '@/lib/tauri-unlisten'
 
-const LOCK_NAME = 'dial8:local-modules-keeper'
+const LOCK_NAME = 'ni:local-modules-keeper'
 /** Keeper events that get the module's last log lines attached. */
 const WITH_LOG_TAIL = new Set(['local_module_failed', 'local_module_unavailable', 'local_module_retries_exhausted'])
 

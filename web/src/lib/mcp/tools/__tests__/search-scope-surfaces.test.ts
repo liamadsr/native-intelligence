@@ -2,7 +2,7 @@
  * The search scope options the agent sets per call (all_time,
  * include_transcripts, since / until, attachments through types) reach every
  * surface that bridges the search tools' zod schemas: the MCP connector
- * (dial8_find / dial8_deep_search) and the live meeting agent's read tools.
+ * (ni_find / ni_deep_search) and the live meeting agent's read tools.
  * So the capability the "My captures" picker gave the person is the agent's
  * on each of them. Neither is the main chat, so both keep the all-time default
  * (the past-4-weeks default is the main chat's alone).
@@ -63,16 +63,16 @@ beforeEach(() => {
 })
 
 describe('the MCP connector bridges the scope options', () => {
-  it('dial8_find and dial8_deep_search take since / until / all_time / types (and include_transcripts)', async () => {
-    const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+  it('ni_find and ni_deep_search take since / until / all_time / types (and include_transcripts)', async () => {
+    const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
     await registerTools(server, 'user-1', fakeSupabase, 'ws-1', 'Test Workspace')
     const tools = (server as unknown as { _registeredTools: Record<string, { inputSchema?: Parseable }> })._registeredTools
-    expectScopeOptions(tools['dial8_find']?.inputSchema, 'find')
-    expectScopeOptions(tools['dial8_deep_search']?.inputSchema, 'deep_search')
+    expectScopeOptions(tools['ni_find']?.inputSchema, 'find')
+    expectScopeOptions(tools['ni_deep_search']?.inputSchema, 'deep_search')
   })
 
   it('searches all time by default, as before', async () => {
-    const server = new McpServer({ name: 'dial8-test', version: '0.0.0' })
+    const server = new McpServer({ name: 'ni-test', version: '0.0.0' })
     await registerTools(server, 'user-1', fakeSupabase, 'ws-1', 'Test Workspace')
     expect(seen.defaults.length).toBeGreaterThan(0)
     for (const d of seen.defaults) expect(d).toBe('all_time')

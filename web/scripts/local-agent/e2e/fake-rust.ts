@@ -1,5 +1,5 @@
 /**
- * "Fake Rust": the desktop's `local_agent` module (dial8-desktop
+ * "Fake Rust": the desktop's `local_agent` module (desktop
  * src-tauri/src/local_agent/{mod,supervisor,config,git,ring,state}.rs) in
  * Node, for e2e-device.ts. It answers the same commands with the same JSON
  * shapes (serde camelCase) and runs the REAL launcher the way Rust does:

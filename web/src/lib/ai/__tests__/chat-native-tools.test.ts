@@ -156,7 +156,7 @@ describe('the chat-native set', () => {
     expect(startLocalAgentSchema.safeParse({ folder_id: id, request: 'Take a look at this repo' }).success).toBe(true)
     expect(startLocalAgentSchema.safeParse({ folder_id: id, request: 'x', mode: 'edit' }).success).toBe(true)
     expect(startLocalAgentSchema.safeParse({ folder_id: id, request: 'x', mode: 'write' }).success).toBe(false)
-    expect(startLocalAgentSchema.safeParse({ folder_id: 'dial8-website', request: 'x' }).success).toBe(false)
+    expect(startLocalAgentSchema.safeParse({ folder_id: 'native-intelligence', request: 'x' }).success).toBe(false)
     expect(startLocalAgentSchema.safeParse({ folder_id: id, request: '   ' }).success).toBe(false)
     // The caps are bytes: exactly at the cap passes, one ASCII byte over fails, and
     // 4-byte emoji fail well under the cap in characters, with a message to act on.

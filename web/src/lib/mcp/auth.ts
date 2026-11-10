@@ -146,7 +146,7 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 
 /**
  * Update the active workspace for an OAuth token.
- * Called by the dial8_set_workspace tool.
+ * Called by the ni_set_workspace tool.
  */
 export async function setActiveWorkspace(accessTokenHash: string, workspaceId: string): Promise<void> {
   const serviceClient = getServiceClient()
@@ -154,7 +154,7 @@ export async function setActiveWorkspace(accessTokenHash: string, workspaceId: s
     .from('mcp_oauth_token')
     .update({ active_workspace_id: workspaceId })
     .eq('access_token_hash', accessTokenHash)
-  // Throw on a real write failure so the caller (dial8_set_workspace) can report
+  // Throw on a real write failure so the caller (ni_set_workspace) can report
   // it instead of returning a false success.
   if (error) {
     throw new Error(`Failed to persist active workspace: ${error.message}`)

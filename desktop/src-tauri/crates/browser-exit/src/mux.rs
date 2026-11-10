@@ -1,4 +1,4 @@
-//! The tunnel's frames, mux v1 (dial8-website `src/lib/cloud-browser/exit/mux.ts`
+//! The tunnel's frames, mux v1 (web/`src/lib/cloud-browser/exit/mux.ts`
 //! is the hub's side; the two must agree byte for byte).
 //!
 //! After the text handshake ([`crate::node`]), every WebSocket message is one

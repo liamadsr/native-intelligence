@@ -35,7 +35,7 @@ async function main() {
     const url = new URL(req.url ?? '/', 'http://app')
     const reply = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
     // The firewall's stand-in: only the relay's marked requests count.
-    if (req.headers['x-dial8-relay'] !== '1') return reply(401, { error: 'Unauthorized' })
+    if (req.headers['x-ni-relay'] !== '1') return reply(401, { error: 'Unauthorized' })
     let raw = ''
     req.on('data', chunk => { raw += chunk })
     req.on('end', async () => {

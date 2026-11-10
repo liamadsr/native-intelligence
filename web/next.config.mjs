@@ -4,7 +4,7 @@ import { withEve } from 'eve/next'
 
 /**
  * The deployment's build id (as /api/version and NEXT_PUBLIC_BUILD_ID report
- * it). Stamped on every /api response as `x-dial8-build`, so an open window
+ * it). Stamped on every /api response as `x-ni-build`, so an open window
  * notices a new deploy from the responses it already gets and reloads when
  * idle (src/lib/deploy-reload.ts). Empty off Vercel.
  */
@@ -75,7 +75,10 @@ export async function headers() {
   // Every /api response names its deployment: open windows reload on a new
   // deploy when idle (src/lib/deploy-reload.ts).
   if (BUILD_ID) {
-    headers.push({ source: '/api/:path*', headers: [{ key: 'x-dial8-build', value: BUILD_ID }] })
+    // TODO(rename-compat): `x-dial8-build` is what a window opened before the rename
+    // reads; without it that window would never notice a deploy and reload. Drop it
+    // once those windows are gone.
+    headers.push({ source: '/api/:path*', headers: [{ key: 'x-ni-build', value: BUILD_ID }, { key: 'x-dial8-build', value: BUILD_ID }] })
   }
 
   // Keep Vercel preview deployments out of the search index. VERCEL_ENV is
@@ -280,9 +283,8 @@ const sentryWrapped = withSentry(withMDX(nextConfig))
 //
 // Mount names become Vercel Build Output service names as `eve-<name>`, and
 // Vercel requires that name to "contain only lowercase letters, hyphens, and
-// underscores" — NO DIGITS anywhere. A mount named `dial8` → `eve-dial8` is
-// rejected at build on the `8` (as is `dial8-root`). Every mount below is
-// digit-free.
+// underscores" — NO DIGITS anywhere. A mount named `web2` → `eve-web2` is
+// rejected at build on the `2`. Every mount below is digit-free.
 //
 // No agent root may live at a directory literally named `agent`: eve's
 // project discovery (discover/project.js) treats any directory with that

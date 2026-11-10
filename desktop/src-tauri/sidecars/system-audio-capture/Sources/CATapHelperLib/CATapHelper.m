@@ -2,7 +2,7 @@
 //  CATapHelper.m
 //  system-audio-capture sidecar
 //
-//  Core Audio Taps API helper — ported from dial8 native app.
+//  Core Audio Taps API helper — ported from the earlier native app.
 //
 
 #import "CATapHelper.h"

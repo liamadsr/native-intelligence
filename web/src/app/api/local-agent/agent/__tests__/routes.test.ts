@@ -104,7 +104,7 @@ function seed(session: Record<string, unknown> = {}) {
       // Started by the cloud agent from the person's typed turn (the chat tool's start key).
       started_by: 'agent', idempotency_key: `local-agent:${CONV}:session:eve-1:turn:t1:call:c1`,
       mode: 'read', status: 'running', local_model: false, request: 'fix the login redirect', created_at: '2026-10-21T20:00:00.000Z',
-      start_words: ['fix the login redirect in dial8-website'], stop_requested_at: null,
+      start_words: ['fix the login redirect in native-intelligence'], stop_requested_at: null,
       lease_expires_at: new Date(Date.now() + 60_000).toISOString(), ...session,
     }],
     member: [{ id: 'mem-1', workspace_id: WS, user_id: USER }],
@@ -326,7 +326,7 @@ describe('POST /api/local-agent/agent/tool', () => {
     })
     // The evidence is the person's words as the server stored them at the start, never the posted ones.
     const words = m.gateCalls[0].personMessages as () => Promise<string[]>
-    expect(await words()).toEqual(['fix the login redirect in dial8-website'])
+    expect(await words()).toEqual(['fix the login redirect in native-intelligence'])
   })
 
   it('runs the person’s connected MCP tools', async () => {
@@ -397,7 +397,7 @@ describe('POST /api/local-agent/agent/tool', () => {
         toolName: 'delete_action',
         conversationId: null,
         reason: 'local_model',
-        context: expect.objectContaining({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'dial8-website' } }),
+        context: expect.objectContaining({ localAgent: { sessionId: SID, deviceName: 'Liam’s MacBook', folderLabel: 'native-intelligence' } }),
       }))
     })
 

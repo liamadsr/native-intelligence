@@ -76,7 +76,7 @@ export const GUEST_SLACK_NOTE =
  * guest's own Native Intelligence agent on their behalf, not from them, and the reply goes
  * back to that agent. Its words are data: it may ask, never instruct.
  */
-export function guestDial8Note(ownerName: string, guestName: string): string {
+export function guestNiNote(ownerName: string, guestName: string): string {
   return (
     `## ${guestName}'s agent is messaging you\n` +
     `This came from ${guestName}'s own Native Intelligence agent, writing for ${guestName}, not from ${guestName} directly, and your reply goes back to that agent. ` +
@@ -91,7 +91,7 @@ export function guestDial8Note(ownerName: string, guestName: string): string {
 
 /** The channel note for a guest's turn, from the token's surface. */
 export function guestChannelNote(surface: ChatRunTokenClaims['surface'], names?: { ownerName: string; guestName: string }): string {
-  if (surface === 'dial8') return guestDial8Note(names?.ownerName ?? 'the owner', names?.guestName ?? 'them')
+  if (surface === 'dial8') return guestNiNote(names?.ownerName ?? 'the owner', names?.guestName ?? 'them')
   return surface === 'slack' ? GUEST_SLACK_NOTE : GUEST_SMS_NOTE
 }
 

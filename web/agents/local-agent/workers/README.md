@@ -151,7 +151,7 @@ handling apply as for the launcher.
   never searched and nothing is installed.
 
 No relay URL, session token or dev key is passed, and any of them in the
-environment (`DIAL8_CREDENTIALS` in `lib/env.ts`) makes the job fatal: a
+environment (`NI_CREDENTIALS` in `lib/env.ts`) makes the job fatal: a
 worker runs on the person's own login. If `LOCAL_AGENT_LOCAL_MODEL_*` is set,
 the job is fatal too: a worker sends the folder to its vendor, which a
 local-model setting rules out.
@@ -218,7 +218,7 @@ also fatal. A later failure is an `error` event, and the job goes back to
   `/private/tmp/dial8-cli-*`, 0700, removed at exit). It needs a short path
   because Claude Code keeps unix sockets there and refuses long paths.
   `DISABLE_AUTOUPDATER=1` and `MCP_TOOL_TIMEOUT` (11 min) are also set.
-- **The MCP server is named `dial8_folder`,** not `workspace`: Claude Code
+- **The MCP server is named `ni_folder`,** not `workspace`: Claude Code
   reserves that name and drops a server called so (found by running the real
   CLI).
 - **Doesn't map:**
@@ -244,7 +244,7 @@ also fatal. A later failure is an `error` event, and the job goes back to
 - **One process per turn:** `codex exec --json … -` with the prompt on stdin,
   then `codex exec --json … resume <thread> -`. The first prompt opens with
   the job instructions (`exec` has no system-prompt flag).
-- **The fence server** comes in through `-c mcp_servers.dial8_folder.*`, with
+- **The fence server** comes in through `-c mcp_servers.ni_folder.*`, with
   `required = true`, an 11 min tool timeout and `default_tools_approval_mode
   = "approve"`. The bearer goes in the environment
   (`bearer_token_env_var`), never the arguments.

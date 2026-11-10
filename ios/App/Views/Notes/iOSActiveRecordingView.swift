@@ -1,6 +1,6 @@
 //
 //  iOSActiveRecordingView.swift
-//  dial8
+//  Native Intelligence
 //
 //  Full-height active-recording sheet. A serif title field, metadata chips, a
 //  notes editor (or the live transcript), and one floating control bar.

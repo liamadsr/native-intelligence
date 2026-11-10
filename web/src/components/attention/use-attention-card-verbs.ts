@@ -307,7 +307,7 @@ export function useAttentionCardVerbs({ item, aiMembers, onAccept, onStart, onDi
       return
     }
     window.dispatchEvent(
-      new CustomEvent('dial8:chat-about-proposal', {
+      new CustomEvent('ni:chat-about-proposal', {
         detail: {
           captureId: p.capture_id ?? null,
           proposalId: item.proposal_id,

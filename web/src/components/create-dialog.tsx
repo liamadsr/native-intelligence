@@ -938,7 +938,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       onCreated?.(result)
 
       // Notify list views to refresh (e.g. UnifiedViewLayout)
-      window.dispatchEvent(new CustomEvent('dial8:entity-created', {
+      window.dispatchEvent(new CustomEvent('ni:entity-created', {
         detail: { entityType, entity: result },
       }))
 

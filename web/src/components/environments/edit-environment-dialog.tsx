@@ -228,7 +228,7 @@ interface FolderRowModel {
   label: string
   mode: 'read' | 'edit'
   isGit: boolean
-  /** The person's own view of where it is (`~/code/dial8-v2`); empty when the Mac's store hasn't said. */
+  /** The person's own view of where it is (`~/code/native-intelligence`); empty when the Mac's store hasn't said. */
   parent: string
   baseBranch: string | null
   repoFullName: string | null

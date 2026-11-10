@@ -38,7 +38,7 @@ export function toGuestView(guest: AgentGuest): GuestView {
 }
 
 export function toInvite(guest: AgentGuest, code: string): GuestInvite {
-  return { code, text: inviteText(guest.displayName, code), dial8Number: twilioPhoneNumber(), expiresAt: guest.inviteExpiresAt }
+  return { code, text: inviteText(guest.displayName, code), niNumber: twilioPhoneNumber(), expiresAt: guest.inviteExpiresAt }
 }
 
 /** A store refusal as the tab's error. */

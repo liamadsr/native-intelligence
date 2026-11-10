@@ -7,7 +7,7 @@ import {
   SelectLabel,
   SelectItem,
   SelectSeparator,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 export function Closed() {
   return (

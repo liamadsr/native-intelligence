@@ -19,8 +19,8 @@ import { resolveEntityWorkspace } from './_shared'
  * readable error about rather than a Jira 400.
  *
  * Registered through createTools(), which means the MCP registrar also exposes
- * it automatically as `dial8_push_action_to_jira` (src/lib/mcp/tools/index.ts
- * prefixes every AI-SDK tool with `dial8_`).
+ * it automatically as `ni_push_action_to_jira` (src/lib/mcp/tools/index.ts
+ * prefixes every AI-SDK tool with `ni_`).
  *
  * WORKSPACE ROUTING: the action is resolved to ITS OWN workspace via
  * `resolveEntityWorkspace` before the push, and that resolved workspace — never

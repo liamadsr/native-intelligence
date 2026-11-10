@@ -57,7 +57,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 type Mode = 'signin' | 'signup' | 'magic'
 
 /** What the desktop's sign-in window says for a page it doesn't list
- *  (dial8-desktop src-tauri/src/commands/auth_session.rs): builds before the rename say Dial8. */
+ *  (desktop/src-tauri/src/commands/auth_session.rs): builds before the rename say Dial8. */
 // TODO(rename-compat): drop the Dial8 wording once desktop builds from before the rename are gone.
 const REFUSED_SIGN_IN_PAGES = new Set(['not a Native Intelligence sign-in page', 'not a Dial8 sign-in page'])
 
@@ -67,7 +67,7 @@ type OAuthProvider = 'google' | 'chatgpt'
 export function LoginForm({
   invitedEmail = null,
   chatGptSignIn = false,
-  googleOnDial8 = false,
+  googleOnNi = false,
 }: {
   /** Address an admin signup invite was issued for (resolved by the page). */
   invitedEmail?: string | null
@@ -75,7 +75,7 @@ export function LoginForm({
   chatGptSignIn?: boolean
   /** "Sign in with Google" runs Native Intelligence's own flow on this origin
    *  (lib/auth/google-sign-in, decided by the page); else Supabase's. */
-  googleOnDial8?: boolean
+  googleOnNi?: boolean
 } = {}) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -275,7 +275,7 @@ export function LoginForm({
   }
 
   /**
-   * "Sign in with Google". With `googleOnDial8` it runs Native Intelligence's own flow
+   * "Sign in with Google". With `googleOnNi` it runs Native Intelligence's own flow
    * (/auth/google), so the person never sees the Supabase project's URL: the
    * web navigates to it; the desktop runs it in the sign-in sheet, which ends
    * on a dial8desktop:// deep link carrying a one-time token bound to this
@@ -286,7 +286,7 @@ export function LoginForm({
     setSuccess('')
     setOauthLoading('google')
 
-    if (googleOnDial8 && isDesktop) {
+    if (googleOnNi && isDesktop) {
       const bind = beginDesktopTokenSignIn()
       // A desktop build from before /auth/google refuses it in the sign-in
       // window: run Supabase's flow there. REMOVE once every build lists it.
@@ -295,7 +295,7 @@ export function LoginForm({
         createClient(),
         supabaseDesktopGoogleSignIn,
       )
-    } else if (googleOnDial8) {
+    } else if (googleOnNi) {
       window.location.assign('/auth/google')
     } else if (isDesktop) {
       await supabaseDesktopGoogleSignIn()

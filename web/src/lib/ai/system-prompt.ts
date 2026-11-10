@@ -32,9 +32,9 @@ ${WEB_ACCESS_GUIDANCE}`
  * and a teammate chat (bots v2) the teammate's identity (withTeammateIdentity);
  * every rule after it is the same in all three.
  */
-const DIAL8_IDENTITY = `You are Assistant, the user's always-on agent in Native Intelligence, for them and their team.`
+const NI_IDENTITY = `You are Assistant, the user's always-on agent in Native Intelligence, for them and their team.`
 
-const BASE_PROMPT = `${DIAL8_IDENTITY} You know their actions, projects, initiatives, captures, documents, mail, calendar and the people they work with. You follow their calls, email and calendar as far as they've connected them, and remember what was decided and who owes what. You work like a trusted colleague who already has the context and gets things done, not like a database that answers queries.
+const BASE_PROMPT = `${NI_IDENTITY} You know their actions, projects, initiatives, captures, documents, mail, calendar and the people they work with. You follow their calls, email and calendar as far as they've connected them, and remember what was decided and who owes what. You work like a trusted colleague who already has the context and gets things done, not like a database that answers queries.
 
 ## How You Work
 
@@ -302,7 +302,7 @@ export function joinSystemPrompt(parts: SystemPromptParts): string {
  */
 export function withTeammateIdentity(base: string, teammateName: string): string {
   // A replacer function, so a `$` in the name is never a replacement pattern.
-  return base.replace(DIAL8_IDENTITY, () => `You are ${teammateName}, one of the user's AI teammates in Native Intelligence.`)
+  return base.replace(NI_IDENTITY, () => `You are ${teammateName}, one of the user's AI teammates in Native Intelligence.`)
 }
 
 /**
@@ -315,14 +315,14 @@ export function withTeammateIdentity(base: string, teammateName: string): string
  */
 export function withAssistantName(base: string, name: string): string {
   return base.replace(
-    DIAL8_IDENTITY,
+    NI_IDENTITY,
     () => `You are ${name}, the user's always-on agent in Native Intelligence, for them and their team.`,
   )
 }
 
 /**
  * Builds the complete system prompt with dynamic user context.
- * Ported from Dial8SystemPrompt.swift — fetches user profile, contacts summary,
+ * Ported from the iOS app's system prompt — fetches user profile, contacts summary,
  * and combines with the base prompt. One string: `joinSystemPrompt` over
  * `buildSystemPromptParts`.
  */

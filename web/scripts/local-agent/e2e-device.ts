@@ -165,7 +165,7 @@ const root = join(home, `.dial8-local-agent-e2e-${tag}`)
 const appData = join(root, 'app-data')
 const worktreesRoot = join(root, 'worktrees')
 const readFolder = join(root, 'e2e-read-folder')
-const gitRepo = join(root, 'dial8-e2e-app')
+const gitRepo = join(root, 'ni-e2e-app')
 const hookMarker = join(root, 'hook-ran')
 const README = '# E2E fixture\n\nA tiny project for the local-agent e2e.\nIt has a README, a source file and some notes.\n'
 const jobTmps: string[] = []
@@ -482,7 +482,7 @@ async function main() {
     })
     return {
       ...asked,
-      prefixedAsTheDial8Agent: answer?.text === `[From the Dial8 agent] ${T.answer}`,
+      prefixedAsTheNiAgent: answer?.text === `[From the Dial8 agent] ${T.answer}`,
       sameLauncher: answer?.runId === runA1,
       agentResumed: resumed,
     }
@@ -615,7 +615,7 @@ async function main() {
     const finishAt = ring.findIndex((e) => e.event.kind === 'finish')
     const branchAt = ring.findIndex((e) => e.event.kind === 'branch')
     const worktree = join(realpathSync(worktreesRoot), B)
-    const expectedBranch = `dial8/dial8-e2e-app-${B.replace(/-/g, '').slice(0, 8)}`
+    const expectedBranch = `dial8/ni-e2e-app-${B.replace(/-/g, '').slice(0, 8)}`
     const committed = hostGit(['-C', gitRepo, 'show', '--name-only', '--format=', expectedBranch]).trim().split('\n').sort()
     const subject = hostGit(['-C', gitRepo, 'log', '-1', '--format=%s', expectedBranch]).trim()
     const stored = deviceEvents(B).find((e) => e.kind === 'branch')

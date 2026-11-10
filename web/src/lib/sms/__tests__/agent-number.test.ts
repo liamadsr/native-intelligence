@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import {
-  DIAL8_FALLBACK_MS,
+  NI_FALLBACK_MS,
   FREE_PREFIX,
   HELD_NAME,
   IDLE_RECLAIM_MS,
@@ -26,9 +26,9 @@ import {
 } from '../agent-number'
 
 const pn = (n: number) => `PN${String(n).padStart(32, '0')}`
-const DIAL8 = '+19287698774'
+const NI = '+19287698774'
 const SIGNUP = '+19287690000'
-const config = { accountSid: 'AC1', authToken: 't', fromNumber: DIAL8, messagingServiceSid: 'MG1' }
+const config = { accountSid: 'AC1', authToken: 't', fromNumber: NI, messagingServiceSid: 'MG1' }
 const NOW = Date.parse('2026-11-02T12:00:00Z')
 const DAY = 24 * 60 * 60_000
 const TODAY = '2026-11-02'
@@ -88,7 +88,7 @@ beforeEach(() => {
   vi.stubEnv('TWILIO_SIGNUP_NUMBER', SIGNUP)
   tables = { agent_phone_number: [], business_phone_number: [], user_phone: [], sms_message: [] }
   pool = [
-    { sid: pn(1), phone_number: DIAL8, date_created: at(90 * DAY), name: 'Native Intelligence' },
+    { sid: pn(1), phone_number: NI, date_created: at(90 * DAY), name: 'Native Intelligence' },
     { sid: pn(2), phone_number: SIGNUP, date_created: at(80 * DAY), name: SPARE_NAME },
     { sid: pn(3), phone_number: '+16465550103', date_created: at(2 * DAY), name: SPARE_NAME },
     { sid: pn(4), phone_number: '+16465550104', date_created: at(5 * DAY), name: SPARE_NAME },
@@ -169,7 +169,7 @@ describe('getAgentNumber', () => {
   })
 
   it('a service without the Native Intelligence number hands nothing out (every other text is pinned to it)', async () => {
-    pool = pool.filter((p) => p.phone_number !== DIAL8)
+    pool = pool.filter((p) => p.phone_number !== NI)
     expect(await getAgentNumber(db(), { userId: 'u1' }, deps())).toEqual({ ok: false, reason: 'twilio_refused' })
     expect(tables.agent_phone_number).toHaveLength(0)
   })
@@ -185,9 +185,9 @@ describe('agentSender', () => {
     tables.agent_phone_number.push({ user_id: 'u1', phone_e164: '+16465550104', twilio_sid: pn(4), dial8_until: null, created_at: at(DAY) })
     expect(await agentSender(db(), 'u1', NOW)).toBe('+16465550104')
     expect(await holdAgentNumber(db(), '+16465550104', NOW)).toBe(true)
-    expect(tables.agent_phone_number[0].dial8_until).toBe(new Date(NOW + DIAL8_FALLBACK_MS).toISOString())
+    expect(tables.agent_phone_number[0].dial8_until).toBe(new Date(NOW + NI_FALLBACK_MS).toISOString())
     expect(await agentSender(db(), 'u1', NOW + 1000)).toBeNull()
-    expect(await agentSender(db(), 'u1', NOW + DIAL8_FALLBACK_MS + 1)).toBe('+16465550104')
+    expect(await agentSender(db(), 'u1', NOW + NI_FALLBACK_MS + 1)).toBe('+16465550104')
   })
 
   it('none, or a failed read: the Native Intelligence number', async () => {

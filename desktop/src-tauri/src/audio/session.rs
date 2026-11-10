@@ -723,7 +723,7 @@ impl RecordingSession {
 
                     // Mic diagnostics breadcrumb, mirroring the system-audio
                     // `rms=` line: the level plus how old the newest frame is,
-                    // so a dead-mic report is diagnosable from dial8-debug.log
+                    // so a dead-mic report is diagnosable from native-intelligence-debug.log
                     // alone. The level only updates while recording and
                     // unpaused — the marker says when it is a held value.
                     if last_mic_diag.elapsed().as_secs() >= MIC_DIAG_LOG_SECS {

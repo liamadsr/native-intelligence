@@ -75,6 +75,7 @@ import { isReadShapedExternalName } from '@/lib/mcp/read-names'
 import type { AlwaysAllowOffer } from '@/lib/mcp-client/always-allow'
 import { decideAction, type CallerClass } from './caller'
 import { actionReviewMode, reviewerBlocks, type ReviewedCaller } from './review-mode'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /**
  * The tools whose text-turn hold is the outward gate's own card (see
@@ -84,7 +85,7 @@ import { actionReviewMode, reviewerBlocks, type ReviewedCaller } from './review-
  * refuses it and says why: never a generic card that could never run.
  */
 const QUOTE_REPLY_TOOLS: ReadonlySet<string> = new Set([SEND_QUOTE_TOOL, BOOK_QUOTE_TOOL])
-const isQuoteReply = (toolName: string) => QUOTE_REPLY_TOOLS.has(toolName.replace(/^dial8_/, ''))
+const isQuoteReply = (toolName: string) => QUOTE_REPLY_TOOLS.has(bareToolName(toolName))
 
 // The mode (ACTION_REVIEW_MODE) lives in ./review-mode, which has only a type
 // import, so a caller that only needs the mode (src/lib/local-agent/
@@ -140,10 +141,10 @@ function callRiskClass(name: string, input: unknown): RiskClass | null {
  * reviewed.
  */
 export function riskClassOf(toolName: string, input?: unknown): RiskClass | null {
-  if (UNREVIEWED.has(toolName.replace(/^dial8_/, ''))) return null
-  const byCall = callRiskClass(toolName.replace(/^dial8_/, ''), input)
+  if (UNREVIEWED.has(bareToolName(toolName))) return null
+  const byCall = callRiskClass(bareToolName(toolName), input)
   if (byCall) return byCall
-  if (REVIEWED_AS_EXTERNAL.has(toolName.replace(/^dial8_/, ''))) return 'external-write'
+  if (REVIEWED_AS_EXTERNAL.has(bareToolName(toolName))) return 'external-write'
   const cls = getToolSideEffect(toolName)
   if (cls) return RISKY.has(cls) ? (cls as RiskClass) : null
   // An external MCP tool, or a name nobody classified: reviewed, and in
@@ -380,7 +381,7 @@ export function homeTurnRunsOnItsOwn(request: Pick<GateRequest, 'toolName' | 'si
     if (!policy || policy.requiresApproval) return false
     return policy.pinnedRead === true || isReadShapedExternalName(policy.toolName ?? request.toolName.split('__').pop() ?? '')
   }
-  return HOME_TURN_OWN_CALENDAR_TOOLS.has(request.toolName.replace(/^dial8_/, ''))
+  return HOME_TURN_OWN_CALENDAR_TOOLS.has(bareToolName(request.toolName))
 }
 
 /** What the model reads when an enforced review held (or refused) its call. */

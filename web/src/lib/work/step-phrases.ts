@@ -1,3 +1,4 @@
+import { bareToolName as withoutMcpPrefix } from '@/lib/mcp/tool-names'
 /**
  * Live step text (ACTIVITY-AND-REVIEW-DESIGN §3.3): the ONE place the
  * "agent is reading an email" copy lives.
@@ -107,7 +108,7 @@ const STEP_PHRASES: Record<string, string> = {
 function bareToolName(name: string): string {
   const trimmed = name.trim()
   const withoutMcp = trimmed.replace(/^mcp__[a-z0-9_-]+__/i, '')
-  return withoutMcp.replace(/^dial8_/, '')
+  return withoutMcpPrefix(withoutMcp)
 }
 
 function humanize(name: string): string {

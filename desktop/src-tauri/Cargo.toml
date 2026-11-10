@@ -75,7 +75,7 @@ semver = "1"
 tauri-plugin-process = "2"
 tauri-plugin-store = "2"
 dirs = "5"
-# Chat voice (dial8-website docs/plans/chat-voice.md §3.3a), all pinned exactly:
+# Chat voice (web/docs/plans/chat-voice.md §3.3a), all pinned exactly:
 # - aec3: pure-Rust port of WebRTC's AEC3 echo canceller (RubyBit/aec3-rs),
 #   MIT OR BSD-3-Clause, plus Google's WebRTC patent grant (its PATENTS file,
 #   wired into the notices through source_notices.tsv). Needs rustc >= 1.88.
@@ -87,7 +87,7 @@ dirs = "5"
 aec3 = "=0.4.0"
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "api-23"] }
 earshot = "=1.2.2"
-# The Mac exit for the agent's cloud browser (dial8-website docs/plans/cloud-browser.md, C4):
+# The Mac exit for the agent's cloud browser (web/docs/plans/cloud-browser.md, C4):
 # its own crate so its tests build without the app.
 browser-exit = { path = "crates/browser-exit" }
 

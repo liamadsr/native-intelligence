@@ -22,7 +22,7 @@ import { loadLexicon, loadNameOnly } from './lexicon'
 import { vocabularyLogLines, writeVocabularyLog, type CorrectorState, type VocabularyLogContext } from './log'
 import { SoundMatchCorrector, type Correction, type NearMiss, type VocabularyEntry } from './sound-match'
 
-const CACHE_PREFIX = 'dial8:vocabulary:v1:'
+const CACHE_PREFIX = 'ni:vocabulary:v1:'
 /** A compile younger than this is not refetched by a plain prime(). */
 const FRESH_MS = 60_000
 

@@ -112,10 +112,10 @@ export function SkyCanvas({ surfaceVar, wash, themed = false, alwaysFade = false
     // at a lower frame rate. A hidden or covered window stops it (the page
     // is hidden then), as do activity in the page and the run's cap.
     const stopFocus = watchWindowFocus((focused) => controller.setBackground(!focused))
-    // Dev: why isn't it moving? `__dial8Sky()` in the console says.
-    const debug = window as unknown as { __dial8Sky?: () => unknown }
+    // Dev: why isn't it moving? `__niSky()` in the console says.
+    const debug = window as unknown as { __niSky?: () => unknown }
     if (process.env.NODE_ENV !== 'production') {
-      debug.__dial8Sky = () => ({
+      debug.__niSky = () => ({
         canMove: skyActivity.canMove(),
         calm: skyActivity.isCalm(),
         resting: skyActivity.isResting(),
@@ -123,7 +123,7 @@ export function SkyCanvas({ surfaceVar, wash, themed = false, alwaysFade = false
       })
     }
     return () => {
-      delete debug.__dial8Sky
+      delete debug.__niSky
       stopFocus()
       controller.dispose()
       controllerRef.current = null

@@ -1,6 +1,6 @@
 //! The real [`EchoCanceller`]: WebRTC's AEC3, ported to pure Rust by the `aec3`
 //! crate (RubyBit/aec3-rs, pinned "=0.4.0"), picked by the S1 bake-off
-//! (dial8-website/docs/plans/chat-voice.md §3.3a).
+//! (web/docs/plans/chat-voice.md §3.3a).
 //!
 //! The crate's standard linear pipeline at 16 kHz mono, 10 ms frames:
 //! high-pass filter on, AEC3, noise suppression off (VAD and STT want the

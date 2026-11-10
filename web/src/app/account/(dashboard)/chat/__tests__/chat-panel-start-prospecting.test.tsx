@@ -3,7 +3,7 @@
  * PACKAGE B — the Prospecting → Scout handoff, at the ChatPanel handle.
  *
  * "Learn about my company" on the Prospecting page dispatches
- * `dial8:prospecting-start`; the shell forwards it to the ACTIVE tab's panel via
+ * `ni:prospecting-start`; the shell forwards it to the ACTIVE tab's panel via
  * `startProspecting`. What this pins:
  *
  *   • the panel selects the `scout` system skill (the send carries its
@@ -193,7 +193,7 @@ describe('ChatPanel.startProspecting', () => {
    * one line the shell adds — `activePanel()?.startProspecting(detail)` — which
    * is enough to prove the detail survives the event boundary intact.
    */
-  it('a dispatched dial8:prospecting-start reaches the handle with its detail intact', async () => {
+  it('a dispatched ni:prospecting-start reaches the handle with its detail intact', async () => {
     await mount()
     const listener = (e: Event) => {
       const detail = (e as CustomEvent).detail as ProspectingStartDetail | undefined

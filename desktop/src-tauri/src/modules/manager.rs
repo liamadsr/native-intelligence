@@ -113,7 +113,7 @@ impl ModuleManager {
             })
             .collect();
         let client = reqwest::Client::builder()
-            .user_agent(concat!("Dial8-Desktop/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("NativeIntelligence-Desktop/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(20))
             .build()
             .unwrap_or_default();

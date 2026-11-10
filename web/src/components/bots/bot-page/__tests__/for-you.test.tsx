@@ -343,7 +343,7 @@ describe('ForYou', () => {
 
   it('“Refine in chat” goes to the page’s chat with this bot (the card and its item), never the main chat', async () => {
     const mainChat = vi.fn()
-    window.addEventListener('dial8:chat-about-proposal', mainChat)
+    window.addEventListener('ni:chat-about-proposal', mainChat)
     try {
       const onRefine = vi.fn()
       hold([], [card('e1', { kind: 'draft_email', payload: { raised_by_ai_member_id: 'writer', email_to_name: 'Dana' } })])
@@ -353,7 +353,7 @@ describe('ForYou', () => {
       expect(mainChat).not.toHaveBeenCalled()
       expect(shared.dismiss).toHaveBeenCalledWith('e1')
     } finally {
-      window.removeEventListener('dial8:chat-about-proposal', mainChat)
+      window.removeEventListener('ni:chat-about-proposal', mainChat)
     }
   })
 

@@ -70,8 +70,8 @@ const folder = (over: Partial<FolderRow> = {}): FolderRow => ({
   id: FOLDER_ID,
   deviceId: 'dev-1',
   grantId: 'g-1',
-  label: 'dial8-website',
-  path: '/Users/liam/code/dial8-website',
+  label: 'native-intelligence',
+  path: '/Users/liam/code/native-intelligence',
   mode: 'edit',
   isGit: true,
   deviceName: "Liam's MacBook Pro",
@@ -82,7 +82,7 @@ const folder = (over: Partial<FolderRow> = {}): FolderRow => ({
 const session = (over: Partial<SessionRow> = {}): SessionRow => ({
   id: SESSION_ID,
   folderId: FOLDER_ID,
-  folderLabel: 'dial8-website',
+  folderLabel: 'native-intelligence',
   deviceId: 'dev-1',
   deviceName: "Liam's MacBook Pro",
   conversationId: CONV,
@@ -265,7 +265,7 @@ describe('local_agents', () => {
     expect(lib.listSessions).toHaveBeenCalledWith(svc, 'user-1', { conversationId: CONV })
     expect(out.devices).toEqual([{ device_id: 'dev-1', name: "Liam's MacBook Pro", online: true, last_seen: '2026-10-20T22:00:00Z' }])
     expect(out.folders).toEqual([
-      { folder_id: FOLDER_ID, label: 'dial8-website', device: "Liam's MacBook Pro", online: true, edits_allowed: true, git: true },
+      { folder_id: FOLDER_ID, label: 'native-intelligence', device: "Liam's MacBook Pro", online: true, edits_allowed: true, git: true },
       { folder_id: 'other', label: 'notes', device: "Liam's MacBook Pro", online: true, edits_allowed: false, git: false },
     ])
     expect(out).not.toHaveProperty('this_chat_folders')
@@ -386,14 +386,14 @@ describe('the teammate plan: one agent per folder, the offline fallback, the tea
 
   it('a folder another chat’s agent holds is refused, naming it, with how to free it', async () => {
     lib.createSession.mockRejectedValue(
-      new LocalAgentError('conflict', "Native Intelligence on Liam's MacBook Pro is already working in dial8-website for another chat. One agent works in a folder at a time: wait for it to finish, or stop it first.", {
-        code: 'FOLDER_BUSY', reason: 'other_chat', session: { id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro", folder: 'dial8-website', status: 'running', mode: 'read' },
+      new LocalAgentError('conflict', "Native Intelligence on Liam's MacBook Pro is already working in native-intelligence for another chat. One agent works in a folder at a time: wait for it to finish, or stop it first.", {
+        code: 'FOLDER_BUSY', reason: 'other_chat', session: { id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro", folder: 'native-intelligence', status: 'running', mode: 'read' },
       }),
     )
     const out = await startLocalAgent(svc, claims(), launch, { folder_id: FOLDER_ID, request: 'Fix it', mode: 'edit' })
     expect(out).toMatchObject({ status: 'refused', code: 'FOLDER_BUSY' })
     // Only what names it: another chat's request and words stay there.
-    expect(out.busy).toEqual({ session_id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro", folder: 'dial8-website', status: 'running', mode: 'read' })
+    expect(out.busy).toEqual({ session_id: SESSION_ID, teammate: "Native Intelligence on Liam's MacBook Pro", folder: 'native-intelligence', status: 'running', mode: 'read' })
     expect(out.reason).toContain('stop_local_agent on that session_id')
   })
 
@@ -401,7 +401,7 @@ describe('the teammate plan: one agent per folder, the offline fallback, the tea
     lib.createSession.mockResolvedValue({ session: session(), created: true, deviceOnline: false })
     const ENV = '9e1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7'
     const cloudFallback = vi.fn(async () => ({
-      repo: 'liamadsr/dial8-website',
+      repo: 'liamadsr/native-intelligence',
       projectId: 'proj-1',
       project: 'Website',
       environmentId: ENV,
@@ -411,7 +411,7 @@ describe('the teammate plan: one agent per folder, the offline fallback, the tea
     const out = await startLocalAgent(svc, claims(), launch, { folder_id: FOLDER_ID, request: 'Fix it', mode: 'edit' }, { cloudFallback })
     expect(cloudFallback).toHaveBeenCalledWith(svc, { userId: 'user-1', workspaceId: 'ws-1', folderId: FOLDER_ID })
     expect(out.cloud_fallback).toEqual({
-      repo: 'liamadsr/dial8-website',
+      repo: 'liamadsr/native-intelligence',
       project_id: 'proj-1',
       project: 'Website',
       environment_id: ENV,
@@ -420,7 +420,7 @@ describe('the teammate plan: one agent per folder, the offline fallback, the tea
     })
     const note = String(out.note)
     expect(note).toContain('waits up to 6 hours')
-    expect(note).toContain('linked to liamadsr/dial8-website')
+    expect(note).toContain('linked to liamadsr/native-intelligence')
     // It names the environment (as quoted data) and its network, and asks first.
     expect(note).toContain(`environment "Staging 'beta'" (restricted network)`)
     expect(note).toContain('Ask the person first, naming that environment and its network')

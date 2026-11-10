@@ -1,4 +1,4 @@
-import { Heading, Subheading, Lead } from '@dial8/ui'
+import { Heading, Subheading, Lead } from '@native-intelligence/ui'
 
 export function Typography() {
   return (

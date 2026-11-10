@@ -9,7 +9,7 @@ import type { EmailOtpType } from '@supabase/supabase-js'
  *
  *   {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink&redirect_to={{ .RedirectTo }}
  *
- * docs/auth/auth-emails-on-dial8.md has the setup.
+ * The auth emails note under docs/auth has the setup.
  */
 
 const EMAIL_LINK_TYPES: readonly EmailOtpType[] = ['signup', 'invite', 'magiclink', 'recovery', 'email_change', 'email']

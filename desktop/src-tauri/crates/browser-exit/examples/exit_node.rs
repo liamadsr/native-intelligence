@@ -1,5 +1,5 @@
 //! The exit node on its own, for the live check against a test sandbox
-//! (dial8-website scripts/cloud-browser/exit-check):
+//! (web/scripts/cloud-browser/exit-check):
 //!   cargo run --example exit_node -- --url wss://<hub>/exit --token <exit token> --key <server public key, base64 SPKI> --public-ip <this Mac's>
 //! Checks the token as the app does, then holds the tunnel until Ctrl+C.
 

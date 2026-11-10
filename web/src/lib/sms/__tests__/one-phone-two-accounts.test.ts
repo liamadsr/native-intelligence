@@ -33,7 +33,7 @@ import { findBusinessPerson, findLinkedPhone, setPhoneOptOut, setPhoneRowOptOut,
 
 const KEY = 'run-skill-secret-0123456789'
 const PHONE = '+16465550123'
-const DIAL8 = '+18885550100'
+const NI = '+18885550100'
 const RUG = '+16465550173'
 const SARAH = '+12125550199'
 const T0 = Date.parse('2026-11-01T12:00:00Z')
@@ -42,7 +42,7 @@ type Row = Record<string, unknown>
 let tables: Record<string, Row[]>
 let db: SupabaseClient
 
-const dial8Row = (over: Row = {}): Row => ({
+const niRow = (over: Row = {}): Row => ({
   id: 'p-a',
   user_id: 'user-a',
   workspace_id: 'ws-home',
@@ -69,7 +69,7 @@ beforeEach(() => {
   process.env.RUN_SKILL_INTERNAL_SECRET = KEY
   tables = {
     // Account A: their own, on the Native Intelligence line. Account B: Bright Loom's own account; A is not one of its members.
-    user_phone: [dial8Row()],
+    user_phone: [niRow()],
     member: [
       { id: 'm-a', user_id: 'user-a', workspace_id: 'ws-home', role: 'owner' },
       { id: 'm-b', user_id: 'user-b', workspace_id: 'ws-rug', role: 'owner' },
@@ -153,18 +153,18 @@ describe('linking a phone (Settings › Phone)', () => {
   const sent = () => vi.fn(async (_to: string, _body: string, _opts?: { from?: string }) => ({ ok: true as const, sid: 'SMw' }))
   /** Account A has an email (it can be told); a text sign-up's phone-only account has none. */
   const emails: Record<string, string | null> = { 'user-a': 'owner-a@example.com' }
-  const dial8HolderEmail = async (userId: string) => emails[userId] ?? null
+  const niHolderEmail = async (userId: string) => emails[userId] ?? null
 
   it("a business's account adds the number as its business line beside the other account's Native Intelligence line, emails that account, and welcomes from its own number", async () => {
     pending('user-b', 'ws-rug')
     const send = sent()
-    const notifyDial8Holder = vi.fn(async () => true)
-    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyDial8Holder, dial8HolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: true, line: 'business' })
+    const notifyNiHolder = vi.fn(async () => true)
+    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyNiHolder, niHolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: true, line: 'business' })
     expect(tables.user_phone).toEqual([
       expect.objectContaining({ id: 'p-a', user_id: 'user-a', line: 'dial8', opted_out_at: null }),
       expect.objectContaining({ user_id: 'user-b', workspace_id: 'ws-rug', phone_e164: PHONE, line: 'business', verified_at: new Date(T0).toISOString() }),
     ])
-    expect(notifyDial8Holder).toHaveBeenCalledWith({ to: 'owner-a@example.com', phone: PHONE })
+    expect(notifyNiHolder).toHaveBeenCalledWith({ to: 'owner-a@example.com', phone: PHONE })
     expect(send).toHaveBeenCalledTimes(1)
     expect(send).toHaveBeenCalledWith(PHONE, businessLineWelcomeText('Bright Loom'), { from: RUG })
   })
@@ -173,7 +173,7 @@ describe('linking a phone (Settings › Phone)', () => {
     tables.business_phone_number = []
     pending('user-b', 'ws-rug')
     const send = sent()
-    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyDial8Holder: async () => true, dial8HolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: false, line: 'business' })
+    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyNiHolder: async () => true, niHolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: false, line: 'business' })
     expect(tables.user_phone.map((r) => r.line)).toEqual(['dial8', 'business'])
     expect(send).not.toHaveBeenCalled()
   })
@@ -181,44 +181,44 @@ describe('linking a phone (Settings › Phone)', () => {
   it("an account that isn't a business's moves the number, as before: the other account's row goes, and the Native Intelligence welcome goes out", async () => {
     pending('user-c', 'ws-c')
     const send = sent()
-    const notifyDial8Holder = vi.fn(async () => true)
-    expect(await verifyPhoneCode(db, { userId: 'user-c', code: '123456' }, { send, notifyDial8Holder, dial8HolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: true, line: 'dial8' })
+    const notifyNiHolder = vi.fn(async () => true)
+    expect(await verifyPhoneCode(db, { userId: 'user-c', code: '123456' }, { send, notifyNiHolder, niHolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: true, line: 'dial8' })
     expect(tables.user_phone).toEqual([expect.objectContaining({ user_id: 'user-c', line: 'dial8' })])
-    expect(notifyDial8Holder).not.toHaveBeenCalled()
+    expect(notifyNiHolder).not.toHaveBeenCalled()
     expect(send).toHaveBeenCalledWith(PHONE, WELCOME_TEXT)
   })
 
   it('with no NI-line holder, even a business takes the Native Intelligence line and the business lines of others go (as before)', async () => {
     tables.user_phone = [businessRow({ id: 'p-x', user_id: 'user-x', workspace_id: 'ws-x' })]
     pending('user-b', 'ws-rug')
-    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), notifyDial8Holder: async () => true, dial8HolderEmail, now: () => T0 })).toMatchObject({ ok: true, line: 'dial8' })
+    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), notifyNiHolder: async () => true, niHolderEmail, now: () => T0 })).toMatchObject({ ok: true, line: 'dial8' })
     expect(tables.user_phone).toEqual([expect.objectContaining({ user_id: 'user-b', line: 'dial8' })])
   })
 
   it('one row per person: re-linking replaces their own row (never a second), with no second notice or welcome', async () => {
     tables.user_phone.push(businessRow({ id: 'p-b-old', phone_e164: '+16465550999', line: 'dial8' }))
     pending('user-b', 'ws-rug')
-    await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), notifyDial8Holder: async () => true, dial8HolderEmail, now: () => T0 })
+    await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), notifyNiHolder: async () => true, niHolderEmail, now: () => T0 })
     expect(tables.user_phone.filter((r) => r.user_id === 'user-b')).toEqual([expect.objectContaining({ id: 'p-b-old', phone_e164: PHONE, line: 'business' })])
     // Again, the same number: already theirs.
     tables.phone_verification = []
     pending('user-b', 'ws-rug')
     const send = sent()
-    const notifyDial8Holder = vi.fn(async () => true)
-    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyDial8Holder, dial8HolderEmail, now: () => T0 + 1000 })).toEqual({ ok: true, phone: PHONE, welcomed: false, line: 'business' })
+    const notifyNiHolder = vi.fn(async () => true)
+    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyNiHolder, niHolderEmail, now: () => T0 + 1000 })).toEqual({ ok: true, phone: PHONE, welcomed: false, line: 'business' })
     expect(tables.user_phone.filter((r) => r.user_id === 'user-b')).toHaveLength(1)
-    expect(notifyDial8Holder).not.toHaveBeenCalled()
+    expect(notifyNiHolder).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })
 
   it("an NI-line account with no email (a phone-only text sign-up) can't be told, so the number moves to the business, as before 464", async () => {
-    tables.user_phone = [dial8Row({ user_id: 'user-phone-only', workspace_id: 'ws-p' })]
+    tables.user_phone = [niRow({ user_id: 'user-phone-only', workspace_id: 'ws-p' })]
     pending('user-b', 'ws-rug')
     const send = sent()
-    const notifyDial8Holder = vi.fn(async () => true)
-    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyDial8Holder, dial8HolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: true, line: 'dial8' })
+    const notifyNiHolder = vi.fn(async () => true)
+    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send, notifyNiHolder, niHolderEmail, now: () => T0 })).toEqual({ ok: true, phone: PHONE, welcomed: true, line: 'dial8' })
     expect(tables.user_phone).toEqual([expect.objectContaining({ user_id: 'user-b', line: 'dial8' })])
-    expect(notifyDial8Holder).not.toHaveBeenCalled()
+    expect(notifyNiHolder).not.toHaveBeenCalled()
     expect(send).toHaveBeenCalledWith(PHONE, WELCOME_TEXT)
   })
 
@@ -227,7 +227,7 @@ describe('linking a phone (Settings › Phone)', () => {
     const failing = async () => {
       throw new Error('auth down')
     }
-    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), dial8HolderEmail: failing, now: () => T0 })).toEqual({ ok: false, reason: 'lookup_failed' })
+    expect(await verifyPhoneCode(db, { userId: 'user-b', code: '123456' }, { send: sent(), niHolderEmail: failing, now: () => T0 })).toEqual({ ok: false, reason: 'lookup_failed' })
     expect(tables.user_phone).toEqual([expect.objectContaining({ user_id: 'user-a' })])
     expect(tables.phone_verification[0].consumed_at).toBeNull()
   })
@@ -262,7 +262,7 @@ describe('linking a phone (Settings › Phone)', () => {
     // Settings › Phone: Remove (its own row, under RLS), then add the number again with a new code.
     tables.user_phone = tables.user_phone.filter((r) => r.user_id !== 'user-a')
     pending('user-a', 'ws-home')
-    expect(await verifyPhoneCode(db, { userId: 'user-a', code: '123456' }, { send: sent(), dial8HolderEmail, now: () => T0 })).toMatchObject({ ok: true, line: 'dial8' })
+    expect(await verifyPhoneCode(db, { userId: 'user-a', code: '123456' }, { send: sent(), niHolderEmail, now: () => T0 })).toMatchObject({ ok: true, line: 'dial8' })
     expect(tables.user_phone).toEqual([expect.objectContaining({ user_id: 'user-a', line: 'dial8' })])
   })
 })
@@ -302,7 +302,7 @@ describe('inbound texts over the real store', () => {
 
   it("the Native Intelligence number reaches account A, in A's workspace", async () => {
     const f = setup()
-    expect(await handleInboundSms(f.sms(PHONE, DIAL8, "what's on tomorrow?"), f.deps)).toEqual({ outcome: 'queued', reply: null })
+    expect(await handleInboundSms(f.sms(PHONE, NI, "what's on tomorrow?"), f.deps)).toEqual({ outcome: 'queued', reply: null })
     expect(f.delivered).toEqual([expect.objectContaining({ linked: expect.objectContaining({ userId: 'user-a', workspaceId: 'ws-home', line: 'dial8' }) })])
   })
 
@@ -341,7 +341,7 @@ describe('inbound texts over the real store', () => {
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'hi'), f.deps)).outcome).toBe('opted_out')
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'START'), f.deps)).outcome).toBe('start')
     expect(optedOut()).toBe(false)
-    expect((await handleInboundSms(f.sms(PHONE, DIAL8, 'STOP'), f.deps)).outcome).toBe('stop')
+    expect((await handleInboundSms(f.sms(PHONE, NI, 'STOP'), f.deps)).outcome).toBe('stop')
     expect(optedOut()).toBe(true)
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'START'), f.deps)).outcome).toBe('start')
     expect(optedOut()).toBe(false)
@@ -354,13 +354,13 @@ describe('inbound texts over the real store', () => {
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'STOP'), f.deps)).outcome).toBe('stop')
     expect(optedOut()).toEqual({ 'user-a': false, 'user-b': true })
     // A still hears on the Native Intelligence number; B's texts are ignored until START.
-    expect((await handleInboundSms(f.sms(PHONE, DIAL8, 'hi'), f.deps)).outcome).toBe('queued')
+    expect((await handleInboundSms(f.sms(PHONE, NI, 'hi'), f.deps)).outcome).toBe('queued')
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'hi'), f.deps)).outcome).toBe('opted_out')
-    expect((await handleInboundSms(f.sms(PHONE, DIAL8, 'STOP'), f.deps)).outcome).toBe('stop')
+    expect((await handleInboundSms(f.sms(PHONE, NI, 'STOP'), f.deps)).outcome).toBe('stop')
     expect(optedOut()).toEqual({ 'user-a': true, 'user-b': true })
     expect((await handleInboundSms(f.sms(PHONE, RUG, 'START'), f.deps)).outcome).toBe('start')
     expect(optedOut()).toEqual({ 'user-a': true, 'user-b': false })
-    expect((await handleInboundSms(f.sms(PHONE, DIAL8, 'START'), f.deps)).outcome).toBe('start')
+    expect((await handleInboundSms(f.sms(PHONE, NI, 'START'), f.deps)).outcome).toBe('start')
     expect(optedOut()).toEqual({ 'user-a': false, 'user-b': false })
   })
 })

@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { DIAL8_CREDENTIALS, WorkerLaunchError, workerLaunchFromEnv } from '../lib/env'
+import { NI_CREDENTIALS, WorkerLaunchError, workerLaunchFromEnv } from '../lib/env'
 
 let root: string
 let env: Record<string, string>
@@ -61,7 +61,7 @@ describe('workerLaunchFromEnv', () => {
     [{ LOCAL_AGENT_WORKER_BIN: 'claude' }, /not absolute/],
     [{ LOCAL_AGENT_WORKER_BIN: '/nope/claude' }, /not an executable file/],
     [{ LOCAL_AGENT_TOOL_PATH: '' }, /TOOL_PATH/],
-    ...DIAL8_CREDENTIALS.map((k): [Record<string, string>, RegExp] => [{ [k]: 'x' }, new RegExp(`must not be given ${k}`)]),
+    ...NI_CREDENTIALS.map((k): [Record<string, string>, RegExp] => [{ [k]: 'x' }, new RegExp(`must not be given ${k}`)]),
   ])('refuses %j', (patch, expected) => {
     expect(() => workerLaunchFromEnv({ ...env, ...patch }, 'claude-code')).toThrow(WorkerLaunchError)
     expect(() => workerLaunchFromEnv({ ...env, ...patch }, 'claude-code')).toThrow(expected)

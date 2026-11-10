@@ -1,6 +1,6 @@
 //
 //  WorkspaceModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Codable models for the workspace / team / workflow-state hierarchy.
 //

@@ -1,4 +1,4 @@
-import { WaveLoader } from '@dial8/ui'
+import { WaveLoader } from '@native-intelligence/ui'
 
 const surface: React.CSSProperties = {
   display: 'flex',

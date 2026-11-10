@@ -601,7 +601,7 @@ export function AgentsLearned() {
   )
 }
 
-export function WhatDial8Learned({ area, className }: { area?: AreaKey; className?: string }) {
+export function WhatNiLearned({ area, className }: { area?: AreaKey; className?: string }) {
   const [lines, setLines] = useState<MemoryLine[] | null>(null)
   const [viewer, setViewer] = useState<MemoryViewer | null>(null)
   const [failed, setFailed] = useState(false)
@@ -636,7 +636,7 @@ export function WhatDial8Learned({ area, className }: { area?: AreaKey; classNam
   if (!lines || !viewer) return <p className={cn('text-sm text-muted-foreground', className)}>Loading…</p>
 
   return (
-    <div className={className} data-testid="what-dial8-learned">
+    <div className={className} data-testid="what-ni-learned">
       {!area && <AboutYou />}
       {!area && <AgentsLearned />}
       {sections.length === 0 && (

@@ -70,7 +70,7 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : undefined
   calls.push({ url, method, body })
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status })
-  if (url === '/api/account/phone') return json({ phone: null, dial8Number: '+14155550100', available: true })
+  if (url === '/api/account/phone') return json({ phone: null, niNumber: '+14155550100', available: true })
   if (url === '/api/account/integrations/slack') return json({ configured: true, installations: slackInstalls })
   if (url === '/api/account/agent-links' && method === 'GET') return json({ links, candidates })
   if (url === '/api/account/agent-links/answer-workspaces') return json({ workspaces: answerWorkspaces })
@@ -109,13 +109,13 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   }
   if (url.startsWith('/api/account/agent-guests/') && url.endsWith('/invite')) {
     const g = guests.find((x) => url.includes(x.id))!
-    return json({ guest: { ...g, state: 'invited' }, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", dial8Number: '+14155550100', expiresAt: null } })
+    return json({ guest: { ...g, state: 'invited' }, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", niNumber: '+14155550100', expiresAt: null } })
   }
-  if (url === '/api/account/agent-guests' && method === 'GET') return json({ guests, requests: { code: 'K7Q4MX', open: false }, dial8Number: '+14155550100', available: true })
+  if (url === '/api/account/agent-guests' && method === 'GET') return json({ guests, requests: { code: 'K7Q4MX', open: false }, niNumber: '+14155550100', available: true })
   if (url === '/api/account/agent-guests' && method === 'POST') {
     const b = body as { displayName: string; channels: Array<'sms' | 'slack'>; phone: string | null; tools: string[]; askTools: string[] }
     const guest = view({ id: 'g-new', displayName: b.displayName, state: 'invited', channels: b.channels, unbound: b.channels, masked: b.phone ? '··8831' : null, tools: b.tools, askTools: b.askTools })
-    return json({ guest, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", dial8Number: '+14155550100', expiresAt: null } }, 201)
+    return json({ guest, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", niNumber: '+14155550100', expiresAt: null } }, 201)
   }
   if (url.endsWith('/approve')) return json({ guest: view({ id: 'g-priya', displayName: 'Priya Shah', state: 'active', preset: (body as { preset: 'colleague' }).preset }) })
   if (url.endsWith('/ignore')) return json({ ok: true })

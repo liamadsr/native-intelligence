@@ -29,7 +29,7 @@ import { withActiveWorkspace } from './envelope'
  * over the wire.
  *
  * These are the hand-registered twins of the chat tools in
- * `src/lib/ai/tools/evals.ts`. They win the `dial8_*` name against the
+ * `src/lib/ai/tools/evals.ts`. They win the `ni_*` name against the
  * auto-adapted chat versions (see the claimedNames skip in ./index.ts), which
  * is deliberate: the SHAPING helpers are shared with the chat file so the two
  * surfaces return the same case summaries and failing-check lists, while the
@@ -37,10 +37,10 @@ import { withActiveWorkspace } from './envelope'
  * envelopes with machine-readable codes, and owner (`userId` / `workspaceId`)
  * derived from the authenticated session rather than taken as an argument.
  *
- * Tool naming follows the `dial8_<verb>_<noun>` convention documented at
+ * Tool naming follows the `ni_<verb>_<noun>` convention documented at
  * ./library.ts. It matters more here than usual: `classifyToolAccess` in
- * ../guard.ts strips the `dial8_` prefix and classifies by verb shape, so
- * `dial8_list_evals` and `dial8_get_eval_run` are reachable by a READ-ONLY
+ * ../guard.ts strips the `ni_` prefix and classifies by verb shape, so
+ * `ni_list_evals` and `ni_get_eval_run` are reachable by a READ-ONLY
  * token while the four writers are not — with no allowlist entry anywhere.
  *
  * Reads run on the caller's RLS client; the writes that touch `captures` run on
@@ -95,7 +95,7 @@ const ParticipantSchema = z.object({
 const ExpectedSchema = UpdateCaseSchema.shape.expected
   .unwrap()
   .describe(
-    'The grading contract: {proposals[], forbidden_proposals[], nudges[], no_nudge_windows[], summary, tool_usage, rubric[], answers{}, tools{}, directives[], goal, max_nudges, opening_brief, max_nudge_lag_chunks}. Every key optional, but UNKNOWN keys are rejected — a typo would otherwise grade as an empty expectation. See dial8_get_eval_run for what each one grades.',
+    'The grading contract: {proposals[], forbidden_proposals[], nudges[], no_nudge_windows[], summary, tool_usage, rubric[], answers{}, tools{}, directives[], goal, max_nudges, opening_brief, max_nudge_lag_chunks}. Every key optional, but UNKNOWN keys are rejected — a typo would otherwise grade as an empty expectation. See ni_get_eval_run for what each one grades.',
   )
 
 // ────────────────────────────────────────────────────────────────
@@ -127,8 +127,8 @@ export function registerEvalTools(
   })
 
   server.tool(
-    'dial8_create_eval_suite',
-    'Create an eval suite in the active workspace — a named set of synthetic-meeting cases that grade one Agent or Skill. Read the target recipe\'s own system_prompt first (dial8_get_agent / dial8_get_skill) so the cases probe what it actually claims to do. suite_kind "regression" = these cases must stay green; "capability" = watch the number climb.',
+    'ni_create_eval_suite',
+    'Create an eval suite in the active workspace — a named set of synthetic-meeting cases that grade one Agent or Skill. Read the target recipe\'s own system_prompt first (ni_get_agent / ni_get_skill) so the cases probe what it actually claims to do. suite_kind "regression" = these cases must stay green; "capability" = watch the number climb.',
     {
       name: z.string().describe('Short name, e.g. "Sales Discovery".'),
       target_kind: z.enum(['agent', 'skill']).describe('agent = a live-meeting persona; skill = a chat/loop preset.'),
@@ -149,7 +149,7 @@ export function registerEvalTools(
         if (visible === 'error') return fail('Target recipe check failed')
         if (!visible) {
           return fail(
-            'No Agent or Skill with that target_recipe_id is visible here — use an id from dial8_list_agents or dial8_list_skills.',
+            'No Agent or Skill with that target_recipe_id is visible here — use an id from ni_list_agents or ni_list_skills.',
             'TARGET_NOT_FOUND',
           )
         }
@@ -178,7 +178,7 @@ export function registerEvalTools(
   )
 
   server.tool(
-    'dial8_create_eval_case',
+    'ni_create_eval_case',
     'Write one synthetic meeting and the outcomes it should produce. The script is [{t_ms, speaker, stream, text}] ordered by t_ms: the Native Intelligence user (the participant with is_self) speaks on "mic" and everyone else on "system" — the agent only flushes when BOTH streams go quiet, so that split is what produces a realistic chunk cadence. Leave ≥3000ms silences at turn boundaries, run lines inside one turn 400-1500ms apart, and target a 12-15 minute call. Write what a TRANSCRIBER would emit — disfluency, self-correction, crosstalk, no stage directions — and include at least one genuinely ambiguous moment per case. Give every suite at least two polarity:"negative" controls, where the right behavior is to propose nothing. Returns the case with its frozen chunk_count: check it before authoring more, since two chunks for a 15-minute call means the silences are missing.',
     {
       suite_id: z.string().describe('The suite UUID.'),
@@ -241,8 +241,8 @@ export function registerEvalTools(
   )
 
   server.tool(
-    'dial8_list_evals',
-    'List the workspace\'s eval suites with case counts, last-run outcome, and the ESTIMATED COST of running each suite in each mode. Token-light — no scripts, no expected outcomes. Quote the estimate before dial8_start_eval_run: judges are most of the bill and a twenty-case suite is dollars, not cents. Pass suite_id to also get that suite\'s case list.',
+    'ni_list_evals',
+    'List the workspace\'s eval suites with case counts, last-run outcome, and the ESTIMATED COST of running each suite in each mode. Token-light — no scripts, no expected outcomes. Quote the estimate before ni_start_eval_run: judges are most of the bill and a twenty-case suite is dollars, not cents. Pass suite_id to also get that suite\'s case list.',
     {
       suite_id: z.string().optional().describe('Narrow to one suite and include its cases.'),
       target_recipe_id: z.string().optional().describe('Only suites targeting this Agent or Skill.'),
@@ -287,8 +287,8 @@ export function registerEvalTools(
   )
 
   server.tool(
-    'dial8_start_eval_run',
-    'Queue a run of one suite in one mode. Spends real money — quote the dial8_list_evals estimate and get a go-ahead first. batch = one end-of-meeting extraction per case (the cheap sweep); live = the transcript replayed chunk by chunk, which is the only mode that grades mid-call nudges. Returns {run_id, adopted, estimated_cost_usd}: adopted=true means a run of this suite and mode was ALREADY in flight and you are watching that one, not a new one. Never takes a capture id — a run always executes against fresh clones of the cases\' own template captures. Poll dial8_get_eval_run for the outcome.',
+    'ni_start_eval_run',
+    'Queue a run of one suite in one mode. Spends real money — quote the ni_list_evals estimate and get a go-ahead first. batch = one end-of-meeting extraction per case (the cheap sweep); live = the transcript replayed chunk by chunk, which is the only mode that grades mid-call nudges. Returns {run_id, adopted, estimated_cost_usd}: adopted=true means a run of this suite and mode was ALREADY in flight and you are watching that one, not a new one. Never takes a capture id — a run always executes against fresh clones of the cases\' own template captures. Poll ni_get_eval_run for the outcome.',
     {
       suite_id: z.string().describe('The suite UUID.'),
       mode: z.enum(EVAL_MODES).describe('"batch" or "live".'),
@@ -335,7 +335,7 @@ export function registerEvalTools(
   )
 
   server.tool(
-    'dial8_get_eval_run',
+    'ni_get_eval_run',
     'Read a run: outcome, per-dimension scores, and every FAILING check with the grader\'s rationale — the part that says what the prompt actually did wrong. Also reports the baseline run to compare against: the last completed run of the same suite and mode that tested a DIFFERENT prompt, since two runs of the same prompt are variance samples rather than a before/after. Pass include_trace with a case_id to pull one trial\'s full flush log; traces are large, so never pull one speculatively.',
     {
       run_id: z.string().describe('The run UUID.'),
@@ -412,7 +412,7 @@ export function registerEvalTools(
   )
 
   server.tool(
-    'dial8_update_eval_case',
+    'ni_update_eval_case',
     'Refine an existing case in place — after a run showed the expectation was wrong, or the script did not probe what you thought. Only the fields you pass change. Editing the script RE-FREEZES the chunk boundaries and rewrites the template capture\'s transcript, so check the returned chunk_count again. `expected` and `participants` REPLACE wholesale, so pass the complete object rather than a partial one.',
     {
       case_id: z.string().describe('The case UUID.'),

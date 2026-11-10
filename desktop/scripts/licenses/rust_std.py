@@ -200,7 +200,7 @@ def html_to_text(raw: str) -> str:
 def to_text(html_path: str) -> str:
     # textutil on macOS (what the Mac bundle has always shipped); elsewhere
     # (the Windows build) the same layout from html_to_text.
-    if shutil.which("textutil") and not os.environ.get("DIAL8_LICENSES_NO_TEXTUTIL"):
+    if shutil.which("textutil") and not os.environ.get("NI_LICENSES_NO_TEXTUTIL"):
         text = run(["textutil", "-convert", "txt", "-stdout", html_path], os.path.dirname(html_path))
     else:
         with open(html_path, encoding="utf-8") as f:

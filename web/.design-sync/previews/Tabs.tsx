@@ -1,4 +1,4 @@
-import { Tabs, TabsList, TabsTrigger, TabsContent, Badge } from '@dial8/ui'
+import { Tabs, TabsList, TabsTrigger, TabsContent, Badge } from '@native-intelligence/ui'
 
 export function Default() {
   return (

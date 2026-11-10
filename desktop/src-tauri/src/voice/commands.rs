@@ -641,7 +641,7 @@ fn remembered_level(app: &AppHandle) -> levels::Memory {
     levels::Memory::new(levels::load(app), levels::device_in_use(app), std::time::Instant::now())
 }
 
-/// The dev-only debug capture ([`capture`]), when `DIAL8_VOICE_CAPTURE` is
+/// The dev-only debug capture ([`capture`]), when `NI_VOICE_CAPTURE` is
 /// set in a debug build. Never on by default, never in a release build; a
 /// failure to create it only logs.
 fn start_capture(app: &AppHandle, req: &StartRequest) -> Option<Capture> {

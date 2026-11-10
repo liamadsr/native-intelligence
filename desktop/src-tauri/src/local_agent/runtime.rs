@@ -1,4 +1,4 @@
-//! The Node the packaged local agent runs on (dial8-website
+//! The Node the packaged local agent runs on (web
 //! docs/plans/local-agents.md, Packaging).
 //!
 //! The agent's JS ships inside the signed app; Node doesn't (~120 MB, and
@@ -183,7 +183,7 @@ async fn remove_dir_if_any(dir: &Path) -> std::io::Result<()> {
 /// start instead of holding it for ever.
 pub fn http_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent(concat!("Dial8-Desktop/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("NativeIntelligence-Desktop/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(20))
         .read_timeout(Duration::from_secs(60))
         .build()

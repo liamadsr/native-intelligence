@@ -90,11 +90,11 @@ const granted = join(root, 'granted')
 const sibling = join(root, 'sibling')
 // Edit mode: the person's repository and the worktree the desktop makes for the job
 // (the desktop puts it in ~/.dial8/worktrees/<jobId>; here it stays inside the smoke's root).
-const repoDir = join(root, 'dial8-smoke-app')
+const repoDir = join(root, 'ni-smoke-app')
 // Edit jobs carry the server's session uuid as their job id, like the desktop.
 const jobId = mode === 'edit' ? randomUUID() : `smoke_${tag}`
 const worktree = join(root, 'worktrees', jobId)
-const branch = `dial8/dial8-smoke-app-${jobId.slice(0, 8)}`
+const branch = `dial8/ni-smoke-app-${jobId.slice(0, 8)}`
 const jobDir = join(root, 'jobs', jobId)
 const secret = `SIBLING-SECRET-${randomBytes(6).toString('hex')}`
 const README = '# Smoke fixture\n\nA tiny project for the local-agent smoke test.\nIt has a README, a source file and some notes.\n'
