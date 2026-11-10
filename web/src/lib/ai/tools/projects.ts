@@ -10,12 +10,14 @@ import {
   workspaceEcho,
   applyCaptureVisibility,
   captureRequester,
+  readGrants,
   FUZZY_MATCH_LIMIT,
   listMatches,
   soleMatch,
   type CreateWorkspacePolicy,
 } from './_shared'
 import { orderByUrgency } from '@/lib/actions/urgency'
+import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
 import { toIlikeSearchTerm } from '@/lib/crm/ilike-search-term'
 import { countsAsWork, filterOpenWork, loadClosedStates } from '@/lib/actions/open-work'
 
@@ -81,7 +83,7 @@ export function createProjectTools(
         let query = supabase
           .from('projects')
           .select(`
-            id, workspace_id, name, description, icon, color, is_pinned, is_archived, status, initiative_id, start_date, target_date, created_at,
+            id, workspace_id, name, description, icon, color, is_pinned, is_archived, status, initiative_id, start_date, target_date, created_at, custom_fields,
             lead:member!lead_id(id, display_name, avatar_url),
             initiative:initiative!initiative_id(id, name)
           `)
@@ -118,7 +120,8 @@ export function createProjectTools(
         if (sinceISO) query = query.gte(timeField, sinceISO)
         if (untilISO) query = query.lte(timeField, untilISO)
 
-        const { data, error } = await query
+        // The workspace's own fields on projects (migration 496): one read for the list.
+        const [{ data, error }, fieldDefs] = await Promise.all([query, customFieldDefsOrNone(supabase, workspaceId, 'project')])
 
         if (error) return { success: false, error: error.message }
 
@@ -206,6 +209,7 @@ export function createProjectTools(
             milestones: `${ms.completed}/${ms.total}`,
             next_milestone: ms.next,
             is_pinned: p.is_pinned,
+            ...withCustomFields(fieldDefs, (p as { custom_fields?: unknown }).custom_fields),
           }
         })
 
@@ -413,14 +417,22 @@ export function createProjectTools(
         const wsResolved = await resolveEntityWorkspace(supabase, userId, 'projects', project_id, workspaceId, strictWorkspace)
         if (!wsResolved) return { success: false, error: 'Project not found' }
 
-        const { data: project, error: projectError } = await supabase
-          .from('projects')
-          .select('id, workspace_id, name, description, status, start_date, target_date')
-          .eq('id', project_id)
-          .eq('workspace_id', wsResolved.workspaceId)
-          .single()
+        const [{ data: projectRow, error: projectError }, fieldDefs, grants] = await Promise.all([
+          supabase
+            .from('projects')
+            .select('id, workspace_id, name, description, status, start_date, target_date, custom_fields')
+            .eq('id', project_id)
+            .eq('workspace_id', wsResolved.workspaceId)
+            .single(),
+          customFieldDefsOrNone(supabase, wsResolved.workspaceId, 'project'),
+          // Private captures shared with the person (a grant, 492): a read.
+          readGrants(supabase, requester, wsResolved.workspaceId, ['capture']),
+        ])
 
         if (projectError) return { success: false, error: projectError.message }
+        // The workspace's own fields on projects (migration 496), the set ones, by name.
+        const { custom_fields: projectFieldValues, ...projectFields } = (projectRow ?? {}) as Record<string, unknown>
+        const project = projectRow ? { ...projectFields, ...withCustomFields(fieldDefs, projectFieldValues) } : projectRow
 
         // Get recent captures the requester may see (a private capture keeps its
         // project_id, so this predicate is what keeps its title out of the result).
@@ -434,6 +446,8 @@ export function createProjectTools(
             .order('created_at', { ascending: false })
             .limit(10),
           requester,
+          undefined,
+          grants.capture,
         )
 
         // Get milestones

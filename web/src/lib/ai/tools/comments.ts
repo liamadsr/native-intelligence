@@ -1,7 +1,15 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { captureRequester, captureVisibleToRequester, documentVisibleToRequester, resolveEntityWorkspace, workspaceEcho } from './_shared'
+import {
+  captureReadAccess,
+  captureRequester,
+  captureVisibleToRequester,
+  documentReadAccess,
+  documentVisibleToRequester,
+  resolveEntityWorkspace,
+  workspaceEcho,
+} from './_shared'
 import type { CreateWorkspacePolicy } from './_shared'
 
 const COMMENT_SELECT = `
@@ -51,8 +59,17 @@ export function createCommentTools(
    *
    * Null on EVERY failure, so callers emit one indistinguishable not-found and
    * an id in a workspace the caller can't reach never announces itself.
+   *
+   * `access`: 'read' for the tools that only read comments, where a private
+   * capture or document SHARED with the person (a grant, 492) counts, as the
+   * comment view policy's grant arm (493) has it; 'write' (add_comment, the
+   * default) asks the ungranted rule, a grant being view-only.
    */
-  const resolveCommentableWorkspace = async (type: string, id: string): Promise<string | null> => {
+  const resolveCommentableWorkspace = async (
+    type: string,
+    id: string,
+    access: 'read' | 'write' = 'write',
+  ): Promise<string | null> => {
     const table = TABLE_MAP[type]
     // An unmapped commentable_type is only reachable through
     // get_comment_replies, which reads the type off the stored comment. There is
@@ -64,13 +81,19 @@ export function createCommentTools(
     if (!routed) return null
     // A private document is its creator's alone, and so are its comments (369).
     if (type === 'document') {
-      const visible = await documentVisibleToRequester(supabase, id, routed.workspaceId, userId, omitPrivateCaptures)
+      const visible =
+        access === 'read'
+          ? !!(await documentReadAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures))
+          : await documentVisibleToRequester(supabase, id, routed.workspaceId, userId, omitPrivateCaptures)
       return visible ? routed.workspaceId : null
     }
     if (type !== 'capture') return routed.workspaceId
     // Visibility is re-checked IN the resolved workspace — the capture's own —
     // not in the session's.
-    const visible = await captureVisibleToRequester(supabase, id, routed.workspaceId, requester)
+    const visible =
+      access === 'read'
+        ? !!(await captureReadAccess(supabase, id, routed.workspaceId, requester))
+        : await captureVisibleToRequester(supabase, id, routed.workspaceId, requester)
     return visible ? routed.workspaceId : null
   }
 
@@ -84,7 +107,7 @@ export function createCommentTools(
       execute: async ({ commentable_type, commentable_id }) => {
         // Verify the entity is reachable — membership in whichever workspace
         // holds it, plus (for captures) visibility to the requester.
-        if (!(await resolveCommentableWorkspace(commentable_type, commentable_id))) {
+        if (!(await resolveCommentableWorkspace(commentable_type, commentable_id, 'read'))) {
           return { success: false, error: `${commentable_type} not found` }
         }
 
@@ -188,6 +211,7 @@ export function createCommentTools(
           !(await resolveCommentableWorkspace(
             parentComment.commentable_type,
             parentComment.commentable_id,
+            'read',
           ))
         ) {
           return { success: false, error: 'Comment not found' }

@@ -1,7 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { resolveEntityWorkspace, workspaceEcho, captureRequester, captureVisibleToRequester } from './_shared'
+import { resolveEntityWorkspace, workspaceEcho, captureReadAccess, captureRequester, captureVisibleToRequester } from './_shared'
 import type { CreateWorkspacePolicy } from './_shared'
 import { filedByThisRun, LEAVE_FOR_PERSON, type ActionToolRules } from './actions'
 
@@ -71,9 +71,11 @@ export function createDecisionTools(
           .describe('Filter by confirmation status'),
       }),
       execute: async ({ capture_id, confirmation }) => {
-        // The capture must be visible to the caller: workspace-visible, or
-        // their own private one. A teammate's private capture reads as absent.
-        const visible = await captureVisibleToRequester(supabase, capture_id, workspaceId, requester)
+        // The capture must be visible to the caller: workspace-visible, their
+        // own private one, or a teammate's shared with them (a grant, 492: the
+        // decision view policy's arm, 493). Otherwise it reads as absent. A
+        // read only: confirming or dismissing asks the ungranted rule.
+        const visible = await captureReadAccess(supabase, capture_id, workspaceId, requester)
         if (!visible) return { success: false, error: 'Capture not found' }
 
         let query = supabase

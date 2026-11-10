@@ -6,11 +6,12 @@ import { INDEXABLE_ATTACHMENT_EXTENSIONS } from '@/lib/attachments/extract-text'
 import { isImageUploadExtension, isOwnChatUploadPath } from '@/lib/chat/upload-allowlist'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { TOOL_IMAGE_BASE64, TOOL_IMAGE_MIME_TYPE, imageForModel } from './tool-image'
+import { withGrantedIds } from '@/lib/entity-access/grants'
 import {
   resolveEntityWorkspace,
   applyCaptureVisibility,
+  captureReadAccess,
   captureRequester,
-  captureVisibleToRequester,
   FUZZY_MATCH_LIMIT,
   listMatches,
   soleMatch,
@@ -33,14 +34,19 @@ export function createAttachmentTools(
   // is what keeps a teammate's private meeting's files hidden there.
   const requester = captureRequester(userId, omitPrivateCaptures)
 
-  /** The ids, among `captureIds`, of captures the caller may see in this workspace. */
+  /**
+   * The ids, among `captureIds`, of captures the caller may see in this
+   * workspace: for a READ, so a teammate's private capture shared with them
+   * (a grant, 492; the attachment policy's arm, 493) counts.
+   */
   const visibleCaptureIds = async (captureIds: string[]): Promise<Set<string>> => {
     if (captureIds.length === 0) return new Set()
     const { data } = await applyCaptureVisibility(
       supabase.from('captures').select('id').eq('workspace_id', workspaceId).in('id', captureIds),
       requester,
     )
-    return new Set((data || []).map((c) => c.id as string))
+    const visible = (data || []).map((c) => c.id as string)
+    return withGrantedIds(supabase, { userId: requester, workspaceId }, 'capture', captureIds, visible)
   }
 
   return {
@@ -380,11 +386,11 @@ export function createAttachmentTools(
         }
 
         // Any member may read a workspace attachment, but one on a capture
-        // only when that capture is visible to them — a teammate's private
-        // meeting's file reads as absent.
+        // only when that capture is visible to them, or shared with them (a
+        // grant) — a teammate's private meeting's file reads as absent.
         if (
           attachment.note_id &&
-          !(await captureVisibleToRequester(supabase, attachment.note_id as string, workspaceId, requester))
+          !(await captureReadAccess(supabase, attachment.note_id as string, workspaceId, requester))
         ) {
           return { success: false, error: 'Attachment not found' }
         }
