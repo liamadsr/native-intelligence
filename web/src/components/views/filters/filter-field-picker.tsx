@@ -16,6 +16,8 @@ import {
   Target, BookOpen, Building2, Mail, Link2, ChevronRight, ListChecks,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { customFieldFilterFields } from '@/lib/views/custom-field-columns'
+import { useCustomFieldDefinitions } from '../hooks/use-custom-field-definitions'
 
 const FIELD_TYPE_ICONS: Record<FilterFieldType, React.ElementType> = {
   enum: CircleDot, member: User, label: Tag, tag: Tag,
@@ -40,12 +42,18 @@ export function FilterFieldPicker({ entityType, onSelect }: FilterFieldPickerPro
   const allFields = FILTERABLE_FIELDS[entityType]
   const categories = FIELD_CATEGORIES[entityType]
 
+  // The workspace's own fields, last and under their own heading. Nothing
+  // when the kind has none (or takes none): no empty "Custom fields" group.
+  const customDefs = useCustomFieldDefinitions(entityType)
+  const customFields = React.useMemo(() => customFieldFilterFields(customDefs), [customDefs])
+
   const groups = categories.map(cat => ({
     label: cat.label,
     fields: cat.fields
       .map(fieldName => allFields.find(f => f.field === fieldName))
       .filter(Boolean) as FilterFieldDefinition[],
   }))
+  if (customFields.length) groups.push({ label: 'Custom fields', fields: customFields })
 
   return (
     <Command>
@@ -83,7 +91,9 @@ function FieldItem({
     // No sub-menu — clicking adds filter directly
     return (
       <CommandItem
-        value={field.label}
+        // A custom field may share a built-in's label ("Status"): its path
+        // keeps the two apart in the command list.
+        value={field.custom ? `${field.label} ${field.field}` : field.label}
         onSelect={() => {
           if (field.type === 'boolean') onSelect(field, true)
           else onSelect(field)

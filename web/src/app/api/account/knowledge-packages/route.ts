@@ -1,6 +1,7 @@
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, serverError } from '@/lib/api-errors'
 import { entityInWorkspace, LINKABLE_ENTITY_TYPES } from '@/lib/ai/tools/claims'
+import { canonicalEntityTypeInput } from '@/lib/knowledge/entity-registry'
 import { fetchAllRows } from '@/lib/supabase/paging'
 
 /**
@@ -86,8 +87,15 @@ export async function POST(request: Request) {
   if (visibility === 'team' && !body.team_id) {
     return badRequest('team visibility requires team_id')
   }
+  // A retired kind name (an older client's `email`) is read as its successor.
   const pins: Array<{ entity_type: string; entity_id: string }> = Array.isArray(body.pins)
-    ? body.pins.slice(0, 50)
+    ? body.pins
+        .slice(0, 50)
+        .map((pin: unknown) =>
+          pin && typeof pin === 'object'
+            ? { ...(pin as Record<string, unknown>), entity_type: canonicalEntityTypeInput((pin as Record<string, unknown>).entity_type) }
+            : pin,
+        )
     : []
   for (const pin of pins) {
     if (!LINKABLE.has(pin?.entity_type) || typeof pin?.entity_id !== 'string') {

@@ -1,7 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { resolveEntityWorkspace, workspaceEcho, captureRequester, captureVisibleToRequester } from './_shared'
+import { resolveEntityWorkspace, workspaceEcho, captureReadAccess, captureRequester, captureWriteAccess } from './_shared'
 import type { CreateWorkspacePolicy } from './_shared'
 import { filedByThisRun, LEAVE_FOR_PERSON, type ActionToolRules } from './actions'
 
@@ -26,6 +26,14 @@ export function createDecisionTools(
    * the confirm tools refuse the decisions the run filed itself.
    */
   rules: ActionToolRules = {},
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // These tools run on a service-role client for MCP and unattended runs, so
   // this requester — not RLS — is what keeps a teammate's private capture (and
@@ -56,8 +64,10 @@ export function createDecisionTools(
     const routed = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!routed) return null
 
-    const visible = await captureVisibleToRequester(supabase, captureId, routed.workspaceId, requester)
-    return visible ? routed.workspaceId : null
+    // A decision's writes follow the capture's write access: its own rule, or
+    // an EDIT grant on it (512, captureWriteAccess); a view grant never.
+    const writable = await captureWriteAccess(supabase, captureId, routed.workspaceId, requester, editGrants)
+    return writable ? routed.workspaceId : null
   }
 
   return {
@@ -71,9 +81,11 @@ export function createDecisionTools(
           .describe('Filter by confirmation status'),
       }),
       execute: async ({ capture_id, confirmation }) => {
-        // The capture must be visible to the caller: workspace-visible, or
-        // their own private one. A teammate's private capture reads as absent.
-        const visible = await captureVisibleToRequester(supabase, capture_id, workspaceId, requester)
+        // The capture must be visible to the caller: workspace-visible, their
+        // own private one, or a teammate's shared with them (a grant, 492: the
+        // decision view policy's arm, 493). Otherwise it reads as absent. A
+        // read only: confirming or dismissing asks the ungranted rule.
+        const visible = await captureReadAccess(supabase, capture_id, workspaceId, requester, undefined, !omitGrants)
         if (!visible) return { success: false, error: 'Capture not found' }
 
         let query = supabase

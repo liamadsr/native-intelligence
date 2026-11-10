@@ -110,6 +110,11 @@ export function createDealTools(
   strictWorkspace = false,
   // CREATE-TIME WORKSPACE ROUTING (_shared.ts), like companies and contacts.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   const viewer = { viewer: userId }
   const createIn = (explicit: string | undefined) =>
@@ -312,7 +317,7 @@ export function createDealTools(
         // These tools may run on a service-role client: the kind's own edit
         // rule, for this person, before the write (a record they only view
         // through a grant is not theirs to change).
-        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id)
+        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id, { grants: editGrants })
         if (refusal) return { success: false, error: refusal.error }
         const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values)
         if (!result.ok) {

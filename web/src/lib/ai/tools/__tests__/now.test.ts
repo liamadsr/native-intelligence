@@ -82,11 +82,16 @@ describe('the Now file in find and search', () => {
     const hits = [
       { result_type: 'document', result_id: 'doc-now', title: 'Now', score: 0.9, event_at: null, fts_rank: 1, vec_rank: null, recency_rank: 1, excerpt: 'Guest access', source_label: 'Document', source_type: 'document', metadata: {} },
       { result_type: 'document', result_id: 'doc-2', title: 'Plan', score: 0.5, event_at: null, fts_rank: 2, vec_rank: 2, recency_rank: 2, excerpt: 'x', source_label: 'Document', source_type: 'document', metadata: {} },
+      // A teammate's Now file (a grant could open it): never anyone else's to read, main chat or not.
+      { result_type: 'document', result_id: 'doc-their-now', title: 'Now', score: 0.4, event_at: null, fts_rank: 3, vec_rank: null, recency_rank: 3, excerpt: 'y', source_label: 'Document', source_type: 'document', metadata: {} },
     ]
     const fake = createFakeSupabase((q): FakeResult => {
       if (q.table === 'rpc:hybrid_search') return { data: hits, error: null }
       if (q.table === 'rpc:unified_search') return { data: hits.map((h) => ({ result_type: h.result_type, result_id: h.result_id, title: h.title, rank: 1 })), error: null }
-      if (q.table === 'document' && eqValue(q, 'kind') === 'now') return { data: [{ id: 'doc-now' }], error: null }
+      if (q.table === 'document' && eqValue(q, 'kind') === 'now') {
+        return { data: [{ id: 'doc-now', created_by: 'mem-1' }, { id: 'doc-their-now', created_by: 'mem-zoe' }], error: null }
+      }
+      if (q.table === 'member' && eqValue(q, 'user_id') === USER) return { data: [{ id: 'mem-1' }], error: null }
       if (q.table === 'workspace') return { data: { name: 'WS' }, error: null }
       return { data: [], error: null }
     })
@@ -96,7 +101,7 @@ describe('the Now file in find and search', () => {
   const tool = (readable: boolean, name: 'find' | 'search') =>
     (createSearchTools(USER, searchClient(), WS, false, 'all_time', false, readable)[name] as unknown as { execute: (i: unknown, o: unknown) => Promise<unknown> }).execute
 
-  it('find drops it outside the person’s main chat and keeps it there', async () => {
+  it('find drops it outside the person’s main chat and keeps it there; never a teammate’s Now file', async () => {
     expect(ids(await tool(false, 'find')({ query: 'guest access' }, OPTS))).toEqual(['doc-2'])
     expect(ids(await tool(true, 'find')({ query: 'guest access' }, OPTS))).toEqual(['doc-now', 'doc-2'])
   })

@@ -304,6 +304,80 @@ export async function setRecordCustomFields(
   return { ok: true, custom_fields: merged }
 }
 
+/**
+ * A record's custom values as the agent's read tools return them: the SET
+ * ones only, keyed by the field's label, in definition order
+ * ({ "Contract length": 12, "Region": "West" }), the names set_custom_fields
+ * takes. A stored key with no definition (a field since removed) is left
+ * out, as the panels leave it out.
+ */
+export function customFieldsForModel(
+  defs: readonly CustomFieldDefinition[],
+  values: unknown,
+): Record<string, CustomFieldValue> {
+  const v = values && typeof values === 'object' && !Array.isArray(values) ? (values as Record<string, unknown>) : {}
+  const out: Record<string, CustomFieldValue> = {}
+  for (const d of defs) {
+    const value = v[d.key]
+    if (value === null || value === undefined || value === '') continue
+    if (typeof value === 'string' || typeof value === 'number') out[d.label] = value
+  }
+  return out
+}
+
+/** `{ custom_fields }` for a read tool's row when any value is set, else nothing (an empty widget shows nothing). */
+export function withCustomFields(
+  defs: readonly CustomFieldDefinition[],
+  values: unknown,
+): { custom_fields?: Record<string, CustomFieldValue> } {
+  if (defs.length === 0) return {}
+  const fields = customFieldsForModel(defs, values)
+  return Object.keys(fields).length > 0 ? { custom_fields: fields } : {}
+}
+
+/**
+ * The kind's field definitions in a workspace for a READ tool, or none when
+ * the read fails: the record still comes back, without its fields, rather
+ * than the whole read failing. One query, whatever the number of records.
+ */
+export async function customFieldDefsOrNone(
+  db: SupabaseClient,
+  workspaceId: string,
+  entityType: CustomFieldEntity,
+): Promise<CustomFieldDefinition[]> {
+  try {
+    return await listCustomFieldDefinitions(db, workspaceId, entityType)
+  } catch (err) {
+    console.warn('[custom-fields] definitions read failed:', err instanceof Error ? err.message : 'unknown')
+    return []
+  }
+}
+
+/**
+ * One record's `{ custom_fields }` for a read tool that did not select the
+ * column itself (the CRM overviews read through shared context helpers):
+ * the definitions and the record's values, two reads in parallel. Nothing
+ * when none is set or a read fails. Call it only for a record the caller has
+ * already been shown (it re-checks the workspace, not visibility).
+ */
+export async function recordCustomFieldsForModel(
+  db: SupabaseClient,
+  workspaceId: string,
+  entityType: CustomFieldRecordEntity,
+  recordId: string,
+): Promise<{ custom_fields?: Record<string, CustomFieldValue> }> {
+  const [defs, row] = await Promise.all([
+    customFieldDefsOrNone(db, workspaceId, entityType),
+    Promise.resolve(
+      db.from(customFieldTable(entityType)).select('custom_fields').eq('id', recordId).eq('workspace_id', workspaceId).maybeSingle(),
+    ).then(
+      (res) => (res.error ? null : (res.data as { custom_fields?: unknown } | null)),
+      () => null,
+    ),
+  ])
+  return withCustomFields(defs, row?.custom_fields)
+}
+
 /** A record's custom values as "Label: value" pairs, in definition order (for the model and the panels). */
 export function describeCustomFields(
   defs: readonly CustomFieldDefinition[],

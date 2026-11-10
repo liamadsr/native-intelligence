@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { captureRequester, resolveEntityWorkspace } from './_shared'
 import { gatherPersonContext } from '@/lib/crm/person-context'
 import { gatherCompanyContext } from '@/lib/crm/company-context'
+import { recordCustomFieldsForModel } from '@/lib/crm/custom-fields'
 import { isContactVisibleTo, isContactWritableTo } from '@/lib/crm/contact-visibility'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { COMPANY_WEB_FIELDS, fenceWebFields } from './web-derived'
@@ -29,6 +30,11 @@ export function createCrmTools(
   // param inserted ahead of it would silently reinterpret that argument.
   // See resolveEntityWorkspace in ./_shared.ts.
   strictWorkspace = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // get_contact_details / get_company_overview read captures (via the
   // person/company context helpers) on a service-role client (MCP /
@@ -73,7 +79,7 @@ export function createCrmTools(
         // The shared helper is the single fence: workspace, merge tombstones,
         // contact_visible_to (service-role safe), capture visibility, own mailbox.
         // A null here is deliberately indistinguishable from a missing row.
-        const [ctx, interactions] = await Promise.all([
+        const [ctx, interactions, fields] = await Promise.all([
           gatherPersonContext(supabase, {
             workspaceId,
             userId,
@@ -86,6 +92,8 @@ export function createCrmTools(
             .eq('contact_id', found.id)
             .order('occurred_at', { ascending: false })
             .limit(10),
+          // The workspace's own fields on contacts (migration 473), the set ones, by name.
+          recordCustomFieldsForModel(supabase, workspaceId, 'contact', found.id),
         ])
         if (!ctx) return { success: false, error: 'Contact not found' }
 
@@ -95,6 +103,7 @@ export function createCrmTools(
             ...fenceWebFields(ctx.contact as unknown as Record<string, unknown>, ['job_title']),
             is_teammate: ctx.is_teammate,
             ...(ctx.canonical_of ? { canonical_of: ctx.canonical_of } : {}),
+            ...fields,
             recent_interactions: interactions.data || [],
             recent_captures: ctx.recent_captures.slice(0, 10).map((c) => ({
               ...c,
@@ -138,18 +147,24 @@ export function createCrmTools(
         // (service-role safe), per-contact contact_visible_to, capture
         // visibility, own mailbox. A null here is deliberately
         // indistinguishable from a missing row.
-        const ctx = await gatherCompanyContext(supabase, {
-          workspaceId,
-          userId,
-          companyId: (found as { id: string }).id,
-          requester,
-        })
+        const companyId = (found as { id: string }).id
+        const [ctx, fields] = await Promise.all([
+          gatherCompanyContext(supabase, {
+            workspaceId,
+            userId,
+            companyId,
+            requester,
+          }),
+          // The workspace's own fields on companies (migration 473), the set ones, by name.
+          recordCustomFieldsForModel(supabase, workspaceId, 'company', companyId),
+        ])
         if (!ctx) return { success: false, error: 'Company not found' }
 
         return {
           success: true,
           company: {
             ...fenceWebFields(ctx.company as unknown as Record<string, unknown>, COMPANY_WEB_FIELDS),
+            ...fields,
             // Back-compat with the previous shape (callers read contacts/contact_count).
             contacts: ctx.people.map((p) => fenceWebFields(p as unknown as Record<string, unknown>, ['job_title'])),
             contact_count: ctx.people_visible,
@@ -198,7 +213,7 @@ export function createCrmTools(
         // No writes to another member's private/team contact: this may run
         // service-role, where RLS does not hide it (contact-visibility.ts).
         // A per-item grant opens it to read, never to write (migration 495).
-        if (!(await isContactWritableTo(supabase, contact_id, userId))) {
+        if (!(await isContactWritableTo(supabase, contact_id, userId, { grants: editGrants }))) {
           return { success: false, error: 'Contact not found' }
         }
 

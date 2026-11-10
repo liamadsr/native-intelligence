@@ -28,6 +28,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { VerdictLedgerEntry } from '@/lib/flows/types'
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 import {
   TOUCH_VERBS,
   isUuid,
@@ -143,8 +144,10 @@ export function flowRunLedgerEntries(actionResults: unknown): unknown[] {
 export function planJobTouches(job: BackfillJobRow, ctx: BackfillJobContext = {}): PlannedTouch[] {
   const out: PlannedTouch[] = []
   const seen = new Set<string>()
-  const add = (source: BackfillSource, entityType: string, entityId: unknown, verb: TouchVerb, toolName = BACKFILL_TOOL_NAME) => {
+  const add = (source: BackfillSource, rawType: string, entityId: unknown, verb: TouchVerb, toolName = BACKFILL_TOOL_NAME) => {
     if (!isUuid(entityId) || !TOUCH_VERBS.includes(verb)) return
+    // A retired kind name (a declared `email` resource) is planned under its current one.
+    const entityType = canonicalEntityType(rawType)
     const id = (entityId as string).toLowerCase()
     const key = `${entityType}\u0000${id}\u0000${verb}`
     if (seen.has(key)) return

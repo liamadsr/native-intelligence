@@ -216,7 +216,7 @@ const PROVENANCE_TYPES: ReadonlySet<string> = new Set([
   'capture',
   'document',
   'conversation',
-  'email',
+  'email_thread',
   'attachment',
 ])
 

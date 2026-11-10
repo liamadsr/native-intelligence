@@ -2,8 +2,9 @@
 
 /**
  * The palette's first view from the activity feed (GET /api/account/feed):
- *   Inbox   what @-mentions the person or was assigned to them, the last two
- *           weeks (assigned_to=me&mentioned=me);
+ *   Inbox   what @-mentions the person, was assigned to them or was shared
+ *           with them ("Ana shared this with you", migration 513), the last
+ *           two weeks (assigned_to=me&mentioned=me&shared=me);
  *   Recent  the records they touched last (actor=me).
  * Asked for each time the palette opens (two small reads), in the window's
  * workspace; the last answer shows at once while the new one comes, and
@@ -27,7 +28,7 @@ const EMPTY: PaletteFeed = { inbox: null, recent: null }
 
 export function paletteInboxUrl(now: Date): string {
   const since = new Date(now.getTime() - PALETTE_INBOX_DAYS * 86_400_000).toISOString()
-  return feedUrl({ assignedToMe: true, mentionedMe: true, since, limit: INBOX_CAP })
+  return feedUrl({ assignedToMe: true, mentionedMe: true, sharedWithMe: true, since, limit: INBOX_CAP })
 }
 
 /** One more than the section shows: a record also in the Inbox is left out of Recent. */

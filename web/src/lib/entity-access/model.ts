@@ -8,7 +8,12 @@
  * A grant only ever ADDS access: a member, a team's members, or a team-chat
  * channel's readers may read a record its own rule hides from them (another
  * member's private document or capture, a private or team contact, a company
- * none of whose contacts they can see). View only, for now.
+ * none of whose contacts they can see).
+ *
+ * A grant is VIEW or EDIT (migration 512). Edit lets the grantee change what
+ * the record says through the same paths its owner uses (its text and
+ * fields, comments, labels, suggestions); never delete it, change who owns
+ * or sees it, archive it, or share it on.
  */
 
 /** The kinds a grant can open: the four with a per-record read rule that can be shared. */
@@ -31,6 +36,17 @@ export function isGranteeKind(kind: unknown): kind is GranteeKind {
 export const GRANT_SOURCES = ['manual', 'mention', 'channel_share'] as const
 export type GrantSource = (typeof GRANT_SOURCES)[number]
 
+/** What a grant lets its grantee do. */
+export const GRANT_LEVELS = ['view', 'edit'] as const
+export type GrantLevel = (typeof GRANT_LEVELS)[number]
+
+export function isGrantLevel(level: unknown): level is GrantLevel {
+  return typeof level === 'string' && (GRANT_LEVELS as readonly string[]).includes(level)
+}
+
+/** The words a grant's level reads as in the share dialog. */
+export const GRANT_LEVEL_LABEL: Record<GrantLevel, string> = { view: 'Can view', edit: 'Can edit' }
+
 /** A grant as the share dialog lists it. */
 export interface EntityGrant {
   id: string
@@ -38,6 +54,7 @@ export interface EntityGrant {
   grantee_id: string
   /** The grantee's name: a member's, a team's, "#channel", or a DM's other person. */
   grantee_name: string
+  level: GrantLevel
   source: GrantSource
   created_at: string
 }

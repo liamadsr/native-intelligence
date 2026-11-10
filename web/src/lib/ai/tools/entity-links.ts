@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { entityKindEnum } from '@/lib/knowledge/entity-kind-schema'
 // These two tools used to carry their own, drifted copies of the vocabulary
 // (7 entity types, 8 relations), so `unlink_entities` could not remove an edge
 // `link_entities` had just created: a claim / email / attachment / member /
@@ -12,7 +13,7 @@ import {
   WORKSPACE_SCOPED_TABLE,
   type LinkableEntityType,
 } from '@/lib/knowledge/entity-registry'
-import { hiddenPrivateRefs, isPrivateGraphKind } from '@/lib/knowledge/entity-fences'
+import { hiddenGraphRefs, isLinkFencedKind } from '@/lib/knowledge/entity-fences'
 import { captureRequester, resolveEntityWorkspace } from './_shared'
 
 export function createEntityLinkTools(
@@ -23,9 +24,10 @@ export function createEntityLinkTools(
   /** An unattended run: no private graph kind's row is the run's to see (as claims.ts). */
   omitPrivate = false,
 ) {
-  // The private graph kinds (calendar events, team-chat channels and messages,
-  // decisions: src/lib/knowledge/entity-fences.ts) are fenced to the person,
-  // and to no one on an unattended run. This may run service-role.
+  // An edge is readable only when both its ends are (migration 500): every
+  // kind some members can't read (src/lib/knowledge/entity-fences.ts
+  // LINK_FENCED_KINDS) is fenced to the person, and on an unattended run to
+  // what every member reads. This runs service-role, where RLS hides no edge.
   const requester = captureRequester(userId, omitPrivate)
   /**
    * Route `unlink_entities` by the SOURCE entity's own workspace, not the
@@ -57,9 +59,9 @@ export function createEntityLinkTools(
         'Remove a link between two entities. Deletes all links matching the given source and target (optionally filtered by relation). ' +
         'Use this to detach a document from an action or project, or to remove any entity graph edge.',
       inputSchema: z.object({
-        source_type: z.enum(ENTITY_TYPES).describe('Type of the source entity'),
+        source_type: entityKindEnum(ENTITY_TYPES).describe('Type of the source entity'),
         source_id: z.string().describe('UUID of the source entity'),
-        target_type: z.enum(ENTITY_TYPES).describe('Type of the target entity'),
+        target_type: entityKindEnum(ENTITY_TYPES).describe('Type of the target entity'),
         target_id: z.string().describe('UUID of the target entity'),
         relation: z
           .enum(RELATIONS)
@@ -77,14 +79,14 @@ export function createEntityLinkTools(
       }) => {
         const targetWs = await resolveSourceWorkspace(source_type, source_id)
         if (!targetWs) return { success: false, error: 'Source entity not found' }
-        // Never an edge of a private row the person can't read (someone
-        // else's calendar event, a DM they're not in): not theirs to remove.
+        // Never an edge of a row the person can't read (someone else's
+        // private document, a DM they're not in): not theirs to remove.
         const ends = [
           { type: source_type as string, id: source_id },
           { type: target_type as string, id: target_id },
         ]
-        if (ends.some((e) => isPrivateGraphKind(e.type))) {
-          const hidden = await hiddenPrivateRefs(supabase, ends, requester, targetWs)
+        if (ends.some((e) => isLinkFencedKind(e.type))) {
+          const hidden = await hiddenGraphRefs(supabase, ends, requester, targetWs)
           if (hidden.size > 0) return { success: false, error: 'Entity not found' }
         }
 
@@ -121,7 +123,7 @@ export function createEntityLinkTools(
         'Use this to discover what documents, actions, or projects are associated with a given entity. ' +
         'Also used to verify a link was created by link_entities.',
       inputSchema: z.object({
-        entity_type: z.enum(ENTITY_TYPES).describe('Type of the entity'),
+        entity_type: entityKindEnum(ENTITY_TYPES).describe('Type of the entity'),
         entity_id: z.string().describe('UUID of the entity'),
         direction: z
           .enum(['outbound', 'inbound', 'both'])
@@ -191,15 +193,15 @@ export function createEntityLinkTools(
           results.inbound = (data || []) as typeof results.inbound
         }
 
-        // A private row the person can't read: a hidden centre lists nothing,
-        // a hidden neighbour is left out (not even its id). One batched fence.
+        // A row the person can't read: a hidden centre lists nothing, a
+        // hidden neighbour is left out (not even its id). One batched fence.
         const privateRefs = [
           { type: entity_type as string, id: entity_id },
           ...results.outbound.map((e) => ({ type: e.target_type, id: e.target_id })),
           ...results.inbound.map((e) => ({ type: e.source_type, id: e.source_id })),
-        ].filter((r) => isPrivateGraphKind(r.type))
+        ].filter((r) => isLinkFencedKind(r.type))
         if (privateRefs.length > 0) {
-          const hidden = await hiddenPrivateRefs(supabase, privateRefs, requester, workspaceId)
+          const hidden = await hiddenGraphRefs(supabase, privateRefs, requester, workspaceId)
           if (hidden.has(`${entity_type}:${entity_id}`)) {
             results.outbound = []
             results.inbound = []
