@@ -100,6 +100,7 @@ const settingsViews: Record<string, React.LazyExoticComponent<React.ComponentTyp
   }))),
   'feedback': lazy(() => import('../settings/feedback/feedback-settings-view').then(m => ({ default: m.FeedbackSettingsView }))),
   'labels': lazy(() => import('../settings/labels/labels-settings-view').then(m => ({ default: m.LabelsSettingsView }))),
+  'custom-fields': lazy(() => import('../settings/custom-fields/custom-fields-settings-view').then(m => ({ default: m.CustomFieldsSettingsView }))),
   'vocabulary': lazy(() => import('../settings/vocabulary/vocabulary-settings-view').then(m => ({ default: m.VocabularySettingsView }))),
   'dictation': lazy(() => import('../settings/dictation/dictation-settings-view').then(m => ({ default: m.DictationSettingsView }))),
   'email-crm': lazy(() => import('../settings/email-crm/page')),

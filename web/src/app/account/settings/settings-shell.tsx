@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard } from 'lucide-react'
+import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { navRowClass, navSectionLabelClass } from '@/lib/nav-styles'
 import { useIsDesktop } from '@/components/desktop-titlebar'
@@ -66,6 +66,7 @@ const navSections: NavSection[] = [
       { href: '/account/settings/memory', label: 'Memory', icon: Lightbulb },
       { href: '/account/settings/vocabulary', label: 'Vocabulary', icon: SpellCheck },
       { href: '/account/settings/labels', label: 'Labels', icon: Tag },
+      { href: '/account/settings/custom-fields', label: 'Custom fields', icon: SlidersHorizontal },
       { href: '/account/settings/email-crm', label: 'Email & CRM', icon: Mail },
     ],
   },

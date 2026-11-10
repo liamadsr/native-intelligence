@@ -1,10 +1,13 @@
 'use client'
 
 /**
- * A record's custom fields (roadmap #8): every field the workspace defined for
- * deals, contacts or companies, each editable in place, and a small form to add
- * one. Renders nothing at all while the workspace has no fields and the person
- * has not opened the form (hide empty widgets).
+ * A record's custom fields (roadmap #8; every kind the entity registry marks
+ * `customFields`, phase 6): every field the workspace defined for the
+ * record's kind, each editable in place, and a small form to add one. Renders
+ * nothing at all while the workspace has no fields for the kind and the
+ * person has not opened the form (hide empty widgets). A record the person
+ * may only view (the route's `editable: false`: a grant, an initiative that
+ * isn't theirs) shows its values as text, with no form.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
@@ -44,6 +47,7 @@ export function CustomFieldsGroup({
 }) {
   const [fields, setFields] = useState<FieldRow[] | null>(null)
   const [defs, setDefs] = useState<Definition[]>([])
+  const [editable, setEditable] = useState(true)
   const [adding, setAdding] = useState(false)
 
   const load = useCallback(async () => {
@@ -52,6 +56,7 @@ export function CustomFieldsGroup({
     const json = await res.json()
     setFields(json.fields ?? [])
     setDefs(json.definitions ?? [])
+    setEditable(json.editable !== false)
   }, [entityType, recordId])
 
   useEffect(() => {
@@ -75,7 +80,7 @@ export function CustomFieldsGroup({
   }
 
   if (!fields) return null
-  if (!fields.length && !showAddWhenEmpty && !adding) return null
+  if (!fields.length && !(showAddWhenEmpty && editable) && !adding) return null
 
   return (
     <PropertyGroup title={title}>
@@ -83,11 +88,15 @@ export function CustomFieldsGroup({
         {fields.map((f) => (
           <div key={f.key} className="grid grid-cols-[120px_1fr] items-center gap-2 px-3" data-custom-field={f.key}>
             <span className="truncate text-xs text-muted-foreground" title={f.label}>{f.label}</span>
-            <FieldInput field={f} options={defs.find((d) => d.key === f.key)?.options ?? []} onSave={(v) => save(f.key, v)} />
+            {editable ? (
+              <FieldInput field={f} options={defs.find((d) => d.key === f.key)?.options ?? []} onSave={(v) => save(f.key, v)} />
+            ) : (
+              <span className={cn('truncate px-2 text-sm', f.value === null && 'text-muted-foreground')}>{f.value === null ? 'Empty' : String(f.value)}</span>
+            )}
           </div>
         ))}
       </div>
-      {adding ? (
+      {!editable ? null : adding ? (
         <AddFieldForm
           entityType={entityType}
           onDone={(added) => {
@@ -154,7 +163,7 @@ function FieldInput({ field, options, onSave }: { field: FieldRow; options: stri
   )
 }
 
-function AddFieldForm({ entityType, onDone }: { entityType: CustomFieldEntity; onDone: (added: boolean) => void }) {
+export function AddFieldForm({ entityType, onDone }: { entityType: CustomFieldEntity; onDone: (added: boolean) => void }) {
   const [label, setLabel] = useState('')
   const [type, setType] = useState<CustomFieldType>('text')
   const [options, setOptions] = useState('')

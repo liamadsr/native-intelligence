@@ -55,6 +55,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
 import { useCurrentMemberId } from '@/app/account/workspace-switcher'
@@ -1148,6 +1149,8 @@ export function ContactDetailPanel({
                         showSummary={false}
                         onViewDetails={() => setActiveTab('details')}
                       />
+                      {/* The workspace's own fields on this kind (hidden while it has none). */}
+                      <CustomFieldsGroup entityType="contact" recordId={contactId} />
                       <ReferencedIn entityType="contact" entityId={contactId} />
                       <RecordHistory entityType="contact" entityId={contactId} />
                     </div>

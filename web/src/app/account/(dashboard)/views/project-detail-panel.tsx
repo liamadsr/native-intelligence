@@ -65,6 +65,7 @@ import {
 } from 'lucide-react'
 import { SiGithub } from '@icons-pack/react-simple-icons'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
 import { useCurrentMemberId, useWorkspaceId } from '@/app/account/workspace-switcher'
@@ -1083,6 +1084,8 @@ export function ProjectDetailPanel({
 
                       </PropertyGroup>
 
+                      {/* The workspace's own fields on this kind (hidden while it has none). */}
+                      <CustomFieldsGroup entityType="project" recordId={projectId} />
                       <ReferencedIn entityType="project" entityId={projectId} />
                       <RecordHistory entityType="project" entityId={projectId} />
                     </div>

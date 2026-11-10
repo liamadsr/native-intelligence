@@ -41,6 +41,7 @@ import {
   Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
 import { composeSectionChoice, conflictingSections, patchDocumentFields, planConflict, rollbackPatch, snapshotKeys, unmountAction, type ConflictPlan } from './document-field-save'
@@ -1057,6 +1058,8 @@ export function DocumentDetailPanel({
                           </div>
                         </div>
 
+                        {/* The workspace's own fields on this kind (hidden while it has none). */}
+                        <CustomFieldsGroup entityType="document" recordId={documentId} />
                         <ReferencedIn entityType="document" entityId={documentId} />
                         <RecordHistory entityType="document" entityId={documentId} />
 

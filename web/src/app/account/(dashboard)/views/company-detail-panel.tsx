@@ -21,6 +21,7 @@ import {
   Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
 import { ContentTransition } from './transitions'
@@ -607,6 +608,8 @@ export function CompanyDetailPanel({
                         enrichment={company.metadata?.enrichment}
                         onViewDetails={() => setActiveTab('details')}
                       />
+                      {/* The workspace's own fields on this kind (hidden while it has none). */}
+                      <CustomFieldsGroup entityType="company" recordId={companyId} />
                       <ReferencedIn entityType="company" entityId={companyId} />
                       <RecordHistory entityType="company" entityId={companyId} />
                     </div>

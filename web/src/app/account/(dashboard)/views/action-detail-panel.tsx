@@ -123,6 +123,7 @@ import {
 import { useSettingsOverlay } from '../settings-overlay'
 import { SiGithub } from '@icons-pack/react-simple-icons'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
 import { useCurrentMemberId, useWorkspaceId } from '@/app/account/workspace-switcher'
@@ -2703,6 +2704,8 @@ export function ActionDetailPanel({
                   <span>{uploadError}</span>
                 </div>
               )}
+              {/* The workspace's own fields on this kind (hidden while it has none). */}
+              <CustomFieldsGroup entityType="action" recordId={actionId} />
               <ReferencedIn entityType="action" entityId={actionId} />
               <RecordHistory entityType="action" entityId={actionId} />
             </div>

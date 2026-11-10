@@ -45,6 +45,7 @@ import {
 import { Calendar as CalendarUI } from '@/components/ui/calendar'
 import { NoteEditor } from './note-editor-lazy'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
 import { RecordHistory } from '@/components/entity-links/record-history'
 import { useCurrentMemberId } from '@/app/account/workspace-switcher'
@@ -820,6 +821,8 @@ export function InitiativeDetailPanel({
                   </div>
                 )}
               </PropertyGroup>
+              {/* The workspace's own fields on this kind (hidden while it has none). */}
+              <CustomFieldsGroup entityType="initiative" recordId={initiativeId} />
               <ReferencedIn entityType="initiative" entityId={initiativeId} />
               <RecordHistory entityType="initiative" entityId={initiativeId} />
             </div>
