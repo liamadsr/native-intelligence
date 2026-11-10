@@ -87,6 +87,28 @@ describe('CustomFieldsGroup on a task', () => {
     expect(container.textContent).not.toContain('Add a field')
   })
 
+  it('tells open lists and boards the values the server stored after a save', async () => {
+    answer = { ...taskFields, editable: true }
+    await render(<CustomFieldsGroup entityType="action" recordId={TASK} />)
+    const updates: unknown[] = []
+    const listen = (e: Event) => updates.push((e as CustomEvent).detail)
+    window.addEventListener('ni:entity-updated', listen)
+    try {
+      answer = { custom_fields: { customer: 'Fernhill Studio', tier: 'Gold', estimate_hours: 4 } }
+      const select = container.querySelector('[data-custom-field="tier"] select') as HTMLSelectElement
+      await act(async () => {
+        select.value = 'Gold'
+        select.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      for (let i = 0; i < 3; i++) await act(async () => new Promise((r) => setTimeout(r, 0)))
+      expect(updates).toEqual([
+        { entityType: 'action', id: TASK, fields: { custom_fields: { customer: 'Fernhill Studio', tier: 'Gold', estimate_hours: 4 } } },
+      ])
+    } finally {
+      window.removeEventListener('ni:entity-updated', listen)
+    }
+  })
+
   it('a view-only deal with no fields offers no form either', async () => {
     answer = { fields: [], definitions: [], editable: false }
     await render(<CustomFieldsGroup entityType="deal" recordId={TASK} showAddWhenEmpty />)

@@ -13,7 +13,8 @@
  *   kinds=action,document   only these kinds
  *   assigned_to=me          assigned to the viewer
  *   mentioned=me            the viewer @-mentioned
- *                           (both together: either — the Inbox; the viewer's
+ *   shared=me               shared with the viewer (a grant to them alone)
+ *                           (together: any of them — the Inbox; the viewer's
  *                           own doing is never in it)
  *   linked_to=type:id       records linked to that one
  *   actor=me|agent|<member> who did it (me: the viewer's own hand)
@@ -37,6 +38,9 @@ export const FEED_ACTIONS = [
   'linked',
   // A record's custom field values changed (migration 497): detail {fields: [key, ...]}.
   'updated',
+  // Someone shared it (a grant, migration 513): subject the member it was
+  // shared with (a grant to one member), detail {level, grantee_kind, source}.
+  'shared',
 ] as const
 export type FeedAction = (typeof FEED_ACTIONS)[number]
 
@@ -57,6 +61,7 @@ export interface FeedFilter {
   kinds: ActivityEntityType[] | null
   assignedToMe: boolean
   mentionedMe: boolean
+  sharedWithMe: boolean
   linkedTo: FeedRef | null
   /** 'me', 'agent', or a member id. */
   actor: string | null
@@ -71,6 +76,7 @@ export const EMPTY_FEED_FILTER: FeedFilter = {
   kinds: null,
   assignedToMe: false,
   mentionedMe: false,
+  sharedWithMe: false,
   linkedTo: null,
   actor: null,
   entity: null,
@@ -120,6 +126,7 @@ export function parseFeedQuery(params: URLSearchParams): FeedFilter | { error: s
   for (const [key, set] of [
     ['assigned_to', (v: boolean) => (f.assignedToMe = v)],
     ['mentioned', (v: boolean) => (f.mentionedMe = v)],
+    ['shared', (v: boolean) => (f.sharedWithMe = v)],
   ] as const) {
     const v = params.get(key)
     if (v == null || v === '') continue
@@ -167,12 +174,18 @@ export function parseFeedQuery(params: URLSearchParams): FeedFilter | { error: s
   return f
 }
 
+/** The Inbox: what involves the viewer (assigned, mentioned, shared with them). */
+export function isInboxFilter(filter: Pick<FeedFilter, 'assignedToMe' | 'mentionedMe' | 'sharedWithMe'>): boolean {
+  return filter.assignedToMe || filter.mentionedMe || !!filter.sharedWithMe
+}
+
 /** The query string for a filter (only what differs from the default). */
 export function feedQuery(filter: Partial<FeedFilter>): string {
   const p = new URLSearchParams()
   if (filter.kinds?.length) p.set('kinds', filter.kinds.join(','))
   if (filter.assignedToMe) p.set('assigned_to', 'me')
   if (filter.mentionedMe) p.set('mentioned', 'me')
+  if (filter.sharedWithMe) p.set('shared', 'me')
   if (filter.linkedTo) p.set('linked_to', `${filter.linkedTo.type}:${filter.linkedTo.id}`)
   if (filter.actor) p.set('actor', filter.actor)
   if (filter.entity) p.set('entity', `${filter.entity.type}:${filter.entity.id}`)
@@ -208,7 +221,7 @@ export interface FeedEvent {
   actor: FeedActor
   /** The member it is about (who was assigned or @-mentioned). */
   subject: { member_id: string; name: string | null; me: boolean } | null
-  /** The words around a change: a state's or person's name. */
+  /** The words around a change: a state's or person's name; a share's level ('view' | 'edit'). */
   from: string | null
   to: string | null
   /** For a link: the relation ('related_to', 'depends_on', …). */
@@ -278,7 +291,22 @@ export function describeFeedEvent(e: FeedEvent): string {
     case 'updated':
       // `to` names the fields ("Contract length, Tier"), read through the viewer's own RLS.
       return e.to ? `Changed ${e.to}` : 'Changed its fields'
+    case 'shared': {
+      const to = e.subject?.me ? 'you' : e.subject ? (e.subject.name ?? 'someone') : null
+      const what = to ? `Shared with ${to}` : 'Shared'
+      return e.to === 'edit' ? `${what} to edit` : what
+    }
   }
+}
+
+/**
+ * The Inbox's line for a record shared with the viewer: "Ana shared this with
+ * you" ("…to edit" for an edit grant). Null for any other event.
+ */
+export function sharedWithYouLine(e: FeedEvent): string | null {
+  if (e.action !== 'shared' || !e.subject?.me) return null
+  const who = e.actor.kind === 'member' ? (e.actor.name ?? 'Someone') : feedActorLabel(e.actor) ?? 'Someone'
+  return `${who} shared this with you${e.to === 'edit' ? ' to edit' : ''}`
 }
 
 /** Who did it: "You", a name, "An agent"; null for the system (said by the event alone). */

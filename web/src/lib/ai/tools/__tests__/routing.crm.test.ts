@@ -86,9 +86,10 @@ function makeSupabase(opts: { memberOf: string[]; contacts: Row[]; hidden?: stri
     if (table === 'contact') return tableChain('contact', contacts, log)
     return tableChain(table, [], log)
   })
-  // contact_visible_to: every contact is visible unless listed in `hidden`.
-  const rpc = vi.fn(async (_fn: string, args: { p_contact_id: string }) => ({
-    data: !(opts.hidden ?? []).includes(args.p_contact_id),
+  // contact_visible_to / contact_editable_by: every contact is visible unless
+  // listed in `hidden`. No edit grant (512's entity_edit_granted) reaches anyone.
+  const rpc = vi.fn(async (fn: string, args: { p_contact_id: string }) => ({
+    data: fn === 'entity_edit_granted' ? false : !(opts.hidden ?? []).includes(args.p_contact_id),
     error: null,
   }))
   return { supabase: { from, rpc } as never, contacts, log }

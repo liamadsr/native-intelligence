@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { inChunks } from '@/lib/supabase/paging'
+import { canonicalEntityType, type LinkableEntityType } from './entity-registry'
 
 /**
  * FENCES FOR THE PRIVATE GRAPH KINDS: calendar events, team-chat channels and
@@ -284,4 +285,103 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   team_chat_channel: 'Channel (private)',
   team_chat_message: 'Message (private)',
   decision: 'Decision (private)',
+}
+
+/**
+ * GRAPH EDGES FOLLOW BOTH ENDS (migration 500). The kinds an edge's end is
+ * checked for: every linkable kind some members can't read. The SELECT and
+ * INSERT policies on entity_link (migration 501) list exactly these (claims
+ * and companies through their set-based hidden sets, the rest through
+ * entity_visible_to); a test holds the two equal. Every other linkable kind
+ * is every member's.
+ */
+export const LINK_FENCED_KINDS = [
+  'document',
+  'capture',
+  'contact',
+  'company',
+  'claim',
+  'attachment',
+  'email_thread',
+  'conversation',
+  'calendar_event',
+  'team_chat_channel',
+  'team_chat_message',
+  'decision',
+] as const satisfies readonly LinkableEntityType[]
+export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
+
+/** A retired name counts as the kind it names now: an `email` end is fenced as `email_thread` (503). */
+export function isLinkFencedKind(type: string): type is LinkFencedKind {
+  return (LINK_FENCED_KINDS as readonly string[]).includes(canonicalEntityType(type))
+}
+
+/**
+ * The `type:id` keys among `refs` naming a row of a fenced kind `userId` may
+ * NOT read (inside `workspaceId` when given): migration 500's edge rule, for
+ * the graph readers that run service-role (the agent's tools), where RLS
+ * hides no edge. A hidden end is left out, never listed by id. Refs of an
+ * open kind are never in it.
+ *
+ * The private graph kinds go through this file's own fences
+ * (hiddenPrivateRefs: no user, none of them); every other fenced kind through
+ * ONE call of entity_refs_hidden, the SQL rule the entity_link SELECT policy
+ * itself uses (no user, an unattended run: only what every member of the
+ * workspace reads). A malformed id (it fails the RPC's uuid[] cast) or a
+ * failed read: every ref it asked about is hidden.
+ */
+export async function hiddenGraphRefs(
+  supabase: SupabaseClient,
+  refs: ReadonlyArray<{ type: string; id: string }>,
+  userId: string | null | undefined,
+  workspaceId?: string | null,
+): Promise<Set<string>> {
+  const asked = new Map<string, { type: string; id: string }>()
+  const privateRefs: Array<{ type: string; id: string }> = []
+  for (const r of refs) {
+    if (typeof r?.type !== 'string' || typeof r.id !== 'string' || !isLinkFencedKind(r.type)) continue
+    if (isPrivateGraphKind(r.type)) privateRefs.push(r)
+    else asked.set(`${r.type}:${r.id}`, r)
+  }
+  const [hiddenPrivate, hiddenOther] = await Promise.all([
+    privateRefs.length > 0 ? hiddenPrivateRefs(supabase, privateRefs, userId, workspaceId) : Promise.resolve(new Set<string>()),
+    asked.size > 0 ? hiddenByRule(supabase, asked, userId, workspaceId) : Promise.resolve(new Set<string>()),
+  ])
+  return new Set([...hiddenPrivate, ...hiddenOther])
+}
+
+async function hiddenByRule(
+  supabase: SupabaseClient,
+  asked: ReadonlyMap<string, { type: string; id: string }>,
+  userId: string | null | undefined,
+  workspaceId: string | null | undefined,
+): Promise<Set<string>> {
+  const all = new Set(asked.keys())
+  let rows: unknown
+  try {
+    const { data, error } = await supabase.rpc('entity_refs_hidden', {
+      p_user: userId ?? null,
+      p_workspace: workspaceId ?? null,
+      p_types: [...asked.values()].map((r) => r.type),
+      p_ids: [...asked.values()].map((r) => r.id),
+    })
+    if (error) {
+      console.warn('[entity-fences] entity_refs_hidden failed:', error.message)
+      return all
+    }
+    rows = data ?? []
+  } catch (err) {
+    console.warn('[entity-fences] entity_refs_hidden threw:', err instanceof Error ? err.message : 'unknown')
+    return all
+  }
+  if (!Array.isArray(rows)) return all
+  // Postgres answers ids in lower case; compare so, keep the caller's keys.
+  const hiddenLower = new Set(
+    (rows as Array<{ entity_type?: unknown; entity_id?: unknown }>)
+      .filter((r) => typeof r?.entity_type === 'string' && typeof r.entity_id === 'string')
+      .map((r) => `${r.entity_type as string}:${(r.entity_id as string).toLowerCase()}`),
+  )
+  const out = new Set<string>()
+  for (const [key, r] of asked) if (hiddenLower.has(`${r.type}:${r.id.toLowerCase()}`)) out.add(key)
+  return out
 }

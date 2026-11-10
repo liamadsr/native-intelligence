@@ -27,6 +27,7 @@ import { getToolSideEffect } from '@/lib/ai/tool-registry'
 import type { WorkDeliverable } from './types'
 import type { VerdictLedgerEntry } from '@/lib/flows/types'
 import { bareToolName } from '@/lib/mcp/tool-names'
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 
 export const TOUCH_VERBS = ['read', 'wrote', 'created', 'proposed', 'delivered'] as const
 export type TouchVerb = (typeof TOUCH_VERBS)[number]
@@ -170,7 +171,8 @@ function outputVerb(toolName: string): TouchVerb | null {
 function push(out: TouchRef[], seen: Set<string>, entityType: string, entityId: unknown, verb: TouchVerb): void {
   if (out.length >= TOUCHES_PER_EVENT_MAX) return
   if (!isUuid(entityId)) return
-  const type = entityType.trim().toLowerCase()
+  // A retired kind name (a model's `email`) is recorded under its current one.
+  const type = canonicalEntityType(entityType.trim().toLowerCase())
   if (!type || type.length > 40) return
   const key = `${type}:${entityId.toLowerCase()}:${verb}`
   if (seen.has(key)) return

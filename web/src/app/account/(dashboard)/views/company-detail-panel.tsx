@@ -51,6 +51,8 @@ import type { ViewFilter } from '@/lib/views/types'
 import { useEntityDetailSync } from '@/hooks/use-entity-sync'
 import { emitEntityUpdated } from '@/lib/entity-events'
 import { CompanyDeleteDialog } from '@/components/views/bulk-actions/company-delete-dialog'
+import { ShareDialog } from '../components/share-dialog'
+import { useWorkspaces } from '@/app/account/workspace-switcher'
 
 // ============================================================
 // Types
@@ -162,6 +164,10 @@ export function CompanyDetailPanel({
   const panelBodyRef = useRef<HTMLDivElement>(null)
   const propertiesOpen = usePropertiesVisible(panelBodyRef)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  // Who may share a company (492's entity_access_can_share): an owner or admin.
+  const { workspaces, currentId } = useWorkspaces()
+  const myRole = workspaces.find((w) => w.id === currentId)?.role
+  const canShareCompanies = myRole === 'owner' || myRole === 'admin'
   const [activeTab, setActiveTab] = usePanelSection<CompanySection>(section, onSectionChange, 'overview', COMPANY_SECTIONS)
 
   const nameTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -324,6 +330,9 @@ export function CompanyDetailPanel({
                     the provenance under Enrichment in the properties sidebar. */}
           {company && <EnrichButton onClick={enrich} busy={enriching} />}
           {company && <EntityActionsMenu entity={{ type: 'company', id: companyId, label: company.name }} omit={PANEL_OMIT} />}
+          {/* Share with people, teams and channels (migrations 492, 512): only
+                    an owner or admin may share a company, so no one else sees it. */}
+          {company && canShareCompanies && <ShareDialog shareableType="company" shareableId={companyId} />}
           {/* Delete — cascades to every person at the company, so the dialog
                     dry-runs the delete and shows the exact people count first. */}
           <PreferenceActionButton

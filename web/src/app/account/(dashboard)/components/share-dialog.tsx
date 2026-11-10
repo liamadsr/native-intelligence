@@ -60,12 +60,24 @@ interface Share {
 }
 
 interface ShareDialogProps {
-  shareableType: 'capture' | 'document'
+  /**
+   * A company has no public link or email share (the shares table holds
+   * captures and documents): its dialog is only the people, teams and
+   * channels it is shared with (EntityAccessSection, migrations 492 and 512).
+   */
+  shareableType: 'capture' | 'document' | 'company'
   shareableId: string
   trigger?: React.ReactNode
 }
 
+const TITLE: Record<ShareDialogProps['shareableType'], string> = {
+  capture: 'Share Capture',
+  document: 'Share Document',
+  company: 'Share Company',
+}
+
 export function ShareDialog({ shareableType, shareableId, trigger }: ShareDialogProps) {
+  const linkSharing = shareableType !== 'company'
   const [open, setOpen] = useState(false)
   const [shares, setShares] = useState<Share[]>([])
   const [loading, setLoading] = useState(false)
@@ -94,8 +106,8 @@ export function ShareDialog({ shareableType, shareableId, trigger }: ShareDialog
   }, [shareableType, shareableId])
 
   useEffect(() => {
-    if (open) fetchShares()
-  }, [open, fetchShares])
+    if (open && linkSharing) fetchShares()
+  }, [open, linkSharing, fetchShares])
 
   async function toggleLinkShare() {
     setTogglingLink(true)
@@ -214,12 +226,12 @@ export function ShareDialog({ shareableType, shareableId, trigger }: ShareDialog
       )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-base">
-            Share {shareableType === 'capture' ? 'Capture' : 'Document'}
-          </DialogTitle>
+          <DialogTitle className="text-base">{TITLE[shareableType]}</DialogTitle>
         </DialogHeader>
 
-        {loading ? (
+        {!linkSharing ? (
+          <EntityAccessSection type={shareableType} id={shareableId} standalone />
+        ) : loading ? (
           <div className="flex items-center justify-center py-8">
             <ThinkingOrb state="connecting" size={20} theme="auto" />
           </div>

@@ -166,10 +166,21 @@ describe('migration 341: a claim is readable only when one of its sources is', (
     // 365 (documents phase 1) hybrid_search on 353's, changing only its
     // document branch; the assertions below read the latest definition, so
     // 341's rules stay pinned. 369 (private documents) redefines all three on
-    // those bodies, adding only a document arm (migration-369.test.ts).
+    // those bodies, adding only a document arm (migration-369.test.ts). 503
+    // (one name for mail) redefines claim_neighborhood on 369's, changing
+    // only its two mail checks to name `email_thread` too (migration-503.test.ts).
+    // 506 (the agent reads shared records) redefines hybrid_search on 369's,
+    // adding only a grant arm to its capture and document predicates
+    // (migration-506.test.ts); its claim arms are untouched.
     for (const fn of ['claim_visible_to', 'hybrid_search', 'claim_neighborhood']) {
       expect(
-        ['341_hide_mail_claims.sql', '353_learn_by_default.sql', ...(fn === 'hybrid_search' ? ['365_document_search_everywhere.sql'] : []), '369_document_visibility.sql'],
+        [
+          '341_hide_mail_claims.sql',
+          '353_learn_by_default.sql',
+          ...(fn === 'hybrid_search' ? ['365_document_search_everywhere.sql', '506_agent_reads_shared_records.sql'] : []),
+          '369_document_visibility.sql',
+          ...(fn === 'claim_neighborhood' ? ['503_one_name_for_mail.sql'] : []),
+        ],
         fn,
       ).toContain(latestDefinition(fn).file)
     }
@@ -199,8 +210,9 @@ describe('migration 341: a claim is readable only when one of its sources is', (
     const [hybrid] = latestDefinition('hybrid_search').blocks
     expect(hybrid).toContain("WHEN 'email' THEN FALSE")
     const [hood] = latestDefinition('claim_neighborhood').blocks
-    expect(hood).toContain("IF p_entity_type = 'email'")
-    expect(hood).toContain("AND nxt.node_type <> 'email'")
+    // Mail under either name: the graph's retired `email` and `email_thread` (503).
+    expect(hood).toContain("IF p_entity_type IN ('email', 'email_thread')")
+    expect(hood).toContain("AND nxt.node_type NOT IN ('email', 'email_thread')")
   })
 
   /** One `CREATE OR REPLACE FUNCTION private.<fn>()` statement, through its closing semicolon. */

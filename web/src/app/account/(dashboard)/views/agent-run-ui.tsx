@@ -31,6 +31,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 import {
   isAgentRunLive,
   type AgentRunStatus,
@@ -256,7 +257,7 @@ const RESOURCE_TYPE_ICONS: Record<string, LucideIcon> = {
   action: SquareCheckBig,
   initiative: Target,
   cycle: RefreshCw,
-  email: Mail,
+  email_thread: Mail,
   attachment: Paperclip,
   member: User,
   conversation: MessageSquare,
@@ -310,7 +311,7 @@ export function WorkResources({
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">{label}</p>
       <div className="flex flex-wrap gap-1.5">
         {resources.map((r, i) => {
-          const Icon = RESOURCE_TYPE_ICONS[r.type]
+          const Icon = RESOURCE_TYPE_ICONS[canonicalEntityType(r.type)]
           const icon = Icon ? (
             <Icon className="h-3 w-3 shrink-0 text-muted-foreground/70" />
           ) : null

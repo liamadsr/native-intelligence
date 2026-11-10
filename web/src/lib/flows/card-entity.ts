@@ -15,6 +15,7 @@
  * Only uuid-shaped ids are stamped; anything else stays NULL (the columns are
  * uuid, and a model-authored id must never fail the insert).
  */
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -32,14 +33,15 @@ export function cardEntityRef(kind: string, payload: Record<string, unknown>): C
   const captureId = uuidOrNull(payload.capture_id)
 
   const directId = uuidOrNull(payload.entity_id)
-  const directType = typeof payload.entity_type === 'string' && payload.entity_type.trim() ? payload.entity_type.trim() : null
+  // A retired kind name (`email`) reads as its current one, as everywhere.
+  const directType = typeof payload.entity_type === 'string' && payload.entity_type.trim() ? canonicalEntityType(payload.entity_type.trim()) : null
   if (directId && directType) return { entityType: directType, entityId: directId, captureId }
 
   if (kind === 'work_proposal' && Array.isArray(payload.resources)) {
     for (const entry of payload.resources) {
       if (!entry || typeof entry !== 'object') continue
       const e = entry as Record<string, unknown>
-      const type = typeof e.type === 'string' ? e.type.trim() : ''
+      const type = typeof e.type === 'string' ? canonicalEntityType(e.type.trim()) : ''
       const id = uuidOrNull(e.id)
       if (!type || type === 'package' || !id) continue
       return { entityType: type, entityId: id, captureId }

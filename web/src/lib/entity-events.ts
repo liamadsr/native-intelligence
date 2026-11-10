@@ -26,7 +26,8 @@
  *
  *   email_thread — Realtime is handled bespoke in email-layout.tsx (its own
  *   channel on email_thread_index with provider-id matching), NOT through
- *   use-realtime-entities.ts. In-tab/cross-tab emits still work normally.
+ *   use-realtime-entities.ts (the registry's `realtime: false`). In-tab and
+ *   cross-tab emits still work normally.
  *
  * The kinds come from the entity registry (src/lib/knowledge/entity-registry.ts):
  * add a kind there, never here. Its `realtime` flag decides whether
@@ -35,14 +36,22 @@
  * kind without a realtime source only updates the emitting browser, never
  * teammates or MCP/cron writes.
  *
- * Two kinds are not registry entries:
- *   entity_link  — an edge between entities, not an entity.
- *   email_thread — the UI's name for the registry's `email` kind (same
- *                  email_thread_index row). `email` is the stored graph value
- *                  (entity_link / claim rows), so unifying the two names needs
- *                  a data migration.
+ * One kind is not a registry entry:
+ *   entity_link — an edge between entities, not an entity.
+ *
+ * Mail has one name, `email_thread` (migration 503 retired the graph's
+ * `email`). An event that still says `email` (another tab running an older
+ * build) is read as `email_thread`: the cross-tab bridge and the listener
+ * helpers below normalise every detail's kind on the way in.
  */
-export type EntityKind = EntityType | 'entity_link' | 'email_thread'
+export type EntityKind = EntityType | 'entity_link'
+
+/** A detail whose kind is a retired name (RETIRED_ENTITY_TYPE_NAMES), read under its current one. */
+function withCurrentKind<D extends { entityType: EntityKind }>(detail: D): D {
+  if (!detail || typeof detail.entityType !== 'string') return detail
+  const kind = canonicalEntityType(detail.entityType)
+  return kind === detail.entityType ? detail : { ...detail, entityType: kind }
+}
 
 export interface EntityUpdatedDetail {
   entityType: EntityKind
@@ -85,7 +94,7 @@ export interface EntityCreatedDetail {
 // early app boot before the workspace context has been set.
 
 import { getClientWorkspaceId } from '@/lib/workspace-fetch'
-import type { EntityType } from '@/lib/knowledge/entity-registry'
+import { canonicalEntityType, type EntityType } from '@/lib/knowledge/entity-registry'
 
 const BROADCAST_CHANNEL_NAME = 'ni:entity-events'
 const TAB_ID =
@@ -127,7 +136,7 @@ if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       env.kind === 'updated' ? 'ni:entity-updated'
       : env.kind === 'deleted' ? 'ni:entity-deleted'
       : 'ni:entity-created'
-    window.dispatchEvent(new CustomEvent(eventName, { detail: env.detail }))
+    window.dispatchEvent(new CustomEvent(eventName, { detail: withCurrentKind(env.detail) }))
   }
 }
 
@@ -217,14 +226,14 @@ export function emitEntityCreated(detail: EntityCreatedDetail, opts?: EmitOption
 
 export function onEntityUpdated(handler: (detail: EntityUpdatedDetail) => void) {
   if (typeof window === 'undefined') return () => {}
-  const wrapped = (e: Event) => handler((e as CustomEvent).detail as EntityUpdatedDetail)
+  const wrapped = (e: Event) => handler(withCurrentKind((e as CustomEvent).detail as EntityUpdatedDetail))
   window.addEventListener('ni:entity-updated', wrapped)
   return () => window.removeEventListener('ni:entity-updated', wrapped)
 }
 
 export function onEntityDeleted(handler: (detail: EntityDeletedDetail) => void) {
   if (typeof window === 'undefined') return () => {}
-  const wrapped = (e: Event) => handler((e as CustomEvent).detail as EntityDeletedDetail)
+  const wrapped = (e: Event) => handler(withCurrentKind((e as CustomEvent).detail as EntityDeletedDetail))
   window.addEventListener('ni:entity-deleted', wrapped)
   return () => window.removeEventListener('ni:entity-deleted', wrapped)
 }

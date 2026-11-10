@@ -10,6 +10,8 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   emitEntityUpdated,
   markLocallyMutated,
+  onEntityDeleted,
+  onEntityUpdated,
   wasRecentlyMutatedLocally,
 } from '../entity-events'
 
@@ -74,5 +76,41 @@ describe('emit-side arming', () => {
     }
     expect(seen).toHaveLength(1)
     expect(wasRecentlyMutatedLocally('action', 'act-emit-3')).toBe(false)
+  })
+})
+
+describe('a retired kind name on the bus (migration 503)', () => {
+  it("a listener reads another build's `email` as `email_thread`", () => {
+    const seen: string[] = []
+    const off = onEntityUpdated((d) => seen.push(d.entityType))
+    window.dispatchEvent(new CustomEvent('ni:entity-updated', { detail: { entityType: 'email', id: 'th-1', fields: {} } }))
+    window.dispatchEvent(new CustomEvent('ni:entity-updated', { detail: { entityType: 'action', id: 'a-1', fields: {} } }))
+    off()
+    expect(seen).toEqual(['email_thread', 'action'])
+  })
+
+  it('a deleted event is read the same way', () => {
+    const seen: string[] = []
+    const off = onEntityDeleted((d) => seen.push(d.entityType))
+    window.dispatchEvent(new CustomEvent('ni:entity-deleted', { detail: { entityType: 'email', id: 'th-2' } }))
+    off()
+    expect(seen).toEqual(['email_thread'])
+  })
+
+  it.skipIf(typeof BroadcastChannel === 'undefined')("another tab's `email` arrives as `email_thread`", async () => {
+    const seen: string[] = []
+    const got = new Promise<void>((resolve) => {
+      const handler = (e: Event) => {
+        seen.push((e as CustomEvent).detail.entityType)
+        window.removeEventListener('ni:entity-updated', handler)
+        resolve()
+      }
+      window.addEventListener('ni:entity-updated', handler)
+    })
+    const other = new BroadcastChannel('ni:entity-events')
+    other.postMessage({ kind: 'updated', src: 'another-tab', ws: null, detail: { entityType: 'email', id: 'th-3', fields: {} } })
+    await got
+    other.close()
+    expect(seen).toEqual(['email_thread'])
   })
 })

@@ -3,9 +3,11 @@
  * on a SERVICE-ROLE client (eve chat / live-agent tool routes), where the
  * contact table's RLS (mig 058) does not hide another member's private
  * contact, and claim_neighborhood joins contact.full_name with no contact
- * check. So a contact node the caller cannot see keeps its id and relation but
- * its label is PRIVATE_CONTACT_LABEL — never the name — fenced through
- * contact_visible_to(contact, userId), failing closed.
+ * check. So a contact the caller cannot see is fenced twice: its edges are
+ * left out, id and all (migration 500: an edge follows both its ends, asked of
+ * entity_refs_hidden), and a label that still reached the resolver would be
+ * PRIVATE_CONTACT_LABEL — never the name — through contact_visible_to
+ * (contact, userId). Both fail closed.
  */
 import { describe, it, expect, vi } from 'vitest'
 import type { ToolExecutionOptions } from 'ai'
@@ -49,6 +51,13 @@ function db(opts: {
   }
   const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
     if (fn === 'claim_neighborhood') return { data: opts.bundle ?? null, error: null }
+    if (fn === 'entity_refs_hidden') {
+      // The edge fence (migration 500), answered from the same visibility map.
+      const ids = args.p_ids as string[]
+      const seen = ids.map((id) => [id, opts.visibility[id] ?? true] as const)
+      if (seen.some(([, v]) => v === 'error')) return { data: null, error: { message: 'rpc down' } }
+      return { data: seen.filter(([, v]) => v === false).map(([id]) => ({ entity_type: 'contact', entity_id: id })), error: null }
+    }
     if (fn !== 'contact_visible_to') return { data: null, error: { message: `unexpected rpc ${fn}` } }
     rpcUsers.push(args.p_user_id as string)
     const v = opts.visibility[args.p_contact_id as string] ?? true
@@ -72,7 +81,7 @@ const TABLES = {
 }
 
 describe('traverse — contact neighbor labels are fenced (service role: contact_visible_to)', () => {
-  it("a hidden contact keeps its id but never its name; visible ones and other types resolve", async () => {
+  it('a hidden contact is left out, id and all; visible ones and other types resolve', async () => {
     const { client, rpcUsers } = db({ tables: TABLES, visibility: { 'ct-private': false } })
     const res = (await createClaimTools(USER, client, WS).traverse.execute!(
       { entity_type: 'project', entity_id: 'prj-1', direction: 'outbound' } as never,
@@ -81,11 +90,11 @@ describe('traverse — contact neighbor labels are fenced (service role: contact
 
     expect(res.success).toBe(true)
     expect(res.outbound.map((e) => [e.target_id, e.label])).toEqual([
-      ['ct-private', PRIVATE_CONTACT_LABEL],
       ['ct-shared', 'Sam Shared'],
       ['prj-2', 'Launch'],
     ])
     expect(JSON.stringify(res)).not.toContain('Ana Private')
+    expect(JSON.stringify(res)).not.toContain('ct-private')
     // Fenced against the tool's (verified) user.
     expect(new Set(rpcUsers)).toEqual(new Set([USER]))
   })
@@ -97,7 +106,7 @@ describe('traverse — contact neighbor labels are fenced (service role: contact
       { entity_type: 'project', entity_id: 'prj-1', direction: 'outbound' } as never,
       EXEC,
     )) as { outbound: Array<{ label: string | null }> }
-    expect(res.outbound.map((e) => e.label)).toEqual([PRIVATE_CONTACT_LABEL, PRIVATE_CONTACT_LABEL, 'Launch'])
+    expect(res.outbound.map((e) => e.label)).toEqual(['Launch'])
   })
 
   it('issues no visibility RPC when no contact is among the neighbors', async () => {
@@ -122,7 +131,7 @@ describe('get_context_bundle — claim_neighborhood contact labels are fenced', 
     edges: [],
   }
 
-  it("a hidden contact node keeps its id but never its name", async () => {
+  it('a hidden contact node is left out', async () => {
     const { client, rpcUsers } = db({ tables: {}, visibility: { 'ct-private': false }, bundle })
     const res = (await createClaimTools(USER, client, WS).get_context_bundle.execute!(
       { entity_type: 'project', entity_id: 'prj-1' } as never,
@@ -132,7 +141,6 @@ describe('get_context_bundle — claim_neighborhood contact labels are fenced', 
     expect(res.success).toBe(true)
     expect(res.nodes.map((n) => [n.node_id, n.label])).toEqual([
       ['prj-1', 'Pricing'],
-      ['ct-private', PRIVATE_CONTACT_LABEL],
       ['ct-shared', 'Sam Shared'],
     ])
     expect(JSON.stringify(res)).not.toContain('Ana Private')
