@@ -54,14 +54,14 @@ This replaces the contents of the running Inngest database with one backup.
    sudo docker compose stop inngest
    ```
 
-3. Restore. Put the path from step 1 in place of the example. The file is decrypted as it is read and goes straight into `pg_restore`; nothing is written to disk.
+3. Restore. Put the path from step 1 in place of the example. The file is decrypted as it is read and goes straight into `pg_restore`; nothing is written to disk. It runs as one transaction: if anything fails part way (the download included), the database is left exactly as it was.
 
    ```bash
    cd /opt/native-intelligence/deploy/backup
    ```
 
    ```bash
-   sudo docker compose exec backup sh -c 'rclone cat "vault:inngest/2026/11/inngest-20261109T071700Z.dump" | PGPASSWORD="$BACKUP_INNGEST_PGPASSWORD" pg_restore --host ni-inngest-postgres --username inngest --dbname inngest --clean --if-exists --no-owner --exit-on-error'
+   sudo docker compose exec backup sh -c 'rclone cat "vault:inngest/2026/11/inngest-20261109T071700Z.dump" | PGPASSWORD="$BACKUP_INNGEST_PGPASSWORD" pg_restore --host ni-inngest-postgres --username inngest --dbname inngest --clean --if-exists --no-owner --single-transaction --exit-on-error'
    ```
 
    No output and exit status 0 is success.

@@ -116,7 +116,7 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 ```
 
-Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: 08:30 is the middle of the night in Virginia. The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
+Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: keep 08:30 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it). The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
 
 ```bash
 sudo tee /etc/apt/apt.conf.d/52ni-unattended-upgrades >/dev/null <<'EOF'
@@ -213,6 +213,12 @@ sudo systemctl restart docker && sudo systemctl enable docker
 sudo docker run --rm hello-world
 ```
 
+One kernel setting, for Redis (Inngest's queue). Redis saves to disk by forking, and without this the fork can be refused when memory is tight, after which Redis stops accepting writes. Redis prints a warning at every start until it is set.
+
+```bash
+echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/90-ni-redis.conf >/dev/null && sudo sysctl --system >/dev/null && sysctl vm.overcommit_memory
+```
+
 `deploy` is deliberately **not** added to the `docker` group: membership is the same as being root without a password. Every Docker command here is run with `sudo`, which is also what lets it read the root-only `.env` files.
 
 ## 7. The files
@@ -223,8 +229,10 @@ Only this folder is needed on the server, so only this folder (and the repositor
 sudo install -d -o deploy -g deploy /opt/native-intelligence
 ```
 
+Put this repository's HTTPS address (the one on its GitHub page, ending in `/native-intelligence.git`) in place of `<repository URL>`. The repository is public, so no login is needed.
+
 ```bash
-git clone --depth 1 --filter=blob:none --sparse https://github.com/liamadsr/native-intelligence.git /opt/native-intelligence
+git clone --depth 1 --filter=blob:none --sparse <repository URL> /opt/native-intelligence
 ```
 
 ```bash
@@ -252,7 +260,7 @@ Docker networks  ni-edge      shared by Caddy and whatever it proxies to (172.30
 - never in git (`deploy/.gitignore` refuses them);
 - a copy of each, filled in, in the password manager. They are the only thing you need to rebuild the server.
 
-Each one is created the same way, shown in the steps below: `sudo install -m 600 -o root -g root .env.example .env`, then `sudoedit .env`.
+Each one is created the same way, shown in the steps below: `sudo install -m 600 -o root -g root .env.example .env`, then `sudo nano .env`. (Not `sudoedit`: it refuses to edit a file in a folder your own user can write to, which this checkout is.)
 
 **The shared network.** Create it once. Caddy and Inngest both join it by name, and the fixed range is what gives the Inngest dashboard a fixed address for the tunnel in step 10. `--ip-range` makes Docker hand out addresses from the upper half only (`.128` and up), so the lower half is free for fixed addresses such as Inngest's `172.30.0.10`. Without it, any container that joined first could be given that address, and Inngest would then fail to start.
 
@@ -287,7 +295,7 @@ sudo install -m 600 -o root -g root .env.example .env
 ```
 
 ```bash
-sudoedit .env
+sudo nano .env
 ```
 
 Fill in `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY`, `POSTGRES_PASSWORD` and `INNGEST_SDK_URL`. The last is the app's public serve endpoint, `https://<the app's production domain>/api/inngest`: the domain production answers on today, without a redirect. Nothing uses it until step 13: only the sync loop reads it, and the server itself is not given the app's address. Leave `COMPOSE_PROFILES` commented until step 13.
@@ -331,7 +339,7 @@ sudo install -m 600 -o root -g root .env.example .env
 ```
 
 ```bash
-sudoedit .env
+sudo nano .env
 ```
 
 Set `SUPABASE_UPSTREAM` to the hosted Supabase project's URL (`https://<project ref>.supabase.co`, no trailing slash). That makes `sb.nativeintelligence.dev` a plain pass-through to the hosted project: nothing uses it until the app is pointed at it, and when Supabase moves to this server only this one value changes.
@@ -415,7 +423,7 @@ sudo install -m 600 -o root -g root .env.example .env
 ```
 
 ```bash
-sudoedit .env
+sudo nano .env
 ```
 
 Fill in the B2 values, `BACKUP_PASSWORD`, `BACKUP_SALT`, `BACKUP_INNGEST_PGPASSWORD` (the Postgres password from step 8) and `BACKUP_INNGEST_PING_URL`.
@@ -461,9 +469,9 @@ Its output goes to the system log: `sudo journalctl -t ni-inngest-prune`.
 
 ## 13. Pointing the app at this server
 
-Until this step the server is idle and the app still uses Inngest Cloud. The switch is four environment variables on the app, the app-side pull request, and one line here. Do them together.
+Until this step the server is idle and the app still uses Inngest Cloud. The switch is four environment variables on the app, the app-side pull request, and one line here. Do them in this order, in one sitting.
 
-1. **Know what is left behind.** Runs that are in flight on Inngest Cloud (sleeping, waiting, queued) do not move. Let them finish first or accept losing them.
+1. **Know what is left behind.** Nothing moves from Inngest Cloud to this server. Runs that are in flight there (sleeping, waiting, queued) will fail once the app's keys change: let them finish first or accept losing them.
 2. **In the app's production environment**, set:
 
    | Variable | Value |
@@ -473,26 +481,36 @@ Until this step the server is idle and the app still uses Inngest Cloud. The swi
    | `INNGEST_SIGNING_KEY` | the signing key from step 8 |
    | `INNGEST_EVENT_KEY` | the event key from step 8 |
 
-   If the Inngest integration is installed on the hosting account, remove it from this project first: it manages the last two variables and would put the Inngest Cloud values back.
-3. **Merge the app-side pull request** (the one that renames the Inngest app to `native-intelligence` and removes the old sync cron) and let production deploy with the new variables.
-4. **Turn on the sync loop here.** In `/opt/native-intelligence/deploy/inngest/.env`, uncomment `COMPOSE_PROFILES=sync`, then:
+   If the Inngest integration is installed on the hosting account, remove it from this project first: it manages the last two variables and would put the Inngest Cloud values back. The new values only take effect in the next deployment.
+3. **Merge the app-side pull request** (the one that renames the Inngest app to `native-intelligence` and removes the old sync cron). Production starts building with the new variables.
+4. **While it builds, turn on the sync loop here.** In `/opt/native-intelligence/deploy/inngest/.env`, uncomment `COMPOSE_PROFILES=sync`, then:
 
    ```bash
    cd /opt/native-intelligence/deploy/inngest && sudo docker compose up -d
    ```
 
+   Until the new deployment is live the loop reaches the old one, which answers by registering with Inngest Cloud, as it always has. That is harmless for a few minutes, and it means the new deployment is asked within a minute of going live.
+5. **The moment the new deployment is live, make it register**, without waiting for that minute. Until the app has registered here, the events it sends arrive and start nothing, and they are not replayed.
+
+   ```bash
+   curl -sS -X PUT https://<the app's production domain>/api/inngest
+   ```
+
+   It must answer `"Successfully registered"` (with `"modified":false` if the loop got there first). Then look in the dashboard (step 10): the app `native-intelligence` must show its functions and no error, at the address in `INNGEST_SDK_URL`. The dashboard is the proof. The answer above, and the sync loop's log, only say that the app registered somewhere.
+6. **Archive the app in Inngest Cloud.** Otherwise its scheduled functions keep calling production on every tick and are refused, because the keys no longer match.
+7. **Watch one real run** go through in the dashboard, and look at the sync loop once:
+
    ```bash
    sudo docker compose logs --tail 20 sync
    ```
 
-   Within a minute it should log `functions changed`. In the dashboard (step 10) the app `native-intelligence` must show its functions and no error, at the URL from `INNGEST_SDK_URL`.
-5. **Watch one real run** go through in the dashboard.
+   It logs its first answer, later changes to the function list, and failures. Silence after that is the normal state.
 
 Why the sync loop exists: `inngest start` only asks an app for its function list while that app is in an error state. A deploy that adds or changes a function would otherwise never reach the server. The server is deliberately not started with the app's address (`--sdk-url`): given one, it sends the app a sync request at startup and then every minute until the app registers with it, and before this step each of those would make production re-register with Inngest Cloud. The loop sends the app the same request every 60 seconds (`SYNC_INTERVAL_SECONDS`); a registration that changes nothing is ignored. It is kept off before this step because the app registers with whichever Inngest *it* is configured for.
 
 If the app's host puts a bot challenge or deployment protection in front of the production domain, `/api/inngest` has to be exempt: the server calls it from this machine's address, and so does the sync loop.
 
-To go back: restore the four variables to their Inngest Cloud values, redeploy the previous build, and comment `COMPOSE_PROFILES` again followed by `sudo docker compose stop sync`.
+**Rolling the app back goes back to Inngest Cloud.** A deployment keeps the environment it was built with. Rolling production back to a deployment from before this step therefore also puts the Inngest Cloud keys back: the app sends its events there again and refuses this server's requests. That is the way to undo the cut-over on purpose (then comment `COMPOSE_PROFILES` again and run `sudo docker compose stop sync`, and restore the four variables so the next deployment matches). It is also what an "instant rollback" for an unrelated bug does without saying so: after this step, fix forward, or roll back only to deployments made after it.
 
 ## Day to day
 
@@ -542,28 +560,29 @@ Tested, on a throwaway Docker host with the real images (Inngest v1.51.0, Postgr
 
 - All three compose files (`docker compose config`), the Caddyfile (`caddy validate`, `caddy fmt`), and the scripts (ShellCheck).
 - Inngest starts healthy from `inngest/compose.yaml`, migrates Postgres, uses the external Redis, and publishes nothing.
-- The allowlist: the five requests work, everything else is a `404` that never reaches Inngest, including path tricks; no key in the logs.
+- The allowlist: the five requests work, everything else is a `404` that never reaches Inngest, including path tricks. No key in the access log, nor in the error Caddy logs when Inngest is down.
 - A full sync and every kind of run listed above, through Caddy, with checkpointing on and with it switched off for the whole client.
-- The sync loop picks up a changed function list by itself; without it the server did not, for as long as it was watched.
+- The server as `inngest/compose.yaml` runs it, without `--sdk-url`: it sends the app nothing while the sync loop is off, and with the loop on the app registers and its functions run. The loop picks up a changed function list by itself; without it the server did not, for as long as it was watched.
+- The shared network created with `--ip-range` as in step 7: the Inngest server keeps `172.30.0.10` and every other container is given an address from `.128` up.
 - The pass-through host: `Host` rewritten, forwarded headers set and not spoofable, server-sent events and chunked bodies delivered chunk by chunk, a WebSocket held open, a 150-second response delivered.
-- The backup job on its real schedule into a local folder: encrypted at rest, read back, retention, the ping, and the failure paths (no ping, nothing half-written). A restore into the running database, and reading a backup with a second, hand-made rclone config.
+- The backup job on its real schedule into a local folder: encrypted at rest, read back, retention, the ping, and the failure paths (no ping, nothing half-written). A restore into the running database (and one cut off half way, which left the database untouched), and reading a backup with a second, hand-made rclone config.
 - The prune, applied with a zero-day window on a test database: finished runs deleted, a sleeping run and a waiting run untouched, and the waiting run finished normally afterwards.
 - The SSH drop-in against Ubuntu 24.04's sshd, the apt snippets and `daemon.json` (parsed by their own tools).
+- The whole stack killed without warning (the test machine restarted): every container came back by itself with its data, and the next function ran.
 
 **Not tested, because there is no server yet:**
 
-- Steps 2 to 7 as a whole on a real machine: the provider's image, `ufw`, the reboot after upgrades, Docker's install from its repository.
+- Steps 2 to 7 as a whole on a real machine: the provider's image, `ufw`, the reboot after upgrades, Docker's install from its repository, the `sysctl` line, and `sudo nano` on the `.env` files as the `deploy` user.
 - Certificates: Caddy has only run over plain HTTP here. Issuance needs the real DNS names.
 - Anything involving the real app on its real host: the server reaching `/api/inngest`, the 91 real functions, request sizes and timing under load, and whether a bot challenge sits in front of that path.
 - Backblaze B2: uploads, the application key's permissions and deletes for retention ran against a local folder, not B2.
 - The pass-through against the real hosted Supabase project.
 - The monthly cron line and the prune at real table sizes.
-- The server started without `--sdk-url`, which is how `inngest/compose.yaml` now runs it. The stack above was tested with that flag set; the flag was removed afterwards, from reading the server's source (`pkg/devserver/service.go` at v1.51.0), because with it an idle server asks production to sync every minute. Registration through the sync loop, the path cut-over uses, was tested. Check on first start that the server comes up healthy and, at step 13, that the app appears.
-- The `--ip-range` on the shared network (step 7): added afterwards for the same reason, not run.
 
 **Open items:**
 
 - **Runs in flight are not backed up.** They live in Redis. See [`backup/README.md`](backup/README.md).
 - **One kind of row is never pruned.** Inngest writes a small `traces` row for every received event and every cron tick under an all-zero run id. The server's retention guide does not mention them, so the prune script leaves them and prints their count and size each time it runs. If that number becomes large, decide then.
 - **The sync loop is a workaround** for `inngest start` not re-syncing a healthy app in v1.51.0. If a later version does it itself, remove the `sync` service.
+- **A Caddy reload closes open WebSockets.** Fine today, when nothing uses the `sb.` host. Once Supabase Realtime goes through it, `stream_close_delay` in the Caddyfile is the setting to look at.
 - **Postgres has no tuning.** It runs with the image's defaults, which is fine to start with on this machine.

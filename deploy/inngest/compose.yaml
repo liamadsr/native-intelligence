@@ -70,9 +70,9 @@ services:
   # Keeps the function list current. `inngest start` does not re-sync an app
   # that synced without an error (v1.51.0 wires its "poll" switch to
   # `inngest dev` only), so a deploy that adds or changes a function would
-  # never reach the server. This sends the app the same PUT the server's own
-  # poll sends, every minute; the app answers by registering with the server.
-  # A registration that changes nothing is a no-op on the server.
+  # never reach the server. This sends the app a PUT every minute, the same
+  # request the server's own poll would send; the app answers by registering
+  # with the server. A registration that changes nothing is a no-op there.
   #
   # Off until COMPOSE_PROFILES=sync is set in .env, which is done at cut-over:
   # the app registers with whichever Inngest IT is configured for, so before
@@ -86,8 +86,19 @@ services:
     environment:
       INNGEST_SDK_URL: ${INNGEST_SDK_URL:?set INNGEST_SDK_URL in .env}
       SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-60}
+    # The app registers with the server, so the server has to be up first.
+    depends_on:
+      inngest:
+        condition: service_healthy
     volumes:
-      - ./sync.sh:/usr/local/bin/ni-sync:ro
+      # Long form so a missing file is an error. The short form would create
+      # an empty folder called sync.sh and mount that.
+      - type: bind
+        source: ./sync.sh
+        target: /usr/local/bin/ni-sync
+        read_only: true
+        bind:
+          create_host_path: false
     entrypoint: ["/bin/sh", "/usr/local/bin/ni-sync"]
     networks:
       # Only needs a way out to the app.

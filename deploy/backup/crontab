@@ -10,7 +10,7 @@
 
 # min hour day month weekday  command
 
-# Inngest's Postgres, nightly (02:17 or 03:17 in Virginia).
+# Inngest's Postgres, nightly.
 17 7 * * * backup-postgres inngest >/proc/1/fd/1 2>&1
 
 # The app's own database, hourly, once it lives on this server:

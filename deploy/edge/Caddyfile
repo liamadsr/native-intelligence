@@ -8,6 +8,25 @@
 #   sudo docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
 #   sudo docker compose exec caddy caddy reload   --config /etc/caddy/Caddyfile
 {
+	# Caddy's own log: everything that is not an access log. When an upstream
+	# is down, the error Caddy logs carries the whole request, so the secrets
+	# kept out of the two access logs below are scrubbed here as well: the
+	# Inngest event key in the path, the Supabase key and one-time tokens in
+	# the query string, and any other long run of key characters.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>headers>Apikey delete
+				request>uri multi_regexp {
+					regexp "^/e/[^/?]+" "/e/REDACTED"
+					regexp "([?&](apikey|token|access_token|refresh_token|code)=)[^&]*" "${1}REDACTED"
+					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
+				}
+			}
+		}
+	}
+
 	# Only TCP 80 and 443 are open, so no HTTP/3 (which is UDP 443).
 	servers {
 		protocols h1 h2
