@@ -427,12 +427,27 @@ export async function captureReadAccess(
   workspaceId: string,
   requester: CaptureRequester,
   includeEvalCaptures?: EvalCaptureScope,
+  /** False on a turn that reads no grant (see grantReader): the ungranted rule only. */
+  grants = true,
 ): Promise<ReadAccess> {
   if (await captureVisibleToRequester(supabase, captureId, workspaceId, requester, includeEvalCaptures)) return 'rule'
-  if (!requester) return null
+  if (!requester || !grants) return null
   // withGrantedIds re-reads the row in this workspace and leaves an eval capture out.
   const granted = await withGrantedIds(supabase, { userId: requester, workspaceId }, 'capture', [captureId], [])
   return granted.has(captureId) ? 'grant' : null
+}
+
+/**
+ * WHO A TURN'S GRANTS ARE FOR. A grant shares a record with a person, not
+ * with whoever their agent talks to: a guest's turn and a linked agent's
+ * turn run the owner's tools (src/lib/guests/guest-tools.ts) and must not
+ * pass on what was shared with the owner. Those turns build their tools with
+ * `omitGrants` (CreateToolsOptions), and every grant read then reads
+ * nothing: grantReader hands back null for readGrants and grantedReadIds,
+ * and captureReadAccess / documentReadAccess take `grants: false`.
+ */
+export function grantReader(userId: string | null, omitGrants: boolean | undefined): string | null {
+  return omitGrants ? null : userId
 }
 
 /**
@@ -440,22 +455,30 @@ export async function captureReadAccess(
  * document id in `workspaceId` a grant opens to `userId`, one call per kind
  * (migration 506's entity_grant_ids_for; at most LIST_GRANT_CAP each). For
  * applyCaptureVisibility / applyDocumentVisibility's `granted`, and
- * isCaptureVisible / isDocumentVisible's. Empty for an unattended run
- * (`userId` null) or a failed read. Never for a write gate.
+ * isCaptureVisible / isDocumentVisible's. Empty for an unattended run or a
+ * turn that reads no grant (`userId` null, grantReader) or a failed read.
+ * Never for a write gate. `truncated`: more were shared than a list names,
+ * which the tool says (GRANTS_TRUNCATED_NOTE).
  */
 export async function readGrants(
   supabase: SupabaseClient,
   userId: string | null,
   workspaceId: string,
   kinds: ReadonlyArray<'capture' | 'document'> = ['capture', 'document'],
-): Promise<{ capture: string[]; document: string[] }> {
-  if (!userId) return { capture: [], document: [] }
+): Promise<{ capture: string[]; document: string[]; truncated: boolean }> {
+  if (!userId) return { capture: [], document: [], truncated: false }
+  const none = { ids: [] as string[], truncated: false }
   const [capture, document] = await Promise.all([
-    kinds.includes('capture') ? grantedIdsIn(supabase, { userId, workspaceId }, 'capture') : Promise.resolve([] as string[]),
-    kinds.includes('document') ? grantedIdsIn(supabase, { userId, workspaceId }, 'document') : Promise.resolve([] as string[]),
+    kinds.includes('capture') ? grantedIdsIn(supabase, { userId, workspaceId }, 'capture') : Promise.resolve(none),
+    kinds.includes('document') ? grantedIdsIn(supabase, { userId, workspaceId }, 'document') : Promise.resolve(none),
   ])
-  return { capture, document }
+  return { capture: capture.ids, document: document.ids, truncated: capture.truncated || document.truncated }
 }
+
+/** What a list says when more records were shared with the person than it can name. */
+export const GRANTS_TRUNCATED_NOTE =
+  'More records are shared with you than one list includes: only the most recently shared are here. Open an older one by its id.'
+
 
 /** Ids among `ids` (records of `type` in `workspaceId`) a grant opens to `userId`; none for an unattended run. For a READ only. */
 export async function grantedReadIds(
@@ -559,9 +582,11 @@ export async function documentReadAccess(
   workspaceId: string,
   userId: string,
   omitPrivate?: boolean,
+  /** False on a turn that reads no grant (grantReader): the ungranted rule only. */
+  grants = true,
 ): Promise<ReadAccess> {
   if (await documentVisibleToRequester(supabase, documentId, workspaceId, userId, omitPrivate)) return 'rule'
-  if (omitPrivate) return null
+  if (omitPrivate || !grants) return null
   const granted = await withGrantedIds(supabase, { userId, workspaceId }, 'document', [documentId], [])
   return granted.has(documentId) ? 'grant' : null
 }

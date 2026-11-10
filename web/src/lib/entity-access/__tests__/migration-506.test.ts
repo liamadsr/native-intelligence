@@ -103,7 +103,19 @@ describe('migration 506', () => {
     })
 
     it('hands back the most recently granted first, never null', () => {
-      expect(fn).toContain("select coalesce(array_agg(h.entity_id order by h.last_at desc), '{}'::uuid[]) from hits h;")
+      expect(fn).toContain("select coalesce(array_agg(h.entity_id order by h.last_at desc), '{}'::uuid[]) from hits h where case p_type")
+    })
+
+    it('answers only records that still exist and that only the grant opens (the 200-id lists never fill with dead or redundant ids)', () => {
+      expect(fn).toContain(
+        "when 'document' then exists ( select 1 from public.document d where d.id = h.entity_id and d.workspace_id = p_workspace and d.visibility = 'private' and (d.created_by is null or d.created_by not in (select id from me)))",
+      )
+      expect(fn).toContain(
+        "when 'capture' then exists ( select 1 from public.captures c where c.id = h.entity_id and c.workspace_id = p_workspace and c.visibility = 'private' and c.user_id is distinct from p_user and not c.is_eval)",
+      )
+      expect(fn).toContain("when 'contact' then exists (select 1 from public.contact ct where ct.id = h.entity_id and ct.workspace_id = p_workspace)")
+      expect(fn).toContain("when 'company' then exists (select 1 from public.company co where co.id = h.entity_id and co.workspace_id = p_workspace)")
+      expect(fn).toContain('else false end;')
     })
 
     it('is not for anon', () => {

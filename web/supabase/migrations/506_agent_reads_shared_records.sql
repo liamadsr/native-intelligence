@@ -16,7 +16,10 @@
 --        the member, through a team of the workspace they are in, or
 --        through a channel of the workspace they can read (474's
 --        team_chat_can_read). my_entity_grant_ids (492) for an explicit
---        user and one workspace, most recently granted first. A signed-in
+--        user and one workspace, most recently granted first, and only the
+--        records that still exist and that only the grant opens (another
+--        member's private document or capture, never an eval capture; a
+--        contact or company of the workspace). A signed-in
 --        caller asks only about themself (any other user: none), so it is no
 --        oracle about other people; the service role names the person its
 --        tools act for. No user: none. SECURITY DEFINER, pinned search_path.
@@ -101,7 +104,25 @@ as $$
        )
      group by g.entity_id
   )
-  select coalesce(array_agg(h.entity_id order by h.last_at desc), '{}'::uuid[]) from hits h;
+  -- Only records that still exist here and that only a grant opens: a
+  -- deleted record (grants outlive their record), a workspace-wide one, the
+  -- user's own, or an eval capture never takes a place in the answer (the
+  -- app's lists name at most 200).
+  select coalesce(array_agg(h.entity_id order by h.last_at desc), '{}'::uuid[])
+    from hits h
+   where case p_type
+     when 'document' then exists (
+       select 1 from public.document d
+        where d.id = h.entity_id and d.workspace_id = p_workspace and d.visibility = 'private'
+          and (d.created_by is null or d.created_by not in (select id from me)))
+     when 'capture' then exists (
+       select 1 from public.captures c
+        where c.id = h.entity_id and c.workspace_id = p_workspace and c.visibility = 'private'
+          and c.user_id is distinct from p_user and not c.is_eval)
+     when 'contact' then exists (select 1 from public.contact ct where ct.id = h.entity_id and ct.workspace_id = p_workspace)
+     when 'company' then exists (select 1 from public.company co where co.id = h.entity_id and co.workspace_id = p_workspace)
+     else false
+   end;
 $$;
 
 revoke all on function public.entity_grant_ids_for(text, uuid, uuid) from public, anon;
