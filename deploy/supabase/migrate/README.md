@@ -26,10 +26,10 @@ Two things rclone does to the file records on the way are also undone: it leaves
 On the server, as `deploy`:
 
 1. **The stack is up and empty** ([step 14](../../README.md#14-supabase-the-stack)).
-2. **The Supabase CLI.** `01-dump.sh` uses it; it runs `pg_dump` from Supabase's own Postgres image, in Docker.
+2. **The Supabase CLI.** `01-dump.sh` uses it; it runs `pg_dump` from Supabase's own Postgres image, in Docker. Version 3.1.0 is the one these scripts were rehearsed with, and what its dump leaves out is what `extras.sql` is built around, so that version is the one to install.
 
    ```bash
-   curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz | sudo tar -xz -C /usr/local/bin supabase
+   curl -fsSL https://github.com/supabase/cli/releases/download/v3.1.0/supabase_linux_amd64.tar.gz | sudo tar -xz -C /usr/local/bin supabase
    ```
 
    ```bash
@@ -101,9 +101,9 @@ psql --single-transaction --variable ON_ERROR_STOP=1 \
      --file data.sql
 ```
 
-with the default grants cleared in front and `extras.sql` behind, all in the one transaction, through the pooler as `postgres.<tenant>` as the guide has it. If anything fails, everything is rolled back and the database is empty again. Afterwards it runs `ANALYZE`.
+with the default grants cleared in front and `extras.sql` behind, all in the one transaction, through the pooler as `postgres.<tenant>` as the guide has it. If anything fails, everything is rolled back and the database is empty again, and the whole log of the attempt is kept in the dump folder as `restore-failed-<time>.log`. Afterwards it runs `ANALYZE`.
 
-Without `--final` it is a **rehearsal**: every cron job is paused, because a copy of production must not run production's jobs a second time. At the real switch:
+Without `--final` it is a **rehearsal**: every cron job is paused, because a copy of production must not run production's jobs a second time. The pause is the last statement of that same transaction, so the jobs are never seen active here. At the real switch:
 
 ```bash
 sudo ./02-restore.sh dumps/<folder> --final
@@ -129,7 +129,7 @@ For each bucket: copy, set the records' user metadata and `updated_at` back to t
 sudo ./04-verify.sh
 ```
 
-Read-only on both sides. Describes each database in a few thousand lines (one per table, policy, function and so on) and prints every line that is not the same on the other side. It compares: the row count of every table and a checksum of each table's content; `auth.users` and `auth.identities`, spelled out; buckets, files per bucket, every file record, and the files themselves byte for byte; extension versions; the publications' table lists; the number of policies and every policy; row-level-security switches, triggers, columns, constraints, indexes, views, functions and who may call them, sequences, table grants, role settings and cron jobs.
+Read-only on both sides. Describes each database in a few thousand lines (one per table, policy, function and so on) and prints every line that is not the same on the other side. It compares: the row count of every table and a checksum of each table's content; the columns of every Auth and Storage table; `auth.users` and `auth.identities`, spelled out; buckets, files per bucket, every file record, and the files themselves byte for byte; extension versions; the publications' table lists; the number of policies and every policy; row-level-security switches, triggers, columns, constraints, indexes, views, functions and who may call them, sequences, table grants, role settings and cron jobs.
 
 `--fast` leaves out the content checksums, `--no-files` the downloads, `--keep` leaves the two descriptions on disk to look at.
 
@@ -140,14 +140,16 @@ It exits with `no differences` or a count. These differences are expected and ar
 | Section | Difference | Why |
 | --- | --- | --- |
 | `rows` | A table only on hosted | A table left out with `--skip-table`, or one the platform's Auth or Storage has and this release does not |
+| `service table columns` | A column, or a whole table, only on hosted | The platform's Auth or Storage is a version ahead of this release's. This section lists the columns of each of their tables so that the difference is named. It is not a difference in data: the `rows` checksum of such a table is taken over the columns both sides have, so `rows` still says whether every row arrived. A column left out with `--skip-column` shows here. |
 | `rows`, `accounts`, `sequences`, `file records` | Counts and checksums differ **in a rehearsal** | The hosted project kept working after the dump was taken |
 | `constraints`, `policies` | Two lines that differ only in their brackets | Postgres writes an expression back in its own words when it is loaded. `((a AND b) AND c)` and `(a AND b AND c)` are the same rule. |
 | `cron jobs` | `PAUSED` here | A rehearsal. With `--final` they match. |
+| `cron jobs` | `as postgres` here, another role on hosted | The jobs are made again by the role the restore runs as. A job that has to run as another role is made again by hand, as that role. |
 | `not moved by any step` | Vault secrets: a number on hosted, 0 here | Make them again by hand |
 | `extensions` | A version differs | The two Postgres images are not from the same day. Read the extension's changelog if the first number differs. |
 | `role settings` | A platform role has a setting this stack does not, or the reverse | Roles named `supabase_…` are each side's own |
 
-At the real switch, with writes paused: `rows`, `accounts`, `sequences`, `buckets`, `files per bucket`, `file records`, `publication tables`, `policies`, `functions` and `table grants` must all say `the same`, and each bucket's files `the same`. If `rows` differs then, something is still writing to the hosted project.
+At the real switch, with writes paused: `rows`, `accounts`, `sequences`, `buckets`, `files per bucket`, `file records`, `publication tables`, `functions` and `table grants` must all say `the same`, and each bucket's files `the same`. The only exceptions are the ones in the table above that do not say "in a rehearsal": a table left out on purpose under `rows`, and under `policies` a line that differs in nothing but its brackets. If `rows` differs in any other way then, something is still writing to the hosted project.
 
 **`table grants` or `functions` differing by `anon` or `authenticated` is never expected.** It means objects are open to roles that should not reach them. Do not switch.
 
@@ -155,15 +157,27 @@ At the real switch, with writes paused: `rows`, `accounts`, `sequences`, `bucket
 
 `02-restore.sh` stops before loading anything and names what does not fit.
 
+A table with no rows on the hosted side is never a problem: the script leaves its (empty) section out by itself and says so. What it stops for always holds rows.
+
 - **`table X (N rows) does not exist here`.** The platform's Auth or Storage is newer than this release's. If the table belongs to a feature the app does not use, leave its rows behind:
 
   ```bash
   sudo ./02-restore.sh dumps/<folder> --skip-table auth.some_table
   ```
 
-  `--skip-table` can be given more than once. If the app does use the feature, update the stack to a release that has the table ([updating](../README.md#updating-to-a-new-supabase-release)) and start again.
-- **`column X does not exist here`.** The same cause, for a column. There is no flag for this, on purpose: dropping one column from the data is hand work on `data.sql`, described under "Version mismatches" in Supabase's guide. Updating the stack first is nearly always the better answer.
-- **`table X (N rows) cannot be written by the postgres role here`.** A table the services own and `postgres` may not fill. With zero rows the script skips it by itself. With rows, look at what they are before choosing `--skip-table`.
+  If the app does use the feature, update the stack to a release that has the table ([updating](../README.md#updating-to-a-new-supabase-release)) and start again.
+- **`column X does not exist here`.** The same cause, for one column of a table this release does have. Leave that column out; every row is still loaded, with its other columns:
+
+  ```bash
+  sudo ./02-restore.sh dumps/<folder> --skip-column auth.some_table.some_column
+  ```
+
+  The self-hosted service does not know the column, so nothing here reads it. What is lost is whatever the newer version on the platform kept in it.
+- **`table X (N rows) cannot be written by the postgres role here`.** A table the services own and `postgres` may not fill. Look at what the rows are before choosing `--skip-table`.
+
+Both flags can be given more than once, and together. Supabase's guide has the same two cases under "Version mismatches" and deals with both by cutting the table's section out of `data.sql` by hand. `--skip-table` does that; `--skip-column` keeps the rows.
+
+**Leaving a whole table out can strand rows in another one.** The data is loaded with foreign keys unchecked, as the guide says. Leave out `auth.sessions`, say, and every refresh token is loaded pointing at a session that is not there. Nothing complains at the time, but that database can no longer be restored from its own backup. So the restore checks for exactly this before it commits, and rolls back with a line like `9 row(s) of auth.refresh_tokens point at rows of auth.sessions`. Then either leave that table out as well, or keep both and use `--skip-column` for the column that did not fit.
 
 ## Starting again
 
@@ -203,5 +217,6 @@ All optional, in `.env` or the environment. None is needed for the move as descr
 | --- | --- |
 | `SUPABASE_CLI` | The CLI under another name or path (default `supabase`) |
 | `TARGET_DB_URL`, `TARGET_NETWORK`, `TARGET_S3_*` | A self-hosted stack other than the one in `../stack` |
-| `SOURCE_NETWORK`, `MIGRATE_DOCKER_ARGS` | A source that is not on the internet: a Docker network to reach it on, and extra `docker run` arguments |
+| `SOURCE_NETWORK` | A source database that is not on the internet: the Docker network the `psql` container reaches it on |
+| `MIGRATE_DOCKER_ARGS` | Extra `docker run` arguments for the `rclone` container only, for a source S3 endpoint it could not otherwise reach. The Supabase CLI (`01-dump.sh`) uses neither setting. |
 | `PSQL_IMAGE`, `RCLONE_IMAGE` | Other versions of the two tools |

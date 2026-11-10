@@ -25,6 +25,7 @@ set extra_float_digits = 1;
 set bytea_output = 'hex';
 set search_path = '';
 set statement_timeout = 0;
+set client_min_messages = warning;
 
 create temp table skipped (s text primary key);
 insert into skipped values
@@ -33,13 +34,18 @@ insert into skipped values
   ('supabase_migrations'), ('_analytics'), ('_realtime'), ('_supavisor'), ('net'), ('cron'),
   ('pgmq'), ('dbdev'), ('topology'), ('tiger'), ('tiger_data'), ('ni_migrate');
 
--- Every schema that is neither skipped nor a system one, and whether it is managed.
+-- Every schema that is neither skipped nor a system one, and whether it is
+-- managed. supabase_functions counts as managed here: its one table of data
+-- is moved, its structure is the platform's.
 create temp table sch as
-select n.oid, n.nspname as s, n.nspname in (:managed) as managed
+select n.oid, n.nspname as s, n.nspname in (:managed, 'supabase_functions') as managed
 from pg_catalog.pg_namespace n
-where n.nspname !~ '^pg_' and n.nspname not in (select s from skipped)
-  -- realtime: nothing in it is moved; only the app's policies on its tables
-  and true;
+where n.nspname !~ '^pg_' and n.nspname not in (select s from skipped);
+
+-- The columns that a managed table has on BOTH sides. 04-verify.sh works the
+-- list out from the two databases and puts it in front of this file; run
+-- without it, the table is empty and whole rows are compared.
+create temp table if not exists common_col (s text, t text, c text);
 
 -- Tables whose rows are compared: everything in those schemas except
 -- realtime's (not moved), the three bookkeeping tables the dump excludes, and
@@ -57,17 +63,33 @@ where c.relkind in ('r', 'p') and not c.relispartition
 -- 1. Row counts for every table (and, with :deep, a checksum of the content:
 --    the md5 of every row's md5, sorted, so the order of rows does not matter).
 --    storage.objects is counted here and compared column by column below.
+--
+--    A table of the app is checksummed whole. A table of Auth or Storage is
+--    checksummed over the columns both sides have, in name order: the
+--    platform's services can be a version ahead of this release's and have a
+--    column more, and that alone must not read as "the data differs".
 select 'rows', tab.s || '.' || tab.t,
        case
          when not pg_catalog.has_table_privilege(tab.oid, 'SELECT') then 'cannot be read by this role'
-         else (pg_catalog.xpath('/row/v/text()', pg_catalog.query_to_xml(pg_catalog.format(
+         else (pg_catalog.xpath('/row/v/text()', pg_catalog.query_to_xml(
                 case
                   when :deep and not (tab.s = 'storage' and tab.t = 'objects') then
-                    'select count(*) || '' rows, content '' || md5(coalesce(string_agg(h, '''' order by h), '''')) as v from (select md5(x::text) as h from %I.%I x) y'
-                  else 'select count(*) || '' rows'' as v from %I.%I'
-                end, tab.s, tab.t), false, true, '')))[1]::text
+                    pg_catalog.format(
+                      'select count(*) || '' rows, content '' || md5(coalesce(string_agg(h, '''' order by h), '''')) as v from (select md5(%s::text) as h from %I.%I x) y',
+                      coalesce((select 'row(' || pg_catalog.string_agg(pg_catalog.format('x.%I', cc.c), ', ' order by cc.c) || ')'
+                                from common_col cc where tab.managed and cc.s = tab.s and cc.t = tab.t), 'x'),
+                      tab.s, tab.t)
+                  else pg_catalog.format('select count(*) || '' rows'' as v from %I.%I', tab.s, tab.t)
+                end, false, true, '')))[1]::text
        end
 from tab
+order by 2;
+-- The columns of each Auth and Storage table. A difference here says the two
+-- sides run different versions of that service; it is not a difference in data.
+select 'service table columns', tab.s || '.' || tab.t,
+       (select pg_catalog.string_agg(a.attname, ', ' order by a.attname)
+        from pg_catalog.pg_attribute a where a.attrelid = tab.oid and a.attnum > 0 and not a.attisdropped)
+from tab where tab.managed
 order by 2;
 
 -- 2. The accounts, spelled out: these two are the ones that must not be off by one.
@@ -192,10 +214,10 @@ order by 2;
 select 'functions', p.oid::pg_catalog.regprocedure::text,
        case when p.prokind in ('f', 'p') then md5(pg_catalog.pg_get_functiondef(p.oid)) else md5(p.prosrc) end
        || ' callable by '
-       || coalesce((select pg_catalog.string_agg(
-                       case when x.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(x.grantee) end, ',' order by 1)
-                    from pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
-                    where x.privilege_type = 'EXECUTE'), 'nobody')
+       || coalesce((select pg_catalog.string_agg(g.who, ',' order by g.who)
+                    from (select distinct case when x.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(x.grantee)::text end as who
+                          from pg_catalog.aclexplode(coalesce(p.proacl, pg_catalog.acldefault('f', p.proowner))) x
+                          where x.privilege_type = 'EXECUTE') g), 'nobody')
 from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
 where n.nspname in (select s from sch where not managed)
   and not exists (select 1 from pg_catalog.pg_depend d
@@ -214,10 +236,10 @@ order by 2;
 
 -- 10. Who may do what to each table of the app.
 select 'table grants', tab.s || '.' || tab.t,
-       coalesce((select pg_catalog.string_agg(
-                    case when x.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(x.grantee) end || ':' || x.privilege_type,
-                    ',' order by 1)
-                 from pg_catalog.aclexplode(c.relacl) x), 'owner only')
+       coalesce((select pg_catalog.string_agg(g.what, ',' order by g.what)
+                 from (select distinct case when x.grantee = 0 then 'PUBLIC' else pg_catalog.pg_get_userbyid(x.grantee)::text end
+                                       || ':' || x.privilege_type as what
+                       from pg_catalog.aclexplode(c.relacl) x) g), 'owner only')
 from tab join pg_catalog.pg_class c on c.oid = tab.oid
 where not tab.managed
 order by 2;

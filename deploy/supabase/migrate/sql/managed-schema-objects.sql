@@ -88,13 +88,16 @@ where not t.tgisinternal
   and pn.nspname not in (:managed)
 order by n.nspname, c.relname, t.tgname;
 
--- pg_cron jobs. cron.schedule() with a name replaces a job of that name.
+-- pg_cron jobs. cron.schedule() with a name replaces a job of that name; a
+-- job without a name is only scheduled when the same one is not there yet.
 select '-- pg_cron jobs.'
 where exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron');
 \if :has_cron
 select case
          when j.jobname is null
-           then pg_catalog.format('select cron.schedule(%L, %L);', j.schedule, j.command)
+           then pg_catalog.format(
+             'select cron.schedule(%L, %L) where not exists (select 1 from cron.job where jobname is null and schedule = %L and command = %L);',
+             j.schedule, j.command, j.schedule, j.command)
          else pg_catalog.format('select cron.schedule(%L, %L, %L);', j.jobname, j.schedule, j.command)
        end
        || case when j.active then ''

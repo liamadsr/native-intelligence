@@ -49,13 +49,34 @@ work="$(mktemp -d "$MIGRATE_DIR/.verify.XXXXXX")"
 cleanup() { $keep || rm -rf "$work"; }
 trap cleanup EXIT
 
+# The columns of every Auth and Storage table, one per line, for working out
+# which ones both sides have (sql/verify.sql says why).
+columns() { # columns <psql function>
+	"$1" -At -F "$(printf '\t')" -c "
+		select n.nspname, c.relname, a.attname
+		from pg_attribute a
+		join pg_class c on c.oid = a.attrelid
+		join pg_namespace n on n.oid = c.relnamespace
+		where n.nspname in ($MANAGED_SCHEMAS, 'supabase_functions') and c.relkind in ('r', 'p')
+		  and a.attnum > 0 and not a.attisdropped" </dev/null | LC_ALL=C sort
+}
+
 describe() { # describe <psql function> <output file>
 	local side="$1" out="$2" has_cron has_vault
-	has_cron="$("$side" -At -c "select exists (select 1 from pg_extension where extname = 'pg_cron')")"
-	has_vault="$("$side" -At -c "select has_schema_privilege('vault', 'USAGE') and has_table_privilege('vault.secrets', 'SELECT') from pg_namespace where nspname = 'vault' union all select false order by 1 desc limit 1")"
-	"$side" -v "deep=$deep" -v "managed=$MANAGED_SCHEMAS" -v "has_cron=$has_cron" -v "has_vault=$has_vault" -f - \
-		<"$MIGRATE_DIR/sql/verify.sql" >"$out"
+	has_cron="$("$side" -At -c "select exists (select 1 from pg_extension where extname = 'pg_cron')" </dev/null)"
+	has_vault="$("$side" -At -c "select has_schema_privilege('vault', 'USAGE') and has_table_privilege('vault.secrets', 'SELECT') from pg_namespace where nspname = 'vault' union all select false order by 1 desc limit 1" </dev/null)"
+	{
+		echo "create temp table common_col (s text, t text, c text);"
+		echo "copy common_col from stdin;"
+		cat "$work/common.cols"
+		echo '\.'
+		cat "$MIGRATE_DIR/sql/verify.sql"
+	} | "$side" -q -v "deep=$deep" -v "managed=$MANAGED_SCHEMAS" -v "has_cron=$has_cron" -v "has_vault=$has_vault" -f - >"$out"
 }
+
+columns psql_source >"$work/hosted.cols" || die "could not read the hosted project"
+columns psql_target >"$work/here.cols" || die "could not read this stack"
+LC_ALL=C comm -12 "$work/hosted.cols" "$work/here.cols" >"$work/common.cols"
 
 log "describing the hosted project ($($deep && echo "with content checksums" || echo "row counts only"))"
 describe psql_source "$work/hosted.tsv" || die "could not read the hosted project"
@@ -97,13 +118,14 @@ grep -v '^TOTAL' <<<"$differences"
 file_differences=0
 if $files; then
 	need SOURCE_S3_ENDPOINT SOURCE_S3_REGION SOURCE_S3_ACCESS_KEY_ID SOURCE_S3_SECRET_ACCESS_KEY
-	for bucket in $(query_source "select id from storage.buckets order by id"); do
+	buckets="$(query_source "select id from storage.buckets order by id")" || die "could not read the buckets"
+	for bucket in $buckets; do
 		if out="$(rclone_run check "platform:$bucket" "selfhosted:$bucket" --download --checkers 8 --retries 1 --low-level-retries 2 2>&1)"; then
 			echo "  files in $bucket, byte for byte: the same ($(grep -oE '[0-9]+ matching files' <<<"$out" | tail -n 1))"
 		else
 			file_differences=$((file_differences + 1))
 			echo "  files in $bucket, byte for byte: DIFFERENT"
-			grep -E 'ERROR' <<<"$out" | sed -E 's/^[0-9/]+ [0-9:]+ ERROR *: /    /' | head -n 50
+			grep -E 'ERROR' <<<"$out" | sed -E 's/^[0-9/]+ [0-9:]+ ERROR *: /    /' | head -n 50 || true
 		fi
 	done
 else

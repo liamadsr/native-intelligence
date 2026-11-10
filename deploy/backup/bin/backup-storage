@@ -13,7 +13,8 @@
 #   BACKUP_<NAME>_S3_ACCESS_KEY_ID      its S3_PROTOCOL_ACCESS_KEY_ID
 #   BACKUP_<NAME>_S3_SECRET_ACCESS_KEY  its S3_PROTOCOL_ACCESS_KEY_SECRET
 #   BACKUP_<NAME>_REMOVED_DAYS          how long a deleted or replaced file is
-#                                       kept (default 30, 0 = for ever)
+#                                       kept, counted from the night it was
+#                                       found gone (default 30, 0 = for ever)
 #   BACKUP_<NAME>_PING_URL              requested after a good run (optional)
 #
 # In the vault:
@@ -69,6 +70,19 @@ export RCLONE_CONFIG_STORAGE_ACCESS_KEY_ID RCLONE_CONFIG_STORAGE_SECRET_ACCESS_K
 exec 9>"/tmp/backup-${job}.lock"
 flock -n 9 || die "the previous run of this job is still going"
 
+# rclone lsf, where a folder that does not exist yet is an empty listing and
+# not a failure (rclone's exit status 3). A bucket with no files in it has no
+# folder in the vault. Any other failure is a failure.
+list_or_empty() {
+	local out status=0
+	out="$(rclone lsf "$@" 2>/dev/null)" || status=$?
+	case "$status" in
+		0) [ -z "$out" ] || printf '%s\n' "$out" ;;
+		3) ;;
+		*) return "$status" ;;
+	esac
+}
+
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 started=$SECONDS
 
@@ -114,7 +128,9 @@ for bucket in $buckets; do
 			|| die "moving the deleted files of bucket ${bucket} aside failed"
 	fi
 	# The same names and sizes on both sides, whatever the manifest said.
-	rclone lsf --recursive --files-only --format sp --separator "$tab" "vault:${job}/current/${bucket}" | LC_ALL=C sort >"$work/held"
+	list_or_empty --recursive --files-only --format sp --separator "$tab" "vault:${job}/current/${bucket}" >"$work/held.raw" \
+		|| die "cannot list the backup of bucket ${bucket}"
+	LC_ALL=C sort "$work/held.raw" >"$work/held"
 	cut -f 2- "$now" | LC_ALL=C sort >"$work/listed"
 	if ! cmp -s "$work/held" "$work/listed"; then
 		diff "$work/listed" "$work/held" | head -n 10 >&2 || true
@@ -130,7 +146,8 @@ for bucket in $buckets; do
 done
 
 # A bucket that no longer exists: keep its files, but out of current/.
-for held in $(rclone lsf --dirs-only "vault:${job}/current/" 2>/dev/null | tr -d '/'); do
+held_buckets="$(list_or_empty --dirs-only "vault:${job}/current/")" || die "cannot list the buckets held in the backup"
+for held in $(printf '%s\n' "$held_buckets" | tr -d '/'); do
 	if ! grep -qx -- "$held" <<<"$buckets"; then
 		log "bucket ${held} is gone; moving its backup to removed/"
 		rclone move "vault:${job}/current/${held}" "vault:${job}/removed/${stamp}/${held}" || die "could not move ${held}"
@@ -138,9 +155,24 @@ for held in $(rclone lsf --dirs-only "vault:${job}/current/" 2>/dev/null | tr -d
 	fi
 done
 
+# Expire what has been in removed/ for longer than removed_days. By the name
+# of the run's folder, which is when the file was removed, and never by the
+# file's own age: a file keeps the date it was uploaded on when it is moved
+# here, so going by that date would erase a year-old file on the very night
+# it was deleted.
 if [ "$removed_days" -gt 0 ]; then
-	rclone delete --min-age "${removed_days}d" "vault:${job}/removed/" 2>/dev/null || true
-	rclone rmdirs --leave-root "vault:${job}/removed/" 2>/dev/null || true
+	cutoff="$(date -u -d "@$(($(date -u +%s) - removed_days * 86400))" +%Y%m%dT%H%M%SZ)"
+	removed_runs="$(list_or_empty --dirs-only "vault:${job}/removed/")" || die "cannot list removed/"
+	for run in $(printf '%s\n' "$removed_runs" | tr -d '/'); do
+		case "$run" in
+			[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z)
+				if [[ "$run" < "$cutoff" ]]; then
+					log "expiring removed/${run} (older than ${removed_days} days)"
+					rclone purge "vault:${job}/removed/${run}" || die "could not expire removed/${run}"
+				fi
+				;;
+		esac
+	done
 fi
 log "${files} file(s) in $(printf '%s\n' "$buckets" | wc -l) bucket(s) held; ${copied} copied, ${removed} moved to removed/, in $((SECONDS - started))s"
 

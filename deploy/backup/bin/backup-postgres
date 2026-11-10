@@ -19,6 +19,7 @@
 # or, when either of these is set, by count instead:
 #   BACKUP_<NAME>_KEEP_HOURLY     keep this many of the newest backups
 #   BACKUP_<NAME>_KEEP_DAILY      and the newest backup of each of this many days
+#                                 (both 0 = keep all; the newest is never deleted)
 #
 # And for a database whose roles carry settings the dump cannot hold:
 #   BACKUP_<NAME>_ROLES           "true" to also save the cluster's roles and
@@ -109,7 +110,11 @@ log "uploaded ${size} bytes in $((SECONDS - started))s"
 
 # Only ever after a good upload, so the newest backup is never the one that
 # expires.
-if [ -n "$keep_hourly" ] || [ -n "$keep_daily" ]; then
+if [ "${keep_hourly:-0}" = 0 ] && [ "${keep_daily:-0}" = 0 ] && [ -n "$keep_hourly$keep_daily" ]; then
+	# Nothing to keep by either count would mean deleting every backup,
+	# this run's included. As with RETENTION_DAYS, 0 means keep everything.
+	log "KEEP_HOURLY and KEEP_DAILY are both 0: keeping every backup"
+elif [ -n "$keep_hourly" ] || [ -n "$keep_daily" ]; then
 	keep_hourly="${keep_hourly:-0}"
 	keep_daily="${keep_daily:-0}"
 	log "keeping the newest ${keep_hourly} backups and the newest of each of ${keep_daily} days"
@@ -120,7 +125,8 @@ if [ -n "$keep_hourly" ] || [ -n "$keep_daily" ]; then
 	expired="$(printf '%s\n' "$listing" | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -ru \
 		| awk -v hourly="$keep_hourly" -v daily="$keep_daily" '
 			{
-				keep = (NR <= hourly)
+				# The newest backup is kept whatever the two numbers say.
+				keep = (NR == 1 || NR <= hourly)
 				day = substr($0, 1, 8)
 				if (!(day in seen)) { seen[day] = 1; if (++days <= daily) keep = 1 }
 				if (!keep) print

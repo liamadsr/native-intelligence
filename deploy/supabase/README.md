@@ -152,7 +152,7 @@ They publish about once a month. Their [`CHANGELOG.md`](stack/CHANGELOG.md) says
    cd .. && ./after-update.sh
    ```
 
-   It names every setting their release added that our `.env.example` does not have yet (add each there, with a comment, and run it again after `update.sh`), removes what is never committed, and reads their compose file with ours on top: it fails if the result publishes a port, runs a service that is meant to be off, or has lost one that is meant to be there. It ends with the two `git add` commands.
+   It refuses to run where `stack/.env` holds real settings (the server), because it deletes the throwaway one of step 1. It names every setting their release added that our `.env.example` does not have yet (add each there, with a comment, and run it again after `update.sh`), removes what is never committed, and reads their compose file with ours on top: it fails if the result publishes a port, runs a service that is meant to be off, or has lost one that is meant to be there. It ends with the two `git add` commands.
 
 3. Look at the diff. Only files under `stack/` should have changed, plus `.env.example` if you added a setting. Read their changelog entry against [`compose.override.yaml`](compose.override.yaml): a service they renamed or a mount they moved is where an override stops applying, and not every such change can be caught by a script.
 

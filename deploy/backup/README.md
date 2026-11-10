@@ -6,7 +6,7 @@ One small container (`ni-backup`) that runs cron. Each line in [`crontab`](cront
 | --- | --- | --- |
 | `inngest` | Nightly | A dump of Inngest's Postgres. Kept 30 days. |
 | `supabase` | Every hour | A dump of the whole Supabase database, and the cluster's roles. Kept: the newest 48, and the newest of each of the last 30 days. |
-| `supabase-storage` | Nightly | Every file in Supabase Storage. A file deleted or replaced there is kept 30 days more. |
+| `supabase-storage` | Nightly | Every file in Supabase Storage. A file deleted or replaced there is kept 30 days more, counted from the night the job found it gone. |
 
 Everything is encrypted in the container and uploaded to one Backblaze B2 bucket, and each job requests its own dead-man URL after a good run. Setting it up is step 11 of [`../README.md`](../README.md), and step 17 for the two Supabase jobs, which stay off until then. This page is about what the backups are and how to get one back. The first half is Inngest; [Supabase](#supabase) has its own half below.
 
@@ -162,9 +162,9 @@ Two jobs, both switched on by one line in `.env` (step 17 of [`../README.md`](..
   `supabase/<year>/<month>/supabase-<UTC timestamp>.dump.bin`, and the same name ending in `.roles.sql.bin`.
 - **The files, every night** (`supabase-storage`). Read through Storage's S3 endpoint, never from its folder on disk.
   `supabase-storage/current/<bucket>/<path>.bin` is every file as it is now.
-  `supabase-storage/removed/<UTC timestamp>/<bucket>/…` is what a run found deleted or replaced. Nothing is erased for 30 days.
+  `supabase-storage/removed/<UTC timestamp>/<bucket>/…` is what a run found deleted or replaced, in a folder named for that run. A folder is erased when its run is 30 days old (`BACKUP_SUPABASE_STORAGE_REMOVED_DAYS`), however old the files in it are: a file uploaded in January and deleted today is held for 30 days from today.
   `supabase-storage/manifest/<bucket>.tsv.bin` is what the last run saw, which is how the next one knows what changed.
-- **Retention of the database.** After each good upload: the newest 48 dumps stay, and so does the newest dump of each of the last 30 days. Everything else is deleted, with its roles file.
+- **Retention of the database.** After each good upload: the newest 48 dumps stay, and so does the newest dump of each of the last 30 days. Everything else is deleted, with its roles file. The two numbers are `BACKUP_SUPABASE_KEEP_HOURLY` and `BACKUP_SUPABASE_KEEP_DAILY`. Both at 0 means nothing is ever deleted, and whatever they are, the dump just made is never deleted.
 
 **What is not in any backup, and has to be kept somewhere else:**
 
@@ -224,7 +224,7 @@ This replaces the whole Supabase database with one backup. It is the same whethe
    sudo docker compose exec backup restore-supabase-db 2026/11/supabase-20261110T074300Z.dump
    ```
 
-   It applies the roles file, clears the database's default grants (so that tables and functions come back with their own permissions and no more), runs `pg_restore --clean --if-exists` and ends with the number of users and tables. Any error from `pg_restore` makes it fail and say so.
+   It refuses to start while any other service is still connected, and names them. Then it applies the roles file, clears the database's default grants (so that tables and functions come back with their own permissions and no more), drops every partition (Realtime makes one a day for itself, and `pg_restore` cannot replace a partition in place; the backup brings its own back), runs `pg_restore --clean --if-exists` and ends with the number of users and tables. Any error from `pg_restore` makes it fail and say so.
 
 4. Start everything again.
 
@@ -266,7 +266,7 @@ then `sudo docker compose cp backup:/tmp/recovered .` and upload it again throug
 
 ### If the server itself is lost
 
-Rebuild it from [`../README.md`](../README.md) with the same `.env` files from the password manager, up to a running, empty Supabase stack (step 14) and this container (steps 11 and 17). Then "Restore the database", then "Restore the files". That is the drill of step 17, and it was rehearsed that way: database and files deleted, both restored, and the database afterwards identical to before, table for table and grant for grant.
+Rebuild it from [`../README.md`](../README.md) with the same `.env` files from the password manager, up to a running, empty Supabase stack (step 14) and this container (steps 11 and 17). Then "Restore the database", then "Restore the files". That is the drill of step 17, and it was rehearsed that way, and also over a database that was still whole: database and files deleted, both restored, and the database afterwards identical to before, table for table and grant for grant.
 
 ### Try the jobs without B2
 

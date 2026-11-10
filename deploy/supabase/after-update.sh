@@ -25,6 +25,22 @@ failed=0
 
 # The throwaway settings file update.sh was given goes first: with it gone,
 # check-env.sh compares the two example files and nothing else.
+#
+# On the server stack/.env is the real one, and deleting it there would take
+# the database password and the JWT secret with it. So it is only deleted
+# when it is what the procedure leaves behind: empty, or holding nothing but
+# what update.sh appended to an empty file (which it marks with a comment).
+if [ -s stack/.env ]; then
+	first="$(grep -m 1 -v '^[[:space:]]*$' stack/.env || true)"
+	case "$first" in
+		'# Added by update.sh'*) ;;
+		*)
+			echo "stack/.env holds settings that update.sh did not put there: this looks like the server, or a stack in use." >&2
+			echo "This script is for a checkout that is about to become a pull request. Nothing was changed." >&2
+			exit 1
+			;;
+	esac
+fi
 rm -rf stack/.env stack/.env.old stack/backups
 
 echo "== their settings against ours"
@@ -56,7 +72,7 @@ if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
 		echo "  services: $services"
 		if [ "$ports" != 0 ]; then
 			echo "  PROBLEM: $ports port(s) would be published on the host. An override no longer applies:"
-			grep -B 6 'published:' <<<"$merged" | grep -E '^  [a-z-]+:$|published:' | sed 's/^/    /'
+			grep -B 6 'published:' <<<"$merged" | grep -E '^  [a-z-]+:$|published:' | sed 's/^/    /' || true
 			failed=1
 		fi
 		for off in imgproxy analytics vector; do

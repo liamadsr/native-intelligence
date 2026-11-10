@@ -120,9 +120,12 @@ _psql() { # _psql <network, or empty for Docker's default> <url> [psql args]
 psql_source() { _psql "$SOURCE_NETWORK" "$SOURCE_DB_URL" "$@"; }
 psql_target() { _psql "$TARGET_NETWORK" "$TARGET_DB_URL" "$@"; }
 
-# One value or one column, unaligned, no header.
-query_source() { psql_source -At -c "$1"; }
-query_target() { psql_target -At -c "$1"; }
+# One value or one column, unaligned, no header. Stdin is closed on purpose:
+# `docker run -i` hands the caller's input to the container, so inside a
+# `while read` loop a query would otherwise swallow the rest of the loop's
+# lines and the loop would end after its first turn.
+query_source() { psql_source -At -c "$1" </dev/null; }
+query_target() { psql_target -At -c "$1" </dev/null; }
 
 # --- rclone -----------------------------------------------------------------
 # Two remotes, defined by environment variables only. (The config file is an
@@ -132,7 +135,13 @@ query_target() { psql_target -At -c "$1"; }
 rclone_run() {
 	local gateway_ip host_args=()
 	gateway_ip="$(docker inspect -f "{{with index .NetworkSettings.Networks \"$TARGET_NETWORK\"}}{{.IPAddress}}{{end}}" supabase-envoy 2>/dev/null || true)"
-	[ -n "$gateway_ip" ] && [ -n "$TARGET_PUBLIC_HOST" ] && host_args=(--add-host "${TARGET_PUBLIC_HOST}:${gateway_ip}")
+	if [ -n "$gateway_ip" ] && [ -n "$TARGET_PUBLIC_HOST" ]; then
+		host_args=(--add-host "${TARGET_PUBLIC_HOST}:${gateway_ip}")
+	elif [ -z "$(setting TARGET_S3_ENDPOINT)" ]; then
+		# Without this the public name would be looked up in DNS, which
+		# before the switch leads to the hosted project, not to this stack.
+		die "the gateway container (supabase-envoy) is not running on the network ${TARGET_NETWORK}, or SUPABASE_PUBLIC_URL is empty in ${STACK_DIR}/.env: start the stack first (sudo sh run.sh start in ../stack)"
+	fi
 	# shellcheck disable=SC2086  # MIGRATE_DOCKER_ARGS is a list of arguments
 	RCLONE_CONFIG_PLATFORM_TYPE=s3 RCLONE_CONFIG_PLATFORM_PROVIDER=Other \
 		RCLONE_CONFIG_PLATFORM_ENDPOINT="$SOURCE_S3_ENDPOINT" \

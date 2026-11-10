@@ -88,8 +88,15 @@ missing_total=0
 for bucket in $buckets; do
 	dir="$work/$bucket"
 	mkdir -p "$dir"
-	rclone lsf --recursive --files-only "vault:${job}/current/${bucket}" >"$dir/in-backup.txt" 2>/dev/null \
-		|| die "no backup found for bucket ${bucket} (vault:${job}/current/${bucket})"
+	# A bucket that had no files when it was backed up has no folder in the
+	# vault (rclone's exit status 3): that is an empty backup, not a failure.
+	status=0
+	rclone lsf --recursive --files-only "vault:${job}/current/${bucket}" >"$dir/in-backup.txt" 2>/dev/null || status=$?
+	case "$status" in
+		0) ;;
+		3) : >"$dir/in-backup.txt" ;;
+		*) die "cannot list the backup of bucket ${bucket} (vault:${job}/current/${bucket})" ;;
+	esac
 	# One group per (content type, cache control): each is one rclone run.
 	sql -v "bucket=$bucket" >"$dir/rows.tsv" <<'SQL'
 select dense_rank() over (order by ct, cc), ct, cc, name
@@ -99,8 +106,10 @@ from (select coalesce(nullif(metadata ->> 'mimetype', ''), 'application/octet-st
       from storage.objects where bucket_id = :'bucket') o
 order by 1, name;
 SQL
+	# (FILENAME, not NR == FNR: with an empty first file that test is also
+	# true for every line of the second.)
 	awk -F '\t' -v dir="$dir" '
-		NR == FNR { have[$0] = 1; next }
+		FILENAME == ARGV[1] { have[$0] = 1; next }
 		{
 			if (!($4 in have)) { print $4 > (dir "/missing.txt"); next }
 			if (!($1 in seen)) { seen[$1] = 1; print $1 "\t" $2 "\t" $3 > (dir "/groups.tsv") }
@@ -152,7 +161,7 @@ for bucket in $buckets; do
 		--files-from-raw "$dir/present.txt" --checkers 8 --retries 1 2>&1)"; then
 		log "bucket ${bucket}: every restored file reads back the same, byte for byte"
 	else
-		echo "$out" | grep -E 'ERROR' | head -n 20 >&2
+		echo "$out" | grep -E 'ERROR' | head -n 20 >&2 || true
 		log "bucket ${bucket}: files DIFFER from the backup"
 		failed=1
 	fi

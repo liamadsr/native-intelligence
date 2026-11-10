@@ -97,6 +97,17 @@ unb64url() { # decode base64url from stdin
 	printf '%s' "$s" | openssl enc -base64 -d -A 2>/dev/null
 }
 secret="$(value JWT_SECRET)"
+# The signature of <text> with JWT_SECRET. With python3 the secret travels in
+# the environment; openssl is the fallback and takes it as an argument, which
+# other users of the machine could see in the process list for an instant.
+sign() {
+	if command -v python3 >/dev/null; then
+		NI_SECRET="$secret" NI_TEXT="$1" python3 -c 'import base64, hashlib, hmac, os
+print(base64.urlsafe_b64encode(hmac.new(os.environ["NI_SECRET"].encode(), os.environ["NI_TEXT"].encode(), hashlib.sha256).digest()).rstrip(b"=").decode())'
+	else
+		printf '%s' "$1" | openssl dgst -binary -sha256 -hmac "$secret" | b64url
+	fi
+}
 for pair in ANON_KEY:anon SERVICE_ROLE_KEY:service_role; do
 	name="${pair%%:*}" role="${pair##*:}" token="$(value "${pair%%:*}")"
 	[ -n "$token" ] && [ -n "$secret" ] || continue
@@ -105,7 +116,7 @@ for pair in ANON_KEY:anon SERVICE_ROLE_KEY:service_role; do
 		problem "$name is not a token (three parts separated by dots)"
 		continue
 	fi
-	expected="$(printf '%s.%s' "$head" "$body" | openssl dgst -binary -sha256 -hmac "$secret" | b64url)"
+	expected="$(sign "$head.$body")"
 	[ "$expected" = "$sig" ] || problem "$name is not signed with JWT_SECRET: one of the two was copied wrongly"
 	claims="$(printf '%s' "$body" | unb64url)"
 	case "$claims" in
