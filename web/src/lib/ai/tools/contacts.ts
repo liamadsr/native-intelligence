@@ -10,6 +10,7 @@ import {
 } from './_shared'
 import { inngest } from '@/lib/inngest/client'
 import { filterVisibleContacts, isContactWritableTo } from '@/lib/crm/contact-visibility'
+import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
 import { CONTACT_WEB_FIELDS, fenceContactForModel, fenceWebFields } from './web-derived'
 
 /**
@@ -133,8 +134,12 @@ export function createContactTools(
         const [data] = await filterVisibleContacts(supabase, userId, (rows ?? []) as Array<{ id?: unknown }>)
         // A contact the caller cannot see is indistinguishable from a missing one.
         if (!data) return { success: false, error: 'Contact not found' }
+        // The workspace's own fields on contacts (migration 473): the set ones,
+        // by name, as every kind's read tool returns them (not the stored keys).
+        const { custom_fields: storedFields, ...columns } = data as Record<string, unknown>
+        const fieldDefs = await customFieldDefsOrNone(supabase, effectiveWorkspaceId, 'contact')
         // The columns and blob enrichment fills from public pages, fenced (web-derived.ts).
-        return { success: true, contact: fenceContactForModel(data as Record<string, unknown>) }
+        return { success: true, contact: fenceContactForModel({ ...columns, ...withCustomFields(fieldDefs, storedFields) }) }
       },
     }),
 
