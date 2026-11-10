@@ -37,7 +37,7 @@ function world(): FakeSupabase {
     def('project', 'budget_code', 'Budget code', 0),
     def('initiative', 'quarter', 'Quarter', 0),
     def('contact', 'tier', 'Tier', 0),
-  ])
+  ] as unknown as Array<Record<string, unknown>>)
   db.seed('actions', [
     {
       id: 'a-1', workspace_id: WS, team_id: 'team-1', identifier: 'ENG-1', title: 'Fix the gate', status_id: 'st-todo',
