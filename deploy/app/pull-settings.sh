@@ -22,17 +22,20 @@
 #      be new on the server and is still empty (the list is below; README.md in this
 #      folder says why each one may).
 #   5. With PULL_REHEARSAL=1: a stand-in, starting with "rehearsal-", for each of the
-#      two internal secrets the app cannot start without that must otherwise be the
-#      earlier host's (RUN_SKILL_INTERNAL_SECRET, BROWSER_INTERNAL_SECRET), while they
-#      are empty. Enough for a rehearsal. The containers refuse to start with
+#      two internal secrets the app cannot start without, while they are empty:
+#      RUN_SKILL_INTERNAL_SECRET, which must otherwise be the earlier host's, and
+#      BROWSER_INTERNAL_SECRET, which may be new (README.md in this folder). Enough for a rehearsal. The containers refuse to start with
 #      NI_LIVE=1 while any value starts with "rehearsal-" (entrypoint.sh).
 #
-# It ends with what is still empty, in two lists: the values that must be the ones
-# the earlier host has (what they sign or encrypt is already stored or held
-# elsewhere), and the rest. Enter them with
+# It ends with check_settings.py's report, by name only: each setting's group (must
+# be the earlier host's value, needed, may stay empty), what is still empty, and
+# whether Gate 1's settings are met by name (step 21 of ../README.md). Enter what is
+# missing with
 #
 #   PULL_ENV_FILE=/opt/native-intelligence/deploy/app/.env \
 #     deploy/supabase/set-secret.sh <user>@<server> NAME ...
+#
+# and check the values themselves with check-settings.sh.
 #
 # It only changes values of lines that exist: make the file first, on the server,
 # with `sudo install -m 600 -o root -g root .env.example .env` in deploy/app.
@@ -67,6 +70,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 envfile_py="$here/../supabase/envfile.py"
 [ -f "$envfile_py" ] || die "deploy/supabase/envfile.py is missing; run this from a full checkout."
 [ -f "$here/.env.example" ] || die ".env.example is missing beside this script."
+[ -f "$here/check_settings.py" ] || die "check_settings.py is missing beside this script."
 for arg in "$@"; do
 	case "${arg%%=*}" in "" | *[!A-Za-z0-9_]* | [0-9]*) die "'$arg' is not NAME=value." ;; esac
 	case "$arg" in *=*) ;; *) die "'$arg' is not NAME=value." ;; esac
@@ -221,24 +225,6 @@ if rehearsal_stand_ins:
     apply(stand)
     print("Rehearsal stand-ins: %s" % (", ".join(sorted(stand)) or "nothing (both set already)"))
 
-# Values that sign or encrypt what is already stored or held elsewhere.
-MUST_MATCH = [
-    "RUN_SKILL_INTERNAL_SECRET", "CREDENTIAL_ENCRYPTION_KEY", "CLOUD_BROWSER_SIGNING_KEY",
-    "BROWSER_INTERNAL_SECRET", "UNSUBSCRIBE_SECRET", "OUTLOOK_WEBHOOK_SECRET", "GMAIL_WEBHOOK_TOKEN",
-    "LINEAR_WEBHOOK_SECRET", "GITHUB_WEBHOOK_SECRET", "GPT_LIVE_WEBHOOK_SECRET", "GPT_LIVE_TRUNK_SECRET",
-    "SLACK_SIGNING_SECRET", "STRIPE_SECRET_KEY", "TWILIO_AUTH_TOKEN",
-]
-app = read_env(target)
-# Switches that are off when empty, not settings that are missing.
-empty = [k for k in app if not app[k] and k not in ("NI_LIVE", "NI_FORWARD_OLD_DOMAIN")]
-print()
-print("Still empty, and must be the value the earlier host has:")
-print("   " + (" ".join(k for k in MUST_MATCH if k in empty) or "none"))
-print("Still empty, the rest:")
-print("   " + (" ".join(k for k in empty if k not in MUST_MATCH) or "none"))
-rehearsal = [k for k, v in app.items() if v.startswith("rehearsal-")]
-if rehearsal:
-    print("Holding a rehearsal's stand-in value (replace before NI_LIVE=1): " + " ".join(rehearsal))
 PY
 }
 
@@ -268,3 +254,9 @@ values=""
 # root-only, for the length of the step.
 side="$(server_side | base64 | tr -d '\n')"
 ssh_server "set -e; t=\$(sudo mktemp /root/.ni-envfile.XXXXXX); trap 'sudo rm -f \"\$t\"' EXIT; echo $encoded | base64 -d | sudo tee \"\$t\" >/dev/null; echo $side | base64 -d | sudo python3 -I - $(printf '%q' "$PULL_ENV_FILE") ${PULL_GENERATE:-0} \"\$t\" ${PULL_REHEARSAL:-0}"
+
+# What is still missing, by name: check_settings.py's groups, so that this list and
+# check-settings.sh never disagree.
+echo
+check="$(base64 <"$here/check_settings.py" | tr -d '\n')"
+ssh_server "set -e; t=\$(sudo mktemp /root/.ni-check.XXXXXX); trap 'sudo rm -f \"\$t\"' EXIT; echo $check | base64 -d | sudo tee \"\$t\" >/dev/null; sudo python3 -I \"\$t\" $(printf '%q' "$PULL_ENV_FILE") --names-only"
