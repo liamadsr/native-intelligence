@@ -229,6 +229,36 @@ export async function visiblePrivateKindIds(
   }
 }
 
+/**
+ * The `type:id` keys among `refs` naming a private-kind row `userId` may NOT
+ * read (inside `workspaceId` when given): one batched fence per kind present.
+ * Refs of any other kind are never in it. For the graph walks that run
+ * service-role (traverse, get_context_bundle, list_entity_links): a hidden
+ * centre shows nothing around it, and a hidden neighbour is left out, never
+ * listed by id, as another person's chat or private document is. No user, or a
+ * failed read: every private ref is hidden.
+ */
+export async function hiddenPrivateRefs(
+  supabase: SupabaseClient,
+  refs: ReadonlyArray<{ type: string; id: string }>,
+  userId: string | null | undefined,
+  workspaceId?: string | null,
+): Promise<Set<string>> {
+  const byType = new Map<PrivateGraphKind, Set<string>>()
+  for (const r of refs) {
+    if (!isPrivateGraphKind(r.type) || typeof r.id !== 'string') continue
+    ;(byType.get(r.type) ?? byType.set(r.type, new Set()).get(r.type)!).add(r.id)
+  }
+  const hidden = new Set<string>()
+  await Promise.all(
+    [...byType.entries()].map(async ([type, ids]) => {
+      const visible = await visiblePrivateKindIds(supabase, type, userId, [...ids], workspaceId)
+      for (const id of ids) if (!visible.has(id)) hidden.add(`${type}:${id}`)
+    }),
+  )
+  return hidden
+}
+
 /** The placeholder a hidden node of a private kind shows instead of its label. */
 export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   calendar_event: 'Calendar event (private)',

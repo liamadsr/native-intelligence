@@ -1,14 +1,14 @@
 /**
- * traverse resolves graph-neighbor LABELS on what may be a SERVICE-ROLE
- * client. The private graph kinds (src/lib/knowledge/entity-fences.ts) keep
- * their id and relation but never their words for a caller who can't read
- * them: someone else's calendar event, a DM they're not in, a team channel's
+ * traverse and get_context_bundle walk the graph on what may be a
+ * SERVICE-ROLE client. A private graph kind's row
+ * (src/lib/knowledge/entity-fences.ts) the caller can't read is left out
+ * altogether, id and words, and a hidden centre shows nothing around it: someone else's calendar event, a DM they're not in, a team channel's
  * message, a decision from another member's private capture. Fixtures are
  * made up.
  */
 import { describe, it, expect, vi } from 'vitest'
 import type { ToolExecutionOptions } from 'ai'
-import { createClaimTools } from '../claims'
+import { createClaimTools, dropHiddenFromBundle } from '../claims'
 import { PRIVATE_KIND_LABEL } from '@/lib/knowledge/entity-fences'
 
 vi.mock('@/lib/ai/embeddings', () => ({ embed: vi.fn(async () => [0.1]) }))
@@ -84,15 +84,14 @@ async function labels(userId: string, omitPrivate = false) {
   return { map: Object.fromEntries(res.outbound.map((e) => [e.target_id, e.label])), raw: JSON.stringify(res) }
 }
 
-describe('traverse — private graph kinds keep their words from those who cannot read them', () => {
-  it('shows Ana her own event and placeholders for the rest', async () => {
+describe('traverse — private graph kinds stay with those who can read them', () => {
+  it('shows Ana her own event and leaves out what she cannot read (not even its id)', async () => {
     const { map, raw } = await labels(ANA)
-    expect(map['ev-ana']).toBe('Fernhill sync')
-    expect(map['ev-ben']).toBe(PRIVATE_KIND_LABEL.calendar_event)
-    expect(map['msg-dm']).toBe(PRIVATE_KIND_LABEL.team_chat_message)
-    expect(map['ch-dm']).toBe(PRIVATE_KIND_LABEL.team_chat_channel)
-    expect(map['dec-private']).toBe(PRIVATE_KIND_LABEL.decision)
+    expect(map).toEqual({ 'ev-ana': 'Fernhill sync' })
+    for (const hidden of ['ev-ben', 'msg-dm', 'ch-dm', 'dec-private']) expect(raw).not.toContain(hidden)
     for (const secret of ['Ben dentist', 'Ben only secret', 'Raise prices quietly']) expect(raw).not.toContain(secret)
+    // No placeholder either: a hidden private row is left out, as another person's chat is.
+    expect(raw).not.toContain(PRIVATE_KIND_LABEL.calendar_event)
   })
 
   it('shows Ben what is his', async () => {
@@ -100,13 +99,57 @@ describe('traverse — private graph kinds keep their words from those who canno
     expect(map['ev-ben']).toBe('Ben dentist')
     expect(map['msg-dm']).toBe('Ben only secret')
     expect(map['dec-private']).toBe('Raise prices quietly')
-    expect(map['ev-ana']).toBe(PRIVATE_KIND_LABEL.calendar_event)
+    expect(map).not.toHaveProperty('ev-ana')
   })
 
   it('an unattended run (omitPrivate) reads none of them, even its own person’s', async () => {
     const { map, raw } = await labels(BEN, true)
-    expect(map['ev-ben']).toBe(PRIVATE_KIND_LABEL.calendar_event)
-    expect(map['msg-dm']).toBe(PRIVATE_KIND_LABEL.team_chat_message)
+    expect(map).toEqual({})
     expect(raw).not.toContain('Ben dentist')
+    expect(raw).not.toContain('ev-ben')
+  })
+
+  it('a private centre the caller cannot read has no neighbours', async () => {
+    const tables = { ...TABLES, entity_link: [{ ...edge('contact', 'con-1'), source_type: 'calendar_event', source_id: 'ev-ben' }] }
+    const walk = (userId: string) =>
+      createClaimTools(userId, db(tables), WS).traverse.execute!(
+        { entity_type: 'calendar_event', entity_id: 'ev-ben', direction: 'both' } as never,
+        EXEC,
+      ) as Promise<{ success: boolean; outbound?: unknown[]; inbound?: unknown[] }>
+    expect(await walk(ANA)).toEqual({ success: true, outbound: [], inbound: [] })
+    expect((await walk(BEN)).outbound).toHaveLength(1)
+  })
+})
+
+describe('dropHiddenFromBundle — get_context_bundle leaves out private rows the caller cannot read', () => {
+  const bundle = (center: { type: string; id: string }) => ({
+    center,
+    nodes: [
+      { node_type: 'project', node_id: 'prj-1' },
+      { node_type: 'calendar_event', node_id: 'ev-ben' },
+      { node_type: 'calendar_event', node_id: 'ev-ana' },
+      { node_type: 'team_chat_message', node_id: 'msg-dm' },
+      { node_type: 'decision', node_id: 'dec-private' },
+    ],
+    edges: [
+      { source_type: 'project', source_id: 'prj-1', target_type: 'calendar_event', target_id: 'ev-ben' },
+      { source_type: 'project', source_id: 'prj-1', target_type: 'calendar_event', target_id: 'ev-ana' },
+      { source_type: 'team_chat_message', source_id: 'msg-dm', target_type: 'project', target_id: 'prj-1' },
+    ],
+  })
+  const ids = (out: { nodes: unknown[] } | null) => (out!.nodes as Array<{ node_id: string }>).map((n) => n.node_id)
+
+  it('drops the nodes and the edges touching them', async () => {
+    const ana = await dropHiddenFromBundle(db(TABLES), bundle({ type: 'project', id: 'prj-1' }), ANA)
+    expect(ids(ana)).toEqual(['prj-1', 'ev-ana'])
+    expect(ana!.edges).toHaveLength(1)
+    const ben = await dropHiddenFromBundle(db(TABLES), bundle({ type: 'project', id: 'prj-1' }), BEN)
+    expect(ids(ben)).toEqual(['prj-1', 'ev-ben', 'msg-dm', 'dec-private'])
+    expect(ben!.edges).toHaveLength(2)
+  })
+
+  it('a hidden private centre leaves an empty bundle; no requester hides them all', async () => {
+    expect(await dropHiddenFromBundle(db(TABLES), bundle({ type: 'team_chat_message', id: 'msg-dm' }), ANA)).toEqual({ nodes: [], edges: [] })
+    expect(ids(await dropHiddenFromBundle(db(TABLES), bundle({ type: 'project', id: 'prj-1' }), null))).toEqual(['prj-1'])
   })
 })

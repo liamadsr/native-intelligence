@@ -453,7 +453,7 @@ export function createTools(
     // One guest's conversation with the agent the person made for them (guest access): a read of their own guests.
     ...createGuestConversationTools(userId, supabase, workspaceId),
     ...createClaimTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy),
-    ...createEntityLinkTools(userId, supabase, workspaceId, strict),
+    ...createEntityLinkTools(userId, supabase, workspaceId, strict, omitPrivate),
     ...createPackageTools(userId, supabase, workspaceId, strict, createPolicy),
     ...createAsanaTools(userId, supabase, workspaceId, strict),
     ...createJiraTools(userId, supabase, workspaceId, strict),

@@ -12,7 +12,7 @@ import { memoryDb } from '@/test/memory-db'
 vi.mock('@/lib/inngest/client', () => ({ inngest: { send: vi.fn() } }))
 vi.mock('@/lib/ai/embeddings', () => ({ embed: vi.fn() }))
 
-import { isPrivateGraphKind, visiblePrivateKindIds } from '../entity-fences'
+import { hiddenPrivateRefs, isPrivateGraphKind, visiblePrivateKindIds } from '../entity-fences'
 import { entityInWorkspace } from '@/lib/ai/tools/claims'
 import { resourceIdInWorkspace } from '@/lib/work/start-work-item'
 
@@ -21,9 +21,11 @@ const OTHER_WS = 'aaaaaaaa-0000-4000-8000-000000000002'
 const ANA = 'uuuuuuuu-0000-4000-8000-00000000000a' // user ids
 const BEN = 'uuuuuuuu-0000-4000-8000-00000000000b'
 const OUTSIDER = 'uuuuuuuu-0000-4000-8000-00000000000c'
+const GUS = 'uuuuuuuu-0000-4000-8000-00000000000d' // a guest member
 const ANA_M = 'mmmmmmmm-0000-4000-8000-00000000000a' // member ids
 const BEN_M = 'mmmmmmmm-0000-4000-8000-00000000000b'
 const OUT_M = 'mmmmmmmm-0000-4000-8000-00000000000c'
+const GUS_M = 'mmmmmmmm-0000-4000-8000-00000000000d'
 const TEAM = 'tttttttt-0000-4000-8000-000000000001'
 
 function db() {
@@ -32,6 +34,7 @@ function db() {
       { id: ANA_M, user_id: ANA, workspace_id: WS, display_name: 'Ana Ruiz' },
       { id: BEN_M, user_id: BEN, workspace_id: WS, display_name: 'Ben Okafor' },
       { id: OUT_M, user_id: OUTSIDER, workspace_id: OTHER_WS, display_name: 'Cleo Park' },
+      { id: GUS_M, user_id: GUS, workspace_id: WS, display_name: 'Gus Lind', role: 'guest' },
     ],
     team_member: [{ team_id: TEAM, member_id: ANA_M }],
     local_calendar_event: [
@@ -43,6 +46,8 @@ function db() {
       { id: 'ch-team', workspace_id: WS, team_id: TEAM, kind: 'channel', name: 'design' },
       { id: 'ch-dm-ab', workspace_id: WS, team_id: null, kind: 'dm', name: null },
       { id: 'ch-foreign', workspace_id: OTHER_WS, team_id: null, kind: 'channel', name: 'elsewhere' },
+      { id: 'ch-archived', workspace_id: WS, team_id: null, kind: 'channel', name: 'old', archived_at: '2026-10-01T00:00:00Z' },
+      { id: 'ch-team-archived', workspace_id: WS, team_id: TEAM, kind: 'channel', name: 'old-design', archived_at: '2026-10-01T00:00:00Z' },
     ],
     team_chat_member: [
       { channel_id: 'ch-dm-ab', member_id: ANA_M, workspace_id: WS },
@@ -111,6 +116,27 @@ describe('private graph kind fences', () => {
     expect(await ids('decision', OUTSIDER, all, WS)).toEqual([])
     // Not a member of the decision's workspace: nothing, even unpinned.
     expect(await ids('decision', OUTSIDER, ['dec-ws'])).toEqual([])
+  })
+
+  it('mirrors team_chat_can_read exactly: archived channels stay readable, a guest member reads as a member does', async () => {
+    const all = ['ch-open', 'ch-team', 'ch-dm-ab', 'ch-archived', 'ch-team-archived']
+    // 474: archived is a POST rule (team_chat_can_post), never a read one.
+    expect(await ids('team_chat_channel', ANA, all)).toEqual(['ch-archived', 'ch-dm-ab', 'ch-open', 'ch-team', 'ch-team-archived'])
+    expect(await ids('team_chat_channel', BEN, all)).toEqual(['ch-archived', 'ch-dm-ab', 'ch-open'])
+    // is_workspace_member counts every member row, a guest's too; a team or a DM still needs its own membership.
+    expect(await ids('team_chat_channel', GUS, all)).toEqual(['ch-archived', 'ch-open'])
+  })
+
+  it('hiddenPrivateRefs: the private refs a user may not read, in one pass; other kinds never hidden', async () => {
+    const refs = [
+      { type: 'calendar_event', id: 'ev-ana' },
+      { type: 'calendar_event', id: 'ev-ben' },
+      { type: 'team_chat_message', id: 'msg-dm' },
+      { type: 'deal', id: 'deal-x' },
+    ]
+    expect([...(await hiddenPrivateRefs(db(), refs, ANA))].sort()).toEqual(['calendar_event:ev-ben'])
+    expect([...(await hiddenPrivateRefs(db(), refs, GUS))].sort()).toEqual(['calendar_event:ev-ana', 'calendar_event:ev-ben', 'team_chat_message:msg-dm'])
+    expect([...(await hiddenPrivateRefs(db(), refs, null))].sort()).toEqual(['calendar_event:ev-ana', 'calendar_event:ev-ben', 'team_chat_message:msg-dm'])
   })
 
   it('fails closed with no user', async () => {

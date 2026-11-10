@@ -18,6 +18,7 @@ import { filterVisibleCompanies, filterVisibleContacts } from '@/lib/crm/contact
 import {
   PRIVATE_GRAPH_KINDS,
   PRIVATE_KIND_LABEL,
+  hiddenPrivateRefs,
   isPrivateGraphKind,
   visiblePrivateKindIds,
   type PrivateGraphKind,
@@ -430,17 +431,28 @@ export async function dropHiddenFromBundle(
   for (const n of bundle.nodes as Node[]) {
     if (n?.node_type === 'document' && typeof n.node_id === 'string') documentIds.add(n.node_id)
   }
-  const [hiddenClaims, hiddenChats, hiddenDocs] = await Promise.all([
+  // The private graph kinds (entity-fences.ts): someone else's calendar
+  // event, a DM or team channel they're not in, a decision of a private
+  // capture. claim_neighborhood joins none of them, so only this fences them.
+  const privateRefs = [
+    bundle.center,
+    ...(bundle.nodes as Node[])
+      .filter((n) => typeof n?.node_type === 'string' && typeof n.node_id === 'string')
+      .map((n) => ({ type: n.node_type as string, id: n.node_id as string })),
+  ].filter((r) => isPrivateGraphKind(r.type))
+  const [hiddenClaims, hiddenChats, hiddenDocs, hiddenPrivate] = await Promise.all([
     claimIds.size > 0 ? claimIdsHiddenFrom(supabase, [...claimIds], requester) : new Set<string>(),
     conversationIds.size > 0 ? conversationIdsHiddenFrom(supabase, [...conversationIds], requester) : new Set<string>(),
     documentIds.size > 0 ? documentIdsHiddenFrom(supabase, [...documentIds], requester) : new Set<string>(),
+    privateRefs.length > 0 ? hiddenPrivateRefs(supabase, privateRefs, requester) : new Set<string>(),
   ])
   if (!hiddenClaims || !hiddenChats || !hiddenDocs) return null
   const hidden = (type: unknown, id: unknown) =>
     isMailSourceType(typeof type === 'string' ? type : null) ||
     (type === 'claim' && typeof id === 'string' && hiddenClaims.has(id)) ||
     (type === CONVERSATION_SOURCE_TYPE && typeof id === 'string' && hiddenChats.has(id)) ||
-    (type === 'document' && typeof id === 'string' && hiddenDocs.has(id))
+    (type === 'document' && typeof id === 'string' && hiddenDocs.has(id)) ||
+    (typeof type === 'string' && typeof id === 'string' && hiddenPrivate.has(`${type}:${id}`))
   if (hidden(bundle.center.type, bundle.center.id)) return { nodes: [], edges: [] }
   return {
     nodes: (bundle.nodes as Node[]).filter((n) => !hidden(n?.node_type, n?.node_id)),
@@ -2087,17 +2099,30 @@ export function createClaimTools(
         ]
         const claimIds = idsOf('claim')
         const chatIds = idsOf(CONVERSATION_SOURCE_TYPE)
-        const [hiddenClaims, hiddenChats] = await Promise.all([
+        // A private graph kind (entity-fences.ts) the requester can't read:
+        // a hidden centre has no neighbours, a hidden neighbour is left out
+        // (not listed by id under a placeholder).
+        const privateRefs = [
+          { type: entity_type as string, id: entity_id },
+          ...(results.outbound ?? []).map((e) => ({ type: e.target_type, id: e.target_id })),
+          ...(results.inbound ?? []).map((e) => ({ type: e.source_type, id: e.source_id })),
+        ].filter((r) => isPrivateGraphKind(r.type))
+        const [hiddenClaims, hiddenChats, hiddenPrivate] = await Promise.all([
           claimIds.length > 0 ? claimIdsHiddenFrom(supabase, claimIds, requestingUserId) : new Set<string>(),
           chatIds.length > 0 ? conversationIdsHiddenFrom(supabase, chatIds, requestingUserId) : new Set<string>(),
+          privateRefs.length > 0
+            ? hiddenPrivateRefs(supabase, privateRefs, requestingUserId, scopeWorkspaceId)
+            : new Set<string>(),
         ])
         if (!hiddenClaims || !hiddenChats) return { success: false, error: 'Could not read the graph. Try again.' }
         if (entity_type === 'claim' && hiddenClaims.has(entity_id)) return empty
         if (entity_type === CONVERSATION_SOURCE_TYPE && hiddenChats.has(entity_id)) return empty
+        if (hiddenPrivate.has(`${entity_type}:${entity_id}`)) return empty
         const shown = (type: string, id: string) =>
           !isMailSourceType(type) &&
           !(type === 'claim' && hiddenClaims.has(id)) &&
-          !(type === CONVERSATION_SOURCE_TYPE && hiddenChats.has(id))
+          !(type === CONVERSATION_SOURCE_TYPE && hiddenChats.has(id)) &&
+          !hiddenPrivate.has(`${type}:${id}`)
         if (results.outbound) results.outbound = results.outbound.filter((e) => shown(e.target_type, e.target_id))
         if (results.inbound) results.inbound = results.inbound.filter((e) => shown(e.source_type, e.source_id))
 
