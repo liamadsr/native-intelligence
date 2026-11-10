@@ -156,6 +156,17 @@ describe('board grouped by a custom select field', () => {
     expect(refetch).toHaveBeenCalled()
   })
 
+  it('moves a card when its field changes elsewhere (a teammate, the panel)', () => {
+    act(() => {
+      window.dispatchEvent(new CustomEvent('ni:entity-updated', {
+        detail: { entityType: 'deal', id: 'd1', fields: { custom_fields: { project_type: 'Website', retainer_months: 6 } } },
+      }))
+    })
+    expect(moveItemBetweenGroups).toHaveBeenCalledWith('d1', 'Brand', 'Website', {
+      custom_fields: { project_type: 'Website', retainer_months: 6 },
+    })
+  })
+
   it('never PATCHes the record with the path as a column', async () => {
     await act(async () => { onMoveItem!(['d1'], 'Brand', 'Website') })
     const patches = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')

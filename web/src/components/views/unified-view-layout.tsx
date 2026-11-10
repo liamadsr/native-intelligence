@@ -868,7 +868,13 @@ export function UnifiedViewLayout({
         scheduleRefetch()
         return
       }
-      if (groupField && groupField in d.fields) {
+      // A board grouped by a custom field (`custom_fields.<key>`) sees the
+      // change as a new `custom_fields`: its column is that key's value.
+      const customGroupKey = groupField ? customFieldKeyOf(groupField) : null
+      const groupChanged = !!groupField && (
+        groupField in d.fields || (customGroupKey !== null && 'custom_fields' in d.fields)
+      )
+      if (groupField && groupChanged) {
         // The card changed columns. Try to derive the destination column
         // key from current data without a refetch — much cheaper than
         // re-fetching the entire list, especially on N-user boards.
@@ -881,7 +887,10 @@ export function UnifiedViewLayout({
         const groups = (dataRef.current as GroupedResults[]) ?? []
         const isGrouped = Array.isArray(groups) && groups.length > 0
           && typeof (groups[0] as GroupedResults)?.key === 'string'
-        const newValue = d.fields[groupField]
+        const changedCustom = customGroupKey !== null ? d.fields.custom_fields : undefined
+        const newValue = customGroupKey !== null
+          ? (changedCustom && typeof changedCustom === 'object' ? (changedCustom as Record<string, unknown>)[customGroupKey] : null)
+          : d.fields[groupField]
         let toKey: string | undefined
 
         if (!isGrouped) {
