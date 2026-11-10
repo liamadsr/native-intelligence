@@ -79,6 +79,8 @@ import {
   applyDocumentVisibility,
   documentRequesterMember,
   grantedReadIds,
+  grantReader,
+  GRANTS_TRUNCATED_NOTE,
   isDocumentVisible,
   readGrants,
   type CreateWorkspacePolicy,
@@ -173,9 +175,13 @@ export function createDocumentTools(
     approvedCall?: ApprovedCall
     approvalContext?: Omit<ApprovalContext, 'flow' | 'connection' | 'bots' | 'document'>
     nowReadable?: boolean
+    /** A guest's or a linked agent's turn: no grant (492) opens a document (CreateToolsOptions.omitGrants). */
+    omitGrants?: boolean
   } = {},
 ) {
   const nowReadable = extra.nowReadable === true
+  // Whom a grant may open a document to on this turn: the person, or no one.
+  const grantee = grantReader(userId, extra.omitGrants)
   /**
    * The caller's member row per workspace, for the private-document rule: a
    * private document is visible only to the member who created it. Null when
@@ -216,7 +222,7 @@ export function createDocumentTools(
     // A grant reaches a member: no member row here (or an unattended run), no
     // grant. Someone's Now file is theirs alone, shared or not.
     if (!opts.read || !row || !requester || nowFile) return { visible: false, nowFile, viaGrant: false }
-    const granted = await grantedReadIds(supabase, userId, targetWs, 'document', [documentId])
+    const granted = await grantedReadIds(supabase, grantee, targetWs, 'document', [documentId])
     return granted.has(documentId) ? { visible: true, nowFile, viaGrant: true } : { visible: false, nowFile, viaGrant: false }
   }
 
@@ -546,8 +552,8 @@ export function createDocumentTools(
         // Workspace documents, plus the caller's own private ones (migration
         // 369), plus the private ones shared with them (a grant, 492: a read).
         const requester = await requesterIn(workspaceId)
-        const [{ document: granted }, fieldDefs] = await Promise.all([
-          readGrants(supabase, requester ? userId : null, workspaceId, ['document']),
+        const [{ document: granted, truncated: grantsTruncated }, fieldDefs] = await Promise.all([
+          readGrants(supabase, requester ? grantee : null, workspaceId, ['document']),
           customFieldDefsOrNone(supabase, workspaceId, 'document'),
         ])
         let query = applyDocumentVisibility(
@@ -583,7 +589,9 @@ export function createDocumentTools(
 
         if (error) return { success: false, error: error.message }
 
-        const documents = (data || []).map((d) => {
+        // Someone's Now file is theirs alone (440), shared or not; `kinds`
+        // leaves Now files out already, and this holds whatever it lists.
+        const documents = (data || []).filter((d) => !((d as { kind?: string }).kind === 'now' && (d as { created_by?: string | null }).created_by !== requester)).map((d) => {
           const projectData = d.project as unknown as { id: string; name: string } | null
           const authorData = d.author as unknown as { id: string; display_name: string } | null
           return {
@@ -614,6 +622,7 @@ export function createDocumentTools(
           documents,
           count: documents.length,
           ...(kinds.length < 3 ? { left_out: [...(include_reports ? [] : ['reports']), ...(include_preps ? [] : ['meeting preps'])].join(' and ') } : {}),
+          ...(grantsTruncated ? { shared_note: GRANTS_TRUNCATED_NOTE } : {}),
           ...(sinceISO || untilISO
             ? { time_field: timeField, since: sinceISO, until: untilISO }
             : {}),
@@ -881,7 +890,7 @@ export function createDocumentTools(
         const requester = await requesterIn(resolved.workspaceId)
         let viaGrant = false
         if (!isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, requester)) {
-          const granted = requester ? await grantedReadIds(supabase, userId, resolved.workspaceId, 'document', [document_id]) : new Set<string>()
+          const granted = requester ? await grantedReadIds(supabase, grantee, resolved.workspaceId, 'document', [document_id]) : new Set<string>()
           // Someone's Now file is theirs alone, shared or not.
           if (!granted.has(document_id) || isNowDocument(data.frontmatter)) return { success: false, error: 'Document not found' }
           viaGrant = true
@@ -1181,7 +1190,7 @@ export function createDocumentTools(
         const { data, error } = await supabase
           .from('action_document')
           .select(
-            'id, document:document!document_id(id, workspace_id, title, updated_at, visibility, owner:created_by, created_by:member!created_by(id, display_name))',
+            'id, document:document!document_id(id, workspace_id, title, updated_at, visibility, kind, owner:created_by, created_by:member!created_by(id, display_name))',
           )
           .eq('action_id', action_id)
           .order('created_at', { ascending: false })
@@ -1195,7 +1204,7 @@ export function createDocumentTools(
           .filter((d) => d?.id && d.visibility === 'private' && d.owner !== requester)
           .map((d) => d!.id as string)
         const granted = requester && privateIds.length
-          ? await grantedReadIds(supabase, userId, resolved.workspaceId, 'document', privateIds)
+          ? await grantedReadIds(supabase, grantee, resolved.workspaceId, 'document', privateIds)
           : new Set<string>()
         const documents = (data || [])
           .map((row) => {
@@ -1205,6 +1214,7 @@ export function createDocumentTools(
               title: string
               updated_at: string
               visibility?: string | null
+              kind?: string | null
               owner?: string | null
               created_by: { id: string; display_name: string } | null
             } | null
@@ -1213,6 +1223,8 @@ export function createDocumentTools(
             // fence (or a doc moved afterwards) could still point out of the
             // action's workspace — and the join is unfiltered by design.
             if (!doc || doc.workspace_id !== resolved.workspaceId) return null
+            // Someone's Now file is theirs alone (440), shared or not.
+            if (doc.kind === 'now' && doc.owner !== requester) return null
             // Someone else's private document (migration 369) isn't listed, unless shared with them.
             if (!isDocumentVisible({ id: doc.id, visibility: doc.visibility, created_by: doc.owner }, requester, granted)) return null
             return {

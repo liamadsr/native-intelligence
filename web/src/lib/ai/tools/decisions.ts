@@ -26,6 +26,9 @@ export function createDecisionTools(
    * the confirm tools refuse the decisions the run filed itself.
    */
   rules: ActionToolRules = {},
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
 ) {
   // These tools run on a service-role client for MCP and unattended runs, so
   // this requester — not RLS — is what keeps a teammate's private capture (and
@@ -75,7 +78,7 @@ export function createDecisionTools(
         // own private one, or a teammate's shared with them (a grant, 492: the
         // decision view policy's arm, 493). Otherwise it reads as absent. A
         // read only: confirming or dismissing asks the ungranted rule.
-        const visible = await captureReadAccess(supabase, capture_id, workspaceId, requester)
+        const visible = await captureReadAccess(supabase, capture_id, workspaceId, requester, undefined, !omitGrants)
         if (!visible) return { success: false, error: 'Capture not found' }
 
         let query = supabase

@@ -492,6 +492,9 @@ export function createClaimTools(
   // create-bearing factory — an unused default keeps today's callers
   // (index.ts) byte-identical until the bridge passes 'explicit'.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
 ) {
   // Threaded into the visibility-aware SECURITY DEFINER RPCs; null = fail closed
   // (claims sourced only from private captures are excluded).
@@ -584,7 +587,7 @@ export function createClaimTools(
         // requester (migration 493): its title resolves as theirs would. Not
         // for an unattended run (no requester), as above.
         if (type === 'capture' || type === 'document') {
-          const grantUser = type === 'capture' ? requestingUserId : omitPrivateCaptures ? null : userId
+          const grantUser = omitGrants ? null : type === 'capture' ? requestingUserId : omitPrivateCaptures ? null : userId
           const have = rows.map((r) => r.id).filter((id): id is string => typeof id === 'string')
           const opened = await withGrantedIds(supabase, { userId: grantUser, workspaceId: ws }, type, [...ids], have)
           const extra = [...opened].filter((id) => !have.includes(id))

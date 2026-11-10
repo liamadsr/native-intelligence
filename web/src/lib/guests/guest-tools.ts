@@ -301,6 +301,8 @@ export async function guestToolCall(
         origin: { actor: 'agent', depth: 1 },
         approvalContext: ctx.approvalContext,
         searchDefaultWindow: 'all_time',
+        // What was shared with the owner (a grant) is theirs, never their guest's or a linked agent's.
+        omitGrants: true,
       }),
     },
     ownersAsk ? { gate: holdEveryCallAs('internal-write', guestTextHold(guest.displayName, guestChannelOf(claims))) } : {},

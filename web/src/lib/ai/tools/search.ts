@@ -90,6 +90,57 @@ export async function dropMailFromResults<T extends { result_type: string; resul
   )
 }
 
+/**
+ * `rows` without the hits only a per-item grant (492) found: someone else's
+ * private capture or document, and a decision of someone else's private
+ * capture that isn't confirmed (506 gave unified_search and hybrid_search
+ * that arm). For a turn that reads no grant (a guest's, a linked agent's):
+ * what the search would have answered before 506. Flat: at most three reads
+ * (captures, documents, the person's member rows), only for the kinds
+ * present. A failed read drops every hit of its kind (fails closed).
+ */
+export async function dropGrantOnlyHits<T extends { result_type: string; result_id: string; metadata?: Record<string, unknown> | null }>(
+  supabase: SupabaseClient,
+  rows: T[],
+  userId: string,
+): Promise<T[]> {
+  const decisionCapture = (r: T) => (typeof r.metadata?.capture_id === 'string' ? (r.metadata.capture_id as string) : null)
+  const captureIds = [
+    ...new Set([
+      ...rows.filter((r) => r.result_type === 'capture').map((r) => r.result_id),
+      ...rows.filter((r) => r.result_type === 'decision').map(decisionCapture).filter((id): id is string => !!id),
+    ]),
+  ]
+  const documentIds = [...new Set(rows.filter((r) => r.result_type === 'document').map((r) => r.result_id))]
+  try {
+    const [caps, docs, members] = await Promise.all([
+      captureIds.length ? supabase.from('captures').select('id, visibility, user_id').in('id', captureIds) : Promise.resolve({ data: [], error: null }),
+      documentIds.length ? supabase.from('document').select('id, visibility, created_by').in('id', documentIds) : Promise.resolve({ data: [], error: null }),
+      documentIds.length ? supabase.from('member').select('id').eq('user_id', userId) : Promise.resolve({ data: [], error: null }),
+    ])
+    const capOk = !caps.error
+    const docOk = !docs.error && !members.error
+    const capById = new Map(((caps.data ?? []) as Array<{ id: string; visibility?: string | null; user_id?: string | null }>).map((c) => [c.id, c]))
+    const docById = new Map(((docs.data ?? []) as Array<{ id: string; visibility?: string | null; created_by?: string | null }>).map((d) => [d.id, d]))
+    const mine = new Set(((members.data ?? []) as Array<{ id: string }>).map((m) => m.id))
+    const captureOpen = (id: string | null) => {
+      const c = id ? capById.get(id) : undefined
+      return !!c && (c.visibility !== 'private' || c.user_id === userId)
+    }
+    return rows.filter((r) => {
+      if (r.result_type === 'capture') return capOk && captureOpen(r.result_id)
+      if (r.result_type === 'decision') return capOk && (r.metadata?.confirmation === 'confirmed' || captureOpen(decisionCapture(r)))
+      if (r.result_type === 'document') {
+        const d = docById.get(r.result_id)
+        return docOk && !!d && (d.visibility !== 'private' || (d.created_by != null && mine.has(d.created_by)))
+      }
+      return true
+    })
+  } catch {
+    return rows.filter((r) => !['capture', 'decision', 'document'].includes(r.result_type))
+  }
+}
+
 /** Run unified_search against a single workspace and tag results with the workspace. */
 async function runUnifiedSearch(
   supabase: SupabaseClient,
@@ -450,6 +501,13 @@ export function createSearchTools(
    * Everywhere else `find` and `search` drop it.
    */
   nowReadable = false,
+  /**
+   * A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+   * only a grant found (506's arm in unified_search / hybrid_search) is
+   * dropped from find and search, since a grant shares with the person, not
+   * their guest.
+   */
+  omitGrants = false,
 ) {
   // The toolset's default, spoken in the descriptions so the model knows what
   // a search with no window covers here.
@@ -758,7 +816,9 @@ export function createSearchTools(
         }
         // The person's Now file reaches only their own main chat (migration 440).
         const all: HybridRow[] = [...results, ...contactResult.results, ...emailResult.results]
-        const combined: HybridRow[] = nowReadable ? all : await dropNowDocuments(supabase, all)
+        // Even there, only the person's OWN Now file: another member's never, shared or not.
+        const withoutNow: HybridRow[] = await dropNowDocuments(supabase, all, nowReadable ? userId : null)
+        const combined: HybridRow[] = omitGrants ? await dropGrantOnlyHits(supabase, withoutNow, userId) : withoutNow
 
         // Batch-resolve ANCHOR names onto the fused list. One entity_link query
         // plus one label query per anchor type present — bounded by anchor types,
@@ -985,7 +1045,9 @@ export function createSearchTools(
 
         // The person's Now file reaches only their own main chat (migration 440).
         const found = [...unifiedResult.results, ...contactResult.results, ...emailResult.results]
-        const allResults = nowReadable ? found : await dropNowDocuments(supabase, found)
+        // Even there, only the person's OWN Now file: another member's never, shared or not.
+        const withoutNow = await dropNowDocuments(supabase, found, nowReadable ? userId : null)
+        const allResults = omitGrants ? await dropGrantOnlyHits(supabase, withoutNow, userId) : withoutNow
 
         return {
           success: true,

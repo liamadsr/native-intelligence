@@ -11,6 +11,7 @@ import {
   applyCaptureVisibility,
   captureRequester,
   readGrants,
+  grantReader,
   FUZZY_MATCH_LIMIT,
   listMatches,
   soleMatch,
@@ -45,6 +46,9 @@ export function createProjectTools(
   // passes 'explicit' so a create with no `workspace_id` refuses rather than
   // silently landing in a connector's months-old active workspace.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
 ) {
   // get_project_context reads captures on a service-role client (MCP / unattended
   // runs), so this requester — not RLS — is the real enforcement.
@@ -426,7 +430,7 @@ export function createProjectTools(
             .single(),
           customFieldDefsOrNone(supabase, wsResolved.workspaceId, 'project'),
           // Private captures shared with the person (a grant, 492): a read.
-          readGrants(supabase, requester, wsResolved.workspaceId, ['capture']),
+          readGrants(supabase, grantReader(requester, omitGrants), wsResolved.workspaceId, ['capture']),
         ])
 
         if (projectError) return { success: false, error: projectError.message }
