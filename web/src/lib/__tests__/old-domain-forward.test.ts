@@ -111,6 +111,13 @@ describe('what is forwarded', () => {
     })
   })
 
+  it('goes to the origin of the app\'s address, whatever else the setting holds', () => {
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev/app/')
+    expect(oldDomainForward(request('https://dial8.ai/pricing?x=1'), ON)).toMatchObject({ location: 'https://nativeintelligence.dev/pricing?x=1' })
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://www.nativeintelligence.dev')
+    expect(oldDomainForward(request('https://dial8.ai/pricing'), ON)).toMatchObject({ location: 'https://www.nativeintelligence.dev/pricing' })
+  })
+
   it('keeps an encoded path and an encoded query as they came', () => {
     const decision = oldDomainForward(request('https://dial8.ai/s/a%2Fb?next=%2Faccount%3Fx%3D1&q=a+b'), ON)
     expect(decision).toMatchObject({ location: 'https://nativeintelligence.dev/s/a%2Fb?next=%2Faccount%3Fx%3D1&q=a+b' })

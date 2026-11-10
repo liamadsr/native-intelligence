@@ -337,9 +337,10 @@ export function oldDomainForward(request: ForwardRequest, env: Record<string, st
   const blockedBy = forwardBlockedBy(env)
   if (blockedBy) return { forward: false, reason: blockedBy, blocked: true }
 
-  const target = appUrl()
+  // The address's origin (forwardBlockedBy parsed it): a path in the setting never prefixes the target.
+  const target = new URL(appUrl()).origin
   const location = new URL(`${target}${request.nextUrl.pathname}${request.nextUrl.search}`)
   // The path cannot change the origin (it starts with one slash), but say so.
-  if (location.origin !== new URL(target).origin) return { forward: false, reason: 'target off the app' }
+  if (location.origin !== target) return { forward: false, reason: 'target off the app' }
   return { forward: true, location: location.toString(), status }
 }
