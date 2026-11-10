@@ -16,8 +16,12 @@
 # project never gives out provider secrets or the SMTP password), and for the
 # ones that come from somewhere else altogether (Stripe).
 #
-# Needs python3 and sudo without a password on the server, as
-# pull-hosted-settings.sh does.
+# Needs python3 and sudo on the server. Unlike pull-hosted-settings.sh it runs
+# in a terminal, so a sudo that asks for a password simply asks.
+#
+# One thing to know about the server: if its sudo is set up to record what is
+# typed (the "log_input" option; Ubuntu does not turn it on), what you paste
+# here is recorded too.
 #
 # Settings:
 #   PULL_SSH_OPTS   extra options for ssh
@@ -46,4 +50,4 @@ here="$(cd "$(dirname "$0")" && pwd)"
 encoded="$(base64 <"$here/envfile.py" | tr -d '\n')"
 # shellcheck disable=SC2086,SC2029
 ssh -t $PULL_SSH_OPTS -o ConnectTimeout=20 "$server" \
-	"sudo python3 -c 'import base64,sys; a=sys.argv; sys.argv=[a[0]]+a[2:]; exec(base64.b64decode(a[1]))' $encoded prompt $(printf '%q' "$PULL_ENV_FILE")$names"
+	"sudo python3 -I -c 'import base64,sys; a=sys.argv; sys.argv=[a[0]]+a[2:]; exec(base64.b64decode(a[1]))' $encoded prompt $(printf '%q' "$PULL_ENV_FILE")$names"

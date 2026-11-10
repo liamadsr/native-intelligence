@@ -23,6 +23,7 @@ import re
 import stat
 import sys
 import tempfile
+import warnings
 
 
 def die(message):
@@ -38,7 +39,7 @@ def fmt(name, value):
     a single quote or ending in a backslash.
     """
     v = "" if value is None else str(value)
-    if any(ord(c) < 32 or ord(c) == 127 or c in "\x85  " for c in v):
+    if any(ord(c) < 32 or ord(c) == 127 or c in "\x85\u2028\u2029" for c in v):
         die("%s contains a line break or control character; that cannot go into an env file." % name)
     if re.fullmatch(r"[A-Za-z0-9_./:@,+=-]*", v):
         return v
@@ -47,7 +48,18 @@ def fmt(name, value):
     return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
 
 
+def known_names(path):
+    try:
+        with open(path) as f:
+            return {line.split("=", 1)[0] for line in f.read().split("\n") if "=" in line}
+    except OSError as e:
+        die("cannot read %s (%s). Create it first: step 14 of deploy/README.md." % (path, e.strerror))
+
+
 def apply(path, new):
+    # Through a link, so the file it points at is the one replaced and no
+    # second copy with the old values is left behind.
+    path = os.path.realpath(path)
     if not new:
         die("nothing to write; the file was not changed.")
     for name in new:
@@ -110,9 +122,21 @@ def main():
         die("name the settings to ask for.")
     if not sys.stdin.isatty():
         die("this needs a terminal (with ssh: ssh -t).")
+    # Before the first question, so a mistyped name does not cost what was
+    # already pasted.
+    missing = sorted(set(names) - known_names(path))
+    if missing:
+        die("%s has no line for %s; nothing was asked." % (path, ", ".join(missing)))
+    # getpass falls back to visible typing, with a warning, when it cannot
+    # take over the terminal. Here that is an error: better no answer than a
+    # secret on the screen.
+    warnings.simplefilter("error", getpass.GetPassWarning)
     new = {}
     for name in names:
-        value = getpass.getpass("%s (hidden as you paste, then Enter): " % name).strip()
+        try:
+            value = getpass.getpass("%s (hidden as you paste, then Enter): " % name).strip()
+        except getpass.GetPassWarning:
+            die("this terminal cannot hide what is typed; nothing was changed.")
         if not value:
             die("%s was left empty; nothing was changed." % name)
         print("   %s: %d characters" % (name, len(value)))

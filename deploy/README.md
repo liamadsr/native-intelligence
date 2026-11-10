@@ -565,13 +565,13 @@ Most of what comes from the hosted project (groups 1 and 3 below) does not have 
 deploy/supabase/pull-hosted-settings.sh <project ref> <user>@<server>
 ```
 
-It lists what it wrote. Three things it cannot bring, because the hosted project only ever gives out their fingerprint: the Google and Apple client secrets and the SMTP password. For those, and for any other secret, [`supabase/set-secret.sh`](supabase/set-secret.sh) asks with the typing hidden and writes the answer into the file:
+It lists what it is sending, and the server answers with how many settings it wrote. Three things it cannot bring, because the hosted project only ever gives out their fingerprint: the Google and Apple client secrets and the SMTP password. For those, and for any other secret, [`supabase/set-secret.sh`](supabase/set-secret.sh) asks with the typing hidden and writes the answer into the file:
 
 ```bash
 deploy/supabase/set-secret.sh <user>@<server> GOOGLE_SECRET
 ```
 
-Both need `sudo` without a password on the server, like [`move/`](move/README.md#before-you-start). The first also names a few things the hosted project has switched on that this stack has no setting for (other sign-in providers, other hooks, CAPTCHA, session limits); it does not compare rate limits, password rules or MFA settings, which are listed under "Settings this list does not cover" in [`supabase/README.md`](supabase/README.md#auth-settings).
+The first runs without a terminal, so it needs `sudo` without a password on the server; the comment at the top of the script has the one line that allows that for a while. The second runs in a terminal, where `sudo` can ask. The first also names a few things the hosted project has switched on that this stack has no setting for (other sign-in providers, other hooks, CAPTCHA, session limits). It does not compare rate limits or password rules, which are listed under "Settings this list does not cover" in [`supabase/README.md`](supabase/README.md#auth-settings), nor the MFA switches.
 
 [`supabase/.env.example`](supabase/.env.example) describes every line. Three groups matter most:
 

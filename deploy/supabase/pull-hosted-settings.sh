@@ -21,10 +21,12 @@
 # What it needs:
 #   - A Supabase access token of an owner of the project: SUPABASE_ACCESS_TOKEN,
 #     or on a Mac the login that the Supabase CLI keeps ("supabase login").
-#   - python3 and ssh here; python3 and sudo WITHOUT a password on the server.
-#     (A server whose user was made as step 2 of ../README.md describes asks
-#     for a password; see "Before you start" in ../move/README.md for the one
-#     line that lifts that for a while.)
+#   - python3 and ssh here; python3 and sudo WITHOUT a password on the server:
+#     this runs without a terminal, so sudo has nobody to ask. A user made as
+#     step 2 of ../README.md describes is asked for one; lift that for the
+#     length of the job with
+#       echo '<user> ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-ni-pull
+#     and remove that file afterwards.
 #
 # Settings:
 #   PULL_SSH_OPTS   extra options for ssh, for example
@@ -101,11 +103,15 @@ say = lambda *a: print(*a, file=sys.stderr)
 out, notes = {}, []
 fingerprint = re.compile(r"[0-9a-f]{64}")
 
+# Checked by check-env.sh against each other, so a wrong one cannot pass. A
+# project may well have chosen a 64-character hex secret of its own.
+verified_later = {"JWT_SECRET", "ANON_KEY", "SERVICE_ROLE_KEY"}
+
 def put(name, value, secret=False):
     v = "" if value is None else str(value)
     # The hosted project answers with a fingerprint in place of some secrets.
     # Writing one would look like success and fail at the first sign-in.
-    if fingerprint.fullmatch(v):
+    if name not in verified_later and fingerprint.fullmatch(v):
         sys.exit("pull: %s came back as a fingerprint, not a value; nothing was written." % name)
     out[name] = v
     if secret:
@@ -211,9 +217,16 @@ fi
 # object: one that arrives cut short does not parse, and nothing is applied.
 # The program that applies them holds no secret, so it travels as an argument.
 encoded="$(base64 <"$here/envfile.py" | tr -d '\n')"
+# Read first, send second: when the hosted project refuses, the server is not
+# contacted at all. printf is part of the shell, so the values never appear
+# in a process list.
+values="$(build_values)"
+# -I keeps python from loading a module out of the login user's home folder,
+# which is where this command starts, in place of its own.
 # shellcheck disable=SC2086,SC2029
-build_values | ssh $PULL_SSH_OPTS -o BatchMode=yes -o ConnectTimeout=20 "$server" \
-	"sudo python3 -c 'import base64,sys; a=sys.argv; sys.argv=[a[0]]+a[2:]; exec(base64.b64decode(a[1]))' $encoded apply $(printf '%q' "$PULL_ENV_FILE")"
+printf '%s' "$values" | ssh $PULL_SSH_OPTS -o BatchMode=yes -o ConnectTimeout=20 "$server" \
+	"sudo python3 -I -c 'import base64,sys; a=sys.argv; sys.argv=[a[0]]+a[2:]; exec(base64.b64decode(a[1]))' $encoded apply $(printf '%q' "$PULL_ENV_FILE")"
+values=""
 
 echo
 echo "Next, on the server: fill in what is still empty, then  cd $(dirname "$(dirname "$PULL_ENV_FILE")") && sudo ./check-env.sh"
