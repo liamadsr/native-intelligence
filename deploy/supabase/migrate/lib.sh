@@ -33,7 +33,23 @@ env_get() {
 	value="$(grep -E "^${key}=" "$file" | tail -n 1 | cut -d= -f2-)" || true
 	value="${value%$'\r'}"
 	case "$value" in
-		\"*\") value="${value#\"}" value="${value%\"}" ;;
+		\"*\")
+			value="${value#\"}" value="${value%\"}"
+			# Inside double quotes a backslash, a double quote and a dollar sign
+			# are written with a backslash in front. Undo that, one character at
+			# a time on purpose: pattern replacement handles backslashes
+			# differently from one version of bash to the next.
+			local out="" c i=0 n=${#value}
+			while [ "$i" -lt "$n" ]; do
+				c="${value:$i:1}"
+				if [ "$c" = "\\" ] && [ $((i + 1)) -lt "$n" ]; then
+					case "${value:$((i + 1)):1}" in "\\" | '"' | '$') i=$((i + 1)) c="${value:$i:1}" ;; esac
+				fi
+				out="$out$c"
+				i=$((i + 1))
+			done
+			value="$out"
+			;;
 		\'*\') value="${value#\'}" value="${value%\'}" ;;
 	esac
 	printf '%s' "$value"

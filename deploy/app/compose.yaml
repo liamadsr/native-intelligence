@@ -85,6 +85,9 @@ services:
         EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://supabase.invalid}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-build-placeholder}
+        # Optional, from the same place. Empty means the session cookie is named
+        # from the address (web/src/lib/supabase/project.ts).
+        NEXT_PUBLIC_SUPABASE_PROJECT_REF: ${NEXT_PUBLIC_SUPABASE_PROJECT_REF:-}
 
   # The same server. Only /api/inngest is routed to it (proxy/Caddyfile).
   worker:

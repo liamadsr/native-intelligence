@@ -288,6 +288,13 @@ export interface FilterFieldDefinition {
    * drops them defensively in case a saved view already carries one.
    */
   virtual?: boolean
+  /**
+   * One of the workspace's own fields (migrations 473, 496), named
+   * `custom_fields.<key>` and read from the record's `custom_fields` jsonb.
+   * Never in the tables below: the definitions are per workspace, so the
+   * filter UI adds them at runtime (src/lib/views/custom-field-columns.ts).
+   */
+  custom?: boolean
 }
 
 // ============================================================

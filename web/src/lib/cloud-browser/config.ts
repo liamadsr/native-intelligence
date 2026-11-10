@@ -4,6 +4,7 @@
  */
 
 import { APP_DOMAINS, appDomainOf, appUrl } from '@/lib/app-url'
+import { supabaseProjectRef } from '@/lib/supabase/project'
 const SECOND = 1_000
 const MINUTE = 60 * SECOND
 const DAY = 24 * 60 * MINUTE
@@ -107,6 +108,11 @@ export function cloudBrowserBaseSnapshotId(): string | null {
  * other's browsers.
  */
 export function cloudBrowserNamespace(): string {
+  // When the project is reached through an address of ours, the address no
+  // longer names it. Without the pinned ref PROD would become `local` and
+  // share a namespace with every development machine.
+  const pinned = supabaseProjectRef()
+  if (pinned) return pinned.slice(0, 8)
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
   const ref = /^https:\/\/([a-z0-9]+)\.supabase\.co/.exec(url)?.[1]
   return ref ? ref.slice(0, 8) : 'local'

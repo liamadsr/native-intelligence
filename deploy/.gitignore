@@ -2,3 +2,6 @@
 .env
 .env.*
 !.env.example
+
+# Left behind when a Python helper is run or checked here.
+__pycache__/

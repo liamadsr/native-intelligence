@@ -244,14 +244,20 @@ function DynamicEnumPicker({
 
   React.useEffect(() => {
     if (loaded) return
+    // A picker that is gone (the chip was removed, the toolbar unmounted) or
+    // whose source changed drops whatever its request brings back: no state
+    // update after unmount, and no stale options over a newer request's.
+    let cancelled = false
     if (source === 'workflow_states') {
       // Fetch all teams, then all workflow states across them
       fetch('/api/account/teams')
         .then(r => r.ok ? r.json() : null)
         .then(async (json) => {
+          if (cancelled) return
           if (!json?.teams?.length) { setLoaded(true); return }
           const byName = new Map<string, { id: string; name: string; color?: string; ids: string[] }>()
           for (const team of json.teams as { id: string }[]) {
+            if (cancelled) return
             const res = await fetch(`/api/account/workflow-states?team_id=${team.id}`)
             if (!res.ok) continue
             const statesJson = await res.json()
@@ -262,16 +268,18 @@ function DynamicEnumPicker({
               else byName.set(s.name, { id: s.id, name: s.name, color: s.color, ids: [s.id] })
             }
           }
+          if (cancelled) return
           setOptions(Array.from(byName.values()))
           setLoaded(true)
         })
-        .catch(() => setLoaded(true))
+        .catch(() => { if (!cancelled) setLoaded(true) })
     } else if (source === 'deal_stages') {
       // Every pipeline's stages; a stage name shared by two pipelines is one
       // option holding both ids, the way a workflow state is across teams.
       fetch('/api/account/deals/pipelines')
         .then(r => r.ok ? r.json() : null)
         .then((json) => {
+          if (cancelled) return
           const byName = new Map<string, { id: string; name: string; color?: string; ids: string[] }>()
           for (const p of (json?.pipelines || []) as { stages: { id: string; name: string; color?: string | null }[] }[]) {
             for (const s of p.stages) {
@@ -283,10 +291,11 @@ function DynamicEnumPicker({
           setOptions(Array.from(byName.values()))
           setLoaded(true)
         })
-        .catch(() => setLoaded(true))
+        .catch(() => { if (!cancelled) setLoaded(true) })
     } else {
       setLoaded(true)
     }
+    return () => { cancelled = true }
   }, [loaded, source])
 
   const toggleOption = (opt: { id: string; ids: string[] }) => {
@@ -520,8 +529,9 @@ function NumberRangePicker({
  */
 const DAY_ONLY_DATE_FIELDS = new Set(['target_date', 'start_date', 'expected_close_date'])
 
+/** A custom date field is a day too: its values are stored as `YYYY-MM-DD` (coerceCustomValue). */
 export function isDayOnlyDateField(fieldDef: FilterFieldDefinition): boolean {
-  return fieldDef.type === 'date' && DAY_ONLY_DATE_FIELDS.has(fieldDef.field)
+  return fieldDef.type === 'date' && (DAY_ONLY_DATE_FIELDS.has(fieldDef.field) || !!fieldDef.custom)
 }
 
 /**
@@ -624,10 +634,13 @@ function EntityPicker({
   // Fetch options eagerly on mount (to resolve pre-selected value names)
   React.useEffect(() => {
     if (loaded) return
+    // As in DynamicEnumPicker: once this effect is cleaned up (unmount, or a
+    // new endpoint), its request's answer is dropped, success or failure.
+    let cancelled = false
     fetch(endpoint)
       .then(r => r.ok ? r.json() : null)
       .then(json => {
-        if (!json) return
+        if (cancelled || !json) return
         // Handle all known API response shapes
         const items = json.projects || json.teams || json.members
           || json.initiatives || json.contacts || json.companies
@@ -642,7 +655,8 @@ function EntityPicker({
         )
         setLoaded(true)
       })
-      .catch(() => setLoaded(true))
+      .catch(() => { if (!cancelled) setLoaded(true) })
+    return () => { cancelled = true }
   }, [loaded, endpoint, nameKey])
 
   // Support @me as a special "current user" value

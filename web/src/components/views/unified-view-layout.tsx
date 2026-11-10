@@ -44,6 +44,7 @@ import type { ViewEntityType, GroupedResults, ViewFilter, ViewLayout, ViewScope,
 import type { ProspectStageTab, ProspectStageCounts } from '@/lib/views/prospect-stage-tabs'
 import { DEFAULT_BOARD_GROUP_BY } from '@/lib/views/types'
 import { ENTITY_ENDPOINTS } from '@/lib/views/entity-endpoints'
+import { customFieldKeyOf, isCustomFieldPath, viewTakesCustomFields } from '@/lib/views/custom-field-columns'
 import { useWorkspaceId, useCurrentMemberId } from '@/app/account/workspace-switcher'
 import { useCaptureVisibilityViewer } from '@/app/account/(dashboard)/components/capture-visibility-control'
 import { onEntityUpdated, onEntityDeleted, emitEntityUpdated, wasRecentlyMutatedLocally } from '@/lib/entity-events'
@@ -867,7 +868,13 @@ export function UnifiedViewLayout({
         scheduleRefetch()
         return
       }
-      if (groupField && groupField in d.fields) {
+      // A board grouped by a custom field (`custom_fields.<key>`) sees the
+      // change as a new `custom_fields`: its column is that key's value.
+      const customGroupKey = groupField ? customFieldKeyOf(groupField) : null
+      const groupChanged = !!groupField && (
+        groupField in d.fields || (customGroupKey !== null && 'custom_fields' in d.fields)
+      )
+      if (groupField && groupChanged) {
         // The card changed columns. Try to derive the destination column
         // key from current data without a refetch — much cheaper than
         // re-fetching the entire list, especially on N-user boards.
@@ -880,7 +887,10 @@ export function UnifiedViewLayout({
         const groups = (dataRef.current as GroupedResults[]) ?? []
         const isGrouped = Array.isArray(groups) && groups.length > 0
           && typeof (groups[0] as GroupedResults)?.key === 'string'
-        const newValue = d.fields[groupField]
+        const changedCustom = customGroupKey !== null ? d.fields.custom_fields : undefined
+        const newValue = customGroupKey !== null
+          ? (changedCustom && typeof changedCustom === 'object' ? (changedCustom as Record<string, unknown>)[customGroupKey] : null)
+          : d.fields[groupField]
         let toKey: string | undefined
 
         if (!isGrouped) {
@@ -1203,6 +1213,14 @@ export function UnifiedViewLayout({
     if (!config.grouping) return
 
     const groupField = config.grouping.field
+    // A board grouped by a custom select field (`custom_fields.<key>`): the
+    // views/query route lays its columns out by the definition (one per
+    // option, in option order, empty ones included, then "No value"; see
+    // layoutCustomSelectGroups), and a drop sets the field through the values
+    // route (which checks the person's edit right on each record), not a
+    // PATCH of the record.
+    const customKey = customFieldKeyOf(groupField)
+    if (isCustomFieldPath(groupField) && (!customKey || !viewTakesCustomFields(effectiveEntityType))) return
 
     const groups = data as GroupedResults[]
     const targetGroup = groups.find(g => g.key === toGroup)
@@ -1263,21 +1281,35 @@ export function UnifiedViewLayout({
       valueByItem.set(itemId, v)
     }
 
+    // The fields a move changes on the card: the group-by column, or for a
+    // custom field the card's whole `custom_fields` with that one key set
+    // (cleared when dropped on "No value"), so its cells redraw too.
+    const movedFields = (itemId: string): Record<string, unknown> => {
+      const value = valueByItem.get(itemId)
+      if (!customKey) return { [groupField]: value }
+      const current = itemById.get(itemId)?.custom_fields
+      const next: Record<string, unknown> =
+        current && typeof current === 'object' && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {}
+      if (value === null || value === undefined) delete next[customKey]
+      else next[customKey] = value
+      return { custom_fields: next }
+    }
+
     // Optimistic: move each card to the target column immediately so the UI
     // feels instant. Track snapshots so we can roll back on failure.
     const snapshots = itemIds.map(itemId =>
-      moveItemBetweenGroups(itemId, fromGroup, toGroup, { [groupField]: valueByItem.get(itemId) }),
+      moveItemBetweenGroups(itemId, fromGroup, toGroup, movedFields(itemId)),
     )
 
     // Fire PATCH requests in parallel — one per item (no bulk endpoint for
     // arbitrary field updates, but concurrent calls keep total latency low).
     const results = await Promise.allSettled(
       itemIds.map(async (itemId) => {
-        const endpoint = ENTITY_ENDPOINTS[effectiveEntityType](itemId)
-        if (!endpoint) return
         const newValue = valueByItem.get(itemId)
+        const endpoint = customKey ? '/api/account/custom-fields/values' : ENTITY_ENDPOINTS[effectiveEntityType](itemId)
+        if (!endpoint) return
         const res = await fetch(endpoint, {
-          method: 'PATCH',
+          method: customKey ? 'POST' : 'PATCH',
           // A card dragged with "Show all workspaces" on belongs to whichever
           // workspace its row came from; without naming it the PATCH resolves
           // the id in the ACTIVE workspace and 404s, so the card springs back
@@ -1287,7 +1319,11 @@ export function UnifiedViewLayout({
             'Content-Type': 'application/json',
             ...rowWorkspaceHeaders(itemById.get(itemId), workspaceIdRef.current ?? null),
           },
-          body: JSON.stringify({ [groupField]: newValue }),
+          body: JSON.stringify(
+            customKey
+              ? { entity_type: effectiveEntityType, id: itemId, values: { [customKey]: newValue ?? null } }
+              : { [groupField]: newValue },
+          ),
         })
         if (!res.ok) {
           // Surface the API's `{ error }` message (see @/lib/api-errors) —
@@ -1301,11 +1337,20 @@ export function UnifiedViewLayout({
           throw new Error(message || `HTTP ${res.status}`)
         }
         // Notify other surfaces (detail panel, sibling lists) so they update
-        // their cached copy without a round-trip.
+        // their cached copy without a round-trip. A custom field write sends
+        // back the record's whole `custom_fields` as stored: that, not this
+        // card's pre-drag copy plus one key, is what the others are told (a
+        // teammate may have set another field meanwhile).
+        let fields = movedFields(itemId)
+        if (customKey) {
+          const saved = await res.json().catch(() => null) as { custom_fields?: unknown } | null
+          const stored = saved?.custom_fields
+          if (stored && typeof stored === 'object' && !Array.isArray(stored)) fields = { custom_fields: stored }
+        }
         emitEntityUpdated({
           entityType: effectiveEntityType as Parameters<typeof emitEntityUpdated>[0]['entityType'],
           id: itemId,
-          fields: { [groupField]: newValue },
+          fields,
         })
       }),
     )
@@ -1318,9 +1363,9 @@ export function UnifiedViewLayout({
       itemIds.forEach((itemId, idx) => {
         const snapshot = snapshots[idx]
         if (snapshot) {
-          moveItemBetweenGroups(itemId, toGroup, fromGroup, {
-            [groupField]: snapshot[groupField] ?? null,
-          })
+          moveItemBetweenGroups(itemId, toGroup, fromGroup, customKey
+            ? { custom_fields: snapshot.custom_fields ?? {} }
+            : { [groupField]: snapshot[groupField] ?? null })
         }
       })
       // Prefer the server's own explanation (a 400's `{ error }` body) over
