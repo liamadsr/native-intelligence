@@ -51,6 +51,21 @@ const FIELD_TRAITS: Record<string, FilterFieldTrait> = {
 }
 
 /**
+ * The operators a chip for this field offers: its type's, plus "is empty" /
+ * "is not empty" for a custom select field. A record that never had a
+ * workspace's own field set is the common case, and "which deals have no
+ * project type yet" is a question a select must be able to ask. The enum
+ * type's own list (shared with every built-in enum) stays as it is.
+ */
+export function operatorsFor(fieldDef: FilterFieldDefinition): FilterOperator[] {
+  const operators = OPERATORS_BY_TYPE[fieldDef.type] ?? []
+  if (fieldDef.custom && fieldDef.type === 'enum') {
+    return [...operators, ...(['is_empty', 'is_not_empty'] as const).filter((op) => !operators.includes(op))]
+  }
+  return operators
+}
+
+/**
  * The operator a newly added chip for this field starts on.
  *
  * The preference is checked against the field type's own operator list rather

@@ -37,7 +37,7 @@ import type {
   WorkspaceScope,
 } from './types'
 import { DEFAULT_DISPLAY_PROPERTIES, DEFAULT_BOARD_GROUP_BY, FILTERABLE_FIELDS, NO_MATCH_FILTER_VALUE, defaultOrdering, isUnsetFilterValue } from './types'
-import { customFieldKeyOf, isCustomFieldPath, viewTakesCustomFields } from './custom-field-columns'
+import { customFieldKeyOf, isCustomFieldPath, orderCustomSelectGroups, viewTakesCustomFields } from './custom-field-columns'
 
 // Re-export so callers already importing from the query engine (and the route)
 // get the sentinel from one place. The value itself lives in ./types so client
@@ -1294,8 +1294,13 @@ export function applyCustomFieldFilter(
       if (!list.length) return
       const numeric = list.every((v) => typeof v === 'number')
       const column = numeric ? json : text
-      if (operator === 'is_any_of') query.in(column, numeric ? list : list.map(String))
-      else query.not(column, 'in', `(${list.map((v) => (numeric ? String(v) : inListItem(String(v)))).join(',')})`)
+      // Built here, not with `.in()`: postgrest-js quotes a value with a comma
+      // or a bracket but leaves a `"` inside it bare, so an option like
+      // `12" pipe, large` would break the whole query. Both operators take
+      // the same escaped list.
+      const inList = `(${list.map((v) => (numeric ? String(v) : inListItem(String(v)))).join(',')})`
+      if (operator === 'is_any_of') query.filter(column, 'in', inList)
+      else query.not(column, 'in', inList)
       return
     }
     case 'gt':
@@ -2002,6 +2007,36 @@ export function groupResults(
   return sortedGroups
 }
 
+/**
+ * Groups by a custom SELECT field (`custom_fields.<key>`) laid out by its
+ * definition: a group per option in option order, empty ones included, "No
+ * value" last (orderCustomSelectGroups). One read of the one definition,
+ * under the caller's RLS. Anything else, or a definition that is not there
+ * or not a select, leaves the groups as groupResults made them.
+ */
+export async function layoutCustomSelectGroups(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityType: ViewEntityType,
+  grouping: GroupConfig,
+  groups: GroupedResults[],
+): Promise<GroupedResults[]> {
+  const key = customFieldKeyOf(grouping.field)
+  if (!key || !viewTakesCustomFields(entityType)) return groups
+  const { data, error } = await supabase
+    .from('custom_field_definition')
+    .select('field_type, options')
+    .eq('workspace_id', workspaceId)
+    .eq('entity_type', entityType)
+    .eq('key', key)
+    .maybeSingle()
+  if (error || !data || (data as { field_type?: string }).field_type !== 'select') return groups
+  const options = Array.isArray((data as { options?: unknown }).options)
+    ? ((data as { options: unknown[] }).options.filter((o): o is string => typeof o === 'string'))
+    : []
+  return orderCustomSelectGroups(groups, options, grouping.direction)
+}
+
 /** Date fields that should be grouped by calendar day instead of raw value */
 const DATE_GROUP_FIELDS = new Set([
   'created_at', 'updated_at', 'due_at', 'started_at', 'ended_at',
@@ -2346,6 +2381,7 @@ export async function executeView(
   if (view.grouping) {
     const validSubGrouping = view.sub_grouping && view.sub_grouping.field ? view.sub_grouping : null
     grouped = groupResults(items, view.grouping, validSubGrouping)
+    grouped = await layoutCustomSelectGroups(supabase, view.workspace_id, view.entity_type, view.grouping, grouped)
   }
 
   return {

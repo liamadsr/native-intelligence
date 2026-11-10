@@ -136,6 +136,22 @@ describe('board grouped by a custom select field', () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
+  it('tells the other surfaces the values the server stored, not the card’s old copy', async () => {
+    // A teammate set renewal_date meanwhile: the server's row has it.
+    response = { ok: true, body: { custom_fields: { project_type: 'Website', retainer_months: 6, renewal_date: '2026-12-01' } } }
+    const updates: unknown[] = []
+    const listen = (e: Event) => updates.push((e as CustomEvent).detail)
+    window.addEventListener('ni:entity-updated', listen)
+    try {
+      await act(async () => { onMoveItem!(['d1'], 'Brand', 'Website') })
+    } finally {
+      window.removeEventListener('ni:entity-updated', listen)
+    }
+    expect(updates).toEqual([
+      { entityType: 'deal', id: 'd1', fields: { custom_fields: { project_type: 'Website', retainer_months: 6, renewal_date: '2026-12-01' } } },
+    ])
+  })
+
   it('clears the field when dropped on "No value"', async () => {
     await act(async () => { onMoveItem!(['d1'], 'Brand', '__none__') })
     expect(valueWrites()).toEqual([

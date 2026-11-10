@@ -1213,10 +1213,12 @@ export function UnifiedViewLayout({
     if (!config.grouping) return
 
     const groupField = config.grouping.field
-    // A board grouped by a custom select field (`custom_fields.<key>`): its
-    // columns are the field's options, and a drop sets the field through the
-    // values route (which checks the person's edit right on each record), not
-    // a PATCH of the record.
+    // A board grouped by a custom select field (`custom_fields.<key>`): the
+    // views/query route lays its columns out by the definition (one per
+    // option, in option order, empty ones included, then "No value"; see
+    // layoutCustomSelectGroups), and a drop sets the field through the values
+    // route (which checks the person's edit right on each record), not a
+    // PATCH of the record.
     const customKey = customFieldKeyOf(groupField)
     if (isCustomFieldPath(groupField) && (!customKey || !viewTakesCustomFields(effectiveEntityType))) return
 
@@ -1335,11 +1337,20 @@ export function UnifiedViewLayout({
           throw new Error(message || `HTTP ${res.status}`)
         }
         // Notify other surfaces (detail panel, sibling lists) so they update
-        // their cached copy without a round-trip.
+        // their cached copy without a round-trip. A custom field write sends
+        // back the record's whole `custom_fields` as stored: that, not this
+        // card's pre-drag copy plus one key, is what the others are told (a
+        // teammate may have set another field meanwhile).
+        let fields = movedFields(itemId)
+        if (customKey) {
+          const saved = await res.json().catch(() => null) as { custom_fields?: unknown } | null
+          const stored = saved?.custom_fields
+          if (stored && typeof stored === 'object' && !Array.isArray(stored)) fields = { custom_fields: stored }
+        }
         emitEntityUpdated({
           entityType: effectiveEntityType as Parameters<typeof emitEntityUpdated>[0]['entityType'],
           id: itemId,
-          fields: movedFields(itemId),
+          fields,
         })
       }),
     )

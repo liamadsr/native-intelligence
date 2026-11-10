@@ -24,7 +24,7 @@
  */
 import { isCustomFieldEntityType, type CustomFieldEntityType } from '@/lib/knowledge/entity-registry'
 import type { CustomFieldDefinition, CustomFieldType } from '@/lib/crm/custom-fields'
-import type { DisplayPropertyDefinition, FilterFieldDefinition, FilterFieldType, ViewEntityType } from './types'
+import type { DisplayPropertyDefinition, FilterFieldDefinition, FilterFieldType, FilterValue, GroupedResults, ViewEntityType } from './types'
 
 export const CUSTOM_FIELD_PATH_PREFIX = 'custom_fields.'
 
@@ -125,4 +125,49 @@ export function formatCustomFieldValue(fieldType: CustomFieldType | undefined, v
     return day.toLocaleDateString('en-US', y === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' })
   }
   return String(value)
+}
+
+/**
+ * A board (or grouped list) by a custom select field, laid out by the field:
+ * one group per option, in the definition's option order (reversed for a
+ * descending grouping), the empty ones included, so a card can be dragged to
+ * any option even before a record has one. A value no option holds any more
+ * (an option since removed) follows the options, by label; the records with
+ * no value ("No value") come last, and are there even when empty, so a card
+ * can be dragged off an option. A new array; the groups are not copied.
+ */
+export function orderCustomSelectGroups(
+  groups: readonly GroupedResults[],
+  options: readonly string[],
+  direction: 'asc' | 'desc' = 'asc',
+): GroupedResults[] {
+  const byKey = new Map(groups.map((g) => [g.key, g]))
+  const ordered = direction === 'desc' ? [...options].reverse() : [...options]
+  const out: GroupedResults[] = []
+  const seen = new Set<string>()
+  for (const option of ordered) {
+    if (seen.has(option)) continue
+    seen.add(option)
+    out.push(byKey.get(option) ?? { key: option, label: option, items: [] })
+  }
+  const rest = groups.filter((g) => !seen.has(g.key) && g.key !== '__none__')
+  rest.sort((a, b) => (direction === 'desc' ? b.label.localeCompare(a.label) : a.label.localeCompare(b.label)))
+  out.push(...rest)
+  out.push(byKey.get('__none__') ?? { key: '__none__', label: 'No value', items: [] })
+  return out
+}
+
+/** A filter value as a chip or a summary reads it ("Brand, Website", "next 3 months", "…" while unset). */
+export function filterValueLabel(val: FilterValue | null | undefined): string {
+  if (val === '@me') return 'Me'
+  if (Array.isArray(val)) return val.join(', ')
+  if (val && typeof val === 'object' && 'from' in val && 'to' in val) return `${String(val.from)} – ${String(val.to)}`
+  if (val && typeof val === 'object' && 'unit' in val) {
+    const rel = val as { direction: string; count?: number; unit: string }
+    const count = rel.count ?? 1
+    return rel.direction === 'this' ? `this ${rel.unit}` : `${rel.direction === 'past' ? 'last' : 'next'} ${count} ${rel.unit}${count === 1 ? '' : 's'}`
+  }
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+  if (val === '' || val === null || val === undefined) return '…'
+  return String(val)
 }

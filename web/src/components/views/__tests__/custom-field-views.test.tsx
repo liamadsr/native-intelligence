@@ -170,6 +170,42 @@ describe('a custom filter chip', () => {
   })
 })
 
+describe('a custom filter with no definition to draw it', () => {
+  it('still shows (the engine still applies it) and can be removed', async () => {
+    fields = [] // a misspelled key, a failed read, or still loading: no match
+    const onRemove = vi.fn()
+    await act(async () => {
+      root.render(
+        h(FilterChip, {
+          entityType: 'deal',
+          filter: { id: 'a', field: 'custom_fields.regoin', operator: 'is', value: 'North' },
+          onUpdate: vi.fn(),
+          onRemove,
+        }),
+      )
+    })
+    await flush()
+    const chip = container.querySelector('[data-unresolved-custom-field="regoin"]') as HTMLElement
+    expect(chip).toBeTruthy()
+    expect(chip.textContent).toContain('regoin')
+    expect(chip.textContent).toContain('North')
+    act(() => chip.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(onRemove).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a custom select chip', () => {
+  it('offers "is empty" and "is not empty"; a built-in enum keeps its own list', async () => {
+    const { operatorsFor } = await import('../filters/field-traits')
+    const { customFieldFilterFields } = await import('@/lib/views/custom-field-columns')
+    const { FILTERABLE_FIELDS } = await import('@/lib/views/types')
+    const select = customFieldFilterFields([{ key: 'project_type', label: 'Project type', field_type: 'select', options: ['Brand'] }])[0]
+    expect(operatorsFor(select)).toEqual(['is', 'is_not', 'is_any_of', 'is_none_of', 'is_empty', 'is_not_empty'])
+    const stage = FILTERABLE_FIELDS.deal.find((f) => f.field === 'source')!
+    expect(operatorsFor(stage)).toEqual(['is', 'is_not', 'is_any_of', 'is_none_of'])
+  })
+})
+
 describe('view settings', () => {
   const CONFIG = {
     filters: [],

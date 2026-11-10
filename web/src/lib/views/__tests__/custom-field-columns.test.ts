@@ -9,7 +9,9 @@ import {
   customFieldFilterFields,
   customFieldKeyOf,
   customFieldPath,
+  filterValueLabel,
   formatCustomFieldValue,
+  orderCustomSelectGroups,
   isCustomFieldPath,
   viewTakesCustomFields,
   withCustomFilterFields,
@@ -92,6 +94,26 @@ describe('definitions as filter fields', () => {
       ['custom_fields.renewal_date', 'Renewal date'],
       ['custom_fields.referral_source', 'Referral source'],
     ])
+  })
+})
+
+describe('a filter value as a chip reads it', () => {
+  it('reads every value shape', () => {
+    expect(filterValueLabel(['Brand', 'Website'])).toBe('Brand, Website')
+    expect(filterValueLabel({ from: 3, to: 12 })).toBe('3 – 12')
+    expect(filterValueLabel({ direction: 'future', count: 3, unit: 'month' })).toBe('next 3 months')
+    expect(filterValueLabel({ direction: 'this', unit: 'week' })).toBe('this week')
+    expect(filterValueLabel(6)).toBe('6')
+    expect(filterValueLabel('')).toBe('…')
+  })
+})
+
+describe('select groups in option order', () => {
+  it('keeps the groups it was given, adds the missing options, ends with No value', () => {
+    const website = { key: 'Website', label: 'Website', items: [{ id: 'd1' }] }
+    const out = orderCustomSelectGroups([website], ['Brand', 'Website'])
+    expect(out.map((g) => g.key)).toEqual(['Brand', 'Website', '__none__'])
+    expect(out[1]).toBe(website)
   })
 })
 

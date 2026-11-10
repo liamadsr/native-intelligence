@@ -7,7 +7,7 @@
  * fields selects them, so a column can draw them.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { applyFilters, applyOrdering, buildEntityQuery, groupResults } from '@/lib/views/query-engine'
+import { applyFilters, applyOrdering, buildEntityQuery, groupResults, layoutCustomSelectGroups } from '@/lib/views/query-engine'
 import { CUSTOM_FIELD_ENTITY_TYPES } from '@/lib/knowledge/entity-registry'
 import type { FilterOperator, ViewEntityType, ViewFilter } from '@/lib/views/types'
 
@@ -62,7 +62,22 @@ describe('custom field filters', () => {
       { method: 'eq', args: ['custom_fields->>project_type', 'Brand'] },
     ])
     expect(await run('custom_fields.project_type', 'is_any_of', ['Brand', 'Website'])).toEqual([
-      { method: 'in', args: ['custom_fields->>project_type', ['Brand', 'Website']] },
+      { method: 'filter', args: ['custom_fields->>project_type', 'in', '("Brand","Website")'] },
+    ])
+  })
+
+  it('escapes a quote inside an option for "is any of" as for "is none of"', async () => {
+    expect(await run('custom_fields.pipe_size', 'is_any_of', ['12" pipe, large', 'a\\b'])).toEqual([
+      { method: 'filter', args: ['custom_fields->>pipe_size', 'in', '("12\\" pipe, large","a\\\\b")'] },
+    ])
+    expect(await run('custom_fields.pipe_size', 'is_none_of', ['12" pipe, large'])).toEqual([
+      { method: 'not', args: ['custom_fields->>pipe_size', 'in', '("12\\" pipe, large")'] },
+    ])
+  })
+
+  it('a list of numbers compares through ->', async () => {
+    expect(await run('custom_fields.retainer_months', 'is_any_of', [6, 12])).toEqual([
+      { method: 'filter', args: ['custom_fields->retainer_months', 'in', '(6,12)'] },
     ])
   })
 
@@ -210,6 +225,59 @@ describe('custom field selects', () => {
     for (const kind of CUSTOM_FIELD_ENTITY_TYPES) {
       expect(selectFor(kind as ViewEntityType).split(/[\s,]+/)).toContain('custom_fields')
     }
+  })
+})
+
+describe('a custom select board laid out by its definition', () => {
+  function supabaseWith(def: unknown, calls: unknown[][] = []) {
+    const chain: Record<string, unknown> = {}
+    for (const m of ['select', 'eq']) chain[m] = (...a: unknown[]) => { calls.push([m, ...a]); return chain }
+    chain.maybeSingle = async () => ({ data: def, error: null })
+    return { from: (t: string) => { calls.push(['from', t]); return chain } }
+  }
+  const grouped = () => groupResults(
+    [
+      { id: 'd1', custom_fields: { project_type: 'Website' } },
+      { id: 'd2', custom_fields: { project_type: 'Retired option' } },
+    ],
+    { field: 'custom_fields.project_type', direction: 'asc' },
+  )
+
+  it('gives every option a column, in option order, then old values, then No value', async () => {
+    const calls: unknown[][] = []
+    const out = await layoutCustomSelectGroups(
+      supabaseWith({ field_type: 'select', options: ['Brand', 'Website', 'Packaging'] }, calls) as never,
+      'ws-1', 'deal', { field: 'custom_fields.project_type', direction: 'asc' }, grouped(),
+    )
+    expect(out.map((g) => [g.key, g.items.length])).toEqual([
+      ['Brand', 0], ['Website', 1], ['Packaging', 0], ['Retired option', 1], ['__none__', 0],
+    ])
+    expect(calls).toEqual([
+      ['from', 'custom_field_definition'],
+      ['select', 'field_type, options'],
+      ['eq', 'workspace_id', 'ws-1'],
+      ['eq', 'entity_type', 'deal'],
+      ['eq', 'key', 'project_type'],
+    ])
+  })
+
+  it('a brand-new field still has a column per option to drag into', async () => {
+    const empty = groupResults([{ id: 'd1', custom_fields: {} }], { field: 'custom_fields.tier', direction: 'asc' })
+    const out = await layoutCustomSelectGroups(
+      supabaseWith({ field_type: 'select', options: ['Gold', 'Silver'] }) as never,
+      'ws-1', 'action', { field: 'custom_fields.tier', direction: 'desc' }, empty,
+    )
+    expect(out.map((g) => g.key)).toEqual(['Silver', 'Gold', '__none__'])
+  })
+
+  it('leaves the groups alone for a non-select field, a missing one, or a kind without fields', async () => {
+    const g = grouped()
+    expect(await layoutCustomSelectGroups(supabaseWith({ field_type: 'text', options: [] }) as never, 'ws-1', 'deal', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
+    expect(await layoutCustomSelectGroups(supabaseWith(null) as never, 'ws-1', 'deal', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
+    const calls: unknown[][] = []
+    expect(await layoutCustomSelectGroups(supabaseWith(null, calls) as never, 'ws-1', 'capture', { field: 'custom_fields.project_type', direction: 'asc' }, g)).toBe(g)
+    expect(await layoutCustomSelectGroups(supabaseWith(null, calls) as never, 'ws-1', 'deal', { field: 'stage_id', direction: 'asc' }, g)).toBe(g)
+    expect(calls).toEqual([])
   })
 })
 
