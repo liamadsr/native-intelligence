@@ -111,6 +111,7 @@
     "inngest": "^4.0.0",
     "jose": "^6.2.3",
     "jszip": "^3.10.1",
+    "just-bash": "3.1.0",
     "liquid-gooey": "^0.2.2",
     "lucide-react": "^0.563.0",
     "mammoth": "^1.12.1",

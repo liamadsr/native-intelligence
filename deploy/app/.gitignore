@@ -1,0 +1,4 @@
+# The stack's env file holds secrets.
+.env
+.env.*
+!.env.example

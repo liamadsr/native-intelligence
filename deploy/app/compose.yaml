@@ -1,0 +1,187 @@
+# The whole app on one machine, for the container test: web, worker, the eight eve
+# agents and cron from one image, behind a small proxy. A proof that everything
+# builds and starts; not the production setup. See README.md in this folder.
+#
+#   docker compose -f deploy/app/compose.yaml build web   # the one image
+#   deploy/app/smoke.sh        # starts it with throwaway values, checks, stops
+#   docker compose -f deploy/app/compose.yaml up -d --wait   # or run it yourself
+#
+# Secrets never live in this file. Each app container reads the env file named by
+# NI_ENV_FILE (default deploy/app/.env, which git ignores); .env.example lists what
+# it can hold. smoke.sh writes a throwaway one.
+name: ni-app
+
+x-app: &app
+  # Built here (the web service's `build`), never pulled: there is no registry.
+  image: ${NI_APP_IMAGE:-ni-app:local}
+  pull_policy: never
+  env_file:
+    - path: ${NI_ENV_FILE:-.env}
+      required: false
+  environment: &app-env
+    # The app's one origin. The web role calls the agents at
+    # $NEXT_PUBLIC_APP_URL/eve/<name>/v1/*, and each agent calls the app back at
+    # $NEXT_PUBLIC_APP_URL/api/internal/*: both go through the proxy.
+    NEXT_PUBLIC_APP_URL: http://proxy:8080
+  # tini as PID 1: passes SIGTERM on and reaps what the servers leave behind.
+  init: true
+  # An agent and cron write nothing to the image: state is on the volumes below,
+  # scratch in /tmp.
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+  # How long `docker stop` waits after SIGTERM before SIGKILL. This one is the agents':
+  # their server closes on SIGTERM, and 60 s covers open requests and its close hooks
+  # (eve start allowed it 20 s). web, worker and cron set their own below.
+  stop_grace_period: 60s
+
+# web and worker are the same server, and `next start` writes into its own folder:
+# its cache, the docs index (.source), and every page it regenerates, which it saves
+# beside the built ones in .next/server/app. Read-only, those pages would stay as
+# they were built. So these two are not read-only.
+x-next: &next
+  <<: *app
+  read_only: false
+
+services:
+  proxy:
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      # The test stack answers on this machine only.
+      - 127.0.0.1:${NI_PORT:-8080}:8080
+    read_only: true
+    tmpfs:
+      - /config
+      - /data
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    <<: *next
+    command: [web]
+    # next start stops taking requests on SIGTERM and exits once those in flight end.
+    stop_grace_period: 120s
+    build:
+      context: ../..
+      dockerfile: deploy/app/Dockerfile
+      args:
+        # Compiled into the web role by `next build` (see the Dockerfile, which has no
+        # defaults for these four). The first two name the proxy above as the stack's
+        # own containers reach it. The Supabase pair comes from the shell or
+        # deploy/app/.env, and must be what the containers get when they run; without
+        # it this test stack builds with the made-up values below.
+        NEXT_PUBLIC_APP_URL: http://proxy:8080
+        EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://supabase.invalid}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-build-placeholder}
+
+  # The same server. Only /api/inngest is routed to it (proxy/Caddyfile).
+  worker:
+    <<: *next
+    command: [worker]
+    # Inngest steps (600 s) and the longest routes (800 s) finish before it exits.
+    stop_grace_period: 900s
+
+  # The scheduler runs, but as a dry run: each job is logged and nothing is called.
+  # Live, this stack would run the app's whole schedule a second time beside Vercel
+  # Cron (given real credentials). smoke.sh makes its calls itself.
+  cron:
+    <<: *app
+    command: [cron]
+    # supercronic waits for running jobs on SIGTERM, and a job holds its call open
+    # for up to CRON_TIMEOUT_SECONDS (900 s).
+    stop_grace_period: 900s
+    environment:
+      <<: *app-env
+      CRON_TARGET_URL: http://web:3000
+      CRON_DRY_RUN: "1"
+    depends_on:
+      web:
+        condition: service_healthy
+
+  # One container per agent. Each keeps its workflow runs and its sandbox sessions on
+  # volumes; the rest of agents/<name>/.eve is the build's and stays in the image.
+  agent-onboarding-researcher:
+    <<: *app
+    command: [agent, onboarding-researcher]
+    volumes:
+      - onboarding-researcher-workflow:/app/web/agents/onboarding-researcher/.eve/.workflow-data
+      - onboarding-researcher-sandbox:/app/web/agents/onboarding-researcher/.eve/sandbox-cache/just-bash/sessions
+
+  agent-skill-runner:
+    <<: *app
+    command: [agent, skill-runner]
+    volumes:
+      - skill-runner-workflow:/app/web/agents/skill-runner/.eve/.workflow-data
+      - skill-runner-sandbox:/app/web/agents/skill-runner/.eve/sandbox-cache/just-bash/sessions
+
+  agent-coding-agent:
+    <<: *app
+    command: [agent, coding-agent]
+    volumes:
+      - coding-agent-workflow:/app/web/agents/coding-agent/.eve/.workflow-data
+      - coding-agent-sandbox:/app/web/agents/coding-agent/.eve/sandbox-cache/just-bash/sessions
+
+  agent-work-agent:
+    <<: *app
+    command: [agent, work-agent]
+    volumes:
+      - work-agent-workflow:/app/web/agents/work-agent/.eve/.workflow-data
+      - work-agent-sandbox:/app/web/agents/work-agent/.eve/sandbox-cache/just-bash/sessions
+
+  agent-chat-agent:
+    <<: *app
+    command: [agent, chat-agent]
+    volumes:
+      - chat-agent-workflow:/app/web/agents/chat-agent/.eve/.workflow-data
+      - chat-agent-sandbox:/app/web/agents/chat-agent/.eve/sandbox-cache/just-bash/sessions
+
+  agent-utility:
+    <<: *app
+    command: [agent, utility]
+    volumes:
+      - utility-workflow:/app/web/agents/utility/.eve/.workflow-data
+      - utility-sandbox:/app/web/agents/utility/.eve/sandbox-cache/just-bash/sessions
+
+  agent-live-agent:
+    <<: *app
+    command: [agent, live-agent]
+    volumes:
+      - live-agent-workflow:/app/web/agents/live-agent/.eve/.workflow-data
+      - live-agent-sandbox:/app/web/agents/live-agent/.eve/sandbox-cache/just-bash/sessions
+
+  agent-web-research:
+    <<: *app
+    command: [agent, web-research]
+    volumes:
+      - web-research-workflow:/app/web/agents/web-research/.eve/.workflow-data
+      - web-research-sandbox:/app/web/agents/web-research/.eve/sandbox-cache/just-bash/sessions
+
+volumes:
+  onboarding-researcher-workflow:
+  onboarding-researcher-sandbox:
+  skill-runner-workflow:
+  skill-runner-sandbox:
+  coding-agent-workflow:
+  coding-agent-sandbox:
+  work-agent-workflow:
+  work-agent-sandbox:
+  chat-agent-workflow:
+  chat-agent-sandbox:
+  utility-workflow:
+  utility-sandbox:
+  live-agent-workflow:
+  live-agent-sandbox:
+  web-research-workflow:
+  web-research-sandbox:

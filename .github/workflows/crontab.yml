@@ -1,0 +1,22 @@
+# The cron role's schedule (deploy/app/cron/crontab) is generated from the `crons`
+# array in web/vercel.json. This fails a pull request that changes one and not the
+# other; the fix is `node deploy/app/cron/generate.mjs`, then commit the crontab.
+name: Crontab
+
+on:
+  pull_request:
+    paths: ['web/vercel.json', 'deploy/app/cron/**', '.github/workflows/crontab.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  crontab:
+    name: Crontab matches web/vercel.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: node deploy/app/cron/generate.mjs --check
