@@ -2,9 +2,14 @@
  * /api/account/team-chat/channels/[id]/messages (roadmap #7, migration 474)
  *   GET  ?before=<created_at> → { messages } a page of the channel, oldest
  *        first (the newest page without `before`).
- *   POST { body, mentions?, mentionsAgent? } → { message } posted as the
- *        person. `mentions` are member ids (anyone not in the workspace is
- *        dropped). When the message calls on the person's own agent
+ *   POST { body, mentions?, mentionsAgent?, records? } → { message } posted
+ *        as the person. `mentions` are member ids (anyone not in the
+ *        workspace is dropped). `records` are the records it @-mentions
+ *        ([{ type, id, label }], migration 480): kept while "@label" is in
+ *        the words and the person may read the record, stored on the
+ *        message and written to the graph as its `mentions` edges
+ *        (src/lib/team-chat/record-mentions.ts); anything else is dropped.
+ *        When the message calls on the person's own agent
  *        (`mentionsAgent`, or "@<their assistant name>" in the words), its
  *        turn is requested after the answer (src/lib/team-chat/agent-turn.ts):
  *        the reply arrives in the channel as their agent, live.
@@ -19,6 +24,7 @@ import { DEFAULT_ASSISTANT_NAME, sanitizeAssistantName } from '@/lib/voice/assis
 import { getChannel, listMessages, postMessage, workspaceMemberIds } from '@/lib/team-chat/store'
 import { deliverTeamChatMention } from '@/lib/team-chat/agent-turn'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
+import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { dmOtherMember, isUuid, mentionsAssistantName, tidyBody, tidyMentionIds } from '@/lib/team-chat/types'
 
 type Params = { params: Promise<{ id: string }> }
@@ -62,6 +68,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { data: names } = await auth.supabase.from('member').select('display_name').eq('workspace_id', auth.workspaceId)
     const memberNames = ((names ?? []) as Array<{ display_name: string | null }>).map((m) => m.display_name)
     const mentionsAgent = input.mentionsAgent === true || mentionsAssistantName(body, agentName, memberNames)
+    const scope = { workspaceId: auth.workspaceId, userId: auth.user.id }
+    const recordMentions = await fenceRecordMentions(auth.supabase, scope, input.records, body)
     const message = await postMessage(auth.supabase, {
       workspaceId: auth.workspaceId,
       channelId: id,
@@ -69,7 +77,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       body,
       mentions,
       mentionsAgent,
+      recordMentions,
     })
+    if (recordMentions.length > 0) {
+      await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: recordMentions })
+    }
     if (mentionsAgent) {
       const userId = auth.user.id
       const memberId = auth.member.id

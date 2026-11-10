@@ -202,7 +202,7 @@ export async function POST(request: NextRequest) {
   // returns, so a dropped promise can leave links unsynced.
   if (data.published_status === 'published' && typeof body.content === 'string' && body.content.length > 0) {
     const { syncDocumentLinks } = await import('@/lib/wiki/wikilinks')
-    await syncDocumentLinks(supabase, workspaceId, data.id, body.content, member?.id || null)
+    await syncDocumentLinks(supabase, workspaceId, data.id, body.content, member?.id || null, user.id)
   }
 
   // Index the body for semantic search (document_chunks, migration 185). Best-
