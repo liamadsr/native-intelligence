@@ -153,8 +153,10 @@ them again: restore them,
 git checkout ca24594d -- web/scripts/seal-settings.mjs deploy/app/sealed_settings.py deploy/app/sealed-copy.sh deploy/app/tests/test_sealed_settings.py
 ```
 
-put the step back at the end of `npm run build`, make a new key with
-`sealed-copy.sh new-key`, and follow the steps in that version of this file.
+put the step back at the end of `npm run build` and the files back into
+`.github/workflows/deploy-scripts.yml` (its paths and its `bash -n` line), make a new
+key with `sealed-copy.sh new-key`, and follow the steps as they were
+(`git show ca24594d:deploy/app/README.md`, "Sealed copy").
 
 ## The container test
 
