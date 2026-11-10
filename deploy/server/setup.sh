@@ -17,9 +17,11 @@
 # on its stdin. When it is fed to "bash -s" over ssh, bash would otherwise read
 # it piece by piece from stdin, and any command in it that also reads stdin
 # (apt, for one) could swallow the rest.
-set -euo pipefail
+set -eEuo pipefail
 
 main() {
+# Say where it stopped: a command that fails ends the script without a word otherwise.
+trap 'echo "setup: stopped by a failing command at line $LINENO." >&2' ERR
 login_user=""
 repo=""
 ref=""
@@ -112,7 +114,9 @@ echo "set"
 say "Firewall: SSH, 80 and 443 only"
 # Whatever port sshd really listens on, so enabling the firewall cannot cut
 # the connection this is running over.
-ssh_port="$(sshd -T | awk '$1 == "port" { print $2; exit }')"
+# awk reads to the end on purpose: leaving early would close the pipe on sshd,
+# and with pipefail that counts as a failure.
+ssh_port="$(sshd -T | awk '$1 == "port" { port = $2 } END { print port }')"
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw limit "${ssh_port:-22}/tcp" comment 'SSH' >/dev/null
