@@ -175,9 +175,15 @@ create trigger knowledge_package_item_current_kind
 revoke all on function public.entity_link_current_kinds() from public, anon, authenticated;
 revoke all on function public.knowledge_package_item_current_kind() from public, anon, authenticated;
 
--- ── The edge rule (500), under the current name ─────────────────────────────
--- 500's entity_visible_to verbatim but for two things: the kind is read
--- through entity_kind_current first (v_type), and mail is `email_thread`.
+-- ── Redefined under the current name ────────────────────────────────────────
+-- Each object below is the LATEST definition before this migration, copied
+-- verbatim except for the rename (web/src/lib/knowledge/__tests__/
+-- migration-503.test.ts re-derives each from its source and compares).
+-- create or replace keeps every grant and revoke the source left in place,
+-- so none is restated here.
+
+-- entity_visible_to, from 500_entity_link_read_follows_endpoints.sql: the kind is read through
+-- entity_kind_current first (v_type), and mail is `email_thread`.
 create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)
 returns boolean
 language plpgsql
@@ -196,8 +202,6 @@ declare
   v_team uuid;
   v_channel uuid;
   v_confirmation text;
-  -- The kind's current name: a retired one (an older build's `email`) is
-  -- answered as the kind it names now.
   v_type text := public.entity_kind_current(p_type);
 begin
   if p_id is null then return false; end if;
@@ -302,9 +306,10 @@ begin
 end;
 $$;
 
--- 500's SELECT policy verbatim but for the name in its two fenced lists
--- (src/lib/knowledge/entity-fences.ts LINK_FENCED_KINDS; a test holds them
--- equal). The write policies 500 split out are unchanged.
+-- The entity_link policies that name the mail kind, with `email` renamed in
+-- their fenced lists (src/lib/knowledge/entity-fences.ts LINK_FENCED_KINDS; a
+-- test holds them equal).
+-- From 501_entity_link_read_review_fixes.sql.
 drop policy if exists entity_link_select on public.entity_link;
 create policy entity_link_select on public.entity_link
   for select
@@ -312,15 +317,32 @@ create policy entity_link_select on public.entity_link
     public.is_workspace_member(workspace_id)
     and (source_type <> 'claim' or not (source_id in (select private.claims_hidden_from_me())))
     and (target_type <> 'claim' or not (target_id in (select private.claims_hidden_from_me())))
-    and (source_type <> all ('{document,capture,contact,company,attachment,email_thread,conversation,calendar_event,team_chat_channel,team_chat_message,decision}'::text[])
+    and (source_type <> 'company' or not (source_id in (select private.companies_hidden_from_me())))
+    and (target_type <> 'company' or not (target_id in (select private.companies_hidden_from_me())))
+    and (source_type <> all ('{document,capture,contact,attachment,email_thread,conversation,calendar_event,team_chat_channel,team_chat_message,decision}'::text[])
          or public.entity_visible_to(source_type, source_id, workspace_id, (select auth.uid())))
-    and (target_type <> all ('{document,capture,contact,company,attachment,email_thread,conversation,calendar_event,team_chat_channel,team_chat_message,decision}'::text[])
+    and (target_type <> all ('{document,capture,contact,attachment,email_thread,conversation,calendar_event,team_chat_channel,team_chat_message,decision}'::text[])
          or public.entity_visible_to(target_type, target_id, workspace_id, (select auth.uid())))
   );
 
--- ── The claim graph's walk (369), under either name ─────────────────────────
--- 369's claim_neighborhood verbatim but for its two mail checks, which now
--- name both `email` and `email_thread`.
+-- From 501_entity_link_read_review_fixes.sql.
+drop policy if exists entity_link_insert on public.entity_link;
+create policy entity_link_insert on public.entity_link
+  for insert
+  with check (
+    public.is_workspace_member(workspace_id)
+    and (source_type <> 'claim' or not (source_id in (select private.claims_hidden_from_me())))
+    and (target_type <> 'claim' or not (target_id in (select private.claims_hidden_from_me())))
+    and (source_type <> 'company' or not (source_id in (select private.companies_hidden_from_me())))
+    and (target_type <> 'company' or not (target_id in (select private.companies_hidden_from_me())))
+    and (source_type <> all ('{document,capture,contact,attachment,email_thread,conversation,calendar_event,team_chat_channel,team_chat_message,decision}'::text[])
+         or public.entity_visible_to(source_type, source_id, workspace_id, (select auth.uid())))
+    and (target_type <> all ('{document,capture,contact,attachment,email_thread,conversation,calendar_event,team_chat_channel,team_chat_message,decision}'::text[])
+         or public.entity_visible_to(target_type, target_id, workspace_id, (select auth.uid())))
+  );
+
+-- claim_neighborhood, from 369_document_visibility.sql: its mail checks name both
+-- `email` and `email_thread`.
 CREATE OR REPLACE FUNCTION public.claim_neighborhood(
     p_workspace_id TEXT,
     p_entity_type TEXT,
@@ -366,7 +388,7 @@ BEGIN
 
     -- Asking about a hidden centre returns an empty graph, same shape as the
     -- membership refusal above.
-    -- 341: an email centre is hidden from everyone, under either name (503).
+    -- 341: an email centre is hidden from everyone.
     -- 353: someone else's chat is hidden too.
     IF p_entity_type IN ('email', 'email_thread')
        OR (p_entity_type = 'conversation' AND NOT EXISTS (
@@ -415,7 +437,7 @@ BEGIN
           AND (nxt.node_type <> 'capture' OR public.capture_visible_to(nxt.node_id, v_requester))
           AND (nxt.node_type <> 'claim'   OR public.claim_visible_to(nxt.node_id, v_requester))
           AND (nxt.node_type <> 'document' OR public.document_visible_to(nxt.node_id, v_requester))
-          -- 341: the walk never reaches an email, under either name (503).
+          -- 341: the walk never reaches an email.
           AND nxt.node_type NOT IN ('email', 'email_thread')
           -- 353: nor someone else's chat.
           AND (nxt.node_type <> 'conversation' OR EXISTS (
@@ -548,11 +570,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
-REVOKE EXECUTE ON FUNCTION public.claim_neighborhood(TEXT, TEXT, TEXT, INTEGER, INTEGER, UUID) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.claim_neighborhood(TEXT, TEXT, TEXT, INTEGER, INTEGER, UUID) TO authenticated, service_role;
-
-revoke all on function public.entity_visible_to(text, uuid, uuid, uuid) from public, anon;
-grant execute on function public.entity_visible_to(text, uuid, uuid, uuid) to authenticated, service_role;
+revoke all on function public.entity_kind_current(text) from public, anon;
 grant execute on function public.entity_kind_current(text) to authenticated, service_role;
 
 notify pgrst, 'reload schema';
