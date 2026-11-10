@@ -124,7 +124,7 @@ find /etc/cron.d -maxdepth 1 -type f -name "${MOVE_PREFIX}*" | sed 's/^/hostfile
 # Files changed or added by hand in the checkout. The .env files are ignored by
 # git, so they do not show up here; they are moved on their own.
 sudo -u "$owner" git -C "$MOVE_ROOT" status --porcelain --untracked-files=all -- deploy | sed 's/^/dirty=/'
-docker ps --format '{{.Names}} {{ index .Labels "com.docker.compose.project" }}' |
+docker ps --format '{{.Names}} {{.Label "com.docker.compose.project"}}' |
 	awk -v p="$MOVE_PREFIX" 'index($2, p) == 1 { print "running=" $1 }'
 EOS
 }
@@ -168,7 +168,11 @@ confirm() {
 
 running_on() { # running_on <login>: names of this platform's running containers
 	remote "$1" MOVE_PREFIX="$MOVE_PREFIX" <<'EOS'
-docker ps --format '{{.Names}} {{ index .Labels "com.docker.compose.project" }}' 2>/dev/null |
+set -euo pipefail
+# No Docker yet means nothing of ours can be running. A Docker that fails to
+# answer is an error, never "nothing running".
+command -v docker >/dev/null 2>&1 || exit 0
+docker ps --format '{{.Names}} {{.Label "com.docker.compose.project"}}' |
 	awk -v p="$MOVE_PREFIX" 'index($2, p) == 1 { print $1 }' | tr '\n' ' '
 EOS
 }
