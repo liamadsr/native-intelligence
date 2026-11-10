@@ -14,7 +14,7 @@
     "eve:prune-runs": "tsx scripts/eve-prune-stuck-runs.ts --apply",
     "dev:inngest": "npx inngest-cli@latest dev",
     "dev:all": "concurrently --names next,inngest --prefix-colors blue,magenta \"npm run dev\" \"npm run dev:inngest\"",
-    "build": "vitest run && node scripts/cloud-browser/build-assets.mjs && node scripts/copy-ort-runtime.mjs && NODE_OPTIONS=--max-old-space-size=8192 next build",
+    "build": "vitest run && node scripts/cloud-browser/build-assets.mjs && node scripts/copy-ort-runtime.mjs && NODE_OPTIONS=--max-old-space-size=8192 next build && node scripts/seal-settings.mjs",
     "start": "next start",
     "postinstall": "patch-package",
     "lint": "eslint src",

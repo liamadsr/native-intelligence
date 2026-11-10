@@ -1,4 +1,5 @@
-# The server's settings tools (deploy/app/check_settings.py, deploy/supabase/envfile.py)
+# The server's settings tools (deploy/app/check_settings.py, sealed_settings.py with
+# web/scripts/seal-settings.mjs, deploy/supabase/envfile.py)
 # never show a value, so their tests are the only place their output is read whole.
 # Ubuntu's own python3-cryptography, the package the server uses.
 name: Deploy scripts
@@ -9,6 +10,8 @@ on:
       - 'deploy/**/*.py'
       - 'deploy/**/*.sh'
       - 'deploy/app/.env.example'
+      - 'web/scripts/seal-settings.mjs'
+      - 'web/scripts/seal-settings.pub'
       - '.github/workflows/deploy-scripts.yml'
       # What check_settings.py's proofs copy from the app:
       - 'web/src/lib/crypto/credentials.ts'
@@ -31,4 +34,5 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-cryptography
       - run: /usr/bin/python3 -m unittest discover -s deploy/app/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
-      - run: for f in deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh; do bash -n "$f"; done
+      - run: node --version
+      - run: for f in deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/app/sealed-copy.sh deploy/supabase/set-secret.sh; do bash -n "$f"; done
