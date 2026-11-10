@@ -220,17 +220,20 @@ describe('what is never forwarded', () => {
     '/cloud-browser/relay.mjs',
     '/Account',
     '//evil.example/x',
+    '/admin//auth/callback?code=abc',
+    '/account//settings',
+    '//',
   ])('GET %s', (path) => {
     expect(oldDomainForward(request(`https://dial8.ai${path}`), ON).forward).toBe(false)
   })
 
+  // An open window's RSC requests and prefetches never get here: Next removes
+  // their headers and `_rsc` before the proxy runs, so the proxy's matcher
+  // leaves them out (src/__tests__/proxy.test.ts). These are what is left.
   it.each([
-    [{ rsc: '1' }, 'in-page request'],
-    [{ rsc: '1', 'next-router-prefetch': '1' }, 'in-page request'],
-    [{ 'next-router-segment-prefetch': '/_tree' }, 'in-page request'],
-    [{ 'next-router-state-tree': '%5B%5D' }, 'in-page request'],
     [{ 'next-action': 'abc' }, 'in-page request'],
     [{ 'x-nextjs-data': '1' }, 'in-page request'],
+    [{ 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors' }, 'not a page load'],
     [{ 'sec-fetch-dest': 'empty' }, 'not a page load'],
     [{ 'sec-fetch-dest': 'script' }, 'not a page load'],
     [{ 'sec-fetch-dest': 'iframe' }, 'not a page load'],
@@ -239,8 +242,10 @@ describe('what is never forwarded', () => {
     expect(oldDomainForward(request('https://dial8.ai/account', { headers }), ON)).toEqual({ forward: false, reason })
   })
 
-  it('a request for the page\'s data by query (`_rsc`)', () => {
-    expect(oldDomainForward(request('https://dial8.ai/account?_rsc=1x2y'), ON)).toEqual({ forward: false, reason: 'in-page request' })
+  it('a sign-in that finishes on the old domain: its callback stays, and the page it sends to moves (signed out there once)', () => {
+    expect(oldDomainForward(request('https://dial8.ai/auth/callback?code=abc'), ON).forward).toBe(false)
+    expect(oldDomainForward(request('https://dial8.ai/auth/confirm?token_hash=abc&type=magiclink&handed=1'), ON).forward).toBe(false)
+    expect(oldDomainForward(request('https://dial8.ai/account'), ON)).toMatchObject({ forward: true, location: 'https://nativeintelligence.dev/account' })
   })
 })
 

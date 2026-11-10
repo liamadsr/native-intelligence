@@ -19,8 +19,10 @@ export async function proxy(request: NextRequest) {
   const forward = oldDomainForward(request)
   if (forward.forward) {
     const response = NextResponse.redirect(forward.location, forward.status)
-    // A temporary forward must stay one: no cache may keep it.
+    // A temporary forward must stay one: no cache may keep it. A permanent one
+    // may be kept, but only for requests like this one: the answer depends on them.
     if (forward.status === 307) response.headers.set('Cache-Control', 'private, no-store')
+    response.headers.set('Vary', 'User-Agent, Sec-Fetch-Dest, Referer')
     return response
   }
   if (forward.blocked && !forwardBlockedLogged.has(forward.reason)) {
@@ -144,14 +146,23 @@ export const config = {
     '/account/:path*',
     '/api/account/:path*',
     // The old domain's page loads, for the forward (src/lib/old-domain-forward.ts,
-    // which decides; this only keeps the proxy from running for anything else):
-    // dial8.ai or www.dial8.ai, and not _next, api, eve, the analytics rewrite or
-    // a file. A literal, because Next reads it at build time; a test pins it to
-    // FORWARD_FROM_DOMAINS.
+    // which decides; this keeps the proxy from running for anything else):
+    // dial8.ai or www.dial8.ai; not _next, api, eve, the analytics rewrite, the
+    // desktop's HUDs, .well-known or a file; and not an open window's in-page
+    // navigation or prefetch, whose marks Next removes before the proxy could
+    // see them. A literal, because Next reads it at build time; tests pin it.
     {
       source:
-        '/((?!_|api(?:/|$)|eve(?:/|$)|ingest(?:/|$)|.*\\.(?:avif|css|gif|ico|jpe?g|js|json|map|mjs|mp3|mp4|onnx|pdf|png|svg|ttf|txt|wasm|wav|webm|webmanifest|webp|woff2?|xml)$).*)',
+        '/((?!_|api(?:/|$)|eve(?:/|$)|ingest(?:/|$)|hud(?:/|$)|\\.well-known(?:/|$)|.*\\.(?:avif|css|gif|ico|jpe?g|js|json|map|mjs|mp3|mp4|onnx|pdf|png|svg|ttf|txt|wasm|wav|webm|webmanifest|webp|woff2?|xml)$).*)',
       has: [{ type: 'host', value: '(?:www\\.)?dial8\\.ai' }],
+      missing: [
+        { type: 'header', key: 'rsc' },
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'next-router-segment-prefetch' },
+        { type: 'header', key: 'next-action' },
+        { type: 'header', key: 'x-nextjs-data' },
+        { type: 'query', key: '_rsc' },
+      ],
     },
   ],
 }

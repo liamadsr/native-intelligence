@@ -20,7 +20,9 @@
  *   nobody classified is not forwarded either.
  * - It is a page load: not an open window's in-page navigation, a prefetch or
  *   a server action (those keep working where the window is, until it next
- *   loads a page), and not a script's fetch of a page.
+ *   loads a page), and not a script's fetch of a page. Next removes the marks
+ *   of the first two before the proxy runs, so the proxy's matcher leaves those
+ *   requests out (src/proxy.ts, `missing`); what is left is checked here.
  * - It does not come from an installed desktop build older than 0.2.107, whose
  *   window may show only dial8.ai (desktopWebViewOnOldDomain).
  * - The app's address (NEXT_PUBLIC_APP_URL) and the Google and ChatGPT sign-in
@@ -75,7 +77,11 @@ const SMS_CAMPAIGN =
 /**
  * Every top-level path, by its first segment ('' is the home page). A test
  * (src/__tests__/proxy.test.ts) fails when a folder or a metadata file in
- * src/app, or a family in src/app/api, is not listed here.
+ * src/app, or a family in src/app/api, is not listed here, and when a route
+ * handler sits in a 'page' family without an `except`. It cannot see a new
+ * PAGE that ends a flow inside a forwarded family (one that reads its window's
+ * opener, or a cookie or verifier of its own domain): give such a page an
+ * `except` of its own.
  */
 export const ROUTES: Readonly<Record<string, RouteRule>> = {
   // People's pages.
@@ -191,11 +197,15 @@ export const API_FAMILIES: Readonly<Record<string, string>> = {
   webhooks: 'Outside services\' webhooks (mail push, payments, issue trackers, code hosts), signed or registered per address.',
 }
 
-/** The first two segments of a path; null for a path that is not one of the app's (`//x`). */
+/**
+ * The first two segments of a path; null for one with an empty segment
+ * (`//x`, `/admin//auth/callback`), which no page of the app has, so that a
+ * doubled slash can never move a path out of its exception.
+ */
 function segments(pathname: string): [string, string] | null {
   if (pathname === '/' || pathname === '') return ['', '']
+  if (!pathname.startsWith('/') || pathname.includes('//')) return null
   const parts = pathname.split('/')
-  if (parts[0] !== '' || parts[1] === '') return null
   return [parts[1], parts[2] ?? '']
 }
 
@@ -230,12 +240,17 @@ export function forwardStatus(env: Record<string, string | undefined> = process.
  * there (no CORS), and the window would fall back to a full load anyway. The
  * forward catches that window at its next page load.
  *
- * Next removes its own RSC and router headers before the proxy runs, so what
- * tells these requests apart here is the `_rsc` query Next adds to each of
- * them and the browser's `Sec-Fetch-Dest: empty` (below). The headers are
- * checked as well, should a version of Next pass them on.
+ * Next removes its RSC and router headers and the `_rsc` query before the
+ * proxy runs, so those requests are left out by the proxy's matcher, which
+ * sees them as they came (src/proxy.ts, `missing`). What still reaches the
+ * proxy, and is checked here: these two headers, and `Sec-Fetch-Dest` (below),
+ * which every current browser sends as `empty` on a fetch. A request to
+ * /account or /admin also reaches the proxy through their own matcher entries;
+ * from a browser that sends no Sec-Fetch-Dest (Safari before 16.4), such an
+ * in-page request is forwarded, fails, and the window loads the page in full,
+ * which is then forwarded as a page load.
  */
-const IN_PAGE_HEADERS = ['rsc', 'next-action', 'next-router-prefetch', 'next-router-segment-prefetch', 'next-router-state-tree', 'x-nextjs-data']
+const IN_PAGE_HEADERS = ['next-action', 'x-nextjs-data']
 
 /**
  * A window of an installed desktop build older than 0.2.107. Those load
@@ -251,8 +266,15 @@ const IN_PAGE_HEADERS = ['rsc', 'next-action', 'next-router-prefetch', 'next-rou
  * `Version/… Safari/…` every Safari sends, and without any other browser's
  * token. Builds from 0.2.107 on send the same, but they load the new domain:
  * one of their windows that arrives here from it (its Referer) is forwarded.
- * Any other app that embeds a bare WKWebView on a Mac is left on the old
- * domain too, which keeps serving.
+ * Also left on the old domain, which keeps serving: any other Mac app that
+ * shows pages in a bare WKWebView, an iPad app's in-app browser asking for the
+ * desktop site, and a newer desktop window that follows a link with no
+ * Referer (rel="noreferrer") to the old domain.
+ *
+ * A Windows build's web view (WebView2) sends Edge's user agent and cannot be
+ * told apart: none older than 0.2.107 was released (Windows builds wait for a
+ * signed release), so only a test install could be one, and it would show an
+ * empty window until it updates or is reinstalled.
  */
 export function desktopWebViewOnOldDomain(headers: Headers): boolean {
   const ua = headers.get('user-agent') ?? ''
@@ -309,7 +331,7 @@ export function forwardBlockedBy(env: Record<string, string | undefined> = proce
 export interface ForwardRequest {
   method: string
   headers: Headers
-  nextUrl: { pathname: string; search: string; searchParams: URLSearchParams; host: string }
+  nextUrl: { pathname: string; search: string; host: string }
 }
 
 export type ForwardDecision =
@@ -328,9 +350,7 @@ export function oldDomainForward(request: ForwardRequest, env: Record<string, st
   const rule = routeRule(request.nextUrl.pathname)
   if (!rule) return { forward: false, reason: 'path not classified' }
   if (rule.kind !== 'page') return { forward: false, reason: `path is ${rule.kind}` }
-  if (IN_PAGE_HEADERS.some((name) => request.headers.has(name)) || request.nextUrl.searchParams.has('_rsc')) {
-    return { forward: false, reason: 'in-page request' }
-  }
+  if (IN_PAGE_HEADERS.some((name) => request.headers.has(name))) return { forward: false, reason: 'in-page request' }
   const dest = request.headers.get('sec-fetch-dest')
   if (dest && dest !== 'document') return { forward: false, reason: 'not a page load' }
   if (desktopWebViewOnOldDomain(request.headers)) return { forward: false, reason: 'desktop build older than 0.2.107' }

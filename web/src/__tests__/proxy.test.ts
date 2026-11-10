@@ -131,16 +131,21 @@ describe('the forward, through the proxy', () => {
     )
   })
 
-  it('a 307 may not be cached; a 308 may', async () => {
+  it('a 307 may not be cached; a 308 may, only for requests like the one it answered', async () => {
     vi.stubEnv('NI_FORWARD_OLD_DOMAIN', '307')
-    expect((await proxy(req('GET', 'https://dial8.ai/pricing'))).headers.get('cache-control')).toBe('private, no-store')
+    const temporary = await proxy(req('GET', 'https://dial8.ai/pricing'))
+    expect(temporary.headers.get('cache-control')).toBe('private, no-store')
+    expect(temporary.headers.get('vary')).toBe('User-Agent, Sec-Fetch-Dest, Referer')
     vi.stubEnv('NI_FORWARD_OLD_DOMAIN', '308')
-    expect((await proxy(req('GET', 'https://dial8.ai/pricing'))).headers.get('cache-control')).toBeNull()
+    const permanent = await proxy(req('GET', 'https://dial8.ai/pricing'))
+    expect(permanent.headers.get('cache-control')).toBeNull()
+    expect(permanent.headers.get('vary')).toBe('User-Agent, Sec-Fetch-Dest, Referer')
   })
 
-  it('an open window\'s in-page navigation and a desktop build older than 0.2.107 stay', async () => {
+  it('a fetch from an open window (on /account the proxy runs anyway) and a desktop build older than 0.2.107 stay', async () => {
     vi.stubEnv('NI_FORWARD_OLD_DOMAIN', '307')
-    expect(await outcome(req('GET', 'https://dial8.ai/pricing', { rsc: '1', 'sec-fetch-dest': 'empty' }))).toBe('stays')
+    // As the proxy sees an open window's in-page request: Next has removed its RSC headers and `_rsc`.
+    expect(await outcome(req('GET', 'https://dial8.ai/account/captures', { 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors' }))).toBe('stays')
     expect(await outcome(req('GET', 'https://dial8.ai/pricing', { 'user-agent': DESKTOP_WEBVIEW }))).toBe('stays')
     // The account page goes on to the proxy's own sign-in check, on the old domain.
     const desktop = await proxy(req('GET', 'https://dial8.ai/account', { 'user-agent': DESKTOP_WEBVIEW }))
@@ -181,6 +186,27 @@ describe('the proxy\'s matcher', () => {
   })
 
   it.each([
+    [{ rsc: '1' }],
+    [{ rsc: '1', 'next-router-prefetch': '1' }],
+    [{ 'next-router-segment-prefetch': '/_tree' }],
+    [{ 'next-action': 'abc' }],
+    [{ 'x-nextjs-data': '1' }],
+  ])('leaves out an open window\'s own request on the old domain: %j', (headers) => {
+    expect(unstable_doesMiddlewareMatch({ config, url: 'https://dial8.ai/pricing', headers: { host: 'dial8.ai', ...headers } })).toBe(false)
+    // A page load of the same path still runs it.
+    expect(unstable_doesMiddlewareMatch({ config, url: 'https://dial8.ai/pricing', headers: { host: 'dial8.ai', 'sec-fetch-dest': 'document' } })).toBe(true)
+  })
+
+  it('leaves out a request for a page\'s RSC payload by its `_rsc` query', () => {
+    expect(matches('https://dial8.ai/pricing?_rsc=1x2y3')).toBe(false)
+    expect(matches('https://dial8.ai/pricing?x=1&_rsc=1x2y3')).toBe(false)
+    expect(matches('https://dial8.ai/pricing?x=1')).toBe(true)
+  })
+
+  it.each([
+    '/hud/agent',
+    '/hud',
+    '/.well-known/oauth-authorization-server',
     '/api/version',
     '/api/inngest',
     '/api',
