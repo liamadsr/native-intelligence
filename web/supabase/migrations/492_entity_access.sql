@@ -120,6 +120,11 @@ begin
   if coalesce(current_setting('dial8.workspace_merge', true), '') <> '' then
     return new;
   end if;
+  -- A signed-in caller from outside the workspace learns nothing below (this
+  -- runs before the insert policy, so its errors must not say what exists).
+  if auth.uid() is not null and not public.is_workspace_member(new.workspace_id) then
+    raise exception 'entity_access: not a member of this workspace' using errcode = '42501';
+  end if;
   if new.grantee_kind = 'member' and not exists (
     select 1 from public.member m where m.id = new.grantee_member_id and m.workspace_id = new.workspace_id
   ) then
