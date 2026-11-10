@@ -159,9 +159,10 @@ const ENTER_WAIT_MS = 2000
 /** A verb as the footer and the highlighted row say it. */
 const VERB_LABEL: Record<MenuVerb, string> = { open: 'open', use: 'use', mention: 'add to chat' }
 
-/** A verb as said for this item: a host's own option (team chat's people) is mentioned, not added to a chat. */
+/** A verb as said for this item: a host's own option or record (team chat's) is mentioned, not added to a chat. */
 function verbLabel(verb: MenuVerb, item: MenuItem | undefined): string {
-  return verb === 'mention' && item?.kind === 'option' ? 'mention' : VERB_LABEL[verb]
+  const host = item?.kind === 'option' || (item?.kind === 'record' && item.host)
+  return verb === 'mention' && host ? 'mention' : VERB_LABEL[verb]
 }
 
 /** The record kinds no composer mentions (nothing to attach them by). */

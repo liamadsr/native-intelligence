@@ -264,7 +264,8 @@ export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
 export type MenuItem =
   | { kind: 'page'; page: OfferedPage }
   | { kind: 'skill'; skill: SkillCommand }
-  | { kind: 'record'; row: MenuSearchRow }
+  /** `host`: found for a host's own `@` list (team chat), so it is mentioned, not added to a chat. */
+  | { kind: 'record'; row: MenuSearchRow; host?: boolean }
   | { kind: 'option'; option: ComposerMentionOption }
 
 /**
@@ -325,8 +326,9 @@ export function mentionOptionsMenu(options: readonly ComposerMentionOption[], qu
   let offset = items.length
   for (const s of records?.sections ?? []) {
     if (s.key === 'people') continue
-    sections.push({ ...s, offset })
-    offset += s.items.length
+    const items = s.items.map((item): MenuItem => (item.kind === 'record' ? { ...item, host: true } : item))
+    sections.push({ ...s, items, offset })
+    offset += items.length
   }
   return { sections, tabs: ['all'] }
 }
