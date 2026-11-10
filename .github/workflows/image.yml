@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      COMPOSE_FILE: deploy/app/compose.yaml
+      COMPOSE_FILE: deploy/app/smoke/compose.yaml
       NI_APP_IMAGE: ni-app:ci
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

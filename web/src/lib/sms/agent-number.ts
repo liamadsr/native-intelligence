@@ -41,6 +41,7 @@
  * are never in the service, so never in this pool. Server only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isProductionEnvironment } from '@/lib/app-env'
 import { inngest } from '@/lib/inngest/client'
 import { twilioConfig, twilioSmsWebhookUrl, type TwilioConfig } from '@/lib/twilio/config'
 import { isE164, isNanpNumber, normalizeE164 } from '@/lib/twilio/phone'
@@ -95,7 +96,8 @@ export interface AgentNumberDeps {
   config?: TwilioConfig | null
   now?: () => number
   webhookUrl?: string
-  /** Whether this is Native Intelligence's production deployment (VERCEL_ENV). */
+  /** Whether this is Native Intelligence's production deployment (app-env: the
+   *  platform's production, or a production build run off it, as on the server). */
   production?: boolean
   /** Ask for {@link balanceSpares} (an Inngest event). */
   requestBalance?: () => Promise<unknown>
@@ -105,7 +107,7 @@ type PoolConfig = TwilioConfig & { messagingServiceSid: string; fromNumber: stri
 
 /** The config with a messaging service and the Native Intelligence number, on production; else null: no pool here. */
 function poolConfig(deps: AgentNumberDeps): PoolConfig | null {
-  if (!(deps.production ?? process.env.VERCEL_ENV === 'production')) return null
+  if (!(deps.production ?? isProductionEnvironment())) return null
   const config = deps.config === undefined ? twilioConfig() : deps.config
   return config?.messagingServiceSid && config.fromNumber ? (config as PoolConfig) : null
 }

@@ -89,9 +89,19 @@ COPY deploy/app/ /app/deploy/app/
 # The crontab in this folder must be what web/vercel.json says.
 RUN node /app/deploy/app/cron/generate.mjs --check
 
+# The commit the image is built from (deploy.sh passes it). The app reads it under
+# the name its earlier host gave it, VERCEL_GIT_COMMIT_SHA: `next build` turns it
+# into the build id that open windows compare to notice a new deploy (next.config.mjs,
+# /api/version), and the cloud browser's relay is built with it and must match the
+# app's at run time. So it is written to /app/BUILD_ID as well, and entrypoint.sh
+# gives every role the same value when it starts. Empty: no build id, as before.
+ARG NI_BUILD_ID=
+RUN case "$NI_BUILD_ID" in *[!0-9a-f]*) echo "NI_BUILD_ID must be a git commit id" >&2; exit 1 ;; esac \
+ && printf '%s' "$NI_BUILD_ID" > /app/BUILD_ID
+
 # What `npm run build` runs before `next build`, minus the test suite (CI runs that
 # as its own job): the cloud browser's assets and ONNX Runtime's wasm files.
-RUN node scripts/cloud-browser/build-assets.mjs \
+RUN VERCEL_GIT_COMMIT_SHA="$NI_BUILD_ID" node scripts/cloud-browser/build-assets.mjs \
  && node scripts/copy-ort-runtime.mjs
 
 # Each agent is built from its own folder with no Vercel environment, so eve writes a
@@ -113,6 +123,10 @@ ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_SUPABASE_PROJECT_REF=
 ARG NEXT_PUBLIC_POSTHOG_KEY=
 ARG NEXT_PUBLIC_POSTHOG_HOST=
+# Sentry is switched on, in the browser and on the server, only by a DSN present
+# when `next build` runs (next.config.mjs). Source maps are not uploaded: that needs
+# SENTRY_AUTH_TOKEN at build time, which this build never sees.
+ARG NEXT_PUBLIC_SENTRY_DSN=
 ARG APP_DOWNLOAD_URL=
 ARG APP_DOWNLOAD_URL_WINDOWS=
 # Where the web role finds the agents: the origin that serves
@@ -127,6 +141,8 @@ RUN NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
     NEXT_PUBLIC_SUPABASE_PROJECT_REF="$NEXT_PUBLIC_SUPABASE_PROJECT_REF" \
     NEXT_PUBLIC_POSTHOG_KEY="$NEXT_PUBLIC_POSTHOG_KEY" \
     NEXT_PUBLIC_POSTHOG_HOST="$NEXT_PUBLIC_POSTHOG_HOST" \
+    NEXT_PUBLIC_SENTRY_DSN="$NEXT_PUBLIC_SENTRY_DSN" \
+    VERCEL_GIT_COMMIT_SHA="$NI_BUILD_ID" \
     APP_DOWNLOAD_URL="$APP_DOWNLOAD_URL" \
     APP_DOWNLOAD_URL_WINDOWS="$APP_DOWNLOAD_URL_WINDOWS" \
     EVE_NEXT_PRODUCTION_ORIGIN="$EVE_NEXT_PRODUCTION_ORIGIN" \
@@ -159,6 +175,7 @@ ENV NODE_ENV=production \
 COPY --link --from=supercronic /out/supercronic /usr/local/bin/supercronic
 COPY --link --from=build /app/deploy /app/deploy
 COPY --link --from=build /app/web /app/web
+COPY --link --from=build /app/BUILD_ID /app/BUILD_ID
 RUN supercronic -test /app/deploy/app/cron/crontab
 USER node
 

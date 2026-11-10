@@ -1,7 +1,8 @@
 # One line per backup job. Times are UTC.
 #
-# A job is `backup-postgres <name>` (a database) or `backup-storage <name>`
-# (the files of a Supabase Storage service). Its settings come from the
+# A job is `backup-postgres <name>` (a database), `backup-storage <name>`
+# (the files of a Supabase Storage service) or `backup-files <name>` (a folder,
+# usually Docker volumes mounted into this container). Its settings come from the
 # environment as BACKUP_<NAME>_* (see compose.yaml, compose.supabase.yaml and
 # .env.example), and its files land under <name>/ in the bucket. Output goes
 # to the container log.
@@ -24,3 +25,7 @@
 
 # The app's stored files (Supabase Storage), nightly.
 27 7 * * * backup-storage supabase-storage >/proc/1/fd/1 2>&1
+
+# The app's agents: their runs and sandbox files, nightly, 7 days kept
+# (compose.app.yaml says which agents and why not the other two).
+37 7 * * * backup-files app-agents >/proc/1/fd/1 2>&1

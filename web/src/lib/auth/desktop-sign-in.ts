@@ -1,3 +1,5 @@
+import { RESET_TYPE, resetErrorPath, resetExchangeErrorCode } from '@/lib/auth/password-reset'
+
 /**
  * The desktop app's sign-in callback: `dial8desktop://auth/callback?code=…`
  * (or `?error=…`), produced by /auth/desktop-callback, or
@@ -15,14 +17,18 @@
  *
  * Only a `dial8desktop:` URL is a sign-in callback. An http(s) URL with a
  * `?code=` is somebody else's OAuth redirect and is never exchanged.
+ *
+ * A password reset asked for in the app returns the same way, with
+ * `type=recovery` (src/lib/auth/password-reset.ts): its code opens the reset
+ * page instead of the dashboard, and a failure lands there too.
  */
 
 export const DESKTOP_AUTH_SCHEME = 'dial8desktop:'
 
 export type DesktopAuthCallback =
-  | { kind: 'code'; code: string }
+  | { kind: 'code'; code: string; reset: boolean }
   | { kind: 'token_hash'; tokenHash: string; bind: string | null }
-  | { kind: 'error'; error: string; description: string | null }
+  | { kind: 'error'; error: string; description: string | null; reset: boolean }
 
 /**
  * A token_hash (ChatGPT or Google sign-in) is only redeemed when it carries
@@ -76,56 +82,101 @@ export function parseDesktopAuthCallback(raw: string): DesktopAuthCallback | nul
   // authority as the host ("auth"); tolerate the path form too.
   const target = `${url.host}${url.pathname}`.replace(/^\/+/, '')
   if (target !== 'auth/callback' && target !== 'auth/callback/') return null
+  // The mark only chooses which page a failure is shown on. Whether a code
+  // was a reset is read from the exchange itself (completeDesktopSignIn).
+  const reset = url.searchParams.get('type') === RESET_TYPE
   const code = url.searchParams.get('code')
-  if (code) return { kind: 'code', code }
+  if (code) return { kind: 'code', code, reset }
   const tokenHash = url.searchParams.get('token_hash')
   if (tokenHash) return { kind: 'token_hash', tokenHash, bind: url.searchParams.get('bind') }
   return {
     kind: 'error',
     error: url.searchParams.get('error') || 'missing_code',
     description: url.searchParams.get('error_description'),
+    reset,
   }
 }
 
-/** What finishing a sign-in callback came to: signed in, or a `/login?error=`
- *  code (the login page's ERROR_MESSAGES keys; unknown codes read generically). */
-export type DesktopSignInOutcome = { ok: true } | { ok: false; error: string; description: string | null }
+/** What finishing a sign-in callback came to: signed in (`reset`: with a
+ *  password-reset session, which opens the reset page), or a `/login?error=`
+ *  code (the login page's ERROR_MESSAGES keys; unknown codes read
+ *  generically), or with `reset`, a `/reset-password?error=` code. */
+export type DesktopSignInOutcome =
+  | { ok: true; reset: boolean }
+  | { ok: false; error: string; description: string | null; reset: boolean }
 
 interface AuthClient {
   auth: {
-    exchangeCodeForSession(code: string): Promise<{ error: unknown }>
+    exchangeCodeForSession(code: string): Promise<{ data?: unknown; error: unknown }>
     verifyOtp(params: { token_hash: string; type: 'magiclink' }): Promise<{ error: unknown }>
   }
 }
 
-/** Exchange the callback's code for a session (PKCE: the verifier this
- *  webview stored when it started the sign-in; a code from anywhere else
- *  fails here), or redeem a ChatGPT or Google sign-in's one-time token. */
+/**
+ * Exchange the callback's code for a session (PKCE: the verifier this
+ * webview stored when it started the sign-in; a code from anywhere else
+ * fails here), or redeem a ChatGPT or Google sign-in's one-time token.
+ *
+ * A reset is known from the exchange: Supabase's client stores a reset's
+ * verifier marked PASSWORD_RECOVERY and reports it back (`redirectType`), so
+ * only a reset this webview asked for opens the reset page.
+ */
 export async function completeDesktopSignIn(
   callback: DesktopAuthCallback,
   supabase: AuthClient,
 ): Promise<DesktopSignInOutcome> {
   if (callback.kind === 'error') {
-    return { ok: false, error: callback.error, description: callback.description }
+    return { ok: false, error: callback.error, description: callback.description, reset: callback.reset }
   }
-  if (callback.kind === 'token_hash' && !consumeBind(callback.bind)) {
-    console.error('[desktop-sign-in] sign-in token not bound to this app; refused')
-    return { ok: false, error: 'auth_failed', description: null }
+  if (callback.kind === 'token_hash') {
+    if (!consumeBind(callback.bind)) {
+      console.error('[desktop-sign-in] sign-in token not bound to this app; refused')
+      return { ok: false, error: 'auth_failed', description: null, reset: false }
+    }
+    try {
+      const { error } = await supabase.auth.verifyOtp({ token_hash: callback.tokenHash, type: 'magiclink' })
+      if (error) {
+        console.error('[desktop-sign-in] session error:', error)
+        return { ok: false, error: 'auth_failed', description: null, reset: false }
+      }
+      return { ok: true, reset: false }
+    } catch (err) {
+      console.error('[desktop-sign-in] error:', err)
+      return { ok: false, error: 'auth_failed', description: null, reset: false }
+    }
   }
   try {
-    const { error } =
-      callback.kind === 'code'
-        ? await supabase.auth.exchangeCodeForSession(callback.code)
-        : await supabase.auth.verifyOtp({ token_hash: callback.tokenHash, type: 'magiclink' })
+    const { data, error } = await supabase.auth.exchangeCodeForSession(callback.code)
     if (error) {
       console.error('[desktop-sign-in] session error:', error)
-      return { ok: false, error: 'auth_failed', description: null }
+      return {
+        ok: false,
+        // A reset page says why (a link opened where it wasn't asked for);
+        // the login page keeps its generic message.
+        error: callback.reset ? resetExchangeErrorCode(error as { code?: string }) : 'auth_failed',
+        description: null,
+        reset: callback.reset,
+      }
     }
-    return { ok: true }
+    return { ok: true, reset: isPasswordRecovery(data) }
   } catch (err) {
     console.error('[desktop-sign-in] error:', err)
-    return { ok: false, error: 'auth_failed', description: null }
+    return { ok: false, error: 'auth_failed', description: null, reset: callback.reset }
   }
+}
+
+/** Did this exchange redeem a reset? Supabase's client returns
+ *  `redirectType: 'PASSWORD_RECOVERY'` beside the session (not in its types). */
+function isPasswordRecovery(data: unknown): boolean {
+  return !!data && typeof data === 'object' && (data as { redirectType?: unknown }).redirectType === 'PASSWORD_RECOVERY'
+}
+
+/** Where the app goes once a callback is finished: the dashboard, the reset
+ *  page (a reset's session, or a reset link that failed), or the login page
+ *  with the error. */
+export function desktopSignInLanding(outcome: DesktopSignInOutcome): string {
+  if (outcome.ok) return outcome.reset ? '/reset-password' : '/account'
+  return outcome.reset ? resetErrorPath(outcome.error) : loginErrorPath(outcome.error)
 }
 
 /** `/login?error=` for a failed outcome. The code is reduced to a safe token. */
