@@ -14,7 +14,7 @@
  *   LOCAL_AGENT_WORKER_BIN            absolute path of the person's CLI, found by the
  *                                     desktop; run exactly, PATH is never searched
  *
- * No relay URL, no session token, no dev key (each is refused: DIAL8_CREDENTIALS):
+ * No relay URL, no session token, no dev key (each is refused: NI_CREDENTIALS):
  * a worker uses its vendor's model on the person's own login. A local-model setting is refused here too
  * (the desktop refuses first): a worker sends the folder to Anthropic or
  * OpenAI, which is what that setting rules out.
@@ -52,8 +52,8 @@ export class WorkerLaunchError extends Error {
 
 const JOB_ID = /^[A-Za-z0-9_-]{1,96}$/
 
-/** Dial8's model relay, session and dev credentials: never in a worker's environment. */
-export const DIAL8_CREDENTIALS = [
+/** Native Intelligence's model relay, session and dev credentials: never in a worker's environment. */
+export const NI_CREDENTIALS = [
   'LOCAL_AGENT_MODEL_TOKEN',
   'LOCAL_AGENT_MODEL_BASE_URL',
   'LOCAL_AGENT_MODEL_TOKEN_FILE',
@@ -85,8 +85,8 @@ export function workerLaunchFromEnv(env: WorkerEnv, expected: WorkerName): Worke
   if (env.LOCAL_AGENT_LOCAL_MODEL_BASE_URL || env.LOCAL_AGENT_LOCAL_MODEL_ID) {
     throw new WorkerLaunchError("this Mac is set to keep the model on the Mac, and a worker would send the folder to its vendor's model")
   }
-  // A worker uses its vendor's model on the person's own login: a Dial8 credential has no business here.
-  const credentials = DIAL8_CREDENTIALS.filter((k) => env[k])
+  // A worker uses its vendor's model on the person's own login: a Native Intelligence credential has no business here.
+  const credentials = NI_CREDENTIALS.filter((k) => env[k])
   if (credentials.length) throw new WorkerLaunchError(`a worker job must not be given ${credentials.join(', ')}`)
   const jobId = env.LOCAL_AGENT_JOB_ID
   if (!jobId || !JOB_ID.test(jobId)) throw new WorkerLaunchError('LOCAL_AGENT_JOB_ID is missing or not a job id')

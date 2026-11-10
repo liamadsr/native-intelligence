@@ -69,7 +69,7 @@ function signedState() {
 /** The provider's redirect back to the browser that started the flow (its nonce cookie rides along). */
 function callback() {
   return GET(
-    new Request(`https://dial8.ai/api/oauth/linear/callback?code=auth-code&state=${signedState()}`, {
+    new Request(`https://nativeintelligence.dev/api/oauth/linear/callback?code=auth-code&state=${signedState()}`, {
       headers: { cookie: 'oauth_nonce=n-1' },
     }),
     { params: Promise.resolve({ provider: 'linear' }) },
@@ -84,7 +84,7 @@ beforeEach(() => {
   vi.stubEnv('OAUTH_STATE_SECRET', 'state-secret')
   vi.stubEnv('LINEAR_CLIENT_ID', 'linear-client')
   vi.stubEnv('LINEAR_CLIENT_SECRET', 'linear-secret')
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   vi.stubEnv('OAUTH_REDIRECT_BASE_URL', undefined)
   vi.spyOn(console, 'log').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})

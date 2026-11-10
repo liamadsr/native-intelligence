@@ -222,7 +222,7 @@ fn parse_eval(body: &[u8]) -> Result<EvalRequest, String> {
 }
 
 /// A name `args` can bind in the script: an ASCII JavaScript identifier, and
-/// not one of the wrapper's own (`__dial8…`, webview.rs).
+/// not one of the wrapper's own (`__ni_…`, webview.rs).
 fn is_arg_name(name: &str) -> bool {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
@@ -230,7 +230,7 @@ fn is_arg_name(name: &str) -> bool {
     };
     (first.is_ascii_alphabetic() || first == '_' || first == '$')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-        && !name.starts_with("__dial8")
+        && !name.starts_with("__ni_")
 }
 
 fn respond(status: StatusCode, body: &Value) -> Response<Full<Bytes>> {
@@ -397,7 +397,7 @@ mod tests {
     #[tokio::test]
     async fn any_origin_is_refused_even_with_the_token() {
         let addr = start().await;
-        for origin in ["http://localhost:3000", "https://dial8.ai", "null"] {
+        for origin in ["http://localhost:3000", "https://nativeintelligence.dev", "null"] {
             let reply = send(addr, request("GET", "/health", &[("Authorization", &bearer()), ("Origin", origin)], "")).await;
             assert_eq!(reply.status, 403, "Origin {origin}");
             assert_eq!(reply.body, json!({ "ok": false, "error": "forbidden" }));
@@ -531,7 +531,7 @@ mod tests {
             br#"{"script":"","args":{"a-b":1}}"#,
             br#"{"script":"","args":{"1a":1}}"#,
             br#"{"script":"","args":{"":1}}"#,
-            br#"{"script":"","args":{"__dial8_value":1}}"#,
+            br#"{"script":"","args":{"__ni_value":1}}"#,
             br#"{"script":"","timeoutMs":0}"#,
             br#"{"script":"","timeoutMs":"10"}"#,
         ] {

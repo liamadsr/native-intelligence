@@ -42,7 +42,7 @@ describe('confirmTextConnect', () => {
     const send = vi.fn(async (_to: string, _body: string) => ({ ok: true as const, sid: 'SMout' }))
     const email = vi.fn(async () => true)
     expect(await confirmTextConnect(db.client, ARGS, { send, email })).toEqual({ texted: true })
-    // The connected address is told which Dial8 account it joined (the forwarded-link defence).
+    // The connected address is told which Native Intelligence account it joined (the forwarded-link defence).
     expect(email).toHaveBeenCalledWith({ to: 'jane@brightweave.com', provider: 'google', maskedPhone: '+1 ••• ••• 4567' })
     const text = send.mock.calls[0][1]
     expect(send.mock.calls[0][0]).toBe('+15551234567')
@@ -68,7 +68,7 @@ describe('confirmTextConnect', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("a business line (migration 464) whose workspace has no business number gets no text: never from the Dial8 number, whose replies reach another account", async () => {
+  it("a business line (migration 464) whose workspace has no business number gets no text: never from the Native Intelligence number, whose replies reach another account", async () => {
     const db = fakeSupabase({ phone: { phone_e164: '+15551234567', workspace_id: 'ws-1', opted_out_at: null, line: 'business' } })
     const send = vi.fn()
     expect(await confirmTextConnect(db.client, ARGS, { send, email: vi.fn(async () => true) })).toEqual({ texted: false })

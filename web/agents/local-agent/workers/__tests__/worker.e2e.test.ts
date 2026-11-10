@@ -103,7 +103,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
         format: 'esm',
         target: 'node24',
         logLevel: 'warning',
-        banner: { js: "import { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);" },
+        banner: { js: "import { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);" },
         outfile: join(bundle, 'workers', `${worker}.mjs`),
       })
     }
@@ -118,7 +118,7 @@ describe.runIf(onMac)('a worker job end to end (darwin)', { timeout: 120_000 }, 
   })
 
   function launch(worker: 'claude-code' | 'codex', jobId: string, extra: Record<string, string> = {}): Worker {
-    const jobDir = join(home, 'Library/Application Support/dial8-test/jobs', jobId)
+    const jobDir = join(home, 'Library/Application Support/ni-test/jobs', jobId)
     const tmp = join(root, 'tmp', jobId)
     mkdirSync(jobDir, { recursive: true })
     mkdirSync(tmp, { recursive: true })

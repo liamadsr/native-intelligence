@@ -1,6 +1,6 @@
 /**
  * Setup by text (roadmap track A3): an owner who signed up by texting the
- * Dial8 number (src/lib/sms/signup.ts) gets their business set up in the same
+ * Native Intelligence number (src/lib/sms/signup.ts) gets their business set up in the same
  * thread, by the main agent, as itself. Like getting started
  * (./getting-started.ts), the server decides from the member row, and the
  * chat spec adds a `text-setup` turn-context section while it lasts:
@@ -39,7 +39,7 @@ export const SAVE_BUSINESS_PROFILE_TOOL = 'save_business_profile'
 export const TEXT_SETUP_TOOLS = [CONNECT_LINK_TOOL, SAVE_BUSINESS_PROFILE_TOOL, 'research_my_company', 'read_contact_file', 'import_contact_file', 'list_website_repos', 'connect_website', 'wire_website_form'] as const
 
 /**
- * The person's own text to the Dial8 number: a channel turn on the sms
+ * The person's own text to the Native Intelligence number: a channel turn on the sms
  * surface that is no guest's, relay or teammate chat. The only turn
  * connect_link makes a link on (src/lib/ai/tools/text-setup.ts).
  */

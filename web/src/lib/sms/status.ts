@@ -3,7 +3,7 @@
  * sent from an agent number ask for one (src/lib/twilio/client.ts). When
  * carriers refuse one as from a number not yet registered to the campaign
  * (30034 / 30035: a number joins it within a day, sometimes days), the
- * number's texts go from the Dial8 number for a while
+ * number's texts go from the Native Intelligence number for a while
  * (src/lib/sms/agent-number.ts, holdAgentNumber), and this text is resent
  * from it, once: the ledger row's `resend_of` key is the claim (migration
  * 465), taken before the send. At most once, as every reply: a resend that
@@ -67,7 +67,7 @@ export async function handleSmsStatus(supabase: SupabaseClient, input: SmsStatus
   const message = await twilioRest(config, accountUrl(config, `/Messages/${encodeURIComponent(input.sid)}.json`), { method: 'GET' }, deps.fetch).catch(() => null)
   const body = typeof message?.json?.body === 'string' ? message.json.body : ''
   if (!message?.ok || !body) return 'resend_failed'
-  // From the Dial8 number (no sender: client.ts pins it).
+  // From the Native Intelligence number (no sender: client.ts pins it).
   const sent = await (deps.send ?? sendSms)(input.to, body, { config, ...(deps.fetch ? { fetch: deps.fetch } : {}) })
   if (!sent.ok) return 'resend_failed'
   await supabase.from('sms_message').update({ twilio_sid: sent.sid }).eq('id', claim.id)

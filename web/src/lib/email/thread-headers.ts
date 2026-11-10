@@ -65,7 +65,7 @@ function retryAfterMs(value: string | null | undefined): number {
   return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, RETRY_MAX_MS) : RETRY_DEFAULT_MS
 }
 
-/** A Gmail message as a metadata read returns it (the fields Dial8 reads). */
+/** A Gmail message as a metadata read returns it (the fields Native Intelligence reads). */
 export interface GmailMetadata {
   id: string
   threadId?: string
@@ -130,7 +130,7 @@ async function gmailBatchOnce(
   headerNames: readonly string[],
   out: Map<string, GmailMetadata>,
 ): Promise<{ throttled: boolean; retryAfter: number }> {
-  const boundary = `batch_dial8_${ids.length}_${Date.now()}`
+  const boundary = `batch_ni_${ids.length}_${Date.now()}`
   const query = ['format=metadata', ...headerNames.map((h) => `metadataHeaders=${encodeURIComponent(h)}`)].join('&')
   const body =
     ids

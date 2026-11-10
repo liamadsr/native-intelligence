@@ -29,17 +29,17 @@ The recording flow already uses the Eve-backed `/api/ai/live-agent` route. Speec
 
 The committed bundle was exported from the website's Eve-era bot renderer with `bot-avatars` 0.1.1. The export script (`scripts/export-ios-bot-avatar.mjs` in the website) was never committed, so the bundle can't be regenerated as it is: changing the bot artwork means writing that export again. `THIRD_PARTY_NOTICES.md` lists the code inside the bundle.
 
-The interaction reference is OpenAI's [Your Dot profile guidance](https://help.openai.com/en/articles/20001530-getting-started-with-your-dot): select the agent and tap its avatar/name to see its profile. The artwork and animation are Dial8's own web implementation.
+The interaction reference is OpenAI's [Your Dot profile guidance](https://help.openai.com/en/articles/20001530-getting-started-with-your-dot): select the agent and tap its avatar/name to see its profile. The artwork and animation are Native Intelligence's own web implementation.
 
 ## Development and verification
 
-Development chat defaults to `http://localhost:3000`; set the Xcode launch environment variable `DIAL8_API_BASE_URL` to a reachable backend when using a physical device. The backend must use the same Supabase environment as the app. Production builds use `https://dial8.ai`.
+Development chat defaults to `http://localhost:3000`; set the Xcode launch environment variable `NI_API_BASE_URL` to a reachable backend when using a physical device. The backend must use the same Supabase environment as the app. Production builds use `https://nativeintelligence.dev`.
 
 ```sh
 Scripts/test-eve-chat.sh
 xcodebuild -project Dial8.xcodeproj -scheme Dial8 \
   -configuration Development -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath /tmp/dial8-eve-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  -derivedDataPath /tmp/ni-eve-build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
   CODE_SIGNING_ALLOWED=NO build
 ```
 

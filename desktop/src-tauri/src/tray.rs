@@ -1,6 +1,6 @@
-/// System tray (menu bar) for Dial8 Desktop.
+/// System tray (menu bar) for Native Intelligence Desktop.
 ///
-/// Shows the Dial8 icon in the macOS menu bar with the next meeting's title + countdown,
+/// Shows the Native Intelligence icon in the macOS menu bar with the next meeting's title + countdown,
 /// "● Rec" while a capture records and "● Mic" while a voice session listens (both at
 /// once, not at the next tick), and "Working in <folder>" while a local agent's turn
 /// runs on this Mac.
@@ -23,10 +23,10 @@ use tauri::{App, AppHandle, Emitter, Manager};
 use crate::local_agent::{LocalAgentService, TrayJob, TrayJobState, TrayView};
 use crate::state::{AppState, CalendarEvent};
 
-/// Write tray-specific debug log to /tmp/dial8-tray.log (0600, `crate::open_log`)
+/// Write tray-specific debug log to /tmp/native-intelligence-tray.log (0600, `crate::open_log`)
 fn tlog(msg: &str) {
     use std::io::Write;
-    if let Ok(mut f) = crate::open_log(&crate::side_log_path("dial8-tray.log")) {
+    if let Ok(mut f) = crate::open_log(&crate::side_log_path("native-intelligence-tray.log")) {
         let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
     }
     eprintln!("[tray] {}", msg);
@@ -161,7 +161,7 @@ pub fn api_base_url() -> &'static str {
     }
     #[cfg(not(debug_assertions))]
     {
-        "https://dial8.ai"
+        crate::nav_guard::APP_URL
     }
 }
 
@@ -180,12 +180,12 @@ pub fn setup_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = build_static_menu(app)?;
 
-    let _tray = TrayIconBuilder::with_id("dial8-tray")
+    let _tray = TrayIconBuilder::with_id("ni-tray")
         .icon(icon)
         .icon_as_template(true)
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("Dial8")
+        .tooltip("Native Intelligence")
         .on_menu_event(|app, event| {
             handle_menu_event(app, event.id().as_ref());
         })
@@ -256,7 +256,7 @@ fn build_static_menu(app: &App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::
 
     // First item, and the primary way back in once close-to-tray means the main
     // window can be hidden with no other affordance on screen.
-    let open = MenuItem::with_id(app, "open-dial8", "Open Dial8", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open-ni", "Open Native Intelligence", true, None::<&str>)?;
     menu.append(&open)?;
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -279,7 +279,7 @@ fn build_static_menu(app: &App) -> Result<Menu<tauri::Wry>, Box<dyn std::error::
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    let quit = MenuItem::with_id(app, native_id(QUIT), "Quit Dial8", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, native_id(QUIT), "Quit Native Intelligence", true, None::<&str>)?;
     menu.append(&quit)?;
 
     Ok(menu)
@@ -307,7 +307,7 @@ fn rebuild_tray_menu(app_handle: &AppHandle) {
 
     // Restore affordance first — see build_static_menu. Rebuilt here too because
     // rebuild_tray_menu replaces the whole menu every ~5 min.
-    let _ = menu.append(&MenuItem::with_id(app, "open-dial8", "Open Dial8", true, None::<&str>).unwrap());
+    let _ = menu.append(&MenuItem::with_id(app, "open-ni", "Open Native Intelligence", true, None::<&str>).unwrap());
     let _ = menu.append(&PredefinedMenuItem::separator(app).unwrap());
 
     // Header
@@ -380,15 +380,15 @@ fn rebuild_tray_menu(app_handle: &AppHandle) {
     #[cfg(target_os = "windows")]
     let _ = menu.append(&MenuItem::with_id(app, native_id(OPEN_LICENSES), "Open Source Licenses", true, None::<&str>).unwrap());
     let _ = menu.append(&PredefinedMenuItem::separator(app).unwrap());
-    let _ = menu.append(&MenuItem::with_id(app, native_id(QUIT), "Quit Dial8", true, None::<&str>).unwrap());
+    let _ = menu.append(&MenuItem::with_id(app, native_id(QUIT), "Quit Native Intelligence", true, None::<&str>).unwrap());
 
     // Apply menu to tray
-    if let Some(tray) = app_handle.tray_by_id("dial8-tray") {
+    if let Some(tray) = app_handle.tray_by_id("ni-tray") {
         let _ = tray.set_menu(Some(menu));
     }
 }
 
-/// The cloud browser's Mac exit (dial8-website docs/plans/cloud-browser.md, C4):
+/// The cloud browser's Mac exit (web/docs/plans/cloud-browser.md, C4):
 /// while it runs, say so, with the sites it reached today. Nothing otherwise.
 fn append_browser_exit(menu: &Menu<tauri::Wry>, app: &AppHandle) {
     let view = BROWSER_EXIT.lock().unwrap().clone();
@@ -413,7 +413,7 @@ fn append_browser_exit(menu: &Menu<tauri::Wry>, app: &AppHandle) {
     }
 }
 
-/// Local agents (dial8-website docs/plans/local-agents.md §1, invariant 6):
+/// Local agents (web/docs/plans/local-agents.md §1, invariant 6):
 /// each job running on this Mac with a Stop, and the one switch that turns
 /// them off. Nothing until a folder is shared.
 fn append_local_agents(menu: &Menu<tauri::Wry>, app: &AppHandle) {
@@ -452,7 +452,7 @@ fn append_local_agents(menu: &Menu<tauri::Wry>, app: &AppHandle) {
     }
 }
 
-/// Local Agents → Model and → Coding Agents (teammate-agent L4): Dial8 or a
+/// Local Agents → Model and → Coding Agents (teammate-agent L4): Native Intelligence or a
 /// model on Ollama or LM Studio on this Mac, and the person's yes to Claude
 /// Code and Codex. Each only when there is something to pick
 /// ([`crate::local_agent::workers::L4View`]). Native only, like the switch:
@@ -514,7 +514,7 @@ fn update_tray_title(app_handle: &AppHandle) {
         c.today_events.clone()
     };
 
-    let tray = match app_handle.tray_by_id("dial8-tray") {
+    let tray = match app_handle.tray_by_id("ni-tray") {
         Some(t) => t,
         None => return,
     };
@@ -544,13 +544,13 @@ fn update_tray_title(app_handle: &AppHandle) {
     // tooltip.
     #[cfg(target_os = "windows")]
     let _ = tray.set_tooltip(Some(match &title {
-        Some(t) => format!("Dial8 · {t}"),
-        None => "Dial8".to_string(),
+        Some(t) => format!("Native Intelligence · {t}"),
+        None => "Native Intelligence".to_string(),
     }));
 }
 
-/// The menu bar title's local agents part (local-agents.md §5, "Dial8 is
-/// working in dial8-website"; the Dial8 icon is right beside it): only
+/// The menu bar title's local agents part (local-agents.md §5, "Native Intelligence is
+/// working in web"; the Native Intelligence icon is right beside it): only
 /// while a turn runs, never for an idle, asking or stopping job. Shorter
 /// beside a meeting's countdown.
 fn local_agents_title(jobs: &[TrayJob], beside_meeting: bool) -> Option<String> {
@@ -776,7 +776,7 @@ fn dedup_events(events: &mut Vec<CalendarEvent>) {
 /// Find and focus the best app window.
 /// Prefers the focused window, then "main", then any workspace window, then any non-HUD window.
 ///
-/// This is also THE restore path for close-to-tray — the tray "Open Dial8" item,
+/// This is also THE restore path for close-to-tray — the tray "Open Native Intelligence" item,
 /// the macOS Dock-click (RunEvent::Reopen), and the single-instance second-launch
 /// callback all funnel through here rather than growing their own copies. `show()`
 /// un-hides a `hide()`-ed window (not just a minimized one), which is exactly what
@@ -858,7 +858,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
     tlog(&format!("menu event: {}", id));
     match id {
-        "open-dial8" => {
+        "open-ni" => {
             focus_main_window(app);
         }
         // Every arm below emits an event whose ONLY consumer is the main
@@ -1165,17 +1165,17 @@ mod tests {
             assert_eq!(local_agents_title(&[job("site", idle)], false), None, "{idle:?}");
         }
         let one = [
-            job("dial8-website", TrayJobState::Working),
+            job("native-intelligence", TrayJobState::Working),
             job("other", TrayJobState::Waiting),
         ];
         assert_eq!(
             local_agents_title(&one, false).as_deref(),
-            Some("Working in dial8-website")
+            Some("Working in native-intelligence")
         );
         // Shorter beside a meeting's countdown.
         assert_eq!(
             local_agents_title(&one, true).as_deref(),
-            Some("Working in dial8-websi\u{2026}")
+            Some("Working in native-inte\u{2026}")
         );
         let long = [job("a-very-long-folder-name-indeed", TrayJobState::Working)];
         assert_eq!(

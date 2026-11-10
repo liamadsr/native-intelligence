@@ -62,7 +62,7 @@ function seed(doc: Record<string, unknown>, settings: Record<string, unknown> = 
 
 function patch(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/documents/${DOC}/visibility`,
+    url: `https://nativeintelligence.dev/api/account/documents/${DOC}/visibility`,
     method: 'PATCH',
     body,
   }) as unknown as NextRequest

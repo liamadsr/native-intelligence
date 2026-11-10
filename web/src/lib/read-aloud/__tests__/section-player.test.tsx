@@ -203,7 +203,7 @@ describe('section player — a run', () => {
   })
 
   it('passes the chosen voice', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'cosette')
+    localStorage.setItem('ni:read-aloud:voice', 'cosette')
     await play()
     expect(speaks().every((s) => s.voice === 'cosette')).toBe(true)
   })
@@ -490,7 +490,7 @@ describe('section player — a feed', () => {
 })
 
 describe('section player — another window, and reading to the end', () => {
-  it('someone else’s cancel (another Dial8 window reading) is a pause: the place is kept, with no cancel of ours', async () => {
+  it('someone else’s cancel (another Native Intelligence window reading) is a pause: the place is kept, with no cancel of ours', async () => {
     await play('doc:1')
     const [, second, last] = speaks()
     await emit({ id: second.id, state: 'speaking' })

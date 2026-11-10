@@ -83,7 +83,7 @@ vi.mock('../view-list', () => ({
 vi.mock('../view-board', () => ({ ViewBoard: () => null }))
 
 vi.mock('@/components/sequences/add-to-sequence-dialog', () => ({
-  ADD_TO_SEQUENCE_EVENT: 'dial8:add-to-sequence',
+  ADD_TO_SEQUENCE_EVENT: 'ni:add-to-sequence',
   AddToSequenceDialog: (props: { contactIds: string[] }) => h('div', { 'data-sequence-dialog': props.contactIds.join(',') }),
 }))
 
@@ -114,7 +114,7 @@ describe('UnifiedViewLayout add to sequence', () => {
       )
     })
     act(() => {
-      window.dispatchEvent(new CustomEvent('dial8:add-to-sequence', { detail: { contactIds: ['c1'] } }))
+      window.dispatchEvent(new CustomEvent('ni:add-to-sequence', { detail: { contactIds: ['c1'] } }))
     })
     expect(container.querySelectorAll('[data-sequence-dialog="c1"]')).toHaveLength(1)
     expect(container.querySelector('[data-list="page"] [data-sequence-dialog]')).not.toBeNull()

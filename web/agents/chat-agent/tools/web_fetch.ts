@@ -9,7 +9,7 @@
  *
  *   1. SSRF url-guard (lib/url-guard.ts) — every URL is validated before the
  *      fetch runs, blocking private / loopback / link-local IPs and cloud-
- *      metadata hostnames so a user-influenced URL can't turn Dial8 into an SSRF
+ *      metadata hostnames so a user-influenced URL can't turn Native Intelligence into an SSRF
  *      reflection point. Mirrors src/lib/mcp-client/url-guard.ts (agents can't
  *      import src/).
  *   2. Per-conversation abuse cap (lib/web-fetch-cap.ts) — an invisible, generous
@@ -24,7 +24,7 @@
  * on the workspace tools where it belongs.
  *
  * THE MAC BODY (contract C2, ../lib/host.ts) has none of this: built with
- * DIAL8_AGENT_HOST=mac, the native tool is removed (it would fetch from this
+ * NI_AGENT_HOST=mac, the native tool is removed (it would fetch from this
  * process, outside the sandbox), and C1's spec advertises a `web_fetch` of its
  * own that the workspace resolver proxies to the app (tools/workspace_tools.ts):
  * the same guard, cap and untrusted marking, run on the server.

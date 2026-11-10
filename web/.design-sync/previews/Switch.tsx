@@ -1,4 +1,4 @@
-import { Switch, Label } from '@dial8/ui'
+import { Switch, Label } from '@native-intelligence/ui'
 
 export function States() {
   return (

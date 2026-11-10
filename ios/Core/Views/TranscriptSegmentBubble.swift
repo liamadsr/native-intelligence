@@ -1,6 +1,6 @@
 //
 //  TranscriptSegmentBubble.swift
-//  dial8
+//  Native Intelligence
 //
 //  Transcript segment display view.
 //  Shows speaker label, timestamp, and transcript text in a colored bubble.

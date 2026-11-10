@@ -1,4 +1,4 @@
-import { Separator } from '@dial8/ui'
+import { Separator } from '@native-intelligence/ui'
 
 export function Horizontal() {
   return (

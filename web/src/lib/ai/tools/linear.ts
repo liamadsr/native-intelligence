@@ -19,8 +19,8 @@ import { resolveEntityWorkspace } from './_shared'
  * another team.
  *
  * Registered through createTools(), which means the MCP registrar also exposes
- * it automatically as `dial8_push_action_to_linear` (src/lib/mcp/tools/index.ts
- * prefixes every AI-SDK tool with `dial8_`).
+ * it automatically as `ni_push_action_to_linear` (src/lib/mcp/tools/index.ts
+ * prefixes every AI-SDK tool with `ni_`).
  *
  * WORKSPACE ROUTING: the action is resolved to ITS OWN workspace via
  * `resolveEntityWorkspace` before the push, and that resolved workspace — never
@@ -38,8 +38,8 @@ export function createLinearTools(
   return {
     push_action_to_linear: tool({
       description:
-        'Push a Dial8 action to the workspace\'s connected Linear team as an issue, ' +
-        'and link the two so later Dial8 status changes move the Linear issue. ' +
+        'Push a Native Intelligence action to the workspace\'s connected Linear team as an issue, ' +
+        'and link the two so later Native Intelligence status changes move the Linear issue. ' +
         'Accepts the action UUID or its identifier (e.g. ENG-42). ' +
         'Requires a Linear connection with a team chosen in ' +
         'Settings → Connectors → Linear.',

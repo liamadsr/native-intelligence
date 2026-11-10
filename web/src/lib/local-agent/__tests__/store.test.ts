@@ -40,10 +40,10 @@ describe('createSession', () => {
     const out = await createSession(db as never, base)
     expect(out.created).toBe(true)
     expect(out.deviceOnline).toBe(true)
-    expect(out.session).toMatchObject({ status: 'queued', deviceId: DEVICE, folderLabel: 'dial8-website', deviceName: 'Liam’s MacBook', trackedJobId: 'job-1', mode: 'read', conversationId: CONV })
+    expect(out.session).toMatchObject({ status: 'queued', deviceId: DEVICE, folderLabel: 'native-intelligence', deviceName: 'Liam’s MacBook', trackedJobId: 'job-1', mode: 'read', conversationId: CONV })
     expect(session(db)).toMatchObject({ device_id: DEVICE, tracked_job_id: 'job-1', current_tracked_job_id: 'job-1', started_by: 'agent' })
     expect(Date.parse(session(db).expires_at as string) - Date.now()).toBeGreaterThan(5.9 * 3600_000)
-    expect(ledger.startTurnRow).toHaveBeenCalledWith(db, expect.objectContaining({ id: out.session.id, folderLabel: 'dial8-website' }), { turn: 1, text: base.request, status: 'queued' })
+    expect(ledger.startTurnRow).toHaveBeenCalledWith(db, expect.objectContaining({ id: out.session.id, folderLabel: 'native-intelligence' }), { turn: 1, text: base.request, status: 'queued' })
     expect(db.rings).toEqual([{ topic: `device:${USER}`, msg: { type: 'broadcast', event: 'local-agent', payload: { reason: 'start', sessionId: out.session.id } } }])
   })
 
@@ -251,7 +251,7 @@ describe('devices and folders', () => {
   it('lists the person’s folders (their environment), whatever the chat; another person’s read as none', async () => {
     const db = seeded()
     const [f] = await listFolders(db as never, USER)
-    expect(f).toMatchObject({ id: FOLDER, label: 'dial8-website', mode: 'edit', isGit: true, deviceName: 'Liam’s MacBook', online: true })
+    expect(f).toMatchObject({ id: FOLDER, label: 'native-intelligence', mode: 'edit', isGit: true, deviceName: 'Liam’s MacBook', online: true })
     expect(await listFolders(db as never, OTHER)).toEqual([])
   })
 

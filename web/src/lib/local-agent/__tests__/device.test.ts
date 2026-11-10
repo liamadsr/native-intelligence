@@ -32,7 +32,7 @@ const FOLDER_2 = '77777777-7777-4777-8777-777777777772'
 const FOLDER_3 = '77777777-7777-4777-8777-777777777773'
 
 function moreFolders(db: FakeDb) {
-  for (const [id, grant, label] of [[FOLDER_2, 'g2', 'dial8-desktop'], [FOLDER_3, 'g3', 'notes']] as const) {
+  for (const [id, grant, label] of [[FOLDER_2, 'g2', 'native-intelligence-desktop'], [FOLDER_3, 'g3', 'notes']] as const) {
     db.tables.device_folder.push({ id, user_id: USER, device_id: DEVICE, grant_id: grant, label, path: `/Users/l/code/${label}`, mode: 'edit', is_git: true, revoked_at: null })
   }
 }
@@ -56,16 +56,16 @@ describe('heartbeat', () => {
     const input = parseHeartbeat({
       deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '0.3.1',
       grants: [
-        { grantId: 'g2', label: 'dial8-desktop', path: '/Users/l/code/dial8-desktop', mode: 'read', isGit: true },
+        { grantId: 'g2', label: 'native-intelligence-desktop', path: '/Users/l/code/native-intelligence-desktop', mode: 'read', isGit: true },
         { grantId: 'g2', label: 'dup', path: '/x', mode: 'read', isGit: false },
       ],
     })
     const out = await heartbeat(db as never, USER, input)
-    expect(out.folders).toEqual([{ id: expect.any(String), grantId: 'g2', label: 'dial8-desktop', mode: 'read', isGit: true }])
+    expect(out.folders).toEqual([{ id: expect.any(String), grantId: 'g2', label: 'native-intelligence-desktop', mode: 'read', isGit: true }])
     expect(db.tables.device_folder.find((f) => f.grant_id === 'g1')?.revoked_at).toBeTruthy()
     expect(db.tables.user_device[0]).toMatchObject({ name: 'Mac', app_version: '0.3.1' })
     // Re-granting g1 un-revokes it, on the same row.
-    await heartbeat(db as never, USER, { ...input, grants: [...input.grants, { grantId: 'g1', label: 'dial8-website', path: '/p', mode: 'edit', isGit: true }] })
+    await heartbeat(db as never, USER, { ...input, grants: [...input.grants, { grantId: 'g1', label: 'native-intelligence', path: '/p', mode: 'edit', isGit: true }] })
     expect(db.tables.device_folder.find((f) => f.grant_id === 'g1')).toMatchObject({ id: FOLDER, revoked_at: null })
   })
 
@@ -145,7 +145,7 @@ describe('heartbeat', () => {
       db.tables.device_folder_setting = [{ device_folder_id: FOLDER, base_branch: 'main', repo_full_name: null }]
       return db
     }
-    const beat = (rejoin?: true) => ({ deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '1', grants: [{ grantId: 'g1', label: 'dial8-website', path: '/p', mode: 'edit' as const, isGit: true }], ...(rejoin ? { rejoin } : {}) })
+    const beat = (rejoin?: true) => ({ deviceId: DEVICE, name: 'Mac', platform: 'macos', appVersion: '1', grants: [{ grantId: 'g1', label: 'native-intelligence', path: '/p', mode: 'edit' as const, isGit: true }], ...(rejoin ? { rejoin } : {}) })
 
     it('its heartbeat is refused (DEVICE_REMOVED), and writes nothing: the remove sticks', async () => {
       const db = removed()

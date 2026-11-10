@@ -17,7 +17,7 @@
  *                   takes no claim and writes no key, so a window that can
  *                   play gets the event.
  *  4. duplicate   — one sound per event key across windows: a Web Lock
- *                   `dial8-sound:event:<key>` (ifAvailable, held KEY_HOLD_MS)
+ *                   `ni-sound:event:<key>` (ifAvailable, held KEY_HOLD_MS)
  *                   picks one window; a small shared memory of recent keys
  *                   (localStorage, RECENT_KEY_TTL_MS) catches a late replay of
  *                   the same key (a window that got it seconds later). A
@@ -72,9 +72,9 @@ export const ALERT_TIMING = {
   COOLDOWN_MS: 4000,
 }
 
-const RECENT_KEYS_STORAGE = 'dial8:sounds:recent'
+const RECENT_KEYS_STORAGE = 'ni:sounds:recent'
 const RECENT_KEYS_MAX = 40
-const AGENT_CHANNEL = 'dial8:sound-agent'
+const AGENT_CHANNEL = 'ni:sound-agent'
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -160,13 +160,13 @@ export async function playAlertSound({ sound, key }: AlertRequest): Promise<Aler
     if (sound === 'notification-alert') await sleep(ALERT_TIMING.NOTIFICATION_GRACE_MS)
     // Before any claim: a window that can't play must leave the event to one that can.
     if (!canPlaySoundsNow()) return 'unavailable'
-    if (!(await claimLock(`dial8-sound:event:${key}`, ALERT_TIMING.KEY_HOLD_MS))) return 'duplicate'
+    if (!(await claimLock(`ni-sound:event:${key}`, ALERT_TIMING.KEY_HOLD_MS))) return 'duplicate'
     if (isRemembered(key) && !rememberKey(key)) return 'duplicate'
     if (sound !== 'notification-alert') markAgentEvent()
     else if (Date.now() - lastAgentEventAt < ALERT_TIMING.AGENT_PRECEDENCE_MS) return 'superseded'
     if (await isSoundQuiet()) return 'quiet'
     if (!getSoundEffectsEnabled()) return 'off'
-    if (!(await claimLock('dial8-sound:cooldown', ALERT_TIMING.COOLDOWN_MS))) return 'coalesced'
+    if (!(await claimLock('ni-sound:cooldown', ALERT_TIMING.COOLDOWN_MS))) return 'coalesced'
     return (await playSound(sound).started) ? 'played' : 'unavailable'
   } catch (err) {
     console.warn('[sounds] alert failed:', err instanceof Error ? err.message : err)

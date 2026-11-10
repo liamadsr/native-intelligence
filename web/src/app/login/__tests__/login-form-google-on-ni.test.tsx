@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * "Sign in with Google" on dial8.ai (`googleOnDial8`): the web navigates to
+ * "Sign in with Google" on nativeintelligence.dev (`googleOnNi`): the web navigates to
  * /auth/google; the desktop runs it in the sign-in sheet and redeems the
  * one-time token the callback deep link carries, only when its `bind` is the
  * one this webview started with. A desktop build whose sheet doesn't list
@@ -53,11 +53,13 @@ vi.mock('@/components/logo', () => ({ Logo: () => null }))
 
 import { LoginForm } from '../login-form'
 
-describe('LoginForm Google sign-in on dial8.ai', () => {
+describe('LoginForm Google sign-in on nativeintelligence.dev', () => {
   let container: HTMLDivElement
   let root: Root
 
   beforeEach(() => {
+    // The app's address, on the hosted app's older domain (login-redirect.ts signInReturnUrl decides where a desktop sign-in returns).
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
     mocks.desktop = false
     for (const m of [mocks.push, mocks.signInWithOAuth, mocks.exchange, mocks.verifyOtp, mocks.authWebSession]) m.mockClear()
     localStorage.clear()
@@ -69,10 +71,11 @@ describe('LoginForm Google sign-in on dial8.ai', () => {
   afterEach(async () => {
     await act(async () => root.unmount())
     container.remove()
+    vi.unstubAllEnvs()
   })
 
   async function render() {
-    await act(async () => root.render(<LoginForm googleOnDial8 />))
+    await act(async () => root.render(<LoginForm googleOnNi />))
   }
 
   // The first button is Google's (by position: a busy button's label no
@@ -88,7 +91,7 @@ describe('LoginForm Google sign-in on dial8.ai', () => {
     })
   }
 
-  it('navigates to Dial8’s own flow on the web', async () => {
+  it('navigates to Native Intelligence’s own flow on the web', async () => {
     const descriptor = Object.getOwnPropertyDescriptor(window, 'location')
     const location = { href: 'http://localhost/login', origin: 'http://localhost', assign: vi.fn() }
     Object.defineProperty(window, 'location', { configurable: true, value: location })
@@ -134,16 +137,17 @@ describe('LoginForm Google sign-in on dial8.ai', () => {
     expect(container.textContent).toContain('Authentication failed. Please try again.')
   })
 
-  it('runs Supabase’s flow on a desktop build that refuses /auth/google', async () => {
+  it.each(['not a Native Intelligence sign-in page', 'not a Dial8 sign-in page'])('runs Supabase’s flow on a desktop build that refuses /auth/google (%s)', async (refusal) => {
     mocks.desktop = true
     mocks.authWebSession
-      .mockRejectedValueOnce(new Error('not a Dial8 sign-in page'))
+      .mockRejectedValueOnce(new Error(refusal))
       .mockResolvedValueOnce({ kind: 'callback', url: 'dial8desktop://auth/callback?code=abc' })
     await render()
     await clickGoogle()
 
     expect(mocks.signInWithOAuth).toHaveBeenCalledWith({
       provider: 'google',
+      // Not one of the hosted app's pages (the test's own origin): it returns to itself.
       options: { redirectTo: `${window.location.origin}/auth/desktop-callback`, skipBrowserRedirect: true },
     })
     expect(mocks.authWebSession).toHaveBeenLastCalledWith('https://abc.supabase.co/auth/v1/authorize?provider=google')

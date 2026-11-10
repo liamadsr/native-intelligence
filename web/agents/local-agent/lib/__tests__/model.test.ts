@@ -42,8 +42,8 @@ const TOKEN_B = 'tok.B-fedcba9876543210'
 
 describe('relayBaseUrl', () => {
   it.each([
-    ['https://dial8.ai/api/local-agent/model', 'https://dial8.ai/api/local-agent/model'],
-    ['https://dial8.ai/api/local-agent/model/', 'https://dial8.ai/api/local-agent/model'],
+    ['https://nativeintelligence.dev/api/local-agent/model', 'https://nativeintelligence.dev/api/local-agent/model'],
+    ['https://nativeintelligence.dev/api/local-agent/model/', 'https://nativeintelligence.dev/api/local-agent/model'],
     ['http://localhost:3000/api/local-agent/model', 'http://localhost:3000/api/local-agent/model'],
     ['http://127.0.0.1:3000/api/local-agent/model', 'http://127.0.0.1:3000/api/local-agent/model'],
   ])('%s', (raw, expected) => {
@@ -54,11 +54,11 @@ describe('relayBaseUrl', () => {
     undefined,
     '',
     'not a url',
-    'http://dial8.ai/api/local-agent/model',
+    'http://nativeintelligence.dev/api/local-agent/model',
     'http://192.168.1.2:3000/x',
     'https://user:pass@dial8.ai/x',
-    'https://dial8.ai/x?token=1',
-    'https://dial8.ai/x#f',
+    'https://nativeintelligence.dev/x?token=1',
+    'https://nativeintelligence.dev/x#f',
     'file:///etc/passwd',
   ])('rejects %j', (raw) => {
     expect(relayBaseUrl(raw)).toBeNull()
@@ -72,18 +72,18 @@ describe('modelRouteFromEnv', () => {
   })
 
   it('is the relay when both the base URL and the token file are set', () => {
-    expect(modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model/', LOCAL_AGENT_MODEL_TOKEN_FILE: '/j/.model-token' })).toEqual({
+    expect(modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model/', LOCAL_AGENT_MODEL_TOKEN_FILE: '/j/.model-token' })).toEqual({
       kind: 'relay',
-      baseURL: 'https://dial8.ai/api/local-agent/model',
+      baseURL: 'https://nativeintelligence.dev/api/local-agent/model',
       tokenFile: '/j/.model-token',
     })
   })
 
   it('throws on a half-configured or malformed relay (never falls back to a dev key)', () => {
-    expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/m', AI_GATEWAY_API_KEY: 'x' })).toThrow(/TOKEN_FILE/)
+    expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/m', AI_GATEWAY_API_KEY: 'x' })).toThrow(/TOKEN_FILE/)
     expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_TOKEN_FILE: '/j/.model-token' })).toThrow(/BASE_URL/)
-    expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'http://dial8.ai/m', LOCAL_AGENT_MODEL_TOKEN_FILE: '/j/t' })).toThrow(/https/)
-    expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/m', LOCAL_AGENT_MODEL_TOKEN_FILE: 'relative' })).toThrow(/absolute/)
+    expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'http://nativeintelligence.dev/m', LOCAL_AGENT_MODEL_TOKEN_FILE: '/j/t' })).toThrow(/https/)
+    expect(() => modelRouteFromEnv({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/m', LOCAL_AGENT_MODEL_TOKEN_FILE: 'relative' })).toThrow(/absolute/)
   })
 })
 
@@ -106,7 +106,7 @@ describe('readModelToken', () => {
 
 describe('relayFetch', () => {
   const tokenFile = join(dir, '.model-token')
-  const route = { kind: 'relay' as const, baseURL: 'https://dial8.ai/api/local-agent/model', tokenFile }
+  const route = { kind: 'relay' as const, baseURL: 'https://nativeintelligence.dev/api/local-agent/model', tokenFile }
   const recorder = () => {
     const calls: { url: string; headers: Headers; method?: string; body?: unknown }[] = []
     const base = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -139,7 +139,7 @@ describe('relayFetch', () => {
     const { calls, base } = recorder()
     const f = relayFetch(route, base)
     writeFileSync(tokenFile, TOKEN_A)
-    for (const url of ['https://ai-gateway.vercel.sh/v4/ai/language-model', 'https://dial8.ai/api/local-agent/modelx', 'https://evil.example/api/local-agent/model/x']) {
+    for (const url of ['https://ai-gateway.vercel.sh/v4/ai/language-model', 'https://nativeintelligence.dev/api/local-agent/modelx', 'https://evil.example/api/local-agent/model/x']) {
       await expect(f(url, { method: 'POST' })).rejects.toThrow(/outside the relay/)
     }
     expect(calls).toEqual([])
@@ -156,7 +156,7 @@ describe('relayFetch', () => {
 describe('createLocalAgentModel', () => {
   it('always builds a Gateway LanguageModel for the local model (dev and relay alike)', () => {
     const dev = createLocalAgentModel({})
-    const relay = createLocalAgentModel({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model', LOCAL_AGENT_MODEL_TOKEN_FILE: join(dir, 't') })
+    const relay = createLocalAgentModel({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model', LOCAL_AGENT_MODEL_TOKEN_FILE: join(dir, 't') })
     for (const m of [dev, relay]) {
       expect(typeof m).toBe('object')
       expect(m).toMatchObject({ provider: 'gateway', modelId: LOCAL_AGENT_MODEL })
@@ -164,13 +164,13 @@ describe('createLocalAgentModel', () => {
   })
 
   it('throws on a half-configured relay', () => {
-    expect(() => createLocalAgentModel({ LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/m' })).toThrow()
+    expect(() => createLocalAgentModel({ LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/m' })).toThrow()
   })
 })
 
 describe('on the ChatGPT plan', () => {
   const tokenFile = join(dir, '.plan-token')
-  const env = { LOCAL_AGENT_MODEL_BASE_URL: 'https://dial8.ai/api/local-agent/model', LOCAL_AGENT_MODEL_TOKEN_FILE: tokenFile }
+  const env = { LOCAL_AGENT_MODEL_BASE_URL: 'https://nativeintelligence.dev/api/local-agent/model', LOCAL_AGENT_MODEL_TOKEN_FILE: tokenFile }
   // The shape the relay mints (src/lib/local-agent/tokens.ts); the MAC is never checked here.
   const laToken = (claims: object) => `la1.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.bWFjLW5vdC1jaGVja2VkLWhlcmU`
   const PLAN_TOKEN = laToken({ sid: 's1', uid: 'u1', wid: 'w1', exp: 9_999_999_999, cp: true })

@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { findSignupInviteForUser } from '@/lib/admin/signup-invites'
 import type { SubscriptionRow } from '@/app/api/billing/status/pick-subscription'
-import { classifyBillingAccess, isDial8Staff, type BillingAccess, type ChatGptPlanStatus } from './access'
+import { classifyBillingAccess, isNiStaff, type BillingAccess, type ChatGptPlanStatus } from './access'
 
 /**
  * Load and classify. Uses the caller's client for `subscriptions` (RLS lets a
@@ -16,7 +16,7 @@ export async function getBillingAccess(
   user: { id: string; email?: string | null },
   serviceClient?: SupabaseClient,
 ): Promise<BillingAccess> {
-  if (isDial8Staff(user.email)) {
+  if (isNiStaff(user.email)) {
     return classifyBillingAccess(null, { invitedByAdmin: false, email: user.email })
   }
   const userId = user.id

@@ -5,7 +5,7 @@
  * actions at click time, and opens a bot's page (bots-v4.md Phase 1b) on its
  * work, through the dashboard's teammate tab; a bot whose page the dashboard
  * won't take opens nothing and says "Couldn’t find that agent"; the development
- * bridge puts the same call on window.__dial8OpenTeammate while mounted.
+ * bridge puts the same call on window.__niOpenTeammate while mounted.
  *
  * useOpenWorkItem (bots-v4.md Phase 2), the one way any work item opens: a
  * teammate's item on its bot's page, through the dashboard's teammate tab
@@ -58,7 +58,7 @@ function Probe() {
 
 beforeEach(() => {
   hoisted.opened = []
-  window.addEventListener('dial8:open-card', onOpenCard)
+  window.addEventListener('ni:open-card', onOpenCard)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -67,7 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  window.removeEventListener('dial8:open-card', onOpenCard)
+  window.removeEventListener('ni:open-card', onOpenCard)
   act(() => root.unmount())
   container.remove()
   vi.clearAllMocks()
@@ -151,11 +151,11 @@ describe('useOpenTeammate', () => {
   })
 
   it('the development bridge puts the call on window while mounted', () => {
-    const w = window as Window & { __dial8OpenTeammate?: (ids: string[]) => unknown }
+    const w = window as Window & { __niOpenTeammate?: (ids: string[]) => unknown }
     act(() => root.render(h(OpenTeammateDevBridge)))
-    expect(w.__dial8OpenTeammate?.(['writer-w2'])).toMatchObject({ kind: 'item', workItemId: 'ask', workspaceId: 'w2', via: 'row' })
+    expect(w.__niOpenTeammate?.(['writer-w2'])).toMatchObject({ kind: 'item', workItemId: 'ask', workspaceId: 'w2', via: 'row' })
     act(() => root.render(h('div')))
-    expect(w.__dial8OpenTeammate).toBeUndefined()
+    expect(w.__niOpenTeammate).toBeUndefined()
   })
 })
 

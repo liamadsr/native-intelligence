@@ -2,7 +2,7 @@
  * Migration 384 (P8, content C0): the content and marketing areas in every
  * area CHECK, and the three content skills. Pinned: the CHECKs allow exactly
  * the registry's areas; the rows, ids, areas and pack-only flags; the core's
- * shape; the rules the texts teach (Dial8 never posts, the checks, cite and
+ * shape; the rules the texts teach (Native Intelligence never posts, the checks, cite and
  * hedge, public-safe sources, slow weeks bring ideas, nothing on by default);
  * idempotence; and no backslash.
  */
@@ -80,7 +80,7 @@ describe('migration 384', () => {
     }
   })
 
-  it('teaches that Dial8 never posts: the person posts every one from the link (decision 2)', () => {
+  it('teaches that Native Intelligence never posts: the person posts every one from the link (decision 2)', () => {
     const core = by('content-playbook').prompt
     expect(core).toMatch(/Dial8 drafts; the person posts\. Nothing is ever published for them, now or later/)
     expect(core).toMatch(/Never call a post published, scheduled or sent/)

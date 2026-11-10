@@ -5,6 +5,7 @@ import { shareTargetAllowed } from '@/lib/share-target'
 import type { ProposedChange } from '@/lib/proposed-changes/types'
 import { SharedViewClient, type ShareIdentity } from './shared-view-client'
 import type { Metadata } from 'next'
+import { appUrl } from '@/lib/app-url'
 
 // Shared capture/document links are per-recipient and must never be indexed.
 export const metadata: Metadata = {
@@ -319,10 +320,10 @@ function SharedViewError({ status }: { status: number }) {
         </div>
         <div className="pt-4">
           <a
-            href="https://dial8.ai"
+            href={appUrl()}
             className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try Dial8
+            Try Native Intelligence
           </a>
         </div>
       </div>

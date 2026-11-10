@@ -1,11 +1,11 @@
 /**
  * A text's outcome (status.ts): one carriers refused from an agent number as
- * not yet registered holds the number and is resent from the Dial8 number,
+ * not yet registered holds the number and is resent from the Native Intelligence number,
  * once; anything else is left alone.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
-import { DIAL8_FALLBACK_MS } from '../agent-number'
+import { NI_FALLBACK_MS } from '../agent-number'
 import { handleSmsStatus } from '../status'
 import type { SendSmsDeps, SendSmsResult } from '@/lib/twilio/client'
 
@@ -36,9 +36,9 @@ beforeEach(() => {
 })
 
 describe('handleSmsStatus', () => {
-  it('a text carriers refused as from an unregistered number: held, and resent from the Dial8 number once', async () => {
+  it('a text carriers refused as from an unregistered number: held, and resent from the Native Intelligence number once', async () => {
     expect(await handleSmsStatus(db(), refused, deps())).toBe('resent')
-    expect(tables.agent_phone_number[0].dial8_until).toBe(new Date(NOW + DIAL8_FALLBACK_MS).toISOString())
+    expect(tables.agent_phone_number[0].dial8_until).toBe(new Date(NOW + NI_FALLBACK_MS).toISOString())
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0]).toEqual([PERSON, 'You have 3 meetings today.', expect.objectContaining({ config })])
     expect(send.mock.calls[0][2]).not.toHaveProperty('sender')

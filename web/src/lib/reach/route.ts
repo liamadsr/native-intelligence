@@ -15,7 +15,7 @@
  *            its shelf life)
  *   seen     a message is seen when it is no newer than the thread's seen_at,
  *            or when the person wrote in the thread after it (any channel)
- *   present  at a Dial8 app (src/lib/presence): one `agent_message` banner
+ *   present  at a Native Intelligence app (src/lib/presence): one `agent_message` banner
  *            (the native banner on the desktop, a toast otherwise) unless its
  *            writer already notified, then a recheck every 10 minutes for 2
  *            hours. Present but never opened: the last recheck claims what it
@@ -500,7 +500,7 @@ async function postSlackMessage(target: SlackReachTarget, message: OutboundMessa
 /**
  * One `agent_message` notification on the face, from the Assistant (the one
  * face, as the digest's): the desktop shows it as a native banner when no
- * Dial8 window is focused, and a toast otherwise. It has no target: a click
+ * Native Intelligence window is focused, and a toast otherwise. It has no target: a click
  * opens the home thread on the message (`metadata.message_id`, its ui message
  * id; lib/chat/home-message.ts), and its arrival brings that message into an
  * open chat that lacks it. Deduped on the newest message's group key.

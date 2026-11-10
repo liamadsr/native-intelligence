@@ -168,7 +168,7 @@ export function InAppMessageProvider({ children }: { children: React.ReactNode }
   //  • Skip rows already held (poll/realtime race), already dismissed, or expired
   //    — mirrors what /api/account/messages returns.
   // Reliability: refetch on this channel's re-SUBSCRIBE after a failure and on
-  // the app-wide `dial8:realtime-recovered` — INSERTs during a gap were lost.
+  // the app-wide `ni:realtime-recovered` — INSERTs during a gap were lost.
   useEffect(() => {
     let hadFailure = false
     const supabase = createClient()
@@ -212,10 +212,10 @@ export function InAppMessageProvider({ children }: { children: React.ReactNode }
       if (wasSelfRefetchedRecently(IN_APP_MESSAGES_CHANNEL, repairIdFromRecoveredEvent(event))) return
       void fetchMessages()
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
 
     return () => {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       supabase.removeChannel(channel)
     }
   }, [fetchMessages])

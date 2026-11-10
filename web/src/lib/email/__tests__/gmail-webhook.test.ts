@@ -25,7 +25,7 @@ beforeEach(() => {
 
 function buildPubSubRequest(emailAddress: string, historyId: number): Request {
   const payload = Buffer.from(JSON.stringify({ emailAddress, historyId })).toString('base64')
-  return new Request('https://www.dial8.ai/api/webhooks/gmail', {
+  return new Request('https://www.nativeintelligence.dev/api/webhooks/gmail', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message: { data: payload } }),
@@ -51,7 +51,7 @@ function mockAccountLookup(account: { id: string; user_id: string; workspace_id:
 describe('Gmail Webhook POST', () => {
   it('always returns 200 (even on error)', async () => {
     // Invalid JSON body
-    const req = new Request('https://www.dial8.ai/api/webhooks/gmail', {
+    const req = new Request('https://www.nativeintelligence.dev/api/webhooks/gmail', {
       method: 'POST',
       body: 'not json',
     })
@@ -156,7 +156,7 @@ describe('Gmail Webhook POST', () => {
     process.env.GMAIL_WEBHOOK_TOKEN = 'sekret'
     try {
       mockAccountLookup(null)
-      const req = new Request('https://www.dial8.ai/api/webhooks/gmail?token=sekret', {
+      const req = new Request('https://www.nativeintelligence.dev/api/webhooks/gmail?token=sekret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

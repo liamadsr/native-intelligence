@@ -75,7 +75,7 @@ describe('ReconnectBanner', () => {
     // A STRAIGHT apostrophe: the JSX writes `can&apos;t`, and the three
     // provider suites match this copy as rendered.
     expect(text()).toContain(
-      "Dial8 can no longer use your stored Asana authorization, so the workspace, project and section pickers can't load.",
+      "Native Intelligence can no longer use your stored Asana authorization, so the workspace, project and section pickers can't load.",
     )
     expect(button('Reconnect Asana')).toBeTruthy()
   })

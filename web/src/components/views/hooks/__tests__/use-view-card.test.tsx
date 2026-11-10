@@ -51,7 +51,7 @@ describe('useViewConfig in card mode', () => {
     const changes: Array<Partial<ViewConfig>> = []
     const api: { config?: ViewConfig; update?: (u: Partial<ViewConfig>) => void; discard?: () => void } = {}
     // The page's own draft for actions, which a card must not read or write.
-    window.localStorage.setItem('dial8:view-draft:default:ws-1:action:global', JSON.stringify({ overrides: { layout: 'list' }, savedAt: Date.now() }))
+    window.localStorage.setItem('ni:view-draft:default:ws-1:action:global', JSON.stringify({ overrides: { layout: 'list' }, savedAt: Date.now() }))
     const card = { baseline: BASELINE, overrides: { ordering: [{ field: 'due_at', direction: 'asc' as const }] }, onOverridesChange: (o: Partial<ViewConfig>) => changes.push(o) }
     function Harness() {
       const v = useViewConfig(null, 'action', undefined, false, undefined, 'workspace', card)
@@ -73,8 +73,8 @@ describe('useViewConfig in card mode', () => {
     expect(changes.at(-1)).toEqual({})
     expect(api.config?.filters).toEqual(BASELINE.filters)
 
-    const draftKeys = Object.keys(window.localStorage).filter((k) => k.startsWith('dial8:view-draft:'))
-    expect(draftKeys).toEqual(['dial8:view-draft:default:ws-1:action:global'])
+    const draftKeys = Object.keys(window.localStorage).filter((k) => k.startsWith('ni:view-draft:'))
+    expect(draftKeys).toEqual(['ni:view-draft:default:ws-1:action:global'])
     expect(JSON.parse(window.localStorage.getItem(draftKeys[0])!).overrides).toEqual({ layout: 'list' })
   })
 })
@@ -83,7 +83,7 @@ describe('useViewConfig in card mode on a scope tab', () => {
   it("leaves the agent's page for another scope's defaults and comes back on the page's own, never touching the page's drafts", async () => {
     const changes: Array<Partial<ViewConfig>> = []
     const api: { config?: ViewConfig; reset?: (o: Partial<ViewConfig>) => void; update?: (u: Partial<ViewConfig>) => void } = {}
-    window.localStorage.setItem('dial8:view-draft:default:ws-1:capture:global', JSON.stringify({ overrides: { layout: 'board' }, savedAt: Date.now() }))
+    window.localStorage.setItem('ni:view-draft:default:ws-1:capture:global', JSON.stringify({ overrides: { layout: 'board' }, savedAt: Date.now() }))
     const card = { baseline: BASELINE, onOverridesChange: (o: Partial<ViewConfig>) => changes.push(o) }
     function Harness() {
       const v = useViewConfig(null, 'capture', undefined, false, undefined, 'workspace', card)
@@ -114,7 +114,7 @@ describe('useViewConfig in card mode on a scope tab', () => {
     act(() => api.reset!({ capture_scope: 'all' }))
     expect(api.config?.capture_scope).toBe('all')
     expect(api.config?.filters).toEqual(BASELINE.filters)
-    expect(JSON.parse(window.localStorage.getItem('dial8:view-draft:default:ws-1:capture:global')!).overrides).toEqual({ layout: 'board' })
+    expect(JSON.parse(window.localStorage.getItem('ni:view-draft:default:ws-1:capture:global')!).overrides).toEqual({ layout: 'board' })
   })
 })
 
@@ -156,14 +156,14 @@ describe('useViewConfig in card mode on a saved view', () => {
     act(() => root.render(h(Harness, { view: null })))
     expect(api.v!.config.filters).toEqual(BASELINE.filters)
     expect(api.v!.overrides).toEqual({})
-    expect(Object.keys(window.localStorage).filter((k) => k.startsWith('dial8:view-draft:'))).toEqual([])
+    expect(Object.keys(window.localStorage).filter((k) => k.startsWith('ni:view-draft:'))).toEqual([])
   })
 })
 
 describe('useView standalone (a card)', () => {
   it('lists the saved views but restores no selection and writes none', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ views: [{ id: 'view-9', name: 'Mine' }] })))
-    window.localStorage.setItem('dial8:active-view:ws-1:action:noteam:global', 'view-9')
+    window.localStorage.setItem('ni:active-view:ws-1:action:noteam:global', 'view-9')
     const api: { v?: ReturnType<typeof useView> } = {}
     function Harness() {
       api.v = useView('action', undefined, undefined, { standalone: true })
@@ -181,7 +181,7 @@ describe('useView standalone (a card)', () => {
     expect(api.v!.activeViewId).toBe('view-9')
     expect(api.v!.activeView?.name).toBe('Mine')
     act(() => api.v!.setActiveViewId(null))
-    expect(window.localStorage.getItem('dial8:active-view:ws-1:action:noteam:global')).toBe('view-9')
+    expect(window.localStorage.getItem('ni:active-view:ws-1:action:noteam:global')).toBe('view-9')
   })
 
   it('reloads the list when a view is saved elsewhere (the card header)', async () => {

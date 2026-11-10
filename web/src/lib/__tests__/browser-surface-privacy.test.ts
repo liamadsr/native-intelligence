@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The in-app browser's DOM ([data-dial8-browser]: the browser window view and
+ * The in-app browser's DOM ([data-ni-browser]: the browser window view and
  * every portal it renders) shows the user's browsing — titles and full URLs
  * (which can carry OAuth codes / reset tokens). Sentry's ui.click / ui.input
  * breadcrumbs serialize those from element title/aria-label, so they are
@@ -12,7 +12,7 @@ import { shouldDropSentryBreadcrumb } from '@/lib/sentry-env'
 
 function mount() {
   const surface = document.createElement('div')
-  surface.setAttribute('data-dial8-browser', '')
+  surface.setAttribute('data-ni-browser', '')
   surface.className = 'ph-no-capture'
   const tab = document.createElement('button')
   tab.title = 'Reset your password – https://example.com/reset?token=secret'
@@ -29,7 +29,7 @@ afterEach(() => {
 })
 
 describe('isInBrowserSurface', () => {
-  it('is true for an element (or the surface itself) inside [data-dial8-browser]', () => {
+  it('is true for an element (or the surface itself) inside [data-ni-browser]', () => {
     const { surface, tab } = mount()
     expect(isInBrowserSurface(tab)).toBe(true)
     expect(isInBrowserSurface(surface)).toBe(true)

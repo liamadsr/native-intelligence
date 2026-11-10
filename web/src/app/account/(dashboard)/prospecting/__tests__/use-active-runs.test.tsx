@@ -9,7 +9,7 @@
  *     to move a progress rail. The two-speed loop is the whole design, and the
  *     transition has to happen on the very next arm — not at some boundary — so
  *     the interval is re-read from each fresh result.
- *  2. BACKGROUND TABS. Dial8 tabs stay MOUNTED when backgrounded (display:none),
+ *  2. BACKGROUND TABS. Native Intelligence tabs stay MOUNTED when backgrounded (display:none),
  *     so an un-gated hook would poll once per tab the user has ever opened,
  *     forever. This is the expensive failure and the one that never shows up in
  *     a single-tab manual test.

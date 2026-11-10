@@ -10,7 +10,7 @@
  *   - `ready` carries `port: 0` (no server listens for the desktop) and
  *     names the worker and its CLI version instead of eve's;
  *   - `token` lines are read and dropped: a worker uses its vendor's model on
- *     the person's own account, never the Dial8 relay, and passes nothing on;
+ *     the person's own account, never the Native Intelligence relay, and passes nothing on;
  *   - `prompt_answer` lines (C3) are read and dropped: workers ask no native
  *     prompts.
  */
@@ -148,7 +148,7 @@ export function parseInbound(line: string): InboundMessage | null {
     case 'stop':
       return { type: 'stop' }
     case 'token':
-      // Never read further: the value is a Dial8 session token, and a worker has no use for it.
+      // Never read further: the value is a Native Intelligence session token, and a worker has no use for it.
       return { type: 'token' }
     case 'prompt_answer':
       return { type: 'prompt_answer' }

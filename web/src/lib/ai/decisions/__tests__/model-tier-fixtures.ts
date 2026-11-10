@@ -97,7 +97,7 @@ export const modelTierFixtures: ModelTierFixture[] = [
   f('coding', 'stack_trace', 'strong', `Why is this failing in prod?\n${STACK}`),
   f('coding', 'sql_query', 'strong', "Can you fix this query, it returns duplicates: SELECT c.id, c.name FROM contacts c JOIN deals d ON d.contact_id = c.id WHERE d.stage = 'won'"),
   f('coding', 'code_block_review', 'strong', `Review this and tell me what's wrong:\n${CODE_BLOCK}`),
-  f('coding', 'repo_pr', 'strong', 'Open a pull request in the dial8-website repo that renames the billing helper and updates its tests.'),
+  f('coding', 'repo_pr', 'strong', 'Open a pull request in the native-intelligence repo that renames the billing helper and updates its tests.'),
   f('coding', 'diff_review', 'strong', 'Is this change safe?\ndiff --git a/src/lib/a.ts b/src/lib/a.ts\n@@ -1,3 +1,3 @@\n-export const LIMIT = 10\n+export const LIMIT = 100'),
   f('coding', 'file_bug', 'strong', 'The export in src/lib/flows/run-skill.ts drops the last row, can you find why?'),
   f('coding', 'write_script', 'strong', 'Write a Python script that reads contacts.csv and dedupes rows by email, then add unit tests.'),

@@ -7,7 +7,7 @@ import { connectWebhookDeps } from '@/lib/payments/webhook-store'
 
 /**
  * The Accounts v2 event destination (roadmap C1): thin events about the
- * accounts Dial8 made, signed with STRIPE_CONNECT_V2_WEBHOOK_SECRET. A thin
+ * accounts Native Intelligence made, signed with STRIPE_CONNECT_V2_WEBHOOK_SECRET. A thin
  * event carries no state, so each one just re-reads the account from Stripe
  * (the "payments are on" text goes out once, from whoever reads it ready
  * first). Accounts v2 sends these instead of v1 account.updated.

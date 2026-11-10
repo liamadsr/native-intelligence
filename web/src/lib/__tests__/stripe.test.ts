@@ -89,9 +89,15 @@ describe('getStripeForEnv', () => {
 })
 
 describe('safeCheckoutOrigin (P2-6)', () => {
-  it('allows the canonical dial8.ai origin', () => {
-    expect(safeCheckoutOrigin('https://dial8.ai')).toBe('https://dial8.ai')
-    expect(safeCheckoutOrigin('https://www.dial8.ai')).toBe('https://www.dial8.ai')
+  it.each(['nativeintelligence.dev', 'dial8.ai'])("allows the app's own origin on %s, and its www", (domain) => {
+    expect(safeCheckoutOrigin(`https://${domain}`)).toBe(`https://${domain}`)
+    expect(safeCheckoutOrigin(`https://www.${domain}`)).toBe(`https://www.${domain}`)
+  })
+
+  it.each(['nativeintelligence.dev', 'dial8.ai'])('rejects a look-alike of %s', (domain) => {
+    for (const evil of [`https://${domain}.evil.com`, `https://evil.${domain}`, `https://not${domain}`, `https://browser-relay.${domain}`, `http://${domain}`]) {
+      expect(safeCheckoutOrigin(evil), evil).not.toBe(evil)
+    }
   })
 
   it('rejects an attacker origin and falls back to the canonical site', () => {

@@ -135,7 +135,7 @@ describe('VoiceNudgeCard', () => {
   it('shows the card when not enrolled and not dismissed', async () => {
     voiceState = { status: notEnrolled(), loading: false }
     await renderCard()
-    expect(cardText()).toContain('Teach Dial8 your voice')
+    expect(cardText()).toContain('Teach Native Intelligence your voice')
   })
 
   it('links the CTA to /account/voice-enrollment', async () => {

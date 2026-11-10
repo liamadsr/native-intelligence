@@ -58,7 +58,7 @@ const entityLinksCache = new WeakMap<object, EntityLink[] | null>()
 /**
  * The tools that change a document's text in place: when one lands, the open
  * document refetches (document-detail-panel.tsx listens for
- * dial8:content-edited) instead of waiting for the realtime echo.
+ * ni:content-edited) instead of waiting for the realtime echo.
  */
 const DOCUMENT_EDIT_TOOLS: ReadonlySet<string> = new Set([
   'edit_document_content',
@@ -372,7 +372,7 @@ function ChatMessageImpl({
 
       dispatchedEditsRef.current.add(part.toolCallId)
       window.dispatchEvent(
-        new CustomEvent('dial8:content-edited', {
+        new CustomEvent('ni:content-edited', {
           detail: {
             toolName: name,
             entityId: name === 'edit_capture_content'

@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     const { user, supabase } = await authenticateUser(req)
     // Opted in to the ChatGPT free tier: the claim extraction this sends runs
     // on a free user's own plan (claim-extraction.ts); the embeddings are
-    // Dial8's, fractions of a cent, as for every capture.
+    // Native Intelligence's, fractions of a cent, as for every capture.
     await checkUsageLimits(user.id, undefined, { chatgptPlan: true })
 
     const body = await req.json()

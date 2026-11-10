@@ -29,8 +29,8 @@ describe('the wording', () => {
   })
 
   it('the title carries the counts (the agent event keeps only the title); the body says nothing was deleted', () => {
-    expect(mergeAnnouncementTitle('Coherix', 'Dial8', { actions: 2, member: 1 })).toBe('Coherix was merged into Dial8: 2 actions came over.')
-    expect(mergeAnnouncementTitle('Coherix', 'Dial8', {})).toBe('Coherix was merged into Dial8.')
+    expect(mergeAnnouncementTitle('Coherix', 'Native Intelligence', { actions: 2, member: 1 })).toBe('Coherix was merged into Native Intelligence: 2 actions came over.')
+    expect(mergeAnnouncementTitle('Coherix', 'Native Intelligence', {})).toBe('Coherix was merged into Native Intelligence.')
     expect(mergeAnnouncementBody({ actions: 2 })).toBe('2 actions came over. Nothing was deleted.')
     expect(mergeAnnouncementBody({})).toBe('Nothing was deleted.')
   })
@@ -43,7 +43,7 @@ describe('announceWorkspaceMerge', () => {
     destinationWorkspaceId: DST,
     actorMemberId: 'm-actor',
     sourceName: 'Coherix',
-    destinationName: 'Dial8',
+    destinationName: 'Native Intelligence',
     mergeId: 'merge-1',
     rowsBefore: { actions: 2 },
   }
@@ -57,7 +57,7 @@ describe('announceWorkspaceMerge', () => {
     expect(hoisted.createNotificationsForMany).toHaveBeenCalledWith(['m-b', 'm-c'], {
       workspaceId: DST,
       type: 'workspace_merged',
-      title: 'Coherix was merged into Dial8: 2 actions came over.',
+      title: 'Coherix was merged into Native Intelligence: 2 actions came over.',
       body: '2 actions came over. Nothing was deleted.',
       actorId: 'm-actor',
       groupKey: 'workspace_merged:merge-1',

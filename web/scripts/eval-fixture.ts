@@ -6,7 +6,7 @@
  *   - the auth user evals@dial8-evals.test (a reserved .test domain, so it can
  *     never be a real person), with no password: nobody signs in as it;
  *   - their own workspace (the signup trigger makes it), renamed
- *     "Dial8 Evals (fixture)" and marked `settings.eval_fixture = true`;
+ *     "Native Intelligence Evals (fixture)" and marked `settings.eval_fixture = true`;
  *   - checked to have that user as its ONLY member;
  *   - a complimentary subscription (a granted_ row, as the admin console grants),
  *     since there is no free tier and the usage gate would cancel every turn;
@@ -29,7 +29,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { EVAL_DEV_SUPABASE_HOST, EVAL_USER_EMAIL, isDevSupabaseUrl } from '../agents/chat-agent/lib/eval-fixture-identity'
-const WORKSPACE_NAME = 'Dial8 Evals (fixture)'
+const WORKSPACE_NAME = 'Native Intelligence Evals (fixture)'
 const CONVERSATION_TITLE = 'Safety evals'
 
 function loadEnvFile(path: string): void {
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     const { data, error } = await admin.auth.admin.createUser({
       email: EVAL_USER_EMAIL,
       email_confirm: true,
-      user_metadata: { full_name: 'Dial8 Evals' },
+      user_metadata: { full_name: 'Native Intelligence Evals' },
     })
     if (error || !data.user) throw new Error(`createUser: ${error?.message ?? 'no user'}`)
     userId = data.user.id

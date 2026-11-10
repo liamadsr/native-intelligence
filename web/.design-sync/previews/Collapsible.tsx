@@ -3,7 +3,7 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
   Button,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 export function Open() {
   return (

@@ -4,7 +4,7 @@
  * the turn's framed body, the reply's channel mark) is ./channel-turn.ts; a
  * text is a channel turn with reason 'text' and surface 'sms'.
  *
- * The flow: the person texts the Dial8 number from their verified phone. The
+ * The flow: the person texts the Native Intelligence number from their verified phone. The
  * webhook (src/lib/sms/inbound.ts) writes the text into their home thread as
  * THEIR message (src/lib/sms/deliver.ts) and sends `text/turn.requested`. The
  * consumer (src/lib/inngest/text-turn.ts) runs a home turn with reason 'text'
@@ -22,14 +22,14 @@ export const TEXT_MAX_CHARS = 1600
 
 /**
  * What a text turn's risky call becomes (the chat tool route's gate, src/lib/safety/action-review.ts alwaysHold;
- * docs/plans/text-and-calling.md Risks: a text alone never sends, deletes or writes outside Dial8): the
+ * docs/plans/text-and-calling.md Risks: a text alone never sends, deletes or writes outside Native Intelligence): the
  * person's approval card, and a line the model texts back.
  */
 export const TEXT_TURN_HOLD = {
   reason: 'text_turn',
   message:
     "Nothing ran: from a text, this needs the person's approval, and they now have a card for it. " +
-    'Right after your reply they get a text asking for their OK: they answer yes or no, or approve it in Dial8. ' +
+    'Right after your reply they get a text asking for their OK: they answer yes or no, or approve it in Native Intelligence. ' +
     'Tell them in your reply that it needs their OK first. Do not call it again.',
   // The card's reason: they did ask, by text, which can't run it alone.
   cardWhy: 'you asked for it by text, and a text alone never runs it',

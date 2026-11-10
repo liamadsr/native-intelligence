@@ -37,7 +37,7 @@ describe('signedUploadOf', () => {
     for (const url of [
       'blob:http://localhost/abc',
       'not a url',
-      'https://dial8.ai/account',
+      'https://nativeintelligence.dev/account',
       signedLink(`${USER}/notes/a.png`, NOW),
       signedLink(`${USER}/chat-uploads/sub/a.png`, NOW),
       `https://ref.supabase.co/storage/v1/object/sign/avatars/${USER}/chat-uploads/a.png?token=t`,

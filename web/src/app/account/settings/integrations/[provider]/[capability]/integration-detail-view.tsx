@@ -142,7 +142,7 @@ type AsanaConfigPatch = AsanaDestinationConfig | { project_gid: null }
 // ---------------------------------------------------------------------------
 
 /**
- * Radix Select rejects an empty-string item value, so "let Dial8 choose" needs a
+ * Radix Select rejects an empty-string item value, so "let Native Intelligence choose" needs a
  * sentinel. It never leaves this file — the PATCH sends null.
  *
  * NOT the same meaning as Asana's NO_SECTION ("don't move the task"). An
@@ -695,7 +695,7 @@ export function IntegrationDetailView({
   }
 
   /**
-   * Toggle Dial8's attribution on pushed Asana tasks.
+   * Toggle Native Intelligence's attribution on pushed Asana tasks.
    *
    * Provider-level, so it is NOT gated on a destination being picked — a user
    * can decide "don't brand my tasks" before ever choosing a project. Absent
@@ -932,7 +932,7 @@ export function IntegrationDetailView({
   }
 
   /**
-   * Toggle Dial8's attribution on pushed Jira issues. The Asana twin's
+   * Toggle Native Intelligence's attribution on pushed Jira issues. The Asana twin's
    * reasoning applies unchanged: provider-level, ungated on a destination,
    * absent = true.
    */
@@ -1067,7 +1067,7 @@ export function IntegrationDetailView({
   }
 
   /**
-   * Toggle Dial8's attribution on pushed Linear issues. The Asana and Jira
+   * Toggle Native Intelligence's attribution on pushed Linear issues. The Asana and Jira
    * twins' reasoning applies unchanged: provider-level, ungated on a
    * destination, absent = true.
    */
@@ -1462,7 +1462,7 @@ export function IntegrationDetailView({
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           Your HubSpot connection was authorized before meeting
-                          logging existed. Reconnect to grant Dial8 permission to
+                          logging existed. Reconnect to grant Native Intelligence permission to
                           write meetings to your HubSpot timeline.
                         </p>
                         <Button
@@ -1487,10 +1487,10 @@ export function IntegrationDetailView({
                         Log meetings to HubSpot
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        On by default. After each meeting is processed, Dial8
+                        On by default. After each meeting is processed, Native Intelligence
                         adds it to every matched contact&apos;s HubSpot timeline
                         with the summary and action items. Private meetings never
-                        leave Dial8.
+                        leave Native Intelligence.
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -1516,10 +1516,10 @@ export function IntegrationDetailView({
                   <div className="mt-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
                     <div className="flex-1 pr-4">
                       <p className="text-sm font-medium">
-                        Create Dial8 contacts in HubSpot
+                        Create Native Intelligence contacts in HubSpot
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        New contacts you create in Dial8 are also created in your
+                        New contacts you create in Native Intelligence are also created in your
                         HubSpot CRM.
                       </p>
                     </div>
@@ -1535,7 +1535,7 @@ export function IntegrationDetailView({
                           savingPushContacts ||
                           needsReconnect
                         }
-                        aria-label="Create Dial8 contacts in HubSpot"
+                        aria-label="Create Native Intelligence contacts in HubSpot"
                       />
                     </div>
                   </div>
@@ -1590,7 +1590,7 @@ export function IntegrationDetailView({
               )}
 
               {/* Asana push destination (workspace-level): which Asana workspace
-                  + project pushed actions land in, and how Dial8's four
+                  + project pushed actions land in, and how Native Intelligence's four
                   lifecycle buckets map onto that project's sections. */}
               {isAsanaTasks && accounts.length > 0 && (
                 <div className="mt-6">
@@ -1695,15 +1695,15 @@ export function IntegrationDetailView({
 
                       {/* Attribution opt-out. NOT gated on a project being
                           picked: it is a provider-level preference about what
-                          Dial8 writes into a task, not part of the destination,
+                          Native Intelligence writes into a task, not part of the destination,
                           and it survives a project switch and a clear. */}
                       <div className="mt-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
                         <div className="flex-1 pr-4">
                           <p className="text-sm font-medium">
-                            Include a “Pushed from Dial8” link on pushed tasks
+                            Include a “Pushed from Native Intelligence” link on pushed tasks
                           </p>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Adds the action&apos;s identifier and a link back to Dial8
+                            Adds the action&apos;s identifier and a link back to Native Intelligence
                             in the task description. Only affects tasks pushed from
                             now on.
                           </p>
@@ -1716,7 +1716,7 @@ export function IntegrationDetailView({
                             checked={asanaConfig?.include_dial8_attribution !== false}
                             onCheckedChange={handleToggleAsanaAttribution}
                             disabled={asanaConfig === null || asana.saving}
-                            aria-label="Include a “Pushed from Dial8” link on pushed tasks"
+                            aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"
                           />
                         </div>
                       </div>
@@ -1726,7 +1726,7 @@ export function IntegrationDetailView({
               )}
 
               {/* Jira push destination (workspace-level): which Atlassian site,
-                  project and issue type pushed actions become, and how Dial8's
+                  project and issue type pushed actions become, and how Native Intelligence's
                   four lifecycle buckets map onto that project's statuses. */}
               {isJiraTasks && accounts.length > 0 && (
                 <div className="mt-6">
@@ -1863,10 +1863,10 @@ export function IntegrationDetailView({
                       <div className="mt-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
                         <div className="flex-1 pr-4">
                           <p className="text-sm font-medium">
-                            Include a “Pushed from Dial8” link on pushed tasks
+                            Include a “Pushed from Native Intelligence” link on pushed tasks
                           </p>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Adds the action&apos;s identifier and a link back to Dial8
+                            Adds the action&apos;s identifier and a link back to Native Intelligence
                             in the issue description. Only affects issues pushed from
                             now on.
                           </p>
@@ -1879,7 +1879,7 @@ export function IntegrationDetailView({
                             checked={jiraConfig?.include_dial8_attribution !== false}
                             onCheckedChange={handleToggleJiraAttribution}
                             disabled={jiraConfig === null || jira.saving}
-                            aria-label="Include a “Pushed from Dial8” link on pushed tasks"
+                            aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"
                           />
                         </div>
                       </div>
@@ -2019,10 +2019,10 @@ export function IntegrationDetailView({
                       <div className="mt-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
                         <div className="flex-1 pr-4">
                           <p className="text-sm font-medium">
-                            Include a “Pushed from Dial8” link on pushed tasks
+                            Include a “Pushed from Native Intelligence” link on pushed tasks
                           </p>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            Adds the action&apos;s identifier and a link back to Dial8
+                            Adds the action&apos;s identifier and a link back to Native Intelligence
                             in the issue description. Only affects issues pushed from
                             now on.
                           </p>
@@ -2035,7 +2035,7 @@ export function IntegrationDetailView({
                             checked={linearConfig?.include_dial8_attribution !== false}
                             onCheckedChange={handleToggleLinearAttribution}
                             disabled={linearConfig === null || linear.saving}
-                            aria-label="Include a “Pushed from Dial8” link on pushed tasks"
+                            aria-label="Include a “Pushed from Native Intelligence” link on pushed tasks"
                           />
                         </div>
                       </div>
@@ -2081,7 +2081,7 @@ export function IntegrationDetailView({
               Disconnect {disconnecting?.display_name || disconnecting?.account_email}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Dial8 will no longer be able to access your{' '}
+              Native Intelligence will no longer be able to access your{' '}
               {capability === 'calendar' ? 'calendar' : capability === 'github' ? 'repositories' : capability === 'crm' ? 'CRM data' : capability === 'tasks' ? (isJiraTasks ? 'Jira issues' : isLinearTasks ? 'Linear issues' : 'Asana tasks') : 'email'} from{' '}
               {disconnecting?.account_email}. You can reconnect at any time.
             </AlertDialogDescription>

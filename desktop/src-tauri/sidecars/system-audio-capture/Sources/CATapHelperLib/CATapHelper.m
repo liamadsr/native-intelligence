@@ -2,7 +2,7 @@
 //  CATapHelper.m
 //  system-audio-capture sidecar
 //
-//  Core Audio Taps API helper — ported from dial8 native app.
+//  Core Audio Taps API helper — ported from the earlier native app.
 //
 
 #import "CATapHelper.h"
@@ -73,7 +73,7 @@ extern pid_t responsibility_get_pid_responsible_for_pid(pid_t pid);
             id tapDescription = [[CATapDescriptionClass alloc] init];
             if (!tapDescription) return nil;
 
-            @try { [tapDescription setValue:@"Dial8 System Audio" forKey:@"name"]; } @catch (NSException *e) {}
+            @try { [tapDescription setValue:@"Native Intelligence System Audio" forKey:@"name"]; } @catch (NSException *e) {}
             @try { [tapDescription setValue:@YES forKey:@"privateTap"]; } @catch (NSException *e) {}
             @try { [tapDescription setValue:@(0) forKey:@"muteBehavior"]; } @catch (NSException *e) {}
             @try { [tapDescription setValue:@YES forKey:@"mixdown"]; } @catch (NSException *e) {}

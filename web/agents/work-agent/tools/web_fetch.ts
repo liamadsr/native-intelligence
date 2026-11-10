@@ -1,7 +1,7 @@
 /**
  * web_fetch — LIVE for the work-agent, wrapped for safety.
  *
- * Web access is always on for every Dial8 agent. This file REPLACES a
+ * Web access is always on for every Native Intelligence agent. This file REPLACES a
  * `disableTool()` sentinel whose stated reason was "raw web_fetch (no SSRF
  * url-guard here)" — the guard was the blocker, not the capability. This wrapper
  * supplies it, so the tool comes back live with the same two guards the chat
@@ -9,7 +9,7 @@
  *
  *   1. SSRF url-guard (lib/url-guard.ts) — every URL is validated before the
  *      fetch runs, blocking private / loopback / link-local IPs and cloud-
- *      metadata hostnames so a URL the brief or a page suggested can't turn Dial8
+ *      metadata hostnames so a URL the brief or a page suggested can't turn Native Intelligence
  *      into an SSRF reflection point. Mirrors src/lib/mcp-client/url-guard.ts
  *      (agents can't import src/).
  *   2. Per-session abuse cap (lib/web-fetch-cap.ts) — an invisible, generous

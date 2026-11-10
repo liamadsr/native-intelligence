@@ -123,7 +123,7 @@ const OFFERABLE: ReadonlySet<string> = new Set(GUEST_OFFERABLE_TOOLS)
 
 /**
  * The tools that start on Needs approval when a guest is given them: an
- * outward call (it sends or changes something outside Dial8), and a delete
+ * outward call (it sends or changes something outside Native Intelligence), and a delete
  * while the person's "Deleting anything asks you first" is on (askBefore
  * 'deletes' or 'changes'). Missing asks read as every ask (fail closed).
  *

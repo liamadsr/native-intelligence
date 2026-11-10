@@ -1,6 +1,6 @@
 //! Selected text → the sentences to speak, one `tts_speak`-sized piece each.
 //!
-//! A port of the web's `plainTextToSentences` (dial8-website
+//! A port of the web's `plainTextToSentences` (web
 //! src/lib/read-aloud/speech-text.ts): bare URLs read as their host, emoji go,
 //! each line reads as its own sentences and ends like one, and a sentence is
 //! never cut at an abbreviation, a decimal, an initial or an ellipsis. Keep
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn urls_read_as_their_host_and_emoji_go() {
-        assert_eq!(sentences("See https://www.docs.dial8.ai/api?x=1. 🎉 Done"), ["See docs.dial8.ai.", "Done."]);
+        assert_eq!(sentences("See https://www.docs.nativeintelligence.dev/api?x=1. 🎉 Done"), ["See docs.nativeintelligence.dev.", "Done."]);
     }
 
     #[test]

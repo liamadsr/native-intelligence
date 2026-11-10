@@ -14,7 +14,7 @@ import type { UIMessage } from '@ai-sdk/react'
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const nav = vi.hoisted(() => ({ opened: [] as Array<Record<string, unknown>>, currentId: 'ws-1' as string | null }))
-window.addEventListener('dial8:open-card', (e) => nav.opened.push((e as CustomEvent).detail))
+window.addEventListener('ni:open-card', (e) => nav.opened.push((e as CustomEvent).detail))
 /** The shell's shared source: the rows it holds (open ones). */
 const source = vi.hoisted(() => ({ rows: [] as Array<Record<string, unknown>> }))
 vi.mock('@/components/work/agent-work-provider', () => ({

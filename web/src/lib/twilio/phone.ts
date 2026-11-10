@@ -1,5 +1,5 @@
 /**
- * Phone numbers as Dial8 stores them: E.164 (`+15551234567`), the shape
+ * Phone numbers as Native Intelligence stores them: E.164 (`+15551234567`), the shape
  * Twilio's `From` carries. A US/Canada number typed without a country code
  * (10 digits, or 11 starting with 1) is read as +1; anything else needs its
  * `+` or `00` prefix.
@@ -14,7 +14,7 @@ export function isE164(value: unknown): value is string {
 
 /**
  * True for a US/Canada (NANP) number: +1, then ten digits whose area code
- * doesn't start with 0 or 1. Dial8 texts only these (Phase 1, a +1 long
+ * doesn't start with 0 or 1. Native Intelligence texts only these (Phase 1, a +1 long
  * code under US 10DLC): an allow-list against SMS pumping, where someone
  * makes the app text premium international numbers.
  */

@@ -7,7 +7,7 @@ import { fetchHudSchedule, sameHudSchedule, type HudSchedule } from '@/lib/live-
  * The capture's scheduled time, for the HUD header's time fill
  * (lib/live-agent/hud-schedule.ts): read once when the call's capture is
  * known, and again when its calendar event is re-linked mid-call (the tray's
- * re-link dispatches `dial8:content-edited` for it). Null while unknown, and
+ * re-link dispatches `ni:content-edited` for it). Null while unknown, and
  * for a capture with no scheduled end. Never a poll.
  */
 export function useCaptureSchedule(captureId: string): HudSchedule | null {
@@ -27,9 +27,9 @@ export function useCaptureSchedule(captureId: string): HudSchedule | null {
     const onEdited = (e: Event) => {
       if ((e as CustomEvent<{ entityId?: string } | undefined>).detail?.entityId === captureId) load()
     }
-    window.addEventListener('dial8:content-edited', onEdited)
+    window.addEventListener('ni:content-edited', onEdited)
     return () => {
-      window.removeEventListener('dial8:content-edited', onEdited)
+      window.removeEventListener('ni:content-edited', onEdited)
       ac?.abort()
     }
   }, [captureId])

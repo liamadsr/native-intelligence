@@ -26,9 +26,9 @@ export interface StorageLike {
 }
 
 /** The desktop's allow-list of workspaces whose local Exchange events are pushed (lib/integrations/calendar-local.ts). */
-export const LOCAL_EXCHANGE_WORKSPACES_KEY = 'dial8:local-exchange:enabled-workspaces'
+export const LOCAL_EXCHANGE_WORKSPACES_KEY = 'ni:local-exchange:enabled-workspaces'
 /** The chat's pointer to the workspace whose chat was on screen last (main-chat-storage.ts): the id is the VALUE. */
-export const LAST_CHAT_WORKSPACE_KEY = 'dial8-chat:last-workspace'
+export const LAST_CHAT_WORKSPACE_KEY = 'ni-chat:last-workspace'
 
 export interface SweepResult {
   removed: string[]

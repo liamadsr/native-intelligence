@@ -29,7 +29,7 @@ export function VoiceModeSection() {
 
       <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Voice mode</div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Talk with Dial8 in chat: press the waveform next to Send, speak, and hear the reply.
+        Talk with Native Intelligence in chat: press the waveform next to Send, speak, and hear the reply.
         {!status.conversation && (
           <> It needs On-device transcription (Settings → Audio) and Read aloud to be set up.</>
         )}
@@ -55,7 +55,7 @@ function VoiceModeOptions() {
         <div className="min-w-0">
           <Label className="text-sm font-medium">Pause before sending</Label>
           <p className="text-xs text-muted-foreground">
-            How long you stay quiet before Dial8 takes your turn and answers.
+            How long you stay quiet before Native Intelligence takes your turn and answers.
           </p>
         </div>
         <Select value={pause} onValueChange={handlePause}>

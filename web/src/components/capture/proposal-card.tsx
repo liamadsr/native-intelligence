@@ -327,7 +327,7 @@ function ProposalCardImpl({
    *
    * An APPLIED action row may already be in Jira/Asana/Linear, and opening
    * properties on it should be able to show THAT ticket's live fields rather than
-   * only Dial8's. `activeLens` is `'dial8'` or a provider; the switcher only
+   * only Native Intelligence's. `activeLens` is `'dial8'` or a provider; the switcher only
    * exists when there is at least one link, so an unpushed action sees zero
    * change here — no extra request, no extra control, the same pill row it always
    * had.
@@ -402,7 +402,7 @@ function ProposalCardImpl({
   })
   // The default lens is a function of the links, which arrive after the first
   // render — so it is applied once, when they land, and never again: a user who
-  // switched back to Dial8 must not be flipped to Jira by a re-render.
+  // switched back to Native Intelligence must not be flipped to Jira by a re-render.
   //
   // BUT STICKY IS NOT TRUSTED: the links `activeLens` names can go away under it
   // (an unlink from this row's own platform-icon menu, now that the bus keeps the
@@ -410,7 +410,7 @@ function ProposalCardImpl({
   // would replace the pills with a permanent `link_not_found` banner whose Retry
   // can never succeed — and with the switcher gone too (it reads the same list),
   // no way back. Constrained to a lens that still exists; `defaultLens([])` is
-  // Dial8, which is the pill row this row had before it was ever pushed.
+  // Native Intelligence, which is the pill row this row had before it was ever pushed.
   const lens =
     activeLens && (activeLens === 'dial8' || lensProviders.includes(activeLens))
       ? activeLens
@@ -531,7 +531,7 @@ function ProposalCardImpl({
   // listens for this event globally, so no prop threading is needed.
   const handleDraftEmail = () => {
     window.dispatchEvent(
-      new CustomEvent('dial8:chat-about-proposal', {
+      new CustomEvent('ni:chat-about-proposal', {
         detail: {
           captureId: change.capture_id,
           proposalId: change.id,
@@ -675,8 +675,8 @@ function ProposalCardImpl({
               renderTrigger={({ links, linksKnown, busy, disabled }) => (
                 <ActionPlatformIcon
                   // An unresolved row has NOT been asked yet, and an empty list
-                  // would claim "Dial8 only" on an action that may already be in
-                  // Jira. The Dial8 mark is the right answer to "nothing links
+                  // would claim "Native Intelligence only" on an action that may already be in
+                  // Jira. The Native Intelligence mark is the right answer to "nothing links
                   // here", not to "nobody has looked" — so the unknown state is
                   // passed THROUGH rather than flattened to an empty array,
                   // which drew the very claim this comment rules out. An applied
@@ -688,7 +688,7 @@ function ProposalCardImpl({
                   disabled={busy || disabled}
                   // The capture row has no fixed-width icon column (unlike the
                   // list/board rows — see action-platform-icon.tsx), so it's the
-                  // one surface that can afford to spell the mark out: "Dial8"
+                  // one surface that can afford to spell the mark out: "Native Intelligence"
                   // (or the linked provider's name) plus a chevron, so the
                   // control reads as clickable rather than as a bare glyph.
                   showLabel
@@ -764,7 +764,7 @@ function ProposalCardImpl({
                         title="Ask AI about this"
                         onClick={() => {
                           window.dispatchEvent(
-                            new CustomEvent('dial8:chat-about-proposal', {
+                            new CustomEvent('ni:chat-about-proposal', {
                               detail: {
                                 captureId: change.capture_id,
                                 proposalId: change.id,
@@ -1035,7 +1035,7 @@ function ProposalCardImpl({
                     variant="outline"
                     className="h-7 text-xs opacity-50 cursor-not-allowed"
                     disabled
-                    title={`Dial8 can't apply a ${change.change_type} on a ${change.entity_type} yet — dismiss it or handle it manually.`}
+                    title={`Native Intelligence can't apply a ${change.change_type} on a ${change.entity_type} yet — dismiss it or handle it manually.`}
                     data-testid="proposal-accept"
                   >
                     {buttonLabel}
@@ -1145,7 +1145,7 @@ function ProposalCardImpl({
 
       {/* Property pills — toggled via sliders button (owner only). For applied
           items these reach through onEdit to the entity the proposal created. */}
-      {/* Dial8's own property pills, DOWN while the push form is up: the two
+      {/* Native Intelligence's own property pills, DOWN while the push form is up: the two
           sets mean different things (what this action IS, versus where this push
           is going) and showing both would let a user edit the proposal's due
           date and the Jira due date in the same breath. */}
@@ -1159,7 +1159,7 @@ function ProposalCardImpl({
               Drawn only when this action is linked somewhere — an unpushed row's
               property line is byte-identical to what it was before the lens
               existed. `shrink-0` keeps it off the scroller: the tabs are how you
-              get back to Dial8 and must never scroll out of reach. */}
+              get back to Native Intelligence and must never scroll out of reach. */}
           {showLensSwitcher && (
             <PropertyLensSwitcher
               providers={['dial8', ...lensProviders]}
@@ -1172,7 +1172,7 @@ function ProposalCardImpl({
           {/* THE PROVIDER LENS, taking the property line in place of the pills.
               Not alongside them: the two sets mean different things (what this
               action IS, versus what the linked ticket is) and showing both would
-              let a user edit the Dial8 due date and the Jira due date in the same
+              let a user edit the Native Intelligence due date and the Jira due date in the same
               breath — the same reason compose takes this line rather than sharing
               it. `strip` layout, and the lens brings the compose scroller's own
               classes: the capture panel is ~608px and a chip row of six fields

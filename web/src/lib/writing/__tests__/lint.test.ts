@@ -252,7 +252,7 @@ describe('bounded, ReDoS-safe, fails open', () => {
 })
 
 describe('the post surfaces (content C0)', () => {
-  const X_CLEAN = 'We shipped voice notes in Dial8 this week.\n\nSay what you did after a call and it files the actions for you. Took us three tries to get the timing right.'
+  const X_CLEAN = 'We shipped voice notes in Native Intelligence this week.\n\nSay what you did after a call and it files the actions for you. Took us three tries to get the timing right.'
 
   it('a plain post passes clean on every post surface', () => {
     for (const id of ['x', 'linkedin', 'threads', 'bluesky']) expect(lintDraft(X_CLEAN, { surface: id }), id).toEqual({ ok: true, violations: [] })
@@ -286,7 +286,7 @@ describe('the post surfaces (content C0)', () => {
   })
 
   it('LinkedIn: a first line past 140 characters is a low note about the hook, never a failure', () => {
-    const longFirst = 'We rebuilt how Dial8 files the actions from a call, and the part nobody warned us about was the timing of the very first reminder email we send.\n\nThe rest of the story.'
+    const longFirst = 'We rebuilt how Native Intelligence files the actions from a call, and the part nobody warned us about was the timing of the very first reminder email we send.\n\nThe rest of the story.'
     const result = lintDraft(longFirst, { surface: 'linkedin' })
     expect(find(result, 'hook')).toMatchObject({ severity: 'low' })
     expect(result.ok).toBe(true)
@@ -297,6 +297,6 @@ describe('the post surfaces (content C0)', () => {
     expect(find(lintDraft('Shipped it #buildinpublic #saas', { surface: 'x' }), 'hashtags')).toBeUndefined()
     expect(find(lintDraft('Shipped it #a #b #c', { surface: 'x' }), 'hashtags')).toMatchObject({ severity: 'medium', count: 3 })
     expect(find(lintDraft('Shipped it #a #b', { surface: 'threads' }), 'hashtags')).toMatchObject({ count: 2 })
-    expect(find(lintDraft('Read it: https://dial8.ai/blog\nIt is good.', { surface: 'x' }), 'link_placement')).toMatchObject({ fix: 'move the link to the last line' })
+    expect(find(lintDraft('Read it: https://nativeintelligence.dev/blog\nIt is good.', { surface: 'x' }), 'link_placement')).toMatchObject({ fix: 'move the link to the last line' })
   })
 })

@@ -4,13 +4,13 @@
 # CRLF checkout breaks them, so they stay LF everywhere.
 *.sh eol=lf
 
-# Kept out of `git archive`, so out of the open-source copy (dial8-website's
+# Kept out of `git archive`, so out of the open-source copy (web's
 # scripts/open-source/export.sh).
 # The Supabase CLI's cache of the linked project
 /supabase/.temp export-ignore
 # Xcode's per-user state (window layout, the user's own paths)
 xcuserdata export-ignore
 # The workflows: in the public repo, GitHub only runs the top-level .github, so the
-# export ships a copy of windows.yml there that runs in desktop/ (dial8-website's
+# export ships a copy of windows.yml there that runs in desktop/ (web's
 # scripts/open-source/root/.github/workflows/windows.yml). Keep the two in step.
 /.github export-ignore

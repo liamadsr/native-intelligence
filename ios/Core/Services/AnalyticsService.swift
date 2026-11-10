@@ -1,6 +1,6 @@
 //
 //  AnalyticsService.swift
-//  dial8
+//  Native Intelligence
 //
 //  PostHog analytics wrapper — replaces Supabase analytics_events tracking
 //

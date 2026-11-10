@@ -69,7 +69,7 @@ describe('GET / POST /api/account/environments', () => {
   })
 
   it('refuses a capture-device token', async () => {
-    const res = await list.GET(request('GET', undefined, { authorization: 'Bearer d8d_abc' }))
+    const res = await list.GET(request('GET', undefined, { authorization: 'Bearer nid_abc' }))
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ code: 'DEVICE_TOKEN_REFUSED' })
     expect(hoisted.requireWorkspace).not.toHaveBeenCalled()

@@ -104,7 +104,7 @@ describe('web', () => {
     expect(requested.searchParams.get('source')).toBe('web')
     expect(requested.searchParams.get('redirect')).toBe('/oauth-popup-callback')
     expect(requested.searchParams.get('login_hint')).toBe('a@x.com')
-    expect(openMock).toHaveBeenCalledWith(AUTHORIZE_URL, 'dial8-oauth', 'width=600,height=700,popup=yes')
+    expect(openMock).toHaveBeenCalledWith(AUTHORIZE_URL, 'ni-oauth', 'width=600,height=700,popup=yes')
     expect(latest.connectingId).toBe('google-email')
   })
 
@@ -117,13 +117,13 @@ describe('web', () => {
 
     // A message from another origin, or of another type, is ignored.
     await act(async () => {
-      postFromPopup({ type: 'dial8:oauth-popup-result', success: true }, 'https://evil.example')
+      postFromPopup({ type: 'ni:oauth-popup-result', success: true }, 'https://evil.example')
       postFromPopup({ type: 'something-else', success: true })
     })
     expect(returns).toEqual([])
 
     await act(async () => {
-      postFromPopup({ type: 'dial8:oauth-popup-result', success: true, provider: 'hubspot', capability: 'crm' })
+      postFromPopup({ type: 'ni:oauth-popup-result', success: true, provider: 'hubspot', capability: 'crm' })
     })
     expect(returns).toEqual([
       { provider: 'hubspot', capability: 'crm', success: true, error: null, via: 'reported' },
@@ -175,7 +175,7 @@ describe('web', () => {
 
     // Both teardown paths ran: a late message reports nothing more.
     await act(async () => {
-      postFromPopup({ type: 'dial8:oauth-popup-result', success: true })
+      postFromPopup({ type: 'ni:oauth-popup-result', success: true })
     })
     expect(returns).toHaveLength(1)
   })
@@ -202,7 +202,7 @@ describe('web', () => {
     act(() => root.unmount())
     popup.closed = true
     vi.advanceTimersByTime(2000)
-    postFromPopup({ type: 'dial8:oauth-popup-result', success: true })
+    postFromPopup({ type: 'ni:oauth-popup-result', success: true })
     expect(returns).toEqual([])
     // afterEach unmounts again; give it a fresh root.
     root = createRoot(container)
@@ -324,19 +324,19 @@ describe('connectWithUrl (MCP)', () => {
     await flush()
     expect(openMock).toHaveBeenCalledWith(
       'https://auth.atlassian.com/authorize?x=1',
-      'dial8-oauth',
+      'ni-oauth',
       'width=600,height=700,popup=yes',
     )
     expect(latest.connectingId).toBe('atlassian')
 
     // The provider popup's message type is not the MCP one.
     await act(async () => {
-      postFromPopup({ type: 'dial8:oauth-popup-result', success: true })
+      postFromPopup({ type: 'ni:oauth-popup-result', success: true })
     })
     expect(returns).toEqual([])
 
     await act(async () => {
-      postFromPopup({ type: 'dial8:mcp-oauth-popup-result', success: false, error: 'denied' })
+      postFromPopup({ type: 'ni:mcp-oauth-popup-result', success: false, error: 'denied' })
     })
     expect(returns).toEqual([
       { provider: 'atlassian', capability: 'mcp', success: false, error: 'denied', via: 'reported' },

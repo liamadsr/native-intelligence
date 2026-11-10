@@ -1,3 +1,4 @@
+import { bareToolName } from '@/lib/mcp/tool-names'
 /**
  * The quiet label on what an agent learned or wrote after reading untrusted
  * outside text (decision 16 as apply with undo): nothing waits to be
@@ -18,7 +19,7 @@ const FILE_TOOLS = new Set(['get_attachment_content', 'ingest_reference', 'inges
  * an unknown tool, or none named).
  */
 export function outsideReadLabel(tools: readonly string[]): string {
-  const names = tools.map((t) => (typeof t === 'string' ? t.replace(/^dial8_/, '') : ''))
+  const names = tools.map((t) => (typeof t === 'string' ? bareToolName(t) : ''))
   if (names.some((t) => WEB_TOOLS.has(t) || t.includes('browser') || t.includes('prospect'))) return 'a web page'
   if (names.some((t) => t.includes('email'))) return 'an outside email'
   if (names.some((t) => t.startsWith('mcp__'))) return 'a connected app'

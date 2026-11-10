@@ -71,7 +71,7 @@ export function SequencesView({
   // bulk enroll of 50 contacts still costs one refetch.
   useEntityListSync(['sequence_enrollment'], () => {
     window.dispatchEvent(
-      new CustomEvent('dial8:entity-created', { detail: { entityType: 'sequence' } }),
+      new CustomEvent('ni:entity-created', { detail: { entityType: 'sequence' } }),
     )
   })
 

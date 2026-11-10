@@ -25,7 +25,7 @@ out="$(cd "$1" && pwd)"
 for worker in claude-code codex; do
   (cd "$repo" && node_modules/.bin/esbuild "agents/local-agent/workers/$worker.ts" \
     --bundle --platform=node --format=esm --target=node24 --log-level=warning \
-    --banner:js="import { createRequire as __dial8Require } from 'node:module'; const require = __dial8Require(import.meta.url);" \
+    --banner:js="import { createRequire as __niRequire } from 'node:module'; const require = __niRequire(import.meta.url);" \
     --outfile="$out/workers/$worker.mjs")
 done
 echo "local-agent workers: $out/workers/{claude-code,codex}.mjs"

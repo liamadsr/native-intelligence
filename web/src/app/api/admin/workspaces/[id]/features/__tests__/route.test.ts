@@ -60,14 +60,14 @@ const { ADMIN_TOGGLEABLE_FEATURE_KEYS, HIDDEN_FEATURE_KEYS } = await import('@/l
 const ctx = { params: Promise.resolve({ id: 'ws-1' }) }
 
 function req(body: unknown): Request {
-  return new Request('https://dial8.ai/api/admin/workspaces/ws-1/features', {
+  return new Request('https://nativeintelligence.dev/api/admin/workspaces/ws-1/features', {
     method: 'PATCH',
     body: JSON.stringify(body),
   })
 }
 
 function getReq(): Request {
-  return new Request('https://dial8.ai/api/admin/workspaces/ws-1/features')
+  return new Request('https://nativeintelligence.dev/api/admin/workspaces/ws-1/features')
 }
 
 /** The overrides map as actually persisted by the last PATCH. */
@@ -216,7 +216,7 @@ describe('PATCH /api/admin/workspaces/[id]/features — validation', () => {
 
   it('400s a missing body key and an unparseable body', async () => {
     expect((await PATCH(req({}), ctx)).status).toBe(400)
-    const bad = new Request('https://dial8.ai/api/admin/workspaces/ws-1/features', {
+    const bad = new Request('https://nativeintelligence.dev/api/admin/workspaces/ws-1/features', {
       method: 'PATCH',
       body: 'not json',
     })

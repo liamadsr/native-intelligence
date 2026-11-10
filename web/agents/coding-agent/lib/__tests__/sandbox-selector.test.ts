@@ -644,8 +644,8 @@ describe('coding-agent sandbox selector — off Vercel', () => {
     // The push token is kept for the push URL only, by env REFERENCE.
     expect(runs).toContainEqual({
       kind: 'run',
-      arg: `git config '${'http.' + PUSH_URL + '.extraheader'}' "$DIAL8_PUSH_AUTH_HEADER"`,
-      env: { DIAL8_PUSH_AUTH_HEADER: `Authorization: Basic ${PUSH_BASIC}` },
+      arg: `git config '${'http.' + PUSH_URL + '.extraheader'}' "$NI_PUSH_AUTH_HEADER"`,
+      env: { NI_PUSH_AUTH_HEADER: `Authorization: Basic ${PUSH_BASIC}` },
     })
     expect(runCommands(calls).some(leaksPushToken)).toBe(false)
   })
@@ -841,7 +841,7 @@ describe('envHookCommand — a `bash -lc` shell (eve runs commands this way) see
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const { spawnSync } = await import('node:child_process')
-    const home = mkdtempSync(join(tmpdir(), 'dial8-env-hook-'))
+    const home = mkdtempSync(join(tmpdir(), 'ni-env-hook-'))
     writeFileSync(join(home, '.dial8_env'), `export FOO='from env file'\n`)
     for (const [name, content] of Object.entries(seed)) writeFileSync(join(home, name), content)
     const mod = await loadSandboxModule()

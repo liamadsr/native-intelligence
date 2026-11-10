@@ -1,5 +1,5 @@
 /**
- * Saving a line of what Dial8 has learned (migration 317). The one writer the
+ * Saving a line of what Native Intelligence has learned (migration 317). The one writer the
  * `remember` tool and the editor's add both go through, so the scope rules
  * read the same everywhere:
  *
@@ -11,10 +11,10 @@
  *     activate (their own, or the workspace's as an owner or admin) accepts
  *     it, so what the person says always ends up loading;
  *   - a note holds at most MEMORY_NOTE_MAX_LINES active lines, and at most
- *     MEMORY_PROPOSALS_PER_AUTHOR proposals from any one author (Dial8 counts
+ *     MEMORY_PROPOSALS_PER_AUTHOR proposals from any one author (Native Intelligence counts
  *     as one), so proposals can't crowd out what is real.
  *
- * What Dial8 learns on its own goes through learnMemoryLine below.
+ * What Native Intelligence learns on its own goes through learnMemoryLine below.
  *
  * The tool runs on the service role, which skips RLS and the guard, so these
  * rules are applied here, never left to the database alone. The editor's
@@ -74,8 +74,8 @@ export type LearnMemoryResult =
 
 /**
  * Add a line on the server's behalf (the capture pass, A2c):
- *   - a personal `learned` line (inferred: Dial8 noticed it) is ACTIVE at
- *     once, keeps its `learned` source so the editor marks it "Dial8 noticed
+ *   - a personal `learned` line (inferred: Native Intelligence noticed it) is ACTIVE at
+ *     once, keeps its `learned` source so the editor marks it "Native Intelligence noticed
  *     this", and has no author. Learning is on by default (Liam, 2026-10-17):
  *     the person removes what is wrong with one tap instead of accepting
  *     what is right. At most MEMORY_LEARNED_PER_NOTE such lines in a note,
@@ -121,7 +121,7 @@ export async function learnMemoryLine(
       return { ok: false, code: 'NOTE_FULL', error: `This note already has ${MEMORY_NOTE_MAX_LINES} lines.` }
     }
     if (lines.filter((l) => l.source === 'learned' && l.created_by === null).length >= MEMORY_LEARNED_PER_NOTE) {
-      return { ok: false, code: 'TOO_MANY_LEARNED', error: `${MEMORY_LEARNED_PER_NOTE} lines Dial8 noticed are already in this note.` }
+      return { ok: false, code: 'TOO_MANY_LEARNED', error: `${MEMORY_LEARNED_PER_NOTE} lines Native Intelligence noticed are already in this note.` }
     }
   } else if (lines.filter((l) => l.status === 'proposed' && l.created_by === author).length >= MEMORY_PROPOSALS_PER_AUTHOR) {
     return { ok: false, code: 'TOO_MANY_PROPOSALS', error: `${MEMORY_PROPOSALS_PER_AUTHOR} proposals already wait in this note.` }
@@ -172,7 +172,7 @@ export async function saveMemoryLine(
   const noteFull = (): SaveMemoryResult => ({
     ok: false,
     code: 'NOTE_FULL',
-    error: `${where} ${PACKS[args.area].name} note already has ${MEMORY_NOTE_MAX_LINES} lines. Ask the person to delete or merge some in What Dial8 has learned (Settings → Memory) first.`,
+    error: `${where} ${PACKS[args.area].name} note already has ${MEMORY_NOTE_MAX_LINES} lines. Ask the person to delete or merge some in What Native Intelligence has learned (Settings → Memory) first.`,
   })
   const activeCount = lines.filter((l) => l.status === 'active').length
 
@@ -198,7 +198,7 @@ export async function saveMemoryLine(
     return {
       ok: false,
       code: 'TOO_MANY_PROPOSALS',
-      error: `You already have ${MEMORY_PROPOSALS_PER_AUTHOR} proposals waiting in the workspace's ${PACKS[args.area].name} note. Ask an owner or admin to accept or dismiss some in What Dial8 has learned (Settings → Memory) first.`,
+      error: `You already have ${MEMORY_PROPOSALS_PER_AUTHOR} proposals waiting in the workspace's ${PACKS[args.area].name} note. Ask an owner or admin to accept or dismiss some in What Native Intelligence has learned (Settings → Memory) first.`,
     }
   }
 

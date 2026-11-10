@@ -38,7 +38,7 @@ function signIn() {
   hoisted.requireUser.mockResolvedValue({ supabase: db, user: { id: ME } })
 }
 
-const req = (url: string, method: string, body?: unknown) => buildRequest({ url: `https://dial8.ai${url}`, method, body }) as unknown as NextRequest
+const req = (url: string, method: string, body?: unknown) => buildRequest({ url: `https://nativeintelligence.dev${url}`, method, body }) as unknown as NextRequest
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 beforeEach(() => {

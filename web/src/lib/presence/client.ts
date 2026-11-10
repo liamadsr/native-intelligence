@@ -1,6 +1,6 @@
 /**
  * The presence client: tells the server, cheaply, whether the person is at
- * this Dial8 app, and how far they have read their home thread
+ * this Native Intelligence app, and how far they have read their home thread
  * (docs/plans/reach-follows-you.md §1 and §2). One per page, started by
  * PresenceMount (src/app/account/presence-mount.tsx) for the signed-in
  * person; the chat panel reports the home thread it shows with
@@ -28,7 +28,7 @@
  *     pop-out.
  *   - The desktop's main window: read the Mac's idle time and lock
  *     (`presence_state`) and send `active`, `idle` or `locked` when it
- *     changes, and every 4 minutes while active. Dial8 may be in the
+ *     changes, and every 4 minutes while active. Native Intelligence may be in the
  *     background: a native banner still reaches someone using the Mac. A
  *     desktop build without the command falls back to the web rule, still as
  *     `surface: 'desktop'`.
@@ -61,7 +61,7 @@ import {
 } from './presence'
 
 /** localStorage key of this browser's (or app install's) presence client id. */
-export const PRESENCE_CLIENT_ID_KEY = 'dial8:presence-client-id'
+export const PRESENCE_CLIENT_ID_KEY = 'ni:presence-client-id'
 
 /** The one interval: every evaluation that isn't triggered by an event. */
 export const PRESENCE_TICK_MS = 60_000

@@ -159,7 +159,7 @@ describe('rebuildChatSpec — a bot conversation (teammateIn: chat)', () => {
     }
   })
 
-  it('one set to change Dial8 records can, but still never sends, delegates, asks or reaches external MCP', async () => {
+  it('one set to change Native Intelligence records can, but still never sends, delegates, asks or reaches external MCP', async () => {
     boundsState.value = { allowed_side_effects: ['read', 'internal-write'], tool_allowlist: null, agentConfig: null }
     const ceiling = new Set((await rebuildChatSpec(botClaims(), {})).ceiling!)
     expect(ceiling.has('create_document')).toBe(true)

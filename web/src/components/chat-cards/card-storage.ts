@@ -13,6 +13,7 @@
 import type { CalendarQuery, CardOpenType, CardQuery, MailQuery } from '@/lib/chat-cards/kinds'
 import type { OpenCardSeed } from '@/lib/chat-cards/open-card'
 import type { PagePlace } from '@/lib/chat-cards/pages'
+import { storageKeyAfterRename } from '@/lib/storage-key-rename'
 import type { ViewEntityType } from '@/lib/views/types'
 
 export interface CardOpenRecord {
@@ -63,7 +64,7 @@ export interface StoredCardState {
   savedAt?: number
 }
 
-const PREFIX = 'dial8:chat-card:'
+const PREFIX = 'ni:chat-card:'
 /** A card nobody touched for this long loses its record (it is the agent's page again). */
 export const CARD_STATE_MAX_AGE_MS = 60 * 24 * 60 * 60 * 1000
 
@@ -110,7 +111,8 @@ export function sweepCardStates(now = Date.now()): void {
     const stale: string[] = []
     for (let i = 0; i < window.localStorage.length; i++) {
       const k = window.localStorage.key(i)
-      if (!k?.startsWith(PREFIX)) continue
+      // The copy the storage rename script left under the old name is judged, and goes, with it.
+      if (!k || !storageKeyAfterRename(k).startsWith(PREFIX)) continue
       try {
         const saved = (JSON.parse(window.localStorage.getItem(k) ?? '{}') as StoredCardState).savedAt ?? 0
         if (now - saved > CARD_STATE_MAX_AGE_MS) stale.push(k)

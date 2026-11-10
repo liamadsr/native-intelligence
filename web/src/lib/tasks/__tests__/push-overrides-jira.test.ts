@@ -145,7 +145,7 @@ function sentFields(): Record<string, unknown> {
 
 beforeEach(() => {
   vi.resetAllMocks()
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
   hoistedConfig.loadJiraSyncState.mockResolvedValue({
     id: 'tss-1',
     accountId: 'acct-1',
@@ -306,7 +306,7 @@ describe('pushActionToJira — overridden assignee', () => {
    * The override WINS over the action's own assignee, and skips the email
    * bridge entirely rather than racing it.
    */
-  it('takes precedence over the action’s Dial8 assignee', async () => {
+  it('takes precedence over the action’s Native Intelligence assignee', async () => {
     hoistedAdmin.getUserById.mockResolvedValue({ data: { user: { email: 'ada@example.com' } } })
     await push({ assignee_account_id: 'acc-42' }, { ...ACTION, assignee_id: 'mem-1' }).result
     expect(hoistedApi.searchUsers).not.toHaveBeenCalled()

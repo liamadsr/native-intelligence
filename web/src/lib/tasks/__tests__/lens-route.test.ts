@@ -226,7 +226,7 @@ describe('lensResponse', () => {
     // is what lets the panel offer Retry for one and a flat statement for the other.
     ['task_missing', 404],
     ['task_deleted', 404],
-    // 502, not 500: the failure is upstream, and a 500 reads as a Dial8 bug in
+    // 502, not 500: the failure is upstream, and a 500 reads as a Native Intelligence bug in
     // every log and dashboard that aggregates by status.
     ['provider_error', 502],
   ] as Array<[LensFailure['code'], number]>)('maps %s to %i', async (code, status) => {

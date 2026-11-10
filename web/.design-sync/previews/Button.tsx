@@ -1,4 +1,4 @@
-import { Button } from '@dial8/ui'
+import { Button } from '@native-intelligence/ui'
 
 export function Variants() {
   return (

@@ -31,7 +31,7 @@ function stubAccounts() {
 }
 
 function notify(clientState: string): Request {
-  return new Request('https://dial8.ai/api/webhooks/outlook', {
+  return new Request('https://nativeintelligence.dev/api/webhooks/outlook', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ value: [{ subscriptionId: 'sub-1', clientState, changeType: 'created' }] }),
@@ -83,7 +83,7 @@ describe('POST /api/webhooks/outlook', () => {
   })
 
   it("echoes Microsoft's validation token on subscription", async () => {
-    const res = await POST(new Request('https://dial8.ai/api/webhooks/outlook?validationToken=abc', { method: 'POST' }))
+    const res = await POST(new Request('https://nativeintelligence.dev/api/webhooks/outlook?validationToken=abc', { method: 'POST' }))
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('abc')
   })

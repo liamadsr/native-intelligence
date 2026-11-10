@@ -4,7 +4,7 @@
  * decision 8). A bot's notice (its row names a teammate,
  * `metadata.teammate_id`) lives with its bot:
  *
- *   • it's never in `notifications` (the plain notices: people, clocks, Dial8
+ *   • it's never in `notifications` (the plain notices: people, clocks, Native Intelligence
  *     itself), whether it came with the first page or by realtime, and
  *     whatever happens to it after (read, deleted);
  *   • the window still holds it (`botNotices`: failed runs, an item

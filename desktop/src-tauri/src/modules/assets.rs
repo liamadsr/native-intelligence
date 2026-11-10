@@ -599,7 +599,7 @@ mod tests {
         assert!(recheck(dir.path(), &assets));
         assert!(all_verified(dir.path(), &assets));
 
-        // Swapped while Dial8 was closed, and the record rewritten to match.
+        // Swapped while Native Intelligence was closed, and the record rewritten to match.
         new_run(dir.path());
         swap_in_place(&dir.path().join("model.bin"));
         forge_record(dir.path(), &assets[0]);

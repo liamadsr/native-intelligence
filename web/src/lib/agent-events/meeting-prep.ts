@@ -350,7 +350,7 @@ export async function previousOccurrence(supabase: SupabaseClient, c: PrepCandid
  * of the main chat, which runs enrich_contact. Never the prep: its ceiling is
  * reads and drafts, and the spend is the person's to agree to.
  *
- * Dial8 picks the people, not the model: the pass reads them here, the brief
+ * Native Intelligence picks the people, not the model: the pass reads them here, the brief
  * carries their contact ids (ENRICH_LINE, read back by parsePrepTaskIds), and
  * the report re-checks them (enrichOfferFor) so someone enriched meanwhile is
  * not offered.
@@ -444,7 +444,10 @@ const EVENT_LINE = "Its calendar event id (get_meeting_prep's event_id): "
 const CAPTURE_LINE = 'A pending capture stands for it: '
 const END_LINE = 'It ends at '
 /** The context line naming the attendees the report offers to enrich (contact ids only: no calendar text). */
-const ENRICH_LINE = 'Not enriched yet (under your report, Dial8 offers the person to pull their details from the web): '
+const ENRICH_LINE = 'Not enriched yet (under your report, Native Intelligence offers the person to pull their details from the web): '
+// TODO(rename-compat): the line as a prep that started before the rename stored it in its task. A prep
+// lives until its meeting, so drop this once those have reported.
+const ENRICH_LINE_BEFORE_RENAME = 'Not enriched yet (under your report, Dial8 offers the person to pull their details from the web): '
 
 /** What the brief is built from beyond the candidate: the person's zone and the series' previous meeting. */
 export interface PrepBriefFacts {
@@ -538,7 +541,7 @@ export function prepBrief(c: PrepCandidate, facts: PrepBriefFacts = {}): { input
 
 /**
  * The meeting's calendar event, pending capture and end a prep's stored task
- * names (prepBrief's own context lines, Dial8's words around provider ids
+ * names (prepBrief's own context lines, Native Intelligence's words around provider ids
  * and an ISO time), or nulls, and the contacts its report offers to enrich.
  * Pure.
  */
@@ -558,9 +561,10 @@ export function parsePrepTaskIds(taskPrompt: unknown): {
   const endLine = lines.find((l) => l.startsWith(END_LINE))
   const end = endLine ? /\(`([^`\s]{1,40})`\)\.$/.exec(endLine) : null
   const endMs = end ? Date.parse(end[1]) : NaN
-  const enrichLine = lines.find((l) => l.startsWith(ENRICH_LINE))
-  const enrichContactIds = enrichLine
-    ? [...new Set([...enrichLine.slice(ENRICH_LINE.length).matchAll(/contact `([0-9a-f-]{36})`/gi)].map((m) => m[1]).filter((id) => UUID_RE.test(id)))].slice(0, MAX_ENRICH_OFFER)
+  const enrichPrefix = [ENRICH_LINE, ENRICH_LINE_BEFORE_RENAME].find((prefix) => lines.some((l) => l.startsWith(prefix)))
+  const enrichLine = enrichPrefix ? lines.find((l) => l.startsWith(enrichPrefix)) : undefined
+  const enrichContactIds = enrichLine && enrichPrefix
+    ? [...new Set([...enrichLine.slice(enrichPrefix.length).matchAll(/contact `([0-9a-f-]{36})`/gi)].map((m) => m[1]).filter((id) => UUID_RE.test(id)))].slice(0, MAX_ENRICH_OFFER)
     : []
   return {
     calendarEventId: idAfter(EVENT_LINE),

@@ -36,14 +36,15 @@ import {
 } from '@/hooks/use-audio-permissions'
 import { trackRecordingEvent } from '@/lib/recording-telemetry'
 import { cn } from '@/lib/utils'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 const MIC_DENIED_HELP =
-  'Turn on Dial8 under System Settings → Privacy & Security → Microphone. This page updates automatically.'
+  `Turn on ${APP_IN_SYSTEM_SETTINGS} under System Settings → Privacy & Security → Microphone. This page updates automatically.`
 const MIC_DENIED_HELP_WINDOWS =
   'Turn on Microphone access and “Let desktop apps access your microphone” under Settings → Privacy & security → Microphone. This page updates automatically.'
 const SYSTEM_DENIED_HELP =
-  'Turn on Dial8 under System Settings → Privacy & Security → Screen & System Audio Recording. This page updates automatically.'
-const UNKNOWN_HELP = "Update Dial8 to see this permission's status."
+  `Turn on ${APP_IN_SYSTEM_SETTINGS} under System Settings → Privacy & Security → Screen & System Audio Recording. This page updates automatically.`
+const UNKNOWN_HELP = "Update Native Intelligence to see this permission's status."
 
 export function AudioPermissionsPanel() {
   const { mic, system, micBusy, systemBusy, requestMic, requestSystem } = useAudioPermissions()
@@ -165,7 +166,7 @@ function rowView(
         pill: <StatusPill tone="warning">{"Can't verify"}</StatusPill>,
         action: opts.requestWhileUnknown ? { label: 'Request', variant: 'outline' } : null,
         help: opts.requestedWhileUnknown
-          ? `Request sent — this version of Dial8 can't confirm the result. ${UNKNOWN_HELP}`
+          ? `Request sent — this version of Native Intelligence can't confirm the result. ${UNKNOWN_HELP}`
           : UNKNOWN_HELP,
       }
   }

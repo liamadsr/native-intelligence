@@ -1,7 +1,7 @@
 /**
  * web_search — LIVE for the onboarding-researcher, pinned to Exa.
  *
- * Web access is an ALWAYS-ON capability of every Dial8 agent — not a per-agent
+ * Web access is an ALWAYS-ON capability of every Native Intelligence agent — not a per-agent
  * allowlist toggle. For this agent it is the *primary* capability: the whole
  * point of a signup research run is to find the company behind the new user's
  * email domain on the open web (instructions.md → "Business-domain research

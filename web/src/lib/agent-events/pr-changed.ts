@@ -44,7 +44,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { appendLogLine, logDedupeKey, logLineFor } from '@/lib/log/agent-log'
 import { isRepoFullName } from '@/lib/environments/types'
 import { githubPrUrl } from '@/lib/coding/ci-red'
-import { DIAL8_BRANCH_PREFIX, prNumberOf, type CiEvent, type CiFixOutcome } from '@/lib/coding/ci-fix'
+import { NI_BRANCH_PREFIX, prNumberOf, type CiEvent, type CiFixOutcome } from '@/lib/coding/ci-fix'
 import { recordAgentEvents, type AgentEventInput, type RecordAgentEventsDeps } from './record'
 import { agentEventKey, type PrChangeState } from './types'
 
@@ -139,7 +139,7 @@ export function prChangeFromPullRequest(action: string, payload: unknown, delive
 
 /** The branch is a coding run's or a Mac session's (dial8/…) in the base repo itself, not a fork. Pure. */
 function ownBranch(change: PrChange): boolean {
-  return !!change.headBranch?.startsWith(DIAL8_BRANCH_PREFIX) && change.headRepoFullName?.toLowerCase() === change.repoFullName.toLowerCase()
+  return !!change.headBranch?.startsWith(NI_BRANCH_PREFIX) && change.headRepoFullName?.toLowerCase() === change.repoFullName.toLowerCase()
 }
 
 const ids = (rows: unknown, col: string): string[] => [
@@ -369,7 +369,7 @@ export function ciFailureUntold(outcome: CiFixOutcome): boolean {
 export async function recordPrCiFailure(supabase: SupabaseClient, ev: CiEvent, outcome: CiFixOutcome, deps: PrChangeDeps = {}): Promise<number> {
   try {
     if (!ciFailureUntold(outcome)) return 0
-    if (!isRepoFullName(ev.repoFullName) || !SHA_RE.test(ev.headSha) || !ev.branch.startsWith(DIAL8_BRANCH_PREFIX)) return 0
+    if (!isRepoFullName(ev.repoFullName) || !SHA_RE.test(ev.headSha) || !ev.branch.startsWith(NI_BRANCH_PREFIX)) return 0
     if (!ev.prNumbers?.length) return 0
     // ci-fix.ts's lookup: the run that made this branch and opened its PR.
     const runs = await read(

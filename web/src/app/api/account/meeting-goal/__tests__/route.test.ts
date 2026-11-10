@@ -26,7 +26,7 @@ function setup(seed: Parameters<typeof meetingGoalDb>[0] = {}, opts: Parameters<
   hoisted.requireWorkspace.mockResolvedValue({ supabase: db.client, user: { id: ME }, workspaceId: WS })
 }
 
-const URL_BASE = 'https://dial8.ai/api/account/meeting-goal'
+const URL_BASE = 'https://nativeintelligence.dev/api/account/meeting-goal'
 const qs = (event = EVENT, start = START) => `?calendar_event_id=${encodeURIComponent(event)}&starts_at=${encodeURIComponent(start)}`
 const get = (q = qs()) => GET(buildRequest({ url: `${URL_BASE}${q}`, method: 'GET' }) as unknown as NextRequest)
 const put = (body: unknown, raw = false) => PUT(buildRequest({ url: URL_BASE, method: 'PUT', body, raw }) as unknown as NextRequest)

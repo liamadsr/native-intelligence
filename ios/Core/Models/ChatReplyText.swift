@@ -1,6 +1,6 @@
 //
 //  ChatReplyText.swift
-//  dial8
+//  Native Intelligence
 //
 //  An assistant reply, made fit for the chat bubble.
 //

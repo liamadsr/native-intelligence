@@ -116,7 +116,7 @@ export async function isLockHeld(prefix: string): Promise<boolean> {
 
 // ── BroadcastChannel fallback ────────────────────────────────────────────────
 
-const CLAIM_CHANNEL = 'dial8:sound-claims'
+const CLAIM_CHANNEL = 'ni:sound-claims'
 /** How long a claimant listens for a rival before it counts as the winner. */
 export const BROADCAST_CLAIM_WAIT_MS = 80
 const MAX_CLAIMS = 200

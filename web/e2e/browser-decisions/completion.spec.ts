@@ -4,7 +4,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { browserTaskSchema, taskCompleted, type BrowserObservation } from '../../src/lib/browser-agent/task-contract'
 import { executeBrowserTask, type TaskExecutorPorts } from '../../src/lib/browser-agent/task-executor'
 
-const runtime = readFileSync(resolve(process.env.DIAL8_NATIVE_REPO ?? '../dial8-desktop', 'src-tauri/src/native/agent_runtime.js'), 'utf8')
+const runtime = readFileSync(resolve(process.env.NI_NATIVE_REPO ?? '../desktop', 'src-tauri/src/native/agent_runtime.js'), 'utf8')
 const snapshot = (page: Page) => page.evaluate<BrowserObservation>('window.__dial8Agent.snapshot({decision:true})')
 const task = browserTaskSchema.parse({ goal: 'Reveal the Ada Lovelace article by dismissing all dialogs', completion: [
   { kind: 'heading', value: 'Ada Lovelace', level: 1 }, { kind: 'dialog', state: 'absent' },

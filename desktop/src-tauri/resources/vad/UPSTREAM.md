@@ -1,6 +1,6 @@
 # Silero VAD model upstream
 
-The chat-voice voice activity detector (`src/voice/silero.rs`, dial8-website
+The chat-voice voice activity detector (`src/voice/silero.rs`, web
 `docs/plans/chat-voice.md` §3.3a) embeds this model in the app executable with
 `include_bytes!` and runs it on the ONNX Runtime the local-tts module ships.
 

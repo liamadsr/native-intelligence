@@ -212,7 +212,7 @@ function makeSupabase(opts: {
 }
 
 function request(bearer?: string): NextRequest {
-  return new NextRequest('https://dial8.ai/api/cron/index-reconciler', {
+  return new NextRequest('https://nativeintelligence.dev/api/cron/index-reconciler', {
     headers: bearer !== undefined ? { authorization: bearer } : {},
   })
 }

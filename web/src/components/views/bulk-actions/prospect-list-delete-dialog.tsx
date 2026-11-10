@@ -52,7 +52,7 @@ interface ProspectListDeleteDialogProps {
  * endpoint — that route refuses a list with a run in flight (409) and takes
  * the CRM group and scoped views with the list. Ids are deleted one by one
  * so one refusal does not abort the rest, and every deleted id is announced
- * (`dial8:entity-deleted`, `dial8:prospect-list-changed`) so the index rows
+ * (`ni:entity-deleted`, `ni:prospect-list-changed`) so the index rows
  * and the CRM's "From list" chips let go of it without a reload.
  *
  * Composes the same AlertDialog as every other delete flow — never

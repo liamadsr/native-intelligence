@@ -20,7 +20,7 @@
 export const RAIL_PAGES_PROFILE_FIELD = 'rail_pages'
 
 /** Where this device keeps its copy (wiped at sign-out: main-chat/state-wipe.ts). */
-export const RAIL_PAGES_STORAGE_KEY = 'dial8:rail-pages'
+export const RAIL_PAGES_STORAGE_KEY = 'ni:rail-pages'
 
 /** At most this many ids in each list (the rail has 19 pages). */
 // Small on purpose: user_metadata rides in the access token and the auth

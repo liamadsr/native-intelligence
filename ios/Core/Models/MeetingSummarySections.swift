@@ -1,6 +1,6 @@
 //
 //  MeetingSummarySections.swift
-//  dial8
+//  Native Intelligence
 //
 //  Parses AI-generated note content (markdown) into structured sections
 //  for display in note detail views.

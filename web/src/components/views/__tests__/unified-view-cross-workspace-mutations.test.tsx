@@ -27,7 +27,7 @@ import type { GroupedResults } from '@/lib/views/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const HOME_WS = { id: 'ws-1', name: 'Dial8' }
+const HOME_WS = { id: 'ws-1', name: 'Native Intelligence' }
 const OTHER_WS = { id: 'ws-2', name: 'Acme Sales' }
 
 const HOME_ROW = { id: 'act-1', title: 'Ship it', priority: 'low', workspace: HOME_WS }

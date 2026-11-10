@@ -11,7 +11,7 @@
  *  - an agent's draft named by its mailbox id: rewritten when the caller's own
  *    thread index lists it as a draft in this workspace, else not found;
  *  - a sent or dismissed draft, or someone else's, is refused;
- *  - a row whose mailbox copy was never saved is revised in Dial8 only;
+ *  - a row whose mailbox copy was never saved is revised in Native Intelligence only;
  *  - Gmail's new message id: the caller's work items and runs that delivered
  *    the old id follow it, so sending the revised draft still settles them.
  */
@@ -117,7 +117,7 @@ describe('reviseEmailDraft', () => {
     expect(row(ANAS_ROW).body_text).toBeUndefined()
   })
 
-  it('a row with no mailbox copy is revised in Dial8 only, and says so', async () => {
+  it('a row with no mailbox copy is revised in Native Intelligence only, and says so', async () => {
     const out = await reviseEmailDraft(fake as never, 'user-1', WS, { draftId: LOCAL_ROW, body: 'Formal.' })
     expect(out).toMatchObject({ success: true, mailbox_updated: false, draft_id: null })
     expect(updateProviderDraft).not.toHaveBeenCalled()

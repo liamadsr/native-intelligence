@@ -155,7 +155,7 @@ import {
  * WARNING: deliberately conservative. A repo that fetches from other hosts
  * (private registries, CDNs, apt) needs `trusted`. There is NO AI-gateway host
  * here: inference is eve's own concern (outside the sandbox), the agent has no
- * in-run Dial8 workspace access, and its web_search/web_fetch run outside the
+ * in-run Native Intelligence workspace access, and its web_search/web_fetch run outside the
  * sandbox too — so none of them depend on sandbox egress.
  * (lib/__tests__/network-policy.test.ts pins the exact list.)
  */
@@ -353,7 +353,7 @@ export function envHookCommand(envFile: string): string {
   ].join('\n')
 }
 
-/** The marker line that identifies Dial8's push guard. */
+/** The marker line that identifies Native Intelligence's push guard. */
 export const PUSH_GUARD_MARKER = '# dial8-push-guard'
 
 /**
@@ -443,10 +443,10 @@ export function prePushGuardScript(args: { branchName: string; remoteUrl: string
     PUSH_GUARD_MARKER,
     `allowed=${shellSingleQuote(`refs/heads/${args.branchName}`)}`,
     `remote_url=${shellSingleQuote(args.remoteUrl)}`,
-    'refuse() { echo "dial8 push guard: $1" >&2; status=1; }',
+    'refuse() { echo "Native Intelligence push guard: $1" >&2; status=1; }',
     'status=0',
     'if [ "$2" != "$remote_url" ]; then',
-    '  echo "dial8 push guard: this run may only push to $remote_url, not $2" >&2',
+    '  echo "Native Intelligence push guard: this run may only push to $remote_url, not $2" >&2',
     '  exit 1',
     'fi',
     'input=$(cat)',
@@ -467,9 +467,9 @@ export function prePushGuardScript(args: { branchName: string; remoteUrl: string
     '      fi',
     '      ;;',
     '  esac',
-    'done <<DIAL8_REFS',
+    'done <<NI_REFS',
     '$input',
-    'DIAL8_REFS',
+    'NI_REFS',
     '[ "$status" -eq 0 ] || exit "$status"',
     ...repoHooksDirShell(args.guardDir),
     'if [ -n "$dir" ] && [ -x "$dir/pre-push" ]; then',
@@ -490,7 +490,7 @@ export function prePushGuardScript(args: { branchName: string; remoteUrl: string
 export function hookChainScript(guardDir: string): string {
   return [
     '#!/bin/sh',
-    '# dial8 hook chain: run the repo\'s own hook of this name, if it has one.',
+    '# The hook chain: run the repo\'s own hook of this name, if it has one.',
     'name=${0##*/}',
     ...repoHooksDirShell(guardDir),
     '[ -n "$dir" ] && [ -x "$dir/$name" ] && exec "$dir/$name" "$@"',
@@ -690,14 +690,14 @@ async function seedWorkspace(
     // can do no more than the gate allows (this run's branch, while it lives).
     await required(
       {
-        command: `git config ${shellSingleQuote(extraHeaderKey(pushUrl))} "$DIAL8_PUSH_AUTH_HEADER"`,
-        env: { DIAL8_PUSH_AUTH_HEADER: `Authorization: ${githubBasicAuth(spec.gitPushToken)}` },
+        command: `git config ${shellSingleQuote(extraHeaderKey(pushUrl))} "$NI_PUSH_AUTH_HEADER"`,
+        env: { NI_PUSH_AUTH_HEADER: `Authorization: ${githubBasicAuth(spec.gitPushToken)}` },
       },
       'git push credential config',
     )
   }
   await required({ command: 'git config user.email "agent@dial8.ai"' }, 'git config user.email')
-  await required({ command: 'git config user.name "Dial8 Agent"' }, 'git config user.name')
+  await required({ command: 'git config user.name "Native Intelligence Agent"' }, 'git config user.name')
   // A first plain `git push` of the new branch sets its upstream (git ≥ 2.37).
   await required({ command: 'git config push.autoSetupRemote true' }, 'git config push.autoSetupRemote')
   if (typeof spec.startFrom === 'string' && spec.startFrom && spec.startFrom !== spec.branchName) {

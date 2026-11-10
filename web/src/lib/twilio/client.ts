@@ -4,11 +4,11 @@
  * body (To, From and/or MessagingServiceSid, Body). Never throws: every
  * outcome is a {@link SendSmsResult} the caller logs or records.
  *
- * Through Dial8's messaging service, a text is pinned to its sender: the
- * person's agent number when the caller names one (`sender`), else the Dial8
+ * Through Native Intelligence's messaging service, a text is pinned to its sender: the
+ * person's agent number when the caller names one (`sender`), else the Native Intelligence
  * number. The service's pool holds every agent number too
  * (src/lib/sms/agent-number.ts), and left to itself Twilio would pick any of
- * them. A sender the service doesn't hold (21711) falls back to the Dial8
+ * them. A sender the service doesn't hold (21711) falls back to the Native Intelligence
  * number, then to the service's own pick; an agent number carriers refuse
  * outright as not yet registered (30034 / 30035) falls back the same way.
  */
@@ -40,18 +40,18 @@ export interface SendSmsDeps {
   fetch?: typeof fetch
   config?: TwilioConfig | null
   /**
-   * Send from this number instead of the Dial8 one: a business's own number,
+   * Send from this number instead of the Native Intelligence one: a business's own number,
    * to its customer (roadmap B2, src/lib/customers/numbers.ts). It goes as a
-   * plain `From`, never through Dial8's messaging service: a business number
-   * is never in Dial8's sender pool, so Twilio can never pick it for a Dial8
-   * text (and a Dial8 number for a business's).
+   * plain `From`, never through Native Intelligence's messaging service: a business number
+   * is never in Native Intelligence's sender pool, so Twilio can never pick it for a Native Intelligence
+   * text (and a Native Intelligence number for a business's).
    */
   from?: string | null
   /**
-   * Send from this number in Dial8's own messaging service: the person's
+   * Send from this number in Native Intelligence's own messaging service: the person's
    * agent number (src/lib/sms/agent-number.ts). Through the service as ever
    * (its campaign, its opt-outs), From it, with a status callback: a text
-   * carriers refuse later as not yet registered is resent from the Dial8
+   * carriers refuse later as not yet registered is resent from the Native Intelligence
    * number (src/lib/sms/status.ts).
    */
   sender?: string | null
@@ -70,7 +70,7 @@ export async function sendSms(to: string, body: string, deps: SendSmsDeps = {}):
   }
   if (deps.from) return post(deps.from, false, false)
   if (!config.messagingServiceSid) return post(config.fromNumber, false, false)
-  // The agent number, the Dial8 number, then the service's own pick (null).
+  // The agent number, the Native Intelligence number, then the service's own pick (null).
   const senders = [...new Set([deps.sender, config.fromNumber].filter((n): n is string => Boolean(n))), null]
   let result: SendSmsResult = { ok: false, reason: 'network' }
   for (const [i, from] of senders.entries()) {

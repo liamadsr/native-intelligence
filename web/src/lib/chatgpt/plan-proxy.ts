@@ -10,7 +10,7 @@
  * It swaps in the person's plan access token (refreshed under the lease,
  * ./connection.ts), applies the plan route's rules (./plan-request.ts) and
  * streams OpenAI's answer back as it comes. Nothing here ever reaches the AI
- * Gateway or a Dial8 key: no token, no call.
+ * Gateway or a Native Intelligence key: no token, no call.
  *
  * A call that made no connection to OpenAI (DNS, refused, connect timeout)
  * is tried once more before it fails 502; one that may have reached OpenAI
@@ -48,7 +48,7 @@ const RESPONSES_URL = `${CHATGPT_PLAN_RESOURCE}/responses`
 const UPSTREAM_ATTEMPTS = 2
 const CONNECT_RETRY_DELAY_MS = 250
 
-const OUT_OF_CREDITS_MESSAGE = "Your ChatGPT plan's usage limit is reached. AI in Dial8 picks up again when your plan resets."
+const OUT_OF_CREDITS_MESSAGE = "Your ChatGPT plan's usage limit is reached. AI in Native Intelligence picks up again when your plan resets."
 
 /** An error in OpenAI's shape, so the SDK reports its message. */
 export function planError(status: number, code: string, message: string): Response {

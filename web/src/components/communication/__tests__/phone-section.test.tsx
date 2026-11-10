@@ -15,7 +15,7 @@ import { NUMBER_RETRY_MS, PhoneSection, RESEND_AFTER_S } from '../phone-section'
 
 let linked: { number: string; masked: string; verifiedAt: string; optedOut: boolean } | null
 let goodCode: string
-// The agent's own number (POST /api/account/agent-number), and whether this Dial8 can give one.
+// The agent's own number (POST /api/account/agent-number), and whether this deployment can give one.
 let own: string | null
 let canGet: boolean
 const calls: Array<{ url: string; method: string; body: unknown }> = []
@@ -24,7 +24,7 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : undefined
   calls.push({ url, method, body })
   if (url === '/api/account/phone' && method === 'GET') {
-    return Response.json({ phone: linked, dial8Number: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
+    return Response.json({ phone: linked, niNumber: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
   }
   if (url === '/api/account/agent-number' && method === 'POST') {
     own = '+16465550199'
@@ -142,7 +142,7 @@ describe('the code', () => {
     await toCodeStep()
     expect(boxes()).toEqual(['', '', '', '', '', ''])
     expect(codeField().getAttribute('autocomplete')).toBe('one-time-code')
-    await paste(codeField(), 'Your Dial8 code is 123 456')
+    await paste(codeField(), 'Your Native Intelligence code is 123 456')
     expect(boxes()).toEqual(['1', '2', '3', '4', '5', '6'])
     await flush()
     expect(calls.find((c) => c.url === '/api/account/phone/verify')!.body).toEqual({ code: '123456' })
@@ -255,13 +255,13 @@ describe('its own number (Liam, 2026-11-02)', () => {
   })
 
   it('a refusal shows on the button’s step, and nothing moves on', async () => {
-    fetchMock.mockImplementationOnce(async () => Response.json({ phone: null, dial8Number: '+15550000000', agentNumber: null, canGetNumber: true, available: true }))
-    fetchMock.mockImplementationOnce(async () => Response.json({ error: 'Dial8 has no numbers to give right now. Try again later.' }, { status: 409 }))
+    fetchMock.mockImplementationOnce(async () => Response.json({ phone: null, niNumber: '+15550000000', agentNumber: null, canGetNumber: true, available: true }))
+    fetchMock.mockImplementationOnce(async () => Response.json({ error: 'Native Intelligence has no numbers to give right now. Try again later.' }, { status: 409 }))
     await act(async () => root.render(<PhoneSection compact name="Joseph" />))
     await until(() => !!q('[data-phone-step="get-number"]'))
     await act(async () => q<HTMLButtonElement>('[data-get-number]')!.click())
     await until(() => !!q('[role="alert"]'))
-    expect(q('[role="alert"]')!.textContent).toBe('Dial8 has no numbers to give right now. Try again later.')
+    expect(q('[role="alert"]')!.textContent).toBe('Native Intelligence has no numbers to give right now. Try again later.')
     expect(q('[data-phone-step="get-number"]')).not.toBeNull()
   })
 
@@ -278,7 +278,7 @@ describe('its own number (Liam, 2026-11-02)', () => {
         own = '+16465550199'
         return Response.json({ number: own })
       }
-      return Response.json({ phone: linked, dial8Number: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
+      return Response.json({ phone: linked, niNumber: own ?? '+15550000000', agentNumber: own, canGetNumber: canGet && !own, available: true })
     })
     try {
       await act(async () => root.render(<PhoneSection compact name="Joseph" />))
@@ -293,14 +293,14 @@ describe('its own number (Liam, 2026-11-02)', () => {
     }
   })
 
-  it('where this Dial8 has no pool, straight to linking the phone to the Dial8 number', async () => {
+  it('where this deployment has no pool, straight to linking the phone to the Native Intelligence number', async () => {
     canGet = false
     await mountToNumber()
     expect(q('[data-get-number]')).toBeNull()
     expect(q('[data-phone-step="number"]')!.textContent).toContain("We'll send you a code to link your phone.")
   })
 
-  it('a phone linked to the Dial8 number can give the agent its own, and starts texting that one', async () => {
+  it('a phone linked to the Native Intelligence number can give the agent its own, and starts texting that one', async () => {
     linked = { number: '+14155551234', masked: '+1 ••• ••• 1234', verifiedAt: '2026-10-24', optedOut: false }
     await act(async () => root.render(<PhoneSection compact name="Joseph" />))
     await until(() => !!q('[data-start-texting]'))

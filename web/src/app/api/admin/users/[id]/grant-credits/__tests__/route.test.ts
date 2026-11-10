@@ -21,7 +21,7 @@ vi.mock('@/lib/admin', () => ({
 const { POST } = await import('@/app/api/admin/users/[id]/grant-credits/route')
 
 function req(body: unknown): Request {
-  return new Request('https://dial8.ai/api/admin/users/u2/grant-credits', {
+  return new Request('https://nativeintelligence.dev/api/admin/users/u2/grant-credits', {
     method: 'POST',
     body: JSON.stringify(body),
   })

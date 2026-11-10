@@ -30,7 +30,7 @@ import { lensFakeDb } from '@/lib/flows/__tests__/lens-fake-db'
 
 describe('1. a post always cards', () => {
   it('every publish_post / schedule_post is held as the approval card, for the person', async () => {
-    for (const tool of ['publish_post', 'schedule_post', 'dial8_publish_post']) {
+    for (const tool of ['publish_post', 'schedule_post', 'ni_publish_post']) {
       const hold = await outwardHoldOf({ workspaceId: 'ws', toolName: tool, input: { surface: 'x', text: 'We shipped it.' } })
       expect(hold?.reason, tool).toBe('public_post')
     }

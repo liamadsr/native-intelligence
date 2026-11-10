@@ -1,6 +1,6 @@
 //
 //  KnowledgeBaseModels.swift
-//  dial8
+//  Native Intelligence
 //
 //  Core models for projects, notes, and knowledge base system
 //

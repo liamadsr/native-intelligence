@@ -11,7 +11,7 @@
  * (a link the user pasted, a page the model chose to read). Without a guard an
  * authenticated user could steer a fetch at internal infrastructure (AWS IMDS at
  * 169.254.169.254, private-range services on the serverless network) and use
- * Dial8 as an SSRF reflection point. Every web_fetch URL routes through
+ * Native Intelligence as an SSRF reflection point. Every web_fetch URL routes through
  * ensureSafeWebUrl before the underlying fetch runs.
  *
  * Rules (identical to the app's url-guard):

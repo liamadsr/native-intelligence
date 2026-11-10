@@ -1,15 +1,15 @@
 'use client'
 
 /**
- * "What Dial8 has learned" (one-agent plan Part 3, "Memory"): the lines of
+ * "What Native Intelligence has learned" (one-agent plan Part 3, "Memory"): the lines of
  * each area's note, yours and the workspace's, to edit, delete or add to, and
  * the proposals waiting on someone, with Accept and Dismiss for whoever may
  * settle them.
  *
- * Learning is on by default (Liam, 2026-10-17): what Dial8 noticed about you
- * on its own (`learned`) is live at once, marked "Dial8 noticed this", with a
+ * Learning is on by default (Liam, 2026-10-17): what Native Intelligence noticed about you
+ * on its own (`learned`) is live at once, marked "Native Intelligence noticed this", with a
  * one-tap Remove and an Undo in the toast that follows. Undo adds the line
- * back as yours. Workspace lines Dial8 learned still wait for an owner or
+ * back as yours. Workspace lines Native Intelligence learned still wait for an owner or
  * admin, with Accept and Dismiss.
  *
  * One component, two homes: Settings → Memory lists the facts about you
@@ -45,7 +45,7 @@ export interface MemoryViewer {
 export interface LineActions {
   edit: boolean
   delete: boolean
-  /** A live line Dial8 learned: one tap removes it, with Undo. Shown instead of delete. */
+  /** A live line Native Intelligence learned: one tap removes it, with Undo. Shown instead of delete. */
   remove: boolean
   accept: boolean
   dismiss: boolean
@@ -59,7 +59,7 @@ export interface LineActions {
  * What the viewer may do with a line, as migration 317 allows it. Your own
  * personal lines are yours to change; the workspace's are an owner's or
  * admin's, and a member may only withdraw their own proposal. A live line
- * Dial8 learned gets Remove (one tap, with Undo) in place of Delete. Pure.
+ * Native Intelligence learned gets Remove (one tap, with Undo) in place of Delete. Pure.
  */
 export function lineActions(line: Pick<MemoryLine, 'scope' | 'status' | 'source' | 'created_by'>, viewer: MemoryViewer): LineActions {
   const none: LineActions = { edit: false, delete: false, remove: false, accept: false, dismiss: false, withdraw: false, waitingForAdmin: false }
@@ -84,12 +84,12 @@ export function groupMemoryLines(lines: readonly MemoryLine[], only?: AreaKey) {
 }
 
 function sourceNote(line: MemoryLine): string | null {
-  if (line.source === 'learned') return 'Dial8 noticed this'
+  if (line.source === 'learned') return 'Native Intelligence noticed this'
   return line.status === 'proposed' && line.scope === 'workspace' ? 'Proposed' : null
 }
 
 /**
- * The toast after a one-tap remove of something Dial8 noticed: Undo adds it
+ * The toast after a one-tap remove of something Native Intelligence noticed: Undo adds it
  * back (as the person's own, through the same add their editor uses).
  */
 function removedWithUndo(undo: () => Promise<void>) {
@@ -279,7 +279,7 @@ function AddLine({
       <Input
         aria-label="New line"
         className="min-w-[12rem] flex-1"
-        placeholder="Something Dial8 should remember"
+        placeholder="Something Native Intelligence should remember"
         value={text}
         maxLength={MEMORY_LINE_MAX_CHARS}
         onChange={(e) => setText(e.target.value)}
@@ -297,8 +297,8 @@ function AddLine({
 
 /**
  * "About you": the facts about the person (migration 328), the same in every
- * workspace. Each is theirs to edit or delete. What Dial8 noticed is live,
- * marked, with a one-tap Remove (and Undo); a proposal (a change Dial8
+ * workspace. Each is theirs to edit or delete. What Native Intelligence noticed is live,
+ * marked, with a one-tap Remove (and Undo); a proposal (a change Native Intelligence
  * couldn't check against their words) waits to be accepted or dismissed.
  * Shown on the Settings home only (not an area's page).
  */
@@ -332,8 +332,8 @@ export function AboutYou() {
   return (
     <section className="mb-5" data-testid="about-you">
       <h2 className="mb-1 text-sm font-semibold">About you</h2>
-      <p className="mb-1 text-xs text-muted-foreground">How you work. Dial8 brings these into every workspace.</p>
-      {failed && <p className="text-sm text-muted-foreground">Couldn’t load what Dial8 knows about you.</p>}
+      <p className="mb-1 text-xs text-muted-foreground">How you work. Native Intelligence brings these into every workspace.</p>
+      {failed && <p className="text-sm text-muted-foreground">Couldn’t load what Native Intelligence knows about you.</p>}
       {!failed && !facts && <p className="text-sm text-muted-foreground">Loading…</p>}
       {facts && (
         <ul className="divide-y divide-border/50">
@@ -362,7 +362,7 @@ function FactRow({
   const [draft, setDraft] = useState(fact.text)
   const [busy, setBusy] = useState(false)
   const proposed = fact.status === 'proposed'
-  // Live and Dial8's own: a one-tap Remove with Undo instead of Delete.
+  // Live and Native Intelligence's own: a one-tap Remove with Undo instead of Delete.
   const noticed = !proposed && fact.source === 'learned'
 
   const run = useCallback(
@@ -422,7 +422,7 @@ function FactRow({
     <li data-testid="profile-fact" className="group flex items-start gap-2 py-1.5 text-sm">
       <span className={cn('min-w-0 flex-1 break-words', proposed && 'text-muted-foreground')}>
         {fact.text}
-        {fact.source === 'learned' && <span className="ml-2 text-xs text-muted-foreground">· Dial8 noticed this</span>}
+        {fact.source === 'learned' && <span className="ml-2 text-xs text-muted-foreground">· Native Intelligence noticed this</span>}
       </span>
       <span className="flex shrink-0 items-center gap-1">
         {proposed && (
@@ -601,7 +601,7 @@ export function AgentsLearned() {
   )
 }
 
-export function WhatDial8Learned({ area, className }: { area?: AreaKey; className?: string }) {
+export function WhatNiLearned({ area, className }: { area?: AreaKey; className?: string }) {
   const [lines, setLines] = useState<MemoryLine[] | null>(null)
   const [viewer, setViewer] = useState<MemoryViewer | null>(null)
   const [failed, setFailed] = useState(false)
@@ -632,16 +632,16 @@ export function WhatDial8Learned({ area, className }: { area?: AreaKey; classNam
     [],
   )
 
-  if (failed) return <p className={cn('text-sm text-muted-foreground', className)}>Couldn’t load what Dial8 has learned.</p>
+  if (failed) return <p className={cn('text-sm text-muted-foreground', className)}>Couldn’t load what Native Intelligence has learned.</p>
   if (!lines || !viewer) return <p className={cn('text-sm text-muted-foreground', className)}>Loading…</p>
 
   return (
-    <div className={className} data-testid="what-dial8-learned">
+    <div className={className} data-testid="what-ni-learned">
       {!area && <AboutYou />}
       {!area && <AgentsLearned />}
       {sections.length === 0 && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Lightbulb className="h-4 w-4" /> Nothing yet. Tell Dial8 a preference in chat, or add one here.
+          <Lightbulb className="h-4 w-4" /> Nothing yet. Tell Native Intelligence a preference in chat, or add one here.
         </p>
       )}
       {sections.map((s) => (

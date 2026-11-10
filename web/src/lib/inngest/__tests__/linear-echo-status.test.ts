@@ -153,7 +153,7 @@ function issue(name: string, type: string, extra: Record<string, unknown> = {}) 
 /**
  * The fake models `workflow_state` lookups by team; the echo only reads the
  * event's own `to_status_id` row for its category, so the bucket comes from
- * here. `category` is the Dial8 column, folded by bucketForCategory.
+ * here. `category` is the Native Intelligence column, folded by bucketForCategory.
  */
 function db(options: {
   links?: Array<Record<string, unknown>>
@@ -283,7 +283,7 @@ describe('linear-echo-status — the current state is read FIRST', () => {
   })
 
   it('writes NOTHING when the issue already satisfies the bucket', async () => {
-    // THE loop breaker: the read-back moved the Dial8 action, which emitted the
+    // THE loop breaker: the read-back moved the Native Intelligence action, which emitted the
     // status change that woke this function. Echoing it back out would overwrite
     // the change the user made in Linear seconds earlier.
     hoistedApi.getIssue.mockResolvedValue(issue('Done', 'completed'))
@@ -333,7 +333,7 @@ describe('linear-echo-status — the current state is read FIRST', () => {
   })
 
   it('marks canceled AND done as completed on the link row', async () => {
-    // Both close the issue; the difference between them lives in the Dial8
+    // Both close the issue; the difference between them lives in the Native Intelligence
     // action's state, which the read-back sets — not in this boolean.
     db({ category: 'canceled' })
     hoistedApi.getIssue.mockResolvedValue(issue('Canceled', 'canceled'))
@@ -345,7 +345,7 @@ describe('linear-echo-status — the current state is read FIRST', () => {
   })
 
   it('never "upgrades" a remotely CANCELED issue to Done', async () => {
-    // The bounce-back guard. A Dial8 team with no canceled-category workflow
+    // The bounce-back guard. A Native Intelligence team with no canceled-category workflow
     // state makes the shared applyRemoteTaskState land a remote cancellation on
     // the team's DONE state instead — which emits a status change whose bucket
     // is 'done'. Strict bucket equality would read canceled ≠ done, conclude the
@@ -378,9 +378,9 @@ describe('linear-echo-status — the current state is read FIRST', () => {
     expect(hoistedApi.updateIssueState).not.toHaveBeenCalled()
   })
 
-  it('STILL writes a Dial8-side cancel out to a done-state issue', async () => {
+  it('STILL writes an NI-side cancel out to a done-state issue', async () => {
     // The asymmetry is deliberate: only a remote terminal state satisfies a
-    // done bucket. A user cancelling in Dial8 must still move a shipped issue to
+    // done bucket. A user cancelling in Native Intelligence must still move a shipped issue to
     // Canceled in Linear, or the cancel would silently never reach them.
     db({ category: 'canceled' })
     hoistedApi.getIssue.mockResolvedValue(issue('Done', 'completed'))
@@ -680,7 +680,7 @@ describe('linear-echo-status — a stale state id', () => {
     // id for an issue that now lives elsewhere is rejected every time, and
     // re-deriving from that same configured team reproduces the identical id —
     // so the one repair mechanism could never repair the most ordinary cause of
-    // rejection, and the Dial8 → Linear direction stayed dead for that link.
+    // rejection, and the Native Intelligence → Linear direction stayed dead for that link.
     hoistedApi.getIssue.mockResolvedValue(
       issue('Todo', 'unstarted', { team: { id: 'team-B', key: 'OPS' } }),
     )

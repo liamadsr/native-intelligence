@@ -23,7 +23,7 @@ export const cases: SkillEvalCase[] = [
     params: { remember: { area: 'mail' } },
   },
   {
-    request: 'the drafts Dial8 wrote for me sound robotic, make them sound like me',
+    request: 'the drafts Native Intelligence wrote for me sound robotic, make them sound like me',
     loads: ['write-in-your-tone'],
     tools: ['search_tools', 'get_email_drafts', 'load_skill', 'revise_email_draft'],
     avoid: ['generate_email_drafts'],

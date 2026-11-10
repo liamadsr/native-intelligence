@@ -29,7 +29,7 @@ standing contract that never changes between runs:
   tracker (Asana, Jira, Linear); publish a prospect list into the CRM; create or
   edit Flows (automations that call outside URLs); edit, pause, or resume an
   email sequence; create or edit skills (a Flow can run a skill, and a skill can
-  be published to every Dial8 user); or accept pending AI proposals (accepting
+  be published to every Native Intelligence user); or accept pending AI proposals (accepting
   can run a connected-app call or a delete that was held for a person). Creating
   a sequence as a draft, staging contacts into one, and removing a contact from
   one are still available — none of them sends. Reading skills and listing or

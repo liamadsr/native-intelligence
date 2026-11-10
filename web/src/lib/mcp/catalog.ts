@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { toolNameInHints } from '@/lib/mcp/tool-names'
 
 /**
  * The catalog stamp — a fingerprint of the tool list this server is currently
@@ -13,7 +14,7 @@ import { createHash } from 'node:crypto'
  * "I don't see a tool for that."
  *
  * The stamp makes it legible. It goes in the `initialize` instructions, in
- * `dial8_search_tools` results, and in the dispatcher's unknown-name error —
+ * `ni_search_tools` results, and in the dispatcher's unknown-name error —
  * the three places where an agent is asking "what can you do?" and a stale
  * answer would mislead it. Deliberately NOT on every tool response: the
  * instructions already say it once, and a second envelope key on ~165 tools
@@ -46,7 +47,7 @@ export function staleCatalogHint(stamp: CatalogStamp): string {
   return (
     `This server currently exposes ${stamp.tool_count} tools (catalog ${stamp.version}). ` +
     'If a tool listed here is missing from your own tool list, your client cached an older ' +
-    'catalog at connect time — call it through dial8_call_tool, and tell the user to ' +
-    'reconnect the Dial8 connector to refresh the list.'
+    `catalog at connect time — call it through ${toolNameInHints('call_tool')}, and tell the user to ` +
+    'reconnect the Native Intelligence connector to refresh the list.'
   )
 }

@@ -158,7 +158,7 @@ export const LOCAL_EXCHANGE_ENTRY = {
 } as const
 
 /**
- * Dial8's own Slack app (docs/plans/slack-connect.md). NOT in
+ * Native Intelligence's own Slack app (docs/plans/slack-connect.md). NOT in
  * INTEGRATION_CATALOG either: nothing is synced and there's no OAuth account.
  * An admin adds the app to their Slack workspace, each person links their own
  * Slack account with a code, and they talk to their agent there. Its page is

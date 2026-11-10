@@ -22,7 +22,7 @@
  * dishonest — and (b) is mintable server-side without a browser session.
  *
  * There are exactly two bearer paths in `src/lib/ai/auth.ts`: a Supabase access
- * JWT, and an opaque Dial8 DEVICE TOKEN (`d8d_…`). We cannot mint a Supabase
+ * JWT, and an opaque Native Intelligence DEVICE TOKEN (`nid_…`). We cannot mint a Supabase
  * JWT for another user without their password or a refresh token, so the device
  * token is the supported path — the same one the hardware capture device uses.
  * `resolveDeviceToken` hands `authenticateUser` the user and a service-role
@@ -79,6 +79,7 @@ import type {
   TraceToolCall,
   TraceUsage,
 } from './types'
+import { appUrl } from '@/lib/app-url'
 
 /** Chunks of context the real client sends per live flush
  *  (`RECENT_CHUNKS_MAX` in `use-recording.ts`). Matching it is not cosmetic:
@@ -128,7 +129,7 @@ export const SUMMARY_TOOL_NAMES = ['write_summary', 'update_summary'] as const
 /** Base URL for the internal HTTP call, the same resolution the task-push and
  *  hubspot lanes use. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /** A minted run token and the row id that has to be deleted afterwards. */

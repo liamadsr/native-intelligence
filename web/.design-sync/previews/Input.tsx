@@ -1,4 +1,4 @@
-import { Input, Label } from '@dial8/ui'
+import { Input, Label } from '@native-intelligence/ui'
 
 export function Default() {
   return (

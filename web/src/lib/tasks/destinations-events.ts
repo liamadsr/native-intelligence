@@ -25,7 +25,7 @@ import { invalidateCached } from '@/lib/cached-fetch'
 export const TASK_DESTINATIONS_URL = '/api/account/task-destinations'
 
 /** Event name for menus mounted right now. Window-scoped; same tab only. */
-export const TASK_DESTINATIONS_CHANGED = 'dial8:task-destinations-changed'
+export const TASK_DESTINATIONS_CHANGED = 'ni:task-destinations-changed'
 
 /**
  * Declare the workspace's push destinations changed: drop the cached answer,

@@ -10,6 +10,7 @@ import {
   resolveWorkspaceEdition,
 } from '@/lib/editions'
 import { installMcpGuard, type McpGuardOptions } from '../guard'
+import { mcpToolName } from '../tool-names'
 import { registerWorkspaceTools } from './workspaces'
 import { registerGitHubTools } from './github'
 import { registerLibraryTools } from './library'
@@ -52,7 +53,7 @@ export async function registerTools(
   // Record every tool name the hand-written registrars claim. The AI-SDK
   // adapter loop at the bottom must skip these: the chat toolset can legally
   // contain a tool whose prefixed name collides with a hand-registered one
-  // (e.g. chat's `list_skills` → `dial8_list_skills`), and McpServer.tool
+  // (e.g. chat's `list_skills` → `ni_list_skills`), and McpServer.tool
   // throws on a duplicate name — which would fail the ENTIRE connection, not
   // just the one tool. The hand-written MCP variants win the name: they carry
   // MCP-specific behavior (visibility='personal' creation default, lightweight
@@ -83,7 +84,7 @@ export async function registerTools(
   registerGitHubTools(server, userId, supabase, workspaceId, workspaceName)
 
   // Register Library tools (Skills, Agents, Meeting Types CRUD).
-  // Lets external Claude/OpenAI clients author Dial8 library items.
+  // Lets external Claude/OpenAI clients author Native Intelligence library items.
   // Creates default to visibility='personal' for safety.
   registerLibraryTools(server, userId, supabase, workspaceId, workspaceName)
 
@@ -96,7 +97,7 @@ export async function registerTools(
 
   // Register Evals tools (suites, synthetic-meeting cases, runs). Hand-written
   // rather than left to the adapter below so they keep this directory's ok/fail
-  // envelopes and so the six dial8_*_eval* names classify by verb shape for the
+  // envelopes and so the six ni_*_eval* names classify by verb shape for the
   // read-only token guard. See ./evals.ts.
   if (isFeatureEnabled(resolved, 'evals')) {
     registerEvalTools(server, userId, supabase, workspaceId, workspaceName)
@@ -123,7 +124,7 @@ export async function registerTools(
   // The attended-only tools (bots v3 Phase 5, bots-v4 A1/A2, the A1b loop
   // builders, the skill writers): a person's own connector gets
   // MCP_ATTENDED_TOOL_NAMES (src/lib/mcp/attended-tools.ts). Removed before
-  // discovery and the bridge loop, so dial8_call_tool cannot reach them either.
+  // discovery and the bridge loop, so ni_call_tool cannot reach them either.
   for (const name of mcpWithheldAttendedTools()) {
     delete (aiTools as Record<string, unknown>)[name]
   }
@@ -133,7 +134,7 @@ export async function registerTools(
     delete (aiTools as Record<string, unknown>)[name]
   }
   // A feature that is off loses its chat tools here too, before discovery, so
-  // dial8_search_tools / dial8_call_tool cannot reach them either.
+  // ni_search_tools / ni_call_tool cannot reach them either.
   for (const name of featureOffDenied) {
     delete (aiTools as Record<string, unknown>)[name]
   }
@@ -150,10 +151,10 @@ export async function registerTools(
    */
   const bridgedNames = Object.entries(aiTools)
     .filter(([, t]) => typeof (t as { execute?: unknown }).execute === 'function')
-    .map(([name]) => `dial8_${name}`)
+    .map(([name]) => mcpToolName(name))
   registerDiscoveryTools(server, {
     aiTools,
-    exposedNames: [...claimedNames, ...bridgedNames, 'dial8_search_tools', 'dial8_call_tool'],
+    exposedNames: [...claimedNames, ...bridgedNames, 'ni_search_tools', 'ni_call_tool'],
     readOnly: guard?.readOnly ?? false,
     active,
     audit: guard?.audit,
@@ -192,18 +193,18 @@ export async function registerTools(
 
     if (!toolDef.execute) continue
 
-    const description = toolDef.description || `Dial8 tool: ${name}`
+    const description = toolDef.description || `Native Intelligence tool: ${name}`
     const zodShape = toolDef.inputSchema?.shape
 
     const execute = toolDef.execute
-    const mcpToolName = `dial8_${name}`
+    const listedName = mcpToolName(name)
 
     // Silent skip (no per-connection log spam — this runs on every POST): the
     // hand-registered MCP variant of this tool already owns the name.
-    if (claimedNames.has(mcpToolName)) continue
+    if (claimedNames.has(listedName)) continue
 
     // A feature that is off takes its CHAT tools out too. Without this, not
-    // registering the hand-written `dial8_*_eval*` variants above would let the
+    // registering the hand-written `ni_*_eval*` variants above would let the
     // adapter re-expose the chat versions under the very same names — the
     // `claimedNames` skip only suppresses them while the hand-written ones ARE
     // registered.
@@ -212,27 +213,27 @@ export async function registerTools(
     if (zodShape) {
       // Tool with parameters
       server.tool(
-        mcpToolName,
+        listedName,
         description,
         zodShape,
         async (args) => {
           try {
             return bridgedContent(await execute(args, {}))
           } catch (err) {
-            return buildMcpErrorContent(err, mcpToolName, active)
+            return buildMcpErrorContent(err, listedName, active)
           }
         },
       )
     } else {
       // Tool without parameters
       server.tool(
-        mcpToolName,
+        listedName,
         description,
         async () => {
           try {
             return bridgedContent(await execute({}, {}))
           } catch (err) {
-            return buildMcpErrorContent(err, mcpToolName, active)
+            return buildMcpErrorContent(err, listedName, active)
           }
         },
       )

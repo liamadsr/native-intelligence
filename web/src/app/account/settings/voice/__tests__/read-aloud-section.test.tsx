@@ -168,7 +168,7 @@ describe('ReadAloudSection — the module row', () => {
     await mount()
     const text = container.textContent ?? ''
     expect(text).toContain('Read aloud')
-    expect(text).toContain("Reads Dial8's chat replies aloud on this Mac. Runs on-device, free and unlimited.")
+    expect(text).toContain("Reads Native Intelligence's chat replies aloud on this Mac. Runs on-device, free and unlimited.")
     expect(text).toContain('Downloads automatically (~140 MB).')
     expect(text).toContain("Speech by Kyutai's Pocket TTS, licensed CC BY 4.0")
     expect(container.querySelector('[data-testid="local-module-row-local-tts"]')).toBeTruthy()
@@ -199,13 +199,13 @@ describe('ReadAloudSection — once Ready', () => {
     expect(autoSwitch()!.getAttribute('aria-checked')).toBe('false')
     await act(async () => autoSwitch()!.click())
     expect(autoSwitch()!.getAttribute('aria-checked')).toBe('true')
-    expect(localStorage.getItem('dial8:read-aloud:auto')).toBe('1')
+    expect(localStorage.getItem('ni:read-aloud:auto')).toBe('1')
     await act(async () => autoSwitch()!.click())
-    expect(localStorage.getItem('dial8:read-aloud:auto')).toBeNull()
+    expect(localStorage.getItem('ni:read-aloud:auto')).toBeNull()
   })
 
   it('reads a stored Auto-read setting', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await mount()
     expect(autoSwitch()!.getAttribute('aria-checked')).toBe('true')
   })
@@ -242,13 +242,13 @@ describe('ReadAloudSection — once Ready', () => {
   })
 
   it('shows a stored voice, and falls back to the default for one the catalogue lacks', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'marius')
+    localStorage.setItem('ni:read-aloud:voice', 'marius')
     await mount()
     expect(voiceTrigger()!.textContent).toContain('Marius')
 
     await act(async () => root.unmount())
     root = createRoot(container)
-    localStorage.setItem('dial8:read-aloud:voice', 'retired-voice')
+    localStorage.setItem('ni:read-aloud:voice', 'retired-voice')
     await mount()
     expect(voiceTrigger()!.textContent).toContain('Alba')
   })
@@ -261,7 +261,7 @@ describe('ReadAloudSection — once Ready', () => {
   })
 
   it('Preview speaks a sample in the chosen voice, becomes Stop while playing, and resets when done', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'marius')
+    localStorage.setItem('ni:read-aloud:voice', 'marius')
     await mount()
     await act(async () => button(/Preview/)!.click())
     await flush()

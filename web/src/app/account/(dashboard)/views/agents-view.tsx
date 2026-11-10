@@ -58,7 +58,7 @@ import {
 // The active type persists across sessions. Default collections start on All;
 // custom view selection and drafts use the shared views persistence.
 
-const TYPE_STORAGE_KEY = 'dial8-agents-type'
+const TYPE_STORAGE_KEY = 'ni-agents-type'
 
 /** Upper bound for a SKILL.md import — it's a prompt file, so 1 MB is plenty. */
 const SKILL_MD_MAX_BYTES = 1_000_000

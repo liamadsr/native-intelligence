@@ -1,10 +1,10 @@
 # Local agent bundle helpers — sourced by dev.sh, build.sh and release.sh.
 #
-# The local agent (dial8-website agents/local-agent; its docs/plans/
+# The local agent (web/agents/local-agent; its docs/plans/
 # local-agents.md, "Packaging") ships as JavaScript inside the signed app:
 #
 #   src-tauri/resources/local-agent/        vendored by scripts/local-agent-bundle.sh
-#     → Dial8.app/Contents/Resources/local-agent/   (local_agent_stage)
+#     → Native Intelligence.app/Contents/Resources/local-agent/   (local_agent_stage)
 #
 # so the app's signature pins the code that runs on the Mac. Its Node is not
 # in the app: Rust downloads it on first use, pinned in
@@ -19,7 +19,7 @@ LOCAL_AGENT_SRC="$TAURI_DIR/resources/local-agent"
 # Copy the vendored bundle into an app bundle, replacing whatever an earlier
 # run staged (a reused dev bundle must not keep files a newer bundle dropped).
 # Callers run it after sidecars_stage and BEFORE licenses_stage and signing.
-# $1 = path to Dial8.app.
+# $1 = path to Native Intelligence.app.
 local_agent_stage() {
     local app="$1"
     local dest="$app/Contents/Resources/local-agent"
@@ -39,7 +39,7 @@ local_agent_stage() {
 # Check a staged bundle against its BUNDLE.json: every file it lists is there
 # with that SHA-256, nothing else is, and it was built from committed web
 # source (webDirty false). Prints the web commit it came from.
-# $1 = path to Dial8.app.
+# $1 = path to Native Intelligence.app.
 local_agent_verify() {
     local dest="$1/Contents/Resources/local-agent"
     /usr/bin/python3 - "$dest" <<'PY'

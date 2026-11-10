@@ -1,6 +1,6 @@
 /**
  * The answering half's turn beyond the home-turn steps (agent links,
- * migration 435): another Dial8 user's agent messaged the agent this owner
+ * migration 435): another Native Intelligence user's agent messaged the agent this owner
  * set up for them, the turn ran in that half's thread as a guest's turn
  * (reason 'agent_ask', surface 'dial8'), and its reply goes back over the
  * link (./exchange.ts recordLinkReply), never to a phone or Slack. Its

@@ -56,7 +56,7 @@ uint32_t tap_helper_create(uint32_t *tap_id_out, char **device_uid_out) {
                 return 0;
             }
 
-            @try { [tapDescription setValue:@"Dial8 System Audio" forKey:@"name"]; } @catch (NSException *e) {}
+            @try { [tapDescription setValue:@"Native Intelligence System Audio" forKey:@"name"]; } @catch (NSException *e) {}
             @try { [tapDescription setValue:@YES forKey:@"privateTap"]; } @catch (NSException *e) {}
             @try { [tapDescription setValue:@(0) forKey:@"muteBehavior"]; } @catch (NSException *e) {}
             @try { [tapDescription setValue:@YES forKey:@"mixdown"]; } @catch (NSException *e) {}

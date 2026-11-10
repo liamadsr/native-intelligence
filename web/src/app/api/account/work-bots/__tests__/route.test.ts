@@ -66,7 +66,7 @@ beforeEach(() => {
 
 describe('POST /api/account/work-bots', () => {
   it('lets a plain member make a work bot in their team, with propose-only limits', async () => {
-    const res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { name: 'Brief bot', bot_character: 'ember' } }) as NextRequest)
+    const res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { name: 'Brief bot', bot_character: 'ember' } }) as NextRequest)
     expect(res.status).toBe(201)
     const made = h.db.rows('ai_team_member').find((r) => r.name === 'Brief bot')!
     expect(made).toMatchObject({
@@ -82,9 +82,9 @@ describe('POST /api/account/work-bots', () => {
   })
 
   it('refuses a team the member is not on, and a face that is not a character', async () => {
-    let res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { team_id: 'team-locked' } }) as NextRequest)
+    let res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { team_id: 'team-locked' } }) as NextRequest)
     expect(res.status).toBe(400)
-    res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { bot_character: 'nope' } }) as NextRequest)
+    res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { bot_character: 'nope' } }) as NextRequest)
     expect(res.status).toBe(400)
     expect(h.db.rows('ai_team_member')).toHaveLength(2)
   })
@@ -92,14 +92,14 @@ describe('POST /api/account/work-bots', () => {
 
 describe('PATCH / DELETE /api/account/work-bots/[id]', () => {
   async function makeOne(): Promise<string> {
-    const res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { name: 'Brief bot', bot_character: 'ember' } }) as NextRequest)
+    const res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { name: 'Brief bot', bot_character: 'ember' } }) as NextRequest)
     return (await readJson<{ ai_team_member: { id: string } }>(res)).ai_team_member.id
   }
 
   it('renames and re-faces it', async () => {
     const id = await makeOne()
     const res = await PATCH(
-      buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'PATCH', body: { name: '  Ember  ', bot_character: 'scout' } }) as NextRequest,
+      buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'PATCH', body: { name: '  Ember  ', bot_character: 'scout' } }) as NextRequest,
       params(id),
     )
     expect(res.status).toBe(200)
@@ -108,7 +108,7 @@ describe('PATCH / DELETE /api/account/work-bots/[id]', () => {
 
   it('deletes it', async () => {
     const id = await makeOne()
-    const res = await DELETE(buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'DELETE' }) as NextRequest, params(id))
+    const res = await DELETE(buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'DELETE' }) as NextRequest, params(id))
     expect(res.status).toBe(200)
     expect(h.db.rows('ai_team_member').some((r) => r.id === id)).toBe(false)
   })
@@ -119,7 +119,7 @@ describe('PATCH / DELETE /api/account/work-bots/[id]', () => {
       { id: 'c-mine', user_id: 'user-plain', ai_team_member_id: id },
       { id: 'c-theirs', user_id: 'user-other', ai_team_member_id: id },
     ])
-    const res = await DELETE(buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'DELETE' }) as NextRequest, params(id))
+    const res = await DELETE(buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'DELETE' }) as NextRequest, params(id))
     expect(res.status).toBe(409)
     expect(h.db.rows('ai_team_member').some((r) => r.id === id)).toBe(true)
     expect(h.db.rows('chat_conversations').map((c) => c.id)).toEqual(['c-mine', 'c-theirs'])
@@ -131,7 +131,7 @@ describe('PATCH / DELETE /api/account/work-bots/[id]', () => {
       { id: 'c-plain', user_id: 'user-plain', ai_team_member_id: id },
       { id: 'c-other', user_id: 'user-other', ai_team_member_id: id },
     ])
-    const url = `https://dial8.ai/api/account/work-bots/${id}`
+    const url = `https://nativeintelligence.dev/api/account/work-bots/${id}`
 
     // The plain member who made it: others chat with it, so no.
     let res = await DELETE(buildRequest({ url, method: 'DELETE' }) as NextRequest, params(id))
@@ -149,19 +149,19 @@ describe('PATCH / DELETE /api/account/work-bots/[id]', () => {
   it('lets a plain member delete one only they chat with', async () => {
     const id = await makeOne()
     h.db.seed('chat_conversations', [{ id: 'c-mine', user_id: 'user-plain', ai_team_member_id: id }])
-    const res = await DELETE(buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'DELETE' }) as NextRequest, params(id))
+    const res = await DELETE(buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'DELETE' }) as NextRequest, params(id))
     expect(res.status).toBe(200)
   })
 
   it('never touches a full teammate (403) or a bot on a private team they are not on (404)', async () => {
     let res = await PATCH(
-      buildRequest({ url: 'https://dial8.ai/api/account/work-bots/full-writer', method: 'PATCH', body: { name: 'Mine now' } }) as NextRequest,
+      buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/full-writer', method: 'PATCH', body: { name: 'Mine now' } }) as NextRequest,
       params('full-writer'),
     )
     expect(res.status).toBe(403)
-    res = await DELETE(buildRequest({ url: 'https://dial8.ai/api/account/work-bots/full-writer', method: 'DELETE' }) as NextRequest, params('full-writer'))
+    res = await DELETE(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/full-writer', method: 'DELETE' }) as NextRequest, params('full-writer'))
     expect(res.status).toBe(403)
-    res = await DELETE(buildRequest({ url: 'https://dial8.ai/api/account/work-bots/locked-bot', method: 'DELETE' }) as NextRequest, params('locked-bot'))
+    res = await DELETE(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/locked-bot', method: 'DELETE' }) as NextRequest, params('locked-bot'))
     expect(res.status).toBe(404)
     expect(h.db.rows('ai_team_member').map((r) => [r.id, r.name])).toEqual([
       ['full-writer', 'Writer'],
@@ -174,13 +174,13 @@ describe('built bots through the work-bot routes (bots-v3 Phase 6: the builder s
   const BUILT = builtBotId({ body: 'scout', eyes: 'happy', worn: 'beret' })!
 
   it('makes a work bot wearing a built bot, and re-faces one to a built bot', async () => {
-    let res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { name: 'Built', bot_character: BUILT } }) as NextRequest)
+    let res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { name: 'Built', bot_character: BUILT } }) as NextRequest)
     expect(res.status).toBe(201)
     const id = (await readJson<{ ai_team_member: { id: string } }>(res)).ai_team_member.id
     expect(h.db.rows('ai_team_member').find((r) => r.id === id)).toMatchObject({ bot_character: BUILT, fronts_only: true })
     const other = builtBotId({ body: 'round', glasses: 'monocle' })!
     res = await PATCH(
-      buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'PATCH', body: { bot_character: other } }) as NextRequest,
+      buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'PATCH', body: { bot_character: other } }) as NextRequest,
       params(id),
     )
     expect(res.status).toBe(200)
@@ -188,13 +188,13 @@ describe('built bots through the work-bot routes (bots-v3 Phase 6: the builder s
   })
 
   it('refuses an id that is not a built bot (a 400), and makes or changes nothing', async () => {
-    let res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { bot_character: 'xzzaaaaa' } }) as NextRequest)
+    let res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { bot_character: 'xzzaaaaa' } }) as NextRequest)
     expect(res.status).toBe(400)
     expect(h.db.rows('ai_team_member')).toHaveLength(2)
-    res = await POST(buildRequest({ url: 'https://dial8.ai/api/account/work-bots', method: 'POST', body: { name: 'Built', bot_character: BUILT } }) as NextRequest)
+    res = await POST(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots', method: 'POST', body: { name: 'Built', bot_character: BUILT } }) as NextRequest)
     const id = (await readJson<{ ai_team_member: { id: string } }>(res)).ai_team_member.id
     res = await PATCH(
-      buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'PATCH', body: { bot_character: 'xaaaaaab' } }) as NextRequest,
+      buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'PATCH', body: { bot_character: 'xaaaaaab' } }) as NextRequest,
       params(id),
     )
     expect(res.status).toBe(400)
@@ -218,7 +218,7 @@ describe('"Make a copy for this bot" through the work-bot route (bots-v4 B1, dec
   })
   const repoint = (id: string, agentRecipeId: string) =>
     PATCH(
-      buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'PATCH', body: { agent_recipe_id: agentRecipeId } }) as NextRequest,
+      buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'PATCH', body: { agent_recipe_id: agentRecipeId } }) as NextRequest,
       params(id),
     )
   const agentOf = (id: string) => h.db.rows('ai_team_member').find((r) => r.id === id)?.agent_recipe_id
@@ -255,7 +255,7 @@ describe('"Make a copy for this bot" through the work-bot route (bots-v4 B1, dec
       { id: 'riley', workspace_id: 'ws-1', team_id: 'team-mine', name: 'Riley', is_system: false, fronts_only: false, agent_recipe_id: 'coach', bot_character: 'dew' },
     ])
     const res = await PATCH(
-      buildRequest({ url: 'https://dial8.ai/api/account/work-bots/coach-bot', method: 'PATCH', body: { name: 'Closer', bot_character: 'nova' } }) as NextRequest,
+      buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/coach-bot', method: 'PATCH', body: { name: 'Closer', bot_character: 'nova' } }) as NextRequest,
       params('coach-bot'),
     )
     expect(res.status).toBe(200)
@@ -271,7 +271,7 @@ describe('"Make a copy for this bot" through the work-bot route (bots-v4 B1, dec
     expect(res.status).toBe(403)
     expect((await readJson<{ error: string }>(res)).error).toMatch(/only the persona’s author, or a workspace owner or admin/)
     res = await PATCH(
-      buildRequest({ url: 'https://dial8.ai/api/account/work-bots/coach-bot', method: 'PATCH', body: { name: 'Mine now' } }) as NextRequest,
+      buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/coach-bot', method: 'PATCH', body: { name: 'Mine now' } }) as NextRequest,
       params('coach-bot'),
     )
     expect(res.status).toBe(403)
@@ -306,7 +306,7 @@ describe('"Make a copy for this bot" through the work-bot route (bots-v4 B1, dec
 
   it('deleting an agent’s work bot is its author’s, or an owner’s, never another member’s who reaches it', async () => {
     const remove = () =>
-      DELETE(buildRequest({ url: 'https://dial8.ai/api/account/work-bots/coach-bot', method: 'DELETE' }) as NextRequest, params('coach-bot'))
+      DELETE(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/coach-bot', method: 'DELETE' }) as NextRequest, params('coach-bot'))
     h.db.seed('member', [{ id: 'm-other', workspace_id: 'ws-1', user_id: 'user-other', role: 'member' }])
     h.db.seed('team_member', [{ team_id: 'team-mine', member_id: 'm-other' }])
     h.userId = 'user-other'
@@ -321,7 +321,7 @@ describe('"Make a copy for this bot" through the work-bot route (bots-v4 B1, dec
 
   it('an owner may delete an agent’s work bot', async () => {
     h.userId = 'user-owner'
-    expect((await DELETE(buildRequest({ url: 'https://dial8.ai/api/account/work-bots/coach-bot', method: 'DELETE' }) as NextRequest, params('coach-bot'))).status).toBe(200)
+    expect((await DELETE(buildRequest({ url: 'https://nativeintelligence.dev/api/account/work-bots/coach-bot', method: 'DELETE' }) as NextRequest, params('coach-bot'))).status).toBe(200)
   })
 })
 
@@ -338,7 +338,7 @@ describe('a work bot’s voice (bots-v4 B2, migration 308)', () => {
     ])
   })
   const revoice = (id: string, voice: unknown) =>
-    PATCH(buildRequest({ url: `https://dial8.ai/api/account/work-bots/${id}`, method: 'PATCH', body: { voice } }) as NextRequest, params(id))
+    PATCH(buildRequest({ url: `https://nativeintelligence.dev/api/account/work-bots/${id}`, method: 'PATCH', body: { voice } }) as NextRequest, params(id))
   const voiceOf = (id: string) => h.db.rows('ai_team_member').find((r) => r.id === id)?.voice
 
   it('takes one voice id, and null for Automatic', async () => {

@@ -29,7 +29,7 @@ vi.mock('@/app/account/workspace-switcher', () => ({
 
 import { useView, useViewConfig, type ViewConfig } from '../use-view'
 
-const DEFAULT_BASELINE_KEY = 'dial8:view-draft:default:ws-1:action:global'
+const DEFAULT_BASELINE_KEY = 'ni:view-draft:default:ws-1:action:global'
 
 let container: HTMLDivElement
 let root: Root
@@ -283,7 +283,7 @@ describe('useView phantom-view sweep', () => {
     return { api, Harness }
   }
 
-  const STORAGE_KEY = 'dial8:active-view:ws-1:action:noteam:global'
+  const STORAGE_KEY = 'ni:active-view:ws-1:action:noteam:global'
 
   /** Let the fetch promise + its state updates flush. */
   async function settle() {

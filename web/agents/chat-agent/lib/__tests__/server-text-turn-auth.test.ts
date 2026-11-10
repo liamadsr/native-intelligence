@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /**
  * The text-turn door (docs/plans/text-and-calling.md, Phase 1): a text the
- * person sent the Dial8 number rides the server entry with a `server:
+ * person sent the Native Intelligence number rides the server entry with a `server:
  * 'channel_turn'` token with `surface: 'sms'` (a channel turn, shared with
  * Slack; a channel surface always means a channel turn, and no other server
  * token carries a surface). It may send a

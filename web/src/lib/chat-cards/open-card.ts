@@ -21,13 +21,13 @@ import { CARD_PAGES } from './page-menu'
 import type { PagePlace } from './pages'
 
 /** Asks the dashboard to open a card: `detail` is an OpenCardRequest. */
-export const OPEN_CARD_EVENT = 'dial8:open-card'
+export const OPEN_CARD_EVENT = 'ni:open-card'
 
 /**
  * Asks every chat to put back cards: `detail` is a CardMatch. A discarded
  * capture's card goes out of the way (folded to its pill).
  */
-export const FOLD_CARDS_EVENT = 'dial8:fold-cards'
+export const FOLD_CARDS_EVENT = 'ni:fold-cards'
 
 /** Which cards a fold is for, and how: `collapse` folds them to their pill, else they only leave full screen. */
 export type CardMatch = { kind: 'record'; type: CardRecordType; id: string; collapse?: boolean }

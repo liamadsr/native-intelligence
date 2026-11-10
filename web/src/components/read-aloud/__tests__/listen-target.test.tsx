@@ -9,7 +9,7 @@
  *    it comes back), and when listen mode turns on while it is shown;
  *  - unmounting pauses its read, and leaves another key's read alone;
  *  - listen mode off, or a window the user isn't in: nothing reads on its own;
- *  - reading follows the window in front: another window (or this Dial8
+ *  - reading follows the window in front: another window (or this Native Intelligence
  *    window coming back) holding a target reads it once it has stayed in
  *    front for the settle, pausing what read elsewhere, which resumes where it
  *    was when its window comes back; one read to its end isn't read again;
@@ -268,13 +268,13 @@ describe('<ListenTarget> — reading follows the window in front', () => {
     expect(spoken()).toEqual([])
   })
 
-  it('this Dial8 window coming back from another one resumes what that one took over', async () => {
+  it('this Native Intelligence window coming back from another one resumes what that one took over', async () => {
     setListenMode(true)
     await render(windows('a'))
     const [, second, last] = bridge.ids
     await emit({ id: second, state: 'speaking' })
 
-    // Another Dial8 window is in front and reads: it cancels this one's voice.
+    // Another Native Intelligence window is in front and reads: it cancels this one's voice.
     ;(document.hasFocus as unknown as ReturnType<typeof vi.fn>).mockReturnValue(false)
     await act(async () => {
       window.dispatchEvent(new Event('blur'))

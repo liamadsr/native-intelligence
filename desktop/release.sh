@@ -1,13 +1,13 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════════════════
-# Dial8 Desktop — Production Release Script
+# Native Intelligence Desktop — Production Release Script
 #
-# Builds, signs, notarizes, and packages Dial8.app into a distributable DMG.
+# Builds, signs, notarizes, and packages Native Intelligence.app into a distributable DMG.
 #
 # Prerequisites:
 #   - Apple Developer Program membership
 #   - "Developer ID Application" certificate in Keychain, named in .env.release
-#     (gitignored) as DIAL8_SIGNING_IDENTITY: see scripts/signing.sh
+#     (gitignored) as NI_SIGNING_IDENTITY: see scripts/signing.sh
 #   - App-specific password for notarization (appleid.apple.com)
 #   - Rust toolchain + cargo-tauri CLI
 #   - Swift toolchain (for sidecar)
@@ -29,36 +29,43 @@ signing_load "$SCRIPT_DIR_EARLY"
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
+# TODO(rename-compat): each setting below is read under its NI_ name first and its
+# older DIAL8_ name second, so an .env.release written before the rename still works.
+# Drop the DIAL8_ halves once that file uses the new names.
+
 # Notarization credentials — set these as environment variables or fill in here.
 # Prefer env vars so you don't commit secrets:
-#   export DIAL8_APPLE_ID="your@email.com"
-#   export DIAL8_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
-APPLE_ID="${DIAL8_APPLE_ID:-}"
-APP_PASSWORD="${DIAL8_APP_PASSWORD:-}"
+#   export NI_APPLE_ID="your@email.com"
+#   export NI_APP_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+APPLE_ID="${NI_APPLE_ID:-${DIAL8_APPLE_ID:-}}"
+APP_PASSWORD="${NI_APP_PASSWORD:-${DIAL8_APP_PASSWORD:-}}"
 
 # Updater signing key — set after SCRIPT_DIR is defined (see Paths section)
 
 # Cloudflare R2 — for uploading updater bundle + DMG
-#   export DIAL8_R2_ACCOUNT_ID="your-account-id"
-#   export DIAL8_R2_ACCESS_KEY_ID="your-access-key"
-#   export DIAL8_R2_SECRET_ACCESS_KEY="your-secret-key"
-#   export DIAL8_R2_BUCKET="your-bucket-name"
-#   export DIAL8_R2_PUBLIC_URL="https://pub-<id>.r2.dev"   # the bucket's public URL
-R2_ACCOUNT_ID="${DIAL8_R2_ACCOUNT_ID:-}"
-R2_ACCESS_KEY_ID="${DIAL8_R2_ACCESS_KEY_ID:-}"
-R2_SECRET_ACCESS_KEY="${DIAL8_R2_SECRET_ACCESS_KEY:-}"
-R2_BUCKET="${DIAL8_R2_BUCKET:-}"
-R2_PUBLIC_URL="${DIAL8_R2_PUBLIC_URL:-}"
+#   export NI_R2_ACCOUNT_ID="your-account-id"
+#   export NI_R2_ACCESS_KEY_ID="your-access-key"
+#   export NI_R2_SECRET_ACCESS_KEY="your-secret-key"
+#   export NI_R2_BUCKET="your-bucket-name"
+#   export NI_R2_PUBLIC_URL="https://pub-<id>.r2.dev"   # the bucket's public URL
+R2_ACCOUNT_ID="${NI_R2_ACCOUNT_ID:-${DIAL8_R2_ACCOUNT_ID:-}}"
+R2_ACCESS_KEY_ID="${NI_R2_ACCESS_KEY_ID:-${DIAL8_R2_ACCESS_KEY_ID:-}}"
+R2_SECRET_ACCESS_KEY="${NI_R2_SECRET_ACCESS_KEY:-${DIAL8_R2_SECRET_ACCESS_KEY:-}}"
+R2_BUCKET="${NI_R2_BUCKET:-${DIAL8_R2_BUCKET:-}}"
+R2_PUBLIC_URL="${NI_R2_PUBLIC_URL:-${DIAL8_R2_PUBLIC_URL:-}}"
 R2_PUBLIC_URL="${R2_PUBLIC_URL%/}"   # no trailing slash: it's joined with "/<file>"
 
 # Supabase — for publishing release metadata
-#   export DIAL8_SUPABASE_URL="https://xxx.supabase.co"
-#   export DIAL8_SUPABASE_SERVICE_KEY="your-service-role-key"
-SUPABASE_URL="${DIAL8_SUPABASE_URL:-}"
-SUPABASE_SERVICE_KEY="${DIAL8_SUPABASE_SERVICE_KEY:-}"
+#   export NI_SUPABASE_URL="https://xxx.supabase.co"
+#   export NI_SUPABASE_SERVICE_KEY="your-service-role-key"
+SUPABASE_URL="${NI_SUPABASE_URL:-${DIAL8_SUPABASE_URL:-}}"
+SUPABASE_SERVICE_KEY="${NI_SUPABASE_SERVICE_KEY:-${DIAL8_SUPABASE_SERVICE_KEY:-}}"
 
-# Production frontend URL — the WebView will load this instead of localhost
-PRODUCTION_URL="https://dial8.ai"
+# Production frontend URL — the WebView will load this instead of localhost.
+# The same address as src-tauri/src/nav_guard.rs APP_URL (where the app calls
+# its API) and tauri.conf.json's frontendDist, which the Windows build uses as
+# committed: change all three together.
+PRODUCTION_URL="https://nativeintelligence.dev"
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -67,7 +74,7 @@ TAURI_DIR="$SCRIPT_DIR/src-tauri"
 TARGET_DIR="$TAURI_DIR/target"
 RELEASE_DIR="$TARGET_DIR/release"
 BUNDLE_DIR="$RELEASE_DIR/bundle/macos"
-APP_PATH="$BUNDLE_DIR/Dial8.app"
+APP_PATH="$BUNDLE_DIR/Native Intelligence.app"
 ENTITLEMENTS="$TAURI_DIR/entitlements.production.plist"
 TAURI_CONF="$TAURI_DIR/tauri.conf.json"
 OUTPUT_DIR="$SCRIPT_DIR/dist"
@@ -152,7 +159,7 @@ step "Preflight Checks"
 if [ -z "$SIGNING_IDENTITY" ]; then
     err "No signing identity set."
     echo "  Put your Developer ID in .env.release (gitignored):"
-    echo "    DIAL8_SIGNING_IDENTITY=\"<SHA-1 from: security find-identity -v -p codesigning>\""
+    echo "    NI_SIGNING_IDENTITY=\"<SHA-1 from: security find-identity -v -p codesigning>\""
     exit 1
 fi
 if ! security find-identity -v -p codesigning | grep -qF "$SIGNING_IDENTITY"; then
@@ -173,8 +180,8 @@ if [ "$SKIP_NOTARIZE" = false ]; then
         err "Notarization credentials not set."
         echo ""
         echo "  Set these environment variables:"
-        echo "    export DIAL8_APPLE_ID=\"your@email.com\""
-        echo "    export DIAL8_APP_PASSWORD=\"xxxx-xxxx-xxxx-xxxx\""
+        echo "    export NI_APPLE_ID=\"your@email.com\""
+        echo "    export NI_APP_PASSWORD=\"xxxx-xxxx-xxxx-xxxx\""
         echo ""
         echo "  Or run with --skip-notarize to skip notarization."
         exit 1
@@ -184,9 +191,29 @@ fi
 
 # The bucket's public URL goes into the update manifest: check it now, not after the build.
 if [ "$SKIP_PUBLISH" = false ] && [ -z "$R2_PUBLIC_URL" ]; then
-    err "DIAL8_R2_PUBLIC_URL not set (the R2 bucket's public URL, in .env.release)."
+    err "NI_R2_PUBLIC_URL not set (the R2 bucket's public URL, in .env.release)."
     echo "  Or run with --skip-publish."
     exit 1
+fi
+
+# The address this build loads must already serve the app: a build released
+# before it does opens a blank window, and nothing in the app falls back to
+# another address. The update route answers 204 (nothing newer) or 200 with
+# JSON; a domain that is parked, or not pointed at the app yet, answers neither.
+# Checked only for a build that will be published.
+address_serves_the_app() {
+    local answer
+    answer="$(curl -sS -o /dev/null -m 20 -w '%{http_code} %{content_type}' "$PRODUCTION_URL/api/desktop/update/darwin/aarch64/0.0.0" 2>/dev/null || true)"
+    case "$answer" in
+        204*|"200 application/json"*) return 0 ;;
+    esac
+    err "$PRODUCTION_URL does not serve the app yet (its update route answered: ${answer:-nothing})."
+    echo "  A build released now would open a blank window. Release once that address serves the app."
+    return 1
+}
+if [ "$SKIP_PUBLISH" = false ]; then
+    address_serves_the_app || exit 1
+    ok "$PRODUCTION_URL serves the app"
 fi
 
 # Check updater signing key exists
@@ -272,7 +299,7 @@ with open('$TAURI_CONF', 'w') as f:
 else
     VERSION=$(python3 -c "import json; print(json.load(open('$TAURI_CONF'))['version'])")
 fi
-log "Building Dial8 v${VERSION}"
+log "Building Native Intelligence v${VERSION}"
 
 # Start the Windows build now, so it runs while this Mac builds.
 WINDOWS_OK=false
@@ -516,7 +543,7 @@ timestamp_retry codesign --force --options runtime \
 
 # Sign the app bundle with --deep as a safety net to catch anything missed,
 # then re-sign the main executable to ensure entitlements aren't stripped.
-log "Signing Dial8.app bundle..."
+log "Signing Native Intelligence.app bundle..."
 timestamp_retry codesign --force --deep --options runtime \
     --sign "$SIGNING_IDENTITY" \
     --timestamp \
@@ -625,7 +652,7 @@ else
     step "Step 6/7 — Notarize with Apple"
 
     # Create a zip for notarization submission
-    NOTARIZE_ZIP="$RELEASE_DIR/Dial8-notarize.zip"
+    NOTARIZE_ZIP="$RELEASE_DIR/NativeIntelligence-notarize.zip"
     log "Creating zip for notarization..."
     ditto -c -k --keepParent "$APP_PATH" "$NOTARIZE_ZIP"
 
@@ -645,7 +672,7 @@ else
         err "Notarization FAILED"
         echo "  Run with --skip-notarize to build without notarization"
         echo "  Check the notarization log for details:"
-        echo "    xcrun notarytool log <submission-id> --apple-id $APPLE_ID --password \$DIAL8_APP_PASSWORD --team-id $TEAM_ID"
+        echo "    xcrun notarytool log <submission-id> --apple-id $APPLE_ID --password \$NI_APP_PASSWORD --team-id $TEAM_ID"
         exit 1
     fi
     ok "Notarization succeeded"
@@ -684,7 +711,7 @@ rm -f "$DMG_PATH"
 TMP_DMG_DIR=$(mktemp -d)
 
 # Copy app (ditto preserves extended attributes including the notarization staple)
-ditto "$APP_PATH" "$TMP_DMG_DIR/Dial8.app"
+ditto "$APP_PATH" "$TMP_DMG_DIR/Native Intelligence.app"
 
 # Create Applications symlink
 ln -s /Applications "$TMP_DMG_DIR/Applications"
@@ -692,7 +719,7 @@ ln -s /Applications "$TMP_DMG_DIR/Applications"
 # Create the DMG
 log "Creating DMG..."
 hdiutil create \
-    -volname "Dial8" \
+    -volname "Native Intelligence" \
     -srcfolder "$TMP_DMG_DIR" \
     -ov \
     -format UDZO \
@@ -717,7 +744,7 @@ ok "DMG created: $DMG_PATH"
 
 # ─── Rebuild updater bundle from the final signed+notarized app ──────────────
 #
-# cargo tauri build creates Dial8.app.tar.gz BEFORE the release script re-signs
+# cargo tauri build creates its own "Native Intelligence.app.tar.gz" BEFORE the release script re-signs
 # with entitlements, injects plist keys, and notarizes. The auto-updater would
 # deliver the pre-re-signed version without entitlements. Rebuild it now.
 
@@ -730,7 +757,7 @@ rm -f "$UPDATER_BUNDLE" "$UPDATER_SIG"
 # Create tar.gz from the final app (same format Tauri uses)
 # COPYFILE_DISABLE=1 prevents macOS resource fork ._* files from being included,
 # which the Tauri updater can't unpack.
-COPYFILE_DISABLE=1 tar -czf "$UPDATER_BUNDLE" -C "$BUNDLE_DIR" "Dial8.app"
+COPYFILE_DISABLE=1 tar -czf "$UPDATER_BUNDLE" -C "$BUNDLE_DIR" "Native Intelligence.app"
 
 # Re-sign the updater bundle with the Tauri updater key
 if [ -f "$UPDATER_KEY_PATH" ]; then
@@ -775,12 +802,12 @@ else
     # Check required credentials
     if [ -z "$R2_ACCOUNT_ID" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ] || [ -z "$R2_BUCKET" ] || [ -z "$R2_PUBLIC_URL" ]; then
         warn "R2 credentials not set — skipping upload."
-        warn "Set DIAL8_R2_ACCOUNT_ID, DIAL8_R2_ACCESS_KEY_ID, DIAL8_R2_SECRET_ACCESS_KEY, DIAL8_R2_BUCKET, DIAL8_R2_PUBLIC_URL"  # gitleaks:allow (env var names)
+        warn "Set NI_R2_ACCOUNT_ID, NI_R2_ACCESS_KEY_ID, NI_R2_SECRET_ACCESS_KEY, NI_R2_BUCKET, NI_R2_PUBLIC_URL"  # gitleaks:allow (env var names)
         PUBLISH_OK=false
     fi
     if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
         warn "Supabase credentials not set — skipping release publish."
-        warn "Set DIAL8_SUPABASE_URL, DIAL8_SUPABASE_SERVICE_KEY"
+        warn "Set NI_SUPABASE_URL, NI_SUPABASE_SERVICE_KEY"
         PUBLISH_OK=false
     fi
 
@@ -862,7 +889,7 @@ else
         log "Publishing release v${VERSION} to Supabase..."
 
         # Build JSON payload via python for safe escaping of all values
-        python3 - "$VERSION" "${RELEASE_NOTES:-Release v${VERSION}}" "$PUB_DATE" "$UPDATER_URL" "$SIG_CONTENT" "$WINDOWS_UPDATER_URL" "$WINDOWS_SIG_CONTENT" << 'PYEOF' > /tmp/dial8-release-payload.json
+        python3 - "$VERSION" "${RELEASE_NOTES:-Release v${VERSION}}" "$PUB_DATE" "$UPDATER_URL" "$SIG_CONTENT" "$WINDOWS_UPDATER_URL" "$WINDOWS_SIG_CONTENT" << 'PYEOF' > /tmp/ni-release-payload.json
 import json, sys
 version, notes, pub_date, url, signature, win_url, win_signature = sys.argv[1:8]
 platforms = {
@@ -891,13 +918,13 @@ PYEOF
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}"
 
-        HTTP_STATUS=$(curl -s -o /tmp/dial8-release-response.json -w "%{http_code}" \
+        HTTP_STATUS=$(curl -s -o /tmp/ni-release-response.json -w "%{http_code}" \
             -X POST "${SUPABASE_URL}/rest/v1/desktop_releases" \
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            -d @/tmp/dial8-release-payload.json)
+            -d @/tmp/ni-release-payload.json)
 
         if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
             ok "Release v${VERSION} published to database"
@@ -912,11 +939,11 @@ PYEOF
             fi
         else
             err "Failed to publish release (HTTP $HTTP_STATUS)"
-            cat /tmp/dial8-release-response.json 2>/dev/null
+            cat /tmp/ni-release-response.json 2>/dev/null
             echo ""
             PUBLISH_OK=false
         fi
-        rm -f /tmp/dial8-release-response.json
+        rm -f /tmp/ni-release-response.json
     fi
 fi
 

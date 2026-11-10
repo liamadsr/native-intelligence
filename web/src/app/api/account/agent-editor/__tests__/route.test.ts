@@ -86,7 +86,7 @@ function as(userId: string, role = 'member') {
 beforeEach(() => as('user-lead'))
 
 const read = async (query: string) => {
-  const res = await GET(buildRequest({ url: `https://dial8.ai/api/account/agent-editor?${query}`, method: 'GET' }) as unknown as NextRequest)
+  const res = await GET(buildRequest({ url: `https://nativeintelligence.dev/api/account/agent-editor?${query}`, method: 'GET' }) as unknown as NextRequest)
   return { status: res.status, body: res.status === 200 ? await readJson<AgentEditorData>(res) : null }
 }
 

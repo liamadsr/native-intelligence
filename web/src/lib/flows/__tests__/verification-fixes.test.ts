@@ -39,7 +39,7 @@ describe('B1 remainder', () => {
     const trigger: TriggerContext = { type: 'schedule', entity_type: null, from_status_id: null, to_status_id: null, fired_at: '2026-10-21T00:00:00Z' }
     const action = { id: 'x', type: 'call_tool', config: { connection: 'aaaaaaaa-0000-4000-8000-000000000002', tool: 'append', input: { kind: '{{steps.s.output}}' } }, condition: null, parent_id: null, enabled: true, bearer_token_encrypted: null } as FlowAction
     const r = await createCallToolExecutor({ workspaceId: 'ws', runAsUserId: 'owner', flowId: 'f', flowRunId: 'r', supabase: db as never, paused: async () => false })(action, {
-      entity: null, trigger, appBaseUrl: 'https://dial8.ai', steps: { s: { output: 'Acme secret' } },
+      entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', steps: { s: { output: 'Acme secret' } },
     })
     expect(r.status).toBe('failed')
     expect(r.error_message).toBe("The input doesn't match append's inputs (at kind)")

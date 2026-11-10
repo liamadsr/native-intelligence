@@ -164,7 +164,7 @@ describe('useReadAloud — supported', () => {
   it('is not supported in the browser, and never touches the bridge', async () => {
     bridge.desktop = false
     bridge.info = null
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: [user('u1', 'Hi')], status: 'ready' })
     expect(handle.supported).toBe(false)
     handle.speakMessage('a1', 'Hello. World.')
@@ -220,7 +220,7 @@ describe('useReadAloud — speakMessage', () => {
   })
 
   it('passes the chosen voice', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'marius')
+    localStorage.setItem('ni:read-aloud:voice', 'marius')
     await render({ messages: [assistant('a1', 'Hi there.')] })
     await act(async () => handle.speakMessage('a1', 'Hi there.'))
     await flush()
@@ -364,7 +364,7 @@ describe('useReadAloud — auto-read', () => {
   }
 
   it('prepares the engine, speaks each sentence as it finishes, and flushes at the end', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     expect(bridge.calls).toEqual([])
 
@@ -393,7 +393,7 @@ describe('useReadAloud — auto-read', () => {
   })
 
   it('never reads code, even streamed', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     await streamReply(['Run this:\n\n```sh\necho "Hi. There."\n', 'Run this:\n\n```sh\necho "Hi. There."\n```\n\nDone. Bye'])
     await render({ status: 'ready' })
@@ -401,7 +401,7 @@ describe('useReadAloud — auto-read', () => {
   })
 
   it('a reply that starts streaming while read-aloud is held (dictation) is not spoken', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     await render({ messages: [...history, user('u2', 'New question')], status: 'submitted' })
     // Dictation starts while the reply is still 'submitted'.
@@ -424,7 +424,7 @@ describe('useReadAloud — auto-read', () => {
   })
 
   it('does not start in a hidden panel', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready', active: false })
     await streamReply(['One. Two', 'One. Two. Three'])
     await render({ status: 'ready' })
@@ -432,7 +432,7 @@ describe('useReadAloud — auto-read', () => {
   })
 
   it('never reads history: restored messages, a loaded conversation, or a stream already running at mount', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     // Restored history at mount.
     await render({ messages: history, status: 'ready' })
     // A conversation loaded into the panel.
@@ -450,7 +450,7 @@ describe('useReadAloud — auto-read', () => {
   })
 
   it('reads only what a resumed turn adds to an existing reply', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     const asking = {
       id: 'a1',
       role: 'assistant',
@@ -501,7 +501,7 @@ describe('useReadAloud — cancels', () => {
   })
 
   it('on Stop mid-auto-read: nothing more is sent for that reply', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     await render({ messages: [...history, user('u2', 'Next')], status: 'submitted' })
     await render({ messages: [...history, user('u2', 'Next'), assistant('a2', 'One. Two')], status: 'streaming' })
@@ -515,7 +515,7 @@ describe('useReadAloud — cancels', () => {
   })
 
   it('on Stop before the first sentence finished: the stopped reply is not read at the end', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     await render({ messages: [...history, user('u2', 'Next')], status: 'submitted' })
     await act(async () => handle.stop())
@@ -744,7 +744,7 @@ describe('useReadAloud — pause and resume', () => {
 
     // Auto-read following a reply with no finished sentence yet.
     __resetResumePointsForTests()
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: [...history, user('u2', 'Next')], status: 'submitted' })
     await render({ messages: [...history, user('u2', 'Next'), assistant('a2', 'Half a sente', 'streaming')], status: 'streaming' })
     await act(async () => claimReader(section, () => {}))
@@ -754,7 +754,7 @@ describe('useReadAloud — pause and resume', () => {
   })
 
   it('paused while it streams: not followed again on its own; resumed, it skips what was spoken and follows the stream on', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     const base = [...history, user('u2', 'Next')]
     await render({ messages: base, status: 'submitted' })
@@ -779,7 +779,7 @@ describe('useReadAloud — pause and resume', () => {
   })
 
   it('paused while it streams and resumed once finished: the finished reply from that sentence', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     await render({ messages: history, status: 'ready' })
     const base = [...history, user('u2', 'Next')]
     await render({ messages: base, status: 'submitted' })
@@ -795,7 +795,7 @@ describe('useReadAloud — pause and resume', () => {
   })
 
   it('a resumed turn reads only what it adds, but its place counts the whole reply', async () => {
-    localStorage.setItem('dial8:read-aloud:auto', '1')
+    localStorage.setItem('ni:read-aloud:auto', '1')
     const asking = {
       id: 'a1',
       role: 'assistant',
@@ -1025,7 +1025,7 @@ describe('useReadAloud — speakLine (a line that is no chat message)', () => {
 
 describe('useReadAloud — its own voice', () => {
   it('speaks a message, a line and a followed reply in `voice`, over the Read aloud setting', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'marius')
+    localStorage.setItem('ni:read-aloud:voice', 'marius')
     await render({ voice: 'lori', messages: [user('u1', 'Hi')], status: 'ready' })
     await act(async () => handle.speakMessage('m1', 'One.'))
     await flush()
@@ -1042,7 +1042,7 @@ describe('useReadAloud — its own voice', () => {
   })
 
   it('falls back to the Read aloud setting without one', async () => {
-    localStorage.setItem('dial8:read-aloud:voice', 'marius')
+    localStorage.setItem('ni:read-aloud:voice', 'marius')
     await render({ voice: null })
     await act(async () => void handle.speakLine('Hey.'))
     await flush()

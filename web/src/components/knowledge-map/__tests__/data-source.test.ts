@@ -70,7 +70,7 @@ describe('createNetworkDataSource', () => {
     const ids = Array.from({ length: MAX_TILES_PER_REQUEST + 5 }, (_, i) => tileId(3, i, 0))
     const requested: string[][] = []
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      const parsed = new URL(String(url), 'https://dial8.ai')
+      const parsed = new URL(String(url), 'https://nativeintelligence.dev')
       requested.push((parsed.searchParams.get('t') ?? '').split(','))
       return jsonResponse({ tiles: [] })
     }) as unknown as typeof fetch
@@ -87,7 +87,7 @@ describe('createNetworkDataSource', () => {
     const map = buildLayeredMap()
     const all = [...map.tiles.values()]
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      const parsed = new URL(String(url), 'https://dial8.ai')
+      const parsed = new URL(String(url), 'https://nativeintelligence.dev')
       expect(parsed.searchParams.get('v')).toBe('v1')
       const ids = (parsed.searchParams.get('t') ?? '').split(',')
       return jsonResponse({

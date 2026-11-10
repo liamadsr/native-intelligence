@@ -132,7 +132,7 @@ describe('AgentModelSection', () => {
     state.get = { model: 'gpt-5.6-luna', plan: 'chatgpt', planModel: 'GPT-6.1 Sol' }
     await mount()
     expect(trigger()).toBeNull()
-    expect(text()).toContain('Your assistant runs on your ChatGPT plan’s model, GPT-6.1 Sol. You can pick another model on a Dial8 plan.')
+    expect(text()).toContain('Your assistant runs on your ChatGPT plan’s model, GPT-6.1 Sol. You can pick another model on a Native Intelligence plan.')
   })
 
   it('says a premium pick needs a paid plan when the plan couldn\'t be read', async () => {

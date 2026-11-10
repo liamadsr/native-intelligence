@@ -49,7 +49,7 @@ const SITE: WebsiteSite = {
   createdAt: '2026-11-01T00:00:00Z',
 }
 
-const json = (body: unknown) => new Request('https://dial8.ai/api/account/website', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+const json = (body: unknown) => new Request('https://nativeintelligence.dev/api/account/website', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 beforeEach(() => {
   vi.clearAllMocks()

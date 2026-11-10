@@ -52,7 +52,7 @@
  * For a person on their own ChatGPT plan (the free tier) every card runs on
  * their plan instead of Exa (deepSearchForUser, src/lib/web-research/
  * plan-deep-search.ts): the same query and card, the same result shape, at
- * no cost to Dial8. The run's `userId` is whose plan pays.
+ * no cost to Native Intelligence. The run's `userId` is whose plan pays.
  */
 
 import { getServiceClient } from '@/lib/admin'
@@ -649,7 +649,7 @@ function mergeBlobSources(
  * merges the ICP card's `target_customer` / `value_proposition` into the same
  * blob, and POST /api/account/prospecting/source fires it concurrently with the
  * enrichment it just kicked. On production that is exactly what happened to
- * Dial8's own company row: the three CRM cards landed, and the ICP fields the
+ * Native Intelligence's own company row: the three CRM cards landed, and the ICP fields the
  * card had merged mid-run were gone.
  *
  * The additive-merge guarantee ("a re-run never loses a finding") is only true
@@ -1487,7 +1487,7 @@ export async function enrichCompany(
   // very blob concurrently (POST /api/account/prospecting/source fires both).
   // Building on `company.metadata` — the copy loaded before the search — made
   // this write a silent overwrite of whatever landed meanwhile, which is how
-  // Dial8's own row lost its ICP fields on production. See `currentMetadata`.
+  // Native Intelligence's own row lost its ICP fields on production. See `currentMetadata`.
   const latest = await currentMetadata(
     supabase, 'company', company.id, args.workspaceId, company.metadata,
   )
@@ -1608,7 +1608,7 @@ async function failEntity(
 
 /**
  * What a run that Exa refused for credit says, on the card and to the person
- * who asked (who is a Dial8 customer, not the holder of Dial8's Exa account:
+ * who asked (who is a Native Intelligence customer, not the holder of Native Intelligence's Exa account:
  * the 402 tells ops what happened, the rest tells the person what to do).
  */
 export const EXA_OUT_OF_CREDITS_MESSAGE =

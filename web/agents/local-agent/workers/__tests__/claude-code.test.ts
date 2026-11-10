@@ -112,7 +112,7 @@ describe('the fence checks', () => {
   it("lets the CLI's own tool calls and text start streaming", () => {
     const normalize = createClaudeNormalizer()
     normalize(fixture('claude-code-2.1.292-signed-out.jsonl').split('\n')[0])
-    for (const content_block of [{ type: 'tool_use', id: 't1', name: 'mcp__dial8_folder__bash', input: {} }, { type: 'text', text: '' }, { type: 'thinking', thinking: '' }]) {
+    for (const content_block of [{ type: 'tool_use', id: 't1', name: 'mcp__ni_folder__bash', input: {} }, { type: 'text', text: '' }, { type: 'thinking', thinking: '' }]) {
       expect(normalize(JSON.stringify({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block }, parent_tool_use_id: null }))).toEqual([{ kind: 'activity' }])
     }
   })
@@ -159,7 +159,7 @@ describe('the fence checks', () => {
 describe('claudeResultError', () => {
   it.each([
     [{ result: 'Not logged in · Please run /login', is_error: true }, /isn't signed in/],
-    // The 401 result Dial8's old Claude Code chat recorded (src/lib/claude-session, removed 2026-10).
+    // The 401 result Native Intelligence's old Claude Code chat recorded (src/lib/claude-session, removed 2026-10).
     [{ subtype: 'success', is_error: true, api_error_status: 401, error: 'authentication_failed', result: 'Failed to authenticate. API Error: 401 Invalid authentication credentials' }, /isn't signed in/],
     [{ result: 'Claude AI usage limit reached|1761000000', is_error: true }, /usage limit reached.*send a message to continue/],
     [{ subtype: 'error_max_turns', result: '' }, /Claude Code: error_max_turns/],
@@ -201,7 +201,7 @@ describe('starting the CLI', () => {
 
   it('points the MCP config at the fence server with the bearer, and writes stream-json user lines', () => {
     expect(JSON.parse(claudeMcpConfig(ctx.mcp))).toEqual({
-      mcpServers: { dial8_folder: { type: 'http', url: 'http://127.0.0.1:4100/mcp', headers: { Authorization: 'Bearer tok' } } },
+      mcpServers: { ni_folder: { type: 'http', url: 'http://127.0.0.1:4100/mcp', headers: { Authorization: 'Bearer tok' } } },
     })
     const line = claudeUserLine('hi there', 'sid-1')
     expect(line.endsWith('\n')).toBe(true)

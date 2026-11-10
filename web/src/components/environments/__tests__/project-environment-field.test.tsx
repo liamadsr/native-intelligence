@@ -47,7 +47,7 @@ async function mount(list: unknown[], routes: FakeRoute[] = [], over: Partial<Pr
   const props: ProjectEnvironmentFieldProps = {
     projectId: 'p-1',
     workspaceId: 'ws-1',
-    githubRepo: 'liamadsr/dial8-desktop',
+    githubRepo: 'liamadsr/native-intelligence-desktop',
     environmentId: null,
     environmentName: null,
     environmentNetworkAccess: null,
@@ -157,15 +157,15 @@ describe('Run my work here on <your Mac>', () => {
   it('on, with no folder there linked to the project’s repo: a line that opens the Mac’s Edit environment', async () => {
     await mount(SHARED_AND_NOT, [defaultRoute('env-mac')])
     expect(q('[data-project-run-on-mac]')!.getAttribute('data-project-run-on-mac')).toBe('on')
-    expect(q('[data-project-run-on-mac-unlinked]')!.textContent).toContain('liamadsr/dial8-desktop')
+    expect(q('[data-project-run-on-mac-unlinked]')!.textContent).toContain('liamadsr/native-intelligence-desktop')
     await act(async () => q('[data-project-link-folder]')!.click())
     expect(dialog).toHaveBeenLastCalledWith(expect.objectContaining({ open: true, environment: expect.objectContaining({ id: 'env-mac' }) }))
   })
 
   it('a linked folder (any case) needs no line', async () => {
-    expect(macLinksRepo(mac(), 'LiamADSR/Dial8-Website')).toBe(true)
-    expect(macLinksRepo(mac(), 'liamadsr/dial8-desktop')).toBe(false)
-    await mount(SHARED_AND_NOT, [defaultRoute('env-mac')], { githubRepo: 'liamadsr/dial8-website' })
+    expect(macLinksRepo(mac(), 'LiamADSR/Native-Intelligence')).toBe(true)
+    expect(macLinksRepo(mac(), 'liamadsr/native-intelligence-desktop')).toBe(false)
+    await mount(SHARED_AND_NOT, [defaultRoute('env-mac')], { githubRepo: 'liamadsr/native-intelligence' })
     expect(q('[data-project-run-on-mac-unlinked]')).toBeNull()
   })
 })

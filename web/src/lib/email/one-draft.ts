@@ -8,7 +8,7 @@ import { releaseHold } from './hold'
  * had one draft declining and one accepting; seven more threads had two). A
  * new draft someone asked for (Mail's Generate again, the agent in a chat)
  * replaces the thread's older untouched ones ('pending_review'): their rows
- * go, and so do their drafts in the mailbox, by the id Dial8 saved (an edit
+ * go, and so do their drafts in the mailbox, by the id Native Intelligence saved (an edit
  * made in Gmail has a new id and stays). A draft the person edited
  * ('edited') or saved to their mailbox ('approved') is theirs and stays. A
  * hold no draft rests on any more goes too (the received mail it keeps is

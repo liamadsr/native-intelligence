@@ -4,7 +4,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { executeBrowserTask, type TaskExecutorPorts } from '../../src/lib/browser-agent/task-executor'
 import type { BrowserAction, BrowserObservation } from '../../src/lib/browser-agent/task-contract'
 
-const runtime = readFileSync(resolve(process.env.DIAL8_NATIVE_REPO ?? '../dial8-desktop', 'src-tauri/src/native/agent_runtime.js'), 'utf8')
+const runtime = readFileSync(resolve(process.env.NI_NATIVE_REPO ?? '../desktop', 'src-tauri/src/native/agent_runtime.js'), 'utf8')
 const html = '<!doctype html><label>City<input aria-label="City"></label><button type="button" onclick="document.querySelector(\'output\').textContent=\'Results for \'+document.querySelector(\'input\').value">Search</button><output></output>'
 async function fixture(page: Page) {
   await page.route('https://fixture.invalid/**', route => route.fulfill({ contentType: 'text/html', body: html }))

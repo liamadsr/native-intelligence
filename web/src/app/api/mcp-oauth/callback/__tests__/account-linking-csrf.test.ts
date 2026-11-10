@@ -118,9 +118,9 @@ const { POST: claim } = await import('@/app/api/account/mcp-servers/oauth/claim/
 async function startAs(user: string, source?: 'web' | 'desktop') {
   h.user = user
   const res = await start(
-    new NextRequest('https://dial8.ai/api/account/mcp-servers/oauth/start', {
+    new NextRequest('https://nativeintelligence.dev/api/account/mcp-servers/oauth/start', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', host: 'dial8.ai' },
+      headers: { 'content-type': 'application/json', host: 'nativeintelligence.dev' },
       body: JSON.stringify({ display_name: 'Linear', server_url: 'https://mcp.linear.app/mcp', ...(source ? { source } : {}) }),
     }),
   )
@@ -137,14 +137,14 @@ async function startAs(user: string, source?: 'web' | 'desktop') {
 function providerReturn(state: string, opts: { cookie?: string | null; error?: string } = {}) {
   const qs = opts.error ? `error=${opts.error}&state=${encodeURIComponent(state)}` : `code=victim-code&state=${encodeURIComponent(state)}`
   return callback(
-    new NextRequest(`https://dial8.ai/api/mcp-oauth/callback?${qs}`, { headers: opts.cookie ? { cookie: opts.cookie } : {} }),
+    new NextRequest(`https://nativeintelligence.dev/api/mcp-oauth/callback?${qs}`, { headers: opts.cookie ? { cookie: opts.cookie } : {} }),
   )
 }
 
 function claimAs(user: string, body: Row) {
   h.user = user
   return claim(
-    new NextRequest('https://dial8.ai/api/account/mcp-servers/oauth/claim', {
+    new NextRequest('https://nativeintelligence.dev/api/account/mcp-servers/oauth/claim', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
@@ -223,9 +223,9 @@ describe('web: the victim completing an attacker-started connect', () => {
     const name = started.cookie!.split('=')[0]
     expect(name).toMatch(/^__Host-mcp_oauth_[A-Za-z0-9_-]{16}$/)
     const res = await start(
-      new NextRequest('https://dial8.ai/api/account/mcp-servers/oauth/start', {
+      new NextRequest('https://nativeintelligence.dev/api/account/mcp-servers/oauth/start', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', host: 'dial8.ai' },
+        headers: { 'content-type': 'application/json', host: 'nativeintelligence.dev' },
         body: JSON.stringify({ display_name: 'Notion', server_url: 'https://mcp.notion.com/mcp' }),
       }),
     )
@@ -242,9 +242,9 @@ describe('the start route: one live flow per server, but an abandoned one gives 
     await startAs('alice', 'desktop')
     h.user = 'alice'
     const res = await start(
-      new NextRequest('https://dial8.ai/api/account/mcp-servers/oauth/start', {
+      new NextRequest('https://nativeintelligence.dev/api/account/mcp-servers/oauth/start', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', host: 'dial8.ai' },
+        headers: { 'content-type': 'application/json', host: 'nativeintelligence.dev' },
         body: JSON.stringify({ display_name: 'Linear', server_url: 'https://mcp.linear.app/mcp', source: 'desktop' }),
       }),
     )

@@ -156,7 +156,7 @@ describe('helpers — progress, children and their streams', () => {
     expect(dist('protocol/message.js')).toContain('streamPath:createEveSessionStreamRoutePath(e.sessionId)')
     // The ACL checks the CHILD's id, and no chat_conversations row registers a
     // child, so following an agent.started stream would get a 403 from this channel.
-    const req = new Request('https://dial8.ai/eve/chat-agent/v1/session/wrun_child123/stream')
+    const req = new Request('https://nativeintelligence.dev/eve/chat-agent/v1/session/wrun_child123/stream')
     expect(extractTargetedSessionId(req)).toBe('wrun_child123')
   })
 })

@@ -110,7 +110,7 @@ export function ConnectorsView() {
           <div>
             <h1 className="text-2xl font-bold">Connectors</h1>
             <p className="mt-1 text-muted-foreground">
-              The apps your agent works with. Integrations sync your data into Dial8; MCP servers give the agent an
+              The apps your agent works with. Integrations sync your data into Native Intelligence; MCP servers give the agent an
               app&apos;s own tools.
             </p>
           </div>

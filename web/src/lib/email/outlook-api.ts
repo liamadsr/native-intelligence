@@ -2,7 +2,7 @@
  * The Graph calls the push path makes: the inbox delta since a checkpoint
  * (which conversations changed) and a fresh checkpoint. The delta asks for
  * ids only: the index reads each conversation's metadata
- * (src/lib/crm/email-sync.ts), and Dial8 stores no mail (2026-10-15).
+ * (src/lib/crm/email-sync.ts), and Native Intelligence stores no mail (2026-10-15).
  */
 
 /** What the delta returns of a message: which conversation it belongs to. */

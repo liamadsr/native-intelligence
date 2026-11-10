@@ -149,7 +149,7 @@ describe("the day's list", () => {
     const jobs = Array.from({ length: 45 }, () => ({ booking: { startsAt: '2026-11-04T15:00:00Z', customerName: 'X', address: null, customerPhone: null, kind: 'visit' }, quote: null }))
     const text = dailyJobsText({ business: 'B', dayLabel: 'Wed, Nov 4', timeZone: CHICAGO, jobs })
     expect(text.split('\n')).toHaveLength(1 + 40 + 1)
-    expect(text.endsWith('…and 5 more in Dial8.')).toBe(true)
+    expect(text.endsWith('…and 5 more in Native Intelligence.')).toBe(true)
   })
 
   it("goes to the owner's home thread (once per date) and by text from the workspace's own number (textPerson)", async () => {

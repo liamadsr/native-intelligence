@@ -26,7 +26,7 @@ import { MESSAGE_ICON_CHIP, MESSAGE_LABEL } from '../in-app-message-meta'
  * Renders nothing — it only drives the global <Toaster> mounted in the shell.
  */
 
-const DISMISS_KEY = 'dial8:desktop-nudge-dismissed'
+const DISMISS_KEY = 'ni:desktop-nudge-dismissed'
 const TOAST_ID = 'desktop-nudge'
 const SHOW_DELAY_MS = 4000
 
@@ -90,7 +90,7 @@ function showDesktopNudgeToast() {
           <p className={MESSAGE_LABEL}>Desktop app</p>
           <p className="mt-0.5 truncate text-sm font-medium">Get the Mac app</p>
           <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            Native meeting capture from your menu bar — Dial8 detects calls and
+            Native meeting capture from your menu bar — Native Intelligence detects calls and
             starts recording the moment they begin.
           </p>
         </div>

@@ -10,7 +10,7 @@ import { isDeviceToken } from '@/lib/device-tokens'
 import { EnvironmentError } from './types'
 
 /**
- * requireWorkspace, minus Dial8 capture-device tokens (`Bearer d8d_…`): a
+ * requireWorkspace, minus Native Intelligence capture-device tokens (`Bearer nid_…`): a
  * hardware recorder pinned to a workspace has no business renaming or
  * removing someone's Mac (the local-agent routes refuse them the same way).
  */

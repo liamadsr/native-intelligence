@@ -21,15 +21,16 @@ import {
   stateForBucket,
 } from './linear-config'
 import type { LinearPushOverrides } from './push-overrides'
+import { appUrl } from '@/lib/app-url'
 
 /**
- * Push ONE Dial8 action to Linear as an issue, and record the link.
+ * Push ONE Native Intelligence action to Linear as an issue, and record the link.
  *
  * The single implementation behind all three push surfaces — the "Push to…"
  * menu (`PushToTrackerMenu`, in the action detail panel's toolbar and on a
  * capture's extracted action items, both via POST
  * /api/account/actions/[id]/linear), the AI chat tool `push_action_to_linear`,
- * and its MCP twin `dial8_push_action_to_linear`. They differ only in how they
+ * and its MCP twin `ni_push_action_to_linear`. They differ only in how they
  * resolve the action and shape the reply.
  *
  * Step-for-step sibling of jira-push.ts, including the idempotency model: a
@@ -105,9 +106,9 @@ interface PushArgs {
   overrides?: LinearPushOverrides
 }
 
-/** App origin for the "back to Dial8" deep link. */
+/** App origin for the "back to Native Intelligence" deep link. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /**
@@ -125,15 +126,15 @@ export function actionDeepLink(actionId: string): string {
  * Linear stores descriptions as markdown text, which makes this the simplest of
  * the three builders: no ADF tree to assemble (Jira) and no HTML to escape
  * (Asana). There is also nothing to inject INTO — the action's own description
- * is emitted verbatim as body text, and markdown a user wrote in Dial8 rendering
+ * is emitted verbatim as body text, and markdown a user wrote in Native Intelligence rendering
  * as markdown in Linear is the desirable outcome, not a hazard.
  *
  * Returns null when there is nothing to say, so the caller can OMIT
  * `description` entirely rather than sending an empty string. That path is
  * reachable in exactly one way: attribution off AND no description.
  *
- * `attribution` gates Dial8's two fingerprints — the bold identifier line and
- * the "Pushed from Dial8" provenance line — as ONE unit, because they are one
+ * `attribution` gates Native Intelligence's two fingerprints — the bold identifier line and
+ * the "Pushed from Native Intelligence" provenance line — as ONE unit, because they are one
  * idea: this issue came from somewhere, and here is the way back. Defaulted to
  * true so a caller that forgets to thread it gets today's behaviour rather than
  * silently stripping provenance.
@@ -163,7 +164,7 @@ export function buildMarkdownDescription(args: {
   // integration exists to solve — so it is on by default and off only on
   // purpose.
   if (attribution) {
-    blocks.push(`Pushed from Dial8: [${identifier || 'this action'}](${actionDeepLink(args.actionId)})`)
+    blocks.push(`Pushed from Native Intelligence: [${identifier || 'this action'}](${actionDeepLink(args.actionId)})`)
   }
 
   if (blocks.length === 0) return null
@@ -189,7 +190,7 @@ export function dueDateFor(dueAt: string | null | undefined): string | undefined
 }
 
 /**
- * Fields the create sends that Dial8 can do without.
+ * Fields the create sends that Native Intelligence can do without.
  *
  * Everything NOT on this list — `teamId`, `title` — is structurally required and
  * a rejection naming one is a real problem the user has to see. `stateId`,
@@ -226,7 +227,7 @@ interface ActionRow {
 }
 
 /**
- * Best-effort assignee email for a Dial8 member.
+ * Best-effort assignee email for a Native Intelligence member.
  *
  * The email lives on auth.users (member carries only display_name), which needs
  * the service client. Returns null on any failure — an unassigned Linear issue
@@ -256,10 +257,10 @@ async function resolveAssigneeEmail(
 }
 
 /**
- * Resolve a Dial8 assignee to a Linear user id. FULLY best-effort — every
+ * Resolve a Native Intelligence assignee to a Linear user id. FULLY best-effort — every
  * failure path is a warn/null, never a throw.
  *
- * NO MATCH IS THE EXPECTED CASE, not an edge one: the member's Dial8 email is
+ * NO MATCH IS THE EXPECTED CASE, not an edge one: the member's Native Intelligence email is
  * whatever they signed up with and need not be the address in the customer's
  * Linear org. findUserByEmail already returns null unless there is exactly one
  * exact match, so there is no guessing to do here — assigning someone else's
@@ -474,7 +475,7 @@ export async function pushActionToLinear(args: PushArgs): Promise<LinearPushResu
   // id picked from that team's members, so it skips the email bridge entirely.
   // An explicit null means "unassigned" and SUPPRESSES the email bridge — the
   // panel showed "Unassigned" and the user left it that way deliberately, so
-  // quietly resolving the action's Dial8 assignee would contradict the form.
+  // quietly resolving the action's Native Intelligence assignee would contradict the form.
   const assigneeCleared = !!overrides && 'assignee_id' in overrides && overrides.assignee_id === null
   let assigneeId: string | undefined = overrides?.assignee_id ?? undefined
   if (!assigneeId && !assigneeCleared && action.assignee_id) {

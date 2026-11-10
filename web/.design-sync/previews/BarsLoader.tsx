@@ -1,4 +1,4 @@
-import { BarsLoader } from '@dial8/ui'
+import { BarsLoader } from '@native-intelligence/ui'
 
 const surface: React.CSSProperties = {
   display: 'flex',

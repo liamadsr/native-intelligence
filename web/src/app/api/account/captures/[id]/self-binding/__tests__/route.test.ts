@@ -174,7 +174,7 @@ function freshCaptured(): Captured {
 
 function req(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/captures/${CAPTURE_ID}/self-binding`,
+    url: `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}/self-binding`,
     method: 'POST',
     body,
   }) as unknown as NextRequest

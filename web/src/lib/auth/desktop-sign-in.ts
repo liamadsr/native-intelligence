@@ -2,7 +2,7 @@
  * The desktop app's sign-in callback: `dial8desktop://auth/callback?code=…`
  * (or `?error=…`), produced by /auth/desktop-callback, or
  * `…?token_hash=…` from /auth/chatgpt/callback or /auth/google/callback
- * (ChatGPT sign-in, and Google sign-in on dial8.ai, run Dial8's own OAuth
+ * (ChatGPT sign-in, and Google sign-in on nativeintelligence.dev, run Native Intelligence's own OAuth
  * flow and hand over a one-time magic-link token instead of a Supabase PKCE
  * code).
  *
@@ -33,11 +33,11 @@ export type DesktopAuthCallback =
  * returns as an OS deep link, outside the starting page) for 15 minutes and
  * is used once.
  */
-const BIND_KEY = 'dial8.desktop-sign-in.bind'
+const BIND_KEY = 'ni.desktop-sign-in.bind'
 const BIND_TTL_MS = 15 * 60 * 1000
 
 /** Start a desktop sign-in that ends on a token_hash (ChatGPT, or Google on
- *  dial8.ai): the value to send as `?bind=`. */
+ *  nativeintelligence.dev): the value to send as `?bind=`. */
 export function beginDesktopTokenSignIn(): string {
   const bytes = new Uint8Array(24)
   crypto.getRandomValues(bytes)

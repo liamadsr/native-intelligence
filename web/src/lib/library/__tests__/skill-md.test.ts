@@ -84,7 +84,7 @@ describe('parseSkillMd', () => {
     const result = parseSkillMd(text)
     expect(result.name).toBe('skill')
     expect(result.warnings).toContain(
-      'allowed-tools is not imported — set tool access in Dial8 after import',
+      'allowed-tools is not imported — set tool access in Native Intelligence after import',
     )
   })
 

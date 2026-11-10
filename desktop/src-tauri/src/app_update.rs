@@ -25,7 +25,7 @@
 //!     install only STAGES the verified installer (a scheduled check must
 //!     never close the app mid-meeting) and this runs it: quit cleanup first
 //!     (the plugin's `on_before_exit`), then the installer, which reopens
-//!     Dial8 when it's done.
+//!     Native Intelligence when it's done.
 //!
 //! In debug builds the updater plugin isn't registered (lib.rs), so both
 //! commands answer an error, which the web treats as "no update".
@@ -167,7 +167,7 @@ pub async fn app_update_install(app: AppHandle, expected: String) -> Result<Stri
 
 /// The person's "Restart now" after an install. macOS: restart (the new app
 /// is already in place). Windows: run the staged installer, after the quit
-/// cleanup; it closes Dial8 and opens the new one, so this returns only when
+/// cleanup; it closes Native Intelligence and opens the new one, so this returns only when
 /// it couldn't start. One at a time with an install, like installs.
 #[tauri::command]
 pub async fn app_update_apply(app: AppHandle) -> Result<(), String> {
@@ -297,22 +297,22 @@ mod tests {
     #[test]
     fn reads_the_version_from_the_apps_info_plist() {
         let tgz = archive(&[
-            ("Dial8.app/Contents/MacOS/Dial8", b"binary".to_vec()),
-            ("Dial8.app/Contents/Info.plist", plist_xml("0.3.1")),
+            ("Native Intelligence.app/Contents/MacOS/dial8-desktop", b"binary".to_vec()),
+            ("Native Intelligence.app/Contents/Info.plist", plist_xml("0.3.1")),
         ]);
         assert_eq!(bundle_version(&tgz).unwrap(), "0.3.1");
     }
 
     #[test]
     fn an_info_plist_anywhere_else_is_not_the_apps() {
-        let tgz = archive(&[("Dial8.app/Contents/Resources/Other.app/Contents/Info.plist", plist_xml("99.0.0"))]);
+        let tgz = archive(&[("Native Intelligence.app/Contents/Resources/Other.app/Contents/Info.plist", plist_xml("99.0.0"))]);
         assert!(bundle_version(&tgz).is_err());
     }
 
     #[test]
     fn garbage_and_versionless_bundles_are_refused() {
         assert!(bundle_version(b"not a tarball").is_err());
-        let no_version = archive(&[("Dial8.app/Contents/Info.plist", b"<plist><dict></dict></plist>".to_vec())]);
+        let no_version = archive(&[("Native Intelligence.app/Contents/Info.plist", b"<plist><dict></dict></plist>".to_vec())]);
         assert!(bundle_version(&no_version).is_err());
     }
 

@@ -166,7 +166,7 @@ export type ProductEvent =
   // `recipe_forked` fires when a public marketplace item is deep-copied into a
   // workspace (carries the source id + category). `recipe_published` fires
   // whenever a recipe's visibility becomes 'public' — on create or on the edit
-  // that flips it — so the "publishes to every Dial8 user" step is a countable
+  // that flips it — so the "publishes to every Native Intelligence user" step is a countable
   // event, not an invisible DB flag.
   | 'recipe_created'
   | 'recipe_updated'

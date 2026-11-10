@@ -63,12 +63,12 @@ describe('blocked sites', () => {
   })
 })
 
-describe("Dial8's own app is off-limits to the agent (A5)", () => {
-  it('blocks dial8.ai and its subdomains, local dev on any port, and the configured app origin', async () => {
+describe("Native Intelligence's own app is off-limits to the agent (A5)", () => {
+  it('blocks nativeintelligence.dev and its subdomains, local dev on any port, and the configured app origin', async () => {
     const { appOwnSites, blockedSiteForUrl } = await import('../blocked-sites')
     const sites = appOwnSites('https://app.example-staging.com')
-    expect(blockedSiteForUrl('https://dial8.ai/account/chat', sites)).toBe('dial8.ai')
-    expect(blockedSiteForUrl('https://www.dial8.ai/account', sites)).toBe('dial8.ai')
+    expect(blockedSiteForUrl('https://nativeintelligence.dev/account/chat', sites)).toBe('nativeintelligence.dev')
+    expect(blockedSiteForUrl('https://www.nativeintelligence.dev/account', sites)).toBe('nativeintelligence.dev')
     expect(blockedSiteForUrl('http://localhost:3000/account', sites)).toBe('localhost')
     expect(blockedSiteForUrl('http://127.0.0.1:3001/', sites)).toBe('127.0.0.1')
     expect(blockedSiteForUrl('https://app.example-staging.com/x', sites)).toBe('app.example-staging.com')

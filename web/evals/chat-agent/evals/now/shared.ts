@@ -21,7 +21,7 @@
 import type { EveEvalToolCall, ToolStub } from 'eve/evals'
 
 /** The fixture person's name (scripts/eval-fixture.ts). */
-const PERSON = 'Dial8 Evals'
+const PERSON = 'Native Intelligence Evals'
 
 /** What the stubbed update_now answers: a write that changed nothing real. */
 export function nowStub(revision: number): ToolStub {

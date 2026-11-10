@@ -14,7 +14,7 @@ import { setupOutlookSubscription } from '../outlook-webhook'
 beforeEach(() => {
   mockFetch.mockReset()
   vi.stubGlobal('fetch', mockFetch)
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
 })
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -28,7 +28,7 @@ describe('setupOutlookSubscription', () => {
     await setupOutlookSubscription('access', 'user-1', 'acc-1')
     const body = JSON.parse(String(mockFetch.mock.calls[0][1].body))
     expect(body.clientState).toBe('outlook-secret:acc-1')
-    expect(body.notificationUrl).toBe('https://dial8.ai/api/webhooks/outlook')
+    expect(body.notificationUrl).toBe('https://nativeintelligence.dev/api/webhooks/outlook')
   })
 
   it('makes no subscription without the secret: the webhook would drop every notification', async () => {

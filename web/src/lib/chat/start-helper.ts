@@ -90,7 +90,7 @@ const REASONS: Record<string, string> = {
   CHECK_IN_ITEM_REQUIRED: 'From a check-in, a helper retries one tracked item: pass `item` exactly as the check-in names it (for example "work:<id>").',
   CHECK_IN_ITEM_UNKNOWN: 'That item is not one your Now file tracks, so no helper started. Use an item the check-in names.',
   SERVER_TURN_GENERIC_ONLY: 'A background update can start only the general helper (reads and drafts), not a named agent. Leave agent_id out, or tell the person.',
-  TEXT_TURN_GENERIC_ONLY: 'From a text, only the general helper (reads and drafts) can start, not a named agent. Leave agent_id out, or ask them to start that agent in Dial8.',
+  TEXT_TURN_GENERIC_ONLY: 'From a text, only the general helper (reads and drafts) can start, not a named agent. Leave agent_id out, or ask them to start that agent in Native Intelligence.',
 }
 
 /** Where the result arrives: in this conversation, as a report, and on the bot's page. */
@@ -174,7 +174,7 @@ export async function startChatHelper(
   if (serverTurn && input.agent_id) return { status: 'refused', code: 'SERVER_TURN_GENERIC_ONLY', reason: REASONS.SERVER_TURN_GENERIC_ONLY }
   // A text (a caller ID can be spoofed): the route starts it without the
   // reviewer, so only the generic helper, which reads and drafts and never
-  // sends, deletes or writes outside Dial8: a named agent may have more.
+  // sends, deletes or writes outside Native Intelligence: a named agent may have more.
   if (channelTurn && claims.surface === 'sms' && input.agent_id) return { status: 'refused', code: 'TEXT_TURN_GENERIC_ONLY', reason: REASONS.TEXT_TURN_GENERIC_ONLY }
   const { callId, turnId, sessionId } = launch
   if (typeof callId !== 'string' || !callId.trim() || callId.length > 200) throw new Error('A durable tool call id is required')
@@ -249,7 +249,7 @@ async function noteTrackedItems(supabase: SupabaseClient, claims: Pick<ChatRunTo
  * A home turn's helper task: nobody typed it and nobody is there to answer.
  * The brief was written by the assistant during a background update, often
  * about mail from outside, so it may carry a sender's words: it goes in
- * fenced as untrusted data, under Dial8's own framing of what the helper may
+ * fenced as untrusted data, under Native Intelligence's own framing of what the helper may
  * do (read, and add drafts or documents for review). Pure.
  */
 export function renderServerTurnHelperTask(input: Pick<StartHelperInput, 'task' | 'context' | 'hand_back'>): string {

@@ -14,7 +14,7 @@ import { hasHubspotPushHold } from '@/lib/crm/hubspot-push-hold'
 // =====================================================================
 // HubSpot contact-push writeback (Phase 2 — sibling of hubspot-log-capture)
 //
-// When a contact becomes eligible in Dial8, mirror it into the connected
+// When a contact becomes eligible in Native Intelligence, mirror it into the connected
 // HubSpot portal (dedupe-by-email first). Triggered by crm/hubspot-push-contact,
 // sent fire-and-forget from the manual-creation surfaces (POST
 // /api/account/contacts, the create_contact AI tool) and fanned out by the

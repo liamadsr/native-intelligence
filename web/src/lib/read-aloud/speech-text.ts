@@ -318,7 +318,7 @@ export function plainTextToSpeech(input: string): string {
   return finishSpeech(urlsToHosts(input).replace(EMOJI_RE, ''))
 }
 
-/** Bare URLs read as their host: "https://docs.dial8.ai/api?x=1" → "docs.dial8.ai".
+/** Bare URLs read as their host: "https://docs.nativeintelligence.dev/api?x=1" → "docs.nativeintelligence.dev".
  *  The match stops before trailing punctuation, so a sentence's period survives. */
 function urlsToHosts(s: string): string {
   return s
@@ -396,7 +396,7 @@ const MIN_PART_WORDS = 6
 /**
  * Plain text → sentences. Line breaks always end a sentence. Doesn't split on
  * abbreviations (Dr., e.g., i.e., Mr., Inc., U.S.), decimals (4.2), times
- * (3:30), URLs and domains (dial8.ai), initials (J. R. R.) or ellipses. A
+ * (3:30), URLs and domains (nativeintelligence.dev), initials (J. R. R.) or ellipses. A
  * sentence over ~40 words is cut at a semicolon or comma when one sits
  * comfortably inside it.
  */

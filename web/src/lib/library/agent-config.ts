@@ -22,7 +22,7 @@
  *     an update omits them and refuses to CHANGE them unless the caller is a
  *     workspace owner or admin.
  *   - Model-reachable tools (chat `create_skill`/`update_skill`, MCP
- *     `dial8_create_skill`/`dial8_update_skill`) no longer accept
+ *     `ni_create_skill`/`ni_update_skill`) no longer accept
  *     `agent_config` at all.
  */
 import { z } from 'zod'

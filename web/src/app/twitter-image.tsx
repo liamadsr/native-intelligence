@@ -1,4 +1,5 @@
 import { ImageResponse } from 'next/og'
+import { appHost } from '@/lib/app-url'
 
 // Twitter card image — kept identical to opengraph-image.tsx. Duplicated rather
 // than re-exported so this stays a self-contained metadata-image route (Next's
@@ -6,7 +7,7 @@ import { ImageResponse } from 'next/og'
 // build time via next/og, font-fetch-free so it can't fail the build.
 
 export const runtime = 'nodejs'
-export const alt = 'Dial8 — The end-to-end AI sales platform'
+export const alt = 'Native Intelligence — The end-to-end AI sales platform'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 
@@ -42,13 +43,13 @@ export default function TwitterImage() {
         <div
           style={{
             display: 'flex',
-            fontSize: 128,
+            fontSize: 100,
             fontWeight: 700,
             letterSpacing: '-0.04em',
             lineHeight: 1,
           }}
         >
-          Dial8
+          Native Intelligence
         </div>
         <div
           style={{
@@ -73,7 +74,7 @@ export default function TwitterImage() {
             letterSpacing: '0.01em',
           }}
         >
-          dial8.ai
+          {appHost()}
         </div>
       </div>
     ),

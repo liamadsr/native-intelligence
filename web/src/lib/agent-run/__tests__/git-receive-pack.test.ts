@@ -85,7 +85,7 @@ describe('judgeReceivePack', () => {
 
   it('refuses deleting its own branch', () => {
     const v = judgeReceivePack([cmd(`refs/heads/${BRANCH}`, Z)], BRANCH)
-    expect(v).toEqual({ allowed: false, rejections: [{ ref: `refs/heads/${BRANCH}`, reason: `dial8: this run may not delete ${BRANCH}` }] })
+    expect(v).toEqual({ allowed: false, rejections: [{ ref: `refs/heads/${BRANCH}`, reason: `Native Intelligence: this run may not delete ${BRANCH}` }] })
   })
 
   it('refuses the whole push when one ref is wrong, never a partial push', () => {
@@ -100,16 +100,16 @@ describe('judgeReceivePack', () => {
 })
 
 describe('rejectionReport', () => {
-  const rejections = [{ ref: 'refs/heads/main', reason: 'dial8: this run may only push its own branch x' }]
+  const rejections = [{ ref: 'refs/heads/main', reason: 'Native Intelligence: this run may only push its own branch x' }]
 
   it('without side-band: plain report-status pkt-lines', () => {
     const out = Buffer.from(rejectionReport(rejections, ['report-status'])).toString('latin1')
-    expect(out).toBe(pkt('unpack ok\n') + pkt('ng refs/heads/main dial8: this run may only push its own branch x\n') + '0000')
+    expect(out).toBe(pkt('unpack ok\n') + pkt('ng refs/heads/main Native Intelligence: this run may only push its own branch x\n') + '0000')
   })
 
   it('with side-band-64k: a band-2 note, then the report in band 1, then a flush', () => {
     const out = Buffer.from(rejectionReport(rejections, ['report-status', 'side-band-64k'])).toString('latin1')
-    const inner = pkt('unpack ok\n') + pkt('ng refs/heads/main dial8: this run may only push its own branch x\n') + '0000'
+    const inner = pkt('unpack ok\n') + pkt('ng refs/heads/main Native Intelligence: this run may only push its own branch x\n') + '0000'
     expect(out.endsWith(pkt('\x01' + inner) + '0000')).toBe(true)
     expect(out.slice(4, 5)).toBe('\x02')
   })

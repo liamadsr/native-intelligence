@@ -55,7 +55,7 @@ function server(over: Row = {}): Row {
 }
 
 function patch(body: unknown): Promise<Response> {
-  const req = buildRequest({ url: 'https://dial8.ai/api/account/mcp-servers/srv1', method: 'PATCH', body }) as unknown as NextRequest
+  const req = buildRequest({ url: 'https://nativeintelligence.dev/api/account/mcp-servers/srv1', method: 'PATCH', body }) as unknown as NextRequest
   return PATCH(req, { params: Promise.resolve({ id: 'srv1' }) })
 }
 

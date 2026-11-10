@@ -257,7 +257,7 @@ export async function runPairJudge(args: {
     // Gateway attribution is feature + workspace only.
     userId: ownerUserId ?? null,
     // A free owner's judge runs on their own ChatGPT plan (Jev, above, is
-    // Dial8-paid and refuses them, so the fallback is their only judge).
+    // NI-paid and refuses them, so the fallback is their only judge).
     chatgptPlan: await chatgptPlanFor(ownerUserId),
     outputSchema: PairVerdicts,
     message: pairJudgeMessage(args.claimText, unresolved),
@@ -1237,7 +1237,7 @@ export const knowledgeWeaver = inngest.createFunction(
           // does not pay for the query.
           const { anchorTypes } = await resolveWeaverSettings(supabase, ws)
           // A free owner's workspace compiles its briefs on the owner's own
-          // ChatGPT plan, never Dial8's models.
+          // ChatGPT plan, never Native Intelligence's models.
           return regenerateWorkspaceBriefs(supabase, ws, anchorTypes, await planOwnerOf(supabase, ws))
         })
         briefResults.push({ workspace_id: ws, briefs })

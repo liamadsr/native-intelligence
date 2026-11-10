@@ -815,7 +815,7 @@ export function EditorDialog({
 
             {form.visibility === 'public' && (
               <p className="text-muted-foreground text-xs">
-                This will be visible to all Dial8 users in Discover.
+                This will be visible to all Native Intelligence users in Discover.
               </p>
             )}
 
@@ -1004,12 +1004,12 @@ export function EditorDialog({
       <AlertDialog open={confirmPublish} onOpenChange={setConfirmPublish}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Publish to all Dial8 users?</AlertDialogTitle>
+            <AlertDialogTitle>Publish to all Native Intelligence users?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
                   This {CATEGORY_LABELS[form.category].toLowerCase()} will appear in Discover for
-                  every Dial8 user, across all workspaces.
+                  every Native Intelligence user, across all workspaces.
                 </p>
                 <p>Your name and avatar are shown as the author.</p>
                 <p>

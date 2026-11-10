@@ -796,7 +796,7 @@ export function ProspectingView({
    *
    * `loadLists` refreshes the empty/non-empty DECISION this page owns; it does
    * not touch the layout's own query, which runs inside `UnifiedViewLayout`.
-   * `dial8:entity-created` is the seam that list already listens on (with its
+   * `ni:entity-created` is the seam that list already listens on (with its
    * own coalescing), and it is the only way a list created from the sheet, the
    * Custom card or the agent shows up without a reload.
    *
@@ -806,7 +806,7 @@ export function ProspectingView({
    */
   const announceListCreated = useCallback(() => {
     window.dispatchEvent(
-      new CustomEvent('dial8:entity-created', { detail: { entityType: 'prospect_list' } }),
+      new CustomEvent('ni:entity-created', { detail: { entityType: 'prospect_list' } }),
     )
   }, [])
 

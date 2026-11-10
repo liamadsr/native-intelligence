@@ -221,26 +221,26 @@ interface StartWords {
 }
 
 const LOOP_WORDS: StartWords = {
-  shadow: "Dial8's safety reviewer is switched to log-only on this server, so loops can't start Mac jobs until it blocks again",
+  shadow: "Native Intelligence's safety reviewer is switched to log-only on this server, so loops can't start Mac jobs until it blocks again",
   notShared: "That folder isn't shared on the loop owner's Mac any more (or never was theirs)",
   noHome: 'The loop owner has no home thread for the job to report in',
   offline: (mac, folder) => `${mac} is offline, so this fire started no job in ${folder}`,
-  busy: (where) => `Dial8 is already working in ${where}, so this fire started none`,
+  busy: (where) => `Native Intelligence is already working in ${where}, so this fire started none`,
 }
 
 const ACTION_WORDS: StartWords = {
-  shadow: "Dial8's safety reviewer is switched to log-only on this server, so an action can't start on your Mac until it blocks again.",
+  shadow: "Native Intelligence's safety reviewer is switched to log-only on this server, so an action can't start on your Mac until it blocks again.",
   notShared: "That folder isn't shared on your Mac any more.",
   noHome: 'You have no home thread for the job to report in.',
-  offline: (mac, folder) => `${mac} is offline, so nothing started in ${folder}. Open Dial8 on it and press Start again, or turn off “Run my work here” for this project to run it in the cloud.`,
-  busy: (where) => `Dial8 is already working in ${where}. Wait for it to finish, or stop it, then press Start again.`,
+  offline: (mac, folder) => `${mac} is offline, so nothing started in ${folder}. Open Native Intelligence on it and press Start again, or turn off “Run my work here” for this project to run it in the cloud.`,
+  busy: (where) => `Native Intelligence is already working in ${where}. Wait for it to finish, or stop it, then press Start again.`,
 }
 
 /** A work card's Start in a folder it picked: the same, but its way out is another place on the card. */
 const CARD_WORDS: StartWords = {
   ...ACTION_WORDS,
-  shadow: "Dial8's safety reviewer is switched to log-only on this server, so work can't start on your Mac until it blocks again.",
-  offline: (mac, folder) => `${mac} is offline, so nothing started in ${folder}. Open Dial8 on it and press Start again, or pick another place for this work.`,
+  shadow: "Native Intelligence's safety reviewer is switched to log-only on this server, so work can't start on your Mac until it blocks again.",
+  offline: (mac, folder) => `${mac} is offline, so nothing started in ${folder}. Open Native Intelligence on it and press Start again, or pick another place for this work.`,
 }
 
 /**
@@ -568,7 +568,7 @@ export async function unattendedToolReview(
   if (shadow || paused) {
     await requestStop(svc, ids.userId, row.id).catch((e) => console.warn('[local-agent] could not stop an unattended job:', e instanceof Error ? e.message : e))
     return shadow
-      ? { refused: true, code: 'REVIEWER_NOT_BLOCKING', reason: `Nothing ran. Dial8's safety reviewer was switched to log-only, so jobs ${whose} are stopped. Finish now; don't retry.` }
+      ? { refused: true, code: 'REVIEWER_NOT_BLOCKING', reason: `Nothing ran. Native Intelligence's safety reviewer was switched to log-only, so jobs ${whose} are stopped. Finish now; don't retry.` }
       : { refused: true, code: AGENT_PAUSED_CODE, reason: `Nothing ran. ${AGENT_PAUSED_REASON}, so jobs ${whose} are stopped. Finish now; don't retry.` }
   }
   if (action) {

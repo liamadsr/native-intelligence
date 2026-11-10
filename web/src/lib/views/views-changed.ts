@@ -5,7 +5,7 @@
  * without a remount. Its own module, so the light card frame can announce it
  * without loading the views hook.
  */
-export const VIEWS_CHANGED_EVENT = 'dial8:views-changed'
+export const VIEWS_CHANGED_EVENT = 'ni:views-changed'
 
 export function announceViewsChanged() {
   window.dispatchEvent(new CustomEvent(VIEWS_CHANGED_EVENT))

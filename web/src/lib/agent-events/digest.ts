@@ -285,7 +285,7 @@ export const DIGEST_MAX_DOC_LINES = 6
 
 /**
  * The digest's "Doc updates" group (canon D2, decision 16): one line per
- * agent edit to a canon document ("Dial8 updated Positioning in Product"),
+ * agent edit to a canon document ("Native Intelligence updated Positioning in Product"),
  * newest first, after everything else. Empty when there were none (hide
  * empty). Pure.
  */
@@ -434,7 +434,7 @@ export function digestNoticeGroupKey(date: string): string {
   return `agent_digest:${date}`
 }
 
-/** What the digest's bubble says: Dial8's words around the counts (no outside text). Pure. */
+/** What the digest's bubble says: Native Intelligence's words around the counts (no outside text). Pure. */
 export function digestNoticeCopy(digest: Pick<HomeTurnDigest, 'counts'>): { title: string; sentence: string } {
   const counts = digest.counts.slice(0, 3)
   return {

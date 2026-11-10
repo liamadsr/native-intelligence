@@ -1,6 +1,6 @@
-# Dial8 Desktop (Tauri v2)
+# Native Intelligence Desktop (Tauri v2)
 
-Cross-platform desktop app wrapping the Dial8 web app with native audio capture.
+Cross-platform desktop app wrapping the Native Intelligence web app with native audio capture.
 
 ## Prerequisites
 
@@ -58,9 +58,9 @@ crate's authors aren't the holders of that text, add a row to `scripts/licenses/
 `./build.sh prod` bundles have no sidecars and no notices: local testing only.
 
 Local modules (a sidecar + downloadable models + an on/off setting) are described
-in `dial8-website/docs/plans/local-modules.md`.
+in `web/docs/plans/local-modules.md`.
 
-The webview loads the Dial8 web app — `localhost:3000` in dev, `https://dial8.ai` in production.
+The webview loads the Native Intelligence web app — `localhost:3000` in dev, `https://nativeintelligence.dev` in production.
 
 ## Development
 
@@ -68,7 +68,7 @@ The webview loads the Dial8 web app — `localhost:3000` in dev, `https://dial8.
 
 ```bash
 # Terminal 1: Start the Next.js dev server
-cd ../dial8-website && npm run dev
+cd ../web && npm run dev
 
 # Terminal 2: Start Tauri dev mode
 cd dial8-desktop && cargo tauri dev
@@ -91,20 +91,20 @@ Deep links require a bundled `.app` installed on the system:
 cd dial8-desktop && cargo tauri build --debug
 
 # 3. Install to /Applications
-rm -rf /Applications/Dial8.app
-cp -r src-tauri/target/debug/bundle/macos/Dial8.app /Applications/
+rm -rf "/Applications/Native Intelligence.app"
+cp -r "src-tauri/target/debug/bundle/macos/Native Intelligence.app" /Applications/
 
 # 4. Start the Next.js dev server
-cd ../dial8-website && npm run dev
+cd ../web && npm run dev
 
 # 5. Open the app
-open /Applications/Dial8.app
+open "/Applications/Native Intelligence.app"
 ```
 
 To see Rust-side logs (deep-link debug output), run from terminal:
 
 ```bash
-/Applications/Dial8.app/Contents/MacOS/Dial8
+"/Applications/Native Intelligence.app/Contents/MacOS/dial8-desktop"
 ```
 
 To verify the URL scheme is registered:
@@ -118,20 +118,26 @@ To verify the URL scheme is registered:
 ```bash
 # 1. Set frontendDist to production URL
 #    In src-tauri/tauri.conf.json, set:
-#    "frontendDist": "https://dial8.ai"
+#    "frontendDist": "https://nativeintelligence.dev"
 
 # 2. Build release
 cd dial8-desktop && cargo tauri build
 
 # 3. Output locations:
-#    macOS .app:  src-tauri/target/release/bundle/macos/Dial8.app
-#    macOS .dmg:  src-tauri/target/release/bundle/dmg/Dial8_0.1.0_aarch64.dmg
-#    Windows:     src-tauri/target/release/bundle/nsis/Dial8_0.1.0_x64-setup.exe
+#    macOS .app:  src-tauri/target/release/bundle/macos/Native Intelligence.app
+#    macOS .dmg:  src-tauri/target/release/bundle/dmg/Native Intelligence_<version>_aarch64.dmg
+#    Windows:     src-tauri/target/release/bundle/nsis/Dial8_<version>_x64-setup.exe
 ```
 
 ## Windows
 
 This Mac can't build for Windows, so GitHub does (`.github/workflows/windows.yml`, `windows-latest`):
+
+Windows still installs under the product's earlier name, Dial8 (`src-tauri/tauri.windows.conf.json`
+overrides `productName` for Windows only). The installer finds an earlier install by its product
+name: under a new name it would install a second copy beside the old one, whose shortcuts would
+keep opening the old version. The name changes on Windows once the installer removes that earlier
+install first.
 
 - **Every PR and push to main:** `cargo check` + `cargo test` on Windows, plus the browser-exit crate's tests.
 - **A release:** `./release.sh --version X.Y.Z --notes "..."` runs it all on the Mac:
@@ -155,7 +161,7 @@ Azure Artifact Signing once its repository variables are set (`docs/WINDOWS_SIGN
 and for PR test builds, Windows shows SmartScreen's "Unknown publisher" (More info → Run anyway). Updates verify the minisign
 signature and the installer's own VERSIONINFO, then wait for the person's "Restart now" to run it
 (`src-tauri/src/app_update.rs`). The plan, and what works on Windows in each phase, is in
-`dial8-website/docs/plans/windows-desktop.md`.
+`web/docs/plans/windows-desktop.md`.
 
 ## Config Toggle: Dev vs Production
 
@@ -164,7 +170,7 @@ The only thing that changes between dev and prod is `frontendDist` in `src-tauri
 | Mode | `frontendDist` |
 |------|---------------|
 | Dev  | `http://localhost:3000` |
-| Prod | `https://dial8.ai` |
+| Prod | `https://nativeintelligence.dev` |
 
 `devUrl` is only used by `cargo tauri dev` and doesn't affect builds.
 
@@ -183,7 +189,8 @@ The only thing that changes between dev and prod is `frontendDist` in `src-tauri
 The following redirect URLs must be whitelisted in Supabase Dashboard → Authentication → URL Configuration → Redirect URLs:
 
 - `http://localhost:3000/auth/desktop-callback` (dev)
-- `https://dial8.ai/auth/desktop-callback` (prod)
+- `https://nativeintelligence.dev/auth/desktop-callback` (prod)
+- `https://dial8.ai/auth/desktop-callback` (prod, for builds that still load that address: keep it while that domain serves the app)
 
 ## Key Crates
 

@@ -1,7 +1,7 @@
 /**
  * The Mac body (contract C2, docs/plans/teammate-agent.md): what the shared
- * files of the one Dial8 agent become when it is built and launched with
- * DIAL8_AGENT_HOST=mac, beside the cloud body they stay for everyone else.
+ * files of the one Native Intelligence agent become when it is built and launched with
+ * NI_AGENT_HOST=mac, beside the cloud body they stay for everyone else.
  * Pins:
  *   - the harness (bash, read_file, write_file) is eve's own on the Mac and
  *     disabled in the cloud; read_file's description never promises images;
@@ -59,7 +59,7 @@ vi.mock('eve/context', () => ({
 }))
 
 const TOKEN = 'la1.mac-body-test-token'
-const ORIGIN = 'https://dial8.test'
+const ORIGIN = 'https://nativeintelligence.test'
 const RUN = 'mac-session:00000000-0000-4000-8000-000000000000'
 
 const SPEC = {
@@ -83,13 +83,13 @@ let dir: string
 let fetchMock: ReturnType<typeof vi.fn>
 
 function setMacEnv() {
-  process.env.DIAL8_AGENT_HOST = 'mac'
+  process.env.NI_AGENT_HOST = 'mac'
   process.env.LOCAL_AGENT_SESSION_TOKEN_FILE = join(dir, '.model-token')
   process.env.LOCAL_AGENT_API_ORIGIN = ORIGIN
   process.env.LOCAL_AGENT_MODE = 'edit'
 }
 function clearMacEnv() {
-  for (const k of ['DIAL8_AGENT_HOST', 'LOCAL_AGENT_SESSION_TOKEN_FILE', 'LOCAL_AGENT_API_ORIGIN', 'LOCAL_AGENT_MODE']) delete process.env[k]
+  for (const k of ['NI_AGENT_HOST', 'LOCAL_AGENT_SESSION_TOKEN_FILE', 'LOCAL_AGENT_API_ORIGIN', 'LOCAL_AGENT_MODE']) delete process.env[k]
 }
 const LOCAL_MODEL_VARS = ['LOCAL_AGENT_LOCAL_MODEL_BASE_URL', 'LOCAL_AGENT_LOCAL_MODEL_ID', 'LOCAL_AGENT_LOCAL_MODEL_SERVER'] as const
 /** lib/mac-model.ts's step.started resolver, as eve calls it. */
@@ -314,7 +314,7 @@ describe('agent.ts on the Mac', () => {
     const tokenFile = join(dir, '.model-token')
     const claims = (extra: object) => Buffer.from(JSON.stringify({ sid: 's1', uid: 'u1', wid: 'w1', exp: 9_999_999_999, ...extra })).toString('base64url')
     const saved = { base: process.env.LOCAL_AGENT_MODEL_BASE_URL, file: process.env.LOCAL_AGENT_MODEL_TOKEN_FILE }
-    process.env.LOCAL_AGENT_MODEL_BASE_URL = 'https://dial8.ai/api/local-agent/model'
+    process.env.LOCAL_AGENT_MODEL_BASE_URL = 'https://nativeintelligence.dev/api/local-agent/model'
     process.env.LOCAL_AGENT_MODEL_TOKEN_FILE = tokenFile
     try {
       writeFileSync(tokenFile, `la1.${claims({ cp: true })}.bWFjLW5vdC1jaGVja2VkLWhlcmU`)
@@ -605,7 +605,7 @@ describe('ask_user, the persona and the person’s words on the Mac', () => {
     const without = await persona.events['turn.started']({}, { session: { auth: auth('mac-session:another') } })
     expect(without.content.startsWith('## You are on the person\'s Mac')).toBe(true)
     expect(without.content).not.toContain('message_teammate')
-    expect(without.content).toContain('no Dial8 tools')
+    expect(without.content).toContain('no Native Intelligence tools')
   })
 
   it('only [From <name>] messages after the request are kept as the person’s words', async () => {

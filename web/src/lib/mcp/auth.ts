@@ -1,5 +1,7 @@
 import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
+import { appHost } from '@/lib/app-url'
+import { mcpBaseUrl } from '@/lib/mcp/base-url'
 
 /**
  * Hash a token (access token, refresh token, auth code) for storage.
@@ -47,7 +49,7 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 }> {
   const authHeader = request.headers.get('authorization') || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = mcpBaseUrl(request, process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000')
 
   if (!token) {
     throw new Response(
@@ -130,7 +132,7 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 
   if (!workspaceId) {
     throw new Response(
-      JSON.stringify({ error: 'no_workspace', error_description: 'User has no workspace. Create one at dial8.ai.' }),
+      JSON.stringify({ error: 'no_workspace', error_description: `User has no workspace. Create one at ${appHost()}.` }),
       { status: 403, headers: { 'Content-Type': 'application/json' } },
     )
   }
@@ -146,7 +148,7 @@ export async function authenticateMcpRequest(request: Request): Promise<{
 
 /**
  * Update the active workspace for an OAuth token.
- * Called by the dial8_set_workspace tool.
+ * Called by the ni_set_workspace tool.
  */
 export async function setActiveWorkspace(accessTokenHash: string, workspaceId: string): Promise<void> {
   const serviceClient = getServiceClient()
@@ -154,7 +156,7 @@ export async function setActiveWorkspace(accessTokenHash: string, workspaceId: s
     .from('mcp_oauth_token')
     .update({ active_workspace_id: workspaceId })
     .eq('access_token_hash', accessTokenHash)
-  // Throw on a real write failure so the caller (dial8_set_workspace) can report
+  // Throw on a real write failure so the caller (ni_set_workspace) can report
   // it instead of returning a false success.
   if (error) {
     throw new Error(`Failed to persist active workspace: ${error.message}`)

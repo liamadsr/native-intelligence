@@ -49,30 +49,30 @@ const req = (url: string, method: string, body: unknown) => buildRequest({ url, 
 describe('document routes never write a meeting-prep stamp from the client', () => {
   it('POST /documents: an incoming stamp is dropped', async () => {
     const { POST } = await import('../route')
-    await POST(req('https://dial8.ai/api/account/documents', 'POST', { title: 'Prep — Acme', frontmatter: { area: 'x', meeting_prep: FORGED } }))
+    await POST(req('https://nativeintelligence.dev/api/account/documents', 'POST', { title: 'Prep — Acme', frontmatter: { area: 'x', meeting_prep: FORGED } }))
     expect(write('document', 'insert').frontmatter).toEqual({ area: 'x' })
   })
 
   it('POST /documents: nor a Now file’s stamp (migration 440)', async () => {
     const { POST } = await import('../route')
-    await POST(req('https://dial8.ai/api/account/documents', 'POST', { title: 'Now', frontmatter: { area: 'x', now: { tracks: [] } } }))
+    await POST(req('https://nativeintelligence.dev/api/account/documents', 'POST', { title: 'Now', frontmatter: { area: 'x', now: { tracks: [] } } }))
     expect(write('document', 'insert').frontmatter).toEqual({ area: 'x' })
   })
 
   it('GET /documents: the person’s Now file is in no list unless a kind is asked for (and none admits it)', async () => {
     const { GET } = await import('../route')
     const { NextRequest } = await import('next/server')
-    await GET(new NextRequest('https://dial8.ai/api/account/documents'))
+    await GET(new NextRequest('https://nativeintelligence.dev/api/account/documents'))
     const list = env.fake!.log.filter((q) => q.table === 'document' && q.op === 'select').at(-1) as unknown as { filters: unknown[][] }
     expect(list.filters).toContainEqual(['neq', 'kind', 'now'])
-    await GET(new NextRequest('https://dial8.ai/api/account/documents?kind=doc,now'))
+    await GET(new NextRequest('https://nativeintelligence.dev/api/account/documents?kind=doc,now'))
     const asked = env.fake!.log.filter((q) => q.table === 'document' && q.op === 'select').at(-1) as unknown as { filters: unknown[][] }
     expect(asked.filters).toContainEqual(['in', 'kind', ['doc']])
   })
 
   it('PUT /documents/[id]/draft: a draft never carries one', async () => {
     const { PUT } = await import('../[id]/draft/route')
-    await PUT(req(`https://dial8.ai/api/account/documents/${DOC}/draft`, 'PUT', { frontmatter: { area: 'x', meeting_prep: FORGED } }), { params: Promise.resolve({ id: DOC }) })
+    await PUT(req(`https://nativeintelligence.dev/api/account/documents/${DOC}/draft`, 'PUT', { frontmatter: { area: 'x', meeting_prep: FORGED } }), { params: Promise.resolve({ id: DOC }) })
     expect(write('document_draft', 'upsert').frontmatter).toEqual({ area: 'x' })
   })
 
@@ -80,7 +80,7 @@ describe('document routes never write a meeting-prep stamp from the client', () 
     env.stored = { meeting_prep: REAL }
     env.draft = { title: 'T2', content: 'c2', content_json: null, frontmatter: { area: 'y', meeting_prep: FORGED }, tags: null, base_revision: 1 }
     const { POST } = await import('../[id]/publish/route')
-    await POST(req(`https://dial8.ai/api/account/documents/${DOC}/publish`, 'POST', {}), { params: Promise.resolve({ id: DOC }) })
+    await POST(req(`https://nativeintelligence.dev/api/account/documents/${DOC}/publish`, 'POST', {}), { params: Promise.resolve({ id: DOC }) })
     expect(write('document', 'update').frontmatter).toEqual({ area: 'y', meeting_prep: REAL })
   })
 })

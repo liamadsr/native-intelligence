@@ -7,11 +7,11 @@
  * /eve/chat-agent/v1/*. The route's body is gone.
  *
  * The path answers 410 instead of falling through to Next's 404 HTML page
- * because one known client outside this repo still POSTs here: the dial8-app
+ * because one known client outside this repo still POSTs here: the iOS app
  * macOS/iOS AIBackendService. It gets a parseable `{ error, code }` body it can
  * surface, rather than an HTML page its JSON decoder chokes on. This file is
  * not a compatibility layer: it runs no model, reads no session and touches no
- * data. Delete it once the dial8-app client has moved to the eve session flow.
+ * data. Delete it once the iOS client has moved to the eve session flow.
  */
 import { apiError } from '@/lib/api-errors'
 

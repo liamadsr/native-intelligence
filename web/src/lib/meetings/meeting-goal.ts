@@ -307,7 +307,7 @@ export async function findUpcomingMeetingGoalForEvent(
 // ── A goal changed on this page (the live HUD's Briefing line re-reads) ──────
 
 /** Window event: a meeting's goal was saved or cleared from this page (the prep card's composer, set_meeting_goal's result, the live HUD's goal line). */
-export const MEETING_GOAL_CHANGED_EVENT = 'dial8:meeting-goal-changed'
+export const MEETING_GOAL_CHANGED_EVENT = 'ni:meeting-goal-changed'
 
 export interface MeetingGoalChangedDetail {
   calendarEventId: string

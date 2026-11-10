@@ -1,6 +1,6 @@
 //
 //  ChatDictationService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Push-to-talk dictation for the chat composer.
 //

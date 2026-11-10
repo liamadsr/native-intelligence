@@ -23,6 +23,7 @@ import {
 } from '@/components/capture/proposal-node-context'
 import type { ProposedChange } from '@/lib/proposed-changes/types'
 import type { ProposalChangeRef } from '@/app/account/(dashboard)/views/note-editor'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * Identity passed from the server into the shared view. Narrower than the
@@ -140,11 +141,11 @@ export function SharedViewClient({
         {/* Header */}
         <header className="border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
           <div className="mx-auto flex h-12 items-center justify-between px-4 max-w-3xl">
-            <a href="https://dial8.ai" className="text-sm font-semibold">
-              Dial8
+            <a href={appUrl()} className="text-sm font-semibold">
+              Native Intelligence
             </a>
             <a
-              href="https://dial8.ai"
+              href={appUrl()}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Try it free

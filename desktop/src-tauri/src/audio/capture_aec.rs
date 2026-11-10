@@ -1,4 +1,4 @@
-//! Echo cancellation in meeting captures (dial8-website/docs/plans/chat-voice.md
+//! Echo cancellation in meeting captures (web/docs/plans/chat-voice.md
 //! §3.5, work package W3).
 //!
 //! On laptop speakers the other participants' voices come back into the mic

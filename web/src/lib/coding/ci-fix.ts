@@ -1,5 +1,5 @@
 /**
- * The CI fix loop on Dial8's own pull requests (P10; eve-templates-lessons.md
+ * The CI fix loop on Native Intelligence's own pull requests (P10; eve-templates-lessons.md
  * F7, Foreman's "red CI on its own PR").
  *
  * The GitHub webhook (src/app/api/webhooks/github/route.ts, signature checked
@@ -52,7 +52,7 @@ type TellHome = typeof appendHomeMessage
 import { boundCiFailure, ciFixBranch, type CiCheck, type CiFailure } from './ci-fix-task'
 
 /** The prefix every coding run's branch has (spec-rebuild.ts branchNameFor). */
-export const DIAL8_BRANCH_PREFIX = 'dial8/'
+export const NI_BRANCH_PREFIX = 'dial8/'
 /** Fix runs per PR before the starter is told CI is still red. */
 export const MAX_CI_FIX_RUNS = 2
 /** Conclusions that mean the check failed. Cancelled, neutral, skipped, stale and action_required are not a failure to fix. */
@@ -214,7 +214,7 @@ export function prNumberOf(prUrl: string, repoFullName: string): number | null {
 
 /**
  * GitHub's view of the PR: open, from this repo (not a fork), at this head,
- * and the repo private (decision 2: Dial8 never pushes agent work into a
+ * and the repo private (decision 2: Native Intelligence never pushes agent work into a
  * public repo on its own). Null when it is ours; else why not.
  */
 async function prIsOurs(args: { repoFullName: string; prUrl: string; headSha: string; token: string; fetchImpl: typeof fetch }): Promise<string | null> {
@@ -277,7 +277,7 @@ export async function handleCiFailure(
   deps: { fetchImpl?: typeof fetch; send?: (event: { name: string; data: Record<string, unknown> }) => Promise<unknown>; newId?: () => string; tellHome?: TellHome } = {},
 ): Promise<CiFixOutcome> {
   const fetchImpl = deps.fetchImpl ?? fetch
-  if (!ev.branch.startsWith(DIAL8_BRANCH_PREFIX)) return ignored('not_a_dial8_branch')
+  if (!ev.branch.startsWith(NI_BRANCH_PREFIX)) return ignored('not_a_dial8_branch')
   if (!ev.app || !trustedCheckApps().has(ev.app)) return ignored('check_app_not_trusted')
 
   // The run that created this branch and opened its PR.
@@ -408,7 +408,7 @@ function checkName(name: string): string {
  * The notice: "CI is still red on ENG-42", once per PR (the claim reports
  * once; the message id is the run's too), as the agent's message in the
  * run starter's home thread (P13: a notice is a chat message, never a For
- * you card). Dial8's own words around the action's identifier, the checks'
+ * you card). Native Intelligence's own words around the action's identifier, the checks'
  * names and the PR link (a github.com pull request, or none).
  */
 async function reportStillRed(

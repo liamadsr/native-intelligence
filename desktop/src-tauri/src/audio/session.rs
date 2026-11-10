@@ -312,7 +312,7 @@ impl RecordingSession {
         // serialization + IPC into the WebView) can stall past the IO
         // deadline, which makes CoreAudio restart the device IO: a ~1s hole
         // in our own capture and an audible dropout for every other app
-        // sharing the input device (observed live: Dial8's and Zoom's input
+        // sharing the input device (observed live: Native Intelligence's and Zoom's input
         // streams blipping together during captures). The callback must only
         // copy the chunk into a channel; a dedicated thread converts and
         // emits.
@@ -723,7 +723,7 @@ impl RecordingSession {
 
                     // Mic diagnostics breadcrumb, mirroring the system-audio
                     // `rms=` line: the level plus how old the newest frame is,
-                    // so a dead-mic report is diagnosable from dial8-debug.log
+                    // so a dead-mic report is diagnosable from native-intelligence-debug.log
                     // alone. The level only updates while recording and
                     // unpaused — the marker says when it is a held value.
                     if last_mic_diag.elapsed().as_secs() >= MIC_DIAG_LOG_SECS {

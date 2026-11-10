@@ -150,7 +150,7 @@ import {
  *  save costs one refetch. */
 function refreshEntries() {
   window.dispatchEvent(
-    new CustomEvent('dial8:entity-created', { detail: { entityType: 'prospect_list_entry' } }),
+    new CustomEvent('ni:entity-created', { detail: { entityType: 'prospect_list_entry' } }),
   )
 }
 

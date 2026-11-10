@@ -155,7 +155,7 @@ const ctx = {
     to_status_id: null,
     fired_at: '2026-07-08T00:00:00.000Z',
   },
-  appBaseUrl: 'https://dial8.ai',
+  appBaseUrl: 'https://nativeintelligence.dev',
   capture: null,
 }
 
@@ -361,7 +361,7 @@ describe('runSpecViaEve wiring', () => {
       flowRunId: null,
       captureTitle: null,
       actionId: 'a1',
-      appBaseUrl: 'https://dial8.ai',
+      appBaseUrl: 'https://nativeintelligence.dev',
       hasCapture: false,
       timeoutMs: 120_000,
       startedAt: Date.now(),

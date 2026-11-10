@@ -111,10 +111,10 @@ vi.mock('@/lib/supabase/service', () => ({ getServiceClient: () => ({ from }) })
 import { resolveDeviceTokenSession } from '../auth'
 import { resolveDeviceToken } from '@/lib/device-tokens'
 
-const LIVE = 'd8d_live-with-workspace'
-const NO_WS = 'd8d_live-no-active-workspace'
-const EXPIRED = 'd8d_expired'
-const UNKNOWN = 'd8d_unknown'
+const LIVE = 'nid_live-with-workspace'
+const NO_WS = 'nid_live-no-active-workspace'
+const EXPIRED = 'nid_expired'
+const UNKNOWN = 'nid_unknown'
 
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'

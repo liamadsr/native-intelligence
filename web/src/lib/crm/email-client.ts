@@ -739,7 +739,7 @@ export async function sendEmail(
     throw err
   }
 
-  // From a Dial8 draft: sent, so the draft row goes, and its hold (the
+  // From a Native Intelligence draft: sent, so the draft row goes, and its hold (the
   // thread's copy) with it. Sending is the human verb on the draft: the work
   // item that produced it stops waiting (ACTIVITY-AND-REVIEW §4.3).
   if (params.draft_id) {
@@ -803,7 +803,7 @@ export function emailInteractionTitle(contactName: string | null | undefined): s
 
 /**
  * An `email_sent` interaction on the timeline of each recipient who is a
- * contact in the workspace, for mail sent from Dial8 (`sendEmail`, and a
+ * contact in the workspace, for mail sent from Native Intelligence (`sendEmail`, and a
  * draft sent from Mail's thread view). The row is readable by the whole
  * workspace, so it carries a template title ("Email to Dana") and a pointer
  * to the thread, never the subject.

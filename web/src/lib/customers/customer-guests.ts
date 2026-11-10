@@ -10,7 +10,7 @@
  * texted from it: that is the binding), owned by the number's owner, scoped
  * to the number (business_number_id), one per business and phone
  * (agent_guest_customer_phone_key). It is never in the People tab and never
- * reached through the Dial8 number (store.ts leaves preset 'customer' out).
+ * reached through the Native Intelligence number (store.ts leaves preset 'customer' out).
  *
  * Server only; service role.
  */

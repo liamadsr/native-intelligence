@@ -7,7 +7,7 @@
 /// navigated to a third-party site (verified: an `http://127.0.0.1` page in the
 /// main window could invoke `system_info`). Declaring the commands
 /// here makes tauri require an explicit `allow-<command>` grant, which
-/// `capabilities/default.json` gives ONLY to the Dial8 origins in its `remote`
+/// `capabilities/default.json` gives ONLY to the Native Intelligence origins in its `remote`
 /// allowlist. A page on any other origin is then refused ("Command <x> not
 /// allowed by ACL").
 ///

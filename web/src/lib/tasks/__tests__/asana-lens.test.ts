@@ -153,7 +153,7 @@ describe('asanaLensFields', () => {
 
   /**
    * Asana has NO native priority field — it exists only as a per-project enum
-   * custom field Dial8 has no schema knowledge of. Always null, never a guess.
+   * custom field Native Intelligence has no schema knowledge of. Always null, never a guess.
    */
   it('ALWAYS reports priority as null', () => {
     expect(asanaLensFields(task()).priority).toBeNull()

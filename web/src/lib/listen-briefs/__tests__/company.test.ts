@@ -182,7 +182,7 @@ describe('companyWords', () => {
   })
 
   it("the user's own company: says so, leaves out who you know and when you met, and counts only a teammate's mail", () => {
-    const dial8 = (threads: CompanyEmailThread[]) =>
+    const ownCompany = (threads: CompanyEmailThread[]) =>
       words(
         account(
           {
@@ -202,25 +202,25 @@ describe('companyWords', () => {
             // The user's own address is one of the company's, so every thread of theirs matches.
             recent_email_threads: threads,
           },
-          { name: 'Dial8', industry: 'Software', description: 'Meetings, projects and CRM in one workspace.' },
+          { name: 'Native Intelligence', industry: 'Software', description: 'Meetings, projects and CRM in one workspace.' },
         ),
         { is_workspace_company: true, metadata: null },
         new Set(['act-mine']),
       )
 
     const quote = thread({ id: 't-out', subject: 'Quote for 40 seats', from_email: 'buyer@bigco.com' })
-    expect(dial8([thread({ id: 't-sam', subject: 'Launch plan', from_email: 'sam@dial8.ai' }), quote])).toEqual([
-      'Dial8, your own company.',
+    expect(ownCompany([thread({ id: 't-sam', subject: 'Launch plan', from_email: 'sam@dial8.ai' }), quote])).toEqual([
+      'Native Intelligence, your own company.',
       'Meetings, projects and CRM in one workspace.',
       'Two actions are open with people there, one of them yours.',
       'Ship the listen briefs, assigned to you.',
       'Review the PR, assigned to Sam Lee.',
       "Sam Lee's email about Launch plan is waiting on your reply.",
     ])
-    expect(dial8([thread({ from_email: 'sam@dial8.ai' }), quote, thread({ from_email: 'ana@dial8.ai' })]).at(-1)).toBe(
+    expect(ownCompany([thread({ from_email: 'sam@dial8.ai' }), quote, thread({ from_email: 'ana@dial8.ai' })]).at(-1)).toBe(
       'Two emails from your teammates are waiting on your reply.',
     )
-    expect(dial8([quote]).at(-1)).toBe('Review the PR, assigned to Sam Lee.')
+    expect(ownCompany([quote]).at(-1)).toBe('Review the PR, assigned to Sam Lee.')
   })
 
   it('says how much of what is open is yours, and "at least" at the most the gatherer reads', () => {

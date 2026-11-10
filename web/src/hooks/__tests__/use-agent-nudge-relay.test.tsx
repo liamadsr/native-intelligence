@@ -296,7 +296,7 @@ describe('useAgentNudgeRelay — channel resubscribe on failure', () => {
 })
 
 // The HUD holds Voice ID during a live capture (and the transcript and tool
-// calls are to follow), so it is up for the WHOLE call, not only while Dial8
+// calls are to follow), so it is up for the WHOLE call, not only while Native Intelligence
 // is in the background.
 describe('useAgentNudgeRelay — the HUD is up for the whole live call', () => {
   it('opens the HUD as the capture starts, keeps it through focus changes, and closes it at the end', async () => {
@@ -307,7 +307,7 @@ describe('useAgentNudgeRelay — the HUD is up for the whole live call', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(tauriBridge.showAgentHud).toHaveBeenCalledTimes(1)
 
-    // In and out of Dial8: nothing hides it.
+    // In and out of Native Intelligence: nothing hides it.
     await act(async () => {
       window.dispatchEvent(new Event('blur'))
       window.dispatchEvent(new Event('focus'))

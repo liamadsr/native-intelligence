@@ -1,7 +1,7 @@
 /**
  * Read anywhere reads in the read-aloud voice (Liam, 2026-10-22: no second
  * voice picker). The desktop keeps Read anywhere's voice in its own store
- * (dial8-desktop read_selection.rs: the shortcut works with no Dial8 page
+ * (desktop read_selection.rs: the shortcut works with no Native Intelligence page
  * open), so the web hands it the read-aloud voice: when the person picks one
  * on Settings → Voice, when that page shows Read anywhere, and once per
  * launch (components/desktop/desktop-setup-mount.tsx).

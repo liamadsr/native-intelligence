@@ -2,7 +2,7 @@
  * One phone, two agents (founder decision, 2026-11-01: "the text would just go
  * to and come from different numbers"): a text to a person about a workspace comes from
  * that workspace's own business number when they are one of its people, else
- * the Dial8 one (textPerson, src/lib/sms/workspace-line.ts), so their reply
+ * the Native Intelligence one (textPerson, src/lib/sms/workspace-line.ts), so their reply
  * to it reaches that workspace's agent (src/lib/sms/inbound.ts).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,27 +43,27 @@ describe('a text about a workspace', () => {
     expect(tables.sms_message).toEqual([expect.objectContaining({ direction: 'out', kind: 'away', user_id: OWNER, phone_e164: PHONE })])
   })
 
-  it('comes from the Dial8 number when the workspace has none', async () => {
+  it('comes from the Native Intelligence number when the workspace has none', async () => {
     const send = sent()
     await textPerson(db, { userId: OWNER, workspaceId: 'ws-home', body: 'Your 3pm moved to 4.', kind: 'away' }, { send })
     expect(send).toHaveBeenCalledWith(PHONE, 'Your 3pm moved to 4.')
   })
 
-  it("comes from the Dial8 number for someone who isn't one of its people (their reply there would make them its customer)", async () => {
+  it("comes from the Native Intelligence number for someone who isn't one of its people (their reply there would make them its customer)", async () => {
     tables.member = tables.member.filter((m) => m.workspace_id !== 'ws-rug')
     const send = sent()
     await textPerson(db, { userId: OWNER, workspaceId: 'ws-rug', body: 'Sarah paid $600.', kind: 'notice' }, { send })
     expect(send).toHaveBeenCalledWith(PHONE, 'Sarah paid $600.')
   })
 
-  it('a released business number is the Dial8 one again', async () => {
+  it('a released business number is the Native Intelligence one again', async () => {
     tables.business_phone_number[0].state = 'released'
     const send = sent()
     await textPerson(db, { userId: OWNER, workspaceId: 'ws-rug', body: 'hi', kind: 'notice' }, { send })
     expect(send).toHaveBeenCalledWith(PHONE, 'hi')
   })
 
-  it('a failed number read still texts, from the Dial8 number', async () => {
+  it('a failed number read still texts, from the Native Intelligence number', async () => {
     const failing = {
       from: (table: string) =>
         table === 'business_phone_number'
@@ -95,7 +95,7 @@ describe('a text about a workspace', () => {
     expect(next).not.toHaveBeenCalled()
   })
 
-  it('a 21610 from the Dial8 number still opts the phone out, as before', async () => {
+  it('a 21610 from the Native Intelligence number still opts the phone out, as before', async () => {
     const send = vi.fn(async () => ({ ok: false as const, reason: 'unsubscribed' as const, code: 21610, status: 400 }))
     await textPerson(db, { userId: OWNER, workspaceId: 'ws-home', body: 'hi', kind: 'notice' }, { send })
     expect(tables.user_phone[0].opted_out_at).not.toBeNull()
@@ -117,10 +117,10 @@ describe('phoneServesWorkspace (connect links and their confirmations)', () => {
 
 /**
  * One phone, two separate accounts (migration 464): account A (their own) holds
- * the phone on the Dial8 line; account B (Bright Loom's own account, its own
+ * the phone on the Native Intelligence line; account B (Bright Loom's own account, its own
  * workspace, A not a member) holds it on its business line. B is texted only
  * from the business's number; with none, nothing goes ('no_line'), since a
- * reply to the Dial8 number would reach A.
+ * reply to the Native Intelligence number would reach A.
  */
 describe('one phone, two accounts: who texts from which number', () => {
   const B = 'user-b'
@@ -147,13 +147,13 @@ describe('one phone, two accounts: who texts from which number', () => {
     expect(tables.sms_message).toEqual([expect.objectContaining({ direction: 'out', kind: 'needs_you', user_id: B })])
   })
 
-  it('account A hears from the Dial8 number, as before', async () => {
+  it('account A hears from the Native Intelligence number, as before', async () => {
     const send = sent()
     expect(await textPerson(db, { userId: OWNER, workspaceId: 'ws-home', body: 'Your 3pm moved to 4.', kind: 'away' }, { send })).toEqual({ sent: true, sid: 'SMout' })
     expect(send).toHaveBeenCalledWith(PHONE, 'Your 3pm moved to 4.')
   })
 
-  it("account B hears nothing while the business has no live number ('no_line'): never from the Dial8 number", async () => {
+  it("account B hears nothing while the business has no live number ('no_line'): never from the Native Intelligence number", async () => {
     tables.business_phone_number[0].state = 'released'
     const send = sent()
     expect(await textPerson(db, { userId: B, workspaceId: 'ws-rug', body: 'hi', kind: 'notice' }, { send })).toEqual({ sent: false, reason: 'no_line' })
@@ -166,19 +166,19 @@ describe('one phone, two accounts: who texts from which number', () => {
     expect(send).not.toHaveBeenCalled()
   })
 
-  it("a 21610 from the business's number opts out only B's business line (the row it texted), never A's Dial8 line", async () => {
+  it("a 21610 from the business's number opts out only B's business line (the row it texted), never A's Native Intelligence line", async () => {
     const send = vi.fn(async () => ({ ok: false as const, reason: 'unsubscribed' as const, code: 21610, status: 400 }))
     expect(await textPerson(db, { userId: B, workspaceId: 'ws-rug', body: 'hi', kind: 'notice' }, { send })).toEqual({ sent: false, reason: 'unsubscribed' })
     expect(tables.user_phone.map((r) => [r.id, r.opted_out_at !== null])).toEqual([['p-a', false], ['p-b', true]])
   })
 
-  it("a 21610 from the Dial8 number opts out only A's Dial8 line", async () => {
+  it("a 21610 from the Native Intelligence number opts out only A's Native Intelligence line", async () => {
     const send = vi.fn(async () => ({ ok: false as const, reason: 'unsubscribed' as const, code: 21610, status: 400 }))
     await textPerson(db, { userId: OWNER, workspaceId: 'ws-home', body: 'hi', kind: 'notice' }, { send })
     expect(tables.user_phone.map((r) => [r.id, r.opted_out_at !== null])).toEqual([['p-a', true], ['p-b', false]])
   })
 
-  it("a Dial8-line member whose phone also carries another member's business line is texted from the Dial8 number: a reply to the business's number would reach that other person", async () => {
+  it("an NI-line member whose phone also carries another member's business line is texted from the Native Intelligence number: a reply to the business's number would reach that other person", async () => {
     tables.member.push({ id: 'm-3', user_id: OWNER, workspace_id: 'ws-rug', role: 'member' })
     const send = sent()
     await textPerson(db, { userId: OWNER, workspaceId: 'ws-rug', body: 'Sarah paid $600.', kind: 'notice' }, { send })
@@ -198,12 +198,12 @@ describe('one phone, two accounts: who texts from which number', () => {
     tables.business_phone_number = []
     expect(await sendingLine(db, b, 'ws-rug')).toBe('no_line')
     expect(await phoneServesWorkspace(db, b, 'ws-rug')).toBe(false)
-    // A Dial8 line with no business number is texted from the Dial8 number.
+    // A Native Intelligence line with no business number is texted from the Native Intelligence number.
     expect(await sendingLine(db, { userId: OWNER, phone: PHONE, line: 'dial8' }, 'ws-home')).toBeNull()
   })
 })
 
-describe("with the agent's own number (#1024): a business number first, then theirs, then Dial8's", () => {
+describe("with the agent's own number (#1024): a business number first, then theirs, then Native Intelligence's", () => {
   const AGENT = '+19285550111'
 
   it("a text about a business comes from its number even when their agent has its own", async () => {
@@ -227,7 +227,7 @@ describe("with the agent's own number (#1024): a business number first, then the
     expect(send).toHaveBeenCalledWith(PHONE, 'Your agent has its own number now.', { sender: AGENT })
   })
 
-  it("workspaceId null with no agent number: the Dial8 number; to a business-line phone: nothing ('no_line')", async () => {
+  it("workspaceId null with no agent number: the Native Intelligence number; to a business-line phone: nothing ('no_line')", async () => {
     const send = sent()
     await textPerson(db, { userId: OWNER, workspaceId: null, body: 'hi', kind: 'notice' }, { send })
     expect(send).toHaveBeenCalledWith(PHONE, 'hi')

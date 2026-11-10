@@ -3,10 +3,10 @@
 /**
  * The far-left mark on an action row: WHOSE item is this?
  *
- * An action is a Dial8 item by default, and stays one until somebody sends it
+ * An action is a Native Intelligence item by default, and stays one until somebody sends it
  * somewhere. That sentence is the whole component:
  *
- *   no links  → the Dial8 mark. Not a placeholder and not an empty state — it
+ *   no links  → the Native Intelligence mark. Not a placeholder and not an empty state — it
  *               is the true answer, and it is what makes the icon a stable
  *               column rather than a thing that appears once you push.
  *   one link  → that provider's own brand mark, so a glance down a list reads
@@ -38,19 +38,17 @@ import { AsanaIcon, JiraIcon, LinearIcon } from '@/components/brand-icons'
 import { cn } from '@/lib/utils'
 
 /**
- * THE DIAL8 MARK — the app icon, not the marketing glyph.
+ * THE NI MARK — the app icon, painted as a mask.
  *
  * `Mark` from `@/components/logo` is the constellation-of-dots used on the
- * marketing site. The mark that means "this is a Dial8 item" is the one the
+ * marketing site. The mark that means "this is a Native Intelligence item" is the one the
  * product wears: `public/icon.png`, the same file `src/app/layout.tsx` serves as
  * the favicon and the apple-touch icon. Sitting in a row beside the Jira, Asana
  * and Linear brand marks, the icon has to be the one a user recognises from the
  * tab strip and the dock — anything else reads as a fourth vendor.
  *
  * IT IS A MASK, NOT AN <img>. The PNG is solid black with a transparent ground
- * and there is no SVG source of this artwork anywhere in the repo (checked
- * `public/` and `src/` — the only Dial8 vector is the marketing Mark, a
- * different shape). A raw <img> would therefore be invisible against a dark
+ * (its vector source is `public/brand/ni-mark.svg`). A raw <img> would be invisible against a dark
  * sidebar and unable to dim with the row. Painting `currentColor` THROUGH the
  * PNG's alpha channel gives an SVG's tinting behaviour from a raster source: it
  * inherits `text-*` like every sibling glyph, so one `text-muted-foreground/70`
@@ -60,7 +58,7 @@ import { cn } from '@/lib/utils'
  * unprefixed in every current engine, but WebKit still needs the prefixed
  * `-webkit-mask-*` and React will not infer one from the other.
  */
-const DIAL8_MARK_STYLE: React.CSSProperties = {
+const NI_MARK_STYLE: React.CSSProperties = {
   backgroundColor: 'currentColor',
   WebkitMaskImage: "url('/icon.png')",
   maskImage: "url('/icon.png')",
@@ -73,18 +71,18 @@ const DIAL8_MARK_STYLE: React.CSSProperties = {
 }
 
 /**
- * The Dial8 app mark, tinted by `currentColor`.
+ * The Native Intelligence app mark, tinted by `currentColor`.
  *
- * `data-dial8-mark` is the handle the tests assert through — the glyph is a
+ * `data-ni-mark` is the handle the tests assert through — the glyph is a
  * styled span rather than an identifiable element, and pinning the mask url in a
  * test would pin the asset path rather than the fact that the app mark is drawn.
  */
-export function Dial8Mark({ className }: { className?: string }) {
+export function NiMark({ className }: { className?: string }) {
   return (
     <span
       className={cn('inline-block shrink-0', className)}
-      style={DIAL8_MARK_STYLE}
-      data-dial8-mark=""
+      style={NI_MARK_STYLE}
+      data-ni-mark=""
       aria-hidden="true"
     />
   )
@@ -173,7 +171,7 @@ function distinctProviders(links: PlatformLink[]): string[] {
 
 /** The tooltip/aria sentence for a given set of providers. */
 export function platformIconLabel(providers: string[]): string {
-  if (providers.length === 0) return 'Dial8 action — send it to a task app'
+  if (providers.length === 0) return 'Native Intelligence action — send it to a task app'
   const names = providers.map(providerDisplayName)
   if (names.length === 1) return `In ${names[0]}`
   const last = names[names.length - 1]
@@ -182,7 +180,7 @@ export function platformIconLabel(providers: string[]): string {
 
 export interface ActionPlatformIconProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
-  /** This action's external links. Empty (or absent) = a Dial8-only action. */
+  /** This action's external links. Empty (or absent) = an NI-only action. */
   links?: PlatformLink[] | null
   /**
    * Is `links` the TRUTH, or has nobody asked yet?
@@ -190,7 +188,7 @@ export interface ActionPlatformIconProps
    * Defaults to true, which is what every surface that reads the row payload
    * means. Pass false when the link state is genuinely unknown — a compact menu
    * that defers its fetch to first open — and the mark hedges instead of
-   * claiming Dial8-only. The distinction matters because zero providers is an
+   * claiming NI-only. The distinction matters because zero providers is an
    * affirmative claim ("this is in no tracker"), and making it about an action
    * that may already be in Jira is the icon telling a lie at a glance.
    */
@@ -212,7 +210,7 @@ export interface ActionPlatformIconProps
   /** Mark size. 16px is the row default; the board card runs a touch smaller. */
   size?: 'sm' | 'md'
   /**
-   * Draw "Dial8"/the provider name and a chevron beside the mark.
+   * Draw "Native Intelligence"/the provider name and a chevron beside the mark.
    *
    * Off by default: the list and board rows put this in a fixed-width column
    * (see entity-row.tsx) so a growing label would misalign every row's title
@@ -247,8 +245,8 @@ export const ActionPlatformIcon = React.forwardRef<HTMLButtonElement, ActionPlat
     const providers = distinctProviders(links ?? [])
     // An unknown link state answers neither "which trackers" nor "none" — it
     // hedges. Visually it hedges the same way the zero-providers case does,
-    // toward the Dial8 mark: a compact row that has not been opened yet is far
-    // more often a Dial8-only action than one already sitting in a tracker, and
+    // toward the Native Intelligence mark: a compact row that has not been opened yet is far
+    // more often an NI-only action than one already sitting in a tracker, and
     // the alternative (a bare "..." glyph) read as decoration rather than as a
     // control with something behind it.
     const label = known ? platformIconLabel(providers) : 'Task app options'
@@ -257,12 +255,12 @@ export const ActionPlatformIcon = React.forwardRef<HTMLButtonElement, ActionPlat
 
     const shown = providers.slice(0, MAX_STACKED)
     const overflow = providers.length - shown.length
-    const isDial8Only = !known || providers.length === 0
+    const isNiOnly = !known || providers.length === 0
 
-    const glyph = isDial8Only ? (
+    const glyph = isNiOnly ? (
       // `text-*` rather than `fill-*`: the mark is a currentColor-filled MASK of
-      // the app icon, not an svg whose paths take a fill. See Dial8Mark.
-      <Dial8Mark className={cn(markSize, 'text-muted-foreground/70')} />
+      // the app icon, not an svg whose paths take a fill. See NiMark.
+      <NiMark className={cn(markSize, 'text-muted-foreground/70')} />
     ) : (
         <span className="flex items-center -space-x-1.5">
           {shown.map((provider) => (
@@ -280,11 +278,11 @@ export const ActionPlatformIcon = React.forwardRef<HTMLButtonElement, ActionPlat
         </span>
       )
 
-    // The text half of the label, when there's room to draw one: "Dial8" for
+    // The text half of the label, when there's room to draw one: "NI" (the short name) for
     // the unresolved/unlinked state, the single provider's name when there is
     // exactly one (a stack of 2+ has no one name to show and stays icon-only —
     // the overflow count already speaks for it).
-    const labelText = isDial8Only ? 'Dial8' : shown.length === 1 ? providerDisplayName(shown[0]) : null
+    const labelText = isNiOnly ? 'NI' : shown.length === 1 ? providerDisplayName(shown[0]) : null
     const showChevron = showLabel && labelText !== null
 
     if (!onOpen) {

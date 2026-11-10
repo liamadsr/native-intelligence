@@ -121,8 +121,8 @@ fn bundled_notices() -> Option<PathBuf> {
 }
 
 /// The notices file for the bundle whose main executable is `exe`
-/// (Dial8.app/Contents/MacOS/dial8-desktop →
-/// Dial8.app/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.txt).
+/// (Native Intelligence.app/Contents/MacOS/dial8-desktop →
+/// Native Intelligence.app/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.txt).
 fn notices_file(exe: &Path) -> Option<PathBuf> {
     let contents = exe.parent()?.parent()?;
     Some(contents.join(LICENSES_IN_CONTENTS).join(NOTICES_FILE))
@@ -191,9 +191,9 @@ mod tests {
     #[test]
     fn notices_file_is_in_the_bundle_resources() {
         assert_eq!(
-            notices_file(Path::new("/Applications/Dial8.app/Contents/MacOS/dial8-desktop")),
+            notices_file(Path::new("/Applications/Native Intelligence.app/Contents/MacOS/dial8-desktop")),
             Some(PathBuf::from(
-                "/Applications/Dial8.app/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.txt"
+                "/Applications/Native Intelligence.app/Contents/Resources/Licenses/THIRD_PARTY_NOTICES.txt"
             ))
         );
     }

@@ -4,14 +4,14 @@
  * turns the call into a `finish` event, and in an edit job the desktop
  * commits the worktree on it, outside the sandbox.
  *
- * A Mac host slot (contract C2): the Mac build adds it to the Dial8 agent as
+ * A Mac host slot (contract C2): the Mac build adds it to the Native Intelligence agent as
  * tools/finish.ts (scripts/local-agent/mac-body.sh); the cloud body has none.
  *
  * `pull_request` (C5): in an edit job, when the request asks for one, the call
  * asks the person on their Mac (a native prompt, launcher/prompts.ts) before
  * anything leaves it. The desktop commits as soon as this call is the only one
  * running, so the prompt names the commit; on yes it pushes that commit as the
- * person and opens the pull request (gh, or the server with their Dial8 GitHub
+ * person and opens the pull request (gh, or the server with their Native Intelligence GitHub
  * sign-in), and reports the link itself. The agent never sees a credential.
  */
 import { defineTool } from 'eve/tools'
@@ -33,7 +33,7 @@ export default defineTool({
     'Call it once the request is done. In a job that may change files, add pull_request only when the request asks for a pull request.',
   endsTurn: true,
   inputSchema: z.object({
-    summary: z.string().min(1).max(8000).describe('What you found or did, for the person and the Dial8 agent. In a job that changes files, its first line becomes the commit message.'),
+    summary: z.string().min(1).max(8000).describe('What you found or did, for the person and the Native Intelligence agent. In a job that changes files, its first line becomes the commit message.'),
     pull_request: z
       .object({
         title: z.string().min(1).max(256).describe('The pull request title.'),

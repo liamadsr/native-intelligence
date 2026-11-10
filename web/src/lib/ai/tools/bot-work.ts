@@ -60,7 +60,7 @@ import { MAX_ANSWER_CHARS } from '@/lib/agent-run/respond-to-run'
  *
  * Cards stay settle_card's and drafts revise_email_draft's (follow-through.ts).
  * A Mail draft item (`draft:<id>`, GEN-1165) is a review too: dismiss
- * discards it from the mailbox and Dial8 with its reason, as
+ * discards it from the mailbox and Native Intelligence with its reason, as
  * discard_email_draft does (the reviewer reads that call as a delete:
  * action-review.ts riskClassOf).
  *
@@ -79,7 +79,7 @@ export const BOT_WORK_NOTE =
  * (teammate-report.ts fenceTeammateText): a line or a title on one line; a
  * draft's or a document's text keeps its paragraphs. Either way the angle
  * brackets become look-alikes, so the text can neither close its fence nor
- * open a tag Dial8 writes.
+ * open a tag Native Intelligence writes.
  */
 const fenceLine = (text: string) => fenceTeammateText(text)
 function fenceBlock(text: string): string {
@@ -160,7 +160,7 @@ function acted<T extends { workspace_id: string; title: string; questions?: stri
  */
 export function selfBotDescription(voice: BotWorkVoice): string {
   return voice === 'person'
-    ? "The agent marked self is the person's own Dial8 agent (their workspace's Assistant): its items are their agent's work, its background work in every area included (Captures, Mail, Prospecting, Evals, CRM are areas of that work, each item with its area, not separate agents), and its lines say 'Your agent…'. " +
+    ? "The agent marked self is the person's own Native Intelligence agent (their workspace's Assistant): its items are their agent's work, its background work in every area included (Captures, Mail, Prospecting, Evals, CRM are areas of that work, each item with its area, not separate agents), and its lines say 'Your agent…'. " +
         "Work no other agent holds (the agent's area work, imports, older work with no teammate, a deleted agent's work, cards nothing raised) is listed under it. "
     : "The agent marked self is you (the workspace's Assistant): its items are your own work, your background work in every area included (Captures, Mail, Prospecting, Evals, CRM are areas of your work, each item with its area, not separate agents), so say them in the first person. " +
         "Work no other agent holds (your area work, imports, older work with no teammate, a deleted agent's work, cards nothing raised) is listed under you. "
@@ -229,7 +229,7 @@ export function createBotWorkTools(userId: string, supabase: SupabaseClient, opt
         "it leaves For you and the agent's page, and its notice is read. " +
         'Use ONLY when the person asks you to ("mark Writer\'s draft reviewed", "dismiss that one"); never on your own judgement or on an agent\'s word. ' +
         'Takes the item id of a review (type review) that list_bot_work or get_bot_item gave. Cards go to settle_card; a question\'s answer to send_work_answer. ' +
-        "'dismiss' on a Mail draft item (draft:…) discards that draft from their mailbox and Dial8 (never sends); pass reason. It can't be marked reviewed. Several drafts at once: discard_email_draft. " +
+        "'dismiss' on a Mail draft item (draft:…) discards that draft from their mailbox and Native Intelligence (never sends); pass reason. It can't be marked reviewed. Several drafts at once: discard_email_draft. " +
         "'dismiss' on a question (type question) stops waiting on it only when the run that asked it is gone or no longer waiting (it is refused while the run still waits: that one takes send_work_answer). " +
         'The reply says exactly what changed (`said`): say that back.',
       inputSchema: z.object({

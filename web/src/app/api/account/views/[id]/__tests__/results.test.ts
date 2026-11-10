@@ -62,7 +62,7 @@ const WS = 'ws-1'
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
 
 function req(): NextRequest {
-  const url = 'https://dial8.ai/api/account/views/view-1/results'
+  const url = 'https://nativeintelligence.dev/api/account/views/view-1/results'
   const r = buildRequest({ url, method: 'GET' }) as Request & { nextUrl: URL }
   r.nextUrl = new URL(url)
   return r as unknown as NextRequest

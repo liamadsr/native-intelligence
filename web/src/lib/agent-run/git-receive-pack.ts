@@ -86,8 +86,8 @@ export function parseReceivePackRequest(body: Uint8Array): ParsedReceivePack {
 /** Why one command may not go through, or null when it may. */
 export function refusalFor(cmd: ReceivePackCommand, allowedBranch: string): string | null {
   const allowedRef = `refs/heads/${allowedBranch}`
-  if (cmd.ref !== allowedRef) return `dial8: this run may only push its own branch ${allowedBranch}`
-  if (isZeroOid(cmd.newOid)) return `dial8: this run may not delete ${allowedBranch}`
+  if (cmd.ref !== allowedRef) return `Native Intelligence: this run may only push its own branch ${allowedBranch}`
+  if (isZeroOid(cmd.newOid)) return `Native Intelligence: this run may not delete ${allowedBranch}`
   return null
 }
 
@@ -104,7 +104,7 @@ export function judgeReceivePack(
   if (reasons.every((r) => r === null)) return { allowed: true }
   return {
     allowed: false,
-    rejections: commands.map((c, i) => ({ ref: c.ref, reason: reasons[i] ?? 'dial8: not pushed, another ref in this push was refused' })),
+    rejections: commands.map((c, i) => ({ ref: c.ref, reason: reasons[i] ?? 'Native Intelligence: not pushed, another ref in this push was refused' })),
   }
 }
 
@@ -152,7 +152,7 @@ export function rejectionReport(
   if (!sideband) return report
   const max = capabilities.includes('side-band-64k') ? 65515 : 995
   const parts: Uint8Array[] = [
-    pkt(concat([Uint8Array.of(2), enc.encode('dial8: a coding run can push only its own branch; nothing was pushed.\n')])),
+    pkt(concat([Uint8Array.of(2), enc.encode('Native Intelligence: a coding run can push only its own branch; nothing was pushed.\n')])),
   ]
   for (let i = 0; i < report.length; i += max) parts.push(pkt(concat([Uint8Array.of(1), report.subarray(i, i + max)])))
   parts.push(FLUSH)

@@ -41,7 +41,7 @@ int mic_permission_request(void) {
 }
 
 // Voice Isolation / Wide Spectrum make macOS reconfigure audio processing on
-// every device each time a Dial8 process starts CoreAudio (the 2026-09-28
+// every device each time a Native Intelligence process starts CoreAudio (the 2026-09-28
 // coreaudiod deadlock), and Voice Isolation strips other voices in the room
 // out of a meeting recording. An app can't change its own Mic Mode, only
 // read it and open the menu for the user.

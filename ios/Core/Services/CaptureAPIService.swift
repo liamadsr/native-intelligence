@@ -1,6 +1,6 @@
 //
 //  CaptureAPIService.swift
-//  dial8
+//  Native Intelligence
 //
 //  HTTP client for the website's capture pipeline (/api/account/captures/* and
 //  /api/ai/live-agent).
@@ -105,7 +105,7 @@ final class CaptureAPIService {
         #if DEBUG
         return "http://localhost:3000"
         #else
-        return "https://dial8.ai"
+        return "https://nativeintelligence.dev"
         #endif
     }
 

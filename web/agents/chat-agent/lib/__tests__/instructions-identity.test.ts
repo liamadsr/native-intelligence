@@ -1,9 +1,9 @@
 /**
  * The chat-agent's static instructions.md comes before every conversation's
  * own prompt, so its opening line about who the model is must defer to a
- * teammate chat's (bots v2). Live on DEV it read "You are Dial8's chat
+ * teammate chat's (bots v2). Live on DEV it read "You are Native Intelligence's chat
  * assistant, driving the user's main in-app chat." unconditionally, and a
- * teammate asked "Who are you?" answered as Dial8's chat assistant.
+ * teammate asked "Who are you?" answered as Native Intelligence's chat assistant.
  *
  * Pins: no unconditional identity line; the deferral rule names the heading
  * the teammate persona section really opens with (TEAMMATE_IDENTITY_HEADING),
@@ -24,13 +24,13 @@ const opening = instructions.slice(0, instructions.indexOf('\n\n')).replace(/\s+
 describe('chat-agent instructions.md: who the model is', () => {
   it('opens by making it depend on the conversation, not with an unconditional identity', () => {
     expect(opening.startsWith('Who you are depends on the conversation.')).toBe(true)
-    // The always-on framing, the same as the base prompt's opening (src/lib/ai/system-prompt.ts DIAL8_IDENTITY).
-    expect(opening).toContain("In the user's main in-app chat you are their always-on agent, under the name they gave you in Settings → Preferences (\"Assistant\" by default; Dial8 is the product):")
+    // The always-on framing, the same as the base prompt's opening (src/lib/ai/system-prompt.ts NI_IDENTITY).
+    expect(opening).toContain("In the user's main in-app chat you are their always-on agent, under the name they gave you in Settings → Preferences (\"Assistant\" by default; Native Intelligence is the product):")
     // No line anywhere states an identity on its own.
     expect(instructions.match(/^You are /gm)).toBeNull()
   })
 
-  it('defers to the teammate section: you ARE that teammate, by its name, never Dial8', () => {
+  it('defers to the teammate section: you ARE that teammate, by its name, never Native Intelligence', () => {
     expect(opening).toContain(`carries a \`${TEAMMATE_IDENTITY_HEADING}\` section naming that teammate`)
     // One agent (one-chat Slice 2): a teammate chat is its own window, never the main chat; a persona drives only a live call.
     expect(opening).toContain('the one main agent for them and their team, and no custom agent or other teammate takes your place there.')
@@ -39,7 +39,7 @@ describe('chat-agent instructions.md: who the model is', () => {
     expect(opening).toContain('On a live call, the call\'s own conversation runs as the live agent picked for that call')
     expect(opening).toContain('you ARE that teammate: use its name, speak in the first person as it')
     expect(opening).toContain('when asked who you are or what your name is, answer as it')
-    expect(opening).toContain('Never call yourself Assistant, Dial8 or their always-on agent there.')
+    expect(opening).toContain('Never call yourself Assistant, Native Intelligence or their always-on agent there.')
     expect(opening).not.toContain("chat assistant")
     expect(opening).toContain('That section wins over every other line about who you are')
   })

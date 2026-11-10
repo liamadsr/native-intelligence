@@ -1,7 +1,7 @@
 /**
- * Tripwire (no stored mail, Liam 2026-10-15): Dial8 keeps no copy of the
+ * Tripwire (no stored mail, Liam 2026-10-15): Native Intelligence keeps no copy of the
  * person's mail. The ONE exception is the holding pattern (email_hold,
- * migration 343): a thread Dial8 drafted a reply to, until the person sends
+ * migration 343): a thread Native Intelligence drafted a reply to, until the person sends
  * or dismisses the draft (src/lib/email/hold.ts).
  *
  * WHAT IS ENFORCED, per non-test source file under src/, agents/, scripts/,

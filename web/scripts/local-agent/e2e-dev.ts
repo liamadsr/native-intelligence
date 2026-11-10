@@ -24,7 +24,7 @@
  *      no dev key; ai_usage_logs gets feature local_agent).
  *   C4 a person steer through the person route lands mid-turn.
  *   C5 finish → waiting; the turn's tracked_job settles.
- *   C6 the report lands in the chat; the Dial8 agent's home turn runs (needs
+ *   C6 the report lands in the chat; the Native Intelligence agent's home turn runs (needs
  *      the Inngest dev server; SKIP without it).
  *   C7 the app is killed, relaunched; a person message resumes the same eve
  *      session on a new run and is answered.
@@ -84,7 +84,7 @@ const NEXT_LOG = resolve(arg('--next-log') ?? join(dirname(LOG_PATH), 'e2e-next.
 const PROD_REF = 'bzfthjzyzevjokbuhqci'
 const FIXTURE_EMAIL = 'local-agent-e2e@dial8-evals.test'
 const FIXTURE_NAME = 'Ada Fixture'
-const WORKSPACE_NAME = 'Dial8 Local Agent E2E (fixture)'
+const WORKSPACE_NAME = 'Native Intelligence Local Agent E2E (fixture)'
 const INNGEST_DEV = 'http://127.0.0.1:8288'
 
 /** Bugs found outside this script, by the checks they break (Part A's report). */
@@ -185,7 +185,7 @@ const READ_PROMPT =
 const STEER = 'Also count the lines in notes.txt (`wc -l notes.txt`) and include the number in your summary.'
 const FOLLOW_UP = 'Follow-up: how many lines does README.md have? Run `wc -l README.md`, then call finish with the number.'
 const EDIT_PROMPT =
-  'Now in the dial8-e2e-app folder (edits allowed), start a local agent in edit mode to make this change: in README.md change the line ' +
+  'Now in the ni-e2e-app folder (edits allowed), start a local agent in edit mode to make this change: in README.md change the line ' +
   '"It has a README, a source file and some notes." to "It has a README, a source file, some notes and a changelog.", and create CHANGELOG.md ' +
   'with a "# Changelog" heading and one bullet "- Added a changelog.". The first line of its finish summary is the commit message "Add a changelog".'
 const EDIT_REQUEST =
@@ -698,7 +698,7 @@ async function main(): Promise<number> {
         const stored = (await deviceEvents(B)).find((e) => e.kind === 'branch')
         return {
           editMode: row.mode === 'edit',
-          branchName: /^dial8\/dial8-e2e-app-[0-9a-f]{8}$/.test(branch),
+          branchName: /^dial8\/ni-e2e-app-[0-9a-f]{8}$/.test(branch),
           commitOnTheBranch: fx.hostGit(['-C', fx.gitRepo, 'rev-parse', branch]).trim() === row.commit_sha,
           commitHasTheChange: committed.includes('CHANGELOG.md') && committed.includes('README.md'),
           branchEventStored: !!stored && stored.seq === branchEv?.seq,

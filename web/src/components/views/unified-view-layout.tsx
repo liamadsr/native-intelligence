@@ -767,9 +767,9 @@ export function UnifiedViewLayout({
         scheduleRefetch()
       }
     }
-    window.addEventListener('dial8:entity-created', handler)
+    window.addEventListener('ni:entity-created', handler)
     return () => {
-      window.removeEventListener('dial8:entity-created', handler)
+      window.removeEventListener('ni:entity-created', handler)
       if (refetchDebounceRef.current) clearTimeout(refetchDebounceRef.current)
     }
   }, [scheduleRefetch])
@@ -780,8 +780,8 @@ export function UnifiedViewLayout({
     const handler = () => {
       refetchRef.current({ coalesce: true })
     }
-    window.addEventListener('dial8:realtime-recovered', handler)
-    return () => window.removeEventListener('dial8:realtime-recovered', handler)
+    window.addEventListener('ni:realtime-recovered', handler)
+    return () => window.removeEventListener('ni:realtime-recovered', handler)
   }, [])
 
   // Patch a row in place when an entity is updated elsewhere (detail panel,

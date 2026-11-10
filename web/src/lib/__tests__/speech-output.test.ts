@@ -73,7 +73,7 @@ describe('describeModuleError', () => {
     expect(describeModuleError('download of asr.gguf failed: HTTP 503')).toMatch(/interrupted/)
     expect(describeModuleError('download of asr.gguf failed: expected 10 bytes, got 4')).toMatch(/interrupted/)
     expect(describeModuleError('asr.gguf failed its checksum — the download was discarded')).toMatch(/damaged/)
-    expect(describeModuleError('sidecar executable not found')).toMatch(/Update Dial8/)
+    expect(describeModuleError('sidecar executable not found')).toMatch(/Update Native Intelligence/)
     expect(describeModuleError('sidecar did not answer ready in time')).toMatch(/couldn’t start/)
     expect(describeModuleError('io: permission denied')).toMatch(/saving it/)
     expect(describeModuleError('Something new')).toBe('Something new')

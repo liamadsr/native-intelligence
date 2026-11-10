@@ -43,7 +43,7 @@ import {
   type TranscriptItem,
 } from '@/lib/local-agent/transcript-view'
 
-const SELECTED_JOB_KEY = 'dial8.dev.localAgent.selectedJob'
+const SELECTED_JOB_KEY = 'ni.dev.localAgent.selectedJob'
 /** A hidden webview never runs rAF; this timer flushes instead. */
 const FLUSH_FALLBACK_MS = 250
 /** Status events (turn boundaries, exits) → one status() refresh. */
@@ -111,7 +111,7 @@ export default function LocalAgentDev() {
   if (!isDesktopApp()) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Local agents run only in a debug build of the Dial8 desktop app. Open this page there.
+        Local agents run only in a debug build of the Native Intelligence desktop app. Open this page there.
       </div>
     )
   }
@@ -665,7 +665,7 @@ const TranscriptRow = memo(function TranscriptRow({ item }: { item: TranscriptIt
       return (
         <div className="ml-8 rounded-md bg-muted px-3 py-2 text-sm">
           <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-            {item.type === 'inbound' && item.author === 'agent' ? 'Dial8 agent' : 'You'} · {item.policy}
+            {item.type === 'inbound' && item.author === 'agent' ? 'Native Intelligence agent' : 'You'} · {item.policy}
           </div>
           <div className="whitespace-pre-wrap">{item.text}</div>
         </div>

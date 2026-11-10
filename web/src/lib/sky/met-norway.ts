@@ -14,6 +14,7 @@
 
 import 'server-only'
 import { CLEAR_SKY, skyWeatherFromMetNorway, type SkyWeather } from './weather'
+import { appUrl } from '@/lib/app-url'
 
 /**
  * `complete`, not `compact`: only `complete` splits the clouds into low,
@@ -24,7 +25,7 @@ import { CLEAR_SKY, skyWeatherFromMetNorway, type SkyWeather } from './weather'
  * cell per 30 minutes to 2 hours, server side, behind the caches below.
  */
 const ENDPOINT = 'https://api.met.no/weatherapi/locationforecast/2.0/complete'
-const USER_AGENT = 'Dial8/1.0 https://dial8.ai'
+const USER_AGENT = `NativeIntelligence/1.0 ${appUrl()}`
 const MIN_CACHE_MS = 30 * 60_000
 const MAX_CACHE_MS = 2 * 60 * 60_000
 /** A failure is remembered briefly, so a MET outage isn't hammered by every refresh. */

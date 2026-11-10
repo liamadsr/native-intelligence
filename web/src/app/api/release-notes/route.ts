@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Dial8 ${release.version} Release Notes</title>
+    <title>Native Intelligence ${release.version} Release Notes</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;

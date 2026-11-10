@@ -13,7 +13,7 @@ import { CITABLE_SOURCE_TYPES } from '@/lib/knowledge/entity-registry'
  * so a claim sourced solely from private captures must never be laundered into
  * a document every member can open.
  *
- * Mail (2026-10-15, migration 341): Dial8 doesn't learn from mail. A claim with
+ * Mail (2026-10-15, migration 341): Native Intelligence doesn't learn from mail. A claim with
  * ANY `email` source is visible to no one: not the workspace, not the person
  * whose mail it came from. More generally, a claim is readable only when one
  * of its sources is (the private-capture rule below now covers every reader,
@@ -22,7 +22,7 @@ import { CITABLE_SOURCE_TYPES } from '@/lib/knowledge/entity-registry'
  * helpers below are the app's copy for reads that run service-role or before
  * 341 is applied. The rows themselves stay until the purge.
  *
- * Chats (Liam, 2026-10-17; migration 353): what Dial8 learns from a person's
+ * Chats (Liam, 2026-10-17; migration 353): what Native Intelligence learns from a person's
  * chat is theirs. A `conversation` source is readable only by the person whose
  * conversation it is (chat_conversations.user_id), and by no one on an
  * unattended run (the weaver, briefs): a claim known only from someone's chat
@@ -543,7 +543,7 @@ async function foreignConversationClaimIds(
  *     capture is workspace-visible. A dangling attachment id matches no row, so
  *     — exactly as the SQL's `EXISTS` does — it counts as hidden.
  *   - `email` — never visible, and it hides the whole claim: a claim with ANY
- *     mail source is visible to no one (migration 341; Dial8 doesn't learn
+ *     mail source is visible to no one (migration 341; Native Intelligence doesn't learn
  *     from mail).
  *   - `conversation` — never visible here: a chat is only its owner's
  *     (353), and an unattended run has no owner. A claim known only from

@@ -2,7 +2,7 @@
 /**
  * The /link/<token> page (agent links, phase E): signed out it offers sign in
  * and sign up and comes back here; signed in, Review redeems the token and
- * opens the request in the app; a refusal is worded, never "not found on Dial8".
+ * opens the request in the app; a refusal is worded, never "not found on Native Intelligence".
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement as h } from 'react'
@@ -44,7 +44,7 @@ async function render(state: ConnectLinkState) {
 describe('ConnectLinkView', () => {
   it('signed out: who asked, then sign in or sign up back to this link', async () => {
     await render({ kind: 'signed_out', requesterName: 'Liam', workspaceName: 'Acme' })
-    expect(container.textContent).toContain('Liam (Acme) wants their Dial8 agent to talk to yours')
+    expect(container.textContent).toContain('Liam (Acme) wants their Native Intelligence agent to talk to yours')
     await act(async () => q('[data-connect-sign-up]')!.click())
     expect(push).toHaveBeenCalledWith(`/login?redirect=${encodeURIComponent(`/link/${TOKEN}`)}&mode=signup`)
     await act(async () => q('[data-connect-sign-in]')!.click())

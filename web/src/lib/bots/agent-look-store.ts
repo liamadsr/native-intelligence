@@ -5,7 +5,7 @@
  * (lib/voice/assistant-name-store.ts), so each account has its own on every
  * device: `user_metadata.agent_look`, with a copy on this device in
  * localStorage (AGENT_LOOK_STORAGE_KEY) that is read synchronously, never
- * waited on (lib/account-setting.ts). Another Dial8 window adopting or saving
+ * waited on (lib/account-setting.ts). Another Native Intelligence window adopting or saving
  * a look arrives as a `storage` event. Wherever neither holds a look, the
  * default stands in (DEFAULT_AGENT_LOOK).
  */
@@ -14,7 +14,7 @@ import { createAccountSetting } from '../account-setting'
 import { AGENT_LOOK_PROFILE_FIELD, DEFAULT_AGENT_LOOK, parseAgentLook, sameAgentLook, type AgentLook } from './agent-look'
 
 /** Where this device keeps its copy of the look. */
-export const AGENT_LOOK_STORAGE_KEY = 'dial8:agent-look'
+export const AGENT_LOOK_STORAGE_KEY = 'ni:agent-look'
 
 const setting = createAccountSetting<AgentLook>({
   field: AGENT_LOOK_PROFILE_FIELD,

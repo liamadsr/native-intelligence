@@ -1,6 +1,6 @@
 /**
  * Migration 438: a held call may be an internal write (a guest's Needs
- * approval tool that only changes Dial8). Pins: the check keeps every
+ * approval tool that only changes Native Intelligence). Pins: the check keeps every
  * earlier class, is safe to run twice, and the file has no backslash.
  */
 import { readFileSync } from 'node:fs'

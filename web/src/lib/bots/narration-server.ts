@@ -210,7 +210,7 @@ interface ThreadSender {
 /**
  * Per thread, who last wrote to the user: the thread index row's sender when
  * it is not one of the user's own addresses, as the name in their address
- * (never the address). No subject: Dial8 stores no mail (2026-10-15), so a
+ * (never the address). No subject: Native Intelligence stores no mail (2026-10-15), so a
  * line names who, never what.
  */
 async function loadSenders(auth: NarrationAuth, threadIds: readonly string[]): Promise<Map<string, ThreadSender>> {

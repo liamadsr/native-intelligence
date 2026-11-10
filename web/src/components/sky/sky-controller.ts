@@ -57,7 +57,7 @@ export const FRAME_MS_PRECIP = 33
 export const FRAME_MS_CALM = 42
 /**
  * ~15 fps while the window is on screen but another app has the focus (Liam,
- * 10-10: Dial8 open beside the app he types in, and the clouds never moved).
+ * 10-10: Native Intelligence open beside the app he types in, and the clouds never moved).
  * A hidden or covered window still stops it (the page is hidden then).
  */
 export const FRAME_MS_BACKGROUND = 67

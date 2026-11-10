@@ -42,7 +42,7 @@
 import { openUsageLimit, parseUsageLimitResponse } from './usage-limit-store'
 import { installDeployReload, noteResponseBuild } from './deploy-reload'
 
-const STORAGE_KEY = 'dial8-workspace-id'
+const STORAGE_KEY = 'ni-workspace-id'
 
 let _activeWorkspaceId: string | null = null
 
@@ -154,7 +154,7 @@ function handleSessionExpired() {
   if (path === '/login' || path.startsWith('/admin/login')) return
   _redirectedToLogin = true
   // Let any listener (e.g. a toast) react before we navigate.
-  try { window.dispatchEvent(new CustomEvent('dial8:session-expired')) } catch { /* ignore */ }
+  try { window.dispatchEvent(new CustomEvent('ni:session-expired')) } catch { /* ignore */ }
   const next = encodeURIComponent(path + window.location.search)
   window.location.href = `/login?next=${next}`
 }

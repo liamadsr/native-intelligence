@@ -223,7 +223,7 @@ export function TeamActionsView({
       setCompleteCycleTarget(null)
       fetchCycles()
       // Notify the rest of the app that actions changed so open list views refetch.
-      window.dispatchEvent(new CustomEvent('dial8:entity-created', { detail: { entityType: 'action' } }))
+      window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: 'action' } }))
       // Cute confetti pop + a success toast (this flow had no feedback before).
       celebrate()
       toast.success(`Completed ${cycleName} 🎉`)

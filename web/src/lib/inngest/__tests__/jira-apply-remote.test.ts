@@ -3,7 +3,7 @@ import { createAsanaRemoteFake, type AsanaRemoteFake } from '@/test/asana-remote
 import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
 
 /**
- * Tests for src/lib/inngest/jira-apply-remote.ts — the Jira→Dial8 webhook fast
+ * Tests for src/lib/inngest/jira-apply-remote.ts — the Jira→Native Intelligence webhook fast
  * path — and, through it, the shared apply helper both providers run.
  *
  * Invariants locked in:
@@ -217,7 +217,7 @@ describe('jira-apply-remote — gates', () => {
   })
 
   it('skips an UNLINKED issue without resolving a destination or calling Jira', async () => {
-    // Also the forged-delivery case: naming an issue Dial8 has no link to buys
+    // Also the forged-delivery case: naming an issue Native Intelligence has no link to buys
     // an attacker exactly one indexed SELECT.
     setDb({ links: [] })
     const out = await hoisted.handler({ event: EVENT(['99999']), step: makeStep() })
@@ -333,7 +333,7 @@ describe('jira-apply-remote — the re-fetch is the trust boundary', () => {
   /**
    * REGRESSION (review finding 17 / round-1 audit): the read-back used to fold
    * every non-done status onto "not completed" and reopen into the team's
-   * DEFAULT state, so a Jira user's "In Progress" became Todo in Dial8 — and the
+   * DEFAULT state, so a Jira user's "In Progress" became Todo in Native Intelligence — and the
    * echo then dragged the issue back to To Do to match. The status the two sides
    * compare has to be the same one; see jira-loop-termination for the full trace.
    */
@@ -371,7 +371,7 @@ describe('jira-apply-remote — the re-fetch is the trust boundary', () => {
   /**
    * REGRESSION (round-1 audit, echo group issue 2): Jira has no canceled
    * CATEGORY — "Won't Do" is done-category — so a cancellation folded onto
-   * `completed` and the user's abandoned work was recorded in Dial8 as finished,
+   * `completed` and the user's abandoned work was recorded in Native Intelligence as finished,
    * then echoed back to Jira as a plain "Done" with a Done resolution.
    */
   it('lands a cancel-named done status in the team’s CANCELED state', async () => {
@@ -539,7 +539,7 @@ describe('jira-apply-remote — the re-fetch is the trust boundary', () => {
 
 describe('jira-apply-remote — one issue, several workspaces', () => {
   it('resolves a destination and token PER WORKSPACE', async () => {
-    // Two Dial8 workspaces link an issue with the SAME id — which is the
+    // Two Native Intelligence workspaces link an issue with the SAME id — which is the
     // ordinary case rather than an exotic one, since Jira ids are per-site
     // sequences that every site starts at 10000. The global receiver can't tell
     // them apart, so this function must: its own account, its own token, and
@@ -703,7 +703,7 @@ describe('jira-apply-remote — issue read failures', () => {
 
   /**
    * REGRESSION (review finding: "links carry no site identity, so re-pointing
-   * cloud_id makes read-back apply unrelated issues' status to Dial8 actions").
+   * cloud_id makes read-back apply unrelated issues' status to Native Intelligence actions").
    * Issue id 10001 exists on essentially every Jira site; after a destination
    * switch the config's cloudId resolves a DIFFERENT, real issue on the new
    * tenant, and a `done` category there silently completes an action nobody

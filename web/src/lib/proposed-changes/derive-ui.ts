@@ -91,7 +91,7 @@ export function derivePendingReason(
     return {
       code: 'external',
       label: 'Needs a click',
-      detail: 'This acts outside Dial8 (sends an email or hits an external tool), so it always waits for an explicit click — even at high confidence.',
+      detail: 'This acts outside Native Intelligence (sends an email or hits an external tool), so it always waits for an explicit click — even at high confidence.',
     }
   }
 

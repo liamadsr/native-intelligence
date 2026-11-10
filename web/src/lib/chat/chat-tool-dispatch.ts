@@ -388,7 +388,7 @@ export async function runTool(
       const known = (addresses: string[]) => knownOrOwnSenders(ctx.supabase, { workspaceId: ctx.workspaceId, userId: ctx.userId, addresses })
       if (await readOutsideText(toolName, output, known)) markTurnReadOutside(turnKey, toolName)
     }
-    // The check-in's context holds only what the person typed or Dial8 wrote.
+    // The check-in's context holds only what the person typed or Native Intelligence wrote.
     if (ctx.withholdOutsideText && withheldFromCheckIn(toolName, output)) {
       console.warn(`[chat-tool] ${toolName}: a result carrying outside text withheld from a check-in`)
       return NextResponse.json({ output: CHECK_IN_OUTSIDE_TEXT_OUTPUT })

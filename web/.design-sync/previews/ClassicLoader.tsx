@@ -1,4 +1,4 @@
-import { ClassicLoader } from '@dial8/ui'
+import { ClassicLoader } from '@native-intelligence/ui'
 
 const surface: React.CSSProperties = {
   display: 'flex',

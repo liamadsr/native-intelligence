@@ -69,7 +69,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/account/prospecting/lists/[id]/runs', () => {
-  const url = 'https://dial8.ai/api/account/prospecting/lists/list-1/runs'
+  const url = 'https://nativeintelligence.dev/api/account/prospecting/lists/list-1/runs'
 
   it('starts a run with no body at all', async () => {
     hoisted.createRun.mockResolvedValue({ ok: true, run: RUN })
@@ -171,7 +171,7 @@ describe('POST /api/account/prospecting/lists/[id]/runs', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/account/prospecting/lists/[id]/runs', () => {
-  const url = 'https://dial8.ai/api/account/prospecting/lists/list-1/runs'
+  const url = 'https://nativeintelligence.dev/api/account/prospecting/lists/list-1/runs'
 
   it('returns the history', async () => {
     hoisted.listRuns.mockResolvedValue({ ok: true, runs: [RUN] })
@@ -208,7 +208,7 @@ describe('GET /api/account/prospecting/lists/[id]/runs', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/account/prospecting/runs/[id]', () => {
-  const url = 'https://dial8.ai/api/account/prospecting/runs/run-1'
+  const url = 'https://nativeintelligence.dev/api/account/prospecting/runs/run-1'
 
   it('returns the run with is_live derived server-side', async () => {
     hoisted.getRun.mockResolvedValue({ ok: true, run: RUN })
@@ -238,7 +238,7 @@ describe('GET /api/account/prospecting/runs/[id]', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/account/prospecting/runs/[id]/cancel', () => {
-  const url = 'https://dial8.ai/api/account/prospecting/runs/run-1/cancel'
+  const url = 'https://nativeintelligence.dev/api/account/prospecting/runs/run-1/cancel'
 
   it('returns the canceling run — NOT canceled, which the engine writes', async () => {
     hoisted.requestCancel.mockResolvedValue({
@@ -284,7 +284,7 @@ describe('POST /api/account/prospecting/runs/[id]/cancel', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/account/prospecting/runs/[id]/candidates', () => {
-  const url = 'https://dial8.ai/api/account/prospecting/runs/run-1/candidates'
+  const url = 'https://nativeintelligence.dev/api/account/prospecting/runs/run-1/candidates'
 
   it('returns the grouped ledger', async () => {
     const groups = [

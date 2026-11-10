@@ -24,7 +24,7 @@ function SocialIconDiscord(props: React.ComponentPropsWithoutRef<'svg'>) {
   )
 }
 
-function SocialLinks() {
+function SocialLinks({ brandName = 'Native Intelligence' }: { brandName?: string }) {
   return (
     <div className="flex items-center gap-4">
       <Link
@@ -38,7 +38,7 @@ function SocialLinks() {
       <Link
         href="https://discord.gg/sHtYGtkWga"
         target="_blank"
-        aria-label="Join Dial8 Discord"
+        aria-label={`Join ${brandName} Discord`}
         className="text-foreground data-hover:text-muted-foreground"
       >
         <SocialIconDiscord className="size-5" />
@@ -46,7 +46,7 @@ function SocialLinks() {
       <Link
         href="https://x.com/Dial8_ai"
         target="_blank"
-        aria-label="Follow Dial8 on X"
+        aria-label={`Follow ${brandName} on X`}
         className="text-foreground data-hover:text-muted-foreground"
       >
         <SocialIconX className="size-4" />
@@ -72,7 +72,8 @@ function Copyright() {
   )
 }
 
-export function Footer() {
+/** `brandName`: the name to use in place of the app icon and in the link labels (only /sms passes it; see Logo). */
+export function Footer({ brandName }: { brandName?: string } = {}) {
   return (
     <footer>
       <div className="relative">
@@ -81,14 +82,16 @@ export function Footer() {
           <div className="pt-8 flex justify-between items-center">
             <div className="flex items-center gap-4">
               {/* Always the dark app icon — the light/marble variant is retired. */}
-              <img
-                src="/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png"
-                alt="Dial8"
-                className="h-9 w-9"
-              />
+              {!brandName && (
+                <img
+                  src="/brand/ni-app-icon.png"
+                  alt="Native Intelligence"
+                  className="h-9 w-9"
+                />
+              )}
               <Copyright />
             </div>
-            <SocialLinks />
+            <SocialLinks brandName={brandName} />
           </div>
         </div>
       </div>

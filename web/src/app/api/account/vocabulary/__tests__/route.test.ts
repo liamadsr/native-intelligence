@@ -25,7 +25,7 @@ function setup(seed: Parameters<typeof vocabularyDb>[0] = {}) {
   hoisted.requireWorkspace.mockResolvedValue({ supabase: db.client, user: { id: ME }, workspaceId: WS })
 }
 
-const BASE = 'https://dial8.ai/api/account/vocabulary'
+const BASE = 'https://nativeintelligence.dev/api/account/vocabulary'
 const get = (q = '') => GET(buildRequest({ url: `${BASE}${q}`, method: 'GET' }) as unknown as NextRequest)
 const post = (body: unknown, raw = false) => POST(buildRequest({ url: BASE, method: 'POST', body, raw }) as unknown as NextRequest)
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) })

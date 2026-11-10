@@ -938,7 +938,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
       onCreated?.(result)
 
       // Notify list views to refresh (e.g. UnifiedViewLayout)
-      window.dispatchEvent(new CustomEvent('dial8:entity-created', {
+      window.dispatchEvent(new CustomEvent('ni:entity-created', {
         detail: { entityType, entity: result },
       }))
 
@@ -1166,7 +1166,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
           {entityType === 'email' ? (
             /* Email compose form — matches EmailDraftCard style. `ph-no-capture`:
                PostHog session replay blocks the draft and autocapture skips it
-               (Dial8 never stores mail text). */
+               (Native Intelligence never stores mail text). */
             <div className="ph-no-capture">
               {/* Recipients */}
               <div className="space-y-1 border-t border-border/40 px-4 py-2 text-xs">

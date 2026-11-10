@@ -868,7 +868,7 @@ describe('ForYouColumn', () => {
 
   it('floating, it stands clear of the composer', async () => {
     const strip = document.createElement('div')
-    strip.id = 'dial8-chat-strip-slot'
+    strip.id = 'ni-chat-strip-slot'
     const dock = document.createElement('div')
     dock.setAttribute('data-chat-composer-dock', '')
     Object.defineProperty(dock, 'offsetHeight', { configurable: true, value: 140 })

@@ -5,6 +5,7 @@ import { buildOAuthStart } from '@/lib/oauth/authorize-url'
 import { authenticateUser } from '@/lib/ai/auth'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { notMember, serverError } from '@/lib/api-errors'
+import { requestOrigin } from '@/lib/security/same-origin'
 
 /**
  * GET /api/oauth/[provider]/authorize?capability=…: the signed-in person's
@@ -70,6 +71,9 @@ export async function GET(
       source,
       returnTo: url.searchParams.get('redirect') || null,
       loginHint: url.searchParams.get('login_hint'),
+      // The cookie below is set on this origin, so the connect finishes here: when the
+      // provider calls back another of the app's domains, the callback hands its answer over.
+      pageOrigin: source === 'web' ? requestOrigin(req) : null,
     })
 
     // The claim secret goes ONLY to the caller (the initiating desktop window,

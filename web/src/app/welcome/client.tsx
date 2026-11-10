@@ -96,7 +96,7 @@ export default function Welcome() {
       } catch {
         // Ignore - the button is the fallback
       }
-      // Show success state with the "Open in Dial8" button after a brief delay
+      // Show success state with the "Open in Native Intelligence" button after a brief delay
       setTimeout(() => setStatus('success'), 500)
     } else {
       // On desktop: auto-redirect works reliably
@@ -179,7 +179,7 @@ export default function Welcome() {
 
           <Heading as="h1" className="text-white">
             {status === 'processing'
-              ? 'Redirecting to Dial8...'
+              ? 'Redirecting to Native Intelligence...'
               : status === 'error'
                 ? 'Redirect Failed'
                 : 'Sign In Successful'}
@@ -187,15 +187,15 @@ export default function Welcome() {
 
           <p className="mt-6 text-xl/8 text-gray-400">
             {status === 'processing'
-              ? 'Please wait while we redirect you back to the Dial8 app...'
+              ? 'Please wait while we redirect you back to the Native Intelligence app...'
               : status === 'error'
                 ? 'Unable to redirect to the app. Please try signing in again.'
                 : isMobile && callbackUrl
-                  ? 'Tap the button below to return to the Dial8 app.'
-                  : "You've been successfully authenticated. You can now close this window and return to the Dial8 app."}
+                  ? 'Tap the button below to return to the Native Intelligence app.'
+                  : "You've been successfully authenticated. You can now close this window and return to the Native Intelligence app."}
           </p>
 
-          {/* Mobile: show prominent "Open in Dial8" button */}
+          {/* Mobile: show prominent "Open in Native Intelligence" button */}
           {isMobile && callbackUrl && status === 'success' && (
             <div className="mt-8">
               <button
@@ -215,7 +215,7 @@ export default function Welcome() {
                     d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
                   />
                 </svg>
-                Open in Dial8
+                Open in Native Intelligence
               </button>
             </div>
           )}

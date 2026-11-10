@@ -111,7 +111,7 @@ export const slackTurn = inngest.createFunction(
       return { status: 'skipped', reason: 'bad_event' }
     }
     const notify = async (reason: Parameters<typeof slackTurnSkipNotice>[0], origin: SlackOrigin | null) => {
-      // A guest (guest access) is told in their own words: they have no Dial8 to look in.
+      // A guest (guest access) is told in their own words: they have no Native Intelligence to look in.
       const notice = data.guestId ? guestSlackTurnSkipNotice(reason) : slackTurnSkipNotice(reason)
       if (!notice || !origin) return
       // In a channel thread, only the person sees it (it concerns no one else).

@@ -94,7 +94,7 @@ describe('GET /api/account/environments/default', () => {
   })
 
   it('refuses a capture-device token, and passes an auth failure through', async () => {
-    const res = await get(`?workspaceId=${WS}`, { authorization: 'Bearer d8d_abc' })
+    const res = await get(`?workspaceId=${WS}`, { authorization: 'Bearer nid_abc' })
     expect(res.status).toBe(403)
     expect(await res.json()).toMatchObject({ code: 'DEVICE_TOKEN_REFUSED' })
     hoisted.requireWorkspace.mockResolvedValue(new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 }))

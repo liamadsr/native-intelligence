@@ -21,7 +21,7 @@ import {
 export const CARDED_COMPANY: SourceCompanyRow = {
   id: 'company-1',
   workspace_id: 'ws-1',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   domain: 'dial8.ai',
   industry: 'Software',
   description: 'A workspace for revenue teams.',
@@ -76,7 +76,7 @@ export const CARDED_COMPANY: SourceCompanyRow = {
 export const UNCARDED_COMPANY: SourceCompanyRow = {
   id: 'company-1',
   workspace_id: 'ws-1',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   domain: 'dial8.ai',
   industry: 'Software',
   description: 'A workspace for revenue teams.',
@@ -97,7 +97,7 @@ export const UNCARDED_COMPANY: SourceCompanyRow = {
 export const ENRICHING_COMPANY: SourceCompanyRow = {
   id: 'company-1',
   workspace_id: 'ws-1',
-  name: 'Dial8',
+  name: 'Native Intelligence',
   domain: 'dial8.ai',
   industry: null,
   description: null,

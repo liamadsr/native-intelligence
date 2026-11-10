@@ -35,7 +35,7 @@ const { POST } = await import('@/app/api/early-access/route')
 
 function emailReq(body: unknown, ip?: string) {
   return buildRequest({
-    url: 'https://dial8.ai/api/early-access',
+    url: 'https://nativeintelligence.dev/api/early-access',
     body,
     headers: ip ? { 'x-forwarded-for': ip } : {},
   })
@@ -51,23 +51,23 @@ beforeEach(() => {
 describe('POST /api/early-access', () => {
   it('returns 200 + tracks event on a valid new email', async () => {
     const res = await POST(
-      emailReq({ email: 'new@dial8.test', source: 'docs' }, '10.0.0.1'),
+      emailReq({ email: 'new@nativeintelligence.test', source: 'docs' }, '10.0.0.1'),
     )
     expect(res.status).toBe(200)
     expect(await readJson(res)).toMatchObject({ success: true })
 
     expect(hoisted.insert).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: 'new@dial8.test',
+        email: 'new@nativeintelligence.test',
         source: 'docs',
       }),
     )
     expect(hoisted.posthogCapture).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'waitlist_signup',
-        distinctId: 'new@dial8.test',
+        distinctId: 'new@nativeintelligence.test',
         properties: expect.objectContaining({
-          $set: { email: 'new@dial8.test' },
+          $set: { email: 'new@nativeintelligence.test' },
           $set_once: { signup_source: 'docs' },
         }),
       }),
@@ -78,9 +78,9 @@ describe('POST /api/early-access', () => {
     // Note: the route validates with a regex BEFORE trimming, so emails with
     // leading/trailing whitespace get rejected as 400. We only test the
     // lowercasing path here, which is what actually runs in practice.
-    await POST(emailReq({ email: 'MiXed@Dial8.Test' }, '10.0.0.2'))
+    await POST(emailReq({ email: 'MiXed@NativeIntelligence.Test' }, '10.0.0.2'))
     expect(hoisted.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ email: 'mixed@dial8.test' }),
+      expect.objectContaining({ email: 'mixed@nativeintelligence.test' }),
     )
   })
 
@@ -100,7 +100,7 @@ describe('POST /api/early-access', () => {
   })
 
   it('returns 400 on overlong email (>254 chars)', async () => {
-    const long = 'a'.repeat(250) + '@dial8.test' // 261 chars
+    const long = 'a'.repeat(250) + '@nativeintelligence.test' // 274 chars
     const res = await POST(emailReq({ email: long }, '10.0.0.5'))
     expect(res.status).toBe(400)
     expect(hoisted.insert).not.toHaveBeenCalled()
@@ -109,7 +109,7 @@ describe('POST /api/early-access', () => {
   it('silently succeeds when honeypot is filled (does not insert, does not leak)', async () => {
     const res = await POST(
       emailReq(
-        { email: 'bot@dial8.test', honeypot: 'i-am-a-bot' },
+        { email: 'bot@nativeintelligence.test', honeypot: 'i-am-a-bot' },
         '10.0.0.6',
       ),
     )
@@ -125,7 +125,7 @@ describe('POST /api/early-access', () => {
       error: { code: '23505', message: 'duplicate key' },
     })
     const res = await POST(
-      emailReq({ email: 'dup@dial8.test' }, '10.0.0.7'),
+      emailReq({ email: 'dup@nativeintelligence.test' }, '10.0.0.7'),
     )
     expect(res.status).toBe(409)
     expect(await readJson<{ error: string }>(res)).toEqual({
@@ -138,7 +138,7 @@ describe('POST /api/early-access', () => {
       error: { code: '08006', message: 'db unreachable' },
     })
     const res = await POST(
-      emailReq({ email: 'err@dial8.test' }, '10.0.0.8'),
+      emailReq({ email: 'err@nativeintelligence.test' }, '10.0.0.8'),
     )
     expect(res.status).toBe(500)
     const body = await readJson<{ error: string }>(res)
@@ -150,7 +150,7 @@ describe('POST /api/early-access', () => {
   it('caps source at 50 chars to prevent overflow', async () => {
     const longSource = 'x'.repeat(200)
     await POST(
-      emailReq({ email: 'src@dial8.test', source: longSource }, '10.0.0.9'),
+      emailReq({ email: 'src@nativeintelligence.test', source: longSource }, '10.0.0.9'),
     )
     expect(hoisted.insert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -164,12 +164,12 @@ describe('POST /api/early-access', () => {
     // First 5 succeed.
     for (let i = 0; i < 5; i++) {
       const res = await POST(
-        emailReq({ email: `rate-${i}@dial8.test` }, ip),
+        emailReq({ email: `rate-${i}@nativeintelligence.test` }, ip),
       )
       expect(res.status).toBe(200)
     }
     // 6th is rate-limited.
-    const res = await POST(emailReq({ email: 'over@dial8.test' }, ip))
+    const res = await POST(emailReq({ email: 'over@nativeintelligence.test' }, ip))
     expect(res.status).toBe(429)
     expect(await readJson<{ error: string }>(res)).toMatchObject({
       error: expect.stringContaining('Too many requests'),
@@ -178,7 +178,7 @@ describe('POST /api/early-access', () => {
 
   it('does not leak internal errors on malformed JSON body', async () => {
     const req = buildRequest({
-      url: 'https://dial8.ai/api/early-access',
+      url: 'https://nativeintelligence.dev/api/early-access',
       body: 'not-json',
       raw: true,
       headers: { 'x-forwarded-for': '10.0.0.50' },

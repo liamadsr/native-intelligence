@@ -48,9 +48,9 @@ describe('draftTextOf', () => {
     const html =
       '<ul><li>Agenda</li><li>Pricing</li></ul><ol><li>One</li><li>Two</li></ol>' +
       '<p>Book a time <a href="https://cal.com/liam">here</a>, or reply. ' +
-      '<a href="https://dial8.ai">https://dial8.ai</a> <a href="mailto:liam@dial8.ai">email me</a>' +
+      '<a href="https://nativeintelligence.dev">https://nativeintelligence.dev</a> <a href="mailto:liam@dial8.ai">email me</a>' +
       '<a href="https://x.com/Dial8_ai"><img alt="X"></a></p>' +
-      '<table><tr><td>Liam Alizadeh</td><td>CEO</td></tr><tr><td>dial8.ai</td></tr></table>' +
+      '<table><tr><td>Liam Alizadeh</td><td>CEO</td></tr><tr><td>nativeintelligence.dev</td></tr></table>' +
       '<div>Thanks<script>alert(1)</script><style>.x{}</style></div>'
     expect(draftTextOf(null, html)).toBe(
       [
@@ -58,9 +58,9 @@ describe('draftTextOf', () => {
         '- Pricing',
         '1. One',
         '2. Two',
-        'Book a time here (https://cal.com/liam), or reply. https://dial8.ai email me',
+        'Book a time here (https://cal.com/liam), or reply. https://nativeintelligence.dev email me',
         'Liam Alizadeh CEO',
-        'dial8.ai',
+        'nativeintelligence.dev',
         'Thanks',
       ].join('\n'),
     )

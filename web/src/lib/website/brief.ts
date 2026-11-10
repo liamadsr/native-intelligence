@@ -94,7 +94,7 @@ const FRAMEWORK_BUILD: Partial<Record<Framework, string>> = {
  * secrets: a build that also migrates a database or deploys must not run (and
  * would fail for want of them), and a build that fails only for want of a
  * secret falls back to a type check. The repo's own script is never quoted
- * (it is the repo's text, not Dial8's): only what kind of thing it does. Pure.
+ * (it is the repo's text, not Native Intelligence's): only what kind of thing it does. Pure.
  */
 export function buildRule(inspection: Pick<SiteInspection, 'framework' | 'buildScript'> | null): string {
   const steps = inspection?.buildScript ?? ''
@@ -127,7 +127,7 @@ export function wiringBrief(args: {
     : `Keep what it does today (it ${SUBMIT_WORDS[form.submits]}${form.target ? `, ${form.target}` : ''}): the customer's submission must still do exactly that. The intake post is in addition.`
   const thankYou = args.site.siteUrl ? `${args.site.siteUrl}/` : null
   return [
-    `Connect ${args.businessName}'s ${KIND_WORDS[form.kind]} to the business's Dial8 intake, so each submission also reaches the owner's Dial8 inbox.`,
+    `Connect ${args.businessName}'s ${KIND_WORDS[form.kind]} to the business's Native Intelligence intake, so each submission also reaches the owner's Native Intelligence inbox.`,
     '',
     'The site',
     bullet([
@@ -151,7 +151,7 @@ export function wiringBrief(args: {
       args.replaceCurrent
         ? 'Make the form post to the intake instead of where it posts today.'
         : 'On submit, post to the intake with fetch (method POST, keepalive: true, mode: "cors") alongside what the form already does. Never let the intake post block, delay by more than a second, or break the existing submit: catch and ignore its errors. If the existing submit navigates away (a plain action), send the intake post first with keepalive and let the navigation go on.',
-      'Post from the browser, in the form’s own submit code, never from the site’s server (its API route or server action), even when the form already posts to one: the intake checks the browser’s origin, and Dial8 checks the change is live by finding the intake URL in the site’s pages.',
+      'Post from the browser, in the form’s own submit code, never from the site’s server (its API route or server action), even when the form already posts to one: the intake checks the browser’s origin, and Native Intelligence checks the change is live by finding the intake URL in the site’s pages.',
       'If the inputs have no name attributes (their values live in component state), build the intake’s fields from the same values the form already sends (its JSON body, say), under the field names above where one fits. Photos the form already uploaded may go as their URLs.',
       'Change nothing a customer sees: not the fields, labels, layout, validation, copy or the thank-you step. No new dependencies. Keep the diff small: the one form.',
       'Put the intake URL in one constant in the form file (no environment variable: the host would need a setting the owner can’t add by text).',
@@ -160,8 +160,8 @@ export function wiringBrief(args: {
     '',
     'The pull request',
     bullet([
-      'Title: "Send website quote requests to Dial8" (or booking / contact requests, whichever the form is).',
-      'Start the description with one line: `Owner summary: ` and two plain sentences a non-technical owner reads on a phone, saying what changes for them (e.g. "Your quote form now also sends each request to Dial8, so I can text you about it. It still emails you like before."). Then the technical details.',
+      'Title: "Send website quote requests to Native Intelligence" (or booking / contact requests, whichever the form is).',
+      'Start the description with one line: `Owner summary: ` and two plain sentences a non-technical owner reads on a phone, saying what changes for them (e.g. "Your quote form now also sends each request to Native Intelligence, so I can text you about it. It still emails you like before."). Then the technical details.',
     ]),
   ].join('\n')
 }
@@ -182,7 +182,7 @@ export function editRequest(args: { businessName: string; site: Pick<WebsiteSite
     bullet([
       'Make exactly the change they asked for, and nothing else. Keep the site’s look, structure and copy everywhere else.',
       'If the request is unclear or would need something only the owner has (a photo, a price, a password), make no change: finish the run and say what you need, in one plain sentence.',
-      'Never touch the quote form’s Dial8 intake wiring (/api/intake/quotes/…) unless the owner asked about the form.',
+      'Never touch the quote form’s Native Intelligence intake wiring (/api/intake/quotes/…) unless the owner asked about the form.',
       buildRule(args.inspection),
       'Start the pull request description with one line: `Owner summary: ` and two plain sentences a non-technical owner reads on a phone, saying what changes and where on the site. Then the technical details.',
     ]),
@@ -211,7 +211,7 @@ export function changeForm(change: Pick<WebsiteChange, 'formPath' | 'formKind'>,
 
 /** What a change is, in a few words, for the card's title. */
 export function changeLabel(change: Pick<WebsiteChange, 'kind' | 'request'>, form?: Pick<FormCandidate, 'kind'> | null): string {
-  if (change.kind === 'wire_form') return `Send your ${form ? KIND_WORDS[form.kind] : 'form'}’s requests to Dial8`
+  if (change.kind === 'wire_form') return `Send your ${form ? KIND_WORDS[form.kind] : 'form'}’s requests to Native Intelligence`
   if (change.kind === 'revert') return 'Undo your last website change'
   return clip(change.request.split('\n')[0] ?? 'A website change', 80)
 }
@@ -239,7 +239,7 @@ export function mergeAskLine(args: { summary: string | null; previewUrl: string 
   const asked = args.asked ? `You asked: “${clip(args.asked, 300)}”. ` : ''
   const what = args.summary ? `Your website change is ready: ${clip(args.summary, SUMMARY_TEXT_MAX)}` : 'Your website change is ready.'
   const replaces = args.replaces ? ' It stops what your form does today: requests come only to me.' : ''
-  // Defanged (example[.]com): a phone links a bare domain, and a text from Dial8 never carries a link the change brings in.
+  // Defanged (example[.]com): a phone links a bare domain, and a text from Native Intelligence never carries a link the change brings in.
   const outside = args.outside?.length ? ` It also adds links to ${args.outside.slice(0, 5).map((h) => h.replace(/\./g, '[.]')).join(', ')}.` : ''
   const unchecked = args.unchecked ? ' It was too big for me to check every file for outside links.' : ''
   const preview = args.previewUrl ? ` See it before it goes live: ${args.previewUrl}` : ''

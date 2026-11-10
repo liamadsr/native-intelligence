@@ -15,7 +15,7 @@
  *   every delta): the last RECENT_IDS ids tell a repeat from a late commit,
  *   and an unseen id below the highest applied marks the transcript `stale`,
  *   so the caller reads it again in the server's order. The server's
- *   `inbound` events (a message from the Dial8 agent or the person; ONLY a
+ *   `inbound` events (a message from the Native Intelligence agent or the person; ONLY a
  *   `source: 'server'` row, never a device's) and the Mac's `branch` event
  *   fold in too, and a server `error` naming a `messageId` is a message that
  *   couldn't be delivered.
@@ -61,7 +61,7 @@ export type TranscriptItem =
       input: string
       result: { ok: boolean; output: string } | null
     }
-  /** `teammate`: the Mac body's report_to_person (a report) or message_teammate (an ask, to Dial8 in the cloud). */
+  /** `teammate`: the Mac body's report_to_person (a report) or message_teammate (an ask, to Native Intelligence in the cloud). */
   | { type: 'report' | 'ask' | 'finish' | 'error'; key: string; text: string; teammate?: true }
   | { type: 'status'; key: string; status: LocalAgentJobStatus; reason: string | null }
   /** A native question on the Mac, one line that follows its state (by its id); `at`, when it was last written. */
@@ -80,7 +80,7 @@ export type TranscriptItem =
     }
   /** A message the dev page sent. Local only: a reload doesn't bring it back. */
   | { type: 'sent'; key: string; text: string; policy: LocalAgentPolicy }
-  /** A message to the local agent, stored by the server: the Dial8 agent's (`agent`) or the person's. */
+  /** A message to the local agent, stored by the server: the Native Intelligence agent's (`agent`) or the person's. */
   | { type: 'inbound'; key: string; author: 'agent' | 'person'; text: string; policy: LocalAgentPolicy }
   /** A message to the agent that couldn't be delivered (a server `error` naming its messageId). */
   | { type: 'undelivered'; key: string; messageId: string; reason: string }
@@ -411,7 +411,7 @@ export interface StoredEventLike {
 /**
  * A stored event the fold may read (S4). A message TO the agent (`inbound`)
  * is the server's alone: only a row whose `source` is 'server' is shown as
- * the person or the Dial8 agent, never a device's, nor one that doesn't say
+ * the person or the Native Intelligence agent, never a device's, nor one that doesn't say
  * (every caller carries the column: the route's page, realtime, the page
  * read). Ingest refuses that kind from devices anyway.
  */

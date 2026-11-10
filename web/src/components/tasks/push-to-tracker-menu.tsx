@@ -3,7 +3,7 @@
 import { PreferenceActionButton } from '@/components/views/preference-action'
 
 /**
- * "Push to…" — the ONE surface for sending a Dial8 action to an external task
+ * "Push to…" — the ONE surface for sending a Native Intelligence action to an external task
  * tracker, wherever an action is shown.
  *
  * It replaces the per-provider "Asana" section that used to sit in the action
@@ -162,7 +162,7 @@ export interface PushToTrackerMenuProps {
   /** Fired after a successful push, with the link row the server returned. */
   onPushed?: (link: ExternalTaskLink, context: { created: boolean }) => void
   /**
-   * Fired after a successful unlink (Dial8-side only — the remote task lives on).
+   * Fired after a successful unlink (NI-side only — the remote task lives on).
    *
    * The provider rides along in `context` because the caller usually knows the
    * action by its PROVIDERS rather than by link id — a row payload's
@@ -209,7 +209,7 @@ export interface PushToTrackerMenuProps {
    *
    * A RENDER PROP rather than `children`, because the trigger needs the state
    * the menu owns: whether links have resolved, and whether a push is in
-   * flight. A caller that rendered its own icon blind would claim "Dial8 only"
+   * flight. A caller that rendered its own icon blind would claim "Native Intelligence only"
    * for an action whose links nothing has read yet.
    */
   renderTrigger?: (state: {
@@ -535,7 +535,7 @@ export function PushToTrackerMenu({
    * provider it touched would clobber the action's others. `external_links` is a
    * JOIN with no realtime channel, so without this event a push made from the
    * detail-panel toolbar or a capture proposal row leaves every list row and
-   * board card drawing the Dial8 mark for an action that is now in Jira.
+   * board card drawing the Native Intelligence mark for an action that is now in Jira.
    *
    * The payload is the FULL link rows this menu holds, not a thinned
    * `{ provider }` projection. The row surfaces only ever read `.provider`, so
@@ -713,7 +713,7 @@ export function PushToTrackerMenu({
       if (!res.ok) throw new Error('unlink failed')
       // The REMAINING providers, not an empty array: an action linked to Jira
       // and Asana that loses one is still in the other, and announcing []
-      // would redraw every surface as Dial8-only.
+      // would redraw every surface as NI-only.
       republishLinks(actionId, remaining)
       onUnlinked?.(link.id, { provider: link.provider })
       // The row is gone server-side; let a later open re-read the truth.

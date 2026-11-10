@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Text selected in a doc or a capture open in a card reaches the chat (the
- * shell's `dial8:editor-selection` listener), as it did from the old page
+ * shell's `ni:editor-selection` listener), as it did from the old page
  * windows: only from the tab in front, and cleared when the panel goes away
  * (the card folded, Back, the tab closed).
  */

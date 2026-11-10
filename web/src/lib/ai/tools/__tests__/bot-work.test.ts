@@ -78,9 +78,9 @@ beforeEach(() => {
 describe('the tools', () => {
   it('list_bot_work: every bot, with the note that what it carries is data', async () => {
     const tools = createBotWorkTools('user-1', db as never)
-    // The chat agent reads its own face as itself (one face); over MCP it's "the person's own Dial8 agent".
+    // The chat agent reads its own face as itself (one face); over MCP it's "the person's own Native Intelligence agent".
     expect(tools.list_bot_work.description).toContain('The agent marked self is you')
-    expect(createBotWorkTools('user-1', db as never, { voice: 'person' }).list_bot_work.description).toContain("The agent marked self is the person's own Dial8 agent")
+    expect(createBotWorkTools('user-1', db as never, { voice: 'person' }).list_bot_work.description).toContain("The agent marked self is the person's own Native Intelligence agent")
     const out = await exec(tools.list_bot_work)({})
     expect(out).toMatchObject({ success: true, more_bots: 0, without_bot: [], unowned_cards: { waiting: 0, items: [], more: 0 }, note: BOT_WORK_NOTE })
     expect(out.bots).toEqual([
@@ -361,7 +361,7 @@ describe('the main agent is told how to use them', () => {
     const agents = md.slice(md.indexOf('## Your agents'))
     // The standing part: who you are, what For you holds, how to reach their agents, no notifications page.
     // Who the main agent is, by the app's name for it, is the opening's to say ("Assistant" by default).
-    expect(md.slice(0, 600)).toContain('("Assistant" by default; Dial8 is the product)')
+    expect(md.slice(0, 600)).toContain('("Assistant" by default; Native Intelligence is the product)')
     for (const part of ['This conversation is their home thread with you', 'For you, the column beside the chat, holds only what agents delivered', 'never point them to For you for one', 'There is no notifications page']) {
       expect(agents, part).toContain(part)
     }
@@ -394,7 +394,7 @@ describe('the main agent is told how to use them', () => {
       'Duplicates go through `merge_bots`, never one by one here.',
       'About → Customize',
       'make a copy for this one first',
-      '"Read only" or "Read, and change Dial8 records"',
+      '"Read only" or "Read, and change Native Intelligence records"',
       'only workspace owners and admins choose',
       "It opens from that agent's work in For you, a work item or one of its notices.",
       "it doesn't see this chat",

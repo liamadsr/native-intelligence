@@ -106,7 +106,7 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 vi.mock('@/lib/device-tokens', () => ({
-  isDeviceToken: (token: string) => token.startsWith('d8d_'),
+  isDeviceToken: (token: string) => token.startsWith('nid_'),
   resolveDeviceToken: (token: string) => hoisted.resolveDeviceToken(token),
   isDeviceWorkspaceMember: (userId: string, workspaceId: string) =>
     hoisted.isDeviceWorkspaceMember(userId, workspaceId),
@@ -272,7 +272,7 @@ describe('getCurrentWorkspaceId', () => {
     // Device tokens are not JWTs — resolveUser bails to null here (device
     // callers pin the workspace via api-auth, not via this cookie/RLS path).
     hoisted.getUser.mockResolvedValueOnce({ data: { user: null } })
-    hoisted.authHeader = 'Bearer d8d_opaque_secret'
+    hoisted.authHeader = 'Bearer nid_opaque_secret'
 
     const result = await getCurrentWorkspaceId()
     expect(result).toBeNull()
@@ -348,14 +348,14 @@ describe('getCurrentWorkspaceId', () => {
 
 describe('getCurrentWorkspaceId — device tokens', () => {
   /**
-   * A device token (`d8d_…`) is opaque, not a JWT, so `resolveUser` can bind
+   * A device token (`nid_…`) is opaque, not a JWT, so `resolveUser` can bind
    * no client to it and returns null — and a server-to-server caller (the eval
    * run driver, the desktop app's headless calls) carries no cookie session
    * either. Without the device branch every such request resolves to null and
    * the route 400s "No workspace" before reading anything.
    */
   it('resolves the workspace a device token is pinned to, with no session at all', async () => {
-    hoisted.authHeader = 'Bearer d8d_devicetoken'
+    hoisted.authHeader = 'Bearer nid_devicetoken'
     hoisted.resolveDeviceToken.mockResolvedValueOnce({
       userId: 'u-device',
       workspaceId: 'w-pinned',
@@ -372,7 +372,7 @@ describe('getCurrentWorkspaceId — device tokens', () => {
   })
 
   it('resolves no workspace for a stale pin (owner removed from the workspace since)', async () => {
-    hoisted.authHeader = 'Bearer d8d_devicetoken'
+    hoisted.authHeader = 'Bearer nid_devicetoken'
     hoisted.resolveDeviceToken.mockResolvedValueOnce({
       userId: 'u-device',
       workspaceId: 'w-left',
@@ -384,7 +384,7 @@ describe('getCurrentWorkspaceId — device tokens', () => {
   })
 
   it('throws (a 500, not a false answer) when the pinned-membership check errors', async () => {
-    hoisted.authHeader = 'Bearer d8d_devicetoken'
+    hoisted.authHeader = 'Bearer nid_devicetoken'
     hoisted.resolveDeviceToken.mockResolvedValueOnce({
       userId: 'u-device',
       workspaceId: 'w-pinned',
@@ -404,7 +404,7 @@ describe('getCurrentWorkspaceId — device tokens', () => {
    * token read a workspace it was never issued for.
    */
   it('ignores a spoofed workspace header and returns the pin instead', async () => {
-    hoisted.authHeader = 'Bearer d8d_devicetoken'
+    hoisted.authHeader = 'Bearer nid_devicetoken'
     hoisted.headers[WORKSPACE_HEADER.toLowerCase()] = 'w-someone-elses'
     hoisted.cookies[WORKSPACE_COOKIE] = 'w-also-not-this'
     hoisted.resolveDeviceToken.mockResolvedValueOnce({
@@ -418,7 +418,7 @@ describe('getCurrentWorkspaceId — device tokens', () => {
   })
 
   it('falls through to the normal path for an expired or unknown device token', async () => {
-    hoisted.authHeader = 'Bearer d8d_revoked'
+    hoisted.authHeader = 'Bearer nid_revoked'
     hoisted.resolveDeviceToken.mockResolvedValueOnce(null)
     hoisted.getUser.mockResolvedValueOnce({ data: { user: null } })
 

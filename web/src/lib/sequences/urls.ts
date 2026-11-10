@@ -10,9 +10,11 @@
  * sequence's card in the chat on screen.
  */
 
+import { appUrl } from '@/lib/app-url'
+
 /** App origin for deep links. Mirrors appBaseUrl in src/lib/tasks/linear-push.ts. */
 function appBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'https://dial8.ai').replace(/\/$/, '')
+  return appUrl()
 }
 
 /** Absolute deep link to a sequence's detail page (agent tools hand this out). */

@@ -1,10 +1,10 @@
-import { Label, Input, Switch } from '@dial8/ui'
+import { Label, Input, Switch } from '@native-intelligence/ui'
 
 export function WithInput() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxWidth: 320 }}>
       <Label htmlFor="workspace-name">Workspace name</Label>
-      <Input id="workspace-name" defaultValue="Dial8" />
+      <Input id="workspace-name" defaultValue="Native Intelligence" />
     </div>
   )
 }

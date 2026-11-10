@@ -3,9 +3,9 @@ import { createAsanaRemoteFake, type FakeTeamStates } from '@/test/asana-remote-
 import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
 
 /**
- * REGRESSION: the Linear↔Dial8 status cycle must terminate.
+ * REGRESSION: the Linear↔Native Intelligence status cycle must terminate.
  *
- * Dial8→Linear (linear-echo-status) and Linear→Dial8 (applyRemoteTaskState) form
+ * Native Intelligence→Linear (linear-echo-status) and Linear→Native Intelligence (applyRemoteTaskState) form
  * a closed loop: a webhook moves the action, that fires
  * `flow/entity.status_changed`, which wakes the echo, which writes the issue's
  * state, which raises another webhook… Left unguarded this ping-pongs forever,
@@ -15,14 +15,14 @@ import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
  * Three brakes, mirroring the Jira suite next door — with the differences that
  * come from Linear's typed states rather than from a different design:
  *
- *   BRAKE 1 (Dial8→Linear). The echo READS THE ISSUE FIRST and stops when its
+ *   BRAKE 1 (Native Intelligence→Linear). The echo READS THE ISSUE FIRST and stops when its
  *   current state already satisfies the bucket. ZERO writes. Unlike Jira there
  *   is no transition list involved at all — the comparison is a bucket fold of
  *   `WorkflowState.type` — but the ordering is load-bearing for exactly the same
  *   reason: without it a change a Linear user just made round-trips straight
  *   back out.
  *
- *   BRAKE 2 (Linear→Dial8). The echo records the provider state on the link when
+ *   BRAKE 2 (Linear→Native Intelligence). The echo records the provider state on the link when
  *   it writes, so the webhook its own write raises finds the CAS already
  *   satisfied and stops before touching the action.
  *
@@ -252,13 +252,13 @@ beforeEach(() => {
   })
 })
 
-describe('Linear ↔ Dial8 loop termination', () => {
+describe('Linear ↔ Native Intelligence loop termination', () => {
   it('BRAKE 1: a webhook-applied completion produces ZERO Linear writes from the echo', async () => {
     // The issue is already in a completed-type state (that's why the webhook
     // fired). An echo that wrote before looking would move it again.
     hoistedApi.getIssue.mockResolvedValue(DONE_ISSUE)
 
-    // 1. Linear → Dial8: the issue moved into a completed-type state.
+    // 1. Linear → Native Intelligence: the issue moved into a completed-type state.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -294,7 +294,7 @@ describe('Linear ↔ Dial8 loop termination', () => {
     hoistedApi.getIssue.mockResolvedValue(IN_PROGRESS_ISSUE)
     hoistedApi.updateIssueState.mockResolvedValue(DONE_ISSUE)
 
-    // 1. Dial8 → Linear: the echo writes the state and records the result.
+    // 1. Native Intelligence → Linear: the echo writes the state and records the result.
     await hoisted.handler({
       event: {
         data: {
@@ -312,7 +312,7 @@ describe('Linear ↔ Dial8 loop termination', () => {
     expect(db.links[0].completed).toBe(true)
     expect(db.links[0].external_state_label).toBe('Done')
 
-    // 2. Linear → Dial8: the webhook raised by our own write arrives.
+    // 2. Linear → Native Intelligence: the webhook raised by our own write arrives.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -340,7 +340,7 @@ describe('Linear ↔ Dial8 loop termination', () => {
     db.links[0].external_state_label = 'Done'
     hoistedApi.getIssue.mockResolvedValue(IN_PROGRESS_ISSUE)
 
-    // 1. Linear → Dial8.
+    // 1. Linear → Native Intelligence.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -367,7 +367,7 @@ describe('Linear ↔ Dial8 loop termination', () => {
   })
 
   it('BRAKE 3b: a started-less team DECLINES the reopen instead of bouncing it', async () => {
-    // A Todo→Done board is one DELETE away in Dial8. With no started state the
+    // A Todo→Done board is one DELETE away in Native Intelligence. With no started state the
     // read-back must NOT approximate into the default — that is precisely the
     // disagreement that starts a bounce.
     Object.assign(ACTIONS[0], { status_id: 'st-done', category: 'completed' })

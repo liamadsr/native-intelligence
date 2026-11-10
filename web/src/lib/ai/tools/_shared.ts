@@ -561,7 +561,7 @@ export async function resolveEntityWorkspace(
  *
  * That default IS the original bug. An agent reads ENG-42 out of Engineering (a
  * row that plainly carries `workspace_id: engineering`), is told "file a
- * follow-up for that", and the follow-up is written into Dial8 Marketing —
+ * follow-up for that", and the follow-up is written into Native Intelligence Marketing —
  * because the CONNECTOR was pointed there. Nothing in the turn says otherwise,
  * so the user finds out days later, on the wrong board.
  *

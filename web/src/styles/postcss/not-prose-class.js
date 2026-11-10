@@ -24,7 +24,7 @@ const NOT_PROSE = /\[class~=(["']?)not-prose\1\]/g
 /** @type {import('postcss').PluginCreator<void>} */
 function notProseClass() {
   return {
-    postcssPlugin: 'dial8-not-prose-class',
+    postcssPlugin: 'ni-not-prose-class',
     Rule(rule) {
       if (rule.selector.includes('not-prose')) rule.selector = rule.selector.replace(NOT_PROSE, '.not-prose')
     },

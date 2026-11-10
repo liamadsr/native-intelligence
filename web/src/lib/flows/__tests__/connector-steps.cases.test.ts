@@ -36,7 +36,7 @@ let db: FakeSupabase
 const callTool = vi.fn(async () => ({ content: [{ type: 'text', text: 'saved' }], isError: false }))
 
 function run(actions: FlowAction[]) {
-  return runFlow({ actions }, null, trigger, 'https://dial8.ai', {
+  return runFlow({ actions }, null, trigger, 'https://nativeintelligence.dev', {
     extras: { workspaceId: WS, capture: { id: 'cap-1', title: 'Acme call' } },
     executors: {
       call_tool: createCallToolExecutor({

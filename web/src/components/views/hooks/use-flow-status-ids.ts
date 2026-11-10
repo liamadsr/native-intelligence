@@ -8,8 +8,8 @@
  *
  * Fetched once per workspace and cached in module scope (mirrors
  * use-picker-context.ts) so every status surface across views shares one fetch.
- * Revalidates when a `dial8:entity-created` event fires for a flow, or on an
- * explicit `dial8:flows-changed` event the flow editor emits after save/delete.
+ * Revalidates when a `ni:entity-created` event fires for a flow, or on an
+ * explicit `ni:flows-changed` event the flow editor emits after save/delete.
  */
 
 'use client'
@@ -116,12 +116,12 @@ export function useFlowStatusIds(workspaceId: string | null): FlowStatusMap {
       const detail = (e as CustomEvent).detail as { entityType?: string } | undefined
       if (detail?.entityType === 'flow') refresh()
     }
-    window.addEventListener('dial8:entity-created', onCreated)
-    window.addEventListener('dial8:flows-changed', refresh)
+    window.addEventListener('ni:entity-created', onCreated)
+    window.addEventListener('ni:flows-changed', refresh)
     return () => {
       cancelled = true
-      window.removeEventListener('dial8:entity-created', onCreated)
-      window.removeEventListener('dial8:flows-changed', refresh)
+      window.removeEventListener('ni:entity-created', onCreated)
+      window.removeEventListener('ni:flows-changed', refresh)
     }
   }, [workspaceId])
 

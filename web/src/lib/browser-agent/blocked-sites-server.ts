@@ -18,7 +18,7 @@ export async function loadBlockedSites(db: SupabaseClient, userId: string): Prom
 }
 
 /**
- * The sites the browser agent may not use: the user's own list plus Dial8's
+ * The sites the browser agent may not use: the user's own list plus Native Intelligence's
  * own app (appOwnSites), always. What the command claim and the decision route
  * enforce and hand the relay; the list in Blocked sites stays the user's alone.
  * Throws like loadBlockedSites.

@@ -59,14 +59,14 @@ function start(): () => void {
   void read()
   const offUpdated = onEntityUpdated(onDraft)
   const offDeleted = onEntityDeleted(onDraft)
-  window.addEventListener('dial8:entity-created', onCreated)
+  window.addEventListener('ni:entity-created', onCreated)
   document.addEventListener('visibilitychange', onVisible)
   return () => {
     alive = false
     if (timer) clearTimeout(timer)
     offUpdated()
     offDeleted()
-    window.removeEventListener('dial8:entity-created', onCreated)
+    window.removeEventListener('ni:entity-created', onCreated)
     document.removeEventListener('visibilitychange', onVisible)
   }
 }

@@ -31,7 +31,7 @@ import { useSyncExternalStore } from 'react'
 import type { VoicePhase } from '@/hooks/use-voice-mode'
 
 /** The main chat's host hears this (main-chat-host.tsx). */
-export const VOICE_BIRD_EVENT = 'dial8:voice-bird'
+export const VOICE_BIRD_EVENT = 'ni:voice-bird'
 
 export type VoiceBirdDetail =
   | {

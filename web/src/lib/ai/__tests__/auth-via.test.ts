@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * bearer (401 at the channel) or the wrong principal. The route tests mock
  * authenticateUser; this file pins the value at its source:
  *   valid Bearer JWT → 'jwt'; no header / non-Bearer / bad Bearer + cookie →
- *   'cookie'; a live d8d_ device token → 'device'; an expired / unknown d8d_
+ *   'cookie'; a live nid_ device token → 'device'; an expired / unknown nid_
  *   token next to a valid cookie → 'cookie' (the stale-bearer case the relay
  *   fix depends on), and the device token is then never treated as a JWT win.
  */
@@ -31,7 +31,7 @@ vi.mock('@/lib/supabase/service', () => ({
   getServiceClient: () => ({ auth: { admin: { getUserById: hoisted.getUserById } } }),
 }))
 vi.mock('@/lib/device-tokens', () => ({
-  isDeviceToken: (t: string) => t.startsWith('d8d_'),
+  isDeviceToken: (t: string) => t.startsWith('nid_'),
   resolveDeviceToken: hoisted.resolveDeviceToken,
 }))
 
@@ -40,7 +40,7 @@ const { authenticateUser } = await import('@/lib/ai/auth')
 function request(authHeader?: string): Request {
   const headers = new Headers()
   if (authHeader) headers.set('authorization', authHeader)
-  return new Request('https://dial8.ai/api/device/ask', { method: 'POST', headers })
+  return new Request('https://nativeintelligence.dev/api/device/ask', { method: 'POST', headers })
 }
 
 const DEVICE_OWNER = { id: 'u-device' }
@@ -84,34 +84,34 @@ describe("authenticateUser — `via` names the credential that authenticated", (
     expect(r.via).toBe('cookie')
   })
 
-  it("a live d8d_ device token → 'device' (the cookie is never consulted)", async () => {
+  it("a live nid_ device token → 'device' (the cookie is never consulted)", async () => {
     hoisted.resolveDeviceToken.mockResolvedValueOnce({ userId: 'u-device', workspaceId: 'ws-1' })
     hoisted.getUserById.mockResolvedValueOnce({ data: { user: DEVICE_OWNER } })
-    const r = await authenticateUser(request('Bearer d8d_live'))
-    expect(hoisted.resolveDeviceToken).toHaveBeenCalledWith('d8d_live')
+    const r = await authenticateUser(request('Bearer nid_live'))
+    expect(hoisted.resolveDeviceToken).toHaveBeenCalledWith('nid_live')
     expect(hoisted.getUserById).toHaveBeenCalledWith('u-device')
     expect(r.user).toEqual(DEVICE_OWNER)
     expect(r.via).toBe('device')
     expect(hoisted.cookieGetUser).not.toHaveBeenCalled()
   })
 
-  it("an expired / unknown d8d_ token next to a valid cookie → 'cookie' (the stale bearer is NOT the credential to relay)", async () => {
-    // resolveDeviceToken → null (expired). The d8d_ string then also fails as a JWT.
-    const r = await authenticateUser(request('Bearer d8d_expired'))
+  it("an expired / unknown nid_ token next to a valid cookie → 'cookie' (the stale bearer is NOT the credential to relay)", async () => {
+    // resolveDeviceToken → null (expired). The nid_ string then also fails as a JWT.
+    const r = await authenticateUser(request('Bearer nid_expired'))
     expect(r.user).toEqual(COOKIE_USER)
     expect(r.via).toBe('cookie')
   })
 
-  it("a live d8d_ token whose owner no longer exists falls through → 'cookie'", async () => {
+  it("a live nid_ token whose owner no longer exists falls through → 'cookie'", async () => {
     hoisted.resolveDeviceToken.mockResolvedValueOnce({ userId: 'u-gone', workspaceId: 'ws-1' })
     hoisted.getUserById.mockResolvedValueOnce({ data: { user: null } })
-    const r = await authenticateUser(request('Bearer d8d_orphan'))
+    const r = await authenticateUser(request('Bearer nid_orphan'))
     expect(r.via).toBe('cookie')
   })
 
   it('throws a 401 Response when nothing authenticates', async () => {
     hoisted.cookieGetUser.mockResolvedValueOnce({ data: { user: null }, error: { message: 'no session' } })
-    const err = await authenticateUser(request('Bearer d8d_expired')).catch((e) => e)
+    const err = await authenticateUser(request('Bearer nid_expired')).catch((e) => e)
     expect(err).toBeInstanceOf(Response)
     expect((err as Response).status).toBe(401)
   })

@@ -22,8 +22,8 @@ import { SKY_CONDITION_LABELS, type SkyPrecip, type SkyWeather } from './weather
  * cirrus as cloud, so it could draw a clear sky as cloudy until the next fetch:
  * v1 readings are ignored (and removed on the next save).
  */
-export const SKY_CACHE_KEY = 'dial8.sky.lastReading.v2'
-const LEGACY_SKY_CACHE_KEYS = ['dial8.sky.lastReading.v1'] as const
+export const SKY_CACHE_KEY = 'ni.sky.lastReading.v2'
+const LEGACY_SKY_CACHE_KEYS = ['ni.sky.lastReading.v1'] as const
 
 /** A saved location is used for this long: people rarely move. */
 export const LOCATION_FRESH_MS = 7 * 24 * 60 * 60_000

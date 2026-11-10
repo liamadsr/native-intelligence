@@ -156,7 +156,7 @@ export function stepCeilingError(spec: UtilitySpec, stepIndex: unknown): Error |
  * `chatgptPlan`, or the plan's guard slug `openai/<plan model>`, which the
  * spec route sends only for a plan call) but carries no plan this module can
  * read. Running it anyway would put the plan's model on the Gateway, on
- * Dial8's key, so both resolvers refuse it.
+ * Native Intelligence's key, so both resolvers refuse it.
  */
 export function planSpecError(spec: UtilitySpec): Error | null {
   // A kind for another agent (one with web access) never runs here, where a
@@ -412,7 +412,7 @@ async function fetchUtilitySpecUncached(runToken: string): Promise<UtilitySpec |
       ...(validOutputCap(body.maxOutputTokens) !== undefined ? { maxOutputTokens: body.maxOutputTokens } : {}),
       ...(validOutputCap(body.maxSteps) !== undefined ? { maxSteps: body.maxSteps } : {}),
       // A call on the person's plan: without this the resolvers would run
-      // the plan's model on the Gateway, on Dial8's key (planSpecError).
+      // the plan's model on the Gateway, on Native Intelligence's key (planSpecError).
       ...(body.chatgptPlan !== undefined ? { chatgptPlan: body.chatgptPlan } : {}),
       ...(body.agent !== undefined ? { agent: body.agent } : {}),
     }

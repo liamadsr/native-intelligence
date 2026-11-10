@@ -44,7 +44,7 @@ export const ComputerSection = memo(function ComputerSection({ computer, name }:
   const awake = computer.status === 'running'
   return (
     // As the live view (isInBrowserSurface): the preview and today's sites are the person's browsing.
-    <div data-computer-section="" data-dial8-browser="" className="ph-no-capture px-1">
+    <div data-computer-section="" data-ni-browser="" className="ph-no-capture px-1">
       <p className="px-2 pb-0.5 pt-1 text-xs text-muted-foreground">Computers</p>
       <button type="button" data-computer-open="" onClick={openLiveView} disabled={!computer.liveView}
         aria-label={`Open ${name}’s computer`} className={cn(ROW, !computer.liveView && 'cursor-default hover:bg-transparent')}>

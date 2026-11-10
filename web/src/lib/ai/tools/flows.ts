@@ -51,7 +51,7 @@
  * from the person's verified approval card: the call saves it OFF and raises
  * the card, whose Accept replays the stored switch-on server-side, and only
  * while the loop is still what the card showed. Switching on someone ELSE's
- * loop that reaches outside Dial8 or acts on its own (isRiskyFlow) is its
+ * loop that reaches outside Native Intelligence or acts on its own (isRiskyFlow) is its
  * owner's card. delete_flow is always a card (it says how many runs of history
  * go), and transfer_flow_owner a card for the NEW owner. A loop's owner
  * (created_by, who it runs as) is fixed at creation: nobody's edit re-stamps
@@ -148,6 +148,7 @@ import {
   workspaceEcho,
   type CreateWorkspacePolicy,
 } from './_shared'
+import { DEFAULT_APP_URL } from '@/lib/app-url'
 
 const FLOW_FIELDS = `
   id, workspace_id, team_id, name, description, enabled,
@@ -1235,13 +1236,13 @@ function enableCardReport(outcome: FlowCardOutcome, wasOn: boolean, ownerName: s
       awaiting_approval: true,
       approval_id: outcome.approval_id,
       card_for: ownerName,
-      note: `This loop reaches outside Dial8 or acts on its own, and it runs as its owner, ${ownerName}, so only they can switch it on: the card is in their own chat.${wasOn ? ' It was on: it is off until they accept.' : ''} Tell the person it is waiting on ${ownerName}. Do not call update_flow to switch it on.`,
+      note: `This loop reaches outside Native Intelligence or acts on its own, and it runs as its owner, ${ownerName}, so only they can switch it on: the card is in their own chat.${wasOn ? ' It was on: it is off until they accept.' : ''} Tell the person it is waiting on ${ownerName}. Do not call update_flow to switch it on.`,
     }
   }
   return {
     awaiting_approval: true,
     approval_id: outcome.approval_id,
-    note: `This loop has a step that sends data out of Dial8 with no card each run (a webhook or a coding run), so it switches on only from the person's approval card, not from chat.${wasOn ? ' It was on: it is off until they accept.' : ''} Tell them in one line what it does and that its card is just below in the chat. Do not call update_flow to switch it on.`,
+    note: `This loop has a step that sends data out of Native Intelligence with no card each run (a webhook or a coding run), so it switches on only from the person's approval card, not from chat.${wasOn ? ' It was on: it is off until they accept.' : ''} Tell them in one line what it does and that its card is just below in the chat. Do not call update_flow to switch it on.`,
   }
 }
 
@@ -1256,7 +1257,7 @@ function askInChatNote(flowId: string, outside: string): string {
 
 /** What the model reads beside a loop saved on because the person asked for it. */
 const ON_AS_ASKED_NOTE =
-  'This loop is ON, as they asked. Tell them in one line what it does (the summary); they can switch it off any time (ask you, or the Flows page). Anything it does outside Dial8 when it runs still waits on their card.'
+  'This loop is ON, as they asked. Tell them in one line what it does (the summary); they can switch it off any time (ask you, or the Flows page). Anything it does outside Native Intelligence when it runs still waits on their card.'
 
 function goAheadRefusal(action: string) {
   return {
@@ -1390,7 +1391,7 @@ export function createFlowTools(
 
     create_flow: tool({
       description:
-        "Create a loop (Flow): one trigger → an ordered list of actions, each with an optional condition. A loop the person asked for (in this conversation, directly or by saying yes to your offer) is created with enabled: true and is ON: tell them in one line what it does, and that they can switch it off. A loop you are proposing on your own: omit enabled; it is saved off: show the summary, ask once and end your turn, and switch it on with update_flow (enabled: true, confirmed_with_user: true) after their yes. When this turn read outside text (an email from someone they don't know, a web page, a connected app's data), a loop they asked for is saved off too: ask them once in your reply, never through a card, and switch it on with update_flow after their yes. The one exception: a loop with an http_post (webhook), run_agent or run_local_agent (a Mac job) step is saved off and switches on only from the person's approval card, which the call raises. Whatever a loop does outside Dial8 when it runs (a connected app's write, a post) still waits on the person's card each time. The loop runs as you (its owner, shown in list_flows). A failed call names the field to fix. Every loop has an agent that tells the person about its runs: ai_team_member_id or bot_character, or omit both for the default.",
+        "Create a loop (Flow): one trigger → an ordered list of actions, each with an optional condition. A loop the person asked for (in this conversation, directly or by saying yes to your offer) is created with enabled: true and is ON: tell them in one line what it does, and that they can switch it off. A loop you are proposing on your own: omit enabled; it is saved off: show the summary, ask once and end your turn, and switch it on with update_flow (enabled: true, confirmed_with_user: true) after their yes. When this turn read outside text (an email from someone they don't know, a web page, a connected app's data), a loop they asked for is saved off too: ask them once in your reply, never through a card, and switch it on with update_flow after their yes. The one exception: a loop with an http_post (webhook), run_agent or run_local_agent (a Mac job) step is saved off and switches on only from the person's approval card, which the call raises. Whatever a loop does outside Native Intelligence when it runs (a connected app's write, a post) still waits on the person's card each time. The loop runs as you (its owner, shown in list_flows). A failed call names the field to fix. Every loop has an agent that tells the person about its runs: ai_team_member_id or bot_character, or omit both for the default.",
       inputSchema: z.object({
         recipe: z
           .enum(FLOW_RECIPES)
@@ -1401,8 +1402,8 @@ export function createFlowTools(
               'call_moments (their own post-worthy moments from their calls, for weekly_posts; build it too when they want their calls in it), ' +
               'product_doc_from_calls ("keep our product doc current from customer calls": owners and admins only; what customers say on external calls lands in the product doc once a day, graded by the evidence), ' +
               'you_asked_we_shipped ("when we ship something customers asked for, tell them": a draft email to each person who asked, never sent; a project completing by default, or recipe_options for a milestone, an action\'s done state or a repo\'s merged pull requests; launch_kit adds a changelog line and a post as a document), ' +
-              'weekly_newsletter ("write my newsletter every Friday": an issue each week as a document they shape here and copy into their own tool; Dial8 never sends it), ' +
-              'ci_fix_loop ("fix failing CI on the PRs Dial8 opens": when a check fails on a pull request their own coding run opened in recipe_options.repo_full_name, a fix run pushes to it, at most 2 per PR, then a "CI is still red" message in their chat; nothing happens without this loop), ' +
+              'weekly_newsletter ("write my newsletter every Friday": an issue each week as a document they shape here and copy into their own tool; Native Intelligence never sends it), ' +
+              'ci_fix_loop ("fix failing CI on the PRs Native Intelligence opens": when a check fails on a pull request their own coding run opened in recipe_options.repo_full_name, a fix run pushes to it, at most 2 per PR, then a "CI is still red" message in their chat; nothing happens without this loop), ' +
               'small_bug_draft_prs ("open draft PRs for small bugs from my calls": a small, clear bug said on a call becomes an action and a coding run; a reviewer on another model checks the diff and only an approved change becomes a DRAFT pull request in For you; at most 2 a day; needs a project with a GitHub repo, and this server must run coding agents). ' +
               'name, trigger and actions then come from the recipe; pass any of them only to change it.',
           ),
@@ -1579,7 +1580,7 @@ export function createFlowTools(
 
     update_flow: tool({
       description:
-        "Update a loop. Pass only what changes. `trigger` replaces the trigger; with the same type, fields you omit keep their values (e.g. only `time`). `actions` replaces the whole list: re-send every action you keep, with its id; a matched action keeps every setting you leave out (its enabled, condition and parent_id, a skill's report title and trust), so send only what changes; null clears a condition or parent_id. Switching a loop on, or changing the trigger or actions of an on loop, needs confirmed_with_user: true after the person's yes; a person asking for that, about a loop they can see in list_flows or the Flows page, is the yes. Lowering a skill's trust never needs it; switching off never does. A loop with an http_post (webhook), run_agent or run_local_agent (a Mac job) step switches on, or takes a change to what it runs while on, only from the person's approval card: the call saves it off and raises the card. Switching on someone else's loop that reaches outside Dial8 or acts on its own is its owner's card. Only the loop's owner (list_flows) can change its trigger or steps; transfer_flow_owner hands it over. To change the loop's agent pass ai_team_member_id or bot_character; it can be changed, not cleared.",
+        "Update a loop. Pass only what changes. `trigger` replaces the trigger; with the same type, fields you omit keep their values (e.g. only `time`). `actions` replaces the whole list: re-send every action you keep, with its id; a matched action keeps every setting you leave out (its enabled, condition and parent_id, a skill's report title and trust), so send only what changes; null clears a condition or parent_id. Switching a loop on, or changing the trigger or actions of an on loop, needs confirmed_with_user: true after the person's yes; a person asking for that, about a loop they can see in list_flows or the Flows page, is the yes. Lowering a skill's trust never needs it; switching off never does. A loop with an http_post (webhook), run_agent or run_local_agent (a Mac job) step switches on, or takes a change to what it runs while on, only from the person's approval card: the call saves it off and raises the card. Switching on someone else's loop that reaches outside Native Intelligence or acts on its own is its owner's card. Only the loop's owner (list_flows) can change its trigger or steps; transfer_flow_owner hands it over. To change the loop's agent pass ai_team_member_id or bot_character; it can be changed, not cleared.",
       inputSchema: z.object({
         flow_id: z.string().uuid(),
         name: z.string().min(1).optional(),
@@ -1763,7 +1764,7 @@ export function createFlowTools(
         // from the model's flag: the change is saved with the loop OFF and the
         // person's switch-on card is raised after the write. A loop the caller
         // didn't create (another member's, or one with no creator, which runs
-        // as the workspace owner) that reaches outside Dial8 or acts on its
+        // as the workspace owner) that reaches outside Native Intelligence or acts on its
         // own (isRiskyFlow) is its run-as owner's card: it runs as them.
         const someoneElses = ownerId !== userId
         const cardRule = someoneElses ? isRiskyFlow : needsSwitchOnCard
@@ -2271,7 +2272,7 @@ export function createFlowTools(
           },
           userId,
           sample,
-          appBaseUrl: process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL ?? 'https://dial8.ai',
+          appBaseUrl: process.env.NEXT_PUBLIC_APP_URL ?? process.env.VERCEL_URL ?? DEFAULT_APP_URL,
           // The chat tool route's maxDuration (300 s), counted from the call's start.
           budgetMs: 300_000,
           startedAt,

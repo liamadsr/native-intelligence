@@ -1,6 +1,6 @@
 //! Local Modules — on-device capabilities, each backed by a supervised sidecar
 //! process and downloadable model assets. Design and bridge contract:
-//! dial8-website/docs/plans/local-modules.md.
+//! web/docs/plans/local-modules.md.
 //!
 //! - `registry`   which modules this build knows (+ their module.json)
 //! - `protocol`   protocol-v1 framing every sidecar speaks

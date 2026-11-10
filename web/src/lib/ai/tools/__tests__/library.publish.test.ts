@@ -2,7 +2,7 @@
  * Publishing to Discover from CHAT is owner/admin only, as on the HTTP routes
  * (skills POST / PATCH) and over MCP (library-lockdown.test.ts).
  *
- * visibility 'public' puts a skill in front of every Dial8 user. These tools
+ * visibility 'public' puts a skill in front of every Native Intelligence user. These tools
  * run on the SERVICE client (the chat, skill-run and work-run tool routes), so
  * no RLS applies and the role check is the only fence:
  *   - create_skill reads the caller's role in the TARGET workspace (the one

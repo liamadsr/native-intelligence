@@ -104,7 +104,7 @@ describe('buildChatTurnEvidence', () => {
     const cases = [
       // A mail tool, however it is named (an MCP prefix too).
       { type: 'dynamic-tool', toolName: 'read_email', state: 'output-available', input: { thread_id: 'thr-1' }, output: { scrubbed: 'mail', thread_id: 'thr-1' } },
-      { type: 'dynamic-tool', toolName: 'dial8_list_emails', state: 'output-available', input: {}, output: { scrubbed: 'mail', count: 3 } },
+      { type: 'dynamic-tool', toolName: 'ni_list_emails', state: 'output-available', input: {}, output: { scrubbed: 'mail', count: 3 } },
       { type: 'tool-get_email_drafts', state: 'output-available', input: {}, output: { scrubbed: 'mail' } },
       { type: 'dynamic-tool', toolName: 'revise_email_draft', state: 'output-error', input: { draft_id: 'd-1' }, errorText: 'boom' },
       // Any other tool whose output carried mail rows (the scrub marked them).

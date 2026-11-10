@@ -22,7 +22,7 @@ import { createClient } from '@/lib/supabase/server'
  *      or mismatched one, and OpenAI's own errors, before touching a code;
  *   2. exchange the code (with `resource`, which plan usage requires) and
  *      verify the ID token;
- *   3. find, link or create the Dial8 account (src/lib/chatgpt/account.ts)
+ *   3. find, link or create the Native Intelligence account (src/lib/chatgpt/account.ts)
  *      and store the encrypted connection;
  *   4. sign in: the web gets its session cookie here; the desktop gets a
  *      one-time token on a dial8desktop:// deep link, bound to the sign-in
@@ -84,9 +84,9 @@ export async function GET(request: NextRequest) {
     return finish(
       new NextResponse(
         deepLinkPage({
-          title: 'Signing in to Dial8...',
+          title: 'Signing in to Native Intelligence...',
           deepLink: deepLink.toString(),
-          body: `<p>Signing you in to Dial8...</p>
+          body: `<p>Signing you in to Native Intelligence...</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">You can close this window if the app doesn't open.</p>`,
         }),
         { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } },
@@ -121,7 +121,7 @@ function fail(request: NextRequest, tx: SignInTransaction | null, error: string)
           deepLink: deepLink.toString(),
           body: `<p>Sign-in didn't complete.</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">
-      Return to Dial8 and try again, or
+      Return to Native Intelligence and try again, or
       <a href="${escapeHtml(loginUrl.toString())}" style="color: #60a5fa;">sign in on the web</a>.
     </p>`,
         }),

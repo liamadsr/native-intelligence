@@ -39,7 +39,7 @@ const realtimeHandlers: {
   UPDATE?: (payload: { new: unknown }) => void
   // The channel's own subscribe status callback — the hook's catch-up path
   // after a socket drop. Captured (not dropped) so the dedup against the
-  // app-wide `dial8:realtime-recovered` event can actually be exercised.
+  // app-wide `ni:realtime-recovered` event can actually be exercised.
   status?: (status: string) => void
 } = {}
 vi.mock('@/lib/supabase/client', () => ({
@@ -413,7 +413,7 @@ describe('useAttentionItems realtime UPDATE (cross-device revert)', () => {
 //
 // A real socket repair knocks EVERY channel, so this rail used to refetch
 // twice: once from its own SUBSCRIBED-after-failure and again when the entities
-// channel dispatched `dial8:realtime-recovered`. Across the shell singletons
+// channel dispatched `ni:realtime-recovered`. Across the shell singletons
 // that doubling was a measurable share of the 21-request wake storm.
 describe('useAttentionItems recovery refetch dedup', () => {
   beforeEach(() => {
@@ -454,7 +454,7 @@ describe('useAttentionItems recovery refetch dedup', () => {
       // Mirror the real dispatch (use-realtime-entities.ts): the event carries the
       // watchdog's CURRENT repair id, which is what a self-refetch mark stamps.
       window.dispatchEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: getLastRepairId() } }),
       )
       await Promise.resolve()
     })

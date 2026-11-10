@@ -104,7 +104,7 @@ export const agentRunExecute = inngest.createFunction(
       // instead of throwing into a retry that leaves the row queued forever.
       const failure = built.ok ? (internalSecret() ? null : NO_INTERNAL_SECRET_REASON) : built.reason
       // The ChatGPT free tier: a coding run is Sonnet in a cloud sandbox, all
-      // Dial8-paid, so a person on their own ChatGPT plan never gets one,
+      // NI-paid, so a person on their own ChatGPT plan never gets one,
       // whichever way it was started (Start, an answered pre-check, a flow).
       // Refused before the pre-check, which is a model call too.
       const freeTier = !failure && (await chatgptPlanFor(built.run.triggeredBy))

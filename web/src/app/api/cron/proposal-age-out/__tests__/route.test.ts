@@ -206,8 +206,8 @@ function makeRouteSupabase(proposedRows: Row[], owners: Record<string, string> =
 
 function request(bearer?: string, workspace?: string) {
   const url = workspace
-    ? `https://dial8.ai/api/cron/proposal-age-out?workspace=${workspace}`
-    : 'https://dial8.ai/api/cron/proposal-age-out'
+    ? `https://nativeintelligence.dev/api/cron/proposal-age-out?workspace=${workspace}`
+    : 'https://nativeintelligence.dev/api/cron/proposal-age-out'
   return new NextRequest(url, {
     headers: bearer ? { authorization: `Bearer ${bearer}` } : {},
   })

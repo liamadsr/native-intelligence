@@ -16,7 +16,7 @@ import {
 
 const partner: ChatGptClient = { clientId: 'oaiapp_partner', clientSecret: 's3cret', hostId: null }
 const selfServe: ChatGptClient = { clientId: DYNAMIC_CLIENT_ID, clientSecret: null, hostId: 'urn:uuid:host-1' }
-const REDIRECT = 'https://dial8.ai/auth/chatgpt/callback'
+const REDIRECT = 'https://nativeintelligence.dev/auth/chatgpt/callback'
 
 beforeAll(() => {
   vi.stubEnv('CREDENTIAL_ENCRYPTION_KEY', randomBytes(32).toString('base64'))
@@ -79,7 +79,7 @@ describe('authorizeUrl', () => {
     ).searchParams
     expect(registering.get('client_id')).toBe(DYNAMIC_CLIENT_ID)
     expect(registering.get('ext_agent_host_id')).toBe('urn:uuid:host-1')
-    expect(registering.get('agent_name_hint')).toBe('Dial8')
+    expect(registering.get('agent_name_hint')).toBe('Native Intelligence')
 
     const issued = { ...selfServe, clientId: 'oaiapp_issued' }
     const returning = new URL(

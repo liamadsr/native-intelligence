@@ -70,14 +70,14 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : undefined
   calls.push({ url, method, body })
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status })
-  if (url === '/api/account/phone') return json({ phone: null, dial8Number: '+14155550100', available: true })
+  if (url === '/api/account/phone') return json({ phone: null, niNumber: '+14155550100', available: true })
   if (url === '/api/account/integrations/slack') return json({ configured: true, installations: slackInstalls })
   if (url === '/api/account/agent-links' && method === 'GET') return json({ links, candidates })
   if (url === '/api/account/agent-links/answer-workspaces') return json({ workspaces: answerWorkspaces })
   if (url === '/api/account/agent-links/connect') {
     const b = body as { displayName: string }
     guests = [view({ id: 'g-half', displayName: b.displayName, state: 'invited', channels: ['dial8'], masked: null, lastInboundAt: null }), ...guests]
-    return json({ link: linkView({ id: 'l-new', direction: 'outgoing', myHalfGuestId: 'g-half' }), url: 'https://dial8.ai/link/tok123' }, 201)
+    return json({ link: linkView({ id: 'l-new', direction: 'outgoing', myHalfGuestId: 'g-half' }), url: 'https://nativeintelligence.dev/link/tok123' }, 201)
   }
   if (url === '/api/account/agent-links' && method === 'POST') {
     const b = body as { guestId?: string; peerUserId: string; displayName: string; email?: string }
@@ -109,13 +109,13 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   }
   if (url.startsWith('/api/account/agent-guests/') && url.endsWith('/invite')) {
     const g = guests.find((x) => url.includes(x.id))!
-    return json({ guest: { ...g, state: 'invited' }, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", dial8Number: '+14155550100', expiresAt: null } })
+    return json({ guest: { ...g, state: 'invited' }, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", niNumber: '+14155550100', expiresAt: null } })
   }
-  if (url === '/api/account/agent-guests' && method === 'GET') return json({ guests, requests: { code: 'K7Q4MX', open: false }, dial8Number: '+14155550100', available: true })
+  if (url === '/api/account/agent-guests' && method === 'GET') return json({ guests, requests: { code: 'K7Q4MX', open: false }, niNumber: '+14155550100', available: true })
   if (url === '/api/account/agent-guests' && method === 'POST') {
     const b = body as { displayName: string; channels: Array<'sms' | 'slack'>; phone: string | null; tools: string[]; askTools: string[] }
     const guest = view({ id: 'g-new', displayName: b.displayName, state: 'invited', channels: b.channels, unbound: b.channels, masked: b.phone ? '··8831' : null, tools: b.tools, askTools: b.askTools })
-    return json({ guest, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", dial8Number: '+14155550100', expiresAt: null } }, 201)
+    return json({ guest, invite: { code: 'AB12CD', text: "Hi, it's Marco · AB12CD", niNumber: '+14155550100', expiresAt: null } }, 201)
   }
   if (url.endsWith('/approve')) return json({ guest: view({ id: 'g-priya', displayName: 'Priya Shah', state: 'active', preset: (body as { preset: 'colleague' }).preset }) })
   if (url.endsWith('/ignore')) return json({ ok: true })
@@ -183,7 +183,7 @@ describe('picks', () => {
     expect(pickedPermission(picks, 'c')).toBe('blocked')
   })
 
-  it('a whole section on Always allow turns everything on, but leaves what sends, changes outside Dial8 or deletes on Needs approval', () => {
+  it('a whole section on Always allow turns everything on, but leaves what sends, changes outside Native Intelligence or deletes on Needs approval', () => {
     const next = withSectionPicked({ tools: [], askTools: [], askBefore: ['payments', 'deletes'] }, ['get_calendar_events', 'create_calendar_event', 'delete_calendar_event'], 'allow')
     expect(next.tools).toEqual(['get_calendar_events', 'create_calendar_event', 'delete_calendar_event'])
     expect(next.askTools).toEqual(['create_calendar_event', 'delete_calendar_event'])
@@ -296,7 +296,7 @@ describe('the People tab', () => {
     expect(q('[data-people-guest="g-new"]')).not.toBeNull()
   })
 
-  it('Add a person on Slack only: no number asked for, and the invite says what to DM the Dial8 app', async () => {
+  it('Add a person on Slack only: no number asked for, and the invite says what to DM the Native Intelligence app', async () => {
     await show()
     await click(q('[data-people-add]')!)
     await type(q('[data-people-name]') as HTMLInputElement, 'Marco Ruiz')
@@ -313,11 +313,11 @@ describe('the People tab', () => {
     const post = calls.find((c) => c.method === 'POST' && c.url === '/api/account/agent-guests')!.body as Record<string, unknown>
     expect(post).toMatchObject({ channels: ['slack'], phone: null })
     expect(q('[data-people-invite-channel="sms"]')).toBeNull()
-    expect(q('[data-people-invite-channel="slack"]')!.textContent).toContain('the Dial8 app in Acme')
+    expect(q('[data-people-invite-channel="slack"]')!.textContent).toContain('the Native Intelligence app in Acme')
     expect(q('[data-people-guest="g-new"]')!.textContent).toContain('Slack · invited, hasn’t messaged yet')
   })
 
-  it('Slack can’t be picked until Dial8 is in a Slack workspace, and Set up Slack opens its tab', async () => {
+  it('Slack can’t be picked until Native Intelligence is in a Slack workspace, and Set up Slack opens its tab', async () => {
     slackInstalls = []
     const onOpenTab = vi.fn()
     await act(async () => root.render(<PeoplePanel name="Joseph" active onOpenTab={onOpenTab} />))
@@ -470,7 +470,7 @@ describe('the People tab', () => {
     await until(() => !!q('[data-people-sent="email"]'))
     expect(calls.find((c) => c.method === 'POST' && c.url === '/api/account/agent-links')!.body).toMatchObject({ email: 'dana@northwind.com', displayName: 'Dana Kim' })
     expect(q('[data-people-sent]')!.textContent).toContain('Request sent')
-    expect(q('[data-people-sent]')!.textContent).not.toMatch(/not found|isn.t on Dial8/i)
+    expect(q('[data-people-sent]')!.textContent).not.toMatch(/not found|isn.t on (Native Intelligence|Dial8)/i)
   })
 
   it('Add a person’s agent by a connect link: the link, shown once to copy', async () => {
@@ -484,7 +484,7 @@ describe('the People tab', () => {
     await click(q('[data-people-create]')!)
     await until(() => !!q('[data-people-sent="link"]'))
     expect(calls.find((c) => c.url === '/api/account/agent-links/connect')!.body).toMatchObject({ displayName: 'Dana Kim', preset: 'household' })
-    expect(q('[data-people-connect-url]')!.textContent).toBe('https://dial8.ai/link/tok123')
+    expect(q('[data-people-connect-url]')!.textContent).toBe('https://nativeintelligence.dev/link/tok123')
     expect(q('[data-people-sent]')!.textContent).toContain('Works once, for 7 days')
   })
 

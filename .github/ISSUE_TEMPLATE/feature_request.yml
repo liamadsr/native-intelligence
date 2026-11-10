@@ -3,6 +3,7 @@ description: Suggest something Native Intelligence should do. Ideas feed the pub
 title: "[Idea]: "
 labels: ["idea"]
 body:
+  # TODO(rename-compat): the roadmap link stays on dial8.ai, which serves today, and moves to nativeintelligence.dev once that domain serves.
   - type: markdown
     attributes:
       value: |

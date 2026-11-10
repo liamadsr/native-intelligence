@@ -53,7 +53,7 @@ describe('serverTurnMayCall (away helpers, Liam 2026-10-15; acting on its own, 2
     expect(serverTurnMayCall('start_helper', 'home_turn', 'event')).toBe(true)
     expect(serverTurnMayCall('start_helper', 'idle_compaction')).toBe(false)
     for (const reason of ['helper_report', 'event', 'agent_answer', 'approval'] as const) {
-      // Its writes reach the tool (the gate holds what leaves Dial8 as the person's card).
+      // Its writes reach the tool (the gate holds what leaves Native Intelligence as the person's card).
       for (const name of ['create_action', 'update_action', 'delete_action', 'create_email_draft', 'create_calendar_event']) {
         if (ALL_TOOL_NAMES.includes(name)) expect([reason, name, serverTurnMayCall(name, 'home_turn', reason)]).toEqual([reason, name, true])
       }

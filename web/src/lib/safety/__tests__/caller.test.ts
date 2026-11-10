@@ -120,7 +120,7 @@ describe('decideAction: the decision table', () => {
     expect(policyEffectOf(EXTERNAL)).toBe('external-write')
     expect(policyEffectOf(DELETE)).toBe('delete')
     expect(policyEffectOf(MCP)).toBe('unclassified')
-    expect(policyEffectOf('dial8_list_actions')).toBe('read')
+    expect(policyEffectOf('ni_list_actions')).toBe('read')
     expect(policyEffectOf('search_tools')).toBe('read')
   })
 

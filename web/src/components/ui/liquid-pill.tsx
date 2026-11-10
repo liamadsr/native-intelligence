@@ -125,7 +125,7 @@ const CLOSE_DELAY_MS = 220
 const HOVER_SLACK_PX = 12
 
 /** Window event a liquid pill fires as its card comes out (`detail`: its id). */
-const LIQUID_PILL_OPEN_EVENT = 'dial8:liquid-pill-open'
+const LIQUID_PILL_OPEN_EVENT = 'ni:liquid-pill-open'
 
 /** Which way the card pours out of the pill: down (hanging below it, the
  *  header's way) or up (rising above it, for a pill low on the screen). */

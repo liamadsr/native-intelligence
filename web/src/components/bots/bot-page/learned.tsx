@@ -2,9 +2,9 @@
 
 /**
  * What I've learned, on an area face's page (one-agent plan, Part 3: "An
- * area's page also shows its memory"; Phase S3): what Dial8 has learned about
+ * area's page also shows its memory"; Phase S3): what Native Intelligence has learned about
  * you in the face's area, yours and the workspace's, with S2's own viewer
- * (WhatDial8Learned, `area`): edit, delete, accept or add a line there. One
+ * (WhatNiLearned, `area`): edit, delete, accept or add a line there. One
  * card of the work column (bot-page-card.tsx).
  *
  * The memory read is the workspace on screen's, so a face in another
@@ -16,7 +16,7 @@
  * (Captures, Mail, Prospecting, Evals, CRM).
  */
 import { useState } from 'react'
-import { WhatDial8Learned } from '@/components/memory/what-dial8-learned'
+import { WhatNiLearned } from '@/components/memory/what-ni-learned'
 import { useWorkspaceId, useWorkspaces } from '@/app/account/workspace-switcher'
 import { PACKS, type AreaKey } from '@/lib/packs/registry'
 import { AREA_FACE_KEYS } from '@/lib/work/work-area'
@@ -32,11 +32,11 @@ export function Learned({ area, name, workspaceId }: { area: AreaKey; name: stri
     <BotPageCard section="learned" title="What I’ve learned" hint={`About you, in ${areaName}`}>
       {here ? (
         <div data-bot-page-learned={area} className="pb-1">
-          <WhatDial8Learned area={area} />
+          <WhatNiLearned area={area} />
         </div>
       ) : (
         <BotPageEmpty>
-          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Dial8 has learned about you in {areaName}.
+          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Native Intelligence has learned about you in {areaName}.
         </BotPageEmpty>
       )}
     </BotPageCard>
@@ -44,10 +44,10 @@ export function Learned({ area, name, workspaceId }: { area: AreaKey; name: stri
 }
 
 /**
- * What I've learned, on the agent's page (one face): what Dial8 has learned
+ * What I've learned, on the agent's page (one face): what Native Intelligence has learned
  * about you in one area at a time, the areas as a compact row of chips (a
  * radio group), the first picked to start. The same viewer as an area page
- * had (WhatDial8Learned, `area`).
+ * had (WhatNiLearned, `area`).
  */
 export function AgentLearned({ name, workspaceId }: { name: string; workspaceId: string | null }) {
   const currentId = useWorkspaceId()
@@ -76,11 +76,11 @@ export function AgentLearned({ name, workspaceId }: { name: string; workspaceId:
               </button>
             ))}
           </div>
-          <WhatDial8Learned key={area} area={area} />
+          <WhatNiLearned key={area} area={area} />
         </div>
       ) : (
         <BotPageEmpty>
-          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Dial8 has learned about you.
+          {name} works in {workspaces.find((w) => w.id === workspaceId)?.name ?? 'its workspace'}. Switch there to see what Native Intelligence has learned about you.
         </BotPageEmpty>
       )}
     </BotPageCard>

@@ -177,7 +177,7 @@ describe('approvalPromptText', () => {
 
   it("carries a quote reply's whole card (roadmap F3): who, from which number, and the exact text with its booking link as sent", () => {
     const why = `From the business number +1 312-555-0100: “Brightside Window Washing: here is your quote for 1 item, exterior windows: $240. ${'We can come any weekday. '.repeat(5).trim()} Pick a time at https://dial8.ai/book/brightside or reply here.” Then the quote is marked sent at $240. It runs once, exactly as shown, when you accept.`
-    for (const tool of ['send_quote', 'dial8_book_quote']) {
+    for (const tool of ['send_quote', 'ni_book_quote']) {
       const text = approvalPromptText({ approvalId: 'appr-1', cardId: 'c', tool, title: 'Text Dana Ruiz (+1 312-555-0142) their quote, $240?', why })
       expect(text).toBe(`Dial8 needs your OK: Text Dana Ruiz (+1 312-555-0142) their quote, $240? (${why}). Reply yes to approve or no to decline. Reply STOP to opt out.`)
     }
@@ -226,10 +226,10 @@ describe('a plain yes or no', () => {
   })
 
   it('several at once: how many ran, failed or could not be answered', () => {
-    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: true, success: true }, { ok: true, decision: 'approve', ran: true, success: false }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Dial8.")
-    expect(plainSettleLine([{ ok: true, decision: 'decline' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe("Declined 1. Nothing ran. 1 couldn't be answered here: open Dial8.")
-    expect(plainSettleLine([{ ok: false, code: 'EXPIRED', error: 'x' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe('None of the 2 could be answered here: open Dial8.')
-    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: false }, { ok: true, decision: 'approve', ran: true, success: true }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Dial8.")
+    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: true, success: true }, { ok: true, decision: 'approve', ran: true, success: false }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Native Intelligence.")
+    expect(plainSettleLine([{ ok: true, decision: 'decline' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe("Declined 1. Nothing ran. 1 couldn't be answered here: open Native Intelligence.")
+    expect(plainSettleLine([{ ok: false, code: 'EXPIRED', error: 'x' }, { ok: false, code: 'EXPIRED', error: 'x' }])).toBe('None of the 2 could be answered here: open Native Intelligence.')
+    expect(plainSettleLine([{ ok: true, decision: 'approve', ran: false }, { ok: true, decision: 'approve', ran: true, success: true }])).toBe("Approved 2. 1 didn't run cleanly: the details are in Native Intelligence.")
   })
 })
 

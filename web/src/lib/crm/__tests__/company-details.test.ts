@@ -255,14 +255,14 @@ describe('buildCompanyDetails — columns vs blob', () => {
 
 describe('buildCompanyDetails — confidence gate', () => {
   it('quarantines low-confidence blob values under unverified, never in a section', () => {
-    // The dial8.ai run: own-site facts high, a London cocktail bar's facts low.
+    // The nativeintelligence.dev run: own-site facts high, a London cocktail bar's facts low.
     const model = buildCompanyDetails({
-      domain: 'dial8.ai',
+      domain: 'nativeintelligence.dev',
       metadata: {
         enrichment: {
           status: 'enriched',
           fields: {
-            industry: field('Software', 'high', 'https://dial8.ai'),
+            industry: field('Software', 'high', 'https://nativeintelligence.dev'),
             founded_year: field('1885', 'low', 'https://hotelvarenne.com'),
             key_people: field('Some Barman (Owner)', 'low', 'https://hotelvarenne.com'),
           },

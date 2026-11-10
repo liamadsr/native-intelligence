@@ -73,9 +73,9 @@ use super::protocol::truncate;
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The commit subject's length, at most, in characters.
 const SUBJECT_MAX: usize = 72;
-const DEFAULT_SUBJECT: &str = "Changes from Dial8's local agent";
+const DEFAULT_SUBJECT: &str = "Changes from Native Intelligence's local agent";
 /// Used only when the person has no git identity configured.
-const FALLBACK_NAME: &str = "Dial8 local agent";
+const FALLBACK_NAME: &str = "Native Intelligence local agent";
 const FALLBACK_EMAIL: &str = "local-agent@dial8.ai";
 /// A base branch's name, at most, in characters (the web's limit).
 pub const MAX_BASE_BRANCH: usize = 100;
@@ -715,7 +715,7 @@ impl Git {
         reset.extend(paths.iter().map(String::as_str));
         let _ = self.run(worktree, &reset).await;
         Err(format!(
-            "the changes would add a git submodule ({}), and Dial8 never commits one; nothing was committed, and \
+            "the changes would add a git submodule ({}), and Native Intelligence never commits one; nothing was committed, and \
              the changes stay in {}",
             gitlinks.join(", "),
             worktree.display()
@@ -744,7 +744,7 @@ impl Git {
             .map_err(|e| kept(format!("the worktree couldn't be checked for a git repository of its own ({e})")))?;
         if let Some(nested) = nested {
             return Err(kept(format!(
-                "the changes hold a git repository of their own ({}), and Dial8 never commits one",
+                "the changes hold a git repository of their own ({}), and Native Intelligence never commits one",
                 nested.display()
             )));
         }
@@ -804,8 +804,8 @@ mod tests {
     #[test]
     fn branch_names_use_the_label_slug_and_the_job_short_id() {
         assert_eq!(
-            branch_name("dial8-website", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
-            "dial8/dial8-website-38cb0eef"
+            branch_name("native-intelligence", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
+            "dial8/native-intelligence-38cb0eef"
         );
         assert_eq!(
             branch_name("My App", "ABCDEF12-0000-4000-8000-000000000000"),

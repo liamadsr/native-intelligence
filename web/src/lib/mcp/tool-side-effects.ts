@@ -9,10 +9,11 @@
  * registry first, then this map, and the regex is the guard's LAST resort, not
  * its source of truth.
  *
- * Bare names (no `dial8_` prefix). A hand-registered tool that is missing here
+ * Bare names (no `ni_` prefix). A hand-registered tool that is missing here
  * fails the registration test, so a new MCP-only tool cannot ship unclassified.
  */
 import { getToolSideEffect, type ToolSideEffect } from '@/lib/ai/tool-registry'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 export const MCP_TOOL_SIDE_EFFECTS: Readonly<Record<string, ToolSideEffect>> = Object.freeze({
   // Workspace navigation — moves the session, mutates no workspace data.
@@ -35,6 +36,6 @@ export const MCP_TOOL_SIDE_EFFECTS: Readonly<Record<string, ToolSideEffect>> = O
 
 /** The class of an MCP tool by bare or prefixed name: registry, then the MCP-only map. */
 export function resolveMcpToolSideEffect(toolName: string): ToolSideEffect | undefined {
-  const bare = toolName.replace(/^dial8_/, '')
+  const bare = bareToolName(toolName)
   return getToolSideEffect(bare) ?? MCP_TOOL_SIDE_EFFECTS[bare]
 }

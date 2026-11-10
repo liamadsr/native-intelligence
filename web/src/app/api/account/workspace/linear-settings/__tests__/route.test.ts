@@ -19,7 +19,7 @@
  *  - `{ team_id: null }` ALONE is an explicit CLEAR; `{ project_id: null }`
  *    alone clears only the optional project and KEEPS the team.
  *  - `include_dial8_attribution` survives every destination change — it is a
- *    preference about Dial8's own branding, not an id that can go stale.
+ *    preference about Native Intelligence's own branding, not an id that can go stale.
  *
  * Note what has NO equivalent: jira-settings' ensure-webhook dispatch and its
  * per-id format validation. Linear's webhooks are app-level (nothing to

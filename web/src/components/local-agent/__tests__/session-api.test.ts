@@ -31,7 +31,7 @@ const SID = '11111111-2222-4333-8444-555555555555'
 const SESSION: SessionRow = {
   id: SID,
   folderId: 'f1',
-  folderLabel: 'dial8-website',
+  folderLabel: 'native-intelligence',
   deviceId: 'd1',
   deviceName: 'Liam’s MacBook',
   conversationId: null,
@@ -252,7 +252,7 @@ describe('realtime rows', () => {
       lastSignalText: 'Which branch?',
       trackedJobId: 'job-2',
       startedBy: 'person',
-      folderLabel: 'dial8-website',
+      folderLabel: 'native-intelligence',
       deviceName: 'Liam’s MacBook',
     })
   })

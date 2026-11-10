@@ -6,8 +6,8 @@
 import { isDesktopApp } from '@/lib/platform'
 import type { CalendarEvent } from './calendar'
 
-const STORAGE_KEY_DISABLED_CALENDARS = 'dial8:local-exchange:disabled-calendars'
-const STORAGE_KEY_ENABLED_WORKSPACES = 'dial8:local-exchange:enabled-workspaces'
+const STORAGE_KEY_DISABLED_CALENDARS = 'ni:local-exchange:disabled-calendars'
+const STORAGE_KEY_ENABLED_WORKSPACES = 'ni:local-exchange:enabled-workspaces'
 
 /**
  * Get the set of calendar IDs disabled by the user in the detail page.

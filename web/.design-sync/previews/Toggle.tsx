@@ -1,4 +1,4 @@
-import { Toggle } from '@dial8/ui'
+import { Toggle } from '@native-intelligence/ui'
 
 export function Variants() {
   return (

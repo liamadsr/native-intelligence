@@ -529,10 +529,10 @@ describe('self-refetch dedup', () => {
     markSelfRefetched('attention-rail')
     // No id (a hand-rolled dispatch, or an older bundle) — window behaviour.
     expect(wasSelfRefetchedRecently('attention-rail')).toBe(true)
-    expect(repairIdFromRecoveredEvent(new Event('dial8:realtime-recovered'))).toBeUndefined()
+    expect(repairIdFromRecoveredEvent(new Event('ni:realtime-recovered'))).toBeUndefined()
     expect(
       repairIdFromRecoveredEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: 'nope' } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: 'nope' } }),
       ),
     ).toBeUndefined()
     // And an expired mark still stops suppressing even with a matching id.
@@ -544,7 +544,7 @@ describe('self-refetch dedup', () => {
   it('reads the repair id off a real recovered event', () => {
     expect(
       repairIdFromRecoveredEvent(
-        new CustomEvent('dial8:realtime-recovered', { detail: { repairId: 7 } }),
+        new CustomEvent('ni:realtime-recovered', { detail: { repairId: 7 } }),
       ),
     ).toBe(7)
   })

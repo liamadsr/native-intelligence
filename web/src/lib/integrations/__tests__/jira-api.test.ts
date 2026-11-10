@@ -649,7 +649,7 @@ describe('registerWebhooks', () => {
     pushJson({ webhookRegistrationResult: [{ createdWebhookId: 6000 }] })
 
     const results = await registerWebhooks('tok', CLOUD, {
-      url: 'https://dial8.ai/api/webhooks/jira',
+      url: 'https://nativeintelligence.dev/api/webhooks/jira',
       webhooks: [
         {
           events: ['jira:issue_updated', 'jira:issue_deleted'],
@@ -663,7 +663,7 @@ describe('registerWebhooks', () => {
     expect(requests[0].url).toBe(`${BASE}/webhook`)
     expect(requests[0].init?.method).toBe('POST')
     expect(JSON.parse(String(requests[0].init?.body))).toEqual({
-      url: 'https://dial8.ai/api/webhooks/jira',
+      url: 'https://nativeintelligence.dev/api/webhooks/jira',
       webhooks: [
         {
           events: ['jira:issue_updated', 'jira:issue_deleted'],
@@ -708,7 +708,7 @@ describe('registerWebhooks', () => {
 describe('listWebhooks', () => {
   it('reads one offset page and reports the next cursor', async () => {
     pushJson({
-      values: [{ id: 6000, url: 'https://dial8.ai/api/webhooks/jira' }],
+      values: [{ id: 6000, url: 'https://nativeintelligence.dev/api/webhooks/jira' }],
       isLast: false,
       startAt: 0,
     })

@@ -5,14 +5,14 @@ import { SoundMatchCorrector, isOrdinary, letters, similarity, soundKey, spoken 
 
 /**
  * Pins the sound-match rules to what the harness measured
- * (docs/plans/custom-vocabulary.md §9; dial8-desktop/.claude/boost-test/v2).
+ * (docs/plans/custom-vocabulary.md §9; desktop/.claude/boost-test/v2).
  * The TS port was checked edit-for-edit against the Python harness on 38
  * recordings (637 edits with the review guards, identical); these cases are
  * the ones that matter.
  */
 const lexicon = new Set(LEXICON_WORDS.split('\n').filter(Boolean))
 const DICT = [
-  'Dial8', 'Supabase', 'Tauri', 'Nemotron', 'Deepgram', 'MCP', 'PostHog', 'Sortformer', 'SentencePiece',
+  'Route8', 'Supabase', 'Tauri', 'Nemotron', 'Deepgram', 'MCP', 'PostHog', 'Sortformer', 'SentencePiece',
   'Prabhjot', 'Grokbot', 'RLS', 'Sellar', 'Drizzle', 'Retool', 'iCloud', 'Linear', 'Bun', 'Llama', 'Pinecone',
 ]
 const corrector = new SoundMatchCorrector(DICT.map((term) => ({ term })), lexicon)
@@ -20,7 +20,7 @@ const fix = (text: string) => corrector.correctText(text).text
 
 describe('spoken forms and sound keys', () => {
   it('spells out digits, splits camelCase and spells short acronyms', () => {
-    expect(spoken('Dial8')).toBe('dial eight')
+    expect(spoken('Route8')).toBe('route eight')
     expect(spoken('PostHog')).toBe('post hog')
     expect(spoken('RLS')).toBe('ar el es')
     expect(spoken('WebRTC')).toBe('web ar tee see')
@@ -31,7 +31,7 @@ describe('spoken forms and sound keys', () => {
     expect(soundKey(spoken('cloud'))).toBe('kld')
     expect(soundKey(spoken('RLS'))).toBe('ArAlAs')
     expect(soundKey(spoken('rolls'))).toBe('rls')
-    expect(soundKey(spoken('dial eight'))).toBe(soundKey(spoken('Dial8')))
+    expect(soundKey(spoken('route eight'))).toBe(soundKey(spoken('Route8')))
   })
 
   it('scores like difflib.SequenceMatcher.ratio', () => {
@@ -69,8 +69,8 @@ describe('SoundMatchCorrector', () => {
     expect(fix('the Mcp server')).toBe('the MCP server')
   })
 
-  it('turns spoken digits into the term ("dial eight" → Dial8)', () => {
-    expect(fix('Open the dial eight desktop app')).toBe('Open the Dial8 desktop app')
+  it('turns spoken digits into the term ("route eight" → Route8)', () => {
+    expect(fix('Open the route eight desktop app')).toBe('Open the Route8 desktop app')
   })
 
   it('keeps punctuation around a replacement', () => {
@@ -150,7 +150,7 @@ describe('"sounds like" phrases of ordinary words', () => {
 })
 
 describe('terms with numbers or spelled letters, word for word', () => {
-  const c = new SoundMatchCorrector(['A16Z', 'APIM', 'Dial8', 'AI', 'RLS', 'Web3'].map((term) => ({ term })), lexicon)
+  const c = new SoundMatchCorrector(['A16Z', 'APIM', 'Route8', 'AI', 'RLS', 'Web3'].map((term) => ({ term })), lexicon)
 
   it('numbers are said as numbers', () => {
     expect(spoken('A16Z')).toBe('a sixteen z')
@@ -165,7 +165,7 @@ describe('terms with numbers or spelled letters, word for word', () => {
     expect(c.correctText('the a one six z team').text).toBe('the A16Z team')
     expect(c.correctText('ask the A P I M team').text).toBe('ask the APIM team')
     expect(c.correctText('check R L S again').text).toBe('check RLS again')
-    expect(c.correctText('we use dial 8').text).toBe('we use Dial8')
+    expect(c.correctText('we use route 8').text).toBe('we use Route8')
     expect(c.correctText('Web three apps').text).toBe('Web3 apps')
   })
 

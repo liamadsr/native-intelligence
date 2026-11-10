@@ -1,7 +1,7 @@
 /**
  * MCP client for talking to external MCP servers (Atlassian, Linear, custom).
  *
- * The Dial8 backend acts as the MCP *client* here. Each call opens a fresh
+ * The Native Intelligence backend acts as the MCP *client* here. Each call opens a fresh
  * transport, performs one operation (list/call), and closes — there is no
  * long-lived per-server session. This matches our stateless live-agent model
  * and avoids holding sockets across the cold-start boundary in serverless.
@@ -28,7 +28,7 @@ import type { McpToolAnnotations } from './approval-policy'
 export { McpTokenExpiredError, McpTokenRefreshUnavailableError } from './token-refresh'
 
 const CLIENT_INFO = {
-  name: 'dial8',
+  name: 'native-intelligence',
   version: '1.0.0',
 }
 
@@ -42,7 +42,7 @@ function buildTransport(server: ConnectedMcpServerRow) {
   // never want to silently dial something internal.
   const url = ensureSafeMcpUrl(server.server_url)
   const headers: Record<string, string> = {}
-  // A server Dial8 builds (github-integration.ts) pins its own headers; never Authorization.
+  // A server Native Intelligence builds (github-integration.ts) pins its own headers; never Authorization.
   for (const [name, value] of Object.entries(server.extra_headers ?? {})) {
     if (name.toLowerCase() !== 'authorization') headers[name] = value
   }

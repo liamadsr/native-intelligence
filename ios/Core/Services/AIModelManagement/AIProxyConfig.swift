@@ -1,6 +1,6 @@
 //
 //  AIProxyConfig.swift
-//  dial8
+//  Native Intelligence
 //
 //  Auth for the AI calls that go through Supabase Edge Functions (embeddings).
 //  The server holds every provider key; the app never calls a model provider directly.

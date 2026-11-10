@@ -1,4 +1,4 @@
-//! The retired in-app browser's data (dial8-website `docs/plans/cloud-browser.md`,
+//! The retired in-app browser's data (web/`docs/plans/cloud-browser.md`,
 //! C5). Each workspace's tabs ran in a `WKWebsiteDataStore` of its own
 //! (`+dataStoreForIdentifier:`, macOS 14+), which holds that workspace's
 //! sign-ins, cookies and site storage. Nothing opens them now, and nothing else

@@ -1,10 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse, type NextRequest } from 'next/server'
+import { APP_PAGE_ORIGINS } from '@/lib/app-url'
 
 const ALLOWED_ORIGINS = new Set([
   process.env.NEXT_PUBLIC_APP_URL,
-  'https://dial8.ai',
-  'https://www.dial8.ai',
+  ...APP_PAGE_ORIGINS,
   'tauri://localhost', // Tauri desktop app (macOS/Linux)
   'https://tauri.localhost', // Tauri desktop app (Windows)
   'http://localhost:3000', // Local dev

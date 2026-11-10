@@ -25,10 +25,10 @@ export interface BlockedSitesState {
 export type BlockedSiteWrite = { ok: true } | { ok: false; error: string }
 
 const ENDPOINT = '/api/account/browser/blocked-sites'
-const CHANNEL = 'dial8-browser-blocked-sites'
+const CHANNEL = 'ni-browser-blocked-sites'
 /** The device-local allow lists from before the block list (one per browser
  *  profile, and one older device-wide one): meaningless now, so removed. */
-const LEGACY_GRANTS_PREFIX = 'dial8-browser-agent-allowed-origins'
+const LEGACY_GRANTS_PREFIX = 'ni-browser-agent-allowed-origins'
 
 const LOADING: BlockedSitesState = { status: 'loading', sites: [] }
 let state: BlockedSitesState = LOADING
@@ -131,7 +131,7 @@ async function write(method: 'POST' | 'DELETE', site: string, optimistic: string
     return { ok: true }
   } catch {
     set(before)
-    return { ok: false, error: 'Couldn’t reach Dial8. Try again.' }
+    return { ok: false, error: 'Couldn’t reach Native Intelligence. Try again.' }
   }
 }
 

@@ -42,7 +42,7 @@ import {
 
 /** Event name the contact row's context menu dispatches; a mounted contact
  *  list (unified-view-layout) listens and opens this dialog. */
-export const ADD_TO_SEQUENCE_EVENT = 'dial8:add-to-sequence'
+export const ADD_TO_SEQUENCE_EVENT = 'ni:add-to-sequence'
 
 export interface AddToSequenceEventDetail {
   contactIds: string[]

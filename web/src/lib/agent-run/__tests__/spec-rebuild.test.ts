@@ -463,7 +463,7 @@ describe('buildAgentRunSpec — base branch is the repo default, and the prompt 
     expect(h.resolveRepoDefaultBranch).not.toHaveBeenCalled()
   })
 
-  it('tells the eve agent to push + finish_run, not to open the PR or use Dial8 MCP tools', async () => {
+  it('tells the eve agent to push + finish_run, not to open the PR or use Native Intelligence MCP tools', async () => {
     const built = await buildAgentRunSpec(makeClient() as never, { agentRunId: 'run-1', workspaceId: 'ws-1' })
     expect(built.ok).toBe(true)
     if (!built.ok) return
@@ -471,7 +471,7 @@ describe('buildAgentRunSpec — base branch is the repo default, and the prompt 
     expect(prompt).toContain('finish_run')
     expect(prompt).toContain('git push')
     expect(prompt).toContain('Do not open the pull request yourself')
-    expect(prompt).not.toMatch(/dial8_(link_pr|update_action|find|get_action|complete_action|get_project_context)/)
+    expect(prompt).not.toMatch(/ni_(link_pr|update_action|find|get_action|complete_action|get_project_context)/)
     expect(prompt).not.toContain('4. Open a pull request')
     expect(prompt).toContain('You are a careful engineer.')
   })

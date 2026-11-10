@@ -261,7 +261,13 @@ describe('resolveSupabaseSession — a rejected Bearer is never forwarded to Pos
     expect(await resolveSupabaseSession(req({}))).toBeNull()
   })
 
-  it('a d8d_ device token is not treated as a Supabase JWT (never verified, never forwarded)', async () => {
+  it('a nid_ device token is not treated as a Supabase JWT (never verified, never forwarded)', async () => {
+    state.cookieUser = null
+    expect(await resolveSupabaseSession(req({ authorization: 'Bearer nid_abc' }))).toBeNull()
+    expect(getUserCalls).toEqual([undefined])
+  })
+
+  it('nor is one minted before the rename (d8d_…)', async () => {
     state.cookieUser = null
     expect(await resolveSupabaseSession(req({ authorization: 'Bearer d8d_abc' }))).toBeNull()
     expect(getUserCalls).toEqual([undefined])

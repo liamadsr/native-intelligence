@@ -94,7 +94,7 @@ describe('rating a nudge', () => {
     expect(nudgeId).toBe(second.id)
 
     const res = await rate(
-      buildRequest({ url: 'https://dial8.ai/api/account/chat/feedback', body: { conversationId: CONV, messageId: nudgeId, rating: 'down', reason: 'Too early' } }) as unknown as NextRequest,
+      buildRequest({ url: 'https://nativeintelligence.dev/api/account/chat/feedback', body: { conversationId: CONV, messageId: nudgeId, rating: 'down', reason: 'Too early' } }) as unknown as NextRequest,
     )
     expect(res.status).toBe(200)
     expect(await readJson(res)).toEqual({ rating: 'down' })

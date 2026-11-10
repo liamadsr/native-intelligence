@@ -155,7 +155,7 @@ function telemetry() {
 }
 
 function setMarker(ageMs: number) {
-  localStorage.setItem('dial8-active-capture', JSON.stringify({ captureId: CAPTURE_ID, elapsed: 600, savedAt: Date.now() - ageMs }))
+  localStorage.setItem('ni-active-capture', JSON.stringify({ captureId: CAPTURE_ID, elapsed: 600, savedAt: Date.now() - ageMs }))
 }
 
 async function mount() {
@@ -178,7 +178,7 @@ describe('the launch check for an interrupted capture', () => {
     await mount()
     expect(holder.pending).toBeNull()
     expect(captureGetCount()).toBe(0)
-    expect(localStorage.getItem('dial8-active-capture')).toBeNull()
+    expect(localStorage.getItem('ni-active-capture')).toBeNull()
     expect(telemetry()).toContainEqual({ event: 'recovery_skipped', properties: { capture_id: CAPTURE_ID, reason: 'stale' } })
   })
 
@@ -192,7 +192,7 @@ describe('the launch check for an interrupted capture', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(2_000) })
       expect(holder.pending).toEqual({ captureId: CAPTURE_ID, title: 'Sprint review' })
       expect(captureGetCount()).toBe(2)
-      expect(localStorage.getItem('dial8-active-capture')).not.toBeNull()
+      expect(localStorage.getItem('ni-active-capture')).not.toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -207,7 +207,7 @@ describe('the launch check for an interrupted capture', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
       expect(captureGetCount()).toBe(3)
       expect(holder.pending).toBeNull()
-      expect(localStorage.getItem('dial8-active-capture')).not.toBeNull()
+      expect(localStorage.getItem('ni-active-capture')).not.toBeNull()
       expect(telemetry()).toContainEqual({ event: 'recovery_skipped', properties: { capture_id: CAPTURE_ID, reason: 'check_failed' } })
     } finally {
       vi.useRealTimers()
@@ -218,7 +218,7 @@ describe('the launch check for an interrupted capture', () => {
     setMarker(30_000)
     captureGets = [{ ok: false, status: 404, json: async () => ({}) }]
     await mount()
-    await vi.waitFor(() => expect(localStorage.getItem('dial8-active-capture')).toBeNull())
+    await vi.waitFor(() => expect(localStorage.getItem('ni-active-capture')).toBeNull())
     expect(holder.pending).toBeNull()
     expect(captureGetCount()).toBe(1)
     expect(telemetry()).toContainEqual({ event: 'recovery_skipped', properties: { capture_id: CAPTURE_ID, reason: 'not_found' } })
@@ -232,7 +232,7 @@ describe('the launch check for an interrupted capture', () => {
       json: async () => ({ capture: { id: CAPTURE_ID, title: 'Sprint review', ended_at: '2026-10-19T20:52:34.102581+00:00' } }),
     }]
     await mount()
-    await vi.waitFor(() => expect(localStorage.getItem('dial8-active-capture')).toBeNull())
+    await vi.waitFor(() => expect(localStorage.getItem('ni-active-capture')).toBeNull())
     expect(holder.pending).toBeNull()
     expect(telemetry()).toContainEqual({ event: 'recovery_skipped', properties: { capture_id: CAPTURE_ID, reason: 'ended' } })
   })
@@ -267,7 +267,7 @@ describe('a recording that starts meanwhile (the HUD or tray Start, in another w
     // capture nor drops the live session's marker.
     await act(async () => { await dismiss() })
     expect(fetchCalls.some((c) => c.url.endsWith('/decline-recovery'))).toBe(false)
-    expect(JSON.parse(localStorage.getItem('dial8-active-capture')!).captureId).toBe('cap-other')
+    expect(JSON.parse(localStorage.getItem('ni-active-capture')!).captureId).toBe('cap-other')
   })
 
   it('and Resume on it can no longer re-bind the live session', async () => {
@@ -283,7 +283,7 @@ describe('a recording that starts meanwhile (the HUD or tray Start, in another w
 
 describe('declining the recovery prompt', () => {
   it('asks the server to end the capture and write it up, never a bare ended_at PATCH', async () => {
-    localStorage.setItem('dial8-active-capture', JSON.stringify({ captureId: CAPTURE_ID, elapsed: 600, savedAt: Date.now() - 30_000 }))
+    localStorage.setItem('ni-active-capture', JSON.stringify({ captureId: CAPTURE_ID, elapsed: 600, savedAt: Date.now() - 30_000 }))
     await act(async () => { root.render(h(RecordingProvider, null, h(Grabber))) })
     // The on-mount recovery check found the interrupted capture and is asking.
     await vi.waitFor(() => expect(holder.pending).toEqual({ captureId: CAPTURE_ID, title: 'Sprint review' }))
@@ -293,7 +293,7 @@ describe('declining the recovery prompt', () => {
     const declines = fetchCalls.filter((c) => c.url === `/api/account/captures/${CAPTURE_ID}/decline-recovery`)
     expect(declines).toEqual([{ url: `/api/account/captures/${CAPTURE_ID}/decline-recovery`, method: 'POST', body: null }])
     expect(fetchCalls.some((c) => c.method === 'PATCH' && c.url === `/api/account/captures/${CAPTURE_ID}`)).toBe(false)
-    expect(localStorage.getItem('dial8-active-capture')).toBeNull()
+    expect(localStorage.getItem('ni-active-capture')).toBeNull()
     expect(holder.pending).toBeNull()
     expect(telemetry()).toContainEqual({ event: 'recovery_declined', properties: { capture_id: CAPTURE_ID } })
   })

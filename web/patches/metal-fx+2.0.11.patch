@@ -11,7 +11,7 @@ index 5602e03..048180d 100644
    t.dpr = typeof window < "u" && window.devicePixelRatio || 1;
    const e = t.overscan, n = Math.max(1, Math.round((t.cssWidth + 2 * e) * t.dpr)), o = Math.max(1, Math.round((t.cssHeight + 2 * e) * t.dpr));
 -  t.canvas.width !== n && (t.canvas.width = n), t.canvas.height !== o && (t.canvas.height = o);
-+  // Dial8 patch: setting a canvas's size wipes it, and the ring is only drawn
++  // Native Intelligence patch: setting a canvas's size wipes it, and the ring is only drawn
 +  // again on the engine's next frame (up to ~33 ms on), so a box that grows
 +  // (Dictate anywhere's card, as the words come) blinked its ring on every
 +  // step. The last frame is carried over into the new size instead, drawn in

@@ -9,21 +9,21 @@ import { useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 
 const ERROR_MESSAGES: Record<string, string> = {
-  unauthorized_domain: "This account isn't a Dial8 admin.",
+  unauthorized_domain: "This account isn't a Native Intelligence admin.",
   auth_failed: 'Authentication failed. Please try again.',
   missing_code: 'Authentication failed. Please try again.',
   google_declined: 'Google sign-in was cancelled.',
   // A personal Google account the signup hook refused is no admin either.
-  work_email_required: "This account isn't a Dial8 admin.",
+  work_email_required: "This account isn't a Native Intelligence admin.",
 }
 
 export function LoginForm({
-  googleOnDial8 = false,
+  googleOnNi = false,
   adminDomain = null,
 }: {
-  /** Sign in through Dial8's own Google flow (lib/auth/google-sign-in,
+  /** Sign in through Native Intelligence's own Google flow (lib/auth/google-sign-in,
    *  decided by the page) instead of Supabase's. */
-  googleOnDial8?: boolean
+  googleOnNi?: boolean
   /** The domain every admin's address shares (ADMIN_EMAILS), if one: Google's
    *  account-chooser hint. */
   adminDomain?: string | null
@@ -38,7 +38,7 @@ export function LoginForm({
     setError('')
     setGoogleLoading(true)
 
-    if (googleOnDial8) {
+    if (googleOnNi) {
       // /auth/google/callback checks ADMIN_EMAILS and lands on /admin.
       window.location.assign('/auth/google?admin=1')
       return

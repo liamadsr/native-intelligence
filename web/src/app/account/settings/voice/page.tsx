@@ -1,7 +1,7 @@
 import { VoiceSettingsView } from './voice-settings-view'
 
 export const metadata = {
-  title: 'Voice – Settings – Dial8',
+  title: 'Voice – Settings',
 }
 
 export default function VoiceSettingsPage() {

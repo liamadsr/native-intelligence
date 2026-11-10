@@ -77,7 +77,7 @@ vi.mock('@/lib/admin', () => ({
   }),
 }))
 vi.mock('@/lib/device-tokens', () => ({
-  isDeviceToken: (t: string) => t.startsWith('d8d_'),
+  isDeviceToken: (t: string) => t.startsWith('nid_'),
   resolveDeviceToken: h.resolveDeviceToken,
 }))
 
@@ -99,8 +99,8 @@ import { POST } from '../route'
 import { verifyChatRunToken } from '@/lib/chat/chat-run-token'
 import { deviceAskTokenTtlMs, CANCEL_TIMEOUT_MS, DEVICE_ASK_LOG_MARGIN_MS } from '@/lib/chat/device-ask-eve'
 
-function req(body: unknown, headers: Record<string, string> = { authorization: 'Bearer d8d_abc' }) {
-  return new Request('https://dial8.ai/api/device/ask', {
+function req(body: unknown, headers: Record<string, string> = { authorization: 'Bearer nid_abc' }) {
+  return new Request('https://nativeintelligence.dev/api/device/ask', {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
@@ -207,7 +207,7 @@ describe('POST /api/device/ask — the eve session runs as the device', () => {
   it('relays the device token and scopes the run token to the device’s workspace + the device_ask surface', async () => {
     await POST(req({ question: 'what is due?' }))
     const opts = h.clients[0] as { auth: { bearer: string }; headers: Record<string, string> }
-    expect(opts.auth).toEqual({ bearer: 'd8d_abc' })
+    expect(opts.auth).toEqual({ bearer: 'nid_abc' })
     expect(verifyChatRunToken(opts.headers['x-chat-run-token'])).toMatchObject({
       userId: 'user-1',
       workspaceId: 'ws-device',
@@ -224,7 +224,7 @@ describe('POST /api/device/ask — the eve session runs as the device', () => {
     const opts = h.clients[0] as { headers: Record<string, string> }
     expect(verifyChatRunToken(opts.headers['x-chat-run-token'])).toMatchObject({ surface: 'device_ask', chatgptPlan: true })
     const [, row] = h.logUsage.mock.calls[0] as [string, { model: string; provider: string }]
-    // The fixture's steps name no model, so the ask is billed as asked: the plan's (nothing to Dial8).
+    // The fixture's steps name no model, so the ask is billed as asked: the plan's (nothing to Native Intelligence).
     expect(row).toMatchObject({ model: 'chatgpt-plan/gpt-6.1-sol', provider: 'chatgpt-plan' })
   })
 
@@ -245,7 +245,7 @@ describe('POST /api/device/ask — the eve session runs as the device', () => {
   it('a stale bearer next to a valid cookie (auth fell through to the cookie) relays the COOKIE, not the dead bearer', async () => {
     h.authenticateUser.mockResolvedValue({ user: { id: 'user-1' }, supabase, via: 'cookie' })
     h.resolveDeviceToken.mockResolvedValue(null)
-    const res = await POST(req({ question: 'q' }, { authorization: 'Bearer d8d_expired', cookie: 'sb-access=live' }))
+    const res = await POST(req({ question: 'q' }, { authorization: 'Bearer nid_expired', cookie: 'sb-access=live' }))
     expect(res.status).toBe(200)
     const opts = h.clients[0] as { auth?: unknown; headers: Record<string, string> }
     expect(opts.auth).toBeUndefined()
@@ -253,12 +253,12 @@ describe('POST /api/device/ask — the eve session runs as the device', () => {
     expect(verifyChatRunToken(opts.headers['x-chat-run-token'])!.workspaceId).toBe('ws-oldest')
   })
 
-  it('a stale d8d_ bearer that still RESOLVES next to a cookie that authenticated: the device path is not taken (workspace from the cookie user)', async () => {
+  it('a stale nid_ bearer that still RESOLVES next to a cookie that authenticated: the device path is not taken (workspace from the cookie user)', async () => {
     // authenticateUser fell through to the cookie (e.g. a transient getUserById
     // miss) — via says 'cookie', so the device token must not pick the workspace.
     h.authenticateUser.mockResolvedValue({ user: { id: 'user-1' }, supabase, via: 'cookie' })
     h.resolveDeviceToken.mockResolvedValue({ userId: 'someone-else', workspaceId: 'ws-device' })
-    const res = await POST(req({ question: 'q' }, { authorization: 'Bearer d8d_other', cookie: 'sb-access=live' }))
+    const res = await POST(req({ question: 'q' }, { authorization: 'Bearer nid_other', cookie: 'sb-access=live' }))
     expect(res.status).toBe(200)
     expect(h.resolveDeviceToken).not.toHaveBeenCalled()
     const opts = h.clients[0] as { headers: Record<string, string> }

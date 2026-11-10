@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * window.__dial8Automation's ready() and resetUi() (api.ts), with the
+ * window.__niAutomation's ready() and resetUi() (api.ts), with the
  * dashboard's main chat as a stand-in.
  *
  *   - resetUi() resolves only once the new chat is stored and its composer is

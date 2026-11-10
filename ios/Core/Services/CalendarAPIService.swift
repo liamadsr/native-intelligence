@@ -1,6 +1,6 @@
 //
 //  CalendarAPIService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Reads the website's upcoming-captures endpoint so Home can show the next
 //  scheduled meeting.
@@ -16,7 +16,7 @@
 //  Auth mirrors CaptureAPIService exactly: Bearer <supabase access token> from
 //  AIProxyConfig.getAccessToken(), plus the x-workspace-id header (lowercased —
 //  Postgres stores UUIDs lowercase while Swift's uuidString is uppercase), base
-//  URL localhost:3000 under DEBUG and dial8.ai in Release. CaptureAPIService
+//  URL localhost:3000 under DEBUG and nativeintelligence.dev in Release. CaptureAPIService
 //  keeps its request builder private, so the pattern is reproduced here rather
 //  than shared.
 //
@@ -121,7 +121,7 @@ final class CalendarAPIService: ObservableObject {
         #if DEBUG
         return "http://localhost:3000"
         #else
-        return "https://dial8.ai"
+        return "https://nativeintelligence.dev"
         #endif
     }
 

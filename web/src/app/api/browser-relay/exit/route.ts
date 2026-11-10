@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { apiError, badRequest } from '@/lib/api-errors'
 import { ringComputer } from '@/lib/browser-agent/queue'
 import { setExitMode } from '@/lib/cloud-browser/host'
-import { relayActor } from '@/lib/cloud-browser/relay-routes'
+import { relayActor, relayOriginCalled } from '@/lib/cloud-browser/relay-routes'
 
 /**
  * POST /api/browser-relay/exit  { mode: 'mac' | 'cloud', tunnel: { up, deviceId? } }
@@ -21,7 +21,8 @@ export async function POST(request: Request) {
   const tunnel = { up: body.tunnel?.up === true, deviceId: typeof body.tunnel?.deviceId === 'string' ? body.tunnel.deviceId : null }
   const ref = { userId: actor.userId, workspaceId: actor.workspaceId }
   try {
-    await setExitMode(ref, body.mode, tunnel)
+    // The rule is set for the relay host this relay calls, which it just did.
+    await setExitMode(ref, body.mode, tunnel, relayOriginCalled(request))
   } catch (error) {
     console.error('[cloud-browser] exit switch failed:', error instanceof Error ? error.message : error)
     return apiError('Could not switch the browser’s exit', { status: 503, code: 'EXIT_UNAVAILABLE' })

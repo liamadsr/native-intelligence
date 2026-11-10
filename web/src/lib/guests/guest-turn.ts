@@ -1,6 +1,6 @@
 /**
  * One turn of a guest's own agent (guest access): the person the owner
- * added texts the Dial8 number, and a text turn answers them in their own
+ * added texts the Native Intelligence number, and a text turn answers them in their own
  * thread (chat_conversations.agent_guest_id) as the agent the owner made for
  * them. The run token says so (chat-run-token.ts `guestId`, on an SMS channel
  * turn only); the spec and tool routes read the guest here, live, and refuse

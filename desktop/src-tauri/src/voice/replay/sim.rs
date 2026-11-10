@@ -111,7 +111,7 @@ pub struct Clip {
 }
 
 pub fn bench_dir() -> PathBuf {
-    std::env::var_os("DIAL8_SPEECH_BENCH")
+    std::env::var_os("NI_SPEECH_BENCH")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("code/speech-audio-bench"))
 }

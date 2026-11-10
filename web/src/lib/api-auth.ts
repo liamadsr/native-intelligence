@@ -121,7 +121,7 @@ interface ResolvedUser {
  * Tries the cookie-based Supabase session first (browser clients), then
  * falls back to an `Authorization: Bearer <token>` header for non-browser
  * clients (desktop app, hardware devices, MCP). The bearer token is either a
- * Dial8 device token (`d8d_…`, validated against device_token) or a Supabase
+ * Native Intelligence device token (`nid_…`, validated against device_token) or a Supabase
  * access token (`eyJ…`, validated by a client bound to that token).
  *
  * When the user is resolved from a Supabase Bearer JWT, we return a

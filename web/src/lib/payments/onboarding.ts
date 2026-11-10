@@ -3,7 +3,7 @@
  * (./setup-link.ts) the owner taps on their phone. The link's page offers two
  * buttons, each a same-origin POST that uses the link once:
  *
- *   new       Dial8 makes (or reuses, while unfinished) the workspace's
+ *   new       Native Intelligence makes (or reuses, while unfinished) the workspace's
  *             Accounts v2 account: the full Stripe Dashboard, Stripe-owned
  *             fees and losses (`fees_collector` / `losses_collector`
  *             'stripe'), the merchant configuration with card payments. Then

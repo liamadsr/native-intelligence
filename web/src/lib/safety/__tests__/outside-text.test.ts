@@ -35,7 +35,7 @@ const knows = (...addresses: string[]) => async () => new Set(addresses)
 describe('outside-text tools', () => {
   it('the web, connected apps, files and ingests, research and the browser are outside text', () => {
     for (const name of ['web_search', 'web_fetch', 'mcp__linear__list_issues', 'get_attachment_content', 'ingest_reference', 'ingest_source',
-      'research_my_company', 'find_prospects', 'get_prospecting_run_candidates', 'read_browser_page', 'run_browser_task', 'get_email_summary', 'dial8_ingest_source']) {
+      'research_my_company', 'find_prospects', 'get_prospecting_run_candidates', 'read_browser_page', 'run_browser_task', 'get_email_summary', 'ni_ingest_source']) {
       expect(isOutsideTextTool(name), name).toBe(true)
     }
   })
@@ -72,7 +72,7 @@ describe('readOutsideText', () => {
 describe('recording', () => {
   it('noteOutsideRead calls the atomic append with the bare name, and never throws', async () => {
     const rpc = vi.fn(async () => ({ data: null, error: null }))
-    await noteOutsideRead({ rpc } as never, { agentRunId: 'r', workspaceId: 'w', toolName: 'dial8_ingest_source' })
+    await noteOutsideRead({ rpc } as never, { agentRunId: 'r', workspaceId: 'w', toolName: 'ni_ingest_source' })
     expect(rpc).toHaveBeenCalledWith('agent_run_note_outside_read', { p_run_id: 'r', p_workspace_id: 'w', p_tool: 'ingest_source' })
     await expect(noteOutsideRead({ rpc: async () => { throw new Error('down') } } as never, { agentRunId: 'r', workspaceId: 'w', toolName: 'web_fetch' })).resolves.toBeUndefined()
     await expect(noteOutsideRead({} as never, { agentRunId: 'r', workspaceId: 'w', toolName: 'web_fetch' })).resolves.toBeUndefined()

@@ -3,13 +3,13 @@
  *
  * Two tiny localStorage keys, written only when they differ from the default
  * (a full storage bucket has bitten this app before, so nothing here grows):
- *   dial8:read-aloud:auto   "1" when auto-read is on (absent = off)
- *   dial8:read-aloud:voice  a voice id (absent = the catalogue default)
+ *   ni:read-aloud:auto   "1" when auto-read is on (absent = off)
+ *   ni:read-aloud:voice  a voice id (absent = the catalogue default)
  * Every access is wrapped: storage that throws or is full reads as defaults.
  */
 
-export const READ_ALOUD_AUTO_KEY = 'dial8:read-aloud:auto'
-export const READ_ALOUD_VOICE_KEY = 'dial8:read-aloud:voice'
+export const READ_ALOUD_AUTO_KEY = 'ni:read-aloud:auto'
+export const READ_ALOUD_VOICE_KEY = 'ni:read-aloud:voice'
 
 function read(key: string): string | null {
   try {

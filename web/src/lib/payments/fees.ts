@@ -1,5 +1,5 @@
 /**
- * Dial8's optional platform fee on a customer's payment (migration 459):
+ * Native Intelligence's optional platform fee on a customer's payment (migration 459):
  * per workspace, basis points of the amount plus fixed cents, BOTH DEFAULT 0.
  * Pricing isn't decided, so nothing depends on a fee: at zero no
  * application_fee_amount is sent to Stripe at all, and the whole payment is

@@ -6,8 +6,9 @@
 
 import { hasDownload } from '@/lib/app-download'
 import { blog, source } from '@/lib/source'
+import { appUrl } from '@/lib/app-url'
 
-const BASE = 'https://dial8.ai'
+const BASE = appUrl()
 
 function docsSection(): string {
   return source
@@ -34,11 +35,11 @@ function blogSection(): string {
 }
 
 function buildLlmsTxt(): string {
-  return `# Dial8
+  return `# Native Intelligence
 
-> Dial8 is the end-to-end AI sales platform. It turns everything a sales team knows — playbooks, product knowledge, competitors, pricing, deal history — into intelligence every rep can use live on the call, in a heads-up display only their side can see. No bot joins the meeting. Afterwards the CRM updates itself, follow-ups are queued, and what the call taught goes back into the team's shared context.
+> Native Intelligence is the end-to-end AI sales platform. It turns everything a sales team knows — playbooks, product knowledge, competitors, pricing, deal history — into intelligence every rep can use live on the call, in a heads-up display only their side can see. No bot joins the meeting. Afterwards the CRM updates itself, follow-ups are queued, and what the call taught goes back into the team's shared context.
 
-Dial8 combines live call intelligence, a self-updating CRM (contacts, companies, deals, interaction history), email sequences, meeting capture, Linear-style project management, and AI execution in one workspace (web app + native macOS and iOS apps, Windows waitlist). Live agents listen to calls and update deals, actions, and the knowledge base in real time. Every action item carries the full context of why it exists — the call it came from, the decision behind it, and who is responsible — so agents can execute with no prompt engineering. Syncs two-way with HubSpot, Attio, and Affinity for teams keeping their existing CRM. The entire workspace is exposed over the Model Context Protocol (MCP), so external agents and tools can read and act on your work. Free 7-day trial (card required); Pro is $99 per user/month; every teammate gets their own 7-day trial, then their seat is paid. Teams and enterprises via sales for volume pricing.
+Native Intelligence combines live call intelligence, a self-updating CRM (contacts, companies, deals, interaction history), email sequences, meeting capture, Linear-style project management, and AI execution in one workspace (web app + native macOS and iOS apps, Windows waitlist). Live agents listen to calls and update deals, actions, and the knowledge base in real time. Every action item carries the full context of why it exists — the call it came from, the decision behind it, and who is responsible — so agents can execute with no prompt engineering. Syncs two-way with HubSpot, Attio, and Affinity for teams keeping their existing CRM. The entire workspace is exposed over the Model Context Protocol (MCP), so external agents and tools can read and act on your work. Free 7-day trial (card required); Pro is $99 per user/month; every teammate gets their own 7-day trial, then their seat is paid. Teams and enterprises via sales for volume pricing.
 
 ## Key concepts
 
@@ -62,16 +63,16 @@ ${docsSection()}
 
 - [Home](${BASE}): The sales platform pitch — live call intelligence, self-updating CRM, and the team knowledge loop.
 - [Pricing](${BASE}/pricing): 7-day free trial (card required), Pro, and Enterprise plans.
-- [AI Work Environment](${BASE}/ai-work-environment): What an AI work environment is and how Dial8 implements one.
+- [AI Work Environment](${BASE}/ai-work-environment): What an AI work environment is and how Native Intelligence implements one.
 - [Blog](${BASE}/blog): Product updates and writing.
-- [Release Notes](${BASE}/release-notes): What's new in Dial8.
+- [Release Notes](${BASE}/release-notes): What's new in Native Intelligence.
 
 ## Comparisons
 
-- [Dial8 vs Granola](${BASE}/vs/granola): How Dial8 compares to Granola for meeting notes.
-- [Dial8 vs Fathom](${BASE}/vs/fathom): How Dial8 compares to Fathom for meeting recording.
-- [Dial8 vs Otter](${BASE}/vs/otter): How Dial8 compares to Otter for transcription.
-- [Dial8 vs Fireflies](${BASE}/vs/fireflies): How Dial8 compares to Fireflies for meeting capture.
+- [Native Intelligence vs Granola](${BASE}/vs/granola): How Native Intelligence compares to Granola for meeting notes.
+- [Native Intelligence vs Fathom](${BASE}/vs/fathom): How Native Intelligence compares to Fathom for meeting recording.
+- [Native Intelligence vs Otter](${BASE}/vs/otter): How Native Intelligence compares to Otter for transcription.
+- [Native Intelligence vs Fireflies](${BASE}/vs/fireflies): How Native Intelligence compares to Fireflies for meeting capture.
 
 ## Blog posts
 

@@ -82,12 +82,12 @@ describe('VoiceSettingsView — not enrolled', () => {
   it('shows the training pitch + CTA and navigates to the flow', () => {
     hoisted.status = { enrolled: false, quality: null, chunkCount: 0, createdAt: null }
     mount()
-    expect(text()).toContain('Teach Dial8 your voice')
+    expect(text()).toContain('Teach Native Intelligence your voice')
     // Cross-workspace + privacy explainer is always present.
     expect(text()).toContain('you only need to do it once')
 
     const cta = [...container.querySelectorAll('button')].find((b) =>
-      /teach dial8 your voice/i.test(b.textContent || ''),
+      /teach native intelligence your voice/i.test(b.textContent || ''),
     )
     expect(cta).toBeTruthy()
     act(() => cta!.click())

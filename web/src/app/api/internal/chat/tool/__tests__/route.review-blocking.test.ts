@@ -5,7 +5,7 @@
  *   - deny: nothing runs, the model reads APPROVAL_REQUIRED and the person's
  *     card says why;
  *   - Jev unavailable: attended, the call fails closed to the person's card;
- *   - a home turn (the agent on its own) reaches the gate: what leaves Dial8
+ *   - a home turn (the agent on its own) reaches the gate: what leaves Native Intelligence
  *     is the person's card first, and the reviewer decides the rest;
  *   - a chat-native tool is refused NEEDS_PERSON, never carded;
  *   - the kill switch (ACTION_REVIEW_MODE=shadow) runs the call as before.
@@ -128,7 +128,7 @@ describe('chat tool route, ACTION_REVIEW_MODE=blocking', () => {
     expect(approvals.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ toolName: 'delete_action', reason: 'no_request' }))
   })
 
-  it('a home turn\'s call that leaves Dial8 is the person\'s card in their home thread, never a refusal, and they are pinged', async () => {
+  it('a home turn\'s call that leaves Native Intelligence is the person\'s card in their home thread, never a refusal, and they are pinged', async () => {
     const res = await POST(req('push_action_to_jira', {}, { action_id: 'GEN-12' }, { server: 'home_turn', homeTurnReason: 'helper_report' }))
     expect(executeSpy).not.toHaveBeenCalled()
     expect(await output(res)).toMatchObject({ code: 'APPROVAL_REQUIRED' })

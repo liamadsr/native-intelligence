@@ -116,12 +116,12 @@ describe('starting a turn', () => {
       'features.multi_agent=false',
       'features.hooks=false',
       'features.rmcp_client=true',
-      'mcp_servers.dial8_folder.url="http://127.0.0.1:4100/mcp"',
-      `mcp_servers.dial8_folder.bearer_token_env_var="${CODEX_TOKEN_ENV}"`,
-      'mcp_servers.dial8_folder.required=true',
-      'mcp_servers.dial8_folder.startup_timeout_sec=30',
-      'mcp_servers.dial8_folder.tool_timeout_sec=660',
-      'mcp_servers.dial8_folder.default_tools_approval_mode="approve"',
+      'mcp_servers.ni_folder.url="http://127.0.0.1:4100/mcp"',
+      `mcp_servers.ni_folder.bearer_token_env_var="${CODEX_TOKEN_ENV}"`,
+      'mcp_servers.ni_folder.required=true',
+      'mcp_servers.ni_folder.startup_timeout_sec=30',
+      'mcp_servers.ni_folder.tool_timeout_sec=660',
+      'mcp_servers.ni_folder.default_tools_approval_mode="approve"',
     ])
     expect(args.at(-1)).toBe('-')
     // The bearer travels in the environment, never in the arguments (other processes can read those).
@@ -245,7 +245,7 @@ describe('parseFeatureList', () => {
 describe('describeExit', () => {
   it.each([
     ["error: unexpected argument '--ignore-user-config' found", /too old/],
-    ['Error: MCP client for `dial8_folder` failed to start: connection refused', /couldn't reach the folder's tools/],
+    ['Error: MCP client for `ni_folder` failed to start: connection refused', /couldn't reach the folder's tools/],
     ['Error: 401 Unauthorized', /isn't signed in/],
     ['thread panicked', /stopped unexpectedly \(exit 1\): thread panicked/],
   ])('%s', (stderr, expected) => {

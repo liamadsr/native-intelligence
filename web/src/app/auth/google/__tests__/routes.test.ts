@@ -46,7 +46,7 @@ vi.mock('@supabase/supabase-js', async (importOriginal) => ({
 import { GET as start } from '../route'
 import { GET as callback } from '../callback/route'
 
-const ORIGIN = 'https://dial8.ai'
+const ORIGIN = 'https://nativeintelligence.dev'
 const BIND = 'ab'.repeat(24)
 
 /** Start a sign-in; returns what the browser would carry back. */
@@ -127,11 +127,11 @@ describe('GET /auth/google', () => {
   })
 
   it('moves the browser to the callback host before setting the cookie', async () => {
-    vi.stubEnv('GOOGLE_SIGN_IN_REDIRECT_URI', 'https://dial8.ai/auth/google/callback')
+    vi.stubEnv('GOOGLE_SIGN_IN_REDIRECT_URI', 'https://nativeintelligence.dev/auth/google/callback')
     const res = await start(
-      new NextRequest(`https://www.dial8.ai/auth/google?desktop=1&bind=${BIND}`, { headers: { host: 'www.dial8.ai' } }),
+      new NextRequest(`https://www.nativeintelligence.dev/auth/google?desktop=1&bind=${BIND}`, { headers: { host: 'www.nativeintelligence.dev' } }),
     )
-    expect(res.headers.get('location')).toBe(`https://dial8.ai/auth/google?desktop=1&bind=${BIND}`)
+    expect(res.headers.get('location')).toBe(`https://nativeintelligence.dev/auth/google?desktop=1&bind=${BIND}`)
     expect(res.headers.get('set-cookie')).toBeNull()
   })
 
@@ -223,7 +223,7 @@ describe('GET /auth/google/callback', () => {
   it('names a signup the work-email hook refused, on the web and the desktop', async () => {
     const refused: SignInResult = {
       data: { user: null },
-      error: { message: "Dial8 requires a business email to sign up. Personal addresses like Gmail or Yahoo aren't accepted." },
+      error: { message: "Native Intelligence requires a business email to sign up. Personal addresses like Gmail or Yahoo aren't accepted." },
     }
     hoisted.cookieSignIn.mockResolvedValueOnce(refused)
     let { cookie, state } = await begin()

@@ -182,7 +182,7 @@ describe('finalize-abandoned-capture', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }]
     expect(url).toMatch(/\/api\/ai\/live-agent$/)
     expect(JSON.parse(init.body as string)).toEqual({ capture_id: 'cap-1', mode: 'batch', allow_auto_archive: false })
-    expect(init.headers.Authorization).toMatch(/^Bearer d8d_/)
+    expect(init.headers.Authorization).toMatch(/^Bearer nid_/)
 
     // The token was the owner's, pinned to the capture's workspace — and is gone.
     const minted = fake.calls.find((c) => c.table === 'device_token' && c.op === 'insert')

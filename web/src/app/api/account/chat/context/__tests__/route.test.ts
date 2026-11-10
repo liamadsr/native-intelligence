@@ -67,7 +67,7 @@ beforeEach(() => {
 })
 
 const get = (query: string) =>
-  GET(buildRequest({ url: `https://dial8.ai/api/account/chat/context${query}`, method: 'GET' }) as unknown as NextRequest)
+  GET(buildRequest({ url: `https://nativeintelligence.dev/api/account/chat/context${query}`, method: 'GET' }) as unknown as NextRequest)
 const contextOf = async (res: Response) => ((await readJson(res)) as { context: ChatContextUsage | null }).context
 
 describe('GET /api/account/chat/context', () => {

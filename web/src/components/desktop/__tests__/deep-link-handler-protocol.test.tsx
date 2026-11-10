@@ -112,7 +112,7 @@ describe('DeepLinkHandler protocol gating', () => {
 
   it('never exchanges a web link that carries ?code=', async () => {
     await deliver('https://app.example.com/callback?code=xyz&state=1')
-    await deliver('https://dial8.ai/auth/desktop-callback?code=abc')
+    await deliver('https://nativeintelligence.dev/auth/desktop-callback?code=abc')
     await deliver('http://localhost:3000/auth/callback?code=abc')
     expect(mocks.exchange).not.toHaveBeenCalled()
     expect(mocks.push).not.toHaveBeenCalled()

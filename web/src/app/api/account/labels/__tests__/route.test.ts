@@ -85,8 +85,8 @@ const { GET, POST } = await import('@/app/api/account/labels/route')
 
 function getReq(scope?: string): NextRequest {
   const url = scope
-    ? `https://dial8.ai/api/account/labels?scope=${scope}`
-    : 'https://dial8.ai/api/account/labels'
+    ? `https://nativeintelligence.dev/api/account/labels?scope=${scope}`
+    : 'https://nativeintelligence.dev/api/account/labels'
   const req = buildRequest({ url, method: 'GET' })
   // next/server NextRequest exposes nextUrl; polyfill it for tests
   Object.defineProperty(req, 'nextUrl', { value: new URL(url) })
@@ -95,7 +95,7 @@ function getReq(scope?: string): NextRequest {
 
 function postReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/labels',
+    url: 'https://nativeintelligence.dev/api/account/labels',
     method: 'POST',
     body,
   }) as unknown as NextRequest

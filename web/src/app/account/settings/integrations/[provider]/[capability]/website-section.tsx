@@ -11,7 +11,7 @@ import { PickerLoadError, SearchableOptionList } from './destination-picker-slot
 /**
  * "Website" on the GitHub connector's page (roadmap track E,
  * docs/plans/website-by-text.md): pick which of your repositories is your
- * business's website, see what Dial8 found in it, and connect its form so
+ * business's website, see what Native Intelligence found in it, and connect its form so
  * customers' requests reach you. The same flow the agent runs by text: the
  * pull request it opens goes live only on your yes (the card in your chat, or
  * yes with the code from the text).
@@ -162,7 +162,7 @@ export function WebsiteSection() {
       <p className="text-sm font-medium">{site ? 'Pick another repository' : 'Which repository is your website?'}</p>
       {!site && (
         <p className="mt-1 text-xs text-muted-foreground">
-          Dial8 reads it, finds the form customers fill in, and can connect it so their requests reach you. Nothing on your site changes without your yes.
+          Native Intelligence reads it, finds the form customers fill in, and can connect it so their requests reach you. Nothing on your site changes without your yes.
         </p>
       )}
       {site && !site.connectedByYou && (
@@ -310,7 +310,7 @@ export function WebsiteSection() {
                 Connect the form
               </Button>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Opens a pull request that also sends each request to Dial8, keeping what the form does today. It goes live only when you say yes.
+                Opens a pull request that also sends each request to Native Intelligence, keeping what the form does today. It goes live only when you say yes.
               </p>
             </div>
           ) : null

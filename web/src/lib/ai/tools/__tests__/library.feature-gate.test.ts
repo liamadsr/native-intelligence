@@ -159,33 +159,33 @@ function fakeServer() {
 }
 
 describe('MCP library tools — feature-gated system recipes', () => {
-  it('dial8_list_skills excludes the gated ids when their features are off, and nothing by default', async () => {
+  it('ni_list_skills excludes the gated ids when their features are off, and nothing by default', async () => {
     const off = client(OFF)
     const a = fakeServer()
     registerLibraryTools(a.server as never, USER, off.supabase, WS)
-    await a.handlers['dial8_list_skills']({})
+    await a.handlers['ni_list_skills']({})
     expect(off.nots).toEqual([['id', 'in', GATED]])
 
     const on = client(ALL_ON)
     const b = fakeServer()
     registerLibraryTools(b.server as never, USER, on.supabase, WS)
-    await b.handlers['dial8_list_skills']({})
+    await b.handlers['ni_list_skills']({})
     expect(on.nots).toEqual([])
   })
 
-  it('dial8_get_skill on a gated id never reaches the table', async () => {
+  it('ni_get_skill on a gated id never reaches the table', async () => {
     const { supabase, recipeCalls } = client(OFF)
     const { server, handlers } = fakeServer()
     registerLibraryTools(server as never, USER, supabase, WS)
-    await handlers['dial8_get_skill']({ id: EVAL_SKILL_ID })
+    await handlers['ni_get_skill']({ id: EVAL_SKILL_ID })
     expect(recipeCalls()).toBe(0)
   })
 
-  it('dial8_get_agent on a gated id never reaches the table', async () => {
+  it('ni_get_agent on a gated id never reaches the table', async () => {
     const { supabase, recipeCalls } = client(OFF)
     const { server, handlers } = fakeServer()
     registerLibraryTools(server as never, USER, supabase, WS)
-    await handlers['dial8_get_agent']({ id: EVAL_SKILL_ID })
+    await handlers['ni_get_agent']({ id: EVAL_SKILL_ID })
     expect(recipeCalls()).toBe(0)
   })
 })

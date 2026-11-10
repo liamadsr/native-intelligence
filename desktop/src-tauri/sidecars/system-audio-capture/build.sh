@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 CONFIG="${1:-debug}"
 
 # The notices below say this sidecar contains no third-party code. That holds
-# while Package.swift pulls in no packages (Dial8's own Swift and Objective-C,
+# while Package.swift pulls in no packages (Native Intelligence's own Swift and Objective-C,
 # linked against macOS's frameworks and Swift runtime only). The moment it
 # gains a package or binary dependency, stop: write that dependency's notices
 # and license texts into .out/licenses/ here, then update this check.
@@ -33,7 +33,7 @@ System audio capture (system-audio-capture): no third-party code
 Ships as:
   Contents/MacOS/system-audio-capture
 
-This helper program is Dial8's own code (Swift and Objective-C). It includes
+This helper program is Native Intelligence's own code (Swift and Objective-C). It includes
 no third-party open-source code: it links only macOS's own frameworks and the
 Swift runtime that is part of macOS, none of which it copies into the app. So
 it has no notices or license texts of its own.

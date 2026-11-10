@@ -75,7 +75,7 @@ export const SENTRY_IGNORE_ERRORS: (string | RegExp)[] = [
 
 /**
  * Client `beforeBreadcrumb` filter. Inside the agent browser's DOM
- * ([data-dial8-browser]: its live view and the computer card) the DOM is
+ * ([data-ni-browser]: its live view and the computer card) the DOM is
  * the person's browsing, and Sentry's ui.click / ui.input breadcrumbs serialize
  * the element's title + aria-label — i.e. visited sites and blocked hosts —
  * into every later error event. Drop those; keep everything else (and every

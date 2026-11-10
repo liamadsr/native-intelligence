@@ -1,6 +1,6 @@
 //
 //  AppleSpeechSTTProvider.swift
-//  dial8
+//  Native Intelligence
 //
 //  STT provider entry for Apple's on-device speech stack (iOS 26
 //  SpeechAnalyzer + SpeechTranscriber) — the ONLY transcription backend on iOS.

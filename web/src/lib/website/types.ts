@@ -199,7 +199,7 @@ export interface WebsiteApprovalContext {
    * the text: a change they never asked for (a spoofed number) stands out.
    */
   asked?: string
-  /** Outside hosts the change's diff adds (not Dial8's, not the site's): said on the card and in the text. */
+  /** Outside hosts the change's diff adds (not Native Intelligence's, not the site's): said on the card and in the text. */
   outside?: string[]
   /** A wiring that replaces what the form does today (stops its emails): said on the card and in the text. */
   replaces?: true
@@ -207,5 +207,10 @@ export interface WebsiteApprovalContext {
   unchecked?: true
 }
 
-/** The field a live check's test post carries (the intake takes it as the check, never as a quote). */
+/**
+ * The field a live check's test post carries (the intake takes it as the check,
+ * never as a quote). It keeps the name it had before the rename: the check and
+ * the intake can be on different builds for a moment during a deploy, and a
+ * test post the intake does not recognise is stored as a customer's quote.
+ */
 export const INTAKE_TEST_FIELD = '_dial8_test'

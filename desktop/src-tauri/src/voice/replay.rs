@@ -46,8 +46,8 @@
 //! voice_replay auto [--long] [--masked] [--vary auto.k=a,b]... [--capture DIR]...  # Auto vs quiet (WP7)
 //! ```
 //!
-//! Its log lines go to `$TMPDIR/dial8-voice-replay.log`, never the app's
-//! `dial8-debug.log` ([`crate::redirect_log`]).
+//! Its log lines go to `$TMPDIR/native-intelligence-voice-replay.log`, never the app's
+//! `native-intelligence-debug.log` ([`crate::redirect_log`]).
 
 pub mod auto;
 pub mod closed;
@@ -517,7 +517,7 @@ pub fn run_scene_hinted(
     tuning: &Tuning,
     speech_hint: Option<f32>,
 ) -> Result<(sim::Mix, sim::SimRun), String> {
-    let (canceller, vad) = real_dsp().ok_or("no ONNX Runtime for Silero (build local-tts or set DIAL8_ORT_DYLIB)")?;
+    let (canceller, vad) = real_dsp().ok_or("no ONNX Runtime for Silero (build local-tts or set NI_ORT_DYLIB)")?;
     let mix = sim::build_mix(spec, bench);
     let setup = sim::SimSetup { tuning: *tuning, vad, canceller, canceller_real: true, capture: None, speech_hint };
     let run = sim::run(&mix, setup);
@@ -543,7 +543,7 @@ pub fn speech_at_end(run: &sim::SimRun, tuning: &Tuning, speech_hint: Option<f32
 
 /// Run one bench scene live with the real DSP.
 pub fn run_scene(spec: &sim::SceneSpec, bench: &sim::BenchAudio, tuning: &Tuning) -> Result<(sim::Mix, sim::SimRun), String> {
-    let (canceller, vad) = real_dsp().ok_or("no ONNX Runtime for Silero (build local-tts or set DIAL8_ORT_DYLIB)")?;
+    let (canceller, vad) = real_dsp().ok_or("no ONNX Runtime for Silero (build local-tts or set NI_ORT_DYLIB)")?;
     let mix = sim::build_mix(spec, bench);
     // Warm: the level a sent turn measures for this user (≈ their active
     // level + 4 dB: the 90th percentile of the gate's level), as a
@@ -683,7 +683,7 @@ fn profile_arg(args: &[String]) -> Result<NoiseProfile, String> {
 pub fn cli_main(args: Vec<String>) -> i32 {
     // The harness runs the session's code, which logs ("[voice] echo path
     // ..."): into its own file, never the app's debug log.
-    let log = std::env::temp_dir().join("dial8-voice-replay.log");
+    let log = std::env::temp_dir().join("native-intelligence-voice-replay.log");
     crate::redirect_log(Some(log));
     let result = match args.first().map(String::as_str) {
         Some("sim") => cli_sim(&args[1..]),
@@ -713,7 +713,7 @@ pub fn cli_main(args: Vec<String>) -> i32 {
 fn scene_set(args: &[String]) -> Result<(Vec<sim::SceneSpec>, sim::BenchAudio), String> {
     let dir = sim::bench_dir();
     if !sim::bench_available(&dir) {
-        return Err(format!("the bench audio is not in {} (set DIAL8_SPEECH_BENCH)", dir.display()));
+        return Err(format!("the bench audio is not in {} (set NI_SPEECH_BENCH)", dir.display()));
     }
     let long = args.iter().any(|a| a == "--long");
     let masked = args.iter().any(|a| a == "--masked");

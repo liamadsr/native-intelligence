@@ -57,7 +57,7 @@ export interface TurnToolStep {
   input?: string
   /** False when the call errored or answered `success: false`. */
   ok: boolean
-  /** Dial8's error code when one was given (INPUT_INVALID, REPEATED_FAILURE, NOT_FOUND…). */
+  /** Native Intelligence's error code when one was given (INPUT_INVALID, REPEATED_FAILURE, NOT_FOUND…). */
   code?: string
   /** The error text, clipped to FLYWHEEL_LIMITS.stepError. */
   error?: string
@@ -137,7 +137,7 @@ export interface LoopRunEvidence {
 
 /**
  * An agent draft the person rewrote heavily before sending. A score and
- * pointers only: Dial8 stores no mail, so neither the draft nor the sent text
+ * pointers only: Native Intelligence stores no mail, so neither the draft nor the sent text
  * is kept here; a reviewer reads the thread live.
  */
 export interface DraftRewriteEvidence {
@@ -177,7 +177,7 @@ export function isDraftDismissReason(v: unknown): v is DraftDismissReason {
 
 /**
  * An agent draft that was dismissed, and why. The reason and pointers only,
- * as a rewrite's: Dial8 stores no mail, so neither the draft nor the thread is
+ * as a rewrite's: Native Intelligence stores no mail, so neither the draft nor the thread is
  * kept; a reviewer reads the thread live.
  */
 export interface DraftDismissedEvidence {

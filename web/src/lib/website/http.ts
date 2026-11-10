@@ -20,7 +20,7 @@ const OUTCOMES: Record<string, { status: number; words: string }> = {
   NO_SITE: { status: 409, words: 'Pick your website’s repository first.' },
   NO_SITE_URL: { status: 409, words: 'Add the address customers visit first: the form is checked on the live site.' },
   NO_FORM: { status: 409, words: 'No form customers fill in was found on the site.' },
-  ALREADY_WIRED: { status: 409, words: 'That form already sends requests to Dial8.' },
+  ALREADY_WIRED: { status: 409, words: 'That form already sends requests to Native Intelligence.' },
   OPEN_CHANGE: { status: 409, words: 'A change to your website is already in progress. It needs to finish (or get your no) first.' },
   START_FAILED: { status: 502, words: 'Couldn’t start that just now. Nothing on your site changed; try again in a moment.' },
   AGENT_PAUSED: { status: 409, words: 'Your agent is paused. Turn it back on, then try again.' },

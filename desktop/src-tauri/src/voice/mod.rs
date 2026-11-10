@@ -1,5 +1,5 @@
 //! Chat voice on the desktop: dictation, voice mode and Interactive mode
-//! (dial8-website/docs/plans/chat-voice.md §3.1, bridge contract §3.3;
+//! (web/docs/plans/chat-voice.md §3.1, bridge contract §3.3;
 //! Interactive: the interactive-mode spec's desktop ⇄ web contract, a
 //! conversation-like session behind the web's Interactive toggle that reads
 //! aloud and listens for the agent's name).
@@ -24,7 +24,7 @@
 //! - [`levels`]: the user's speech level remembered per mic (noisy room,
 //!   Auto);
 //! - [`trace`]: the machine's inputs and actions as records; [`capture`]:
-//!   the dev-only debug capture (`DIAL8_VOICE_CAPTURE`); [`replay`]: the
+//!   the dev-only debug capture (`NI_VOICE_CAPTURE`); [`replay`]: the
 //!   offline replay harness and the quiet room's goldens;
 //! - [`events`]: the `voice://*` payloads;
 //! - [`vad`]: the VAD interface (W2b fills in the detector).

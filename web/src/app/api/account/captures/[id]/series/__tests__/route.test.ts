@@ -61,7 +61,7 @@ const { GET } = await import('@/app/api/account/captures/[id]/series/route')
 
 function call(id = 'cap-anchor') {
   const request = buildRequest({
-    url: `https://dial8.ai/api/account/captures/${id}/series`,
+    url: `https://nativeintelligence.dev/api/account/captures/${id}/series`,
     method: 'GET',
   }) as unknown as NextRequest
   return GET(request, { params: Promise.resolve({ id }) })

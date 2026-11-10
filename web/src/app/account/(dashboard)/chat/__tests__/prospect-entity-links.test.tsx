@@ -26,7 +26,7 @@ import type { UIMessage } from '@ai-sdk/react'
 
 /** The cards a click asked for (the tabs provider isn't mounted: the requests are the result). */
 const navigate = vi.fn()
-window.addEventListener('dial8:open-card', (e) => navigate((e as CustomEvent).detail))
+window.addEventListener('ni:open-card', (e) => navigate((e as CustomEvent).detail))
 
 vi.mock('../../../workspace-switcher', () => ({
   useWorkspaceEdition: () => 'full',

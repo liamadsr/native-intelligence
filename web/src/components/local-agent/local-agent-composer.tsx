@@ -2,7 +2,7 @@
 
 /**
  * The person's box in a local agent's panel (contract G): what's typed goes
- * to the local agent as the person (author `person`; the Dial8 agent sees it
+ * to the local agent as the person (author `person`; the Native Intelligence agent sees it
  * too). Steer lands mid-turn, Queue waits for the turn to end; idle, either
  * starts its next turn, and an interrupted one resumes on your Mac. Enter
  * sends, Shift+Enter is a new line. What's typed stays while a send is out,

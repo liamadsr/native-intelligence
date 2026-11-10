@@ -3,7 +3,7 @@
  * THE PROVIDER MUST NOT WIPE THE WORKSPACE SEED ON ITS FIRST COMMIT.
  *
  * `lib/workspace-fetch` seeds the active workspace id at MODULE LOAD — from
- * localStorage['dial8-workspace-id'], or from a `?switch_to=<uuid>` URL param
+ * localStorage['ni-workspace-id'], or from a `?switch_to=<uuid>` URL param
  * on a freshly-opened desktop workspace window. The patched `window.fetch`
  * attaches that id as `x-workspace-id` on every `/api/` request.
  *
@@ -43,7 +43,7 @@ vi.mock('@/lib/supabase/client', () => ({
   createClient: () => ({ auth: { getSession: async () => ({ data: { session: null } }) } }),
 }))
 
-const STORAGE_KEY = 'dial8-workspace-id'
+const STORAGE_KEY = 'ni-workspace-id'
 const SEED_ID = '11111111-2222-3333-4444-555555555555'
 /** list + workspace + profile — the provider's whole boot burst. */
 const BOOT_CALLS = 3

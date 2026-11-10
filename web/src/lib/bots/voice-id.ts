@@ -7,7 +7,7 @@
  *
  * The shape is the desktop's own: its catalogue spells a voice id in lowercase
  * letters, digits and hyphens, starting with a letter or digit, at most 32 long
- * (dial8-desktop, the local-tts catalogue check). Which voices there are is
+ * (desktop, the local-tts catalogue check). Which voices there are is
  * each device's to say, so nothing here lists them; the migration's CHECK holds
  * the same shape (migration-308.test.ts holds the two together).
  */

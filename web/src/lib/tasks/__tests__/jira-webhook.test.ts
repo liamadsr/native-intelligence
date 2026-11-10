@@ -90,7 +90,7 @@ function calledBefore(
 
 const SYNC_STATE_ID = 'tss-1'
 const CLOUD = 'cafe0001'
-const TARGET = 'https://dial8.ai/api/webhooks/jira'
+const TARGET = 'https://nativeintelligence.dev/api/webhooks/jira'
 
 /** Just-registered — well inside the refresh window. */
 const FRESH = new Date(Date.now() - 60 * 60 * 1000).toISOString()
@@ -119,7 +119,7 @@ const LIVE = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+  vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
   vi.stubEnv('JIRA_ALLOW_INSECURE_WEBHOOK_TARGET', '')
   hoisted.loadJiraWebhookState.mockResolvedValue({ ...STATE })
   hoisted.getValidTokenForAccount.mockResolvedValue({
@@ -144,7 +144,7 @@ afterEach(() => {
 
 describe('isReachableTarget', () => {
   it('accepts a public https origin (including tunnels)', () => {
-    expect(isReachableTarget('https://dial8.ai/api/webhooks/jira')).toBe(true)
+    expect(isReachableTarget('https://nativeintelligence.dev/api/webhooks/jira')).toBe(true)
     expect(isReachableTarget('https://abc123.ngrok.app/api/webhooks/jira')).toBe(true)
   })
 
@@ -152,7 +152,7 @@ describe('isReachableTarget', () => {
     expect(isReachableTarget('http://localhost:3000/api/webhooks/jira')).toBe(false)
     expect(isReachableTarget('https://localhost:3000/api/webhooks/jira')).toBe(false)
     expect(isReachableTarget('https://127.0.0.1/api/webhooks/jira')).toBe(false)
-    expect(isReachableTarget('http://dial8.ai/api/webhooks/jira')).toBe(false)
+    expect(isReachableTarget('http://nativeintelligence.dev/api/webhooks/jira')).toBe(false)
     expect(isReachableTarget('not a url')).toBe(false)
   })
 
@@ -547,7 +547,7 @@ describe('ensureJiraWebhook — existing registration', () => {
    */
   it('RE-REGISTERS a url on a different host — the origin is part of the target', async () => {
     hoisted.listWebhooks.mockResolvedValue({
-      webhooks: [{ ...LIVE, url: 'https://preview.dial8.ai/api/webhooks/jira' }],
+      webhooks: [{ ...LIVE, url: 'https://preview.nativeintelligence.dev/api/webhooks/jira' }],
       isLast: true,
       nextStartAt: null,
     })

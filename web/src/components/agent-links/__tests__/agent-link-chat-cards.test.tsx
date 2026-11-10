@@ -28,9 +28,9 @@ async function render(node: ReturnType<typeof h>) {
 async function opened(click: () => void): Promise<unknown[]> {
   const seen: unknown[] = []
   const onOpen = (e: Event) => seen.push((e as CustomEvent).detail)
-  window.addEventListener('dial8:open-card', onOpen)
+  window.addEventListener('ni:open-card', onOpen)
   await act(async () => click())
-  window.removeEventListener('dial8:open-card', onOpen)
+  window.removeEventListener('ni:open-card', onOpen)
   return seen
 }
 

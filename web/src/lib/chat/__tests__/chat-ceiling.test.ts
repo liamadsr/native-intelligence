@@ -183,7 +183,7 @@ describe('surface exclusions (structural, keyed on the verified token surface)',
       // A bot's attended-only writes (bots v3 Phase 5): nobody is on the device to have asked.
       'settle_card',
       'revise_email_draft',
-      // Discarding drafts Dial8 wrote (GEN-1165): attended only too.
+      // Discarding drafts Native Intelligence wrote (GEN-1165): attended only too.
       'discard_email_draft',
       'undo_extraction_pass',
       // The main agent's reads of the bots' work (bots-v4 Phase A1): attended only too.
@@ -246,7 +246,7 @@ describe('surface exclusions (structural, keyed on the verified token surface)',
     expect(isToolExcludedForSurface('mcp__jira__create_issue', 'device_ask')).toBe(false)
   })
 
-  it('sms (a text the person sent the Dial8 number) excludes everything the device ask does, plus the desktop browser and the JWT tools', () => {
+  it('sms (a text the person sent the Native Intelligence number) excludes everything the device ask does, plus the desktop browser and the JWT tools', () => {
     // All but the chat-native tools a text keeps (Liam, 2026-10-26): background helpers and messages to another person's agent.
     // …and all but the ones held off the device for its 60 s budget alone (DEVICE_ONLY_EXCLUSIONS).
     for (const name of SURFACE_EXCLUDED_TOOLS.device_ask) {

@@ -28,7 +28,7 @@ vi.mock('@/lib/posthog', () => ({
 const { POST } = await import('@/app/api/analytics/recording-event/route')
 
 function req(body: unknown): Request {
-  return new Request('https://dial8.ai/api/analytics/recording-event', {
+  return new Request('https://nativeintelligence.dev/api/analytics/recording-event', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

@@ -7,7 +7,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const repoSrc = path.resolve(here, '../../src')
 
 /**
- * Builds @dial8/ui from the app's own source.
+ * Builds @native-intelligence/ui from the app's own source.
  *
  * The barrel (src/index.ts) re-exports the presentational components that live
  * in the Next.js app at <repo>/src/components/**. Those files import via the

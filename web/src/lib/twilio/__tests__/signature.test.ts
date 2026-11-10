@@ -46,9 +46,9 @@ describe('twilioRequestUrl', () => {
   it('else the request URL with the forwarded scheme and host, query kept', () => {
     const req = new Request('http://internal:8080/api/twilio/sms?x=1', {
       method: 'POST',
-      headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'dial8.ai' },
+      headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'nativeintelligence.dev' },
     })
-    expect(twilioRequestUrl(req, null)).toBe('https://dial8.ai/api/twilio/sms?x=1')
-    expect(twilioRequestUrl(new Request('https://dial8.ai/api/twilio/sms'), null)).toBe('https://dial8.ai/api/twilio/sms')
+    expect(twilioRequestUrl(req, null)).toBe('https://nativeintelligence.dev/api/twilio/sms?x=1')
+    expect(twilioRequestUrl(new Request('https://nativeintelligence.dev/api/twilio/sms'), null)).toBe('https://nativeintelligence.dev/api/twilio/sms')
   })
 })

@@ -4,6 +4,7 @@ import {
   stringFromBase64URL,
 } from '@supabase/ssr'
 import { cookies, headers } from 'next/headers'
+import { isDeviceToken } from '@/lib/device-tokens'
 
 // The SSR client stores the session behind a `base64-` prefix (its default
 // cookieEncoding) — see @supabase/ssr's cookies.ts getItem.
@@ -142,7 +143,7 @@ export async function createClient() {
   // session. Forward that header to PostgREST so RLS evaluates against the
   // token's user. Browser requests have no such header and are unaffected.
   //
-  // Only forward Supabase JWTs (`eyJ…`). A Dial8 device token (`d8d_…`) is an
+  // Only forward Supabase JWTs (`eyJ…`). A Native Intelligence device token (`nid_…`) is an
   // opaque secret, NOT a JWT — forwarding it makes Supabase auth reject it as
   // malformed (and `auth.getUser()` throws). Device tokens are resolved
   // separately in resolveUser()/authenticateUser(); here we just leave the
@@ -171,11 +172,11 @@ export async function createClient() {
   //   - session cookie, SAME sub                → forward
   //   - session cookie, unparseable/truncated   → forward (no competing identity)
   //   - session cookie, DIFFERENT sub           → DO NOT forward (cookie wins)
-  //   - d8d_ device token                       → never forward
+  //   - nid_ device token                       → never forward
   const headerStore = await headers()
   const authHeader = headerStore.get('authorization')
   const bearer =
-    authHeader?.startsWith('Bearer ') && !authHeader.slice(7).startsWith('d8d_')
+    authHeader?.startsWith('Bearer ') && !isDeviceToken(authHeader.slice(7))
       ? authHeader.slice(7)
       : null
 

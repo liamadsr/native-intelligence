@@ -18,7 +18,7 @@
 import { SEARCH_FLIGHT_KEY, SEARCH_FLIGHT_MS, SEARCH_SETTLE_MS, cancelFlight, flyBack, launchFlight } from './card-reply-flight'
 
 /** Asks the main chat's composer to open (or close) the `/` palette. Cancelled (preventDefault) by the one that answers. */
-export const OPEN_SEARCH_EVENT = 'dial8:open-search'
+export const OPEN_SEARCH_EVENT = 'ni:open-search'
 
 /** Is a search button on screen: laid out, and not hidden (the top bar's, under a full-screen page beside the app rail)? */
 function showing(el: HTMLElement): boolean {

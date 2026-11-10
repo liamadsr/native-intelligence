@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
-import { classifyBillingAccess, daysUntil, isDial8Staff } from '../access'
+import { classifyBillingAccess, daysUntil, isNiStaff } from '../access'
 import { adminEmails } from '@/lib/admin-emails'
 
 // lib/admin's server imports, unused by isAuthorizedAdmin.
@@ -92,7 +92,7 @@ describe('classifyBillingAccess', () => {
   })
 })
 
-describe('classifyBillingAccess — Dial8 staff', () => {
+describe('classifyBillingAccess — Native Intelligence staff', () => {
   beforeEach(() => vi.stubEnv('ADMIN_EMAILS', 'liam@dial8.ai'))
 
   it('exempts the named admins (ADMIN_EMAILS) regardless of subscription rows', () => {
@@ -105,7 +105,7 @@ describe('classifyBillingAccess — Dial8 staff', () => {
 
   it('exempts exactly the people isAuthorizedAdmin lets in', () => {
     for (const email of [...adminEmails(), 'toby@dial8.ai', 'new-hire@dial8.ai', 'x@gmail.com']) {
-      expect(isDial8Staff(email)).toBe(isAuthorizedAdmin(email))
+      expect(isNiStaff(email)).toBe(isAuthorizedAdmin(email))
     }
   })
 

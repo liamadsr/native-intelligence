@@ -29,7 +29,7 @@ const baseTrigger: TriggerContext = {
   fired_at: '2026-05-26T10:00:00.000Z',
 }
 
-const ctx = buildTemplateContext(baseAction, baseTrigger, 'https://dial8.ai')
+const ctx = buildTemplateContext(baseAction, baseTrigger, 'https://nativeintelligence.dev')
 
 describe('renderTemplate', () => {
   it('interpolates simple tokens', () => {
@@ -47,14 +47,14 @@ describe('renderTemplate', () => {
 
   it('renders the action url token from appBaseUrl', () => {
     expect(renderTemplate('{{action.url}}', ctx)).toBe(
-      'https://dial8.ai/account?action=a-1',
+      'https://nativeintelligence.dev/account?action=a-1',
     )
   })
 
   describe('jsonAware mode', () => {
     it('escapes quotes inside JSON string positions', () => {
       const action = { ...baseAction, title: 'has "quotes" in it' }
-      const c = buildTemplateContext(action, baseTrigger, 'https://dial8.ai')
+      const c = buildTemplateContext(action, baseTrigger, 'https://nativeintelligence.dev')
       const body = renderTemplate('{"text": "{{action.title}}"}', c, {
         jsonAware: true,
       })
@@ -65,7 +65,7 @@ describe('renderTemplate', () => {
 
     it('escapes newlines inside JSON string positions', () => {
       const action = { ...baseAction, title: 'line1\nline2' }
-      const c = buildTemplateContext(action, baseTrigger, 'https://dial8.ai')
+      const c = buildTemplateContext(action, baseTrigger, 'https://nativeintelligence.dev')
       const body = renderTemplate('{"text": "{{action.title}}"}', c, {
         jsonAware: true,
       })
@@ -98,7 +98,7 @@ describe('buildTemplateContext — entity-less triggers', () => {
   }
 
   it('populates the capture namespace for a capture_processed fire', () => {
-    const c = buildTemplateContext(null, captureTrigger, 'https://dial8.ai', {
+    const c = buildTemplateContext(null, captureTrigger, 'https://nativeintelligence.dev', {
       capture: { id: 'cap-1', title: 'Weekly standup' },
       workspaceId: 'w-1',
     })
@@ -112,7 +112,7 @@ describe('buildTemplateContext — entity-less triggers', () => {
   })
 
   it('handles a null capture title', () => {
-    const c = buildTemplateContext(null, captureTrigger, 'https://dial8.ai', {
+    const c = buildTemplateContext(null, captureTrigger, 'https://nativeintelligence.dev', {
       capture: { id: 'cap-1', title: null },
       workspaceId: 'w-1',
     })
@@ -121,7 +121,7 @@ describe('buildTemplateContext — entity-less triggers', () => {
   })
 
   it('builds a schedule context with no entity and no capture', () => {
-    const c = buildTemplateContext(null, scheduleTrigger, 'https://dial8.ai', {
+    const c = buildTemplateContext(null, scheduleTrigger, 'https://nativeintelligence.dev', {
       workspaceId: 'w-1',
     })
     expect(c.capture).toBeNull()

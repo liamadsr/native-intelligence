@@ -53,7 +53,7 @@ interface ConnectionRow {
 const COLUMNS =
   'user_id, client_id, access_token_enc, refresh_token_enc, expires_at, status, plan_enabled, refresh_lease_until'
 
-/** The Dial8 user already linked to this ChatGPT account, if any. */
+/** The Native Intelligence user already linked to this ChatGPT account, if any. */
 export async function connectedUserId(service: SupabaseClient, sub: string): Promise<string | null> {
   const { data, error } = await service
     .from('chatgpt_connection')
@@ -105,7 +105,7 @@ export type AccessTokenResult =
  * the caller turns `ok: false` into "AI stops" (phase 4).
  *
  * An `exhausted` connection still gets its token, with its status: the last
- * call ran out of plan credits, and trying again costs Dial8 nothing (OpenAI
+ * call ran out of plan credits, and trying again costs Native Intelligence nothing (OpenAI
  * refuses while the plan is spent), so a plan that has reset just works.
  * Only `revoked` stops here.
  */

@@ -107,15 +107,15 @@ export function SkyCanvas({ surfaceVar, wash, themed = false, alwaysFade = false
       onFallback: (scene, surface) => setFallback(scene ? { scene, surface } : null),
     })
     controllerRef.current = controller
-    // Another app in front no longer freezes the sky (Liam, 10-10: Dial8 open
+    // Another app in front no longer freezes the sky (Liam, 10-10: Native Intelligence open
     // beside the app he types in, and the clouds never moved): it drifts on
     // at a lower frame rate. A hidden or covered window stops it (the page
     // is hidden then), as do activity in the page and the run's cap.
     const stopFocus = watchWindowFocus((focused) => controller.setBackground(!focused))
-    // Dev: why isn't it moving? `__dial8Sky()` in the console says.
-    const debug = window as unknown as { __dial8Sky?: () => unknown }
+    // Dev: why isn't it moving? `__niSky()` in the console says.
+    const debug = window as unknown as { __niSky?: () => unknown }
     if (process.env.NODE_ENV !== 'production') {
-      debug.__dial8Sky = () => ({
+      debug.__niSky = () => ({
         canMove: skyActivity.canMove(),
         calm: skyActivity.isCalm(),
         resting: skyActivity.isResting(),
@@ -123,7 +123,7 @@ export function SkyCanvas({ surfaceVar, wash, themed = false, alwaysFade = false
       })
     }
     return () => {
-      delete debug.__dial8Sky
+      delete debug.__niSky
       stopFocus()
       controller.dispose()
       controllerRef.current = null

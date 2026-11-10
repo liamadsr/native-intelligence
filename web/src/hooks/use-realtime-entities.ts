@@ -3,7 +3,7 @@
 /**
  * useRealtimeEntities — subscribe to Supabase Realtime postgres_changes for
  * every list-rendered entity and translate them into the existing
- * `dial8:entity-*` window events. Listeners (UnifiedViewLayout, detail panels,
+ * `ni:entity-*` window events. Listeners (UnifiedViewLayout, detail panels,
  * etc.) get teammate-driven updates through the same code path as in-tab
  * mutations — no new wiring at call sites.
  *
@@ -114,7 +114,7 @@ const TABLES: Array<{ table: string; entityType: EntityKind; filtered?: boolean 
 // THE TRADE-OFF, stated plainly: an unfiltered binding is broader than the
 // list that asked for it. The user is served an event for every row
 // they can read in any of their workspaces — including workspaces no mounted
-// list is showing — and each one costs a diff plus a `dial8:entity-updated`
+// list is showing — and each one costs a diff plus a `ni:entity-updated`
 // dispatch that most listeners drop on the id check. RLS still gates delivery,
 // so nothing leaks; what widens is FAN-OUT, and only for a user who has
 // deliberately asked to see every workspace at once. It narrows again the
@@ -367,7 +367,7 @@ export function useRealtimeEntities(workspaceId: string | null | undefined) {
     }
 
     // Track subscription state. On a successful (re)subscribe after a prior
-    // failure, fire a synthetic `dial8:realtime-recovered` window event so
+    // failure, fire a synthetic `ni:realtime-recovered` window event so
     // mounted lists can refetch — they'll have missed any events during the
     // gap. First-time subscribes don't fire it (nothing was missed).
     //
@@ -388,7 +388,7 @@ export function useRealtimeEntities(workspaceId: string | null | undefined) {
         setTimeout(
           () =>
             window.dispatchEvent(
-              new CustomEvent('dial8:realtime-recovered', {
+              new CustomEvent('ni:realtime-recovered', {
                 detail: { repairId: getLastRepairId() },
               }),
             ),
@@ -417,7 +417,7 @@ export function useRealtimeEntities(workspaceId: string | null | undefined) {
     //
     // We still set `hadFailure = true` locally so THIS channel's next SUBSCRIBED
     // (fired when the knock's rejoin re-subscribes it) emits
-    // `dial8:realtime-recovered`, driving mounted lists to refetch what they
+    // `ni:realtime-recovered`, driving mounted lists to refetch what they
     // missed during the gap — but ONLY when a repair actually happened.
     //
     // Latching unconditionally (the old behaviour) armed the flag on every ≥30s

@@ -24,7 +24,7 @@ import { resolveCreateWorkspace, resolveEntityWorkspace, workspaceEcho, type Cre
  * Eval authoring and running FROM CHAT — the tools behind the `/create-eval`
  * system skill (migration 253).
  *
- * An eval case in Dial8 is not a prompt/output pair, it is a SYNTHETIC MEETING:
+ * An eval case in Native Intelligence is not a prompt/output pair, it is a SYNTHETIC MEETING:
  * a timed, speaker-labeled transcript plus the outcomes the agent under test
  * should and should not produce. That is why the interesting steering lives in
  * `create_eval_case`'s description rather than in a route — writing a mock call
@@ -74,7 +74,7 @@ const scriptSegmentSchema = z.object({
   stream: z
     .enum(['mic', 'system'])
     .describe(
-      'The self participant (the Dial8 user) is on "mic"; every other speaker is on "system". The gate only flushes when BOTH streams have gone quiet, so this split is what produces a realistic chunk cadence.',
+      'The self participant (the Native Intelligence user) is on "mic"; every other speaker is on "system". The gate only flushes when BOTH streams have gone quiet, so this split is what produces a realistic chunk cadence.',
     ),
   text: z.string().describe('What was said. Write it the way a transcriber would — see the tool description.'),
 })
@@ -89,7 +89,7 @@ const participantSchema = z.object({
   is_self: z
     .boolean()
     .optional()
-    .describe('True for exactly ONE participant — the Dial8 user whose meeting this is.'),
+    .describe('True for exactly ONE participant — the Native Intelligence user whose meeting this is.'),
   role: z.string().optional().describe('e.g. "organizer", "attendee", "prospect".'),
 })
 
@@ -436,7 +436,7 @@ export function createEvalTools(
         'Write one synthetic meeting and the outcomes it should produce. This is the workhorse — everything ' +
         'the suite ever measures comes from the quality of these scripts.\n\n' +
         'THE SCRIPT is an array of {t_ms, speaker, stream, text}, ordered by t_ms:\n' +
-        '  • stream — the Dial8 user (the participant with is_self) speaks on "mic"; EVERY other speaker is on ' +
+        '  • stream — the Native Intelligence user (the participant with is_self) speaks on "mic"; EVERY other speaker is on ' +
         '"system". The agent only flushes when both streams have been quiet, so getting this wrong destroys the ' +
         'chunk cadence and makes live mode meaningless.\n' +
         '  • t_ms — leave ≥3000ms of silence at turn boundaries (that silence is what triggers a flush) and let ' +
@@ -481,7 +481,7 @@ export function createEvalTools(
         if (participants.filter((p) => p.is_self).length !== 1) {
           return {
             success: false,
-            error: 'Exactly one participant must have is_self: true — the Dial8 user whose meeting this is.',
+            error: 'Exactly one participant must have is_self: true — the Native Intelligence user whose meeting this is.',
           }
         }
         const selfProblem = selfLabelProblem(participants)

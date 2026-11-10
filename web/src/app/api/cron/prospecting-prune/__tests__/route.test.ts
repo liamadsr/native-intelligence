@@ -87,7 +87,7 @@ vi.mock('@/lib/admin', () => ({
 const { GET } = await import('@/app/api/cron/prospecting-prune/route')
 
 function req(bearer = 'Bearer test-secret'): Request {
-  return new Request('https://dial8.ai/api/cron/prospecting-prune', {
+  return new Request('https://nativeintelligence.dev/api/cron/prospecting-prune', {
     method: 'GET',
     headers: { authorization: bearer },
   })
@@ -123,7 +123,7 @@ describe('cron auth gate', () => {
 
   it('401s a missing bearer', async () => {
     const res = await GET(
-      new Request('https://dial8.ai/api/cron/prospecting-prune') as never,
+      new Request('https://nativeintelligence.dev/api/cron/prospecting-prune') as never,
     )
     expect(res.status).toBe(401)
     expect(hoisted.queries).toHaveLength(0)

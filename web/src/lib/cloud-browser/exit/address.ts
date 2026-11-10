@@ -3,7 +3,7 @@ import { BlockList, isIP } from 'node:net'
 /**
  * Whether an address is the public internet (docs/plans/cloud-browser.md, C4):
  * the hub's own check before a direct connection in `cloud` mode, the twin of
- * the Mac's policy (dial8-desktop crates/browser-exit/src/policy.rs). The
+ * the Mac's policy (desktop/crates/browser-exit/src/policy.rs). The
  * session's network policy refuses private ranges too; this keeps the hub
  * from even trying.
  *

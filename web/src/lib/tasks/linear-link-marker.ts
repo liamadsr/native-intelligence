@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 /**
  * The `action_external_task.last_push_error` marker vocabulary for LINEAR links.
  *
- * Shared by the paths that can fail against one issue — the Dial8→Linear echo,
+ * Shared by the paths that can fail against one issue — the Native Intelligence→Linear echo,
  * the webhook read-back and the reconcile sweep — so a marker one of them writes
  * means the same thing to the others.
  *

@@ -68,7 +68,7 @@ describe('runLiveCall', () => {
     const summary = await call
     expect(turns).toEqual([{ words: "What's on tomorrow?", delegationId: 'del_1' }])
     expect(sent).toEqual([
-      { type: 'session.commentary.append', delegation_id: 'del_1', content: 'You have two meetings: standup at 9:30 and lunch at 12:15.', event_id: 'dial8_1' },
+      { type: 'session.commentary.append', delegation_id: 'del_1', content: 'You have two meetings: standup at 9:30 and lunch at 12:15.', event_id: 'ni_1' },
     ])
     expect(summary).toMatchObject({ handoffs: 1, replies: 1, closed: 'remote_hangup', callerChars: 19, agentChars: 13 })
   })
@@ -76,11 +76,11 @@ describe('runLiveCall', () => {
   it('opens with the greeting once attached, as commentary with no delegation', async () => {
     const s = fakeSocket()
     const call = runLiveCall(
-      { sessionId: 'live_g', caller: CALLER, apiKey: 'k', greeting: "Hi Liam, it's your Dial8 agent. What can I do for you?" },
+      { sessionId: 'live_g', caller: CALLER, apiKey: 'k', greeting: "Hi Liam, it's your Native Intelligence agent. What can I do for you?" },
       { supabase: {} as SupabaseClient, connect: async () => s.socket, runTurn: async () => ({ kind: 'quiet', outcome: 'quiet' }), hangUp: async () => {}, sleep: async () => {} },
     )
     await flush()
-    expect(s.sent).toEqual([{ type: 'session.commentary.append', delegation_id: null, content: "Hi Liam, it's your Dial8 agent. What can I do for you?", event_id: 'dial8_1' }])
+    expect(s.sent).toEqual([{ type: 'session.commentary.append', delegation_id: null, content: "Hi Liam, it's your Native Intelligence agent. What can I do for you?", event_id: 'ni_1' }])
     s.emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).types).toEqual({ 'session.closed': 1 })
   })
@@ -249,14 +249,14 @@ describe('runLiveCall', () => {
   })
 
   it('a reply that is only a link says nothing aloud', async () => {
-    const { emit, sent, call } = await startCall(async () => ({ kind: 'reply', text: 'https://dial8.ai/x', outcome: 'written', rowId: 'r' }))
+    const { emit, sent, call } = await startCall(async () => ({ kind: 'reply', text: 'https://nativeintelligence.dev/x', outcome: 'written', rowId: 'r' }))
     emit({ type: 'session.input_transcript.delta', delta: 'Send me the link.', start_ms: 0, end_ms: 400 })
     emit({ type: 'session.delegation.created', delegation: { id: 'del_1' } })
     await flush()
     await flush()
     emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).replies).toBe(0)
-    expect(sent).toEqual([{ type: 'session.thinking.append', delegation_id: 'del_1', content: NOTHING_TO_ADD, event_id: 'dial8_1' }])
+    expect(sent).toEqual([{ type: 'session.thinking.append', delegation_id: 'del_1', content: NOTHING_TO_ADD, event_id: 'ni_1' }])
   })
 
   it('waits for a slow turn finishing in the background before it returns', async () => {
@@ -315,21 +315,21 @@ describe('runLiveCall', () => {
     const summary = await call
     expect(runTurn).toHaveBeenCalledTimes(1)
     expect(sent).toEqual([
-      { type: 'session.thinking.append', delegation_id: 'del_empty', content: NO_NEW_WORDS, event_id: 'dial8_1' },
-      { type: 'session.thinking.append', delegation_id: 'del_quiet', content: NOTHING_TO_ADD, event_id: 'dial8_2' },
+      { type: 'session.thinking.append', delegation_id: 'del_empty', content: NO_NEW_WORDS, event_id: 'ni_1' },
+      { type: 'session.thinking.append', delegation_id: 'del_quiet', content: NOTHING_TO_ADD, event_id: 'ni_2' },
     ])
     expect(summary).toMatchObject({ handoffs: 2, empty: 1, quiet: 1, replies: 0 })
   })
 
   it('a notice is said like an answer', async () => {
-    const { emit, sent, call } = await startCall(async () => ({ kind: 'notice', text: "That needs your OK first. It's waiting for you in the Dial8 app.", outcome: 'written' }))
+    const { emit, sent, call } = await startCall(async () => ({ kind: 'notice', text: "That needs your OK first. It's waiting for you in the Native Intelligence app.", outcome: 'written' }))
     emit({ type: 'session.input_transcript.delta', delta: 'Email Dana.', start_ms: 0, end_ms: 400 })
     emit({ type: 'session.delegation.created', delegation: { id: 'del_1' } })
     await flush()
     await flush()
     emit({ type: 'session.closed', reason: 'remote_hangup' })
     expect((await call).notices).toBe(1)
-    expect(sent[0]).toMatchObject({ type: 'session.commentary.append', content: "That needs your OK first. It's waiting for you in the Dial8 app." })
+    expect(sent[0]).toMatchObject({ type: 'session.commentary.append', content: "That needs your OK first. It's waiting for you in the Native Intelligence app." })
   })
 
   it('drops the answer of a turn that finished after the call ended, but waits for it', async () => {
@@ -383,7 +383,7 @@ describe('runLiveCall', () => {
         await vi.advanceTimersByTimeAsync(1_001)
         return { ...s, hangups, summary: await call }
       })()
-      expect(capped.sent).toEqual([{ type: 'session.close', event_id: 'dial8_1' }])
+      expect(capped.sent).toEqual([{ type: 'session.close', event_id: 'ni_1' }])
       expect(capped.summary.closed).toBe('max_duration')
       expect(capped.hangups).toEqual(['live_2'])
     } finally {
@@ -406,7 +406,7 @@ describe('runLiveCall', () => {
 
 describe('speakable', () => {
   it('drops markdown, list marks and URLs, keeping the words', () => {
-    expect(speakable('## Today\n- **Standup** at 9:30\n- `Review` with Ken\nSee https://dial8.ai/x for more.')).toBe('Today Standup at 9:30 Review with Ken See for more.')
+    expect(speakable('## Today\n- **Standup** at 9:30\n- `Review` with Ken\nSee https://nativeintelligence.dev/x for more.')).toBe('Today Standup at 9:30 Review with Ken See for more.')
     expect(speakable('Plain words stay: 3 o’clock, $600.')).toBe('Plain words stay: 3 o’clock, $600.')
   })
 })

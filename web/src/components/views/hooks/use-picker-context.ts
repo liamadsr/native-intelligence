@@ -4,7 +4,7 @@
  * labels, workflow states per team).
  *
  * Cached in module scope per workspace so switching views doesn't refetch.
- * Revalidates when the `dial8:entity-created` event fires for any kind of
+ * Revalidates when the `ni:entity-created` event fires for any kind of
  * entity that lives in the context (matches the existing pattern in
  * `unified-view-layout.tsx:121`).
  */
@@ -333,14 +333,14 @@ export function usePickerContext(
     const onCreated = (e: Event) => handler(e, 'created')
     const onUpdated = (e: Event) => handler(e, 'updated')
     const onDeleted = (e: Event) => handler(e, 'deleted')
-    window.addEventListener('dial8:entity-created', onCreated)
-    window.addEventListener('dial8:entity-updated', onUpdated)
-    window.addEventListener('dial8:entity-deleted', onDeleted)
+    window.addEventListener('ni:entity-created', onCreated)
+    window.addEventListener('ni:entity-updated', onUpdated)
+    window.addEventListener('ni:entity-deleted', onDeleted)
     return () => {
       if (bumpTimer) clearTimeout(bumpTimer)
-      window.removeEventListener('dial8:entity-created', onCreated)
-      window.removeEventListener('dial8:entity-updated', onUpdated)
-      window.removeEventListener('dial8:entity-deleted', onDeleted)
+      window.removeEventListener('ni:entity-created', onCreated)
+      window.removeEventListener('ni:entity-updated', onUpdated)
+      window.removeEventListener('ni:entity-deleted', onDeleted)
     }
   }, [workspaceKey])
 

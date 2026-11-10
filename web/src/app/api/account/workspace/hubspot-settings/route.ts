@@ -15,7 +15,7 @@ import { logsMeetingsToHubspot } from '@/lib/crm/hubspot-meeting-log'
  *     engagement on every matched contact. Only an explicit false turns it off.
  *   - The contact push keys stay opt-in (absent = false / 'manual'):
  *   - `push_contacts_to_hubspot` (boolean) — the master on/off for contact push.
- *     When true, hubspot-push-contact mirrors eligible Dial8 contacts into
+ *     When true, hubspot-push-contact mirrors eligible Native Intelligence contacts into
  *     HubSpot.
  *   - `push_contacts_scope` ('manual' | 'all', default 'manual') — which
  *     contacts push when the master toggle is on. 'manual' = only contacts the

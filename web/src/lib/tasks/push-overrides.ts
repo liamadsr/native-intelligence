@@ -71,12 +71,12 @@ export interface JiraPushOverrides {
    * decorative in the picker and unusable as identity.
    *
    * NULL means CLEAR: push it unassigned rather than falling back to the
-   * action's own Dial8 assignee via the email bridge. Absent still inherits.
+   * action's own Native Intelligence assignee via the email bridge. Absent still inherits.
    */
   assignee_account_id?: string | null
   /**
    * A priority id from compose-meta's `priority.allowedValues`. NOT from
-   * /priority/search, which needs manage:jira-configuration — a scope Dial8 does
+   * /priority/search, which needs manage:jira-configuration — a scope Native Intelligence does
    * not hold and should not add for a dropdown.
    */
   priority_id?: string
@@ -225,7 +225,7 @@ function readString(
  * opens the panel, sees a prefilled project and picks "No project", or clears the
  * date input, is making a CHOICE, and folding it to absent silently reinstated
  * the value they had just removed: the issue landed in the config's project, or
- * carrying the action's due date and Dial8 assignee, while the form said
+ * carrying the action's due date and Native Intelligence assignee, while the form said
  * otherwise.
  *
  * Only the fields that have a fallback are clearable. Everything else keeps
@@ -402,7 +402,7 @@ export function parseJiraOverrides(
   }
 
   // Clearable: these two have a FALLBACK the push applies when they are absent
-  // (the action's Dial8 assignee via the email bridge; the action's own due
+  // (the action's Native Intelligence assignee via the email bridge; the action's own due
   // date), so "the user removed this" has to be expressible as something other
   // than absence — otherwise clearing the field silently reinstated it.
   const assignee = readClearableString(raw, 'assignee_account_id', 'jira')
@@ -595,7 +595,7 @@ export function parseLinearOverrides(
   }
 
   // Clearable: absent, the push falls back to the config's project (when the
-  // team is unchanged) and to the action's Dial8 assignee. "No project" and
+  // team is unchanged) and to the action's Native Intelligence assignee. "No project" and
   // "Unassigned" are real picks in the panel and must not read as absence.
   for (const key of ['project_id', 'assignee_id'] as const) {
     const read = readClearableString(raw, key, 'linear')

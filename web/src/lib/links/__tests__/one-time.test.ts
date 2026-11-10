@@ -9,7 +9,7 @@ import { oneTimeLinkDb } from './one-time-fake'
  */
 const T0 = Date.parse('2026-11-02T15:00:00Z')
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv12'
-const ARGS = { purpose: 'oauth_connect' as const, userId: 'user-1', workspaceId: 'ws-1', payload: { provider: 'google', capabilities: ['email', 'calendar'] }, origin: 'https://dial8.ai' }
+const ARGS = { purpose: 'oauth_connect' as const, userId: 'user-1', workspaceId: 'ws-1', payload: { provider: 'google', capabilities: ['email', 'calendar'] }, origin: 'https://nativeintelligence.dev' }
 
 async function made(db = oneTimeLinkDb()) {
   const link = await createOneTimeLink(db.client, ARGS, { now: () => T0, token: () => TOKEN })
@@ -19,7 +19,7 @@ async function made(db = oneTimeLinkDb()) {
 describe('createOneTimeLink', () => {
   it('stores only the token hash, bound to the account and purpose, expiring in 15 minutes', async () => {
     const { db, link } = await made()
-    expect(link).toEqual({ ok: true, token: TOKEN, url: `https://dial8.ai/l/${TOKEN}`, expiresAt: new Date(T0 + ONE_TIME_LINK_TTL_MS).toISOString() })
+    expect(link).toEqual({ ok: true, token: TOKEN, url: `https://nativeintelligence.dev/l/${TOKEN}`, expiresAt: new Date(T0 + ONE_TIME_LINK_TTL_MS).toISOString() })
     expect(ONE_TIME_LINK_TTL_MS).toBe(15 * 60_000)
     expect(db.rows).toHaveLength(1)
     expect(db.rows[0]).toMatchObject({ token_hash: linkTokenHash(TOKEN), purpose: 'oauth_connect', user_id: 'user-1', workspace_id: 'ws-1', payload: ARGS.payload })
@@ -45,7 +45,7 @@ describe('createOneTimeLink', () => {
   })
 
   it('the URL is the origin plus /l/<token>', () => {
-    expect(oneTimeLinkUrl('https://dial8.ai/', TOKEN)).toBe(`https://dial8.ai/l/${TOKEN}`)
+    expect(oneTimeLinkUrl('https://nativeintelligence.dev/', TOKEN)).toBe(`https://nativeintelligence.dev/l/${TOKEN}`)
   })
 })
 

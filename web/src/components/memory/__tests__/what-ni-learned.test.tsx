@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
 /**
- * "What Dial8 has learned" (one-agent plan Part 3, "Memory"): the buttons each
+ * "What Native Intelligence has learned" (one-agent plan Part 3, "Memory"): the buttons each
  * viewer gets, as migration 317 allows (lineActions), and the editor showing
  * them: a member sees the workspace's lines read-only, its proposals waiting
  * (withdrawing only their own); an owner or admin accepts, dismisses, edits
- * and deletes them; everyone manages their own lines, Dial8's suggestions
- * included. What Dial8 noticed about you is live (Liam, 2026-10-17), marked,
+ * and deletes them; everyone manages their own lines, Native Intelligence's suggestions
+ * included. What Native Intelligence noticed about you is live (Liam, 2026-10-17), marked,
  * with a one-tap Remove and an Undo that adds it back. With an area, the
  * editor shows only that area's note.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act, createElement as h } from 'react'
-import { WhatDial8Learned, groupMemoryLines, lineActions } from '../what-dial8-learned'
+import { WhatNiLearned, groupMemoryLines, lineActions } from '../what-ni-learned'
 import type { MemoryLine } from '@/lib/packs/memory-types'
 import type { ProfileFact } from '@/lib/memory/profile-facts'
 
@@ -37,9 +37,9 @@ const member = { userId: ME, canManageWorkspace: false }
 const admin = { userId: ME, canManageWorkspace: true }
 
 describe('lineActions', () => {
-  it('your own lines are yours to edit and delete, and Dial8’s suggestions yours to accept or dismiss', () => {
+  it('your own lines are yours to edit and delete, and Native Intelligence’s suggestions yours to accept or dismiss', () => {
     expect(lineActions(line({}), member)).toMatchObject({ edit: true, delete: true, remove: false, accept: false })
-    // Live and Dial8's own: Remove (one tap, with Undo) in place of Delete.
+    // Live and Native Intelligence's own: Remove (one tap, with Undo) in place of Delete.
     expect(lineActions(line({ source: 'learned', created_by: null }), member)).toMatchObject({ edit: true, delete: false, remove: true, accept: false })
     expect(lineActions(line({ status: 'proposed', source: 'learned', created_by: null }), member)).toMatchObject({ accept: true, dismiss: true, waitingForAdmin: false })
   })
@@ -69,7 +69,7 @@ describe('groupMemoryLines', () => {
   })
 })
 
-describe('WhatDial8Learned', () => {
+describe('WhatNiLearned', () => {
   let container: HTMLDivElement
   let root: Root
   const fetchMock = vi.fn()
@@ -102,7 +102,7 @@ describe('WhatDial8Learned', () => {
   ]
   const mount = async (canManageWorkspace: boolean, area?: 'mail') => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ userId: ME, canManageWorkspace, lines }), { status: 200 }))
-    await act(async () => root.render(h(WhatDial8Learned, area ? { area } : {})))
+    await act(async () => root.render(h(WhatNiLearned, area ? { area } : {})))
   }
   const row = (text: string) => [...container.querySelectorAll('[data-testid="memory-line"]')].find((r) => r.textContent?.includes(text))!
   const buttons = (text: string) => [...row(text).querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent?.trim())
@@ -112,7 +112,7 @@ describe('WhatDial8Learned', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/account/memory', expect.objectContaining({ method: 'GET' }))
     expect(buttons('Sign off with Best')).toEqual(['Edit', 'Delete'])
     expect(buttons('You keep emails short')).toEqual(['Accept', 'Dismiss', 'Edit'])
-    expect(row('You keep emails short').textContent).toContain('Dial8 noticed this')
+    expect(row('You keep emails short').textContent).toContain('Native Intelligence noticed this')
     expect(buttons('We reply within a day')).toEqual([])
     expect(buttons('Cc sales on pricing')).toEqual([])
     expect(row('Cc sales on pricing').textContent).toContain('Waiting for an admin')
@@ -145,7 +145,7 @@ describe('WhatDial8Learned', () => {
     expect(container.textContent).not.toContain('You keep emails short')
   })
 
-  it('adding what Dial8 suggested accepts that line in place, never listing it twice', async () => {
+  it('adding what Native Intelligence suggested accepts that line in place, never listing it twice', async () => {
     await mount(false)
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ line: { ...lines[1], status: 'active', source: 'edited' }, already: false }), { status: 200 }))
     const input = container.querySelector('input[aria-label="New line"]') as HTMLInputElement
@@ -189,15 +189,15 @@ describe('WhatDial8Learned', () => {
     expect(container.querySelector('[data-testid="about-you"]')?.textContent).toContain('About you')
     expect(factButtons('Keep answers short')).toEqual(['Edit', 'Delete'])
     expect(factButtons('Works early mornings')).toEqual(['Accept', 'Dismiss', 'Edit'])
-    expect(factRow('Works early mornings').textContent).toContain('Dial8 noticed this')
+    expect(factRow('Works early mornings').textContent).toContain('Native Intelligence noticed this')
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ fact: { ...profileFacts[1], status: 'active' } }), { status: 200 }))
     const accept = [...factRow('Works early mornings').querySelectorAll('button')].find((b) => b.textContent?.includes('Accept'))!
     await act(async () => accept.click())
     expect(fetchMock).toHaveBeenLastCalledWith('/api/account/memory/profile/early', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status: 'active' }) }))
-    // Live now, still Dial8's: marked, with Remove.
+    // Live now, still Native Intelligence's: marked, with Remove.
     expect(factButtons('Works early mornings')).toEqual(['Edit', 'Remove'])
-    expect(factRow('Works early mornings').textContent).toContain('Dial8 noticed this')
+    expect(factRow('Works early mornings').textContent).toContain('Native Intelligence noticed this')
 
     fetchMock.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))
     const del = [...factRow('Keep answers short').querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Delete')!
@@ -206,13 +206,13 @@ describe('WhatDial8Learned', () => {
     expect(container.querySelectorAll('[data-testid="profile-fact"]')).toHaveLength(1)
   })
 
-  it('a live line Dial8 noticed: marked, one tap removes it, and Undo adds it back as yours', async () => {
+  it('a live line Native Intelligence noticed: marked, one tap removes it, and Undo adds it back as yours', async () => {
     toastMock.success.mockClear()
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ userId: ME, canManageWorkspace: false, lines: [line({ id: 'noticed', text: 'Signs off with Cheers', source: 'learned', created_by: null })] }), { status: 200 }),
     )
-    await act(async () => root.render(h(WhatDial8Learned, {})))
-    expect(row('Signs off with Cheers').textContent).toContain('Dial8 noticed this')
+    await act(async () => root.render(h(WhatNiLearned, {})))
+    expect(row('Signs off with Cheers').textContent).toContain('Native Intelligence noticed this')
     expect(buttons('Signs off with Cheers')).toEqual(['Edit', 'Remove'])
 
     fetchMock.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }))
@@ -236,7 +236,7 @@ describe('WhatDial8Learned', () => {
     expect(buttons('Signs off with Cheers')).toEqual(['Edit', 'Delete'])
   })
 
-  it('a fact Dial8 noticed: one tap removes it, and Undo adds it back', async () => {
+  it('a fact Native Intelligence noticed: one tap removes it, and Undo adds it back', async () => {
     toastMock.success.mockClear()
     profileFacts = [fact({ id: 'noticed', text: 'Prefers bullet points', source: 'learned' })]
     await mount(false)

@@ -9,7 +9,7 @@ import { connectWebhookDeps } from '@/lib/payments/webhook-store'
 /**
  * The Connect webhook (roadmap C2): snapshot events about the owners'
  * connected accounts ("Events on Connected accounts"), signed with
- * STRIPE_CONNECT_WEBHOOK_SECRET. Dial8's own billing has its own endpoint
+ * STRIPE_CONNECT_WEBHOOK_SECRET. Native Intelligence's own billing has its own endpoint
  * (the stripe-webhook edge function); nothing here touches it.
  *
  * Subscribe it to: checkout.session.completed,

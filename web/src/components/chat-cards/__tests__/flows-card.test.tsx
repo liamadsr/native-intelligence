@@ -52,7 +52,7 @@ describe('FlowsCard', () => {
   it('takes the card full screen to edit a row clicked inline, and closing it fires no bridge event', async () => {
     const store = makeStore('call-1', spec)
     const closed = vi.fn()
-    window.addEventListener('dial8:flow-editor-closed', closed)
+    window.addEventListener('ni:flow-editor-closed', closed)
     await mount.render(both(store, false))
     await act(async () => (mount.container.querySelector('[data-card-page] [data-probe-open]') as HTMLElement).click())
     expect(store.fullScreen()).toBe('call-1')
@@ -70,6 +70,6 @@ describe('FlowsCard', () => {
     await act(async () => canvas.click())
     expect(mount.container.querySelector('[data-card-page] [data-canvas]')).toBeNull()
     expect(closed).not.toHaveBeenCalled()
-    window.removeEventListener('dial8:flow-editor-closed', closed)
+    window.removeEventListener('ni:flow-editor-closed', closed)
   })
 })

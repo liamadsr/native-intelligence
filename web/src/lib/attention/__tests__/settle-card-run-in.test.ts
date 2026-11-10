@@ -9,7 +9,7 @@
  *     card back and takes the action back, with the person's sentence;
  *   - a cloud environment: the card's coding run (startCardCodingRun), never
  *     on a person's own ChatGPT plan; a refusal puts the card back.
- * The Dial8 run with no place is the route's (attention-items route tests).
+ * The Native Intelligence run with no place is the route's (attention-items route tests).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeFakeSupabase, type FakeSupabase } from '@/lib/work/__tests__/fake-supabase'
@@ -124,7 +124,7 @@ describe('a folder on the person’s Mac', () => {
     expect(body).toMatchObject({ ok: true, status: 'started', entity_id: action.id, entity_kind: 'action', where: { kind: 'mac', mac: 'Liam’s MacBook', folder: 'notes', edits: false, session_id: 'sess-1' } })
     expect(card()?.status).toBe('accepted')
     expect(proposal()).toMatchObject({ status: 'applied', result_entity_id: action.id })
-    // No Dial8 work run: the Mac does it.
+    // No Native Intelligence work run: the Mac does it.
     expect(hoisted.send).not.toHaveBeenCalled()
   })
 

@@ -423,7 +423,7 @@ describe('fence grants (C3 kind "fence")', () => {
     ['a newline', '/Users/p/code/a\nb', 'read', ctx],
     ['a relative path', 'code/lib', 'read', ctx],
     ['a folder outside HOME, for writing', '/code/shared', 'write', ctx],
-    ['an app bundle, for writing', '/Users/p/Applications/Dial8.app/Contents/MacOS', 'write', ctx],
+    ['an app bundle, for writing', '/Users/p/Applications/Native Intelligence.app/Contents/MacOS', 'write', ctx],
     ['an app bundle in capitals, for writing', '/Users/p/Applications/Other.APP', 'write', ctx],
     ['an overlong path', `/Users/p/${'x'.repeat(1100)}`, 'read', ctx],
     ['another access', '/Users/p/code/lib', 'exec', ctx],
@@ -500,7 +500,7 @@ describe('fence grants never make writable what runs outside the sandbox', () =>
     folder: '/Users/p/.dial8/worktrees/job-1',
     extraRead: '/Users/p/code/app/.git',
     sessionRoot: '/private/var/folders/x/T/dial8-local-agent',
-    writeProtected: ['/Users/p/bin', '/Users/p/tools/node/bin', '/Users/p/apps/gh-2.6/bin/gh', '/Users/p/apps/dial8-agent', '/opt/homebrew/bin'],
+    writeProtected: ['/Users/p/bin', '/Users/p/tools/node/bin', '/Users/p/apps/gh-2.6/bin/gh', '/Users/p/apps/ni-agent', '/opt/homebrew/bin'],
   }
 
   it.each([
@@ -509,7 +509,7 @@ describe('fence grants never make writable what runs outside the sandbox', () =>
     ['a tool PATH dir in another case', '/Users/p/BIN'],
     ['a dir holding a tool PATH dir', '/Users/p/tools'],
     ['the dir holding the real gh', '/Users/p/apps/gh-2.6'],
-    ["the agent's own code", '/Users/p/apps/dial8-agent/launcher'],
+    ["the agent's own code", '/Users/p/apps/ni-agent/launcher'],
     ['a dir holding the agent', '/Users/p/apps'],
     ['a bare repository', '/Users/p/repos/app.git'],
     ['the hooks of a bare repository', '/Users/p/repos/app.git/hooks'],
@@ -523,7 +523,7 @@ describe('fence grants never make writable what runs outside the sandbox', () =>
   })
 
   it('still lets the person allow reading them; writing elsewhere is refused only as read-only', () => {
-    for (const path of ['/Users/p/bin', '/Users/p/tools', '/Users/p/apps/dial8-agent']) expect(fenceGrantRefusal(path, 'read', ctx)).toBeNull()
+    for (const path of ['/Users/p/bin', '/Users/p/tools', '/Users/p/apps/ni-agent']) expect(fenceGrantRefusal(path, 'read', ctx)).toBeNull()
     for (const path of ['/Users/p/code/lib', '/Users/p/tools-docs', '/Users/p/binder']) expect(fenceGrantRefusal(path, 'write', ctx)).toMatch(/read-only/)
   })
 

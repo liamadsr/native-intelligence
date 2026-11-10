@@ -1,7 +1,7 @@
 /**
  * web_fetch — LIVE for the skill-runner, wrapped for safety.
  *
- * Web access is on by default for every Dial8 agent (for skill runs, off only
+ * Web access is on by default for every Native Intelligence agent (for skill runs, off only
  * when the spec's `webAccess` is false — the USE_GATEWAY kill switch, stubbed in
  * tools/workspace_tools.ts; see lib/__tests__/web-access-gate.test.ts). This file REPLACES a
  * `disableTool()` sentinel: the old harness lockdown removed every default
@@ -19,7 +19,7 @@
  *   1. SSRF url-guard (lib/url-guard.ts) — every URL is validated before the
  *      fetch runs, blocking private / loopback / link-local IPs and cloud-
  *      metadata hostnames so a URL the run's instructions supplied can't turn
- *      Dial8 into an SSRF reflection point. Mirrors
+ *      Native Intelligence into an SSRF reflection point. Mirrors
  *      src/lib/mcp-client/url-guard.ts (agents can't import src/).
  *   2. Per-session abuse cap (lib/web-fetch-cap.ts) — an invisible, generous
  *      ceiling on fetches per eve session, as insurance against a runaway loop in

@@ -125,7 +125,7 @@ describe('applyCanonSectionEdit', () => {
     })
     // One line for the person whose agent made it, and one for each owner (S9).
     expect(logs.lines.map((l) => l.userId).sort()).toEqual(['u', 'u-admin'])
-    expect(logs.lines[0]).toMatchObject({ kind: 'doc_updated', line: 'Dial8 updated Positioning in Product', refId: 'd1', dedupeKey: 'doc:d1:rev:6' })
+    expect(logs.lines[0]).toMatchObject({ kind: 'doc_updated', line: 'Native Intelligence updated Positioning in Product', refId: 'd1', dedupeKey: 'doc:d1:rev:6' })
   })
 
   it('a conflict re-reads and applies the same section change to the new text', async () => {
@@ -185,7 +185,7 @@ describe('revertSectionEdit', () => {
     expect(c.writes[0].content).toContain('Vs spreadsheets.')
     expect(c.writes[0].content).toContain('Plain, later.')
     expect(c.writes[0].edit_meta).toEqual({ section: 'Positioning', op: 'revert', reverts: 4 })
-    expect(logs.lines[0]).toMatchObject({ line: 'Dial8 reverted an edit to Positioning in Product' })
+    expect(logs.lines[0]).toMatchObject({ line: 'Native Intelligence reverted an edit to Positioning in Product' })
   })
 
   it('a person reverting from the history logs no digest line', async () => {
@@ -258,14 +258,14 @@ describe('apply with undo: outside text is a label, never a hold (decision 16)',
     })
     expect(r).toMatchObject({ ok: true, section: 'Positioning' })
     expect(c.writes[0]).toMatchObject({ edit_meta: { section: 'Positioning', op: 'append', outside: 'a web page on gong.example' } })
-    expect(logs.lines[0]).toMatchObject({ kind: 'doc_updated', line: 'Dial8 updated Positioning in Product (from a web page on gong.example)' })
+    expect(logs.lines[0]).toMatchObject({ kind: 'doc_updated', line: 'Native Intelligence updated Positioning in Product (from a web page on gong.example)' })
   })
 
   it('an edit resting on nothing outside has no label', async () => {
     const c = docClient({ contents: [DOC] })
     await applyCanonSectionEdit(c as never, { workspaceId: 'w', userId: 'u', documentId: 'd1', key: 'product', section: 'Positioning', op: 'replace', text: 'Vs notebooks.' })
     expect(c.writes[0].edit_meta).not.toHaveProperty('outside')
-    expect(logs.lines[0].line).toBe('Dial8 updated Positioning in Product')
+    expect(logs.lines[0].line).toBe('Native Intelligence updated Positioning in Product')
   })
 
   it("a batch resting on outside text gets its own labelled line that day, never folded into the day's other line", async () => {
@@ -275,7 +275,7 @@ describe('apply with undo: outside text is a label, never a hold (decision 16)',
     await appendCanonBatchDigestLine(c as never, { ...base, outside: 'outside text' })
     const mine = logs.lines.filter((l) => l.userId === 'u')
     expect(mine.map((l) => l.dedupeKey)).toEqual(['doc:d1:day:2026-10-20', 'doc:d1:day:2026-10-20:outside'])
-    expect(mine[1].line).toBe('Dial8 updated Positioning in Product (from outside text)')
+    expect(mine[1].line).toBe('Native Intelligence updated Positioning in Product (from outside text)')
   })
 
   it('the module has no way to hold an edit or raise a card any more', () => {

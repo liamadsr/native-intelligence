@@ -1,6 +1,6 @@
 //
 //  iOSSTTSettingsView.swift
-//  dial8
+//  Native Intelligence
 //
 //  Speech-to-Text settings for iOS. Transcription runs ENTIRELY on the device
 //  with Apple's iOS 26 speech models (SpeechAnalyzer + SpeechTranscriber): no

@@ -65,11 +65,11 @@ describe('loadCanonRegistry', () => {
   it('the product doc pointer counts as `product` while it has no key', async () => {
     const c = client([row('team-playbook', OTHER)], {
       settings: { product_doc: { document_id: 'doc-p' } },
-      byId: { id: 'doc-p', title: 'Dial8', updated_at: '2026-10-02T00:00:00Z', status: 'active', published_status: 'published', type: 'note', frontmatter: {}, visibility: 'workspace' },
+      byId: { id: 'doc-p', title: 'Native Intelligence', updated_at: '2026-10-02T00:00:00Z', status: 'active', published_status: 'published', type: 'note', frontmatter: {}, visibility: 'workspace' },
     })
     const entries = await loadCanonRegistry(c as never, { workspaceId: WS, userId: ME })
     expect(entries.map((e) => [e.key, e.title])).toEqual([
-      ['product', 'Dial8'],
+      ['product', 'Native Intelligence'],
       ['team-playbook', 'team-playbook'],
     ])
   })

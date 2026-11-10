@@ -46,7 +46,7 @@ import {
  * or Meeting Types, and a narrower surface keeps the tool descriptions sharp.
  *
  * READS are wider than that, deliberately. `list_agents` / `get_agent` mirror
- * `dial8_list_agents` / `dial8_get_agent` because a skill that grades an agent
+ * `ni_list_agents` / `ni_get_agent` because a skill that grades an agent
  * has to be able to READ that agent's prompt: `/create-eval` (migration 253)
  * opens by reading the target recipe, and with no chat-side `get_agent` the
  * assistant burned a dozen `search_tools` calls hunting for one that didn't
@@ -63,7 +63,7 @@ import {
  *     chat and can promote it, but nothing lands in front of the team because
  *     a model chose a default.
  *
- * Publishing to Discover (visibility 'public', which every Dial8 user sees) is
+ * Publishing to Discover (visibility 'public', which every Native Intelligence user sees) is
  * owner/admin only, as on the HTTP routes and over MCP: see {@link publishDenied}.
  *
  * create_skill and update_skill are ATTENDED ONLY (ATTENDED_ONLY_TOOL_NAMES in
@@ -288,7 +288,7 @@ export function parseCategoryUpdate(raw: readonly string[] | null | undefined): 
  * The agent_config an update_skill `tool_categories` writes, or a refusal: a
  * WIDENING (a tool the stored ceiling doesn't grant) while an enabled loop
  * runs the skill in act mode. Narrowing is always allowed. Shared with the MCP
- * twin (dial8_update_skill).
+ * twin (ni_update_skill).
  */
 export async function skillCategoryUpdate(
   supabase: SupabaseClient,
@@ -345,7 +345,7 @@ export async function enabledActLoopsRunning(
  * The refusal for rewriting a skill's prompt while an enabled act-mode loop
  * runs it (F1 review): the prompt is what the loop does (it is in the loop's
  * definition hash), and an on loop's change goes through the person's card.
- * Null when the rewrite may go ahead. Shared with dial8_update_skill.
+ * Null when the rewrite may go ahead. Shared with ni_update_skill.
  */
 export async function skillPromptRewriteRefusal(
   supabase: SupabaseClient,

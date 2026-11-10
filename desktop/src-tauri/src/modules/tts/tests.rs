@@ -1106,7 +1106,7 @@ fn voice_resolution() {
 }
 
 /// Voices removed from the catalogue (the Kyutai voices) may still sit in a
-/// page's saved setting (`dial8:read-aloud:voice`): they speak in the default.
+/// page's saved setting (`ni:read-aloud:voice`): they speak in the default.
 #[test]
 fn removed_voices_fall_back_to_the_default() {
     let ids: Vec<String> = voices().into_iter().map(|v| v.id).collect();
@@ -1206,7 +1206,7 @@ fn amounts_per_unit_are_spoken() {
 
 #[test]
 fn slashes_that_are_not_rates_stay() {
-    assert_eq!(per_units("See v2/api and docs.dial8.ai/api"), "See v2/api and docs.dial8.ai/api");
+    assert_eq!(per_units("See v2/api and docs.nativeintelligence.dev/api"), "See v2/api and docs.nativeintelligence.dev/api");
     assert_eq!(per_units("On 11/15/2026, 1/2 off, and/or later."), "On 11/15/2026, 1/2 off, and/or later.");
     assert_eq!(per_units("24/7"), "twenty four seven");
     assert_eq!(per_units("124/7 and 24/75"), "124/7 and 24/75");
@@ -1222,39 +1222,39 @@ fn slashes_that_are_not_rates_stay() {
 fn links_are_read_as_their_site() {
     assert_eq!(links("Order it on https://www.amazon.com/dp/B0C1234567?th=1."), "Order it on Amazon.");
     assert_eq!(links("Sell on shopify.com or amazon.co.uk/sell."), "Sell on Shopify or Amazon.");
-    assert_eq!(links("See https://www.dial8.ai/docs?x=1#top."), "See Dial8.");
-    assert_eq!(links("(see docs.dial8.ai/api)"), "(see Dial8");
+    assert_eq!(links("See https://www.nativeintelligence.dev/docs?x=1#top."), "See Native Intelligence.");
+    assert_eq!(links("(see docs.nativeintelligence.dev/api)"), "(see Native Intelligence");
     assert_eq!(links("Run it on http://localhost:3000/api/chat."), "Run it on localhost.");
     assert_eq!(
-        links("Open https://dial8.ai/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue."),
-        "Open Dial8 to continue."
+        links("Open https://nativeintelligence.dev/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue."),
+        "Open Native Intelligence to continue."
     );
     // GitHub: a pull request or issue by its number, anything else as the site.
     assert_eq!(
-        links("I opened the PR at github.com/liamadsr/dial8-corss-platform/pull/73 so you can look."),
+        links("I opened the PR at github.com/liamadsr/native-intelligence/pull/73 so you can look."),
         "I opened the PR at pull request 73 so you can look."
     );
-    assert_eq!(links("Here it is: https://github.com/liamadsr/dial8-website/pull/906"), "Here it is: pull request 906");
+    assert_eq!(links("Here it is: https://github.com/liamadsr/native-intelligence/pull/906"), "Here it is: pull request 906");
     assert_eq!(links("Fixes https://github.com/a/b/issues/12#issuecomment-9."), "Fixes issue 12.");
     assert_eq!(links("Files at https://github.com/a/b/pull/915/files?w=1"), "Files at pull request 915");
     // A cut-off link's number may be cut too.
-    assert_eq!(links("See github.com/liamadsr/dial8-website/pull/9… soon."), "See Github soon.");
+    assert_eq!(links("See github.com/liamadsr/native-intelligence/pull/9… soon."), "See Github soon.");
     // A name with no vowel is an acronym.
     assert_eq!(links("On bbc.co.uk, cnn.com and npmjs.com."), "On BBC, CNN and NPMJS.");
     // A "…" or ".." glued on means the link was cut short ("…" in a link's text).
-    assert_eq!(links("The repo is github.com/liamadsr/dial8-corss-p… and it's ready."), "The repo is Github and it's ready.");
+    assert_eq!(links("The repo is github.com/liamadsr/web3-starter-p… and it's ready."), "The repo is Github and it's ready.");
     assert_eq!(links("Check out github.com/vercel/next.js... it has the details."), "Check out Github it has the details.");
-    assert_eq!(links("It's in liamadsr/dial8-corss-p… now."), "It's in liamadsr now.");
+    assert_eq!(links("It's in liamadsr/web3-starter-p… now."), "It's in liamadsr now.");
 }
 
 #[test]
 fn paths_refs_and_ids_are_shortened() {
     // A repo reference is its number; the bracket before it goes (Liam's example).
     assert_eq!(
-        links("C0, the host (liamadsr/dial8-website#915 · Cloud browser"),
+        links("C0, the host (liamadsr/native-intelligence#915 · Cloud browser"),
         "C0, the host number 915 · Cloud browser"
     );
-    assert_eq!(links("See liamadsr/dial8-website#906 for the details."), "See number 906 for the details.");
+    assert_eq!(links("See liamadsr/native-intelligence#906 for the details."), "See number 906 for the details.");
     assert_eq!(
         links("The change is in src/lib/read-aloud/speech-text.ts, near the top."),
         "The change is in speech-text.ts, near the top."
@@ -1275,7 +1275,7 @@ fn paths_refs_and_ids_are_shortened() {
 #[test]
 fn punctuation_around_dropped_and_cut_tokens() {
     // The sentence's own period stays after a cut link.
-    assert_eq!(links("The repo is github.com/x/dial8-corss-p…. It's ready."), "The repo is Github. It's ready.");
+    assert_eq!(links("The repo is github.com/x/web3-starter-p…. It's ready."), "The repo is Github. It's ready.");
     assert_eq!(links("Thread 8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11…."), "Thread.");
     // Brackets, quotes and an introducing colon go with a dropped token.
     assert_eq!(links("Commit (b31e14e9f2a) landed."), "Commit landed.");
@@ -1322,10 +1322,10 @@ fn text_that_only_looks_like_a_link_stays() {
 
 #[test]
 fn normalized_links_are_short() {
-    let url = normalize("Open https://dial8.ai/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue.");
+    let url = normalize("Open https://nativeintelligence.dev/account/chat?thread=8f3a2c1d-77b9-4e1a-9c2e-1f0b6d2e9a11 to continue.");
     assert!(!url.contains("slash") && !url.contains("three a two"), "{url}");
     assert!(url.contains("to continue."), "{url}");
-    let cut = normalize("The repo is github.com/liamadsr/dial8-corss-p… and the branch is ready.");
+    let cut = normalize("The repo is github.com/liamadsr/web3-starter-p… and the branch is ready.");
     assert!(!cut.contains('…') && !cut.contains("liamadsr"), "{cut}");
     let path = normalize("The change is in src/lib/read-aloud/speech-text.ts, near the top.");
     assert!(!path.contains("slash") && path.contains("near the top"), "{path}");
@@ -1337,7 +1337,7 @@ fn normalized_links_are_short() {
     assert!(host.contains("Github first") && !host.contains("dot"), "{host}");
     let site = normalize("Order it on https://www.amazon.com/dp/B0C1234567.");
     assert!(site.contains("Amazon.") && !site.contains("dot"), "{site}");
-    let pr = normalize("C0, the host (liamadsr/dial8-website#915 · Cloud browser");
+    let pr = normalize("C0, the host (liamadsr/native-intelligence#915 · Cloud browser");
     assert!(pr.contains("number nine") && !pr.contains("hash") && !pr.contains("liamadsr"), "{pr}");
 }
 
@@ -1448,19 +1448,19 @@ fn prepass_only_rewrites_tilde_before_an_amount() {
 /// (nothing plays on the speakers). Opt-in: needs the built sidecar and the
 /// model files.
 ///
-///   DIAL8_TTS_ASSETS=<dir with the module.json files> \
+///   NI_TTS_ASSETS=<dir with the module.json files> \
 ///     cargo test --lib real_sidecar -- --ignored --nocapture
 ///
 /// The binary defaults to sidecars/local-tts/.out/bin/dial8-local-tts
-/// (override with DIAL8_TTS_BIN).
+/// (override with NI_TTS_BIN).
 #[tokio::test]
 #[ignore = "needs the built dial8-local-tts sidecar and its model files"]
 async fn real_sidecar_speaks_one_sentence() {
-    let exe = std::env::var_os("DIAL8_TTS_BIN").map(std::path::PathBuf::from).unwrap_or_else(|| {
+    let exe = std::env::var_os("NI_TTS_BIN").map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecars/local-tts/.out/bin/dial8-local-tts")
     });
-    let Some(dir) = std::env::var_os("DIAL8_TTS_ASSETS").map(std::path::PathBuf::from) else {
-        eprintln!("skipped: set DIAL8_TTS_ASSETS");
+    let Some(dir) = std::env::var_os("NI_TTS_ASSETS").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: set NI_TTS_ASSETS");
         return;
     };
     if !exe.exists() {
@@ -1497,16 +1497,16 @@ async fn real_sidecar_speaks_one_sentence() {
 /// Checks that `done` waits for playback (not synthesis) and that cancel is
 /// immediate on a real device:
 ///
-///   DIAL8_TTS_ASSETS=<dir with the module.json files> \
+///   NI_TTS_ASSETS=<dir with the module.json files> \
 ///     cargo test --lib real_speakers -- --ignored --nocapture
 #[tokio::test]
 #[ignore = "plays speech through the default output device"]
 async fn real_sidecar_real_speakers() {
-    let exe = std::env::var_os("DIAL8_TTS_BIN").map(std::path::PathBuf::from).unwrap_or_else(|| {
+    let exe = std::env::var_os("NI_TTS_BIN").map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecars/local-tts/.out/bin/dial8-local-tts")
     });
-    let Some(dir) = std::env::var_os("DIAL8_TTS_ASSETS").map(std::path::PathBuf::from) else {
-        eprintln!("skipped: set DIAL8_TTS_ASSETS");
+    let Some(dir) = std::env::var_os("NI_TTS_ASSETS").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: set NI_TTS_ASSETS");
         return;
     };
     let (fake, mut rx) = FakeHost::new(Behavior::default());

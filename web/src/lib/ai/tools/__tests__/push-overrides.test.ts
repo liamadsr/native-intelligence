@@ -1,6 +1,6 @@
 /**
  * Tests for the per-push destination params on the three push tools:
- *   push_action_to_{asana,jira,linear}  (and their dial8_-prefixed MCP twins)
+ *   push_action_to_{asana,jira,linear}  (and their ni_-prefixed MCP twins)
  *
  * The tools are thin passthroughs — the push functions own every decision — so
  * what is asserted here is the two things a passthrough can still get wrong:

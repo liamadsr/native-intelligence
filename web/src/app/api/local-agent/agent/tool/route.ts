@@ -2,7 +2,7 @@
  * POST /api/local-agent/agent/tool  { toolName, input } — the Mac body's tools
  * (docs/plans/teammate-agent.md C1).
  *
- * The Mac body's Dial8 tools and connected MCP tools are thin proxies, as the
+ * The Mac body's Native Intelligence tools and connected MCP tools are thin proxies, as the
  * cloud body's are: they post here and the REAL tool runs on the server, the
  * same way /api/internal/chat/tool runs it (the shared run,
  * src/lib/chat/chat-tool-dispatch.ts: the repeat breaker, the go-ahead guard,
@@ -40,7 +40,7 @@
  *    withMacConfirmWording). The words, seq and staleness the Mac posts are
  *    never the reviewer's evidence.
  * 7. The Mac's own teammate tools (C4, WS-C: src/lib/local-agent/agent-seams.ts):
- *    their handler's answer as is, no reviewer (neither writes outside Dial8;
+ *    their handler's answer as is, no reviewer (neither writes outside Native Intelligence;
  *    each keys on eve's ids).
  *
  * Status writes are an agent's (one hop from the person), id-based tools are
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
   const scope: ToolCallScope = { sessionId: body.sessionId, turnId: body.turnId }
 
   // Never on the Mac, before anything else is consulted.
-  if (macExcludedTools(mac.caller).has(toolName)) return outOfCeiling(toolName, "isn't available to Dial8 on the Mac")
+  if (macExcludedTools(mac.caller).has(toolName)) return outOfCeiling(toolName, "isn't available to Native Intelligence on the Mac")
 
   // The Mac's own teammate tools (C4): the handler checks eve's ids and the
   // input, and its answer goes back as is.
@@ -158,9 +158,9 @@ export async function POST(request: Request) {
 
   // The web, run here so the Mac's network stays off: reads, never reviewed.
   if (isMacWebTool(toolName)) {
-    if (mac.session.localModel) return outOfCeiling(toolName, "isn't available while Dial8 on the Mac runs on a model on the Mac")
+    if (mac.session.localModel) return outOfCeiling(toolName, "isn't available while Native Intelligence on the Mac runs on a model on the Mac")
     // A person on their own ChatGPT plan (the free tier) never runs Exa
-    // (Dial8's). A plan that can't be read runs no web tool.
+    // (Native Intelligence's). A plan that can't be read runs no web tool.
     let chatgptPlan: boolean
     try {
       chatgptPlan = await chatgptPlanFor(mac.session.userId, { attempts: 2, failClosed: true })

@@ -227,7 +227,7 @@ describe('Codex: one process per turn', () => {
     expect(t.out.some((m) => m.type === 'session')).toBe(false) // the id comes from the CLI
     await tick()
     expect(t.procs[0].stdinEnded).toBe(true)
-    expect(t.procs[0].written).toMatch(/^# Working for Dial8[\s\S]*What does this project do\?$/)
+    expect(t.procs[0].written).toMatch(/^# Working for Native Intelligence[\s\S]*What does this project do\?$/)
     expect(t.procs[0].args).not.toContain('resume')
     t.procs[0].lines(fixture('codex-turn.jsonl'))
     await tick()
@@ -276,7 +276,7 @@ describe('Codex: one process per turn', () => {
   it('fails the job when the first turn dies before the thread exists', async () => {
     const t = setup(codexAdapter, probe)
     t.driver.start('first')
-    t.procs[0].exit(1, null, 'Error: MCP client for `dial8_folder` failed to start\n')
+    t.procs[0].exit(1, null, 'Error: MCP client for `ni_folder` failed to start\n')
     await tick()
     expect(t.fatal).toEqual([expect.stringMatching(/couldn't reach the folder's tools/)])
   })

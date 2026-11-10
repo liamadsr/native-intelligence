@@ -1,9 +1,9 @@
 {
-  "pkg": "@dial8/ui",
-  "globalName": "Dial8UI",
+  "pkg": "@native-intelligence/ui",
+  "globalName": "NativeIntelligenceUI",
   "projectId": "44e01d2e-af7d-4246-b380-341e45c5d7cc",
   "shape": "package",
-  "buildCmd": "npm run build --workspace @dial8/ui",
+  "buildCmd": "npm run build --workspace @native-intelligence/ui",
   "cssEntry": "dist/styles.css",
   "extraFonts": "fonts/fonts.css",
   "overrides": {

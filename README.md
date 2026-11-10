@@ -1,3 +1,4 @@
+<!-- TODO(rename-compat): the hosted-app links in this file stay on dial8.ai, which serves today, and move to nativeintelligence.dev once that domain serves. -->
 <div align="center">
 
 # Native Intelligence
@@ -128,7 +129,7 @@ the background, and reaches you wherever you are.
   open the other way too: point Claude Code or any MCP client at your workspace.
 
   ```bash
-  claude mcp add --transport http dial8 https://dial8.ai/api/mcp
+  claude mcp add --transport http native-intelligence https://dial8.ai/api/mcp
   ```
 
 - **It can run a business by text.** For an owner on the go, it sends quotes, books
@@ -265,10 +266,10 @@ The iPhone and Apple Watch apps build in Xcode (`ios/Dial8.xcodeproj`, schemes `
 
 Native Intelligence used to be called Dial8, and the hosted app still lives at
 [dial8.ai](https://dial8.ai) while it moves. `web/`, `desktop/` and `ios/` started as
-three repos, `dial8-website`, `dial8-desktop` and `dial8-ios`. Code, comments and
-scripts still use those names in places. Where `desktop/README.md` says
-`cd ../dial8-website`, it's `cd ../web` here. The desktop's `scripts/local-agent-bundle.sh`
-looks for the website beside it: run it from `desktop/` with `DIAL8_WEB_DIR=../web`.
+three separate repos. The old name is still in a few places on purpose: the Mac and iOS
+bundle ids and URL schemes, the desktop binary and its helper programs, the wording of
+text messages that carriers have reviewed, database values, and the fallbacks that keep
+older builds and settings working (each marked `TODO(rename-compat)` in the code).
 
 Comments in the code sometimes point to notes under `web/docs/` (`docs/plans/...` and
 the like) that aren't in this repo. They were the team's internal working notes. The

@@ -3,7 +3,7 @@
  * THE PROPERTY LENS ON A CAPTURE'S PROPOSAL CARD.
  *
  * The card already had two mutually-exclusive states for its property line —
- * Dial8's own pills, and the push-compose strip that takes the line over. The
+ * Native Intelligence's own pills, and the push-compose strip that takes the line over. The
  * lens is a third, and this file pins the three rules that keep it from
  * disturbing the two that were there:
  *
@@ -240,14 +240,14 @@ describe('ProposalCard — the property lens', () => {
    * THE INVISIBILITY REQUIREMENT. An action that was never pushed must look
    * exactly as it did before this feature existed.
    */
-  it('an APPLIED but unlinked action gets no switcher and keeps its Dial8 pills', async () => {
+  it('an APPLIED but unlinked action gets no switcher and keeps its Native Intelligence pills', async () => {
     installFetch({ linkedProviders: [] })
     await renderCard(makeChange({ status: 'applied', result_entity_id: 'act-7' }))
     await openProperties()
 
     expect(container.querySelector('[data-lens-switcher]')).toBeNull()
     expect(container.querySelector('[data-lens-surface]')).toBeNull()
-    // The Dial8 due-date pill is still on the line.
+    // The Native Intelligence due-date pill is still on the line.
     expect(
       Array.from(container.querySelectorAll('button')).some((b) =>
         b.textContent?.includes('Due date'),
@@ -290,7 +290,7 @@ describe('ProposalCard — the property lens', () => {
     expect(Array.from(switcher.querySelectorAll('[data-lens-tab]')).map((t) => t.getAttribute('data-lens-tab'))).toEqual(
       ['dial8', 'jira'],
     )
-    // Defaulted to the provider, not to Dial8.
+    // Defaulted to the provider, not to Native Intelligence.
     expect(switcher.querySelector('[data-lens-tab="jira"]')!.getAttribute('aria-pressed')).toBe('true')
     // And the lens took the property line, in strip layout with the scroller.
     expect(container.querySelector('[data-lens-surface="strip"]')).toBeTruthy()
@@ -308,8 +308,8 @@ describe('ProposalCard — the property lens', () => {
     expect(container.querySelector('[data-lens-field="status"]')!.textContent).toContain('In Progress')
   })
 
-  /** Flipping back to Dial8 restores the pill row it replaced. */
-  it('switching to the Dial8 tab brings the native pills back', async () => {
+  /** Flipping back to Native Intelligence restores the pill row it replaced. */
+  it('switching to the Native Intelligence tab brings the native pills back', async () => {
     installFetch({ linkedProviders: ['jira'] })
     await renderCard(makeChange({ status: 'applied', result_entity_id: 'act-7' }))
     await openProperties()

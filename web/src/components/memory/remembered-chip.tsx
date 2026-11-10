@@ -12,7 +12,7 @@
  * "Remembered about you" and its Undo deletes the fact
  * (/api/account/memory/profile/:id). One whose quote could not be found in
  * the person's own recent words is only a suggestion: the chip says it waits in
- * What Dial8 has learned, and Undo withdraws it.
+ * What Native Intelligence has learned, and Undo withdraws it.
  *
  * Standalone on purpose: today's chat wires it with one branch in
  * renderToolPart (chat-message.tsx); P1's tool-renderer registry takes it as
@@ -61,7 +61,7 @@ export function rememberedFromToolOutput(output: unknown): RememberedData | null
 export function rememberedLabel(data: RememberedData): string {
   if (data.scope === 'profile') {
     // A profile fact whose quote was not verified waits for the person.
-    if (data.status === 'proposed') return data.already ? `Already waiting for you: ${data.text}` : `Waiting for you in What Dial8 has learned: ${data.text}`
+    if (data.status === 'proposed') return data.already ? `Already waiting for you: ${data.text}` : `Waiting for you in What Native Intelligence has learned: ${data.text}`
     return data.already ? `Already remembered about you: ${data.text}` : `Remembered about you: ${data.text}`
   }
   const proposed = data.status === 'proposed' && data.scope === 'workspace'

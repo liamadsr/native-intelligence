@@ -35,7 +35,7 @@ beforeEach(async () => {
   site = createServer(socket => socket.on('data', chunk => socket.write(chunk.toString().toUpperCase())))
   await new Promise<void>(resolve => site.listen(0, '127.0.0.1', resolve))
   sitePort = (site.address() as AddressInfo).port
-  exit = startExit({ sandbox: 'browser-a', verifyKey: sandboxVerifyKey(privateKey), socksPort: 0, refusedHosts: ['browser-relay.dial8.ai'],
+  exit = startExit({ sandbox: 'browser-a', verifyKey: sandboxVerifyKey(privateKey), socksPort: 0, refusedHosts: ['browser-relay.nativeintelligence.dev'],
     allowAddress: () => true, ports: [80, 443, sitePort], mode: 'cloud', pingMs: 100, silenceMs: 400, openTimeoutMs: 1000, log: event => events.push(event) })
   await until(() => exit.socks.listening)
   socksPort = (exit.socks.address() as AddressInfo).port
@@ -220,7 +220,7 @@ describe('Chrome’s proxy', () => {
     exit.setMode('mac')
     const m = mac()
     await until(() => exit.tunnelUp())
-    for (const [host, port] of [['example.com', 22], ['example.com', 8443], ['browser-relay.dial8.ai', 443], ['x.browser-relay.dial8.ai', 443], ['localhost', 443], ['a.localhost', 80]] as const)
+    for (const [host, port] of [['example.com', 22], ['example.com', 8443], ['browser-relay.nativeintelligence.dev', 443], ['x.browser-relay.nativeintelligence.dev', 443], ['localhost', 443], ['a.localhost', 80]] as const)
       expect((await socksConnect(host, port)).code, `${host}:${port}`).toBe(2)
     expect(m.frames.some(frame => frame.type === 'open')).toBe(false)
     m.ws.close()

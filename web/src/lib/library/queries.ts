@@ -287,7 +287,7 @@ export const PUBLISH_ROLE_ERROR =
   'Only workspace owners and admins can publish to Discover'
 
 /**
- * Publishing to Discover ('public') makes an item visible to EVERY Dial8 user,
+ * Publishing to Discover ('public') makes an item visible to EVERY Native Intelligence user,
  * platform-wide — a workspace-boundary-crossing act. Migration 191 opened recipe
  * writes to every member (so they can author their own personal/workspace items),
  * which silently also let any member set visibility='public'. This restores the

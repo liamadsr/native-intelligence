@@ -20,7 +20,7 @@ import { GET as start } from '../route'
 import { GET as callback } from '../callback/route'
 import { resetJwksCacheForTests } from '@/lib/chatgpt/oidc'
 
-const ORIGIN = 'https://dial8.ai'
+const ORIGIN = 'https://nativeintelligence.dev'
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
 const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256' }
 

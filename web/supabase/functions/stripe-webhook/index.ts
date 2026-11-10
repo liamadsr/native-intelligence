@@ -1,6 +1,6 @@
 // Supabase Edge Function for handling Stripe webhooks.
 //
-// This is the single source of truth for Stripe → Dial8 sync. Production
+// This is the single source of truth for Stripe → Native Intelligence sync. Production
 // Stripe webhooks point only at this function. Handles:
 //   - One-time BYOK purchases (desktop app)
 //   - Subscription lifecycle (web app)

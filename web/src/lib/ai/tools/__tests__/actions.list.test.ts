@@ -1,7 +1,7 @@
 /**
  * Tests for the list_actions tool in actions.ts — filter/status interaction.
  *
- * Regression (2026-07-01 live audit): `dial8_list_actions` with
+ * Regression (2026-07-01 live audit): `ni_list_actions` with
  * `filter: 'completed'` + `since`/`time_field: 'updated_at'` returned 0 rows
  * while the equivalent `status: 'completed'` + `since` returned the correct
  * results. Root cause: `status` defaults to 'active' (applied by the zod

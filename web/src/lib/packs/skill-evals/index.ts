@@ -283,7 +283,7 @@ export interface ObservedToolCall {
    * result (or predates the field): not counted as an error.
    */
   ok?: boolean
-  /** Dial8's error code when a failed call gave one (INPUT_INVALID, REPEATED_FAILURE…). */
+  /** Native Intelligence's error code when a failed call gave one (INPUT_INVALID, REPEATED_FAILURE…). */
   code?: string
   /** The failed call's error text, clipped. */
   error?: string

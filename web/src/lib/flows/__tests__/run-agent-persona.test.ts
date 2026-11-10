@@ -65,7 +65,7 @@ describe('run_agent: a persona’s run carries the persona to the work ledger', 
       enabled: true,
       bearer_token_encrypted: null,
     }
-    const result = await executor(action, { entity: null, trigger, appBaseUrl: 'https://dial8.ai', capture: null })
+    const result = await executor(action, { entity: null, trigger, appBaseUrl: 'https://nativeintelligence.dev', capture: null })
     expect(result.dispatched).toBe(true)
     expect(hoisted.mirror).toHaveBeenCalledTimes(1)
     expect(hoisted.mirror.mock.calls[0]?.[1]).toMatchObject({ id: 'run-1', ai_team_member_id: null, agent_recipe_id: AGENT })

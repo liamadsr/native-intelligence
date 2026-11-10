@@ -57,7 +57,7 @@ export const cases: SkillEvalCase[] = [
     loads: ['campaigns-playbook'],
     tools: ['search_tools', 'list_campaigns'],
     avoid: ['run_browser_task'],
-    why: 'Dial8 holds no campaign metrics: say so, and offer what the team has said about it.',
+    why: 'Native Intelligence holds no campaign metrics: say so, and offer what the team has said about it.',
   },
   {
     request: 'tie the webinar recap doc to the Q3 webinar campaign',

@@ -8,8 +8,8 @@ export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/admin/business-numbers: give a business the number its customers
- * text (roadmap B2). Dial8's admins only: a number costs Dial8 money each
- * month and lives in Dial8's Twilio account, so no workspace sets up its own.
+ * text (roadmap B2). Native Intelligence's admins only: a number costs Native Intelligence money each
+ * month and lives in Native Intelligence's Twilio account, so no workspace sets up its own.
  * Body: `{ workspace_id, area_code: "929" }` buys a new local number, or
  * `{ workspace_id, phone: "+16465550173" }` attaches one already in the
  * account. The number answers to the business's owner (its profile's, else
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     case 'none_available':
       return apiError('No number is free in that area code. Try a nearby one.', { status: 404, code: 'NONE_AVAILABLE' })
     case 'not_in_account':
-      return apiError("That number isn't in Dial8's Twilio account.", { status: 404, code: 'NOT_IN_ACCOUNT' })
+      return apiError("That number isn't in Native Intelligence's Twilio account.", { status: 404, code: 'NOT_IN_ACCOUNT' })
     case 'bad_input':
       return badRequest(result.error ?? 'That number or area code is not valid.')
     default:

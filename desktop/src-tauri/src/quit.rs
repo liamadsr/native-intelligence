@@ -7,7 +7,7 @@
 //!   `RunEvent::Exit`. tao answers `applicationWillTerminate` with
 //!   LoopDestroyed, which Tauri hands us as `Exit`, the last event before
 //!   AppKit ends the process. Never `ExitRequested`.
-//! - The tray's "Quit Dial8" (`app.exit(0)`), `request_restart()` (the
+//! - The tray's "Quit Native Intelligence" (`app.exit(0)`), `request_restart()` (the
 //!   process plugin's `relaunch()`, read_selection_relaunch) and the last
 //!   window closing: `ExitRequested`, then `Exit`.
 //! - `app.restart()` on the main thread, where every sync command runs:

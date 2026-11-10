@@ -71,7 +71,7 @@ beforeEach(() => {
 const ops = (table: string, op: string) => env.fake!.log.filter((q) => q.table === table && q.op === op)
 const publish = async (body: Record<string, unknown> = {}) => {
   const { POST } = await import('../route')
-  return POST(buildRequest({ url: `https://dial8.ai/api/account/documents/${DOC}/publish`, method: 'POST', body }) as unknown as NextRequest, {
+  return POST(buildRequest({ url: `https://nativeintelligence.dev/api/account/documents/${DOC}/publish`, method: 'POST', body }) as unknown as NextRequest, {
     params: Promise.resolve({ id: DOC }),
   })
 }

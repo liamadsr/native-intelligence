@@ -103,7 +103,7 @@ vi.mock('@/lib/api-auth', () => ({
 const { POST } = await import('@/app/api/account/actions/route')
 
 // Build a fetch-like Request:
-const req = new Request('https://dial8.ai/api/account/actions', {
+const req = new Request('https://nativeintelligence.dev/api/account/actions', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ title: 'Test' }),

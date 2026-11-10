@@ -1222,7 +1222,7 @@ describe.runIf(onMac)('fence grants (darwin)', { timeout: 60_000 }, () => {
     put(join(home, 'bin', 'tool'), '#!/bin/bash\n', 0o755)
     put(join(home, 'apps', 'gh-2.6', 'bin', 'gh'), '#!/bin/bash\n', 0o755)
     symlinkSync(join(home, 'apps', 'gh-2.6', 'bin', 'gh'), join(home, 'bin', 'gh'))
-    put(join(home, 'apps', 'dial8-agent', 'launcher', 'launcher.ts'), '// the agent\n')
+    put(join(home, 'apps', 'ni-agent', 'launcher', 'launcher.ts'), '// the agent\n')
     mkdirSync(join(root, 'tmp'))
     cfg = await resolveHostFolder({ folder: granted, mode: 'read', toolPath: TOOL_PATH }, { sessionId: 'wrun_fence', home, tmpRoot: join(root, 'tmp') })
     ;({ session, killAll } = createHostFolderSession(cfg))
@@ -1242,7 +1242,7 @@ describe.runIf(onMac)('fence grants (darwin)', { timeout: 60_000 }, () => {
       LOCAL_AGENT_MODE: 'read',
       HOME: home,
       LOCAL_AGENT_TOOL_PATH: `${home}/bin:${TOOL_PATH}`,
-      LOCAL_AGENT_DIR: join(home, 'apps', 'dial8-agent'),
+      LOCAL_AGENT_DIR: join(home, 'apps', 'ni-agent'),
     } as LaunchEnv,
     home,
     tmpRoot: join(root, 'tmp'),
@@ -1369,7 +1369,7 @@ describe('protected paths: what a fence grant never reaches', { timeout: 30_000 
     put(join(home, 'Dropbox', 'ssh', 'id_ed25519'), 'ssh-key-probe\n')
     put(join(home, 'Dropbox', 'notes.txt'), 'notes\n')
     symlinkSync(join(home, 'Dropbox', 'ssh'), join(home, '.ssh'))
-    appAgent = join(home, 'Applications', 'Dial8.app', 'Contents', 'Resources', 'local-agent')
+    appAgent = join(home, 'Applications', 'Native Intelligence.app', 'Contents', 'Resources', 'local-agent')
     put(join(appAgent, 'launcher', 'launcher.mjs'), '// agent\n')
     devAgent = join(home, 'devrepo', 'agents', 'local-agent')
     put(join(devAgent, 'launcher', 'launcher.ts'), '// agent\n')
@@ -1405,7 +1405,7 @@ describe('protected paths: what a fence grant never reaches', { timeout: 30_000 
       join(home, 'deep', 'inc.gitconfig'),
       join(home, 'deep'),
       '/nonexistent/x.gitconfig',
-      join(home, 'Applications', 'Dial8.app'),
+      join(home, 'Applications', 'Native Intelligence.app'),
       appAgent,
     ]) {
       expect(app.writeProtected, p).toContain(p)
@@ -1462,7 +1462,7 @@ describe('protected paths: what a fence grant never reaches', { timeout: 30_000 
     ['the folder before a %h token', () => join(home, 'vault', 'github.com'), 'read'],
     ["that folder's real place", () => join(home, 'Dropbox', 'vault', 'github.com'), 'read'],
     ['a key named in an Include glob', () => join(home, 'acme-keys'), 'read'],
-    ["the agent's app bundle", () => join(home, 'Applications', 'Dial8.app', 'Contents', 'MacOS'), 'write'],
+    ["the agent's app bundle", () => join(home, 'Applications', 'Native Intelligence.app', 'Contents', 'MacOS'), 'write'],
     ['another app bundle', () => join(home, 'Applications'), 'write'],
   ] as const)('never asks for %s', async (_label, path, access) => {
     const res = await refused(appAgent, path(), access)

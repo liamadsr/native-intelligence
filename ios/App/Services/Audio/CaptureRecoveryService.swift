@@ -1,6 +1,6 @@
 //
 //  CaptureRecoveryService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Finishes captures the app was killed in the middle of.
 //

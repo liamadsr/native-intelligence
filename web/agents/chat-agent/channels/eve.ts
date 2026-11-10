@@ -43,7 +43,7 @@
  *      also requires a verified chat-run token for the same user + workspace
  *      (403 otherwise) — see assertTurnRunToken in ../lib/auth.ts.
  *      Returns null (skip) when there is no session, so the walk falls through.
- *   2. deviceTokenAuthWithAcl() — the same, for a `Bearer d8d_…` DEVICE token
+ *   2. deviceTokenAuthWithAcl() — the same, for a `Bearer nid_…` DEVICE token
  *      (/api/device/ask relays the device's own credential to run its one-shot
  *      session here). Resolves the token's owner + active workspace and
  *      applies the SAME ownership ACL — the route registers every device session

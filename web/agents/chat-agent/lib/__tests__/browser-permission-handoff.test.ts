@@ -234,7 +234,7 @@ describe('fixed permission response', () => {
     expect(await result.toolCalls).toEqual([])
     expect(await result.steps).toHaveLength(1)
     expect(await result.usage).toMatchObject({ inputTokens: undefined, outputTokens: 0 })
-    expect(await result.providerMetadata).toEqual({ gateway: { cost: 0 }, dial8Control: { kind: 'browser_task_handoff', local: true } })
+    expect(await result.providerMetadata).toEqual({ gateway: { cost: 0 }, niControl: { kind: 'browser_task_handoff', local: true } })
     expect(JSON.stringify(messages)).toBe(before)
 
     // Run the actual Eve event projection: no history estimate is invented, and no

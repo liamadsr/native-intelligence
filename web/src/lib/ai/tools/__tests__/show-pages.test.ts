@@ -189,7 +189,7 @@ describe('show: mail', () => {
     expect(out).toEqual({
       success: false,
       code: 'NOT_AVAILABLE',
-      error: "kind 'mail' shows only in a Dial8 chat that can read mail. Here, use list_emails and read_email instead",
+      error: "kind 'mail' shows only in a Native Intelligence chat that can read mail. Here, use list_emails and read_email instead",
     })
   })
 })

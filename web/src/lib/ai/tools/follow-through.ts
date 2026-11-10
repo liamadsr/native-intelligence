@@ -19,8 +19,8 @@ import { undoExtractionPass } from '@/lib/proposed-changes/undo-extraction-pass'
  *                         (settleAttentionCard), owner-only;
  *   revise_email_draft    rewrite an unsent draft in place, the row and the
  *                         mailbox's draft (reviseEmailDraft); never sends;
- *   discard_email_draft   discard drafts Dial8 wrote, one or many, from the
- *                         mailbox and from Dial8, with why (discardEmailDrafts,
+ *   discard_email_draft   discard drafts Native Intelligence wrote, one or many, from the
+ *                         mailbox and from Native Intelligence, with why (discardEmailDrafts,
  *                         GEN-1165); more than DISCARD_CONFIRM_OVER the person
  *                         didn't name one by one wait for their yes;
  *   undo_extraction_pass  undo what one extraction pass filed, and only that
@@ -196,9 +196,9 @@ export function createFollowThroughTools(userId: string, supabase: SupabaseClien
     revise_email_draft: tool({
       description:
         "Rewrite one of the person's own unsent email drafts in place when they ask for a change (\"make it more formal\", \"shorter\", \"add Sam on cc\"): " +
-        'the draft in Dial8 and the draft in their mailbox both change. It never sends; sending stays their click. ' +
+        'the draft in Native Intelligence and the draft in their mailbox both change. It never sends; sending stays their click. ' +
         'Give the WHOLE new body (plain text), not a diff. Recipients and subject keep what the draft has unless you pass them. ' +
-        'Name the draft by its draft id: a Dial8 draft row id, or the mailbox draft id.',
+        'Name the draft by its draft id: a Native Intelligence draft row id, or the mailbox draft id.',
       inputSchema: z.object({
         draft_id: z.string().min(1).max(512).describe('The draft: an email_draft row id, or the mailbox draft (message) id'),
         body: z.string().min(1).max(MAX_DRAFT_BODY).describe('The complete new body, plain text'),
@@ -218,10 +218,10 @@ export function createFollowThroughTools(userId: string, supabase: SupabaseClien
 
     discard_email_draft: tool({
       description:
-        'Discard email drafts Dial8 wrote for the person (never sends): each is deleted from their mailbox and leaves Dial8\'s pending list, and the reason is kept so drafting learns from it. ' +
+        'Discard email drafts Native Intelligence wrote for the person (never sends): each is deleted from their mailbox and leaves Native Intelligence\'s pending list, and the reason is kept so drafting learns from it. ' +
         'Use ONLY when the person asks ("delete that draft", "clean up my junk drafts"). ' +
         'Name drafts by any id you were given: an email draft id (get_email_drafts), a Mail draft item id from list_bot_work (draft:…), or the mailbox draft id. ' +
-        "Only Dial8's own drafts can be discarded; a draft the person wrote themselves is never touched. " +
+        "Only Native Intelligence's own drafts can be discarded; a draft the person wrote themselves is never touched. " +
         `More than ${DISCARD_CONFIRM_OVER} drafts they didn't name one by one: call without confirmed first; it answers CONFIRM_FIRST with the drafts it would discard. ` +
         'List them for the person, wait for their yes in the chat, then call again with the same ids and confirmed: true. ' +
         'Say back what the reply says (`message`), including any it could not discard.',

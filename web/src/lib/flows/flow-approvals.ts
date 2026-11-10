@@ -2,10 +2,10 @@
  * Verified cards for the loop changes the agent can't make on its own
  * (F1, docs/plans/flows-connectors.md §2.5, "full control with safe edges"):
  *
- *   - switching on a loop with a step that sends data out of Dial8 with no
+ *   - switching on a loop with a step that sends data out of Native Intelligence with no
  *     card per run (needsSwitchOnCard: a webhook, a coding run), or changing
  *     what such a loop runs while it is on;
- *   - switching on someone ELSE's loop that reaches outside Dial8 or acts on
+ *   - switching on someone ELSE's loop that reaches outside Native Intelligence or acts on
  *     its own (isRiskyFlow): it runs as its owner, so the card is theirs;
  *   - deleting a loop (the card says how many runs of history go with it);
  *   - changing a loop's owner (the card is the NEW owner's to accept).
@@ -33,7 +33,7 @@ import { resolveTrust } from './verdict-apply'
 import type { FlowAction, RunSkillActionConfig } from './types'
 
 /**
- * A step that reaches outside Dial8 or changes records on its own: an
+ * A step that reaches outside Native Intelligence or changes records on its own: an
  * http_post, a run_agent, a call_tool on a connected app (F4: even a read
  * sends its input to that app), a job on the owner's Mac (run_local_agent),
  * an act-mode skill, or a skill given the owner's connected apps. Switching
@@ -62,7 +62,7 @@ export function isRiskyFlow(actions: ReadonlyArray<Pick<FlowAction, 'type' | 'co
  * still waits on their card each run (P7: a call_tool write, a skill run's
  * connected-app write, a flow step's outward call), and its internal writes
  * are undoable. The one exception, Liam's decision: a step that sends data
- * out of Dial8 with NO card per run. A loop with one switches on only
+ * out of Native Intelligence with NO card per run. A loop with one switches on only
  * through the verified switch-on card, whatever was said:
  *   - http_post: a webhook; its body leaves the moment the loop fires;
  *   - run_agent: a coding run on a GitHub repo (still behind

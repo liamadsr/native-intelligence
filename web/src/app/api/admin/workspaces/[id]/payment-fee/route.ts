@@ -9,10 +9,10 @@ const NO_ACCOUNT = 'No Stripe account connected for this workspace'
 /**
  * GET/PATCH /api/admin/workspaces/[id]/payment-fee (roadmap C2)
  *
- * Dial8's optional platform fee on a workspace's customer payments
+ * Native Intelligence's optional platform fee on a workspace's customer payments
  * (stripe_connect_account.application_fee_bps / _cents, migration 459). Both
  * default to 0 and stay 0 until pricing is decided: nothing depends on a fee.
- * Dial8 staff only (requireAdmin); a workspace's own members can't change it.
+ * Native Intelligence staff only (requireAdmin); a workspace's own members can't change it.
  * It applies to links made after the change, never to a link already sent.
  *
  * PATCH body: { bps: 0..2000, cents: 0..10000 } (whole numbers).

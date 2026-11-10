@@ -125,7 +125,7 @@ describe('the local-agent tools on the chat tool route', () => {
     expect((await POST(toolReq(typed(), 'start_local_agent', INPUTS.start_local_agent))).status).toBe(400)
     expect((await POST(toolReq(typed(), 'start_local_agent', INPUTS.start_local_agent, 'call', 'a:b', 'session'))).status).toBe(400)
     expect((await POST(toolReq(typed(), 'start_local_agent', INPUTS.start_local_agent, 'call', 'turn', 'a:b'))).status).toBe(400)
-    const bad = await POST(toolReq(typed(), 'start_local_agent', { folder_id: 'dial8-website', request: 'x' }, 'call', 'turn', 'session'))
+    const bad = await POST(toolReq(typed(), 'start_local_agent', { folder_id: 'native-intelligence', request: 'x' }, 'call', 'turn', 'session'))
     expect([bad.status, (await bad.json()).code]).toEqual([400, 'INPUT_INVALID'])
     expect(handlers.startLocalAgent).not.toHaveBeenCalled()
   })

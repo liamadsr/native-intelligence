@@ -118,7 +118,7 @@ describe('unmountAction: closing the panel never drops the text', () => {
 
 describe('a section-level conflict (minimal D4)', () => {
   const base = '# Product\n\n## Positioning\nVs spreadsheets.\nCheap.\n\n## Voice\nPlain.\nShort.'
-  // Dial8 rewrote Positioning and Voice; the person rewrote Positioning and the title.
+  // Native Intelligence rewrote Positioning and Voice; the person rewrote Positioning and the title.
   const theirs = base.replace('Vs spreadsheets.\nCheap.', 'Vs notebooks.\nFast.').replace('Plain.\nShort.', 'Warm.\nShort.')
   const mine = base.replace('Vs spreadsheets.\nCheap.', 'Vs paper.\nCheap.').replace('# Product', '# Product doc')
 

@@ -869,7 +869,7 @@ export function createDocumentTools(
           // Only its creator sees a private document (migration 369).
           ...((data as { visibility?: string }).visibility === 'private' ? { visibility: 'private' } : {}),
         }
-        // Deliberately NOT "call dial8_set_workspace to switch": switching is a
+        // Deliberately NOT "call ni_set_workspace to switch": switching is a
         // sticky, session-wide side effect that silently re-points every LATER
         // create in the turn. Now that creates take a `workspace_id`, the
         // correct follow-up is to name this id on the call that needs it.
@@ -1388,7 +1388,7 @@ export function createDocumentTools(
 
     list_document_revisions: tool({
       description:
-        'List a document\'s version history, newest first: one entry per change to its title or body, with who it was for (a person, Dial8 for a person, or the system), a one-line summary and when. ' +
+        'List a document\'s version history, newest first: one entry per change to its title or body, with who it was for (a person, Native Intelligence for a person, or the system), a one-line summary and when. ' +
         'The newest entry is the document as it is now; a section edit names its section, reason and sources, and `outside` when it rested on outside text. Use get_document_revision to see one version and what it changed, restore_document_revision to put one back, revert_section_edit to undo just one edit.',
       inputSchema: z.object({
         document_id: z.string().describe('UUID of the document'),

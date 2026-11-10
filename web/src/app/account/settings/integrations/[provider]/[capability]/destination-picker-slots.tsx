@@ -51,7 +51,7 @@ export function ReconnectBanner({
           Reconnect {provider} to manage the destination
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Dial8 can no longer use your stored {provider} authorization, so{' '}
+          Native Intelligence can no longer use your stored {provider} authorization, so{' '}
           {pickerList} can&apos;t load. Reconnect to choose where pushed actions
           land.
         </p>

@@ -28,13 +28,13 @@ ${WEB_ACCESS_GUIDANCE}`
 /**
  * BASE_PROMPT's opening sentence: who the model is in the user's main chat,
  * by the app's default name for it (AGENT_DEFAULT_NAME, src/lib/bots/agent-face.ts):
- * Dial8 is the product. withAssistantName puts the name they gave in its place,
+ * Native Intelligence is the product. withAssistantName puts the name they gave in its place,
  * and a teammate chat (bots v2) the teammate's identity (withTeammateIdentity);
  * every rule after it is the same in all three.
  */
-const DIAL8_IDENTITY = `You are Assistant, the user's always-on agent in Dial8, for them and their team.`
+const NI_IDENTITY = `You are Assistant, the user's always-on agent in Native Intelligence, for them and their team.`
 
-const BASE_PROMPT = `${DIAL8_IDENTITY} You know their actions, projects, initiatives, captures, documents, mail, calendar and the people they work with. You follow their calls, email and calendar as far as they've connected them, and remember what was decided and who owes what. You work like a trusted colleague who already has the context and gets things done, not like a database that answers queries.
+const BASE_PROMPT = `${NI_IDENTITY} You know their actions, projects, initiatives, captures, documents, mail, calendar and the people they work with. You follow their calls, email and calendar as far as they've connected them, and remember what was decided and who owes what. You work like a trusted colleague who already has the context and gets things done, not like a database that answers queries.
 
 ## How You Work
 
@@ -50,7 +50,7 @@ const BASE_PROMPT = `${DIAL8_IDENTITY} You know their actions, projects, initiat
 
 **Get it done, not talked about.** When they ask for something, get it done (yourself, or through a helper) and confirm in a line. Don't offer to do what you can simply do. In their chat, go further and get work ready before they ask: when a meeting ends, an email lands or another agent answers, have the follow-up drafted, the prep gathered or the status collected, so it's waiting for them when they look.
 
-**You do the legwork; they make the call.** Act on your own only within what they've let you do. Work inside Dial8 is yours to do. Anything that reaches another person or leaves Dial8 (an invite, a message to another person's agent, a post, a push to another tool) or spends or commits them waits for their final yes: set it up so it is one tap for them, as a draft or an approval card, rather than asking in prose. When something is genuinely theirs to decide (two valid directions, a commitment, someone else's time), ask, with \`ask_user\` when you have it. That's different from asking permission for work you were told to do.
+**You do the legwork; they make the call.** Act on your own only within what they've let you do. Work inside Native Intelligence is yours to do. Anything that reaches another person or leaves Native Intelligence (an invite, a message to another person's agent, a post, a push to another tool) or spends or commits them waits for their final yes: set it up so it is one tap for them, as a draft or an approval card, rather than asking in prose. When something is genuinely theirs to decide (two valid directions, a commitment, someone else's time), ask, with \`ask_user\` when you have it. That's different from asking permission for work you were told to do.
 
 **Speak when it matters.** Their attention is the scarce thing. Reach them for a decision only they can make, something blocked on them, a failure, or something time-sensitive. Otherwise keep working and save it for when they're next here.
 
@@ -295,14 +295,14 @@ export function joinSystemPrompt(parts: SystemPromptParts): string {
 
 /**
  * The base prompt (`SystemPromptParts.base`) for a teammate chat (bots v2): its
- * opening identity sentence names the teammate instead of Dial8, and every
+ * opening identity sentence names the teammate instead of Native Intelligence, and every
  * rule after it (tools, safety, formatting) stays. Live on DEV, a teammate
- * asked "Who are you?" answered as Dial8's chat assistant while this sentence
- * still claimed to be Dial8. A base without the sentence comes back as is.
+ * asked "Who are you?" answered as Native Intelligence's chat assistant while this sentence
+ * still claimed to be Native Intelligence. A base without the sentence comes back as is.
  */
 export function withTeammateIdentity(base: string, teammateName: string): string {
   // A replacer function, so a `$` in the name is never a replacement pattern.
-  return base.replace(DIAL8_IDENTITY, () => `You are ${teammateName}, one of the user's AI teammates in Dial8.`)
+  return base.replace(NI_IDENTITY, () => `You are ${teammateName}, one of the user's AI teammates in Native Intelligence.`)
 }
 
 /**
@@ -315,14 +315,14 @@ export function withTeammateIdentity(base: string, teammateName: string): string
  */
 export function withAssistantName(base: string, name: string): string {
   return base.replace(
-    DIAL8_IDENTITY,
-    () => `You are ${name}, the user's always-on agent in Dial8, for them and their team.`,
+    NI_IDENTITY,
+    () => `You are ${name}, the user's always-on agent in Native Intelligence, for them and their team.`,
   )
 }
 
 /**
  * Builds the complete system prompt with dynamic user context.
- * Ported from Dial8SystemPrompt.swift — fetches user profile, contacts summary,
+ * Ported from the iOS app's system prompt — fetches user profile, contacts summary,
  * and combines with the base prompt. One string: `joinSystemPrompt` over
  * `buildSystemPromptParts`.
  */

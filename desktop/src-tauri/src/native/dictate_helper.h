@@ -1,4 +1,4 @@
-// Dictate anywhere (dial8-website/docs/plans/dictate-anywhere.md): the right-Option
+// Dictate anywhere (web/docs/plans/dictate-anywhere.md): the right-Option
 // tap that starts and stops dictation, and the paste into the app being typed in.
 #pragma once
 #include <stdbool.h>
@@ -15,7 +15,7 @@
 #define DICTATE_PASTE_OK 0
 #define DICTATE_PASTE_SECURE_INPUT -1  /* a password field: never typed into */
 #define DICTATE_PASTE_FOCUS_CHANGED -2 /* another app is in front now */
-#define DICTATE_PASTE_NO_KEYS -3       /* macOS refuses Dial8 posting ⌘V */
+#define DICTATE_PASTE_NO_KEYS -3       /* macOS refuses Native Intelligence posting ⌘V */
 
 typedef void (*dictate_event_cb)(int event);
 
@@ -69,9 +69,9 @@ void dictate_watch_hover(void *ns_window, dictate_hover_cb cb);
 /* Round the window's frosted glass (its NSVisualEffectView) to `radius` and
  * redraw its shadow. Main thread only. */
 void dictate_set_glass_radius(void *ns_window, double radius);
-/* Hide the panel without leaving Dial8 in front: if hiding it left Dial8 the
+/* Hide the panel without leaving Native Intelligence in front: if hiding it left Native Intelligence the
  * active app while `return_pid` (the app the press began in) is another app,
- * that app is made active again. Returns what was so, for the log: 1 Dial8
- * was active before, 2 the panel was key, 4 Dial8 active after, 8 handed back.
+ * that app is made active again. Returns what was so, for the log: 1 Native Intelligence
+ * was active before, 2 the panel was key, 4 Native Intelligence active after, 8 handed back.
  * Main thread only. */
 int dictate_hide_window(void *ns_window, int return_pid);

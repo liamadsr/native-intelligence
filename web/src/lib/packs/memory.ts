@@ -108,7 +108,7 @@ export function renderMemoryNote(lines: readonly NoteLine[], budget = MEMORY_NOT
     )
   }
   if (picked.more > 0) {
-    blocks.push(`And ${picked.more} more ${picked.more === 1 ? 'note' : 'notes'} not shown here; the person sees them all in What Dial8 has learned.`)
+    blocks.push(`And ${picked.more} more ${picked.more === 1 ? 'note' : 'notes'} not shown here; the person sees them all in What Native Intelligence has learned.`)
   }
   return blocks.join('\n')
 }

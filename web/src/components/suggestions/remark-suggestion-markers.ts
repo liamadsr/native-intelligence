@@ -5,7 +5,7 @@
  * reconcile-markers.ts.
  *
  * Without this, react-markdown renders an HTML comment as literal text. With
- * it, a marker becomes a `dial8-suggestion` element (mapped to SuggestionCard
+ * it, a marker becomes a `ni-suggestion` element (mapped to SuggestionCard
  * in the markdown components):
  *   • a marker on its own line is a block of its own: the card takes its place;
  *   • a marker inside a paragraph ("…close it. <!-- proposal:… -->") is moved
@@ -27,7 +27,7 @@ const HAS_MARKER_RE = /<!--\s*proposal:[a-zA-Z0-9-]+\s*-->/
  */
 const ONLY_COMMENTS_RE = /^\s*(?:<!--(?:(?!-->)[\s\S])*-->\s*)+$/
 
-export const SUGGESTION_ELEMENT = 'dial8-suggestion'
+export const SUGGESTION_ELEMENT = 'ni-suggestion'
 
 interface MdNode {
   type: string

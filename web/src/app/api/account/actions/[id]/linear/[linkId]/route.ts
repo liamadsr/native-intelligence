@@ -14,9 +14,9 @@ import { parseLensUpdate } from '@/lib/tasks/task-lens'
 /**
  * DELETE /api/account/actions/[id]/linear/[linkId] — Unlink a Linear issue.
  *
- * Dial8-side ONLY: this drops the link row so the action stops echoing status
+ * NI-side ONLY: this drops the link row so the action stops echoing status
  * changes. The Linear issue itself is never touched — deleting someone's issue
- * out from under them because a Dial8 user tidied up a panel would be a
+ * out from under them because a Native Intelligence user tidied up a panel would be a
  * destructive answer to a bookkeeping request.
  */
 export async function DELETE(

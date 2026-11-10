@@ -29,7 +29,7 @@ vi.mock('@/app/account/(dashboard)/main-chat/main-chat-context', () => ({
 }))
 // The card names its own workspace on a badge when it isn't the active one.
 vi.mock('@/app/account/workspace-switcher', () => ({
-  useWorkspaces: () => ({ workspaces: [{ id: 'ws-1', name: 'Dial8' }], currentId: 'ws-1' }),
+  useWorkspaces: () => ({ workspaces: [{ id: 'ws-1', name: 'Native Intelligence' }], currentId: 'ws-1' }),
 }))
 
 import { AttentionCard } from '../attention-card'
@@ -120,7 +120,7 @@ describe('AttentionCard — work_proposal branch', () => {
       startBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await Promise.resolve()
     })
-    // No place picked: a Dial8 work run, as always (null: no run_in sent).
+    // No place picked: a Native Intelligence work run, as always (null: no run_in sent).
     expect(onStart).toHaveBeenCalledWith('card-work-1', null)
     expect(onAccept).not.toHaveBeenCalled()
   })

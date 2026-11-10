@@ -10,7 +10,7 @@
  *
  * Nothing else. The agent never refunds, pays out, edits Stripe customers or
  * reads the owner's Stripe account: no other tool reaches Stripe
- * (src/lib/ai/__tests__/payments-tool.test.ts pins that), and Dial8 holds no
+ * (src/lib/ai/__tests__/payments-tool.test.ts pins that), and Native Intelligence holds no
  * Stripe MCP connector for it (payment MCPs stay out on purpose:
  * src/lib/mcp-client/suggested.ts).
  *

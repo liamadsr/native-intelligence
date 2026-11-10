@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * "Teach Dial8 your voice" — the full-page enrollment flow.
+ * "Teach Native Intelligence your voice" — the full-page enrollment flow.
  *
  * Modeled on onboarding-wizard.tsx: a min-h-dvh centered max-w-lg column with an
  * AnimatePresence step swap (slide x + fade, 0.25s). Steps:
@@ -855,7 +855,7 @@ function evenlySubsample<T>(items: T[], max: number): T[] {
 function announce(step: Step, voicedSecs: number): string {
   switch (step) {
     case 'intro':
-      return 'Voice training. Read a short story out loud to teach Dial8 your voice.'
+      return 'Voice training. Read a short story out loud to teach Native Intelligence your voice.'
     case 'mic-check':
       return 'Checking your microphone. Say a few words.'
     case 'passage-1':
@@ -867,6 +867,6 @@ function announce(step: Step, voicedSecs: number): string {
     case 'processing':
       return 'Passage complete. Learning your voice.'
     case 'done':
-      return 'Done. Dial8 knows your voice now.'
+      return 'Done. Native Intelligence knows your voice now.'
   }
 }

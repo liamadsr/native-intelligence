@@ -30,7 +30,7 @@ const { GET, POST } = await import('@/app/api/cron/mcp-cleanup/route')
 function req(bearer?: string): Request {
   const headers: Record<string, string> = {}
   if (bearer !== undefined) headers.authorization = bearer
-  return new Request('https://dial8.ai/api/cron/mcp-cleanup', { method: 'GET', headers })
+  return new Request('https://nativeintelligence.dev/api/cron/mcp-cleanup', { method: 'GET', headers })
 }
 
 beforeEach(() => {

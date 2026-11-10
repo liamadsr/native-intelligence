@@ -2,7 +2,7 @@
 
 /**
  * A document's version history (documents phase 1, item 2): every change to
- * its title or body, newest first, with who it was for (a person, Dial8 for a
+ * its title or body, newest first, with who it was for (a person, Native Intelligence for a
  * person, or the system) and what it did. Pick one to see what that change
  * did (a line diff against the version before it) or its full text, and put
  * it back with Restore: the restore is a new version, so it can be undone the
@@ -175,7 +175,7 @@ export function DocumentHistory({
     return (
       <div className="flex flex-col items-center gap-2 py-12 text-center">
         <History className="h-5 w-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">No changes yet. Every edit from here on, yours or Dial8’s, shows up here.</p>
+        <p className="text-sm text-muted-foreground">No changes yet. Every edit from here on, yours or Native Intelligence’s, shows up here.</p>
       </div>
     )
   }

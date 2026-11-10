@@ -61,7 +61,7 @@ describe('GET /auth/demo-link', () => {
   })
 
   it('is a 404 on any host but loopback', async () => {
-    const res = await GET(request('https://dial8.ai'))
+    const res = await GET(request('https://nativeintelligence.dev'))
     expect(res.status).toBe(404)
     expect(m.verifyOtp).not.toHaveBeenCalled()
   })

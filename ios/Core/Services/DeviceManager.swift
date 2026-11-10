@@ -1,6 +1,6 @@
 //
 //  DeviceManager.swift
-//  dial8
+//  Native Intelligence
 //
 //  Manages unique device identification using Keychain for persistence
 //

@@ -70,7 +70,7 @@ export function createTextSetupTools(
         if (!link.ok) return { success: false, error: 'The link could not be made just now. Try again in a moment.' }
         const body = connectLinkText(target, link.url, contacts ? ['contacts'] : undefined)
         const send = opts.send ?? sendSms
-        // A business's own number when the link is about that business; else their agent's own number, else Dial8's.
+        // A business's own number when the link is about that business; else their agent's own number, else Native Intelligence's.
         const sender = from ? null : await agentSender(supabase, userId)
         const sent = from ? await send(phone.phone, body, { from }) : sender ? await send(phone.phone, body, { sender }) : await send(phone.phone, body)
         if (!sent.ok) return { success: false, error: 'The link could not be texted just now. Try again in a moment.' }

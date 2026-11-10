@@ -5,7 +5,7 @@ import { PROFILE_FACT_COLUMNS, saveProfileFact, type ProfileFact } from '@/lib/m
 
 /**
  * Facts about you (always-on plan §3, slice A2a; migration 328): the "About
- * you" group of What Dial8 has learned. The person's own facts, the same in
+ * you" group of What Native Intelligence has learned. The person's own facts, the same in
  * every workspace.
  *
  * Runs on the person's own session, so RLS (user_id = auth.uid()) decides

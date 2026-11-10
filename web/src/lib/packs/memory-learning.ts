@@ -5,7 +5,7 @@
  * default). There is no opt-in: the "Learn from my sent mail overnight"
  * switch (migration 321) is gone, and migration 353 drops its table.
  *
- * Read live, keep nothing. Dial8 keeps no copy of the person's mail
+ * Read live, keep nothing. Native Intelligence keeps no copy of the person's mail
  * (2026-10-15, migrations 341-344), and this pass keeps that promise: it reads
  * their recently SENT messages live from Gmail or Microsoft Graph
  * (readRecentSentMessages in src/lib/email/email-read-service.ts, through the
@@ -20,7 +20,7 @@
  *               content) into at most three tone or sign-off lines.
  *
  * What it learns goes live at once, `learned` and with no author, so What
- * Dial8 has learned shows it as "Dial8 noticed this" with a one-tap remove
+ * Native Intelligence has learned shows it as "Native Intelligence noticed this" with a one-tap remove
  * (2026-10-17), and the email drafts read it (src/lib/crm/email-drafts.ts).
  *
  * Bounds, so a nightly job can't run away:
@@ -364,7 +364,7 @@ async function learnMailTone(
 
   try {
     const sent = sample.map((e) => ({ subject: e.subject, body: ownWords(e.body) })).filter((e) => e.body)
-    // No AI drafts beside what was sent: Dial8 keeps no sent drafts to compare
+    // No AI drafts beside what was sent: Native Intelligence keeps no sent drafts to compare
     // (2026-10-15), so the pass reads sent mail alone.
     const edits: Array<{ draft: string; sent: string }> = []
     const { data: noteRows } = await supabase
@@ -377,7 +377,7 @@ async function learnMailTone(
       .limit(1_000)
     const noteLines = (noteRows ?? []) as Array<{ text: string; status: string; source: string; created_by: string | null }>
     const note = noteLines.map((r) => r.text)
-    // Room left for what Dial8 learns: its own lines in the note, and the note's active lines.
+    // Room left for what Native Intelligence learns: its own lines in the note, and the note's active lines.
     const room = Math.min(
       MEMORY_LEARNED_PER_NOTE - noteLines.filter((r) => r.source === 'learned' && r.created_by === null).length,
       MEMORY_NOTE_MAX_LINES - noteLines.filter((r) => r.status === 'active').length,
@@ -407,8 +407,8 @@ async function learnMailTone(
 
     const lines = cleanProposals(result.object.lines ?? [], existing).slice(0, room)
     if (lines.length > 0) {
-      // Live at once, learned, no author: What Dial8 has learned marks them
-      // "Dial8 noticed this" with a one-tap remove (2026-10-17).
+      // Live at once, learned, no author: What Native Intelligence has learned marks them
+      // "Native Intelligence noticed this" with a one-tap remove (2026-10-17).
       const { error } = await supabase.from('area_memory').insert(
         lines.map((text) => ({
           workspace_id: workspaceId,

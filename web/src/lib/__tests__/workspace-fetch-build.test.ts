@@ -18,7 +18,7 @@ vi.mock('../usage-limit-store', () => ({ openUsageLimit: vi.fn(), parseUsageLimi
 
 describe('the fetch patch reports every same-origin API response’s build', () => {
   it('installs the check, and notes /api and /eve responses but nothing else', async () => {
-    const underlying = vi.fn(async () => new Response('{}', { status: 200, headers: { 'x-dial8-build': 'dpl_NEW' } }))
+    const underlying = vi.fn(async () => new Response('{}', { status: 200, headers: { 'x-ni-build': 'dpl_NEW' } }))
     vi.stubGlobal('fetch', underlying)
     ;(window as unknown as { fetch: typeof fetch }).fetch = underlying as unknown as typeof fetch
     await import('../workspace-fetch')

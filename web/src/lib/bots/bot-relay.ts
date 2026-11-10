@@ -1655,7 +1655,7 @@ function threadDriver(
           cred: sealRunCredential(target.jwt, binding),
           // On the person's own ChatGPT plan: said in the token, as the
           // browser mint does, so the turn stays on their plan even when the
-          // chat agent can't read its spec (never Dial8's fallback model).
+          // chat agent can't read its spec (never Native Intelligence's fallback model).
           ...(chatgptPlan ? { chatgptPlan: true as const } : {}),
         },
         // Only as long as the relay reads the turn (see RELAY_TOKEN_TTL_MS).

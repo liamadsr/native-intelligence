@@ -20,7 +20,7 @@
  *   channel object for a repeated topic, so two mounts of one surface (a panel
  *   and a page on the same run) must not tear down each other's binding.
  * - `onResync` runs after a re-SUBSCRIBE that followed a failure and on the
- *   app-wide `dial8:realtime-recovered` event, deduped against each other the
+ *   app-wide `ni:realtime-recovered` event, deduped against each other the
  *   way use-agent-work.ts does (markSelfRefetched / wasSelfRefetchedRecently).
  * - The latest callbacks live in refs, so inline closures don't re-subscribe.
  */
@@ -87,10 +87,10 @@ export function useRowChanges<Row = Record<string, unknown>>(opts: RowChangesOpt
       if (wasSelfRefetchedRecently(channelName, repairIdFromRecoveredEvent(event))) return
       onResyncRef.current?.()
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
 
     return () => {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       supabase.removeChannel(channel)
     }
   }, [table, filter, eventsKey])

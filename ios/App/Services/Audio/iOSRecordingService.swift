@@ -1,6 +1,6 @@
 //
 //  iOSRecordingService.swift
-//  dial8
+//  Native Intelligence
 //
 //  Active recording service for iOS with LIVE ON-DEVICE transcription.
 //
@@ -674,7 +674,7 @@ class iOSRecordingService: ObservableObject {
 
     // MARK: - Server capture pipeline
     //
-    // Mirrors the web recorder (dial8-website/src/hooks/recording-context.tsx).
+    // Mirrors the web recorder (web/src/hooks/recording-context.tsx).
     // A bare Supabase INSERT into `captures` produces a row nothing downstream
     // ever touches — no title, no summary, no extracted actions, because the
     // post-capture pipeline is driven by the CLIENT, not by a DB trigger.
@@ -956,7 +956,7 @@ class iOSRecordingService: ObservableObject {
         // `defer` ends it on every exit path, including a thrown error, because a
         // leaked assertion gets the app killed.
         let backgroundTaskId = await MainActor.run {
-            UIApplication.shared.beginBackgroundTask(withName: "dial8.capture.batch") {
+            UIApplication.shared.beginBackgroundTask(withName: "ni.capture.batch") {
                 print("⚠️ [RecordingService] Background time expired during post-capture processing for \(captureId.uuidString.prefix(8))…")
             }
         }

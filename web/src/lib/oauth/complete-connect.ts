@@ -459,7 +459,7 @@ export async function completeOAuthConnect(input: CompleteConnectInput): Promise
     // For tasks capability (Asana, Jira): seed task_sync_state so the workspace
     // has a row to hang its push destination on. Provider-generic — it keys off
     // `capability`, so a new task provider needs no edit here. There is NO
-    // initial import — Dial8 never pulls remote tasks in; the integration only
+    // initial import — Native Intelligence never pulls remote tasks in; the integration only
     // pushes actions out (and reads status back over a webhook). Best-effort: a
     // failure here must never fail the OAuth redirect — the settings PATCH
     // re-upserts the row when the user picks a destination.

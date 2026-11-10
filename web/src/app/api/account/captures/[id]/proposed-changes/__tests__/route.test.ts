@@ -52,7 +52,7 @@ const { GET } = await import('@/app/api/account/captures/[id]/proposed-changes/r
 
 function getReq(): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/capture-1/proposed-changes',
+    url: 'https://nativeintelligence.dev/api/account/captures/capture-1/proposed-changes',
     method: 'GET',
   }) as unknown as NextRequest
 }

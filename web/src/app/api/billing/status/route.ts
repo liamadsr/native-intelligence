@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { pickSubscriptionRow, type SubscriptionRow } from './pick-subscription'
-import { isDial8Staff } from '@/lib/billing/access'
+import { isNiStaff } from '@/lib/billing/access'
 
 export async function GET() {
   const supabase = await createClient()
@@ -49,7 +49,7 @@ export async function GET() {
   const subscription = pickSubscriptionRow(
     subscriptionRows as SubscriptionRow[] | null,
   )
-  const staff = isDial8Staff(user.email)
+  const staff = isNiStaff(user.email)
   const subscriptionActive =
     !!subscription && ['active', 'trialing'].includes(subscription.status)
   // Staff are entitled without a subscription row (see lib/billing/access).

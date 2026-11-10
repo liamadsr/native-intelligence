@@ -1,4 +1,4 @@
-import { Checkbox, Label } from '@dial8/ui'
+import { Checkbox, Label } from '@native-intelligence/ui'
 
 export function States() {
   return (

@@ -33,7 +33,7 @@ describe('learnedWords', () => {
         { term: 'Liam Alizadeh', kind: 'teammate' },
         { term: 'Pinecone', kind: 'company' },
         { term: 'supabase', kind: 'project' },
-        { term: 'Dial8 Desktop', kind: 'project' },
+        { term: 'Native Intelligence Desktop', kind: 'project' },
       ],
     })
     expect(words.map((w) => [w.term, w.label, !!w.added])).toEqual([
@@ -41,7 +41,7 @@ describe('learnedWords', () => {
       ['Tauri', '', true],
       ['pgvector', '', false],
       ['Liam Alizadeh', 'Person', false],
-      ['Dial8 Desktop', 'Project', false],
+      ['Native Intelligence Desktop', 'Project', false],
     ])
   })
 })

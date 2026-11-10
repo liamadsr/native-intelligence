@@ -5,7 +5,7 @@
  *
  * ACTION_REVIEW_MODE, read per call:
  *   unset, empty or 'default'
- *                   'default': BLOCKING for the Dial8 agent on the person's
+ *                   'default': BLOCKING for the Native Intelligence agent on the person's
  *                   Mac only: every call it makes (`mustEnforce`, or an
  *                   approval context naming its job), a job a loop started
  *                   included. Everything that runs today (the person's own
@@ -52,7 +52,7 @@ export function actionReviewMode(env: Record<string, string | undefined> = proce
 export interface ReviewedCaller {
   /** caller.ts's class (read by 'blocking' and 'shadow' alike; the default looks only at the Mac). */
   caller?: CallerClass
-  /** A call from the Dial8 agent on the Mac (the door's flag, or its approval context's job). */
+  /** A call from the Native Intelligence agent on the Mac (the door's flag, or its approval context's job). */
   mustEnforce?: boolean
 }
 

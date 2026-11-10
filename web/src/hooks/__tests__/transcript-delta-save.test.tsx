@@ -95,7 +95,7 @@ vi.mock('@/lib/capture-cache', () => ({
 
 // The stop path branches on whether a capture detail panel is mounted for this
 // capture. That branch decides WHO owns the batch extraction — and, before the
-// transcript-durability fix, whether `dial8:capture-ended` was ever dispatched
+// transcript-durability fix, whether `ni:capture-ended` was ever dispatched
 // at all. Both legs are exercised below, so the registry is controllable here
 // rather than reaching into module state.
 const streamingPanels = new Set<string>()
@@ -105,7 +105,7 @@ vi.mock('@/lib/live-agent/streaming-extraction-bus', () => ({
   requestStreamingExtraction: (detail: unknown) => requestStreamingExtractionSpy(detail),
   registerStreamingPanel: (id: string) => { streamingPanels.add(id) },
   unregisterStreamingPanel: (id: string) => { streamingPanels.delete(id) },
-  STREAM_EXTRACTION_EVENT: 'dial8:stream-extraction',
+  STREAM_EXTRACTION_EVENT: 'ni:stream-extraction',
 }))
 
 import { RecordingProvider, useRecordingStable, useRecordingContext } from '../recording-context'
@@ -643,12 +643,12 @@ describe('delta-append transcript auto-save', () => {
 })
 
 /**
- * `dial8:capture-transcript-saved` — the extraction-INDEPENDENT signal that the
+ * `ni:capture-transcript-saved` — the extraction-INDEPENDENT signal that the
  * authoritative final transcript force-PATCH has landed.
  *
  * WHY IT EXISTS (audit: transcript tail loss / transcript-seam re-review). The
  * panel used to discover "the final save has landed" only via the EXTRACTION
- * lifecycle (`dial8:capture-ended`). On the DEFAULT configuration — live mode
+ * lifecycle (`ni:capture-ended`). On the DEFAULT configuration — live mode
  * OFF with the detail panel mounted — the stop path hands the batch run to the
  * panel and deliberately does NOT dispatch capture-ended, waiting for the
  * panel's own dispatch from streaming onDone. A batch that errors (a 504 on a
@@ -659,7 +659,7 @@ describe('delta-append transcript auto-save', () => {
  * The contract these tests pin: the event fires on EVERY stop path that had a
  * bound capture, regardless of extraction, and carries the capture id.
  */
-describe('dial8:capture-transcript-saved (extraction-independent transcript signal)', () => {
+describe('ni:capture-transcript-saved (extraction-independent transcript signal)', () => {
   /** Record every transcript-saved event, with the fetch-call index at dispatch
    *  time so ordering against the force PATCH is assertable. */
   function listen() {
@@ -668,10 +668,10 @@ describe('dial8:capture-transcript-saved (extraction-independent transcript sign
       const d = (e as CustomEvent).detail as { captureId: string }
       seen.push({ captureId: d.captureId, fetchIndex: calls.length })
     }
-    window.addEventListener('dial8:capture-transcript-saved', handler)
+    window.addEventListener('ni:capture-transcript-saved', handler)
     return {
       seen,
-      dispose: () => window.removeEventListener('dial8:capture-transcript-saved', handler),
+      dispose: () => window.removeEventListener('ni:capture-transcript-saved', handler),
     }
   }
 
@@ -708,7 +708,7 @@ describe('dial8:capture-transcript-saved (extraction-independent transcript sign
     const onEnded = (e: Event) => {
       endedSeen.push(((e as CustomEvent).detail as { captureId: string }).captureId)
     }
-    window.addEventListener('dial8:capture-ended', onEnded)
+    window.addEventListener('ni:capture-ended', onEnded)
     try {
       // A detail panel is mounted for this capture → the stop path takes the
       // handoff branch (requestStreamingExtraction, no inline batch).
@@ -737,7 +737,7 @@ describe('dial8:capture-transcript-saved (extraction-independent transcript sign
       expect(seen[0].captureId).toBe(CID)
     } finally {
       dispose()
-      window.removeEventListener('dial8:capture-ended', onEnded)
+      window.removeEventListener('ni:capture-ended', onEnded)
     }
   })
 
@@ -750,7 +750,7 @@ describe('dial8:capture-transcript-saved (extraction-independent transcript sign
     const onEnded = (e: Event) => {
       endedSeen.push(((e as CustomEvent).detail as { captureId: string }).captureId)
     }
-    window.addEventListener('dial8:capture-ended', onEnded)
+    window.addEventListener('ni:capture-ended', onEnded)
     try {
       // No panel registered → the recording layer runs the guaranteed batch, and
       // that POST fails (the 504-on-a-long-transcript shape).
@@ -781,7 +781,7 @@ describe('dial8:capture-transcript-saved (extraction-independent transcript sign
       expect(seen[0].captureId).toBe(CID)
     } finally {
       dispose()
-      window.removeEventListener('dial8:capture-ended', onEnded)
+      window.removeEventListener('ni:capture-ended', onEnded)
     }
   })
 

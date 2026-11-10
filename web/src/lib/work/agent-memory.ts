@@ -1,6 +1,6 @@
 /**
  * A teammate's memory across work runs (plan Part 5 row 15, Part 4), without
- * eve's memory slot: Dial8 recalls a teammate's entries into the brief at the
+ * eve's memory slot: Native Intelligence recalls a teammate's entries into the brief at the
  * start of its run, and asks for a summary when a run settles. The summariser
  * is agent-memory-summary.ts, run by the Inngest function in
  * src/lib/inngest/agent-memory-functions.ts; the table is agent_memory
@@ -14,7 +14,7 @@
  * remove it."): every entry is active at once, with no queue to accept from.
  * One a run learned after reading untrusted outside text (migration 374:
  * agent_run.outside_reads) records those tools (source.outside_reads), so
- * What Dial8 has learned labels it ("learned from a web page") for an owner
+ * What Native Intelligence has learned labels it ("learned from a web page") for an owner
  * or admin to spot and remove. They remove (and restore) any entry:
  * settleMemoryEntry, behind /api/account/agent-memory. A teammate's memory is
  * read by every member's runs of it, so it is workspace-scope, like area

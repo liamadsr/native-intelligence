@@ -42,11 +42,11 @@ const local = (over: Partial<EnvironmentSnapshot> = {}): EnvironmentSnapshot => 
   loaded: true,
   devices: [{ id: THIS_MAC, name: "Liam's MacBook Pro", online: true }],
   folders: [
-    { id: 'f-1', deviceId: THIS_MAC, grantId: 'g-1', label: 'dial8-website', path: '/Users/sam/code/dial8-v2/dial8-website', mode: 'edit', isGit: true, deviceName: "Liam's MacBook Pro", online: true },
+    { id: 'f-1', deviceId: THIS_MAC, grantId: 'g-1', label: 'native-intelligence', path: '/Users/sam/code/native-intelligence/web', mode: 'edit', isGit: true, deviceName: "Liam's MacBook Pro", online: true },
     { id: 'f-2', deviceId: THIS_MAC, grantId: 'g-2', label: 'notes', path: '/Users/sam/notes', mode: 'read', isGit: false, deviceName: "Liam's MacBook Pro", online: true },
     { id: 'f-9', deviceId: 'dev-studio', grantId: 'g-9', label: 'studio-only', path: '/Users/liam/x', mode: 'read', isGit: false, deviceName: 'Studio', online: false },
   ],
-  worktrees: [{ sessionId: 's-1', folderId: 'f-1', branch: 'dial8/dial8-website-agent-orchestration-fc09cf', live: false }],
+  worktrees: [{ sessionId: 's-1', folderId: 'f-1', branch: 'dial8/native-intelligence-agent-orchestration-fc09cf', live: false }],
   thisDeviceId: THIS_MAC,
   canEdit: true,
   picking: false,
@@ -89,12 +89,12 @@ describe('the Environment card', () => {
   it('a Mac’s folders: the store’s (live) with the server’s base branch; before it reads, the environment’s', () => {
     const rows = macFolders(mac(), local())
     expect(rows.map((r) => [r.folder.label, r.folder.baseBranch, r.worktrees.length])).toEqual([
-      ['dial8-website', 'main', 1],
+      ['native-intelligence', 'main', 1],
       ['notes', null, 0],
     ])
     const before = macFolders(mac(), local({ loaded: false, folders: [], worktrees: [] }))
     expect(before.map((r) => [r.folder.label, r.folder.path])).toEqual([
-      ['dial8-website', ''],
+      ['native-intelligence', ''],
       ['notes', ''],
     ])
   })
@@ -111,8 +111,8 @@ describe('the Environment card', () => {
   it('a folder: `label · ~/parent`, the path on hover, its mode, its base branch, × on this Mac', () => {
     render(card())
     const website = q('[data-environment-folder="f-1"]')!
-    expect(website.textContent).toContain('dial8-website · ~/code/dial8-v2')
-    expect(website.getAttribute('title')).toBe('/Users/sam/code/dial8-v2/dial8-website')
+    expect(website.textContent).toContain('native-intelligence · ~/code/native-intelligence')
+    expect(website.getAttribute('title')).toBe('/Users/sam/code/native-intelligence/web')
     expect(website.querySelector('[data-environment-mode]')!.textContent).toBe('edits')
     expect(website.querySelector('[data-environment-base]')!.textContent).toBe('main')
     expect(q('[data-environment-folder="f-2"] [data-environment-mode]')!.textContent).toBe('read only')
@@ -129,14 +129,14 @@ describe('the Environment card', () => {
   it('a branch: cut in the middle, "Worktree", a click copies the full name', async () => {
     render(card())
     const wt = q('[data-environment-worktree]')!
-    expect(wt.getAttribute('data-environment-worktree')).toBe('dial8/dial8-website-agent-orchestration-fc09cf')
+    expect(wt.getAttribute('data-environment-worktree')).toBe('dial8/native-intelligence-agent-orchestration-fc09cf')
     expect(wt.textContent).toContain('…')
     expect(wt.textContent).toContain('Worktree')
     await act(async () => {
       wt.click()
       await Promise.resolve()
     })
-    expect(m.copy).toHaveBeenCalledWith('dial8/dial8-website-agent-orchestration-fc09cf')
+    expect(m.copy).toHaveBeenCalledWith('dial8/native-intelligence-agent-orchestration-fc09cf')
     expect(wt.textContent).toContain('Copied')
   })
 
@@ -148,7 +148,7 @@ describe('the Environment card', () => {
 
     render(card({ local: local({ canEdit: false, thisDeviceId: null }) }))
     expect(q('[data-environment-add]')).toBeNull()
-    expect(q('[data-environment-hint]')!.textContent).toBe("Add folders in Dial8 on Liam's MacBook Pro.")
+    expect(q('[data-environment-hint]')!.textContent).toBe("Add folders in Native Intelligence on Liam's MacBook Pro.")
     expect(container.querySelectorAll('[data-environment-remove]')).toHaveLength(0)
 
     // The desktop app on another Mac: the same.

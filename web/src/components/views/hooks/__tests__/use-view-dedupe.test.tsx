@@ -294,7 +294,7 @@ describe('useView / useViewResults — requests shared by lists on the same quer
 
     // …but once a change has been heard of, that request may predate it.
     act(() => {
-      window.dispatchEvent(new CustomEvent('dial8:entity-updated', {
+      window.dispatchEvent(new CustomEvent('ni:entity-updated', {
         detail: { entityType: 'action', id: 'x', fields: { title: 'renamed' } },
       }))
     })
@@ -373,7 +373,7 @@ describe('UnifiedViewLayout — automatic refetches coalesce across lists on one
     await mountTwoLayouts()
 
     act(() => {
-      window.dispatchEvent(new CustomEvent('dial8:entity-created', { detail: { entityType: 'action' } }))
+      window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: 'action' } }))
     })
     expect(queryCalls()).toHaveLength(1)
 
@@ -384,10 +384,10 @@ describe('UnifiedViewLayout — automatic refetches coalesce across lists on one
     expect(queryCalls()).toHaveLength(2)
   })
 
-  it('the reconnect refetch (dial8:realtime-recovered) is shared too', async () => {
+  it('the reconnect refetch (ni:realtime-recovered) is shared too', async () => {
     await mountTwoLayouts()
 
-    act(() => { window.dispatchEvent(new CustomEvent('dial8:realtime-recovered')) })
+    act(() => { window.dispatchEvent(new CustomEvent('ni:realtime-recovered')) })
 
     expect(queryCalls()).toHaveLength(2)
   })

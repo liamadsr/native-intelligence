@@ -3,9 +3,9 @@ import { createAsanaRemoteFake, type FakeTeamStates } from '@/test/asana-remote-
 import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
 
 /**
- * REGRESSION: the Jira↔Dial8 status cycle must terminate.
+ * REGRESSION: the Jira↔Native Intelligence status cycle must terminate.
  *
- * Dial8→Jira (jira-echo-status) and Jira→Dial8 (applyRemoteTaskState) form a
+ * Native Intelligence→Jira (jira-echo-status) and Jira→Native Intelligence (applyRemoteTaskState) form a
  * closed loop: a webhook moves the action, that fires
  * `flow/entity.status_changed`, which wakes the echo, which transitions the
  * issue, which raises another webhook… Left unguarded this ping-pongs forever,
@@ -17,7 +17,7 @@ import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
  * boolean), so it short-circuits before any API call. Jira's cannot — which
  * transitions exist depends on the issue's current status — so:
  *
- *   BRAKE 1 (Dial8→Jira, tested first). The echo ASKS JIRA FIRST: it reads the
+ *   BRAKE 1 (Native Intelligence→Jira, tested first). The echo ASKS JIRA FIRST: it reads the
  *   issue's current status before selecting anything, and when that status
  *   already satisfies the bucket it stops there. ZERO writes. The transition
  *   list cannot answer this on its own — a workflow offers no self-loop, so
@@ -25,7 +25,7 @@ import { createStepMock, type StepMock } from '@/test/inngest-step-mock'
  *   identical from it, and the version of this test that only supplied a
  *   candidate-less list was passing for the wrong reason.
  *
- *   BRAKE 2 (Jira→Dial8, tested second). The echo records the provider state on
+ *   BRAKE 2 (Jira→Native Intelligence, tested second). The echo records the provider state on
  *   the link when it transitions, so the webhook its own write raises finds the
  *   CAS already satisfied and stops before touching the action.
  *
@@ -269,7 +269,7 @@ beforeEach(() => {
   })
 })
 
-describe('Jira ↔ Dial8 loop termination', () => {
+describe('Jira ↔ Native Intelligence loop termination', () => {
   it('BRAKE 1: a webhook-applied completion produces ZERO Jira writes from the echo', async () => {
     // The issue is already Done (that's why the webhook fired). The workflow
     // offers a reopen AND a "Won't Do" — both real transitions — so an echo that
@@ -280,7 +280,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
       { id: '11', name: 'Reopen', to: { id: 's-todo', name: 'To Do', statusCategory: { key: 'new' } } },
     ])
 
-    // 1. Jira → Dial8: the issue moved into a done-category status.
+    // 1. Jira → Native Intelligence: the issue moved into a done-category status.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -325,7 +325,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
     echoLinkWrites.length = 0
     hoisted.send.mockClear()
     // This cycle starts from an issue that is genuinely still open — the action
-    // moving to Done in Dial8 is the change being pushed out.
+    // moving to Done in Native Intelligence is the change being pushed out.
     hoistedApi.getIssue.mockResolvedValue(IN_PROGRESS_ISSUE)
     hoistedApi.getTransitions.mockResolvedValue([
       {
@@ -335,7 +335,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
       },
     ])
 
-    // 1. Dial8 → Jira: the echo fires the transition and records the result.
+    // 1. Native Intelligence → Jira: the echo fires the transition and records the result.
     await hoisted.handler({
       event: {
         data: {
@@ -353,7 +353,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
     expect(db.links[0].completed).toBe(true)
     expect(db.links[0].external_state_label).toBe('Done')
 
-    // 2. Jira → Dial8: the webhook raised by our own transition arrives.
+    // 2. Jira → Native Intelligence: the webhook raised by our own transition arrives.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -387,7 +387,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
    * the rest by itself.
    */
   it('BRAKE 3: a Jira REOPEN into In Progress produces ZERO Jira writes', async () => {
-    // The action is Done in Dial8 and the issue is Done in Jira; the user then
+    // The action is Done in Native Intelligence and the issue is Done in Jira; the user then
     // drags the issue to In Progress.
     Object.assign(ACTIONS[0], { status_id: 'st-done', category: 'completed' })
     db.links[0].completed = true
@@ -400,7 +400,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
       { id: '31', name: 'Done', to: { id: 's-done', name: 'Done', statusCategory: { key: 'done' } } },
     ])
 
-    // 1. Jira → Dial8.
+    // 1. Jira → Native Intelligence.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -449,7 +449,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
    *
    * The honest answer is to write NOTHING to the action: `no_target_state`. The
    * link still records the provider's state (so a re-delivery is a no-op and the
-   * label is still refreshed by the caller), Dial8 and Jira visibly disagree,
+   * label is still refreshed by the caller), Native Intelligence and Jira visibly disagree,
    * and neither system overwrites the other.
    */
   it('BRAKE 3b: a started-less team DECLINES the reopen instead of bouncing it', async () => {
@@ -463,7 +463,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
       { id: '11', name: 'To Do', to: { id: 's-todo', name: 'To Do', statusCategory: { key: 'new' } } },
     ])
 
-    // 1. Jira → Dial8.
+    // 1. Jira → Native Intelligence.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -498,7 +498,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
    * A Jira user moves a started issue to "Won't Do". The read-back folded that
    * to `remoteCompleted:true` (Jira has no cancel CATEGORY — canceled and done
    * share `done`) and moved the action into the team's COMPLETED state: the
-   * user's cancellation was recorded in Dial8 as a completion, and the echo then
+   * user's cancellation was recorded in Native Intelligence as a completion, and the echo then
    * woke with bucket=done and transitioned the issue from "Won't Do" back to
    * "Done", stamping a `resolution: Done` on the way.
    */
@@ -509,7 +509,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
       { id: '31', name: 'Done', to: { id: 's-done', name: 'Done', statusCategory: { key: 'done' } } },
     ])
 
-    // 1. Jira → Dial8.
+    // 1. Jira → Native Intelligence.
     const applied = await applyRemoteTaskState({
       supabase: db.client,
       workspaceId: 'ws-1',
@@ -557,7 +557,7 @@ describe('Jira ↔ Dial8 loop termination', () => {
    * canceled_protected, exactly as before.
    */
   it('BRAKE 5: a Jira UN-CANCEL follows the issue back into progress, then stops', async () => {
-    // 1. Jira → Dial8: the user abandons the issue (BRAKE 4's first half).
+    // 1. Jira → Native Intelligence: the user abandons the issue (BRAKE 4's first half).
     hoistedApi.getIssue.mockResolvedValue(WONT_DO_ISSUE)
     const canceled = await applyRemoteTaskState({
       supabase: db.client,

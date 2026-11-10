@@ -4,25 +4,32 @@ import { withEve } from 'eve/next'
 
 /**
  * The deployment's build id (as /api/version and NEXT_PUBLIC_BUILD_ID report
- * it). Stamped on every /api response as `x-dial8-build`, so an open window
+ * it). Stamped on every /api response as `x-ni-build`, so an open window
  * notices a new deploy from the responses it already gets and reloads when
  * idle (src/lib/deploy-reload.ts). Empty off Vercel.
  */
 const BUILD_ID = process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) ?? ''
 
+// The domains the hosted app is served on. This file cannot import TypeScript,
+// so the list is repeated from src/lib/app-url.ts (APP_DOMAINS); a test keeps
+// the two the same (src/lib/cloud-browser/__tests__/relay-host.test.ts).
+// TODO(rename-compat): dial8.ai goes when src/lib/app-url.ts drops it.
+export const APP_DOMAINS = ['nativeintelligence.dev', 'dial8.ai']
+
 // The cloud browser's relay host (docs/plans/cloud-browser.md, decision 6)
 // serves only the relay: its routes (/api/browser-relay/*) and the files it
-// downloads (/cloud-browser/*). Anything else on it goes to the app.
-export const RELAY_HOST_REDIRECT = {
+// downloads (/cloud-browser/*). Anything else on it goes to the app, on the
+// same domain. One rule per domain the app is served on.
+export const RELAY_HOST_REDIRECTS = APP_DOMAINS.map((domain) => ({
   source: '/:path((?!api/browser-relay/|cloud-browser/).*)',
-  has: [{ type: 'host', value: 'browser-relay.dial8.ai' }],
-  destination: 'https://dial8.ai/:path',
+  has: [{ type: 'host', value: `browser-relay.${domain}` }],
+  destination: `https://${domain}/:path`,
   permanent: false,
-}
+}))
 
 /**
  * The Content-Security-Policy on every response. It limits where scripts and
- * workers load from (no third-party host can run code as dial8.ai) and nothing
+ * workers load from (no third-party host can run code as the app) and nothing
  * else: with no default-src, connect-src, img-src, frame-src and the rest stay
  * open, because the desktop app runs these same pages and its IPC is a fetch to
  * ipc://localhost. Every script is first-party today: PostHog's lazy scripts
@@ -75,7 +82,10 @@ export async function headers() {
   // Every /api response names its deployment: open windows reload on a new
   // deploy when idle (src/lib/deploy-reload.ts).
   if (BUILD_ID) {
-    headers.push({ source: '/api/:path*', headers: [{ key: 'x-dial8-build', value: BUILD_ID }] })
+    // TODO(rename-compat): `x-dial8-build` is what a window opened before the rename
+    // reads; without it that window would never notice a deploy and reload. Drop it
+    // once those windows are gone.
+    headers.push({ source: '/api/:path*', headers: [{ key: 'x-ni-build', value: BUILD_ID }, { key: 'x-dial8-build', value: BUILD_ID }] })
   }
 
   // Keep Vercel preview deployments out of the search index. VERCEL_ENV is
@@ -152,7 +162,7 @@ const nextConfig = {
       // too). Old links, bookmarks and in-flight OAuth returns keep landing.
       { source: '/account/settings/integrations', destination: '/account/settings/connectors', permanent: false },
       { source: '/account/settings/integrations/:path*', destination: '/account/settings/connectors/:path*', permanent: false },
-      RELAY_HOST_REDIRECT,
+      ...RELAY_HOST_REDIRECTS,
     ]
   },
   async rewrites() {
@@ -280,9 +290,8 @@ const sentryWrapped = withSentry(withMDX(nextConfig))
 //
 // Mount names become Vercel Build Output service names as `eve-<name>`, and
 // Vercel requires that name to "contain only lowercase letters, hyphens, and
-// underscores" — NO DIGITS anywhere. A mount named `dial8` → `eve-dial8` is
-// rejected at build on the `8` (as is `dial8-root`). Every mount below is
-// digit-free.
+// underscores" — NO DIGITS anywhere. A mount named `web2` → `eve-web2` is
+// rejected at build on the `2`. Every mount below is digit-free.
 //
 // No agent root may live at a directory literally named `agent`: eve's
 // project discovery (discover/project.js) treats any directory with that

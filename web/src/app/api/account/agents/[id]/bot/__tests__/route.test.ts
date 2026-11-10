@@ -47,7 +47,7 @@ beforeEach(() => {
 })
 
 const give = (id: string, body: unknown = {}) =>
-  POST(buildRequest({ url: `https://dial8.ai/api/account/agents/${id}/bot`, method: 'POST', body }) as unknown as NextRequest, {
+  POST(buildRequest({ url: `https://nativeintelligence.dev/api/account/agents/${id}/bot`, method: 'POST', body }) as unknown as NextRequest, {
     params: Promise.resolve({ id }),
   })
 

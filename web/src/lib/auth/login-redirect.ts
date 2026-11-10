@@ -4,11 +4,17 @@
  * every target is checked here, on the way in (the login form's cookie) and
  * on the way out (the OAuth callback, the password sign-in).
  */
+import { APP_PAGE_ORIGINS, appDomainOf, appUrl } from '@/lib/app-url'
 
-/** The page's own origin and the app's configured one (NEXT_PUBLIC_APP_URL), which the MCP authorize step links back from. */
+/**
+ * The page's own origin, the app's configured one (NEXT_PUBLIC_APP_URL), which
+ * the MCP authorize step links back from, and the domains the hosted app is
+ * served on: a person who started on one of them resumes on the page's own
+ * (the target is cut down to a path either way).
+ */
 function trustedOrigins(origin: string, appUrl: string | undefined): Set<string> {
   const origins = new Set<string>()
-  for (const raw of [origin, appUrl]) {
+  for (const raw of [origin, appUrl, ...APP_PAGE_ORIGINS]) {
     if (!raw) continue
     try {
       origins.add(new URL(raw).origin)
@@ -62,6 +68,38 @@ export function resolvePostAuthRedirect(redirectPath: string | null, origin: str
     return redirectPath
   }
   return '/account'
+}
+
+/**
+ * Where Supabase sends a sign-in back to once the person has proved who they
+ * are (its `redirectTo` / `emailRedirectTo`).
+ *
+ * In a browser: /auth/callback on the page's own origin, because that route
+ * redeems the code with the verifier cookie this origin holds.
+ *
+ * In the desktop app: /auth/desktop-callback, which only hands the code to the
+ * app (a dial8desktop:// link) for the app's own webview to redeem, so any of
+ * the app's domains would do. It is the page's own origin, as it always was,
+ * except for a window on the hosted app's OTHER domain (a build that loads
+ * one domain while the app's address, NEXT_PUBLIC_APP_URL, is still on the
+ * other): that one returns through the app's address, the entry Supabase's
+ * redirect list is sure to hold. A redirect Supabase does not list falls back
+ * to its Site URL, where a desktop sign-in ends nowhere.
+ */
+export function signInReturnUrl(where: 'desktop' | 'browser', pageOrigin: string, appAddress: string = appUrl()): string {
+  if (where === 'browser') return `${pageOrigin}/auth/callback`
+  return `${onTheAppsOtherDomain(pageOrigin, appAddress) ? appAddress : pageOrigin}/auth/desktop-callback`
+}
+
+/** Is `pageOrigin` a page origin of the hosted app, on a different one of its domains than `appAddress`? */
+function onTheAppsOtherDomain(pageOrigin: string, appAddress: string): boolean {
+  if (!APP_PAGE_ORIGINS.includes(pageOrigin)) return false
+  try {
+    const home = appDomainOf(new URL(appAddress).hostname)
+    return home !== null && home !== appDomainOf(new URL(pageOrigin).hostname)
+  } catch {
+    return false
+  }
 }
 
 /** Whether a sign-in target needs a full page load (an API route the client router can't open). */

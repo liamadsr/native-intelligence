@@ -43,7 +43,7 @@ export const MessageFeedbackContext = createContext<MessageFeedbackStore | null>
  * The `metadata.kind`s of replies the agent wrote itself with nobody typing:
  * a server-written home turn (src/lib/chat/home-turn.ts) and the live agent's
  * say_to_user nudge (src/lib/live-agent/tools.ts). Every other kind is a
- * notice row Dial8 templated into the thread: a teammate's report, a job's
+ * notice row Native Intelligence templated into the thread: a teammate's report, a job's
  * notice (src/lib/work/notify.ts), an approval's outcome, the live greeting,
  * the packages ack. The feedback route builds these turns' evidence the same
  * way (src/lib/evals/flywheel/chat-evidence.ts SERVER_STARTED_KINDS).

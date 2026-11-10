@@ -75,7 +75,7 @@ describe('signupHrefForPath', () => {
 
   it('only ever emits ids the manifest actually defines', () => {
     for (const path of ['/sales', '/meeting-notes', '/company-brain']) {
-      const edition = new URL(signupHrefForPath(path), 'https://dial8.ai').searchParams.get(
+      const edition = new URL(signupHrefForPath(path), 'https://nativeintelligence.dev').searchParams.get(
         'edition'
       )
       expect(EDITION_IDS as readonly string[]).toContain(edition)

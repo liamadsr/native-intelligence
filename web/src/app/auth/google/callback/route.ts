@@ -18,7 +18,7 @@ import { sessionTokenHash } from '@/lib/chatgpt/account'
 import { createClient } from '@/lib/supabase/server'
 
 /**
- * Finish "Sign in with Google" on dial8.ai (started by /auth/google):
+ * Finish "Sign in with Google" on nativeintelligence.dev (started by /auth/google):
  *   1. recover and consume the sealed transaction; refuse a missing, expired
  *      or mismatched one, and Google's own errors, before touching a code;
  *   2. exchange the code (PKCE) for Google's ID token;
@@ -110,9 +110,9 @@ async function finishDesktop(
   return finish(
     new NextResponse(
       deepLinkPage({
-        title: 'Signing in to Dial8...',
+        title: 'Signing in to Native Intelligence...',
         deepLink: deepLink.toString(),
-        body: `<p>Signing you in to Dial8...</p>
+        body: `<p>Signing you in to Native Intelligence...</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">You can close this window if the app doesn't open.</p>`,
       }),
       { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' } },
@@ -158,7 +158,7 @@ function fail(request: NextRequest, tx: GoogleSignInTransaction | null, error: s
           deepLink: deepLink.toString(),
           body: `<p>Sign-in didn't complete.</p>
     <p style="color: #888; font-size: 14px; margin-top: 8px;">
-      Return to Dial8 and try again, or
+      Return to Native Intelligence and try again, or
       <a href="${escapeHtml(loginUrl.toString())}" style="color: #60a5fa;">sign in on the web</a>.
     </p>`,
         }),

@@ -221,7 +221,7 @@ describe('LocalModuleRow — states', () => {
     expect(text).toContain('Didn’t finish')
     expect(text).toContain('The download came through damaged. Try again to download it fresh.')
     // The keeper retries a failed download on its own; the desktop's wording stays on hover.
-    expect(text).toContain('Dial8 also keeps trying in the background.')
+    expect(text).toContain('Native Intelligence also keeps trying in the background.')
     expect(row()!.querySelector(`[title="${raw}"]`)).not.toBeNull()
     expect(button(/Remove downloaded files/)).toBeUndefined()
 

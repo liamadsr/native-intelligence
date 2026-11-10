@@ -13,6 +13,7 @@
  */
 
 import crypto from 'crypto'
+import { APP_PAGE_ORIGINS } from '@/lib/app-url'
 
 /** The state param's life — matches the oauth_nonce cookie's 10-minute maxAge. */
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000
@@ -55,9 +56,9 @@ function constantTimeEqual(a: string, b: string): boolean {
  * holds, and the only thing its callback accepts as proof of that.
  *
  * Production names it `__Host-<base>`: a browser accepts that prefix only
- * when the cookie is Secure, `Path=/` and has no Domain, so no `*.dial8.ai`
+ * when the cookie is Secure, `Path=/` and has no Domain, so no `*.nativeintelligence.dev`
  * subdomain (a takeover, an XSS on a docs or marketing host) can plant one for
- * dial8.ai. A planted copy of an attacker's own flow cookie (they can read it
+ * nativeintelligence.dev. A planted copy of an attacker's own flow cookie (they can read it
  * in their own browser) was the remaining way to link a victim's account to
  * theirs (security review 2026-10-31). The callbacks therefore no longer
  * accept a matching session instead: a subdomain could toss its owner's
@@ -169,6 +170,15 @@ export interface OAuthStateData {
   then: string[]
   /** A texted link's capabilities already connected. */
   done: string[]
+  /**
+   * The hosted app page origin a web connect began on. The hosted app answers
+   * on two domains while it moves, and each provider knows one callback: when
+   * that callback is on the other domain, it hands the provider's answer over
+   * to this origin, where the nonce cookie and the opener are, and the connect
+   * returns here either way. Null for a page that is not the hosted app's,
+   * and always one of the app's own page origins.
+   */
+  origin: string | null
 }
 
 /**
@@ -226,6 +236,7 @@ export function verifyOAuthState(
       via,
       then: via ? strs(raw.then) : [],
       done: via ? strs(raw.done) : [],
+      origin: source === 'web' && !via && APP_PAGE_ORIGINS.includes(str(raw.origin) ?? '') ? str(raw.origin) : null,
     },
   }
 }

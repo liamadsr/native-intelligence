@@ -176,7 +176,7 @@ describe('ChatPanel sticky skill', () => {
   it('the seeded "Learn about my company" turn leaves Scout armed for the follow-up', async () => {
     await mount()
     await act(async () => {
-      await ref.current!.startProspecting({ domain: 'dial8.ai', sourceEstablished: true })
+      await ref.current!.startProspecting({ domain: 'nativeintelligence.dev', sourceEstablished: true })
     })
     await type("yes that's right, find me fintechs")
     await submit()

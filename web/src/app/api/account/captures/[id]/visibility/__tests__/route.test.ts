@@ -65,7 +65,7 @@ function authFor(
 
 function patchReq(body: unknown): NextRequest {
   return buildRequest({
-    url: `https://dial8.ai/api/account/captures/${CAPTURE_ID}/visibility`,
+    url: `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}/visibility`,
     method: 'PATCH',
     body,
   }) as unknown as NextRequest

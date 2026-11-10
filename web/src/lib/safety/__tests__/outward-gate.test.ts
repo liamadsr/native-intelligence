@@ -104,7 +104,7 @@ describe('calendar invites', () => {
 
   it('an update or delete of a meeting that already has outside attendees is held, read from the provider first', async () => {
     const eventAttendees = vi.fn(async () => ['teammate@acme.com', 'client@other.com'])
-    for (const toolName of ['update_calendar_event', 'delete_calendar_event', 'dial8_delete_calendar_event']) {
+    for (const toolName of ['update_calendar_event', 'delete_calendar_event', 'ni_delete_calendar_event']) {
       const hold = await outwardHoldOf({ userId: 'u', workspaceId: 'w', toolName, input: { event_id: 'evt-1', title: 'Moved' }, eventAttendees })
       expect(hold).toMatchObject({ reason: 'outside_attendees', card: { title: expect.stringMatching(/^(Change|Cancel) a meeting with client@other\.com/) } })
     }
@@ -214,7 +214,7 @@ describe('unsubscribe_thread (GEN-1166)', () => {
     expect(oneClick!.card.why).toContain("one-click unsubscribe link (shop.com)")
     expect(oneClick!.card.title).not.toContain('click here')
 
-    const mailto = await outwardHoldOf({ userId: 'u', workspaceId: 'w', toolName: 'dial8_unsubscribe_thread', input: { thread_id: 't1' }, listHeaders: headers('<mailto:leave@list.com?subject=stop%20please&body=remove%20me>') })
+    const mailto = await outwardHoldOf({ userId: 'u', workspaceId: 'w', toolName: 'ni_unsubscribe_thread', input: { thread_id: 't1' }, listHeaders: headers('<mailto:leave@list.com?subject=stop%20please&body=remove%20me>') })
     expect(mailto!.card.why).toContain('send an unsubscribe email from me@gmail.com to leave@list.com, subject "stop please", saying "remove me"')
   })
 

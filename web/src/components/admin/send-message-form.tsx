@@ -126,7 +126,7 @@ export function SendMessageForm({
           id="msg-title"
           value={messageTitle}
           onChange={(e) => setMessageTitle(e.target.value)}
-          placeholder="e.g. How are you liking Dial8?"
+          placeholder="e.g. How are you liking Native Intelligence?"
           required
         />
       </div>

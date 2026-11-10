@@ -307,7 +307,7 @@ export type UpdateProviderDraftResult =
  * A revision writes the body as plain text, so a draft carrying what that
  * would drop is refused (`rich`, nothing written): a Gmail draft with
  * attachments or inline images (multipart/mixed or multipart/related), or an
- * Outlook draft whose body is HTML (Dial8 writes its Outlook drafts as text,
+ * Outlook draft whose body is HTML (Native Intelligence writes its Outlook drafts as text,
  * so HTML means it was written or edited in Outlook: signature, formatting,
  * the quoted chain).
  *
@@ -424,7 +424,7 @@ async function updateOutlookDraft(
 ): Promise<DraftUpdateOutcome> {
   const meta = await outlookDraftOnThread(token, threadId, messageId, ['subject', 'toRecipients', 'ccRecipients', 'body'])
   if (!meta) return NOT_FOUND
-  // An HTML body was written or edited in Outlook (Dial8 writes text): a
+  // An HTML body was written or edited in Outlook (Native Intelligence writes text): a
   // plain-text rewrite would drop its signature, formatting and quoted chain.
   const bodyType = (meta.body as { contentType?: unknown } | undefined)?.contentType
   if (typeof bodyType === 'string' && bodyType.toLowerCase() === 'html') return { ok: false, reason: 'rich' }
@@ -511,7 +511,7 @@ async function settleDiscardedDraft(
   const rowIds: string[] = []
   await step('hold release', async () => {
     // A Gmail-side edit renames the draft's message: fall back to the thread
-    // only when one open Dial8 draft is on it, so a discard never releases another.
+    // only when one open Native Intelligence draft is on it, so a discard never releases another.
     const rows = await draftRowsFor(supabase, userId, { providerDraftId: draftMessageId, providerThreadId, onlyIfSingle: true })
     rowIds.push(...(await releaseDraftRows(supabase, userId, rows, { reviewed: true })))
     if (!rows.length) await stampMailReview(supabase, userId, [workspaceId])

@@ -38,7 +38,7 @@ export function toGuestView(guest: AgentGuest): GuestView {
 }
 
 export function toInvite(guest: AgentGuest, code: string): GuestInvite {
-  return { code, text: inviteText(guest.displayName, code), dial8Number: twilioPhoneNumber(), expiresAt: guest.inviteExpiresAt }
+  return { code, text: inviteText(guest.displayName, code), niNumber: twilioPhoneNumber(), expiresAt: guest.inviteExpiresAt }
 }
 
 /** A store refusal as the tab's error. */
@@ -53,11 +53,11 @@ export function guestRefusal(reason: string): Response {
     case 'bad_calendar_emails':
       return badRequest('Enter up to 5 email addresses, like jess@example.com, separated by commas.')
     case 'unsupported_country':
-      return badRequest('Dial8 can text US and Canadian mobile numbers only for now.')
+      return badRequest('Native Intelligence can text US and Canadian mobile numbers only for now.')
     case 'own_number':
       return badRequest('That’s your own number.')
     case 'someones_number':
-      return conflict('That number already reaches a Dial8 agent, so it can’t reach yours too.', undefined, 'GUEST_NUMBER_TAKEN')
+      return conflict('That number already reaches a Native Intelligence agent, so it can’t reach yours too.', undefined, 'GUEST_NUMBER_TAKEN')
     case 'already_listed':
       return conflict('That number is already on your list.', undefined, 'GUEST_ALREADY_LISTED')
     case 'too_many':
@@ -67,7 +67,7 @@ export function guestRefusal(reason: string): Response {
     case 'wrong_state':
       return conflict('That changed in the meantime. Reopen People and try again.', undefined, 'GUEST_WRONG_STATE')
     case 'not_configured':
-      return apiError('Guest access isn’t set up on this Dial8 yet.', { status: 503, code: 'GUESTS_NOT_CONFIGURED' })
+      return apiError('Guest access isn’t set up here yet.', { status: 503, code: 'GUESTS_NOT_CONFIGURED' })
     default:
       return serverError('Couldn’t save that. Try again.')
   }

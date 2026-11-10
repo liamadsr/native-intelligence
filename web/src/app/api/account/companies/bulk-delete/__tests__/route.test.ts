@@ -33,7 +33,7 @@ const { POST } = await import('@/app/api/account/companies/bulk-delete/route')
 
 function postReq(body?: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/companies/bulk-delete',
+    url: 'https://nativeintelligence.dev/api/account/companies/bulk-delete',
     method: 'POST',
     body,
   }) as unknown as NextRequest
@@ -128,7 +128,7 @@ describe('POST /api/account/companies/bulk-delete', () => {
 
   it('rejects invalid JSON with 400', async () => {
     const req = buildRequest({
-      url: 'https://dial8.ai/api/account/companies/bulk-delete',
+      url: 'https://nativeintelligence.dev/api/account/companies/bulk-delete',
       method: 'POST',
       body: 'not json',
       raw: true,

@@ -39,7 +39,7 @@
  *
  * ── Pausing ──
  *
- * One gate (there are no Dial8 tabs to background any more: one chat,
+ * One gate (there are no Native Intelligence tabs to background any more: one chat,
  * docs/plans/one-chat.md):
  *   • `document.hidden` — the BROWSER tab/window is hidden. The browser already
  *     throttles timers here, but an un-gated loop still fires a burst on

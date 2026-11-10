@@ -1,6 +1,6 @@
 //
 //  iOSAIChatView.swift
-//  dial8
+//  Native Intelligence
 //
 //  The chat surface, presented as a large sheet over a blurred Home screen.
 //  Supports general chat (no context) and note-bound chat (note pre-attached).
@@ -24,7 +24,7 @@ extension Notification.Name {
     /// "open the chat AND start listening". The sheet may not be mounted yet when
     /// this fires, so `ChatSessionStore.shared.pendingDictationStart` carries the
     /// same intent for the `.onAppear` path — see `iOSChatSurface`.
-    static let startChatDictation = Notification.Name("dial8.chat.startDictation")
+    static let startChatDictation = Notification.Name("ni.chat.startDictation")
 }
 
 /// Presentation-facing wrapper. Its only job is to decide WHO owns the view
@@ -289,7 +289,7 @@ struct iOSChatSurface: View {
             Spacer(minLength: 8)
             Button { showingAgents = true } label: {
                 HStack(spacing: 5) {
-                    Text(viewModel.selectedAgent?.name ?? "Dial8").font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Text(viewModel.selectedAgent?.name ?? "Native Intelligence").font(.subheadline.weight(.semibold)).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                 }
                 .foregroundStyle(.primary)

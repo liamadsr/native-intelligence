@@ -1,6 +1,6 @@
 /**
  * Linking a phone (Settings → Phone, docs/plans/text-and-calling.md decision
- * 3): the person types their number, Dial8 texts a 6-digit code, they type it
+ * 3): the person types their number, Native Intelligence texts a 6-digit code, they type it
  * back. Possession of the phone is the proof.
  *
  *   start  the SMS consent ticked (./consent.ts, stored with the code and
@@ -16,23 +16,23 @@
  *          A match consumes the code and links the number, and the person's
  *          own row is replaced (one number each). Which line (migration 464,
  *          one phone, two accounts):
- *            - the number is another account's Dial8 line, the account
+ *            - the number is another account's Native Intelligence line, the account
  *              linking it is a business's (its workspace has a business
  *              profile or a live business number: ./business-line.ts), and
  *              that other account has an email: it is added as this
- *              account's business line, beside the other account's Dial8
+ *              account's business line, beside the other account's Native Intelligence
  *              line, which stays; that account is emailed a notice (what it
  *              means, and how to take the number back in Settings › Phone);
- *            - otherwise the number moves here, on the Dial8 line: anyone
+ *            - otherwise the number moves here, on the Native Intelligence line: anyone
  *              else's link to it is removed, business lines too (numbers get
  *              recycled; the code just proved this person holds it). A
- *              Dial8-line account with no email (a phone-only text sign-up)
+ *              NI-line account with no email (a phone-only text sign-up)
  *              can't be told, so its number moves even to a business.
  *          Verification clears an opt-out: the code just reached the phone.
  *   The first link of a number texts a welcome that says it's an AI agent
- *   and how to STOP (decision 6): a Dial8 line's from the Dial8 number, a
+ *   and how to STOP (decision 6): a Native Intelligence line's from the Native Intelligence number, a
  *   business line's from the business's own number (none while it has no
- *   live number: a text from the Dial8 number would point them at the other
+ *   live number: a text from the Native Intelligence number would point them at the other
  *   account's agent).
  */
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto'
@@ -100,10 +100,10 @@ export interface PhoneVerificationDeps {
   send?: (to: string, body: string, deps?: { from?: string }) => Promise<SendSmsResult>
   now?: () => number
   code?: () => string
-  /** The Dial8-line account's deliverable email, or null for a phone-only one (./business-line.ts accountEmail). */
-  dial8HolderEmail?: (userId: string) => Promise<string | null>
-  /** Email the Dial8-line account that its number was also added as a business line (./business-line.ts). */
-  notifyDial8Holder?: (args: { to: string; phone: string }) => Promise<boolean>
+  /** The NI-line account's deliverable email, or null for a phone-only one (./business-line.ts accountEmail). */
+  niHolderEmail?: (userId: string) => Promise<string | null>
+  /** Email the NI-line account that its number was also added as a business line (./business-line.ts). */
+  notifyNiHolder?: (args: { to: string; phone: string }) => Promise<boolean>
 }
 
 /** Start (or restart) a verification. Never throws. */
@@ -234,14 +234,14 @@ export async function verifyPhoneCode(
     return pending.attempts + 1 >= PHONE_CODE_MAX_ATTEMPTS ? { ok: false, reason: 'too_many_attempts' } : { ok: false, reason: 'invalid_code' }
   }
 
-  // Which line (see the header): another account's Dial8 line stays when a
+  // Which line (see the header): another account's Native Intelligence line stays when a
   // business's account adds the number and that account can be told.
   let line: PhoneLine = 'dial8'
   let noticeTo: string | null = null
   try {
-    const dial8Holder: LinkedPhone | null = await findLinkedPhone(supabase, pending.phone_e164)
-    if (dial8Holder && dial8Holder.userId !== args.userId && (await isBusinessWorkspace(supabase, pending.workspace_id))) {
-      noticeTo = await (deps.dial8HolderEmail ?? ((userId) => accountEmail(supabase, userId)))(dial8Holder.userId)
+    const niHolder: LinkedPhone | null = await findLinkedPhone(supabase, pending.phone_e164)
+    if (niHolder && niHolder.userId !== args.userId && (await isBusinessWorkspace(supabase, pending.workspace_id))) {
+      noticeTo = await (deps.niHolderEmail ?? ((userId) => accountEmail(supabase, userId)))(niHolder.userId)
       // No email (a phone-only account): it can't learn its number went elsewhere, so the number moves, as before.
       if (noticeTo) line = 'business'
     }
@@ -262,7 +262,7 @@ export async function verifyPhoneCode(
   const alreadyLinked = before?.phone_e164 === pending.phone_e164 && before.verified_at !== null
 
   if (line === 'dial8') {
-    // One person per number on the Dial8 line: the code proved possession, so it moves here.
+    // One person per number on the Native Intelligence line: the code proved possession, so it moves here.
     const { error: releaseError } = await supabase.from('user_phone').delete().eq('phone_e164', pending.phone_e164).neq('user_id', args.userId)
     if (releaseError) return { ok: false, reason: 'lookup_failed' }
   }
@@ -291,7 +291,7 @@ export async function verifyPhoneCode(
   if (linkError) return { ok: false, reason: 'lookup_failed' }
 
   if (line === 'business' && noticeTo && !alreadyLinked) {
-    await (deps.notifyDial8Holder ?? sendBusinessLineNotice)({ to: noticeTo, phone: pending.phone_e164 }).catch(() => false)
+    await (deps.notifyNiHolder ?? sendBusinessLineNotice)({ to: noticeTo, phone: pending.phone_e164 }).catch(() => false)
   }
 
   let welcomed = false
@@ -299,7 +299,7 @@ export async function verifyPhoneCode(
     const send = deps.send ?? sendSms
     let sent: SendSmsResult | null = null
     if (line === 'dial8') {
-      // From their agent's own number when it has one, else the Dial8 one.
+      // From their agent's own number when it has one, else the Native Intelligence one.
       const sender = await agentSender(supabase, args.userId)
       sent = sender ? await send(pending.phone_e164, WELCOME_TEXT, { sender }) : await send(pending.phone_e164, WELCOME_TEXT)
     } else {

@@ -63,7 +63,7 @@ describe('mcpNeedsReconnect', () => {
 describe('recordMcpReconnectEvent', () => {
   const server = { id: 'srv-1', user_id: 'u1', workspace_id: 'w1', display_name: 'my supabase', server_url: 'https://mcp.supabase.com/mcp', reauth_required_at: marked }
 
-  it('one connection.needs_reconnect row per expiry: a catalog app named by Dial8, with its catalog id', async () => {
+  it('one connection.needs_reconnect row per expiry: a catalog app named by Native Intelligence, with its catalog id', async () => {
     recorder.record.mockClear()
     expect(await recordMcpReconnectEvent(server)).toBe(true)
     const [inputs] = recorder.record.mock.calls[0] as unknown as [Array<Record<string, unknown>>]

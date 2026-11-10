@@ -206,7 +206,7 @@ pub fn compute_status(available: bool, stt: ModuleView, tts: ModuleView, vad: Op
         speech_audio: true,
     };
     if !available {
-        status.reason = Some("Chat voice needs the Dial8 desktop app for macOS".into());
+        status.reason = Some("Chat voice needs the Native Intelligence desktop app for macOS".into());
         return status;
     }
     if !stt.launchable {
@@ -641,7 +641,7 @@ fn remembered_level(app: &AppHandle) -> levels::Memory {
     levels::Memory::new(levels::load(app), levels::device_in_use(app), std::time::Instant::now())
 }
 
-/// The dev-only debug capture ([`capture`]), when `DIAL8_VOICE_CAPTURE` is
+/// The dev-only debug capture ([`capture`]), when `NI_VOICE_CAPTURE` is
 /// set in a debug build. Never on by default, never in a release build; a
 /// failure to create it only logs.
 fn start_capture(app: &AppHandle, req: &StartRequest) -> Option<Capture> {

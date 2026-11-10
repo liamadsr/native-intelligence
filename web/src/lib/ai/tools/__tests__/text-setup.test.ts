@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  */
 vi.mock('@/lib/links/oauth-link', async (orig) => ({
   ...(await orig<typeof import('@/lib/links/oauth-link')>()),
-  mintConnectLink: vi.fn(async () => ({ ok: true, token: 't', url: 'https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12', expiresAt: 'x' })),
+  mintConnectLink: vi.fn(async () => ({ ok: true, token: 't', url: 'https://nativeintelligence.dev/l/AbCdEfGhIjKlMnOpQrStUv12', expiresAt: 'x' })),
 }))
 vi.mock('@/lib/packs/memory-write', () => ({ saveMemoryLine: vi.fn(async (_s, args) => ({ ok: true, line: { text: args.text } })) }))
 vi.mock('@/lib/sms/store', async (orig) => ({
@@ -57,7 +57,7 @@ describe('connect_link', () => {
     expect(out).toMatchObject({ success: true, texted: true })
     expect(JSON.stringify(out)).not.toContain('/l/')
     expect(mintConnectLink).toHaveBeenCalledWith(db.client, expect.objectContaining({ userId: 'user-1', workspaceId: 'ws-1', provider: 'google' }))
-    expect(sms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Connect your Google account: https://dial8.ai/l/AbCdEfGhIjKlMnOpQrStUv12'))
+    expect(sms).toHaveBeenCalledWith('+15551234567', expect.stringContaining('Connect your Google account: https://nativeintelligence.dev/l/AbCdEfGhIjKlMnOpQrStUv12'))
     expect(recordOutbound).toHaveBeenCalledWith(db.client, { phone: '+15551234567', kind: 'reply', sid: 'SMlink', userId: 'user-1' })
   })
 

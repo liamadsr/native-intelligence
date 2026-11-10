@@ -1,4 +1,4 @@
-import { Screenshot } from '@dial8/ui'
+import { Screenshot } from '@native-intelligence/ui'
 
 export function Dashboard() {
   return (
@@ -6,7 +6,7 @@ export function Dashboard() {
       <Screenshot
         width={1200}
         height={750}
-        src="https://placehold.co/1200x750/eef2ff/4338ca/png?text=Dial8+Dashboard"
+        src="https://placehold.co/1200x750/eef2ff/4338ca/png?text=Native Intelligence+Dashboard"
       />
     </div>
   )

@@ -155,7 +155,7 @@ export function renderVoiceAskSection(ask: VoiceAskContext, assistantName: strin
   const lines = ['## Interactive mode (spoken)']
   const snapshot = ask.snapshot
   lines.push(
-    `The user is talking to you by voice in Dial8's Interactive mode: they said your name, ${assistantName}, and this message is what they said after it.${
+    `The user is talking to you by voice in Native Intelligence's Interactive mode: they said your name, ${assistantName}, and this message is what they said after it.${
       snapshot ? ` They were listening to ${listeningTo(snapshot)} when they spoke.` : ''
     }`,
   )

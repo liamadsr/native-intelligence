@@ -650,7 +650,7 @@ describe('InteractiveEngine: Voice focus', () => {
     expect(gate.disposed).toBe(1)
   })
 
-  it('a voice Dial8 doesn’t know saying the name: nothing asked, and the reading paused by the partial resumes', async () => {
+  it('a voice Native Intelligence doesn’t know saying the name: nothing asked, and the reading paused by the partial resumes', async () => {
     const h = harness()
     const { decide, turnAs } = withFocus(h)
     await live(h)

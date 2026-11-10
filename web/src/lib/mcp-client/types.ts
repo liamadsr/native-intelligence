@@ -34,7 +34,7 @@ export interface ConnectedMcpServerRow {
   tools_cache: McpToolDescriptor[] | null
   /**
    * Request headers the transport sends to this server. Never a column: only a
-   * server Dial8 builds itself has them (github-integration.ts, GitHub's
+   * server Native Intelligence builds itself has them (github-integration.ts, GitHub's
    * toolsets). Never Authorization, which is the token's alone.
    */
   extra_headers?: Readonly<Record<string, string>>

@@ -1,6 +1,6 @@
 /**
  * The OAuth callback for a connect started from a texted link (state
- * `via: 'text'`, ./oauth-link.ts). The phone's browser has no Dial8 session,
+ * `via: 'text'`, ./oauth-link.ts). The phone's browser has no Native Intelligence session,
  * so the binding is the web flow's: the oauth_nonce cookie the link's POST
  * set must equal the state's nonce, or nothing happens at all (and the
  * cookie is left alone, so a connect this browser really started isn't

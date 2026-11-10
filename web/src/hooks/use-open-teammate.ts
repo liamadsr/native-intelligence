@@ -13,7 +13,7 @@
  * the shared source doesn't hold is looked up first (lib/bots/item-lookup.ts).
  *
  * `OpenTeammateDevBridge` (development only, mounted in the dashboard shell)
- * puts the same call on `window.__dial8OpenTeammate(teammateIds, intent)`, so
+ * puts the same call on `window.__niOpenTeammate(teammateIds, intent)`, so
  * a click can be tried from the console.
  */
 import { useCallback, useEffect, useRef } from 'react'
@@ -101,16 +101,16 @@ export function useOpenWorkItem(
   )
 }
 
-type DevWindow = Window & { __dial8OpenTeammate?: (teammateIds: string[], intent?: TeammateIntent) => OpenTeammateOutcome }
+type DevWindow = Window & { __niOpenTeammate?: (teammateIds: string[], intent?: TeammateIntent) => OpenTeammateOutcome }
 
-/** Development only: `window.__dial8OpenTeammate(['<ai_team_member id>', …], 'talk' | 'open' | 'page')`. */
+/** Development only: `window.__niOpenTeammate(['<ai_team_member id>', …], 'talk' | 'open' | 'page')`. */
 export function OpenTeammateDevBridge() {
   const open = useOpenTeammate()
   useEffect(() => {
     const w = window as DevWindow
-    w.__dial8OpenTeammate = (teammateIds, intent) => open(teammateIds, intent)
+    w.__niOpenTeammate = (teammateIds, intent) => open(teammateIds, intent)
     return () => {
-      if (w.__dial8OpenTeammate) delete w.__dial8OpenTeammate
+      if (w.__niOpenTeammate) delete w.__niOpenTeammate
     }
   }, [open])
   return null

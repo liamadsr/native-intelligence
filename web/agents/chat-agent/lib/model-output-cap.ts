@@ -59,7 +59,7 @@ export function capToolModelOutput(projected: ToolModelOutput): ToolModelOutput 
   } else return projected
   if (text.length <= TOOL_RESULT_MODEL_MAX_CHARS) return projected
   const note =
-    `\n\n[Dial8 cut this result to keep the conversation small: it was ${text.length} characters, ` +
+    `\n\n[Native Intelligence cut this result to keep the conversation small: it was ${text.length} characters, ` +
     `and the middle ${text.length - TOOL_RESULT_MODEL_HEAD_CHARS - TOOL_RESULT_MODEL_TAIL_CHARS} were left out. ` +
     'If you need what was cut, call the tool again for a narrower page, filter or range.]\n\n'
   return toolOutput.text(headOf(text, TOOL_RESULT_MODEL_HEAD_CHARS) + note + tailOf(text, TOOL_RESULT_MODEL_TAIL_CHARS))

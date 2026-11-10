@@ -59,23 +59,24 @@ const NAME_MAX = 60
 const QUESTION_MAX = 300
 const REASON_MAX = 160
 const SUMMARY_MAX = 280
-/** A local agent's report carries more of its finish summary (or last message) for the Dial8 agent. */
+/** A local agent's report carries more of its finish summary (or last message) for the Native Intelligence agent. */
 const LOCAL_AGENT_SUMMARY_MAX = 2000
 const FOLDER_LABEL_MAX = 80
-/** The Mac's name in "Dial8 on <Mac>" (user_device.name, the Mac's own). */
+/** The Mac's name in "Native Intelligence on <Mac>" (user_device.name, the Mac's own). */
 const DEVICE_NAME_MAX = 80
 /**
  * A local agent's ledger title (src/lib/local-agent/ledger.ts turnTitle):
- * "Dial8 on <Mac> · <folder>: <request>", or "Your Mac · <folder>: <request>"
+ * "Native Intelligence on <Mac> · <folder>: <request>", or "Your Mac · <folder>: <request>"
  * on a row from before the teammate plan.
  */
-const LOCAL_AGENT_TITLE_PREFIXES = /^(?:Your Mac|Dial8 on [^·]{1,80}) · /
+// TODO(rename-compat): titles saved before the rename start "Dial8 on <Mac>"; drop that half once those rows have aged out.
+const LOCAL_AGENT_TITLE_PREFIXES = /^(?:Your Mac|(?:Dial8|Native Intelligence) on [^·]{1,80}) · /
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DEFAULT_NAME = 'Your teammate'
 const DEFAULT_TITLE = 'the work you asked for'
 /** An action's identifier (ENG-42): a team key and a number, nothing else. */
 const IDENTIFIER_RE = /^[A-Z][A-Z0-9]{0,9}-\d{1,7}$/
-/** A meeting label is Dial8's own words around a time ("12:00 PM GMT+5:30 on Friday, October 17"): these characters only. */
+/** A meeting label is Native Intelligence's own words around a time ("12:00 PM GMT+5:30 on Friday, October 17"): these characters only. */
 const MEETING_LABEL_RE = /^[A-Za-z0-9 ,:+-]{1,80}$/
 /** A deliverable id longer than this is withheld (see safeDeliverableId). */
 const DELIVERABLE_ID_MAX = 64
@@ -109,7 +110,7 @@ export interface TeammateReport {
   more_deliverables: number
   /** needs_input: the teammate's question. */
   question: string | null
-  /** needs_input on a coding run: its action's identifier (ENG-42), Dial8's own. */
+  /** needs_input on a coding run: its action's identifier (ENG-42), Native Intelligence's own. */
   identifier?: string
   /** failed: why, in a few words. */
   reason: string | null
@@ -117,7 +118,7 @@ export interface TeammateReport {
   summary: string | null
   /**
    * A meeting prep's meeting (src/lib/work/chat-report.ts): its start, and that
-   * start in the person's zone as Dial8 wrote it ("12:00 PM EDT on Friday,
+   * start in the person's zone as Native Intelligence wrote it ("12:00 PM EDT on Friday,
    * October 17"), so a line about the report says which meeting it is for
    * however late it is read. Present only on a prep's report.
    */
@@ -125,13 +126,13 @@ export interface TeammateReport {
   /**
    * A local agent's turn (work kind `local_agent`, src/lib/local-agent/ledger.ts):
    * the folder it works in (the Mac's own label) and its session, so the
-   * report reads as "Your Mac (dial8-website) finished …" and the Dial8 agent
+   * report reads as "Your Mac (web) finished …" and the Native Intelligence agent
    * can follow up with read_local_agent / message_local_agent.
    */
   local_agent?: TeammateReportLocalAgent
   /**
    * A meeting prep's offer to enrich (pull web details on) the outside
-   * attendees whose contact isn't enriched yet, at most three, Dial8's pick
+   * attendees whose contact isn't enriched yet, at most three, Native Intelligence's pick
    * (src/lib/agent-events/meeting-prep.ts enrichOfferFor). Enrichment runs
    * only on the person's yes (2026-10-27), so the chat text asks, and the
    * context line names their contact ids for the main chat's enrich_contact.
@@ -150,15 +151,15 @@ export interface TeammateReportLocalAgent {
   folder_label: string
   /** needs_input because the Mac app closed mid-turn (needs id LOCAL_AGENT_INTERRUPTED_NEEDS_ID), not a question. */
   interrupted?: boolean
-  /** The Mac's name: the report names the teammate "Dial8 on <Mac>" (teammate plan C4). Older reports have none. */
+  /** The Mac's name: the report names the teammate "Native Intelligence on <Mac>" (teammate plan C4). Older reports have none. */
   device_name?: string
-  /** needs_input on the Mac body's question to Dial8 in the cloud (message_teammate, LOCAL_AGENT_TEAMMATE_NEEDS_ID). */
+  /** needs_input on the Mac body's question to Native Intelligence in the cloud (message_teammate, LOCAL_AGENT_TEAMMATE_NEEDS_ID). */
   to_teammate?: boolean
 }
 
 /** The needs id of a local agent parked because its Mac app closed (src/lib/local-agent/ledger.ts). */
 export const LOCAL_AGENT_INTERRUPTED_NEEDS_ID = 'local-agent-interrupted'
-/** The needs id of the Mac body's question to Dial8 in the cloud (message_teammate; src/lib/local-agent/ledger.ts). */
+/** The needs id of the Mac body's question to Native Intelligence in the cloud (message_teammate; src/lib/local-agent/ledger.ts). */
 export const LOCAL_AGENT_TEAMMATE_NEEDS_ID = 'local-agent-teammate'
 
 /** The meeting a prep's report is for. */
@@ -222,7 +223,7 @@ export const TEAMMATE_TEXT_NOTE =
 
 /**
  * A run-written string, fenced for a model: one line, angle brackets swapped
- * for look-alikes so it can neither close its fence nor open a tag Dial8
+ * for look-alikes so it can neither close its fence nor open a tag Native Intelligence
  * writes (a `</turn-context>`, a `<section>`).
  */
 export function fenceTeammateText(text: string): string {
@@ -234,7 +235,7 @@ export function fenceTeammateText(text: string): string {
  * A name people set (a teammate's, a bot's, a workspace's: workspace-set, not
  * run-written), plain for a model: on one line, angle brackets swapped for
  * look-alikes, so it can neither close a fence (`</teammate-text>`) nor open
- * a tag Dial8 writes. Shared: the teammate reports and the main agent's bot
+ * a tag Native Intelligence writes. Shared: the teammate reports and the main agent's bot
  * reads (lib/bots/bot-work-server.ts) both name bots with it.
  */
 export function plainName(name: string): string {
@@ -382,7 +383,7 @@ function reportLocalAgent(
 }
 
 /**
- * A local agent's subject: its ledger title without "Dial8 on <Mac> ·
+ * A local agent's subject: its ledger title without "Native Intelligence on <Mac> ·
  * <folder>: " (or the older "Your Mac · <folder>: "): the report already names
  * the teammate and the folder.
  */
@@ -399,9 +400,9 @@ function isLocalAgentReport(r: TeammateReport): r is TeammateReport & { local_ag
 }
 
 /**
- * The person-facing text of a local agent's report: "Dial8 on Liam's MacBook
- * Pro (dial8-website) finished **…**" (a report from before the teammate
- * plan, with no Mac name: "Dial8 on your Mac (…)").
+ * The person-facing text of a local agent's report: "Native Intelligence on Liam's MacBook
+ * Pro (web) finished **…**" (a report from before the teammate
+ * plan, with no Mac name: "Native Intelligence on your Mac (…)").
  */
 function localAgentReportText(r: TeammateReport & { local_agent: TeammateReportLocalAgent }): string {
   const who = `${escapeMarkdownInline(macTeammateName(r.local_agent.device_name))} (${escapeMarkdownInline(r.local_agent.folder_label)})`
@@ -414,7 +415,7 @@ function localAgentReportText(r: TeammateReport & { local_agent: TeammateReportL
     }
     case 'needs_input':
       if (r.local_agent.interrupted) return `${who} closed while working on **${subject}** — message it to resume.`
-      if (r.local_agent.to_teammate) return `${who} asked Dial8 about **${subject}**.`
+      if (r.local_agent.to_teammate) return `${who} asked Native Intelligence about **${subject}**.`
       return `${who} has a question about **${subject}**.`
     case 'failed':
       return r.reason ? `${who} couldn't finish **${subject}**: ${escapeMarkdownInline(r.reason)}` : `${who} couldn't finish **${subject}**.`
@@ -427,9 +428,9 @@ function localAgentReportText(r: TeammateReport & { local_agent: TeammateReportL
   }
 }
 
-/** The Dial8 agent's line about a local agent's report: what happened, and the session to follow up on. */
+/** The Native Intelligence agent's line about a local agent's report: what happened, and the session to follow up on. */
 function localAgentContextLine(r: TeammateReport & { local_agent: TeammateReportLocalAgent }): string {
-  const where = `${macTeammateName(r.local_agent.device_name ? fenceTeammateText(r.local_agent.device_name) : null)}, the Dial8 agent on the person's Mac (in ${fenceTeammateText(r.local_agent.folder_label)}),`
+  const where = `${macTeammateName(r.local_agent.device_name ? fenceTeammateText(r.local_agent.device_name) : null)}, the Native Intelligence agent on the person's Mac (in ${fenceTeammateText(r.local_agent.folder_label)}),`
   const subject = fenceTeammateText(localAgentSubject(r))
   const session = `local agent session ${r.local_agent.session_id}`
   switch (r.status) {
@@ -454,7 +455,7 @@ function localAgentContextLine(r: TeammateReport & { local_agent: TeammateReport
   }
 }
 
-/** A prep's meeting, shape-checked (a readable start, a label in Dial8's own characters), else null. */
+/** A prep's meeting, shape-checked (a readable start, a label in Native Intelligence's own characters), else null. */
 function reportMeeting(value: { startIso: unknown; label: unknown } | null | undefined): TeammateReportMeeting | null {
   if (!value || typeof value.startIso !== 'string' || typeof value.label !== 'string') return null
   const ms = Date.parse(value.startIso)
@@ -564,7 +565,7 @@ export function teammateReportChipLabel(status: TeammateReportStatus): string {
 export function teammateReportContextLine(r: TeammateReport): string {
   if (isLocalAgentReport(r)) return localAgentContextLine(r)
   const name = plainName(r.teammate_name)
-  // A meeting prep says which meeting: its start, in the person's zone (Dial8's words, not the run's).
+  // A meeting prep says which meeting: its start, in the person's zone (Native Intelligence's words, not the run's).
   const title = `${fenceTeammateText(r.title)}${r.meeting ? ` (the prep for their meeting at ${r.meeting.label})` : ''}`
   // Where the person acts on it: with the teammate's bot (bots v4).
   const atBot = `For you, or ${name}'s page`
@@ -603,7 +604,7 @@ export function teammateReportContextLine(r: TeammateReport): string {
 
 /**
  * A report MESSAGE as one line of a transcript a model reads (a new eve
- * session's history primer), in place of its chat text: labelled as Dial8's, never as the assistant's own
+ * session's history primer), in place of its chat text: labelled as Native Intelligence's, never as the assistant's own
  * words, with every run-written string fenced. Null for any other message.
  */
 export function teammateReportTranscriptLine(message: unknown): string | null {
@@ -611,7 +612,7 @@ export function teammateReportTranscriptLine(message: unknown): string | null {
   const meta = (message as { metadata?: { teammate_report?: unknown } }).metadata
   const report = parseTeammateReport(meta?.teammate_report)
   const what = report ? teammateReportContextLine(report).replace(/^- /, '') : 'A teammate reported back on delegated work.'
-  return `Teammate report (Dial8 wrote this, not you or the person; ${TEAMMATE_TEXT_NOTE}) ${what}`
+  return `Teammate report (Native Intelligence wrote this, not you or the person; ${TEAMMATE_TEXT_NOTE}) ${what}`
 }
 
 /** True for a chat message a teammate's report wrote (the panel's Realtime filter). */

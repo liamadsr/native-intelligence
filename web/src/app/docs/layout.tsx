@@ -13,11 +13,11 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2.5">
               {/* Always the dark app icon — the light/marble variant is retired. */}
               <img
-                src="/screenshots/Icon-macOS-Dark-1024x1024@2x-dark.png"
-                alt="Dial8"
+                src="/brand/ni-app-icon.png"
+                alt="Native Intelligence"
                 className="size-7"
               />
-              <span className="font-semibold">Dial8 Docs</span>
+              <span className="font-semibold">NI Docs</span>
             </div>
           ),
           url: '/docs',

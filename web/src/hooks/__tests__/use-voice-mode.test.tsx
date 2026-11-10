@@ -197,7 +197,7 @@ describe('useVoiceMode', () => {
   })
 
   it('asks for the quiet room even when an older build stored a noisy one', async () => {
-    window.localStorage.setItem('dial8:voice:noise', 'noisy')
+    window.localStorage.setItem('ni:voice:noise', 'noisy')
     await render()
     expect(await start()).toBeNull()
     expect(bridge.calls[0]).toEqual(['start', expect.objectContaining({ noiseProfile: 'quiet' })])
@@ -506,7 +506,7 @@ describe('useVoiceMode — a turn handled where it was said (bots-v2.md Phase 4)
   })
 })
 
-describe('useVoiceMode — Voice focus (a voice Dial8 doesn’t know is ignored)', () => {
+describe('useVoiceMode — Voice focus (a voice Native Intelligence doesn’t know is ignored)', () => {
   /** A gate whose verdicts the test hands out, turn by turn (Voice focus on
    *  unless `on` says otherwise). */
   function fakeGate({ on = true }: { on?: boolean } = {}) {

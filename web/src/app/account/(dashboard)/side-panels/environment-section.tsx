@@ -225,7 +225,7 @@ function MacBody({ mac, local }: { mac: MacEnvironmentItem; local: EnvironmentSn
         </button>
       ) : (
         <p data-environment-hint="" className="px-3 pb-1 pt-1 text-xs text-muted-foreground">
-          {folders.length === 0 ? `No folders yet. Add them in Dial8 on ${mac.name}.` : `Add folders in Dial8 on ${mac.name}.`}
+          {folders.length === 0 ? `No folders yet. Add them in Native Intelligence on ${mac.name}.` : `Add folders in Native Intelligence on ${mac.name}.`}
         </p>
       )}
     </>

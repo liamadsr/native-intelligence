@@ -103,7 +103,7 @@ export interface HeartbeatInput {
 
 /** A removed Mac's heartbeat (environments, "Remove this Mac"): 409 details.code. */
 export const DEVICE_REMOVED_CODE = 'DEVICE_REMOVED'
-export const DEVICE_REMOVED_REASON = 'This Mac was removed from Dial8. Add a folder on it again to bring it back.'
+export const DEVICE_REMOVED_REASON = 'This Mac was removed from Native Intelligence. Add a folder on it again to bring it back.'
 
 /** Parse a heartbeat body; throws a bad_request LocalAgentError on anything off-shape. */
 export function parseHeartbeat(body: unknown): HeartbeatInput {
@@ -562,7 +562,7 @@ export async function claimSession(
     if (input.localModel === true && /local_model/.test(error.message ?? '')) {
       throw new LocalAgentError(
         'conflict',
-        "This Mac runs its own model, and Dial8 can't record that yet, so the job waits. Switch the Mac to Dial8's model to run it now.",
+        "This Mac runs its own model, and Native Intelligence can't record that yet, so the job waits. Switch the Mac to Native Intelligence's model to run it now.",
         { code: LOCAL_MODEL_UNRECORDED },
       )
     }
@@ -598,7 +598,7 @@ export interface DeviceEventInput {
 
 /**
  * Kinds only the server writes. A device event of one of these is dropped at
- * the door, so the Mac can never write "the person" (or the Dial8 agent) into
+ * the door, so the Mac can never write "the person" (or the Native Intelligence agent) into
  * its own transcript. `branch` is not reserved: Rust makes it.
  */
 export const RESERVED_EVENT_KINDS: ReadonlySet<string> = new Set(['inbound'])

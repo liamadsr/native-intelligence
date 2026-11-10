@@ -124,7 +124,7 @@ describe('startEvalRun', () => {
   })
 
   // The trials and the judges run on the person's own plan: their run costs
-  // Dial8 nothing, so it's priced at $0 with a $0 ceiling (the lane stops it
+  // Native Intelligence nothing, so it's priced at $0 with a $0 ceiling (the lane stops it
   // should it ever spend).
   it('queues a run for a person on their own ChatGPT plan, priced at $0 with a $0 ceiling', async () => {
     hoisted.onPlan.mockResolvedValue(true)

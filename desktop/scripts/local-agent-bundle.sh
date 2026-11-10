@@ -1,13 +1,13 @@
 #!/bin/bash
 # Vendor the local agent into src-tauri/resources/local-agent/, built from a
-# dial8-website checkout by its scripts/local-agent/bundle.sh. Commit the
+# web folder by its scripts/local-agent/bundle.sh. Commit the
 # result: a release ships exactly what is committed (release.sh checks the
 # staged copy against BUNDLE.json). See scripts/local-agent.sh.
 #
 # Usage:
-#   scripts/local-agent-bundle.sh [<dial8-website checkout>] [--allow-dirty]
+#   scripts/local-agent-bundle.sh [<web folder>] [--allow-dirty]
 #
-# The checkout defaults to $DIAL8_WEB_DIR, else ../dial8-website next to this
+# The checkout defaults to $NI_WEB_DIR, else ../web next to this
 # repo. It needs its node_modules installed. Build from a commit that is on
 # the web repo's main: BUNDLE.json records it. --allow-dirty vendors a bundle
 # from uncommitted web source for a local test; release.sh refuses it.
@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$SCRIPT_DIR/src-tauri/resources/local-agent"
 
-WEB_DIR="${DIAL8_WEB_DIR:-$SCRIPT_DIR/../dial8-website}"
+WEB_DIR="${NI_WEB_DIR:-$SCRIPT_DIR/../web}"
 ALLOW_DIRTY=false
 for arg in "$@"; do
     case "$arg" in
@@ -28,11 +28,11 @@ for arg in "$@"; do
 done
 WEB_DIR="$(cd "$WEB_DIR" && pwd)"
 if [ ! -x "$WEB_DIR/scripts/local-agent/bundle.sh" ]; then
-    echo "not a dial8-website checkout with scripts/local-agent/bundle.sh: $WEB_DIR" >&2
+    echo "not the web folder with scripts/local-agent/bundle.sh: $WEB_DIR" >&2
     exit 1
 fi
 
-OUT="$(mktemp -d "${TMPDIR:-/tmp}/dial8-local-agent-vendor.XXXXXX")"
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/ni-local-agent-vendor.XXXXXX")"
 trap 'rm -rf "$OUT"' EXIT
 "$WEB_DIR/scripts/local-agent/bundle.sh" "$OUT/local-agent"
 

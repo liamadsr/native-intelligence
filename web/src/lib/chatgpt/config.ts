@@ -1,9 +1,9 @@
 /**
  * Sign in with ChatGPT, with ChatGPT plan usage: OpenAI's endpoints and the
- * OAuth client Dial8 uses (docs/plans/chatgpt-free-tier.md, phase 1).
+ * OAuth client Native Intelligence uses (docs/plans/chatgpt-free-tier.md, phase 1).
  *
  * One consent grants identity AND plan usage, so a free-tier person's AI can
- * run on their own ChatGPT plan. Dial8 runs the flow itself (not Supabase's
+ * run on their own ChatGPT plan. Native Intelligence runs the flow itself (not Supabase's
  * custom provider): OpenAI requires `resource` on the code exchange as well as
  * on the authorize request, and a generic OIDC client can't send it.
  *
@@ -45,7 +45,7 @@ export const CHATGPT_SCOPES = [
 /** The self-serve flow's first-registration entry point. Never stored. */
 export const DYNAMIC_CLIENT_ID = 'dynamic_agent_client'
 /** The app name OpenAI shows when a person approves the self-serve client. */
-export const AGENT_NAME = 'Dial8'
+export const AGENT_NAME = 'Native Intelligence'
 
 export interface ChatGptClient {
   /** The issued client, or DYNAMIC_CLIENT_ID for a first self-serve registration. */

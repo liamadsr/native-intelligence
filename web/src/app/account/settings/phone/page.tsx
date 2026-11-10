@@ -1,7 +1,7 @@
 import { PhoneSettingsView } from './phone-settings-view'
 
 export const metadata = {
-  title: 'Phone – Settings – Dial8',
+  title: 'Phone – Settings',
 }
 
 export default function PhoneSettingsPage() {

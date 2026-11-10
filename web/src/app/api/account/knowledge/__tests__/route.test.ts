@@ -5,7 +5,7 @@
  * claim taken only from another person's private capture is not in the graph
  * either (the reader's own private captures still count).
  *
- * Dial8 doesn't learn from mail (2026-10-15, migration 341): a claim learned
+ * Native Intelligence doesn't learn from mail (2026-10-15, migration 341): a claim learned
  * from mail is in no one's graph, not even the person whose mail it came from.
  * The route drops it with its edges and sources, never makes an email a node,
  * and never reads email_message (it used to join it by workspace only, so any
@@ -105,7 +105,7 @@ beforeEach(() => {
   }
 })
 
-const get = () => GET(new NextRequest('https://dial8.ai/api/account/knowledge'))
+const get = () => GET(new NextRequest('https://nativeintelligence.dev/api/account/knowledge'))
 
 describe('GET /api/account/knowledge: mail is shown to no one', () => {
   it('drops claims learned from mail, with their sources and edges, and never makes an email a node', async () => {

@@ -14,7 +14,7 @@ import { toast } from 'sonner'
  * There are no draft settings (Liam, 2026-10-17). "Auto-generate drafts",
  * "Default tone" and "Auto-sync contacts from email" were never saved or read
  * by anything, so they are gone: drafts are always on, and write the way you
- * do, from what Dial8 learns of how you write (Settings → Memory shows it).
+ * do, from what Native Intelligence learns of how you write (Settings → Memory shows it).
  */
 /** Companies page size: the companies route caps `limit` at 200. */
 const COMPANY_PAGE = 200
@@ -102,7 +102,7 @@ export default function EmailCrmSettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Email</CardTitle>
-          <CardDescription>Dial8 drafts replies the way you write. See what it has learned in Settings → Memory.</CardDescription>
+          <CardDescription>Native Intelligence drafts replies the way you write. See what it has learned in Settings → Memory.</CardDescription>
         </CardHeader>
         <CardContent>
           <Button variant="outline" size="sm" onClick={handleSyncEmail} disabled={syncing}>

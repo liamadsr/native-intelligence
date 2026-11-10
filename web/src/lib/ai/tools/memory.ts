@@ -36,7 +36,7 @@ export const REMEMBER_SCOPES = [...MEMORY_SCOPES, 'profile'] as const
  * messages (agents/chat-agent/lib/person-messages.ts) and the tool route
  * passes `quoteVerified`. Verified: active. Anything else (a quote lifted from
  * an email or a page in a tool result, a forged one, MCP, which has no such
- * check): a proposal, and the chip says it waits in What Dial8 has learned.
+ * check): a proposal, and the chip says it waits in What Native Intelligence has learned.
  *
  * The workspace walls: a profile fact that names a contact, company or
  * project of this workspace (mentionsWorkspaceEntities) is refused, with the
@@ -115,8 +115,8 @@ export function createMemoryTools(
             remembered: { id: fact.id, area: null, area_name: 'About you', scope: 'profile', status: fact.status, text: fact.text },
             message: waiting
               ? already
-                ? 'This already waits for the person to accept it in What Dial8 has learned; nothing new was saved.'
-                : 'Saved as a suggestion, not remembered yet: the quote is not words the person said in their recent messages, so they accept it in What Dial8 has learned. Say so.'
+                ? 'This already waits for the person to accept it in What Native Intelligence has learned; nothing new was saved.'
+                : 'Saved as a suggestion, not remembered yet: the quote is not words the person said in their recent messages, so they accept it in What Native Intelligence has learned. Say so.'
               : already
                 ? 'This was already remembered about them; nothing new was saved.'
                 : 'Remembered about them, in every workspace. Say so in a few words; the person can undo it from the chip.',
@@ -156,7 +156,7 @@ export function createMemoryTools(
               ? 'This was already proposed to the workspace and still waits for an owner or admin; nothing new was saved.'
               : 'This was already remembered; nothing new was saved.'
             : waiting
-              ? 'Proposed to the workspace. It waits for an owner or admin to accept it in What Dial8 has learned; say so.'
+              ? 'Proposed to the workspace. It waits for an owner or admin to accept it in What Native Intelligence has learned; say so.'
               : `Remembered for ${PACKS[line.area].name}. Say so in a few words; the person can undo it from the chip.`,
         }
       },

@@ -76,7 +76,7 @@ export function AsanaSectionMap({
     <div className="mt-3 rounded-lg border border-border px-4 py-3">
       <p className="text-sm font-medium">Section for each status</p>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Optional. When an action changes status, Dial8 moves its
+        Optional. When an action changes status, Native Intelligence moves its
         Asana task into the matching section.
       </p>
       <div className="mt-3 space-y-2">
@@ -136,7 +136,7 @@ export function JiraStatusMap({
     <div className="mt-3 rounded-lg border border-border px-4 py-3">
       <p className="text-sm font-medium">Status for each stage</p>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Optional. When an action changes status, Dial8
+        Optional. When an action changes status, Native Intelligence
         transitions its Jira issue to match.
       </p>
       <div className="mt-3 space-y-2">
@@ -178,7 +178,7 @@ export function JiraStatusMap({
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
         Jira has no “canceled” category — canceled and done
-        statuses both sit in Done. Dial8 looks for a
+        statuses both sit in Done. Native Intelligence looks for a
         cancel-ish status name and sets a “Won&apos;t Do”
         resolution when the transition offers one; map the
         bucket explicitly if your workflow names it something
@@ -203,7 +203,7 @@ export function LinearStateMap({
       <p className="text-sm font-medium">State for each stage</p>
       <p className="mt-0.5 text-xs text-muted-foreground">
         Set automatically from the team&apos;s workflow. When
-        an action changes status, Dial8 moves its Linear
+        an action changes status, Native Intelligence moves its Linear
         issue to the matching state.
       </p>
       <div className="mt-3 space-y-2">
@@ -222,7 +222,7 @@ export function LinearStateMap({
                 <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
                   <AlertTriangle className="h-3 w-3 shrink-0" />
                   <span className="truncate">
-                    This team has no matching state — Dial8
+                    This team has no matching state — Native Intelligence
                     won&apos;t move the issue for this stage.
                   </span>
                 </span>

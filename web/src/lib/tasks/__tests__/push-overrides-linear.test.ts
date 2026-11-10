@@ -123,7 +123,7 @@ function sentInput(): Record<string, unknown> {
 
 beforeEach(() => {
   vi.resetAllMocks()
-  process.env.NEXT_PUBLIC_APP_URL = 'https://dial8.ai'
+  process.env.NEXT_PUBLIC_APP_URL = 'https://nativeintelligence.dev'
   hoistedConfig.loadLinearSyncState.mockResolvedValue({
     id: 'tss-1',
     accountId: 'acct-1',
@@ -438,7 +438,7 @@ describe('pushActionToLinear — strip retry protects explicit picks', () => {
  * made to a field that was showing P — and the push then resolved projectId back
  * to P because an absent override means "inherit". The issue landed in the
  * project the panel said it would not use. Same shape for the assignee, where
- * the fallback is the email bridge to the action's Dial8 assignee, and for the
+ * the fallback is the email bridge to the action's Native Intelligence assignee, and for the
  * due date.
  */
 describe('pushActionToLinear — an explicitly CLEARED field is not re-inherited', () => {

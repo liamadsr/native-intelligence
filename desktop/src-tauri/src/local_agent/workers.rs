@@ -1,4 +1,4 @@
-//! L4 on the desktop (dial8-website docs/plans/teammate-agent.md, WS-F):
+//! L4 on the desktop (web/docs/plans/teammate-agent.md, WS-F):
 //! which model this Mac's local agents use, and running a worker adapter
 //! (Claude Code, Codex) instead of eve's launcher when a job asks for one.
 //!
@@ -9,7 +9,7 @@
 //! person's own MCP servers or hooks). A bundle that doesn't list one never
 //! gets it: an older launcher would ignore the local model and use the relay.
 //!
-//! **The model choice** is per Mac: the Dial8 model relay (the default, as
+//! **The model choice** is per Mac: the Native Intelligence model relay (the default, as
 //! before L4), or a model on an OpenAI-compatible server the person runs on
 //! this Mac, Ollama or LM Studio, each on its fixed loopback port
 //! ([`LocalServer::base_url`]). Like the off switch it is native only: it
@@ -38,7 +38,7 @@
 //! ([`super::starts`]). `local_agent_start { worker }` then runs F-web's adapter,
 //! `<node> <bundle>/workers/<worker>.mjs` (in a dev checkout, F-web's build of
 //! it: `<agentDir>/.output/workers/<worker>.mjs`), with `LOCAL_AGENT_WORKER` and
-//! `LOCAL_AGENT_WORKER_BIN` (the CLI as found on the login shell's PATH; Dial8
+//! `LOCAL_AGENT_WORKER_BIN` (the CLI as found on the login shell's PATH; Native Intelligence
 //! never installs it). The job keeps its worker, so a resume relaunches the
 //! same one. Everything else is eve's: the supervisor, stop and exit handling,
 //! the cap and parking.
@@ -55,7 +55,7 @@
 //!
 //! **Fail closed.** A job never reaches the relay against the choice:
 //! - local model: the launcher gets the local server and no relay URL (its
-//!   session token still comes, for the Dial8 tools: teammate-agent C1);
+//!   session token still comes, for the Native Intelligence tools: teammate-agent C1);
 //! - worker: neither relay variable nor the dev key; it uses its vendor;
 //! - while the model is local, worker jobs are refused (a worker sends the
 //!   folder to its vendor);
@@ -109,23 +109,23 @@ const STORE_FILE: &str = "model.json";
 /// Where the person changes them.
 const WHERE: &str = "the menu bar's Local Agents → Model";
 const WORKERS_WHERE: &str = "the menu bar's Local Agents → Coding Agents";
-/// The stored choice doesn't parse (a newer Dial8 wrote it, or a hand edit).
+/// The stored choice doesn't parse (a newer Native Intelligence wrote it, or a hand edit).
 const UNREADABLE: &str =
-    "this Mac's model choice can't be read by this version of Dial8; pick one again in the menu bar's \
+    "this Mac's model choice can't be read by this version of Native Intelligence; pick one again in the menu bar's \
      Local Agents → Model";
 /// A local model that isn't served right now; the page is told no more.
 const LOCAL_DOWN: &str = "the local model this Mac uses isn't available right now (is its app running?); open \
                           it, or pick another model in the menu bar's Local Agents → Model";
 const NO_LOCAL_SUPPORT: &str =
-    "this build of Dial8 can't run a local model; pick Dial8 in the menu bar's Local Agents → Model";
+    "this build of Native Intelligence can't run a local model; pick Native Intelligence in the menu bar's Local Agents → Model";
 /// A worker's `fence` prompt (teammate C3) is refused with this: nothing on
 /// the Mac could hold the person's own CLI to a wider fence.
 pub const NO_WIDER_FENCE: &str = "a coding agent's access can't be widened";
 /// A job keeps the model mode its session was claimed with ([`check_mode`]).
 const MODE_NOW_LOCAL: &str =
-    "this job ran on Dial8's model, and this Mac has since switched to a local model; start a new job to use it";
+    "this job ran on Native Intelligence's model, and this Mac has since switched to a local model; start a new job to use it";
 const MODE_NOW_RELAY: &str =
-    "this job ran on this Mac's local model, and this Mac has since switched to Dial8's model; start a new job to use it";
+    "this job ran on this Mac's local model, and this Mac has since switched to Native Intelligence's model; start a new job to use it";
 /// A worker's session id is only ever one this Mac recorded ([`check_worker_resume`]).
 const FOREIGN_SESSION: &str =
     "a coding agent's job resumes only on a session this Mac recorded for it; start a new job";
@@ -245,7 +245,7 @@ impl LocalServer {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum ModelChoice {
-    /// The Dial8 model relay (`<origin>/api/local-agent/model`).
+    /// The Native Intelligence model relay (`<origin>/api/local-agent/model`).
     #[default]
     Relay,
     /// A model on a server on this Mac, by its id in the server's list.
@@ -258,7 +258,7 @@ impl ModelChoice {
     }
 
     /// model.json's `model`: absent for the relay. Kept as raw JSON, so a
-    /// value this build can't read (a newer Dial8's) survives a save
+    /// value this build can't read (a newer Native Intelligence's) survives a save
     /// untouched; until the person picks again, launches are refused.
     pub fn from_stored(stored: Option<&Value>) -> Result<ModelChoice, String> {
         let Some(v) = stored else { return Ok(ModelChoice::Relay) };
@@ -279,7 +279,7 @@ impl ModelChoice {
     /// How menus and the app log name it (never the page: it runs server code).
     pub fn label(&self) -> String {
         match self {
-            ModelChoice::Relay => "Dial8".into(),
+            ModelChoice::Relay => "Native Intelligence".into(),
             ModelChoice::Local { server, model } => format!("{model} ({})", server.name()),
         }
     }
@@ -681,7 +681,7 @@ pub fn adapter_path(launch: &LaunchConfig, worker: Worker) -> PathBuf {
 /// (`localModel`, from the claim). A job keeps that mode: if this Mac has
 /// switched since (a job parked on the relay, then a local model chosen), it
 /// is refused, never moved over silently, so the server's record (which
-/// narrows the Dial8 tools for a local model) is always the mode it runs on.
+/// narrows the Native Intelligence tools for a local model) is always the mode it runs on.
 /// Absent (an older web): this Mac's mode, as before.
 pub fn check_mode(recorded: Option<bool>, model: &ModelChoice) -> Result<(), String> {
     match recorded {
@@ -716,7 +716,7 @@ pub fn check_same_worker(recorded: Option<&str>, asked: Option<Worker>) -> Resul
     match asked {
         Some(w) if recorded != Some(w.as_str()) => Err(match recorded.and_then(|r| Worker::parse(r).ok()) {
             Some(r) => format!("this job runs on {}", r.name()),
-            None => "this job runs on Dial8's agent".into(),
+            None => "this job runs on Native Intelligence's agent".into(),
         }),
         _ => Ok(()),
     }
@@ -791,7 +791,7 @@ impl RunSpec {
 }
 
 /// model.json: the choice and the workers' yes. Unknown values are kept as
-/// they are, so a newer Dial8's survive this one's saves.
+/// they are, so a newer Native Intelligence's survive this one's saves.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Stored {
@@ -990,23 +990,23 @@ impl L4View {
     pub fn model_title(&self) -> String {
         match &self.choice {
             None => "Model: Pick Again".into(),
-            Some(ModelChoice::Relay) => "Model: Dial8".into(),
+            Some(ModelChoice::Relay) => "Model: Native Intelligence".into(),
             Some(ModelChoice::Local { model, .. }) => format!("Model: {}", short(model, TITLE_MODEL_MAX)),
         }
     }
 
-    /// Dial8, then each server that lists chat models, with them. The chosen
+    /// Native Intelligence, then each server that lists chat models, with them. The chosen
     /// model is always there, under its server (marked "Not Running" when it
     /// is down); a server with nothing to pick isn't.
     pub fn model_menu(&self) -> Vec<MenuLine> {
         let checked = |c: &ModelChoice| self.choice.as_ref() == Some(c);
         let mut lines = vec![MenuLine::Choice {
             id: ModelChoice::Relay.menu_id(),
-            label: "Dial8 (Cloud)".into(),
+            label: "Native Intelligence (Cloud)".into(),
             checked: checked(&ModelChoice::Relay),
         }];
         if self.choice.is_none() {
-            lines.push(MenuLine::Note("Saved by a newer Dial8: pick again".into()));
+            lines.push(MenuLine::Note("Saved by a newer Native Intelligence: pick again".into()));
         }
         let chosen = match &self.choice {
             Some(ModelChoice::Local { server, model }) => Some((*server, model.as_str())),
@@ -1288,7 +1288,7 @@ impl Actor {
             return Err("unavailable in this build".into());
         }
         if allowed && !self.l4.found.caps.workers {
-            return Err(format!("this build of Dial8 can't run {} yet", worker.name()));
+            return Err(format!("this build of Native Intelligence can't run {} yet", worker.name()));
         }
         let mut stored = self.l4.stored.clone();
         stored.allowed_workers.retain(|w| w != worker.as_str());
@@ -1408,7 +1408,7 @@ impl LocalAgentService {
             check_same_worker(pre.recorded.as_deref(), args.worker)?;
         }
         let worker = match &pre.recorded {
-            Some(r) => Some(Worker::parse(r).map_err(|_| format!("this job runs on a worker this Dial8 doesn't know ({r})"))?),
+            Some(r) => Some(Worker::parse(r).map_err(|_| format!("this job runs on a worker this Native Intelligence doesn't know ({r})"))?),
             None => args.worker,
         };
         if worker.is_some() {
@@ -1441,7 +1441,7 @@ impl LocalAgentService {
             return Ok(());
         }
         let worker = match &pre.recorded {
-            Some(r) => Some(Worker::parse(r).map_err(|_| format!("this job runs on a worker this Dial8 doesn't know ({r})"))?),
+            Some(r) => Some(Worker::parse(r).map_err(|_| format!("this job runs on a worker this Native Intelligence doesn't know ({r})"))?),
             None => None,
         };
         if worker.is_some() {
@@ -1480,8 +1480,8 @@ impl LocalAgentService {
         let name = worker.name();
         if !model.is_relay() {
             return Err(format!(
-                "this Mac uses a local model: the model runs here, and Dial8 tools still go through Dial8. To use \
-                 {name}, pick Dial8 in {WHERE}"
+                "this Mac uses a local model: the model runs here, and Native Intelligence tools still go through Native Intelligence. To use \
+                 {name}, pick Native Intelligence in {WHERE}"
             ));
         }
         if !pre.allowed.contains(&worker) {
@@ -1489,11 +1489,11 @@ impl LocalAgentService {
         }
         let adapter = adapter_path(launch, worker);
         if !caps.workers || !adapter.is_file() {
-            return Err(format!("this build of Dial8 can't run {name} yet"));
+            return Err(format!("this build of Native Intelligence can't run {name} yet"));
         }
         let Some(bin) = find_cli(&launch.tool_path, worker.cli()) else {
             return Err(format!(
-                "{name} isn't installed on this Mac: there's no `{}` on your login shell's PATH. Dial8 doesn't \
+                "{name} isn't installed on this Mac: there's no `{}` on your login shell's PATH. Native Intelligence doesn't \
                  install it; install it yourself, then start the job again",
                 worker.cli()
             ));
@@ -1655,7 +1655,7 @@ mod tests {
             allowed_workers: vec!["codex".into(), "cursor".into()],
         };
         newer.save(&path).unwrap();
-        assert_eq!(Stored::load(&path), newer, "a newer Dial8's values survive");
+        assert_eq!(Stored::load(&path), newer, "a newer Native Intelligence's values survive");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1951,7 +1951,7 @@ mod tests {
         );
         assert_eq!(
             check_same_worker(None, Some(Worker::Codex)),
-            Err("this job runs on Dial8's agent".into())
+            Err("this job runs on Native Intelligence's agent".into())
         );
     }
 
@@ -1963,11 +1963,11 @@ mod tests {
             env_file: None,
             tool_path: format!("{}:/usr/bin:/bin", base.join("bin").display()),
             home: base.join("home").to_str().unwrap().into(),
-            model_base_url: super::super::config::model_base_url("https://dial8.test"),
+            model_base_url: super::super::config::model_base_url("https://nativeintelligence.test"),
             git: "/usr/bin/git".into(),
             git_env: Vec::new(),
             gh: None,
-            api_origin: "https://dial8.test".into(),
+            api_origin: "https://nativeintelligence.test".into(),
         }
     }
 
@@ -2022,14 +2022,14 @@ mod tests {
         assert_eq!(
             env_keys(&launch, &run, true),
             with(&["LOCAL_AGENT_MODEL_TOKEN", local_keys[0], local_keys[1], local_keys[2], local_keys[3]]),
-            "the session token stays, for the Dial8 tools; the relay URL doesn't"
+            "the session token stays, for the Native Intelligence tools; the relay URL doesn't"
         );
         assert_eq!(env_keys(&launch, &run, false), with(&local_keys), "nor the dev key");
         let mut env = vec![("LOCAL_AGENT_MODEL_BASE_URL".to_string(), "x".to_string())];
         run.apply(&mut env, &launch);
         let get = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
         assert_eq!(get("LOCAL_AGENT_MODEL_BASE_URL"), None);
-        assert_eq!(get("LOCAL_AGENT_API_ORIGIN"), Some("https://dial8.test"));
+        assert_eq!(get("LOCAL_AGENT_API_ORIGIN"), Some("https://nativeintelligence.test"));
         assert_eq!(get("LOCAL_AGENT_LOCAL_MODEL_BASE_URL"), Some("http://127.0.0.1:1234/v1"));
         assert_eq!(get("LOCAL_AGENT_LOCAL_MODEL_ID"), Some("qwen2.5-7b-instruct"));
         assert_eq!(get("LOCAL_AGENT_LOCAL_MODEL_SERVER"), Some("lmstudio"));
@@ -2141,11 +2141,11 @@ mod tests {
             ]),
             &[],
         );
-        assert_eq!(v.model_title(), "Model: Dial8");
+        assert_eq!(v.model_title(), "Model: Native Intelligence");
         assert_eq!(
             v.model_menu(),
             vec![
-                choice("relay", "Dial8 (Cloud)", true),
+                choice("relay", "Native Intelligence (Cloud)", true),
                 MenuLine::Separator,
                 MenuLine::Note("Ollama on This Mac".into()),
                 choice("ollama:llama3.1:8b", "llama3.1:8b", false),
@@ -2165,7 +2165,7 @@ mod tests {
         assert_eq!(
             both.model_menu(),
             vec![
-                choice("relay", "Dial8 (Cloud)", false),
+                choice("relay", "Native Intelligence (Cloud)", false),
                 MenuLine::Separator,
                 MenuLine::Note("Ollama on This Mac".into()),
                 choice("ollama:llama3.1:8b", "llama3.1:8b", false),
@@ -2183,7 +2183,7 @@ mod tests {
         assert_eq!(
             down.model_menu(),
             vec![
-                choice("relay", "Dial8 (Cloud)", false),
+                choice("relay", "Native Intelligence (Cloud)", false),
                 MenuLine::Separator,
                 MenuLine::Note("LM Studio: Not Running".into()),
                 item.clone(),
@@ -2207,7 +2207,7 @@ mod tests {
         assert_eq!(
             relay.model_menu(),
             vec![
-                choice("relay", "Dial8 (Cloud)", true),
+                choice("relay", "Native Intelligence (Cloud)", true),
                 MenuLine::Separator,
                 MenuLine::Note("Ollama: Not Used (Not Its Signed App)".into()),
             ]
@@ -2743,7 +2743,7 @@ done
         let id = rig.start(Some("claude-code")).await.unwrap();
         rig.waiting(&id).await;
         assert!(
-            rig.rec.asked.lock().unwrap()[0].body.contains("follow-up messages Dial8 sends it for the next 400 ms"),
+            rig.rec.asked.lock().unwrap()[0].body.contains("follow-up messages Native Intelligence sends it for the next 400 ms"),
             "{}",
             rig.rec.asked.lock().unwrap()[0].body
         );
@@ -2980,7 +2980,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         let id = rig.start(None).await.unwrap();
         let got = rig.given(&id, 0).await;
         assert_eq!(got["script"], "launcher.sh");
-        assert_eq!(got["relay"], "https://dial8.test/api/local-agent/model");
+        assert_eq!(got["relay"], "https://nativeintelligence.test/api/local-agent/model");
         assert_eq!(got["token"], TOKEN);
         assert_eq!((got["worker"].as_str(), got["local"].as_str()), ("none", "none"));
         assert_eq!(rig.jobs_on_disk().job(&id).unwrap().worker, None);
@@ -3001,7 +3001,7 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
             err.starts_with("Codex isn't installed on this Mac: there's no `codex` on your login shell's PATH."),
             "{err}"
         );
-        assert!(err.contains("Dial8 doesn't install it"), "{err}");
+        assert!(err.contains("Native Intelligence doesn't install it"), "{err}");
         assert_eq!(rig.start(Some("cursor")).await.unwrap_err(), "worker must be \"claude-code\" or \"codex\"");
         // An edit job's worktree isn't made for a refused start either.
         let repo = rig.base.join("home/repo");
@@ -3041,13 +3041,13 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
         assert_eq!(
             rig.start(Some("claude-code")).await.unwrap_err(),
-            "this build of Dial8 can't run Claude Code yet"
+            "this build of Native Intelligence can't run Claude Code yet"
         );
         std::fs::remove_file(rig.base.join("agent/workers/claude-code.sh")).unwrap();
         std::fs::write(rig.base.join("agent/BUNDLE.json"), r#"{"capabilities":["workers"]}"#).unwrap();
         assert_eq!(
             rig.start(Some("claude-code")).await.unwrap_err(),
-            "this build of Dial8 can't run Claude Code yet",
+            "this build of Native Intelligence can't run Claude Code yet",
             "nor without its adapter"
         );
         // A local model chosen on a bundle that runs it, then an older bundle.
@@ -3096,8 +3096,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         assert_eq!(got["local"], "http://127.0.0.1:11434/v1");
         assert_eq!(got["id"], "qwen2.5-coder:14b");
         assert_eq!(got["relay"], "none", "no relay URL: fail closed");
-        assert_eq!(got["token"], TOKEN, "the token stays, for the Dial8 tools");
-        assert_eq!(got["origin"], "https://dial8.test");
+        assert_eq!(got["token"], TOKEN, "the token stays, for the Native Intelligence tools");
+        assert_eq!(got["origin"], "https://nativeintelligence.test");
         // A retried claim on the running job is a no-op: nothing is looked at.
         let looks = rig.looks.load(Ordering::SeqCst);
         let mut again = rig.args(None);
@@ -3117,8 +3117,8 @@ while IFS= read -r line; do case "$line" in *'"type":"stop"'*) exit 0;; esac; do
         rig.svc.allow_worker(Worker::ClaudeCode, true).await.unwrap();
         assert_eq!(
             rig.start(Some("claude-code")).await.unwrap_err(),
-            "this Mac uses a local model: the model runs here, and Dial8 tools still go through Dial8. To use \
-             Claude Code, pick Dial8 in the menu bar's Local Agents → Model"
+            "this Mac uses a local model: the model runs here, and Native Intelligence tools still go through Native Intelligence. To use \
+             Claude Code, pick Native Intelligence in the menu bar's Local Agents → Model"
         );
         rig.svc.set_model(ModelChoice::Relay).await.unwrap();
         assert_eq!(rig.on_disk().model, None);

@@ -7,7 +7,7 @@
  * read synchronously, never fetched, so the wake word works the moment
  * Interactive mode listens, offline or not (Liam, 2026-10-02: "it should not
  * be dependent on anything else"). The copy follows the account
- * (lib/account-setting.ts). Another Dial8 window adopting or saving a name
+ * (lib/account-setting.ts). Another Native Intelligence window adopting or saving a name
  * arrives as a `storage` event. Wherever neither holds a name (or storage
  * can't be read: a private window, blocked site data), the name is the
  * default, DEFAULT_ASSISTANT_NAME.

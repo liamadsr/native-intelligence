@@ -1841,6 +1841,8 @@ export function hostFolderImplementation(
 }
 
 export const HostFolderSandbox = defineSandboxProvider<undefined, HostFolderOpenOptions, Record<string, never>, HostFolderState>({
+  // The older name on purpose: eve saves it in each job's session and refuses a
+  // session whose provider has another name, and jobs outlive an app update.
   name: 'dial8-host-folder',
   stateProtocolVersion: 1,
   environment: () => hostFolderImplementation(),

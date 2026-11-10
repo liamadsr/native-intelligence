@@ -79,7 +79,7 @@ function hook(action: string, pr: Record<string, unknown>, event = 'pull_request
     repository: { full_name: 'acme/web' },
   })
   const sig = `sha256=${crypto.createHmac('sha256', SECRET).update(body).digest('hex')}`
-  return new Request('https://dial8.test/api/webhooks/github', {
+  return new Request('https://nativeintelligence.test/api/webhooks/github', {
     method: 'POST',
     headers: { 'x-hub-signature-256': sig, 'x-github-event': event, 'x-github-delivery': 'del-1' },
     body,
@@ -173,7 +173,7 @@ describe('check events → the CI fix loop (P10 F7)', () => {
   function checkHook(event: 'check_suite' | 'check_run', payload: Record<string, unknown>, sigOverride?: string) {
     const body = JSON.stringify({ action: 'completed', repository: { full_name: 'acme/web' }, ...payload })
     const sig = sigOverride ?? `sha256=${crypto.createHmac('sha256', SECRET).update(body).digest('hex')}`
-    return new Request('https://dial8.test/api/webhooks/github', {
+    return new Request('https://nativeintelligence.test/api/webhooks/github', {
       method: 'POST',
       headers: { 'x-hub-signature-256': sig, 'x-github-event': event, 'x-github-delivery': 'del-2' },
       body,

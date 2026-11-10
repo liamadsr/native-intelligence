@@ -1,6 +1,6 @@
 /**
  * A scripted stand-in for the app the Mac body reaches, for
- * `e2e-device.ts --fake-model`: the Dial8 model relay (`/api/local-agent/model/*`)
+ * `e2e-device.ts --fake-model`: the Native Intelligence model relay (`/api/local-agent/model/*`)
  * and C1's two routes (`GET /api/local-agent/agent/spec`, `POST .../tool`,
  * contract C1 in docs/plans/teammate-agent.md), on one origin as on the real
  * app. The whole device half runs with no model spend, so the script itself
@@ -40,12 +40,12 @@ export const C1_TOOL_PATH = '/api/local-agent/agent/tool'
 
 /** The spec C1 sends the Mac body (the cloud ChatSpec, host 'mac'), cut to what the scripted runs use. */
 export const C1_SPEC = {
-  systemPrompt: 'You are the person’s Dial8 agent (the e2e stand-in for C1’s spec).',
+  systemPrompt: 'You are the person’s Native Intelligence agent (the e2e stand-in for C1’s spec).',
   model: 'anthropic/claude-sonnet-5.5',
   ceiling: ['report_to_person', 'message_teammate', 'list_actions'],
   ceilingTools: [
     { name: 'report_to_person', description: 'A note for the person in this conversation.', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
-    { name: 'message_teammate', description: 'A question for the Dial8 agent in the cloud; ends your turn.', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
+    { name: 'message_teammate', description: 'A question for the Native Intelligence agent in the cloud; ends your turn.', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
     { name: 'list_actions', description: 'List the workspace actions.', inputSchema: { type: 'object', properties: {} } },
   ],
   coreToolNames: ['report_to_person', 'message_teammate', 'list_actions'],

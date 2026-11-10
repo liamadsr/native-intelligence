@@ -449,7 +449,7 @@ describe('trustedGuestEmails', () => {
     }
   })
 
-  it('active guests’ calendar addresses, plus a linked guest’s own Dial8 address; never an invited or removed one’s, another owner’s, or the owner’s own', async () => {
+  it('active guests’ calendar addresses, plus a linked guest’s own Native Intelligence address; never an invited or removed one’s, another owner’s, or the owner’s own', async () => {
     tables.connected_account = [{ user_id: OWNER, account_email: 'Liam@Dial8.ai' }]
     tables.member = [{ user_id: OWNER, workspace_id: WS }, { user_id: 'user-sam', workspace_id: 'ws-elsewhere' }]
     tables.agent_guest.push(

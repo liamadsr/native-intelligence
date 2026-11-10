@@ -1,7 +1,7 @@
 import { McpConnectorView } from '../../mcp-connector-view'
 
 export const metadata = {
-  title: 'Connector – Settings – Dial8',
+  title: 'Connector – Settings',
 }
 
 export default async function McpConnectorPage({ params }: { params: Promise<{ id: string }> }) {

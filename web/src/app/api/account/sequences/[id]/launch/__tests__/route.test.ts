@@ -76,7 +76,7 @@ const { POST } = await import('@/app/api/account/sequences/[id]/launch/route')
 
 function launch(id = 'seq-1') {
   const request = buildRequest({
-    url: `https://dial8.ai/api/account/sequences/${id}/launch`,
+    url: `https://nativeintelligence.dev/api/account/sequences/${id}/launch`,
     method: 'POST',
     body: {},
   }) as unknown as NextRequest

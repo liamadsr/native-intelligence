@@ -119,7 +119,7 @@ const ASSIST_VOICE_ID_AT_077F2AB31 =
   "## Voice ID and Speaker Names\n\nThe transcript includes speaker labels. The \"Speaker Assignments\" section maps them to real people (when assigned) or marks them [unassigned].\n\n**Technical labels:** a label matching system_*, remote_*, local_*, or speaker_* that is marked [unassigned] is a technical ID, NOT a person's name.\n\n- **Assigned (a real name in Speaker Assignments):** use the name naturally (\"Sarah just committed to Friday\"). If a member_id or contact_id is given, use it to confirm the right person when several share a first name.\n- **Unassigned:** NEVER say the technical label out loud. Use generic language — \"the person who just spoke\", \"one of the participants\".\n- Labels are per-voice, not per-person-you-expect: local_2 and local_3 are DIFFERENT people in the room with the user, never the user themselves. First-person speech on a label that is not the user's is not the user speaking.\n\nYou are assisting ONE specific person (see \"You are assisting\" in the dynamic context). Everything you say is addressed to them, about a conversation they are in."
 
 const CAPTURE_TOOL_LINES_AT_077F2AB31 = [
-  "- **propose_change** — Stage a Dial8-internal workspace change (the USER's action item, decision, status update, email, assignment) for user review",
+  "- **propose_change** — Stage a workspace change inside Native Intelligence (the USER's action item, decision, status update, email, assignment) for user review",
   "- **record_commitment** — Record that ANOTHER participant committed to doing something. Files it in the knowledge graph as a tracked commitment by that person, instead of adding a task to the user's own list. Use this for \"X will do Y\" when X is not the user.",
 ]
 

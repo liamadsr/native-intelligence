@@ -43,7 +43,7 @@ describe('reading it back', () => {
   })
 
   it('kept on the device beside the other voice settings; Joseph by default', () => {
-    expect(ASSISTANT_NAME_STORAGE_KEY).toBe('dial8:voice:assistant-name')
+    expect(ASSISTANT_NAME_STORAGE_KEY).toBe('ni:voice:assistant-name')
     expect(DEFAULT_ASSISTANT_NAME).toBe('Joseph')
   })
 })

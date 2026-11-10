@@ -3,6 +3,7 @@
  */
 
 import type { VoiceEndReason, VoiceRefusal } from '@/lib/tauri-bridge'
+import { APP_IN_SYSTEM_SETTINGS } from '@/lib/desktop-app-name'
 
 const REFUSALS: readonly VoiceRefusal[] = ['recording', 'busy', 'not_ready', 'mic_denied', 'unavailable']
 
@@ -53,14 +54,14 @@ export function voiceRefusalMessage(code: VoiceRefusal, detail?: string | null):
     case 'recording':
       return 'Voice is unavailable while a capture is recording.'
     case 'busy':
-      return 'Voice is already in use in another Dial8 window.'
+      return 'Voice is already in use in another Native Intelligence window.'
     case 'mic_denied':
-      return 'Dial8 can’t use the microphone. Allow it in System Settings → Privacy & Security → Microphone.'
+      return `Native Intelligence can’t use the microphone. Allow ${APP_IN_SYSTEM_SETTINGS} in System Settings → Privacy & Security → Microphone.`
     case 'not_ready':
       return 'Voice needs its on-device modules. Set them up in Settings.'
     default: {
       const why = detail?.trim()
-      if (!why || isMissingCommand(why)) return 'Voice isn’t available on this version of Dial8.'
+      if (!why || isMissingCommand(why)) return 'Voice isn’t available on this version of Native Intelligence.'
       if (isLidClosed(why)) return 'Your MacBook’s lid is closed, so its microphone is off. Connect a mic or open the lid.'
       const shown = why.length > MAX_DETAIL ? `${why.slice(0, MAX_DETAIL - 1)}…` : why.replace(/[.\s]+$/, '')
       return `Couldn’t start the microphone (${shown}).`
@@ -83,7 +84,7 @@ export function voiceEndedMessage(
     case 'idle':
       if (mode !== 'conversation') return null
       return opts.replyPending
-        ? 'Voice mode ended while Dial8 was still working. The reply will appear in the chat.'
+        ? 'Voice mode ended while Native Intelligence was still working. The reply will appear in the chat.'
         : 'Voice mode ended after 5 minutes of silence.'
     case 'device':
       return `${what} ended: the microphone stopped working.`

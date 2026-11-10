@@ -211,7 +211,7 @@ function inputRequestedEmpty(): HandleMessageStreamEvent {
 const BRIEF: WorkRunBrief = {
   task: 'Draft a follow-up email to Randy about GA access.',
   userName: 'Liam',
-  workspaceName: 'Dial8',
+  workspaceName: 'Native Intelligence',
   resources: [{ type: 'contact', id: 'con-9', label: 'Randy' }],
   deliverableHint: 'email_draft',
   trackedActionIdentifier: 'GEN-42',
@@ -471,7 +471,7 @@ describe('runWorkViaEve — turn-boundary classifier', () => {
 
     it('on Vercel: https://VERCEL_URL even when NEXT_PUBLIC_APP_URL is production, plus the protection bypass', async () => {
       vi.stubEnv('VERCEL_URL', 'dial8-git-feature.vercel.app')
-      vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://dial8.ai')
+      vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://nativeintelligence.dev')
       vi.stubEnv('VERCEL_AUTOMATION_BYPASS_SECRET', 'bypass-123')
       const opts = await clientOptsFor()
       expect(opts.host).toBe('https://dial8-git-feature.vercel.app/eve/work-agent')

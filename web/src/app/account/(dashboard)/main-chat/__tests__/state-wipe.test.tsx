@@ -7,7 +7,7 @@
  * writes the chat's live thread. Without the wipe flag, the flush ran AFTER
  * the key removal and resurrected the previous user's conversation for the
  * next person on a shared device. The pin: the wipe takes the main chat's keys
- * (`dial8-chat:*`, the last-workspace pointer included) with the rest of the
+ * (`ni-chat:*`, the last-workspace pointer included) with the rest of the
  * per-user state, and once it starts every writer (the pagehide flush, the
  * workspace-switch write) is disarmed for the rest of the page load.
  *
@@ -51,14 +51,14 @@ function Panel() {
 const userKeys = () =>
   Object.keys(localStorage).filter(
     (k) =>
-      k.startsWith('dial8-chat:') ||
-      k.startsWith('dial8-tabs') ||
-      k === 'dial8:bots:cast' ||
-      k.startsWith('dial8:bots:bubble') ||
-      k.startsWith('dial8:bots:seen') ||
-      k === 'dial8:agent-look' ||
-      k === 'dial8:voice:assistant-name' ||
-      k === 'dial8:rail-pages',
+      k.startsWith('ni-chat:') ||
+      k.startsWith('ni-tabs') ||
+      k === 'ni:bots:cast' ||
+      k.startsWith('ni:bots:bubble') ||
+      k.startsWith('ni:bots:seen') ||
+      k === 'ni:agent-look' ||
+      k === 'ni:voice:assistant-name' ||
+      k === 'ni:rail-pages',
   )
 
 beforeEach(() => {
@@ -83,22 +83,28 @@ describe('beginPersistedTabStateWipe — sign-out wipe survives the pagehide flu
     act(() => {
       window.dispatchEvent(new Event('pagehide'))
     })
-    expect(localStorage.getItem(`dial8-chat:${WORKSPACE_ID}`)).toContain('private thread')
-    expect(localStorage.getItem('dial8-chat:last-workspace')).toBe(WORKSPACE_ID)
-    // The in-app browser's saved tabs live under dial8-tabs (browser-session.tsx).
-    localStorage.setItem('dial8-tabs-browser', JSON.stringify([]))
+    expect(localStorage.getItem(`ni-chat:${WORKSPACE_ID}`)).toContain('private thread')
+    expect(localStorage.getItem('ni-chat:last-workspace')).toBe(WORKSPACE_ID)
+    // The in-app browser's saved tabs live under ni-tabs (browser-session.tsx).
+    localStorage.setItem('ni-tabs-browser', JSON.stringify([]))
     // What the retired bot crew left: its published cast.
-    localStorage.setItem('dial8:bots:cast', JSON.stringify({ userId: 'user-1', faces: [{ type: 'research' }] }))
+    localStorage.setItem('ni:bots:cast', JSON.stringify({ userId: 'user-1', faces: [{ type: 'research' }] }))
     // The retired desktop overlay's bubble, both ways.
-    localStorage.setItem('dial8:bots:bubble:user-1', JSON.stringify({ v: 1, userId: 'user-1', at: 1, done: [], open: null, content: null }))
-    localStorage.setItem('dial8:bots:bubble-action:user-1', JSON.stringify({ actions: [] }))
+    localStorage.setItem('ni:bots:bubble:user-1', JSON.stringify({ v: 1, userId: 'user-1', at: 1, done: [], open: null, content: null }))
+    localStorage.setItem('ni:bots:bubble-action:user-1', JSON.stringify({ actions: [] }))
     // When this device last saw the bots (the retired crew's jumps).
-    localStorage.setItem('dial8:bots:seen:user-1', '1759309200000')
+    localStorage.setItem('ni:bots:seen:user-1', '1759309200000')
     // This device's copy of the agent's look and name (the account keeps the real ones).
-    localStorage.setItem('dial8:agent-look', JSON.stringify({ type: 'cat', glasses: 'none', hat: 'none', headphones: false, bowTie: false }))
-    localStorage.setItem('dial8:voice:assistant-name', JSON.stringify('Ada'))
+    localStorage.setItem('ni:agent-look', JSON.stringify({ type: 'cat', glasses: 'none', hat: 'none', headphones: false, bowTie: false }))
+    localStorage.setItem('ni:voice:assistant-name', JSON.stringify('Ada'))
     // This device's copy of the app rail's bar (the account keeps the real one).
-    localStorage.setItem('dial8:rail-pages', JSON.stringify({ order: ['mail', 'docs'], hidden: ['deals'] }))
+    localStorage.setItem('ni:rail-pages', JSON.stringify({ order: ['mail', 'docs'], hidden: ['deals'] }))
+    // The same state under its names from before the rename: the storage rename script
+    // leaves those keys beside the new ones for a release (storage-rename-script.tsx).
+    const before = ['dial8-chat:ws-1', 'dial8-chat:last-workspace', 'dial8-tabs-browser', 'dial8:bots:cast', 'dial8:bots:seen:user-1', 'dial8:agent-look', 'dial8:voice:assistant-name', 'dial8:rail-pages']
+    for (const key of before) localStorage.setItem(key, JSON.stringify('the last person’s'))
+    // …and a key that only looks like one of them stays.
+    localStorage.setItem('dial8-theme', 'ocean')
     expect(userKeys().length).toBeGreaterThanOrEqual(9)
     expect(isTabStateWipeActive()).toBe(false)
 
@@ -106,6 +112,8 @@ describe('beginPersistedTabStateWipe — sign-out wipe survives the pagehide flu
 
     expect(isTabStateWipeActive()).toBe(true)
     expect(userKeys()).toEqual([])
+    expect(before.filter((key) => localStorage.getItem(key) !== null)).toEqual([])
+    expect(localStorage.getItem('dial8-theme')).toBe('ocean')
 
     // The killer path: the /sign-out navigation's pagehide flush, which would
     // write the chat's thread straight back.

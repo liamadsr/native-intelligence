@@ -1,4 +1,4 @@
-import { LogoCloud } from '@dial8/ui'
+import { LogoCloud } from '@native-intelligence/ui'
 
 export function Default() {
   return (

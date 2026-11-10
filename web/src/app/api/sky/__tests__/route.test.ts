@@ -15,7 +15,7 @@ vi.mock('@/lib/sky/met-norway', () => ({
 import { GET } from '../route'
 
 const get = (query = '', headers: Record<string, string> = {}) =>
-  GET(new Request(`https://dial8.ai/api/sky${query}`, { headers }))
+  GET(new Request(`https://nativeintelligence.dev/api/sky${query}`, { headers }))
 
 beforeEach(() => {
   fetched.length = 0
@@ -30,7 +30,7 @@ describe('GET /api/sky', () => {
       'x-vercel-ip-country': 'CA',
     })
     expect(res.status).toBe(307)
-    expect(res.headers.get('location')).toBe('https://dial8.ai/api/sky/cell?lat=43.7&lon=-79.4&c=CA')
+    expect(res.headers.get('location')).toBe('https://nativeintelligence.dev/api/sky/cell?lat=43.7&lon=-79.4&c=CA')
     // Depends on the request's own headers: never on the CDN.
     expect(res.headers.get('cache-control')).toMatch(/^private/)
     // No city, no weather fetched here (the cell does that).
@@ -40,13 +40,13 @@ describe('GET /api/sky', () => {
 
   it('leaves the country out when the headers carry none', async () => {
     const res = await get('', { 'x-vercel-ip-latitude': '-33.87', 'x-vercel-ip-longitude': '151.21' })
-    expect(res.headers.get('location')).toBe('https://dial8.ai/api/sky/cell?lat=-33.9&lon=151.2')
+    expect(res.headers.get('location')).toBe('https://nativeintelligence.dev/api/sky/cell?lat=-33.9&lon=151.2')
   })
 
   it("falls back to a valid time zone's principal city", async () => {
     const res = await get('?tz=America/Toronto')
     expect(res.status).toBe(307)
-    expect(res.headers.get('location')).toBe('https://dial8.ai/api/sky/cell?lat=43.7&lon=-79.4&c=CA')
+    expect(res.headers.get('location')).toBe('https://nativeintelligence.dev/api/sky/cell?lat=43.7&lon=-79.4&c=CA')
   })
 
   it("keeps the header's country when only the coordinates are missing", async () => {
@@ -69,6 +69,6 @@ describe('GET /api/sky', () => {
 
   it('ignores malformed geolocation headers and uses the time zone', async () => {
     const res = await get('?tz=America/Toronto', { 'x-vercel-ip-latitude': 'nope', 'x-vercel-ip-longitude': '999' })
-    expect(res.headers.get('location')).toBe('https://dial8.ai/api/sky/cell?lat=43.7&lon=-79.4&c=CA')
+    expect(res.headers.get('location')).toBe('https://nativeintelligence.dev/api/sky/cell?lat=43.7&lon=-79.4&c=CA')
   })
 })

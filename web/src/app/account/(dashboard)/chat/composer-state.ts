@@ -195,7 +195,7 @@ export function useComposerFiles({ refuse }: { refuse?: (file: File) => string |
 
 /**
  * What the composer's + menu does with the person's environment
- * (docs/plans/local-agents.md): folders on their Mac the Dial8 agent can work
+ * (docs/plans/local-agents.md): folders on their Mac the Native Intelligence agent can work
  * in, in every chat until they remove one. The composer shows no chips (Liam,
  * 2026-10-21); the side panel's Environment card lists and removes them, and
  * the chat spec tells the agent about them every turn (the `environment`
@@ -316,7 +316,7 @@ export function attachedFilesText(count: number): string {
  * Where the old composer remembered its thinking level per model. The server
  * picks the model now, so nothing reads it: a chat's mount drops it once.
  */
-export const STALE_THINKING_STORAGE_KEY = 'dial8.chat.thinking'
+export const STALE_THINKING_STORAGE_KEY = 'ni.chat.thinking'
 
 let staleModelPicksCleared = false
 

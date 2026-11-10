@@ -95,7 +95,7 @@ function makeSupabase(ownedContactIds: string[], captured: Captured, selfContact
 
 function req(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/voice-enrollments',
+    url: 'https://nativeintelligence.dev/api/account/voice-enrollments',
     method: 'POST',
     body,
   }) as unknown as NextRequest

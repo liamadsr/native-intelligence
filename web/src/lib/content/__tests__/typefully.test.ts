@@ -48,7 +48,7 @@ describe('finding Typefully’s tools', () => {
 
   it('reads the social sets, with their handles', () => {
     expect(socialSets(JSON.stringify({ results: [{ id: 42, username: 'liam' }, { id: 43 }] }))).toEqual([{ id: 42, label: '@liam' }, { id: 43, label: null }])
-    expect(socialSets(JSON.stringify([{ id: 'abc', name: 'Dial8 team' }]))).toEqual([{ id: 'abc', label: 'Dial8 team' }])
+    expect(socialSets(JSON.stringify([{ id: 'abc', name: 'Native Intelligence team' }]))).toEqual([{ id: 'abc', label: 'Native Intelligence team' }])
     expect(socialSets('not json')).toBeNull()
     expect(socialSets('[]')).toEqual([])
   })
@@ -144,7 +144,7 @@ describe('posts always card (decision 2)', () => {
   it('the outward gate holds every publish_post and schedule_post, with exactly what goes out', async () => {
     const now = await outwardHoldOf({ workspaceId: 'ws-1', toolName: 'publish_post', input: { surface: 'x', text: 'We shipped calendar sync.' } })
     expect(now).toMatchObject({ reason: 'public_post', card: { title: "Post to X via Typefully now: 'We shipped calendar sync.'" } })
-    const queued = await outwardHoldOf({ workspaceId: 'ws-1', toolName: 'dial8_schedule_post', input: { surface: 'linkedin', parts: ['One', 'Two'] } })
+    const queued = await outwardHoldOf({ workspaceId: 'ws-1', toolName: 'ni_schedule_post', input: { surface: 'linkedin', parts: ['One', 'Two'] } })
     expect(queued?.card.title).toBe("Add to your Typefully queue for LinkedIn (a thread of 2), next free slot: 'One'")
     expect(now?.refusal).toMatch(/Nothing was posted/)
   })

@@ -1,7 +1,7 @@
 /**
- * Settings › Dial8 MCP's "Pick your app": how each AI app adds Dial8's MCP
+ * Settings › Native Intelligence MCP's "Pick your app": how each AI app adds Native Intelligence's MCP
  * server (src/lib/mcp/server.ts, OAuth with dynamic client registration, so
- * every app signs in with a Dial8 login and no key), as close to one click as
+ * every app signs in with a Native Intelligence login and no key), as close to one click as
  * that app allows. Checked against each vendor's docs on 2026-10-22:
  *
  *   one-click   the app's own https install page (it hands off to the app):
@@ -18,12 +18,12 @@
  * Any other app: OTHER_APP_HINT, a line under the tiles.
  *
  * Left out: LM Studio has an install page too, but its MCP support documents
- * only a fixed header (a bearer token), no OAuth sign-in, so Dial8 would be
+ * only a fixed header (a bearer token), no OAuth sign-in, so Native Intelligence would be
  * added and then refused. Windsurf is now Devin Desktop, whose default agent
  * keeps its MCP servers in the Devin CLI's config, not the old
  * mcp_config.json: until that settles, the hint covers it.
  *
- * Pure: no React, no window. The page passes the server (dial8.ai, or the
+ * Pure: no React, no window. The page passes the server (nativeintelligence.dev, or the
  * dev origin on localhost) and renders what comes back.
  */
 
@@ -67,9 +67,9 @@ export interface ConnectClient {
   cloud?: boolean
 }
 
-/** Dial8's MCP endpoint on an origin. */
+/** Native Intelligence's MCP endpoint on an origin. */
 export function connectServer(origin: string, local: boolean): ConnectServer {
-  return { name: local ? 'dial8-dev' : 'dial8', url: `${origin.replace(/\/+$/, '')}/api/mcp` }
+  return { name: local ? 'native-intelligence-dev' : 'native-intelligence', url: `${origin.replace(/\/+$/, '')}/api/mcp` }
 }
 
 /** Base64 of an ASCII JSON string (a server URL and a name are ASCII). */
@@ -97,8 +97,8 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
     steps: [
       'In Claude (web or desktop app), open Customize › Connectors.',
       'Click + Add, then Add custom connector.',
-      'Name it Dial8, paste the server URL, and click Continue, then Continue again.',
-      'Choose to sign in now, click Add, and sign in with your Dial8 account.',
+      'Name it Native Intelligence, paste the server URL, and click Continue, then Continue again.',
+      'Choose to sign in now, click Add, and sign in with your Native Intelligence account.',
     ],
     note: 'On a Team or Enterprise plan, an owner adds it once in Organization settings › Connectors (Add › Custom › Web); then everyone connects their own account from Customize › Connectors.',
     cloud: true,
@@ -110,9 +110,9 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
     open: { label: 'Open ChatGPT plugins', href: 'https://chatgpt.com/plugins' },
     steps: [
       'In ChatGPT, open Plugins, click +, then Add custom MCP server.',
-      'Name it Dial8, add a short description, and paste the server URL.',
+      'Name it Native Intelligence, add a short description, and paste the server URL.',
       'Choose OAuth for authentication, read the warning, and click Create as a plugin.',
-      'Sign in with your Dial8 account when ChatGPT asks.',
+      'Sign in with your Native Intelligence account when ChatGPT asks.',
     ],
     note: 'In a Business or Enterprise workspace, an admin may need to allow custom MCP servers first.',
     cloud: true,
@@ -130,7 +130,7 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
     how: 'One click',
     install: { label: 'Add to VS Code', href: vscodeInstallUrl },
     snippets: ({ name, url }) => [{ label: 'Or run', text: `code --add-mcp '${JSON.stringify({ name, type: 'http', url })}'` }],
-    note: 'Dial8 shows up in GitHub Copilot’s agent mode.',
+    note: 'Native Intelligence shows up in GitHub Copilot’s agent mode.',
   },
   {
     id: 'claude-code',
@@ -163,7 +163,7 @@ export const CONNECT_CLIENTS: readonly ConnectClient[] = [
 
 /** For an app with no tile: what any MCP app takes. */
 export const OTHER_APP_HINT =
-  'Another app? Add a remote MCP server (HTTP) with the server URL, then sign in with your Dial8 account when it asks.'
+  'Another app? Add a remote MCP server (HTTP) with the server URL, then sign in with your Native Intelligence account when it asks.'
 
 export function connectClient(id: ConnectClientId): ConnectClient {
   return CONNECT_CLIENTS.find((c) => c.id === id) ?? CONNECT_CLIENTS[0]

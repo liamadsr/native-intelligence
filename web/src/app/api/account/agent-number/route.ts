@@ -9,8 +9,8 @@ import { textPerson } from '@/lib/chat/text-turn-server'
 /**
  * POST /api/account/agent-number → { number }: gives the person's agent a
  * phone number of its own (the agent panel's Phone tab; src/lib/sms/agent-number.ts):
- * the one it has, else a spare from Dial8's pool (a replacement is then
- * bought, one purchase at a time across Dial8). After the answer, a phone
+ * the one it has, else a spare from Native Intelligence's pool (a replacement is then
+ * bought, one purchase at a time across Native Intelligence). After the answer, a phone
  * already linked gets the welcome text from the new number, so it is in their
  * Messages. Read the number back with GET /api/account/phone.
  *
@@ -33,9 +33,9 @@ export async function POST() {
   console.warn(`[agent-number] not given: ${result.reason}${result.error ? ` (${result.error})` : ''}`)
   switch (result.reason) {
     case 'not_configured':
-      return apiError('Texting isn’t set up on this Dial8 yet.', { status: 503, code: 'SMS_NOT_CONFIGURED' })
+      return apiError('Texting isn’t set up here yet.', { status: 503, code: 'SMS_NOT_CONFIGURED' })
     case 'limit':
-      return apiError('Dial8 has no numbers to give right now. Try again later.', { status: 409, code: 'AGENT_NUMBERS_LIMIT' })
+      return apiError('Native Intelligence has no numbers to give right now. Try again later.', { status: 409, code: 'AGENT_NUMBERS_LIMIT' })
     case 'twilio_refused':
       return apiError('We couldn’t get a number just now. Try again in a minute.', { status: 502, code: 'AGENT_NUMBER_FAILED' })
     default:

@@ -10,9 +10,9 @@ export type SetupLinkState =
   | { kind: 'ready'; business: string; canLinkExisting: boolean; resuming: boolean }
 
 const DEAD: Record<'invalid' | 'expired' | 'used', { title: string; body: string }> = {
-  invalid: { title: 'This link no longer works', body: 'Text your Dial8 agent “connect Stripe” and it will send you a fresh link.' },
-  expired: { title: 'This link has expired', body: 'Setup links work for 15 minutes. Text your Dial8 agent “connect Stripe” for a fresh one.' },
-  used: { title: 'This link was already used', body: 'Each setup link works once. Text your Dial8 agent “connect Stripe” if you need a fresh one.' },
+  invalid: { title: 'This link no longer works', body: 'Text your Native Intelligence agent “connect Stripe” and it will send you a fresh link.' },
+  expired: { title: 'This link has expired', body: 'Setup links work for 15 minutes. Text your Native Intelligence agent “connect Stripe” for a fresh one.' },
+  used: { title: 'This link was already used', body: 'Each setup link works once. Text your Native Intelligence agent “connect Stripe” if you need a fresh one.' },
 }
 
 /**
@@ -58,7 +58,7 @@ export function SetupLinkView({ token, state }: { token: string; state: SetupLin
               </form>
             )}
             <p className="text-sm text-muted-foreground">
-              Stripe asks for your business details and where to send your money. Stripe takes its usual card fee from each payment; Dial8 never sees your card or bank details. This link works once.
+              Stripe asks for your business details and where to send your money. Stripe takes its usual card fee from each payment; Native Intelligence never sees your card or bank details. This link works once.
             </p>
           </CardContent>
         )}

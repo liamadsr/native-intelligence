@@ -1,10 +1,10 @@
 /**
- * `window.__dial8Automation` (README.md), built from the dashboard's own state
+ * `window.__niAutomation` (README.md), built from the dashboard's own state
  * (automation-bridge.tsx hands it in), so a test can drive it with stand-ins.
  * Loaded only in the desktop app launched with the automation bridge.
  */
 import { AUTOMATION_VERSION } from './flag'
-import type { Dial8Automation } from './types'
+import type { NiAutomation } from './types'
 
 /** What the API reads and does in the dashboard. */
 export interface AutomationDeps {
@@ -38,7 +38,7 @@ function menuOpen(): boolean {
   return false
 }
 
-export function createAutomationApi(deps: AutomationDeps): Dial8Automation {
+export function createAutomationApi(deps: AutomationDeps): NiAutomation {
   // Two resets at once would race each other's chat reset: one after the other.
   let resetting: Promise<void> = Promise.resolve()
   return {

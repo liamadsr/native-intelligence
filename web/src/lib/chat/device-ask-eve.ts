@@ -38,7 +38,7 @@
  * The chat-agent channel is user-facing and enforces the session-ownership ACL
  * on every route that targets a session id (stream, cancel, continue). This
  * dispatch goes through that ACL exactly like a browser does:
- *   1. it RELAYS the caller's own credential — the device's `d8d_` token (the
+ *   1. it RELAYS the caller's own credential — the device's `nid_` token (the
  *      channel's deviceTokenAuthWithAcl entry resolves it to the same user +
  *      active workspace this route resolved), or the caller's Supabase JWT /
  *      cookie — never a server secret;
@@ -50,7 +50,7 @@
  *      membership of the workspace is checked first). A device principal is bound to THIS ask: the channel requires the run
  *      token (sent on every request) to verify as a 'device_ask' token for the
  *      same user + workspace, and a targeted session to be registered on the
- *      row that token names — so a d8d_ token reaches nothing else;
+ *      row that token names — so a nid_ token reaches nothing else;
  *   3. when the ask ends (answered, capped, failed or timed out) the row is
  *      deleted, so the session id is unregistered and the ACL refuses it from
  *      then on. Nothing is persisted as chat history — the device ask stays
@@ -90,7 +90,7 @@
  * that call back into the app as the user (generate_email_drafts,
  * draft_followup_email) need. When the caller authenticated with a Supabase
  * JWT, that JWT is sealed into the run token (chat-run-credential.ts) and the
- * internal tool route opens it for them. A `d8d_` device token is never sealed
+ * internal tool route opens it for them. A `nid_` device token is never sealed
  * — the endpoints those tools call never accepted it, so the old route gained
  * nothing from it either.
  *
@@ -152,7 +152,7 @@ export const DEVICE_ASK_CONVERSATION_TITLE = 'Device ask'
 /**
  * The caller's own credential, relayed to the chat-agent channel so its
  * session-ownership ACL sees the SAME principal the route authenticated: the
- * bearer the caller presented (a `d8d_` device token or a Supabase JWT), else
+ * bearer the caller presented (a `nid_` device token or a Supabase JWT), else
  * its Supabase cookie.
  */
 export type DeviceAskCredential = { bearer: string } | { cookie: string }
@@ -310,7 +310,7 @@ export async function runDeviceAskViaEve(args: {
   /**
    * The person runs on their own ChatGPT plan (the free tier): the token says
    * so, as the browser mint's does, so the turn stays on their plan even when
-   * the chat agent can't read its spec, never Dial8's fallback model.
+   * the chat agent can't read its spec, never Native Intelligence's fallback model.
    */
   chatgptPlan?: boolean
   timeoutMs: number
@@ -360,7 +360,7 @@ export async function runDeviceAskViaEve(args: {
   const events: MessageStreamEvent[] = []
   try {
     const binding = { conversationId, workspaceId: args.workspaceId, userId: args.userId }
-    // The caller's Supabase JWT (never a d8d_ device token, never a cookie) for
+    // The caller's Supabase JWT (never a nid_ device token, never a cookie) for
     // the tools that call back into the app as the user — see the header.
     const jwt = 'bearer' in args.credential && !isDeviceToken(args.credential.bearer) ? args.credential.bearer : null
     const token = mintChatRunToken(

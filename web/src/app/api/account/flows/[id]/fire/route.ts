@@ -44,6 +44,7 @@ import { keepRunState } from '@/lib/flows/flow-step-resume'
 import { SYNTH_ID, makeSyntheticEntity, prSampleState, prTestTrigger } from '@/lib/flows/test-fire'
 import type { FireExtras, RunnerEntityData } from '@/lib/flows/runner'
 import type { FlowAction, FlowEntityType, TriggerContext } from '@/lib/flows/types'
+import { DEFAULT_APP_URL } from '@/lib/app-url'
 
 // A test-fire can run a real skill (up to 240s per prose run_skill action, and
 // a flow can chain two) — needs far more headroom than the default. The
@@ -53,7 +54,7 @@ export const maxDuration = 300
 const APP_BASE_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
   process.env.VERCEL_URL ??
-  'https://dial8.ai'
+  DEFAULT_APP_URL
 
 const FLOW_FIELDS = `
   id, workspace_id, team_id, name, description, enabled,
@@ -120,7 +121,7 @@ export async function POST(
     }
     if (triggerType === 'capture_processed') {
       // Synthetic capture so {{capture.*}} tokens render in the test.
-      extras.capture = { id: SYNTH_ID, title: 'Test fire from Dial8' }
+      extras.capture = { id: SYNTH_ID, title: 'Test fire from Native Intelligence' }
     }
   } else {
     // A PR loop fires against its linked action, with the PR state it waits

@@ -1,8 +1,8 @@
 /**
  * First-run starters (docs/plans/one-agent-and-chat-pages.md, Part 2 "Two
- * things must exist before the nav can go"): what Dial8 can do, as a few
+ * things must exist before the nav can go"): what Native Intelligence can do, as a few
  * prompts grouped by area. Without a nav, this is how a new person learns what
- * Dial8 has. The empty main chat's composer rotates them through its
+ * Native Intelligence has. The empty main chat's composer rotates them through its
  * placeholder, between its default hint, and Tab sends the one showing
  * (chat/composer-suggestions.tsx).
  *

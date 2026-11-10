@@ -67,13 +67,13 @@ export const cases: SkillEvalCase[] = [
     why: 'actions replaces the whole list: re-send every action with its id, changing only the mode.',
   },
   {
-    request: 'every hour, post our open urgent actions to https://hooks.example.com/dial8',
+    request: 'every hour, post our open urgent actions to https://hooks.example.com/native-intelligence',
     loads: ['flows-playbook', 'build-a-workflow'],
     tools: ['search_tools', 'list_flows', 'create_flow'],
     params: {
       create_flow: {
         trigger: { type: 'schedule', cadence: 'hourly' },
-        actions: [{ type: 'http_post', url: 'https://hooks.example.com/dial8' }],
+        actions: [{ type: 'http_post', url: 'https://hooks.example.com/native-intelligence' }],
         enabled: true,
       },
     },

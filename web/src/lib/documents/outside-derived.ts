@@ -17,6 +17,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runReadOutsideText } from './canon-sources'
+import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** The document writes a run can make (their result names the document). */
 export const DOCUMENT_WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -60,7 +61,7 @@ export async function markIfRunReadOutside(
   supabase: SupabaseClient,
   args: { workspaceId: string; agentRunId: string; toolName: string; input: unknown; output: unknown },
 ): Promise<boolean> {
-  if (!DOCUMENT_WRITE_TOOLS.has(args.toolName.replace(/^dial8_/, ''))) return false
+  if (!DOCUMENT_WRITE_TOOLS.has(bareToolName(args.toolName))) return false
   const out = args.output as { success?: unknown } | null
   if (out && typeof out === 'object' && out.success === false) return false
   const documentId = writtenDocumentId(args.input, args.output)

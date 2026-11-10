@@ -23,10 +23,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-/// Write debug log to dial8-meeting.log (`crate::side_log_path`: /tmp on
+/// Write debug log to native-intelligence-meeting.log (`crate::side_log_path`: /tmp on
 /// macOS; 0600, `crate::open_log`)
 pub fn mlog(msg: &str) {
-    if let Ok(mut f) = crate::open_log(&crate::side_log_path("dial8-meeting.log")) {
+    if let Ok(mut f) = crate::open_log(&crate::side_log_path("native-intelligence-meeting.log")) {
         let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%H:%M:%S"), msg);
     }
     eprintln!("[meeting-detection] {}", msg);
@@ -901,8 +901,8 @@ const WINDOWS_TREE_ROOTS: &[&str] = &[
 /// ancestor that is one. Meeting apps play and record from helpers (Chrome's
 /// audio service, the WebView2 children of new Teams), so a session is
 /// attributed up the tree as the Mac's responsibility API does. Returns the
-/// app's pid, id and name. The walk ends, unattributed, at Dial8 itself
-/// (`own_pid`: Dial8 started by a browser's link is Chrome's child, and its
+/// app's pid, id and name. The walk ends, unattributed, at Native Intelligence itself
+/// (`own_pid`: Native Intelligence started by a browser's link is Chrome's child, and its
 /// own web view's mic isn't Chrome's), at the shell or a system process, and
 /// at a parent that started after its child: its pid was reused after the
 /// real parent exited. Bounded, and never loops.
@@ -931,7 +931,7 @@ fn attribute_process(pid: u32, procs: &HashMap<u32, WinProcess>, own_pid: u32) -
 }
 
 /// The detection picture from a process list and the processes with an
-/// active capture (mic) and render (output) session, Dial8's own left out.
+/// active capture (mic) and render (output) session, Native Intelligence's own left out.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn windows_detection(
     procs: &HashMap<u32, WinProcess>,
@@ -1538,7 +1538,7 @@ mod tests {
     #[test]
     fn windows_sessions_are_attributed_to_their_meeting_app() {
         // explorer → ms-teams → msedgewebview2 (its audio); chrome → chrome
-        // (the audio service); Dial8 → its own WebView2.
+        // (the audio service); Native Intelligence → its own WebView2.
         let p = procs(&[
             (4, 0, "explorer.exe"),
             (10, 4, "ms-teams.exe"),
@@ -1551,7 +1551,7 @@ mod tests {
         ]);
         let r = windows_detection(&p, &[11, 31], &[11, 21, 40, 30], 30);
         assert_eq!(r.meeting_apps_running, vec!["com.google.Chrome", "com.microsoft.teams2"]);
-        assert_eq!(r.apps_using_mic.len(), 1, "Dial8's own web view isn't a meeting");
+        assert_eq!(r.apps_using_mic.len(), 1, "Native Intelligence's own web view isn't a meeting");
         assert_eq!((r.apps_using_mic[0].bundle_id.as_str(), r.apps_using_mic[0].pid), ("com.microsoft.teams2", 10));
         assert_eq!(r.apps_playing_audio, vec!["com.google.Chrome", "com.microsoft.teams2"], "Spotify isn't one");
     }
@@ -1564,8 +1564,8 @@ mod tests {
     }
 
     #[test]
-    fn the_walk_stops_at_dial8_the_shell_and_a_reused_parent() {
-        // Dial8 opened by a link in Chrome: its web view's mic isn't Chrome's.
+    fn the_walk_stops_at_the_app_the_shell_and_a_reused_parent() {
+        // Native Intelligence opened by a link in Chrome: its web view's mic isn't Chrome's.
         let p = procs(&[(20, 4, "chrome.exe"), (30, 20, "dial8.exe"), (31, 30, "msedgewebview2.exe")]);
         assert_eq!(attribute_process(31, &p, 30), None);
         assert!(windows_detection(&p, &[31], &[], 30).apps_using_mic.is_empty());

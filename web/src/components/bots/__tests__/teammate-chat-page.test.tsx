@@ -740,7 +740,7 @@ describe('TeammateChatPage: an item open on it', () => {
   it('a local agent’s turn: its session’s own conversation, not the teammate’s thread; the work side doesn’t draw it again', async () => {
     const SESSION = '22222222-3333-4444-8555-666666666666'
     await open()
-    const local = { kind: 'local_agent', agent_run_id: null, title: 'Your Mac · dial8-website: Look around', source: { local_agent_session_id: SESSION } }
+    const local = { kind: 'local_agent', agent_run_id: null, title: 'Your Mac · native-intelligence: Look around', source: { local_agent_session_id: SESSION } }
     await loaded(itemRow({ ...local, status: 'running' }))
     expect(q('[data-bot-page-item-chat]')!.getAttribute('data-bot-page-item-chat')).toBe('local-agent')
     expect(q('[data-bot-page-chat] [data-local-agent-panel]')!.getAttribute('data-local-agent-panel')).toBe(SESSION)

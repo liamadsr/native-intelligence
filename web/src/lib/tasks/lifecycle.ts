@@ -1,7 +1,7 @@
 /**
  * Provider-agnostic lifecycle mapping for external task sync.
  *
- * Dial8 workflow states are per-team and fully user-customizable ("Triage",
+ * Native Intelligence workflow states are per-team and fully user-customizable ("Triage",
  * "In review", "Shipped", …) — only their `category` is fixed by the schema.
  * Every external task provider has its OWN, much coarser lifecycle vocabulary.
  * Mapping team-specific state NAMES to each provider would be an N×M mess, so
@@ -44,10 +44,10 @@ export const LIFECYCLE_BUCKETS: readonly LifecycleBucket[] = [
 export type SectionMap = Partial<Record<LifecycleBucket, string | null>>
 
 /**
- * Fold a Dial8 `workflow_state.category` into its canonical bucket.
+ * Fold a Native Intelligence `workflow_state.category` into its canonical bucket.
  *
  * The five categories collapse to four buckets: `backlog` and `unstarted` are
- * distinct on a Dial8 board (an idea parked for later vs. queued for this
+ * distinct on a Native Intelligence board (an idea parked for later vs. queued for this
  * cycle) but no external provider models that difference, so both read as
  * not-yet-started externally.
  *
@@ -85,7 +85,7 @@ export interface AsanaLifecycleWrite {
  * Asana's native task lifecycle is a SINGLE boolean. There is no "canceled" —
  * so a canceled action writes `completed: true`, exactly like a done one. That
  * is a deliberate, lossy choice: the alternatives (leaving it open forever, or
- * appending a "canceled in Dial8" comment) either misrepresent the work as
+ * appending a "canceled in Native Intelligence" comment) either misrepresent the work as
  * live or spam the task's activity feed on every status flip. Users who care
  * about the distinction map the `canceled` bucket to a dedicated Asana section,
  * which is what the section half of this return exists for.
@@ -311,11 +311,11 @@ export type LinearStateType =
  *
  * Seven types onto four buckets. The two collapses that matter:
  *  - `triage` / `backlog` / `unstarted` all read as not-yet-started, exactly as
- *    bucketForCategory collapses Dial8's own backlog/unstarted pair.
+ *    bucketForCategory collapses Native Intelligence's own backlog/unstarted pair.
  *  - `duplicate` folds onto `canceled` WITH `canceled`. This is the value it is
  *    easiest to forget (six types feel like the whole enum) and getting it wrong
  *    is not cosmetic: an issue closed as a duplicate would otherwise read as "no
- *    signal" and leave the Dial8 action open forever, or — worse, if defaulted —
+ *    signal" and leave the Native Intelligence action open forever, or — worse, if defaulted —
  *    as still-in-progress. A duplicate is abandoned work, not finished work, so
  *    it shares the canceled bucket rather than the done one.
  *
@@ -421,8 +421,8 @@ export function linearTargetForBucket(
  *
  * `duplicate` appears in NO list, deliberately. It is a legitimate READ signal
  * (an issue someone closed as a duplicate — linearBucketForStateType folds it to
- * canceled) but it must never be a WRITE target: marking a Dial8 action's issue
- * as a duplicate of nothing is a claim about the customer's backlog that Dial8
+ * canceled) but it must never be a WRITE target: marking a Native Intelligence action's issue
+ * as a duplicate of nothing is a claim about the customer's backlog that Native Intelligence
  * has no basis to make.
  */
 const BUCKET_TYPE_PREFERENCE: Record<LifecycleBucket, readonly string[]> = {

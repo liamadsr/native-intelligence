@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The Connections panel's data: OAuth statuses, connected MCP servers, Dial8's
+ * The Connections panel's data: OAuth statuses, connected MCP servers, Native Intelligence's
  * Slack app and (on desktop) the local Exchange calendar, grouped by
  * `groupConnections`.
  *

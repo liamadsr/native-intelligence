@@ -106,7 +106,7 @@ describe('handleGitPush: receive-pack', () => {
     expect(res.headers.get('content-type')).toBe('application/x-git-receive-pack-result')
     const text = Buffer.from(await res.arrayBuffer()).toString('latin1')
     expect(text).toContain('ng refs/')
-    expect(text).toContain('dial8:')
+    expect(text).toContain('Native Intelligence:')
     expect(d.fetchImpl).not.toHaveBeenCalled()
   })
 
@@ -285,7 +285,7 @@ describe('handleGitPush with real git (a shallow clone, like the sandbox)', () =
   }
 
   beforeAll(async () => {
-    dir = mkdtempSync(join(tmpdir(), 'dial8-push-gate-'))
+    dir = mkdtempSync(join(tmpdir(), 'ni-push-gate-'))
     gitEnv = {
       PATH: process.env.PATH ?? '/usr/bin:/bin',
       HOME: dir,
@@ -359,7 +359,7 @@ describe('handleGitPush with real git (a shallow clone, like the sandbox)', () =
     const r = await git(['push', 'origin', `HEAD:refs/heads/main`], { cwd: work })
     expect(r.code).not.toBe(0)
     expect(r.stderr).toContain('[remote rejected]')
-    expect(r.stderr).toContain('dial8: this run may only push its own branch')
+    expect(r.stderr).toContain('Native Intelligence: this run may only push its own branch')
     expect(await refOf('refs/heads/main')).toBe(before)
   })
 

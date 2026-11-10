@@ -12,7 +12,7 @@ import { twimlResponse } from '@/lib/twilio/twiml'
 export const dynamic = 'force-dynamic'
 
 /**
- * POST /api/twilio/sms: Twilio's inbound-SMS webhook for the Dial8 number
+ * POST /api/twilio/sms: Twilio's inbound-SMS webhook for the Native Intelligence number
  * (docs/plans/text-and-calling.md, Phase 1). Public on purpose: it is outside
  * the proxy's matcher (src/proxy.ts covers /account, /admin and their APIs
  * only), and the X-Twilio-Signature is its authentication.
@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic'
  *      the host). No token, no signature, or a mismatch → 403, nothing read.
  *   2. Then src/lib/sms/inbound.ts: STOP / START / HELP before anything else,
  *      the per-number rate limit, `From` → the verified user_phone (an
- *      unknown number texting the Dial8 number is signing up:
+ *      unknown number texting the Native Intelligence number is signing up:
  *      src/lib/sms/signup.ts), membership, and the text written into the
  *      person's home thread with its turn requested over Inngest.
  *   3. Answers TwiML at once: empty for an ordinary text (the reply is texted
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     const result = await handleInboundSms(
       {
         from: params.From ?? '',
-        // The number that was texted: the Dial8 line, or a business's own, which makes the sender its customer (roadmaps A and B2).
+        // The number that was texted: the Native Intelligence line, or a business's own, which makes the sender its customer (roadmaps A and B2).
         to: params.To ?? null,
         body: params.Body ?? '',
         sid: params.MessageSid || params.SmsSid || null,

@@ -65,6 +65,7 @@ import { TalkAnywhereHost } from '@/components/read-aloud/talk-anywhere-host'
 import { SilentMicNotice } from '@/components/desktop/silent-mic-notice'
 import { FadingBlur } from '@/components/ui/fading-blur'
 import { APP_RAIL_ATTR, AppRail } from './rail/app-rail'
+import { isWithinAppDomain } from '@/lib/app-url'
 
 /** The top bar — always fully visible. The workspace switcher and the action
  *  buttons float over the chat, which scrolls on under them (Liam's
@@ -77,7 +78,7 @@ const CHAT_ROW_STYLE = { marginLeft: 'var(--app-rail-w, 0px)' }
 
 function DashboardTopBar() {
   // Web gets half the top pad (pt-1 = 4px); the desktop app keeps pt-2 because the
-  // macOS traffic lights are pinned at 30pt from the window top (dial8-desktop
+  // macOS traffic lights are pinned at 30pt from the window top (desktop
   // src-tauri/src/lib.rs TRAFFIC_LIGHT_CENTER_Y = 8pt pad + 22pt) — change both
   // together if this ever moves; the Windows app's title bar sits above the page,
   // so it gets the web's pad. `useHasTrafficLights` is hydration-safe (false on the
@@ -184,7 +185,7 @@ function ChatRow({ avatarUrl, initials }: { avatarUrl: string | null; initials: 
             the panel fits beside the content, twice the shortfall on the
             panel's side where it doesn't): set at once, never animated. */}
         <div
-          id="dial8-chat-strip-slot"
+          id="ni-chat-strip-slot"
           className={cn(
             'relative z-20 flex shrink-0 grow-0 flex-col overflow-hidden',
             // Not a stacking context while one of the composer's rising cards
@@ -316,7 +317,7 @@ function DraftGarbageCollector() {
 }
 
 /**
- * `window.__dial8PerfSnapshot()`: what the page holds, in counts
+ * `window.__niPerfSnapshot()`: what the page holds, in counts
  * (src/lib/perf/perf-snapshot.ts). Nothing runs until it is called, except in
  * the desktop main window, which sends its counts to PostHog every 30 minutes
  * (perf-snapshot-events.ts).
@@ -505,7 +506,7 @@ export function DashboardShell({
           chat answers, documents and bot pages show the same rows live. */}
       <DashboardSuggestionsProvider>
         {/* Development only: open a bot from the console,
-            window.__dial8OpenTeammate([teammateId, …]) (use-open-teammate.ts). */}
+            window.__niOpenTeammate([teammateId, …]) (use-open-teammate.ts). */}
         {process.env.NODE_ENV !== 'production' && <OpenTeammateDevBridge />}
         {/* A teammate's page as a card in the chat (openTeammateChatTab: a
             bot's page, wherever it's opened from). */}
@@ -529,13 +530,13 @@ export function DashboardShell({
         <AuthSessionPinger />
         <DraftGarbageCollector />
         <PerfSnapshotMount />
-        {/* window.__dial8Automation, only in the desktop app launched with the
+        {/* window.__niAutomation, only in the desktop app launched with the
             automation bridge (src/lib/automation): nothing, and no code, otherwise. */}
         <AutomationMount />
         {/* Glass: this desktop window see-through (window-backdrop.ts). */}
         <WindowBackdropSync />
         <div
-          id="dial8-shell-root"
+          id="ni-shell-root"
           // The app rail's width, `--app-rail-w` (tailwind.css): here in the
           // server markup, so the top bar and the chat start clear of it.
           {...{ [APP_RAIL_ATTR]: '' }}
@@ -707,7 +708,7 @@ function deriveChannel(
   if (!referrer) return 'direct'
   try {
     const host = new URL(referrer).hostname.replace(/^www\./, '')
-    if (host.includes('dial8.ai')) return 'internal'
+    if (isWithinAppDomain(host)) return 'internal'
     if (/google\.|bing\.|duckduckgo\.|yahoo\./.test(host)) return 'organic_search'
     if (/twitter\.|x\.com|linkedin\.|facebook\.|reddit\.|youtube\./.test(host))
       return 'social'

@@ -23,7 +23,7 @@ vi.mock('@/lib/listen-briefs/build', () => ({ buildBrief: hoisted.buildBrief }))
 const { POST } = await import('@/app/api/account/listen/brief/route')
 
 function request(body: unknown) {
-  return new Request('https://dial8.ai/api/account/listen/brief', {
+  return new Request('https://nativeintelligence.dev/api/account/listen/brief', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

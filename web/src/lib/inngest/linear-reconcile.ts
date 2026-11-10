@@ -25,7 +25,7 @@ import {
 } from '@/lib/tasks/apply-remote-task-state'
 
 // =====================================================================
-// Linear → Dial8 reconciliation sweep (the safety net)
+// Linear → Native Intelligence reconciliation sweep (the safety net)
 //
 // Linear's webhooks are the better of the three providers' — signed, app-level,
 // no expiry to keep alive — and this sweep still exists, for three reasons that

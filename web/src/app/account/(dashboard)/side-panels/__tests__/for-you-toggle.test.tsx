@@ -71,7 +71,7 @@ describe('For you’s toggle', () => {
   })
 
   it('a fold remembered before 11-09 (the old key) no longer hides the column', () => {
-    window.localStorage.setItem('dial8:for-you-column:collapsed', '1')
+    window.localStorage.setItem('ni:for-you-column:collapsed', '1')
     store.resetSidePanelStore()
     expect(store.getSidePanelState().leftOpen).toBe(true)
   })

@@ -144,7 +144,7 @@ export function updateTaskDetails(args: {
  *    for one and a flat statement for the other.
  *
  *  - `provider_error` is 502, not 500: the failure is upstream, and a 500 reads as
- *    a Dial8 bug in every log and dashboard that aggregates by status.
+ *    a Native Intelligence bug in every log and dashboard that aggregates by status.
  */
 const LENS_FAILURE_STATUS: Record<LensFailure['code'], number> = {
   reconnect_required: 400,

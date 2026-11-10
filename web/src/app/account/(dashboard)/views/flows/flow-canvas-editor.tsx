@@ -131,14 +131,14 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
   // Resizable run-history drawer (vertical) and config side panel (horizontal),
   // each persisted to localStorage so the chosen size sticks across sessions.
   const runsResize = useResizable({
-    storageKey: 'dial8:flow-canvas:runs-height',
+    storageKey: 'ni:flow-canvas:runs-height',
     defaultSize: 260,
     min: 120,
     max: 600,
     axis: 'y-top',
   })
   const panelResize = useResizable({
-    storageKey: 'dial8:flow-canvas:panel-width',
+    storageKey: 'ni:flow-canvas:panel-width',
     defaultSize: 360,
     min: 300,
     max: 600,
@@ -365,7 +365,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
       else toast.success(wasCreate ? 'Flow created' : 'Flow saved')
       if (wasCreate) {
         // Tell the views list to refetch so the new row appears.
-        window.dispatchEvent(new CustomEvent('dial8:entity-created', { detail: { entityType: 'flow', id: flow.id } }))
+        window.dispatchEvent(new CustomEvent('ni:entity-created', { detail: { entityType: 'flow', id: flow.id } }))
       } else {
         // Patch the existing row in place (name/enabled may have changed).
         emitEntityUpdated({
@@ -376,7 +376,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
       }
       // Refresh the ⚡ status indicators across board/list/team-settings — the
       // trigger status or enabled flag may have changed.
-      window.dispatchEvent(new CustomEvent('dial8:flows-changed'))
+      window.dispatchEvent(new CustomEvent('ni:flows-changed'))
       onSaved()
       // After creating, keep the editor open but switch to edit mode so Test
       // fire + run history become available. (flowToEditor is statically
@@ -442,7 +442,7 @@ export function FlowCanvasEditor({ flowId, initialRunId = null, onClose, onSaved
     }
     toast.success('Flow deleted')
     emitEntityDeleted({ entityType: 'flow', id: editor.id })
-    window.dispatchEvent(new CustomEvent('dial8:flows-changed'))
+    window.dispatchEvent(new CustomEvent('ni:flows-changed'))
     onSaved()
     onClose()
   }, [editor, onClose, onSaved])

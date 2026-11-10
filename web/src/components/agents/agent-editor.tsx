@@ -14,7 +14,7 @@
  *   - THIS AGENT, its own: name, voice (Phase B2: one of the desktop's voices
  *     with a sample to hear, or Automatic; bot-voice-field.tsx, not shown in
  *     the browser), team, and what it may change on its own (decision 12:
- *     owners and admins, "Read only" or "Read, and change Dial8 records").
+ *     owners and admins, "Read only" or "Read, and change Native Intelligence records").
  *     From the Personas page it's the persona's first agent, with a switcher
  *     when there are several.
  * A field the agent's kind or the person can't change shows read-only with the
@@ -748,7 +748,7 @@ function AgentEditorBody({ agentId, teammateId, create = false, workspaceId, onC
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent data-editor-confirm="">
           <AlertDialogHeader>
-            <AlertDialogTitle>{touchesAgent && otherCount > 0 ? `Change ${agentName ?? 'the persona'} for every agent on it?` : 'Publish to all Dial8 users?'}</AlertDialogTitle>
+            <AlertDialogTitle>{touchesAgent && otherCount > 0 ? `Change ${agentName ?? 'the persona'} for every agent on it?` : 'Publish to all Native Intelligence users?'}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 {touchesAgent && otherCount > 0 && (
@@ -759,7 +759,7 @@ function AgentEditorBody({ agentId, teammateId, create = false, workspaceId, onC
                 )}
                 {publishing && (
                   <p>
-                    This persona will appear in Discover for every Dial8 user, across all workspaces, with your name as its author. Its
+                    This persona will appear in Discover for every Native Intelligence user, across all workspaces, with your name as its author. Its
                     instructions stay hidden until someone adds it to their workspace.
                   </p>
                 )}
@@ -889,7 +889,7 @@ function BotFieldsPart({
         </div>
         {attemptsStop && (
           <p className="text-[11px] text-amber-700 dark:text-amber-400" data-attempts-stop="">
-            It’s set to make first passes on its own. With Read only it stops: a first pass needs it to change Dial8 records.
+            It’s set to make first passes on its own. With Read only it stops: a first pass needs it to change Native Intelligence records.
           </p>
         )}
       </EditorField>

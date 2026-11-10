@@ -44,7 +44,7 @@ interface FloatingChatProps {
 //
 // The chat is painted (via a portal from EACH tab — every tab's chat stays
 // mounted in the slot, only the active one is visible) into the dark
-// `bg-sidebar` dock the shell renders (`#dial8-chat-strip-slot`). It fills that
+// `bg-sidebar` dock the shell renders (`#ni-chat-strip-slot`). It fills that
 // dock; the messages are always shown (the panel is given `alwaysShowMessages`),
 // so there's no in-strip collapse rail. The FloatingChatContext API is preserved
 // so ChatPanel / picker-popover need no changes:

@@ -16,6 +16,8 @@
  * live view.
  */
 
+import { APP_DOMAINS } from '@/lib/app-url'
+
 /** More than anyone types by hand; bounds what a claim hands the relay. */
 export const MAX_BLOCKED_SITES = 1000
 
@@ -72,22 +74,22 @@ export function blockedSiteForUrl(url: string | null | undefined, sites: readonl
 }
 
 /**
- * Dial8's own app (A5 review): the browser agent never reads or acts on it,
+ * Native Intelligence's own app (A5 review): the browser agent never reads or acts on it,
  * whatever the user's list says, so it can never click Approve on an approval
  * card (or settle anything else) for the person. Production, local dev, and
  * the app's configured origin.
  */
-export const DIAL8_OWN_SITES: readonly string[] = ['dial8.ai', 'localhost', '127.0.0.1']
+export const NI_OWN_SITES: readonly string[] = [...APP_DOMAINS, 'localhost', '127.0.0.1']
 
-/** The app's own sites: DIAL8_OWN_SITES plus the configured app origin's site. */
+/** The app's own sites: NI_OWN_SITES plus the configured app origin's site. */
 export function appOwnSites(appUrl: string | undefined = process.env.NEXT_PUBLIC_APP_URL): string[] {
   const configured = siteForUrl(appUrl)
-  return [...new Set([...DIAL8_OWN_SITES, ...(configured ? [configured] : [])])]
+  return [...new Set([...NI_OWN_SITES, ...(configured ? [configured] : [])])]
 }
 
-/** What the agent is told on Dial8's own pages. */
+/** What the agent is told on Native Intelligence's own pages. */
 export function appSiteBlockedMessage(): string {
-  return "The agent can't read or act on Dial8's own pages: approvals and settings there are the person's to click. Tell the user to do it themselves."
+  return "The agent can't read or act on Native Intelligence's own pages: approvals and settings there are the person's to click. Tell the user to do it themselves."
 }
 
 /** Only well-formed entries, deduplicated, at most MAX_BLOCKED_SITES. */

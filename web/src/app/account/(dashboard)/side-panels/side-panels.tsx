@@ -312,10 +312,10 @@ export function RightSidePanel({ mode }: { mode: PanelMode }) {
   )
 }
 
-export const RIGHT_PANEL_ID = 'dial8-side-panel'
+export const RIGHT_PANEL_ID = 'ni-side-panel'
 
 /** The main chat's composer dock (chat-panel.tsx): the composer and what rises above it. */
-export const COMPOSER_DOCK_SELECTOR = '#dial8-chat-strip-slot [data-chat-composer-dock]'
+export const COMPOSER_DOCK_SELECTOR = '#ni-chat-strip-slot [data-chat-composer-dock]'
 
 /**
  * How tall the main chat's composer dock stands, px, followed while `active`

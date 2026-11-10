@@ -1,9 +1,9 @@
 /**
  * `ask_user` — the chat-agent's clarifying-question tool (Phase 4).
  *
- * RESOLVED DECISION (design doc §"Resolved product decisions" #3): keep Dial8's
+ * RESOLVED DECISION (design doc §"Resolved product decisions" #3): keep Native Intelligence's
  * rich `ask_user` as a CUSTOM tool; do NOT adopt eve's native `ask_question`.
- * eve's `ask_question` is flat (one prompt, flat options); Dial8's `ask_user`
+ * eve's `ask_question` is flat (one prompt, flat options); Native Intelligence's `ask_user`
  * batches 1–4 questions, each with a short header chip, 2–4 options with
  * descriptions, and a single/multi-select flag. Porting to native loses that UX,
  * so we carry the existing picker as a custom tool here.
@@ -119,7 +119,7 @@ export function isChannelTurn(auth: SessionAuth | undefined): boolean {
 export const CHANNEL_TURN_ASK_USER_RESULT = {
   asked: false,
   note:
-    'There is no picker here: the person is messaging you from outside the Dial8 app. Do not call ask_user again. ' +
+    'There is no picker here: the person is messaging you from outside the Native Intelligence app. Do not call ask_user again. ' +
     'If you need them to choose, ask one short question in your reply, with the options in the sentence ' +
     '(for example "Tuesday or Wednesday?"), and stop there: their next message is the answer.',
 } as const
@@ -160,7 +160,7 @@ export const MAC_ASK_USER_RESULT = {
   note:
     'There is no picker on this Mac. Do not call ask_user again. If you need the person to choose, ' +
     'ask one short question in words, with the options in the sentence (with report_to_person, or ' +
-    'message_teammate for the Dial8 agent in the cloud, when you have them; otherwise in your finish ' +
+    'message_teammate for the Native Intelligence agent in the cloud, when you have them; otherwise in your finish ' +
     'summary). Then end your turn: the answer arrives as your next message.',
 } as const
 

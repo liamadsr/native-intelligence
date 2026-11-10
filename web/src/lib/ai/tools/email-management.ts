@@ -115,7 +115,7 @@ export function createEmailManagementTools(userId: string, supabase: SupabaseCli
       inputSchema: z.object({
         thread_ids: z.array(z.string()).optional().describe('Specific thread IDs (auto-selects if empty)'),
         max_drafts: z.number().int().min(1).max(10).optional().default(5).describe('Max drafts to generate (1-10)'),
-        tone: z.enum(['professional', 'casual', 'brief']).optional().describe('Only when the user asks for one. Left out, each draft is written the way the user writes, from what Dial8 has learned.'),
+        tone: z.enum(['professional', 'casual', 'brief']).optional().describe('Only when the user asks for one. Left out, each draft is written the way the user writes, from what Native Intelligence has learned.'),
       }),
       execute: async ({ thread_ids, max_drafts, tone }) => {
         // Call the generate-drafts endpoint

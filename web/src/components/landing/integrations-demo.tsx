@@ -86,7 +86,7 @@ const INTEGRATIONS: DemoIntegration[] = [
     icon: <GmailIcon />,
     connected: true,
     accounts: ['alex@acme.io'],
-    capabilities: ['Read and send emails from Dial8', 'AI-drafted replies with meeting context', 'Email-triggered automations (coming soon)'],
+    capabilities: ['Read and send emails from Native Intelligence', 'AI-drafted replies with meeting context', 'Email-triggered automations (coming soon)'],
   },
   {
     name: 'Outlook Calendar',
@@ -102,7 +102,7 @@ const INTEGRATIONS: DemoIntegration[] = [
     icon: <OutlookIcon />,
     connected: true,
     accounts: ['alex@acme.onmicrosoft.com'],
-    capabilities: ['Read and send emails from Dial8', 'AI-drafted replies with meeting context', 'Email-triggered automations (coming soon)'],
+    capabilities: ['Read and send emails from Native Intelligence', 'AI-drafted replies with meeting context', 'Email-triggered automations (coming soon)'],
   },
   {
     name: 'Jira',
@@ -110,7 +110,7 @@ const INTEGRATIONS: DemoIntegration[] = [
     icon: <JiraIcon />,
     connected: true,
     accounts: ['acme.atlassian.net'],
-    capabilities: ['Push action items as Jira issues', 'Two-way status sync back to Dial8', 'Choose project and issue type per push'],
+    capabilities: ['Push action items as Jira issues', 'Two-way status sync back to Native Intelligence', 'Choose project and issue type per push'],
   },
   {
     name: 'Linear',
@@ -118,7 +118,7 @@ const INTEGRATIONS: DemoIntegration[] = [
     icon: <LinearIcon />,
     connected: true,
     accounts: ['Acme'],
-    capabilities: ['Push action items as Linear issues', 'Two-way state sync back to Dial8', 'Choose team and project per push'],
+    capabilities: ['Push action items as Linear issues', 'Two-way state sync back to Native Intelligence', 'Choose team and project per push'],
   },
   {
     name: 'Asana',
@@ -126,7 +126,7 @@ const INTEGRATIONS: DemoIntegration[] = [
     icon: <AsanaIcon />,
     connected: true,
     accounts: ['Acme Inc'],
-    capabilities: ['Push action items as Asana tasks', 'Completion syncs back to Dial8', 'Choose project and section per push'],
+    capabilities: ['Push action items as Asana tasks', 'Completion syncs back to Native Intelligence', 'Choose project and section per push'],
   },
   {
     name: 'HubSpot',

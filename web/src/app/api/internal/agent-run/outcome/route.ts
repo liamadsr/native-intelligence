@@ -8,7 +8,7 @@
  *     pr?: { title, body, head, base } }
  *
  * This is the SINGLE writer of the run's terminal state + the PR link — the three
- * racing writers of the legacy path (in-run MCP dial8_link_pr, Inngest
+ * racing writers of the legacy path (in-run MCP ni_link_pr, Inngest
  * record-outcome, GitHub webhook) collapse to this one on the eve path (the
  * webhook stays as an out-of-band reconciler). It:
  *
@@ -408,7 +408,7 @@ export async function POST(request: Request) {
     const head = specHead
     headBranch = head
     const modelBase = pr && typeof pr.base === 'string' && pr.base.trim() ? pr.base.trim() : null
-    const title = pr && typeof pr.title === 'string' ? pr.title : summary || 'Dial8 agent PR'
+    const title = pr && typeof pr.title === 'string' ? pr.title : summary || 'Native Intelligence agent PR'
     const prBody = pr && typeof pr.body === 'string' ? pr.body : summary || ''
 
     if (modelHead && specHead && modelHead !== specHead) {

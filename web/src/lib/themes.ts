@@ -1,5 +1,5 @@
 /**
- * Theme definitions for Dial8.
+ * Theme definitions for Native Intelligence.
  *
  * Each theme provides light and dark CSS variable overrides.
  * Variables not specified in a theme fall back to the defaults in tailwind.css.
@@ -303,7 +303,7 @@ export const themes: ThemeDefinition[] = [
   },
 ]
 
-export const THEME_STORAGE_KEY = 'dial8-theme'
+export const THEME_STORAGE_KEY = 'ni-theme'
 
 export function getStoredThemeId(): string {
   if (typeof window === 'undefined') return 'default'

@@ -14,7 +14,7 @@ fix it, and credit you when the fix is out unless you'd rather we didn't.
 
 - The code in this repository: the web app and its agents (`web/`), the desktop app
   (`desktop/`) and the iPhone and Apple Watch apps (`ios/`).
-- The hosted service (dial8.ai, moving to nativeintelligence.dev), as long as you test
+- The hosted service (nativeintelligence.dev, and dial8.ai while it still serves), as long as you test
   only against your own account and data. Don't access other people's data, degrade the service, or run
   automated scans against it.
 

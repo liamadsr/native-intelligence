@@ -70,7 +70,7 @@ export function ConnectLinkView({ token, state }: { token: string; state: Connec
               REFUSALS.invalid
             ) : (
               <>
-                <strong>{from}</strong> wants their Dial8 agent to talk to yours, so the two can find times and answer each other&apos;s questions.
+                <strong>{from}</strong> wants their Native Intelligence agent to talk to yours, so the two can find times and answer each other&apos;s questions.
               </>
             )}
           </CardDescription>
@@ -100,7 +100,7 @@ export function ConnectLinkView({ token, state }: { token: string; state: Connec
                   Sign in to review
                 </Button>
                 <Button className="w-full" variant="outline" onClick={() => signIn('signup')} data-connect-sign-up>
-                  New to Dial8? Create an account
+                  New to Native Intelligence? Create an account
                 </Button>
               </div>
             )}

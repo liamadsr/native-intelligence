@@ -4,7 +4,7 @@
  * a review item, `draft:<row id>`, area mail, under the bot For you puts it
  * under (a reachable Correspondent, else the workspace's Assistant), counted
  * in its waiting and new. get_bot_item reads one in full; settle_work_item's
- * dismiss discards it (mailbox, then Dial8, with its reason); reviewed is
+ * dismiss discards it (mailbox, then Native Intelligence, with its reason); reviewed is
  * refused. Only the caller's own drafts, in their own workspaces.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -162,10 +162,10 @@ describe('get_bot_item on a Mail draft', () => {
 })
 
 describe('settle_work_item on a Mail draft', () => {
-  it('dismiss discards it from the mailbox and Dial8, with its reason', async () => {
+  it('dismiss discards it from the mailbox and Native Intelligence, with its reason', async () => {
     const res = await settleBotWorkItem({ supabase: db as never, userId: 'user-1' }, `draft:${D1}`, 'dismiss', { reason: 'no_reply_needed' })
     expect(res).toMatchObject({ ok: true, value: { item_id: `draft:${D1}`, changed: true, outcome: 'dismissed', status: 'discarded', mailbox: 'deleted', workspace_id: 'w1', bot: { bot_id: ASSISTANT } } })
-    expect(res.ok && res.value.said).toMatch(/^Discarded .*in Dial8 and in their mailbox\. Nothing was sent\.$/)
+    expect(res.ok && res.value.said).toMatch(/^Discarded .*in Native Intelligence and in their mailbox\. Nothing was sent\.$/)
     expect(deleteDraftOfRow).toHaveBeenCalledWith('user-1', expect.objectContaining({ provider_draft_id: 'm-1' }))
     expect(db.rows('email_draft').map((r) => r.id)).not.toContain(D1)
     expect(db.rows('eval_candidate')[0]).toMatchObject({ source: 'draft_dismissed', evidence: { reason: 'no_reply_needed', by: 'agent' } })
@@ -194,7 +194,7 @@ describe('settle_work_item on a Mail draft', () => {
 
   it('the reviewer reads that dismiss as a delete; any other settle keeps its class', () => {
     expect(riskClassOf('settle_work_item', { item_id: `draft:${D1}`, action: 'dismiss' })).toBe('delete')
-    expect(riskClassOf('dial8_settle_work_item', { item_id: `draft:${D1}`, action: 'dismiss' })).toBe('delete')
+    expect(riskClassOf('ni_settle_work_item', { item_id: `draft:${D1}`, action: 'dismiss' })).toBe('delete')
     expect(riskClassOf('settle_work_item', { item_id: `draft:${D1}`, action: 'reviewed' })).toBeNull()
     expect(riskClassOf('settle_work_item', { item_id: '10000000-0000-4000-8000-000000000001', action: 'dismiss' })).toBeNull()
     expect(riskClassOf('settle_work_item')).toBeNull()

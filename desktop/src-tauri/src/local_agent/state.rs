@@ -1,5 +1,5 @@
 //! The persisted half of local agents: `<app_data>/local-agent/state.json`
-//! (dial8-website l0-contract §4 "State"), the folder grants and the jobs.
+//! (web l0-contract §4 "State"), the folder grants and the jobs.
 //!
 //! Written atomically (a temp file in the same folder, fsync, rename), so a
 //! crash or a full disk mid-write leaves the previous file. A file that does

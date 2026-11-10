@@ -147,19 +147,19 @@ describe('runChatTurnBody — a run’s chat sends what its route reads', () => 
 })
 
 describe('clearStaleModelPicks — the old picker’s thinking levels go once', () => {
-  it('removes dial8.chat.thinking on the first call, and only then', async () => {
+  it('removes ni.chat.thinking on the first call, and only then', async () => {
     vi.resetModules()
     const { clearStaleModelPicks } = await import('../composer-state')
-    expect(STALE_THINKING_STORAGE_KEY).toBe('dial8.chat.thinking')
-    localStorage.setItem('dial8.chat.thinking', JSON.stringify({ 'deepseek-v4-flash': 'max' }))
-    localStorage.setItem('dial8.other', 'kept')
+    expect(STALE_THINKING_STORAGE_KEY).toBe('ni.chat.thinking')
+    localStorage.setItem('ni.chat.thinking', JSON.stringify({ 'deepseek-v4-flash': 'max' }))
+    localStorage.setItem('ni.other', 'kept')
     clearStaleModelPicks()
-    expect(localStorage.getItem('dial8.chat.thinking')).toBeNull()
-    expect(localStorage.getItem('dial8.other')).toBe('kept')
+    expect(localStorage.getItem('ni.chat.thinking')).toBeNull()
+    expect(localStorage.getItem('ni.other')).toBe('kept')
     // Once per page load: a later write (nothing writes it now) is left alone.
-    localStorage.setItem('dial8.chat.thinking', '{}')
+    localStorage.setItem('ni.chat.thinking', '{}')
     clearStaleModelPicks()
-    expect(localStorage.getItem('dial8.chat.thinking')).toBe('{}')
+    expect(localStorage.getItem('ni.chat.thinking')).toBe('{}')
     localStorage.clear()
   })
 

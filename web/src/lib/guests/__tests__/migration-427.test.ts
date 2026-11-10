@@ -35,7 +35,7 @@ describe('migration 427', () => {
     }
   })
 
-  it('one Dial8 number: a phone is active for one owner, listed once per owner', () => {
+  it('one Native Intelligence number: a phone is active for one owner, listed once per owner', () => {
     expect(BODY).toContain("create unique index if not exists agent_guest_active_phone_key on public.agent_guest (phone_e164) where state = 'active';")
     expect(BODY).toContain("create unique index if not exists agent_guest_owner_phone_key on public.agent_guest (owner_user_id, phone_e164) where state <> 'removed';")
   })

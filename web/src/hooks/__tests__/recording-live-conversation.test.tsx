@@ -125,14 +125,14 @@ beforeEach(async () => {
   localStorage.clear()
   installFetch()
   events = []
-  window.addEventListener('dial8:live-capture-conversation', onEvent)
+  window.addEventListener('ni:live-capture-conversation', onEvent)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   await act(async () => { root.render(h(RecordingProvider, null, h(Grabber))) })
 })
 afterEach(async () => {
-  window.removeEventListener('dial8:live-capture-conversation', onEvent)
+  window.removeEventListener('ni:live-capture-conversation', onEvent)
   await act(async () => { root.unmount() })
   container.remove()
   vi.unstubAllGlobals()

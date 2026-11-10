@@ -1,5 +1,5 @@
 /**
- * The SMS consent the person gives before Dial8 texts them (US 10DLC carrier
+ * The SMS consent the person gives before Native Intelligence texts them (US 10DLC carrier
  * approval, docs/plans/text-and-calling.md decision 6). Client-safe: Settings
  * → Phone shows {@link SMS_CONSENT_TEXT} next to a required, unchecked
  * checkbox; POST /api/account/phone refuses a start without `consent: true`
@@ -50,7 +50,7 @@ export function verificationText(code: string): string {
 
 /**
  * Signing up by text (src/lib/sms/signup.ts, migration 457): someone texts the
- * Dial8 number from a number nobody linked, and the code comes back with the
+ * Native Intelligence number from a number nobody linked, and the code comes back with the
  * words they agree to. Replying with the code is the opt-in (mobile
  * originated, confirmed), and its version is stored on user_phone like the
  * Settings checkbox's. The words cover what {@link SMS_CONSENT_TEXT} does

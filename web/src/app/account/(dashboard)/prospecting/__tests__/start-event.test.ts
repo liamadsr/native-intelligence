@@ -44,7 +44,7 @@ describe('startProspectingChat', () => {
   })
 
   it('the event name is the one the shell listens for', () => {
-    expect(PROSPECTING_START_EVENT).toBe('dial8:prospecting-start')
+    expect(PROSPECTING_START_EVENT).toBe('ni:prospecting-start')
   })
 
   it('the skill slug matches the system skill the migration seeds', () => {

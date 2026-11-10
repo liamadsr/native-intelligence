@@ -20,7 +20,7 @@ describe('markdownToSpeech — what is skipped', () => {
       'Run this:',
       '',
       '```bash',
-      'npm install dial8',
+      'npm install acme',
       'echo "done."',
       '```',
       '',
@@ -114,7 +114,7 @@ describe('markdownToSpeech — what is skipped', () => {
   })
 
   it('drops footnote definitions, link reference definitions and thematic breaks', () => {
-    const md = 'Intro.\n\n---\n\nBody.\n\n[^1]: A footnote.\n[docs]: https://dial8.ai/docs'
+    const md = 'Intro.\n\n---\n\nBody.\n\n[^1]: A footnote.\n[docs]: https://nativeintelligence.dev/docs'
     expect(markdownToSpeech(md)).toBe('Intro.\nBody.')
   })
 
@@ -139,14 +139,14 @@ describe('markdownToSpeech — what is skipped', () => {
 
 describe('markdownToSpeech — what is kept', () => {
   it('keeps link text and drops the URL', () => {
-    expect(inlineToSpeech('Read [the docs](https://docs.dial8.ai/api "API") first.')).toBe('Read the docs first.')
+    expect(inlineToSpeech('Read [the docs](https://docs.nativeintelligence.dev/api "API") first.')).toBe('Read the docs first.')
     expect(inlineToSpeech('A [wiki link](https://en.wikipedia.org/wiki/Foo_(bar)) here.')).toBe('A wiki link here.')
     expect(inlineToSpeech('See [the guide][guide].')).toBe('See the guide.')
   })
 
   it('reads bare URLs as their host, keeping the sentence period', () => {
-    expect(inlineToSpeech('Go to https://www.dial8.ai/pricing?plan=pro.')).toBe('Go to dial8.ai.')
-    expect(inlineToSpeech('Open <https://docs.dial8.ai/api> now')).toBe('Open docs.dial8.ai now')
+    expect(inlineToSpeech('Go to https://www.nativeintelligence.dev/pricing?plan=pro.')).toBe('Go to nativeintelligence.dev.')
+    expect(inlineToSpeech('Open <https://docs.nativeintelligence.dev/api> now')).toBe('Open docs.nativeintelligence.dev now')
   })
 
   it('strips emphasis, strikethrough and inline-code backticks, keeping the words', () => {
@@ -292,15 +292,15 @@ describe('splitSentences', () => {
   })
 
   it('does not split on decimals, times, domains or versions', () => {
-    expect(splitSentences('Revenue hit 4.2 million at 3:30 today. Visit dial8.ai or docs.dial8.ai/api for v2.1.3 notes. Done.')).toEqual([
+    expect(splitSentences('Revenue hit 4.2 million at 3:30 today. Visit nativeintelligence.dev or docs.nativeintelligence.dev/api for v2.1.3 notes. Done.')).toEqual([
       'Revenue hit 4.2 million at 3:30 today.',
-      'Visit dial8.ai or docs.dial8.ai/api for v2.1.3 notes.',
+      'Visit nativeintelligence.dev or docs.nativeintelligence.dev/api for v2.1.3 notes.',
       'Done.',
     ])
   })
 
   it('still splits after a domain that ends a sentence', () => {
-    expect(splitSentences('Go to dial8.ai. Then sign in.')).toEqual(['Go to dial8.ai.', 'Then sign in.'])
+    expect(splitSentences('Go to nativeintelligence.dev. Then sign in.')).toEqual(['Go to nativeintelligence.dev.', 'Then sign in.'])
   })
 
   it('does not split on initials, but does after a sentence-final "I"', () => {
@@ -380,8 +380,8 @@ describe('plainTextToSentences (a highlight in the in-app browser)', () => {
   })
 
   it('reads plain text as it is: no markdown, URLs as their host, no emoji', () => {
-    expect(plainTextToSentences('Use *bold* at https://docs.dial8.ai/api?x=1 🎉')).toEqual([
-      'Use *bold* at docs.dial8.ai.',
+    expect(plainTextToSentences('Use *bold* at https://docs.nativeintelligence.dev/api?x=1 🎉')).toEqual([
+      'Use *bold* at docs.nativeintelligence.dev.',
     ])
   })
 

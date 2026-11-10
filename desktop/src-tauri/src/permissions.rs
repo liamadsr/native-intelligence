@@ -101,7 +101,7 @@ extern "C" {
 /// Logs `[permissions] system audio TCC status=<str>` on the first call and
 /// on every CHANGE rather than on every call: the web app polls this every
 /// 1.5s while a permissions surface is visible, and a line per poll would
-/// bury the capture diagnostics in dial8-debug.log. Capture start
+/// bury the capture diagnostics in native-intelligence-debug.log. Capture start
 /// (system_capture.rs) logs the status it acted on unconditionally.
 pub fn system_audio_permission() -> SystemAudioPermission {
     let perm = query_system_audio_permission();

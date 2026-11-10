@@ -88,11 +88,11 @@ describe('the registry section', () => {
     const text = renderCanonRegistry([
       { key: 'team-playbook', title: 'Team playbook', owner: 'admins', updatedAt: '2026-10-19T23:59:01.123Z' },
       { key: 'content-brief:x', title: 'X: what I post about', owner: 'you', updatedAt: '2026-10-01T08:00:00Z' },
-      { key: 'product', title: 'Dial8', owner: 'admins', updatedAt: null },
+      { key: 'product', title: 'Native Intelligence', owner: 'admins', updatedAt: null },
     ])
     const lines = text.split('\n')
     expect(lines[0]).toBe('## Canon documents')
-    expect(lines.slice(2).map((l) => l.slice(0, 20))).toEqual(['- `content-brief:x`:', '- `product`: Dial8. ', '- `team-playbook`: T'])
+    expect(lines.slice(2).map((l) => l.slice(0, 20))).toEqual(['- `content-brief:x`:', '- `product`: Native ', '- `team-playbook`: T'])
     expect(text).toContain('Owner: yours. Updated 2026-10-01.')
     expect(text).toContain('Owner: admins. Updated 2026-10-19.')
     expect(text).not.toMatch(/T\d\d:\d\d/)

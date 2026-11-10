@@ -54,9 +54,9 @@ beforeEach(() => {
 
 describe('approvalBlocks', () => {
   it('shows what it would do, Approve and Decline carrying the card id, and the reply code', () => {
-    const out = approvalBlocks({ approvalId: APPROVAL, cardId: CARD, title: 'Send <email> to Ana', why: 'Mail goes outside Dial8 & needs your yes' })
+    const out = approvalBlocks({ approvalId: APPROVAL, cardId: CARD, title: 'Send <email> to Ana', why: 'Mail goes outside Native Intelligence & needs your yes' })
     const [section, actions, context] = out.blocks as Array<Record<string, any>>
-    expect(section.text.text).toBe('*Send &lt;email&gt; to Ana*\nMail goes outside Dial8 &amp; needs your yes')
+    expect(section.text.text).toBe('*Send &lt;email&gt; to Ana*\nMail goes outside Native Intelligence &amp; needs your yes')
     expect(actions.elements.map((e: Record<string, unknown>) => [e.action_id, e.value])).toEqual([
       [APPROVE_ACTION, CARD],
       [DECLINE_ACTION, CARD],
@@ -86,6 +86,13 @@ describe('parseButtonClick', () => {
       title: 'Send mail to Ana',
       responseUrl: 'https://hooks.slack.com/actions/T111/1/abc',
     })
+  })
+
+  it('reads the buttons on a card posted before the rename as the same two actions', () => {
+    const before = (action_id: string) => parseButtonClick({ ...payload, actions: [{ action_id, value: CARD }] }, APP)
+    expect(before('dial8_approve')).toMatchObject({ action: APPROVE_ACTION, cardId: CARD })
+    expect(before('dial8_decline')).toMatchObject({ action: DECLINE_ACTION, cardId: CARD })
+    for (const other of ['dial8_other', 'constructor', '__proto__', 'toString']) expect(before(other), other).toBeNull()
   })
 
   it("ignores another app's click, another action, and never trusts a non-Slack response_url", () => {

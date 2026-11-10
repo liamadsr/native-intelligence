@@ -111,7 +111,7 @@ function setup(opts: Parameters<typeof makeSupabase>[0]): Fake {
 }
 
 const req = (body: unknown) =>
-  buildRequest({ url: `https://dial8.ai/api/account/captures/${CAPTURE_ID}/self-confirm`, method: 'POST', body }) as unknown as NextRequest
+  buildRequest({ url: `https://nativeintelligence.dev/api/account/captures/${CAPTURE_ID}/self-confirm`, method: 'POST', body }) as unknown as NextRequest
 const params = Promise.resolve({ id: CAPTURE_ID })
 const PROFILE = [
   { embedding: basis(0), quality: 0.9, session_id: 's1', created_at: '2026-08-05T10:00:00Z', source: 'settings_training' },

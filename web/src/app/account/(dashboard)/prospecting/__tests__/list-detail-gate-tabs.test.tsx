@@ -339,7 +339,7 @@ describe('ListDetail — the toolbar actions', () => {
     await render()
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:prospect-entry-action', {
+        new CustomEvent('ni:prospect-entry-action', {
           detail: { action: 'people', entryIds: ['c4'] },
         }),
       )
@@ -358,7 +358,7 @@ describe('ListDetail — the toolbar actions', () => {
     await render()
     await act(async () => {
       window.dispatchEvent(
-        new CustomEvent('dial8:prospect-entry-action', {
+        new CustomEvent('ni:prospect-entry-action', {
           detail: { action: 'profile', entryIds: ['c3'] },
         }),
       )

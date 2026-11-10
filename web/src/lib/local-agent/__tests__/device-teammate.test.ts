@@ -70,7 +70,7 @@ describe('a finish after its question to its teammate', () => {
   it('keeps the question standing: no turn end, the summary stays in the transcript', () => {
     const row = { status: 'running' as const, last_signal: 'ask' as const, last_signal_text: 'Which branch?', error: null, mode: 'edit' as const }
     const out = deriveFromEvents(row, [
-      { kind: 'finish', payload: { summary: 'Asked Dial8 which branch; done otherwise.' } },
+      { kind: 'finish', payload: { summary: 'Asked Native Intelligence which branch; done otherwise.' } },
       { kind: 'status', payload: { status: 'waiting' } },
     ], { serverAsk: true })
     expect(out.patch.last_signal).toBeUndefined()
@@ -115,13 +115,13 @@ describe('a finish after its question to its teammate', () => {
 
 describe('the pull request event (C5)', () => {
   const pr = (extra: Record<string, unknown>) => ({
-    kind: 'pull_request', ok: true, branch: 'dial8/dial8-website-', commit: 'c'.repeat(40), remote: 'origin', base: 'main', url: 'https://github.com/o/r/pull/12', via: 'gh', ...extra,
+    kind: 'pull_request', ok: true, branch: 'dial8/native-intelligence-', commit: 'c'.repeat(40), remote: 'origin', base: 'main', url: 'https://github.com/o/r/pull/12', via: 'gh', ...extra,
   })
 
   it('keeps the URL of its own branch’s pull request, from any run', async () => {
     const db = seeded()
     const { id, row } = await running(db)
-    const branch = `dial8/dial8-website-${id.slice(0, 8)}`
+    const branch = `dial8/native-intelligence-${id.slice(0, 8)}`
     await ingestEvents(db as never, USER, id, { runId: 'old-run', events: [{ seq: 9, event: pr({ branch }) }] })
     expect(row.pr_url).toBe('https://github.com/o/r/pull/12')
   })
@@ -137,7 +137,7 @@ describe('the pull request event (C5)', () => {
     ] as const) {
       const db = seeded()
       const { id, row } = await running(db, mode)
-      const branch = (extra as { branch?: string }).branch ?? `dial8/dial8-website-${id.slice(0, 8)}`
+      const branch = (extra as { branch?: string }).branch ?? `dial8/native-intelligence-${id.slice(0, 8)}`
       await ingestEvents(db as never, USER, id, { runId: 'run-1', events: [{ seq: 1, event: pr({ ...extra, branch }) }] })
       expect(row.pr_url ?? null, JSON.stringify(extra)).toBeNull()
     }
@@ -148,7 +148,7 @@ describe('a pull request after the job ended (C5, S4)', () => {
   it('is kept when the person allowed the push before the job ended, and dropped otherwise', async () => {
     const db = seeded()
     const { id, row } = await running(db)
-    const branch = `dial8/dial8-website-${id.slice(0, 8)}`
+    const branch = `dial8/native-intelligence-${id.slice(0, 8)}`
     const pr = { kind: 'pull_request', ok: true, branch, url: 'https://github.com/o/r/pull/40', via: 'gh' }
     Object.assign(row, { status: 'cancelled' })
     // Never allowed: a settled job keeps nothing.

@@ -141,17 +141,18 @@ fn granted_app_commands_exist() {
     assert!(unknown.is_empty(), "capabilities/default.json grants commands APP_COMMANDS doesn't declare: {unknown:?}");
 }
 
-/// The app's commands are granted to the Dial8 origins in the capability's
-/// `remote` allowlist, and to no other page. Exactly dial8.ai, no subdomain
+/// The app's commands are granted to the Native Intelligence origins in the capability's
+/// `remote` allowlist, and to no other page. Exactly the app's two domains
+/// (the new one, and dial8.ai while it still serves), no subdomain
 /// wildcard (security review 2026-10-31, P0-3; tests/capability_policy.rs).
 /// The local dev server is a debug build's alone (capabilities/dev.json).
 #[test]
-fn app_commands_are_granted_to_dial8_origins_only() {
+fn app_commands_are_granted_to_the_apps_origins_only() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let read = |file: &str| -> serde_json::Value {
         serde_json::from_str(&read_source(dir.join("capabilities").join(file)).unwrap()).unwrap()
     };
-    assert_eq!(read("default.json")["remote"]["urls"], serde_json::json!(["https://dial8.ai/*"]));
+    assert_eq!(read("default.json")["remote"]["urls"], serde_json::json!(["https://nativeintelligence.dev/*", "https://dial8.ai/*"]));
     assert_eq!(read("dev.json")["remote"]["urls"], serde_json::json!(["http://localhost:3000/*"]));
 }
 
@@ -259,7 +260,7 @@ fn the_local_agent_model_and_workers_are_set_from_the_tray_only() {
     assert_eq!(found, BTreeSet::from([tray(".set_model("), tray(".allow_worker(")]));
 }
 
-/// Local agents (dial8-website l0-contract §4, l1-contract C): every
+/// Local agents (web l0-contract §4, l1-contract C): every
 /// `local_agent_*` command is granted to the dashboard capability. And the
 /// grant invariant (plan §1, invariant 3) as a tripwire: the folder picker
 /// takes no argument from the page at all, and start / resume name a grant

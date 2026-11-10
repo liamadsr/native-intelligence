@@ -9,7 +9,7 @@
 /// a denied capture just delivers zero-filled buffers. So creating a tap (the
 /// old tap_helper_probe_permission) can never detect a denial. The only
 /// status/request API for this service is the private TCC framework, the same
-/// approach insidegui/AudioCap uses; Dial8 ships Developer ID + notarized (not
+/// approach insidegui/AudioCap uses; Native Intelligence ships Developer ID + notarized (not
 /// the App Store), so private API use is acceptable here.
 ///
 /// The framework is loaded with dlopen + dlsym (no link-time dependency), so a
@@ -27,9 +27,9 @@
 // AUTHREQ_RESULT log lines — do not "fix" these to match a guess:
 //   0 = granted, 1 = denied, 2 = not determined.
 enum {
-    kDial8PreflightGranted = 0,
-    kDial8PreflightDenied = 1,
-    kDial8PreflightNotDetermined = 2,
+    kNiPreflightGranted = 0,
+    kNiPreflightDenied = 1,
+    kNiPreflightNotDetermined = 2,
 };
 
 typedef int (*TCCAccessPreflightFn)(CFStringRef service, CFDictionaryRef options);
@@ -75,11 +75,11 @@ int audio_capture_permission_status(void) {
     }
     int raw = gTCCAccessPreflight(CFSTR("kTCCServiceAudioCapture"), NULL);
     switch (raw) {
-        case kDial8PreflightGranted:
+        case kNiPreflightGranted:
             return 1;
-        case kDial8PreflightDenied:
+        case kNiPreflightDenied:
             return 0;
-        case kDial8PreflightNotDetermined:
+        case kNiPreflightNotDetermined:
             return 2;
         default:
             // Unknown value from a future macOS: "not determined" is the safe

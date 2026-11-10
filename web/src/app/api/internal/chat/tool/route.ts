@@ -78,7 +78,7 @@ import { browserSourceRequestSchema } from '@/lib/browser-agent/task-contract'
  * running helper; src/lib/bots/bot-relay.ts). All four are refused outright
  * on a teammate or surface token. The relay states this route's maxDuration:
  * it waits 40 s for a bot's reply, then finishes the bot's turn in after().
- * The Dial8 agent's local agents on the person's Mac (docs/plans/local-agents.md:
+ * The Native Intelligence agent's local agents on the person's Mac (docs/plans/local-agents.md:
  * local_agents, start_local_agent, message_local_agent, read_local_agent,
  * stop_local_agent; src/lib/chat/local-agent-tools.ts) are chat-native the
  * same way, and so is their cloud counterpart, start_cloud_coding_run
@@ -363,13 +363,13 @@ export async function POST(request: Request) {
   // before any ceiling is consulted. A server token carries no credential.
   // A home turn (a background update in the person's home thread) minted for
   // an acting reason (a helper's report, an event, another agent's answer)
-  // acts on its own since 2026-10-26: its writes inside Dial8 run, and the
-  // gate holds anything that leaves Dial8 as the person's card
+  // acts on its own since 2026-10-26: its writes inside Native Intelligence run, and the
+  // gate holds anything that leaves Native Intelligence as the person's card
   // (chatDispatchContext sets homeTurn). It never holds the relay, the
   // attended-only tools, the browser, a tool that needs the person's JWT or
   // one that settles their review items. A guest's ask and the digest stay
   // read-only, as does any other server turn (idle compaction). A channel turn
-  // (`channel_turn`: the person messaging from Slack or texting the Dial8
+  // (`channel_turn`: the person messaging from Slack or texting the Native Intelligence
   // number) is not read-only: it passes here and meets its surface's
   // exclusions in the ceiling below.
   if (claims.server !== undefined && !serverTurnMayCall(toolName, claims.server, claims.homeTurnReason)) {
@@ -580,7 +580,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'input failed tool schema validation', code: 'INPUT_INVALID', details: toolInputIssues(input.error) }, { status: 400 })
     }
     try {
-      // Stopping a helper sends, deletes and writes nothing outside Dial8 (what
+      // Stopping a helper sends, deletes and writes nothing outside Native Intelligence (what
       // it drafted stays), so a text stops one without the hold every risky
       // call from a text gets; elsewhere it goes through the reviewer.
       const gated = isTextTurn(claims)
@@ -671,7 +671,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Could not confirm the message was held for the person. Do not send it again: tell the person.', code: 'TOOL_EXECUTE_FAILED' }, { status: 503 })
     }
   }
-  // The Dial8 agent's local agents on the person's Mac (docs/plans/local-agents.md).
+  // The Native Intelligence agent's local agents on the person's Mac (docs/plans/local-agents.md).
   // The library (src/lib/local-agent) checks every id against the token's user.
   // start_local_agent: a typed turn only (decision 8; serverTurnMayCall refused
   // a server token above), keyed on eve's call, turn and session ids. The
@@ -910,7 +910,7 @@ function chatDispatchContext(supabase: ReturnType<typeof getServiceClient>, clai
     ...(isTextTurn(claims) && !websiteMayPrepareByText(claims, toolName) ? { reviewOverride: { alwaysHold: TEXT_TURN_HOLD } } : {}),
     // A call turn (a caller ID can be spoofed too): the same, held as a card in the app.
     ...(isCallTurn(claims) ? { reviewOverride: { alwaysHold: CALL_TURN_HOLD } } : {}),
-    // A home turn (the agent working on its own): anything that leaves Dial8
+    // A home turn (the agent working on its own): anything that leaves Native Intelligence
     // is the person's card in the home thread, and they are pinged.
     ...(claims.server === 'home_turn' ? { reviewOverride: { homeTurn: true as const } } : {}),
     // The check-in (docs/plans/now-file.md): a fenced outside result never reaches it.
@@ -968,7 +968,7 @@ async function holdAgentMessage(
 /** Where a held message to another person's agent waits, by where the turn is (a text's and a Slack DM's approvals follow the reply there). */
 function agentMessageWaits(claims: ChatRunTokenClaims): string {
   if (claims.server === 'home_turn') return "waits for the person's yes as a card in their home thread, and they are pinged."
-  if (isTextTurn(claims)) return "waits for the person's yes: right after your reply they get a text with a code to approve it by replying, or they can approve it in Dial8."
+  if (isTextTurn(claims)) return "waits for the person's yes: right after your reply they get a text with a code to approve it by replying, or they can approve it in Native Intelligence."
   if (claims.server === 'channel_turn' && claims.surface === 'slack') return "waits for the person's yes: right after your reply it is posted in this DM with Approve and Decline buttons."
   return "waits for the person's yes, as a card right under your message."
 }
@@ -1020,7 +1020,7 @@ function websiteMayPrepareByText(claims: ChatRunTokenClaims, toolName: string | 
   return !!toolName && WEBSITE_PREPARE_TOOLS.has(toolName) && isPersonTextTurn(claims)
 }
 
-/** A turn the person texted to the Dial8 number (a channel turn on SMS): a caller ID can be spoofed (TEXT_TURN_HOLD). */
+/** A turn the person texted to the Native Intelligence number (a channel turn on SMS): a caller ID can be spoofed (TEXT_TURN_HOLD). */
 function isTextTurn(claims: ChatRunTokenClaims): boolean {
   return claims.server === 'channel_turn' && claims.surface === 'sms'
 }
@@ -1030,7 +1030,7 @@ function isPersonCallTurn(claims: ChatRunTokenClaims): boolean {
   return claims.server === 'channel_turn' && claims.surface === 'call' && !claims.guestId && !claims.teammateId && !claims.relay
 }
 
-/** What the person said on a call to the Dial8 number (a channel turn on a call): caller ID again (CALL_TURN_HOLD). */
+/** What the person said on a call to the Native Intelligence number (a channel turn on a call): caller ID again (CALL_TURN_HOLD). */
 function isCallTurn(claims: ChatRunTokenClaims): boolean {
   return claims.server === 'channel_turn' && claims.surface === 'call'
 }

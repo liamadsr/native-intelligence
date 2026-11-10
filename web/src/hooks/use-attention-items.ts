@@ -412,10 +412,10 @@ export function useAttentionItems(opts: { channel?: string; announce?: boolean }
       if (wasSelfRefetchedRecently(CHANNEL, repairIdFromRecoveredEvent(event))) return
       void fetchItemsRef.current()
     }
-    window.addEventListener('dial8:realtime-recovered', onRecovered)
+    window.addEventListener('ni:realtime-recovered', onRecovered)
 
     return () => {
-      window.removeEventListener('dial8:realtime-recovered', onRecovered)
+      window.removeEventListener('ni:realtime-recovered', onRecovered)
       supabase.removeChannel(channel)
     }
   }, [upsert, removeLocal, channelName, announce])

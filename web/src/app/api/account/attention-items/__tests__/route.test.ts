@@ -223,7 +223,7 @@ const { GET, PATCH } = await import('@/app/api/account/attention-items/route')
 const { resetAgentRunMirrorCaches } = await import('@/lib/work/agent-run-mirror')
 
 function patchReq(body: unknown) {
-  return new Request('https://dial8.ai/api/account/attention-items', {
+  return new Request('https://nativeintelligence.dev/api/account/attention-items', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

@@ -45,7 +45,7 @@ vi.mock('@/app/account/notification-context', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/app/account/notification-context')>()),
   useNotifications: () => ({ notifications: hoisted.notices, botNotices: hoisted.botNotices }),
 }))
-window.addEventListener('dial8:open-card', (e) => hoisted.navigate((e as CustomEvent).detail))
+window.addEventListener('ni:open-card', (e) => hoisted.navigate((e as CustomEvent).detail))
 vi.mock('@/app/account/workspace-switcher', () => ({ useWorkspaceId: () => 'w1' }))
 vi.mock('@/components/agent-run/run-question-section', () => ({
   RunQuestionSection: ({ runId }: { runId: string }) => h('div', { 'data-testid': 'question', 'data-run': runId }, 'question form'),
@@ -1211,14 +1211,14 @@ describe('WorkItemDetailPanel — a local agent’s turn', () => {
   const LOCAL = item({
     id: 'job-1',
     kind: 'local_agent',
-    title: 'Your Mac · dial8-website: Take a look at this repository',
+    title: 'Your Mac · native-intelligence: Take a look at this repository',
     status: 'needs_input',
     actor: 'agent',
     agent_run_id: null,
     needs: { kind: 'input', questions: [{ question: 'Should I look at the desktop repo too?' }] } as WorkItem['needs'],
     deliverables: [],
     result_summary: null,
-    source: { chat_conversation_id: 'c1', local_agent_session_id: SESSION, folder_label: 'dial8-website', turn: 1 },
+    source: { chat_conversation_id: 'c1', local_agent_session_id: SESSION, folder_label: 'native-intelligence', turn: 1 },
   })
 
   it('draws the whole session’s conversation, and its question is answered there, never stale', async () => {
@@ -1239,7 +1239,7 @@ describe('WorkItemDetailPanel — a local agent’s turn', () => {
       root.render(h(WorkItemDetailPanel, { itemId: 'job-1', embedded: true, conversationBeside: true }))
     })
     await flush()
-    expect(container.querySelector('h1')?.textContent).toBe('Your Mac · dial8-website: Take a look at this repository')
+    expect(container.querySelector('h1')?.textContent).toBe('Your Mac · native-intelligence: Take a look at this repository')
     expect(container.querySelector('[data-testid="local-agent-panel"]')).toBeNull()
   })
 

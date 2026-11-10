@@ -26,7 +26,7 @@ interface CalendarOption {
   accountId?: string;
 }
 
-const STORAGE_KEY_DEFAULT_CALENDAR = "dial8:default-calendar-id";
+const STORAGE_KEY_DEFAULT_CALENDAR = "ni:default-calendar-id";
 
 // The writable-calendars list changes only when an account is (dis)connected,
 // but /api/calendar/calendars fans out to live provider APIs — far too slow to
@@ -89,7 +89,7 @@ async function loadCalendarOptions(): Promise<CalendarOption[]> {
       if (status.hasAccess) {
         let disabledIds = new Set<string>();
         try {
-          const stored = localStorage.getItem("dial8:local-exchange:disabled-calendars");
+          const stored = localStorage.getItem("ni:local-exchange:disabled-calendars");
           if (stored) disabledIds = new Set(JSON.parse(stored));
         } catch { /* ignore */ }
 

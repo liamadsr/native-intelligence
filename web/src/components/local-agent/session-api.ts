@@ -28,7 +28,7 @@ export const SESSION_PAGES_MAX = 20
 
 /**
  * The session as the panel holds it. `startedBy` is optional in the
- * library's SessionRow; a session without it is read as the Dial8 agent's
+ * library's SessionRow; a session without it is read as the Native Intelligence agent's
  * (the tools start them).
  */
 export type PanelSession = SessionRow & { startedBy?: 'agent' | 'person' }

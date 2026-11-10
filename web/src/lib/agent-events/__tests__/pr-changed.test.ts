@@ -333,7 +333,7 @@ describe('routing and rendering', () => {
     expect(JEV_NEVER_KINDS.has('pr.changed')).toBe(true)
   })
 
-  it('"while you were away" and the digest say it in Dial8’s words', () => {
+  it('"while you were away" and the digest say it in Native Intelligence’s words', () => {
     expect(awayLineFor(row({ repo: REPO, prNumber: 7, prState: 'merged', action: 'ENG-42' }))).toBe('Pull request merged: acme/web#7 (ENG-42)')
     expect(awayLineFor(row({ repo: REPO, prNumber: 7, prState: 'closed' }))).toBe('Pull request closed without merging: acme/web#7')
     expect(awayLineFor(row({ repo: REPO, prNumber: 7, prState: 'reopened' }))).toBe('Pull request reopened: acme/web#7')

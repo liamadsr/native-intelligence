@@ -1,7 +1,7 @@
 import { DevicesSettingsView } from './devices-settings-view'
 
 export const metadata = {
-  title: 'Devices – Settings – Dial8',
+  title: 'Devices – Settings',
 }
 
 export default function DevicesSettingsPage() {

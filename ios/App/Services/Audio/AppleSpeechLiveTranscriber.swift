@@ -1,6 +1,6 @@
 //
 //  AppleSpeechLiveTranscriber.swift
-//  dial8
+//  Native Intelligence
 //
 //  Live on-device transcription with iOS 26's SpeechAnalyzer + SpeechTranscriber.
 //  One instance per recording session.

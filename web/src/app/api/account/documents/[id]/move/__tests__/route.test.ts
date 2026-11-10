@@ -21,7 +21,7 @@ vi.mock('@/lib/api-auth', () => ({
 const { POST } = await import('@/app/api/account/documents/[id]/move/route')
 
 function buildReq(body: unknown) {
-  return new Request('https://dial8.ai/api/account/documents/d1/move', {
+  return new Request('https://nativeintelligence.dev/api/account/documents/d1/move', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: typeof body === 'string' ? body : JSON.stringify(body),

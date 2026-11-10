@@ -12,7 +12,7 @@ use objc2::runtime::{AnyClass, AnyObject, Bool};
 
 
 /// The web view in `ns_window` (a Tauri window has one), found as
-/// window_helper.m's `dial8_find_webview` finds it: depth first from the
+/// window_helper.m's `ni_find_webview` finds it: depth first from the
 /// window's content view. None if there isn't one.
 ///
 /// # Safety

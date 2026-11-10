@@ -1,13 +1,13 @@
 /**
- * The MCP Evals twins — the hand-registered `dial8_*` variants of the chat
+ * The MCP Evals twins — the hand-registered `ni_*` variants of the chat
  * eval tools.
  *
  * The load-bearing properties:
- *   1. NAMES — all six are `dial8_<verb>_<noun>` and classify by verb SHAPE
- *      through ../guard.ts's `classifyToolAccess`, so `dial8_list_evals` and
- *      `dial8_get_eval_run` are reachable by a READ-ONLY token while the four
+ *   1. NAMES — all six are `ni_<verb>_<noun>` and classify by verb SHAPE
+ *      through ../guard.ts's `classifyToolAccess`, so `ni_list_evals` and
+ *      `ni_get_eval_run` are reachable by a READ-ONLY token while the four
  *      writers are not, with no allowlist entry anywhere. Renaming one to
- *      something like `dial8_run_eval` would silently grant a read-only token a
+ *      something like `ni_run_eval` would silently grant a read-only token a
  *      write — this file is what stops that.
  *   2. OWNER FROM THE SESSION — `userId` and `workspaceId` come from the
  *      authenticated MCP session, never from a tool argument, matching
@@ -18,7 +18,7 @@
  *      before anything reaches the service-role client.
  *   4. ok/fail ENVELOPES — every result is JSON in a text content block, and an
  *      error carries `isError` plus a machine-readable code.
- *   5. NO CAPTURE ID — `dial8_start_eval_run` cannot be pointed at a real
+ *   5. NO CAPTURE ID — `ni_start_eval_run` cannot be pointed at a real
  *      meeting, which is the one input that would let a run delete a real
  *      capture's pending proposals (batch mode clears them before re-extracting).
  */
@@ -175,12 +175,12 @@ const CASE_ROW = {
 }
 
 const EVAL_TOOL_NAMES = [
-  'dial8_create_eval_suite',
-  'dial8_create_eval_case',
-  'dial8_list_evals',
-  'dial8_start_eval_run',
-  'dial8_get_eval_run',
-  'dial8_update_eval_case',
+  'ni_create_eval_suite',
+  'ni_create_eval_case',
+  'ni_list_evals',
+  'ni_start_eval_run',
+  'ni_get_eval_run',
+  'ni_update_eval_case',
 ]
 
 beforeEach(() => {
@@ -201,21 +201,21 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('registration and naming', () => {
-  it('registers exactly the six dial8_* eval tools', () => {
+  it('registers exactly the six ni_* eval tools', () => {
     const registered = register(callerMock([]).supabase)
     expect([...registered.keys()].sort()).toEqual([...EVAL_TOOL_NAMES].sort())
   })
 
   it('the two readers are reachable by a READ-ONLY token; the four writers are not', () => {
-    // classifyToolAccess strips `dial8_` and matches by verb shape — no
+    // classifyToolAccess strips `ni_` and matches by verb shape — no
     // allowlist. This is why the verbs are list_/get_ and create_/update_/start_.
-    expect(classifyToolAccess('dial8_list_evals')).toBe('read')
-    expect(classifyToolAccess('dial8_get_eval_run')).toBe('read')
+    expect(classifyToolAccess('ni_list_evals')).toBe('read')
+    expect(classifyToolAccess('ni_get_eval_run')).toBe('read')
     for (const name of [
-      'dial8_create_eval_suite',
-      'dial8_create_eval_case',
-      'dial8_start_eval_run',
-      'dial8_update_eval_case',
+      'ni_create_eval_suite',
+      'ni_create_eval_case',
+      'ni_start_eval_run',
+      'ni_update_eval_case',
     ]) {
       expect(classifyToolAccess(name), `${name} must be write-classified`).toBe('write')
     }
@@ -231,9 +231,9 @@ describe('registration and naming', () => {
     }
   })
 
-  it('dial8_start_eval_run exposes no capture id under any name', () => {
+  it('ni_start_eval_run exposes no capture id under any name', () => {
     const registered = register(callerMock([]).supabase)
-    const keys = Object.keys(registered.get('dial8_start_eval_run')!.shape)
+    const keys = Object.keys(registered.get('ni_start_eval_run')!.shape)
     expect(keys.some((k) => k.includes('capture'))).toBe(false)
   })
 
@@ -245,12 +245,12 @@ describe('registration and naming', () => {
   })
 })
 
-describe('dial8_create_eval_suite', () => {
+describe('ni_create_eval_suite', () => {
   it('stamps the session workspace and creator', async () => {
     const { supabase, queries } = callerMock([{ data: { id: SUITE_ID }, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_suite')!.handler({
+    const result = await registered.get('ni_create_eval_suite')!.handler({
       name: 'Sales Discovery',
       target_kind: 'agent',
     })
@@ -269,7 +269,7 @@ describe('dial8_create_eval_suite', () => {
     const { supabase, queries } = callerMock([])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_suite')!.handler({
+    const result = await registered.get('ni_create_eval_suite')!.handler({
       name: '   ',
       target_kind: 'agent',
     })
@@ -286,7 +286,7 @@ describe('dial8_create_eval_suite', () => {
     const { supabase, queries } = callerMock([{ data: null, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_suite')!.handler({
+    const result = await registered.get('ni_create_eval_suite')!.handler({
       name: 'Sales Discovery',
       target_kind: 'agent',
       target_recipe_id: 'recipe-elsewhere',
@@ -344,7 +344,7 @@ describe('dial8_create_eval_suite', () => {
     }
 
     const registered = register(serviceLike)
-    const result = await registered.get('dial8_create_eval_suite')!.handler({
+    const result = await registered.get('ni_create_eval_suite')!.handler({
       name: 'Sales Discovery',
       target_kind: 'agent',
       target_recipe_id: FOREIGN.id,
@@ -356,7 +356,7 @@ describe('dial8_create_eval_suite', () => {
   })
 })
 
-describe('dial8_create_eval_case', () => {
+describe('ni_create_eval_case', () => {
   const ARGS = {
     suite_id: SUITE_ID,
     name: 'Prospect stalls on pricing',
@@ -370,7 +370,7 @@ describe('dial8_create_eval_case', () => {
     hoisted.createEvalCase.mockResolvedValue(CASE_ROW)
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_case')!.handler(ARGS)
+    const result = await registered.get('ni_create_eval_case')!.handler(ARGS)
 
     const suiteRead = queries.find((q) => q.table === 'eval_suite')!
     expect(hasFilter(suiteRead, 'eq', 'workspace_id', WORKSPACE_ID)).toBe(true)
@@ -385,7 +385,7 @@ describe('dial8_create_eval_case', () => {
     const { supabase } = callerMock([{ data: null, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_case')!.handler(ARGS)
+    const result = await registered.get('ni_create_eval_case')!.handler(ARGS)
 
     expect(result.isError).toBe(true)
     expect(payload(result).code).toBe('NOT_FOUND')
@@ -395,7 +395,7 @@ describe('dial8_create_eval_case', () => {
   it('rejects zero or two is_self participants with a code', async () => {
     const { supabase } = callerMock([{ data: { id: SUITE_ID }, error: null }])
     const registered = register(supabase)
-    const handler = registered.get('dial8_create_eval_case')!.handler
+    const handler = registered.get('ni_create_eval_case')!.handler
 
     const none = await handler({ ...ARGS, participants: PARTICIPANTS.map((p) => ({ ...p, is_self: false })) })
     const two = await handler({ ...ARGS, participants: PARTICIPANTS.map((p) => ({ ...p, is_self: true })) })
@@ -409,7 +409,7 @@ describe('dial8_create_eval_case', () => {
     const { supabase } = callerMock([{ data: { id: SUITE_ID }, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_case')!.handler({
+    const result = await registered.get('ni_create_eval_case')!.handler({
       ...ARGS,
       script: [...SCRIPT, { t_ms: 12000, speaker: 'Morgan', stream: 'system', text: 'hey' }],
     })
@@ -422,7 +422,7 @@ describe('dial8_create_eval_case', () => {
     const { supabase } = callerMock([{ data: { id: SUITE_ID }, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_case')!.handler({ ...ARGS, script: [] })
+    const result = await registered.get('ni_create_eval_case')!.handler({ ...ARGS, script: [] })
 
     expect(payload(result).code).toBe('EMPTY_SCRIPT')
   })
@@ -432,7 +432,7 @@ describe('dial8_create_eval_case', () => {
     hoisted.createEvalCase.mockResolvedValue(CASE_ROW)
     const registered = register(supabase)
 
-    await registered.get('dial8_create_eval_case')!.handler({
+    await registered.get('ni_create_eval_case')!.handler({
       ...ARGS,
       script: [SCRIPT[2], SCRIPT[0], SCRIPT[1]],
     })
@@ -442,7 +442,7 @@ describe('dial8_create_eval_case', () => {
   })
 })
 
-describe('dial8_list_evals', () => {
+describe('ni_list_evals', () => {
   const SUITE = {
     id: SUITE_ID,
     name: 'Sales Discovery',
@@ -460,7 +460,7 @@ describe('dial8_list_evals', () => {
     hoisted.listSuites.mockResolvedValue([SUITE])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_list_evals')!.handler({})
+    const result = await registered.get('ni_list_evals')!.handler({})
     const suites = payload(result).suites as { estimated_cost_usd: { batch: number; live: number } }[]
 
     expect(suites[0].estimated_cost_usd.batch).toBeGreaterThan(0)
@@ -473,8 +473,8 @@ describe('dial8_list_evals', () => {
     hoisted.listCases.mockResolvedValue([{ id: CASE_ID, name: 'A case', polarity: 'negative', modes: ['batch'] }])
     const registered = register(supabase)
 
-    const all = payload(await registered.get('dial8_list_evals')!.handler({}))
-    const one = payload(await registered.get('dial8_list_evals')!.handler({ suite_id: SUITE_ID }))
+    const all = payload(await registered.get('ni_list_evals')!.handler({}))
+    const one = payload(await registered.get('ni_list_evals')!.handler({ suite_id: SUITE_ID }))
 
     expect(all.cases).toBeUndefined()
     expect((one.cases as { polarity: string }[])[0].polarity).toBe('negative')
@@ -486,7 +486,7 @@ describe('dial8_list_evals', () => {
     hoisted.listCases.mockResolvedValue([{ id: CASE_ID, name: 'Theirs', polarity: 'negative', modes: ['batch'] }])
     const registered = register(supabase)
 
-    const body = payload(await registered.get('dial8_list_evals')!.handler({ suite_id: 'suite-from-another-workspace' }))
+    const body = payload(await registered.get('ni_list_evals')!.handler({ suite_id: 'suite-from-another-workspace' }))
 
     expect(body.cases).toEqual([])
     expect(hoisted.listCases).not.toHaveBeenCalled()
@@ -497,7 +497,7 @@ describe('dial8_list_evals', () => {
     hoisted.listSuites.mockResolvedValue([])
     const registered = register(supabase)
 
-    await registered.get('dial8_list_evals')!.handler({})
+    await registered.get('ni_list_evals')!.handler({})
 
     expect(hoisted.listSuites).toHaveBeenCalledWith(expect.anything(), WORKSPACE_ID)
   })
@@ -505,19 +505,19 @@ describe('dial8_list_evals', () => {
   it('stamps active_workspace, so a hand-registered result is indistinguishable from a bridged one', async () => {
     // The adapter loop in ../index.ts stamps every BRIDGED result; these tools
     // build their own content block, so the stamp has to happen in the registrar
-    // or the six dial8_*_eval* results are the only ones in the catalog that
+    // or the six ni_*_eval* results are the only ones in the catalog that
     // don't say which workspace they came from.
     const { supabase } = callerMock([])
     hoisted.listSuites.mockResolvedValue([])
     const { server, registered } = fakeServer()
     registerEvalTools(server, USER_ID, supabase as never, WORKSPACE_ID, 'Alpha')
 
-    const body = payload(await registered.get('dial8_list_evals')!.handler({}))
+    const body = payload(await registered.get('ni_list_evals')!.handler({}))
     expect(body.active_workspace).toEqual({ id: WORKSPACE_ID, name: 'Alpha' })
   })
 })
 
-describe('dial8_start_eval_run', () => {
+describe('ni_start_eval_run', () => {
   const RUN = { id: RUN_ID, suite_id: SUITE_ID, mode: 'batch', status: 'queued' }
 
   it('checks membership, queues on the service client, and reports the estimate', async () => {
@@ -525,7 +525,7 @@ describe('dial8_start_eval_run', () => {
     hoisted.startEvalRun.mockResolvedValue({ run: RUN, adopted: false, estimated_cost_usd: 0.42 })
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
+    const result = await registered.get('ni_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
 
     const suiteRead = queries.find((q) => q.table === 'eval_suite')!
     expect(hasFilter(suiteRead, 'eq', 'workspace_id', WORKSPACE_ID)).toBe(true)
@@ -541,7 +541,7 @@ describe('dial8_start_eval_run', () => {
     hoisted.startEvalRun.mockResolvedValue({ run: RUN, adopted: true, estimated_cost_usd: 0.42 })
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
+    const result = await registered.get('ni_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
 
     expect(payload(result).adopted).toBe(true)
   })
@@ -550,7 +550,7 @@ describe('dial8_start_eval_run', () => {
     const { supabase } = callerMock([{ data: null, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
+    const result = await registered.get('ni_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
 
     expect(result.isError).toBe(true)
     expect(hoisted.startEvalRun).not.toHaveBeenCalled()
@@ -561,14 +561,14 @@ describe('dial8_start_eval_run', () => {
     hoisted.startEvalRun.mockRejectedValue(new Error('Monthly eval budget exhausted'))
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
+    const result = await registered.get('ni_start_eval_run')!.handler({ suite_id: SUITE_ID, mode: 'batch' })
 
     expect(result.isError).toBe(true)
     expect(String(payload(result).error)).toMatch(/budget/i)
   })
 })
 
-describe('dial8_get_eval_run', () => {
+describe('ni_get_eval_run', () => {
   const RUN = {
     id: RUN_ID,
     suite_id: SUITE_ID,
@@ -625,7 +625,7 @@ describe('dial8_get_eval_run', () => {
     hoisted.getRunDetail.mockResolvedValue({ run: RUN, trials: TRIALS })
     const registered = register(supabase)
 
-    const result = payload(await registered.get('dial8_get_eval_run')!.handler({ run_id: RUN_ID }))
+    const result = payload(await registered.get('ni_get_eval_run')!.handler({ run_id: RUN_ID }))
     const failing = result.failing_checks as { check_key: string; rationale: string }[]
 
     expect(failing).toHaveLength(1)
@@ -637,7 +637,7 @@ describe('dial8_get_eval_run', () => {
     hoisted.getRunDetail.mockResolvedValue({ run: RUN, trials: TRIALS })
     const registered = register(supabase)
 
-    await registered.get('dial8_get_eval_run')!.handler({ run_id: RUN_ID })
+    await registered.get('ni_get_eval_run')!.handler({ run_id: RUN_ID })
 
     expect(hoisted.latestCompletedRun).toHaveBeenCalledWith(expect.anything(), SUITE_ID, 'batch', 'hash-b')
   })
@@ -647,7 +647,7 @@ describe('dial8_get_eval_run', () => {
     hoisted.getRunDetail.mockResolvedValue({ run: { ...RUN, workspace_id: 'other-ws' }, trials: TRIALS })
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_get_eval_run')!.handler({ run_id: RUN_ID })
+    const result = await registered.get('ni_get_eval_run')!.handler({ run_id: RUN_ID })
 
     expect(result.isError).toBe(true)
     expect(payload(result).code).toBe('NOT_FOUND')
@@ -658,7 +658,7 @@ describe('dial8_get_eval_run', () => {
     hoisted.getRunDetail.mockResolvedValue({ run: RUN, trials: TRIALS })
     const registered = register(supabase)
 
-    const result = payload(await registered.get('dial8_get_eval_run')!.handler({ run_id: RUN_ID }))
+    const result = payload(await registered.get('ni_get_eval_run')!.handler({ run_id: RUN_ID }))
 
     expect(result.trace).toBeUndefined()
     expect(queries.filter((q) => q.table === 'eval_trial')).toHaveLength(0)
@@ -670,7 +670,7 @@ describe('dial8_get_eval_run', () => {
     const registered = register(supabase)
 
     const result = payload(
-      await registered.get('dial8_get_eval_run')!.handler({
+      await registered.get('ni_get_eval_run')!.handler({
         run_id: RUN_ID,
         include_trace: true,
         case_id: CASE_ID,
@@ -687,7 +687,7 @@ describe('dial8_get_eval_run', () => {
     const registered = register(supabase)
 
     const result = payload(
-      await registered.get('dial8_get_eval_run')!.handler({ run_id: RUN_ID, include_trace: true }),
+      await registered.get('ni_get_eval_run')!.handler({ run_id: RUN_ID, include_trace: true }),
     )
 
     expect(String(result.trace_error)).toMatch(/case_id/)
@@ -695,12 +695,12 @@ describe('dial8_get_eval_run', () => {
   })
 })
 
-describe('dial8_update_eval_case', () => {
+describe('ni_update_eval_case', () => {
   it('refuses an empty patch before touching the table', async () => {
     const { supabase, queries } = callerMock([])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_update_eval_case')!.handler({ case_id: CASE_ID })
+    const result = await registered.get('ni_update_eval_case')!.handler({ case_id: CASE_ID })
 
     expect(payload(result).code).toBe('NOTHING_TO_UPDATE')
     expect(queries).toHaveLength(0)
@@ -712,7 +712,7 @@ describe('dial8_update_eval_case', () => {
     hoisted.updateEvalCase.mockResolvedValue(CASE_ROW)
     const registered = register(supabase)
 
-    await registered.get('dial8_update_eval_case')!.handler({ case_id: CASE_ID, name: 'Renamed' })
+    await registered.get('ni_update_eval_case')!.handler({ case_id: CASE_ID, name: 'Renamed' })
 
     expect(hasFilter(queries.find((q) => q.table === 'eval_case')!, 'eq', 'workspace_id', WORKSPACE_ID)).toBe(true)
     expect(hoisted.updateEvalCase).toHaveBeenCalledWith(
@@ -725,7 +725,7 @@ describe('dial8_update_eval_case', () => {
     const { supabase } = callerMock([{ data: null, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_update_eval_case')!.handler({ case_id: CASE_ID, name: 'Renamed' })
+    const result = await registered.get('ni_update_eval_case')!.handler({ case_id: CASE_ID, name: 'Renamed' })
 
     expect(payload(result).code).toBe('NOT_FOUND')
     expect(hoisted.updateEvalCase).not.toHaveBeenCalled()
@@ -737,7 +737,7 @@ describe('dial8_update_eval_case', () => {
     const registered = register(supabase)
 
     const result = payload(
-      await registered.get('dial8_update_eval_case')!.handler({ case_id: CASE_ID, script: SCRIPT }),
+      await registered.get('ni_update_eval_case')!.handler({ case_id: CASE_ID, script: SCRIPT }),
     )
 
     expect(result.chunk_count).toBe(2)
@@ -761,7 +761,7 @@ describe('self speaker label', () => {
     const { supabase } = callerMock([{ data: { id: SUITE_ID }, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_case')!.handler({
+    const result = await registered.get('ni_create_eval_case')!.handler({
       suite_id: SUITE_ID,
       name: 'Prospect stalls on pricing',
       script: [{ t_ms: 0, speaker: 'Me', stream: 'mic', text: 'hey' }],
@@ -779,7 +779,7 @@ describe('self speaker label', () => {
     const { supabase } = callerMock([{ data: { id: CASE_ID }, error: null }])
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_update_eval_case')!.handler({
+    const result = await registered.get('ni_update_eval_case')!.handler({
       case_id: CASE_ID,
       participants: [{ speaker_label: 'mic_a', display: 'Liam', is_self: true }],
     })
@@ -794,7 +794,7 @@ describe('self speaker label', () => {
     hoisted.createEvalCase.mockResolvedValue(CASE_ROW)
     const registered = register(supabase)
 
-    const result = await registered.get('dial8_create_eval_case')!.handler({
+    const result = await registered.get('ni_create_eval_case')!.handler({
       suite_id: SUITE_ID,
       name: 'Prospect stalls on pricing',
       script: SCRIPT,
@@ -826,8 +826,8 @@ describe('the expected schema is strict', () => {
   }
 
   for (const [name, schema] of [
-    ['dial8_create_eval_case', () => expectedSchema('dial8_create_eval_case')],
-    ['dial8_update_eval_case', () => expectedSchema('dial8_update_eval_case')],
+    ['ni_create_eval_case', () => expectedSchema('ni_create_eval_case')],
+    ['ni_update_eval_case', () => expectedSchema('ni_update_eval_case')],
   ] as const) {
     it(`${name} rejects a misspelled expectation key`, () => {
       const s = schema()

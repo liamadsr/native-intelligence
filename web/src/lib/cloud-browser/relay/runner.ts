@@ -25,8 +25,8 @@ const TAKEN_OVER = 'The user has taken over the browser, so the agent stopped. W
 const takenOverResult = () => ({ status: 'cancelled' as const, reason: 'taken_over', message: TAKEN_OVER, steps: 0, elapsedMs: 0,
   timings: { snapshotMs: 0, settlingMs: 0, navigationMs: 0 }, trace: [] })
 /** The Mac exit (C4): why a task stopped rather than go on from the cloud's own address, or at a site that forbids agents. */
-const MAC_DROPPED = 'The user\'s Mac stopped carrying the browser\'s connection (it went to sleep or offline), so the agent stopped rather than go on from the cloud. Ask them to open their Mac with Dial8 running, then try again.'
-const needsMacMessage = (site: string) => `${site} turns away browsers in the cloud, so this needs the user's Mac with Dial8 open. Tell them; don't try to get around it.`
+const MAC_DROPPED = 'The user\'s Mac stopped carrying the browser\'s connection (it went to sleep or offline), so the agent stopped rather than go on from the cloud. Ask them to open their Mac with Native Intelligence running, then try again.'
+const needsMacMessage = (site: string) => `${site} turns away browsers in the cloud, so this needs the user's Mac with Native Intelligence open. Tell them; don't try to get around it.`
 const neverAutomateMessage = (site: string) => `${site} doesn't allow AI agents (its terms forbid them), so the agent never uses it. Tell the user to do this part on the site themselves.`
 const stopResult = (reason: 'needs_your_mac' | 'never_automate', message: string) => ({ status: 'escalate' as const, reason, message, steps: 0, elapsedMs: 0,
   timings: { snapshotMs: 0, settlingMs: 0, navigationMs: 0 }, trace: [] })

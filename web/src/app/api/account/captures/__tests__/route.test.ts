@@ -109,7 +109,7 @@ function happyAuth(opts: { projectFound?: boolean } = {}) {
 
 function listReq(query = ''): NextRequest {
   return {
-    nextUrl: new URL(`https://dial8.ai/api/account/captures${query}`),
+    nextUrl: new URL(`https://nativeintelligence.dev/api/account/captures${query}`),
   } as unknown as NextRequest
 }
 
@@ -132,7 +132,7 @@ function makeCreateSupabase(row: Record<string, unknown>) {
 
 function createReq(body: Record<string, unknown>): NextRequest {
   return {
-    nextUrl: new URL('https://dial8.ai/api/account/captures'),
+    nextUrl: new URL('https://nativeintelligence.dev/api/account/captures'),
     json: async () => body,
   } as unknown as NextRequest
 }

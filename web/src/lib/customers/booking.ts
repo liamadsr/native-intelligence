@@ -256,7 +256,7 @@ export function bookingDeclinedText(business: string, booking: Pick<CustomerBook
 }
 
 /**
- * Text a booking's customer from the business's number (never the Dial8 one).
+ * Text a booking's customer from the business's number (never the Native Intelligence one).
  * The ledger row is a `guest_notice` for a customer with a row, else a
  * `notice`; `kind` overrides it (a reminder is a `notice` either way, so a
  * day's reminders never spend the global auto-reply cap or count as the
@@ -342,7 +342,7 @@ export async function confirmBooking(
 
     const quote = booking.quoteId ? await getQuote(supabase, booking.workspaceId, booking.quoteId).catch(() => null) : null
     const description = [
-      `${booking.kind.charAt(0).toUpperCase()}${booking.kind.slice(1)} booked through Dial8.`,
+      `${booking.kind.charAt(0).toUpperCase()}${booking.kind.slice(1)} booked through Native Intelligence.`,
       `Customer: ${booking.customerName}${booking.customerPhone ? ` (${booking.customerPhone})` : ''}`,
       booking.address ? `Address: ${booking.address}` : null,
       quote ? `Quote: ${quoteSummary(quote)}` : null,

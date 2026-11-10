@@ -1,6 +1,6 @@
 /**
  * The phone field's formatting, as you type (components/communication/
- * phone-section.tsx). Dial8 texts US and Canadian numbers only
+ * phone-section.tsx). Native Intelligence texts US and Canadian numbers only
  * (lib/twilio/phone.ts isNanpNumber), so the field holds the ten national
  * digits behind a fixed +1 and shows them the usual way: (555) 123-4567.
  * Client-safe: no server imports.
@@ -25,7 +25,7 @@ export function formatNanp(digits: string): string {
   return `(${area}) ${exchange}-${line}`
 }
 
-/** A full number Dial8 can text: ten digits, area code and exchange not starting 0 or 1. */
+/** A full number Native Intelligence can text: ten digits, area code and exchange not starting 0 or 1. */
 export function isCompleteNanp(digits: string): boolean {
   return /^[2-9]\d{2}[2-9]\d{6}$/.test(digits)
 }

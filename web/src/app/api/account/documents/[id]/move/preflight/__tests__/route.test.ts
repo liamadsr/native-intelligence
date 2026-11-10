@@ -73,7 +73,7 @@ function makeSupabase(queues: Record<string, unknown[]>) {
 }
 
 const params = Promise.resolve({ id: 'doc-1' })
-const req = new Request('https://dial8.ai/api/account/documents/doc-1/move/preflight')
+const req = new Request('https://nativeintelligence.dev/api/account/documents/doc-1/move/preflight')
 
 const documentRow = { data: { id: 'doc-1', workspace_id: 'w1' }, error: null }
 

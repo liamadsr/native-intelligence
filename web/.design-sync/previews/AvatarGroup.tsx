@@ -1,4 +1,4 @@
-import { AvatarGroup, Avatar, AvatarImage, AvatarFallback } from '@dial8/ui'
+import { AvatarGroup, Avatar, AvatarImage, AvatarFallback } from '@native-intelligence/ui'
 
 export function Default() {
   return (

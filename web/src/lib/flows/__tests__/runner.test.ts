@@ -82,7 +82,7 @@ describe('runFlow — single action', () => {
       { actions: [httpAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -100,7 +100,7 @@ describe('runFlow — single action', () => {
       { actions: [httpAction({ bearer_token_encrypted: encryptCredential('secret-123') })] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     const headers = calls[0].init.headers as Record<string, string>
@@ -113,7 +113,7 @@ describe('runFlow — single action', () => {
       { actions: [httpAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('failed')
@@ -130,7 +130,7 @@ describe('runFlow — single action', () => {
       { actions: [httpAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: failingFetch },
     )
     expect(status).toBe('failed')
@@ -150,7 +150,7 @@ describe('runFlow — fan-out with conditions', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -174,7 +174,7 @@ describe('runFlow — fan-out with conditions', () => {
       { actions: [httpAction({ id: 'one' }), httpAction({ id: 'two' })] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     // Both executed; flow is 'failed' because one executed action failed.
@@ -194,7 +194,7 @@ describe('runFlow — fan-out with conditions', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -208,7 +208,7 @@ describe('runFlow — fan-out with conditions', () => {
       { actions: [] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -224,7 +224,7 @@ describe('runFlow — fan-out with conditions', () => {
       { actions: [bad] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchSpy },
     )
     expect(status).toBe('failed')
@@ -240,7 +240,7 @@ describe('runFlow — disabled actions + tree', () => {
       { actions: [httpAction({ id: 'off', enabled: false }), httpAction({ id: 'on' })] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -262,7 +262,7 @@ describe('runFlow — disabled actions + tree', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -287,7 +287,7 @@ describe('runFlow — disabled actions + tree', () => {
       httpAction({ id: 'child', parent_id: 'root', config: { url: 'https://example.com/child' } }),
       httpAction({ id: 'root', config: { url: 'https://example.com/root' } }),
     ]
-    await runFlow({ actions }, sampleAction, sampleTrigger, 'https://dial8.ai', { fetch: fetchImpl })
+    await runFlow({ actions }, sampleAction, sampleTrigger, 'https://nativeintelligence.dev', { fetch: fetchImpl })
     expect(order).toEqual(['https://example.com/root', 'https://example.com/child'])
   })
 
@@ -305,7 +305,7 @@ describe('runFlow — disabled actions + tree', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(action_results.find((r) => r.action_id === 'root')!.status).toBe('failed')
@@ -326,7 +326,7 @@ describe('runFlow — incomplete (draft) actions', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -349,7 +349,7 @@ describe('runFlow — incomplete (draft) actions', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(action_results.find((r) => r.action_id === 'parent')!.incomplete).toBe(true)
@@ -363,7 +363,7 @@ describe('runFlow — incomplete (draft) actions', () => {
       { actions: [httpAction({ id: 'evil', config: { url: 'http://10.0.0.5/scan' } })] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl },
     )
     expect(status).toBe('success')
@@ -430,7 +430,7 @@ describe('runFlow — run_skill dispatch', () => {
       { actions: [skillAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl, executors: { run_skill: executor } },
     )
     expect(status).toBe('success')
@@ -438,7 +438,7 @@ describe('runFlow — run_skill dispatch', () => {
     expect(calls[0].action.id).toBe('skill-1')
     expect(calls[0].ctx.entity).toBe(sampleAction)
     expect(calls[0].ctx.trigger).toBe(sampleTrigger)
-    expect(calls[0].ctx.appBaseUrl).toBe('https://dial8.ai')
+    expect(calls[0].ctx.appBaseUrl).toBe('https://nativeintelligence.dev')
     const r = action_results[0]
     expect(r.skipped).toBe(false)
     expect(r.status).toBe('success')
@@ -459,7 +459,7 @@ describe('runFlow — run_skill dispatch', () => {
       { actions: [skillAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_skill: executor } },
     )
     expect(status).toBe('failed')
@@ -472,7 +472,7 @@ describe('runFlow — run_skill dispatch', () => {
       { actions: [skillAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
     )
     expect(status).toBe('failed')
     expect(action_results[0].skipped).toBe(false)
@@ -492,7 +492,7 @@ describe('runFlow — run_skill dispatch', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl, executors: { run_skill: executor } },
     )
     expect(status).toBe('success')
@@ -511,7 +511,7 @@ describe('runFlow — run_skill dispatch', () => {
       { actions: [skillAction({ id: 'draft', config: { skill_id: '' } })] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_skill: executor } },
     )
     expect(status).toBe('success')
@@ -533,7 +533,7 @@ describe('runFlow — run_skill dispatch', () => {
       },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_skill: executor } },
     )
     expect(action_results[0].skipped).toBe(true)
@@ -562,7 +562,7 @@ describe('runFlow — run_skill dispatch', () => {
       }),
       skillAction({ id: 'skill' }),
     ]
-    const { status } = await runFlow({ actions }, null, wsTrigger, 'https://dial8.ai', {
+    const { status } = await runFlow({ actions }, null, wsTrigger, 'https://nativeintelligence.dev', {
       fetch: fetchImpl,
       executors: { run_skill: executor },
       extras: { workspaceId: 'w-9', capture },
@@ -597,7 +597,7 @@ describe('runFlow — run_skill dispatch', () => {
       },
       null,
       wsTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_skill: executor }, extras: { workspaceId: 'w-9' } },
     )
     expect(status).toBe('success')
@@ -614,7 +614,7 @@ describe('runFlow — run_skill dispatch', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl, executors: { run_skill: executor } },
     )
     expect(status).toBe('success')
@@ -683,7 +683,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions: [agentAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_agent: executor } },
     )
     expect(status).toBe('success')
@@ -708,7 +708,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions: [agentAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_agent: executor } },
     )
     expect(status).toBe('success')
@@ -730,7 +730,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions: [agentAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_agent: executor } },
     )
     expect(status).toBe('failed')
@@ -743,7 +743,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions: [agentAction()] },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
     )
     expect(status).toBe('failed')
     expect(action_results[0].skipped).toBe(false)
@@ -763,7 +763,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { fetch: fetchImpl, executors: { run_agent: executor } },
     )
     expect(status).toBe('success')
@@ -785,7 +785,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_agent: executor } },
     )
     expect(calls).toHaveLength(0)
@@ -805,7 +805,7 @@ describe('runFlow — run_agent dispatch', () => {
       { actions },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { run_agent: executor } },
     )
     expect(calls).toHaveLength(0)
@@ -864,7 +864,7 @@ describe('runFlow — archive_capture dispatch', () => {
       { actions: [archiveAction()] },
       null,
       { ...sampleTrigger, type: 'capture_processed', entity_type: null },
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { archive_capture: executor }, extras: { workspaceId: 'w-1', capture: { id: 'cap-1', title: 'Junk' } } },
     )
     expect(status).toBe('success')
@@ -882,7 +882,7 @@ describe('runFlow — archive_capture dispatch', () => {
       { actions: [archiveAction()] },
       null,
       { ...sampleTrigger, type: 'capture_processed', entity_type: null },
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { extras: { workspaceId: 'w-1', capture: { id: 'cap-1', title: 'Junk' } } },
     )
     expect(status).toBe('failed')
@@ -901,7 +901,7 @@ describe('runFlow — archive_capture dispatch', () => {
       { actions: [archiveAction()] },
       null,
       { ...sampleTrigger, type: 'capture_processed', entity_type: null },
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { archive_capture: executor }, extras: { workspaceId: 'w-1', capture: { id: 'cap-1', title: 'x' } } },
     )
     expect(status).toBe('failed')
@@ -920,7 +920,7 @@ describe('runFlow — archive_capture dispatch', () => {
       },
       sampleAction,
       sampleTrigger,
-      'https://dial8.ai',
+      'https://nativeintelligence.dev',
       { executors: { archive_capture: executor } },
     )
     // Condition references a label the entity doesn't have → gated out, not run.

@@ -1,16 +1,17 @@
 import type { Metadata } from 'next'
 import Terms from './client'
+import { appUrl } from '@/lib/app-url'
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
   description:
-    'The terms that govern your use of Dial8, including subscriptions, cancellation, AI features, and acceptable use.',
+    'The terms that govern your use of Native Intelligence, including subscriptions, cancellation, AI features, and acceptable use.',
   alternates: { canonical: '/terms' },
   openGraph: {
-    title: 'Terms of Service – Dial8',
+    title: 'Terms of Service – Native Intelligence',
     description:
-      'The terms that govern your use of Dial8, including subscriptions, cancellation, AI features, and acceptable use.',
-    url: 'https://dial8.ai/terms',
+      'The terms that govern your use of Native Intelligence, including subscriptions, cancellation, AI features, and acceptable use.',
+    url: `${appUrl()}/terms`,
     type: 'website',
   },
 }

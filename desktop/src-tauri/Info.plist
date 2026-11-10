@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Dial8 needs access to your microphone to record audio during meetings and voice notes.</string>
+	<string>Native Intelligence needs access to your microphone to record audio during meetings and voice notes.</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Dial8 captures system audio to record meeting participants, enabling speaker-separated transcripts.</string>
+	<string>Native Intelligence captures system audio to record meeting participants, enabling speaker-separated transcripts.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Dial8 uses speech recognition to detect when you're speaking, enabling automatic segment splitting for accurate transcription.</string>
+	<string>Native Intelligence uses speech recognition to detect when you're speaking, enabling automatic segment splitting for accurate transcription.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Dial8 reads your Exchange calendar to show upcoming meetings and enable auto-recording.</string>
+	<string>Native Intelligence reads your Exchange calendar to show upcoming meetings and enable auto-recording.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Dial8 reads your Exchange calendar to show upcoming meetings and enable auto-recording.</string>
+	<string>Native Intelligence reads your Exchange calendar to show upcoming meetings and enable auto-recording.</string>
 	<!-- Kept from the retired in-app browser for the app's own web view: an
 	     email can show http:// images, and this lets them load INSIDE WEB
 	     CONTENT only. It does NOT loosen App Transport Security for the app's own
@@ -29,8 +29,8 @@
 	     dropping it silently breaks desktop sign-in. Keep this entry in sync with
 	     plugins.deep-link.desktop.schemes in tauri.conf.json.
 
-	     Dial8 never declares http/https: web links open in the system browser,
-	     and Dial8 is never a default-browser choice. -->
+	     Native Intelligence never declares http/https: web links open in the system browser,
+	     and Native Intelligence is never a default-browser choice. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

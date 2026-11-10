@@ -69,7 +69,7 @@ impl SleepGuard {
                 return None;
             }
 
-            let reason = CString::new("Dial8 is recording audio").ok()?;
+            let reason = CString::new("Native Intelligence is recording audio").ok()?;
             let cf_reason = unsafe {
                 CFStringCreateWithCString(
                     std::ptr::null(),
@@ -122,7 +122,7 @@ impl SleepGuard {
             use windows::Win32::System::Power::{PowerCreateRequest, PowerRequestSystemRequired, PowerSetRequest};
             use windows::Win32::System::Threading::{POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0};
 
-            let mut reason: Vec<u16> = "Dial8 is recording audio".encode_utf16().chain(std::iter::once(0)).collect();
+            let mut reason: Vec<u16> = "Native Intelligence is recording audio".encode_utf16().chain(std::iter::once(0)).collect();
             let context = REASON_CONTEXT {
                 Version: 0, // POWER_REQUEST_CONTEXT_VERSION
                 Flags: POWER_REQUEST_CONTEXT_SIMPLE_STRING,

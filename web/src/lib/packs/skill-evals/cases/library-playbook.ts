@@ -59,6 +59,6 @@ export const cases: SkillEvalCase[] = [
     loads: ['library-playbook'],
     tools: [],
     avoid: ['update_skill'],
-    why: 'Public publishes to Discover for every Dial8 user, owners and admins only: confirm that exact skill first, offer workspace otherwise.',
+    why: 'Public publishes to Discover for every Native Intelligence user, owners and admins only: confirm that exact skill first, offer workspace otherwise.',
   },
 ]

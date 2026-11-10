@@ -94,7 +94,7 @@ describe('readTranscript / readEvents', () => {
     expect(page?.lastId).toBe(5)
     expect(page?.session.lastDeviceSeq).toEqual({ runId: 'r1', seq: 3 })
     expect(page?.session.runId).toBe('r1')
-    expect(page?.session.folderLabel).toBe('dial8-website')
+    expect(page?.session.folderLabel).toBe('native-intelligence')
   })
 
   it('compact without afterId reads the newest events, skipping deltas (a message carries the whole text)', async () => {

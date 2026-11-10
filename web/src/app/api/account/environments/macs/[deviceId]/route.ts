@@ -1,7 +1,7 @@
 /**
  * DELETE /api/account/environments/macs/[deviceId] ("Remove this Mac").
  *
- * Refused while a Dial8 job is open on it (409 MAC_BUSY: stop it first).
+ * Refused while a Native Intelligence job is open on it (409 MAC_BUSY: stop it first).
  * Otherwise its folders are revoked and its device row deleted, which removes
  * its environment; chats that used it fall back to the next default. A Mac
  * still signed in registers again on its next heartbeat. { removed: true }

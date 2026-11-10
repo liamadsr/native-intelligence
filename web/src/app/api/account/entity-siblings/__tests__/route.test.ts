@@ -134,14 +134,14 @@ function makeSupabase(tables: Record<string, TableFixture>) {
 function authWith(tables: Record<string, TableFixture>) {
   const { client } = makeSupabase(tables)
   return {
-    user: { id: 'user-1', email: 'test@dial8.test' },
+    user: { id: 'user-1', email: 'test@nativeintelligence.test' },
     workspaceId: 'ws-1',
     supabase: client,
   }
 }
 
 function req(query: string) {
-  return new Request(`https://dial8.ai/api/account/entity-siblings?${query}`) as unknown as NextRequest
+  return new Request(`https://nativeintelligence.dev/api/account/entity-siblings?${query}`) as unknown as NextRequest
 }
 
 async function siblings(query: string) {

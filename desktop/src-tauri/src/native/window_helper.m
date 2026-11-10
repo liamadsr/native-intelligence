@@ -12,7 +12,7 @@
 //   --background light: hsl(225 30% 98%) -> rgb(248, 249, 251)
 // Keep these in sync with src/styles/tailwind.css so the live-resize gap is
 // indistinguishable from the rendered page.
-static NSColor *dial8_background_for_appearance(NSAppearance *appearance) {
+static NSColor *ni_background_for_appearance(NSAppearance *appearance) {
     BOOL isDark = NO;
     if (appearance != nil) {
         NSAppearanceName best = [appearance bestMatchFromAppearancesWithNames:@[
@@ -41,7 +41,7 @@ bool window_apply_background(void *ns_window) {
 
     @autoreleasepool {
         NSWindow *window = (__bridge NSWindow *)ns_window;
-        NSColor *bg = dial8_background_for_appearance(window.effectiveAppearance);
+        NSColor *bg = ni_background_for_appearance(window.effectiveAppearance);
 
         // Painting the window background opaque means the brief pre-repaint gap
         // during live resize shows this color instead of the default white.
@@ -65,7 +65,7 @@ bool window_apply_background(void *ns_window) {
 }
 
 // Forward declaration — defined below.
-static WKWebView *dial8_find_webview(NSView *view);
+static WKWebView *ni_find_webview(NSView *view);
 
 bool window_clear_background(void *ns_window) {
     if (ns_window == NULL) {
@@ -95,7 +95,7 @@ bool window_clear_background(void *ns_window) {
         // The WKWebView's own host layer is the surface that actually flashes
         // white on a theme switch — clear it AND tell WebKit not to draw its
         // background so the page's transparent body shows the desktop through.
-        WKWebView *webView = dial8_find_webview(content);
+        WKWebView *webView = ni_find_webview(content);
         if (webView != nil) {
             // Available on modern WebKit; guarded so older SDKs still compile.
             if ([webView respondsToSelector:@selector(setValue:forKey:)]) {
@@ -112,7 +112,7 @@ bool window_clear_background(void *ns_window) {
 
 // Depth-first search for the (Wry-subclassed) WKWebView under a view — the
 // APP's web view.
-static WKWebView *dial8_find_webview(NSView *view) {
+static WKWebView *ni_find_webview(NSView *view) {
     if (view == nil) {
         return nil;
     }
@@ -120,7 +120,7 @@ static WKWebView *dial8_find_webview(NSView *view) {
         return (WKWebView *)view;
     }
     for (NSView *sub in view.subviews) {
-        WKWebView *found = dial8_find_webview(sub);
+        WKWebView *found = ni_find_webview(sub);
         if (found != nil) {
             return found;
         }
@@ -131,7 +131,7 @@ static WKWebView *dial8_find_webview(NSView *view) {
 // An actions dictionary that returns NSNull for the layer-geometry keys, which
 // tells CoreAnimation to run NO implicit animation for those changes — the
 // layer jumps straight to its new bounds/position/frame.
-static NSDictionary *dial8_no_implicit_actions(void) {
+static NSDictionary *ni_no_implicit_actions(void) {
     id null = [NSNull null];
     return @{
         @"bounds": null,
@@ -145,13 +145,13 @@ static NSDictionary *dial8_no_implicit_actions(void) {
 
 // Recursively disable implicit animations on a layer and its sublayers so a
 // geometry change snaps instead of easing over the default ~0.25s.
-static void dial8_disable_layer_animations(CALayer *layer) {
+static void ni_disable_layer_animations(CALayer *layer) {
     if (layer == nil) {
         return;
     }
-    layer.actions = dial8_no_implicit_actions();
+    layer.actions = ni_no_implicit_actions();
     for (CALayer *sub in layer.sublayers) {
-        dial8_disable_layer_animations(sub);
+        ni_disable_layer_animations(sub);
     }
 }
 
@@ -162,7 +162,7 @@ bool window_sync_webview_resize(void *ns_window) {
 
     @autoreleasepool {
         NSWindow *window = (__bridge NSWindow *)ns_window;
-        WKWebView *webView = dial8_find_webview(window.contentView);
+        WKWebView *webView = ni_find_webview(window.contentView);
         if (webView == nil) {
             // The web view may not be attached yet on the first call; the caller
             // retries after the window is shown.
@@ -176,7 +176,7 @@ bool window_sync_webview_resize(void *ns_window) {
         // Kill the implicit CoreAnimation geometry animation so the web view's
         // backing layer tracks the window frame synchronously on maximize/zoom.
         if (webView.layer != nil) {
-            dial8_disable_layer_animations(webView.layer);
+            ni_disable_layer_animations(webView.layer);
         }
 
         return true;
@@ -197,7 +197,7 @@ bool window_sync_webview_resize(void *ns_window) {
 // having to reimplement zoom geometry.
 static IMP gOriginalSetFrameDisplayAnimate = NULL;
 
-static void dial8_setFrameDisplayAnimate(id self, SEL _cmd, NSRect frame, BOOL display, BOOL animate) {
+static void ni_setFrameDisplayAnimate(id self, SEL _cmd, NSRect frame, BOOL display, BOOL animate) {
     typedef void (*SetFrameFn)(id, SEL, NSRect, BOOL, BOOL);
     if (gOriginalSetFrameDisplayAnimate != NULL) {
         ((SetFrameFn)gOriginalSetFrameDisplayAnimate)(self, _cmd, frame, display, NO);
@@ -227,10 +227,10 @@ bool window_disable_zoom_animation(void *ns_window) {
             // process (panels, alerts). Add the override to this class
             // instead; replace in place only when the class defines it.
             IMP original = method_getImplementation(m);
-            if (class_addMethod(cls, sel, (IMP)dial8_setFrameDisplayAnimate, method_getTypeEncoding(m))) {
+            if (class_addMethod(cls, sel, (IMP)ni_setFrameDisplayAnimate, method_getTypeEncoding(m))) {
                 gOriginalSetFrameDisplayAnimate = original;
             } else {
-                gOriginalSetFrameDisplayAnimate = method_setImplementation(m, (IMP)dial8_setFrameDisplayAnimate);
+                gOriginalSetFrameDisplayAnimate = method_setImplementation(m, (IMP)ni_setFrameDisplayAnimate);
             }
         }
 
@@ -317,13 +317,13 @@ bool window_style_traffic_lights(void *ns_window, double diameter, double center
 // (canBecomeKeyWindow, which reads tao's `focusable`, and sendEvent:, which
 // drags a movable-by-background window) and its ivars, by name, as tao reads
 // them. So tao's set_focusable and dragging still work on the swapped window.
-// It never becomes main: a panel shouldn't take Dial8's menu bar. Main thread
+// It never becomes main: a panel shouldn't take Native Intelligence's menu bar. Main thread
 // only (objc_getClass then objc_allocateClassPair isn't atomic).
-static BOOL dial8_overlay_panel_no(id self, SEL _cmd) { return NO; }
+static BOOL ni_overlay_panel_no(id self, SEL _cmd) { return NO; }
 
-static Class dial8_overlay_panel_class(Class source) {
+static Class ni_overlay_panel_class(Class source) {
     char name[256];
-    snprintf(name, sizeof name, "Dial8OverlayPanel_%s", class_getName(source));
+    snprintf(name, sizeof name, "NiOverlayPanel_%s", class_getName(source));
     Class existing = objc_getClass(name);
     if (existing != Nil) {
         return existing;
@@ -357,13 +357,13 @@ static Class dial8_overlay_panel_class(Class source) {
     // BOOL is `signed char` on x86_64 and `bool` on arm64: encode it.
     char types[8];
     snprintf(types, sizeof types, "%s@:", @encode(BOOL));
-    class_replaceMethod(made, @selector(canBecomeMainWindow), (IMP)dial8_overlay_panel_no, types);
+    class_replaceMethod(made, @selector(canBecomeMainWindow), (IMP)ni_overlay_panel_no, types);
     objc_registerClassPair(made);
     return made;
 }
 
 // Whether `cls` itself defines `sel` (not just inherits it).
-static bool dial8_class_defines(Class cls, SEL sel) {
+static bool ni_class_defines(Class cls, SEL sel) {
     unsigned int count = 0;
     Method *methods = class_copyMethodList(cls, &count);
     bool found = false;
@@ -377,7 +377,7 @@ static bool dial8_class_defines(Class cls, SEL sel) {
 // Whether each of `from`'s own ivars sits at the same offset in `to`, so a
 // window re-classed from one to the other keeps its values where its methods
 // look for them.
-static bool dial8_ivars_line_up(Class from, Class to) {
+static bool ni_ivars_line_up(Class from, Class to) {
     unsigned int count = 0;
     Ivar *ivars = class_copyIvarList(from, &count);
     bool same = true;
@@ -391,12 +391,12 @@ static bool dial8_ivars_line_up(Class from, Class to) {
 
 int window_make_overlay_panel(void *ns_window) {
     if (ns_window == NULL) {
-        return DIAL8_OVERLAY_NOT_A_PLAIN_WINDOW;
+        return NI_OVERLAY_NOT_A_PLAIN_WINDOW;
     }
 
     @autoreleasepool {
         NSWindow *window = (__bridge NSWindow *)ns_window;
-        // Stay up when the user hides Dial8 (Cmd+H): the HUD is for the call,
+        // Stay up when the user hides Native Intelligence (Cmd+H): the HUD is for the call,
         // not the app. Applies to a plain window too, so it's set either way.
         window.canHide = NO;
 
@@ -405,22 +405,22 @@ int window_make_overlay_panel(void *ns_window) {
             // Only tao's own window class, straight off NSWindow: anything
             // else (a KVO subclass, say) would be copied wrong.
             if (class_getSuperclass(current) != [NSWindow class]) {
-                return DIAL8_OVERLAY_NOT_A_PLAIN_WINDOW;
+                return NI_OVERLAY_NOT_A_PLAIN_WINDOW;
             }
             // Its methods are copied as they are: one that tears the object
             // down would run against the panel's layout. tao defines none.
-            if (dial8_class_defines(current, NSSelectorFromString(@"dealloc"))
-                || dial8_class_defines(current, NSSelectorFromString(@".cxx_destruct"))
-                || dial8_class_defines(current, NSSelectorFromString(@".cxx_construct"))) {
-                return DIAL8_OVERLAY_CLASS_NOT_COPYABLE;
+            if (ni_class_defines(current, NSSelectorFromString(@"dealloc"))
+                || ni_class_defines(current, NSSelectorFromString(@".cxx_destruct"))
+                || ni_class_defines(current, NSSelectorFromString(@".cxx_construct"))) {
+                return NI_OVERLAY_CLASS_NOT_COPYABLE;
             }
-            Class panelClass = dial8_overlay_panel_class(current);
+            Class panelClass = ni_overlay_panel_class(current);
             // object_setClass reinterprets the existing allocation: the new
             // class must fit in it, and keep tao's ivars where they were.
             if (panelClass == Nil
                 || class_getInstanceSize(panelClass) > class_getInstanceSize(current)
-                || !dial8_ivars_line_up(current, panelClass)) {
-                return DIAL8_OVERLAY_DID_NOT_FIT;
+                || !ni_ivars_line_up(current, panelClass)) {
+                return NI_OVERLAY_DID_NOT_FIT;
             }
             object_setClass(window, panelClass);
         }
@@ -429,7 +429,7 @@ int window_make_overlay_panel(void *ns_window) {
         panel.styleMask |= NSWindowStyleMaskNonactivatingPanel;
         // Setting the non-activating style after the window exists doesn't
         // reach the window server on its own: a click would still activate
-        // Dial8 (and pull the user out of their full-screen call). This private
+        // Native Intelligence (and pull the user out of their full-screen call). This private
         // setter is what the style sets at creation; skipped where it's gone.
         SEL preventsActivation = NSSelectorFromString(@"_setPreventsActivation:");
         if ([panel respondsToSelector:preventsActivation]) {
@@ -443,7 +443,7 @@ int window_make_overlay_panel(void *ns_window) {
                                         | NSWindowCollectionBehaviorFullScreenPrimary))
                                    | NSWindowCollectionBehaviorCanJoinAllSpaces
                                    | NSWindowCollectionBehaviorFullScreenAuxiliary;
-        return DIAL8_OVERLAY_OK;
+        return NI_OVERLAY_OK;
     }
 }
 
@@ -461,16 +461,16 @@ void window_order_front_without_focus(void *ns_window) {
 // The window server's per-window background blur (window_helper.h,
 // window_set_backdrop). Private SkyLight API, exported by CoreGraphics; looked
 // up at run time so a macOS without it loses only the blur, never the launch.
-typedef int32_t (*Dial8CGSMainConnectionID)(void);
-typedef int32_t (*Dial8CGSSetWindowBackgroundBlurRadius)(int32_t connection, NSInteger window_number, int radius);
+typedef int32_t (*NiCGSMainConnectionID)(void);
+typedef int32_t (*NiCGSSetWindowBackgroundBlurRadius)(int32_t connection, NSInteger window_number, int radius);
 
-static bool dial8_set_window_blur(NSWindow *window, int radius) {
-    static Dial8CGSMainConnectionID mainConnection = NULL;
-    static Dial8CGSSetWindowBackgroundBlurRadius setBlur = NULL;
+static bool ni_set_window_blur(NSWindow *window, int radius) {
+    static NiCGSMainConnectionID mainConnection = NULL;
+    static NiCGSSetWindowBackgroundBlurRadius setBlur = NULL;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        mainConnection = (Dial8CGSMainConnectionID)dlsym(RTLD_DEFAULT, "CGSMainConnectionID");
-        setBlur = (Dial8CGSSetWindowBackgroundBlurRadius)dlsym(RTLD_DEFAULT, "CGSSetWindowBackgroundBlurRadius");
+        mainConnection = (NiCGSMainConnectionID)dlsym(RTLD_DEFAULT, "CGSMainConnectionID");
+        setBlur = (NiCGSSetWindowBackgroundBlurRadius)dlsym(RTLD_DEFAULT, "CGSSetWindowBackgroundBlurRadius");
     });
     if (mainConnection == NULL || setBlur == NULL || window.windowNumber <= 0) {
         return false;
@@ -480,44 +480,44 @@ static bool dial8_set_window_blur(NSWindow *window, int radius) {
 
 int window_set_backdrop(void *ns_window, int mode, int blur_radius) {
     if (ns_window == NULL) {
-        return DIAL8_BACKDROP_NO_WINDOW;
+        return NI_BACKDROP_NO_WINDOW;
     }
 
     @autoreleasepool {
         NSWindow *window = (__bridge NSWindow *)ns_window;
-        WKWebView *webView = dial8_find_webview(window.contentView);
+        WKWebView *webView = ni_find_webview(window.contentView);
         if (webView == nil) {
-            return DIAL8_BACKDROP_NO_WEBVIEW;
+            return NI_BACKDROP_NO_WEBVIEW;
         }
 
-        if (mode == DIAL8_BACKDROP_MODE_OFF) {
-            dial8_set_window_blur(window, 0);
+        if (mode == NI_BACKDROP_MODE_OFF) {
+            ni_set_window_blur(window, 0);
             @try { [webView setValue:@YES forKey:@"drawsBackground"]; }
             @catch (__unused NSException *e) {}
             window_apply_background(ns_window);
             [window invalidateShadow];
-            return DIAL8_BACKDROP_OK;
+            return NI_BACKDROP_OK;
         }
 
         // Transparent window, content layer and web view (as the HUDs), then
         // the blur behind it.
         window_clear_background(ns_window);
-        dial8_set_window_blur(window, blur_radius);
+        ni_set_window_blur(window, blur_radius);
 
         // A non-opaque window's shadow follows its content's alpha: recompute it.
         [window invalidateShadow];
-        return DIAL8_BACKDROP_OK;
+        return NI_BACKDROP_OK;
     }
 }
 
 // The panel Glass layer (window_helper.h, window_set_glass_panel), found again
 // by this identifier so repeated calls reuse one view.
-static NSString *const kDial8GlassPanelIdentifier = @"dial8-glass-panel";
+static NSString *const kNiGlassPanelIdentifier = @"ni-glass-panel";
 
-static NSVisualEffectView *dial8_find_glass_panel(NSView *host) {
+static NSVisualEffectView *ni_find_glass_panel(NSView *host) {
     for (NSView *sub in host.subviews) {
         if ([sub isKindOfClass:[NSVisualEffectView class]]
-            && [sub.identifier isEqualToString:kDial8GlassPanelIdentifier]) {
+            && [sub.identifier isEqualToString:kNiGlassPanelIdentifier]) {
             return (NSVisualEffectView *)sub;
         }
     }
@@ -525,7 +525,7 @@ static NSVisualEffectView *dial8_find_glass_panel(NSView *host) {
 }
 
 // A stretchable rounded-rect mask: corners of `radius`, the middle stretched.
-static NSImage *dial8_rounded_mask(CGFloat radius) {
+static NSImage *ni_rounded_mask(CGFloat radius) {
     CGFloat side = radius * 2.0 + 1.0;
     NSImage *mask = [NSImage imageWithSize:NSMakeSize(side, side)
                                    flipped:NO
@@ -541,27 +541,27 @@ static NSImage *dial8_rounded_mask(CGFloat radius) {
 
 int window_set_glass_panel(void *ns_window, int on, int appearance, double corner_radius) {
     if (ns_window == NULL) {
-        return DIAL8_BACKDROP_NO_WINDOW;
+        return NI_BACKDROP_NO_WINDOW;
     }
 
     @autoreleasepool {
         NSWindow *window = (__bridge NSWindow *)ns_window;
-        WKWebView *webView = dial8_find_webview(window.contentView);
+        WKWebView *webView = ni_find_webview(window.contentView);
         NSView *host = webView.superview;
         if (webView == nil || host == nil) {
-            return DIAL8_BACKDROP_NO_WEBVIEW;
+            return NI_BACKDROP_NO_WEBVIEW;
         }
-        NSVisualEffectView *fx = dial8_find_glass_panel(host);
+        NSVisualEffectView *fx = ni_find_glass_panel(host);
 
         if (!on) {
             [fx removeFromSuperview];
             [window invalidateShadow];
-            return DIAL8_BACKDROP_OK;
+            return NI_BACKDROP_OK;
         }
 
         if (fx == nil) {
             fx = [[NSVisualEffectView alloc] initWithFrame:host.bounds];
-            fx.identifier = kDial8GlassPanelIdentifier;
+            fx.identifier = kNiGlassPanelIdentifier;
             fx.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
             [host addSubview:fx positioned:NSWindowBelow relativeTo:webView];
         }
@@ -569,18 +569,18 @@ int window_set_glass_panel(void *ns_window, int on, int appearance, double corne
         // Blur what's behind the panel (the call, the desktop).
         fx.blendingMode = NSVisualEffectBlendingModeBehindWindow;
         fx.material = NSVisualEffectMaterialUnderWindowBackground;
-        // Stay glass while Dial8 isn't the active app: the panel's whole job is
+        // Stay glass while Native Intelligence isn't the active app: the panel's whole job is
         // to float over the user's call window.
         fx.state = NSVisualEffectStateActive;
-        if (appearance == DIAL8_BACKDROP_APPEARANCE_DARK) {
+        if (appearance == NI_BACKDROP_APPEARANCE_DARK) {
             fx.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
-        } else if (appearance == DIAL8_BACKDROP_APPEARANCE_LIGHT) {
+        } else if (appearance == NI_BACKDROP_APPEARANCE_LIGHT) {
             fx.appearance = [NSAppearance appearanceNamed:NSAppearanceNameAqua];
         } else {
             fx.appearance = nil;
         }
-        fx.maskImage = dial8_rounded_mask((CGFloat)fmax(0.0, corner_radius));
+        fx.maskImage = ni_rounded_mask((CGFloat)fmax(0.0, corner_radius));
         [window invalidateShadow];
-        return DIAL8_BACKDROP_OK;
+        return NI_BACKDROP_OK;
     }
 }

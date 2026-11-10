@@ -3,7 +3,7 @@
  * Thumbs on a reply (the evals flywheel, message-feedback-buttons.tsx):
  *  - on a settled assistant reply, where the host provides the conversation's
  *    ratings (ChatPanel's MessageFeedbackContext);
- *  - never on the person's messages, a streaming reply, a notice row Dial8
+ *  - never on the person's messages, a streaming reply, a notice row Native Intelligence
  *    wrote (metadata.kind), or in a host without the context; but on the
  *    agent's own server-started replies (a home turn, a live nudge);
  *  - clicking the active thumb clears it;

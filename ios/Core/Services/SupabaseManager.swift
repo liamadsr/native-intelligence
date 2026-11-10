@@ -1,6 +1,6 @@
 //
 //  SupabaseManager.swift
-//  dial8
+//  Native Intelligence
 //
 //  Manages all Supabase interactions including auth, database, and realtime
 //
@@ -190,7 +190,7 @@ class SupabaseManager: ObservableObject {
         do {
             // Set redirect URL for email confirmation
             #if PRODUCTION
-            let redirectURL = URL(string: "https://dial8.ai/welcome")!
+            let redirectURL = URL(string: "https://nativeintelligence.dev/welcome")!
             #else
             let redirectURL = URL(string: "http://localhost:3000/welcome")!
             #endif
@@ -268,7 +268,7 @@ class SupabaseManager: ObservableObject {
             // Use the welcome page as redirect with type=recovery parameter
             // This ensures the welcome page knows it's a password reset
             #if PRODUCTION
-            let redirectURL = URL(string: "https://dial8.ai/welcome?type=recovery")!
+            let redirectURL = URL(string: "https://nativeintelligence.dev/welcome?type=recovery")!
             #else
             let redirectURL = URL(string: "http://localhost:3000/welcome?type=recovery")!
             #endif
@@ -303,7 +303,7 @@ class SupabaseManager: ObservableObject {
             // Redirect to welcome page after successful OAuth
             // The welcome page will then redirect back to the app via dial8://auth-callback
             #if PRODUCTION
-            let redirectURL = URL(string: "https://dial8.ai/welcome")!
+            let redirectURL = URL(string: "https://nativeintelligence.dev/welcome")!
             #else
             let redirectURL = URL(string: "http://localhost:3000/welcome")!
             #endif
@@ -322,7 +322,7 @@ class SupabaseManager: ObservableObject {
                 UIApplication.shared.open(oauthURL)
             }
 
-            print("🔷 SupabaseManager: Initiated OAuth with \(provider), redirecting to dial8.ai/welcome")
+            print("🔷 SupabaseManager: Initiated OAuth with \(provider), redirecting to nativeintelligence.dev/welcome")
         } catch {
             await MainActor.run {
                 self.error = error

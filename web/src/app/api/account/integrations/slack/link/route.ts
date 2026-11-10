@@ -1,14 +1,14 @@
 /**
  * PATCH  /api/account/integrations/slack/link?team=T…  { alerts: boolean }
  *
- * Turn the person's "Dial8 needs your OK" DMs on or off in that Slack
+ * Turn the person's "Native Intelligence needs your OK" DMs on or off in that Slack
  * workspace (slack_user_link.alerts_off_at, 426; src/lib/reach/dispatch.ts).
  * On by default once linked.
  *
  * DELETE /api/account/integrations/slack/link?team=T…
  *
  * Unlink the person's own Slack account in a Slack workspace connected to the
- * current Dial8 workspace. Afterwards the bot treats them as someone it
+ * current Native Intelligence workspace. Afterwards the bot treats them as someone it
  * doesn't know.
  */
 import { getServiceClient } from '@/lib/admin'

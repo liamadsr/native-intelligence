@@ -142,13 +142,13 @@ function setup(captureRow: CaptureRow, requesterId = USER_ID, documentRow: { id:
 
 function getReq(query: string): NextRequest {
   return {
-    nextUrl: new URL(`https://dial8.ai/api/account/shares${query}`),
+    nextUrl: new URL(`https://nativeintelligence.dev/api/account/shares${query}`),
   } as unknown as NextRequest
 }
 
 function postReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/shares',
+    url: 'https://nativeintelligence.dev/api/account/shares',
     method: 'POST',
     body,
   }) as unknown as NextRequest

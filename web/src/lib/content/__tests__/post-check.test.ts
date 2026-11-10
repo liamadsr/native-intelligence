@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest'
 import { checkPost } from '../post-check'
 import { blockedPhrases } from '../public-safe'
 
-const CLEAN = 'We shipped voice notes this week.\n\nSay what you did after a call and Dial8 files the actions for you. Three tries to get the timing right.'
+const CLEAN = 'We shipped voice notes this week.\n\nSay what you did after a call and Native Intelligence files the actions for you. Three tries to get the timing right.'
 
 describe('checkPost', () => {
   it('a clean, cited post is ok and links to the compose page', () => {
@@ -53,7 +53,7 @@ describe('checkPost', () => {
   })
 
   it('a price is a problem unless it rests on the person\'s own pricing (review S4): then a note they see', () => {
-    const text = 'Dial8 Pro is now $20 a month.'
+    const text = 'Native Intelligence Pro is now $20 a month.'
     // From a call, or from shipped work alone: it may be a customer's price or a deal.
     const bare = checkPost({ surface: 'x', parts: [text], sourceCount: 1 })
     expect(bare.public_safe.ok).toBe(false)

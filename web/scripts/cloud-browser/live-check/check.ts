@@ -135,10 +135,10 @@ window.pixel = () => {
     await sleep(1000)
     await drive.mouse.click(640, 450)
     await sleep(300)
-    await drive.keyboard.type('hello from dial8')
+    await drive.keyboard.type('hello from native intelligence')
     let value: string | null = null
-    for (let i = 0; i < 10 && value !== 'hello from dial8'; i++) { await sleep(400); value = typed() }
-    check('its clicks and keys reach the cloud page', value === 'hello from dial8', JSON.stringify(value))
+    for (let i = 0; i < 10 && value !== 'hello from native intelligence'; i++) { await sleep(400); value = typed() }
+    check('its clicks and keys reach the cloud page', value === 'hello from native intelligence', JSON.stringify(value))
     await sleep(800)
     await drive.screenshot({ path: join(out, 'live-view-driving.png') })
     const stillWatching = await view.evaluate(() => (window as never as { result: { closed: unknown } }).result.closed)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Dial8 Desktop Build Script
+# Native Intelligence Desktop Build Script
 #
 # Usage:
 #   ./build.sh dev          # Incremental build, launch, and watch for changes
@@ -50,7 +50,7 @@ err()  { echo -e "${RED}[build]${NC} $1"; }
 # the code-signing requirement captured from whichever binary last prompted. An
 # ad-hoc debug build's csreq is a per-build cdhash, so recording from a dev build
 # overwrites the shared ai.dial8.desktop mic row with that cdhash. The production
-# app (/Applications/Dial8.app) then fails the csreq match on its next mic access
+# app (/Applications/Native Intelligence.app) then fails the csreq match on its next mic access
 # and macOS re-prompts the user. Signing debug bundles with the SAME Developer ID
 # gives them the stable designated requirement the production app uses, so they
 # share the grant instead of poisoning it. See docs/PERMISSIONS.md.
@@ -71,7 +71,7 @@ sign_debug_bundle() {
     local bundle_app="$1"
 
     if [ -z "$SIGNING_IDENTITY" ] || ! security find-identity -v -p codesigning | grep -qF "$SIGNING_IDENTITY"; then
-        warn "Developer ID '$SIGNING_IDENTITY' not set (DIAL8_SIGNING_IDENTITY in .env.release) or not in keychain."
+        warn "Developer ID '$SIGNING_IDENTITY' not set (NI_SIGNING_IDENTITY in .env.release) or not in keychain."
         warn "This debug build will stay AD-HOC SIGNED and WILL poison the"
         warn "production app's microphone permission (macOS re-prompts after the"
         warn "next production launch). See docs/PERMISSIONS.md. Continuing anyway."
@@ -88,8 +88,8 @@ sign_debug_bundle() {
 }
 
 kill_existing() {
-    log "Killing existing Dial8 instances..."
-    pkill -f "Dial8.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
+    log "Killing existing Native Intelligence instances..."
+    pkill -f "\.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
     pkill -f "target/debug/dial8-desktop" 2>/dev/null || true
     pkill -f "target/release/dial8-desktop" 2>/dev/null || true
     sleep 0.3
@@ -113,8 +113,16 @@ register_url_scheme() {
 
 build_dev() {
     local BINARY="$TARGET_DIR/debug/dial8-desktop"
-    local BUNDLE_APP="$TARGET_DIR/debug/bundle/macos/Dial8.app"
+    local BUNDLE_APP="$TARGET_DIR/debug/bundle/macos/Native Intelligence.app"
     local BUNDLE_BIN="$BUNDLE_APP/Contents/MacOS/dial8-desktop"
+    # TODO(rename-compat): remove once no checkout still has a Dial8.app build.
+    # The bundle was Dial8.app before the rename: drop that stale build and its
+    # LaunchServices registration (same bundle id and dial8desktop:// scheme).
+    local OLD_BUNDLE_APP="$TARGET_DIR/debug/bundle/macos/Dial8.app"
+    if [ -d "$OLD_BUNDLE_APP" ]; then
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$OLD_BUNDLE_APP" 2>/dev/null || true
+        rm -rf "$OLD_BUNDLE_APP"
+    fi
 
     # kill_existing  # Temporarily disabled — keep running app open
 
@@ -165,11 +173,11 @@ build_dev() {
     # Register URL scheme
     register_url_scheme "$BUNDLE_APP"
 
-    log "Launching Dial8.app..."
+    log "Launching Native Intelligence.app..."
     open "$BUNDLE_APP"
 
     echo ""
-    ok "Dev build complete — Dial8 is running"
+    ok "Dev build complete — Native Intelligence is running"
     echo ""
     echo "  Deep links (dial8desktop://) will work."
     echo "  Webview → http://localhost:3000"
@@ -193,7 +201,7 @@ build_dev() {
             sign_debug_bundle "$BUNDLE_APP"
             ok "Binary synced"
 
-            pkill -f "Dial8.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
+            pkill -f "\.app/Contents/MacOS/dial8-desktop" 2>/dev/null || true
             sleep 0.3
             open "$BUNDLE_APP"
             ok "Relaunched"
@@ -243,7 +251,7 @@ build_prod() {
         exit "$status"
     fi
 
-    local BUNDLE_APP="$TARGET_DIR/release/bundle/macos/Dial8.app"
+    local BUNDLE_APP="$TARGET_DIR/release/bundle/macos/Native Intelligence.app"
     local DMG="$TARGET_DIR/release/bundle/dmg"
 
     echo ""

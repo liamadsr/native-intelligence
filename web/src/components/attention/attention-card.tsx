@@ -266,7 +266,7 @@ export function AttentionCard({
   const isEmail = item.kind === 'draft_email'
   const isQuestion = item.kind === 'question'
   const isWork = item.kind === 'work_proposal'
-  // Where its Start runs: Dial8, a folder on the person's Mac, or a cloud environment (work-place-picker.tsx).
+  // Where its Start runs: Native Intelligence, a folder on the person's Mac, or a cloud environment (work-place-picker.tsx).
   const place = useWorkPlace({ workspaceId: item.workspace_id, windowWorkspaceId: currentId ?? null, enabled: isWork })
   // W-4b: a target-less action update — can't apply in one click; the primary
   // action opens a picker so the user chooses which action to update (W-4c).
@@ -365,7 +365,7 @@ export function AttentionCard({
         // Padding moved off the card root and onto the content block, so the
         // bottom control bar can run edge-to-edge with its own divider.
         // `ph-no-capture`: a draft card shows the email's recipient, subject
-        // and brief; session replay blocks it (Dial8 never stores mail text).
+        // and brief; session replay blocks it (Native Intelligence never stores mail text).
         'ph-no-capture flex w-full min-w-0 flex-col rounded-xl border border-border/60',
         // In a bot's column it sits inside the bot's own glass (the bubble's
         // card, the page's section): no blur or lift of its own, and it grows
@@ -889,7 +889,7 @@ export function AttentionCard({
                   disabled={busy || notSupported}
                   title={
                     notSupported
-                      ? `Dial8 can't apply a ${p.change_type} on a ${p.entity_type} yet — dismiss it or handle it manually.`
+                      ? `Native Intelligence can't apply a ${p.change_type} on a ${p.entity_type} yet — dismiss it or handle it manually.`
                       : undefined
                   }
                 >

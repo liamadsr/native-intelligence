@@ -398,7 +398,7 @@ describe('local Exchange', () => {
   })
 })
 
-describe('Dial8’s Slack app', () => {
+describe('Native Intelligence’s Slack app', () => {
   const team = (over: Partial<NonNullable<SlackAppStatus['installations']>[number]> = {}) => ({
     teamId: 'T1',
     teamName: 'Acme',

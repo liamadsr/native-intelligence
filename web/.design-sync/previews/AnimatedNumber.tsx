@@ -1,4 +1,4 @@
-import { AnimatedNumber } from '@dial8/ui'
+import { AnimatedNumber } from '@native-intelligence/ui'
 
 const stat: React.CSSProperties = {
   display: 'flex',

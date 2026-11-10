@@ -37,7 +37,7 @@ import { POST as SETTLE } from '../commands/[id]/settle/route'
 const params = { params: Promise.resolve({ id: 'cmd-1' }) }
 const actor = { userId: 'user-1', workspaceId: 'ws-1', deviceId: 'cloud:browser-abc' }
 function relay(path: string, init: RequestInit = {}, token = mintBrowserRelayToken({ userId: 'user-1', workspaceId: 'ws-1', sandbox: 'browser-abc' }, 60_000)) {
-  return new Request(`https://browser-relay.dial8.ai${path}`, { ...init, headers: { [RELAY_TOKEN_HEADER]: token, [RELAY_MARK_HEADER]: '1', ...(init.headers ?? {}) } })
+  return new Request(`https://browser-relay.nativeintelligence.dev${path}`, { ...init, headers: { [RELAY_TOKEN_HEADER]: token, [RELAY_MARK_HEADER]: '1', ...(init.headers ?? {}) } })
 }
 
 beforeEach(() => {
@@ -52,7 +52,7 @@ beforeEach(() => {
 
 describe('the relay routes', () => {
   it('turn away anything without a valid relay token and mark', async () => {
-    const bare = new Request('https://browser-relay.dial8.ai/api/browser-relay/next?v=build-1')
+    const bare = new Request('https://browser-relay.nativeintelligence.dev/api/browser-relay/next?v=build-1')
     expect((await NEXT(bare)).status).toBe(401)
     expect((await CLAIM(new Request('https://x/', { method: 'POST' }), params)).status).toBe(401)
     expect((await SETTLE(relay('/', { method: 'POST' }, 'forged.token'), params)).status).toBe(401)

@@ -14,16 +14,16 @@ describe('digestBody — doc updates', () => {
       {
         events: [],
         logLines: [
-          { at: at(1), line: 'Dial8 updated Voice in Product', ref_type: 'document', ref_id: 'd1', kind: 'doc_updated' },
+          { at: at(1), line: 'Native Intelligence updated Voice in Product', ref_type: 'document', ref_id: 'd1', kind: 'doc_updated' },
           { at: at(2), line: 'Finished: Weekly report', ref_type: 'work_item', ref_id: 'w1', kind: 'work_finished' },
-          { at: at(3), line: 'Dial8 updated Positioning in Product', ref_type: 'document', ref_id: 'd1', kind: 'doc_updated' },
+          { at: at(3), line: 'Native Intelligence updated Positioning in Product', ref_type: 'document', ref_id: 'd1', kind: 'doc_updated' },
         ],
       },
       { date: '2026-10-14', timeZone: 'UTC' },
     )!
     expect(body.counts).toEqual(['1 log line', '2 doc updates'])
     const i = body.lines.findIndex((l) => l.startsWith('Doc updates'))
-    expect(body.lines.slice(i + 1)).toEqual(['- Dial8 updated Positioning in Product', '- Dial8 updated Voice in Product'])
+    expect(body.lines.slice(i + 1)).toEqual(['- Native Intelligence updated Positioning in Product', '- Native Intelligence updated Voice in Product'])
     expect(body.lines.slice(0, i).some((l) => l.includes('Weekly report'))).toBe(true)
   })
 

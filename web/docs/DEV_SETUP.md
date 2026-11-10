@@ -6,7 +6,7 @@ End state:
 
 | Branch | Vercel | Supabase | URL |
 |---|---|---|---|
-| `main` | Production deployment | Prod project | `dial8.ai` |
+| `main` | Production deployment | Prod project | `nativeintelligence.dev` (and `dial8.ai`, the address before the rename, while it still serves) |
 | `dev` | Branch deployment (same project, branch-scoped env vars) | Existing dev project | `dev.dial8.ai` |
 | `agent/*` `feat/*` `fix/*` | Preview deployment | Existing dev project (until per-PR branching lands) | `*.vercel.app` |
 
@@ -201,7 +201,7 @@ GitHub repo → Settings → Branches → Add rule.
 6. `dev` branch updates → Vercel deploys `dev.dial8.ai`.
 7. `dev-deploy.yml` runs smoke tests against `dev.dial8.ai`.
 8. Visit `dev.dial8.ai`, confirm the change is live.
-9. Manually run the `promote-to-prod` workflow → `main` updates → `dial8.ai` redeploys.
+9. Manually run the `promote-to-prod` workflow → `main` updates → production redeploys.
 
 If all six work, the foundation is solid.
 
@@ -222,6 +222,6 @@ Repo Settings → Secrets and variables → Actions:
 | Secret | Value |
 |---|---|
 | `DEV_URL` | `https://dev.dial8.ai` |
-| `PROD_URL` | `https://dial8.ai` |
+| `PROD_URL` | The production address: `https://nativeintelligence.dev` once that domain serves the app, `https://dial8.ai` until then |
 
 (More secrets land when Supabase branching arrives.)

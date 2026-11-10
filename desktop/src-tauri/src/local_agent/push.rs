@@ -33,7 +33,7 @@
 //!    `gh auth status --hostname <host>` succeeds (both run in an empty
 //!    folder of their own, so nothing in a checkout steers gh); otherwise
 //!    the server's `POST /api/local-agent/sessions/<id>/pull-request` with
-//!    the session token, and the server opens it with the person's Dial8
+//!    the session token, and the server opens it with the person's Native Intelligence
 //!    GitHub sign-in. The remote URL sent there never carries a
 //!    `user:password@`, and neither the token nor that URL is ever logged
 //!    (`Debug` redacts both).
@@ -640,7 +640,7 @@ pub async fn push_remote(git: &Git, repo: &Path) -> Result<String, String> {
 /// The remote the branch goes to, checked before the person is asked.
 pub async fn target(git: &Git, repo: &Path, branch: &str) -> Result<Target, String> {
     if !is_job_branch(branch) {
-        return Err(format!("{branch} isn't a branch Dial8 made for this job"));
+        return Err(format!("{branch} isn't a branch Native Intelligence made for this job"));
     }
     git.run_with(
         repo,
@@ -671,7 +671,7 @@ pub async fn target(git: &Git, repo: &Path, branch: &str) -> Result<Target, Stri
 
 /// A folder of gh's own, empty: no checkout's config can steer it.
 fn gh_dir() -> std::io::Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("dial8-gh-{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("ni-gh-{}", uuid::Uuid::new_v4()));
     super::state::create_private_dir(&dir)?;
     Ok(dir)
 }
@@ -850,8 +850,8 @@ async fn open_pr(
     .await
     .map(|url| (url, Via::Server));
     ran.push(match &result {
-        Ok((url, _)) => format!("POST the pull request to Dial8 ({remote_url} {branch}): {url}"),
-        Err(e) => format!("POST the pull request to Dial8 ({remote_url} {branch}): {e}"),
+        Ok((url, _)) => format!("POST the pull request to Native Intelligence ({remote_url} {branch}): {url}"),
+        Err(e) => format!("POST the pull request to Native Intelligence ({remote_url} {branch}): {e}"),
     });
     result
 }
@@ -962,24 +962,24 @@ async fn gh_pr_create(
     Err(format!("gh pr create failed: {why}"))
 }
 
-/// The server fallback: it opens the pull request with the person's Dial8
+/// The server fallback: it opens the pull request with the person's Native Intelligence
 /// GitHub sign-in and answers `{ url }`.
 async fn server_pr(origin: &str, session_id: &str, token: Option<&str>, payload: &Value) -> Result<String, String> {
-    let token = token.ok_or("gh isn't signed in, and this job has no Dial8 session to open the pull request with")?;
+    let token = token.ok_or("gh isn't signed in, and this job has no Native Intelligence session to open the pull request with")?;
     if !super::is_safe_id(session_id) {
-        return Err("this job's id isn't a Dial8 session".into());
+        return Err("this job's id isn't a Native Intelligence session".into());
     }
     let client = reqwest::Client::builder()
         .timeout(SERVER_TIMEOUT)
         .build()
-        .map_err(|e| format!("can't reach Dial8: {e}"))?;
+        .map_err(|e| format!("can't reach Native Intelligence: {e}"))?;
     let resp = client
         .post(pull_request_url(origin, session_id))
         .bearer_auth(token)
         .json(payload)
         .send()
         .await
-        .map_err(|e| format!("can't reach Dial8: {e}"))?;
+        .map_err(|e| format!("can't reach Native Intelligence: {e}"))?;
     let status = resp.status();
     let body: Value = resp.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
@@ -988,13 +988,13 @@ async fn server_pr(origin: &str, session_id: &str, token: Option<&str>, payload:
             .and_then(Value::as_str)
             .map(|e| truncate(e, 600))
             .unwrap_or_else(|| format!("HTTP {status}"));
-        return Err(format!("Dial8 couldn't open the pull request: {why}"));
+        return Err(format!("Native Intelligence couldn't open the pull request: {why}"));
     }
     body.get("url")
         .and_then(Value::as_str)
         .filter(|u| u.starts_with("https://") && u.len() <= MAX_URL && !u.chars().any(char::is_whitespace))
         .map(str::to_string)
-        .ok_or_else(|| "Dial8 answered without a pull request URL".to_string())
+        .ok_or_else(|| "Native Intelligence answered without a pull request URL".to_string())
 }
 
 // The local agent runs on macOS only so far (its jobs, shells and
@@ -1064,8 +1064,8 @@ mod tests {
     fn hosted_remotes_name_their_repo_and_local_ones_dont() {
         let gh = |h: &str, o: &str, r: &str| Some((h.to_string(), o.to_string(), r.to_string()));
         assert_eq!(
-            repo_of("https://github.com/liamadsr/dial8-website.git"),
-            gh("github.com", "liamadsr", "dial8-website")
+            repo_of("https://github.com/liamadsr/native-intelligence.git"),
+            gh("github.com", "liamadsr", "native-intelligence")
         );
         assert_eq!(repo_of("https://x:y@GitHub.com/o/r/"), gh("github.com", "o", "r"));
         assert_eq!(repo_of("git@github.com:o/r.git"), gh("github.com", "o", "r"));
@@ -1104,8 +1104,8 @@ mod tests {
         );
         assert_eq!(symref_branch("224728b\tHEAD\n"), None);
         assert_eq!(
-            pull_request_url("https://dial8.ai/", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
-            "https://dial8.ai/api/local-agent/sessions/38cb0eef-89e9-496d-bf08-0688225dbfcd/pull-request"
+            pull_request_url("https://nativeintelligence.dev/", "38cb0eef-89e9-496d-bf08-0688225dbfcd"),
+            "https://nativeintelligence.dev/api/local-agent/sessions/38cb0eef-89e9-496d-bf08-0688225dbfcd/pull-request"
         );
     }
 
@@ -1286,14 +1286,14 @@ mod tests {
             env_file: None,
             tool_path: "/usr/bin:/bin".into(),
             home: home.display().to_string(),
-            model_base_url: "https://dial8.ai/api/local-agent/model".into(),
+            model_base_url: "https://nativeintelligence.dev/api/local-agent/model".into(),
             git: "/usr/bin/git".into(),
             git_env: vec![
                 ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
                 ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
             ],
             gh: None,
-            api_origin: "https://dial8.ai".into(),
+            api_origin: "https://nativeintelligence.dev".into(),
         })
     }
 
@@ -1374,14 +1374,14 @@ mod tests {
                     env_file: None,
                     tool_path: "/usr/bin:/bin".into(),
                     home: "/Users/x".into(),
-                    model_base_url: "https://dial8.ai/api/local-agent/model".into(),
+                    model_base_url: "https://nativeintelligence.dev/api/local-agent/model".into(),
                     git: "/usr/bin/git".into(),
                     git_env: Vec::new(),
                     gh: None,
-                    api_origin: "https://dial8.ai".into(),
+                    api_origin: "https://nativeintelligence.dev".into(),
                 }),
                 gh: None,
-                api_origin: "https://dial8.ai".into(),
+                api_origin: "https://nativeintelligence.dev".into(),
             },
             repo: "/r".into(),
             branch: "dial8/x-1".into(),
@@ -1418,14 +1418,14 @@ mod tests {
                     env_file: None,
                     tool_path: "/usr/bin:/bin".into(),
                     home: "/Users/x".into(),
-                    model_base_url: "https://dial8.ai/api/local-agent/model".into(),
+                    model_base_url: "https://nativeintelligence.dev/api/local-agent/model".into(),
                     git: "/nonexistent/git".into(),
                     git_env: Vec::new(),
                     gh: None,
-                    api_origin: "https://dial8.ai".into(),
+                    api_origin: "https://nativeintelligence.dev".into(),
                 }),
                 gh: None,
-                api_origin: "https://dial8.ai".into(),
+                api_origin: "https://nativeintelligence.dev".into(),
             },
             repo: "/r".into(),
             branch: "dial8/x-1".into(),

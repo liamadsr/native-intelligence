@@ -200,7 +200,7 @@ export function buildUsageLimitMessage(body: UsageLimitBody): string {
 
   // No free tier (migration 243): the one reason with a clear next step.
   if (reason === 'subscription_required') {
-    return "Your Dial8 trial or subscription isn't active. Start a free trial or update billing in Settings → Billing to keep going."
+    return "Your Native Intelligence trial or subscription isn't active. Start a free trial or update billing in Settings → Billing to keep going."
   }
 
   let message = reason ? `${headline}: ${reason}` : headline

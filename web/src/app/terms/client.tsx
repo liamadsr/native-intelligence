@@ -3,6 +3,7 @@
 import { Footer } from '@/components/footer'
 import { Navbar } from '@/components/navbar'
 import { ContentSection, PageHeader, PageLayout, type Section } from '@/components/page-layout'
+import { appUrl, appHost } from '@/lib/app-url'
 
 const sections: Section[] = [
   { id: 'agreement', label: 'Agreement to Terms' },
@@ -45,8 +46,8 @@ export default function Terms() {
           <ContentSection id="agreement" title="Agreement to Terms" isFirst>
             <p>
               These Terms of Service (&quot;Terms&quot;) are a binding agreement between you and
-              Bridgebound Studio (&quot;Dial8,&quot; &quot;we,&quot; &quot;our,&quot; or
-              &quot;us&quot;) governing your access to and use of the Dial8 website, web
+              Bridgebound Studio (&quot;Native Intelligence,&quot; formerly &quot;Dial8,&quot; &quot;we,&quot; &quot;our,&quot; or
+              &quot;us&quot;) governing your access to and use of the Native Intelligence website, web
               application, desktop application, and related services (collectively, the
               &quot;Service&quot;).
             </p>
@@ -71,7 +72,7 @@ export default function Terms() {
 
           <ContentSection id="service" title="The Service">
             <p>
-              Dial8 is a workspace that combines meeting capture and transcription, project and
+              Native Intelligence is a workspace that combines meeting capture and transcription, project and
               task management, email and calendar integration, and CRM features, assisted by
               artificial intelligence. Features vary by plan and platform, and we may add, change,
               or remove features over time. Where a change materially reduces the core
@@ -141,10 +142,10 @@ export default function Terms() {
                   You can cancel your subscription at any time, online, in the same way you signed
                   up: go to Settings → Billing in the app (or visit{' '}
                   <a
-                    href="https://dial8.ai/account/settings/billing"
+                    href={`${appUrl()}/account/settings/billing`}
                     className="text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 dark:hover:text-cyan-300"
                   >
-                    dial8.ai/account/settings/billing
+                    {appHost()}/account/settings/billing
                   </a>
                   ) and choose Cancel. No phone call, email, or chat with support is required.
                   Cancellation takes effect at the end of the current billing period; you keep
@@ -227,7 +228,7 @@ export default function Terms() {
                   recordings, summarize meetings, extract action items, draft emails, and power the
                   assistant. Your Content is sent to these providers only as needed to deliver
                   these features, under agreements that restrict how they may use it. With local
-                  transcription turned on and ready in the Dial8 desktop app, recordings are
+                  transcription turned on and ready in the Native Intelligence desktop app, recordings are
                   transcribed on your device instead (falling back to Deepgram, with a notice, if
                   on-device transcription is unavailable or stops). We do not use
                   Your Content to train generalized AI models, and our providers are contractually
@@ -347,7 +348,7 @@ export default function Terms() {
               The Service integrates with third-party services and is built on third-party
               infrastructure — for example Google and Microsoft (email and calendar sync via OAuth),
               Stripe (payments), Supabase (database and storage), Vercel (hosting), Deepgram
-              (transcription), and Anthropic (AI). Your use of a third-party service through Dial8
+              (transcription), and Anthropic (AI). Your use of a third-party service through Native Intelligence
               is also subject to that service&apos;s own terms and privacy policy. The third
               parties that process your data on our behalf, and what they receive, are listed in
               our{' '}
@@ -441,7 +442,7 @@ export default function Terms() {
               for intellectual-property misuse in court.
             </p>
             <p className="mt-4 font-semibold text-gray-950 dark:text-white">
-              You and Dial8 each waive the right to a jury trial and to participate in a class
+              You and Native Intelligence each waive the right to a jury trial and to participate in a class
               action.
             </p>
             <p className="mt-4">
@@ -493,7 +494,7 @@ export default function Terms() {
             <p>Questions about these Terms? Contact us at:</p>
             <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-6 dark:border-gray-800 dark:bg-gray-900/50">
               <p className="font-semibold text-gray-950 dark:text-white">
-                Bridgebound Studio (Dial8)
+                Bridgebound Studio (Native Intelligence)
               </p>
               <p className="mt-2">
                 Email:{' '}
@@ -507,10 +508,10 @@ export default function Terms() {
               <p className="mt-1">
                 Website:{' '}
                 <a
-                  href="https://dial8.ai"
+                  href={appUrl()}
                   className="text-cyan-600 hover:text-cyan-500 dark:text-cyan-400 dark:hover:text-cyan-300"
                 >
-                  https://dial8.ai
+                  {appUrl()}
                 </a>
               </p>
             </div>

@@ -65,14 +65,14 @@ const { GET, POST } = await import('@/app/api/account/captures/[id]/comments/rou
 
 function getReq(): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/capture-1/comments',
+    url: 'https://nativeintelligence.dev/api/account/captures/capture-1/comments',
     method: 'GET',
   }) as unknown as NextRequest
 }
 
 function postReq(body: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/captures/capture-1/comments',
+    url: 'https://nativeintelligence.dev/api/account/captures/capture-1/comments',
     method: 'POST',
     body,
   }) as unknown as NextRequest

@@ -91,7 +91,7 @@ vi.mock('@/lib/posthog', () => ({ trackServerEvent: vi.fn() }))
 const { POST } = await import('@/app/api/account/actions/route')
 
 const req = (body: unknown) =>
-  buildRequest({ url: 'https://dial8.ai/api/account/actions', body }) as unknown as NextRequest
+  buildRequest({ url: 'https://nativeintelligence.dev/api/account/actions', body }) as unknown as NextRequest
 
 beforeEach(() => {
   hoisted.requireWorkspace.mockReset()

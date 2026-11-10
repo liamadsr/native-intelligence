@@ -65,7 +65,7 @@ describe('flowWords', () => {
           { condition: { match: 'all', rules: [{ field: 'label', op: 'in', value: ['l1'] }] } },
         ),
         step('archive_capture'),
-        step('http_post', { url: 'https://www.hooks.acme.com/dial8?x=1' }, { enabled: false }),
+        step('http_post', { url: 'https://www.hooks.acme.com/native-intelligence?x=1' }, { enabled: false }),
         step('run_agent', { agent_id: 'agent-coder', repo: 'acme/web' }),
       ],
     }

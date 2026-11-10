@@ -228,7 +228,7 @@ describe('chat tool route — a bot conversation (teammateIn: chat)', () => {
     expect(executeSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('one set to change Dial8 records can, there too', async () => {
+  it('one set to change Native Intelligence records can, there too', async () => {
     teammate.row = row(['read', 'internal-write'])
     expect((await bot('create_document')).status).toBe(200)
     expect((await bot('delete_action')).status).toBe(403)

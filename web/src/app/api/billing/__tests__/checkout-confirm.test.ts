@@ -44,7 +44,7 @@ vi.mock('@/lib/stripe', () => ({
 const { POST } = await import('@/app/api/billing/checkout/confirm/route')
 
 function req(body: unknown): Request {
-  return new Request('https://dial8.ai/api/billing/checkout/confirm', { method: 'POST', body: JSON.stringify(body) })
+  return new Request('https://nativeintelligence.dev/api/billing/checkout/confirm', { method: 'POST', body: JSON.stringify(body) })
 }
 
 const trialSub = {

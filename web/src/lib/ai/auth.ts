@@ -31,7 +31,7 @@ export async function authenticateUser(req: Request) {
   const authHeader = req.headers.get('authorization') || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
 
-  // Device token: opaque `d8d_…` secret resolving to a user. These endpoints
+  // Device token: opaque `nid_…` secret resolving to a user. These endpoints
   // pass user.id / workspaceId explicitly and don't lean on RLS, so a
   // service-role client is the right scoped client to hand back.
   if (token && isDeviceToken(token)) {
@@ -102,10 +102,10 @@ export interface UsageLimitRow {
  * `opts.chatgptPlan`: this caller runs the person's AI on their own ChatGPT
  * plan (the free tier, docs/plans/chatgpt-free-tier.md), so a ChatGPT
  * free-tier person is allowed ('chatgpt_plan', or 'chatgpt_plan_exhausted'
- * when the last call ran out of plan credits: trying again costs Dial8
+ * when the last call ran out of plan credits: trying again costs Native Intelligence
  * nothing). Every other caller leaves it
  * off and such a person is refused ('chatgpt_plan_unsupported', migration 409):
- * a path that would spend Dial8's own models on them fails closed.
+ * a path that would spend Native Intelligence's own models on them fails closed.
  */
 export async function checkUsageLimits(
   userId: string,
@@ -237,11 +237,11 @@ export async function runLogUsageRpc(
     p_output_tokens: params.outputTokens,
     p_duration_ms: params.durationMs,
     p_edge_function: edgeFunction,
-    // A step on the person's own ChatGPT plan (the free tier): Dial8 paid
+    // A step on the person's own ChatGPT plan (the free tier): Native Intelligence paid
     // nothing, wherever the row comes from, and the row says so.
     p_metadata: onPlan ? { ...params.metadata, billed_to: 'chatgpt_plan' } : (params.metadata ?? {}),
     // skipBilling (eval runs) and plan steps: force a zero cost into the RPC so
-    // nothing accrues to the user's Dial8 plan; any real cost rides in metadata only.
+    // nothing accrues to the user's Native Intelligence plan; any real cost rides in metadata only.
     p_cost_usd: params.skipBilling || onPlan ? 0 : (params.costUsd ?? null),
     p_audio_seconds: params.audioSeconds ?? 0,
   }

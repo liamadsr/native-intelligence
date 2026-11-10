@@ -63,7 +63,7 @@ export function TopBar() {
   return (
     // On the web the row is 36px (2px above/below the 32px pills). In the
     // desktop app it stays 44px because the macOS traffic lights are pinned at
-    // 30pt from the window top (dial8-desktop src-tauri/src/lib.rs
+    // 30pt from the window top (desktop/src-tauri/src/lib.rs
     // TRAFFIC_LIGHT_CENTER_Y) to match the 8pt pad + 22pt half-row — change
     // both together if this ever moves.
     <div

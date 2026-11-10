@@ -7,7 +7,7 @@
  *      silent Preferences fallback (the 'voice' key was missing from the overlay
  *      registry, so it fell through to '').
  *   2. Navigating to a NON-settings path from overlay context (the Voice view's
- *      "Teach Dial8 your voice" CTA → /account/voice-enrollment) closes the
+ *      "Teach Native Intelligence your voice" CTA → /account/voice-enrollment) closes the
  *      overlay and router.push()es the full-page route, instead of silently
  *      no-op-ing because handleNavigate only matched ^/account/settings/ paths.
  *

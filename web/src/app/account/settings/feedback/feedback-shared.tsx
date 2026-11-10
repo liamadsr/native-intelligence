@@ -164,7 +164,7 @@ const VISIBILITY_META: Record<
   },
   private: {
     label: 'Private',
-    description: 'Only you (and the Dial8 team) can see it',
+    description: 'Only you (and the Native Intelligence team) can see it',
     icon: Lock,
   },
 }

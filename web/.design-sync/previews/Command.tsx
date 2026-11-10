@@ -7,7 +7,7 @@ import {
   CommandItem,
   CommandSeparator,
   CommandShortcut,
-} from '@dial8/ui'
+} from '@native-intelligence/ui'
 
 export function Palette() {
   return (

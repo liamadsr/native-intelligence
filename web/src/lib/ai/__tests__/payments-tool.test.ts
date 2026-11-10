@@ -18,7 +18,7 @@ const hoisted = vi.hoisted(() => ({
   stripeCalls: [] as Array<{ params: Record<string, unknown>; options: Record<string, unknown> }>,
   linkActive: true,
   createFails: false,
-  setupResult: { sent: true, url: 'https://dial8.ai/payments/setup/x', expiresAt: 'later' } as Record<string, unknown>,
+  setupResult: { sent: true, url: 'https://nativeintelligence.dev/payments/setup/x', expiresAt: 'later' } as Record<string, unknown>,
 }))
 
 vi.mock('@/lib/payments/setup', () => ({
@@ -149,7 +149,7 @@ beforeEach(() => {
   hoisted.stripeCalls.length = 0
   hoisted.linkActive = true
   hoisted.createFails = false
-  hoisted.setupResult = { sent: true, url: 'https://dial8.ai/payments/setup/x', expiresAt: 'later' }
+  hoisted.setupResult = { sent: true, url: 'https://nativeintelligence.dev/payments/setup/x', expiresAt: 'later' }
   process.env.STRIPE_SECRET_KEY = 'sk_test_platform'
   delete process.env.STRIPE_CONNECT_LIVE
 })
@@ -230,7 +230,7 @@ describe('send_payment_link', () => {
   })
 
   it('never puts the setup link in the result (model context), even when it could not be texted', async () => {
-    hoisted.setupResult = { sent: false, reason: 'no_phone', url: 'https://dial8.ai/payments/setup/SECRETTOKENxxxxxxxxxxxxx' }
+    hoisted.setupResult = { sent: false, reason: 'no_phone', url: 'https://nativeintelligence.dev/payments/setup/SECRETTOKENxxxxxxxxxxxxx' }
     const result = await exec(seed(null), true)
     expect(result).toMatchObject({ success: false, code: 'STRIPE_NOT_READY' })
     expect(JSON.stringify(result)).not.toContain('/payments/setup/')

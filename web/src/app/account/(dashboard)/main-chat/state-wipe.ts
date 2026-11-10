@@ -19,30 +19,35 @@
  */
 
 // Everything persisted per-user: the main chat of each workspace and the
-// last-workspace pointer (`dial8-chat:*`), the in-app browser's saved tabs and
-// its routing (under `dial8-tabs*`, also where the retired chat tabs lived),
+// last-workspace pointer (`ni-chat:*`), the in-app browser's saved tabs and
+// its routing (under `ni-tabs*`, also where the retired chat tabs lived),
 // and what the retired bot crew and its desktop overlay left on a device
-// (`dial8:bots:cast`, `dial8:bots:bubble*`, `dial8:bots:seen:<user>`,
-// `dial8:bots:peek:<user>`: the cast, the overlay's bubble, when this device
+// (`ni:bots:cast`, `ni:bots:bubble*`, `ni:bots:seen:<user>`,
+// `ni:bots:peek:<user>`: the cast, the overlay's bubble, when this device
 // last saw the bots, the peeks dismissed), still cleared so a device from
 // before signs out clean. Most of it is not keyed by user, hence the sign-out
 // wipe. Also this device's copy of the agent's look and name
-// (`dial8:agent-look`, `dial8:voice:assistant-name`) and of the app rail's
-// bar (`dial8:rail-pages`; the account keeps the real ones,
+// (`ni:agent-look`, `ni:voice:assistant-name`) and of the app rail's
+// bar (`ni:rail-pages`; the account keeps the real ones,
 // lib/account-setting.ts), so the next account to sign in starts
 // on the default rather than the last one's, and a desktop HUD still open
 // drops it at once.
 const WIPE_KEY_PREFIXES = [
-  'dial8-chat:',
-  'dial8-tabs',
-  'dial8:bots:cast',
-  'dial8:bots:bubble',
-  'dial8:bots:seen',
-  'dial8:bots:peek',
-  'dial8:agent-look',
-  'dial8:voice:assistant-name',
-  'dial8:rail-pages',
+  'ni-chat:',
+  'ni-tabs',
+  'ni:bots:cast',
+  'ni:bots:bubble',
+  'ni:bots:seen',
+  'ni:bots:peek',
+  'ni:agent-look',
+  'ni:voice:assistant-name',
+  'ni:rail-pages',
 ] as const
+// TODO(rename-compat): the same keys under their names from before the rename. The storage
+// rename script leaves the old keys beside the new ones for a release
+// (components/storage-rename-script.tsx), so a sign-out sweeps both: otherwise the last
+// person's chat would stay on a shared device under its old key.
+const WIPE_KEY_PREFIXES_BEFORE_RENAME = WIPE_KEY_PREFIXES.map((prefix) => prefix.replace(/^ni/, 'dial8'))
 
 let wipeActive = false
 
@@ -71,7 +76,7 @@ export function beginPersistedTabStateWipe(): void {
     const doomed: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
-      if (key && WIPE_KEY_PREFIXES.some((p) => key.startsWith(p))) doomed.push(key)
+      if (key && [...WIPE_KEY_PREFIXES, ...WIPE_KEY_PREFIXES_BEFORE_RENAME].some((p) => key.startsWith(p))) doomed.push(key)
     }
     for (const key of doomed) localStorage.removeItem(key)
   } catch {

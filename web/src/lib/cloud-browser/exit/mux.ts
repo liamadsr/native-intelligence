@@ -1,6 +1,6 @@
 /**
  * The Mac exit tunnel's frames, mux v1 (docs/plans/cloud-browser.md, C4). The
- * desktop's side is dial8-desktop `src-tauri/crates/browser-exit/src/mux.rs`;
+ * desktop's side is desktop/`src-tauri/crates/browser-exit/src/mux.rs`;
  * the two must agree byte for byte (both tests hold the same vectors).
  *
  * After the text handshake (exit.ts), every WebSocket message is one binary

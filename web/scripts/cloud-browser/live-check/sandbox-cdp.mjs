@@ -3,7 +3,7 @@
 //   node sandbox-cdp.mjs open   |   node sandbox-cdp.mjs value
 const PAGE = `data:text/html,${encodeURIComponent(`<title>live-check</title>
 <body style="margin:0;background:rgb(29,78,216);color:white;font:40px sans-serif">
-<p style="margin:24px">Dial8 live view check</p>
+<p style="margin:24px">Native Intelligence live view check</p>
 <textarea id="x" style="position:absolute;left:0;right:0;top:120px;height:520px;width:100%;font-size:32px"></textarea>`)}`
 const cdp = 'http://127.0.0.1:9222'
 const pages = async () => (await (await fetch(`${cdp}/json/list`)).json()).filter(t => t.type === 'page')

@@ -184,7 +184,7 @@ export function createConnectionTools(userId: string, supabase: SupabaseClient, 
           input: { connection_id },
           card: {
             title: `Disconnect ${label}?`,
-            why: `Dial8 and your agents lose access to it until you connect it again. ${loopLine}`,
+            why: `Native Intelligence and your agents lose access to it until you connect it again. ${loopLine}`,
           },
           context: { kind: 'disconnect', connection_id, state_hash: hash },
           approvalContext: ctx.approvalContext,

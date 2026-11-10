@@ -4,7 +4,7 @@
  * blocked storage just start from the default), and always kept on screen.
  */
 
-export const HUD_POSITION_KEY = 'dial8-live-hud:position'
+export const HUD_POSITION_KEY = 'ni-live-hud:position'
 /** The HUD's size, the desktop window's (commands/hud.rs). */
 export const HUD_WIDTH = 472
 export const HUD_HEIGHT = 536

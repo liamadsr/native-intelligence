@@ -1,5 +1,5 @@
 //! Voice activity detection on the cleaned 16 kHz mic
-//! (dial8-website/docs/plans/chat-voice.md §3.3a).
+//! (web/docs/plans/chat-voice.md §3.3a).
 //!
 //! A detector may be `!Send`: the voice session builds it on its DSP thread
 //! and keeps it there. [`new_vad`] is Silero (on the ONNX Runtime local-tts

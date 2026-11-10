@@ -45,7 +45,7 @@ export interface DraftOptions {
   max_drafts?: number
   /**
    * A tone the person asked for. Unset (the usual case): the draft follows how
-   * they write, as Dial8 has learned it, and falls back to DEFAULT_DRAFT_TONE
+   * they write, as Native Intelligence has learned it, and falls back to DEFAULT_DRAFT_TONE
    * only when it has learned nothing (resolveDraftTone).
    */
   tone?: DraftTone
@@ -120,7 +120,7 @@ export function parseDraftTone(value: unknown): DraftTone | undefined {
   return typeof value === 'string' && (DRAFT_TONES as readonly string[]).includes(value) ? (value as DraftTone) : undefined
 }
 
-/** The tone when nobody asked for one and Dial8 has learned nothing about how the person writes. */
+/** The tone when nobody asked for one and Native Intelligence has learned nothing about how the person writes. */
 export const DEFAULT_DRAFT_TONE: DraftTone = 'professional'
 
 /** The Tone line when the person's own style, in the message, decides. */
@@ -128,7 +128,7 @@ export const OWN_STYLE_TONE = "the person's own: follow How they write, in the m
 
 /**
  * The draft's Tone param: the tone asked for; else the person's own style
- * when Dial8 has learned how they write; else DEFAULT_DRAFT_TONE. Pure.
+ * when Native Intelligence has learned how they write; else DEFAULT_DRAFT_TONE. Pure.
  */
 export function resolveDraftTone(asked: DraftTone | undefined, hasStyle: boolean): string {
   if (asked) return asked
@@ -342,11 +342,11 @@ export async function generateEmailDrafts(
 
   if (!threads?.length) return { drafts: [], count: 0 }
 
-  // A free user's drafts run on their own ChatGPT plan, never Dial8's models.
+  // A free user's drafts run on their own ChatGPT plan, never Native Intelligence's models.
   // Manual drafting has no usage check of its own; automatic drafting is
   // gated before this (draftingBlocked, which lets a free user through), so
   // it fails closed here: a plan check that can't be read drafts nothing,
-  // rather than running a free user's pass on Dial8's models.
+  // rather than running a free user's pass on Native Intelligence's models.
   const origin = options.origin ?? (options.replyIntent === 'explicit' ? 'explicit' : 'automatic')
   let chatgptPlan: boolean
   try {
@@ -557,7 +557,7 @@ export async function generateEmailDrafts(
             .update({ provider_draft_id: result.id })
             .eq('id', savedDraft.id)
         } catch (err) {
-          // Non-fatal: the draft is saved here and shows in Dial8 either way.
+          // Non-fatal: the draft is saved here and shows in Native Intelligence either way.
           console.error(`[email-drafts] provider draft not created for thread ${thread.provider_thread_id}:`,
             err instanceof Error ? err.message : err)
         }
@@ -683,12 +683,12 @@ export async function gatherDraftContext(
 }
 
 // ---------------------------------------------------------------------------
-// How the person writes (what Dial8 has learned)
+// How the person writes (what Native Intelligence has learned)
 // ---------------------------------------------------------------------------
 
 /**
- * What Dial8 has learned about how the person writes, for a draft (Liam,
- * 2026-10-17: email drafts use what Dial8 has learned): their Mail note in
+ * What Native Intelligence has learned about how the person writes, for a draft (Liam,
+ * 2026-10-17: email drafts use what Native Intelligence has learned): their Mail note in
  * this workspace (theirs and the workspace's active lines, loadPackMemory,
  * fenced as quoted preferences) and the facts about them that follow them
  * everywhere (loadProfileFacts). '' when there is nothing, or a read failed:
@@ -946,7 +946,7 @@ export const UNTRUSTED_THREAD_NOTE =
  * (chat-system-prompt.ts): an email saying "ignore your instructions" is text
  * to reply to, never a rule.
  *
- * `style` is what Dial8 has learned about how the person writes
+ * `style` is what Native Intelligence has learned about how the person writes
  * (loadWritingStyle): their own preferences, already fenced as quoted lines,
  * under "How they write". Left out when empty.
  *

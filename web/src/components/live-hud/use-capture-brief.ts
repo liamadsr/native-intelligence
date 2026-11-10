@@ -7,7 +7,7 @@ import { MEETING_GOAL_CHANGED_EVENT, goalChangeMayConcernCapture } from '@/lib/m
 /**
  * The person's pre-call brief for the call's capture, for the HUD's Briefing
  * line (lib/live-agent/hud-brief.ts): read once when the call's capture is
- * known, again when the capture is edited (`dial8:content-edited` for it),
+ * known, again when the capture is edited (`ni:content-edited` for it),
  * and when a goal that may be this meeting's is saved on this page
  * (MEETING_GOAL_CHANGED_EVENT: the prep card's composer, set_meeting_goal's
  * result). On desktop this runs in the recording window's publisher, which
@@ -34,10 +34,10 @@ export function useCaptureBrief(captureId: string): HudBrief | null {
     const onGoal = (e: Event) => {
       if (goalChangeMayConcernCapture((e as CustomEvent).detail, captureId)) load()
     }
-    window.addEventListener('dial8:content-edited', onEdited)
+    window.addEventListener('ni:content-edited', onEdited)
     window.addEventListener(MEETING_GOAL_CHANGED_EVENT, onGoal)
     return () => {
-      window.removeEventListener('dial8:content-edited', onEdited)
+      window.removeEventListener('ni:content-edited', onEdited)
       window.removeEventListener(MEETING_GOAL_CHANGED_EVENT, onGoal)
       ac?.abort()
     }

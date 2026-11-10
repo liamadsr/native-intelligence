@@ -100,7 +100,7 @@ const fakeParams = { params: Promise.resolve({ id: 'action-1' }) }
 
 function req(method = 'GET', body?: unknown): NextRequest {
   return buildRequest({
-    url: 'https://dial8.ai/api/account/actions/action-1/sub',
+    url: 'https://nativeintelligence.dev/api/account/actions/action-1/sub',
     method,
     body,
   }) as unknown as NextRequest

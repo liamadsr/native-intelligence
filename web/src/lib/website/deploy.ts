@@ -257,7 +257,7 @@ export function sameOriginScripts(html: string, pageUrl: string): string[] {
 }
 
 /**
- * The live page (where its redirects ended) and script that carry Dial8's
+ * The live page (where its redirects ended) and script that carry Native Intelligence's
  * own intake URL with a key hashing to `keyHash`, or null. An intake URL on
  * any other host is never the business's, and is never posted to.
  */

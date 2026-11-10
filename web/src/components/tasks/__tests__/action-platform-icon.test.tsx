@@ -5,8 +5,8 @@
  * Three claims, and every one of them is a claim about TRUTH rather than about
  * looks:
  *
- *  - No links is not an empty state. It is the Dial8 mark, because a Dial8
- *    action with no links IS a Dial8 action, and drawing nothing there would
+ *  - No links is not an empty state. It is the Native Intelligence mark, because a Native Intelligence
+ *    action with no links IS a Native Intelligence action, and drawing nothing there would
  *    make the column appear and disappear as things get pushed.
  *  - One link shows that provider. Two or more show ALL of them (up to three,
  *    then a count) — `action_external_task` is UNIQUE per action+PROVIDER, so
@@ -77,28 +77,28 @@ afterEach(() => {
 })
 
 describe('ActionPlatformIcon — what it claims', () => {
-  it('a Dial8-only action shows the Dial8 mark, not an empty slot', async () => {
+  it('an NI-only action shows the Native Intelligence mark, not an empty slot', async () => {
     await render({ links: [] })
     expect(mark()).toBeTruthy()
     expect(mark().getAttribute('data-platform-icon')).toBe('dial8')
-    expect(mark().getAttribute('aria-label')).toBe('Dial8 action — send it to a task app')
+    expect(mark().getAttribute('aria-label')).toBe('Native Intelligence action — send it to a task app')
   })
 
   /**
    * NEW (the icon rework). Liam: "You're not using the correct dilate icon."
    *
    * The component drew `Mark` from `@/components/logo` — the marketing
-   * constellation-of-dots. The mark that means "this is a Dial8 item" is the one
-   * the PRODUCT wears: `public/icon.png`, the pixelated D that layout.tsx serves
+   * constellation-of-dots. The mark that means "this is a Native Intelligence item" is the one
+   * the PRODUCT wears: `public/icon.png`, the NI mark that layout.tsx serves
    * as the favicon. Sitting in a row beside the Jira, Asana and Linear brand
    * marks, anything else reads as a fourth vendor.
    *
-   * Asserted through `data-dial8-mark` rather than by hunting the svg paths the
+   * Asserted through `data-ni-mark` rather than by hunting the svg paths the
    * old glyph had: the point is WHICH artwork, and the artwork is now a raster.
    */
   it('draws the APP icon, not the marketing glyph', async () => {
     await render({ links: [] })
-    const glyph = container.querySelector('[data-dial8-mark]') as HTMLElement
+    const glyph = container.querySelector('[data-ni-mark]') as HTMLElement
     expect(glyph).toBeTruthy()
     // The marketing Mark is an <svg> of ~20 circles; the app mark is not.
     expect(container.querySelector('svg')).toBeNull()
@@ -113,7 +113,7 @@ describe('ActionPlatformIcon — what it claims', () => {
    */
   it('tints itself with currentColor rather than baking in black', async () => {
     await render({ links: [] })
-    const glyph = container.querySelector('[data-dial8-mark]') as HTMLElement
+    const glyph = container.querySelector('[data-ni-mark]') as HTMLElement
     expect(glyph.style.backgroundColor).toBe('currentcolor')
     expect(glyph.style.maskImage).toContain('/icon.png')
     expect(glyph.style.maskSize).toBe('contain')
@@ -123,11 +123,11 @@ describe('ActionPlatformIcon — what it claims', () => {
     expect(glyph.className).toContain('text-muted-foreground')
   })
 
-  it('SWAPS the Dial8 mark out entirely once the action lives somewhere', async () => {
-    // The mark answers "whose item is this?" — an action in Jira is not a Dial8
+  it('SWAPS the Native Intelligence mark out entirely once the action lives somewhere', async () => {
+    // The mark answers "whose item is this?" — an action in Jira is not a Native Intelligence
     // item any more, so the glyph is replaced rather than accompanied.
     await render({ links: [{ provider: 'jira' }] })
-    expect(container.querySelector('[data-dial8-mark]')).toBeNull()
+    expect(container.querySelector('[data-ni-mark]')).toBeNull()
   })
 
   it('treats absent links exactly like empty links', async () => {
@@ -182,7 +182,7 @@ describe('ActionPlatformIcon — what it claims', () => {
 
   /**
    * REGRESSION (review finding: "Applied proposal rows show a definitive
-   * Dial8-only mark for unknown link state").
+   * NI-only mark for unknown link state").
    *
    * Zero providers means "this action is in no tracker" — an affirmative claim,
    * with the tooltip to match. It is the WRONG answer to "nobody has asked yet",
@@ -191,10 +191,10 @@ describe('ActionPlatformIcon — what it claims', () => {
    * loading would fan out three GETs per row on a capture with dozens). The
    * menu's own default trigger already hedges with MoreHorizontal for exactly
    * this; the icon had no such state, so `linksKnown ? links : []` was a visual
-   * no-op and every reloaded capture asserted Dial8-only for already-pushed
+   * no-op and every reloaded capture asserted NI-only for already-pushed
    * actions.
    */
-  it('renders an explicit UNKNOWN state rather than claiming Dial8-only', async () => {
+  it('renders an explicit UNKNOWN state rather than claiming NI-only', async () => {
     await render({ links: [], known: false })
     expect(mark().getAttribute('data-platform-icon')).toBe('unknown')
     expect(mark().getAttribute('aria-label')).toBe('Task app options')
@@ -377,7 +377,7 @@ describe('ActionPlatformIcon — interactivity', () => {
 
 describe('platformIconLabel', () => {
   it('reads as a sentence at every arity', () => {
-    expect(platformIconLabel([])).toBe('Dial8 action — send it to a task app')
+    expect(platformIconLabel([])).toBe('Native Intelligence action — send it to a task app')
     expect(platformIconLabel(['jira'])).toBe('In Jira')
     expect(platformIconLabel(['jira', 'asana'])).toBe('In Jira and Asana')
     expect(platformIconLabel(['jira', 'asana', 'linear'])).toBe('In Jira, Asana and Linear')

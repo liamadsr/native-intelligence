@@ -71,7 +71,7 @@ describe('a remembered pick, against the list', () => {
     expect(liveChoice(onMac, workPlaces([], true), false)).toBe(onMac)
   })
 
-  it('reads as Dial8 once its folder is gone, its Mac is offline, or its environment isn’t listed', () => {
+  it('reads as Native Intelligence once its folder is gone, its Mac is offline, or its environment isn’t listed', () => {
     expect(liveChoice({ ...onMac, folderId: '88888888-8888-4888-8888-888888888899' }, places, true)).toBeNull()
     expect(liveChoice(onMac, workPlaces([mac({ online: false })], true), true)).toBeNull()
     expect(liveChoice(inCloud, workPlaces([mac()], true), true)).toBeNull()
@@ -100,7 +100,7 @@ describe('the project repos for a cloud run', () => {
 })
 
 describe('what a Start sends', () => {
-  it('nothing for Dial8; the ids for a place, as the server reads them', () => {
+  it('nothing for Native Intelligence; the ids for a place, as the server reads them', () => {
     expect(runInOf(null)).toBeNull()
     const mine = runInOf({ kind: 'mac', folderId: FOLDER, folder: 'notes', mac: 'Mac' })
     expect(mine).toEqual({ kind: 'mac', folder_id: FOLDER })
