@@ -1,8 +1,9 @@
 # The only public door on the server: ports 80 and 443.
 #
-# Two hosts, both named from the environment (see compose.yaml and .env.example):
+# Hosts named from the environment (see compose.yaml and .env.example):
 #   INNGEST_HOST   an allowlist in front of the self-hosted Inngest server
 #   SUPABASE_HOST  a pass-through to SUPABASE_UPSTREAM
+#   APP_HOSTS      the app (../app), once it runs on this server
 #
 # Check a change before reloading:
 #   sudo docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
@@ -180,5 +181,48 @@
 		# would add ":443"). It matches the name the upstream's certificate
 		# is checked against.
 		header_up Host {http.reverse_proxy.upstream.host}
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The app
+#
+# Every host name in APP_HOSTS (comma-separated, in .env) goes to the app
+# stack's own proxy (../app/proxy/Caddyfile), which sends each path on to web,
+# the worker or an agent. Only that proxy is on ni-edge; the app's containers
+# are not. A name starting with www. is sent to the same name without it, as
+# the app's earlier host did; list it here all the same, so that it gets a
+# certificate.
+#
+# Until the app runs on this server APP_HOSTS is unset, and this block is
+# plain HTTP for app.invalid, a name no request carries: nothing is served and
+# no certificate is asked for.
+# ---------------------------------------------------------------------------
+{$APP_HOSTS:http://app.invalid} {
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				# Sign-in links, OAuth returns and some webhooks carry codes
+				# and tokens in the query string or the path. Cookies and
+				# Authorization headers are left out of Caddy's logs anyway.
+				request>uri multi_regexp {
+					regexp "([?&](apikey|token|access_token|refresh_token|code|state|key|secret|signature|sig)=)[^&]*" "${1}REDACTED"
+					regexp "[A-Za-z0-9_-]{32,}" "REDACTED"
+				}
+			}
+		}
+	}
+
+	@www header_regexp www Host ^www\.(.+)$
+	redir @www https://{re.www.1}{uri} 308
+
+	reverse_proxy ni-app-proxy:8080 {
+		import proxy
+
+		# The stack's proxy names the container that answered, for its own
+		# test. Not for the public.
+		header_down -X-NI-Upstream
 	}
 }

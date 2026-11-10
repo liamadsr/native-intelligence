@@ -1,28 +1,37 @@
-# The whole app on one machine, for the container test: web, worker, the eight eve
-# agents and cron from one image, behind a small proxy. A proof that everything
-# builds and starts; not the production setup. See README.md in this folder.
+# The app on the server: web, worker, the eight eve agents and the scheduler, from
+# the one image in this folder, behind the stack's own proxy. The edge Caddy
+# (../edge) is the public door: it sends the app's host names to that proxy over the
+# shared network ni-edge, and nothing here publishes a port. README.md in this folder
+# has what each part does; ../README.md step 20 has how it is set up and switched on.
 #
-#   docker compose -f deploy/app/compose.yaml build web   # the one image
-#   deploy/app/smoke.sh        # starts it with throwaway values, checks, stops
-#   docker compose -f deploy/app/compose.yaml up -d --wait   # or run it yourself
+# Run from this folder, as root so the root-only .env can be read:
+#   sudo ./deploy.sh              build the image, then roll it out (see deploy.sh)
+#   sudo docker compose ps        what is running
+#   sudo docker compose logs -f --tail 100 web
 #
-# Secrets never live in this file. Each app container reads the env file named by
-# NI_ENV_FILE (default deploy/app/.env, which git ignores); .env.example lists what
-# it can hold. smoke.sh writes a throwaway one.
+# The container test is a different stack (smoke/compose.yaml) under another name.
 name: ni-app
 
 x-app: &app
-  # Built here (the web service's `build`), never pulled: there is no registry.
-  image: ${NI_APP_IMAGE:-ni-app:local}
+  # Built on this server by deploy.sh (`docker compose build web`), never pulled:
+  # there is no registry. deploy.sh keeps the image before it as ni-app:previous.
+  image: ni-app:live
   pull_policy: never
+  # Every setting the app reads, in one root-only file (.env.example lists them).
+  # Compose also reads the same file for the ${...} values below.
   env_file:
-    - path: ${NI_ENV_FILE:-.env}
-      required: false
+    - path: .env
+      required: true
+  # NI_LIVE, in .env, is the one switch between a rehearsal and production. Until it
+  # is exactly 1, entrypoint.sh keeps this copy from acting on its own: the scheduler
+  # only logs its jobs, and web and worker cannot register the app's functions with
+  # Inngest, so nothing can move production's background work onto them. That is
+  # what lets the stack run beside the app's current host, on the same database and
+  # the same Inngest server, without doing anything twice.
   environment: &app-env
-    # The app's one origin. The web role calls the agents at
-    # $NEXT_PUBLIC_APP_URL/eve/<name>/v1/*, and each agent calls the app back at
-    # $NEXT_PUBLIC_APP_URL/api/internal/*: both go through the proxy.
-    NEXT_PUBLIC_APP_URL: http://proxy:8080
+    # The address the app gives Inngest for its functions when it registers: always
+    # the public one, whatever Host or scheme a request arrived with.
+    INNGEST_SERVE_ORIGIN: ${NEXT_PUBLIC_APP_URL:?set NEXT_PUBLIC_APP_URL in .env}
   # tini as PID 1: passes SIGTERM on and reaps what the servers leave behind.
   init: true
   # An agent and cron write nothing to the image: state is on the volumes below,
@@ -33,27 +42,29 @@ x-app: &app
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   restart: unless-stopped
-  # How long `docker stop` waits after SIGTERM before SIGKILL. This one is the agents':
-  # their server closes on SIGTERM, and 60 s covers open requests and its close hooks
-  # (eve start allowed it 20 s). web, worker and cron set their own below.
+  # How long `docker stop` waits after SIGTERM before SIGKILL. This one is the
+  # agents'; web, worker and cron set their own below.
   stop_grace_period: 60s
+  networks:
+    - app
 
-# web and worker are the same server, and `next start` writes into its own folder:
-# its cache, the docs index (.source), and every page it regenerates, which it saves
-# beside the built ones in .next/server/app. Read-only, those pages would stay as
-# they were built. So these two are not read-only.
+# web and worker are the same server, and `next start` writes into its own folder
+# (its cache, the docs index, the pages it regenerates), so they are not read-only.
 x-next: &next
   <<: *app
   read_only: false
 
 services:
+  # The stack's router (proxy/Caddyfile, the same file the container test uses):
+  # /eve/<name>/v1/* straight to that agent, /api/inngest to the worker, the rest to
+  # web. The edge Caddy reaches it as ni-app-proxy:8080 on ni-edge.
   proxy:
     image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    container_name: ni-app-proxy
     volumes:
-      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
-    ports:
-      # The test stack answers on this machine only.
-      - 127.0.0.1:${NI_PORT:-8080}:8080
+      # The folder, not the file: git replaces a file when it updates it, and a
+      # single-file mount would keep showing the old one until a restart.
+      - ./proxy:/etc/caddy:ro
     read_only: true
     tmpfs:
       - /config
@@ -62,10 +73,13 @@ services:
     security_opt: [no-new-privileges:true]
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
-      interval: 5s
+      interval: 10s
       timeout: 3s
       retries: 5
     restart: unless-stopped
+    networks:
+      - app
+      - edge
 
   web:
     <<: *next
@@ -75,19 +89,32 @@ services:
     build:
       context: ../..
       dockerfile: deploy/app/Dockerfile
+      # Which commit the image was built from (deploy.sh sets it).
+      labels:
+        org.opencontainers.image.revision: ${NI_APP_COMMIT:-unknown}
       args:
-        # Compiled into the web role by `next build` (see the Dockerfile, which has no
-        # defaults for these four). The first two name the proxy above as the stack's
-        # own containers reach it. The Supabase pair comes from the shell or
-        # deploy/app/.env, and must be what the containers get when they run; without
-        # it this test stack builds with the made-up values below.
-        NEXT_PUBLIC_APP_URL: http://proxy:8080
-        EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://supabase.invalid}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-build-placeholder}
-        # Optional, from the same place. Empty means the session cookie is named
-        # from the address (web/src/lib/supabase/project.ts).
+        # What `next build` compiles in. All from .env; the build stops when one of
+        # the required ones is empty (Dockerfile). NEXT_PUBLIC_APP_URL is the app's
+        # public address: a rehearsal builds with its own test address, the switch
+        # builds again with production's.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
         NEXT_PUBLIC_SUPABASE_PROJECT_REF: ${NEXT_PUBLIC_SUPABASE_PROJECT_REF:-}
+        NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
+        NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        APP_DOWNLOAD_URL: ${APP_DOWNLOAD_URL:-}
+        APP_DOWNLOAD_URL_WINDOWS: ${APP_DOWNLOAD_URL_WINDOWS:-}
+        # The proxy's inside listener, as this stack's own containers reach it.
+        EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
+        # The commit, for the build id (Dockerfile). deploy.sh sets it.
+        NI_BUILD_ID: ${NI_APP_COMMIT:-}
+    deploy:
+      resources:
+        limits:
+          memory: 6g
 
   # The same server. Only /api/inngest is routed to it (proxy/Caddyfile).
   worker:
@@ -95,10 +122,13 @@ services:
     command: [worker]
     # Inngest steps (600 s) and the longest routes (800 s) finish before it exits.
     stop_grace_period: 900s
+    deploy:
+      resources:
+        limits:
+          memory: 6g
 
-  # The scheduler runs, but as a dry run: each job is logged and nothing is called.
-  # Live, this stack would run the app's whole schedule a second time beside Vercel
-  # Cron (given real credentials). smoke.sh makes its calls itself.
+  # The scheduler: cron/crontab, generated from web/vercel.json. It calls the web
+  # role directly. Until NI_LIVE=1 it only logs each job.
   cron:
     <<: *app
     command: [cron]
@@ -108,19 +138,27 @@ services:
     environment:
       <<: *app-env
       CRON_TARGET_URL: http://web:3000
-      CRON_DRY_RUN: "1"
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     depends_on:
       web:
         condition: service_healthy
 
-  # One container per agent. Each keeps its workflow runs and its sandbox sessions on
-  # volumes; the rest of agents/<name>/.eve is the build's and stays in the image.
+  # One container per agent, never more: eve's file store allows one process per
+  # agent. Each keeps its workflow runs and its sandbox sessions on volumes; the rest
+  # of agents/<name>/.eve is the build's and stays in the image.
   agent-onboarding-researcher:
     <<: *app
     command: [agent, onboarding-researcher]
     volumes:
       - onboarding-researcher-workflow:/app/web/agents/onboarding-researcher/.eve/.workflow-data
       - onboarding-researcher-sandbox:/app/web/agents/onboarding-researcher/.eve/sandbox-cache/just-bash/sessions
+    deploy: &agent-limits
+      resources:
+        limits:
+          memory: 3g
 
   agent-skill-runner:
     <<: *app
@@ -128,6 +166,7 @@ services:
     volumes:
       - skill-runner-workflow:/app/web/agents/skill-runner/.eve/.workflow-data
       - skill-runner-sandbox:/app/web/agents/skill-runner/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
   agent-coding-agent:
     <<: *app
@@ -135,6 +174,7 @@ services:
     volumes:
       - coding-agent-workflow:/app/web/agents/coding-agent/.eve/.workflow-data
       - coding-agent-sandbox:/app/web/agents/coding-agent/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
   agent-work-agent:
     <<: *app
@@ -142,6 +182,7 @@ services:
     volumes:
       - work-agent-workflow:/app/web/agents/work-agent/.eve/.workflow-data
       - work-agent-sandbox:/app/web/agents/work-agent/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
   agent-chat-agent:
     <<: *app
@@ -149,6 +190,7 @@ services:
     volumes:
       - chat-agent-workflow:/app/web/agents/chat-agent/.eve/.workflow-data
       - chat-agent-sandbox:/app/web/agents/chat-agent/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
   agent-utility:
     <<: *app
@@ -156,6 +198,7 @@ services:
     volumes:
       - utility-workflow:/app/web/agents/utility/.eve/.workflow-data
       - utility-sandbox:/app/web/agents/utility/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
   agent-live-agent:
     <<: *app
@@ -163,6 +206,7 @@ services:
     volumes:
       - live-agent-workflow:/app/web/agents/live-agent/.eve/.workflow-data
       - live-agent-sandbox:/app/web/agents/live-agent/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
   agent-web-research:
     <<: *app
@@ -170,21 +214,37 @@ services:
     volumes:
       - web-research-workflow:/app/web/agents/web-research/.eve/.workflow-data
       - web-research-sandbox:/app/web/agents/web-research/.eve/sandbox-cache/just-bash/sessions
+    deploy: *agent-limits
 
+# Named here so that they keep their names whatever the project is called, and so
+# that the move script and the backup find them: both look for volumes whose names
+# start with ni-.
 volumes:
-  onboarding-researcher-workflow:
-  onboarding-researcher-sandbox:
-  skill-runner-workflow:
-  skill-runner-sandbox:
-  coding-agent-workflow:
-  coding-agent-sandbox:
-  work-agent-workflow:
-  work-agent-sandbox:
-  chat-agent-workflow:
-  chat-agent-sandbox:
-  utility-workflow:
-  utility-sandbox:
-  live-agent-workflow:
-  live-agent-sandbox:
-  web-research-workflow:
-  web-research-sandbox:
+  onboarding-researcher-workflow: { name: ni-app-onboarding-researcher-workflow }
+  onboarding-researcher-sandbox: { name: ni-app-onboarding-researcher-sandbox }
+  skill-runner-workflow: { name: ni-app-skill-runner-workflow }
+  skill-runner-sandbox: { name: ni-app-skill-runner-sandbox }
+  coding-agent-workflow: { name: ni-app-coding-agent-workflow }
+  coding-agent-sandbox: { name: ni-app-coding-agent-sandbox }
+  work-agent-workflow: { name: ni-app-work-agent-workflow }
+  work-agent-sandbox: { name: ni-app-work-agent-sandbox }
+  chat-agent-workflow: { name: ni-app-chat-agent-workflow }
+  chat-agent-sandbox: { name: ni-app-chat-agent-sandbox }
+  utility-workflow: { name: ni-app-utility-workflow }
+  utility-sandbox: { name: ni-app-utility-sandbox }
+  live-agent-workflow: { name: ni-app-live-agent-workflow }
+  live-agent-sandbox: { name: ni-app-live-agent-sandbox }
+  web-research-workflow: { name: ni-app-web-research-workflow }
+  web-research-sandbox: { name: ni-app-web-research-sandbox }
+
+networks:
+  # The stack's own network: the app's containers and the proxy. It has a way out
+  # (the app calls the internet), and nothing else joins it.
+  app:
+    name: ni-app
+  # Created once by hand (../README.md step 7). Only the proxy joins it, so the edge
+  # Caddy can reach the proxy and nothing on that network reaches the app's
+  # containers directly.
+  edge:
+    name: ni-edge
+    external: true

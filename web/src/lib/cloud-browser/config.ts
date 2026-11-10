@@ -96,6 +96,25 @@ export function cloudBrowserRelayOrigin(): string | null {
   return null
 }
 
+/** The three settings that log the sandbox calls in off the platform. */
+export const SANDBOX_CREDENTIAL_ENVS = ['SANDBOX_ACCESS_TOKEN', 'SANDBOX_TEAM_ID', 'SANDBOX_PROJECT_ID'] as const
+
+/**
+ * How the sandbox SDK logs in. On the platform it takes the deployment's own
+ * OIDC token by itself, and none of these settings is set: `{}`. Off it (the
+ * app's own server) there is no such token, so an access token and the ids of
+ * the team and project the sandboxes belong to are passed with every call. All
+ * three or none: a partial set is a mistake that would otherwise surface as an
+ * unrelated OIDC error on the first browser someone opens.
+ */
+export function cloudBrowserSandboxCredentials(): { token: string; teamId: string; projectId: string } | Record<string, never> {
+  const [token, teamId, projectId] = SANDBOX_CREDENTIAL_ENVS.map(name => process.env[name]?.trim() || '')
+  if (!token && !teamId && !projectId) return {}
+  const missing = SANDBOX_CREDENTIAL_ENVS.filter((_, i) => ![token, teamId, projectId][i])
+  if (missing.length) throw new Error(`cloud browser: ${missing.join(', ')} not set (all three of ${SANDBOX_CREDENTIAL_ENVS.join(', ')}, or none)`)
+  return { token, teamId, projectId }
+}
+
 export function cloudBrowserBaseSnapshotId(): string | null {
   const id = process.env[CLOUD_BROWSER.baseSnapshotEnv]?.trim()
   return id ? id : null

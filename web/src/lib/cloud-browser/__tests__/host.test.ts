@@ -430,3 +430,39 @@ describe('reconcileCloudBrowsers', () => {
     expect(sdk.sandboxes.has('browser-otherdb-x')).toBe(true)
   })
 })
+
+describe('logging the sandbox calls in off the platform', () => {
+  it('passes none of its own on the platform: the SDK takes the deployment token', async () => {
+    await host.ensureCloudBrowser(ref)
+    const [params] = sdk.getOrCreate.mock.calls[0] as [Record<string, unknown>]
+    expect(params).not.toHaveProperty('token')
+    expect(params).not.toHaveProperty('teamId')
+    expect(params).not.toHaveProperty('projectId')
+  })
+
+  it('passes the access token, team and project with every call when they are set', async () => {
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', 'tok')
+    vi.stubEnv('SANDBOX_TEAM_ID', 'team_1')
+    vi.stubEnv('SANDBOX_PROJECT_ID', 'prj_1')
+    const credentials = { token: 'tok', teamId: 'team_1', projectId: 'prj_1' }
+    await host.ensureCloudBrowser(ref)
+    expect(sdk.getOrCreate).toHaveBeenCalledWith(expect.objectContaining({ name: NAME, ...credentials }))
+    const orphan = cloudBrowserSandboxName('u9', 'w9', 'local')
+    sdk.sandboxes.set(orphan, new sdk.FakeSandbox(orphan))
+    sdk.snapshots.set(orphan, ['snap_orphan'])
+    store.sandboxNamesWithRows.mockResolvedValueOnce(new Set([NAME]))
+    await host.reconcileCloudBrowsers()
+    const { Sandbox, Snapshot } = await import('@vercel/sandbox')
+    expect(Sandbox.list).toHaveBeenCalledWith(expect.objectContaining(credentials))
+    expect(sdk.get).toHaveBeenCalledWith(expect.objectContaining({ name: orphan, ...credentials }))
+    expect(Snapshot.list).toHaveBeenCalledWith(expect.objectContaining({ name: orphan, ...credentials }))
+    expect(Snapshot.get).toHaveBeenCalledWith(expect.objectContaining({ snapshotId: 'snap_orphan', ...credentials }))
+  })
+
+  it('refuses a partial set, naming what is missing, before any call', async () => {
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', 'tok')
+    vi.stubEnv('SANDBOX_TEAM_ID', '')
+    vi.stubEnv('SANDBOX_PROJECT_ID', '')
+    await expect(host.reconcileCloudBrowsers()).rejects.toThrow(/SANDBOX_TEAM_ID, SANDBOX_PROJECT_ID not set/)
+  })
+})

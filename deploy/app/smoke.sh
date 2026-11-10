@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The container test: start the stack in compose.yaml with throwaway values, wait
+# The container test: start the stack in smoke/compose.yaml with throwaway values, wait
 # until every container is healthy, then check that each role answers.
 #
-#   docker compose -f deploy/app/compose.yaml build web   # first: the image
+#   docker compose -f deploy/app/smoke/compose.yaml build web   # first: the image
 #   deploy/app/smoke.sh              start, check, stop and delete the volumes
 #   NI_KEEP=1 deploy/app/smoke.sh    leave the stack running afterwards
 #
@@ -21,7 +21,7 @@ PORT="${NI_PORT:-8080}"
 export NI_PORT="$PORT"
 work="$(mktemp -d)"
 export NI_ENV_FILE="$work/smoke.env"
-compose() { docker compose -f "$HERE/compose.yaml" "$@"; }
+compose() { docker compose -f "$HERE/smoke/compose.yaml" "$@"; }
 
 random() { od -An -N16 -tx1 /dev/urandom | tr -d ' \n'; }
 cron_secret="$(random)"
@@ -48,7 +48,7 @@ finish() {
   local status=$?
   if [ "${NI_KEEP:-}" = 1 ]; then
     echo "== left running at http://127.0.0.1:$PORT. Its made-up values are in $NI_ENV_FILE; stop it with:"
-    echo "   NI_ENV_FILE=$NI_ENV_FILE docker compose -f $HERE/compose.yaml down --volumes"
+    echo "   NI_ENV_FILE=$NI_ENV_FILE docker compose -f $HERE/smoke/compose.yaml down --volumes"
   else
     compose down --volumes --remove-orphans > /dev/null 2>&1
     rm -rf "$work"
@@ -93,7 +93,7 @@ expect() { # <what> <"status rest"> <wanted status> [text the rest must contain]
 
 image="${NI_APP_IMAGE:-ni-app:local}"
 docker image inspect "$image" > /dev/null 2>&1 || {
-  echo "smoke: no image $image. Build it first: docker compose -f deploy/app/compose.yaml build web" >&2
+  echo "smoke: no image $image. Build it first: docker compose -f deploy/app/smoke/compose.yaml build web" >&2
   exit 2
 }
 
@@ -175,7 +175,7 @@ else
     || check FAIL "the run survives a new container" "before: ${events:-none}; after: ${again:-none}"
 fi
 
-# cron. The stack's scheduler is a dry run (compose.yaml says why), so the calls are
+# cron. The stack's scheduler is a dry run (smoke/compose.yaml says why), so the calls are
 # made here, with the script the crontab runs. One route, chosen because it does
 # nothing without a database: its 500 with "ok":false is the route itself answering,
 # past the secret check.
@@ -202,7 +202,7 @@ contains "cron is a dry run in this stack" "$(cron_call)" 'skipped'
 contains "cron call with a wrong secret is refused" "$(cron_call CRON_DRY_RUN= CRON_SECRET=wrong)" ': 401 '
 contains "cron call with CRON_SECRET reaches the route" "$(cron_call CRON_DRY_RUN=)" ': 500 ' '"ok":false'
 
-# Every role, idle, exits on SIGTERM by itself. compose.yaml gives each a long
+# Every role, idle, exits on SIGTERM by itself. smoke/compose.yaml gives each a long
 # stop_grace_period for work in flight; one that ignored SIGTERM would hold every
 # redeploy for all of it. Docker SIGKILLs what is still running after 30 s here,
 # and a container it had to kill exits 137.

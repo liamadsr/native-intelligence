@@ -1,4 +1,5 @@
-# The test stack's proxy (compose.yaml). Two listeners:
+# The app stack's proxy: on the server (../compose.yaml, behind the edge Caddy) and in
+# the container test (../smoke/compose.yaml). Two listeners:
 #
 #   :8080  the app's one public origin. /eve/<name>/v1/* goes straight to that
 #          agent's container, so a long agent stream never passes through Next's
@@ -16,7 +17,7 @@
 #
 # Every response names the container that answered it (X-NI-Upstream), so smoke.sh
 # can tell a request that went straight to an agent from one that went the long way
-# round through web. This is a test proxy: a public one would not say.
+# round through web. On the server the edge Caddy removes that header.
 {
 	admin off
 	auto_https off
@@ -37,6 +38,23 @@
 	reverse_proxy {args[0]} {
 		flush_interval -1
 		header_down X-NI-Upstream {args[0]}
+	}
+}
+
+# web and worker: every container of the service, looked up by name each second.
+# deploy.sh replaces one by starting a second beside it and stopping the first once
+# the second is healthy; this is what sends requests to the new one as soon as it is
+# up, and away from the old one once it stops taking them. A connection the old one
+# refuses is tried again on another container, for up to 10 seconds.
+(service) {
+	reverse_proxy {
+		dynamic a {args[0]} 3000 {
+			refresh 1s
+		}
+		lb_try_duration 10s
+		fail_duration 5s
+		flush_interval -1
+		header_down X-NI-Upstream {args[0]}:3000
 	}
 }
 
@@ -72,11 +90,11 @@ http://:8080 {
 
 	@inngest path /api/inngest /api/inngest/*
 	handle @inngest {
-		import upstream worker:3000
+		import service worker
 	}
 
 	handle {
-		import upstream web:3000
+		import service web
 	}
 }
 
