@@ -559,11 +559,19 @@ It prints what it generated. Then fill in the rest, starting with `DASHBOARD_USE
 sudo nano .env
 ```
 
-Most of what comes from the hosted project (groups 1 and 3 below) does not have to be typed. From your own machine, [`supabase/pull-hosted-settings.sh`](supabase/pull-hosted-settings.sh) reads it from the hosted project with your Supabase login and writes it into this file, without showing a secret anywhere. It says what it wrote and what the hosted project has that this stack has no setting for:
+Most of what comes from the hosted project (groups 1 and 3 below) does not have to be typed. From your own machine, [`supabase/pull-hosted-settings.sh`](supabase/pull-hosted-settings.sh) reads it from the hosted project with your Supabase login and writes it into this file through a pipe, without showing a secret anywhere:
 
 ```bash
 deploy/supabase/pull-hosted-settings.sh <project ref> <user>@<server>
 ```
+
+It lists what it wrote. Three things it cannot bring, because the hosted project only ever gives out their fingerprint: the Google and Apple client secrets and the SMTP password. For those, and for any other secret, [`supabase/set-secret.sh`](supabase/set-secret.sh) asks with the typing hidden and writes the answer into the file:
+
+```bash
+deploy/supabase/set-secret.sh <user>@<server> GOOGLE_SECRET
+```
+
+Both need `sudo` without a password on the server, like [`move/`](move/README.md#before-you-start). The first also names a few things the hosted project has switched on that this stack has no setting for (other sign-in providers, other hooks, CAPTCHA, session limits); it does not compare rate limits, password rules or MFA settings, which are listed under "Settings this list does not cover" in [`supabase/README.md`](supabase/README.md#auth-settings).
 
 [`supabase/.env.example`](supabase/.env.example) describes every line. Three groups matter most:
 

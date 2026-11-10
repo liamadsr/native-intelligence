@@ -36,7 +36,20 @@ value() { # value <KEY>: from stack/.env, without surrounding quotes
 	local v
 	v="$(grep -E "^$1=" "$real" | tail -n 1 | cut -d= -f2-)" || true
 	v="${v%$'\r'}"
-	case "$v" in \"*\") v="${v#\"}" v="${v%\"}" ;; \'*\') v="${v#\'}" v="${v%\'}" ;; esac
+	case "$v" in
+	\"*\")
+		v="${v#\"}" v="${v%\"}"
+		# Inside double quotes a backslash, a double quote and a dollar sign
+		# are written with a backslash in front. Undo that, backslashes first
+		# (parked on a character an env file cannot contain).
+		local hold=$'\001'
+		v="${v//\\\\/$hold}"
+		v="${v//\\\"/\"}"
+		v="${v//\\\$/\$}"
+		v="${v//$hold/\\}"
+		;;
+	\'*\') v="${v#\'}" v="${v%\'}" ;;
+	esac
 	printf '%s' "$v"
 }
 
