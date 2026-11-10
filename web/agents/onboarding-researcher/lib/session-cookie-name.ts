@@ -34,13 +34,17 @@ function refInOwnAddress(host: string | null): string | null {
 // A development or restore stack: the pin is production's and is not used there.
 function isLocalAddress(host: string | null): boolean {
   if (!host) return false
-  return (
-    host === 'localhost' ||
-    host === '0.0.0.0' ||
-    host === '[::1]' ||
-    /^127(\.\d{1,3}){3}$/.test(host) ||
-    /\.(localhost|local|internal)$/.test(host)
-  )
+  if (host === '[::1]') return true
+  // One name with no dot: `localhost`, or another container's name.
+  if (!host.includes('.') && !host.startsWith('[')) return true
+  // Loopback, "any address", link-local and the private IPv4 ranges.
+  const ip = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host)
+  if (ip) {
+    const a = Number(ip[1])
+    const b = Number(ip[2])
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+  }
+  return /\.(localhost|local|internal|lan|home\.arpa)$/.test(host)
 }
 
 /** The pinned cookie name for this pin and address, or null when nothing is pinned or the pin cannot be used. */

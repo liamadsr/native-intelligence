@@ -13,7 +13,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   authCookieOptions,
   pinnedAuthCookieName,
@@ -31,6 +31,16 @@ function libraryStorageKey(address: string): string {
   const client = createClient(address, 'anon-key-for-a-test', { auth: { persistSession: false, autoRefreshToken: false } })
   return (client.auth as unknown as { storageKey: string }).storageKey
 }
+
+// Which environment this is decides whether a wrong pin stops the module from
+// loading, and a production build runs this suite with production's environment
+// around it. So every test starts from "not production, nothing said either
+// way", and the ones about production say so themselves.
+beforeEach(() => {
+  vi.stubEnv('VERCEL_ENV', '')
+  vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', '')
+  vi.stubEnv('NODE_ENV', 'test')
+})
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -52,6 +62,14 @@ describe('readProjectRefPin', () => {
     'http://0.0.0.0:8000',
     'http://studio.local',
     'http://host.docker.internal:54321',
+    'http://kong:8000',
+    'http://10.0.0.5:8000',
+    'http://172.16.0.1',
+    'http://172.31.255.1',
+    'http://192.168.1.20:54321',
+    'http://169.254.1.1',
+    'http://db.lan',
+    'http://supabase.home.arpa',
   ]
 
   it('no pin: nothing is pinned, on any address', () => {
@@ -112,7 +130,19 @@ describe('readProjectRefPin', () => {
   })
 
   it('a name that only looks local is an address of ours', () => {
-    for (const address of ['https://localhost.example.test', 'https://db.internal.example.test', 'https://127.example.test']) {
+    for (const address of [
+      'https://localhost.example.test',
+      'https://db.internal.example.test',
+      'https://127.example.test',
+      'https://lan.example.test',
+      // Public addresses on either side of the private ranges.
+      'https://11.0.0.1',
+      'https://172.15.0.1',
+      'https://172.32.0.1',
+      'https://192.169.1.1',
+      'https://169.253.1.1',
+      'https://[2001:db8::1]',
+    ]) {
       expect(readProjectRefPin('fixturetestref', address), address).toEqual({ ref: 'fixturetestref', problem: null })
     }
   })
@@ -206,9 +236,10 @@ describe('what stops the build (the server loads this module while the app is bu
     return import('@/lib/supabase/project')
   }
 
-  it('a value that could not be a first label, in any environment', async () => {
+  it.each(['production', 'preview', 'development', ''])('a value that could not be a first label, in any environment (%s)', async (env) => {
+    vi.stubEnv('VERCEL_ENV', env)
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'https://fixturetestref.supabase.co')
-    await expect(load()).rejects.toThrow(/NEXT_PUBLIC_SUPABASE_PROJECT_REF/)
+    await expect(load()).rejects.toThrow(/could not be the first part of an address/)
   })
 
   it('production on Vercel, the pin naming another project than the hosted address: a wrong pin, caught before the address moves', async () => {
@@ -222,8 +253,14 @@ describe('what stops the build (the server loads this module while the app is bu
   })
 
   it('a production build off Vercel (the container image), the same', async () => {
-    vi.stubEnv('VERCEL_ENV', '')
-    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('NODE_ENV', 'production') // what `next build` runs under; Vercel's variables are absent
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
+    vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
+    await expect(load()).rejects.toThrow(/production build/)
+  })
+
+  it('production as only the browser\'s variable says it (the server one missing), the same', async () => {
+    vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', 'production')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL', 'https://fixturetestref.supabase.co')
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_PROJECT_REF', 'fixturetestrfe')
     await expect(load()).rejects.toThrow(/production build/)
@@ -294,6 +331,17 @@ describe('the agents\' copies of the rule', () => {
     'http://0.0.0.0:8000',
     'http://studio.local',
     'http://host.docker.internal:54321',
+    'http://kong:8000',
+    'http://10.0.0.5:8000',
+    'http://172.16.0.1',
+    'http://172.31.255.1',
+    'http://172.32.0.1',
+    'http://192.168.1.20:54321',
+    'http://192.169.1.1',
+    'http://169.254.1.1',
+    'http://db.lan',
+    'http://supabase.home.arpa',
+    'https://[2001:db8::1]',
     'https://localhost.example.test',
     'https://db.internal.example.test',
   ]

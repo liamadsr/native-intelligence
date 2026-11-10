@@ -147,6 +147,12 @@ for (const flag of [
   // secrets, also injected) so the suites exercise the documented dev-open
   // default; tests covering fail-closed set VERCEL_ENV explicitly per-test.
   'VERCEL_ENV',
+  // The same answer under the name Vercel gives it for the browser, injected
+  // into the build beside VERCEL_ENV. app-env.ts reads it second, so with only
+  // VERCEL_ENV scrubbed every test still ran "in production" during a
+  // production build, and module-level code that fails closed there
+  // (src/lib/supabase/project.ts) threw in the build's test run only.
+  'NEXT_PUBLIC_VERCEL_ENV',
   // VERCEL=1 is also injected into the build env. eve's provider selection
   // keys off it (agents/coding-agent/sandbox.ts reads it at module load), so an
   // inherited value flips module-level provider choice in any test that does not

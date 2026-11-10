@@ -52,18 +52,23 @@ function refInOwnAddress(host: string | null): string | null {
 }
 
 /**
- * An address only this machine or this network answers on: a development or
+ * An address only this machine or this network answers on (loopback, a private
+ * range, a name with no dot or under a private suffix): a development or
  * restore stack. Never what real people's browsers call.
  */
 function isLocalAddress(host: string | null): boolean {
   if (!host) return false
-  return (
-    host === 'localhost' ||
-    host === '0.0.0.0' ||
-    host === '[::1]' ||
-    /^127(\.\d{1,3}){3}$/.test(host) ||
-    /\.(localhost|local|internal)$/.test(host)
-  )
+  if (host === '[::1]') return true
+  // One name with no dot: `localhost`, or another container's name.
+  if (!host.includes('.') && !host.startsWith('[')) return true
+  // Loopback, "any address", link-local and the private IPv4 ranges.
+  const ip = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host)
+  if (ip) {
+    const a = Number(ip[1])
+    const b = Number(ip[2])
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+  }
+  return /\.(localhost|local|internal|lan|home\.arpa)$/.test(host)
 }
 
 /**
@@ -119,11 +124,14 @@ function current(): PinReading {
 //
 // Two things stop a build. A value that could not be a first label, anywhere.
 // And, in a production build, a well-formed pin that names another project
-// than Supabase's own address does. The pin goes in while production is still
+// than Supabase's own address does. "Production" is app-env's answer: a
+// production deployment on Vercel, and off Vercel any `next build` (the
+// container image, a build on a developer's machine). The pin goes in while production is still
 // on that address, and that is the only time a wrong one can be told from a
 // right one: once the address is ours nothing contradicts it, it is used, and
-// everyone is signed out. Outside production the same contradiction is the
-// pin having leaked (a preview on the dev project), so it is ignored and logged.
+// everyone is signed out. In a Vercel preview or development build, and under
+// `next dev`, the same contradiction is the pin having leaked (a preview on
+// the dev project), so it is ignored and logged.
 if (typeof window === 'undefined') {
   const { problem } = current()
   if (problem === 'invalid') throw new Error(`[supabase] ${MESSAGES.invalid}`)
