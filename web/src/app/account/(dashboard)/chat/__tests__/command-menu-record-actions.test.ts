@@ -23,6 +23,11 @@ describe('recordActionsFor', () => {
     expect(source?.actions.map((a) => a.id)).toEqual(['copy_link', 'copy_id', 'make_task', 'archive'])
   })
 
+  it("leaves out an archive whose undo needs the status a card doesn't know (an initiative)", () => {
+    const source = recordActionsFor(front({ kind: 'record', title: 'Q4 expansion', record: { type: 'initiative', id: 'i-1' } }))
+    expect(source?.actions.map((a) => a.id)).toEqual(['copy_link', 'copy_id', 'make_task'])
+  })
+
   it('offers nothing with no card in front, or a card that is not a record', () => {
     expect(recordActionsFor(null)).toBeNull()
     expect(recordActionsFor(front({ kind: 'flows', title: 'Flows' }))).toBeNull()

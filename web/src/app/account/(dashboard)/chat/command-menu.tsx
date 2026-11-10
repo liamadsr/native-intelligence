@@ -91,7 +91,7 @@ import { useFloatingChatContainerRef } from './floating-chat'
 import { useWorkspaceEdition } from '../../workspace-switcher'
 import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
 import { isDirectEntityAction, runEntityAction } from '@/lib/entities/actions'
-import { supportedEntityActions } from '@/lib/entities/entity-actions-registry'
+import { entityActionsDescriptor, supportedEntityActions } from '@/lib/entities/entity-actions-registry'
 import { ENTITY_ACTION_ICONS, ENTITY_ACTION_LABELS } from '@/components/entities/entity-actions-menu'
 import type { RecordActionsSource } from './command-menu-model'
 
@@ -801,9 +801,15 @@ export function recordActionsFor(front: ReturnType<typeof frontCard>): RecordAct
   const spec = front?.spec
   if (!spec || spec.kind !== 'record') return null
   const entity = { type: spec.record.type, id: spec.record.id, label: spec.title }
+  // A card doesn't say what the record's status is, so an archive whose undo
+  // puts back the status it had (an initiative's planned/active/completed)
+  // isn't offered here: its undo could only guess.
+  const archive = entityActionsDescriptor(entity.type)?.archive
+  const undoNeedsStatus = archive?.kind === 'status' && archive.restorePrevious
   const actions = supportedEntityActions(entity.type)
     .filter(isDirectEntityAction)
     .filter((id) => id !== 'open')
+    .filter((id) => !(undoNeedsStatus && (id === 'archive' || id === 'restore')))
     .map((id) => ({ id, label: ENTITY_ACTION_LABELS[id] }))
   if (!actions.length) return null
   return { entity, label: spec.title, actions }

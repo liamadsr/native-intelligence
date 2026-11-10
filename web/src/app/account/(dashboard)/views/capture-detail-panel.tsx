@@ -3153,7 +3153,7 @@ export function CaptureDetailPanel({
               </Tooltip>
             </TooltipProvider>
           )}
-          <EntityActionsMenu entity={{ type: 'capture', id: captureId, label: capture?.title ?? '' }} omit={PANEL_OMIT} />
+          <EntityActionsMenu entity={{ type: 'capture', id: captureId, label: capture?.title ?? '' }} state={{ archived: capture ? capture.status === 'archived' : null, status: capture?.status ?? null }} omit={PANEL_OMIT} />
           <CopyTranscriptButton
             isActiveRecording={isActiveRecording}
             liveIsThisCapture={holdsLiveSegments}
