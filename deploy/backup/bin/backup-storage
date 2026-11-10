@@ -15,6 +15,9 @@
 #   BACKUP_<NAME>_REMOVED_DAYS          how long a deleted or replaced file is
 #                                       kept, counted from the night it was
 #                                       found gone (default 30, 0 = for ever)
+#   BACKUP_<NAME>_VERIFY_EVERY_DAYS     how often every file is read back
+#                                       and compared (default 1: every run;
+#                                       0 = never)
 #   BACKUP_<NAME>_PING_URL              requested after a good run (optional)
 #
 # In the vault:
@@ -23,6 +26,8 @@
 #                                             replaced, moved here, not erased
 #   <job>/manifest/<bucket>.tsv               what the last run saw: one line
 #                                             per file (time, size, path)
+#   <job>/last-verify                         when every file was last read
+#                                             back and compared
 #
 # How a run decides what to copy. Not by letting rclone compare the two sides:
 # Storage reports one modification time when it lists a file and another when
@@ -32,8 +37,16 @@
 # size, its path) was not in the last run's listing. Storage moves that time
 # on every upload, so a replaced file always shows.
 #
-# A run fails, and does not ping, when a file that Storage lists cannot be
-# read. That makes this job a nightly check of the stored files as well.
+# Copying only reads what is new. A file that has not changed since the last
+# run is not touched by it, so by itself this job would go on reporting
+# success after the stored files were lost or damaged, as long as the
+# database still listed them. So, after the copying, every file is read back
+# in full from Storage and from the backup and the two are compared, byte for
+# byte (rclone check --download). Any file that is missing, unreadable or
+# different on either side fails the run, and a failed run does not ping.
+# That reads the whole backup from the bucket each time; if that ever costs
+# too much, VERIFY_EVERY_DAYS makes it weekly, and the gap between two checks
+# is then how long such a loss can go unnoticed.
 set -euo pipefail
 
 job="${1:?usage: backup-storage <job>}"
@@ -51,11 +64,13 @@ die() {
 }
 
 removed_days="$(setting REMOVED_DAYS 30)"
+verify_days="$(setting VERIFY_EVERY_DAYS 1)"
 ping_url="$(setting PING_URL)"
 for required in S3_ENDPOINT S3_REGION S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY; do
 	[ -n "$(setting "$required")" ] || die "${prefix}${required} is not set"
 done
 case "$removed_days" in *[!0-9]* | '') die "${prefix}REMOVED_DAYS must be a whole number" ;; esac
+case "$verify_days" in *[!0-9]* | '') die "${prefix}VERIFY_EVERY_DAYS must be a whole number" ;; esac
 
 # The Storage service as an rclone remote, from the environment only.
 export RCLONE_CONFIG_STORAGE_TYPE=s3
@@ -144,6 +159,55 @@ for bucket in $buckets; do
 	copied=$((copied + $(wc -l <"$work/copy.list")))
 	removed=$((removed + $(wc -l <"$work/gone.list")))
 done
+
+# Read everything back and compare (the header says why). With 1, on every
+# run. With more, when the last full check is that many days old, less half a
+# day so that a nightly run is never a few minutes too early for it.
+if [ "$verify_days" -gt 0 ]; then
+	last="$(rclone cat "vault:${job}/last-verify" 2>/dev/null | tr -cd '0-9')" || last=""
+	now_s="$(date -u +%s)"
+	if [ "$verify_days" = 1 ] || [ -z "$last" ] || [ $((now_s - last)) -ge $((verify_days * 86400 - 43200)) ]; then
+		verified=0
+		for bucket in $buckets; do
+			now="$work/$bucket.now"
+			[ -s "$now" ] || continue # an empty bucket: nothing to read
+			# One line per file: "= path" the same, "* path" different,
+			# "+ path" only in Storage, "- path" only in the backup,
+			# "! path" could not be read.
+			# (Few retries: a file Storage cannot read stays unreadable, and
+			# rclone's defaults would spend many minutes finding that out.)
+			rclone check "storage:${bucket}" "vault:${job}/current/${bucket}" --download \
+				--combined "$work/check" --checkers 4 --retries 1 --low-level-retries 2 \
+				>"$work/check.log" 2>&1 || true
+			[ -s "$work/check" ] || { tail -n 5 "$work/check.log" >&2; die "could not compare bucket ${bucket} with its backup"; }
+			# A file the comparison never reached (it stopped half way) is
+			# as much a fault as one that differs: "? path".
+			cut -c 3- "$work/check" | LC_ALL=C sort -u >"$work/checked"
+			cut -f 3- "$now" | LC_ALL=C sort -u | LC_ALL=C comm -23 - "$work/checked" | sed 's/^/? /' >"$work/suspect"
+			grep -v '^= ' "$work/check" >>"$work/suspect" || true
+			if [ -s "$work/suspect" ]; then
+				# A file that was uploaded, replaced or deleted while this run
+				# was going is not a fault: the next run copies it. Only a
+				# file whose listing has not moved since the start counts.
+				rclone lsf --recursive --files-only --use-server-modtime --format tsp --separator "$tab" "storage:${bucket}" \
+					| LC_ALL=C sort >"$work/fresh" || die "cannot list bucket ${bucket} again"
+				LC_ALL=C comm -3 "$now" "$work/fresh" | sed 's/^\t//' | cut -f 3- | LC_ALL=C sort -u >"$work/moved"
+				while IFS= read -r line; do
+					grep -qxF -- "${line#? }" "$work/moved" || printf '%s\n' "$line"
+				done <"$work/suspect" >"$work/faults"
+				if [ -s "$work/faults" ]; then
+					head -n 20 "$work/faults" >&2
+					die "$(wc -l <"$work/faults") file(s) of bucket ${bucket} do not read back the same from Storage and from the backup (above: * different, + missing from the backup, - missing from Storage, ! unreadable, ? not compared)"
+				fi
+			fi
+			verified=$((verified + $(grep -c '^= ' "$work/check" || true)))
+		done
+		printf '%s\n' "$now_s" | rclone rcat --size-only "vault:${job}/last-verify" || die "could not record the check"
+		log "read back ${verified} file(s) from Storage and from the backup: the same, byte for byte"
+	else
+		log "full read-back check not due (every ${verify_days} days; last one $(((now_s - last) / 3600)) hours ago)"
+	fi
+fi
 
 # A bucket that no longer exists: keep its files, but out of current/.
 held_buckets="$(list_or_empty --dirs-only "vault:${job}/current/")" || die "cannot list the buckets held in the backup"

@@ -32,7 +32,7 @@ select '-- (none)' where not exists (
   select 1 from pg_catalog.pg_policy pol
   join pg_catalog.pg_class c on c.oid = pol.polrelid
   join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-  where n.nspname in (:managed));
+  where n.nspname in (:managed) and pol.polname not like 'ni\_freeze\_%');
 
 select pg_catalog.format(
          E'drop policy if exists %I on %I.%I;\ncreate policy %I on %I.%I as %s for %s to %s%s%s;',
@@ -58,6 +58,9 @@ from pg_catalog.pg_policy pol
 join pg_catalog.pg_class c on c.oid = pol.polrelid
 join pg_catalog.pg_namespace n on n.oid = c.relnamespace
 where n.nspname in (:managed)
+  -- The freeze (sql/freeze.sql) is the hosted project's own state for the
+  -- move. It is not part of the app and must not arrive on the copy.
+  and pol.polname not like 'ni\_freeze\_%'
 order by n.nspname, c.relname, pol.polname;
 
 select '-- Triggers on those tables that call a function outside those schemas.'
@@ -68,7 +71,8 @@ select '-- (none)' where not exists (
   join pg_catalog.pg_namespace n on n.oid = c.relnamespace
   join pg_catalog.pg_proc p on p.oid = t.tgfoid
   join pg_catalog.pg_namespace pn on pn.oid = p.pronamespace
-  where not t.tgisinternal and n.nspname in (:managed) and pn.nspname not in (:managed));
+  where not t.tgisinternal and n.nspname in (:managed) and pn.nspname not in (:managed)
+    and t.tgname not like 'ni\_freeze\_%');
 
 select pg_catalog.regexp_replace(pg_catalog.pg_get_triggerdef(t.oid, false), '^CREATE TRIGGER', 'create or replace trigger')
        || ';'
@@ -86,6 +90,7 @@ join pg_catalog.pg_namespace pn on pn.oid = p.pronamespace
 where not t.tgisinternal
   and n.nspname in (:managed)
   and pn.nspname not in (:managed)
+  and t.tgname not like 'ni\_freeze\_%' -- the freeze, as above
 order by n.nspname, c.relname, t.tgname;
 
 -- pg_cron jobs. cron.schedule() with a name replaces a job of that name; a

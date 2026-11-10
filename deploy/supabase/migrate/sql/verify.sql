@@ -32,7 +32,10 @@ insert into skipped values
   ('information_schema'), ('graphql'), ('graphql_public'), ('pgsodium'), ('pgsodium_masks'),
   ('pgtle'), ('repack'), ('vault'), ('etl'), ('extensions'), ('pgbouncer'),
   ('supabase_migrations'), ('_analytics'), ('_realtime'), ('_supavisor'), ('net'), ('cron'),
-  ('pgmq'), ('dbdev'), ('topology'), ('tiger'), ('tiger_data'), ('ni_migrate');
+  ('pgmq'), ('dbdev'), ('topology'), ('tiger'), ('tiger_data'), ('ni_migrate'),
+  -- The freeze (freeze.sql): the hosted project's own state for the move,
+  -- reported in one line at the end and otherwise left out of every section.
+  ('ni_freeze');
 
 -- Every schema that is neither skipped nor a system one, and whether it is
 -- managed. supabase_functions counts as managed here: its one table of data
@@ -149,13 +152,13 @@ order by 2;
 
 -- 6. Row-level security: the number of policies, each policy, and each table's switch.
 select 'policies', 'number of policies', count(*)::text
-from pg_catalog.pg_policies p where p.schemaname in (select s from sch);
+from pg_catalog.pg_policies p where p.schemaname in (select s from sch) and p.policyname not like 'ni\_freeze\_%';
 select 'policies', p.schemaname || '.' || p.tablename || ': ' || p.policyname,
        p.permissive || ' ' || p.cmd || ' to ' || pg_catalog.array_to_string(p.roles, ',')
        || ' using ' || coalesce(pg_catalog.regexp_replace(p.qual, '\s+', ' ', 'g'), '-')
        || ' with check ' || coalesce(pg_catalog.regexp_replace(p.with_check, '\s+', ' ', 'g'), '-')
 from pg_catalog.pg_policies p
-where p.schemaname in (select s from sch)
+where p.schemaname in (select s from sch) and p.policyname not like 'ni\_freeze\_%'
 order by 2;
 select 'row-level security', tab.s || '.' || tab.t,
        case when c.relrowsecurity then 'on' else 'OFF' end || case when c.relforcerowsecurity then ', forced' else '' end
@@ -175,6 +178,7 @@ join pg_catalog.pg_namespace pn on pn.oid = p.pronamespace
 where not t.tgisinternal
   and n.nspname in (select s from sch)
   and (n.nspname not in (:managed) or pn.nspname not in (:managed))
+  and t.tgname not like 'ni\_freeze\_%'
 order by 2;
 
 -- From here on: the app's own schemas only.
@@ -247,7 +251,8 @@ order by 2;
 -- 11. Settings stored on roles and on the database, custom roles, cron jobs,
 --     and what is known not to move.
 select 'role settings', coalesce(r.rolname, 'every role') || coalesce(' in ' || d.datname, ''),
-       pg_catalog.array_to_string(s.setconfig, ', ')
+       pg_catalog.array_to_string(array(select c from pg_catalog.unnest(s.setconfig) c
+                                        where c <> 'pgrst.db_pre_request=ni_freeze.refuse_writes'), ', ')
 from pg_catalog.pg_db_role_setting s
 left join pg_catalog.pg_roles r on r.oid = s.setrole
 left join pg_catalog.pg_database d on d.oid = s.setdatabase
@@ -270,6 +275,25 @@ from cron.job j order by 2;
 \if :has_vault
 select 'not moved by any step', 'secrets in the vault', count(*)::text from vault.secrets;
 \endif
+-- The freeze, in one line. At the real switch the hosted side must say "on"
+-- and this side "off": 02-restore.sh takes it off the copy.
+select 'not moved by any step', 'the freeze (changes refused)',
+       coalesce(nullif(pg_catalog.concat_ws(', ',
+         case when exists (select 1 from pg_catalog.pg_db_role_setting s
+                           join pg_catalog.pg_roles r on r.oid = s.setrole
+                           cross join lateral pg_catalog.unnest(s.setconfig) c
+                           where r.rolname = 'authenticator' and s.setdatabase = 0
+                             and c = 'pgrst.db_pre_request=ni_freeze.refuse_writes')
+              then 'Data API' end,
+         case when exists (select 1 from pg_catalog.pg_policy p
+                           where p.polrelid = pg_catalog.to_regclass('storage.objects') and p.polname like 'ni\_freeze\_%')
+              then 'Storage policies' end,
+         case when exists (select 1 from pg_catalog.pg_trigger t
+                           where t.tgrelid = pg_catalog.to_regclass('storage.objects') and t.tgname = 'ni_freeze_objects')
+              then 'Storage trigger' end,
+         case when exists (select 1 from pg_catalog.pg_trigger t
+                           where t.tgrelid = pg_catalog.to_regclass('auth.users') and t.tgname = 'ni_freeze_users')
+              then 'accounts' end), ''), 'off');
 select 'not moved by any step', 'event triggers of the app', count(*)::text
 from pg_catalog.pg_event_trigger e
 join pg_catalog.pg_proc p on p.oid = e.evtfoid

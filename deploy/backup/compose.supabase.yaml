@@ -7,11 +7,13 @@
 # neither job, which is how it runs before Supabase lives here.
 #
 #   supabase           every hour: a dump of the whole database, plus the
-#                      cluster's roles and their settings. Kept: the newest 48,
-#                      and the newest of each of the last 30 days.
+#                      cluster's roles and their settings and the key its
+#                      vault is encrypted with. Kept: the newest 48, and the
+#                      newest of each of the last 30 days.
 #   supabase-storage   every night: every stored file, read through Storage's
 #                      S3 endpoint. A file deleted or replaced since the last
-#                      run is kept for 30 days more.
+#                      run is kept for 30 days more. Every file is then read
+#                      back from both sides and compared.
 services:
   backup:
     environment:
@@ -25,6 +27,11 @@ services:
       BACKUP_SUPABASE_KEEP_HOURLY: ${BACKUP_SUPABASE_KEEP_HOURLY:-48}
       BACKUP_SUPABASE_KEEP_DAILY: ${BACKUP_SUPABASE_KEEP_DAILY:-30}
       BACKUP_SUPABASE_ROLES: "true"
+      # The key Postgres encrypts its vault with: a file beside the database
+      # (in the ni-supabase-db-config volume), named here as the database
+      # server sees it. It is read, and on a restore put back, through the
+      # database connection, so no volume is shared with this container.
+      BACKUP_SUPABASE_KEY_FILE: /etc/postgresql-custom/pgsodium_root.key
       BACKUP_SUPABASE_PING_URL: ${BACKUP_SUPABASE_PING_URL:-}
 
       # Job: supabase-storage (the files).
@@ -36,6 +43,7 @@ services:
       BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID: ${BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID:?set BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID in .env}
       BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY: ${BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY:?set BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY in .env}
       BACKUP_SUPABASE_STORAGE_REMOVED_DAYS: ${BACKUP_SUPABASE_STORAGE_REMOVED_DAYS:-30}
+      BACKUP_SUPABASE_STORAGE_VERIFY_EVERY_DAYS: ${BACKUP_SUPABASE_STORAGE_VERIFY_EVERY_DAYS:-1}
       BACKUP_SUPABASE_STORAGE_PING_URL: ${BACKUP_SUPABASE_STORAGE_PING_URL:-}
     extra_hosts:
       # The gateway's fixed address on the Supabase network

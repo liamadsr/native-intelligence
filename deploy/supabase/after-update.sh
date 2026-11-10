@@ -14,7 +14,9 @@
 #      check (.github/guard.sh) rightly refuses; update.sh puts them back on
 #      every run because it finds them missing.
 #   3. Puts a new update.sh in place if the release brought one.
-#   4. Reads their compose file with ours on top, and fails if the result
+#   4. Checks that the one change gateway/entrypoint.sh makes to the
+#      gateway's routes at start-up still finds its place in this release.
+#   5. Reads their compose file with ours on top, and fails if the result
 #      publishes a port or runs a service that is meant to be off. This is
 #      where an override that stopped applying shows up.
 set -euo pipefail
@@ -58,6 +60,25 @@ if [ -f stack/update.sh.dist ]; then
 	echo "  the release changed update.sh itself: the new one is in place"
 fi
 
+echo "== the gateway's start-up change (gateway/entrypoint.sh)"
+# The same two things the entrypoint checks when the container starts, so
+# that a release which moves them is noticed here and not in production.
+their_entrypoint=stack/volumes/api/envoy/docker-entrypoint.sh
+their_routes=stack/volumes/api/envoy/lds.template.yaml
+if ! grep -q '^exec envoy ' "$their_entrypoint" 2>/dev/null; then
+	echo "  PROBLEM: $their_entrypoint no longer starts Envoy with 'exec envoy': the gateway would refuse to start"
+	failed=1
+fi
+before="$(grep -c '^ *timeout: 0s$' "$their_routes" 2>/dev/null || true)"
+# (The expression is the one in gateway/entrypoint.sh.)
+after="$(sed '/^ *prefix: \/storage\/v1\/$/,/^ *timeout:/ s/^\( *\)timeout: .*/\1timeout: 0s/' "$their_routes" 2>/dev/null | grep -c '^ *timeout: 0s$' || true)"
+if [ "${after:-0}" -eq $((${before:-0} + 1)) ]; then
+	echo "  the Storage route's time limit is where it is expected"
+else
+	echo "  PROBLEM: the Storage route's timeout is not found exactly once in $their_routes: the gateway would refuse to start. Read gateway/entrypoint.sh against the new file."
+	failed=1
+fi
+
 echo "== their compose file with ours on top"
 if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
 	env_file="$(mktemp)"
@@ -82,6 +103,13 @@ if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
 			case " $services " in *" $needed "*) ;; *) echo "  PROBLEM: the service $needed is gone (renamed by the release?)"; failed=1 ;; esac
 		done
 		grep -q 'port_value: 80$' <<<"$merged" || { echo "  PROBLEM: the public listener is no longer in the gateway's command"; failed=1; }
+		grep -q '/ni/gateway-entrypoint.sh' <<<"$merged" || { echo "  PROBLEM: the gateway no longer starts through gateway/entrypoint.sh"; failed=1; }
+		grep -q 'name: ni-supabase-edge$' <<<"$merged" || { echo "  PROBLEM: the gateway is no longer on the network it shares with Caddy (ni-supabase-edge)"; failed=1; }
+		if grep -q 'name: ni-edge$' <<<"$merged"; then
+			echo "  PROBLEM: something in this stack is on ni-edge, the network every other stack is on"
+			failed=1
+		fi
+		grep -q 'GOTRUE_RATE_LIMIT_HEADER: X-Real-IP$' <<<"$merged" || { echo "  PROBLEM: Auth is no longer told which header carries the client's address (GOTRUE_RATE_LIMIT_HEADER)"; failed=1; }
 	else
 		echo "$merged" | tail -n 5 | sed 's/^/  /'
 		echo "  PROBLEM: the two files no longer merge"

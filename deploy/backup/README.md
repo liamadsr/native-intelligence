@@ -5,8 +5,8 @@ One small container (`ni-backup`) that runs cron. Each line in [`crontab`](cront
 | Job | When | What |
 | --- | --- | --- |
 | `inngest` | Nightly | A dump of Inngest's Postgres. Kept 30 days. |
-| `supabase` | Every hour | A dump of the whole Supabase database, and the cluster's roles. Kept: the newest 48, and the newest of each of the last 30 days. |
-| `supabase-storage` | Nightly | Every file in Supabase Storage. A file deleted or replaced there is kept 30 days more, counted from the night the job found it gone. |
+| `supabase` | Every hour | A dump of the whole Supabase database, the cluster's roles, and the key its vault is encrypted with. Kept: the newest 48, and the newest of each of the last 30 days. |
+| `supabase-storage` | Nightly | Every file in Supabase Storage. A file deleted or replaced there is kept 30 days more, counted from the night the job found it gone. Every file is then read back from Storage and from the backup and compared. |
 
 Everything is encrypted in the container and uploaded to one Backblaze B2 bucket, and each job requests its own dead-man URL after a good run. Setting it up is step 11 of [`../README.md`](../README.md), and step 17 for the two Supabase jobs, which stay off until then. This page is about what the backups are and how to get one back. The first half is Inngest; [Supabase](#supabase) has its own half below.
 
@@ -159,17 +159,18 @@ Two jobs, both switched on by one line in `.env` (step 17 of [`../README.md`](..
 ### What is backed up
 
 - **The database, every hour** (`supabase`). `pg_dump --format=custom` of the whole `postgres` database as `supabase_admin`, the one role that can read every schema: the app's tables, accounts and sessions (`auth`), the record of every stored file (`storage`), cron jobs, policies, grants. Beside each dump, a small `.roles.sql`: the cluster's roles and the settings stored on them (`ALTER ROLE service_role SET statement_timeout`, for one), which a dump of one database cannot hold. No passwords are in it; those come from `stack/.env`.
-  `supabase/<year>/<month>/supabase-<UTC timestamp>.dump.bin`, and the same name ending in `.roles.sql.bin`.
+  And beside those two, the vault key. Supabase's Postgres encrypts the secrets in its vault with a key that is not in the database: it is a file beside it (`pgsodium_root.key`, in the `ni-supabase-db-config` volume), made the first time Postgres starts on an empty volume. A dump restored on a server with a different key brings every secret back unreadable, so the job reads that file through its database connection and saves it with the dump, encrypted like everything else here.
+  `supabase/<year>/<month>/supabase-<UTC timestamp>.dump.bin`, and the same name ending in `.roles.sql.bin` and `.vault-key.bin`.
 - **The files, every night** (`supabase-storage`). Read through Storage's S3 endpoint, never from its folder on disk.
   `supabase-storage/current/<bucket>/<path>.bin` is every file as it is now.
   `supabase-storage/removed/<UTC timestamp>/<bucket>/…` is what a run found deleted or replaced, in a folder named for that run. A folder is erased when its run is 30 days old (`BACKUP_SUPABASE_STORAGE_REMOVED_DAYS`), however old the files in it are: a file uploaded in January and deleted today is held for 30 days from today.
   `supabase-storage/manifest/<bucket>.tsv.bin` is what the last run saw, which is how the next one knows what changed.
+- **The read-back check, in the same nightly job.** Copying only reads files that are new or replaced. A file that has not changed is never touched by it, so on its own the job would go on reporting success after the stored files were lost or damaged, for as long as the database still listed them. So after the copying, every file is read in full from Storage and from the backup and the two are compared byte for byte. A file that is missing, unreadable or different on either side fails the run, and a failed run does not ping. This reads the whole backup from B2 every night, which B2 bills beyond three times the stored amount per month: a few cents at 100 MB. `BACKUP_SUPABASE_STORAGE_VERIFY_EVERY_DAYS=7` makes it weekly, and a loss can then go unnoticed for a week.
 - **Retention of the database.** After each good upload: the newest 48 dumps stay, and so does the newest dump of each of the last 30 days. Everything else is deleted, with its roles file. The two numbers are `BACKUP_SUPABASE_KEEP_HOURLY` and `BACKUP_SUPABASE_KEEP_DAILY`. Both at 0 means nothing is ever deleted, and whatever they are, the dump just made is never deleted.
 
 **What is not in any backup, and has to be kept somewhere else:**
 
 - `stack/.env`. Without `JWT_SECRET` every session and every app's key is invalid; without `POSTGRES_PASSWORD` the roles file cannot be made to match. It belongs in the password manager.
-- The `ni-supabase-db-config` volume, which holds the key Postgres encrypts its vault with. The app keeps nothing in the vault today. The day it does, that key has to be saved too (`sudo docker compose exec db cat /etc/postgresql-custom/pgsodium_root.key`, from `../supabase/stack`).
 - A file uploaded after the last nightly run. Its record comes back with the database; the file does not. `restore-supabase-storage` lists such records.
 
 ### Everyday commands
@@ -224,12 +225,16 @@ This replaces the whole Supabase database with one backup. It is the same whethe
    sudo docker compose exec backup restore-supabase-db 2026/11/supabase-20261110T074300Z.dump
    ```
 
-   It refuses to start while any other service is still connected, and names them. Then it applies the roles file, clears the database's default grants (so that tables and functions come back with their own permissions and no more), drops every partition (Realtime makes one a day for itself, and `pg_restore` cannot replace a partition in place; the backup brings its own back), runs `pg_restore --clean --if-exists` and ends with the number of users and tables. Any error from `pg_restore` makes it fail and say so.
+   It refuses to start while any other service is still connected, and names them. It compares the vault key in the database's volume with the one saved beside this backup and, if they differ (a new server, a new volume), writes the backup's in its place. Then it applies the roles file, clears the database's default grants (so that tables and functions come back with their own permissions and no more), drops every partition (Realtime makes one a day for itself, and `pg_restore` cannot replace a partition in place; the backup brings its own back), runs `pg_restore --clean --if-exists` and ends with the number of users and tables. Any error from `pg_restore` makes it fail and say so.
 
-4. Start everything again.
+4. Restart the database, then start everything else. The restart is what makes Postgres read the vault key; if the restore said it replaced the key, the secrets in the vault are unreadable until this has happened.
 
    ```bash
    cd /opt/native-intelligence/deploy/supabase/stack
+   ```
+
+   ```bash
+   sudo docker compose restart db
    ```
 
    ```bash
@@ -266,7 +271,7 @@ then `sudo docker compose cp backup:/tmp/recovered .` and upload it again throug
 
 ### If the server itself is lost
 
-Rebuild it from [`../README.md`](../README.md) with the same `.env` files from the password manager, up to a running, empty Supabase stack (step 14) and this container (steps 11 and 17). Then "Restore the database", then "Restore the files". That is the drill of step 17, and it was rehearsed that way, and also over a database that was still whole: database and files deleted, both restored, and the database afterwards identical to before, table for table and grant for grant.
+Rebuild it from [`../README.md`](../README.md) with the same `.env` files from the password manager, up to a running, empty Supabase stack (step 14) and this container (steps 11 and 17). Then "Restore the database", then "Restore the files". That is the drill of step 17, and it was rehearsed that way, and also over a database that was still whole: the database, the files and the volume with the vault key deleted, all restored, the database afterwards identical to before, table for table and grant for grant, and a secret put in the vault beforehand readable again.
 
 ### Try the jobs without B2
 

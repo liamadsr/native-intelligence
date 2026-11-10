@@ -25,6 +25,9 @@
 #           this database fail to restore)
 #   in it   applies extras.sql after the data: the app's policies and
 #           triggers on auth, storage and realtime tables, and its cron jobs
+#   in it   takes off the freeze (sql/thaw.sql): the final dump is taken
+#           while the hosted project is frozen, and carries the freeze's
+#           schema and the setting that switches it on
 #   in it   last of all, pauses every pg_cron job, unless --final is given
 #   after   ANALYZE, because a restore carries no planner statistics
 #
@@ -294,7 +297,7 @@ else
 	log "restoring: a rehearsal (cron jobs will be paused)"
 fi
 started=$SECONDS
-cp "$MIGRATE_DIR/sql/clear-default-privileges.sql" "$work/"
+cp "$MIGRATE_DIR/sql/clear-default-privileges.sql" "$MIGRATE_DIR/sql/thaw.sql" "$work/"
 # A rehearsal must not run production's cron jobs on the copy, not even for
 # the moment between the end of the restore and a later statement. So they
 # are paused as the last thing inside the transaction: they are never seen
@@ -376,6 +379,7 @@ if ! psql_target \
 	--file "$data_file" \
 	--file "$rel/orphans.sql" \
 	--file extras.sql \
+	--file "$rel/thaw.sql" \
 	--file "$rel/cron.sql" \
 	>"$work/restore.log" 2>&1; then
 	# The whole log is kept: it is the only full record of what went wrong.

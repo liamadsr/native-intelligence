@@ -26,9 +26,20 @@
 #                                 their settings (pg_dumpall --globals-only,
 #                                 without passwords) beside every dump
 #
+# And for a database that encrypts some of its own rows with a key kept in a
+# file outside it (Supabase's vault):
+#   BACKUP_<NAME>_KEY_FILE        that file, as the database server sees it.
+#                                 It is read through the connection
+#                                 (pg_read_file, so the role must be a
+#                                 superuser) and saved beside every dump,
+#                                 encrypted like the dump: without it, a
+#                                 restore on a new server brings the vault's
+#                                 secrets back unreadable.
+#
 # Files land at  <job>/<YYYY>/<MM>/<job>-<UTC timestamp>.dump  inside the
 # `vault:` remote (see backup-entrypoint), which encrypts them and stores them
-# with a .bin suffix. The roles file has the same name ending in .roles.sql.
+# with a .bin suffix. The roles file has the same name ending in .roles.sql,
+# the key file in .vault-key. Retention deletes all three together.
 set -euo pipefail
 
 job="${1:?usage: backup-postgres <job>}"
@@ -54,6 +65,7 @@ retention_days="$(setting RETENTION_DAYS 30)"
 keep_hourly="$(setting KEEP_HOURLY)"
 keep_daily="$(setting KEEP_DAILY)"
 with_roles="$(setting ROLES false)"
+key_file="$(setting KEY_FILE)"
 ping_url="$(setting PING_URL)"
 export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 export PGCONNECT_TIMEOUT=15
@@ -71,7 +83,26 @@ flock -n 9 || die "the previous run of this job is still going"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 object="${job}/$(date -u +%Y/%m)/${job}-${stamp}.dump"
 roles_object="${object%.dump}.roles.sql"
+key_object="${object%.dump}.vault-key"
 started=$SECONDS
+
+# The key first: a dump without its key is the thing this is here to prevent,
+# so a key that cannot be read stops the run before anything is uploaded.
+# It only ever sits in a shell variable: never in a file, never on a command
+# line.
+if [ -n "$key_file" ]; then
+	case "$key_file" in /*) ;; *) die "${prefix}KEY_FILE must be an absolute path on the database server" ;; esac
+	key="$(psql -X -At -v ON_ERROR_STOP=1 -v "f=$key_file" <<'SQL'
+select pg_catalog.pg_read_file(:'f');
+SQL
+	)" || die "could not read the key file ${key_file} from the database server (the role must be a superuser)"
+	key="$(printf '%s' "$key" | tr -d '\r\n')"
+	[[ "$key" =~ ^[0-9a-f]{64}$ ]] || die "${key_file} does not hold a key in the shape expected (64 hexadecimal characters)"
+	log "saving the vault key to vault:${key_object}"
+	printf '%s\n' "$key" | rclone rcat --size-only "vault:${key_object}" || die "could not save the vault key"
+	[ "$(rclone cat "vault:${key_object}" 2>/dev/null | tr -d '\r\n')" = "$key" ] || die "the uploaded vault key did not read back the same"
+	unset key
+fi
 
 # pg_dump writes one database. Roles, and settings stored on a role (a
 # statement_timeout, say), belong to the whole cluster and are not in it.
@@ -95,6 +126,7 @@ if ! pg_dump --format=custom --no-password | rclone rcat --size-only "vault:${ob
 	# behind looking like a backup.
 	rclone deletefile "vault:${object}" 2>/dev/null || true
 	[ "$with_roles" = true ] && { rclone deletefile "vault:${roles_object}" 2>/dev/null || true; }
+	[ -n "$key_file" ] && { rclone deletefile "vault:${key_object}" 2>/dev/null || true; }
 	die "dump or upload failed"
 fi
 

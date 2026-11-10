@@ -13,6 +13,7 @@ deploy/supabase/
 │   └── .env                 the settings. On the server only, root-only, not in git.
 ├── compose.override.yaml    OURS. Everything we change, layered on top of their compose file.
 ├── postgres/ni-memory.conf  Postgres memory settings for this server.
+├── gateway/entrypoint.sh    runs their gateway entrypoint with one change to its output.
 ├── .env.example             every setting, with a comment. Copied to stack/.env.
 ├── check-env.sh             checks stack/.env before a start.
 ├── after-update.sh          the second half of taking a new release of theirs.
@@ -33,6 +34,9 @@ Three files in `stack/` are in git although their `.gitignore` lists them: `.sup
 | Project `supabase`, volumes and network named after it | Project `ni-supabase`, volumes `ni-supabase-db`, `ni-supabase-storage`, `ni-supabase-db-config`, `ni-supabase-deno-cache`, network `ni-supabase` | Like the rest of `deploy/` |
 | Gateway published on host port 8000, pooler on 5432 and 6543 | Nothing published | A published port is open to the internet whatever the firewall says |
 | The gateway is the public address | A second listener on the gateway, port 80, that lets through only `/auth/v1/`, `/rest/v1/`, `/graphql/v1`, `/realtime/v1/`, `/storage/v1/` and `/functions/v1/`. Caddy talks to that one. | Their listener's last route serves Studio, and `/pg/` runs SQL for the service-role key. See below. |
+| (no reverse proxy of ours in their picture) | Caddy and the gateway meet on a network of their own, `ni-supabase-edge`, that holds those two containers only | The gateway answers on every network it is attached to. On `ni-edge` every other stack's containers could reach port 8000, and could pass off any address as the client's. See below. |
+| Storage route limited to 30 seconds for the whole response | No overall limit on Storage transfers | A slow download of a large file was cut off in the middle. See [below](#the-storage-time-limit). |
+| Sign-in and refresh attempts not limited per client | Limited per client address (`GOTRUE_RATE_LIMIT_HEADER: X-Real-IP`) | Auth only applies those limits when told which header carries the client. See [Auth settings](#auth-settings). |
 | Database and files in folders inside the checkout | Named volumes | Data does not belong in a git checkout |
 | Postgres with the image's memory defaults (128 MB of shared buffers) | 4 GB shared buffers, 10 GB assumed cache, 16 MB per sort, 1 GB for maintenance | [`postgres/ni-memory.conf`](postgres/ni-memory.conf): a 24 GB machine shared with everything else |
 | Image transformation on, imgproxy running | Off, imgproxy not started | The app transforms no images through Storage |
@@ -54,6 +58,18 @@ It is inside Envoy, and not a proxy in front of it, for a reason found while tes
 It listens on port 80 because Storage's S3 endpoint only accepts a request signed for the host name in `SUPABASE_PUBLIC_URL`, with no port. The backup container and the migration scripts call it under that name from inside Docker (pointed at the gateway's fixed address), and a bare name over plain http means port 80.
 
 If a future release of theirs stops passing arguments to Envoy, the listener is simply absent and Caddy answers `502` for every Supabase request: it fails closed, and loudly.
+
+**Who can reach the two listeners.** Both listen on every network the gateway container is attached to. That is why Caddy does not reach it over `ni-edge`, the network Caddy shares with every other stack: any container there could have called port 8000 directly (Studio and `/pg/` behind the dashboard password alone), and could have sent the public listener a made-up `X-Forwarded-For`, which that listener believes because it expects exactly one proxy in front of it. Instead the two meet on `ni-supabase-edge`, a network that is created once by hand (step 7 of [`../README.md`](../README.md)) and that only these two containers join: the gateway through this override, Caddy through [`../edge/compose.supabase.yaml`](../edge/compose.supabase.yaml), which is switched on by one line in `edge/.env` once this stack exists. From a container on `ni-edge` alone, the gateway's name does not resolve and its addresses do not answer.
+
+### The Storage time limit
+
+Their gateway gives the Storage route `timeout: 30s`. In Envoy that is a limit on the whole response, not on silence: a download that is still going after 30 seconds is cut off. Measured on 0.8.4 through the public listener: a 40 MB file read at 500 KB/s stopped after 25 MB. The hosted platform has no such limit, and a phone on a poor connection is exactly this case.
+
+The limit is in a file of theirs that the gateway reads at start, and it cannot be lifted from outside: a per-request header that would do it is removed by their listener for anything that is not marked internal. So [`gateway/entrypoint.sh`](gateway/entrypoint.sh) runs in front of their entrypoint: theirs writes the routes as always, and ours changes that one line in what was written, just before Envoy starts. Their file is not edited, and a new release's routes are picked up as they are. If their entrypoint or that route ever changes shape so that the line cannot be found exactly once, the gateway does not start and says why (it fails closed), and `after-update.sh` checks for the same thing when a release is taken.
+
+With the limit gone, a 40 MB upload and download at 500 KB/s each took 81 seconds through Caddy and the gateway and arrived whole. A transfer that goes silent is still dropped after 5 minutes without a byte.
+
+The other routes keep their 30 seconds. **That includes the data API**: a request to `/rest/v1/` that takes longer than 30 seconds is answered with `504` here while its query runs on, and the hosted project's `service_role` is allowed 120 seconds per statement. If the app makes calls that slow, they will behave differently here. This was not changed, because what the hosted gateway allows is not known from this repository; look for such calls in the rehearsal.
 
 ## Auth settings
 
@@ -79,6 +95,8 @@ Nothing in this list is in the database, so none of it arrives with the restore.
 **The email templates.** Auth does not read templates from disk; it fetches each one over HTTP. The override runs a small file server (`mail-templates`, reachable only inside the stack) on the app's own folder, `web/supabase/templates`, and points Auth at `http://mail-templates/confirmation.html`, `invite.html`, `magic-link.html`, `recovery.html` and `email-change.html`. There is one copy of each template, the one in `web/`, which is why the server's checkout includes that folder. After a template changes: `git pull`, then `sudo sh run.sh restart auth` (Auth keeps fetched templates in memory; a restart makes it fetch them again at once). If a fetch fails, Auth quietly sends its built-in English default instead, so after any change send yourself one of each.
 
 All five build their link as `{{ .SiteURL }}/auth/confirm?token_hash=…`, so the links depend on `SITE_URL` only and never show this server's address.
+
+**Limits per client address.** Auth limits how often one client may call `/token` (password sign-in, refresh) and its neighbours, and it identifies the client by one request header, named in `GOTRUE_RATE_LIMIT_HEADER`. Their compose file does not set it, and without it those limits are simply not applied: 80 wrong passwords in a row from one address were all answered. The override sets it to `X-Real-IP`. Caddy puts the address the connection really came from in that header on every request and discards whatever the caller sent under that name ([`../edge/Caddyfile`](../edge/Caddyfile), `header_up X-Real-IP {remote_host}`), and the gateway passes it on. With it, the same 80 attempts were answered 30 times and then refused with `429`, and sending a different made-up `X-Real-IP` or `X-Forwarded-For` with each request changed nothing. The numbers are Auth's defaults ([`stack/CONFIG.md`](stack/CONFIG.md) lists the `GOTRUE_RATE_LIMIT_*` settings); the hosted project's own are among the settings to compare below. All requests from the web app's server arrive from that server's addresses and share one allowance, as they do on the hosted platform.
 
 **Settings this list does not cover.** The dashboard has more Auth settings than the ones the app is known to depend on: rate limits (emails per hour above all), password rules, CAPTCHA, session limits, OTP expiry and length. Whatever the hosted project has changed from the default has to be set here too, or it silently goes back to the default. The whole list in one go is the Management API's `GET /v1/projects/<project ref>/config/auth` with a personal access token. A setting their compose file does not pass through is added as one line under `auth: environment:` in `compose.override.yaml`, named `GOTRUE_…` as in [`stack/CONFIG.md`](stack/CONFIG.md), with its value in `.env`.
 
@@ -130,10 +148,10 @@ The services are `db`, `auth`, `rest`, `realtime`, `storage`, `functions`, `api-
 
 They publish about once a month. Their [`CHANGELOG.md`](stack/CHANGELOG.md) says what each release changes; security fixes are marked. Updates go through a pull request like everything else, so the merge is done in a checkout of this repository, not on the server.
 
-1. In a checkout, on a new branch. `update.sh` insists on a `stack/.env`; an empty one will do.
+1. In a checkout on your own machine, on a new branch. **Not on the server:** the server is a checkout too, and there `stack/.env` is the real settings file. `update.sh` insists on a `stack/.env`; an empty one will do. This line makes one only where none exists, and says so and stops where one does:
 
    ```bash
-   cd deploy/supabase/stack && : > .env
+   cd deploy/supabase/stack && { [ ! -e .env ] && : > .env || echo "stack/.env already exists here: this is not a throwaway checkout. Stop."; }
    ```
 
    ```bash

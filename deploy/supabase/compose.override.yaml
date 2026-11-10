@@ -18,7 +18,7 @@
 #   1. names: project ni-supabase, ni-… volumes and networks
 #   2. nothing published on the host
 #   3. a public listener on the gateway (an allowlist) that Caddy reaches
-#      over ni-edge
+#      over a network of their own, and no time limit on Storage transfers
 #   4. data in named volumes instead of folders inside the checkout
 #   5. Postgres memory settings for this server
 #   6. image transformation off
@@ -65,10 +65,25 @@ services:
     networks:
       default:
         ipv4_address: 172.31.0.10
-      # Shared with Caddy, which finds this container as ni-supabase-gateway.
-      edge:
+      # Shared with Caddy and with nothing else. Caddy finds this container
+      # on it as ni-supabase-gateway.
+      #
+      # Not ni-edge, the network Caddy shares with every other stack: both
+      # listeners of this container answer on every network it is attached
+      # to, so on ni-edge every container there (Inngest today, the app's own
+      # processes later) could reach port 8000 with Studio and /pg/ behind
+      # the dashboard password alone, and could pass off any address as the
+      # client's, because the public listener believes the one proxy in
+      # front of it.
+      gateway:
         aliases:
           - ni-supabase-gateway
+    # Their entrypoint, with one change to the routes it writes: no overall
+    # time limit on Storage transfers. ../gateway/entrypoint.sh says why and
+    # how. (The `command` below is still handed on to Envoy.)
+    entrypoint: ["/bin/sh", "/ni/gateway-entrypoint.sh"]
+    volumes:
+      - ../gateway/entrypoint.sh:/ni/gateway-entrypoint.sh:ro
     command:
       - --config-yaml
       - |
@@ -152,7 +167,9 @@ services:
                               '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
           clusters:
             # Their listener, in this same container. `timeout: 0s` above
-            # leaves every time limit to the routes on that side.
+            # leaves every time limit to the routes on that side: 30 seconds
+            # for the data API and Auth, none for Storage (the entrypoint
+            # above), and their own longer ones for functions.
             - name: ni_gateway
               type: STATIC
               connect_timeout: 5s
@@ -229,6 +246,13 @@ services:
       mail-templates:
         condition: service_started
     environment:
+      # Auth limits sign-in and refresh attempts (/token and its neighbours)
+      # per client, and takes "the client" from one request header. With none
+      # named, which is how their file leaves it, those limits are not
+      # applied at all. X-Real-IP is set by Caddy on every request to the
+      # address the connection came from, replacing whatever the caller sent
+      # (../edge/Caddyfile), and the gateway passes it on untouched.
+      GOTRUE_RATE_LIMIT_HEADER: X-Real-IP
       # Google: the web and desktop redirect flow, and sign-in with a Google
       # ID token.
       GOTRUE_EXTERNAL_GOOGLE_ENABLED: ${GOOGLE_ENABLED:?set GOOGLE_ENABLED in .env}
@@ -312,7 +336,9 @@ networks:
       config:
         - subnet: 172.31.0.0/24
           ip_range: 172.31.0.128/25
-  # Created once by hand (see ../README.md) so no stack owns it.
-  edge:
-    name: ni-edge
+  # Caddy and the gateway, and nothing else. Created once by hand (see
+  # ../README.md) so that neither stack owns it; ../edge joins it through
+  # its compose.supabase.yaml.
+  gateway:
+    name: ni-supabase-edge
     external: true

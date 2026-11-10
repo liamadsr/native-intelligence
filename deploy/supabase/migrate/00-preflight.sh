@@ -39,10 +39,11 @@ echo "  buckets:"
 src "select '    ' || b.id || ': ' || count(o.id) || ' files, ' || pg_size_pretty(coalesce(sum((o.metadata ->> 'size')::bigint), 0)) || case when b.public then ' (PUBLIC)' else ' (private)' end from storage.buckets b left join storage.objects o on o.bucket_id = b.id group by b.id, b.public order by b.id"
 echo "  settings stored on roles:"
 src "select '    ' || r.rolname || ': ' || array_to_string(s.setconfig, ', ') from pg_db_role_setting s join pg_roles r on r.oid = s.setrole where r.rolname in ('anon', 'authenticated', 'authenticator', 'service_role', 'postgres') or r.rolname !~ '^(supabase_|pg_)' order by 1"
+echo "  the freeze (freeze-hosted.sh): $(psql_source -q -At -F ' ' -f - <"$MIGRATE_DIR/sql/freeze-status.sql" | awk '$NF == "on" { n++ } END { print (n ? n " of " NR " parts ON: changes are refused" : "off: the project accepts changes") }')"
 
 echo "Carried over by a step of its own (extras.sql), because the dump leaves it out"
-echo "  $(src "select count(*) from pg_policy p join pg_class c on c.oid = p.polrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname in ($MANAGED_SCHEMAS)") policies on auth, storage and realtime tables"
-echo "  $(src "select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace join pg_proc p on p.oid = t.tgfoid join pg_namespace pn on pn.oid = p.pronamespace where not t.tgisinternal and n.nspname in ($MANAGED_SCHEMAS) and pn.nspname not in ($MANAGED_SCHEMAS)") triggers of the app on those tables"
+echo "  $(src "select count(*) from pg_policy p join pg_class c on c.oid = p.polrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname in ($MANAGED_SCHEMAS) and p.polname not like 'ni\_freeze\_%'") policies on auth, storage and realtime tables"
+echo "  $(src "select count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace join pg_proc p on p.oid = t.tgfoid join pg_namespace pn on pn.oid = p.pronamespace where not t.tgisinternal and n.nspname in ($MANAGED_SCHEMAS) and pn.nspname not in ($MANAGED_SCHEMAS) and t.tgname not like 'ni\_freeze\_%'") triggers of the app on those tables"
 if [ "$(src "select exists (select 1 from pg_extension where extname = 'pg_cron')")" = t ]; then
 	echo "  pg_cron jobs:"
 	src "select '    ' || coalesce(jobname, '(no name)') || ': ' || schedule || case when active then '' else ' (inactive)' end from cron.job order by jobid" | sed -e '$!b' -e 's/^$/    (none)/'

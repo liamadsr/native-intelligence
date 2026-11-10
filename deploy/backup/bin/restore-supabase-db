@@ -9,9 +9,18 @@
 # command). They hold connections, and a table cannot be replaced under them.
 #
 # It works on the database as it is and on a brand-new empty one alike, and
-# does four things, in this order, because each was needed when it was
+# does five things, in this order, because each was needed when it was
 # rehearsed:
 #
+#   0. The vault key. Supabase's Postgres encrypts the secrets in its vault
+#      with a key that lives in a file beside the database, not in it
+#      (pgsodium_root.key, in the ni-supabase-db-config volume), and makes a
+#      new one the first time it starts on an empty volume. Every backup has
+#      the key it was made with beside it. If the key here is a different
+#      one (a new server, a new volume), the backup's key is put in its
+#      place. Postgres reads the key when it starts, so THE DATABASE MUST BE
+#      RESTARTED AFTERWARDS, before the other services start: this script
+#      says so when it applies, and README.md restarts it every time.
 #   1. Roles. A dump holds one database; roles and the settings stored on
 #      them belong to the cluster. The .roles.sql file saved beside the dump
 #      is applied first. On a new database this also creates the one role the
@@ -30,7 +39,8 @@
 #      back the ones it holds, and Realtime makes its own again.
 #   4. pg_restore --clean --if-exists, as supabase_admin, then ANALYZE.
 #
-# Settings: the BACKUP_SUPABASE_PG* variables of the backup job.
+# Settings: the BACKUP_SUPABASE_PG* variables of the backup job, and
+# BACKUP_SUPABASE_KEY_FILE.
 set -euo pipefail
 
 job=supabase
@@ -85,6 +95,44 @@ fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+key_object="${backup%.dump}.vault-key"
+key_file="${BACKUP_SUPABASE_KEY_FILE:-}"
+key_replaced=false
+read_key() { # the key file's content as the database server has it now
+	psql -X -At -v ON_ERROR_STOP=1 -v "f=$key_file" <<'SQL' | tr -d '\r\n'
+select pg_catalog.pg_read_file(:'f');
+SQL
+}
+if rclone lsf "vault:${job}/${key_object}" >/dev/null 2>&1; then
+	[[ "$key_file" =~ ^/[A-Za-z0-9._/-]+$ ]] || die "BACKUP_SUPABASE_KEY_FILE is not set to a plain absolute path: the vault key cannot be compared"
+	backup_key="$(rclone cat "vault:${job}/${key_object}" | tr -d '\r\n')" || die "could not read the backup's vault key"
+	[[ "$backup_key" =~ ^[0-9a-f]{64}$ ]] || die "the backup's vault key is not in the shape expected (64 hexadecimal characters)"
+	live_key="$(read_key)" || die "could not read ${key_file} from the database server"
+	if [ "$live_key" = "$backup_key" ]; then
+		log "0/4 the vault key here is the one this backup was made with"
+	else
+		log "0/4 the vault key here is not the one this backup was made with: putting the backup's in its place"
+		# Written by the database server itself, into the file that is
+		# already there, so it keeps its owner and mode. The key travels
+		# as data on standard input (\copy … from pstdin): it is never
+		# part of a statement and never in a file here.
+		cat >"$work/putkey.sql" <<'SQL'
+create temp table ni_vault_key (k text);
+\copy ni_vault_key from pstdin
+select pg_catalog.format('copy (select k from ni_vault_key) to program %L',
+                         'tr -d ''\n'' > ' || :'f')
+\gexec
+SQL
+		printf '%s\n' "$backup_key" | psql -X -q -v ON_ERROR_STOP=1 -v "f=$key_file" -f "$work/putkey.sql" >/dev/null \
+			|| die "could not write the vault key on the database server"
+		[ "$(read_key)" = "$backup_key" ] || die "the vault key was written but does not read back the same"
+		key_replaced=true
+	fi
+	unset backup_key live_key
+else
+	log "0/4 this backup has no vault key beside it (it was made before keys were saved): secrets in the vault will only be readable if this volume still holds the key they were written with"
+fi
+
 log "1/4 roles and their settings"
 rclone cat "vault:${job}/${roles}" >"$work/roles.sql" || die "could not read the roles file"
 psql -X -q -f "$work/roles.sql" >"$work/roles.log" 2>&1 || true
@@ -134,4 +182,7 @@ if [ "$errors" != 0 ]; then
 fi
 psql -X -q -c "set client_min_messages = error" -c "analyze" >/dev/null || true
 log "restored in $((SECONDS - started))s: $(psql -X -At -c "select count(*) from auth.users") users, $(psql -X -At -c "select count(*) from pg_tables where schemaname = 'public'") tables in public"
-log "done. Start the services again, then restore the files if they were lost too (restore-supabase-storage)."
+if $key_replaced; then
+	log "THE VAULT KEY WAS REPLACED. Postgres only reads it when it starts: restart the database before starting anything else (sudo docker compose restart db, in supabase/stack)."
+fi
+log "done. Restart the database, start the services (README.md, step 4), then restore the files if they were lost too (restore-supabase-storage)."

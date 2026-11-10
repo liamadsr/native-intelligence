@@ -1,6 +1,6 @@
 # Moving the hosted project onto this server
 
-Scripts and runbook for the move itself: the database, then the stored files, then proof that both sides are the same. When to run them, and everything around them (the rehearsal, the switch, the undo), is steps 16 to 19 of [`../../README.md`](../../README.md). This page is what each script does and what to do when one stops.
+Scripts and runbook for the move itself: the database, then the stored files, then proof that both sides are the same, and the switch that makes the hosted project refuse changes while and after it happens. When to run them, and everything around them (the rehearsal, the switch, the undo), is steps 16 to 19 of [`../../README.md`](../../README.md). This page is what each script does and what to do when one stops.
 
 They follow Supabase's two guides:
 
@@ -146,12 +146,52 @@ It exits with `no differences` or a count. These differences are expected and ar
 | `cron jobs` | `PAUSED` here | A rehearsal. With `--final` they match. |
 | `cron jobs` | `as postgres` here, another role on hosted | The jobs are made again by the role the restore runs as. A job that has to run as another role is made again by hand, as that role. |
 | `not moved by any step` | Vault secrets: a number on hosted, 0 here | Make them again by hand |
+| `not moved by any step` | The freeze: its parts on hosted, `off` here | **At the real switch this difference must be there.** The hosted project is frozen before the final dump ([below](#freezing-the-hosted-project)) and the restore takes the freeze off the copy. In a rehearsal both sides say `off` and the line does not show. |
 | `extensions` | A version differs | The two Postgres images are not from the same day. Read the extension's changelog if the first number differs. |
 | `role settings` | A platform role has a setting this stack does not, or the reverse | Roles named `supabase_…` are each side's own |
 
 At the real switch, with writes paused: `rows`, `accounts`, `sequences`, `buckets`, `files per bucket`, `file records`, `publication tables`, `functions` and `table grants` must all say `the same`, and each bucket's files `the same`. The only exceptions are the ones in the table above that do not say "in a rehearsal": a table left out on purpose under `rows`, and under `policies` a line that differs in nothing but its brackets. If `rows` differs in any other way then, something is still writing to the hosted project.
 
 **`table grants` or `functions` differing by `anon` or `authenticated` is never expected.** It means objects are open to roles that should not reach them. Do not switch.
+
+## Freezing the hosted project
+
+```bash
+sudo ./freeze-hosted.sh status
+```
+
+```bash
+sudo ./freeze-hosted.sh on
+```
+
+```bash
+sudo ./freeze-hosted.sh off
+```
+
+From the final dump onwards, anything written to the hosted project is left behind, and lost when that project is retired. Closing Caddy's door stops what comes through `sb.<domain>`. An old build of an app, or a setting that was never moved, does not come through it. `on` makes the hosted project itself refuse changes, so that such a client fails in front of the person using it, with a message that the project has moved. It is run at the real switch, before the final dump, and the project then stays frozen until it is retired. `off` is the first step of going back. When and in what order is step 18 and 19 of [`../../README.md`](../../README.md).
+
+It is the one script here that changes anything on the hosted side. What it changes is four switches of its own, all named `ni_freeze…`, and never a row of data ([`sql/freeze.sql`](sql/freeze.sql), undone by [`sql/thaw.sql`](sql/thaw.sql)):
+
+| Part | What it refuses | How | What is known about it on a hosted project |
+| --- | --- | --- | --- |
+| Data API | Every request through `/rest/v1/` and `/graphql/v1` that is not a read, with any key: `503` and a message | A pre-request function, registered with `alter role authenticator set pgrst.db_pre_request` | **Documented by Supabase for hosted projects**: "Configure a pre-request function" in their guide [Securing your API](https://supabase.com/docs/guides/api/securing-your-api). It takes effect at once. |
+| Storage, signed-in users | Uploads, replacements and deletions by anyone under row-level security | Three restrictive policies on `storage.objects` | Policies on `storage.objects` are how access to Storage is meant to be controlled, and the app has six of its own. **Rehearse.** |
+| Storage, everyone | The same, for the service-role key too | A trigger on `storage.objects` | Needs the right to create and drop a trigger on a table Storage owns. **Rehearse.** |
+| Accounts | Sign-up, sign-in, password and profile changes | A trigger on `auth.users` | The same right, on a table Auth owns. The project already has two triggers of its own there. **Rehearse.** |
+
+"Rehearse" means: the rights involved are ones the Postgres image grants the `postgres` role on exactly these two tables, and all four parts were run on and off against a stock Supabase stack of release 0.8.4. Whether the hosted platform is configured the same way cannot be seen from this repository. So **run it against the dev project first**, `on` and then `off`, and use the dev app in between:
+
+```bash
+ sudo SOURCE_DB_URL='<the dev project's session pooler URL>' ./freeze-hosted.sh on
+```
+
+(The leading space keeps the line, which holds a password, out of most shells' history.) A part that the platform refuses is reported as `off` with the reason, and the other parts still apply. For the two triggers the script first creates and drops a trigger that does nothing, and only makes the real one if the drop worked: a freeze that could be put on and not taken off is the one outcome that must not happen. If `off` ever leaves a part on, it says so and exits with an error; that would need Supabase's support to remove.
+
+What each fallback is, if a part stays `off` on the dev project: without the Storage trigger, uploads made with the service-role key are still accepted (the app's server uses that key, and the app's server is the one client that certainly goes through `sb.<domain>`); without the accounts trigger, switch sign-ups off in the hosted dashboard instead (Authentication, "Allow new users to sign up"), which is documented and stops new accounts but not sign-ins.
+
+What the freeze does not do: it does not stop reads, it does not stop sessions that are already open from refreshing, and it does not stop what runs inside the database (cron jobs: step 18.2 deals with those). **What the suggestion that comes to mind first does not do either:** setting `default_transaction_read_only` on the API's role or on the database does not stop writes through the data API. It was tried on the same stack: the API opens its transactions as read-write explicitly, and every write went through.
+
+The dump taken while the project is frozen carries the freeze: its schema is in `schema.sql` and the setting that switches it on is in `roles.sql`. `02-restore.sh` takes it off again inside the restore's own transaction, so this stack never starts frozen, and `01-dump.sh` leaves the freeze's policies and triggers out of `extras.sql`. `00-preflight.sh` and `04-verify.sh` both say whether the hosted side is frozen.
 
 ## When the data does not fit
 
@@ -207,7 +247,7 @@ sudo sh run.sh start
 sudo rm -rf /opt/native-intelligence/deploy/supabase/migrate/dumps /opt/native-intelligence/deploy/supabase/migrate/.env
 ```
 
-and delete the S3 access key in the hosted dashboard.
+and delete the S3 access key in the hosted dashboard. The hosted project stays frozen. Taking the freeze off later, to go back, does not need the deleted file: [`sql/thaw.sql`](sql/thaw.sql) can be pasted into the hosted project's SQL editor.
 
 ## Settings for unusual cases
 
