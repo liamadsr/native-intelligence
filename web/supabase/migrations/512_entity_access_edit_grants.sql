@@ -574,7 +574,6 @@ create trigger entity_edit_grant_column_guard
      or (old.status = 'archived') is distinct from (new.status = 'archived')
      or old.project_id is distinct from new.project_id
      or old.team_id is distinct from new.team_id
-     or old.folder_id is distinct from new.folder_id
      or old.package_ids is distinct from new.package_ids
      or old.is_pinned is distinct from new.is_pinned)
   execute function public.entity_edit_grant_column_guard('capture');

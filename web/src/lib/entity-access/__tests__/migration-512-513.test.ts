@@ -155,7 +155,7 @@ describe('migration 512: the write policies', () => {
       document: ['document', ['workspace_id', 'created_by', 'visibility', 'status', 'published_status', 'slug', 'type', 'canon_key', 'project_id', 'team_id', 'is_pinned']],
       captures: [
         'capture',
-        ['workspace_id', 'user_id', 'visibility', 'is_eval', "(old.status = 'archived') is distinct from (new.status = 'archived')", 'project_id', 'team_id', 'folder_id', 'package_ids', 'is_pinned'],
+        ['workspace_id', 'user_id', 'visibility', 'is_eval', "(old.status = 'archived') is distinct from (new.status = 'archived')", 'project_id', 'team_id', 'package_ids', 'is_pinned'],
       ],
       // A contact's company moves who can see that company (a granted contact opens it); the email autolink sets it too.
       contact: ['contact', ['workspace_id', 'created_by_member_id', 'visibility', 'merged_into_contact_id', 'company_id']],
