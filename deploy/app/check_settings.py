@@ -55,6 +55,7 @@ MUST_MATCH = {
     "GPT_LIVE_TRUNK_SECRET": "the phone trunk sends it with every call",
     "GPT_LIVE_WEBHOOK_SECRET": "the voice provider signs its call webhooks with it",
     "LINEAR_WEBHOOK_SECRET": "Linear signs its webhooks with it",
+    "GITHUB_WEBHOOK_SECRET": "a repository webhook to /api/webhooks/github signs with it",
     "TWILIO_ACCOUNT_SID": "the number, the messaging service and the trunk belong to that account",
     "TWILIO_AUTH_TOKEN": "Twilio signs its webhooks with the account's current token",
     "TWILIO_PHONE_NUMBER": "the number people already text",
@@ -76,7 +77,6 @@ MAY_BE_EMPTY = {
     "SENTRY_ORG": "read only by the build's source-map upload, which this image does not do",
     "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
     "SLACK_SIGNING_SECRET": "Slack cannot run off the earlier host yet (../README.md step 21, Gate 1)",
-    "GITHUB_WEBHOOK_SECRET": "needed only once a repository's webhook points at /api/webhooks/github",
     "GATEWAY_USAGE_REPORTING": "empty: the admin's AI usage page opens on its log view",
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
@@ -92,7 +92,7 @@ EMPTY_MEANS = {
     "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",
     "CLOUD_BROWSER_BASE_SNAPSHOT_ID": "the cloud browser does not start",
-    "BROWSER_INTERNAL_SECRET": "the cloud browser does not start (any value does)",
+    "BROWSER_INTERNAL_SECRET": "it falls back to RUN_SKILL_INTERNAL_SECRET's key: give it a value of its own (any)",
     "EMAIL_FROM": "no mail is sent at all",
     "ADMIN_EMAILS": "nobody can open the admin pages",
     "DEEPGRAM_API_KEY": "live transcription in the browser is off",
@@ -138,13 +138,23 @@ def parse_env(text):
 
 # --- the checks that need no network: pure, and tested ------------------------------
 
+def node_base64(text):
+    """Bytes as Node's Buffer.from(text, 'base64') reads them: whitespace and other
+    characters skipped, the URL-safe alphabet accepted, padding optional, and
+    the first '=' ending the data."""
+    t = re.sub(r"[^A-Za-z0-9+/=_-]", "", text).replace("-", "+").replace("_", "/").split("=", 1)[0]
+    if len(t) % 4 == 1:
+        t = t[:-1]  # one character alone holds no whole byte; Node drops it
+    return base64.b64decode(t + "=" * (-len(t) % 4))
+
+
 def credential_key_opens(value, ciphertexts):
     """(opened, failed) over the app's `v1.<iv>.<tag>.<ciphertext>` values
     (web/src/lib/crypto/credentials.ts: AES-256-GCM, the key base64 32 bytes)."""
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     try:
-        key = base64.b64decode(re.sub(r"\s", "", value))
+        key = node_base64(value)
     except ValueError:
         return 0, len(ciphertexts)
     if len(key) != 32:
@@ -190,7 +200,7 @@ def signing_public_key(value):
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_private_key
 
     try:
-        key = load_der_private_key(base64.b64decode(value.strip()), None)
+        key = load_der_private_key(node_base64(value.strip()), None)
     except Exception:
         return None
     if not isinstance(key, Ed25519PrivateKey):
@@ -203,8 +213,8 @@ def trunk_secrets(sip_urls):
     name used before the rename), as web/src/lib/calls/caller.ts reads them."""
     found = set()
     for url in sip_urls:
-        for m in re.finditer(r"X-(?:NI|Dial8)-Trunk=([0-9A-Fa-f]+)", url or ""):
-            found.add(m.group(1))
+        for m in re.finditer(r"X-(?:NI|Dial8)-Trunk=([^&;>\s]+)", url or ""):
+            found.add(urllib.parse.unquote(m.group(1)).strip())
     return found
 
 
@@ -253,11 +263,12 @@ def check_credential_key(env, _opts):
         "union all select access_token from user_oauth_tokens where access_token ~ '^v1\\.[A-Za-z0-9+/]{16}\\.[A-Za-z0-9+/]{22}==\\.' "
         "union all select refresh_token from user_oauth_tokens where refresh_token ~ '^v1\\.[A-Za-z0-9+/]{16}\\.[A-Za-z0-9+/]{22}==\\.'"
     )
+    sql += " union all select a->>'bearer_token_encrypted' from flow, jsonb_array_elements(actions) a where a->>'bearer_token_encrypted' like 'v1.%'"
     for table, column in db("select table_name, column_name from information_schema.columns where table_schema = 'public' and column_name like '%\\_enc' escape '\\'"):
         sql += " union all select %s from %s where %s like 'v1.%%'" % (column, table, column)
     ciphertexts = [r[0] for r in db(sql)]
     if not ciphertexts:
-        return None, "nothing stored to check it against"
+        return "nothing", "nothing stored to check it against"
     opened, failed = credential_key_opens(env["CREDENTIAL_ENCRYPTION_KEY"], ciphertexts)
     if failed == 0:
         return True, "opens all %d stored ciphertexts" % opened
@@ -265,9 +276,10 @@ def check_credential_key(env, _opts):
 
 
 def check_run_skill(env, _opts):
-    rows = db("select user_id, phone_e164, code_hash from phone_verification order by created_at desc limit 3")
+    # Ten, not one: codes a rehearsal made with its stand-in sit in the same table.
+    rows = db("select user_id, phone_e164, code_hash from phone_verification order by created_at desc limit 10")
     if not rows:
-        return None, "no stored phone code to check it against"
+        return "nothing", "no stored phone code to check it against"
     variant = phone_code_key_variant(env["RUN_SKILL_INTERNAL_SECRET"], rows)
     if variant == "as entered":
         return True, "reproduces a phone code production stored"
@@ -275,7 +287,7 @@ def check_run_skill(env, _opts):
         return False, "right value, but production's ends in a line break: enter it again as RUN_SKILL_INTERNAL_SECRET+nl"
     if variant == "without the line break":
         return False, "right value, but entered with a line break production's does not have: enter it again without +nl"
-    return False, "reproduces none of the %d stored phone codes: not production's value" % len(rows)
+    return False, "reproduces none of the %d newest stored phone codes: not production's value" % len(rows)
 
 
 def check_signing_key(env, opts):
@@ -293,13 +305,13 @@ def check_stripe(env, _opts):
     key = env["STRIPE_SECRET_KEY"].strip()
     mode = "live" if key.startswith(("sk_live_", "rk_live_")) else "test" if key.startswith(("sk_test_", "rk_test_")) else "unknown"
     ids = [r[0] for r in db(
-        "select stripe_customer_id from subscriptions where stripe_customer_id like 'cus\\_%' "
-        "union select stripe_customer_id from ai_user_credits where stripe_customer_id like 'cus\\_%' limit 3")]
+        "select stripe_customer_id from (select stripe_customer_id, updated_at from subscriptions "
+        "where stripe_customer_id like 'cus\\_%' order by updated_at desc nulls last limit 5) s")]
     if not ids:
-        return None, "a %s-mode key; no stored customer to check it against" % mode
+        return "nothing", "a %s-mode key; no stored customer to check it against" % mode
     codes = [http("https://api.stripe.com/v1/customers/" + urllib.parse.quote(i), {"Authorization": "Bearer " + key})[0] for i in ids]
-    if all(c == 200 for c in codes):
-        return True, "a %s-mode key that reads the %d stored customers it was tried on" % (mode, len(ids))
+    if 401 not in codes and 200 in codes:
+        return True, "a %s-mode key that reads %d of the %d newest stored customers" % (mode, codes.count(200), len(ids))
     return False, "a %s-mode key; stored customers answered %s (401: a wrong key; 404: another account or mode)" % (mode, codes)
 
 
@@ -387,7 +399,8 @@ def check_sandbox(env, _opts):
     team, project = env.get("SANDBOX_TEAM_ID", "").strip(), env.get("SANDBOX_PROJECT_ID", "").strip()
     if not team or not project:
         return False, "needs SANDBOX_TEAM_ID and SANDBOX_PROJECT_ID too"
-    status, _ = http("https://api.vercel.com/v1/sandboxes?limit=1&project=%s&teamId=%s" % (urllib.parse.quote(project), urllib.parse.quote(team)),
+    # The path the app's sandbox SDK lists with (@vercel/sandbox, api-client.js listSandboxes).
+    status, _ = http("https://vercel.com/api/v2/sandboxes?limit=1&project=%s&teamId=%s" % (urllib.parse.quote(project), urllib.parse.quote(team)),
                      {"Authorization": "Bearer " + env["SANDBOX_ACCESS_TOKEN"].strip()})
     if status == 200:
         return True, "lists the project's sandboxes"
@@ -434,9 +447,11 @@ def state_of(value):
 
 
 def report(env, results):
-    """Lines to print, and what keeps Gate 1's settings from being met. results maps
-    a name to (ok, note) for the checks that ran."""
-    lines, blockers = [], []
+    """Lines to print, what keeps Gate 1's settings from being met, and the needed
+    settings whose check could not run. results maps a name to (ok, note) for the
+    checks that ran; ok is True, False, None (could not run) or "nothing" (no
+    stored data to prove it against)."""
+    lines, blockers, unchecked = [], [], []
     for title, key in (("Must be the value the earlier host has", "must match"), ("Needed (any working value)", "needed"),
                        ("May stay empty", "may be empty"), ("Set by the switch itself", "switch")):
         names = [n for n in env if group(n) == key]
@@ -466,13 +481,18 @@ def report(env, results):
             if note is None:
                 quiet += 1
                 continue
-            mark = {True: "ok      ", False: "WRONG   ", None: "unchecked"}[ok]
+            mark = {True: "ok      ", False: "WRONG   ", None: "UNCHECKED", "nothing": "unproven"}[ok]
             lines.append("   %-32s %s %s" % (n, mark, note))
             if ok is False:
                 blockers.append("%s: %s" % (n, note))
+            elif ok is None and key == "must match":
+                # A proof that could not run proves nothing: the gate waits for it.
+                blockers.append("%s is unproven (%s)" % (n, note))
+            elif ok is None:
+                unchecked.append(n)
         if quiet:
             lines.append("   (%d more set, with nothing to check them against from here)" % quiet)
-    return lines, blockers
+    return lines, blockers, unchecked
 
 
 def main(argv):
@@ -519,7 +539,7 @@ def main(argv):
                     results[name] = check(env, opts)
                 except Exception as e:  # a check that cannot run says so; it never shows a value
                     results[name] = (None, "could not be checked: %s" % type(e).__name__)
-    lines, blockers = report(env, results)
+    lines, blockers, unchecked = report(env, results)
     total = len(env)
     empty = sum(1 for v in env.values() if v == "")
     print("%s: %d settings, %d empty, %d holding a stand-in." % (path, total, empty, sum(1 for v in env.values() if v.startswith("rehearsal-"))))
@@ -533,7 +553,8 @@ def main(argv):
         for b in blockers:
             print("   - " + b)
     else:
-        print("Gate 1, the settings: met%s." % (" by name" if opts["names_only"] else ""))
+        print("Gate 1, the settings: met%s%s." % (" by name" if opts["names_only"] else "",
+              "; these could not be checked from here: " + ", ".join(unchecked) if unchecked else ""))
 
 
 if __name__ == "__main__":

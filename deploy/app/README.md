@@ -101,13 +101,13 @@ encrypt is already stored or held elsewhere:
 
 | Setting | Why it must not change | Checked against |
 |---|---|---|
-| `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. | Every stored ciphertext must open. |
+| `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. | Every stored token ciphertext must open. |
 | `RUN_SKILL_INTERNAL_SECRET` | Keys the stored link, invite and phone-code hashes, and the reply codes already texted. | A stored phone code's hash must come out of it. |
 | `CLOUD_BROWSER_SIGNING_KEY` | Its public half is built into released desktop apps. | That pinned public key. |
 | `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. | Readable; `pull-settings.sh` brings it. |
 | `OUTLOOK_WEBHOOK_SECRET`, `GMAIL_WEBHOOK_TOKEN` | Part of every live mail subscription. | Readable; brought. |
 | `GPT_LIVE_TRUNK_SECRET` | The phone trunk sends it with every call. | The Twilio trunk's origination address (`--fill` brings it from there). |
-| `GPT_LIVE_WEBHOOK_SECRET`, `LINEAR_WEBHOOK_SECRET` | The provider signs its webhooks with it. | Nothing here: the provider's dashboard. |
+| `GPT_LIVE_WEBHOOK_SECRET`, `LINEAR_WEBHOOK_SECRET`, `GITHUB_WEBHOOK_SECRET` | The provider signs its webhooks with it (GitHub: a repository's webhook to `/api/webhooks/github`). | Nothing here: the provider's dashboard. |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | The number, the messaging service and the trunk belong to that account; Twilio signs its webhooks with the account's current token. | Twilio accepts them; the number and the service are the account's. |
 | `STRIPE_SECRET_KEY` | Any secret key of the account and mode the stored customers and prices are in. | Stored customers read with it. |
 | The OAuth apps' client ids (`*_CLIENT_ID`) | Stored connections were made with that app: keep the app, and its client secret may be a new one. | Nothing here: a connection's next refresh. |

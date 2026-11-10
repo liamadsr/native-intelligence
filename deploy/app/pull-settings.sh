@@ -22,9 +22,9 @@
 #      be new on the server and is still empty (the list is below; README.md in this
 #      folder says why each one may).
 #   5. With PULL_REHEARSAL=1: a stand-in, starting with "rehearsal-", for each of the
-#      two internal secrets the app cannot start without that must otherwise be the
-#      earlier host's (RUN_SKILL_INTERNAL_SECRET, BROWSER_INTERNAL_SECRET), while they
-#      are empty. Enough for a rehearsal. The containers refuse to start with
+#      two internal secrets the app cannot start without, while they are empty:
+#      RUN_SKILL_INTERNAL_SECRET, which must otherwise be the earlier host's, and
+#      BROWSER_INTERNAL_SECRET, which may be new (README.md in this folder). Enough for a rehearsal. The containers refuse to start with
 #      NI_LIVE=1 while any value starts with "rehearsal-" (entrypoint.sh).
 #
 # It ends with check_settings.py's report, by name only: each setting's group (must

@@ -5,7 +5,16 @@ name: Deploy scripts
 
 on:
   pull_request:
-    paths: ['deploy/**/*.py', 'deploy/**/*.sh', '.github/workflows/deploy-scripts.yml']
+    paths:
+      - 'deploy/**/*.py'
+      - 'deploy/**/*.sh'
+      - 'deploy/app/.env.example'
+      - '.github/workflows/deploy-scripts.yml'
+      # What check_settings.py's proofs copy from the app:
+      - 'web/src/lib/crypto/credentials.ts'
+      - 'web/src/lib/sms/phone-verification.ts'
+      - 'web/src/lib/cloud-browser/viewer-token.ts'
+      - 'web/src/lib/calls/caller.ts'
 
 permissions:
   contents: read

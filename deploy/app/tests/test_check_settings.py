@@ -51,6 +51,7 @@ class Groups(unittest.TestCase):
         self.assertEqual(cs.group("SANDBOX_ACCESS_TOKEN"), "needed")
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
+        self.assertEqual(cs.group("GITHUB_WEBHOOK_SECRET"), "must match")
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -82,6 +83,13 @@ class CredentialKey(unittest.TestCase):
 
     def test_not_a_key(self):
         self.assertEqual(cs.credential_key_opens("not-base64-of-32-bytes", self.stored), (0, 3))
+
+    def test_read_as_leniently_as_node(self):
+        # Buffer.from(raw, 'base64') takes it without padding and in the URL-safe alphabet.
+        bare = self.value.rstrip("=")
+        self.assertEqual(cs.credential_key_opens(bare, self.stored), (3, 0))
+        urlsafe = self.value.replace("+", "-").replace("/", "_")
+        self.assertEqual(cs.credential_key_opens(urlsafe, self.stored), (3, 0))
 
 
 class RunSkillSecret(unittest.TestCase):
@@ -118,6 +126,8 @@ class Small(unittest.TestCase):
     def test_trunk_secrets(self):
         urls = ["sip:made-up.sip.example.com;transport=tls?X-NI-Trunk=abc123", "sip:x.example.com?X-Dial8-Trunk=DEF456", None, "sip:none.example.com"]
         self.assertEqual(cs.trunk_secrets(urls), {"abc123", "DEF456"})
+        # Not only hex: the whole value, never a leading part of it.
+        self.assertEqual(cs.trunk_secrets(["sip:x.example.com?X-NI-Trunk=3fa9Kq_zz%2B1&other=1"]), {"3fa9Kq_zz+1"})
 
     def test_sender_domain(self):
         self.assertEqual(cs.sender_domain("Made Up <hello@Example.dev>"), "example.dev")
@@ -137,7 +147,7 @@ class Report(unittest.TestCase):
             "CRON_SECRET": "made-up",
         }
         results = {"STRIPE_SECRET_KEY": (True, "fine"), "SANDBOX_ACCESS_TOKEN": (False, "refused")}
-        lines, blockers = cs.report(env, results)
+        lines, blockers, unchecked = cs.report(env, results)
         self.assertEqual(blockers, [
             "CREDENTIAL_ENCRYPTION_KEY is empty",
             "RUN_SKILL_INTERNAL_SECRET holds a rehearsal's stand-in",
@@ -146,6 +156,18 @@ class Report(unittest.TestCase):
         text = "\n".join(lines)
         self.assertIn("SENTRY_ORG", text)
         self.assertNotIn("made-up", text)
+        self.assertEqual(unchecked, [])
+
+    def test_a_proof_that_could_not_run_blocks(self):
+        env = {"CREDENTIAL_ENCRYPTION_KEY": "made-up", "RUN_SKILL_INTERNAL_SECRET": "made-up", "EMAIL_FROM": "made-up"}
+        results = {
+            "CREDENTIAL_ENCRYPTION_KEY": (None, "could not be checked: ModuleNotFoundError"),
+            "RUN_SKILL_INTERNAL_SECRET": ("nothing", "no stored phone code to check it against"),
+            "EMAIL_FROM": (None, "the mail service did not list its domains (500)"),
+        }
+        _, blockers, unchecked = cs.report(env, results)
+        self.assertEqual(blockers, ["CREDENTIAL_ENCRYPTION_KEY is unproven (could not be checked: ModuleNotFoundError)"])
+        self.assertEqual(unchecked, ["EMAIL_FROM"])
 
     def test_names_only_run_shows_no_value(self):
         secret = "made-up-value-that-must-not-show"
