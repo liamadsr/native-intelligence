@@ -8,8 +8,12 @@ Everything Native Intelligence runs on its own server lives in this folder. It i
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
 | [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
 | [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
+| [`server/`](server) | Not a container: [`setup.sh`](server/setup.sh), which does steps 3 to 7 below on a fresh server in one go. | |
+| [`move/`](move) | Not a container: [`move.sh`](move/move.sh), which moves everything here to another server. | |
 
-Follow this page top to bottom on a fresh server. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end: nothing here has run on a real server yet.
+Everything runs on one server, and is kept movable: [`move/README.md`](move/README.md) is how the whole of it goes to another machine.
+
+Follow this page top to bottom on a fresh server. Steps 3 to 7 are also available as one script, [`server/setup.sh`](server/setup.sh), which does exactly what those steps describe and can be run again safely. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end: nothing here has run on a real server yet.
 
 ## 1. What you need
 
@@ -117,12 +121,12 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 ```
 
-Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: keep 08:30 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it). The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
+Kernel fixes only take effect after a reboot, so let the server reboot itself when one is pending, at a quiet hour. The time is the server's clock, which is UTC: keep 08:37 or pick the hour that is the middle of the night for the people who use the product (step 12 schedules a job two hours after it). Keep it off the hour and the half hour: that is when scheduled jobs fire, and a reboot at that very second makes the ones that start a few seconds later skip a turn. The containers come back by themselves (step 6 makes Docker start at boot, and every service has a restart policy).
 
 ```bash
 sudo tee /etc/apt/apt.conf.d/52ni-unattended-upgrades >/dev/null <<'EOF'
 Unattended-Upgrade::Automatic-Reboot "true";
-Unattended-Upgrade::Automatic-Reboot-Time "08:30";
+Unattended-Upgrade::Automatic-Reboot-Time "08:37";
 EOF
 ```
 
@@ -443,6 +447,12 @@ sudo nano .env
 
 Fill in the B2 values, `BACKUP_PASSWORD`, `BACKUP_SALT`, `BACKUP_INNGEST_PGPASSWORD` (the Postgres password from step 8) and `BACKUP_INNGEST_PING_URL`.
 
+The three B2 values can also be entered without ever appearing on screen or in your shell history: [`backup/set-b2-key.sh`](backup/set-b2-key.sh) asks for them with hidden input, writes them into `.env`, and checks that Backblaze accepts them.
+
+```bash
+sudo /opt/native-intelligence/deploy/backup/set-b2-key.sh
+```
+
 ```bash
 sudo docker compose up -d --build
 ```
@@ -471,7 +481,7 @@ Without `--apply` it only counts:
 sudo /opt/native-intelligence/deploy/inngest/prune-history.sh
 ```
 
-Once the server has run for a month, schedule it for the first of each month. The hour is 10:23 UTC on purpose: step 4 lets the server reboot itself at 08:30 UTC when an update needs it, and a prune that started just before would be cut off part-way.
+Once the server has run for a month, schedule it for the first of each month. The hour is 10:23 UTC on purpose: step 4 lets the server reboot itself at 08:37 UTC when an update needs it, and a prune that started just before would be cut off part-way.
 
 ```bash
 sudo tee /etc/cron.d/ni-inngest-prune >/dev/null <<'EOF'
