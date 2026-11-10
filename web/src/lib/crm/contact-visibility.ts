@@ -105,6 +105,33 @@ export async function isCompanyVisibleTo(
   }
 }
 
+/**
+ * The gate for a tool that WRITES a company (set_custom_fields): company_
+ * visible_to without its grant arm (`company_visible_to_ungranted`, migration
+ * 496), the twin of isContactWritableTo. A grant on the company, or on one of
+ * its contacts, lets someone read it, never change it. Fails CLOSED.
+ */
+export async function isCompanyWritableTo(
+  supabase: SupabaseClient,
+  companyId: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc('company_visible_to_ungranted', {
+      p_company_id: companyId,
+      p_user_id: userId,
+    })
+    if (error) {
+      console.warn('[contact-visibility] company_visible_to_ungranted failed:', error.message)
+      return false
+    }
+    return data === true
+  } catch (e) {
+    console.warn('[contact-visibility] company_visible_to_ungranted threw:', e)
+    return false
+  }
+}
+
 /** Keeps only the company rows `userId` may see, in their original order. */
 export async function filterVisibleCompanies<T extends { id?: unknown }>(
   supabase: SupabaseClient,

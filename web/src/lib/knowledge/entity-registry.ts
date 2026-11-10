@@ -117,6 +117,17 @@ export interface EntityTypeDescriptor {
    */
   readonly activity: boolean
   /**
+   * A workspace may define its own fields on this kind (text, number, date,
+   * select: src/lib/crm/custom-fields.ts). The definitions live in
+   * `custom_field_definition` (migration 473), whose `entity_type` CHECK lists
+   * exactly these kinds (latest widen: migration 496); the values live in a
+   * `custom_fields` jsonb object on `table`, keyed by each definition's `key`.
+   * True requires that column (default '{}', an object CHECK) and the kind in
+   * the CHECK; the record's detail panel shows the fields (CustomFieldsGroup)
+   * and the agent's define_custom_field / set_custom_fields take the kind.
+   */
+  readonly customFields: boolean
+  /**
    * A claim may cite this type: provenance mirrors into `claim_source` AND
    * `entity_link`. Superset of `sourceable` — `project`/`contact`/`action` are
    * citable via the links[] cross-populate path only.
@@ -184,6 +195,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: true,
     sourceable: true,
   },
@@ -195,6 +207,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -206,6 +219,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: false,
     citable: true,
     sourceable: true,
   },
@@ -217,6 +231,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: true,
     sourceable: false,
     // Contact anchoring already works through the `committed_to` relation; the
@@ -237,6 +252,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: true,
     sourceable: false,
     anchor: {
@@ -254,6 +270,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: true,
     sourceable: false,
   },
@@ -265,6 +282,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: false,
     sourceable: false,
   },
@@ -277,6 +295,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -290,6 +309,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: true,
     activity: false,
+    customFields: false,
     // Dial8 doesn't learn from mail (2026-10-15, migration 341): a claim may
     // never cite an email, so no claim_source row, no mirrored cites edge, no
     // `create_claim` source. Kept linkable so a work item's declared resources
@@ -306,6 +326,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: true,
     sourceable: true,
   },
@@ -317,6 +338,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -328,6 +350,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: true,
     sourceable: true,
   },
@@ -339,6 +362,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: true,
     sourceable: false,
     anchor: {
@@ -358,6 +382,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: true,
     sourceable: false,
     anchor: {
@@ -378,6 +403,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -396,6 +422,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: false,
     sourceable: false,
   },
@@ -407,6 +434,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -431,6 +459,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -443,6 +472,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -455,6 +485,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: true,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -466,6 +497,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: true,
     activity: true,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -481,6 +513,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -492,6 +525,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -504,6 +538,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -515,6 +550,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -526,6 +562,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -538,6 +575,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -549,6 +587,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -560,6 +599,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -571,6 +611,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -583,6 +624,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -594,6 +636,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -605,6 +648,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -617,6 +661,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -628,6 +673,7 @@ export const ENTITY_REGISTRY = [
     realtime: false,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -639,6 +685,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -650,6 +697,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -661,6 +709,7 @@ export const ENTITY_REGISTRY = [
     realtime: true,
     linkable: false,
     activity: false,
+    customFields: false,
     citable: false,
     sourceable: false,
   },
@@ -708,6 +757,14 @@ export type ActivityEntityType = (typeof ACTIVITY_ENTITY_TYPES)[number]
 
 export function isActivityEntityType(type: unknown): type is ActivityEntityType {
   return typeof type === 'string' && (ACTIVITY_ENTITY_TYPES as readonly string[]).includes(type)
+}
+
+/** Every kind a workspace may define custom fields on (custom_field_definition.entity_type), in registry order. */
+export type CustomFieldEntityType = Extract<(typeof ENTITY_REGISTRY)[number], { readonly customFields: true }>['id']
+export const CUSTOM_FIELD_ENTITY_TYPES = idsWhere((e) => e.customFields) as readonly [CustomFieldEntityType, ...CustomFieldEntityType[]]
+
+export function isCustomFieldEntityType(type: unknown): type is CustomFieldEntityType {
+  return typeof type === 'string' && (CUSTOM_FIELD_ENTITY_TYPES as readonly string[]).includes(type)
 }
 
 /** Types accepted directly in `create_claim`'s `sources[].source_type`. */

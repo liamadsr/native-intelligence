@@ -1,17 +1,52 @@
 /**
- * Custom fields (roadmap #8, migration 473): a workspace's own fields on
- * deals, contacts and companies. A definition says what the field is called
- * and what it holds (text, number, date or one of a few options); the values
- * live in each record's `custom_fields` jsonb, keyed by the definition's
- * `key` (a slug of its label, fixed at creation so a rename never orphans a
- * value).
+ * Custom fields (roadmap #8, migration 473; every kind, migration 496): a
+ * workspace's own fields on the kinds the entity registry marks
+ * `customFields` (deals, contacts, companies, tasks, projects, initiatives,
+ * documents). A definition says what the field is called and what it holds
+ * (text, number, date or one of a few options); the values live in each
+ * record's `custom_fields` jsonb, keyed by the definition's `key` (a slug of
+ * its label, fixed at creation so a rename never orphans a value).
  *
  * Client-safe apart from the db helpers' `SupabaseClient` type import.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  CUSTOM_FIELD_ENTITY_TYPES,
+  ENTITY_REGISTRY_BY_ID,
+  isCustomFieldEntityType,
+  type CustomFieldEntityType,
+} from '@/lib/knowledge/entity-registry'
 
-export const CUSTOM_FIELD_ENTITIES = ['deal', 'contact', 'company'] as const
-export type CustomFieldEntity = (typeof CUSTOM_FIELD_ENTITIES)[number]
+/** The kinds that take custom fields: the registry's `customFields` flag, never a hand list. */
+export const CUSTOM_FIELD_ENTITIES = CUSTOM_FIELD_ENTITY_TYPES
+export type CustomFieldEntity = CustomFieldEntityType
+export const isCustomFieldEntity = isCustomFieldEntityType
+
+/**
+ * What people call each kind, one and many ("task", "tasks"). A Record over
+ * the flag's kinds: a kind that gains the flag without a name here does not
+ * compile.
+ */
+export const CUSTOM_FIELD_KIND_NOUNS: Readonly<Record<CustomFieldEntity, { one: string; many: string }>> = {
+  document: { one: 'document', many: 'documents' },
+  contact: { one: 'contact', many: 'contacts' },
+  project: { one: 'project', many: 'projects' },
+  action: { one: 'task', many: 'tasks' },
+  initiative: { one: 'initiative', many: 'initiatives' },
+  company: { one: 'company', many: 'companies' },
+  deal: { one: 'deal', many: 'deals' },
+}
+
+/** "deals, contacts, companies, tasks, projects, initiatives and documents", in registry order. */
+export function customFieldKindList(form: 'one' | 'many' = 'many', joiner = 'and'): string {
+  const words = CUSTOM_FIELD_ENTITIES.map((k) => CUSTOM_FIELD_KIND_NOUNS[k][form])
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} ${joiner} ${words[words.length - 1]}` : words.join('')
+}
+
+/** The table a kind's values live on (the registry's own). */
+export function customFieldTable(entity: CustomFieldEntity): string {
+  return ENTITY_REGISTRY_BY_ID[entity].table
+}
 
 export const CUSTOM_FIELD_TYPES = ['text', 'number', 'date', 'select'] as const
 export type CustomFieldType = (typeof CUSTOM_FIELD_TYPES)[number]
@@ -170,7 +205,7 @@ export interface DefineCustomFieldInput {
 }
 
 /**
- * Adds a field to a workspace's deals, contacts or companies. A field of the
+ * Adds a field to every record of one kind in a workspace. A field of the
  * same name already there is returned as it is (`existed`), never duplicated.
  */
 export async function defineCustomField(
@@ -205,31 +240,64 @@ export async function defineCustomField(
   return { ok: true, field: data as CustomFieldDefinition, existed: false }
 }
 
+/** A kind whose values are set here (a deal's go through updateDeal, which logs them for undo). */
+export type CustomFieldRecordEntity = Exclude<CustomFieldEntity, 'deal'>
+
+/** Why a set was refused: a value that doesn't fit, a record not there, or one the caller may only read. */
+export type SetCustomFieldsRefusal = 'invalid' | 'not_found' | 'forbidden'
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+/** "Task not found", in the kind's own word. */
+export const customFieldNotFound = (entity: CustomFieldEntity) => `${capitalize(CUSTOM_FIELD_KIND_NOUNS[entity].one)} not found`
+/** "You can't edit this task", in the kind's own word. */
+export const customFieldForbidden = (entity: CustomFieldEntity) => `You can't edit this ${CUSTOM_FIELD_KIND_NOUNS[entity].one}`
+
 /**
- * Sets custom field values on a contact or company (a deal's go through
- * updateDeal, which logs them for undo). Returns the merged values.
+ * Sets custom field values on any record but a deal: checked against the
+ * kind's definitions, merged into its `custom_fields`, written to the kind's
+ * own table. Returns the merged values.
+ *
+ * On a session client RLS decides who may write: the update reads back the
+ * row it changed, so a row the caller sees but may not change (an initiative
+ * that isn't theirs, a document shared to them for viewing only) is
+ * `forbidden`, never a silent no-op. A service-role caller must check edit
+ * rights first (src/lib/crm/custom-field-access.ts).
  */
 export async function setRecordCustomFields(
   db: SupabaseClient,
   workspaceId: string,
-  entityType: 'contact' | 'company',
+  entityType: CustomFieldRecordEntity,
   recordId: string,
   values: Record<string, unknown>,
-): Promise<{ ok: true; custom_fields: Record<string, CustomFieldValue> } | { ok: false; error: string }> {
+): Promise<{ ok: true; custom_fields: Record<string, CustomFieldValue> } | { ok: false; error: string; reason: SetCustomFieldsRefusal }> {
   const defs = await listCustomFieldDefinitions(db, workspaceId, entityType)
   const resolved = resolveCustomValues(defs, values)
-  if (!resolved.ok) return resolved
+  if (!resolved.ok) return { ...resolved, reason: 'invalid' }
+  const table = customFieldTable(entityType)
   const { data: row, error: readError } = await db
-    .from(entityType)
+    .from(table)
     .select('id, custom_fields')
     .eq('id', recordId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
-  if (readError) return { ok: false, error: readError.message }
-  if (!row) return { ok: false, error: `${entityType === 'contact' ? 'Contact' : 'Company'} not found` }
+  if (readError) return { ok: false, error: readError.message, reason: 'invalid' }
+  if (!row) return { ok: false, error: customFieldNotFound(entityType), reason: 'not_found' }
   const merged = mergeCustomFields((row as { custom_fields?: unknown }).custom_fields, resolved.patch)
-  const { error } = await db.from(entityType).update({ custom_fields: merged }).eq('id', recordId).eq('workspace_id', workspaceId)
-  if (error) return { ok: false, error: error.message }
+  const { data: written, error } = await db
+    .from(table)
+    .update({ custom_fields: merged })
+    .eq('id', recordId)
+    .eq('workspace_id', workspaceId)
+    .select('id')
+  if (error) {
+    // 42501: a policy or guard refused the write outright.
+    if ((error as { code?: string }).code === '42501') return { ok: false, error: customFieldForbidden(entityType), reason: 'forbidden' }
+    return { ok: false, error: error.message, reason: 'invalid' }
+  }
+  if (!written || (Array.isArray(written) && written.length === 0)) {
+    return { ok: false, error: customFieldForbidden(entityType), reason: 'forbidden' }
+  }
   return { ok: true, custom_fields: merged }
 }
 

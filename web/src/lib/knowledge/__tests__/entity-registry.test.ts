@@ -306,6 +306,7 @@ describe('one-entry addition', () => {
     realtime: true,
     linkable: true,
     activity: true,
+    customFields: true,
     citable: true,
     sourceable: false,
     anchor: {
@@ -325,6 +326,7 @@ describe('one-entry addition', () => {
   )
   const labels = Object.fromEntries(extended.map((e) => [e.id, e.label]))
   const anchors = extended.filter((e) => e.anchor).map((e) => e.id)
+  const customFieldKinds = extended.filter((e) => e.customFields).map((e) => e.id)
 
   it('widens every derived vocabulary from the single new entry', () => {
     expect(linkable).toContain('widget')
@@ -332,6 +334,7 @@ describe('one-entry addition', () => {
     expect(scoped.widget).toBe('widgets')
     expect(labels.widget.render({ name: 'W' })).toBe('W')
     expect(anchors).toContain('widget')
+    expect(customFieldKinds).toContain('widget')
   })
 
   it('leaves every pre-existing entry untouched', () => {
