@@ -100,6 +100,9 @@ export function coerceCustomValue(
   raw: unknown,
 ): { ok: true; value: CustomFieldValue } | { ok: false; error: string } {
   if (raw === null || raw === undefined || raw === '') return { ok: true, value: null }
+  // The values route takes any JSON: an object or a list is never one value
+  // (String() would store "[object Object]", or a one-item list's item).
+  if (typeof raw === 'object') return { ok: false, error: `${def.label} takes one value` }
   switch (def.field_type) {
     case 'text': {
       const text = String(raw).trim()
