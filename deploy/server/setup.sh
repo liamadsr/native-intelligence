@@ -12,8 +12,14 @@
 # What it does not do: create users, start a container, or handle a secret.
 # The settings files (.env) and the data are brought by deploy/move/move.sh, or
 # written by hand as deploy/README.md describes.
+#
+# The whole script is one function that is called on the last line with nothing
+# on its stdin. When it is fed to "bash -s" over ssh, bash would otherwise read
+# it piece by piece from stdin, and any command in it that also reads stdin
+# (apt, for one) could swallow the rest.
 set -euo pipefail
 
+main() {
 login_user=""
 repo=""
 ref=""
@@ -37,6 +43,9 @@ say() { printf '\n== %s\n' "$*"; }
 [ "$(id -u)" = 0 ] || die "run it with sudo."
 [ -n "$login_user" ] || die "--login-user is required: the user you log in as."
 id "$login_user" >/dev/null 2>&1 || die "there is no user called $login_user."
+# Step 1 turns root logins off. Doing that while logged in as root locks the
+# server: the session in progress survives, the next one is refused.
+[ "$login_user" != root ] || die "--login-user must be an ordinary user who can sudo, not root. Make one first."
 . /etc/os-release
 [ "${ID:-}" = ubuntu ] || die "this is written for Ubuntu, and this is ${PRETTY_NAME:-something else}."
 
@@ -55,7 +64,9 @@ write_if_changed() {
 		rm -f "$tmp"
 		return 1
 	fi
-	install -m 644 -o root -g root "$tmp" "$path"
+	# This function is used as an "if" condition, where a failing command does
+	# not stop the script by itself.
+	install -m 644 -o root -g root "$tmp" "$path" || die "could not write $path."
 	rm -f "$tmp"
 	return 0
 }
@@ -79,8 +90,10 @@ fi
 sshd -T | grep -E '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|allowusers) '
 
 say "Packages"
-apt-get update -qq
-apt-get install -y -qq unattended-upgrades ca-certificates curl git rsync ufw >/dev/null
+# A fresh server is often in the middle of its own first update: wait for it.
+apt_get() { apt-get -o DPkg::Lock::Timeout=600 "$@"; }
+apt_get update -qq
+apt_get install -y -qq unattended-upgrades ca-certificates curl git rsync ufw >/dev/null
 echo "installed"
 
 say "Automatic security updates, with a reboot at $reboot_time UTC when one is needed"
@@ -97,9 +110,12 @@ EOF
 echo "set"
 
 say "Firewall: SSH, 80 and 443 only"
+# Whatever port sshd really listens on, so enabling the firewall cannot cut
+# the connection this is running over.
+ssh_port="$(sshd -T | awk '$1 == "port" { print $2; exit }')"
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
-ufw limit 22/tcp comment 'SSH' >/dev/null
+ufw limit "${ssh_port:-22}/tcp" comment 'SSH' >/dev/null
 ufw allow 80/tcp comment 'HTTP (redirects, certificates)' >/dev/null
 ufw allow 443/tcp comment 'HTTPS' >/dev/null
 ufw --force enable >/dev/null
@@ -111,8 +127,8 @@ if ! command -v docker >/dev/null 2>&1; then
 	curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 	chmod a+r /etc/apt/keyrings/docker.asc
 	echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" >/etc/apt/sources.list.d/docker.list
-	apt-get update -qq
-	apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+	apt_get update -qq
+	apt_get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
 fi
 install -d -m 755 /etc/docker
 # Cap the logs before any container exists. Restarting Docker restarts every
@@ -145,8 +161,10 @@ as_user() { sudo -u "$login_user" -H "$@"; }
 if [ ! -d "$root/.git" ]; then
 	[ -n "$repo" ] || die "--repo is required the first time: the repository's HTTPS address."
 	as_user git clone --quiet --depth 1 --filter=blob:none --sparse "$repo" "$root"
-	as_user git -C "$root" sparse-checkout set deploy
 fi
+# Every run, not only the first: a clone that was cut off leaves .git behind
+# without this having happened.
+as_user git -C "$root" sparse-checkout set deploy
 if [ -n "$ref" ] && [ "$(as_user git -C "$root" rev-parse HEAD)" != "$ref" ]; then
 	as_user git -C "$root" fetch --quiet --depth 1 origin "$ref"
 	as_user git -C "$root" checkout --quiet --detach "$ref"
@@ -163,3 +181,6 @@ docker network ls --format '{{.Name}}' | grep '^ni-' | sed 's/^/  /'
 say "Done"
 echo "No container was started and no settings file was written."
 echo "Reboot needed: $([ -f /var/run/reboot-required ] && echo yes || echo no)"
+}
+
+main "$@" </dev/null

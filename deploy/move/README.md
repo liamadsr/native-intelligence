@@ -22,9 +22,9 @@ Scheduled jobs that would have fired during the pause skip that turn. Jobs that 
 
 ## Before you start
 
-- **The new server**: a fresh Ubuntu 24.04, reachable over SSH with your key as a user who can run `sudo` without a password (the provider's default user is fine). Nothing else needs to be on it.
-- **The old server**: still running, same kind of login.
-- **Your own machine**: a checkout of this repository and `ssh`. Nothing is installed on it.
+- **The new server**: a fresh Ubuntu 24.04, reachable over SSH with your key as an ordinary user who can run `sudo` without a password. Not `root`: the setup turns root logins off, so if the provider only gave you `root`, make a user first. Nothing else needs to be on it.
+- **The old server**: still running, same kind of login. If its user was made the way step 2 of [`../README.md`](../README.md) describes, `sudo` asks for a password there; give that user password-free `sudo` for the length of the move (`echo '<user> ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/90-ni-move`) and remove that file afterwards.
+- **Your own machine**: a checkout of this repository and `ssh`. Nothing is installed on it. Log in to the new server once by hand first (`ssh <user>@<new server>`), so that its host key is known: the script never answers that question for you.
 - **DNS**: the records that point at the old server should have a short lifetime (TTL) before the day of the move. Lower them a day ahead if they are long.
 - Pick a quiet moment, and start `cutover` just after a five-minute mark rather than just before one, so the fewest scheduled jobs are skipped.
 
@@ -56,25 +56,36 @@ Runs `setup.sh` there, checks out the commit the old server is on, copies the `.
 deploy/move/move.sh prepare
 ```
 
+Two things it may tell you:
+
+- **Files that are not in git.** If someone edited a file in the old server's checkout by hand (the `Caddyfile`, say) and never committed it, that edit would not move. `prepare` lists such files and stops. Commit them, or copy them yourself and run it again with `MOVE_ALLOW_DIRTY=1`.
+- **A reboot is waiting.** A fresh server usually installs a kernel update during setup. Reboot it when `prepare` says so, before the next step; otherwise it reboots itself at its nightly time, which could be in the middle of the move.
+
 ## 3. Copy the data
 
-Copies every `ni-` volume straight from the old server to the new one. The old server keeps running, so this copy is not consistent yet; its only purpose is to make the next step short. Run it as often as you like, and once more shortly before the cutover if the data is large.
+Copies every `ni-` volume straight from the old server to the new one. The old server keeps running, so this copy is not consistent yet; its only purpose is to make the next step short. Run it as often as you like, and once more shortly before the cutover if the data is large. It may say that some files changed while they were being copied: with a database running underneath, that is expected, and the cutover copies them again.
 
 ```bash
 deploy/move/move.sh sync
 ```
 
-The copy travels between the two servers, not through your machine. For that, `sync` makes a temporary key on the new server and allows it on the old one, for that one address only. Step 6 removes it.
+The copy travels between the two servers, not through your machine. For that, `sync` makes a temporary key on the new server and allows it on the old one: no terminal and no forwarding, and only from the new server's address when `NEW` is an address or a name that resolves to one. It is still a login: until step 6 removes it, the new server can run commands on the old one as that user. Do not leave a move half done for days.
 
 ## 4. Cut over
 
-Stops the containers on the old server, copies what changed since the last `sync` (now consistent, because nothing is writing), and starts everything on the new server, waiting until each container reports healthy. It asks before it does anything.
+Before it stops anything it checks that the new server is prepared and has nothing running, and it asks. Then it stops the containers on the old server, makes sure none is left running, copies what changed since the last `sync`, and starts everything on the new server, waiting until each container reports healthy.
+
+This last copy compares the contents of every file, not just its size and time. That is slower, and it is the point: a database file rewritten in place within the same second as the earlier copy looks unchanged otherwise, and a database started on it would be corrupt.
 
 ```bash
 deploy/move/move.sh cutover
 ```
 
 It prints how long that took. The certificates came along with the data, so the new server answers on HTTPS as soon as a request reaches it.
+
+If it stops half-way, it says what state things are in. Running `cutover` again carries on from there; `rollback` starts the old server again.
+
+A finished cutover leaves a marker on the new server (`/root/.ni-move-live`). While it is there, `prepare`, `sync` and `cutover` refuse to run against that server: copying onto it again would replace everything it has written since with the old server's data.
 
 ## 5. Point the names at the new server
 
@@ -104,14 +115,17 @@ Within minutes of a cutover that went wrong:
 deploy/move/move.sh rollback
 ```
 
-It stops the new server's containers and starts the old one's, with the data as it was at the cutover, and tells you to point the DNS records back. Whatever was written on the new server in between is left behind, which is why this is only for the first minutes. Later than that, fix the new server instead, or move again in the other direction with `OLD` and `NEW` swapped.
+It stops the new server's containers and starts the old one's, with the data as it was at the cutover, removes the marker, and tells you to point the DNS records back. Whatever was written on the new server in between is left behind, which is why this is only for the first minutes. Later than that, fix the new server instead, or move again in the other direction with `OLD` and `NEW` swapped.
+
+If you are giving up on the move rather than trying again, run `finish` as well: the temporary key is still in place after a rollback.
 
 ## What it does not cover
 
 - **Anything outside `deploy/`.** A package installed by hand, a file edited outside the checkout, a cron job that does not start with `ni-`: none of it moves. Put such things in `setup.sh` or in this folder instead.
 - **Things held by the provider or by other services**: the DNS records themselves, reverse DNS for the new address, the provider's own monitoring or backups, and any allowlist somewhere else that names the old address.
 - **Containers that are not started with Docker Compose.** Every stack here is a Compose project today. A stack run another way needs its own lines in `move.sh` before it can move.
-- **A different version.** The new server starts on the commit the old one was on, because the data has to match the images. Update afterwards, as a separate step.
+- **A different version.** The new server starts on the commit the old one was on, so the compose files are the same. Images named by a moving tag (`postgres:17`, `redis:7-alpine`) are pulled fresh, so the new server may run a newer patch release than the old one did; within one major version the data is compatible. Change versions on purpose afterwards, as a separate step.
+- **Files in the checkout that are not in git**, as step 2 explains.
 
 ## What was tested
 

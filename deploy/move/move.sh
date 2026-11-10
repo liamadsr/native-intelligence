@@ -31,6 +31,8 @@ Settings, as environment variables:
                   (default /opt/native-intelligence)
   MOVE_PREFIX     what the Compose projects and volumes start with (default ni-)
   MOVE_YES=1      do not ask before cutover or rollback
+  MOVE_ALLOW_DIRTY=1  prepare even though the old checkout has files that are
+                  not in git (they do not move; see README.md)
 EOF
 }
 
@@ -51,6 +53,8 @@ case "$NEW" in *@*) ;; *) die "NEW must be user@host." ;; esac
 old_user="${OLD%@*}" old_host="${OLD#*@}"
 new_user="${NEW%@*}" new_host="${NEW#*@}"
 [ "$old_host" != "$new_host" ] || die "OLD and NEW are the same server."
+# setup.sh turns root logins off, so a move driven as root would lock itself out.
+[ "$new_user" != root ] || die "NEW must be an ordinary user who can sudo, not root: make one on the new server first."
 
 here="$(cd "$(dirname "$0")" && pwd)"
 setup_script="$here/../server/setup.sh"
@@ -59,8 +63,10 @@ setup_script="$here/../server/setup.sh"
 # One connection per server, reused by every call: the servers rate-limit new
 # SSH connections. The socket lives in /tmp because its path has a length limit.
 ctl="$(mktemp -d /tmp/ni-move.XXXXXX)"
+hint=""
 cleanup() {
-	local d
+	local d rc=$?
+	if [ "$rc" != 0 ] && [ -n "$hint" ]; then printf '\nmove: %s\n' "$hint" >&2; fi
 	for d in "$OLD" "$NEW"; do
 		# shellcheck disable=SC2086
 		ssh $MOVE_SSH_OPTS -o ControlPath="$ctl/%C" -O exit "$d" >/dev/null 2>&1 || true
@@ -77,13 +83,16 @@ ssh_to() {
 }
 
 # remote <login> [NAME=value ...]: runs the script on stdin as root over there,
-# with the given variables set. Values are quoted for the far shell.
+# with the given variables set. Values are quoted for the far shell and must
+# not contain a newline (a login shell other than bash would not read it back).
+# The far side reads the whole script first and then runs it with nothing on
+# its stdin, so a command in it that reads stdin cannot swallow the rest.
 remote() {
 	local dest="$1" envs="" kv
 	shift
 	for kv in "$@"; do envs="$envs $(printf '%q' "$kv")"; done
 	# shellcheck disable=SC2029
-	ssh_to "$dest" "sudo env$envs bash -s"
+	ssh_to "$dest" "sudo env$envs bash -c 's=\$(cat); exec bash -c \"\$s\" </dev/null'"
 }
 
 # stream <login> <command>: runs one command as root over there. Its stdin and
@@ -112,6 +121,11 @@ done | sort -u
 docker volume ls --format '{{.Name}}' | { grep "^$MOVE_PREFIX" || true; } | sed 's/^/volume=/'
 find "$MOVE_ROOT/deploy" -name .env -type f | sed 's/^/envfile=/'
 find /etc/cron.d -maxdepth 1 -type f -name "${MOVE_PREFIX}*" | sed 's/^/hostfile=/'
+# Files changed or added by hand in the checkout. The .env files are ignored by
+# git, so they do not show up here; they are moved on their own.
+sudo -u "$owner" git -C "$MOVE_ROOT" status --porcelain --untracked-files=all -- deploy | sed 's/^/dirty=/'
+docker ps --format '{{.Names}} {{ index .Labels "com.docker.compose.project" }}' |
+	awk -v p="$MOVE_PREFIX" 'index($2, p) == 1 { print "running=" $1 }'
 EOS
 }
 
@@ -119,6 +133,7 @@ inv=""
 load_inventory() {
 	inv="$(inventory)" || die "could not read the old server."
 	[ -n "$(inv_get commit)" ] || die "the old server has no checkout at $MOVE_ROOT."
+	[ -n "$(inv_get project)" ] || die "the old server has no ${MOVE_PREFIX} Compose projects; there is nothing to move or to go back to."
 }
 inv_get() { printf '%s\n' "$inv" | sed -n "s/^$1=//p"; }
 
@@ -158,6 +173,21 @@ docker ps --format '{{.Names}} {{ index .Labels "com.docker.compose.project" }}'
 EOS
 }
 
+# A finished cutover leaves a marker on the new server. While it is there,
+# nothing here will copy onto that server again: that would replace what it
+# has written since with the old server's data.
+new_is_live() {
+	[ "$(remote "$NEW" <<'EOS'
+[ -e /root/.ni-move-live ] && echo live || echo clear
+EOS
+)" = live ]
+}
+refuse_if_live() {
+	if new_is_live; then
+		die "the new server is already live: a cutover to it has finished. Copying onto it again would wipe what it has written since. (The marker is /root/.ni-move-live on that server; 'rollback' removes it.)"
+	fi
+}
+
 show_status() {
 	local d
 	for d in "$OLD" "$NEW"; do
@@ -180,6 +210,11 @@ cmd_check() {
 	echo "projects: $(projects_in_order -n)"
 	echo "volumes:  $(inv_get volume | tr '\n' ' ')"
 	echo "settings files: $(inv_get envfile | wc -l | tr -d ' ')   host files: $(inv_get hostfile | wc -l | tr -d ' ')"
+	echo "running:  $(inv_get running | tr '\n' ' ')"
+	if [ -n "$(inv_get dirty)" ]; then
+		echo "!! changed by hand in the checkout, and NOT moved by this script:"
+		inv_get dirty | sed 's/^/     /'
+	fi
 	remote "$OLD" MOVE_PREFIX="$MOVE_PREFIX" ROOTDIR="$(inv_get dockerroot)" <<'EOS'
 command -v rsync >/dev/null || echo "!! rsync is not installed here"
 echo "data to copy: $(du -shc "$ROOTDIR"/volumes/"$MOVE_PREFIX"*/_data 2>/dev/null | tail -1 | cut -f1)"
@@ -189,25 +224,33 @@ EOS
 . /etc/os-release; echo "system: $PRETTY_NAME, $(nproc) cores, $(free -g | awk 'NR==2{print $2}') GB memory, $(df -h / | awk 'NR==2{print $4}') disk free"
 command -v docker >/dev/null 2>&1 && echo "Docker: $(docker version -f '{{.Server.Version}}')" || echo "Docker: not installed yet (prepare installs it)"
 EOS
+	if new_is_live; then echo "!! the new server is marked live: prepare, sync and cutover will refuse"; fi
 	echo
 	echo "Both servers answer and sudo works without a password on each."
 }
 
 cmd_prepare() {
 	load_inventory
+	refuse_if_live
+	if [ -n "$(inv_get dirty)" ] && [ "${MOVE_ALLOW_DIRTY:-}" != 1 ]; then
+		echo "The old server's checkout has files that are not in git:" >&2
+		inv_get dirty | sed 's/^/   /' >&2
+		die "they would not move. Commit them, or copy them by hand and run this again with MOVE_ALLOW_DIRTY=1."
+	fi
 	say "Setting the new server up (deploy/server/setup.sh)"
 	# shellcheck disable=SC2029
 	ssh_to "$NEW" "sudo bash -s -- --login-user $(printf '%q' "$new_user") --repo $(printf '%q' "$(inv_get repo)") --ref $(printf '%q' "$(inv_get commit)") --root $(printf '%q' "$MOVE_ROOT")" <"$setup_script"
 
 	say "Copying the settings files (their contents are never shown)"
 	local files
-	files="$(printf '%s\n%s\n' "$(inv_get envfile)" "$(inv_get hostfile)" | sed '/^$/d')"
-	[ -n "$files" ] || die "the old server has no settings files; is MOVE_ROOT right?"
+	files="$(printf '%s\n%s\n' "$(inv_get envfile)" "$(inv_get hostfile)" | sed '/^$/d' | tr '\n' ' ')"
+	[ -n "${files// /}" ] || die "the old server has no settings files; is MOVE_ROOT right?"
 	remote "$OLD" FILES="$files" <<'EOS' | stream "$NEW" tar -C / -xpf - --same-owner
 set -euo pipefail
-printf '%s\n' "$FILES" | sed 's#^/##' | tar -C / -cpf - --files-from=-
+# shellcheck disable=SC2086
+printf '%s\n' $FILES | sed 's#^/##' | tar -C / -cpf - --files-from=-
 EOS
-	echo "$(printf '%s\n' "$files" | wc -l | tr -d ' ') files copied"
+	echo "$(printf '%s\n' $files | wc -l | tr -d ' ') files copied"
 
 	say "Fetching the images and creating the containers, stopped"
 	remote "$NEW" PROJECTS="$(projects_in_order -n)" <<'EOS'
@@ -222,11 +265,24 @@ for item in $PROJECTS; do
 done
 EOS
 	echo
+	if [ "$(remote "$NEW" <<'EOS'
+[ -f /var/run/reboot-required ] && echo yes || echo no
+EOS
+)" = yes ]; then
+		echo "The new server wants a reboot (a kernel update is waiting). Reboot it now, before sync:"
+		echo "  ssh $NEW sudo reboot"
+		echo "Otherwise it reboots itself at its nightly time, possibly in the middle of the move."
+	fi
 	echo "The new server is ready and nothing is running on it. Next: sync."
 }
 
+# do_sync live|final. 'live' copies while the old server runs: files may change
+# under it, so it only has to get most of the data across. 'final' runs with
+# everything stopped and compares file contents, not just size and time: a file
+# rewritten in place within the same second as the earlier copy looks unchanged
+# otherwise, and a database started on it would be corrupt.
 do_sync() {
-	local volumes running new_ip from=""
+	local mode="$1" volumes running from="" addr pub
 	volumes="$(inv_get volume | tr '\n' ' ')"
 	[ -n "${volumes// /}" ] || die "the old server has no volumes starting with $MOVE_PREFIX."
 	running="$(running_on "$NEW")"
@@ -234,7 +290,6 @@ do_sync() {
 
 	# A key that exists only for this copy: made on the new server, allowed on the
 	# old one for the old login, and removed again by 'finish'.
-	local pub
 	pub="$(remote "$NEW" <<'EOS'
 set -euo pipefail
 install -d -m 700 /root/.ssh
@@ -242,20 +297,26 @@ install -d -m 700 /root/.ssh
 cat /root/.ssh/ni-move.pub
 EOS
 )"
-	case "$new_host" in
-	*[!0-9.]*) ;; # a name: no address restriction
-	*) from="from=\"$new_host\"," ;;
+	# Only the new server's address may use it, when that address is known.
+	addr="$new_host"
+	case "$addr" in
+	*[!0-9.]*) addr="$(dig +short A "$new_host" 2>/dev/null | grep -E '^[0-9.]+$' | head -1 || true)" ;;
 	esac
-	remote "$OLD" LINE="${from}no-agent-forwarding,no-port-forwarding,no-pty,no-X11-forwarding $pub" LOGIN="$old_user" <<'EOS'
+	if [ -n "$addr" ]; then from="from=\"$addr\","; fi
+	remote "$OLD" LINE="${from}restrict $pub" LOGIN="$old_user" <<'EOS'
 set -euo pipefail
-home="$(getent passwd "$LOGIN" | cut -d: -f6)"
-grep -q ' ni-move-temp$' "$home/.ssh/authorized_keys" 2>/dev/null || printf '%s\n' "$LINE" >>"$home/.ssh/authorized_keys"
+f="$(getent passwd "$LOGIN" | cut -d: -f6)/.ssh/authorized_keys"
+# A last line without a newline would be glued to ours, and both would break.
+[ -z "$(tail -c1 "$f")" ] || echo >>"$f"
+# Drop a key left by an earlier, unfinished move before adding this one.
+sed -i '/ ni-move-temp$/d' "$f"
+printf '%s\n' "$LINE" >>"$f"
 EOS
 
 	# The new server trusts exactly the host key the old one showed us over the
 	# connection this machine already trusts.
 	remote "$NEW" KNOWN="$old_host $(inv_get hostkey)" OLD_USER="$old_user" OLD_HOST="$old_host" \
-		VOLUMES="$volumes" OLD_ROOT="$(inv_get dockerroot)" <<'EOS'
+		VOLUMES="$volumes" OLD_ROOT="$(inv_get dockerroot)" MODE="$mode" <<'EOS'
 set -euo pipefail
 printf '%s\n' "$KNOWN" >/root/.ssh/ni-move-known-hosts
 new_root="$(docker info -f '{{.DockerRootDir}}')"
@@ -264,32 +325,57 @@ for v in $VOLUMES; do
 	docker volume inspect "$v" >/dev/null 2>&1 || docker volume create "$v" >/dev/null
 	if [ -z "$srcs" ]; then srcs="$OLD_USER@$OLD_HOST:$OLD_ROOT/volumes/./$v/_data"; else srcs="$srcs :$OLD_ROOT/volumes/./$v/_data"; fi
 done
+extra=""
+[ "$MODE" = final ] && extra="--checksum"
+log=/root/.ni-move-rsync.log
+rc=0
 # shellcheck disable=SC2086
-rsync -aHAX --numeric-ids --delete --relative --info=stats1 \
+rsync -aHAX --numeric-ids --delete --relative --stats $extra \
 	-e "ssh -i /root/.ssh/ni-move -o BatchMode=yes -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/ni-move-known-hosts -o StrictHostKeyChecking=yes" \
-	--rsync-path="sudo rsync" $srcs "$new_root/volumes/" | sed -n '/Number of regular files transferred\|Total transferred file size\|Total file size/p'
+	--rsync-path="sudo rsync" $srcs "$new_root/volumes/" >"$log" 2>&1 || rc=$?
+sed -n '/^Number of regular files transferred\|^Total transferred file size\|^Total file size/p' "$log"
+if [ "$rc" != 0 ]; then
+	# 24: a file vanished while it was read; 23: one changed while it was read.
+	# Both are normal under a running database, and only then.
+	if [ "$MODE" = live ] && { [ "$rc" = 23 ] || [ "$rc" = 24 ]; }; then
+		echo "Some files changed while they were being copied (rsync code $rc). Expected with the old server running; cutover copies them again."
+	else
+		grep -v '^$' "$log" | tail -15 >&2
+		exit "$rc"
+	fi
+fi
 date -u +%Y-%m-%dT%H:%M:%SZ >/root/.ni-move-synced
 EOS
 }
 
 cmd_sync() {
 	load_inventory
+	refuse_if_live
+	[ -n "$(inv_get running)" ] || die "nothing is running on the old server. If a cutover was interrupted, run cutover again; it carries on from where it stopped."
 	say "Copying the data, old server still running"
-	do_sync
+	do_sync live
 	echo
 	echo "Copied. Run sync again whenever you like; cutover copies only what changed since."
 }
 
 cmd_cutover() {
 	load_inventory
-	remote "$NEW" <<'EOS' || die "run prepare and sync first."
-test -f /root/.ni-move-synced
+	refuse_if_live
+	[ "$(remote "$NEW" <<'EOS'
+[ -f /root/.ni-move-synced ] && echo yes || echo no
 EOS
+)" = yes ] || die "run prepare and sync first."
+	# Checked before anything is stopped: finding this out afterwards would mean
+	# an outage with nothing to replace it.
+	local running t0
+	running="$(running_on "$NEW")"
+	[ -z "${running// /}" ] || die "containers are already running on the new server ($running). Stop them there first."
+
 	echo "This stops every $MOVE_PREFIX container on $old_host, copies what changed, and starts them on $new_host."
 	echo "Until the DNS names point at the new server, the platform is down."
 	confirm "Go ahead?"
-	local t0
 	t0="$(date +%s)"
+	hint="The old server's containers are stopped and the new server is not confirmed running. Fix the cause and run 'cutover' again (it carries on), or run 'rollback' to start the old server again."
 
 	say "Stopping the old server's containers"
 	remote "$OLD" PROJECTS="$(projects_in_order -rn)" <<'EOS'
@@ -299,19 +385,23 @@ for item in $PROJECTS; do
 	docker compose stop
 done
 EOS
+	running="$(running_on "$OLD")"
+	[ -z "${running// /}" ] || die "still running on the old server after the stop: $running. Stop them by hand (docker stop), then run cutover again."
 
-	say "Copying what changed"
-	do_sync
+	say "Copying what changed, comparing file contents"
+	do_sync final
 
 	say "Starting on the new server"
-	remote "$NEW" PROJECTS="$(projects_in_order -n)" <<'EOS'
+	remote "$NEW" PROJECTS="$(projects_in_order -n)" OLD_HOST="$old_host" <<'EOS'
 set -euo pipefail
 for item in $PROJECTS; do
 	cd "${item#*|}"
 	docker compose up -d --wait --wait-timeout 300
 done
+printf 'live since %s, moved from %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$OLD_HOST" >/root/.ni-move-live
 docker ps --format '   {{.Names}}\t{{.Status}}' | sort
 EOS
+	hint=""
 
 	say "Started after $(($(date +%s) - t0)) seconds"
 	echo "Now change every DNS record that points at the old server so it points at the new one."
@@ -330,6 +420,7 @@ for item in $PROJECTS; do
 	cd "${item#*|}"
 	docker compose stop
 done
+rm -f /root/.ni-move-live
 EOS
 	say "Starting the old server's containers"
 	remote "$OLD" PROJECTS="$(projects_in_order -n)" <<'EOS'
@@ -342,22 +433,23 @@ docker ps --format '   {{.Names}}\t{{.Status}}' | sort
 EOS
 	echo
 	echo "Point the DNS records back at the old server."
+	echo "If you are giving up on this move rather than trying again, run 'finish' too: it removes the temporary key."
 }
 
 cmd_finish() {
 	say "Removing the temporary access"
 	remote "$OLD" LOGIN="$old_user" <<'EOS'
 set -euo pipefail
-home="$(getent passwd "$LOGIN" | cut -d: -f6)"
-if grep -q ' ni-move-temp$' "$home/.ssh/authorized_keys" 2>/dev/null; then
-	sed -i '/ ni-move-temp$/d' "$home/.ssh/authorized_keys"
+f="$(getent passwd "$LOGIN" | cut -d: -f6)/.ssh/authorized_keys"
+if grep -q ' ni-move-temp$' "$f" 2>/dev/null; then
+	sed -i '/ ni-move-temp$/d' "$f"
 	echo "key removed from the old server"
 else
 	echo "no temporary key on the old server"
 fi
 EOS
 	remote "$NEW" <<'EOS'
-rm -f /root/.ssh/ni-move /root/.ssh/ni-move.pub /root/.ssh/ni-move-known-hosts /root/.ni-move-synced
+rm -f /root/.ssh/ni-move /root/.ssh/ni-move.pub /root/.ssh/ni-move-known-hosts /root/.ni-move-synced /root/.ni-move-rsync.log
 echo "key deleted on the new server"
 EOS
 	echo
