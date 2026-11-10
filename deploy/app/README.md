@@ -138,67 +138,25 @@ These may be new on the server (`PULL_GENERATE=1` makes the first three):
 Each of them falls back to `RUN_SKILL_INTERNAL_SECRET` when empty
 (`web/src/lib/eve/internal-secret.ts`), so give each its own value.
 
-### Sealed copy
+### Sealed copy (done once, then removed)
 
-The earlier host never shows its write-only settings to anyone, but its production
-builds have them. So one production build hands them over sealed: encrypted to a
-key only this server can open, printed into that build's log, opened here.
+The earlier host's write-only production settings reached this server once, on
+2026-11-10, by a sealed copy: the last step of one production build encrypted them
+to a key only this server held and printed that block in the build's log; the
+server opened it, wrote the values into `.env` and deleted its key;
+`check-settings.sh` then proved what can be proven. The build step, its public key
+and both ends of the tooling were taken out afterwards, so no later build can seal
+anything. They are in the history (PR #67, merge `ca24594d`) for a move that needs
+them again: restore them,
 
-- `web/scripts/seal-settings.mjs` is the last step of `npm run build` (the earlier
-  host keeps only the end of a build log past 4 MB, and the test suite fills that). It does
-  nothing unless `NI_SEAL_SETTINGS=1` is set for the build and the build is
-  production. Then it reads the settings in its `NAMES` list from the build's
-  environment, exactly as stored, and prints one block: them, encrypted to the
-  public key in `web/scripts/seal-settings.pub` (X25519, HKDF-SHA256,
-  AES-256-GCM; Node's own crypto). It prints no value, only how many it sealed and
-  the names the build did not have. Not in the list: `AI_GATEWAY_API_KEY` (the
-  server has a key of its own, revocable on its own) and the Inngest keys (the
-  server's Inngest's own).
-- `sealed_settings.py` (on the server, as root) made the key pair: the private half
-  is `/root/ni-seal/settings.key`, mode 600, and never leaves the server; the
-  public half is the committed file, so a change to it shows in review. It opens
-  the block, writes each value through `envfile.py`, says per name whether it
-  filled an empty value, replaced another or found the same, and then deletes the
-  private half: a block opens once.
-- `sealed-copy.sh` (on your own machine) runs both ends: `new-key` made the pair;
-  `open <user>@<server> <deployment>` reads that deployment's build log from the
-  earlier host, cuts the block out, sends it to the server, and then runs
-  `check-settings.sh --fill`, which proves what can be proven.
+```bash
+git checkout ca24594d -- web/scripts/seal-settings.mjs deploy/app/sealed_settings.py deploy/app/sealed-copy.sh deploy/app/tests/test_sealed_settings.py
+```
 
-In order, each step on the owner's word:
-
-1. This folder's change is merged (it carries the public key).
-2. On the earlier host, the setting `NI_SEAL_SETTINGS` = `1`, Production only, and a
-   production build: the next merge to `main`, or a redeploy of the live
-   deployment. That build becomes the live deployment like any other; the step
-   only adds the block to its log.
-3. The setting removed again.
-4. From your own machine:
-
-   ```bash
-   PULL_TEAM=<team id> PULL_PROJECT=<project id> deploy/app/sealed-copy.sh open <user>@<server> <that deployment's id>
-   ```
-
-   The public key is public, so anyone could seal a block to it: the server takes
-   one only if it names that deployment, the one whose log it was cut from, of the
-   app's project, and was sealed while that deployment was built. The script warns
-   if `NI_SEAL_SETTINGS` is still set.
-5. `sudo ./deploy.sh --no-build` here, for the containers to take the values.
-6. A change that takes the step out again: `seal-settings.mjs`, its `.pub` and its
-   place in `npm run build`. Left in, a key swapped in some later change would make
-   the next build with the setting seal to someone else.
-7. On the earlier host, delete the sealing deployment, and with it the block.
-
-What to know: the earlier host keeps a build log for as long as the deployment
-exists and shows it to the team's members only; once the private half is deleted
-nobody can open the block. Deleting the key overwrites the file, then removes it;
-on an SSD or under a snapshot the old bytes may survive, which is why step 7
-deletes the block itself. Its write-only
-values are in the build's environment (it redacts them from build logs "during
-builds"), but none of this has run there yet: the first run names, at the end of
-the block's line, any the build did not have. A value
-the build did not have is named at the end of the block's line and in `open`'s
-report ("not in the block"): enter that one by hand.
+put the step back at the end of `npm run build` and the files back into
+`.github/workflows/deploy-scripts.yml` (its paths and its `bash -n` line), make a new
+key with `sealed-copy.sh new-key`, and follow the steps as they were
+(`git show ca24594d:deploy/app/README.md`, "Sealed copy").
 
 ## The container test
 
@@ -369,6 +327,5 @@ still run the same schedule against the same database: switch those off first
 | `deploy.sh` | Build and roll out on the server, or go back. |
 | `pull-settings.sh` | Fill the server's `.env` from the earlier host, unseen. |
 | `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/` is its test. |
-| `sealed-copy.sh`, `sealed_settings.py` | The sealed copy of the earlier host's write-only settings (with `web/scripts/seal-settings.mjs`). |
 | `smoke/compose.yaml`, `smoke/.env.example` | The container test's stack. |
 | `smoke.sh` | The container test. |
