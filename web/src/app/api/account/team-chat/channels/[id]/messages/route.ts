@@ -9,6 +9,13 @@
  *        the words and the person may read the record, stored on the
  *        message and written to the graph as its `mentions` edges
  *        (src/lib/team-chat/record-mentions.ts); anything else is dropped.
+ *        A record the channel's readers can't all see (another member's
+ *        private doc, say) is shared with the channel when the person may
+ *        share it (src/lib/entity-access/share.ts, migration 492): the
+ *        answer's `shared` lists the grants made (each one's id is what
+ *        Undo deletes) and `shared_with` says who they reach ("#launch").
+ *        `share: true` marks a post made by the Share to a channel action
+ *        (its grants' source).
  *        When the message calls on the person's own agent
  *        (`mentionsAgent`, or "@<their assistant name>" in the words), its
  *        turn is requested after the answer (src/lib/team-chat/agent-turn.ts):
@@ -25,6 +32,7 @@ import { getChannel, listMessages, postMessage, workspaceMemberIds } from '@/lib
 import { deliverTeamChatMention } from '@/lib/team-chat/agent-turn'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
+import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { dmOtherMember, isUuid, mentionsAssistantName, tidyBody, tidyMentionIds } from '@/lib/team-chat/types'
 
 type Params = { params: Promise<{ id: string }> }
@@ -82,6 +90,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (recordMentions.length > 0) {
       await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: recordMentions })
     }
+    const { shared, shared_with } = await shareMentionedRecords(auth.supabase, {
+      ...scope,
+      memberId: auth.member.id,
+      channel,
+      records: recordMentions,
+      source: input.share === true ? 'channel_share' : 'mention',
+    })
     if (mentionsAgent) {
       const userId = auth.user.id
       const memberId = auth.member.id
@@ -101,7 +116,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
       })
     }
-    return NextResponse.json({ message }, { status: 201 })
+    return NextResponse.json({ message, shared, shared_with }, { status: 201 })
   } catch (err) {
     return teamChatErrorResponse(err, 'message post')
   }

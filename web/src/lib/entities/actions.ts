@@ -33,6 +33,7 @@ import { emitEntityCreated, emitEntityDeleted, emitEntityUpdated, type EntityKin
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { MENTION_LABEL_MAX } from '@/lib/entity-links/mentionable'
 import { entityActionsDescriptor, entityIdText, entityLink, type EntityActionId } from './entity-actions-registry'
+import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
 
 /** A record as a surface knows it: its kind, id, and the words it shows as. */
 export interface EntityRef {
@@ -265,6 +266,12 @@ export async function loadShareChannels(
  * Post a message in `channel` that @-mentions the record, through team chat's
  * own post (which fences the record for the person and writes the message's
  * `mentions` edge). Undo deletes the message.
+ *
+ * A record the channel's readers can't all see (the person's private doc,
+ * say) is shared with the channel by that post, as an @-mention in the
+ * composer is (src/lib/entity-access/share.ts, source 'channel_share'): the
+ * toast then says "Shared “Q3 plan” with #launch", and its Undo takes back
+ * the grant as well as the message.
  */
 export async function shareEntityToChannel(ref: EntityRef, channel: ShareChannel, deps: EntityActionDeps = defaultEntityActionDeps): Promise<boolean> {
   const d = entityActionsDescriptor(ref.type)
@@ -273,23 +280,31 @@ export async function shareEntityToChannel(ref: EntityRef, channel: ShareChannel
   const res = await send(deps, ref, `/api/account/team-chat/channels/${encodeURIComponent(channel.id)}/messages`, 'POST', {
     body: `@${label}`,
     records: [{ type: ref.type, id: ref.id, label }],
+    share: true,
   })
   if (!res?.ok) {
     deps.toast.error(await why(res, "Couldn't share it"))
     return false
   }
-  const messageId = await res
-    .json()
-    .then((data: { message?: { id?: unknown } }) => (typeof data.message?.id === 'string' ? data.message.id : null))
-    .catch(() => null)
+  const data = (await res.json().catch(() => null)) as { message?: { id?: unknown } } | null
+  const messageId = typeof data?.message?.id === 'string' ? data.message.id : null
+  const takeBackMessage = async () => {
+    if (!messageId) return true
+    const r = await send(deps, ref, `/api/account/team-chat/messages/${encodeURIComponent(messageId)}`, 'DELETE')
+    return !!r?.ok
+  }
+  // The post opened the record to the channel: the toast says so, and Undo takes back the grant too.
+  const { shared, sharedWith } = parseSharedRecords(data)
+  const audience = sharedWith ?? (channel.name ? `#${channel.name}` : null)
+  if (toastSharedRecords(shared, audience, deps, { workspaceId: ref.workspaceId, onUndo: takeBackMessage })) return true
   deps.toast.success(`Shared to ${channel.name ? `#${channel.name}` : 'the channel'}`, {
     ...(messageId
       ? {
           action: {
             label: 'Undo',
             onClick: () => {
-              void send(deps, ref, `/api/account/team-chat/messages/${encodeURIComponent(messageId)}`, 'DELETE').then((r) => {
-                if (!r?.ok) deps.toast.error("Couldn't take it back")
+              void takeBackMessage().then((ok) => {
+                if (!ok) deps.toast.error("Couldn't take it back")
               })
             },
           },

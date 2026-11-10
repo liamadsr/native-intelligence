@@ -48,6 +48,7 @@ import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 import { menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
+import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
 
 interface Member {
   id: string
@@ -917,6 +918,8 @@ function EditBox({ message, members, onCancel, onSaved }: { message: TeamChatMes
     if (!res.ok) return
     const json = (await res.json()) as { message?: TeamChatMessage }
     if (json.message) onSaved(json.message)
+    const { shared, sharedWith } = parseSharedRecords(json)
+    toastSharedRecords(shared, sharedWith)
   }
   return (
     <div className="mt-1">
@@ -1048,6 +1051,9 @@ function Composer({
       if (!res.ok) throw new Error('send failed')
       const json = (await res.json()) as { message?: TeamChatMessage }
       if (json.message) onSent(json.message, json.message.mentions_agent)
+      // A record the channel couldn't all see, now shared with it: say so, with Undo.
+      const { shared, sharedWith } = parseSharedRecords(json)
+      toastSharedRecords(shared, sharedWith)
       // Only what was sent goes: words typed while it was on its way stay.
       const typedSince = latest.current.text !== text
       if (!typedSince) {
