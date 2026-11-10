@@ -79,11 +79,14 @@ describe('ResetPasswordForm', () => {
     expect((await render('link_expired')).message).toBe('This reset link has expired or has already been used. Ask for a new link here.')
   })
 
-  it('stays shut with no session at all', async () => {
+  it('stays shut with no session at all, and points to the email instead of blaming a link', async () => {
     m.getSession.mockResolvedValueOnce({ data: { session: null } })
     const page = await render()
     expect(page.passwordForm).toBe('absent')
     expect(page.newLinkForm).toBe(true)
+    expect(page.message).toBe(
+      'Open the reset link from your email in the browser or app where you asked for it, or ask for a new link here.',
+    )
   })
 
   it('asks for the new link right here: in a browser, back to this browser', async () => {

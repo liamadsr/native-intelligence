@@ -18,13 +18,16 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { RequestResetLinkForm } from '../forgot-password/request-reset-link-form'
 
-/** What the page says when the link didn't open it, before offering a new one. */
-const PROBLEM_MESSAGES: Record<ResetLinkProblem, string> = {
+/** What the page says when no working link opened it, before offering a new one. */
+const PROBLEM_MESSAGES: Record<ResetLinkProblem | 'no_link', string> = {
   opened_elsewhere:
     'This reset link has to be opened in the browser or app where you asked for it. Open it there, or ask for a new link here.',
   expired: 'This reset link has expired or has already been used. Ask for a new link here.',
   failed:
     "This reset link didn't work. A reset link works once, and only in the browser or app where you asked for it. Ask for a new link here.",
+  // No ?error= and no session: the page was opened without a reset link.
+  no_link:
+    'Open the reset link from your email in the browser or app where you asked for it, or ask for a new link here.',
 }
 
 export function ResetPasswordForm({
@@ -87,9 +90,9 @@ export function ResetPasswordForm({
     router.refresh()
   }
 
-  // The link didn't open a recovery session: say why, and offer a new link
+  // No working link opened a recovery session: say why, and offer a new link
   // right here (it will work here, where it's asked for).
-  const problem = linkProblem ?? (hasRecoverySession === false ? 'failed' : null)
+  const problem = linkProblem ?? (hasRecoverySession === false ? 'no_link' : null)
 
   return (
     <div className="flex min-h-dvh items-center justify-center p-6 text-foreground lg:p-8">
