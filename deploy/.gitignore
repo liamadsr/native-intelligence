@@ -1,0 +1,4 @@
+# Secrets live in .env files on the server only. The examples are the docs.
+.env
+.env.*
+!.env.example

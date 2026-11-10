@@ -1,0 +1,48 @@
+# Caddy: the one container that publishes ports (80 and 443), with automatic
+# certificates. It reaches the other stacks over the shared `ni-edge` network.
+#
+# Run from this folder, as root so the root-only .env can be read:
+#   sudo docker compose up -d
+name: ni-edge
+
+services:
+  caddy:
+    image: caddy:2.11-alpine
+    container_name: ni-edge-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      INNGEST_HOST: ${INNGEST_HOST:-inngest.nativeintelligence.dev}
+      SUPABASE_HOST: ${SUPABASE_HOST:-sb.nativeintelligence.dev}
+      SUPABASE_UPSTREAM: ${SUPABASE_UPSTREAM:?set SUPABASE_UPSTREAM in .env}
+    volumes:
+      # The folder, not the file: git replaces a file when it updates it, and
+      # a single-file mount would keep showing the old one until a restart.
+      - .:/etc/caddy:ro
+      # Certificates and their private keys. Losing this volume only costs a
+      # re-issue, but keep it: re-issuing too often hits the CA's rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+    healthcheck:
+      # The admin API listens on localhost inside the container only.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  caddy-data:
+    name: ni-edge-caddy-data
+  caddy-config:
+    name: ni-edge-caddy-config
+
+networks:
+  # Created once by hand (see ../README.md) so neither stack owns it.
+  edge:
+    name: ni-edge
+    external: true

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Writes the rclone config from the environment, then runs the command
+# (crond by default). Two remotes:
+#
+#   store:  where the files physically go. Backblaze B2, bucket B2_BUCKET.
+#   vault:  rclone's `crypt` layer over store: everything written through it
+#           is encrypted before it leaves this container, and decrypted on
+#           the way back. File names stay readable so a listing makes sense.
+#
+# The config is written to a file, not exported, so that `docker compose exec
+# backup rclone ...` sees the same remotes as the cron jobs do.
+set -euo pipefail
+
+: "${BACKUP_PASSWORD:?BACKUP_PASSWORD is not set}"
+: "${BACKUP_SALT:?BACKUP_SALT is not set}"
+
+config_dir=/root/.config/rclone
+config="$config_dir/rclone.conf"
+umask 077
+mkdir -p "$config_dir"
+
+{
+	if [ -n "${BACKUP_TARGET:-}" ]; then
+		# Any rclone remote or a local folder, in place of B2. For a dry run
+		# of the whole job without a bucket (see README.md).
+		echo "[store]"
+		echo "type = alias"
+		echo "remote = ${BACKUP_TARGET}"
+	else
+		: "${B2_KEY_ID:?B2_KEY_ID is not set}"
+		: "${B2_APPLICATION_KEY:?B2_APPLICATION_KEY is not set}"
+		: "${B2_BUCKET:?B2_BUCKET is not set}"
+		echo "[store]"
+		echo "type = alias"
+		echo "remote = b2:${B2_BUCKET}"
+		echo
+		echo "[b2]"
+		echo "type = b2"
+		echo "account = ${B2_KEY_ID}"
+		echo "key = ${B2_APPLICATION_KEY}"
+		# Expired backups are removed for good, not kept as hidden versions.
+		echo "hard_delete = true"
+	fi
+	echo
+	echo "[vault]"
+	echo "type = crypt"
+	echo "remote = store:"
+	echo "filename_encryption = off"
+	echo "directory_name_encryption = false"
+	# rclone wants these two obscured in its config. That is not encryption:
+	# the real protection is that this file and .env are root-only.
+	echo "password = $(printf '%s' "$BACKUP_PASSWORD" | rclone obscure -)"
+	echo "password2 = $(printf '%s' "$BACKUP_SALT" | rclone obscure -)"
+} >"$config"
+
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) backup container ready. Jobs:"
+grep -Ev '^[[:space:]]*(#|$)' /etc/crontabs/root | sed 's/^/  /'
+
+exec "$@"

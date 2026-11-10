@@ -182,6 +182,9 @@ for (const flag of [
   'INNGEST_SERVE_HOST',
   'INNGEST_SERVE_ORIGIN',
   'INNGEST_SERVE_PATH',
+  // The app's own switch (src/lib/inngest/client.ts). Set in the build env the
+  // day checkpointing has to go off; the suite must not change with it.
+  'INNGEST_CHECKPOINTING',
   // Billed or user-visible outbound services, also injected into the build
   // env. Unset locally, so every suite already runs (and passes) without them,
   // and the ones that need a key stub their own. Scrubbed, an unmocked path
