@@ -18,6 +18,7 @@ import {
 import { ARCHIVE_MAX_DOCUMENTS, findReports, reportTitleFilter, setDocumentsArchived, type ArchiveOutcome } from '@/lib/documents/archive'
 import { approvedDocumentDelete, raiseDocumentDeleteCard } from '@/lib/documents/delete-card'
 import { getServiceClient } from '@/lib/supabase/service'
+import { hiddenGraphRefs, isLinkFencedKind } from '@/lib/knowledge/entity-fences'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
 import type { ApprovalContext } from '@/lib/safety/approvals'
 import { publishDraft, staleDraftMessage } from '@/lib/documents/publish'
@@ -948,6 +949,19 @@ export function createDocumentTools(
           .eq('source_id', document_id)
           .limit(50)
 
+        // An edge is readable only when both ends are (migration 500); this
+        // runs service-role, so the far end is fenced here: someone else's
+        // private capture, a DM the person isn't in, is left out, id and all.
+        const linkRefs = [
+          ...((backlinks ?? []) as Array<{ source_type: string; source_id: string }>).map((l) => ({ type: l.source_type, id: l.source_id })),
+          ...((outbound ?? []) as Array<{ target_type: string; target_id: string }>).map((l) => ({ type: l.target_type, id: l.target_id })),
+        ]
+        const hiddenEnds = linkRefs.some((r) => isLinkFencedKind(r.type))
+          ? await hiddenGraphRefs(supabase, linkRefs, omitPrivate ? null : userId, resolved.workspaceId)
+          : new Set<string>()
+        const shownBacklinks = (backlinks ?? []).filter((l) => !hiddenEnds.has(`${l.source_type}:${l.source_id}`))
+        const shownOutbound = (outbound ?? []).filter((l) => !hiddenEnds.has(`${l.target_type}:${l.target_id}`))
+
         // A long document comes back as its outline and how to read part of
         // it, so its middle never falls outside what the model can see.
         const long = body.length > LONG_DOCUMENT_CHARS && !full
@@ -980,8 +994,8 @@ export function createDocumentTools(
                 how_to_read: `This document is long (${body.length} characters, ${allLines.length} lines), so only its outline is here. Read the part you need with get_document and section: "<heading>", lines: {from, to}, or match: "<phrase>"; or full: true for the whole body.`,
               }
             : {}),
-          backlinks: backlinks || [],
-          outbound_links: outbound || [],
+          backlinks: shownBacklinks,
+          outbound_links: shownOutbound,
           ...crossHint,
         }
       },

@@ -19,7 +19,8 @@ import { withGrantedIds } from '@/lib/entity-access/grants'
 import {
   PRIVATE_GRAPH_KINDS,
   PRIVATE_KIND_LABEL,
-  hiddenPrivateRefs,
+  hiddenGraphRefs,
+  isLinkFencedKind,
   isPrivateGraphKind,
   visiblePrivateKindIds,
   type PrivateGraphKind,
@@ -236,6 +237,15 @@ export async function reconcileProvenance(
       sources = sources.filter((s) => s.source_type !== CONVERSATION_SOURCE_TYPE || (s.source_id !== null && !hiddenChats.has(s.source_id)))
       links = links.filter((l) => l.target_type !== CONVERSATION_SOURCE_TYPE || (l.target_id !== null && !hiddenChats.has(l.target_id)))
     }
+    // Every other edge follows its far end too (migration 500): a private
+    // document, a hidden contact or company, a DM is left out, id and all.
+    const linkRefs = links
+      .filter((l) => typeof l.target_type === 'string' && typeof l.target_id === 'string' && isLinkFencedKind(l.target_type))
+      .map((l) => ({ type: l.target_type as string, id: l.target_id as string }))
+    if (linkRefs.length > 0) {
+      const hiddenEnds = await hiddenGraphRefs(supabase, linkRefs, requester, workspaceId)
+      links = links.filter((l) => !hiddenEnds.has(`${l.target_type as string}:${l.target_id as string}`))
+    }
   }
 
   const provKey = (type: string, id: string | null, uri: string | null) =>
@@ -432,20 +442,21 @@ export async function dropHiddenFromBundle(
   for (const n of bundle.nodes as Node[]) {
     if (n?.node_type === 'document' && typeof n.node_id === 'string') documentIds.add(n.node_id)
   }
-  // The private graph kinds (entity-fences.ts): someone else's calendar
-  // event, a DM or team channel they're not in, a decision of a private
-  // capture. claim_neighborhood joins none of them, so only this fences them.
+  // Every kind some members can't read (entity-fences.ts LINK_FENCED_KINDS,
+  // migration 500's edge rule): someone else's calendar event, a DM or team
+  // channel they're not in, a decision of a private capture (claim_neighborhood
+  // joins none of these), and a contact, company or attachment hidden from them.
   const privateRefs = [
     bundle.center,
     ...(bundle.nodes as Node[])
       .filter((n) => typeof n?.node_type === 'string' && typeof n.node_id === 'string')
       .map((n) => ({ type: n.node_type as string, id: n.node_id as string })),
-  ].filter((r) => isPrivateGraphKind(r.type))
+  ].filter((r) => isLinkFencedKind(r.type))
   const [hiddenClaims, hiddenChats, hiddenDocs, hiddenPrivate] = await Promise.all([
     claimIds.size > 0 ? claimIdsHiddenFrom(supabase, [...claimIds], requester) : new Set<string>(),
     conversationIds.size > 0 ? conversationIdsHiddenFrom(supabase, [...conversationIds], requester) : new Set<string>(),
     documentIds.size > 0 ? documentIdsHiddenFrom(supabase, [...documentIds], requester) : new Set<string>(),
-    privateRefs.length > 0 ? hiddenPrivateRefs(supabase, privateRefs, requester) : new Set<string>(),
+    privateRefs.length > 0 ? hiddenGraphRefs(supabase, privateRefs, requester) : new Set<string>(),
   ])
   if (!hiddenClaims || !hiddenChats || !hiddenDocs) return null
   const hidden = (type: unknown, id: unknown) =>
@@ -2118,19 +2129,20 @@ export function createClaimTools(
         ]
         const claimIds = idsOf('claim')
         const chatIds = idsOf(CONVERSATION_SOURCE_TYPE)
-        // A private graph kind (entity-fences.ts) the requester can't read:
-        // a hidden centre has no neighbours, a hidden neighbour is left out
-        // (not listed by id under a placeholder).
+        // An edge is readable only when both ends are (migration 500): a
+        // fenced kind (entity-fences.ts LINK_FENCED_KINDS) the requester can't
+        // read hides its edges. A hidden centre has no neighbours, a hidden
+        // neighbour is left out (not listed by id under a placeholder).
         const privateRefs = [
           { type: entity_type as string, id: entity_id },
           ...(results.outbound ?? []).map((e) => ({ type: e.target_type, id: e.target_id })),
           ...(results.inbound ?? []).map((e) => ({ type: e.source_type, id: e.source_id })),
-        ].filter((r) => isPrivateGraphKind(r.type))
+        ].filter((r) => isLinkFencedKind(r.type))
         const [hiddenClaims, hiddenChats, hiddenPrivate] = await Promise.all([
           claimIds.length > 0 ? claimIdsHiddenFrom(supabase, claimIds, requestingUserId) : new Set<string>(),
           chatIds.length > 0 ? conversationIdsHiddenFrom(supabase, chatIds, requestingUserId) : new Set<string>(),
           privateRefs.length > 0
-            ? hiddenPrivateRefs(supabase, privateRefs, requestingUserId, scopeWorkspaceId)
+            ? hiddenGraphRefs(supabase, privateRefs, requestingUserId, scopeWorkspaceId)
             : new Set<string>(),
         ])
         if (!hiddenClaims || !hiddenChats) return { success: false, error: 'Could not read the graph. Try again.' }

@@ -10,6 +10,7 @@ import { resolveSince, resolveUntil, getUserWorkspaces, captureRequester } from 
 import { fuseWorkspaces, fuseByRank, resolveRecencyWeight, type FusableRow } from './search-fusion'
 import { resolveSearchWindow, type SearchDefaultWindow, type SearchScope } from './search-scope'
 import { entityDescriptor } from '@/lib/knowledge/entity-registry'
+import { hiddenGraphRefs } from '@/lib/knowledge/entity-fences'
 import { isMailSourceType, mailSourcedClaimIds } from '@/lib/knowledge/claim-visibility'
 import { filterVisibleContacts } from '@/lib/crm/contact-visibility'
 import { toIlikeSearchTerm } from '@/lib/crm/ilike-search-term'
@@ -325,7 +326,7 @@ const ANCHOR_LABEL_PREFIX: Record<string, string> = {
  *     `source_label` is rewritten to "Project: <name>" / "Company: <name>"
  *     (field shape unchanged — still a string).
  */
-async function enrichWithAnchorNames(supabase: SupabaseClient, rows: HybridRow[]): Promise<void> {
+async function enrichWithAnchorNames(supabase: SupabaseClient, rows: HybridRow[], requester: string | null): Promise<void> {
   if (rows.length === 0) return
 
   // Claim ids get the entity_link anchor-edge lookup; capture/document ids read
@@ -364,6 +365,11 @@ async function enrichWithAnchorNames(supabase: SupabaseClient, rows: HybridRow[]
     } catch {
       // Non-fatal — claims just won't carry an anchor name.
     }
+    // An edge is readable only when both ends are (migration 500), and this
+    // runs service-role: an anchor the requester can't read (a company hidden
+    // from them) is no anchor, so its name never rides along.
+    const hidden = await hiddenGraphRefs(supabase, [...claimToAnchor.values()], requester)
+    for (const [claimId, anchor] of claimToAnchor) if (hidden.has(`${anchor.type}:${anchor.id}`)) claimToAnchor.delete(claimId)
   }
 
   // Gather every anchor id we need a name for, bucketed by type: claim-edge
@@ -761,7 +767,7 @@ export function createSearchTools(
         // provenance is a bare anchor now labels it by name, and every
         // capture/document/claim gets `anchor_name` (+ `project_name` when that
         // anchor is a project) so multi-anchor reasoning can tell hits apart.
-        await enrichWithAnchorNames(supabase, combined)
+        await enrichWithAnchorNames(supabase, combined, requestingUserId)
 
         // What this search covered. Capture hits are MATCHED on their transcript
         // too, but no transcript passage comes back (the excerpt is the summary),
