@@ -266,6 +266,8 @@ export function describeFeedEvent(e: FeedEvent): string {
       // A member's mention is on the record that mentions them (the entry itself).
       if (e.subject?.me) return 'Mentioned you'
       if (e.subject) return `Mentioned ${e.subject.name ?? 'someone'}`
+      // A message says where it was ("Mentioned in #sales"), not its words.
+      if (e.other?.type === 'team_chat_message') return `Mentioned in ${e.other.context ?? 'a message'}`
       return e.other ? `Mentioned in ${e.other.label}` : 'Mentioned'
     case 'commented':
       return 'Commented'

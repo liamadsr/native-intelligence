@@ -119,7 +119,7 @@ export function RecordHistoryList({ events }: { events: readonly FeedRecordEvent
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-foreground/90">{describeFeedEvent(e)}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">
-                  {[who, e.other?.context ?? null, when].filter(Boolean).join(' · ')}
+                  {[who, when].filter(Boolean).join(' · ')}
                 </span>
               </span>
             </>
