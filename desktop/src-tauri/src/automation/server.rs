@@ -222,7 +222,7 @@ fn parse_eval(body: &[u8]) -> Result<EvalRequest, String> {
 }
 
 /// A name `args` can bind in the script: an ASCII JavaScript identifier, and
-/// not one of the wrapper's own (`__ni…`, webview.rs).
+/// not one of the wrapper's own (`__ni_…`, webview.rs).
 fn is_arg_name(name: &str) -> bool {
     let mut chars = name.chars();
     let Some(first) = chars.next() else {
