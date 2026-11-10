@@ -1225,6 +1225,20 @@ export function createClaimTools(
             (l.source_type !== CONVERSATION_SOURCE_TYPE || conversationAllowed(l.source_id as string | null)) &&
             (l.source_type !== 'document' || documentAllowed(l.source_id as string | null)),
         )
+        // Every other far end follows migration 500's edge rule too: a hidden
+        // contact or company, a DM, someone else's calendar event is left out,
+        // id and all. One batched fence; a failure hides every fenced end.
+        const hiddenEnds = await hiddenGraphRefs(
+          supabase,
+          [
+            ...visibleOutbound.map((l) => ({ type: l.target_type as string, id: l.target_id as string })),
+            ...visibleInbound.map((l) => ({ type: l.source_type as string, id: l.source_id as string })),
+          ],
+          requestingUserId,
+          resolved.workspaceId,
+        )
+        const shownOutbound = visibleOutbound.filter((l) => !hiddenEnds.has(`${l.target_type as string}:${l.target_id as string}`))
+        const shownInbound = visibleInbound.filter((l) => !hiddenEnds.has(`${l.source_type as string}:${l.source_id as string}`))
 
         // Reconcile the two provenance stores (claim_source evidence + cites/about
         // graph edges) into one flat view (GEN-108). This shares the exact
@@ -1246,13 +1260,14 @@ export function createClaimTools(
               source_uri: (s.source_uri as string | null) ?? null,
               excerpt: (s.excerpt as string | null) ?? null,
             })),
-            links: visibleOutbound.map((l) => ({
+            links: shownOutbound.map((l) => ({
               source_id: claim_id,
               target_type: l.target_type as string,
               target_id: (l.target_id as string | null) ?? null,
               relation: l.relation as string,
             })),
           },
+          requestingUserId,
         )
         const provenance = provMap.get(claim_id) ?? []
 
@@ -1261,8 +1276,8 @@ export function createClaimTools(
           claim,
           provenance,
           sources: visibleSources,
-          outbound_links: visibleOutbound,
-          inbound_links: visibleInbound,
+          outbound_links: shownOutbound,
+          inbound_links: shownInbound,
           ...(resolved.crossWorkspace
             ? {
                 workspace_hint: `This claim lives in workspace ${resolved.workspaceId}, not the currently active one.`,
