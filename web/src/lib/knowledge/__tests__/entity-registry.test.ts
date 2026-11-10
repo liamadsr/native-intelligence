@@ -305,6 +305,7 @@ describe('one-entry addition', () => {
     label: { table: 'widgets', columns: 'name', render: (r) => String(r.name ?? '') },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: false,
     anchor: {

@@ -9,6 +9,8 @@
  *     non-entity cache kind, `entity_link`;
  *   - the realtime table map (src/hooks/use-realtime-entities.ts) is every
  *     entry with `realtime: true`;
+ *   - the activity log's kinds (`ACTIVITY_ENTITY_TYPES`, migration 488's
+ *     triggers, the feed) are every entry with `activity: true`;
  *   - detail-page siblings, proposed-change targets and the composer's
  *     search kinds are `EntityType` subsets;
  *   - how each kind is opened and acted on (the one entity actions menu) is
@@ -102,6 +104,19 @@ export interface EntityTypeDescriptor {
   /** Valid as an `entity_link` endpoint / `link_entities` argument. */
   readonly linkable: boolean
   /**
+   * The activity log records this kind: its rows are `entity_activity`
+   * entities, written by Postgres triggers on its table (migration 488), so
+   * every writer (the app, agents, MCP, cron, service role) is covered. Read
+   * through the one cross-kind feed (GET /api/account/feed: the Inbox, Recent,
+   * a record's History). True requires a trigger pair on `table` in the
+   * migration, and the kind in its `kinds` list. False for kinds too churny
+   * to log (mail, calendar syncs, claims), for kinds outside the product's
+   * lists, and for kinds whose activity is another kind's (a comment is
+   * 'commented' on what it's on). team_chat_message logs its member
+   * @-mentions only: a chat is its own log.
+   */
+  readonly activity: boolean
+  /**
    * A claim may cite this type: provenance mirrors into `claim_source` AND
    * `entity_link`. Superset of `sourceable` — `project`/`contact`/`action` are
    * citable via the links[] cross-populate path only.
@@ -168,6 +183,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'document', columns: 'title', render: (r) => str(r.title) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: true,
   },
@@ -178,6 +194,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'claim', columns: 'text', render: (r) => str(r.text).slice(0, 140) },
     realtime: true,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -188,6 +205,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'captures', columns: 'title', render: (r) => str(r.title) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: true,
   },
@@ -198,6 +216,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'contact', columns: 'full_name', render: (r) => str(r.full_name) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: false,
     // Contact anchoring already works through the `committed_to` relation; the
@@ -217,6 +236,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'projects', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: false,
     anchor: {
@@ -233,6 +253,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'actions', columns: 'title', render: (r) => str(r.title) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: false,
   },
@@ -243,6 +264,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'initiative', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: false,
     sourceable: false,
   },
@@ -254,6 +276,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'cycle', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -266,6 +289,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'email_thread_index', columns: 'from_email', render: (r) => str(r.from_email) },
     realtime: false,
     linkable: true,
+    activity: false,
     // Dial8 doesn't learn from mail (2026-10-15, migration 341): a claim may
     // never cite an email, so no claim_source row, no mirrored cites edge, no
     // `create_claim` source. Kept linkable so a work item's declared resources
@@ -281,6 +305,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'attachments', columns: 'file_name', render: (r) => str(r.file_name) },
     realtime: false,
     linkable: true,
+    activity: false,
     citable: true,
     sourceable: true,
   },
@@ -291,6 +316,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'member', columns: 'display_name', render: (r) => str(r.display_name) },
     realtime: true,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -301,6 +327,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'chat_conversations', columns: 'title', render: (r) => str(r.title) },
     realtime: false,
     linkable: true,
+    activity: false,
     citable: true,
     sourceable: true,
   },
@@ -311,6 +338,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'company', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: true,
     sourceable: false,
     anchor: {
@@ -329,6 +357,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'campaign', columns: 'name', render: (r) => str(r.name) },
     realtime: false,
     linkable: true,
+    activity: false,
     citable: true,
     sourceable: false,
     anchor: {
@@ -348,6 +377,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'milestone', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -365,6 +395,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'deal', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: false,
     sourceable: false,
   },
@@ -375,6 +406,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'flow', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: true,
+    activity: true,
     citable: false,
     sourceable: false,
   },
@@ -398,6 +430,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'local_calendar_event', columns: 'title', render: (r) => str(r.title) },
     realtime: true,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -409,6 +442,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'decision', columns: 'content', render: (r) => str(r.content).slice(0, 140) },
     realtime: true,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -420,6 +454,7 @@ export const ENTITY_REGISTRY = [
     // Team chat runs its own channel (src/lib/team-chat), not the shared one.
     realtime: false,
     linkable: true,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -430,6 +465,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'team_chat_message', columns: 'body', render: (r) => str(r.body).slice(0, 140) },
     realtime: false,
     linkable: true,
+    activity: true,
     citable: false,
     sourceable: false,
   },
@@ -444,6 +480,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'comment', columns: 'body', render: (r) => str(r.body).slice(0, 140) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -454,6 +491,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'label', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -465,6 +503,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'workflow_state', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -475,6 +514,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'team', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -485,6 +525,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'recipe', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -496,6 +537,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'flow_run', columns: 'status', render: (r) => str(r.status) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -506,6 +548,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'email_draft', columns: 'subject', render: (r) => str(r.subject) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -516,6 +559,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'contact_interaction', columns: 'title', render: (r) => str(r.title) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -526,6 +570,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'agent_run', columns: 'task_prompt', render: (r) => str(r.task_prompt).slice(0, 140) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -537,6 +582,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'capture_participant', columns: 'external_name', render: (r) => str(r.external_name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -547,6 +593,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'sequence', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -557,6 +604,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'sequence_enrollment', columns: 'contact_email', render: (r) => str(r.contact_email) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -568,6 +616,7 @@ export const ENTITY_REGISTRY = [
     // Not in the supabase_realtime publication.
     realtime: false,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -578,6 +627,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'prospect_list_entry', columns: 'candidate_key', render: (r) => str(r.candidate_key) },
     realtime: false,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -588,6 +638,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'eval_suite', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -598,6 +649,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'eval_case', columns: 'name', render: (r) => str(r.name) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -608,6 +660,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'eval_run', columns: 'status', render: (r) => str(r.status) },
     realtime: true,
     linkable: false,
+    activity: false,
     citable: false,
     sourceable: false,
   },
@@ -648,6 +701,14 @@ const idsWhere = (pred: (e: EntityTypeDescriptor) => boolean) =>
 /** Every type valid as an `entity_link` endpoint. */
 export const LINKABLE_ENTITY_TYPES = idsWhere((e) => e.linkable)
 export type LinkableEntityType = (typeof LINKABLE_ENTITY_TYPES)[number]
+
+/** Every kind the activity log records (entity_activity.entity_type), in registry order. */
+export const ACTIVITY_ENTITY_TYPES = idsWhere((e) => e.activity)
+export type ActivityEntityType = (typeof ACTIVITY_ENTITY_TYPES)[number]
+
+export function isActivityEntityType(type: unknown): type is ActivityEntityType {
+  return typeof type === 'string' && (ACTIVITY_ENTITY_TYPES as readonly string[]).includes(type)
+}
 
 /** Types accepted directly in `create_claim`'s `sources[].source_type`. */
 export const SOURCE_ENTITY_TYPES = idsWhere((e) => e.sourceable)
