@@ -229,7 +229,8 @@ MUST_MATCH = [
     "SLACK_SIGNING_SECRET", "STRIPE_SECRET_KEY", "TWILIO_AUTH_TOKEN",
 ]
 app = read_env(target)
-empty = [k for k in app if not app[k] and k != "NI_LIVE"]
+# Switches that are off when empty, not settings that are missing.
+empty = [k for k in app if not app[k] and k not in ("NI_LIVE", "NI_FORWARD_OLD_DOMAIN")]
 print()
 print("Still empty, and must be the value the earlier host has:")
 print("   " + (" ".join(k for k in MUST_MATCH if k in empty) or "none"))

@@ -5,9 +5,28 @@ import { NextResponse, type NextRequest } from 'next/server'
 import type { User } from '@supabase/supabase-js'
 import { hasAdminAssurance, isAuthorizedAdmin } from '@/lib/admin'
 import { isDeviceToken, resolveDeviceToken } from '@/lib/device-tokens'
+import { OLD_DOMAIN_FORWARD_SETTING, oldDomainForward } from '@/lib/old-domain-forward'
+
+/** Reasons the forward could not run although its setting asks for it, each logged once. */
+const forwardBlockedLogged = new Set<string>()
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  // People who open a page on the old domain go to the current one, when
+  // NI_FORWARD_OLD_DOMAIN asks for it (src/lib/old-domain-forward.ts). First,
+  // so an admin or account page moves before anything reads its session.
+  const forward = oldDomainForward(request)
+  if (forward.forward) {
+    const response = NextResponse.redirect(forward.location, forward.status)
+    // A temporary forward must stay one: no cache may keep it.
+    if (forward.status === 307) response.headers.set('Cache-Control', 'private, no-store')
+    return response
+  }
+  if (forward.blocked && !forwardBlockedLogged.has(forward.reason)) {
+    forwardBlockedLogged.add(forward.reason)
+    console.warn(`[old-domain-forward] ${OLD_DOMAIN_FORWARD_SETTING} is set, but ${forward.reason}: not forwarding`)
+  }
 
   // Don't protect public auth pages
   if (
@@ -119,5 +138,20 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/api/admin/:path*', '/account/:path*', '/api/account/:path*'],
+  matcher: [
+    '/admin/:path*',
+    '/api/admin/:path*',
+    '/account/:path*',
+    '/api/account/:path*',
+    // The old domain's page loads, for the forward (src/lib/old-domain-forward.ts,
+    // which decides; this only keeps the proxy from running for anything else):
+    // dial8.ai or www.dial8.ai, and not _next, api, eve, the analytics rewrite or
+    // a file. A literal, because Next reads it at build time; a test pins it to
+    // FORWARD_FROM_DOMAINS.
+    {
+      source:
+        '/((?!_|api(?:/|$)|eve(?:/|$)|ingest(?:/|$)|.*\\.(?:avif|css|gif|ico|jpe?g|js|json|map|mjs|mp3|mp4|onnx|pdf|png|svg|ttf|txt|wasm|wav|webm|webmanifest|webp|woff2?|xml)$).*)',
+      has: [{ type: 'host', value: '(?:www\\.)?dial8\\.ai' }],
+    },
+  ],
 }
