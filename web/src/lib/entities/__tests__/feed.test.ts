@@ -223,7 +223,7 @@ describe('parseFeedQuery', () => {
   })
 
   it('refuses what it can’t read', () => {
-    for (const q of [
+    for (const q of <Array<Record<string, string>>>[
       { kinds: 'email' },
       { kinds: 'claim' },
       { assigned_to: 'maya' },

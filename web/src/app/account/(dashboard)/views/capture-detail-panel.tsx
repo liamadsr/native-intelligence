@@ -65,6 +65,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import dynamic from 'next/dynamic'
 import { usePanelSection } from './use-panel-section'
 import { ShareDialog } from '../components/share-dialog'
@@ -3752,6 +3753,7 @@ export function CaptureDetailPanel({
                         )}
 
                         <ReferencedIn entityType="capture" entityId={captureId} />
+                        <RecordHistory entityType="capture" entityId={captureId} />
 
                         {/* Inline comment popover is rendered at root level */}
                       </div>

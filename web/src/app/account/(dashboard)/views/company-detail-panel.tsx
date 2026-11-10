@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import { ContentTransition } from './transitions'
 import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { EntityTitleInput } from '@/components/views/entity-title-input'
@@ -607,6 +608,7 @@ export function CompanyDetailPanel({
                         onViewDetails={() => setActiveTab('details')}
                       />
                       <ReferencedIn entityType="company" entityId={companyId} />
+                      <RecordHistory entityType="company" entityId={companyId} />
                     </div>
                   </WindowProperties>
           </div>

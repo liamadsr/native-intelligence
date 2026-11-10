@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import { useCurrentMemberId } from '@/app/account/workspace-switcher'
 import { ContentTransition } from './transitions'
 import { NoteEditor } from './note-editor-lazy'
@@ -1148,6 +1149,7 @@ export function ContactDetailPanel({
                         onViewDetails={() => setActiveTab('details')}
                       />
                       <ReferencedIn entityType="contact" entityId={contactId} />
+                      <RecordHistory entityType="contact" entityId={contactId} />
                     </div>
                   </WindowProperties>
           </div>

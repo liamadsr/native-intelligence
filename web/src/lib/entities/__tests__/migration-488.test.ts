@@ -23,7 +23,7 @@ const triggersOn = (event: 'insert' | 'update') =>
 
 describe('migration 488: the activity log', () => {
   it('logs exactly the kinds the registry marks activity (plus comments and edges, which log onto them)', () => {
-    const tableOf = new Map(ENTITY_REGISTRY.map((e) => [e.table, e.id as string]))
+    const tableOf = new Map<string, string>(ENTITY_REGISTRY.map((e) => [e.table, e.id]))
     const inserted = triggersOn('insert').map((t) => tableOf.get(t) ?? t)
     expect(new Set(inserted)).toEqual(new Set([...ACTIVITY_ENTITY_TYPES, 'comment', 'entity_link']))
     // Every activity kind logs its updates too (team chat: only a new @-mention).
