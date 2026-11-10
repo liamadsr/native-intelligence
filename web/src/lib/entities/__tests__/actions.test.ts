@@ -199,6 +199,23 @@ describe('share to a channel', () => {
     expect(calls[1]).toMatchObject({ url: '/api/account/team-chat/messages/msg-1', method: 'DELETE' })
   })
 
+  it('marks the post as a share, and when it opened the record to the channel says so; Undo takes back the grant and the message', async () => {
+    replies.push({
+      status: 201,
+      body: { message: { id: 'msg-2' }, shared: [{ grant_id: 'g-1', type: 'document', id: 'doc-1', label: 'Q4 renewals plan' }], shared_with: '#sales' },
+    })
+    expect(await shareEntityToChannel(DOC, { id: 'ch-1', name: 'sales', kind: 'channel' }, deps)).toBe(true)
+    expect((calls[0].body as { share?: unknown }).share).toBe(true)
+    expect(toasts[0].message).toBe('Shared “Q4 renewals plan” with #sales')
+    toasts[0].undo!()
+    await settle()
+    expect(calls.slice(1).map((c) => `${c.method} ${c.url}`).sort()).toEqual([
+      'DELETE /api/account/entity-access/g-1',
+      'DELETE /api/account/team-chat/messages/msg-2',
+    ])
+    expect(toasts.filter((t) => t.kind === 'error')).toEqual([])
+  })
+
   it("keeps the label the mention keeps (whitespace folded, capped)", () => {
     expect(shareMentionLabel('  Q4\n renewals  ')).toBe('Q4 renewals')
     expect(shareMentionLabel('x'.repeat(300))).toHaveLength(120)
