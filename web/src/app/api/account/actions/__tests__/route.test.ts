@@ -78,6 +78,16 @@ function makeFakeSupabase() {
 // /batch/ request per test.
 vi.mock('@/lib/posthog', () => ({ trackServerEvent: vi.fn() }))
 
+// "Make a task from this" fences its record through the mention fence: the
+// tests say which records the person can see.
+const mentionFence = vi.hoisted(() => ({ visible: [] as Array<{ type: string; id: string }>, calls: 0 }))
+vi.mock('@/lib/entity-links/mentions', () => ({
+  visibleMentionTargets: async (_s: unknown, _scope: unknown, refs: Array<{ type: string; id: string }>) => {
+    mentionFence.calls++
+    return refs.filter((r) => mentionFence.visible.some((v) => v.type === r.type && v.id === r.id))
+  },
+}))
+
 vi.mock('@/lib/api-auth', () => ({
   requireWorkspace: hoisted.requireWorkspace,
   requireWorkspaceMember: hoisted.requireWorkspace,
@@ -524,5 +534,61 @@ describe('POST /api/account/actions', () => {
     expect(hoisted.actionsInsert).toHaveBeenCalledWith(
       expect.objectContaining({ priority: 'none' }),
     )
+  })
+
+  describe('about (make a task from this)', () => {
+    const DOC = '0f8fad5b-d9cb-469f-a165-70867728950e'
+    let linkUpserts: unknown[]
+    beforeEach(() => {
+      mentionFence.visible = []
+      mentionFence.calls = 0
+      linkUpserts = []
+      seedHappyPath()
+      hoisted.fromHandlers.set('entity_link', {
+        upsert: (row: unknown) => {
+          linkUpserts.push(row)
+          return Promise.resolve({ error: null })
+        },
+      })
+    })
+
+    it('links the new task to a record the person can see, about it', async () => {
+      mentionFence.visible = [{ type: 'document', id: DOC }]
+      const res = await POST(actionReq({ title: 'Follow up: Q4 renewals plan', about: { type: 'document', id: DOC } }))
+      expect(res.status).toBe(200)
+      expect(await readJson<{ about_linked: boolean }>(res)).toMatchObject({ about_linked: true })
+      expect(linkUpserts).toEqual([
+        expect.objectContaining({
+          workspace_id: 'workspace-1',
+          source_type: 'action',
+          source_id: 'action-1',
+          target_type: 'document',
+          target_id: DOC,
+          relation: 'about',
+          created_by: 'member-1',
+        }),
+      ])
+    })
+
+    it('makes no task about a record the person cannot see', async () => {
+      const res = await POST(actionReq({ title: 'Follow up', about: { type: 'document', id: DOC } }))
+      expect(res.status).toBe(400)
+      expect(mentionFence.calls).toBe(1)
+      expect(hoisted.actionsInsert).not.toHaveBeenCalled()
+      expect(linkUpserts).toEqual([])
+    })
+
+    it('refuses a kind no task is made from, before any read', async () => {
+      const res = await POST(actionReq({ title: 'Follow up', about: { type: 'claim', id: DOC } }))
+      expect(res.status).toBe(400)
+      expect(mentionFence.calls).toBe(0)
+      expect(hoisted.actionsInsert).not.toHaveBeenCalled()
+    })
+
+    it('writes no edge and says nothing of one when there is no about', async () => {
+      const res = await POST(actionReq({ title: 'Plain task' }))
+      expect(await readJson<Record<string, unknown>>(res)).not.toHaveProperty('about_linked')
+      expect(linkUpserts).toEqual([])
+    })
   })
 })

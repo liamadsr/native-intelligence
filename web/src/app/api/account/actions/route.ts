@@ -8,6 +8,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { ACTION_LIST_SELECT } from '@/lib/views/action-list-select'
 import { OPEN_WORK_ASSIGNEE_EMBED } from '@/lib/actions/open-work'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
+import { canMakeTaskAbout, linkTaskAbout, parseTaskAbout } from '@/lib/entities/task-about'
 
 export async function GET(request: NextRequest) {
   const auth = await requireWorkspaceMember()
@@ -302,6 +303,14 @@ export async function POST(request: NextRequest) {
     return badRequest('Title is required')
   }
 
+  // "Make a task from this": the record the task is about, fenced for the
+  // person before anything is written (src/lib/entities/task-about.ts).
+  const about = parseTaskAbout((body as { about?: unknown }).about)
+  if (about === 'invalid') return badRequest('about must name a record a task can be about')
+  if (about && !(await canMakeTaskAbout(supabase, { workspaceId, userId: user.id }, about))) {
+    return badRequest('about must be a record you can see in this workspace')
+  }
+
   // Resolve team_id
   let resolvedTeamId = team_id
   if (!resolvedTeamId) {
@@ -481,6 +490,10 @@ export async function POST(request: NextRequest) {
     assigneesResult = (memberData || []) as { id: string; display_name: string; avatar_url: string | null }[]
   }
 
+  const aboutLinked = about
+    ? await linkTaskAbout(supabase, { workspaceId, actionId: data.id, ref: about, memberId: member?.id ?? null })
+    : false
+
   trackServerEvent('action_created', { userId: user.id, workspaceId, email: user.email }, {
     action_id: data.id,
     // A confirmed action created from a capture vs a manual quick-add — the
@@ -534,5 +547,5 @@ export async function POST(request: NextRequest) {
     labels: [],
   }
 
-  return NextResponse.json({ action: result })
+  return NextResponse.json({ action: result, ...(about ? { about_linked: aboutLinked } : {}) })
 }
