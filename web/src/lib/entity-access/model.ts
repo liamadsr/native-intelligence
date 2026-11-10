@@ -11,8 +11,8 @@
  * none of whose contacts they can see). View only, for now.
  */
 
-/** The kinds a grant can open: the four with a per-record read rule that can be shared. */
-export const GRANTABLE_TYPES = ['document', 'capture', 'contact', 'company'] as const
+/** The kinds a grant can open: those with a per-record read rule that can be shared (a private table, migration 520). */
+export const GRANTABLE_TYPES = ['document', 'capture', 'contact', 'company', 'data_table'] as const
 export type GrantableType = (typeof GRANTABLE_TYPES)[number]
 
 export function isGrantableType(type: unknown): type is GrantableType {

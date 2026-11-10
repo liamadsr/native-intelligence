@@ -133,8 +133,8 @@ describe('registry self-consistency', () => {
     expect(LINKABLE_ENTITY_TYPES).toContain('campaign')
   })
 
-  it('links the kinds the shared entity layer added, after every older one', () => {
-    const added = ['deal', 'flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message']
+  it('links the kinds the shared entity layer added, then the tables, after every older one', () => {
+    const added = ['deal', 'flow', 'calendar_event', 'decision', 'team_chat_channel', 'team_chat_message', 'data_table', 'data_row']
     expect(LINKABLE_ENTITY_TYPES.slice(-added.length)).toEqual(added)
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
@@ -144,7 +144,7 @@ describe('registry self-consistency', () => {
     // Private to a person or a channel, or without a workspace_id: the graph's
     // workspace_id fence alone would leak them (see the registry comment), so
     // every linkable private kind must be one entity-fences.ts fences.
-    for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision']) {
+    for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row']) {
       expect(LINKABLE_ENTITY_TYPES as readonly string[], id).toContain(id)
       expect(PRIVATE_GRAPH_KINDS as readonly string[], id).toContain(id)
     }

@@ -21,6 +21,10 @@ import { ACTIVITY_ENTITY_TYPES, ENTITY_REGISTRY } from '@/lib/knowledge/entity-r
 
 const sql = readFileSync(join(process.cwd(), 'supabase/migrations/488_entity_activity.sql'), 'utf8')
 
+/** The kinds a later migration logs: tables and their rows (521, ./migration-521.test.ts). */
+const LATER = new Set<string>(['data_table', 'data_row'])
+const KINDS_488 = ACTIVITY_ENTITY_TYPES.filter((k) => !LATER.has(k))
+
 const triggersOn = (event: 'insert' | 'update') =>
   [...sql.matchAll(new RegExp(`create trigger entity_activity_${event}\\s+after ${event}[^;]*? on public\\.([a-z_]+)`, 'g'))].map((m) => m[1])
 
@@ -28,15 +32,15 @@ describe('migration 488: the activity log', () => {
   it('logs exactly the kinds the registry marks activity (plus comments and edges, which log onto them)', () => {
     const tableOf = new Map<string, string>(ENTITY_REGISTRY.map((e) => [e.table, e.id]))
     const inserted = triggersOn('insert').map((t) => tableOf.get(t) ?? t)
-    expect(new Set(inserted)).toEqual(new Set([...ACTIVITY_ENTITY_TYPES, 'comment', 'entity_link']))
+    expect(new Set(inserted)).toEqual(new Set([...KINDS_488, 'comment', 'entity_link']))
     // Every activity kind logs its updates too (team chat: only a new @-mention).
     const updated = triggersOn('update').map((t) => tableOf.get(t) ?? t)
-    expect(new Set(updated)).toEqual(new Set(ACTIVITY_ENTITY_TYPES))
+    expect(new Set(updated)).toEqual(new Set(KINDS_488))
   })
 
   it('names the same kinds in the edge trigger’s list', () => {
     const list = /kinds text\[\] := array\[([^\]]+)\]/.exec(sql)?.[1] ?? ''
-    expect(new Set(list.split(',').map((s) => s.trim().replace(/'/g, '')))).toEqual(new Set(ACTIVITY_ENTITY_TYPES))
+    expect(new Set(list.split(',').map((s) => s.trim().replace(/'/g, '')))).toEqual(new Set(KINDS_488))
   })
 
   it('logs an insert once per statement, from the transition table', () => {

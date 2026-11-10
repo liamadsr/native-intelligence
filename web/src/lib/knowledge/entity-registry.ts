@@ -502,6 +502,39 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
 
+  // ── Tables (2026-11-10, migrations 520 and 521): a workspace's own databases
+  // and their rows. Private-capable (a private table is its owner's and its
+  // grantees'), so both are fenced in src/lib/knowledge/entity-fences.ts; a
+  // row follows its table. Not customFields: a row's values ARE the table's
+  // columns (custom_field_definition rows with a table_id, entity_type
+  // 'data_row'), written only through apply_data_ops so every change is in
+  // the table's undo log, never through set_custom_fields. Only the table is
+  // realtime: every write batch bumps its version, one event per batch.
+  {
+    id: 'data_table',
+    table: 'data_table',
+    workspaceScoped: { kind: 'column', table: 'data_table' },
+    label: { table: 'data_table', columns: 'name', render: (r) => str(r.name) },
+    realtime: true,
+    linkable: true,
+    activity: true,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+  {
+    id: 'data_row',
+    table: 'data_row',
+    workspaceScoped: { kind: 'column', table: 'data_row' },
+    label: { table: 'data_row', columns: 'title', render: (r) => str(r.title).slice(0, 140) || 'Untitled' },
+    realtime: false,
+    linkable: true,
+    activity: true,
+    customFields: false,
+    citable: false,
+    sourceable: false,
+  },
+
   // ── Kinds outside the knowledge graph: registered so every other vocabulary
   // (the entity event bus, realtime, menus) derives from this one list.
   {

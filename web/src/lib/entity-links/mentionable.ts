@@ -27,6 +27,8 @@ export const MENTIONABLE_TYPES = [
   'decision',
   'team_chat_channel',
   'team_chat_message',
+  'data_table',
+  'data_row',
 ] as const satisfies readonly EntityTypeSubset<LinkableEntityType>[]
 export type MentionableType = (typeof MENTIONABLE_TYPES)[number]
 

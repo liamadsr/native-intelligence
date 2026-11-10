@@ -208,6 +208,26 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
     share: false,
     makeTask: true,
   },
+  // Tables, phase 1: the Tables page opens from `/`; a card for one table or
+  // one row arrives with the agent's tools (phase 5), and with it Open, Copy
+  // link and Share.
+  data_table: {
+    open: null,
+    link: false,
+    rename: { route: 'tables', field: 'name' },
+    archive: { kind: 'none', why: 'A table is archived on the Tables page, where its undo is.' },
+    share: false,
+    makeTask: true,
+  },
+  data_row: {
+    open: null,
+    link: false,
+    // A row's name is its title, edited in its table (one batch, in its undo log).
+    rename: null,
+    archive: { kind: 'none', why: 'A row is archived in its table, where its undo is.' },
+    share: false,
+    makeTask: true,
+  },
   sequence: {
     open: 'sequence',
     link: true,

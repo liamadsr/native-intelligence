@@ -59,8 +59,10 @@ describe('migration 408: the engine review’s fixes', () => {
     expect(MIGRATIONS.filter((m) => m.num === 408)).toHaveLength(1)
     expect(FILE.sql).not.toMatch(/DRAFT/)
     for (const fn of ['_wsmerge_assert_no_refs', ...REPLACED]) {
-      // 473 (deals) redefines _wsmerge_teams_finish, unchanged but for the legacy deal guard.
-      const allowed = fn === '_wsmerge_teams_finish' ? ['408_merge_workspaces_review_fixes.sql', '473_deals_pipelines_custom_fields.sql'] : ['408_merge_workspaces_review_fixes.sql']
+      // 473 (deals) redefines _wsmerge_teams_finish, unchanged but for the legacy deal guard;
+      // 520 (tables) redefines _wsmerge_members, unchanged but for three more pointers.
+      const later: Record<string, string> = { _wsmerge_teams_finish: '473_deals_pipelines_custom_fields.sql', _wsmerge_members: '520_data_tables.sql' }
+      const allowed = ['408_merge_workspaces_review_fixes.sql', ...(later[fn] ? [later[fn]] : [])]
       expect(allowed, fn).toContain(newest(fn).file)
     }
   })

@@ -3,18 +3,22 @@ import { inChunks } from '@/lib/supabase/paging'
 
 /**
  * FENCES FOR THE PRIVATE GRAPH KINDS: calendar events, team-chat channels and
- * messages, and capture decisions.
+ * messages, capture decisions, and tables and their rows.
  *
  * The knowledge graph's own fence is `entity_link.workspace_id` (and, for the
  * indirect kinds, a parent's workspace). That is enough for a kind every
- * workspace member may read, and too weak for these four:
+ * workspace member may read, and too weak for these:
  *   - calendar_event:    its owner's alone (RLS `auth.uid() = user_id`);
  *   - team_chat_channel: a team channel is its team's, a DM its two members'
  *                        (`team_chat_can_read`, migration 474);
  *   - team_chat_message: whoever may read its channel;
  *   - decision:          no workspace_id; readable through its capture: a
  *                        workspace capture's, the capture owner's, or anyone's
- *                        once confirmed (the decision table's RLS).
+ *                        once confirmed (the decision table's RLS);
+ *   - data_table:        a workspace table to every member, a private one to
+ *                        its owner and its grantees (data_table_visible_to,
+ *                        migration 520);
+ *   - data_row:          whoever may read its table.
  *
  * The graph code that reads them may run on a SERVICE-ROLE client (the eve tool
  * routes, unattended runs), where RLS hides nothing and `auth.uid()` is NULL,
@@ -28,11 +32,12 @@ import { inChunks } from '@/lib/supabase/paging'
  *
  * The SQL rules these mirror: 474's team_chat_can_read, the
  * local_calendar_event and decision policies (the decision one with 493's
- * grant arm). Change one, change its fence.
+ * grant arm). Change one, change its fence. The table fences ask the
+ * database's own rule (visible_data_table_ids, 520) in one call for every id.
  */
 
 /** The graph kinds whose rows only some members may read. */
-export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision'] as const
+export const PRIVATE_GRAPH_KINDS = ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row'] as const
 export type PrivateGraphKind = (typeof PRIVATE_GRAPH_KINDS)[number]
 
 export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
@@ -222,11 +227,54 @@ const decisionFence: Fence = async (supabase, userId, ids, workspaceId) => {
   return out
 }
 
+/**
+ * A table: data_table_visible_to for the user, through 520's batched form
+ * (one call, however many ids). On a session client the function answers
+ * only for the caller themself, so another user's question comes back empty.
+ */
+const dataTableFence: Fence = async (supabase, userId, ids, workspaceId) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const out = new Set<string>()
+  for (let i = 0; i < wanted.length; i += ID_CHUNK) {
+    const { data, error } = await supabase.rpc('visible_data_table_ids', { p_ids: wanted.slice(i, i + ID_CHUNK), p_user_id: userId })
+    if (error) {
+      console.warn('[entity-fences] read failed:', error.message)
+      return new Set()
+    }
+    for (const id of (Array.isArray(data) ? data : []) as unknown[]) if (typeof id === 'string') out.add(id)
+  }
+  if (!workspaceId || out.size === 0) return out
+  const rows = await rowsByIds([...out], (c) => supabase.from('data_table').select('id').eq('workspace_id', workspaceId).in('id', c))
+  return new Set((rows ?? []).map((r) => r.id as string))
+}
+
+/** A row is readable by whoever may read its table. */
+const dataRowFence: Fence = async (supabase, userId, ids, workspaceId) => {
+  const wanted = uniq(ids)
+  if (!userId || wanted.length === 0) return new Set()
+  const rows = await rowsByIds(wanted, (c) => {
+    let q = supabase.from('data_row').select('id, table_id').in('id', c)
+    if (workspaceId) q = q.eq('workspace_id', workspaceId)
+    return q
+  })
+  if (!rows || rows.length === 0) return new Set()
+  const readable = await dataTableFence(
+    supabase,
+    userId,
+    rows.map((r) => r.table_id as string),
+    workspaceId,
+  )
+  return new Set(rows.filter((r) => readable.has(r.table_id as string)).map((r) => r.id as string))
+}
+
 const FENCES: Record<PrivateGraphKind, Fence> = {
   calendar_event: calendarEventFence,
   team_chat_channel: teamChatChannelFence,
   team_chat_message: teamChatMessageFence,
   decision: decisionFence,
+  data_table: dataTableFence,
+  data_row: dataRowFence,
 }
 
 /**
@@ -284,4 +332,6 @@ export const PRIVATE_KIND_LABEL: Record<PrivateGraphKind, string> = {
   team_chat_channel: 'Channel (private)',
   team_chat_message: 'Message (private)',
   decision: 'Decision (private)',
+  data_table: 'Table (private)',
+  data_row: 'Row (private)',
 }

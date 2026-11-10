@@ -197,7 +197,9 @@ export async function listCustomFieldDefinitions(
   if (entityType) q = q.eq('entity_type', entityType)
   const { data, error } = await q.order('position', { ascending: true }).order('created_at', { ascending: true })
   if (error) throw new Error(error.message)
-  return (data ?? []) as CustomFieldDefinition[]
+  // A table's columns share this table (entity_type 'data_row', migration 520)
+  // but are the table's own (src/lib/tables): never a workspace's field.
+  return ((data ?? []) as CustomFieldDefinition[]).filter((d) => isCustomFieldEntity(d.entity_type))
 }
 
 export interface DefineCustomFieldInput {
