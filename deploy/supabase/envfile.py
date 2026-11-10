@@ -144,13 +144,18 @@ def main():
     warnings.simplefilter("error", getpass.GetPassWarning)
     new = {}
     for name, pattern in asks:
-        label = "%s, the password that goes into it" % name if pattern else name
+        label = "The PASSWORD ONLY, to go into %s" % name if pattern else name
         try:
             value = getpass.getpass("%s (hidden as you paste, then Enter): " % label).strip()
         except getpass.GetPassWarning:
             die("this terminal cannot hide what is typed; nothing was changed.")
         if not value:
             die("%s was left empty; nothing was changed." % name)
+        # The pattern already holds the address. An address pasted where the
+        # password belongs would be accepted, encoded, and fail much later
+        # with a message about the wrong thing.
+        if pattern and ("://" in value or value.startswith("[")):
+            die("%s: that looks like an address or a placeholder, not a password. Only the password goes here; nothing was changed." % name)
         print("   %s: %d characters" % (name, len(value)))
         # In a connection string the characters @ : / ? # and the like would
         # be read as part of the address, so every one of them is encoded.
