@@ -765,8 +765,10 @@ begin
     end if;
   end if;
 
-  -- The activity log reads the source (521: an import logs no row creations).
+  -- The activity log reads the source (521: an import logs no row creations),
+  -- and this batch makes no new table.
   perform set_config('dial8.data_source', p_source, true);
+  perform set_config('dial8.data_new_table', '', true);
   v_result := public._data_apply(t.id, v_user, v_member, p_ops);
 
   if jsonb_array_length(v_result -> 'changes') = 0 then
@@ -839,6 +841,9 @@ begin
   returning id into v_table;
 
   perform set_config('dial8.data_source', p_source, true);
+  -- Its first rows are part of making it: the activity log says the table was
+  -- made, not each blank row (521).
+  perform set_config('dial8.data_new_table', v_table::text, true);
   v_result := public._data_apply(v_table, v_user, v_member, coalesce(p_ops, '[]'::jsonb));
 
   insert into public.data_change (workspace_id, table_id, version, actor_user_id, actor_member_id, source, changes)

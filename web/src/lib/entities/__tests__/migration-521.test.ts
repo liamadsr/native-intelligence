@@ -49,9 +49,12 @@ describe('migration 521: tables and rows in the activity log', () => {
     }
   })
 
-  it('logs no creation for an import’s rows, and a row’s values through 497’s function', () => {
+  it('logs no creation for an import’s rows or a new table’s first rows, and a row’s values through 497’s function', () => {
     const insert = fns.find((f) => f.name === 'entity_activity_data_row_insert')!.body
     expect(insert).toContain("if coalesce(current_setting('dial8.data_source', true), '') = 'import' then")
+    // Nor a new table's first rows: the table's own 'created' says it (520 sets the table).
+    expect(insert).toContain("and n.table_id::text is distinct from nullif(current_setting('dial8.data_new_table', true), '');")
+    expect(all.find((m) => m.file.startsWith('520_'))!.sql).toContain("perform set_config('dial8.data_new_table', v_table::text, true);")
     expect(sql).toMatch(/create trigger entity_activity_custom_fields\s+after update of custom_fields on public\.data_row\s+for each row\s+when \(old\.custom_fields is distinct from new\.custom_fields\)\s+execute function public\.entity_activity_custom_fields_update\('data_row'\);/)
   })
 

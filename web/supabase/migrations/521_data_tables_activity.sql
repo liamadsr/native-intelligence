@@ -15,6 +15,8 @@
 -- A row an import made logs no 'created' (apply_data_ops sets
 -- dial8.data_source for its transaction, 520): an import is a thousand rows
 -- nobody needs a line for each of, as 488 leaves out contacts an import made.
+-- Nor do a new table's first rows (create_data_table sets
+-- dial8.data_new_table): the table's own 'created' says it.
 --
 -- The read policy (489) probes the kinds with a per-record rule through their
 -- own table, under the reader's RLS. A table may be private, and a row is
@@ -115,7 +117,8 @@ begin
   select n.workspace_id, 'data_row', n.id, 'created', a.actor_kind, m.id
     from new_rows n
     left join public.member m on m.user_id = a.actor_user_id and m.workspace_id = n.workspace_id
-   where public.entity_activity_writable(n.workspace_id);
+   where public.entity_activity_writable(n.workspace_id)
+     and n.table_id::text is distinct from nullif(current_setting('dial8.data_new_table', true), '');
   return null;
 end;
 $$;
