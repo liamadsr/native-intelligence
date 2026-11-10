@@ -2,7 +2,7 @@
 /**
  * The fetch stub in src/test/app-fetch-stub.ts. Its one promise is that a suite
  * using it has no request in flight when a test ends: every answer, and every
- * refusal, is settled before the next macrotask.
+ * refusal, is settled before the next timer tick.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { stubAppFetch } from '../app-fetch-stub'
@@ -11,7 +11,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-/** Resolves on the next macrotask: anything the stub left pending is still pending then. */
+/** Resolves on the next timer tick: anything the stub left pending is still pending then. */
 const nextTask = () => new Promise<'timer'>(r => setTimeout(() => r('timer'), 0))
 
 describe('stubAppFetch', () => {
@@ -41,7 +41,7 @@ describe('stubAppFetch', () => {
     await expect(fetch('/api/account/workspace')).rejects.toThrow('fetch failed')
   })
 
-  it('settles both answers and refusals before the next macrotask, body included', async () => {
+  it('settles both answers and refusals before the next timer tick, body included', async () => {
     stubAppFetch({ '/api/account/projects': { projects: [] } })
     const answered = fetch('/api/account/projects').then(r => r.json()).then(() => 'answered')
     const refused = fetch('/api/account/workspace').catch(() => 'refused')
