@@ -10,10 +10,12 @@ FROM postgres:17-alpine
 
 COPY --from=rclone /usr/local/bin/rclone /usr/local/bin/rclone
 COPY bin/ /usr/local/bin/
-COPY crontab /etc/crontabs/root
+# Every job there is. The entrypoint schedules the ones that are configured.
+COPY crontab /etc/backup/crontab
 
 RUN chmod 0755 /usr/local/bin/backup-entrypoint /usr/local/bin/backup-postgres \
-	&& chmod 0600 /etc/crontabs/root \
+		/usr/local/bin/backup-storage /usr/local/bin/restore-supabase-db \
+		/usr/local/bin/restore-supabase-storage \
 	&& rclone version >/dev/null \
 	&& pg_dump --version >/dev/null
 

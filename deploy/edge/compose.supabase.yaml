@@ -1,0 +1,19 @@
+# Added to compose.yaml once the self-hosted Supabase stack exists on this
+# server (../README.md, step 14), by this line in .env:
+#
+#   COMPOSE_FILE=compose.yaml:compose.supabase.yaml
+#
+# It puts Caddy on one more network, shared with the Supabase gateway and
+# with nothing else, where it finds the gateway as ni-supabase-gateway.
+# Without that line this file is not read, and Caddy starts as before on a
+# server that has no Supabase stack.
+services:
+  caddy:
+    networks:
+      - supabase-edge
+
+networks:
+  # Created once by hand (see ../README.md) so neither stack owns it.
+  supabase-edge:
+    name: ni-supabase-edge
+    external: true

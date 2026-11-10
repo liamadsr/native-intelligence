@@ -1,0 +1,58 @@
+# The two Supabase backup jobs. Layered on compose.yaml once the Supabase
+# stack (../supabase) is running on this server, by one line in .env:
+#
+#   COMPOSE_FILE=compose.yaml:compose.supabase.yaml
+#
+# Without that line the container never hears of Supabase and schedules
+# neither job, which is how it runs before Supabase lives here.
+#
+#   supabase           every hour: a dump of the whole database, plus the
+#                      cluster's roles and their settings and the key its
+#                      vault is encrypted with. Kept: the newest 48, and the
+#                      newest of each of the last 30 days.
+#   supabase-storage   every night: every stored file, read through Storage's
+#                      S3 endpoint. A file deleted or replaced since the last
+#                      run is kept for 30 days more. Every file is then read
+#                      back from both sides and compared.
+services:
+  backup:
+    environment:
+      # Job: supabase (the database).
+      # supabase_admin is the superuser of Supabase's Postgres, the one role
+      # that can read every schema. Its password is POSTGRES_PASSWORD.
+      BACKUP_SUPABASE_PGHOST: supabase-db
+      BACKUP_SUPABASE_PGUSER: supabase_admin
+      BACKUP_SUPABASE_PGDATABASE: postgres
+      BACKUP_SUPABASE_PGPASSWORD: ${BACKUP_SUPABASE_PGPASSWORD:?set BACKUP_SUPABASE_PGPASSWORD in .env}
+      BACKUP_SUPABASE_KEEP_HOURLY: ${BACKUP_SUPABASE_KEEP_HOURLY:-48}
+      BACKUP_SUPABASE_KEEP_DAILY: ${BACKUP_SUPABASE_KEEP_DAILY:-30}
+      BACKUP_SUPABASE_ROLES: "true"
+      # The key Postgres encrypts its vault with: a file beside the database
+      # (in the ni-supabase-db-config volume), named here as the database
+      # server sees it. It is read, and on a restore put back, through the
+      # database connection, so no volume is shared with this container.
+      BACKUP_SUPABASE_KEY_FILE: /etc/postgresql-custom/pgsodium_root.key
+      BACKUP_SUPABASE_PING_URL: ${BACKUP_SUPABASE_PING_URL:-}
+
+      # Job: supabase-storage (the files).
+      # Storage only accepts an S3 request signed for the host name in the
+      # stack's SUPABASE_PUBLIC_URL, so that name is used here too, over
+      # plain http inside Docker, and pointed at the gateway by extra_hosts.
+      BACKUP_SUPABASE_STORAGE_S3_ENDPOINT: http://${BACKUP_SUPABASE_STORAGE_HOST:?set BACKUP_SUPABASE_STORAGE_HOST in .env}/storage/v1/s3
+      BACKUP_SUPABASE_STORAGE_S3_REGION: ${BACKUP_SUPABASE_STORAGE_S3_REGION:?set BACKUP_SUPABASE_STORAGE_S3_REGION in .env}
+      BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID: ${BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID:?set BACKUP_SUPABASE_STORAGE_S3_ACCESS_KEY_ID in .env}
+      BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY: ${BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY:?set BACKUP_SUPABASE_STORAGE_S3_SECRET_ACCESS_KEY in .env}
+      BACKUP_SUPABASE_STORAGE_REMOVED_DAYS: ${BACKUP_SUPABASE_STORAGE_REMOVED_DAYS:-30}
+      BACKUP_SUPABASE_STORAGE_VERIFY_EVERY_DAYS: ${BACKUP_SUPABASE_STORAGE_VERIFY_EVERY_DAYS:-1}
+      BACKUP_SUPABASE_STORAGE_PING_URL: ${BACKUP_SUPABASE_STORAGE_PING_URL:-}
+    extra_hosts:
+      # The gateway's fixed address on the Supabase network
+      # (../supabase/compose.override.yaml), port 80: its public listener.
+      - "${BACKUP_SUPABASE_STORAGE_HOST:?set BACKUP_SUPABASE_STORAGE_HOST in .env}:172.31.0.10"
+    networks:
+      - supabase
+
+networks:
+  supabase:
+    name: ni-supabase
+    external: true

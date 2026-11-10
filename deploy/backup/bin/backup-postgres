@@ -12,12 +12,34 @@
 #   BACKUP_<NAME>_PGUSER          role to connect as
 #   BACKUP_<NAME>_PGPASSWORD      its password
 #   BACKUP_<NAME>_PGDATABASE      database to dump
-#   BACKUP_<NAME>_RETENTION_DAYS  delete backups older than this (default 30, 0 = keep all)
 #   BACKUP_<NAME>_PING_URL        requested after a good run (optional)
+#
+# How long backups are kept, one of two ways:
+#   BACKUP_<NAME>_RETENTION_DAYS  delete backups older than this (default 30, 0 = keep all)
+# or, when either of these is set, by count instead:
+#   BACKUP_<NAME>_KEEP_HOURLY     keep this many of the newest backups
+#   BACKUP_<NAME>_KEEP_DAILY      and the newest backup of each of this many days
+#                                 (both 0 = keep all; the newest is never deleted)
+#
+# And for a database whose roles carry settings the dump cannot hold:
+#   BACKUP_<NAME>_ROLES           "true" to also save the cluster's roles and
+#                                 their settings (pg_dumpall --globals-only,
+#                                 without passwords) beside every dump
+#
+# And for a database that encrypts some of its own rows with a key kept in a
+# file outside it (Supabase's vault):
+#   BACKUP_<NAME>_KEY_FILE        that file, as the database server sees it.
+#                                 It is read through the connection
+#                                 (pg_read_file, so the role must be a
+#                                 superuser) and saved beside every dump,
+#                                 encrypted like the dump: without it, a
+#                                 restore on a new server brings the vault's
+#                                 secrets back unreadable.
 #
 # Files land at  <job>/<YYYY>/<MM>/<job>-<UTC timestamp>.dump  inside the
 # `vault:` remote (see backup-entrypoint), which encrypts them and stores them
-# with a .bin suffix.
+# with a .bin suffix. The roles file has the same name ending in .roles.sql,
+# the key file in .vault-key. Retention deletes all three together.
 set -euo pipefail
 
 job="${1:?usage: backup-postgres <job>}"
@@ -40,6 +62,10 @@ PGUSER="$(setting PGUSER)"
 PGPASSWORD="$(setting PGPASSWORD)"
 PGDATABASE="$(setting PGDATABASE)"
 retention_days="$(setting RETENTION_DAYS 30)"
+keep_hourly="$(setting KEEP_HOURLY)"
+keep_daily="$(setting KEEP_DAILY)"
+with_roles="$(setting ROLES false)"
+key_file="$(setting KEY_FILE)"
 ping_url="$(setting PING_URL)"
 export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 export PGCONNECT_TIMEOUT=15
@@ -48,6 +74,7 @@ for required in PGHOST PGUSER PGPASSWORD PGDATABASE; do
 	[ -n "${!required}" ] || die "${prefix}${required} is not set"
 done
 case "$retention_days" in *[!0-9]* | '') die "${prefix}RETENTION_DAYS must be a whole number" ;; esac
+case "$keep_hourly$keep_daily" in *[!0-9]*) die "${prefix}KEEP_HOURLY and ${prefix}KEEP_DAILY must be whole numbers" ;; esac
 
 # One run of a job at a time: an hourly job must not pile up behind a slow one.
 exec 9>"/tmp/backup-${job}.lock"
@@ -55,7 +82,39 @@ flock -n 9 || die "the previous run of this job is still going"
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 object="${job}/$(date -u +%Y/%m)/${job}-${stamp}.dump"
+roles_object="${object%.dump}.roles.sql"
+key_object="${object%.dump}.vault-key"
 started=$SECONDS
+
+# The key first: a dump without its key is the thing this is here to prevent,
+# so a key that cannot be read stops the run before anything is uploaded.
+# It only ever sits in a shell variable: never in a file, never on a command
+# line.
+if [ -n "$key_file" ]; then
+	case "$key_file" in /*) ;; *) die "${prefix}KEY_FILE must be an absolute path on the database server" ;; esac
+	key="$(psql -X -At -v ON_ERROR_STOP=1 -v "f=$key_file" <<'SQL'
+select pg_catalog.pg_read_file(:'f');
+SQL
+	)" || die "could not read the key file ${key_file} from the database server (the role must be a superuser)"
+	key="$(printf '%s' "$key" | tr -d '\r\n')"
+	[[ "$key" =~ ^[0-9a-f]{64}$ ]] || die "${key_file} does not hold a key in the shape expected (64 hexadecimal characters)"
+	log "saving the vault key to vault:${key_object}"
+	printf '%s\n' "$key" | rclone rcat --size-only "vault:${key_object}" || die "could not save the vault key"
+	[ "$(rclone cat "vault:${key_object}" 2>/dev/null | tr -d '\r\n')" = "$key" ] || die "the uploaded vault key did not read back the same"
+	unset key
+fi
+
+# pg_dump writes one database. Roles, and settings stored on a role (a
+# statement_timeout, say), belong to the whole cluster and are not in it.
+if [ "$with_roles" = true ]; then
+	log "saving roles and their settings to vault:${roles_object}"
+	if ! pg_dumpall --globals-only --no-role-passwords --no-password | rclone rcat --size-only "vault:${roles_object}"; then
+		rclone deletefile "vault:${roles_object}" 2>/dev/null || true
+		die "could not save the roles"
+	fi
+	rclone cat --count 200 "vault:${roles_object}" 2>/dev/null | grep -q 'PostgreSQL database cluster dump' \
+		|| die "uploaded roles file did not read back"
+fi
 
 # Straight from pg_dump into the encrypted upload: the plain dump never
 # touches a disk. Custom format: compressed, and pg_restore can pick from it.
@@ -66,6 +125,8 @@ if ! pg_dump --format=custom --no-password | rclone rcat --size-only "vault:${ob
 	# rclone cannot know its input was cut short. Do not leave half a dump
 	# behind looking like a backup.
 	rclone deletefile "vault:${object}" 2>/dev/null || true
+	[ "$with_roles" = true ] && { rclone deletefile "vault:${roles_object}" 2>/dev/null || true; }
+	[ -n "$key_file" ] && { rclone deletefile "vault:${key_object}" 2>/dev/null || true; }
 	die "dump or upload failed"
 fi
 
@@ -79,13 +140,40 @@ fi
 size="$(rclone lsf --format s "vault:${object}")"
 log "uploaded ${size} bytes in $((SECONDS - started))s"
 
-if [ "$retention_days" -gt 0 ]; then
-	# Only ever after a good upload, so the newest backup is never the one
-	# that expires.
+# Only ever after a good upload, so the newest backup is never the one that
+# expires.
+if [ "${keep_hourly:-0}" = 0 ] && [ "${keep_daily:-0}" = 0 ] && [ -n "$keep_hourly$keep_daily" ]; then
+	# Nothing to keep by either count would mean deleting every backup,
+	# this run's included. As with RETENTION_DAYS, 0 means keep everything.
+	log "KEEP_HOURLY and KEEP_DAILY are both 0: keeping every backup"
+elif [ -n "$keep_hourly" ] || [ -n "$keep_daily" ]; then
+	keep_hourly="${keep_hourly:-0}"
+	keep_daily="${keep_daily:-0}"
+	log "keeping the newest ${keep_hourly} backups and the newest of each of ${keep_daily} days"
+	listing="$(rclone lsf --recursive --files-only "vault:${job}/")" || die "could not list backups for retention"
+	# Every backup is known by its timestamp (20261110T074300Z). Newest first:
+	# the first keep_hourly are kept, and so is the first one met on each day
+	# until keep_daily days have been seen. Whatever is left is printed.
+	expired="$(printf '%s\n' "$listing" | grep -oE '[0-9]{8}T[0-9]{6}Z' | sort -ru \
+		| awk -v hourly="$keep_hourly" -v daily="$keep_daily" '
+			{
+				# The newest backup is kept whatever the two numbers say.
+				keep = (NR == 1 || NR <= hourly)
+				day = substr($0, 1, 8)
+				if (!(day in seen)) { seen[day] = 1; if (++days <= daily) keep = 1 }
+				if (!keep) print
+			}')"
+	for old in $expired; do
+		printf '%s\n' "$listing" | grep -F -- "-${old}." | while IFS= read -r path; do
+			rclone deletefile "vault:${job}/${path}" || exit 1
+		done || die "retention failed"
+	done
+	[ -z "$expired" ] || log "deleted $(printf '%s\n' "$expired" | wc -l) expired backup(s)"
+elif [ "$retention_days" -gt 0 ]; then
 	log "deleting backups older than ${retention_days} days"
 	rclone delete --min-age "${retention_days}d" "vault:${job}/" || die "retention failed"
 fi
-log "backups held: $(rclone lsf --recursive --files-only "vault:${job}/" | wc -l)"
+log "backups held: $(rclone lsf --recursive --files-only "vault:${job}/" | grep -c '\.dump$')"
 
 if [ -n "$ping_url" ]; then
 	pinged=false
