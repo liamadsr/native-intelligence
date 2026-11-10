@@ -1,7 +1,27 @@
 import { Inngest } from 'inngest'
 
+/**
+ * `INNGEST_CHECKPOINTING=0` (or `false`, `off`) turns the SDK's checkpointing
+ * off for every function that does not set `checkpointing` itself, without a
+ * code change. Any other value, and unset, leaves the SDK default: on.
+ *
+ * Checkpointing is how SDK v4 runs a function unless told otherwise: the steps
+ * run back to back inside one request, and each finished step is reported to
+ * Inngest (`POST /v1/checkpoint/<run id>/async`) while that request is still
+ * open. Off, Inngest makes one request per step, as v3 did. The switch exists
+ * for the move to a self-hosted Inngest server, where the default path had
+ * never carried this app's functions: if it misbehaves there, set this and
+ * redeploy. The SDK reads a function's own setting first, then the client's.
+ */
+export function checkpointingDisabledByEnv(
+  value: string | undefined = process.env.INNGEST_CHECKPOINTING,
+): boolean {
+  return ['0', 'false', 'off'].includes((value ?? '').trim().toLowerCase())
+}
+
 export const inngest = new Inngest({
-  id: 'dial8',
+  id: 'native-intelligence',
+  ...(checkpointingDisabledByEnv() ? { checkpointing: false as const } : {}),
 })
 
 /**
