@@ -1,9 +1,8 @@
 import { Inngest } from 'inngest'
 
 /**
- * `INNGEST_CHECKPOINTING=0` (or `false`, `off`) turns the SDK's checkpointing
- * off for every function that does not set `checkpointing` itself, without a
- * code change. Any other value, and unset, leaves the SDK default: on.
+ * `INNGEST_CHECKPOINTING=0` turns the SDK's checkpointing off for every
+ * function that does not set `checkpointing` itself, without a code change.
  *
  * Checkpointing is how SDK v4 runs a function unless told otherwise: the steps
  * run back to back inside one request, and each finished step is reported to
@@ -12,16 +11,22 @@ import { Inngest } from 'inngest'
  * for the move to a self-hosted Inngest server, where the default path had
  * never carried this app's functions: if it misbehaves there, set this and
  * redeploy. The SDK reads a function's own setting first, then the client's.
+ *
+ * Unset, empty, `1`, `true` and `on` leave the SDK default: on. Every other
+ * value turns it off, not only `0`, `false` and `off`: whoever sets this
+ * wants it off, and a typo must not leave it on with nothing to show for it.
+ *
+ * The value is an argument, never read in here: a default parameter would
+ * read the real environment whenever a caller passed `undefined`.
  */
-export function checkpointingDisabledByEnv(
-  value: string | undefined = process.env.INNGEST_CHECKPOINTING,
-): boolean {
-  return ['0', 'false', 'off'].includes((value ?? '').trim().toLowerCase())
+export function checkpointingDisabled(value: string | undefined): boolean {
+  const setting = (value ?? '').trim().toLowerCase()
+  return setting !== '' && !['1', 'true', 'on'].includes(setting)
 }
 
 export const inngest = new Inngest({
   id: 'native-intelligence',
-  ...(checkpointingDisabledByEnv() ? { checkpointing: false as const } : {}),
+  ...(checkpointingDisabled(process.env.INNGEST_CHECKPOINTING) ? { checkpointing: false as const } : {}),
 })
 
 /**
