@@ -133,10 +133,19 @@ describe('registry self-consistency', () => {
   })
 
   it('links the kinds the shared entity layer added, after every older one', () => {
-    const added = ['deal', 'calendar_event', 'decision', 'flow', 'team_chat_channel', 'team_chat_message']
+    const added = ['deal', 'flow']
     expect(LINKABLE_ENTITY_TYPES.slice(-added.length)).toEqual(added)
     // None is citable: the claim_source CHECK (264) does not list them.
     for (const id of added) expect(entityDescriptor(id)!.citable, id).toBe(false)
+  })
+
+  it('keeps kinds without a strong enough fence out of the graph', () => {
+    // Private to a person or a channel, or without a workspace_id: the graph's
+    // workspace_id fence would leak them (see the registry comment).
+    for (const id of ['calendar_event', 'team_chat_channel', 'team_chat_message', 'decision']) {
+      expect(LINKABLE_ENTITY_TYPES as readonly string[], id).not.toContain(id)
+      expect((WORKSPACE_SCOPED_TABLE as Record<string, string>)[id], id).toBeUndefined()
+    }
   })
 
   it('keeps kinds outside the graph out of every graph vocabulary', () => {

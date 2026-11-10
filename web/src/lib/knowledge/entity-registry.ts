@@ -350,33 +350,15 @@ export const ENTITY_REGISTRY = [
 
   // ── Graph kinds added with the shared entity layer (2026-11-09). Linkable so
   // they can be linked and @mentioned; not citable, so the claim_source CHECK
-  // (migration 264) and claim_neighborhood need no widening.
+  // (migration 264) and claim_neighborhood need no widening. Both are readable
+  // by every workspace member (is_workspace_member RLS), so the graph's
+  // workspace_id fence and service-role label reads (claims.ts resolveLabels)
+  // show nothing a member couldn't already see.
   {
     id: 'deal',
     table: 'deal',
     workspaceScoped: { kind: 'column', table: 'deal' },
     label: { table: 'deal', columns: 'name', render: (r) => str(r.name) },
-    realtime: true,
-    linkable: true,
-    citable: false,
-    sourceable: false,
-  },
-  {
-    id: 'calendar_event',
-    table: 'local_calendar_event',
-    workspaceScoped: { kind: 'column', table: 'local_calendar_event' },
-    label: { table: 'local_calendar_event', columns: 'title', render: (r) => str(r.title) },
-    realtime: true,
-    linkable: true,
-    citable: false,
-    sourceable: false,
-  },
-  {
-    id: 'decision',
-    table: 'decision',
-    // No workspace_id column — fenced through its capture.
-    workspaceScoped: { kind: 'indirect', via: 'captures' },
-    label: { table: 'decision', columns: 'content', render: (r) => str(r.content).slice(0, 140) },
     realtime: true,
     linkable: true,
     citable: false,
@@ -392,6 +374,40 @@ export const ENTITY_REGISTRY = [
     citable: false,
     sourceable: false,
   },
+
+  // ── Kinds outside the knowledge graph: registered so every other vocabulary
+  // (the entity event bus, realtime, menus) derives from this one list.
+  //
+  // The first four are NOT linkable yet, deliberately: the graph's only fences
+  // are workspace_id (or none, for indirect kinds), which is too weak for them.
+  //   calendar_event — private to its owner (RLS auth.uid() = user_id);
+  //   team_chat_*    — DMs and team channels are readable only through
+  //                    team_chat_can_read (migration 474);
+  //   decision       — no workspace_id; resourceIdInWorkspace and
+  //                    entityInWorkspace would let a foreign id through.
+  // Making one linkable needs its own fence in FENCED_LABEL_TYPES (claims.ts)
+  // and resourceIdInWorkspace (work/start-work-item.ts) first.
+  {
+    id: 'calendar_event',
+    table: 'local_calendar_event',
+    workspaceScoped: { kind: 'column', table: 'local_calendar_event' },
+    label: { table: 'local_calendar_event', columns: 'title', render: (r) => str(r.title) },
+    realtime: true,
+    linkable: false,
+    citable: false,
+    sourceable: false,
+  },
+  {
+    id: 'decision',
+    table: 'decision',
+    // No workspace_id column — fenced through its capture.
+    workspaceScoped: { kind: 'indirect', via: 'captures' },
+    label: { table: 'decision', columns: 'content', render: (r) => str(r.content).slice(0, 140) },
+    realtime: true,
+    linkable: false,
+    citable: false,
+    sourceable: false,
+  },
   {
     id: 'team_chat_channel',
     table: 'team_chat_channel',
@@ -399,7 +415,7 @@ export const ENTITY_REGISTRY = [
     label: { table: 'team_chat_channel', columns: 'name', render: (r) => str(r.name) },
     // Team chat runs its own channel (src/lib/team-chat), not the shared one.
     realtime: false,
-    linkable: true,
+    linkable: false,
     citable: false,
     sourceable: false,
   },
@@ -409,13 +425,10 @@ export const ENTITY_REGISTRY = [
     workspaceScoped: { kind: 'column', table: 'team_chat_message' },
     label: { table: 'team_chat_message', columns: 'body', render: (r) => str(r.body).slice(0, 140) },
     realtime: false,
-    linkable: true,
+    linkable: false,
     citable: false,
     sourceable: false,
   },
-
-  // ── Kinds outside the knowledge graph: registered so every other vocabulary
-  // (the entity event bus, realtime, menus) derives from this one list.
   {
     id: 'comment',
     table: 'comment',
