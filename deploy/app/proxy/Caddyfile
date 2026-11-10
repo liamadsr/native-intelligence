@@ -1,0 +1,96 @@
+# The test stack's proxy (compose.yaml). Two listeners:
+#
+#   :8080  the app's one public origin. /eve/<name>/v1/* goes straight to that
+#          agent's container, so a long agent stream never passes through Next's
+#          own rewrite proxy, which gives up after 30 seconds. /api/inngest goes to
+#          the worker. Everything else goes to web.
+#   :8081  inside the stack only: what the web role's EVE_NEXT_PRODUCTION_ORIGIN
+#          points at. `next build` rewrites /eve/<name>/v1/* to
+#          /_eve_internal/eve/<name>/eve/v1/* on that origin, for any request that
+#          reaches web without going through :8080.
+#
+# An agent serves its routes at /eve/v1/*, whatever its public mount, so both
+# listeners rewrite to that, and to nothing else on the agent. Caddy puts no time
+# limit on a proxied response, and flush_interval -1 passes each streamed chunk on
+# as it arrives.
+#
+# Every response names the container that answered it (X-NI-Upstream), so smoke.sh
+# can tell a request that went straight to an agent from one that went the long way
+# round through web. This is a test proxy: a public one would not say.
+{
+	admin off
+	auto_https off
+
+	# Keep the X-Forwarded-For, -Proto and -Host that the proxy in front of this one
+	# sets, instead of replacing them with that proxy's address and "http": the app
+	# builds its origin from them (same-origin checks, webhook signatures, redirects)
+	# and limits per client address. Trusting every private address is safe only
+	# because this proxy is never published to the internet: it is reached from the
+	# outer proxy over a private Docker network, or, in the test stack, from this
+	# machine. Narrow this to the outer proxy's address if it is ever published.
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+(upstream) {
+	reverse_proxy {args[0]} {
+		flush_interval -1
+		header_down X-NI-Upstream {args[0]}
+	}
+}
+
+# /eve/<name>/v1/x  ->  agent-<name>:3000/eve/v1/x
+(agent) {
+	handle_path /eve/{args[0]}/v1/* {
+		rewrite * /eve/v1{uri}
+		import upstream agent-{args[0]}:3000
+	}
+}
+
+# /_eve_internal/eve/<name>/eve/v1/x  ->  agent-<name>:3000/eve/v1/x
+(agent_internal) {
+	handle_path /_eve_internal/eve/{args[0]}/eve/v1/* {
+		rewrite * /eve/v1{uri}
+		import upstream agent-{args[0]}:3000
+	}
+}
+
+http://:8080 {
+	handle /healthz {
+		respond "ok" 200
+	}
+
+	import agent onboarding-researcher
+	import agent skill-runner
+	import agent coding-agent
+	import agent work-agent
+	import agent chat-agent
+	import agent utility
+	import agent live-agent
+	import agent web-research
+
+	@inngest path /api/inngest /api/inngest/*
+	handle @inngest {
+		import upstream worker:3000
+	}
+
+	handle {
+		import upstream web:3000
+	}
+}
+
+http://:8081 {
+	import agent_internal onboarding-researcher
+	import agent_internal skill-runner
+	import agent_internal coding-agent
+	import agent_internal work-agent
+	import agent_internal chat-agent
+	import agent_internal utility
+	import agent_internal live-agent
+	import agent_internal web-research
+
+	handle {
+		respond "no such agent" 404
+	}
+}
