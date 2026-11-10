@@ -265,6 +265,34 @@ describe('boot deep links open cards', () => {
     expect(delivered[0].request.spec).toMatchObject({ kind: 'record', record: { type, id } })
   })
 
+  it.each([
+    ['document', 'document'],
+    ['capture', 'capture'],
+    ['contact', 'contact'],
+    ['company', 'company'],
+    ['deal', 'deal'],
+  ] as const)('?%s= (a menu’s Copy link) opens its record card', (param, type) => {
+    const id = '00000000-0000-4000-8000-0000000000bb'
+    window.history.replaceState({}, '', `/account?${param}=${id}`)
+    render()
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].request.spec).toMatchObject({ kind: 'record', record: { type, id } })
+  })
+
+  it('?flow= opens the flows card on its editor', () => {
+    const id = '00000000-0000-4000-8000-0000000000cc'
+    window.history.replaceState({}, '', `/account?flow=${id}`)
+    render()
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0].request).toMatchObject({ spec: { kind: 'flows' }, seed: { editing: id } })
+  })
+
+  it('a kind with no link opens nothing (?calendar_event=, ?claim=)', () => {
+    window.history.replaceState({}, '', '/account?calendar_event=00000000-0000-4000-8000-0000000000dd&claim=00000000-0000-4000-8000-0000000000ee')
+    render()
+    expect(delivered).toHaveLength(0)
+  })
+
   it('takes ids only: a link that names anything else opens nothing', () => {
     window.history.replaceState({}, '', '/account?action=../../settings&sequence=%3Cscript%3E')
     render()

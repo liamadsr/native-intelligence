@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getServiceClient } from '@/lib/admin'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { mergeContactPair } from '@/lib/crm/contact-dedup'
+import { anySeenOnlyByGrant } from '@/lib/entity-access/grants'
 import { NextResponse, type NextRequest } from 'next/server'
 
 // Merge management for a single (target) contact:
@@ -54,6 +55,12 @@ export async function POST(
   }
   if (rows.some((r) => r.merged_into_contact_id)) {
     return NextResponse.json({ error: 'One of the contacts is already merged' }, { status: 409 })
+  }
+  // The merge itself runs service-role and rewrites both contacts: one the
+  // caller can read only through a per-item grant (view only, migration 492)
+  // is "not found", as it was before grants.
+  if (await anySeenOnlyByGrant(supabase, 'contact', [targetId, sourceId])) {
+    return NextResponse.json({ error: 'Contact not found in this workspace' }, { status: 404 })
   }
 
   const res = await mergeContactPair({

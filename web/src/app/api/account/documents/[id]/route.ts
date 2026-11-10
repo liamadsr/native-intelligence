@@ -254,7 +254,7 @@ export async function PATCH(
     typeof data.content === 'string'
   ) {
     const { syncDocumentLinks } = await import('@/lib/wiki/wikilinks')
-    await syncDocumentLinks(supabase, workspaceId, id, data.content, editorMemberId || null)
+    await syncDocumentLinks(supabase, workspaceId, id, data.content, editorMemberId || null, user.id)
   }
 
   // Re-index embeddings whenever the body changed (document_chunks, migration

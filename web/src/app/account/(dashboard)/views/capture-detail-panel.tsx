@@ -64,6 +64,8 @@ import { WindowProperties, WindowActions } from '@/components/views/window-prope
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import dynamic from 'next/dynamic'
 import { usePanelSection } from './use-panel-section'
 import { ShareDialog } from '../components/share-dialog'
@@ -74,7 +76,7 @@ import {
   type CaptureVisibility,
 } from '../components/capture-visibility-control'
 import { DraftFollowUpDialog } from '../components/draft-followup-dialog'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { CopyTranscriptButton } from '../components/copy-transcript-button'
 import { InlineCommentProvider } from '@/components/inline-comments/inline-comment-context'
 import { AnnotatedContent } from '@/components/inline-comments/annotated-content'
@@ -3152,7 +3154,7 @@ export function CaptureDetailPanel({
               </Tooltip>
             </TooltipProvider>
           )}
-          <CopyIdButton entityType="capture" id={captureId} />
+          <EntityActionsMenu entity={{ type: 'capture', id: captureId, label: capture?.title ?? '' }} state={{ archived: capture ? capture.status === 'archived' : null, status: capture?.status ?? null }} omit={PANEL_OMIT} />
           <CopyTranscriptButton
             isActiveRecording={isActiveRecording}
             liveIsThisCapture={holdsLiveSegments}
@@ -3749,6 +3751,9 @@ export function CaptureDetailPanel({
                             </div>
                           </div>
                         )}
+
+                        <ReferencedIn entityType="capture" entityId={captureId} />
+                        <RecordHistory entityType="capture" entityId={captureId} />
 
                         {/* Inline comment popover is rendered at root level */}
                       </div>

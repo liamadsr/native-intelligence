@@ -11,6 +11,7 @@
  * triggering entity.
  */
 
+import type { EntityTypeSubset } from '@/lib/knowledge/entity-registry'
 import type { RunVerdict } from './verdict-apply'
 import type { OutputConnector, PostSurface } from './output-connectors'
 
@@ -37,7 +38,7 @@ export type FlowRunStatus = 'success' | 'failed' | 'pending'
  * end-to-end; project/initiative/milestone are recognized by the trigger
  * config + condition model and land as the dispatcher gains their loaders.
  */
-export type FlowEntityType = 'action' | 'project' | 'initiative' | 'milestone'
+export type FlowEntityType = EntityTypeSubset<'action' | 'project' | 'initiative' | 'milestone'>
 
 // ──────────────────────────────────────────────────────────────────
 // Trigger config (discriminated on `kind`; missing kind = legacy

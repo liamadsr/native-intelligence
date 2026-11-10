@@ -41,6 +41,9 @@ import {
   Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { CustomFieldsGroup } from '@/components/crm/custom-fields-group'
+import { ReferencedIn } from '@/components/entity-links/referenced-in'
+import { RecordHistory } from '@/components/entity-links/record-history'
 import { composeSectionChoice, conflictingSections, patchDocumentFields, planConflict, rollbackPatch, snapshotKeys, unmountAction, type ConflictPlan } from './document-field-save'
 import { merge3 } from '@/lib/documents/line-diff'
 import { describeRevisionAuthor, type RevisionSummary } from '@/lib/documents/revision-format'
@@ -56,7 +59,7 @@ import {
 } from '../components/visibility-control'
 import { useWorkspaces } from '@/app/account/workspace-switcher'
 import { emitEntityUpdated } from '@/lib/entity-events'
-import { CopyIdButton } from '../components/copy-id-button'
+import { EntityActionsMenu, PANEL_OMIT } from '@/components/entities/entity-actions-menu'
 import { CopyDocumentButton } from '../components/copy-document-button'
 import { ListenTarget } from '@/components/read-aloud/listen-target'
 import { titledMarkdownToSentences } from '@/lib/read-aloud/speech-text'
@@ -845,7 +848,7 @@ export function DocumentDetailPanel({
           />
           {/* P9 (decision 9): copy the whole text out, e.g. a newsletter into Substack. Hidden when empty. */}
           {(doc.content ?? '').trim() && <CopyDocumentButton getMarkdown={() => latestContentRef.current ?? doc.content ?? ''} />}
-          <CopyIdButton entityType="document" id={documentId} />
+          <EntityActionsMenu entity={{ type: 'document', id: documentId, label: doc.title ?? '' }} state={{ archived: doc.status === 'archived', status: doc.status }} omit={PANEL_OMIT} />
           {!isNowFile && <ShareDialog shareableType="document" shareableId={documentId} />}
           {/* Move to another workspace — same post-move handling as delete:
                       the document leaves this workspace's lists either way.
@@ -1054,6 +1057,11 @@ export function DocumentDetailPanel({
                             />
                           </div>
                         </div>
+
+                        {/* The workspace's own fields on this kind (hidden while it has none). */}
+                        <CustomFieldsGroup entityType="document" recordId={documentId} />
+                        <ReferencedIn entityType="document" entityId={documentId} />
+                        <RecordHistory entityType="document" entityId={documentId} />
 
                         {/* Inline comment popover is rendered at root level */}
                       </div>

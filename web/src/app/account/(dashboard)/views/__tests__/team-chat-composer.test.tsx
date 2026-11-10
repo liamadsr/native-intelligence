@@ -198,6 +198,40 @@ describe("team chat's box is the main composer", () => {
     expect(posts[1]).toEqual({ body: '@Joseph Lee thanks', mentions: ['m-joe'], mentionsAgent: false })
   })
 
+  it('a record found by typing (a deal): its "@label" in the words, sent as a record mention; none for people', async () => {
+    const searched: string[] = []
+    const base = fetchSpy.getMockImplementation()!
+    fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith('/api/account/search')) {
+        searched.push(String(url))
+        const results = { deal: [{ kind: 'deal', id: 'd0000000-0000-4000-8000-000000000001', title: 'Fernhill renewal', status: 'Proposal sent', score: 0.85 }] }
+        return new Response(JSON.stringify({ query: 'fern', results }))
+      }
+      return base(url, init)
+    })
+    await render()
+    type('@fern')
+    await settle(200)
+    // Searched for the host's record kinds only: never contacts (its people are teammates), never agents.
+    expect(searched.length).toBeGreaterThan(0)
+    const types = new URL(searched[searched.length - 1], 'http://x').searchParams.get('types')!.split(',')
+    expect(types).toContain('deal')
+    expect(types).not.toContain('contact')
+    expect(types).not.toContain('agent')
+    press('Enter')
+    await settle()
+    expect(box().value).toBe('@Fernhill renewal ')
+    type('is due')
+    press('Enter')
+    await settle()
+    expect(posts[0]).toEqual({
+      body: '@Fernhill renewal is due',
+      mentions: [],
+      mentionsAgent: false,
+      records: [{ type: 'deal', id: 'd0000000-0000-4000-8000-000000000001', label: 'Fernhill renewal' }],
+    })
+  })
+
   it('Shift+Enter is a new line, not a send', async () => {
     await render()
     type('one')

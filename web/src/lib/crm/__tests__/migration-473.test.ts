@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { FILTERABLE_FIELDS } from '@/lib/views/types'
-import { CUSTOM_FIELD_ENTITIES, CUSTOM_FIELD_TYPES } from '../custom-fields'
+import { CUSTOM_FIELD_TYPES } from '../custom-fields'
 
 const sql = readFileSync(path.join(process.cwd(), 'supabase/migrations/473_deals_pipelines_custom_fields.sql'), 'utf8')
 
@@ -17,7 +17,8 @@ describe('migration 473 (deals, pipelines, custom fields)', () => {
 
   it('pins the stage kinds, deal sources and custom field types the code uses', () => {
     expect(sql).toContain("check (kind in ('open', 'won', 'lost'))")
-    expect(sql).toContain(`check (entity_type in (${CUSTOM_FIELD_ENTITIES.map((e) => `'${e}'`).join(', ')}))`)
+    // 473's own three kinds; 496 widens the list to the registry's customFields flag (migration-496.test.ts).
+    expect(sql).toContain("check (entity_type in ('deal', 'contact', 'company'))")
     expect(sql).toContain(`check (field_type in (${CUSTOM_FIELD_TYPES.map((e) => `'${e}'`).join(', ')}))`)
     const sourceOptions = FILTERABLE_FIELDS.deal.find((f) => f.field === 'source')?.options as string[]
     expect(sql).toContain(`check (source in (${sourceOptions.map((e) => `'${e}'`).join(', ')}))`)

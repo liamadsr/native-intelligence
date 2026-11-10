@@ -53,6 +53,14 @@ describe('custom fields', () => {
     expect(coerceCustomValue(def({ field_type: 'text' }), null)).toEqual({ ok: true, value: null })
   })
 
+  it('refuses an object or a list (the values route takes any JSON), never storing "[object Object]"', () => {
+    for (const type of ['text', 'number', 'date', 'select'] as const) {
+      const d = def({ field_type: type, label: 'Customer', options: ['Gold', 'Silver'] })
+      expect(coerceCustomValue(d, { name: 'Fernhill Studio' })).toEqual({ ok: false, error: 'Customer takes one value' })
+      expect(coerceCustomValue(d, ['2026-12-01'])).toEqual({ ok: false, error: 'Customer takes one value' })
+    }
+  })
+
   it('finds a field by key or label, and resolves a batch to one patch', () => {
     const defs = [def({ key: 'tier', label: 'Tier', field_type: 'select', options: ['Gold'] }), def({ key: 'seats', label: 'Seats', field_type: 'number' })]
     expect(findDefinition(defs, 'TIER')?.key).toBe('tier')

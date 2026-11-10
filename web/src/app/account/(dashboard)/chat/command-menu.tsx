@@ -26,6 +26,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type HTMLAttributes,
   type ReactNode,
 } from 'react'
@@ -41,8 +42,10 @@ import {
   CalendarDays,
   CircleCheck,
   FileText,
+  Hash,
   FlaskConical,
   FolderKanban,
+  Handshake,
   LayoutList,
   Mail,
   Megaphone,
@@ -50,6 +53,7 @@ import {
   Send,
   Target,
   Telescope,
+  User,
   Users,
   Workflow,
   type LucideIcon,
@@ -66,6 +70,7 @@ import {
   menuTabLabel,
   buildMenu,
   cycleTab,
+  hostRecordOffer,
   isRecordKind,
   menuTakesEnter,
   mentionOptionsMenu,
@@ -86,6 +91,16 @@ import { SEARCH_FLIGHT_KEY, landFlight } from '@/lib/chat/card-reply-flight'
 import { measureChatReadingColumn } from './picker-popover'
 import { useFloatingChatContainerRef } from './floating-chat'
 import { useWorkspaceEdition } from '../../workspace-switcher'
+import { frontCard, subscribeFrontCard } from '@/components/chat-cards/front-card'
+import { isDirectEntityAction, runEntityAction } from '@/lib/entities/actions'
+import { entityActionsDescriptor, supportedEntityActions } from '@/lib/entities/entity-actions-registry'
+import { ENTITY_ACTION_ICONS, ENTITY_ACTION_LABELS } from '@/components/entities/entity-actions-menu'
+import type { RecordActionsSource } from './command-menu-model'
+import { usePaletteFeed } from './use-palette-feed'
+import { describeFeedEvent, feedActorLabel, type FeedEntry } from '@/lib/entities/feed-model'
+import { entityOpenTarget } from '@/lib/entity-links/open-entity'
+import { openTarget } from '@/lib/chat-cards/open-card'
+import { formatDistanceToNowStrict } from 'date-fns'
 
 /** What the composer's field hands the inline menu: its keys. */
 export interface CommandMenuHandle {
@@ -157,13 +172,17 @@ const ENTER_WAIT_MS = 2000
 /** A verb as the footer and the highlighted row say it. */
 const VERB_LABEL: Record<MenuVerb, string> = { open: 'open', use: 'use', mention: 'add to chat' }
 
-/** A verb as said for this item: a host's own option (team chat's people) is mentioned, not added to a chat. */
+/** A verb as said for this item: a host's own option or record (team chat's) is mentioned, not added to a chat. */
 function verbLabel(verb: MenuVerb, item: MenuItem | undefined): string {
-  return verb === 'mention' && item?.kind === 'option' ? 'mention' : VERB_LABEL[verb]
+  const host = item?.kind === 'option' || (item?.kind === 'record' && item.host)
+  return verb === 'mention' && host ? 'mention' : VERB_LABEL[verb]
 }
 
 /** The record kinds no composer mentions (nothing to attach them by). */
 const NO_MENTIONS: readonly MenuSearchKind[] = []
+/** A host's record search lists no pages or skills. */
+const NO_PAGES: readonly OfferedPage[] = []
+const NO_SKILLS: readonly SkillCommand[] = []
 
 export function CommandMenu({
   open,
@@ -196,6 +215,12 @@ export function CommandMenu({
   const hostOptions = !palette && activeTrigger === '@' && mentionList ? mentionList.options : null
 
   const offeredPages = useMemo(() => (pages && onSelectPage ? pages : []), [pages, onSelectPage])
+  // The palette over a record's card: that record's own actions lead (the
+  // entity actions menu's, less Rename and Share, which need more input).
+  const front = useSyncExternalStore(subscribeFrontCard, frontCard, noFrontCard)
+  const recordActions = useMemo(() => (palette ? recordActionsFor(front) : null), [palette, front])
+  // The palette's first view: what's waiting on the person, and what they touched last.
+  const feed = usePaletteFeed(palette && open)
   // The tabs and sections in the workspace's words ("Jobs", "Customers" in a service business).
   const edition = useWorkspaceEdition()
   const mentionKey = onMentionRecord ? mentionKinds.join(',') : ''
@@ -212,9 +237,25 @@ export function CommandMenu({
   const offered = useMemo(() => offeredKinds(activeTrigger, offer), [activeTrigger, offer])
   const currentTab = tab === 'all' || offered.includes(tab) ? tab : 'all'
 
+  // A host's own list may also find records (team chat: mentionList.records),
+  // listed under its options once something is typed.
+  const hostRecordKey = hostOptions && mentionList?.records ? mentionList.records.kinds.join(',') : ''
+  const hostOffer = useMemo(
+    () => (hostRecordKey ? hostRecordOffer(hostRecordKey.split(',') as MenuSearchKind[]) : null),
+    [hostRecordKey],
+  )
+  const hostOffered = useMemo(() => (hostOffer ? offeredKinds('@', hostOffer) : []), [hostOffer])
+  const hostSearches = !!hostOffer && query.trim().length > 0
+
   // Records come from the server (one request a keystroke, debounced); pages
   // and skills are searched here, at once, on every key.
-  const wanted = open && !hostOptions ? serverSearch(activeTrigger, currentTab, query, offered) : null
+  const wanted = !open
+    ? null
+    : hostOptions
+      ? hostSearches
+        ? serverSearch('@', 'all', query, hostOffered)
+        : null
+      : serverSearch(activeTrigger, currentTab, query, offered)
   const found = useMenuSearch(wanted, query, exclude)
   // Closed: what each shows first (recent people…) is fetched ahead, so the first `/` or `@` doesn't shift under it.
   const firstSlash = useMemo(() => serverSearch('/', 'all', '', offeredKinds('/', offer)), [offer])
@@ -225,9 +266,23 @@ export function CommandMenu({
   const { sections, tabs } = useMemo(
     () =>
       hostOptions
-        ? mentionOptionsMenu(hostOptions, query)
-        : buildMenu(activeTrigger, currentTab, query, offer, { pages: offeredPages, skills, records: found.records, edition }),
-    [hostOptions, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition],
+        ? mentionOptionsMenu(
+            hostOptions,
+            query,
+            hostOffer && hostSearches
+              ? buildMenu('@', 'all', query, hostOffer, { pages: NO_PAGES, skills: NO_SKILLS, records: found.records, edition })
+              : undefined,
+          )
+        : buildMenu(activeTrigger, currentTab, query, offer, {
+            pages: offeredPages,
+            skills,
+            records: found.records,
+            edition,
+            recordActions,
+            inbox: palette ? feed.inbox : null,
+            recent: palette ? feed.recent : null,
+          }),
+    [hostOptions, hostOffer, hostSearches, activeTrigger, currentTab, query, offer, offeredPages, skills, found.records, edition, recordActions, palette, feed],
   )
   const items = useMemo(() => sections.flatMap((s) => s.items), [sections])
 
@@ -243,6 +298,8 @@ export function CommandMenu({
   // was turned to a tab of its own. Nothing matching what's typed: it steps
   // aside, and the keys are the box's again (Enter sends `/usr/bin`).
   // Loading counts only where records show (a Pages tab never waits on the server).
+  // A host's records never hold the keys while they load: its Enter picks its
+  // own option at once, or sends (team chat's "@Joseph what changed?⏎").
   const showsRecords = !hostOptions && searchedKinds(activeTrigger, currentTab, query, offered).some(isRecordKind)
   const loadingFirst = found.loading && items.length === 0 && showsRecords
   // The answer for what's typed is still on its way: it may put a better row on top.
@@ -261,13 +318,20 @@ export function CommandMenu({
   const pick = useCallback(
     (item: MenuItem | undefined, verb: MenuVerb) => {
       if (!item) return
-      if (item.kind === 'page') onSelectPage?.(item.page)
+      if (item.kind === 'entity_action') {
+        void runEntityAction(item.action, item.entity, { from: 'palette' })
+        onDismiss()
+      } else if (item.kind === 'feed') {
+        const target = entityOpenTarget(item.entry.type, item.entry.id, item.entry.label)
+        if (target) openTarget(target, { from: 'palette' })
+        onDismiss()
+      } else if (item.kind === 'page') onSelectPage?.(item.page)
       else if (item.kind === 'skill') onSelectSkill(item.skill)
       else if (item.kind === 'option') mentionList?.onPick(item.option)
       else if (verb === 'open') onOpenRecord?.(item.row)
       else onMentionRecord?.(item.row)
     },
-    [onSelectPage, onSelectSkill, onOpenRecord, onMentionRecord, mentionList],
+    [onSelectPage, onSelectSkill, onOpenRecord, onMentionRecord, mentionList, onDismiss],
   )
   const verbs = useCallback((item: MenuItem) => verbFor(activeTrigger, item), [activeTrigger])
 
@@ -751,6 +815,27 @@ function MenuBody({
   )
 }
 
+const noFrontCard = () => null
+
+/** The record whose card is in front, and its actions the palette can run on their own; null for none. */
+export function recordActionsFor(front: ReturnType<typeof frontCard>): RecordActionsSource | null {
+  const spec = front?.spec
+  if (!spec || spec.kind !== 'record') return null
+  const entity = { type: spec.record.type, id: spec.record.id, label: spec.title }
+  // A card doesn't say what the record's status is, so an archive whose undo
+  // puts back the status it had (an initiative's planned/active/completed)
+  // isn't offered here: its undo could only guess.
+  const archive = entityActionsDescriptor(entity.type)?.archive
+  const undoNeedsStatus = archive?.kind === 'status' && archive.restorePrevious
+  const actions = supportedEntityActions(entity.type)
+    .filter(isDirectEntityAction)
+    .filter((id) => id !== 'open')
+    .filter((id) => !(undoNeedsStatus && (id === 'archive' || id === 'restore')))
+    .map((id) => ({ id, label: ENTITY_ACTION_LABELS[id] }))
+  if (!actions.length) return null
+  return { entity, label: spec.title, actions }
+}
+
 function rowKey(item: MenuItem): string {
   switch (item.kind) {
     case 'page':
@@ -761,6 +846,10 @@ function rowKey(item: MenuItem): string {
       return `${item.row.kind}:${recordId(item.row)}`
     case 'option':
       return `option:${item.option.id}`
+    case 'entity_action':
+      return `entity_action:${item.action}`
+    case 'feed':
+      return `feed:${item.entry.type}:${item.entry.id}`
   }
 }
 
@@ -791,6 +880,10 @@ function rowData(item: MenuItem): Record<string, string> {
     }
     case 'option':
       return { 'data-mention-option': item.option.id }
+    case 'entity_action':
+      return { 'data-entity-action': item.action }
+    case 'feed':
+      return { 'data-feed-item': `${item.entry.type}:${item.entry.id}` }
   }
 }
 
@@ -860,6 +953,8 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
     return { title: item.skill.name, detail: item.skill.description, meta: <span className="font-mono">/{item.skill.slug}</span> }
   }
   if (item.kind === 'option') return { title: item.option.label, detail: item.option.hint || null, meta: null }
+  if (item.kind === 'entity_action') return { title: item.label, detail: null, meta: null }
+  if (item.kind === 'feed') return feedRowText(item.entry)
   const row = item.row
   switch (row.kind) {
     case 'action':
@@ -869,6 +964,9 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
     case 'project':
     case 'initiative':
       return { title: row.title, detail: row.status ? statusLabel(row.status) : null, meta: null }
+    case 'deal':
+    case 'flow':
+      return { title: row.title, detail: row.status, meta: null }
     case 'agent':
       return { title: row.title, detail: row.description, meta: null }
     case 'contact':
@@ -883,6 +981,18 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
       const c = row.capture
       return { title: c.title, detail: c.summary ?? null, meta: formatCaptureDate(c.started_at || c.recorded_at || c.created_at) }
     }
+  }
+}
+
+/** A feed row: the record, what happened (and where), and how long ago. */
+function feedRowText(entry: FeedEntry): { title: string; detail: string | null; meta: ReactNode } {
+  const what = describeFeedEvent(entry.last)
+  // Who did it, unless it was the person themselves (Recent is theirs by definition).
+  const by = entry.last.actor.me && entry.last.actor.kind === 'member' ? null : feedActorLabel(entry.last.actor)
+  return {
+    title: entry.label,
+    detail: [what, by, entry.context].filter(Boolean).join(' · '),
+    meta: formatDistanceToNowStrict(new Date(entry.last.at)),
   }
 }
 
@@ -903,7 +1013,17 @@ const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = {
   project: FolderKanban,
   initiative: Target,
   capture: AudioLines,
+  deal: Handshake,
+  flow: Workflow,
   agent: Boxes,
+}
+
+/** A feed row's kind, as a glyph on a tile. */
+const FEED_ICONS: Partial<Record<FeedEntry['type'], LucideIcon>> = {
+  ...RECORD_ICONS,
+  contact: User,
+  company: Building2,
+  team_chat_message: Hash,
 }
 
 function RowIcon({ item }: { item: MenuItem }) {
@@ -922,6 +1042,14 @@ function RowIcon({ item }: { item: MenuItem }) {
       <LibraryItemIcon color={item.skill.color} seed={item.skill.id} size="sm" />
     )
   }
+  if (item.kind === 'entity_action') {
+    const Icon = ENTITY_ACTION_ICONS[item.action]
+    return (
+      <span className={cn(TILE, MUTED_TILE, 'text-muted-foreground')}>
+        <Icon className="size-4" />
+      </span>
+    )
+  }
   if (item.kind === 'option') {
     return item.option.agent ? (
       <span className={cn(TILE, 'rounded-full bg-primary/10 text-primary')}>
@@ -929,6 +1057,14 @@ function RowIcon({ item }: { item: MenuItem }) {
       </span>
     ) : (
       <span className={cn(TILE, 'rounded-full bg-primary/10 text-[11px] font-semibold text-primary')}>{initials(item.option.label)}</span>
+    )
+  }
+  if (item.kind === 'feed') {
+    const Icon = FEED_ICONS[item.entry.type] ?? Building2
+    return (
+      <span className={cn(TILE, MUTED_TILE, 'text-muted-foreground')}>
+        <Icon className="size-4" strokeWidth={1.75} />
+      </span>
     )
   }
   const row = item.row

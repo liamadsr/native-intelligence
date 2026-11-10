@@ -29,6 +29,8 @@ import { editionWords } from '@/lib/editions/words'
 import { filterPages, type OfferedPage } from '@/lib/chat-cards/page-menu'
 import { normalizeQuery, scoreText, type MenuSearchKind, type MenuSearchRow } from '@/lib/search/menu-search'
 import type { SkillCommand } from './chat-panel'
+import type { DirectEntityActionId, EntityRef } from '@/lib/entities/actions'
+import type { FeedEntry } from '@/lib/entities/feed-model'
 
 export type MenuTrigger = '/' | '@'
 
@@ -188,14 +190,23 @@ export function appendMention(value: string, text: string): { value: string; car
 // ── What the menu lists ─────────────────────────────────────────────────────
 
 /** The record kinds, as the menu's sections name them. */
-export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'agents'
-export type MenuKind = 'pages' | 'skills' | RecordMenuKind
+export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'agents'
+/**
+ * `record_actions`: the actions on the record whose card is in front. `inbox`
+ * and `recent`: the palette's first view, from the activity feed (what
+ * mentions or was assigned to the person; what they touched last). The
+ * palette's only; never tabs.
+ */
+export type MenuKind = 'pages' | 'skills' | 'record_actions' | 'inbox' | 'recent' | RecordMenuKind
 export type MenuTab = 'all' | MenuKind
 
 export const TAB_LABELS: Record<MenuTab, string> = {
   all: 'All',
   pages: 'Pages',
   skills: 'Skills',
+  record_actions: 'This record',
+  inbox: 'Inbox',
+  recent: 'Recent',
   actions: 'Actions',
   docs: 'Docs',
   projects: 'Projects',
@@ -203,6 +214,8 @@ export const TAB_LABELS: Record<MenuTab, string> = {
   captures: 'Captures',
   people: 'People',
   companies: 'Companies',
+  deals: 'Deals',
+  flows: 'Flows',
   agents: 'Agents',
 }
 
@@ -215,6 +228,7 @@ const KIND_TERM: Partial<Record<RecordMenuKind, EditionTerm>> = {
   captures: 'capture',
   people: 'contact',
   companies: 'company',
+  deals: 'deal',
 }
 
 /**
@@ -237,6 +251,8 @@ export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = {
   captures: 'capture',
   people: 'contact',
   companies: 'company',
+  deals: 'deal',
+  flows: 'flow',
   agents: 'agent',
 }
 export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
@@ -247,18 +263,25 @@ export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
   capture: 'captures',
   contact: 'people',
   company: 'companies',
+  deal: 'deals',
+  flow: 'flows',
   agent: 'agents',
 }
 
 export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
-  return kind !== 'pages' && kind !== 'skills'
+  return kind !== 'pages' && kind !== 'skills' && kind !== 'record_actions' && kind !== 'inbox' && kind !== 'recent'
 }
 
 export type MenuItem =
   | { kind: 'page'; page: OfferedPage }
   | { kind: 'skill'; skill: SkillCommand }
-  | { kind: 'record'; row: MenuSearchRow }
+  /** `host`: found for a host's own `@` list (team chat), so it is mentioned, not added to a chat. */
+  | { kind: 'record'; row: MenuSearchRow; host?: boolean }
   | { kind: 'option'; option: ComposerMentionOption }
+  /** One of the entity actions menu's actions, on the record whose card is in front (src/lib/entities/actions.ts). */
+  | { kind: 'entity_action'; action: DirectEntityActionId; entity: EntityRef; label: string }
+  /** A record from the activity feed (the palette's Inbox and Recent), opened as its card. */
+  | { kind: 'feed'; entry: FeedEntry }
 
 /**
  * One of a host's own `@` options (team chat: the person's agent and the
@@ -278,6 +301,16 @@ export interface ComposerMentionOption {
 export interface ComposerMentionList {
   options: readonly ComposerMentionOption[]
   onPick: (option: ComposerMentionOption) => void
+  /**
+   * Records the host's `@` also finds (team chat: a task, a doc, a deal…),
+   * searched as the main chat's are and listed under the host's own options.
+   * Picking one puts `@label` in the text and hands the host the row. The
+   * kinds must not include contacts (the host's options are its people).
+   */
+  records?: {
+    kinds: readonly Exclude<MenuSearchKind, 'contact' | 'agent'>[]
+    onPick: (row: MenuSearchRow) => void
+  }
 }
 
 /** How many of a host's options the menu shows at once. */
@@ -295,13 +328,29 @@ export function filterMentionOptions(options: readonly ComposerMentionOption[], 
     .slice(0, OPTIONS_CAP)
 }
 
-/** The menu for a host's own `@` list: one section, no tabs. */
-export function mentionOptionsMenu(options: readonly ComposerMentionOption[], query: string): Menu {
+/**
+ * The menu for a host's own `@` list: its options in one section, then (when
+ * the host also mentions records) the record sections found for the query,
+ * best kind first, a few of each. No tabs.
+ */
+export function mentionOptionsMenu(options: readonly ComposerMentionOption[], query: string, records?: Menu): Menu {
   const items = filterMentionOptions(options, query).map((option): MenuItem => ({ kind: 'option', option }))
   const sections: MenuSection[] = items.length
     ? [{ key: 'people', label: 'People', items, total: items.length, totalKnown: true, offset: 0 }]
     : []
+  let offset = items.length
+  for (const s of records?.sections ?? []) {
+    if (s.key === 'people') continue
+    const items = s.items.map((item): MenuItem => (item.kind === 'record' ? { ...item, host: true } : item))
+    sections.push({ ...s, items, offset })
+    offset += items.length
+  }
   return { sections, tabs: ['all'] }
+}
+
+/** What a host's record kinds offer the record search: those kinds under `@`, nothing else. */
+export function hostRecordOffer(kinds: readonly MenuSearchKind[]): MenuOffer {
+  return { pages: false, skills: false, open: false, mention: new Set(kinds) }
 }
 
 /** What picking a row does: open it (a page, a record's card), use it (a skill), or put it in the message. */
@@ -339,16 +388,16 @@ export function offeredKinds(trigger: MenuTrigger, offer: MenuOffer): MenuKind[]
 
 /** What Enter does to a row: `/` opens it (a skill is used), `@` attaches it. */
 export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
-  if (item.kind === 'skill') return 'use'
-  if (item.kind === 'page') return 'open'
+  if (item.kind === 'skill' || item.kind === 'entity_action') return 'use'
+  if (item.kind === 'page' || item.kind === 'feed') return 'open'
   if (item.kind === 'option') return 'mention'
   return trigger === '@' ? 'mention' : 'open'
 }
 
 /** The kinds in order: tabs keep these places, and a tie between two kinds' best rows keeps it. */
-const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'agents']
+const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents']
 /** `@`'s: the records first (`@ma` is Maya before a skill named like her), its skills last. */
-const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'skills']
+const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'skills']
 /** What each shows before anything is typed, in this order: recent people first. */
 const LEADS: Record<MenuTrigger, readonly MenuKind[]> = {
   '/': ['people', 'pages', 'skills'],
@@ -435,6 +484,46 @@ export interface MenuSources {
   records: Partial<Record<MenuSearchKind, readonly MenuSearchRow[]>>
   /** The workspace's edition, for the sections' names in its words. Absent: the app's own. */
   edition?: Pick<EditionDefinition, 'words'> | null
+  /** The palette, with a record's card in front: that record's own actions, listed first. */
+  recordActions?: RecordActionsSource | null
+  /** The palette's first view: what mentions or was assigned to the person, newest first (the feed's Inbox). */
+  inbox?: readonly FeedEntry[] | null
+  /** The palette's first view: the records the person touched last (the feed's Recent). */
+  recent?: readonly FeedEntry[] | null
+}
+
+/** How many of the Inbox and Recent the palette's first view shows. */
+export const INBOX_CAP = 4
+export const RECENT_CAP = 5
+
+/** The palette's Inbox and Recent sections, before anything is typed; a record in both shows once, in the Inbox. */
+export function feedSections(sources: Pick<MenuSources, 'inbox' | 'recent'>): Array<Omit<MenuSection, 'offset'>> {
+  const out: Array<Omit<MenuSection, 'offset'>> = []
+  const inbox = (sources.inbox ?? []).slice(0, INBOX_CAP)
+  const seen = new Set(inbox.map((e) => `${e.type}:${e.id}`))
+  const recent = (sources.recent ?? []).filter((e) => !seen.has(`${e.type}:${e.id}`)).slice(0, RECENT_CAP)
+  for (const [key, entries] of [['inbox', inbox], ['recent', recent]] as const) {
+    if (!entries.length) continue
+    const items = entries.map((entry): MenuItem => ({ kind: 'feed', entry }))
+    out.push({ key, label: TAB_LABELS[key], items, total: items.length, totalKnown: true })
+  }
+  return out
+}
+
+/** The actions on the record in front, for the palette (the entity actions menu's, less what needs more input). */
+export interface RecordActionsSource {
+  entity: EntityRef
+  /** The section's name (the record's title). */
+  label: string
+  actions: ReadonlyArray<{ id: DirectEntityActionId; label: string }>
+}
+
+/** The record's actions a query finds (all of them before anything is typed), in the menu's order. */
+export function filterRecordActions(source: RecordActionsSource, query: string): MenuItem[] {
+  const q = normalizeQuery(query)
+  return source.actions
+    .filter((a) => !q || scoreText(a.label, q) > 0)
+    .map((a): MenuItem => ({ kind: 'entity_action', action: a.id, entity: source.entity, label: a.label }))
 }
 
 export interface MenuSection {
@@ -484,6 +573,8 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
         best: Math.max(0, ...found.map((s) => skillScore(s, q))),
       }
     }
+    // The record in front's actions are their own section (below), never an offered kind.
+    if (!isRecordKind(kind)) return { items: [], best: 0 }
     const rows = sources.records[SEARCH_KIND[kind]] ?? []
     return { items: rows.map((row): MenuItem => ({ kind: 'record', row })), best: Math.max(0, ...rows.map((r) => r.score)) }
   }
@@ -499,6 +590,14 @@ export function buildMenu(trigger: MenuTrigger, tab: MenuTab, query: string, off
     : shown.map((kind) => ({ kind }))
 
   const sections: Omit<MenuSection, 'offset'>[] = []
+  // `/` on All, with a record's card in front: its own actions lead (Copy
+  // link, Archive…), narrowed by what's typed like everything else.
+  if (trigger === '/' && tab === 'all' && sources.recordActions) {
+    const items = filterRecordActions(sources.recordActions, query)
+    if (items.length) sections.push({ key: 'record_actions', label: sources.recordActions.label, items, total: items.length, totalKnown: true })
+  }
+  // `/` on All, nothing typed: what's waiting on the person, then what they touched last.
+  if (trigger === '/' && tab === 'all' && !q) sections.push(...feedSections(sources))
   for (const { kind } of ordered) {
     const items = all.get(kind)!.items
     if (!items.length) continue

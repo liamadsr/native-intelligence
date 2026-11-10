@@ -1,6 +1,7 @@
 'use client'
 
 import { PreferenceActionButton } from '@/components/views/preference-action'
+import { EntityAccessSection } from './entity-access-section'
 
 import { useCallback, useEffect, useState } from 'react'
 import { ThinkingOrb } from 'thinking-orbs'
@@ -431,6 +432,9 @@ export function ShareDialog({ shareableType, shareableId, trigger }: ShareDialog
                 </div>
               )}
             </div>
+
+            {/* Teammates, teams and channels a private one is shared with (renders nothing otherwise). */}
+            <EntityAccessSection type={shareableType} id={shareableId} />
           </div>
         )}
       </DialogContent>

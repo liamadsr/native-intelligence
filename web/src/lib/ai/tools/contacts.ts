@@ -9,7 +9,7 @@ import {
   type CreateWorkspacePolicy,
 } from './_shared'
 import { inngest } from '@/lib/inngest/client'
-import { filterVisibleContacts, isContactVisibleTo } from '@/lib/crm/contact-visibility'
+import { filterVisibleContacts, isContactWritableTo } from '@/lib/crm/contact-visibility'
 import { CONTACT_WEB_FIELDS, fenceContactForModel, fenceWebFields } from './web-derived'
 
 /**
@@ -303,8 +303,9 @@ export function createContactTools(
       }) => {
         const wsResolved = await resolveEntityWorkspace(supabase, userId, 'contact', contact_id, workspaceId, strictWorkspace)
         if (!wsResolved) return { success: false, error: 'Contact not found' }
-        // No writes to a contact the caller cannot see (same error as missing).
-        if (!(await isContactVisibleTo(supabase, contact_id, userId))) {
+        // No writes to a contact the caller cannot see (same error as missing),
+        // nor to one a per-item grant only lets them read (migration 495).
+        if (!(await isContactWritableTo(supabase, contact_id, userId))) {
           return { success: false, error: 'Contact not found' }
         }
 

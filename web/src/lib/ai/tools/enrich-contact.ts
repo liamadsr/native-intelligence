@@ -2,7 +2,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
-import { isContactVisibleTo } from '@/lib/crm/contact-visibility'
+import { isContactWritableTo } from '@/lib/crm/contact-visibility'
 import { readBlob } from '@/lib/crm/enrichment-details'
 import { ENRICHMENT_PERMANENTLY_FAILED, liveEnrichmentRunKey, startContactEnrichment } from '@/lib/crm/manual-enrichment'
 import { findWork } from '@/lib/work/recorder'
@@ -292,7 +292,9 @@ export function createEnrichContactTools(
         if (!resolved) return NOT_FOUND
         // No run on a contact the caller cannot see: this may run service-role,
         // where RLS does not hide it (contact-visibility.ts). Same error as missing.
-        if (!(await isContactVisibleTo(supabase, contact_id, userId))) return NOT_FOUND
+        // An enrichment writes the contact: a per-item grant (read only) is not
+        // enough (migration 495).
+        if (!(await isContactWritableTo(supabase, contact_id, userId))) return NOT_FOUND
         const targetWs = resolved.workspaceId
 
         const inFlight = await runInFlight(supabase, contact_id, targetWs)
