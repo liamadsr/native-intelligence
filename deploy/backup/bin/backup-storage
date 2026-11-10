@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# backup-storage <job>
+#
+# Copies every file held by a Supabase Storage service into the encrypted
+# vault, then pings the job's dead-man URL. It reads the files the only way
+# that is right for Storage: through its S3 protocol endpoint, never from its
+# folder on disk, where they sit in a layout of Storage's own.
+#
+# Settings, from the environment (NAME is the job name in capitals, with
+# dashes as underscores):
+#   BACKUP_<NAME>_S3_ENDPOINT           http://<host>/storage/v1/s3
+#   BACKUP_<NAME>_S3_REGION             the stack's REGION
+#   BACKUP_<NAME>_S3_ACCESS_KEY_ID      its S3_PROTOCOL_ACCESS_KEY_ID
+#   BACKUP_<NAME>_S3_SECRET_ACCESS_KEY  its S3_PROTOCOL_ACCESS_KEY_SECRET
+#   BACKUP_<NAME>_REMOVED_DAYS          how long a deleted or replaced file is
+#                                       kept (default 30, 0 = for ever)
+#   BACKUP_<NAME>_PING_URL              requested after a good run (optional)
+#
+# In the vault:
+#   <job>/current/<bucket>/<path>             the files as they are now
+#   <job>/removed/<UTC timestamp>/<bucket>/…  what a run found deleted or
+#                                             replaced, moved here, not erased
+#   <job>/manifest/<bucket>.tsv               what the last run saw: one line
+#                                             per file (time, size, path)
+#
+# How a run decides what to copy. Not by letting rclone compare the two sides:
+# Storage reports one modification time when it lists a file and another when
+# the file is read, so rclone finds every file "changed" on every run, and the
+# vault has no checksums to fall back on. Instead the listing itself is the
+# record: a file is copied when its line (the time Storage lists for it, its
+# size, its path) was not in the last run's listing. Storage moves that time
+# on every upload, so a replaced file always shows.
+#
+# A run fails, and does not ping, when a file that Storage lists cannot be
+# read. That makes this job a nightly check of the stored files as well.
+set -euo pipefail
+
+job="${1:?usage: backup-storage <job>}"
+case "$job" in *[!a-z0-9-]* | '') echo "job name must be lower-case letters, digits and dashes" >&2; exit 2 ;; esac
+
+prefix="BACKUP_$(printf '%s' "$job" | tr 'a-z-' 'A-Z_')_"
+setting() { # setting <NAME> [default]
+	local name="${prefix}$1"
+	printf '%s' "${!name:-${2-}}"
+}
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [${job}] $*"; }
+die() {
+	log "FAILED: $*"
+	exit 1
+}
+
+removed_days="$(setting REMOVED_DAYS 30)"
+ping_url="$(setting PING_URL)"
+for required in S3_ENDPOINT S3_REGION S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY; do
+	[ -n "$(setting "$required")" ] || die "${prefix}${required} is not set"
+done
+case "$removed_days" in *[!0-9]* | '') die "${prefix}REMOVED_DAYS must be a whole number" ;; esac
+
+# The Storage service as an rclone remote, from the environment only.
+export RCLONE_CONFIG_STORAGE_TYPE=s3
+export RCLONE_CONFIG_STORAGE_PROVIDER=Other
+RCLONE_CONFIG_STORAGE_ENDPOINT="$(setting S3_ENDPOINT)"
+RCLONE_CONFIG_STORAGE_REGION="$(setting S3_REGION)"
+RCLONE_CONFIG_STORAGE_ACCESS_KEY_ID="$(setting S3_ACCESS_KEY_ID)"
+RCLONE_CONFIG_STORAGE_SECRET_ACCESS_KEY="$(setting S3_SECRET_ACCESS_KEY)"
+export RCLONE_CONFIG_STORAGE_ENDPOINT RCLONE_CONFIG_STORAGE_REGION
+export RCLONE_CONFIG_STORAGE_ACCESS_KEY_ID RCLONE_CONFIG_STORAGE_SECRET_ACCESS_KEY
+
+exec 9>"/tmp/backup-${job}.lock"
+flock -n 9 || die "the previous run of this job is still going"
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+started=$SECONDS
+
+buckets="$(rclone lsf storage: | tr -d '/')" || die "cannot list buckets at ${RCLONE_CONFIG_STORAGE_ENDPOINT}"
+# An empty answer would make the sync below move every backed-up file to
+# removed/. No buckets at all is far more likely a fault than the truth.
+[ -n "$buckets" ] || die "the Storage service lists no buckets"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+tab="$(printf '\t')"
+
+files=0
+copied=0
+removed=0
+for bucket in $buckets; do
+	now="$work/$bucket.now" before="$work/$bucket.before"
+	# --use-server-modtime: the time from the listing, without a request per file.
+	rclone lsf --recursive --files-only --use-server-modtime --format tsp --separator "$tab" "storage:${bucket}" \
+		| LC_ALL=C sort >"$now" || die "cannot list bucket ${bucket}"
+	# No manifest yet (a first run, or a new bucket): everything is new.
+	rclone cat "vault:${job}/manifest/${bucket}.tsv" >"$before" 2>/dev/null || : >"$before"
+
+	# New or replaced: lines in this listing that were not in the last one.
+	LC_ALL=C comm -23 "$now" "$before" | cut -f 3- >"$work/copy.list"
+	# Deleted: paths in the last listing that are not in this one.
+	cut -f 3- "$before" | LC_ALL=C sort -u >"$work/paths.before"
+	cut -f 3- "$now" | LC_ALL=C sort -u >"$work/paths.now"
+	LC_ALL=C comm -23 "$work/paths.before" "$work/paths.now" >"$work/gone.list"
+
+	log "bucket ${bucket}: $(wc -l <"$now") file(s), $(wc -l <"$work/copy.list") new or replaced, $(wc -l <"$work/gone.list") deleted"
+	if [ -s "$work/copy.list" ]; then
+		# --backup-dir: a file this replaces is moved to removed/, not overwritten.
+		rclone copy "storage:${bucket}" "vault:${job}/current/${bucket}" \
+			--files-from-raw "$work/copy.list" --no-traverse --ignore-times \
+			--backup-dir "vault:${job}/removed/${stamp}/${bucket}" \
+			--transfers 4 --retries 2 --stats-one-line --stats 0 \
+			|| die "copying from bucket ${bucket} failed"
+	fi
+	if [ -s "$work/gone.list" ]; then
+		rclone move "vault:${job}/current/${bucket}" "vault:${job}/removed/${stamp}/${bucket}" \
+			--files-from-raw "$work/gone.list" --no-traverse --stats-one-line --stats 0 \
+			|| die "moving the deleted files of bucket ${bucket} aside failed"
+	fi
+	# The same names and sizes on both sides, whatever the manifest said.
+	rclone lsf --recursive --files-only --format sp --separator "$tab" "vault:${job}/current/${bucket}" | LC_ALL=C sort >"$work/held"
+	cut -f 2- "$now" | LC_ALL=C sort >"$work/listed"
+	if ! cmp -s "$work/held" "$work/listed"; then
+		diff "$work/listed" "$work/held" | head -n 10 >&2 || true
+		# Next run starts over for this bucket instead of trusting a wrong manifest.
+		rclone deletefile "vault:${job}/manifest/${bucket}.tsv" 2>/dev/null || true
+		die "bucket ${bucket} does not match its backup (lines above: < is Storage, > is the backup)"
+	fi
+	# Only now is this listing what the next run compares against.
+	rclone copyto --size-only "$now" "vault:${job}/manifest/${bucket}.tsv" || die "could not save the manifest of ${bucket}"
+	files=$((files + $(wc -l <"$now")))
+	copied=$((copied + $(wc -l <"$work/copy.list")))
+	removed=$((removed + $(wc -l <"$work/gone.list")))
+done
+
+# A bucket that no longer exists: keep its files, but out of current/.
+for held in $(rclone lsf --dirs-only "vault:${job}/current/" 2>/dev/null | tr -d '/'); do
+	if ! grep -qx -- "$held" <<<"$buckets"; then
+		log "bucket ${held} is gone; moving its backup to removed/"
+		rclone move "vault:${job}/current/${held}" "vault:${job}/removed/${stamp}/${held}" || die "could not move ${held}"
+		rclone deletefile "vault:${job}/manifest/${held}.tsv" 2>/dev/null || true
+	fi
+done
+
+if [ "$removed_days" -gt 0 ]; then
+	rclone delete --min-age "${removed_days}d" "vault:${job}/removed/" 2>/dev/null || true
+	rclone rmdirs --leave-root "vault:${job}/removed/" 2>/dev/null || true
+fi
+log "${files} file(s) in $(printf '%s\n' "$buckets" | wc -l) bucket(s) held; ${copied} copied, ${removed} moved to removed/, in $((SECONDS - started))s"
+
+if [ -n "$ping_url" ]; then
+	pinged=false
+	for _ in 1 2 3; do
+		if wget -q -T 15 -O /dev/null "$ping_url"; then
+			pinged=true
+			break
+		fi
+		sleep 5
+	done
+	"$pinged" || die "backup is good but the dead-man ping did not go through"
+fi
+
+log "done"

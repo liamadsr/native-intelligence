@@ -1,12 +1,13 @@
 # The server
 
-Everything Native Intelligence runs on its own server lives in this folder. It is being moved there from managed services one piece at a time. This is the first piece: the server itself, and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (still on Vercel) sends its background work to.
+Everything Native Intelligence runs on its own server lives in this folder. It is being moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (still on Vercel) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files.
 
 | Folder | What it runs | Public? |
 | --- | --- | --- |
 | [`edge/`](edge) | Caddy on ports 80 and 443, with automatic certificates. An allowlist in front of Inngest, and a pass-through host for Supabase. | Yes, the only thing that is |
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
-| [`backup/`](backup) | A nightly, encrypted dump of Inngest's Postgres to Backblaze B2. | No |
+| [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
+| [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
 
 Follow this page top to bottom on a fresh server. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end: nothing here has run on a real server yet.
 
@@ -245,16 +246,23 @@ What ends up where:
 /opt/native-intelligence/deploy/
 ├── edge/       compose.yaml  Caddyfile                               .env
 ├── inngest/    compose.yaml  sync.sh  prune-history.sh  prune-history.sql  .env
-└── backup/     compose.yaml  Dockerfile  crontab  bin/               .env
+├── backup/     compose.yaml  compose.supabase.yaml  Dockerfile  crontab  bin/  .env
+└── supabase/   compose.override.yaml  postgres/  check-env.sh  .env.example
+    ├── stack/      Supabase's own files, never edited            .env
+    └── migrate/    the move from the hosted project              .env
 
 Docker volumes   ni-inngest-postgres   ni-inngest-redis
                  ni-edge-caddy-data    ni-edge-caddy-config
+                 ni-supabase-db        ni-supabase-storage
+                 ni-supabase-db-config ni-supabase-deno-cache
 Docker networks  ni-edge      shared by Caddy and whatever it proxies to (172.30.0.0/24;
                               fixed addresses below .128, Docker hands out the rest)
                  ni-inngest   Inngest, its Postgres and Redis, and the backup container; no route out
+                 ni-supabase  the Supabase stack and the backup container (172.31.0.0/24,
+                              split the same way)
 ```
 
-**The `.env` files.** Each of the three folders has a `.env.example` that lists every setting with a comment and no values. The real `.env` sits beside it, on the server only:
+**The `.env` files.** Each folder has a `.env.example` that lists every setting with a comment. The real `.env` sits beside it, on the server only (for Supabase it sits in `supabase/stack/`, where Supabase's own tools look for it):
 
 - owned by root and readable by root alone (`-rw------- root root`);
 - never in git (`deploy/.gitignore` refuses them);
@@ -512,9 +520,304 @@ If the app's host puts a bot challenge or deployment protection in front of the 
 
 **Rolling the app back goes back to Inngest Cloud.** A deployment keeps the environment it was built with. Rolling production back to a deployment from before this step therefore also puts the Inngest Cloud keys back: the app sends its events there again and refuses this server's requests. That is the way to undo the cut-over on purpose (then comment `COMPOSE_PROFILES` again and run `sudo docker compose stop sync`, and restore the four variables so the next deployment matches). It is also what an "instant rollback" for an unrelated bug does without saying so: after this step, fix forward, or roll back only to deployments made after it.
 
+## 14. Supabase: the stack
+
+This brings up an empty Supabase. Nothing uses it and nothing public reaches it until step 18. [`supabase/README.md`](supabase/README.md) explains what is in the folder; in short, `supabase/stack/` is Supabase's own release, with not one of its files edited, and everything of ours is layered on top of it.
+
+**Two more folders of the repository.** The stack serves the app's email templates and runs its Stripe function straight from where they already live, so the server's checkout needs them:
+
+```bash
+cd /opt/native-intelligence && git sparse-checkout add web/supabase/functions web/supabase/templates
+```
+
+**The settings.**
+
+```bash
+cd /opt/native-intelligence/deploy/supabase
+```
+
+```bash
+sudo install -m 600 -o root -g root .env.example stack/.env
+```
+
+Supabase's own script generates the secrets that are new here (the database password, the Studio password, the internal keys):
+
+```bash
+cd stack && sudo sh utils/generate-keys.sh --update-env && sudo rm -f .env.old
+```
+
+It prints what it generated. Then fill in the rest:
+
+```bash
+sudo nano .env
+```
+
+[`supabase/.env.example`](supabase/.env.example) describes every line. Three groups matter most:
+
+1. **Copied from the hosted project** (section 2): `JWT_SECRET`, `ANON_KEY` and `SERVICE_ROLE_KEY`, **replacing** what the script just generated for those three, and `JWT_EXPIRY`. With the hosted project's own secret and keys, the keys compiled into the apps and every signed-in session keep working after the switch. The six "new key" settings below them stay empty.
+2. **Where the stack is** (section 3): `SUPABASE_PUBLIC_URL=https://sb.nativeintelligence.dev` and `API_EXTERNAL_URL=https://sb.nativeintelligence.dev/auth/v1`, from the start. That name keeps pointing at the hosted project until step 18; inside the server, the scripts reach this stack under it already.
+3. **Auth settings that exist only in the hosted dashboard** (section 4): Google, Apple, SMTP, the site URL, the redirect allow-list, the email subjects. Leave `HOOK_BEFORE_USER_CREATED_ENABLED=false` for now: the function it calls arrives with the database.
+
+Then let the checker read it. It verifies, among other things, that the two keys really are signed with the secret:
+
+```bash
+cd .. && sudo ./check-env.sh
+```
+
+**Start it.** The first start downloads several gigabytes of images.
+
+```bash
+cd stack && sudo sh run.sh start
+```
+
+```bash
+sudo sh run.sh status
+```
+
+Every service must be `healthy` (`mail-templates` has no health check and says `Up`). If one is not: `sudo sh run.sh logs <service>`.
+
+Check that nothing of it is on the internet. This must print only Caddy's two ports:
+
+```bash
+sudo docker ps --format '{{.Names}}  {{.Ports}}' | grep -E '0\.0\.0\.0|\[::\]'
+```
+
+> **Never run `sudo docker compose down -v` in `supabase/stack`, and never run `reset.sh` there.** `-v` deletes the database, every stored file, and the key Postgres encrypts with. To stop the stack: `sudo sh run.sh stop`. Nothing else is needed, ever.
+
+## 15. Studio
+
+Studio is Supabase's dashboard: tables, SQL, users, files. It is not on the internet. Like the Inngest dashboard it is reached through SSH, from your own machine:
+
+```bash
+ssh -N -L 8000:172.31.0.10:8000 deploy@<server>
+```
+
+Leave that running and open <http://localhost:8000>. It asks for `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` from `stack/.env`. `172.31.0.10` is the gateway's fixed address on the Supabase network.
+
+What Caddy will forward to (in step 18) is a second door on that same gateway that only lets the API through: `/auth/v1/`, `/rest/v1/`, `/graphql/v1`, `/realtime/v1/`, `/storage/v1/` and `/functions/v1/`. Studio, and everything else, answers `404` there. From the server:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://172.31.0.10/
+```
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' http://172.31.0.10/auth/v1/health
+```
+
+The first must print `404`, the second `401` (the API is there and wants a key).
+
+## 16. Rehearse the move
+
+A full run of the move into this stack, while production stays exactly where it is. The copy is private: it is reachable only through an SSH tunnel. Do this at least once, days before the switch. It is where you find out how long the move takes and what does not fit.
+
+Set up the scripts as [`supabase/migrate/README.md`](supabase/migrate/README.md#before-you-start) says (the Supabase CLI, an S3 key on the hosted project, `migrate/.env`). Then, from `/opt/native-intelligence/deploy/supabase/migrate`, in this order. Each one ends by naming the next.
+
+```bash
+sudo ./00-preflight.sh
+```
+
+```bash
+sudo ./01-dump.sh
+```
+
+```bash
+sudo ./02-restore.sh dumps/<the folder 01-dump.sh named>
+```
+
+```bash
+cd ../stack && sudo sh run.sh restart && cd ../migrate
+```
+
+```bash
+sudo ./03-copy-storage.sh
+```
+
+```bash
+sudo ./04-verify.sh
+```
+
+`04-verify.sh` compares the two sides and prints every difference. In a rehearsal some are expected (the hosted project kept working after the dump; cron jobs are paused on the copy on purpose); [the runbook lists them](supabase/migrate/README.md#reading-the-verification). What must be the same even now: `policies`, `functions`, `table grants`, `publication tables`, and the files of each bucket, byte for byte.
+
+**Use the copy.** Turn the sign-up check on now that its function is there (`HOOK_BEFORE_USER_CREATED_ENABLED=true` in `stack/.env`, then `sudo sh run.sh recreate auth`). From your own machine:
+
+```bash
+ssh -N -L 8080:172.31.0.10:80 deploy@<server>
+```
+
+and run the web app locally with `NEXT_PUBLIC_SUPABASE_URL=http://localhost:8080` and the usual keys. Sign in with your own account and password, open a workspace, open an attachment, change something and watch it appear in a second window. Use your own account only: the copy holds every real user's address, and it can send real email.
+
+What a tunnel cannot show: sign-in with Google or Apple (they send the browser back to the public address, which is still the hosted project) and anything that needs HTTPS. Both are first seen for real at the switch.
+
+Write down how long `01-dump.sh`, `02-restore.sh` and `03-copy-storage.sh` took. Their sum, plus a few minutes, is how long writes will be paused in step 18.
+
+Leave the copy in place for step 17.
+
+## 17. Backups, and the restore drill
+
+Turn on the two Supabase jobs: an hourly dump of the database (the newest 48 are kept, and the newest of each of the last 30 days) and a nightly copy of the stored files.
+
+First, two more dead-man checks: one that expects a request every hour, one every day.
+
+```bash
+cd /opt/native-intelligence/deploy/backup
+```
+
+```bash
+sudo nano .env
+```
+
+Uncomment `COMPOSE_FILE=compose.yaml:compose.supabase.yaml` and fill in the `BACKUP_SUPABASE_*` lines; [`backup/.env.example`](backup/.env.example) says where each value comes from (all of them are in `supabase/stack/.env`).
+
+```bash
+sudo docker compose up -d --build
+```
+
+```bash
+sudo docker compose logs --tail 10 backup
+```
+
+It must list three jobs. Run the two new ones now instead of waiting:
+
+```bash
+sudo docker compose exec backup backup-postgres supabase
+```
+
+```bash
+sudo docker compose exec backup backup-storage supabase-storage
+```
+
+Each must end in `done`, and each check must show its first ping.
+
+**The drill.** A backup that has never been restored is a guess, and right now the stack holds a copy that nothing depends on. Destroy it and bring it back from the backups just taken:
+
+```bash
+cd /opt/native-intelligence/deploy/supabase/stack && sudo sh run.sh stop
+```
+
+(It ends by saying the network `ni-supabase` is still in use. The backup container is on it; that is as it should be.)
+
+```bash
+sudo docker volume rm ni-supabase-db ni-supabase-storage
+```
+
+```bash
+sudo docker compose up -d --wait db
+```
+
+Now follow [`backup/README.md`](backup/README.md#restore-the-database), "Restore the database" from its step 3 (everything but `db` is already stopped) and then "Restore the files". Afterwards the copy must be what it was: sign in through the tunnel again, open an attachment, and run `sudo ./04-verify.sh` in `supabase/migrate` once more. It must print what it printed before the drill (whatever you changed while using the copy shows as a difference from the hosted project both times). This is the only time the two data volumes are ever deleted on purpose after a backup exists.
+
+## 18. The switch
+
+Production moves here. Everything that talks to Supabase already goes through `sb.nativeintelligence.dev`, so the switch itself is one changed line in Caddy's `.env`. The rest of this step is making sure the data is all here first.
+
+**Days before.**
+
+- A rehearsal (step 16) and a drill (step 17) that both ended well.
+- `https://sb.nativeintelligence.dev/auth/v1/callback` is on the list of authorized redirect URIs of the Google OAuth client, and on the list of return URLs of the Apple Services ID. The hosted project used its own `supabase.co` address there; this stack uses this one. Adding it early does no harm, and without it nobody can sign in with Google or Apple after the switch.
+- Every setting of [section 4 of `.env.example`](supabase/.env.example) is filled in and `sudo ./check-env.sh` says `no problems`.
+- You know the hosted project's URL (it is `SUPABASE_UPSTREAM` in `edge/.env` today). It is the undo.
+
+**1. Empty the stack.** The rehearsal copy is in it, and a restore wants an empty database. [Starting again](supabase/migrate/README.md#starting-again): stop, remove the two data volumes by name, start. Then `sudo ./00-preflight.sh` must say `empty, ready for a restore`.
+
+**2. Pause writes.** From here until step 5, nothing may change in the hosted project, or it is left behind. Three things, in this order:
+
+- Whatever the app has for a maintenance mode: turn it on.
+- **The Stripe webhook.** In the Stripe dashboard (Developers, Webhooks), open the existing endpoint and change its URL **in place** to
+
+  ```text
+  https://sb.nativeintelligence.dev/functions/v1/stripe-webhook
+  ```
+
+  Editing the endpoint keeps its signing secret, which is the `STRIPE_WEBHOOK_SECRET` already in `stack/.env`; a new endpoint would get a new one. This is done now and not after the switch on purpose: an event that Stripe delivered to the old address during the move would be written to the hosted database after the dump was taken, and lost. Sent to the new address it gets a `502` for now, and Stripe sends it again later, for up to three days. If the endpoint already has this address, there is nothing to do.
+- Close the door. In `/opt/native-intelligence/deploy/edge/.env`, point the Supabase host at nothing:
+
+  ```text
+  SUPABASE_UPSTREAM=http://127.0.0.1:9
+  ```
+
+  ```bash
+  cd /opt/native-intelligence/deploy/edge && sudo docker compose up -d
+  ```
+
+From this moment every Supabase request through `sb.nativeintelligence.dev` answers `502`: the web app, the desktop app and the iOS app are down, for as long as the three scripts took in the rehearsal. (Caddy restarts to read the new line, which also interrupts Inngest's address for a second or two.) Background jobs that touch the database fail and retry while it lasts; look through the Inngest dashboard afterwards for runs that gave up.
+
+Closing the door does not stop what never came through it. Anything that still uses the hosted project's own `supabase.co` address keeps writing there: an old build of an app, a server setting that was not moved, a cron job inside the hosted database. `04-verify.sh` in step 4 is the check: it reads both sides after everything has been copied, and a row count that differs means something wrote to the hosted project after the dump.
+
+**3. The final dump and restore.** In `supabase/migrate`, the same scripts as the rehearsal, with one flag: `--final` leaves the cron jobs running.
+
+```bash
+sudo ./00-preflight.sh
+```
+
+```bash
+sudo ./01-dump.sh
+```
+
+```bash
+sudo ./02-restore.sh dumps/<the new folder> --final
+```
+
+```bash
+cd ../stack && sudo sh run.sh restart && cd ../migrate
+```
+
+```bash
+sudo ./03-copy-storage.sh
+```
+
+**4. Verify.**
+
+```bash
+sudo ./04-verify.sh
+```
+
+With writes paused, `rows`, `accounts`, `sequences`, `file records`, `policies`, `functions`, `table grants` and `publication tables` must each say `the same`, and each bucket's files `the same`. [The few differences that are still expected](supabase/migrate/README.md#reading-the-verification) are listed in the runbook. If anything else differs, do not go on: undo step 2 (put the hosted URL back) and find out why with production running.
+
+**5. Switch.** In `/opt/native-intelligence/deploy/edge/.env`, the one line:
+
+```text
+SUPABASE_UPSTREAM=http://ni-supabase-gateway
+```
+
+```bash
+cd /opt/native-intelligence/deploy/edge && sudo docker compose up -d
+```
+
+`ni-supabase-gateway` is the Supabase gateway's name on the network it shares with Caddy, and the missing port means 80: its public door from step 15. Nothing else in Caddy changes.
+
+**6. Check, from your own machine.** The first must print `401`, the second `404`:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://sb.nativeintelligence.dev/auth/v1/health
+```
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://sb.nativeintelligence.dev/
+```
+
+Then turn maintenance mode off and use the real app: you should still be signed in. Sign out and in again with Google. Open an attachment. Change something and watch it arrive in a second window. In Stripe, "Send test event" to the endpoint must show `200`. On the server:
+
+```bash
+cd /opt/native-intelligence/deploy/supabase/stack && sudo sh run.sh logs auth
+```
+
+**7. Afterwards.**
+
+- Take a backup now rather than at the next hour: `sudo docker compose exec backup backup-postgres supabase` and `backup-storage supabase-storage` in `deploy/backup`.
+- Delete the dumps and the migration settings ([when the move is over](supabase/migrate/README.md#when-the-move-is-over)): they are every user's data in plain text, and production credentials.
+- Leave the hosted project exactly as it is, running and untouched, until you are sure. It is the undo.
+
+## 19. The undo
+
+Going back is the same one line, the other way: in `edge/.env` put the hosted project's URL back in `SUPABASE_UPSTREAM`, then `sudo docker compose up -d` in `deploy/edge`. The Stripe endpoint can keep its new address: the door passes `/functions/v1/` on to the hosted project's function again. Sign-in with Google and Apple works on both sides as long as both redirect addresses stay registered.
+
+What the undo cannot do is carry back what happened here in the meantime. From the moment of the switch, new accounts, rows and files exist only on this server; the hosted project is as it was when writes were paused. Going back minutes after the switch loses minutes. Going back after a day loses a day, unless that day is moved by hand. So decide early: the checks in step 18.6 are there to be done at once, and a doubt in the first hour is a reason to go back, not to wait.
+
+Once you are sure: pause or delete the hosted project (its dashboard), delete the S3 access key made for the move, and from then on never remove the two data volumes again.
+
 ## Day to day
 
-Run these from the stack's own folder.
+Run these from the stack's own folder. The Supabase stack has its own commands (`sudo sh run.sh …` in `supabase/stack`) and its own way of taking a new release: [`supabase/README.md`](supabase/README.md#day-to-day).
 
 | To | Command |
 | --- | --- |
@@ -525,7 +828,7 @@ Run these from the stack's own folder.
 | Upgrade Inngest | Read the release notes, change the image tag in `inngest/compose.yaml`, then `sudo docker compose pull inngest && sudo docker compose up -d inngest` |
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 
-Stopping and starting is safe: Redis writes every change to disk within a second and Postgres is Postgres. `sudo docker compose down` keeps the volumes. **`down -v` deletes them.**
+Stopping and starting is safe: Redis writes every change to disk within a second and Postgres is Postgres. `sudo docker compose down` keeps the volumes. **`down -v` deletes them.** In `supabase/stack` that is the app's whole database and every stored file: never run it there.
 
 ## What the Inngest host lets through
 
@@ -555,6 +858,8 @@ Each rule matches the method and the exact shape of the path, and Caddy rebuilds
 **Never to be opened.** These have no authentication on a self-hosted server: the dashboard (`/` and its assets), GraphQL (`/v0/gql`), `/metrics`, `/debug` (the Go profiler), `/mcp`, `/dev/traces`, `/health`. Use the tunnel.
 
 ## What was tested, and what was not
+
+### Steps 1 to 13: the server, Inngest, Caddy, backups
 
 Tested, on a throwaway Docker host with the real images (Inngest v1.51.0, Postgres 17, Redis 7, Caddy 2.11, rclone 1.75.2) and a test app on the same SDK build as the web app:
 
@@ -586,3 +891,40 @@ Tested, on a throwaway Docker host with the real images (Inngest v1.51.0, Postgr
 - **The sync loop is a workaround** for `inngest start` not re-syncing a healthy app in v1.51.0. If a later version does it itself, remove the `sync` service.
 - **A Caddy reload closes open WebSockets.** Fine today, when nothing uses the `sb.` host. Once Supabase Realtime goes through it, `stream_close_delay` in the Caddyfile is the setting to look at.
 - **Postgres has no tuning.** It runs with the image's defaults, which is fine to start with on this machine.
+
+### Steps 14 to 19: Supabase
+
+Tested, on a throwaway Docker host (4 CPUs, 16 GB) with the real images of Supabase's release 0.8.4, everything run from a sparse checkout made the way steps 7 and 14 make it:
+
+- Every compose file and combination (`docker compose config`): ours, theirs, theirs with ours on top, and the backup overlay. The merged Supabase stack publishes no port. All fourteen scripts pass ShellCheck.
+- The stack from nothing, with `stack/.env` made from our `.env.example`, their key generator and `check-env.sh`: every service healthy, nothing published, Postgres running with the memory settings of `ni-memory.conf`, three restarts in a row.
+- The public listener: the six API prefixes pass, Studio and `/pg/` and everything else answer `404`. Every printable character was tried around `..` in the path, raw and percent-encoded, against the listener and through the edge Caddyfile: none reaches Studio or `/pg/`. (The same test against a Caddy allowlist in front of the gateway found two that do, `;` and `\`, which is why the allowlist is inside the gateway.)
+- Through the edge Caddyfile (plain HTTP), the listener and the gateway, with the Supabase client library: sign-up, sign-in, refresh, the data API under row-level security, upload, download and signed URLs (a file name with a space, `;`, `&`, `+` and brackets), Realtime broadcast and database changes over a WebSocket. The client's address arrives first in `X-Forwarded-For`, and forwarded headers sent by a client are dropped.
+- Studio through the gateway's own port, in a real browser: the table editor, the users, the buckets. No request left that address.
+- Taking a release: their `update.sh` on this layout from 0.8.3 to 0.8.4, then `after-update.sh`. No conflicts, the folder ended file for file as this repository holds 0.8.4, and a setting present in their example and missing from ours was reported.
+- The repository's own leak check (`.github/guard.sh`, gitleaks 8.30.1) on the result: clean. With Supabase's `.env.example` and `tests/` left in, it found seven of their demo keys, which is why those two are not kept.
+- **The move.** A second, stock Supabase stack stood in for the hosted project, with the app's real schema built by `web/scripts/db-bootstrap.sh` (251 tables, 447 policies, 49 tables in the publication, the six extensions, both buckets), three accounts with live sessions, 14 files uploaded by those accounts, a cron job, a vault secret, the `service_role` timeout, and one table the self-hosted Auth does not have. The five scripts ran against it with the real Supabase CLI (3.1.0), as a rehearsal and again as the switch with `--final`, with "Starting again" in between. The verification ended with three differences, each one expected: the extra table, one constraint written back with different brackets, the vault secret.
+- **What existing clients hold keeps working** on the new stack: an access token issued by the stand-in (a different issuer), the refresh token, the password, the `anon` and `service_role` keys. A new sign-up runs the app's triggers on `auth.users`. A user reads their own file and is refused someone else's.
+- The sign-up hook on and off (a free-mail address refused with the app's own message), and three of the five email templates fetched from `web/supabase/templates` and delivered to a mail catcher, with a subject from `.env`.
+- `stripe-webhook`: mounted from `web/`, reached with no Supabase key, and its own logic on the self-hosted runtime: no signature and a wrong signature refused, a correctly signed subscription event written to `subscriptions` and the plan assigned. **With one substitution:** see below.
+- **Backups.** The hourly job and its retention (with older backups planted: the right ones survive), the roles file, the nightly file job over three runs (everything, nothing, one deletion and one replacement of the same size), and the container without the overlay scheduling only Inngest. **The drill, twice:** database and files deleted, both restored from the backups; the database afterwards identical in all 4,653 lines of its description (every table's content checksum, every grant, function, policy, sequence and file record), a 6 MB file byte for byte the same with the same headers.
+- **The switch and the undo**, through the edge Caddyfile: the public name passing through to the stand-in, closed (`502`), pointed at the local gateway (served by the new stack, Studio `404`), back to the stand-in, and forward again.
+
+**Not tested, and why:**
+
+- **Anything against the real hosted project.** It could not be reached from where this was written, by design. So: whether its Auth and Storage are ahead of release 0.8.4 (the restore checks and says so), how long 926 MB and 275 files take (the rehearsal data was 35 MB and 14 files), its S3 endpoint, and its session pooler from this server.
+- **The real server.** The sandbox differs from Ubuntu 24.04 in two ways that were worked around in the test only: it forbids raising the open-files limit (the pooler asks for 100,000), and it uses the older cgroup layout (the functions service's memory monitor switched itself off). The 4 GB of shared buffers were allocated but never filled.
+- **HTTPS**, and with it sign-in with Google and Apple end to end. The settings reach Auth (it reports Google as enabled); no real redirect was made.
+- **`stripe-webhook` with its own imports.** It imports from `deno.land` and `esm.sh`, which the sandbox blocks, so for the test those three imports were mapped to the same libraries (Stripe 22.1.0, supabase-js 2) on npm and jsr. On the server it downloads the real ones on its first call. Stripe's own "Send test event" is the real test (step 18.6).
+- A real SMTP provider, and the invite and email-change templates (nothing in the test triggered them).
+- Backblaze B2 (a local folder stood in), and the cron lines firing by themselves (each job was run by hand).
+- The real web, desktop and iOS apps. Everything was exercised with the Supabase client library from scripts.
+- Taking a new release on a stack that holds data: the file merge was tested, the restart onto new images was not.
+- A file larger than 200 MB (rclone switches to multipart uploads there). The largest today is far below that.
+
+**Open items:**
+
+- **The pause in step 18 covers what comes through `sb.nativeintelligence.dev`, and nothing else.** An app build or a setting that still uses the hosted project's own address keeps writing there. The verification at the end of the move is what catches it.
+- **Supabase's `postgres` role cannot write to every table their own dump contains** (`storage.buckets_vectors`, `storage.vector_indexes`). Both are empty on a project that does not use vector buckets, and the restore leaves empty ones out. If the hosted project has rows in them, the restore stops and says so.
+- **Storage's S3 endpoint accepts a request only for the host name in `SUPABASE_PUBLIC_URL`.** The backup and the migration depend on that, by calling the gateway under that name inside Docker. It is how release 0.8.4 behaves; it is not documented by them. If a release changes it, the nightly file backup fails and its dead-man check says so.
+- **Auth settings beyond the ones listed** in [`supabase/README.md`](supabase/README.md#auth-settings) (rate limits, password rules, CAPTCHA) fall back to defaults unless they are carried over by hand.

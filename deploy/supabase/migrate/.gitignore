@@ -1,0 +1,6 @@
+# What the migration scripts write. Never in git: the dumps are every
+# user's data in plain text.
+dumps/
+.restore.*/
+.storage.*/
+.verify.*/
