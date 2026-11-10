@@ -257,8 +257,12 @@ const IN_PAGE_HEADERS = ['next-action', 'x-nextjs-data']
  * https://dial8.ai, and their navigation guard (desktop/src-tauri/src/nav_guard.rs
  * before the address change) lets a window show only dial8.ai: a forward to the
  * new domain would be cancelled there and opened in the system browser, leaving
- * the app's window empty. Their update feed is asked natively, under api/, so
- * they still update; the build they update to loads the new domain itself.
+ * the app's window empty. And they could not update out of it: their update
+ * check and install are started by the page in that window
+ * (src/components/desktop/app-updater.tsx; the tray's "Check for Updates" only
+ * asks that page), so with no page they never update. Left here, the page loads
+ * as before and offers the update, and the build they update to loads the new
+ * domain itself. (Owner's decision, 2026-11-10: keep them on the old domain.)
  *
  * How their requests are told apart: the desktop's web views are WKWebViews
  * created by wry 0.54.3 with no user agent of their own, so they send WebKit's
