@@ -68,10 +68,6 @@
       "schedule": "0 3 * * 1"
     },
     {
-      "path": "/api/cron/inngest-sync",
-      "schedule": "*/30 * * * *"
-    },
-    {
       "path": "/api/cron/proposal-age-out",
       "schedule": "50 2 * * *"
     },
