@@ -77,7 +77,13 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
 
     it('keeps the reset page shut for a reset code this browser cannot redeem, or a spent link', async () => {
       fetchMock.mockResolvedValue(redirect(`https://${DOMAIN}/reset-password?code=abc`))
+      // Opened in a browser other than the one that asked: no verifier here,
+      // so the link still fails, and the page says where to open it.
       m.exchange.mockResolvedValue({ error: { code: 'pkce_code_verifier_not_found', message: 'PKCE code verifier not found' } })
+      expect(location(await GET(request({ token_hash: HASH, type: 'recovery' })))).toBe(
+        `https://${DOMAIN}/reset-password?error=opened_elsewhere`,
+      )
+      m.exchange.mockResolvedValue({ error: { code: 'bad_code_verifier', message: 'code challenge does not match' } })
       expect(location(await GET(request({ token_hash: HASH, type: 'recovery' })))).toBe(
         `https://${DOMAIN}/reset-password?error=auth_failed`,
       )
@@ -86,7 +92,35 @@ describe.each(APP_DOMAINS)('on %s', (DOMAIN) => {
       expect(location(await GET(request({ token_hash: HASH, type: 'recovery' })))).toBe(
         `https://${DOMAIN}/reset-password?error=link_expired`,
       )
-      expect(m.exchange).toHaveBeenCalledTimes(1)
+      expect(m.exchange).toHaveBeenCalledTimes(2)
+    })
+
+    it('hands a reset asked for in the desktop app back to the app, unexchanged and marked as a reset', async () => {
+      const asked = { token_hash: HASH, type: 'recovery', redirect_to: `https://${DOMAIN}/auth/desktop-callback` }
+      fetchMock.mockResolvedValue(redirect(`https://${DOMAIN}/auth/desktop-callback?code=abc`))
+      const res = await GET(request(asked))
+      expect(verifyCall()).toMatchObject({ type: 'recovery', redirect_to: `https://${DOMAIN}/auth/desktop-callback` })
+      // The app's web view holds the verifier: exchanging here would fail (and the browser must not get the session).
+      expect(m.exchange).not.toHaveBeenCalled()
+      expect(location(res)).toBe(`https://${DOMAIN}/auth/desktop-callback?code=abc&type=recovery`)
+      expect(location(res)).not.toContain(HASH)
+    })
+
+    it("tells the app a desktop reset failed, with Supabase's reason or ours", async () => {
+      const asked = { token_hash: HASH, type: 'recovery', redirect_to: `https://${DOMAIN}/auth/desktop-callback` }
+      fetchMock.mockResolvedValue(redirect(`https://${DOMAIN}/auth/desktop-callback?error=access_denied&error_code=otp_expired`))
+      expect(location(await GET(request(asked)))).toBe(
+        `https://${DOMAIN}/auth/desktop-callback?error=access_denied&error_code=otp_expired&type=recovery`,
+      )
+      fetchMock.mockResolvedValue(new Response('{}', { status: 400 }))
+      expect(location(await GET(request(asked)))).toBe(`https://${DOMAIN}/auth/desktop-callback?error=auth_failed&type=recovery`)
+      expect(m.exchange).not.toHaveBeenCalled()
+    })
+
+    it('marks only a reset: a desktop sign-in link goes to the app as before', async () => {
+      fetchMock.mockResolvedValue(redirect(`https://${DOMAIN}/auth/desktop-callback?code=abc`))
+      const res = await GET(request({ token_hash: HASH, type: 'magiclink', redirect_to: `https://${DOMAIN}/auth/desktop-callback` }))
+      expect(location(res)).toBe(`https://${DOMAIN}/auth/desktop-callback?code=abc`)
     })
 
     it('hands the browser the code, never the token', async () => {

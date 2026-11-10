@@ -17,7 +17,7 @@ import { createRoot, type Root } from 'react-dom/client'
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
-  exchange: vi.fn(async (_code: string) => ({ error: null as unknown })),
+  exchange: vi.fn(async (_code: string) => ({ error: null as unknown, data: null as { redirectType: string | null } | null })),
   emitOAuthCallback: vi.fn(),
   emitMcpOAuthCallback: vi.fn(),
   claimMcp: vi.fn(async (_link: { state: string; code?: string | null; error?: string | null }, _f?: unknown, _onClaiming?: () => void) => null as unknown),
@@ -79,7 +79,7 @@ describe('DeepLinkHandler protocol gating', () => {
   beforeEach(async () => {
     mocks.push.mockClear()
     mocks.exchange.mockClear()
-    mocks.exchange.mockImplementation(async () => ({ error: null }))
+    mocks.exchange.mockImplementation(async () => ({ error: null, data: null }))
     mocks.emitOAuthCallback.mockClear()
     mocks.emitMcpOAuthCallback.mockClear()
     mocks.claimMcp.mockClear()
@@ -134,8 +134,24 @@ describe('DeepLinkHandler protocol gating', () => {
     expect(mocks.push).toHaveBeenCalledWith('/account')
   })
 
+  it('opens the reset page for a password reset this app asked for', async () => {
+    mocks.exchange.mockImplementation(async () => ({ error: null, data: { redirectType: 'PASSWORD_RECOVERY' } }))
+    await deliver('dial8desktop://auth/callback?code=abc&type=recovery')
+    expect(mocks.exchange).toHaveBeenCalledWith('abc')
+    expect(mocks.push).toHaveBeenCalledWith('/reset-password')
+  })
+
+  it('a reset link this app did not ask for still fails, on the reset page', async () => {
+    mocks.exchange.mockImplementation(async () => ({
+      error: Object.assign(new Error('PKCE code verifier not found in storage.'), { code: 'pkce_code_verifier_not_found' }),
+      data: null,
+    }))
+    await deliver('dial8desktop://auth/callback?code=abc&type=recovery')
+    expect(mocks.push).toHaveBeenCalledWith('/reset-password?error=opened_elsewhere')
+  })
+
   it('sends a failed exchange to the login page', async () => {
-    mocks.exchange.mockImplementation(async () => ({ error: new Error('bad code') }))
+    mocks.exchange.mockImplementation(async () => ({ error: new Error('bad code'), data: null }))
     await deliver('dial8desktop://auth/callback?code=abc')
     expect(mocks.push).toHaveBeenCalledWith('/login?error=auth_failed')
   })

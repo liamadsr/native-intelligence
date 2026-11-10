@@ -11,7 +11,7 @@ import { claimDesktopMcp, claimDesktopOAuth } from '@/lib/integrations/desktop-o
 import {
   DESKTOP_AUTH_SCHEME,
   completeDesktopSignIn,
-  loginErrorPath,
+  desktopSignInLanding,
   parseDesktopAuthCallback,
 } from '@/lib/auth/desktop-sign-in'
 
@@ -251,19 +251,17 @@ export function DeepLinkHandler() {
           // NOTE: Auth callbacks require a full page transition since the user
           // may be on the login page (outside the dashboard layout). This is
           // fine because there's no active capture during login. The `code` is
-          // single-use, so exactly one window may exchange it.
+          // single-use, so exactly one window may exchange it. A password
+          // reset asked for in the app returns here too and lands on the
+          // reset page (src/lib/auth/password-reset.ts).
           const callback = parseDesktopAuthCallback(url.href)
           if (!callback) return
           // A bare callback (no code, no error) carries nothing to act on.
           if (callback.kind === 'error' && !url.searchParams.get('error')) return
           gate.run(async () => {
             const outcome = await completeDesktopSignIn(callback, createClient())
-            if (outcome.ok) {
-              console.log('[deep-link-handler] session exchanged, redirecting')
-              routerRef.current.push('/account')
-            } else {
-              routerRef.current.push(loginErrorPath(outcome.error))
-            }
+            if (outcome.ok) console.log('[deep-link-handler] session exchanged, redirecting')
+            routerRef.current.push(desktopSignInLanding(outcome))
           })
         })),
       ),
