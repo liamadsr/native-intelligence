@@ -182,7 +182,8 @@ fi
 cron_call() { # [NAME=value]...: one call from the cron container; prints its line
   local pair env=()
   for pair in "$@"; do env+=(-e "$pair"); done
-  compose exec -T "${env[@]}" cron node /app/deploy/app/cron/call.mjs /api/cron/approval-expiry 2>&1 | tr -s '[:space:]' ' '
+  # ${env[@]+...}: bash before 4.4 (macOS's 3.2) calls an empty array unbound under set -u.
+  compose exec -T ${env[@]+"${env[@]}"} cron node /app/deploy/app/cron/call.mjs /api/cron/approval-expiry 2>&1 | tr -s '[:space:]' ' '
 }
 contains() { # <what> <text> <wanted>...
   local what="$1" text="$2" missing="" wanted
@@ -200,6 +201,20 @@ fi
 contains "cron is a dry run in this stack" "$(cron_call)" 'skipped'
 contains "cron call with a wrong secret is refused" "$(cron_call CRON_DRY_RUN= CRON_SECRET=wrong)" ': 401 '
 contains "cron call with CRON_SECRET reaches the route" "$(cron_call CRON_DRY_RUN=)" ': 500 ' '"ok":false'
+
+# Every role, idle, exits on SIGTERM by itself. compose.yaml gives each a long
+# stop_grace_period for work in flight; one that ignored SIGTERM would hold every
+# redeploy for all of it. Docker SIGKILLs what is still running after 30 s here,
+# and a container it had to kill exits 137.
+if [ "${NI_KEEP:-}" != 1 ]; then
+  started=$SECONDS
+  compose stop --timeout 30 > /dev/null 2>&1
+  stopped="$(docker inspect -f '{{.Name}}={{.State.ExitCode}}' $(compose ps -aq) 2> /dev/null | sed 's#^/##' | tr '\n' ' ')"
+  case " $stopped" in
+    *=137\ *) check FAIL "every role stops on SIGTERM" "SIGKILLed after 30s (exit 137): $stopped" ;;
+    *) check ok "every role stops on SIGTERM" "in $((SECONDS - started))s: $stopped" ;;
+  esac
+fi
 
 if [ "$failed" -ne 0 ]; then
   echo "== logs (a check failed)"

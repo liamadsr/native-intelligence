@@ -1,14 +1,21 @@
 # syntax=docker/dockerfile:1
 #
 # The web app and its eight eve agents as one image (README.md in this folder).
-# Build from the repository root:
+# Build from the repository root, with the four values `next build` compiles in
+# (below; the build stops at once if one is missing):
 #
-#   docker build -f deploy/app/Dockerfile -t ni-app:local .
+#   docker build -f deploy/app/Dockerfile -t ni-app:local \
+#     --build-arg NEXT_PUBLIC_APP_URL=https://app.example.com \
+#     --build-arg EVE_NEXT_PRODUCTION_ORIGIN=http://proxy:8081 \
+#     --build-arg NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co \
+#     --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key> .
+#
+# compose.yaml builds it with made-up values for the container test.
 #
 # One image, four roles, chosen by the command (entrypoint.sh):
 #   web            next start, with /eve/<name>/v1/* pointed at agents running elsewhere
 #   worker         the same server; route only /api/inngest to it
-#   agent <name>   eve start for one agent
+#   agent <name>   one agent's built server (what eve start runs)
 #   cron           supercronic, calling the web role's /api/cron/* routes
 #
 # The image keeps the repository's layout: /app/web and /app/deploy/app.
@@ -35,6 +42,27 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     npm_config_audit=false
 WORKDIR /app/web
 
+# --- build-args: the values `next build` needs, checked first ----------------------
+# They have no defaults: an image built without them would start, look healthy, and
+# fail every sign-in and every call from the browser. BuildKit runs this stage beside
+# deps, so a missing value stops the build in seconds; the build stage copies its
+# marker, whose content never changes, so the check costs that stage no cache.
+FROM base AS build-args
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG EVE_NEXT_PRODUCTION_ORIGIN
+RUN missing=""; \
+    [ -n "$NEXT_PUBLIC_APP_URL" ] || missing="$missing NEXT_PUBLIC_APP_URL"; \
+    [ -n "$NEXT_PUBLIC_SUPABASE_URL" ] || missing="$missing NEXT_PUBLIC_SUPABASE_URL"; \
+    [ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ] || missing="$missing NEXT_PUBLIC_SUPABASE_ANON_KEY"; \
+    [ -n "$EVE_NEXT_PRODUCTION_ORIGIN" ] || missing="$missing EVE_NEXT_PRODUCTION_ORIGIN"; \
+    if [ -n "$missing" ]; then \
+      echo "Missing build arguments:$missing. Pass each with --build-arg (see the top of deploy/app/Dockerfile)." >&2; \
+      exit 1; \
+    fi; \
+    touch /build-args-checked
+
 # --- deps: node_modules, with web/patches applied -----------------------------------
 # `npm ci` runs the root postinstall, patch-package. Outside CI that exits 0 even
 # when a patch no longer applies, so it runs once more with --error-on-fail (a no-op
@@ -51,6 +79,7 @@ RUN ONNXRUNTIME_NODE_INSTALL_CUDA=skip npm ci \
 
 # --- build: the eight `eve build`s, then `next build` -------------------------------
 FROM deps AS build
+COPY --from=build-args /build-args-checked /tmp/build-args-checked
 COPY web/ ./
 COPY deploy/app/ /app/deploy/app/
 
@@ -69,11 +98,12 @@ RUN node scripts/cloud-browser/build-assets.mjs \
 RUN /app/deploy/app/build-agents.sh
 
 # Public values that `next build` compiles into the web role, server code included:
-# the web role cannot take another NEXT_PUBLIC_* value when it starts.
-ARG NEXT_PUBLIC_APP_URL=http://proxy:8080
+# the web role cannot take another NEXT_PUBLIC_* value when it starts. The four with
+# no default are required (the build-args stage above).
+ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_SITE_URL=
-ARG NEXT_PUBLIC_SUPABASE_URL=http://supabase.invalid
-ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
 ARG NEXT_PUBLIC_POSTHOG_KEY=
 ARG NEXT_PUBLIC_POSTHOG_HOST=
 ARG APP_DOWNLOAD_URL=
@@ -81,7 +111,7 @@ ARG APP_DOWNLOAD_URL_WINDOWS=
 # Where the web role finds the agents: the origin that serves
 # /_eve_internal/eve/<name>/eve/v1/* (proxy/Caddyfile, the :8081 listener).
 # `next build` writes it into its rewrites; eve-origin.mjs reads it back.
-ARG EVE_NEXT_PRODUCTION_ORIGIN=http://proxy:8081
+ARG EVE_NEXT_PRODUCTION_ORIGIN
 
 RUN NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
     NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
@@ -100,6 +130,19 @@ RUN NEXT_PUBLIC_APP_URL="$NEXT_PUBLIC_APP_URL" \
       echo "next build pointed the agents at $built, not $EVE_NEXT_PRODUCTION_ORIGIN" >&2; exit 1; \
     fi
 
+# The runtime runs as `node` (uid 1000), which owns only what is written while the
+# app runs:
+# - web and worker: Next's cache, the pages it regenerates (it saves them beside the
+#   built ones, in .next/server/app), and the docs index that `next start` writes
+#   again each time it loads next.config.mjs (.source).
+# - each agent: its state under .eve (workflow runs, sandbox sessions). compose.yaml
+#   puts volumes there; a new volume takes its owner from these folders.
+# Set here, not in the runtime stage: copying a stage keeps its owners, and a chown
+# there would store .next/server/app a second time in a layer of its own.
+RUN mkdir -p .next/cache .source \
+ && /app/deploy/app/build-agents.sh --state-dirs | xargs mkdir -p \
+ && /app/deploy/app/build-agents.sh --state-dirs | xargs chown -R node:node .next/cache .next/server/app .source
+
 # --- runtime ----------------------------------------------------------------------
 FROM base AS runtime
 ENV NODE_ENV=production \
@@ -108,17 +151,7 @@ ENV NODE_ENV=production \
 COPY --link --from=supercronic /out/supercronic /usr/local/bin/supercronic
 COPY --link --from=build /app/deploy /app/deploy
 COPY --link --from=build /app/web /app/web
-
-# Runs as `node` (uid 1000), which owns only what is written while the app runs:
-# - web and worker: Next's cache, the pages it regenerates (it saves them beside the
-#   built ones, in .next/server/app), and the docs index that `next start` writes
-#   again each time it loads next.config.mjs (.source).
-# - each agent: its state under .eve (workflow runs, sandbox sessions). compose.yaml
-#   puts volumes there; a new volume takes its owner from these folders.
-RUN supercronic -test /app/deploy/app/cron/crontab \
- && mkdir -p .next/cache .source \
- && /app/deploy/app/build-agents.sh --state-dirs | xargs mkdir -p \
- && /app/deploy/app/build-agents.sh --state-dirs | xargs chown -R node:node .next/cache .next/server/app .source
+RUN supercronic -test /app/deploy/app/cron/crontab
 USER node
 
 EXPOSE 3000

@@ -2,7 +2,10 @@
 // The image's HEALTHCHECK. entrypoint.sh wrote the container's role to /tmp/ni-role;
 // this asks that role's own health route on localhost.
 //
-//   web, worker   GET /api/version      200 with a buildId
+//   web           GET /api/version      200 with a buildId
+//   worker        GET /api/inngest      200 from the Inngest SDK's unsigned introspection,
+//                                       with functions loaded and a signing key set
+//                                       (without one the SDK answers 500)
 //   agent <name>  GET /eve/v1/health    200 with status "ready" (eve's public health route)
 //   cron          supercronic is running
 import { readFileSync, readdirSync } from 'node:fs'
@@ -28,9 +31,15 @@ try {
 }
 
 try {
-  if (role === 'web' || role === 'worker') {
+  if (role === 'web') {
     const body = await getJson('/api/version')
     if (typeof body?.buildId !== 'string') unhealthy(`/api/version has no buildId: ${JSON.stringify(body)}`)
+  } else if (role === 'worker') {
+    // inngest 4.0.0, InngestCommHandler.introspectionBody(): without a signature the
+    // reply has function_count, has_signing_key, has_event_key and mode, nothing else.
+    const body = await getJson('/api/inngest')
+    if (!(body?.function_count > 0)) unhealthy(`/api/inngest has no functions: ${JSON.stringify(body)}`)
+    if (body?.has_signing_key !== true) unhealthy(`/api/inngest has no signing key: ${JSON.stringify(body)}`)
   } else if (role.startsWith('agent ')) {
     const body = await getJson('/eve/v1/health')
     if (body?.status !== 'ready') unhealthy(`/eve/v1/health is not ready: ${JSON.stringify(body)}`)

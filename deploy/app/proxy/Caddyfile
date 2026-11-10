@@ -20,6 +20,17 @@
 {
 	admin off
 	auto_https off
+
+	# Keep the X-Forwarded-For, -Proto and -Host that the proxy in front of this one
+	# sets, instead of replacing them with that proxy's address and "http": the app
+	# builds its origin from them (same-origin checks, webhook signatures, redirects)
+	# and limits per client address. Trusting every private address is safe only
+	# because this proxy is never published to the internet: it is reached from the
+	# outer proxy over a private Docker network, or, in the test stack, from this
+	# machine. Narrow this to the outer proxy's address if it is ever published.
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 (upstream) {

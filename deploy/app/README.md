@@ -24,7 +24,9 @@ everything again. It needs no secret. `NI_KEEP=1 deploy/app/smoke.sh` leaves the
 stack running at `http://127.0.0.1:8080`.
 
 `.github/workflows/image.yml` runs the same two steps on every pull request that
-touches this folder, and runs the web test suite as a separate job.
+touches this folder or what the image is built from (web's dependencies, patches,
+`next.config.mjs`, the agents, `web/vercel.json`), and runs the web test suite as a
+separate job.
 
 ## One image, four roles
 
@@ -34,18 +36,30 @@ The role is the container's command (`entrypoint.sh`):
 |---|---|
 | `web` | `next start`. `/eve/<name>/v1/*` is sent to agents that run elsewhere. |
 | `worker` | The same server. Route only `/api/inngest` to it. |
-| `agent <name>` | `eve start` for one agent. |
+| `agent <name>` | One agent's built server, as `eve start` runs it (`entrypoint.sh` says what differs). |
 | `cron` | supercronic with `cron/crontab`: calls the web role's `/api/cron/*` routes. |
 
 Every role runs as the `node` user. web, worker and each agent listen on `$PORT`
 (3000); cron listens on nothing. The image's health check asks the role's own
-route: `/api/version` for web and worker, `/eve/v1/health` for an agent. For cron
-it checks that supercronic is running.
+route: `/api/version` for web; `/api/inngest` for the worker, which must report
+functions and a signing key; `/eve/v1/health` for an agent. For cron it checks
+that supercronic is running.
+
+No role starts with Inngest or eve in development mode (`INNGEST_DEV` set to
+anything the Inngest SDK reads as on, or `EVE_DEV=1`): both skip the checks that
+keep strangers out. `INNGEST_DEV=0` is allowed.
+
+Each role exits on its own when Docker sends SIGTERM, and `compose.yaml` gives
+each a `stop_grace_period` to finish what is in flight: 120 s for web, 900 s for the
+worker and cron, 60 s for an agent.
 
 ## What is fixed when the image is built
 
 `next build` compiles these into the web role, so they are build arguments
-(`Dockerfile`), not something a container can change when it starts:
+(`Dockerfile`), not something a container can change when it starts.
+`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+and `EVE_NEXT_PRODUCTION_ORIGIN` have no defaults: the build stops at once without
+them. Only `compose.yaml` fills them with made-up values, for the container test.
 
 - Every `NEXT_PUBLIC_*` value, in server code as well as the browser's. That
   includes `NEXT_PUBLIC_APP_URL`, which is where the web role calls the agents.
@@ -61,6 +75,10 @@ The agents read their environment when they start.
 to that agent's container, because Next's own rewrite proxy gives up after 30
 seconds and an agent's stream can run far longer. `/api/inngest` goes to the
 worker and everything else to web.
+
+It keeps the `X-Forwarded-*` headers of a proxy in front of it on a private
+address, so the app sees the public `https://` origin and each client's own
+address. That is safe only while this proxy is never published to the internet.
 
 ## State
 

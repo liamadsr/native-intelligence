@@ -33,6 +33,10 @@ x-app: &app
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
   restart: unless-stopped
+  # How long `docker stop` waits after SIGTERM before SIGKILL. This one is the agents':
+  # their server closes on SIGTERM, and 60 s covers open requests and its close hooks
+  # (eve start allowed it 20 s). web, worker and cron set their own below.
+  stop_grace_period: 60s
 
 # web and worker are the same server, and `next start` writes into its own folder:
 # its cache, the docs index (.source), and every page it regenerates, which it saves
@@ -66,14 +70,17 @@ services:
   web:
     <<: *next
     command: [web]
+    # next start stops taking requests on SIGTERM and exits once those in flight end.
+    stop_grace_period: 120s
     build:
       context: ../..
       dockerfile: deploy/app/Dockerfile
       args:
-        # Compiled into the web role by `next build` (see the Dockerfile). The first
-        # two name the proxy above as the stack's own containers reach it. The
-        # Supabase pair comes from the shell or deploy/app/.env, and must be what
-        # the containers get when they run; without it the build uses placeholders.
+        # Compiled into the web role by `next build` (see the Dockerfile, which has no
+        # defaults for these four). The first two name the proxy above as the stack's
+        # own containers reach it. The Supabase pair comes from the shell or
+        # deploy/app/.env, and must be what the containers get when they run; without
+        # it this test stack builds with the made-up values below.
         NEXT_PUBLIC_APP_URL: http://proxy:8080
         EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-http://supabase.invalid}
@@ -83,6 +90,8 @@ services:
   worker:
     <<: *next
     command: [worker]
+    # Inngest steps (600 s) and the longest routes (800 s) finish before it exits.
+    stop_grace_period: 900s
 
   # The scheduler runs, but as a dry run: each job is logged and nothing is called.
   # Live, this stack would run the app's whole schedule a second time beside Vercel
@@ -91,6 +100,9 @@ services:
   cron:
     <<: *app
     command: [cron]
+    # supercronic waits for running jobs on SIGTERM, and a job holds its call open
+    # for up to CRON_TIMEOUT_SECONDS (900 s).
+    stop_grace_period: 900s
     environment:
       <<: *app-env
       CRON_TARGET_URL: http://web:3000

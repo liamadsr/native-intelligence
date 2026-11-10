@@ -1,5 +1,8 @@
 # The container image for the web app and its eight eve agents (deploy/app): built and
-# started on every pull request that touches it. Nothing is pushed anywhere and no
+# started on every pull request that touches it, or what decides whether it builds and
+# starts: web's dependencies and their patches, next.config.mjs (it mounts the agents),
+# the agents, the build scripts the Dockerfile runs, and web/vercel.json (the crontab
+# must match it). Nothing is pushed anywhere and no
 # secret is used; the smoke test makes up its own values (deploy/app/smoke.sh).
 # - Tests: `npm run build` runs the web test suite before `next build`. The image
 #   build does not, so the suite runs here as its own job.
@@ -10,7 +13,18 @@ name: Image
 
 on:
   pull_request:
-    paths: ['deploy/app/**', '.github/workflows/image.yml']
+    paths:
+      - 'deploy/app/**'
+      - '.github/workflows/image.yml'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'web/packages/ui/package.json'
+      - 'web/patches/**'
+      - 'web/next.config.*'
+      - 'web/agents/**'
+      - 'web/scripts/cloud-browser/**'
+      - 'web/scripts/copy-ort-runtime.mjs'
+      - 'web/vercel.json'
   workflow_dispatch:
 
 concurrency:
