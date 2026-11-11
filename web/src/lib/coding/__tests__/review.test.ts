@@ -18,6 +18,8 @@ import {
   CodeReviewSchema,
   MAX_REVIEW_COMMITS,
   MIN_EVIDENCE_CHARS,
+  MIN_SUBJECT_CHARS,
+  MIN_WHOLE_LINE_CHARS,
   MAX_REVIEW_LOOPS,
   buildCodeReviewMessage,
   fetchCompareDiff,
@@ -639,9 +641,9 @@ describe('CODE_REVIEW_PROMPT and the answer schema', () => {
     for (const text of [
       'Give it a kind',
       'sees each pass\'s kind beside it, with the file or commit count',
-      'content: at least 20 characters of lines the diff adds, or one whole added line.',
+      'content: at least 20 characters of lines the diff adds, or one whole added line of at least 10 characters and two words.',
       'files: a path written in backticks (`src/a.ts`) or as its header shows it (--- src/a.ts (modified, +1 -0))',
-      "commits: one listed commit's subject line, whole.",
+      "commits: one listed commit's subject line, whole (a subject under 12 characters or of one word proves nothing",
       'your own words included, counts as a fail',
       'passes when the condition is false',
       '"cannot_judge" only when the criterion is about something that is not in the diff, the file list or the commit list at all',
@@ -651,6 +653,9 @@ describe('CODE_REVIEW_PROMPT and the answer schema', () => {
     ]) {
       expect(CODE_REVIEW_PROMPT).toContain(text)
     }
+    // The numbers the instructions name are the ones the code enforces.
     expect(MIN_EVIDENCE_CHARS).toBe(20)
+    expect(MIN_WHOLE_LINE_CHARS).toBe(10)
+    expect(MIN_SUBJECT_CHARS).toBe(12)
   })
 })
