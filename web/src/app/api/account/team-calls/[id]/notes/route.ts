@@ -24,7 +24,7 @@ import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { liveKitEgress, teamCallEgressConfig, teamCallFeatures } from '@/lib/team-calls/egress'
 import { getCall } from '@/lib/team-calls/store'
 import { setNotes, startNotesForRoom, stopEgresses } from '@/lib/team-calls/notes-store'
-import { teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callEnded, teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const call = await getCall(auth.supabase, id)
     if (!call) return notFound()
-    if (call.status !== 'live') return apiError('This call has ended', { status: 409, code: 'CALL_ENDED' })
+    if (call.status !== 'live' || call.channel_archived) return callEnded()
     let changed: Awaited<ReturnType<typeof setNotes>>
     try {
       changed = await setNotes(auth.supabase, id, on)

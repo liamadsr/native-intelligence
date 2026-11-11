@@ -25,7 +25,7 @@ import { liveKitEgress, maxLiveRecordings, teamCallEgressConfig, teamCallFeature
 import { getCall } from '@/lib/team-calls/store'
 import { recordingLink, startRecording, stopEgresses } from '@/lib/team-calls/notes-store'
 import { TEAM_CALL_RECORDING_URL_TTL_SECONDS } from '@/lib/team-calls/notes'
-import { memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callEnded, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const call = await getCall(auth.supabase, id)
     if (!call) return notFound()
-    if (call.status !== 'live') return apiError('This call has ended', { status: 409, code: 'CALL_ENDED' })
+    if (call.status !== 'live' || call.channel_archived) return callEnded()
     const me = await memberIn(auth.supabase, auth.user.id, call.workspace_id)
     if (!me) return notFound()
     const svc = getServiceClient()
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       case 'saved':
         return apiError('This call was recorded already', { status: 409, code: 'RECORDING_SAVED' })
       case 'ended':
-        return apiError('This call has ended', { status: 409, code: 'CALL_ENDED' })
+        return callEnded()
       case 'not_in_call':
         return forbidden('Only someone in the call can record it')
       case 'failed':
