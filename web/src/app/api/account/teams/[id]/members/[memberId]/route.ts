@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { forbidden, notFound } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
+import { requestTeamCallEjections } from '@/lib/team-calls/eject'
 
 export async function PATCH(
   request: NextRequest,
@@ -135,5 +136,7 @@ export async function DELETE(
       : notFound('Team member not found')
   }
 
+  // Out of any call in the team's channels now (the database queued it; this drains it at once).
+  await requestTeamCallEjections()
   return NextResponse.json({ success: true })
 }

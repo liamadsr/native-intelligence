@@ -153,6 +153,13 @@ export interface TeamChatMessage {
   created_at: string
   edited_at: string | null
   deleted_at: string | null
+  /**
+   * What it is (migration 564): a message, or a call's own row in the
+   * conversation (`call_id`; its words say what happened, its card is drawn
+   * from the call). Absent on an old realtime payload: a message.
+   */
+  kind?: 'message' | 'call'
+  call_id?: string | null
 }
 
 /** A record a message @-mentions: its kind and id, and the label its `@…` shows. */
@@ -160,7 +167,7 @@ export type TeamChatRecordMention = LabeledMentionRef
 
 /** The columns a message is read with. */
 export const TEAM_CHAT_MESSAGE_COLUMNS =
-  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at'
+  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at, kind, call_id'
 
 /** The most replies a thread's pane loads at once. */
 export const TEAM_CHAT_THREAD_MAX = 200
