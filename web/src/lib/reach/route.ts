@@ -24,8 +24,12 @@
  *            claimed so when it is bannered
  *   absent   per message: the channel he last talked on (a text or Slack
  *            within 12 h, and after his last activity in an app), then push
- *            (iOS, no adapter yet), then a text (any linked phone that
- *            hasn't said STOP: dispatch.ts smsConsent), then Slack
+ *            (the iOS app, src/lib/push: once it is set up and he has a live
+ *            install), then a text (any linked phone that hasn't said STOP:
+ *            dispatch.ts smsConsent), then Slack. A message carrying an
+ *            approval puts push after a text and Slack, where a plain yes
+ *            answers it; a push that doesn't go falls through to the next
+ *            channel in the order
  *   quiet    21:00 to 08:00 in his zone, on every channel: a routine message
  *            waits until 08:05 (with the morning digest); an urgent one
  *            (metadata.urgent_by, close enough) goes now
@@ -81,7 +85,7 @@ export const ROUTE_GATHER_PAGES = 20
 /** How recent his own text or Slack message must be for its channel to win. */
 export const STICKY_WINDOW_MS = 12 * 60 * 60_000
 
-/** Where a message can go: the reach channels (push is the iOS app's slot, ordered but not built). */
+/** Where a message can go: the reach channels (push is the iOS app's, src/lib/push). */
 export type RouteChannel = ReachChannel
 
 /** Parse the event. Null when malformed. */
@@ -129,7 +133,7 @@ export interface LatestUserMessage {
 
 /** Where he can be reached outside the app right now. */
 export interface RouteTargets {
-  /** The iOS app's push. Its slot is ordered before a text, but no adapter exists yet: always false today. */
+  /** The iOS app's push: set up (the APNs settings) and a live install of his (src/lib/push/send.ts hasPushTarget). */
   push: boolean
   /** Whether his verified phone may be texted (dispatch.ts smsConsent); null for no texts. */
   sms: SmsConsent
@@ -155,7 +159,7 @@ export interface RouteDeps {
   /** Claim a message (or an approval it carries) on a channel, or on 'banner' to settle it without sending. */
   claim(input: { userId: string; workspaceId: string; ref: RouteRef; channel: ReachClaimChannel; urgent: boolean }): Promise<'claimed' | 'taken' | 'unavailable'>
   /** Send one message on `channel`; true when it went. */
-  send(input: { userId: string; workspaceId: string; channel: RouteChannel; slack: SlackReachTarget | null; message: OutboundMessage<ChannelApproval> }): Promise<boolean>
+  send(input: { userId: string; workspaceId: string; conversationId: string; channel: RouteChannel; slack: SlackReachTarget | null; message: OutboundMessage<ChannelApproval> }): Promise<boolean>
   /** Take back the text claim of an approval whose text didn't go (src/lib/reach/notice.ts releaseTextedApproval). */
   releaseTexted?(input: { userId: string; approvalId: string }): Promise<void>
   /**
@@ -231,17 +235,19 @@ export interface RouteChoice {
 
 /**
  * Where one message goes when he is away, in order: the sticky channel, push
- * (no adapter yet), a text (any linked phone that hasn't said STOP), Slack.
- * Null: nowhere. Pure.
+ * (the iOS app), a text (any linked phone that hasn't said STOP), Slack. A
+ * message that carries an approval (`asks`) goes where a plain yes answers
+ * it first: push comes after a text and Slack. Null: nowhere. Pure.
  */
-export function routeChoice(input: { targets: RouteTargets; sticky: 'sms' | 'slack' | null }): RouteChoice | null {
+export function routeChoice(input: { targets: RouteTargets; sticky: 'sms' | 'slack' | null; asks?: boolean }): RouteChoice | null {
   const { targets, sticky } = input
   const sms = targets.sms === 'away'
   if (sticky === 'sms' && sms) return { channel: 'sms' }
   if (sticky === 'slack' && targets.slack) return { channel: 'slack' }
-  if (targets.push) return { channel: 'push' }
+  if (targets.push && !input.asks) return { channel: 'push' }
   if (sms) return { channel: 'sms' }
   if (targets.slack) return { channel: 'slack' }
+  if (targets.push) return { channel: 'push' }
   return null
 }
 
@@ -328,7 +334,7 @@ export async function planRoute(data: RouteRequestData, deps: RouteDeps, opts: {
   const targets = await deps.targets(data)
   const sticky = stickyChannel({ latest, presence, nowMs: now })
   const planned = textable
-    .map((item) => ({ item, choice: routeChoice({ targets, sticky }) }))
+    .map((item) => ({ item, choice: routeChoice({ targets, sticky, asks: item.approvals.length > 0 }) }))
     .filter((p): p is { item: RouteItem; choice: RouteChoice } => p.choice !== null)
   if (planned.length === 0) return { kind: 'done', outcome: 'no_channel', rows: items.length }
   const channel = planned[0].choice.channel
@@ -358,18 +364,36 @@ export async function planRoute(data: RouteRequestData, deps: RouteDeps, opts: {
       skipped++
       continue
     }
-    // Each approval it carries is claimed too, so a text turn's own prompt for it never repeats.
-    const approvals: ChannelApproval[] = []
-    for (const approval of item.approvals) {
-      const ref: RouteRef = { type: 'tool_approval', id: approval.approvalId }
-      if (refKey(ref) === refKey(item.route.ref) || (await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref, channel: choice.channel, urgent })) === 'claimed') approvals.push(approval)
+    /** Each approval it carries, claimed on this channel too, so a text turn's own prompt for it never repeats. */
+    const claimApprovals = async (channel: RouteChannel): Promise<ChannelApproval[]> => {
+      const out: ChannelApproval[] = []
+      for (const approval of item.approvals) {
+        const ref: RouteRef = { type: 'tool_approval', id: approval.approvalId }
+        if (refKey(ref) === refKey(item.route.ref) || (await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref, channel, urgent })) === 'claimed') out.push(approval)
+      }
+      return out
     }
+    const approvals = await claimApprovals(choice.channel)
     const message: OutboundMessage<ChannelApproval> = { text: item.route.text ?? '', approvals }
     if (!message.text.trim() && approvals.length === 0) {
       skipped++
       continue
     }
-    const ok = await deps.send({ userId: data.userId, workspaceId: data.workspaceId, channel: choice.channel, slack: targets.slack, message }).catch(() => false)
+    const sendOn = (channel: RouteChannel, out: OutboundMessage<ChannelApproval>) =>
+      deps.send({ userId: data.userId, workspaceId: data.workspaceId, conversationId: data.conversationId, channel, slack: targets.slack, message: out }).catch(() => false)
+    let ok = await sendOn(choice.channel, message)
+    if (!ok && choice.channel === 'push') {
+      // A push that didn't go (Apple refused it, the install is gone): the next channel in the order, claimed there too.
+      const next = routeChoice({ targets: { ...targets, push: false }, sticky, asks: item.approvals.length > 0 })
+      if (next && (await deps.claim({ userId: data.userId, workspaceId: data.workspaceId, ref: item.route.ref, channel: next.channel, urgent })) === 'claimed') {
+        const nextApprovals = await claimApprovals(next.channel)
+        const out = { text: message.text, approvals: nextApprovals }
+        if (out.text.trim() || out.approvals.length > 0) {
+          ok = await sendOn(next.channel, out)
+          if (!ok && next.channel === 'sms' && deps.releaseTexted) for (const approval of nextApprovals) await deps.releaseTexted({ userId: data.userId, approvalId: approval.approvalId })
+        }
+      }
+    }
     if (ok) {
       sent++
       rowIds.push(item.row.id)
@@ -453,8 +477,9 @@ export function liveRouteDeps(supabase: SupabaseClient): RouteDeps {
     },
     presence: (userId) => readPresence(supabase, userId),
     targets: async (input) => {
-      const [sms, slack] = await Promise.all([smsConsent(supabase, input.userId), slackTarget(supabase, input)])
-      return { push: false, sms, slack }
+      const { hasPushTarget, livePushDeps } = await import('@/lib/push/send')
+      const [sms, slack, push] = await Promise.all([smsConsent(supabase, input.userId), slackTarget(supabase, input), hasPushTarget(livePushDeps(supabase), input.userId)])
+      return { push, sms, slack }
     },
     timeZone: async (input) => {
       const { readMemberTimeZone } = await import('@/lib/agent-events/member-time-zone')
@@ -470,12 +495,33 @@ export function liveRouteDeps(supabase: SupabaseClient): RouteDeps {
         return (await textPerson(supabase, { userId: input.userId, workspaceId: input.workspaceId, body, kind: 'away' })).sent
       }
       if (input.channel === 'slack' && input.slack) return postSlackMessage(input.slack, input.message)
-      // Push has no adapter yet (the iOS app): pickRouteChannel never picks it while targets.push is false.
+      if (input.channel === 'push') return pushHomeMessage(supabase, input)
       return false
     },
     banner: (input) => postAgentMessageBanner(supabase, input),
     releaseTexted: (input) => releaseTextedApproval(supabase, input),
   }
+}
+
+/** The agent's message as a push to his iOS app, said by his agent's name; a tap opens the chat. */
+async function pushHomeMessage(
+  supabase: SupabaseClient,
+  input: { userId: string; workspaceId: string; conversationId: string; message: OutboundMessage<ChannelApproval> },
+): Promise<boolean> {
+  const [{ livePushDeps, pushToPerson }, { homeMessagePush }, { DEFAULT_ASSISTANT_NAME, sanitizeAssistantName }] = await Promise.all([
+    import('@/lib/push/send'),
+    import('@/lib/push/compose'),
+    import('@/lib/voice/assistant-name'),
+  ])
+  let agentName = DEFAULT_ASSISTANT_NAME
+  try {
+    const { data } = await supabase.auth.admin.getUserById(input.userId)
+    agentName = sanitizeAssistantName(data?.user?.user_metadata?.assistant_name) ?? DEFAULT_ASSISTANT_NAME
+  } catch {
+    // The default name, then.
+  }
+  const notification = homeMessagePush({ workspaceId: input.workspaceId, conversationId: input.conversationId, agentName, text: input.message.text, approvals: input.message.approvals })
+  return (await pushToPerson(livePushDeps(supabase), { userId: input.userId, notification })) === 'sent'
 }
 
 /** Into his own DM with the bot (never a channel others read): the words, then each approval as its Slack card with buttons and its code. */

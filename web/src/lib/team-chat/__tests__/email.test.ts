@@ -2,7 +2,7 @@
  * Team chat by email while you are away (src/lib/team-chat/email.ts, the
  * `team-chat-email` Inngest function): a burst in one conversation is one
  * email; reading it first cancels it; at an app, or in quiet hours, it waits;
- * a message is never emailed twice, nor a deleted one; push (no adapter yet)
+ * a message is never emailed twice, nor a deleted one; push (the iOS app)
  * comes before email in the router's order and falls through.
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -19,6 +19,7 @@ import {
   teamChatEmailContent,
   teamChatEmailKey,
   teamChatMessageLink,
+  teamChatPushOf,
   TEAM_CHAT_EMAIL_EVENT,
   TEAM_CHAT_READ_EVENT,
   type TeamChatEmailDecision,
@@ -133,7 +134,25 @@ describe('planTeamChatEmail', () => {
     expect(failing.claims.size).toBe(3)
   })
 
-  it('push comes first once it has an adapter (the router’s order), and a push that doesn’t go falls through to email', async () => {
+  it('a push is the conversation’s newest message, opened at it (its channel, its thread)', () => {
+    const push = teamChatPushOf({ workspaceId: WS, groupKey: GROUP, notices: [notice(1), notice(2, { metadata: { author_name: 'Ana Ruiz', place: '#launch', thread_root_id: null, channel_id: CH } })] })
+    expect(push).toMatchObject({
+      title: '2 new messages in #launch',
+      body: 'Ana Ruiz: message 2',
+      collapseId: GROUP,
+      data: { kind: 'team_chat', workspace_id: WS, channel_id: CH, message_id: notice(2).target_id, thread_root_id: null },
+    })
+    // A notice that names no channel can't be opened: no push (email then).
+    expect(teamChatPushOf({ workspaceId: WS, groupKey: GROUP, notices: [notice(1)] })).toBeNull()
+  })
+
+  it('a push that throws falls through to email too', async () => {
+    const threw = deps({ pushTarget: async () => true, sendPush: async () => Promise.reject(new Error('apple down')) })
+    expect(await planTeamChatEmail(req, threw.d)).toMatchObject({ kind: 'done', outcome: 'sent' })
+    expect(threw.sent).toHaveLength(1)
+  })
+
+  it('push comes first (the router’s order), and a push that doesn’t go falls through to email', async () => {
     expect(teamChatAwayChannel({ push: false })).toBe('email')
     expect(teamChatAwayChannel({ push: true })).toBe('push')
     const pushed = deps({ pushTarget: async () => true, sendPush: async () => true })

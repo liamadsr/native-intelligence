@@ -22,11 +22,12 @@
  *            src/lib/reach/dispatch.ts): wait until they end
  *   away     the router's order for someone away (src/lib/reach/route.ts
  *            routeChoice), with texts and Slack left out (team chat never
- *            texts): push first, which has no adapter yet (the iOS app's
- *            slot: targets.push is false until it exists, and a push that
- *            doesn't go falls through), then email to their account's
- *            address, every message it carries claimed first, so a retried
- *            step or a second run never emails one twice
+ *            texts): push first, to the iOS app (src/lib/push: when push is
+ *            set up and they have a live install; one push for the
+ *            conversation, its newest message, collapsed with the ones
+ *            before it), then email to their account's address when push is
+ *            off or didn't go. Every message it carries is claimed first, so
+ *            a retried step or a second run never sends one twice
  *
  * Privacy: step outputs hold ids and counts; the words are read and sent
  * inside the step.
@@ -37,6 +38,7 @@ import { smsQuietUntil } from '@/lib/reach/dispatch'
 import { routeChoice } from '@/lib/reach/route'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { appUrl } from '@/lib/app-url'
+import { teamChatPush } from '@/lib/push/compose'
 import { TEAM_CHAT_NOTIFICATION_TYPE } from './notify'
 
 export const TEAM_CHAT_EMAIL_EVENT = 'team-chat/email.requested' as const
@@ -103,13 +105,13 @@ export interface TeamChatEmailDeps {
   liveMessages(ids: string[]): Promise<Set<string>>
   presence(userId: string): Promise<PresenceRow[]>
   timeZone(input: { userId: string; workspaceId: string }): Promise<string | null>
-  /** The iOS app's push for them. No adapter yet: always false today. */
+  /** Whether they can be pushed (the iOS app): push set up and a live install of theirs. */
   pushTarget(userId: string): Promise<boolean>
   /** Their account's email address, or null. */
   address(userId: string): Promise<string | null>
   claim(input: { userId: string; workspaceId: string; notificationId: string; channel: 'push' | 'email' }): Promise<'claimed' | 'taken' | 'unavailable'>
-  /** Send on push (no adapter yet: false). */
-  sendPush?(input: { userId: string; notices: TeamChatEmailNotice[] }): Promise<boolean>
+  /** One push for the conversation's notices (oldest first); true when an install took it. */
+  sendPush?(input: { userId: string; workspaceId: string; groupKey: string; notices: TeamChatEmailNotice[] }): Promise<boolean>
   sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<boolean>
   /** Their deep link to a message. */
   link(messageId: string): string
@@ -194,7 +196,9 @@ export async function planTeamChatEmail(req: TeamChatEmailRequest, deps: TeamCha
   if (channel === 'push' && deps.sendPush) {
     const mine: TeamChatEmailNotice[] = []
     for (const n of notices) if ((await deps.claim({ userId: req.userId, workspaceId: req.workspaceId, notificationId: n.id, channel: 'push' })) === 'claimed') mine.push(n)
-    if (mine.length && (await deps.sendPush({ userId: req.userId, notices: mine }))) return { kind: 'done', outcome: 'pushed', messages: mine.length }
+    if (mine.length && (await deps.sendPush({ userId: req.userId, workspaceId: req.workspaceId, groupKey: req.groupKey, notices: mine }).catch(() => false))) {
+      return { kind: 'done', outcome: 'pushed', messages: mine.length }
+    }
     // A push that didn't go falls through to email (its claims say it was tried).
   }
 
@@ -256,8 +260,16 @@ export function liveTeamChatEmailDeps(svc: SupabaseClient): TeamChatEmailDeps {
       const zone = await readMemberTimeZone(svc, input)
       return zone.source === 'utc' ? null : zone.timeZone
     },
-    // The iOS app's push has no adapter yet (src/lib/reach/route.ts targets): never a target today.
-    pushTarget: async () => false,
+    pushTarget: async (userId) => {
+      const { hasPushTarget, livePushDeps } = await import('@/lib/push/send')
+      return hasPushTarget(livePushDeps(svc), userId)
+    },
+    sendPush: async (input) => {
+      const { livePushDeps, pushToPerson } = await import('@/lib/push/send')
+      const push = teamChatPushOf(input)
+      if (!push) return false
+      return (await pushToPerson(livePushDeps(svc), { userId: input.userId, notification: push })) === 'sent'
+    },
     address: async (userId) => {
       try {
         const { data } = await svc.auth.admin.getUserById(userId)
@@ -290,6 +302,27 @@ export function liveTeamChatEmailDeps(svc: SupabaseClient): TeamChatEmailDeps {
     },
     link: (messageId) => teamChatMessageLink(messageId),
   }
+}
+
+/**
+ * The push for a conversation's unread notices: the newest one's words and
+ * where to open it (its message, its channel, its thread), from the
+ * notification's own row (./notify.ts writes the ids and the names in its
+ * metadata). Null when the newest names no message. Pure.
+ */
+export function teamChatPushOf(input: { workspaceId: string; groupKey: string; notices: readonly TeamChatEmailNotice[] }) {
+  const newest = input.notices[input.notices.length - 1]
+  if (!newest?.target_id) return null
+  const meta = newest.metadata ?? {}
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  const channelId = str(meta.channel_id)
+  if (!channelId) return null
+  return teamChatPush({
+    groupKey: input.groupKey,
+    target: { workspaceId: input.workspaceId, channelId, messageId: newest.target_id, threadRootId: str(meta.thread_root_id) },
+    newest: { title: newest.title, body: newest.body, authorName: str(meta.author_name), place: str(meta.place) },
+    count: input.notices.length,
+  })
 }
 
 /**
