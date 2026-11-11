@@ -89,7 +89,8 @@ describe('migrations 560-561', () => {
 
   it('560: notification.type and target_type are what the app writes; one per message per person', () => {
     const types = quoted(/notification_type_check check \(type = any \(array\[([^\]]*)\]\)\)/.exec(flat(REACH))?.[1] ?? '')
-    expect(types).toEqual([...NOTIFICATION_TYPES])
+    // 572 widens it again (meeting_waiting, src/lib/meeting-links/__tests__/migration-572.test.ts).
+    expect(types).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'meeting_waiting'))
     expect(quoted(/notification_target_type_check check \(target_type in \(([^)]*)\)\)/.exec(flat(REACH))?.[1] ?? '')).toContain('team_chat_message')
     expect(flat(REACH)).toContain("create unique index if not exists notification_team_chat_message_key on public.notification (recipient_id, target_id) where type = 'team_chat_message';")
   })
@@ -103,10 +104,13 @@ describe('migrations 560-561', () => {
     expect([...channels].sort()).toEqual(Object.keys(claims).sort())
   })
 
-  it('560 is the newest word on every check it widens', () => {
-    const newest = (re: RegExp) => [...migrationsInOrder()].reverse().find((m) => re.test(m.sql))!.file
-    for (const check of ['notification_type_check', 'notification_target_type_check', 'reach_notice_ref_type_check', 'reach_notice_channel_check']) {
+  it('560 is the newest word on every check it widens (until 572 widens the notification ones again)', () => {
+    const newest = (re: RegExp, before = Infinity) => [...migrationsInOrder()].filter((m) => m.num < before).reverse().find((m) => re.test(m.sql))!.file
+    for (const check of ['reach_notice_ref_type_check', 'reach_notice_channel_check']) {
       expect(newest(new RegExp(`add constraint ${check}`, 'i')), check).toBe('560_team_chat_reach.sql')
+    }
+    for (const check of ['notification_type_check', 'notification_target_type_check']) {
+      expect(newest(new RegExp(`add constraint ${check}`, 'i'), 572), check).toBe('560_team_chat_reach.sql')
     }
   })
 

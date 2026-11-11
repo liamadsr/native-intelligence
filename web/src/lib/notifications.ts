@@ -10,7 +10,7 @@ import { noticeEventKind } from '@/lib/agent-events/types'
 /**
  * Runtime list backing the NotificationType union — single source of truth
  * for code that needs the types at runtime. Must stay in sync with the DB
- * CHECK constraint (migration 560 is the latest DROP+ADD; 401 dropped the
+ * CHECK constraint (migration 572 is the latest DROP+ADD; 401 dropped the
  * types nothing writes any more, with their rows, when the notifications page
  * went: docs/plans/retire-notifications-page.md). Which of these reach the
  * agent, and as what: agent-events/types.ts NOTICE_EVENT_KIND.
@@ -71,6 +71,12 @@ export const NOTIFICATION_TYPES = [
   // conversation, read when the conversation is. Written by
   // src/lib/team-chat/notify.ts only (never through createNotification).
   'team_chat_message',
+  // Someone without an account waits in a meeting's lobby and nobody is in
+  // its call to let them in (migration 572): one notice for the meeting's
+  // host, targeting its conversation (target_type 'team_chat_channel'), so a
+  // click opens it. Written by src/lib/meeting-links/store.ts notifyHostWaiting
+  // only (never through createNotification).
+  'meeting_waiting',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]

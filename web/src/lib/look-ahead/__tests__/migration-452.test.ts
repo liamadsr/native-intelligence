@@ -47,7 +47,7 @@ describe('migration 452', () => {
 
   it("notification.type is 443's list plus agent_look_ahead: the app's types then (454 adds agent_message)", () => {
     expect(types(BODY)).toEqual([...types(flat(read('443_now_follow_up.sql'))), 'agent_look_ahead'])
-    expect(types(BODY)).toEqual(NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_message' && t !== 'team_chat_message'))
+    expect(types(BODY)).toEqual(NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_message' && t !== 'team_chat_message' && t !== 'meeting_waiting'))
   })
 
   it("reach_notice.ref_type is 435's list plus look_ahead", () => {

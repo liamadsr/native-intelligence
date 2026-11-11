@@ -58,7 +58,7 @@ describe('migration 407: what the merge routes need', () => {
   it('re-adds the notification type CHECK with every type the app had then, workspace_merged included', () => {
     expect(LOWER).toContain('alter table public.notification drop constraint if exists notification_type_check;')
     // 443 (the Now file's check-in) adds agent_check_in, 452 (the look-ahead) agent_look_ahead and 454 (the router) agent_message; their own tests pin them.
-    expect(checkTypes(BODY)).toEqual(NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message' && t !== 'team_chat_message'))
+    expect(checkTypes(BODY)).toEqual(NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message' && t !== 'team_chat_message' && t !== 'meeting_waiting'))
     expect(checkTypes(BODY)).toContain('workspace_merged')
   })
 
