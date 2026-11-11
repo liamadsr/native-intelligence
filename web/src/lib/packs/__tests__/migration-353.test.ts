@@ -43,10 +43,19 @@ describe('migration 353', () => {
     // 503 (one name for mail) carries claim_neighborhood forward from 369,
     // changing only its two mail checks (migration-503.test.ts); 506 (the
     // agent reads shared records) carries hybrid_search forward from 369,
-    // adding only a grant arm to its capture and document predicates.
+    // adding only a grant arm to its capture and document predicates. 568 (call
+    // notes follow their conversation) carries claim_visible_to and hybrid_search
+    // forward, changing only their capture owner arms (migration-566.test.ts).
     for (const fn of ['claim_visible_to', 'claim_neighborhood', 'hybrid_search']) {
       expect(
-        ['353_learn_by_default.sql', '365_document_search_everywhere.sql', '369_document_visibility.sql', '503_one_name_for_mail.sql', '506_agent_reads_shared_records.sql'],
+        [
+          '353_learn_by_default.sql',
+          '365_document_search_everywhere.sql',
+          '369_document_visibility.sql',
+          '503_one_name_for_mail.sql',
+          '506_agent_reads_shared_records.sql',
+          '568_team_call_notes_owner_reads.sql',
+        ],
         fn,
       ).toContain(latestDefinition(fn).file)
     }

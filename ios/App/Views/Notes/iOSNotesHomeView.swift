@@ -43,6 +43,8 @@ struct iOSNotesHomeView: View {
     @State private var isSearchActive = false
     @FocusState private var isSearchFieldFocused: Bool
     @State private var showingAccountSheet = false
+    @ObservedObject private var teamChatRouter = TeamChatRouter.shared
+    @ObservedObject private var teamChat = TeamChatStore.shared
 
     /// Surfaced when a completion write fails (tapping before workspace
     /// bootstrap resolves, an expired token, a 0-row match…). Same treatment as
@@ -113,7 +115,7 @@ struct iOSNotesHomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $teamChatRouter.path) {
             VStack(spacing: 0) {
                 // Search filter chips (when search is active)
                 if isSearchActive {
@@ -175,6 +177,18 @@ struct iOSNotesHomeView: View {
                 await calendarService.refresh()
                 Task.detached {
                     await searchService.ensureDataLoaded()
+                }
+            }
+            .navigationDestination(for: TeamChatRoute.self) { route in
+                switch route {
+                case .list:
+                    iOSTeamChatListView()
+                case let .channel(id, focus):
+                    iOSTeamChatConversationView(channelId: id, focus: focus)
+                        .id("\(id):\(focus ?? "")")
+                case let .thread(channelId, rootId, focus):
+                    iOSTeamChatThreadView(channelId: channelId, rootId: rootId, focus: focus)
+                        .id("\(rootId):\(focus ?? "")")
                 }
             }
             .sheet(isPresented: $showingAccountSheet) {
@@ -274,6 +288,9 @@ struct iOSNotesHomeView: View {
 
             Spacer()
 
+            teamChatButton
+                .padding(.trailing, 10)
+
             Button {
                 showingAccountSheet = true
             } label: {
@@ -287,6 +304,35 @@ struct iOSNotesHomeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Account")
         }
+    }
+
+    /// Team chat: a glass circle like its neighbours, with the unread count on it.
+    private var teamChatButton: some View {
+        let unread = TeamChatUnread.badge(teamChat.channels)
+        let mentioned = teamChat.channels.contains { $0.mentions + $0.threadMentions > 0 }
+        return Button {
+            teamChatRouter.openList()
+        } label: {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .glassEffect(.regular.interactive(), in: .circle)
+                .overlay(alignment: .topTrailing) {
+                    if unread > 0 {
+                        Text(unread > 99 ? "99+" : "\(unread)")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(mentioned ? .black : Color(.systemBackground))
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(Capsule().fill(mentioned ? TeamChatStyle.mention : Color.primary))
+                            .offset(x: 4, y: -2)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(unread > 0 ? "Team chat, \(unread) unread" : "Team chat")
     }
 
     // MARK: - Greeting

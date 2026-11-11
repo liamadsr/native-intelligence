@@ -6,7 +6,8 @@
  * a message is never emailed twice; it says the words as they are now, and
  * only what the person may still read, asked again right before it goes
  * (mentioned, then removed from the private channel: nothing of it is sent);
- * push (no adapter yet) comes before email and falls through.
+ * push (the iOS app) comes before email, is asked again too, and falls
+ * through.
  */
 import { describe, expect, it, vi } from 'vitest'
 
@@ -20,6 +21,7 @@ import {
   teamChatEmailContent,
   teamChatEmailEvent,
   teamChatMessageLink,
+  teamChatPushes,
   TEAM_CHAT_EMAIL_EVENT,
   TEAM_CHAT_EMAIL_MAX_CONVERSATIONS,
   TEAM_CHAT_EMAIL_MAX_PER_CONVERSATION,
@@ -203,7 +205,54 @@ describe('planTeamChatEmail', () => {
     expect(failing.claims.size).toBe(3)
   })
 
-  it('push comes first once it has an adapter (the router’s order), and a push that doesn’t go falls through to email', async () => {
+  it('a push is asked again right before it goes: an edit says its new words, a message lost meanwhile is not pushed', async () => {
+    const pushes: TeamChatEmailItem[][] = []
+    const edited = deps({ notices: [notice(1)], pushTarget: async () => true, sendPush: async ({ items }) => (pushes.push(items), true) })
+    const claim = edited.d.claim
+    edited.d.claim = async (input) => {
+      const out = await claim(input)
+      edited.words.set(notice(1).target_id!, { body: 'edited just now', files: 0 })
+      return out
+    }
+    expect(outcomeOf(await planTeamChatEmail(req, edited.d))).toBe('pushed')
+    expect(pushes[0].map((i) => i.words)).toEqual(['edited just now'])
+    expect(edited.readableCalls).toHaveLength(2)
+
+    const lost = deps({ notices: [notice(1)], pushTarget: async () => true, sendPush: async () => true })
+    const claimLost = lost.d.claim
+    lost.d.claim = async (input) => {
+      const out = await claimLost(input)
+      lost.words.clear()
+      return out
+    }
+    expect(await planTeamChatEmail(req, lost.d)).toEqual({ kind: 'done', outcome: 'gone', messages: 0 })
+    expect(lost.sent).toHaveLength(0)
+  })
+
+  it('a push that throws falls through to email', async () => {
+    const threw = deps({ pushTarget: async () => true, sendPush: async () => Promise.reject(new Error('apple down')) })
+    expect(outcomeOf(await planTeamChatEmail(req, threw.d))).toBe('sent')
+    expect(threw.sent).toHaveLength(1)
+  })
+
+  it('one push per conversation, newest first: its newest message’s words now, opened in its workspace at its message', () => {
+    const item = (n: number, over: Partial<TeamChatEmailNotice> = {}): TeamChatEmailItem => ({
+      ...notice(n, { metadata: { author_name: 'Ana Ruiz', place: '#launch', thread_root_id: null, channel_id: CH }, ...over }),
+      words: `words ${n}`,
+    })
+    const pushes = teamChatPushes([
+      item(1),
+      item(2),
+      item(3, { workspace_id: WS_2, group_key: `team_chat_thread:${CH_2}`, metadata: { author_name: 'Ben Ode', place: '#ops', thread_root_id: CH_2, channel_id: CH_2 } }),
+      // No channel in its row: it can't be opened, so no push of it.
+      item(4, { group_key: 'team_chat:other', metadata: { author_name: 'Ana Ruiz', place: '#x', thread_root_id: null } }),
+    ])
+    expect(pushes.map((p) => p.collapseId)).toEqual([`team_chat_thread:${CH_2}`, `team_chat:${CH}`])
+    expect(pushes[0]).toMatchObject({ title: 'Ana Ruiz in #launch', body: 'words 3', data: { workspace_id: WS_2, channel_id: CH_2, thread_root_id: CH_2, message_id: notice(3).target_id } })
+    expect(pushes[1]).toMatchObject({ title: '2 new messages in #launch', body: 'Ana Ruiz: words 2', data: { workspace_id: WS, channel_id: CH, message_id: notice(2).target_id } })
+  })
+
+  it('push comes first (the router’s order), and a push that doesn’t go falls through to email', async () => {
     expect(teamChatAwayChannel({ push: false })).toBe('email')
     expect(teamChatAwayChannel({ push: true })).toBe('push')
     const pushed = deps({ pushTarget: async () => true, sendPush: async () => true })
