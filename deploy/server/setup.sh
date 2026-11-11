@@ -3,7 +3,14 @@
 # of deploy/README.md as one script. It is safe to run again: every step looks
 # first and only changes what is missing.
 #
-#   sudo ./setup.sh --login-user <user> --repo <https address of this repository> [--ref <commit>] [--paths "<folders>"]
+#   sudo ./setup.sh --login-user <user> --repo <https address of this repository> [--ref <commit>] [--paths "<folders>"] [--role app|sandbox]
+#
+# --role says what the server is for. "app" (the default) is the server
+# deploy/README.md describes: the web ports and the calls' media ports are
+# opened, and the Docker networks its stacks share are made. "sandbox" is the
+# separate server that runs coding sandboxes and browsers (deploy/sandbox):
+# only SSH is opened, none of the app's networks is made, and the script
+# refuses a machine that cannot run virtual machines.
 #
 # --paths names further folders of the repository the server needs beside
 # deploy/ (the Supabase stack reads two under web/supabase). Folders already
@@ -32,6 +39,7 @@ ref=""
 root=/opt/native-intelligence
 reboot_time="08:37"
 paths=""
+role="app"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -41,6 +49,7 @@ while [ $# -gt 0 ]; do
 	--root) root="${2:?}"; shift 2 ;;
 	--reboot-time) reboot_time="${2:?}"; shift 2 ;;
 	--paths) paths="${2-}"; shift 2 ;;
+	--role) role="${2:?}"; shift 2 ;;
 	*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -49,6 +58,7 @@ die() { echo "setup: $*" >&2; exit 1; }
 say() { printf '\n== %s\n' "$*"; }
 
 [ "$(id -u)" = 0 ] || die "run it with sudo."
+case "$role" in app | sandbox) ;; *) die "--role is app or sandbox, not '$role'." ;; esac
 [ -n "$login_user" ] || die "--login-user is required: the user you log in as."
 id "$login_user" >/dev/null 2>&1 || die "there is no user called $login_user."
 # Step 1 turns root logins off. Doing that while logged in as root locks the
@@ -118,7 +128,11 @@ Unattended-Upgrade::Automatic-Reboot-Time "$reboot_time";
 EOF
 echo "set"
 
-say "Firewall: SSH, 80 and 443, and LiveKit's two media ports"
+if [ "$role" = sandbox ]; then
+	say "Firewall: SSH only"
+else
+	say "Firewall: SSH, 80 and 443, and LiveKit's two media ports"
+fi
 # Whatever port sshd really listens on, so enabling the firewall cannot cut
 # the connection this is running over.
 # awk reads to the end on purpose: leaving early would close the pipe on sshd,
@@ -129,14 +143,19 @@ ufw default allow outgoing >/dev/null
 for ssh_port in ${ssh_ports:-22}; do
 	ufw limit "$ssh_port/tcp" comment 'SSH' >/dev/null
 done
-ufw allow 80/tcp comment 'HTTP (redirects, certificates)' >/dev/null
-ufw allow 443/tcp comment 'HTTPS' >/dev/null
-# The media of calls (deploy/livekit): WebRTC over one UDP port, and ICE over TCP
-# for networks that block UDP. Not HTTP, so not through Caddy. Docker opens the two
-# ports it publishes whatever ufw says (deploy/README.md, step 5); these lines make
-# ufw's own list say what is open. Nothing listens on them until LiveKit runs.
-ufw allow 7882/udp comment 'LiveKit media (WebRTC over UDP)' >/dev/null
-ufw allow 7881/tcp comment 'LiveKit media (ICE over TCP)' >/dev/null
+if [ "$role" = app ]; then
+	ufw allow 80/tcp comment 'HTTP (redirects, certificates)' >/dev/null
+	ufw allow 443/tcp comment 'HTTPS' >/dev/null
+	# The media of calls (deploy/livekit): WebRTC over one UDP port, and ICE over TCP
+	# for networks that block UDP. Not HTTP, so not through Caddy. Docker opens the two
+	# ports it publishes whatever ufw says (deploy/README.md, step 5); these lines make
+	# ufw's own list say what is open. Nothing listens on them until LiveKit runs.
+	ufw allow 7882/udp comment 'LiveKit media (WebRTC over UDP)' >/dev/null
+	ufw allow 7881/tcp comment 'LiveKit media (ICE over TCP)' >/dev/null
+fi
+# A sandbox server opens nothing else here. What it needs later (the tunnel to
+# the app's server, the browsers' address) is opened by the step that sets it
+# up, to the one peer it is for (deploy/sandbox/README.md).
 ufw --force enable >/dev/null
 ufw status | sed -n '1,16p'
 
@@ -167,12 +186,20 @@ fi
 systemctl enable docker >/dev/null 2>&1
 echo "Docker $(docker version -f '{{.Server.Version}}'), Compose $(docker compose version --short)"
 
-say "Kernel setting for Redis"
-write_if_changed /etc/sysctl.d/90-ni-redis.conf <<'EOF' || true
+if [ "$role" = app ]; then
+	say "Kernel setting for Redis"
+	write_if_changed /etc/sysctl.d/90-ni-redis.conf <<'EOF' || true
 vm.overcommit_memory = 1
 EOF
-sysctl --system >/dev/null
-sysctl vm.overcommit_memory
+	sysctl --system >/dev/null
+	sysctl vm.overcommit_memory
+else
+	say "Virtual machines"
+	# Every sandbox is a small virtual machine, so the server must be able to run
+	# them: a physical machine, or one that passes virtualization through.
+	[ -c /dev/kvm ] || die "this server has no /dev/kvm: it cannot run virtual machines, so it cannot be the sandbox server."
+	echo "/dev/kvm is there ($(grep -c -E '^flags[[:space:]]*:.*[[:space:]](vmx|svm)([[:space:]]|$)' /proc/cpuinfo) processor threads with hardware virtualization)"
+fi
 
 say "The files"
 install -d -o "$login_user" -g "$login_user" "$root"
@@ -193,16 +220,18 @@ if [ -n "$ref" ] && [ "$(as_user git -C "$root" rev-parse HEAD)" != "$ref" ]; th
 fi
 echo "$root is at $(as_user git -C "$root" rev-parse --short HEAD)"
 
-say "Docker networks"
-docker network inspect ni-edge >/dev/null 2>&1 ||
-	docker network create --subnet 172.30.0.0/24 --ip-range 172.30.0.128/25 ni-edge >/dev/null
-docker network inspect ni-supabase-edge >/dev/null 2>&1 ||
-	docker network create ni-supabase-edge >/dev/null
-# Caddy and LiveKit only (deploy/livekit). An ordinary bridge, not internal:
-# LiveKit's way out (STUN, its webhooks) is through it.
-docker network inspect ni-livekit-edge >/dev/null 2>&1 ||
-	docker network create ni-livekit-edge >/dev/null
-docker network ls --format '{{.Name}}' | grep '^ni-' | sed 's/^/  /'
+if [ "$role" = app ]; then
+	say "Docker networks"
+	docker network inspect ni-edge >/dev/null 2>&1 ||
+		docker network create --subnet 172.30.0.0/24 --ip-range 172.30.0.128/25 ni-edge >/dev/null
+	docker network inspect ni-supabase-edge >/dev/null 2>&1 ||
+		docker network create ni-supabase-edge >/dev/null
+	# Caddy and LiveKit only (deploy/livekit). An ordinary bridge, not internal:
+	# LiveKit's way out (STUN, its webhooks) is through it.
+	docker network inspect ni-livekit-edge >/dev/null 2>&1 ||
+		docker network create ni-livekit-edge >/dev/null
+	docker network ls --format '{{.Name}}' | grep '^ni-' | sed 's/^/  /'
+fi
 
 say "Done"
 echo "No container was started and no settings file was written."
