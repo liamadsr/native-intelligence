@@ -4,8 +4,12 @@
  * (ChatInput) with its own `@` list: the person's agent, then the members but
  * them. What it posts: the members picked whose "@Name" is still in the words
  * (`mentions`), and whether the agent is called (`mentionsAgent`: "@Joseph"
- * in the words, picked or typed). A send that fails keeps the words and says
- * so; an archived channel has no box, only why. Text only: + says so.
+ * in the words, picked or typed). A send is optimistic: its bubble at once,
+ * under the client id the page minted, and the row (from the answer or
+ * Realtime, whichever comes first) takes its place, never a second bubble; a
+ * failed one says so on the bubble, and Retry sends it again with the same
+ * id. Files upload at once into the channel's folder and ride with the send.
+ * An archived channel has no box, only why.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
@@ -25,10 +29,35 @@ vi.mock('@/lib/cached-fetch', () => ({
     ],
   }),
 }))
+// The realtime channel (its handlers kept by table, so a test can send what the database would) and storage.
+const supa = vi.hoisted(() => ({
+  handlers: new Map<string, (payload: unknown) => void>(),
+  uploads: [] as Array<{ path: string; type: string }>,
+}))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => {
-    const channel = { on: () => channel, subscribe: () => channel }
-    return { channel: () => channel, removeChannel: async () => {} }
+    const channel = {
+      on: (_event: string, filter: { table?: string }, cb: (payload: unknown) => void) => {
+        if (filter?.table) supa.handlers.set(filter.table, cb)
+        return channel
+      },
+      subscribe: () => channel,
+      send: async () => 'ok',
+    }
+    const bucket = {
+      upload: async (path: string, _file: unknown, opts: { contentType: string }) => {
+        supa.uploads.push({ path, type: opts.contentType })
+        return { data: { path }, error: null }
+      },
+      remove: async () => ({ data: [], error: null }),
+      createSignedUrls: async (paths: string[]) => ({ data: paths.map((path) => ({ path, signedUrl: `https://files.test/${path}`, error: null })), error: null }),
+    }
+    return {
+      channel: () => channel,
+      removeChannel: async () => {},
+      auth: { getSession: async () => ({ data: { session: { user: { id: 'u-me' } } } }) },
+      storage: { from: () => bucket },
+    }
   },
 }))
 vi.mock('@/hooks/recording-context', () => ({ useRecordingStable: () => ({}), useOptionalRecordingStable: () => null }))
@@ -56,11 +85,17 @@ const channel = (over: Record<string, unknown> = {}) => ({
   archived_at: null,
   unread: 0,
   mentions: 0,
+  thread_unread: 0,
+  thread_mentions: 0,
   ...over,
 })
 
 let posts: Array<{ body: string; mentions: string[]; mentionsAgent: boolean }> = []
+// The client id of each post, in order (a retry sends the same one).
+let clientIds: string[] = []
 let postStatus = 200
+// Held: the answer waits until the test lets it go (what Realtime does meanwhile is up to the test).
+let holdPost: Promise<void> | null = null
 let channels: unknown[] = [channel()]
 let container: HTMLDivElement
 let root: Root
@@ -68,26 +103,36 @@ let fetchSpy: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   posts = []
+  clientIds = []
   postStatus = 200
+  holdPost = null
+  supa.handlers.clear()
+  supa.uploads = []
   channels = [channel()]
   fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url === '/api/account/team-chat/channels') return new Response(JSON.stringify({ channels, memberId: 'm-me' }))
+    if (url === '/api/account/team-chat/channels') return new Response(JSON.stringify({ channels, threads: [], memberId: 'm-me' }))
     if (/channels\/c-general\/messages$/.test(url) && init?.method === 'POST') {
-      const sent = JSON.parse(String(init.body)) as { body: string; mentions: string[]; mentionsAgent: boolean }
+      const { clientId, ...sent } = JSON.parse(String(init.body)) as { body: string; mentions: string[]; mentionsAgent: boolean; clientId: string }
       posts.push(sent)
+      clientIds.push(clientId)
+      if (holdPost) await holdPost
       if (postStatus !== 200) return new Response('{}', { status: postStatus })
       const message = {
-        id: `msg-${posts.length}`,
+        id: `msg-${clientIds.indexOf(clientId) + 1}`,
+        client_id: clientId,
         channel_id: 'c-general',
         author_kind: 'member',
         author_member_id: 'm-me',
         agent_for_member_id: null,
         agent_name: null,
         in_reply_to: null,
+        thread_root_id: null,
         body: sent.body,
         mentions: sent.mentions,
         // The server's own read: the flag, or "@Joseph" in the words.
         mentions_agent: sent.mentionsAgent || /(^|\s)@Joseph(?! Lee)\b/.test(sent.body),
+        attachments: [],
+        link_preview: null,
         created_at: '2026-11-09T10:00:00Z',
         edited_at: null,
         deleted_at: null,
@@ -240,22 +285,87 @@ describe("team chat's box is the main composer", () => {
     expect(posts).toEqual([])
   })
 
-  it('a failed send keeps the words and says so', async () => {
+  it('a send is drawn at once, and its row (Realtime first, then the answer) takes the bubble’s place: one element, never two', async () => {
+    let release!: () => void
+    holdPost = new Promise<void>((r) => (release = r))
+    await render()
+    type('shipping today')
+    press('Enter')
+    await settle()
+    // The bubble, before any answer, and the box free again.
+    const bubble = container.querySelector('[data-team-chat-message^="pending:"]')
+    expect(bubble?.textContent).toContain('shipping today')
+    expect(bubble?.getAttribute('data-pending')).toBe('sending')
+    expect(box().value).toBe('')
+    // Realtime brings the row before the answer does.
+    const row = {
+      id: 'msg-1',
+      client_id: clientIds[0],
+      channel_id: 'c-general',
+      author_kind: 'member',
+      author_member_id: 'm-me',
+      agent_for_member_id: null,
+      agent_name: null,
+      in_reply_to: null,
+      thread_root_id: null,
+      body: 'shipping today',
+      mentions: [],
+      mentions_agent: false,
+      attachments: [],
+      link_preview: null,
+      created_at: '2026-11-09T10:00:00Z',
+      edited_at: null,
+      deleted_at: null,
+    }
+    act(() => supa.handlers.get('team_chat_message')!({ eventType: 'INSERT', new: row }))
+    const stored = container.querySelector('[data-team-chat-message="msg-1"]')
+    // The same element, now the row: no remount, so no flicker.
+    expect(stored).toBe(bubble)
+    expect(stored?.hasAttribute('data-pending')).toBe(false)
+    release()
+    await settle()
+    expect(container.querySelectorAll('[data-team-chat-message]')).toHaveLength(1)
+    expect(container.querySelector('[data-team-chat-message="msg-1"]')).toBe(bubble)
+  })
+
+  it('a failed send says so on its bubble; Retry sends it again with the same client id, and the row replaces it', async () => {
     postStatus = 500
     await render()
     type('hello')
     press('Enter')
     await settle()
     expect(posts).toHaveLength(1)
-    expect(box().value).toBe('hello')
-    expect(container.textContent).toContain("That didn't send. Try again.")
+    expect(container.querySelector('[data-team-chat-message^="pending:"]')?.getAttribute('data-pending')).toBe('failed')
+    expect(container.querySelector('[data-team-chat-failed]')?.textContent).toContain('Not sent.')
+    postStatus = 200
+    act(() => [...container.querySelectorAll<HTMLButtonElement>('[data-team-chat-failed] button')].find((b) => b.textContent?.includes('Retry'))!.click())
+    await settle()
+    expect(clientIds).toHaveLength(2)
+    expect(clientIds[1]).toBe(clientIds[0])
+    expect(container.querySelectorAll('[data-team-chat-message]')).toHaveLength(1)
+    expect(container.querySelector('[data-team-chat-message="msg-1"]')?.textContent).toContain('hello')
+    expect(container.querySelector('[data-team-chat-failed]')).toBeNull()
   })
 
-  it('text only: + says why there are no files', async () => {
+  it('a file picked uploads at once into the channel’s folder (the person’s sub-folder) and rides with the send; a file of another kind is refused', async () => {
     await render()
-    act(() => container.querySelector<HTMLButtonElement>('[data-team-chat-composer] button[aria-label="Add"]')!.click())
+    const input = container.querySelector<HTMLInputElement>('[data-team-chat-composer] input[type="file"]')!
+    expect(input.accept).toContain('.pdf')
+    expect(input.accept).not.toContain('.svg')
+    const pdf = new File([new Uint8Array(1200)], 'Quote.pdf', { type: 'application/pdf' })
+    const page = new File(['<html>'], 'page.html', { type: 'text/html' })
+    Object.defineProperty(input, 'files', { configurable: true, value: [pdf, page] })
+    act(() => input.dispatchEvent(new Event('change', { bubbles: true })))
     await settle()
-    expect(document.querySelector('[data-composer-unavailable="files"]')?.textContent).toContain('text only')
+    expect(supa.uploads).toHaveLength(1)
+    expect(supa.uploads[0].path).toMatch(/^c-general\/u-me\/[0-9a-f-]{36}\.pdf$/)
+    expect(supa.uploads[0].type).toBe('application/pdf')
+    expect(container.querySelector('[data-team-chat-composer]')?.textContent).toContain('That kind of file can’t be shared here')
+    press('Enter')
+    await settle()
+    const sent = posts[0] as unknown as { body: string; attachments: Array<Record<string, unknown>> }
+    expect(sent.body).toBe('')
+    expect(sent.attachments).toEqual([{ path: supa.uploads[0].path, name: 'Quote.pdf', size: 1200, type: 'application/pdf' }])
   })
 
   it('dictation, where the desktop has it: the mic in the box, and no voice mode (a channel is no conversation with the agent)', async () => {

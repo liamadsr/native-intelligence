@@ -1,7 +1,10 @@
 /**
  * Team chat's composer and message text, pure and client-safe: where an
  * `@…` being typed starts, which picked mentions are still in the words, and
- * a message's words cut into plain text and @-mentions for drawing.
+ * a message's words cut into plain text and @-mentions for drawing. And the
+ * page's lists (migrations 555-557): a send's optimistic bubble reconciled
+ * with its row, reactions grouped into chips, a thread's labels and the
+ * typing line.
  */
 
 /** The `@…` token being typed just before the caret: where its `@` is and what follows it; null when there is none. */
@@ -80,4 +83,114 @@ export function continuesGroup(
   if (prev.author_member_id !== next.author_member_id || prev.agent_for_member_id !== next.agent_for_member_id) return false
   const gap = Date.parse(next.created_at) - Date.parse(prev.created_at)
   return Number.isFinite(gap) && gap >= 0 && gap < 5 * 60_000
+}
+
+// ── The page's lists: optimistic sends, reactions, threads, typing ──────────
+
+/** A message as the page holds it: a row, or its own send still on its way (`pending`). */
+export interface ShownMessage {
+  id: string
+  client_id: string | null
+  created_at: string
+  /** Its own send, not yet stored: on its way, or failed (Retry sends it again, with the same client id). */
+  pending?: 'sending' | 'failed'
+}
+
+/** The id an optimistic bubble goes by until its row arrives. */
+export function pendingMessageId(clientId: string): string {
+  return `pending:${clientId}`
+}
+
+/** The key a message is drawn under: its send's client id when it has one, so the bubble and its row are one element (no flicker). */
+export function messageKey(message: Pick<ShownMessage, 'id' | 'client_id'>): string {
+  return message.client_id ?? message.id
+}
+
+/** Oldest first; a send still on its way (or failed) after every stored row, as it was typed last. */
+export function sortMessages<T extends ShownMessage>(list: readonly T[]): T[] {
+  return [...list].sort((a, b) => (a.pending ? 1 : 0) - (b.pending ? 1 : 0) || a.created_at.localeCompare(b.created_at))
+}
+
+/**
+ * A message into the page's list: its row replaces the optimistic bubble of
+ * the same send (by client id) or the row it already had (by id), and a new
+ * one takes its place by time. The row (from the answer or from Realtime,
+ * whichever comes first) wins over the bubble; a second copy of the row only
+ * refreshes it, never adds one. A bubble never replaces a stored row.
+ */
+export function upsertMessage<T extends ShownMessage>(list: readonly T[] | undefined, message: T): T[] {
+  const prev = list ?? []
+  const at = prev.findIndex((m) => m.id === message.id || (!!message.client_id && m.client_id === message.client_id))
+  if (at === -1) return sortMessages([...prev, message])
+  if (message.pending && !prev[at].pending) return [...prev]
+  const next = [...prev]
+  next[at] = message
+  return prev[at].pending && !message.pending ? sortMessages(next) : next
+}
+
+/** A send's bubble marked failed (Retry); the list as it was when its row has already arrived. */
+export function failPending<T extends ShownMessage>(list: readonly T[] | undefined, clientId: string): T[] {
+  return (list ?? []).map((m) => (m.client_id === clientId && m.pending ? { ...m, pending: 'failed' as const } : m))
+}
+
+export interface ReactionLike {
+  message_id: string
+  member_id: string
+  emoji: string
+  active: boolean
+}
+
+/** One reaction into a message's list (the reactions that are on): taken back, it leaves; on, it is there once. */
+export function applyReaction<T extends ReactionLike>(list: readonly T[] | undefined, reaction: T): T[] {
+  const rest = (list ?? []).filter((r) => !(r.member_id === reaction.member_id && r.emoji === reaction.emoji))
+  return reaction.active ? [...rest, reaction] : rest
+}
+
+export interface ReactionGroup {
+  emoji: string
+  count: number
+  /** The person reacted with it. */
+  mine: boolean
+  /** Who did, in the order they did. */
+  memberIds: string[]
+}
+
+/** A message's reactions as its chips: one per emoji, in the order each was first used, with who and how many. */
+export function groupReactions(list: readonly ReactionLike[] | undefined, meId: string | null): ReactionGroup[] {
+  const groups = new Map<string, ReactionGroup>()
+  for (const r of list ?? []) {
+    if (!r.active) continue
+    const g = groups.get(r.emoji) ?? { emoji: r.emoji, count: 0, mine: false, memberIds: [] }
+    if (g.memberIds.includes(r.member_id)) continue
+    g.memberIds.push(r.member_id)
+    g.count += 1
+    if (r.member_id === meId) g.mine = true
+    groups.set(r.emoji, g)
+  }
+  return [...groups.values()]
+}
+
+/** "1 reply", "4 replies". */
+export function replyCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'reply' : 'replies'}`
+}
+
+/** When a thread's last reply was: its time today, "yesterday", else its date. */
+export function lastReplyLabel(iso: string | null, now: Date = new Date(), locale?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const days = Math.round((day(now) - day(d)) / 86_400_000)
+  if (days <= 0) return `today at ${messageTime(iso, locale)}`
+  if (days === 1) return 'yesterday'
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
+}
+
+/** The typing line for these names, or null when nobody is typing (nothing is drawn). */
+export function typingLine(names: readonly string[]): string | null {
+  if (names.length === 0) return null
+  if (names.length === 1) return `${names[0]} is typing…`
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`
+  return 'Several people are typing…'
 }
