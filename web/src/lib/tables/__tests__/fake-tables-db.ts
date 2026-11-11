@@ -7,7 +7,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 type Row = Record<string, unknown>
-type RpcAnswer = { data: unknown; error: { code?: string; message: string; details?: string | null } | null }
+export type RpcAnswer = { data: unknown; error: { code?: string; message: string; details?: string | null } | null }
 
 export interface FakeTablesDb {
   client: SupabaseClient

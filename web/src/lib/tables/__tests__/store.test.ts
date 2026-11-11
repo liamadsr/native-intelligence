@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { applyOps, createTable, listRows, undoChange } from '../store'
-import { fakeTablesDb } from './fake-tables-db'
+import { fakeTablesDb, type RpcAnswer } from './fake-tables-db'
 
 const WS = 'ws-1'
 const T = '33333333-3333-4333-8333-333333333333'
@@ -15,7 +15,10 @@ const CHANGE = '44444444-4444-4444-8444-444444444444'
 const table = { id: T, workspace_id: WS, name: 'Orders', icon: null, description: null, owner_member_id: 'm-1', visibility: 'workspace', version: 4, position: 0, archived_at: null }
 const status = { id: 'c-1', workspace_id: WS, entity_type: 'data_row', table_id: T, key: 'status', label: 'Status', field_type: 'select', options: ['Todo', 'Done'], position: 0, deleted_at: null }
 
-function db(rpc = (_name: string, _args: Record<string, unknown>) => ({ data: { version: 5, change_id: 'ch-new', inserted_row_ids: [], created_column_ids: {} }, error: null as never })) {
+type Rpc = (name: string, args: Record<string, unknown>) => RpcAnswer
+const applied: Rpc = () => ({ data: { version: 5, change_id: 'ch-new', inserted_row_ids: [], created_column_ids: {} }, error: null })
+
+function db(rpc: Rpc = applied) {
   return fakeTablesDb(
     {
       data_table: [table],
@@ -70,18 +73,18 @@ describe('applyOps', () => {
   it('turns the database’s refusals into reasons: PT409 a conflict with the version now, 42501 forbidden, P0002 not found', async () => {
     const ops = [{ op: 'update_row', row_id: ROW, title: 'x' }]
     const actor = { userId: 'u-1', source: 'person' as const }
-    const conflict = db(() => ({ data: null, error: { code: 'PT409', message: 'the table changed since version 3', details: '4' } as never }))
+    const conflict = db(() => ({ data: null, error: { code: 'PT409', message: 'the table changed since version 3', details: '4' } }))
     expect(await applyOps(conflict.client, WS, T, { baseVersion: 3, ops }, actor)).toMatchObject({ ok: false, reason: 'conflict', version: 4 })
-    const forbidden = db(() => ({ data: null, error: { code: '42501', message: 'you can view this table but not change it' } as never }))
+    const forbidden = db(() => ({ data: null, error: { code: '42501', message: 'you can view this table but not change it' } }))
     expect(await applyOps(forbidden.client, WS, T, { baseVersion: 4, ops }, actor)).toEqual({ ok: false, reason: 'forbidden', error: 'You can view this table but not change it' })
-    const gone = db(() => ({ data: null, error: { code: 'P0002', message: 'table not found' } as never }))
+    const gone = db(() => ({ data: null, error: { code: 'P0002', message: 'table not found' } }))
     expect(await applyOps(gone.client, WS, T, { baseVersion: 4, ops }, actor)).toMatchObject({ ok: false, reason: 'not_found' })
   })
 })
 
 describe('createTable', () => {
   it('makes a table with its blank rows in one call, owned by the caller', async () => {
-    const f = db(() => ({ data: { table_id: T, version: 1, change_id: 'ch-1', inserted_row_ids: ['a', 'b', 'c'], created_column_ids: {} }, error: null as never }))
+    const f = db(() => ({ data: { table_id: T, version: 1, change_id: 'ch-1', inserted_row_ids: ['a', 'b', 'c'], created_column_ids: {} }, error: null }))
     const res = await createTable(f.client, WS, { name: '  Hiring  ' }, { userId: 'u-1', source: 'person' })
     expect(res).toMatchObject({ ok: true, value: { table_id: T, version: 1, inserted_row_ids: ['a', 'b', 'c'] } })
     expect(f.rpcCalls[0]).toMatchObject({
