@@ -40,6 +40,8 @@ import { MeetingGoalSetLine, meetingGoalToolResult } from './meeting-goal-compos
 import { ConnectCard } from './connect-card'
 import { FindTimesCard } from './find-times-card'
 import { findTimesCardOf } from '@/lib/availability/find-times-card'
+import { TimeOfferCard } from './time-offer-card'
+import { TIME_OFFER_CARD_TOOLS, timeOfferCardOf } from '@/lib/time-offers/offer-card'
 import { connectCardFromOutput } from '@/lib/connections/connect-card'
 import { ASK_CARD_PART_TYPE, ASK_CARDS_PART_TYPE, askCardPartData, askCardsPartData } from '@/lib/attention/chat-asks'
 import { ChatAskCard, ChatAskCardGroup } from '@/components/attention/chat-ask-card'
@@ -319,9 +321,19 @@ const findTimesCard: ToolRenderer = ({ part, state, toolCallId }) => {
   return data ? <FindTimesCard key={toolCallId} data={data} /> : undefined
 }
 
+// Time offers (availability phase 3b): what offer_times held and its link
+// to copy, the meeting accept_time_offer booked, list_time_offers' offers.
+// A refusal, a call still running or an empty list is the generic chip.
+const timeOfferCard: ToolRenderer = ({ part, state, toolName, toolCallId }) => {
+  if (state !== 'result') return undefined
+  const data = timeOfferCardOf(toolName, output(part))
+  return data ? <TimeOfferCard key={toolCallId} data={data} /> : undefined
+}
+
 const ENTRIES: Record<string, ToolRendererEntry> = {
   connect: { render: connectCard },
   find_times: { render: findTimesCard },
+  ...Object.fromEntries(TIME_OFFER_CARD_TOOLS.map((name) => [name, { render: timeOfferCard }])),
   ask_user: { render: askUser },
   suggest_changes: { render: suggestChanges },
   [WEB_SEARCH_TOOL_NAME]: { render: webSearch },

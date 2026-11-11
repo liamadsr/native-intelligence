@@ -21,7 +21,7 @@ import { allShippedSkills, PREFERRED_TOOLS_REWRITE_MIGRATIONS, PROMPT_REWRITE_MI
 const FILE = '553_find_a_time_with_teammates.sql'
 const BEFORE = '551_find_a_time_uses_availability.sql'
 /** The rewrite after this one: offering an outside guest the slots (availability phase 3a). */
-const LATER = '555_offer_times_to_outside_guests.sql'
+const LATER = '580_offer_times_to_outside_guests.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
 
@@ -56,14 +56,14 @@ const BODY = sql
   .replace(/\s+/g, ' ')
 
 describe('migration 553', () => {
-  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 551, with only 555 after it', () => {
+  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 551, with only 580 after it', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
     expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
     for (const id of [CALENDAR, FIND_A_TIME]) {
-      // The next rewrite after 551 is this one (555 comes after it).
+      // The next rewrite after 551 is this one (580 comes after it).
       const next = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(BEFORE) + 1).find((f) => promptRewrites(f).some((r) => r.id === id))
       expect(next, id).toBe(FILE)
       expect(PREVIOUS[id], id).toBeTruthy()
@@ -73,7 +73,7 @@ describe('migration 553', () => {
     expect(preferredToolsRewrites(FILE)).toEqual([])
   })
 
-  it('is the text 555 rewrites, and leaves the preferred tools to 551 and 555', () => {
+  it('is the text 580 rewrites, and leaves the preferred tools to 551 and 580', () => {
     for (const id of [CALENDAR, FIND_A_TIME]) {
       expect(rewrittenAfter(FILE, id, rows.find((r) => r.id === id)!.slug), id).toBe(LATER)
       expect(allShippedSkills().find((s) => s.id === id)!.file, id).toBe(LATER)

@@ -1,5 +1,5 @@
 /**
- * Migration 555 (availability phase 3a): the calendar playbook and the
+ * Migration 580 (availability phase 3a): the calendar playbook and the
  * find-a-time skill offer an outside guest the slots with offer_times (a
  * link by default; email or text on the person's card) instead of only
  * drafting an email, and teach the other offer tools. Pinned: two text-only
@@ -16,7 +16,7 @@ import { registryToolInputSchemas } from '@/lib/ai/tool-schemas'
 import { estimateTokens } from '../memory'
 import { allShippedSkills, PREFERRED_TOOLS_REWRITE_MIGRATIONS, PROMPT_REWRITE_MIGRATIONS, promptRewrites, preferredToolsRewrites, readMigration, rewrittenAfter } from './playbook-seeds'
 
-const FILE = '555_offer_times_to_outside_guests.sql'
+const FILE = '580_offer_times_to_outside_guests.sql'
 const BEFORE = '553_find_a_time_with_teammates.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
@@ -51,7 +51,7 @@ const BODY = sql
   .join('\n')
   .replace(/\s+/g, ' ')
 
-describe('migration 555', () => {
+describe('migration 580', () => {
   it('rewrites only the calendar playbook and find-a-time, by id and slug, after 553 and registered last', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([
       [CALENDAR, 'calendar-playbook'],

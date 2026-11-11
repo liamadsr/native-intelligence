@@ -74,7 +74,7 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
     'thread_ids', 'types', 'undo', 'unread',
   ],
   // A1c meetings-mail: rewritten in 325; find_times' answer (suggested, free, unknown) in 551; its teammates (people, coverage)
-  // and the working hours' availability_sharing in 553; offer_times' send_by (link, email, text) in 555.
+  // and the working hours' availability_sharing in 553; offer_times' send_by (link, email, text) in 580.
   'calendar-playbook': [
     'account_email', 'attendees', 'availability_sharing', 'calendar', 'capture_status', 'coverage', 'description', 'email', 'end', 'end_date',
     'event_id', 'free', 'from', 'hours_ahead', 'link', 'local_exchange', 'location', 'max_results', 'participant_email', 'people', 'send_by',

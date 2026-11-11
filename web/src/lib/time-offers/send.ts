@@ -197,13 +197,16 @@ export async function settleTimeOfferApproval(supabase: SupabaseClient, row: { c
 
 // ── The tool ────────────────────────────────────────────────────────────────
 
-/** What offer_times answers about an offer: the link, its times in the host's zone, and the paste text when it went by link. */
+/** What offer_times answers about an offer: who and what, the link, its times in the host's zone, and the paste text when it went by link. */
 function offerResult(offer: TimeOffer, link: string, sentVia: 'link' | 'email' | 'text', to: string | null): Record<string, unknown> {
   const words = baseWords(sourceOfOffer(offer))
   const zone = zoneLabel(offer.timeZone, Date.parse(offer.slots[0]?.startsAt ?? offer.expiresAt))
   return {
     success: true,
     offer_id: offer.id,
+    recipient_name: offer.recipientName,
+    title: offer.title,
+    duration_minutes: offer.durationMinutes,
     link,
     sent_via: sentVia,
     ...(to ? { to } : {}),

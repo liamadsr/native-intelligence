@@ -1,4 +1,4 @@
--- Migration 555: Offer times to an outside guest. Seed only: two skills'
+-- Migration 580: Offer times to an outside guest. Seed only: two skills'
 -- text and one skill's preferred tools, nothing else.
 --
 -- Availability phase 3a (554 and src/lib/time-offers/) adds offer_times
@@ -35,7 +35,7 @@
 -- after 554 and with the app code that has offer_times. Without it the skill
 -- proposes slots and drafts the email as before; nothing else changes.
 --
--- src/lib/packs/__tests__/migration-555.test.ts pins this file: two
+-- src/lib/packs/__tests__/migration-580.test.ts pins this file: two
 -- text-only rows by id and slug and one preferred-tools row, each what
 -- ships; every line but the rewritten and added ones is 553's byte for
 -- byte, in order; the tools named are real; the ask-first rule stays; a
@@ -148,7 +148,7 @@ BEGIN
        AND system_prompt LIKE '%`offer_times`%'
        AND system_prompt LIKE '%`accept_time_offer`%'
   ) THEN
-    RAISE EXCEPTION '555: the system calendar-playbook (b6024df5-6b85-40ce-9975-cb334bcfba18) is not there or was not rewritten';
+    RAISE EXCEPTION '580: the system calendar-playbook (b6024df5-6b85-40ce-9975-cb334bcfba18) is not there or was not rewritten';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.recipe
@@ -156,7 +156,7 @@ BEGIN
        AND system_prompt LIKE '%`offer_times`%'
        AND agent_config -> 'preferred_tools' @> '["offer_times"]'::jsonb
   ) THEN
-    RAISE EXCEPTION '555: the system find-a-time skill (9d25caa6-0009-414c-88cb-6ba59cec2434) is not there or was not rewritten';
+    RAISE EXCEPTION '580: the system find-a-time skill (9d25caa6-0009-414c-88cb-6ba59cec2434) is not there or was not rewritten';
   END IF;
 END
 $guard$;

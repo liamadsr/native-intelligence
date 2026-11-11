@@ -29,6 +29,9 @@ export default function robots(): MetadataRoute.Robots {
           '/hud',
           '/s/',
           '/invite/',
+          // A time offer's page and a guest's manage page: one person's link each.
+          '/t/',
+          '/b/',
         ],
       },
     ],

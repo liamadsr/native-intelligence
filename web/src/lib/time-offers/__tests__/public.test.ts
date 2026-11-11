@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOffer, planOffer } from '../offers'
-import { __clearTimesCacheForTests, handleAcceptOffer, handleBookingTimes, handleCancelBooking, handleGetBooking, handleGetOffer, handleRescheduleBooking, type PublicDeps } from '../public'
+import { __clearTimesCacheForTests, handleAcceptOffer, handleBookingTimes, handleCancelBooking, handleGetBooking, handleGetOffer, handleRescheduleBooking, loadBookingPage, loadOfferPage, type PublicDeps } from '../public'
 import { manageTokenFor } from '../tokens'
 import { bookingSeams, freeCalendar, hoursFromNow, HOST, offerDb, WS } from './fake-db'
 
@@ -146,6 +146,7 @@ describe('the manage link', () => {
       end: new Date(Date.parse(SLOTS[0]) + 30 * 60_000).toISOString(),
       host_name: 'Ava Lin',
       guest_name: 'Dana Reyes',
+      time_zone: 'UTC',
       video: true,
       conference_url: 'https://meet.example/abc-defg-hij',
       location: null,
@@ -178,5 +179,24 @@ describe('the manage link', () => {
     const again = await handleCancelBooking(manageToken, deps)
     expect(again.status).toBe(410)
     expect(await again.json()).toMatchObject({ code: 'CLOSED' })
+  })
+})
+
+describe("the pages' first render (src/app/t, src/app/b)", () => {
+  it('reads what the GETs answer; an unknown or malformed token is missing; a failed read is an error', async () => {
+    const { token, deps } = await setup()
+    const offer = await loadOfferPage(deps.supabase, token)
+    expect(offer).toEqual({ kind: 'found', data: (await (await handleGetOffer(token, deps)).json()).offer })
+    expect(await loadOfferPage(deps.supabase, 'short')).toEqual({ kind: 'missing' })
+    expect(await loadOfferPage(deps.supabase, 'A'.repeat(24))).toEqual({ kind: 'missing' })
+    const broken = { from: () => { throw new Error('down') } } as unknown as PublicDeps['supabase']
+    expect(await loadOfferPage(broken, token)).toEqual({ kind: 'error' })
+
+    const res = await handleAcceptOffer(post({ start: SLOTS[0], name: 'Dana Reyes', time_zone: 'Europe/London' }), token, deps)
+    const manageToken = String((await res.json()).manage_url).split('/b/')[1]
+    const booking = await loadBookingPage(deps.supabase, manageToken)
+    expect(booking).toMatchObject({ kind: 'found', data: { state: 'confirmed', guest_name: 'Dana Reyes', can_cancel: true } })
+    expect(await loadBookingPage(deps.supabase, 'B'.repeat(24))).toEqual({ kind: 'missing' })
+    expect(await loadBookingPage(broken, manageToken)).toEqual({ kind: 'error' })
   })
 })

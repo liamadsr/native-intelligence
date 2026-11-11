@@ -28,6 +28,7 @@ import { apiError, badRequest, notFound, rateLimited, serverError } from '@/lib/
 import type { Span } from '@/lib/availability/engine'
 import { acceptOffer, type AcceptDeps, type AcceptResult } from './accept'
 import { bookingForManageToken, cancelMeeting, changeable, rescheduleMeeting, rescheduleTimes, type ManageDeps, type ManageFailure } from './manage'
+import type { PageLoad, PublicBookingData, PublicOfferData } from './display'
 import { countFailedPicks, getOfferByTokenHash } from './store'
 import { isOfferToken, offerTokenHash } from './tokens'
 import { OFFER_FAILED_PICKS_DAILY_CAP, RESCHEDULES_MAX, openSlotsOf, publicOfferState, type MeetingBooking, type TimeOffer } from './types'
@@ -43,7 +44,7 @@ const DAY_MS = 24 * 60 * 60_000
 const nowOf = (deps: PublicDeps) => (deps.now ?? Date.now)()
 
 /** The offer as its public page reads it (see the header). Pure. */
-export function publicOffer(offer: TimeOffer, now: number) {
+export function publicOffer(offer: TimeOffer, now: number): PublicOfferData {
   const state = publicOfferState(offer, now)
   const booked = offer.slots.find((s) => s.state === 'booked')
   return {
@@ -64,7 +65,7 @@ export function publicOffer(offer: TimeOffer, now: number) {
 }
 
 /** A booking as its guest's manage page reads it. Pure. */
-export function publicBooking(booking: MeetingBooking, now: number) {
+export function publicBooking(booking: MeetingBooking, now: number): PublicBookingData {
   const blocked = changeable(booking, now)
   return {
     state: booking.state,
@@ -73,6 +74,7 @@ export function publicBooking(booking: MeetingBooking, now: number) {
     end: booking.endsAt,
     host_name: booking.hostName,
     guest_name: booking.guestName,
+    time_zone: booking.guestTimeZone ?? 'UTC',
     video: booking.video,
     conference_url: booking.conferenceUrl,
     location: booking.location,
@@ -83,6 +85,28 @@ export function publicBooking(booking: MeetingBooking, now: number) {
 }
 
 const spansOut = (spans: readonly Span[]) => spans.map((s) => ({ start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() }))
+
+/** The offer's page's first render (src/app/t/[token]/page.tsx): the same read as its GET. */
+export async function loadOfferPage(supabase: SupabaseClient, token: string, now: number = Date.now()): Promise<PageLoad<PublicOfferData>> {
+  if (!isOfferToken(token)) return { kind: 'missing' }
+  try {
+    const offer = await getOfferByTokenHash(supabase, offerTokenHash(token))
+    return offer ? { kind: 'found', data: publicOffer(offer, now) } : { kind: 'missing' }
+  } catch {
+    return { kind: 'error' }
+  }
+}
+
+/** The manage page's first render (src/app/b/[token]/page.tsx): the same read as its GET. */
+export async function loadBookingPage(supabase: SupabaseClient, token: string, now: number = Date.now()): Promise<PageLoad<PublicBookingData>> {
+  if (!isOfferToken(token)) return { kind: 'missing' }
+  try {
+    const booking = await bookingForManageToken(supabase, token)
+    return booking ? { kind: 'found', data: publicBooking(booking, now) } : { kind: 'missing' }
+  } catch {
+    return { kind: 'error' }
+  }
+}
 
 /** GET /api/public/time-offers/<token>. */
 export async function handleGetOffer(token: string, deps: PublicDeps): Promise<Response> {
