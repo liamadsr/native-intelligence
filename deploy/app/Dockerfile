@@ -22,8 +22,10 @@
 #   cron           supercronic, calling the web role's /api/cron/* routes
 #
 # The image keeps the repository's layout: /app/web and /app/deploy/app.
-# Nothing here reads a secret. The NEXT_PUBLIC_* build arguments are public values
-# that `next build` compiles into the web role.
+# The NEXT_PUBLIC_* build arguments are public values that `next build` compiles
+# into the web role. The one secret is the hosted sandbox service's access token, for
+# the coding agent's build only, mounted as a BuildKit secret (see build-agents.sh's
+# step below) and never stored in the image.
 
 ARG NODE_IMAGE=node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 ARG GO_IMAGE=golang:1.27-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0
@@ -107,8 +109,24 @@ RUN VERCEL_GIT_COMMIT_SHA="$NI_BUILD_ID" node scripts/cloud-browser/build-assets
 # Each agent is built from its own folder with no Vercel environment, so eve writes a
 # Node server to agents/<name>/.output (not Vercel Build Output) and prepares the
 # sandbox with the provider it finds here. In a container that is just-bash: there
-# is no Docker daemon and no /dev/kvm. build-agents.sh fails on any other.
-RUN /app/deploy/app/build-agents.sh
+# is no Docker daemon and no /dev/kvm. build-agents.sh fails on any other, with one
+# exception: given the hosted sandbox service's three settings, the coding agent's
+# sandbox is prepared there (a snapshot), as its runs need.
+#
+# Those three reach this step ONLY as BuildKit secrets (compose.yaml's build
+# secrets, which deploy.sh fills from .env for that command alone): each is an environment variable of this
+# one RUN and of nothing else, never a build argument or an ENV, and is written to no
+# layer. build-agents.sh refuses to finish if the access token turns up in what the
+# build wrote. Without them (the CI build, the container test) the step runs as
+# before. NI_CODING_AGENT_SANDBOX holds no secret, only which sandbox deploy.sh meant
+# ("vercel/<team id>/<project id>", ids that are not secret, or empty): BuildKit's
+# cache key ignores secrets, so this is what makes a change of sandbox, team or
+# project rebuild this step, and build-agents.sh stops if the secrets disagree with it.
+ARG NI_CODING_AGENT_SANDBOX=
+RUN --mount=type=secret,id=SANDBOX_ACCESS_TOKEN,env=SANDBOX_ACCESS_TOKEN \
+    --mount=type=secret,id=SANDBOX_TEAM_ID,env=SANDBOX_TEAM_ID \
+    --mount=type=secret,id=SANDBOX_PROJECT_ID,env=SANDBOX_PROJECT_ID \
+    /app/deploy/app/build-agents.sh
 
 # Public values that `next build` compiles into the web role, server code included:
 # the web role cannot take another NEXT_PUBLIC_* value when it starts. The four with
