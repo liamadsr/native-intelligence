@@ -8,14 +8,18 @@
  *         before 480): it keeps the ones it had that the words still name.
  *         A record the edit newly mentions is shared with the channel as on
  *         a post (`shared`, `shared_with`; src/lib/entity-access/share.ts).
- *   DELETE → { ok: true } deleted (soft: its words are cleared for everyone):
- *         their own message, or their own agent's reply. Its `mentions`
- *         edges are removed.
+ *         An edit asks for the link preview again after the answer (the words'
+ *         first link may have changed: src/lib/team-chat/link-preview.ts).
+ *   DELETE → { ok: true } deleted (soft: its words, files and link preview
+ *         are cleared for everyone): their own message, or their own agent's
+ *         reply. Its `mentions` edges are removed, and its files (the
+ *         person's own uploads) removed from storage.
  */
-import { NextResponse, type NextRequest } from 'next/server'
+import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound } from '@/lib/api-errors'
-import { deleteMessage, editMessage, getChannel, workspaceMemberIds } from '@/lib/team-chat/store'
+import { deleteMessage, editMessage, getChannel, removeFiles, workspaceMemberIds } from '@/lib/team-chat/store'
+import { requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { fenceRecordMentions, storedRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { shareMentionedRecords } from '@/lib/entity-access/share'
@@ -48,6 +52,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const before = recordMentions.length > 0 ? tidyLabeledMentionRefs(await storedRecordMentions(auth.supabase, id)) : []
     const message = await editMessage(auth.supabase, id, { body, mentions, recordMentions })
     if (!message) return notFound()
+    // A link added, changed or taken out: its preview follows (requestLinkPreview asks only then).
+    if (message.link_preview || /https?:\/\//i.test(message.body)) after(() => requestLinkPreview(message))
     // The edges follow the edit: new mentions added, the ones taken out removed.
     await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: recordMentions })
     const had = new Set(before.map(mentionKey))
@@ -72,6 +78,8 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
   try {
     const deleted = await deleteMessage(auth.supabase, id)
     if (!deleted) return notFound()
+    // Its files go with it (558's policy lets the person remove only their own uploads).
+    await removeFiles(auth.supabase, deleted.paths)
     // A deleted message mentions nothing (the guard cleared its words): its edges go too.
     await syncMessageMentions(auth.supabase, {
       workspaceId: auth.workspaceId,
