@@ -13,7 +13,7 @@
  * transaction (./ops.ts planUndo has the rule).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isUuid, planUndo, touchedBy, validateOps, type DataOpInput } from './ops'
+import { isUuid, optionsAnUndoCouldDrop, planUndo, touchedBy, validateOps, type DataOpInput } from './ops'
 import {
   NEW_TABLE_ROWS,
   TABLE_COLUMN_ENTITY_TYPE,
@@ -207,7 +207,7 @@ export async function applyOps(
   const table = await readTableRow(db, workspaceId, tableId)
   if (!table) return { ok: false, reason: 'not_found', error: 'Table not found' }
   const columns = await listColumns(db, workspaceId, tableId, { deleted: true })
-  const checked = validateOps(columns, input.ops)
+  const checked = validateOps(columns, input.ops, { archived: !!table.archived_at })
   if (!checked.ok) return { ok: false, reason: 'invalid', error: checked.error }
   return rpcApply(db, tableId, input.baseVersion, checked.value, actor, null)
 }
@@ -294,12 +294,27 @@ export async function undoChange(
       })
     }
   }
+  // The rows holding an option the undo could drop (520 refuses to drop one in use).
+  const optionUses = new Map<string, Array<{ rowId: string; value: string }>>()
+  for (const [key, options] of optionsAnUndoCouldDrop(change)) {
+    if (!/^[a-z][a-z0-9_]{0,39}$/.test(key)) continue
+    // One past the touched rows is enough: then at least one untouched row holds it.
+    const { data, error } = await db
+      .from('data_row')
+      .select(`id, value:custom_fields->>${key}`)
+      .eq('table_id', tableId)
+      .in(`custom_fields->>${key}`, options)
+      .limit(rows.size + 1)
+    if (error) throw new Error(error.message)
+    optionUses.set(key, ((data ?? []) as unknown as Array<{ id: string; value: string }>).map((r) => ({ rowId: String(r.id), value: String(r.value) })))
+  }
   const memberId = await callerMemberId(db, workspaceId, actor)
   const plan = planUndo(change, {
     table,
     isOwner: !!memberId && table.owner_member_id === memberId,
     columns,
     rows,
+    optionUses,
   })
   if (!plan.ok) return { ok: false, reason: 'invalid', error: plan.error }
 

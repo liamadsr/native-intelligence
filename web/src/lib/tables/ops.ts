@@ -85,18 +85,26 @@ function checkValues(columns: Map<string, ColumnState>, raw: unknown): Checked<R
  * Checks a batch against the table and its columns, in order (a column made
  * earlier in the batch takes values later in it), and returns it in the form
  * the RPC takes: keys made, values coerced, text trimmed. The first problem
- * refuses the whole batch, as the RPC would.
+ * refuses the whole batch, as the RPC would. An archived table (`archived`)
+ * takes nothing but its restore until that op has run.
  */
-export function validateOps(columns: readonly ColumnState[], ops: unknown): Checked<DataOp[]> {
+export function validateOps(columns: readonly ColumnState[], ops: unknown, opts: { archived?: boolean } = {}): Checked<DataOp[]> {
   if (!Array.isArray(ops)) return fail('ops must be a list')
   if (ops.length === 0) return fail('Nothing to change.')
   if (ops.length > TABLE_LIMITS.opsPerBatch) return fail(`At most ${TABLE_LIMITS.opsPerBatch} changes in one batch.`)
   const cols = new Map(columns.map((c) => [c.key, { ...c }]))
   const out: DataOp[] = []
+  let archived = !!opts.archived
+  // Rows a batch inserts, archives or restores, across all its ops.
+  let rowsTotal = 0
+  const countRows = (n: number) => (rowsTotal += n) <= TABLE_LIMITS.rowsPerBatch
 
   for (const raw of ops as unknown[]) {
     if (!raw || typeof raw !== 'object') return fail('Each op must be an object.')
     const op = raw as Record<string, unknown>
+    if (op.op === 'restore_table') archived = false
+    else if (op.op === 'archive_table') archived = true
+    else if (archived) return fail('The table is archived. Restore it first.')
     switch (op.op) {
       case 'update_table': {
         const next: Extract<DataOp, { op: 'update_table' }> = { op: 'update_table' }
@@ -189,6 +197,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown): Chec
         const rows = op.rows
         if (!Array.isArray(rows) || rows.length === 0) return fail('insert_rows needs at least one row.')
         if (rows.length > TABLE_LIMITS.rowsPerOp) return fail(`At most ${TABLE_LIMITS.rowsPerOp} rows at once.`)
+        if (!countRows(rows.length)) return fail(`At most ${TABLE_LIMITS.rowsPerBatch} rows in one batch.`)
         const clean: NewRow[] = []
         for (const r of rows as unknown[]) {
           const row = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>
@@ -226,6 +235,7 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown): Chec
         const rowIds = ids(op.row_ids)
         if (!rowIds || rowIds.length === 0) return fail(`${op.op} needs row_ids.`)
         if (rowIds.length > TABLE_LIMITS.rowsPerOp) return fail(`At most ${TABLE_LIMITS.rowsPerOp} rows at once.`)
+        if (!countRows(rowIds.length)) return fail(`At most ${TABLE_LIMITS.rowsPerBatch} rows in one batch.`)
         out.push({ op: op.op, row_ids: rowIds })
         break
       }
@@ -254,13 +264,22 @@ export function validateOps(columns: readonly ColumnState[], ops: unknown): Chec
 /** What an undo reads about the table now: the parts the change touched. */
 export interface UndoState {
   table: Pick<DataTable, 'name' | 'icon' | 'description' | 'visibility' | 'archived_at'>
-  /** The undoer owns the table (only an owner changes who sees it). */
+  /** The undoer owns the table (only an owner changes who sees it, or archives a private one). */
   isOwner: boolean
   /** Every column, deleted ones too. */
   columns: readonly Pick<DataColumn, 'key' | 'label' | 'field_type' | 'options' | 'deleted_at' | 'position'>[]
   /** The rows the change touched, as they are now (position as exact text). */
-  rows: ReadonlyMap<string, { title: string; custom_fields: Record<string, CustomFieldValue>; archived_at: string | null; position: string }>
+  rows: ReadonlyMap<string, UndoRow>
+  /**
+   * For a column whose options the change set: the rows of the table holding
+   * one of the options an undo could drop, with that value
+   * (optionsAnUndoCouldDrop). A touched row among them is read from `rows`
+   * instead, as the undo leaves it.
+   */
+  optionUses?: ReadonlyMap<string, ReadonlyArray<{ rowId: string; value: string }>>
 }
+
+type UndoRow = { title: string; custom_fields: Record<string, CustomFieldValue>; archived_at: string | null; position: string }
 
 export type UndoPlan =
   | { ok: true; ops: DataOp[]; restored: string[]; kept: string[] }
@@ -276,9 +295,16 @@ const same = (a: unknown, b: unknown): boolean => {
 
 const quote = (s: string) => `“${s.length > 40 ? `${s.slice(0, 39)}…` : s || 'Untitled'}”`
 
+/** The options going from `now` to `from` would drop. */
+const dropped = (now: readonly string[], from: readonly string[]) => now.filter((o) => !from.includes(o))
+
 /**
  * The ops that take `change` back, given the table as it is now: in reverse
- * order, each part only where nothing has changed it since. `restored` and
+ * order, each part only where nothing has changed it since. The walk keeps a
+ * working copy of the table, its columns and the touched rows, and applies
+ * each planned op to it, so every entry is checked against what the undo so
+ * far leaves: a title renamed A→B→C in one batch goes back to A, and an
+ * archive then a restore of one row ends where it began. `restored` and
  * `kept` say what, in words.
  */
 export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undone_at'>, state: UndoState): UndoPlan {
@@ -288,9 +314,22 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
   if (entries.some((e) => e?.op === 'create_table')) {
     return { ok: false, error: 'That change made the table. Archive the table instead if it should not exist.' }
   }
-  const colByKey = new Map(state.columns.map((c) => [c.key, c]))
-  const colName = (key: string) => quote(colByKey.get(key)?.label ?? key)
-  const rowName = (id: string) => quote(state.rows.get(id)?.title ?? '')
+  // The working copy: the table as it is once the ops planned so far run.
+  const table = { ...state.table }
+  const cols = new Map(state.columns.map((c) => [c.key, { ...c, options: [...(c.options ?? [])] }]))
+  const rows = new Map([...state.rows].map(([id, r]) => [id, { ...r, custom_fields: { ...(r.custom_fields ?? {}) } }]))
+  const colName = (key: string) => quote(cols.get(key)?.label ?? key)
+  const rowName = (id: string) => quote(rows.get(id)?.title ?? '')
+  const liveKeys = () => [...cols.values()].filter((c) => !c.deleted_at).sort((a, b) => a.position - b.position).map((c) => c.key)
+  const inUse = (key: string, options: readonly string[]) => {
+    if (!options.length) return false
+    for (const u of state.optionUses?.get(key) ?? []) if (!rows.has(u.rowId) && options.includes(u.value)) return true
+    for (const r of rows.values()) {
+      const v = r.custom_fields[key]
+      if (typeof v === 'string' && options.includes(v)) return true
+    }
+    return false
+  }
   const ops: DataOp[] = []
   const restored: string[] = []
   const kept: string[] = []
@@ -301,13 +340,14 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         const back: Extract<DataOp, { op: 'update_table' }> = { op: 'update_table' }
         for (const [field, c] of Object.entries(e.fields ?? {})) {
           if (!c) continue
-          const now = state.table[field as 'name' | 'icon' | 'description' | 'visibility'] ?? null
-          if (field === 'visibility' && !state.isOwner) {
+          const f = field as 'name' | 'icon' | 'description' | 'visibility'
+          if (f === 'visibility' && !state.isOwner) {
             kept.push('who sees the table (only its owner changes that)')
-          } else if (!same(now, c.to)) {
+          } else if (!same(table[f] ?? null, c.to)) {
             kept.push(`the table's ${field} (changed since)`)
           } else {
-            ;(back as Record<string, unknown>)[field] = c.from
+            ;(back as Record<string, unknown>)[f] = c.from
+            ;(table as Record<string, unknown>)[f] = c.from
             restored.push(`the table's ${field}`)
           }
         }
@@ -316,9 +356,13 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
       }
       case 'archive_table':
       case 'restore_table': {
-        const archivedNow = !!state.table.archived_at
-        if (archivedNow === (e.op === 'archive_table')) {
+        const archivedNow = !!table.archived_at
+        if (table.visibility === 'private' && !state.isOwner) {
+          // Where a private table lives is its owner's call (520).
+          kept.push('the table’s archive (only its owner archives a private table)')
+        } else if (archivedNow === (e.op === 'archive_table')) {
           ops.push({ op: e.op === 'archive_table' ? 'restore_table' : 'archive_table' })
+          table.archived_at = e.op === 'archive_table' ? null : 'now'
           restored.push(e.op === 'archive_table' ? 'the table, out of the archive' : 'the table, back in the archive')
         } else {
           kept.push('the table’s archive (changed since)')
@@ -326,9 +370,10 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         break
       }
       case 'create_column': {
-        const col = colByKey.get(e.key)
+        const col = cols.get(e.key)
         if (col && !col.deleted_at) {
           ops.push({ op: 'delete_column', key: e.key })
+          col.deleted_at = 'now'
           restored.push(`column ${colName(e.key)} removed`)
         } else {
           kept.push(`column ${colName(e.key)} (already gone)`)
@@ -336,7 +381,7 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         break
       }
       case 'update_column': {
-        const col = colByKey.get(e.key)
+        const col = cols.get(e.key)
         if (!col || col.deleted_at) {
           kept.push(`column ${colName(e.key)} (deleted since)`)
           break
@@ -345,24 +390,33 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         if (e.fields?.label) {
           if (same(col.label, e.fields.label.to)) {
             back.label = e.fields.label.from
-            restored.push(`column ${colName(e.key)}'s name`)
+            restored.push(`column ${quote(e.fields.label.from)}'s name`)
           } else kept.push(`column ${colName(e.key)}'s name (changed since)`)
         }
         if (e.fields?.options) {
-          if (same(col.options, e.fields.options.to)) {
-            back.options = e.fields.options.from
+          const from = e.fields.options.from ?? []
+          if (!same(col.options, e.fields.options.to)) {
+            kept.push(`column ${colName(e.key)}'s options (changed since)`)
+          } else if (inUse(e.key, dropped(col.options, from))) {
+            // The database refuses to drop an option a row still holds (520).
+            kept.push(`column ${colName(e.key)}'s options (still in use)`)
+          } else {
+            back.options = from
             restored.push(`column ${colName(e.key)}'s options`)
-          } else kept.push(`column ${colName(e.key)}'s options (changed since)`)
+          }
         }
+        if (back.label !== undefined) col.label = back.label
+        if (back.options) col.options = [...back.options]
         if (Object.keys(back).length > 2) ops.push(back)
         break
       }
       case 'delete_column':
       case 'restore_column': {
-        const col = colByKey.get(e.key)
+        const col = cols.get(e.key)
         const deletedNow = !!col?.deleted_at
         if (col && deletedNow === (e.op === 'delete_column')) {
           ops.push({ op: e.op === 'delete_column' ? 'restore_column' : 'delete_column', key: e.key })
+          col.deleted_at = e.op === 'delete_column' ? null : 'now'
           restored.push(`column ${colName(e.key)} ${e.op === 'delete_column' ? 'back' : 'removed again'}`)
         } else {
           kept.push(`column ${colName(e.key)} (changed since)`)
@@ -370,9 +424,12 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         break
       }
       case 'reorder_columns': {
-        const live = [...state.columns].filter((c) => !c.deleted_at).sort((a, b) => a.position - b.position).map((c) => c.key)
+        const live = liveKeys()
         if (same(live, e.to)) {
-          ops.push({ op: 'reorder_columns', keys: e.from.filter((k) => live.includes(k)) })
+          const keys = e.from.filter((k) => live.includes(k))
+          ops.push({ op: 'reorder_columns', keys })
+          // As 520 orders them: the named ones first, the rest after in their order.
+          ;[...keys, ...live.filter((k) => !keys.includes(k))].forEach((k, i) => (cols.get(k)!.position = i))
           restored.push('the column order')
         } else {
           kept.push('the column order (changed since)')
@@ -380,16 +437,17 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         break
       }
       case 'insert_rows': {
-        const live = (e.row_ids ?? []).filter((id) => state.rows.has(id) && !state.rows.get(id)!.archived_at)
+        const live = (e.row_ids ?? []).filter((id) => rows.has(id) && !rows.get(id)!.archived_at)
         if (live.length) {
           ops.push({ op: 'archive_rows', row_ids: live })
+          for (const id of live) rows.get(id)!.archived_at = 'now'
           restored.push(live.length === 1 ? `row ${rowName(live[0])} archived` : `${live.length} new rows archived`)
         }
         if (live.length < (e.row_ids ?? []).length) kept.push(`${(e.row_ids ?? []).length - live.length} of the new rows (already archived)`)
         break
       }
       case 'update_row': {
-        const row = state.rows.get(e.row_id)
+        const row = rows.get(e.row_id)
         if (!row) {
           kept.push('a row that is gone')
           break
@@ -401,13 +459,13 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
           if (field === 'title') {
             if (same(row.title, c.to)) {
               back.title = String(c.from ?? '')
-              restored.push(`the name of ${rowName(e.row_id)}`)
+              restored.push(`the name of ${quote(back.title)}`)
             } else kept.push(`the name of ${rowName(e.row_id)} (changed since)`)
             continue
           }
           if (!field.startsWith('values.')) continue
           const key = field.slice('values.'.length)
-          const col = colByKey.get(key)
+          const col = cols.get(key)
           const label = `${colName(key)} on ${rowName(e.row_id)}`
           if (!col || col.deleted_at) {
             kept.push(`${label} (column deleted since)`)
@@ -421,15 +479,21 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
           }
         }
         if (Object.keys(values).length) back.values = values
+        if (back.title !== undefined) row.title = back.title
+        for (const [k, v] of Object.entries(values)) {
+          if (v === null) delete row.custom_fields[k]
+          else row.custom_fields[k] = v
+        }
         if ('title' in back || back.values) ops.push(back)
         break
       }
       case 'archive_rows':
       case 'restore_rows': {
         const archived = e.op === 'archive_rows'
-        const back = (e.row_ids ?? []).filter((id) => state.rows.has(id) && !!state.rows.get(id)!.archived_at === archived)
+        const back = (e.row_ids ?? []).filter((id) => rows.has(id) && !!rows.get(id)!.archived_at === archived)
         if (back.length) {
           ops.push({ op: archived ? 'restore_rows' : 'archive_rows', row_ids: back })
+          for (const id of back) rows.get(id)!.archived_at = archived ? null : 'now'
           restored.push(`${back.length} ${back.length === 1 ? 'row' : 'rows'} ${archived ? 'out of the archive' : 'archived again'}`)
         }
         const left = (e.row_ids ?? []).length - back.length
@@ -437,9 +501,10 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         break
       }
       case 'move_row': {
-        const row = state.rows.get(e.row_id)
+        const row = rows.get(e.row_id)
         if (row && row.position === e.to) {
           ops.push({ op: 'move_row', row_id: e.row_id, position: e.from })
+          row.position = e.from
           restored.push(`the place of ${rowName(e.row_id)}`)
         } else {
           kept.push(`the place of ${rowName(e.row_id)} (moved since)`)
@@ -451,7 +516,26 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
     }
   }
   if (!ops.length) return { ok: false, error: 'Nothing to restore: everything it changed has changed again since.' }
+  // An archived table takes no change but its restore (520): walk the plan as the database will.
+  let archived = !!state.table.archived_at
+  for (const op of ops) {
+    if (op.op === 'restore_table') archived = false
+    else if (op.op === 'archive_table') archived = true
+    else if (archived) return { ok: false, error: 'The table is archived. Restore it first, then undo.' }
+  }
   return { ok: true, ops, restored, kept }
+}
+
+/** Per column, the options an undo of `change` could drop: what UndoState.optionUses reads. */
+export function optionsAnUndoCouldDrop(change: Pick<DataChange, 'changes'>): Map<string, string[]> {
+  const out = new Map<string, Set<string>>()
+  for (const e of Array.isArray(change.changes) ? change.changes : []) {
+    if (e?.op !== 'update_column' || !e.fields?.options) continue
+    const set = out.get(e.key) ?? new Set<string>()
+    for (const o of dropped(e.fields.options.to ?? [], e.fields.options.from ?? [])) set.add(o)
+    out.set(e.key, set)
+  }
+  return new Map([...out].filter(([, v]) => v.size > 0).map(([k, v]) => [k, [...v]]))
 }
 
 /** The rows and columns a change touched: what an undo must read. */

@@ -40,6 +40,8 @@ export const TABLE_LIMITS = {
   options: 50,
   opsPerBatch: 500,
   rowsPerOp: 1000,
+  /** Rows one batch inserts, archives or restores, all its ops together. */
+  rowsPerBatch: 5000,
   reason: 500,
 } as const
 

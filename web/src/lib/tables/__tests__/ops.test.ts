@@ -173,3 +173,169 @@ describe('touchedBy', () => {
     expect(touchedBy(change([{ op: 'insert_rows', row_ids: [ROW_A, ROW_B] }, { op: 'update_row', row_id: ROW_A, fields: {} }, { op: 'archive_table' }])).rowIds).toEqual([ROW_A, ROW_B])
   })
 })
+
+describe('planUndo walks a working copy: one batch touching the same thing twice', () => {
+  it('a title renamed A→B→C goes back to A', () => {
+    const c = change([
+      { op: 'update_row', row_id: ROW_A, fields: { title: { from: 'A', to: 'B' } } },
+      { op: 'update_row', row_id: ROW_A, fields: { title: { from: 'B', to: 'C' } } },
+    ])
+    const plan = planUndo(c, state({ [ROW_A]: { title: 'C' } }))
+    expect(plan).toMatchObject({
+      ok: true,
+      ops: [
+        { op: 'update_row', row_id: ROW_A, title: 'B' },
+        { op: 'update_row', row_id: ROW_A, title: 'A' },
+      ],
+      kept: [],
+    })
+  })
+
+  it('a value set twice goes back to the first one', () => {
+    const c = change([
+      { op: 'update_row', row_id: ROW_A, fields: { 'values.status': { from: null, to: 'Todo' } } },
+      { op: 'update_row', row_id: ROW_A, fields: { 'values.status': { from: 'Todo', to: 'Done' } } },
+    ])
+    const plan = planUndo(c, state({ [ROW_A]: { custom_fields: { status: 'Done' } } }))
+    expect(plan).toMatchObject({ ok: true, ops: [{ values: { status: 'Todo' } }, { values: { status: null } }], kept: [] })
+  })
+
+  it('an archive then a restore of one row ends where it began', () => {
+    const c = change([
+      { op: 'archive_rows', row_ids: [ROW_A] },
+      { op: 'restore_rows', row_ids: [ROW_A] },
+    ])
+    const plan = planUndo(c, state({ [ROW_A]: { archived_at: null } }))
+    expect(plan).toMatchObject({
+      ok: true,
+      ops: [
+        { op: 'archive_rows', row_ids: [ROW_A] },
+        { op: 'restore_rows', row_ids: [ROW_A] },
+      ],
+      kept: [],
+    })
+  })
+
+  it('two moves of one row go back to its first place', () => {
+    const c = change([
+      { op: 'move_row', row_id: ROW_A, from: '1', to: '2' },
+      { op: 'move_row', row_id: ROW_A, from: '2', to: '3' },
+    ])
+    const plan = planUndo(c, state({ [ROW_A]: { position: '3' } }))
+    expect(plan).toMatchObject({
+      ok: true,
+      ops: [
+        { op: 'move_row', row_id: ROW_A, position: '2' },
+        { op: 'move_row', row_id: ROW_A, position: '1' },
+      ],
+      kept: [],
+    })
+  })
+
+  it('two renames of one column go back to its first name', () => {
+    const c = change([
+      { op: 'update_column', key: 'status', fields: { label: { from: 'State', to: 'Stage' } } },
+      { op: 'update_column', key: 'status', fields: { label: { from: 'Stage', to: 'Status' } } },
+    ])
+    const plan = planUndo(c, state({}))
+    expect(plan).toMatchObject({
+      ok: true,
+      ops: [
+        { op: 'update_column', key: 'status', label: 'Stage' },
+        { op: 'update_column', key: 'status', label: 'State' },
+      ],
+      kept: [],
+    })
+  })
+
+  it('two options changes of one column go back to the first options', () => {
+    const c = change([
+      { op: 'update_column', key: 'status', fields: { options: { from: ['Todo'], to: ['Todo', 'Doing'] } } },
+      { op: 'update_column', key: 'status', fields: { options: { from: ['Todo', 'Doing'], to: ['Todo', 'Done'] } } },
+    ])
+    const plan = planUndo(c, state({}))
+    expect(plan).toMatchObject({
+      ok: true,
+      ops: [
+        { op: 'update_column', key: 'status', options: ['Todo', 'Doing'] },
+        { op: 'update_column', key: 'status', options: ['Todo'] },
+      ],
+      kept: [],
+    })
+  })
+
+  it('a table renamed twice goes back to its first name', () => {
+    const c = change([
+      { op: 'update_table', fields: { name: { from: 'A', to: 'B' } } },
+      { op: 'update_table', fields: { name: { from: 'B', to: 'Orders' } } },
+    ])
+    expect(planUndo(c, state({}))).toMatchObject({ ok: true, ops: [{ name: 'B' }, { name: 'A' }], kept: [] })
+  })
+})
+
+describe('planUndo: options still in use', () => {
+  const addDone = change([{ op: 'update_column', key: 'status', fields: { label: { from: 'State', to: 'Status' }, options: { from: ['Todo'], to: ['Todo', 'Done'] } } }])
+
+  it('keeps an options change while another row holds an option it would drop, and restores the rest', () => {
+    const plan = planUndo(addDone, state({}, { optionUses: new Map([['status', [{ rowId: ROW_B, value: 'Done' }]]]) }))
+    expect(plan).toMatchObject({ ok: true, ops: [{ op: 'update_column', key: 'status', label: 'State' }], kept: ["column “Status”'s options (still in use)"] })
+    if (plan.ok) expect(plan.ops[0]).not.toHaveProperty('options')
+  })
+
+  it('restores the options when nothing holds the dropped one', () => {
+    expect(planUndo(addDone, state({}, { optionUses: new Map() }))).toMatchObject({ ok: true, ops: [{ label: 'State', options: ['Todo'] }], kept: [] })
+  })
+
+  it('reads a touched row as the undo leaves it: a value the batch set is cleared first', () => {
+    const c = change([
+      { op: 'update_column', key: 'status', fields: { options: { from: ['Todo'], to: ['Todo', 'Done'] } } },
+      { op: 'update_row', row_id: ROW_A, fields: { 'values.status': { from: null, to: 'Done' } } },
+    ])
+    const uses = new Map([['status', [{ rowId: ROW_A, value: 'Done' }]]])
+    const plan = planUndo(c, state({ [ROW_A]: { custom_fields: { status: 'Done' } } }, { optionUses: uses }))
+    expect(plan).toMatchObject({ ok: true, ops: [{ op: 'update_row', values: { status: null } }, { op: 'update_column', options: ['Todo'] }], kept: [] })
+  })
+})
+
+describe('planUndo: the table’s archive', () => {
+  const privateTable = { name: 'Orders', icon: null, description: null, visibility: 'private' as const, archived_at: null }
+
+  it('leaves a private table’s archive to its owner', () => {
+    const c = change([
+      { op: 'restore_table' },
+      { op: 'update_table', fields: { name: { from: 'A', to: 'Orders' } } },
+    ])
+    const plan = planUndo(c, state({}, { isOwner: false, table: privateTable }))
+    expect(plan).toMatchObject({ ok: true, ops: [{ op: 'update_table', name: 'A' }], kept: ['the table’s archive (only its owner archives a private table)'] })
+  })
+
+  it('restores an archived table first, then undoes the rest', () => {
+    const c = change([
+      { op: 'update_table', fields: { name: { from: 'A', to: 'Orders' } } },
+      { op: 'archive_table' },
+    ])
+    const plan = planUndo(c, state({}, { table: { ...privateTable, archived_at: '2026-11-11T00:00:00Z' } }))
+    expect(plan).toMatchObject({ ok: true, ops: [{ op: 'restore_table' }, { op: 'update_table', name: 'A' }] })
+  })
+
+  it('refuses an undo that would write to an archived table', () => {
+    const c = change([{ op: 'update_row', row_id: ROW_A, fields: { title: { from: 'A', to: 'B' } } }])
+    const plan = planUndo(c, state({ [ROW_A]: { title: 'B' } }, { table: { ...privateTable, archived_at: '2026-11-11T00:00:00Z' } }))
+    expect(plan).toEqual({ ok: false, error: 'The table is archived. Restore it first, then undo.' })
+  })
+})
+
+describe('validateOps: an archived table and the batch row cap', () => {
+  it('takes nothing on an archived table until its restore', () => {
+    expect(validateOps(columns, [{ op: 'update_row', row_id: ROW_A, title: 'x' }], { archived: true })).toEqual({ ok: false, error: 'The table is archived. Restore it first.' })
+    expect(validateOps(columns, [{ op: 'restore_table' }, { op: 'update_row', row_id: ROW_A, title: 'x' }], { archived: true })).toMatchObject({ ok: true })
+    expect(validateOps(columns, [{ op: 'archive_table' }, { op: 'update_row', row_id: ROW_A, title: 'x' }])).toMatchObject({ ok: false })
+  })
+
+  it('takes at most 5,000 rows in one batch, across its ops', () => {
+    const rows = Array.from({ length: 1000 }, () => ({}))
+    const five = Array.from({ length: 5 }, () => ({ op: 'insert_rows', rows }))
+    expect(validateOps(columns, five)).toMatchObject({ ok: true })
+    expect(validateOps(columns, [...five, { op: 'insert_rows', rows: [{}] }])).toEqual({ ok: false, error: 'At most 5000 rows in one batch.' })
+  })
+})
