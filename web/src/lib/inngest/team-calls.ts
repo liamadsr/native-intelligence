@@ -65,9 +65,11 @@ export const teamCallsSweep = inngest.createFunction(
       const config = teamCallsConfig()
       return sweepTeamCalls(getServiceClient(), { openRooms: config ? (names) => openTeamCallRooms(config, names) : null })
     })
+    // Their own step: a failed notice is retried alone (the rings are already missed).
+    if (result.missedRings.length > 0) await step.run('notify', () => notifyMissedCalls(getServiceClient(), result.missedRings as MissedRing[]))
     console.info(
       `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable}`,
     )
-    return result
+    return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable }
   },
 )

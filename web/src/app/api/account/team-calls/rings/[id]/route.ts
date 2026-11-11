@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const me = await memberIn(auth.supabase, auth.user.id, call.workspace_id)
     if (!me) return notFound()
     const join = await joinAnswer(config, { callId: call.id, room: call.room, memberId: me.id, name: me.display_name })
-    return NextResponse.json({ state: answered.state, join, call: { id: call.id, channelId: call.channel_id, messageId: call.message_id, channelKind: call.channel_kind } })
+    return NextResponse.json({ state: answered.state, join, call: { id: call.id, channelId: call.channel_id, workspaceId: call.workspace_id, messageId: call.message_id, channelKind: call.channel_kind } })
   } catch (err) {
     return teamChatErrorResponse(err, 'call answer')
   }

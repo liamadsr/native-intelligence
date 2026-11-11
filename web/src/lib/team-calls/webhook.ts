@@ -6,9 +6,11 @@
  *
  *   - an event id already applied is skipped (team_call_webhook_event);
  *   - a participant event is applied by 565's team_call_participant_event,
- *     which keeps the newest per member and session (a late join of a
- *     session that left is stale, an older session's leave after a newer
- *     join is stale);
+ *     which orders a member's sessions by when they joined (LiveKit's own
+ *     milliseconds, sent with a leave too): a late join of a session that
+ *     left is stale, an older session's leave after a newer one joined is
+ *     stale (a reconnect's old leave lands in the same second as its new
+ *     join);
  *   - room_finished ends the call once (team_call_end), whatever came
  *     before or comes after; the rings still open then are missed calls.
  *
@@ -28,7 +30,7 @@ export interface TeamCallWebhookEvent {
   /** Seconds since the epoch (an int64: a bigint from the SDK). */
   createdAt?: bigint | number
   room?: { name?: string } | undefined
-  participant?: { identity?: string; sid?: string; joinedAt?: bigint | number } | undefined
+  participant?: { identity?: string; sid?: string; joinedAt?: bigint | number; joinedAtMs?: bigint | number } | undefined
 }
 
 export type TeamCallWebhookOutcome = 'repeat' | 'ignored' | ParticipantOutcome | 'ended' | 'already_ended'
@@ -44,6 +46,19 @@ export function webhookTime(seconds: bigint | number | undefined | null): Date |
   const n = typeof seconds === 'bigint' ? Number(seconds) : seconds
   if (!Number.isFinite(n) || n <= 0) return null
   return new Date(n * 1000)
+}
+
+/** An int64 of milliseconds as a time, or null. */
+export function webhookTimeMs(ms: bigint | number | undefined | null): Date | null {
+  if (ms === undefined || ms === null) return null
+  const n = typeof ms === 'bigint' ? Number(ms) : ms
+  if (!Number.isFinite(n) || n <= 0) return null
+  return new Date(n)
+}
+
+/** When a participant's session joined: LiveKit's milliseconds, else its seconds. */
+export function sessionJoinedAt(participant: TeamCallWebhookEvent['participant']): Date | null {
+  return webhookTimeMs(participant?.joinedAtMs) ?? webhookTime(participant?.joinedAt)
 }
 
 /** Apply one verified event. Throws on a failed write (LiveKit retries a delivery that fails). */
@@ -74,8 +89,17 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
       const identity = event.participant?.identity
       if (!isUuid(identity)) return 'ignored'
       const joined = event.event === 'participant_joined'
-      const when = joined ? (webhookTime(event.participant?.joinedAt) ?? at) : at
-      return participantEvent(svc, { room, memberId: identity.toLowerCase(), sid: event.participant?.sid ?? null, joined, at: when.toISOString() })
+      // Sessions are ordered by when they joined, never by when an event arrived (a reconnect's old leave and new join share a second).
+      const sessionJoined = sessionJoinedAt(event.participant)
+      const when = joined ? (sessionJoined ?? at) : at
+      return participantEvent(svc, {
+        room,
+        memberId: identity.toLowerCase(),
+        sid: event.participant?.sid ?? null,
+        joined,
+        at: when.toISOString(),
+        sessionJoinedAt: sessionJoined?.toISOString() ?? null,
+      })
     }
     case 'room_finished': {
       const call = await liveCallOfRoom(svc, room)

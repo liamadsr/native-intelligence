@@ -57,9 +57,12 @@
 --
 -- Additive. Idempotent. Safe on a live database with the deployed app
 -- running: the new tables are empty; team_chat_message gains a column with
--- a constant default and a nullable one (no rewrite), its check is added
--- NOT VALID and validated, and the policy and guard keep every rule they
--- had. The deployed app never reads the new columns, and a call's message
+-- a constant default and a nullable one (no rewrite). Its new check's
+-- validation and the new unique index's build run inside the same
+-- transaction as ADD COLUMN, so team_chat_message is locked for their scans
+-- too (milliseconds at its size; lock_timeout below bounds the wait to get
+-- the lock, and NOT VALID buys nothing more here). The policy and guard keep
+-- every rule they had. The deployed app never reads the new columns, and a call's message
 -- reads as plain words to it. The file runs as one transaction;
 -- lock_timeout (5 s) makes it fail and roll back behind a long reader
 -- rather than queue every write behind it. No backslashes anywhere in this

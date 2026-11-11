@@ -10,6 +10,8 @@ import type { TeamCallRing, TeamCallRingState } from './types'
 export interface CallPlace {
   id: string
   channelId: string
+  /** The call's workspace (a ring can come from one other than the one on screen). */
+  workspaceId: string
   messageId: string | null
   channelKind: 'channel' | 'dm'
 }

@@ -227,32 +227,36 @@ begin
     (select (m_b = any (declined))::text || '/' || cardinality(ringing)::text from public.team_call where id = call_dm));
 
   -- ── LiveKit's events, in any order ────────────────────────────────────────
-  perform pg_temp.t564_check('a join', 'joined', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute'));
-  perform pg_temp.t564_check('the same join again (a repeat)', 'same', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute'));
-  perform pg_temp.t564_check('a second person joins', 'joined', public.team_call_participant_event(room_open, m_a, 'PA_a1', true, t0 + interval '2 minutes'));
+  perform pg_temp.t564_check('a join', 'joined', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute', t0 + interval '1 minute'));
+  perform pg_temp.t564_check('the same join again (a repeat)', 'same', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute', t0 + interval '1 minute'));
+  perform pg_temp.t564_check('a second person joins', 'joined', public.team_call_participant_event(room_open, m_a, 'PA_a1', true, t0 + interval '2 minutes', t0 + interval '2 minutes'));
   perform pg_temp.t564_check('two in it, peak two', '2/2',
     (select participant_count::text || '/' || peak_participants::text from public.team_call where id = call_open));
-  perform pg_temp.t564_check('a leave', 'left', public.team_call_participant_event(room_open, m_b, 'PA_b1', false, t0 + interval '5 minutes'));
-  perform pg_temp.t564_check('that session''s join arriving late is stale', 'stale', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute'));
+  perform pg_temp.t564_check('a leave', 'left', public.team_call_participant_event(room_open, m_b, 'PA_b1', false, t0 + interval '5 minutes', t0 + interval '1 minute'));
+  perform pg_temp.t564_check('that session''s join arriving late is stale', 'stale', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute', t0 + interval '1 minute'));
   perform pg_temp.t564_check('… and leaves them out', 'left',
     (select state from public.team_call_participant where call_id = call_open and member_id = m_b));
-  perform pg_temp.t564_check('a new session joins (rejoined)', 'joined', public.team_call_participant_event(room_open, m_b, 'PA_b2', true, t0 + interval '6 minutes'));
-  perform pg_temp.t564_check('the old session''s leave arriving late is stale', 'stale', public.team_call_participant_event(room_open, m_b, 'PA_b1', false, t0 + interval '5 minutes'));
+  perform pg_temp.t564_check('a new session joins (rejoined)', 'joined', public.team_call_participant_event(room_open, m_b, 'PA_b2', true, t0 + interval '6 minutes', t0 + interval '6 minutes'));
+  perform pg_temp.t564_check('the old session''s leave arriving late is stale', 'stale', public.team_call_participant_event(room_open, m_b, 'PA_b1', false, t0 + interval '5 minutes', t0 + interval '1 minute'));
   perform pg_temp.t564_check('… and keeps them in, on the new session', 'joined/PA_b2',
     (select state || '/' || session_sid from public.team_call_participant where call_id = call_open and member_id = m_b));
-  perform pg_temp.t564_check('a leave that arrives before its join', 'left', public.team_call_participant_event(room_open, m_c, 'PA_c9', false, t0 + interval '8 minutes'));
-  perform pg_temp.t564_check('… makes that join stale when it comes', 'stale', public.team_call_participant_event(room_open, m_c, 'PA_c9', true, t0 + interval '7 minutes'));
-  perform pg_temp.t564_check('a room that is no call of ours', 'unknown', public.team_call_participant_event('some-other-room', m_a, 'PA_z', true, now()));
-  perform pg_temp.t564_check('an identity that is no member of the call''s workspace', 'unknown', public.team_call_participant_event(room_open, m_x, 'PA_x', true, now()));
+  perform pg_temp.t564_check('a reconnect: the new session joins', 'joined', public.team_call_participant_event(room_open, m_b, 'PA_b3', true, t0 + interval '6 minutes 40 seconds', t0 + interval '6 minutes 40.250 seconds'));
+  perform pg_temp.t564_check('… and the old one’s leave lands in the same second: stale', 'stale', public.team_call_participant_event(room_open, m_b, 'PA_b2', false, t0 + interval '6 minutes 40 seconds', t0 + interval '6 minutes'));
+  perform pg_temp.t564_check('… so they are still in, on the new session', 'joined/PA_b3',
+    (select state || '/' || session_sid from public.team_call_participant where call_id = call_open and member_id = m_b));
+  perform pg_temp.t564_check('a leave that arrives before its join', 'left', public.team_call_participant_event(room_open, m_c, 'PA_c9', false, t0 + interval '8 minutes', t0 + interval '7 minutes 30 seconds'));
+  perform pg_temp.t564_check('… makes that join stale when it comes', 'stale', public.team_call_participant_event(room_open, m_c, 'PA_c9', true, t0 + interval '7 minutes', t0 + interval '7 minutes 30 seconds'));
+  perform pg_temp.t564_check('a room that is no call of ours', 'unknown', public.team_call_participant_event('some-other-room', m_a, 'PA_z', true, now(), now()));
+  perform pg_temp.t564_check('an identity that is no member of the call''s workspace', 'unknown', public.team_call_participant_event(room_open, m_x, 'PA_x', true, now(), now()));
   perform pg_temp.t564_check('two in it, peak two (Cy never counted)', '2/2',
     (select participant_count::text || '/' || peak_participants::text from public.team_call where id = call_open));
   perform pg_temp.t564_run('a person cannot report who is in a call', 'refused', u_a,
-    array[format('select public.team_call_participant_event(%L, %L, %L, true, now())', room_open, m_c, 'PA_fake')]);
+    array[format('select public.team_call_participant_event(%L, %L, %L, true, now(), now())', room_open, m_c, 'PA_fake')]);
 
   -- Joining answers a ring; a person in a call is busy for another.
   ring_c := pg_temp.t564_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_open, m_c))::uuid;
   perform pg_temp.t564_check('a channel''s member is rung', 'ringing', (select state from public.team_call_ring where id = ring_c));
-  perform pg_temp.t564_check('Cy joins on another session', 'joined', public.team_call_participant_event(room_open, m_c, 'PA_c10', true, t0 + interval '9 minutes'));
+  perform pg_temp.t564_check('Cy joins on another session', 'joined', public.team_call_participant_event(room_open, m_c, 'PA_c10', true, t0 + interval '9 minutes', t0 + interval '9 minutes'));
   perform pg_temp.t564_check('… and their ring is answered by it', 'accepted', (select state from public.team_call_ring where id = ring_c));
   perform pg_temp.t564_check('three in it, peak three', '3/3',
     (select participant_count::text || '/' || peak_participants::text from public.team_call where id = call_open));
@@ -265,6 +269,11 @@ begin
   ring_b := pg_temp.t564_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm, m_b))::uuid;
   perform pg_temp.t564_check('nothing runs out early', '0', (select count(*)::text from public.team_call_expire_rings(ring_b)));
   update public.team_call_ring set created_at = now() - interval '2 minutes', expires_at = now() - interval '1 minute' where id = ring_b;
+  perform pg_temp.t564_run('answering a ring past its time: missed, and it stays open for its timer', 'rows=1', u_b,
+    array[
+      format('select 1 from public.team_call_answer(%L, true) where state = %L', ring_b, 'missed'),
+      format('select 1 from public.team_call_ring where id = %L and state = %L', ring_b, 'busy')
+    ]);
   perform pg_temp.t564_check('a ring past its time is missed, and said so', '1', (select count(*)::text from public.team_call_expire_rings(ring_b)));
   perform pg_temp.t564_check('… once', '0', (select count(*)::text from public.team_call_expire_rings(null)));
   perform pg_temp.t564_check('… and its state', 'missed', (select state from public.team_call_ring where id = ring_b));
@@ -277,7 +286,7 @@ begin
     (select count(*)::text from public.team_call_end(call_dm, 'left', now()) where ring_id = ring_c and member_id = m_b and user_id = u_b));
   perform pg_temp.t564_check('… and the DM''s message says it was missed', 'Missed call',
     (select m.body from public.team_chat_message m join public.team_call c on c.message_id = m.id where c.id = call_dm));
-  perform pg_temp.t564_check('the people leave at their own times', 'left', public.team_call_participant_event(room_open, m_c, 'PA_c10', false, t0 + interval '12 minutes'));
+  perform pg_temp.t564_check('the people leave at their own times', 'left', public.team_call_participant_event(room_open, m_c, 'PA_c10', false, t0 + interval '12 minutes', t0 + interval '9 minutes'));
   perform pg_temp.t564_check('the room finished: nothing rang', '0',
     (select count(*)::text from public.team_call_end(call_open, 'finished', t0 + interval '20 minutes')));
   perform pg_temp.t564_check('ended, at the last person out (both still in: the event''s time), its duration and peak', 'ended/finished/1200/3',
@@ -289,7 +298,7 @@ begin
   perform pg_temp.t564_check('ending again does nothing', '0',
     (select count(*)::text from public.team_call_end(call_open, 'swept', now())));
   perform pg_temp.t564_check('… and keeps how it ended', 'finished', (select ended_reason from public.team_call where id = call_open));
-  perform pg_temp.t564_check('an event after the end is ignored', 'ended', public.team_call_participant_event(room_open, m_a, 'PA_a2', true, now()));
+  perform pg_temp.t564_check('an event after the end is ignored', 'ended', public.team_call_participant_event(room_open, m_a, 'PA_a2', true, now(), now()));
   perform pg_temp.t564_run('a person cannot end a call', 'refused', u_a,
     array[format('select * from public.team_call_end(%L, %L, now())', call_dm, 'left')]);
   perform pg_temp.t564_run('ringing for an ended call is refused', 'refused', u_a,

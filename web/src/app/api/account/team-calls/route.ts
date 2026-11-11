@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     })
     console.info(`[team-calls] call=${started.callId} channel=${channelId} created=${started.created} rung=${rings.length}`)
     return NextResponse.json({
-      call: { id: started.callId, channelId, messageId, created: started.created, channelKind: channel.kind, channelName: channel.name },
+      call: { id: started.callId, channelId, workspaceId: channel.workspace_id, messageId, created: started.created, channelKind: channel.kind, channelName: channel.name },
       rings: rings.map((r) => ({ memberId: r.memberId, state: r.state })),
       join,
     })

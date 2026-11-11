@@ -141,10 +141,10 @@ export async function openRings(supabase: SupabaseClient, now: Date = new Date()
 
 export type ParticipantOutcome = 'joined' | 'left' | 'same' | 'stale' | 'ended' | 'unknown'
 
-/** A LiveKit participant event, applied in order (565's team_call_participant_event). */
+/** A LiveKit participant event, applied in order of the sessions' joins (565's team_call_participant_event). */
 export async function participantEvent(
   svc: SupabaseClient,
-  input: { room: string; memberId: string; sid: string | null; joined: boolean; at: string },
+  input: { room: string; memberId: string; sid: string | null; joined: boolean; at: string; sessionJoinedAt: string | null },
 ): Promise<ParticipantOutcome> {
   const { data, error } = await svc.rpc('team_call_participant_event', {
     room_name: input.room,
@@ -152,6 +152,7 @@ export async function participantEvent(
     session_ref: input.sid,
     is_join: input.joined,
     event_at: input.at,
+    session_joined_at: input.sessionJoinedAt,
   })
   if (error) throw new Error(`team calls: participant event failed: ${error.message}`)
   return (data as ParticipantOutcome) ?? 'unknown'

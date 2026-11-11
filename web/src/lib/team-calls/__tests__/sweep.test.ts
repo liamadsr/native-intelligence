@@ -2,8 +2,8 @@
  * The sweeper (src/lib/team-calls/sweep.ts): a live call older than its
  * grace whose room is gone is ended ('swept'), a live call whose room is
  * open is left alone, nothing is ended when LiveKit can't be asked (or is
- * off), rings past their time are missed and their people told, and old
- * webhook ids are forgotten.
+ * off), rings past their time are missed (and handed back, for the cron to
+ * tell their people in a step of its own), and old webhook ids are forgotten.
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -18,7 +18,6 @@ let tables: Record<string, Array<Record<string, unknown>>>
 let rpcs: Array<[string, Record<string, unknown>]>
 let rpc: Record<string, { data: unknown; error: unknown }>
 let db: SupabaseClient
-let told: MissedRing[][]
 
 const missed = (id: string): MissedRing => ({
   ring_id: id, call_id: 'c', message_id: 'm', workspace_id: 'w', channel_id: 'ch', channel_kind: 'channel', channel_name: 'launch',
@@ -46,12 +45,7 @@ beforeEach(() => {
       return rpc[name] ?? { data: null, error: null }
     },
   }) as unknown as SupabaseClient
-  told = []
 })
-
-const notifyMissed = async (_svc: SupabaseClient, rings: readonly MissedRing[]) => {
-  told.push([...rings])
-}
 
 describe('sweepTeamCalls', () => {
   it('ends a call whose room is gone, leaves an open one and a young one, misses late rings, forgets old ids', async () => {
@@ -61,14 +55,13 @@ describe('sweepTeamCalls', () => {
         asked.push([...names])
         return new Set(['tc-open'])
       },
-      notifyMissed,
       now: () => NOW,
     })
     expect(asked).toEqual([['tc-gone', 'tc-open']])
     expect(rpcs.filter(([n]) => n === 'team_call_end')).toEqual([['team_call_end', { target_call: 'gone', end_reason: 'swept', end_at: NOW.toISOString() }]])
     expect(rpcs).toContainEqual(['team_call_expire_rings', { only_ring: null }])
-    expect(told.flat().map((r) => r.ring_id)).toEqual(['r-end', 'r-late'])
-    expect(result).toEqual({ checked: 2, ended: 1, missed: 2, unreachable: false })
+    expect(result).toMatchObject({ checked: 2, ended: 1, missed: 2, unreachable: false })
+    expect(result.missedRings.map((r) => r.ring_id)).toEqual(['r-end', 'r-late'])
     expect(tables.team_call_webhook_event.map((r) => r.id)).toEqual(['new'])
   })
 
@@ -77,7 +70,6 @@ describe('sweepTeamCalls', () => {
       openRooms: async () => {
         throw new Error('connect ECONNREFUSED')
       },
-      notifyMissed,
       now: () => NOW,
     })
     expect(rpcs.map(([n]) => n)).toEqual(['team_call_expire_rings'])
@@ -87,8 +79,7 @@ describe('sweepTeamCalls', () => {
 
   it('calling off: no LiveKit to ask, nothing ended', async () => {
     rpc.team_call_expire_rings = { data: [], error: null }
-    const result = await sweepTeamCalls(db, { openRooms: null, notifyMissed, now: () => NOW })
-    expect(result).toEqual({ checked: 0, ended: 0, missed: 0, unreachable: false })
-    expect(told).toEqual([])
+    const result = await sweepTeamCalls(db, { openRooms: null, now: () => NOW })
+    expect(result).toEqual({ checked: 0, ended: 0, missed: 0, unreachable: false, missedRings: [] })
   })
 })

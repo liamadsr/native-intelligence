@@ -126,12 +126,31 @@ describe('migrations 564-565', () => {
   it('the person’s functions check them first: post to start, read to ring, their own ring to answer', () => {
     expect(fn(FUNCTIONS, 'team_call_start')).toContain('if not public.team_chat_can_post(ch) then')
     expect(fn(FUNCTIONS, 'team_call_ring_members')).toContain('not public.team_chat_can_read(c.channel_id)')
+    expect(fn(FUNCTIONS, 'team_call_ring_members')).toContain('if not public.team_chat_can_post(c.channel_id) then')
     expect(fn(FUNCTIONS, 'team_call_ring_members')).toContain('continue when not public.team_chat_member_can_read(c.channel_id, mem);')
     expect(fn(FUNCTIONS, 'team_call_answer')).toContain('where x.id = target_ring and x.user_id = auth.uid();')
   })
 
-  it('every event of one call is applied in order: the call row is locked first', () => {
+  it('one lock order everywhere: a call’s row before its rings and people (no two of these wait on each other)', () => {
     expect(fn(FUNCTIONS, 'team_call_participant_event')).toContain('where t.room = room_name for update;')
     expect(fn(FUNCTIONS, 'team_call_end')).toContain('where t.id = target_call for update;')
+    expect(fn(FUNCTIONS, 'team_call_ring_members')).toContain('where t.id = target_call for update;')
+    const answer = fn(FUNCTIONS, 'team_call_answer')
+    expect(answer.indexOf('for update')).toBeGreaterThan(0)
+    expect(answer.indexOf('for update')).toBeLessThan(answer.indexOf('update public.team_call_ring'))
+    const expire = fn(FUNCTIONS, 'team_call_expire_rings')
+    expect(expire.indexOf('for update')).toBeGreaterThan(0)
+    expect(expire.indexOf('for update')).toBeLessThan(expire.indexOf('update public.team_call_ring'))
+  })
+
+  it('a member’s sessions are ordered by when they joined, never by when an event arrived', () => {
+    const def = fn(FUNCTIONS, 'team_call_participant_event')
+    expect(def).toContain('session_joined_at timestamptz')
+    expect(def).toContain('elsif joined_time <= p.joined_at then')
+    expect(def).toContain('elsif joined_time < p.joined_at then')
+  })
+
+  it('a ring past its time can’t be accepted', () => {
+    expect(fn(FUNCTIONS, 'team_call_answer')).toContain('and x.expires_at > now()')
   })
 })

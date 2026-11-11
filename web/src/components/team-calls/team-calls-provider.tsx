@@ -37,6 +37,7 @@ const CallPanel = lazyComponent(() => import('./call-panel').then((m) => m.CallP
 export interface ActiveTeamCall {
   callId: string
   channelId: string
+  workspaceId: string
   channelKind: 'channel' | 'dm'
   label: string
   session: TeamCallSession
@@ -162,7 +163,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
         },
       },
     )
-    setActive({ callId: call.id, channelId: call.channelId, channelKind: call.channelKind, label, session })
+    setActive({ callId: call.id, channelId: call.channelId, workspaceId: call.workspaceId, channelKind: call.channelKind, label, session })
     setMinimized(false)
     void session.connect(join)
   }, [])
@@ -254,6 +255,12 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   const leave = useCallback(async () => {
     await activeRef.current?.session.leave()
   }, [])
+
+  // Signed out (or another person signed in): out of the call. The shell going away: out too.
+  useEffect(() => {
+    if (!userId) void activeRef.current?.session.leave()
+  }, [userId])
+  useEffect(() => () => void activeRef.current?.session.leave(), [])
 
   // A page closing leaves the call (LiveKit's own page-leave handling disconnects; this tells the server too).
   useEffect(() => {

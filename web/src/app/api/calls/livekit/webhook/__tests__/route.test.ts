@@ -65,9 +65,16 @@ const joined = (id: string, sid: string, at: number) => ({
   event: 'participant_joined',
   createdAt: String(at),
   room: { name: ROOM },
-  participant: { identity: MEMBER, sid, joinedAt: String(at - 1) },
+  participant: { identity: MEMBER, sid, joinedAt: String(at - 1), joinedAtMs: String((at - 1) * 1000 + 250) },
 })
-const left = (id: string, sid: string, at: number) => ({ id, event: 'participant_left', createdAt: String(at), room: { name: ROOM }, participant: { identity: MEMBER, sid } })
+/** A leave carries the session's join time too (LiveKit's participant info). */
+const left = (id: string, sid: string, at: number, joinedSec = at - 60) => ({
+  id,
+  event: 'participant_left',
+  createdAt: String(at),
+  room: { name: ROOM },
+  participant: { identity: MEMBER, sid, joinedAt: String(joinedSec), joinedAtMs: String(joinedSec * 1000 + 250) },
+})
 
 describe('POST /api/calls/livekit/webhook', () => {
   it('no signature: 401, nothing read or written', async () => {
@@ -83,11 +90,12 @@ describe('POST /api/calls/livekit/webhook', () => {
     expect(h.rpcs).toEqual([])
   })
 
-  it('a join: the member, their session and the time they joined, then remembered', async () => {
+  it('a join: the member, their session and the time they joined (to the millisecond), then remembered', async () => {
     const res = await deliver(joined('EV_1', 'PA_1', 1762850000))
     expect(await res.json()).toEqual({ ok: true, outcome: 'joined' })
+    const joinedAt = new Date(1762849999 * 1000 + 250).toISOString()
     expect(h.rpcs).toEqual([
-      ['team_call_participant_event', { room_name: ROOM, member_ref: MEMBER, session_ref: 'PA_1', is_join: true, event_at: new Date(1762849999 * 1000).toISOString() }],
+      ['team_call_participant_event', { room_name: ROOM, member_ref: MEMBER, session_ref: 'PA_1', is_join: true, event_at: joinedAt, session_joined_at: joinedAt }],
     ])
     expect(tables.team_call_webhook_event.map((r) => r.id)).toEqual(['EV_1'])
   })
@@ -99,16 +107,26 @@ describe('POST /api/calls/livekit/webhook', () => {
     expect(h.rpcs).toHaveLength(1)
   })
 
-  it('out of order (a leave before its join): each goes to the ordering function with its own time, which keeps the newest', async () => {
+  it('out of order (a leave before its join): each goes to the ordering function with its time and its session’s join time', async () => {
     h.rpc.team_call_participant_event = { data: 'left', error: null }
-    await deliver(left('EV_2', 'PA_1', 1762850100))
+    await deliver(left('EV_2', 'PA_1', 1762850100, 1762849999))
     h.rpc.team_call_participant_event = { data: 'stale', error: null }
     const late = await deliver(joined('EV_1', 'PA_1', 1762850000))
     expect(await late.json()).toEqual({ ok: true, outcome: 'stale' })
-    expect(h.rpcs.map(([, a]) => [a.is_join, a.event_at])).toEqual([
-      [false, new Date(1762850100 * 1000).toISOString()],
-      [true, new Date(1762849999 * 1000).toISOString()],
+    const sessionJoined = new Date(1762849999 * 1000 + 250).toISOString()
+    expect(h.rpcs.map(([, a]) => [a.is_join, a.event_at, a.session_joined_at])).toEqual([
+      [false, new Date(1762850100 * 1000).toISOString(), sessionJoined],
+      [true, sessionJoined, sessionJoined],
     ])
+  })
+
+  it('a reconnect: the old session’s leave carries its own (older) join time, so the database can tell it from the new one', async () => {
+    await deliver(joined('EV_5', 'PA_new', 1762850500))
+    await deliver(left('EV_6', 'PA_old', 1762850499, 1762850000))
+    const [join, leave] = h.rpcs.map(([, a]) => a)
+    // The leave lands in the same second the new session joined; only the join times tell them apart.
+    expect(String(leave.event_at).slice(0, 19)).toBe(String(join.event_at).slice(0, 19))
+    expect(Date.parse(String(leave.session_joined_at))).toBeLessThan(Date.parse(String(join.session_joined_at)))
   })
 
   it('a dropped connection counts as a leave', async () => {

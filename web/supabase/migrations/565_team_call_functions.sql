@@ -9,26 +9,36 @@
 --                     with its message in the conversation (created true).
 --                     Two starts at once make one call: the second finds
 --                     the first (team_call_one_live).
---   team_call_ring_members(target_call, members)  as the person, in a call they
---                     may read: a ring for each member who may read the
+--   team_call_ring_members(target_call, members)  as the person, in a live
+--                     call in a conversation they may post in: a ring for
+--                     each member who may read the
 --                     channel, is not the caller and is not in this call
 --                     already; 'busy' (a quiet notice, not a ring) for one
---                     who is in another live call, anywhere. A member with a
+--                     who is in another live call of the same workspace
+--                     (another workspace's calls are not the caller's to
+--                     know of; the person's own page keeps such a ring
+--                     quiet). A member with a
 --                     ring open for this call is left as they are. At most
 --                     20 members per call. Returns the rings made.
 --   team_call_answer(target_ring, accept)  as the ring's own person: accepted or
 --                     declined, once; a ring already settled answers with
 --                     its state and changes nothing (another tab or device
---                     answered first).
+--                     answered first), and one past its time answers
+--                     'missed' (its timer tells the person).
 --   team_call_participant_event(room_name, member_ref, session_ref,
---                     is_join, event_at)  service
---                     role: a LiveKit participant_joined or _left. Applied
---                     only when it is newer than what the row holds: a
---                     session that left never comes back (a late joined of
---                     it is stale), and an older session's events are
---                     stale once a newer session joined. Joining answers
---                     the member's open ring for the call. Recounts who is
---                     in it and the peak. Returns what it did.
+--                     is_join, event_at, session_joined_at)  service
+--                     role: a LiveKit participant_joined or _left. Sessions
+--                     are ordered by when they joined (session_joined_at,
+--                     LiveKit's own, to the millisecond), never by when an
+--                     event arrived: a session that left never comes back (a
+--                     late join of it is stale), an older session's join or
+--                     leave is stale once a newer session is on the row (a
+--                     reconnect's old leave lands in the same second as the
+--                     new join), and a newer session's leave that arrives
+--                     before its join is kept, so the join is stale when it
+--                     comes. Joining answers the member's open ring for the
+--                     call. Recounts who is in it and the peak. Returns what
+--                     it did.
 --   team_call_end(target_call, end_reason, end_at)  service role: the call ended (its room
 --                     finished, a DM's person hung up, the sweeper found its
 --                     room gone, or the room could not be made). Once: an
@@ -45,6 +55,9 @@
 --                     DM nobody answered; 'Call ended' when nobody joined.
 --                     The same words as src/lib/team-calls/types.ts
 --                     teamCallSummary.
+--
+-- Lock order, everywhere: a call's row first, then its rings and people, so
+-- two of these never wait on each other.
 --
 -- Additive. Idempotent. New functions only. No backslashes anywhere in this
 -- file (one MCP transport decodes escapes).
@@ -152,12 +165,15 @@ declare
   made_id uuid;
   made_expiry timestamptz;
 begin
-  select * into c from public.team_call t where t.id = target_call;
+  select * into c from public.team_call t where t.id = target_call for update;
   if not found or not public.team_chat_can_read(c.channel_id) then
     raise exception 'team calls: no such call' using errcode = '42501';
   end if;
   if c.status <> 'live' then
     raise exception 'team calls: the call has ended' using errcode = '22023';
+  end if;
+  if not public.team_chat_can_post(c.channel_id) then
+    raise exception 'team calls: this conversation is read only' using errcode = '42501';
   end if;
   if coalesce(cardinality(members), 0) > 20 then
     raise exception 'team calls: at most 20 people at a time' using errcode = '22023';
@@ -176,13 +192,12 @@ begin
       select 1 from public.team_call_participant p
        where p.call_id = c.id and p.member_id = mem and p.state = 'joined'
     );
-    -- In another live call (any workspace): a quiet notice instead.
+    -- In another live call of this workspace: a quiet notice instead.
     is_busy := exists (
       select 1
         from public.team_call_participant p
-        join public.member pm on pm.id = p.member_id
         join public.team_call t on t.id = p.call_id
-       where pm.user_id = mem_user
+       where p.member_id = mem
          and p.state = 'joined'
          and t.status = 'live'
          and t.id <> c.id
@@ -221,11 +236,18 @@ begin
   if not found then
     raise exception 'team calls: no such ring' using errcode = '42501';
   end if;
+  perform 1 from public.team_call t where t.id = r.call_id for update;
+  if r.state in ('ringing', 'busy') and r.expires_at <= now() then
+    -- Past its time: missed (its timer, or the sweeper, writes it and tells them).
+    return query select r.call_id, 'missed'::text;
+    return;
+  end if;
   update public.team_call_ring x
      set state = case when accept then 'accepted' else 'declined' end,
          answered_at = now()
    where x.id = target_ring
      and x.state in ('ringing', 'busy')
+     and x.expires_at > now()
   returning x.state into now_state;
   if now_state is null then
     -- Settled already (another tab or device answered, or it ran out).
@@ -247,7 +269,7 @@ $$;
 
 -- ── As the service role ─────────────────────────────────────────────────────
 
-create or replace function public.team_call_participant_event(room_name text, member_ref uuid, session_ref text, is_join boolean, event_at timestamptz)
+create or replace function public.team_call_participant_event(room_name text, member_ref uuid, session_ref text, is_join boolean, event_at timestamptz, session_joined_at timestamptz)
 returns text
 language plpgsql
 security definer
@@ -257,6 +279,7 @@ as $$
 declare
   c public.team_call%rowtype;
   p public.team_call_participant%rowtype;
+  joined_time timestamptz := coalesce(session_joined_at, event_at);
   outcome text;
   in_now integer;
 begin
@@ -276,16 +299,18 @@ begin
   if is_join then
     if not found then
       insert into public.team_call_participant (call_id, member_id, workspace_id, channel_id, state, session_sid, first_joined_at, joined_at, last_event_at)
-      values (c.id, member_ref, c.workspace_id, c.channel_id, 'joined', session_ref, event_at, event_at, event_at);
+      values (c.id, member_ref, c.workspace_id, c.channel_id, 'joined', session_ref, joined_time, joined_time, event_at);
       outcome := 'joined';
     elsif p.session_sid is not distinct from session_ref then
       -- This session again: a repeat while in it, or a late one after it left.
       outcome := case when p.state = 'joined' then 'same' else 'stale' end;
-    elsif event_at < p.last_event_at then
+    elsif joined_time < p.joined_at then
+      -- An older session than the one on the row.
       outcome := 'stale';
     else
       update public.team_call_participant x
-         set state = 'joined', session_sid = session_ref, joined_at = event_at, left_at = null, last_event_at = event_at
+         set state = 'joined', session_sid = session_ref, joined_at = joined_time, left_at = null,
+             last_event_at = greatest(x.last_event_at, event_at)
        where x.call_id = c.id and x.member_id = member_ref;
       outcome := 'joined';
     end if;
@@ -302,7 +327,7 @@ begin
     if not found then
       -- The leave came first: remember the session, so its late join is stale.
       insert into public.team_call_participant (call_id, member_id, workspace_id, channel_id, state, session_sid, first_joined_at, joined_at, left_at, last_event_at)
-      values (c.id, member_ref, c.workspace_id, c.channel_id, 'left', session_ref, event_at, event_at, event_at, event_at);
+      values (c.id, member_ref, c.workspace_id, c.channel_id, 'left', session_ref, joined_time, joined_time, greatest(event_at, joined_time), event_at);
       outcome := 'left';
     elsif p.session_sid is not distinct from session_ref then
       if p.state = 'left' then
@@ -313,13 +338,14 @@ begin
          where x.call_id = c.id and x.member_id = member_ref;
         outcome := 'left';
       end if;
-    elsif event_at < p.last_event_at then
-      -- An older session's leave, after a newer one joined.
+    elsif joined_time <= p.joined_at then
+      -- An older session's leave, after a newer one joined (a reconnect).
       outcome := 'stale';
     else
       -- A newer session's leave before its join arrived.
       update public.team_call_participant x
-         set state = 'left', session_sid = session_ref, left_at = event_at, last_event_at = event_at
+         set state = 'left', session_sid = session_ref, joined_at = joined_time, left_at = greatest(event_at, joined_time),
+             last_event_at = greatest(x.last_event_at, event_at)
        where x.call_id = c.id and x.member_id = member_ref;
       outcome := 'left';
     end if;
@@ -399,6 +425,15 @@ set search_path = public, pg_temp
 as $$
 #variable_conflict use_column
 begin
+  -- The calls' rows first (the lock order), then their rings.
+  perform 1
+     from public.team_call t
+    where t.id in (
+      select r.call_id from public.team_call_ring r
+       where r.state in ('ringing', 'busy') and r.expires_at <= now() and (only_ring is null or r.id = only_ring)
+    )
+    order by t.id
+      for update;
   return query
     with gone as (
       update public.team_call_ring r
@@ -427,14 +462,14 @@ revoke all on function public.team_call_summary(text, integer, integer) from pub
 revoke all on function public.team_call_start(uuid) from public, anon;
 revoke all on function public.team_call_ring_members(uuid, uuid[]) from public, anon;
 revoke all on function public.team_call_answer(uuid, boolean) from public, anon;
-revoke all on function public.team_call_participant_event(text, uuid, text, boolean, timestamptz) from public, anon, authenticated;
+revoke all on function public.team_call_participant_event(text, uuid, text, boolean, timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.team_call_end(uuid, text, timestamptz) from public, anon, authenticated;
 revoke all on function public.team_call_expire_rings(uuid) from public, anon, authenticated;
 grant execute on function public.team_call_summary(text, integer, integer) to service_role;
 grant execute on function public.team_call_start(uuid) to authenticated;
 grant execute on function public.team_call_ring_members(uuid, uuid[]) to authenticated;
 grant execute on function public.team_call_answer(uuid, boolean) to authenticated;
-grant execute on function public.team_call_participant_event(text, uuid, text, boolean, timestamptz) to service_role;
+grant execute on function public.team_call_participant_event(text, uuid, text, boolean, timestamptz, timestamptz) to service_role;
 grant execute on function public.team_call_end(uuid, text, timestamptz) to service_role;
 grant execute on function public.team_call_expire_rings(uuid) to service_role;
 

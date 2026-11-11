@@ -378,6 +378,8 @@ function RingMenu({ call, snap }: { call: ActiveTeamCall; snap: CallSnapshot }) 
   }, [open, workspaceId, members])
   const inCall = useMemo(() => new Set(snap.tiles.map((t) => t.identity)), [snap.tiles])
   const choices = (members ?? []).filter((m) => !inCall.has(m.id))
+  // A call of another workspace (answered from its ring): the people listed here are this one's.
+  if (!workspaceId || workspaceId !== call.workspaceId) return null
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
