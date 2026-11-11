@@ -295,7 +295,7 @@ drop policy if exists captures_team_call_notes_fence on public.captures;
 create policy captures_team_call_notes_fence on public.captures
   as restrictive
   for select to authenticated
-  using (id <> all ((select public.team_call_notes_hidden())));
+  using (not (id = any (coalesce((select public.team_call_notes_hidden()), '{}'::uuid[]))));
 
 notify pgrst, 'reload schema';
 
