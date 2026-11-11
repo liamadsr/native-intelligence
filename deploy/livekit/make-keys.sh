@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # Makes LiveKit's API key and secret on the server, writes them into this folder's
 # .env, and the same pair into the app's (../app/.env), with the address browsers
-# connect to. Neither value is ever shown, typed, or put on a command line: they go
+# connect to. While LIVEKIT_WEBHOOK_URL in this folder's .env is empty, it also sets
+# that to the app's public address (NEXT_PUBLIC_APP_URL in ../app/.env) and the
+# webhook route. Neither key is ever shown, typed, or put on a command line: they go
 # from here to the files through a pipe, with ../supabase/envfile.py, which only
 # changes lines the files already have.
 #
 #   sudo ./make-keys.sh          a pair, made only if .env has none yet; then the app's copy
 #   sudo ./make-keys.sh --new    a new pair in place of the old one
 #
-# Run again at any time: without --new it keeps the pair and only brings the app's
-# copy up to date (for one, after the three LIVEKIT_ lines were added to ../app/.env).
+# Safe to run again at any time: without --new it keeps the pair and only brings the
+# app's copy up to date (for one, after the three LIVEKIT_ lines were added to
+# ../app/.env). LiveKit reads its .env only when its container is made, so after a
+# change here it says to run `sudo docker compose up -d`, which recreates it then
+# and does nothing when nothing changed.
 #
 # --new ends every call in progress and every token made with the old pair; LiveKit
 # and the app then have to be restarted with the new one (the script says how).
@@ -33,7 +38,7 @@ for arg in "$@"; do
 	case "$arg" in --new) new=1 ;; *) die "unknown argument $arg (only --new)" ;; esac
 done
 [ "$(id -u)" = 0 ] || die "run it with sudo: the .env files are root's alone."
-[ -f "$own_env" ] || die "$own_env is missing. Make it first: sudo install -m 600 -o root -g root .env.example .env"
+[ -f "$own_env" ] || die "$own_env is missing. Make it first: [ -e .env ] || sudo install -m 600 -o root -g root .env.example .env"
 [ -f "$envfile" ] || die "$envfile is missing; the checkout needs deploy/ whole."
 command -v python3 >/dev/null || die "python3 is missing."
 
@@ -94,8 +99,29 @@ else
 	echo "The same pair is in $app_env, with LIVEKIT_URL=$url."
 fi
 
-if [ "$made" = 1 ]; then
+# The webhooks' address, once: the app's public name and the route the calls feature
+# adds. Only while the line is there and empty; a commented-out line (no webhooks)
+# and an address set by hand are left alone.
+webhook_changed=0
+if grep -q '^LIVEKIT_WEBHOOK_URL=$' "$own_env"; then
+	app_url=""
+	[ -f "$app_env" ] && app_url="$(value_of NEXT_PUBLIC_APP_URL "$app_env")"
+	app_url="${app_url%/}"
+	if [[ "$app_url" =~ ^https://[A-Za-z0-9.-]+$ ]]; then
+		write "$own_env" "LIVEKIT_WEBHOOK_URL=$app_url/api/calls/livekit/webhook"
+		echo "Webhooks will go to $app_url/api/calls/livekit/webhook (LIVEKIT_WEBHOOK_URL in $own_env)."
+		webhook_changed=1
+	else
+		echo "LIVEKIT_WEBHOOK_URL stays empty (no webhooks): $app_env has no https:// NEXT_PUBLIC_APP_URL to take it from."
+	fi
+fi
+
+if [ "$made" = 1 ] || [ "$webhook_changed" = 1 ]; then
 	echo
-	echo "To use it: sudo docker compose up -d in $here (LiveKit restarts and every call in it ends),"
-	echo "then sudo ./deploy.sh --no-build in $deploy/app for the app."
+	echo "LiveKit reads this only when its container is made: sudo docker compose up -d in $here"
+	echo "(if LiveKit is running, it is recreated, and every call in it ends)."
+fi
+if [ "$made" = 1 ]; then
+	echo "The app reads its copy when its containers start: sudo ./deploy.sh --no-build in $deploy/app,"
+	echo "once the app uses it."
 fi

@@ -240,10 +240,10 @@
 # LiveKit checks a token signed with its API key on every one of them. The media
 # itself does not come through here: it goes to LiveKit's own UDP and TCP ports.
 #
-# Until LIVEKIT_HOST is set this block is plain HTTP for livekit.invalid, a name
-# no request carries, like the app's block above. A reload of this file closes
-# the open WebSockets: a call in progress keeps its media and reconnects its
-# signalling by itself.
+# Caddy reaches LiveKit over ni-livekit-edge, a network the two share with
+# nothing else (compose.livekit.yaml). Until LIVEKIT_HOST is set this block is
+# plain HTTP for livekit.invalid, a name no request carries, like the app's
+# block above.
 # ---------------------------------------------------------------------------
 {$LIVEKIT_HOST:http://livekit.invalid} {
 	log {
@@ -264,5 +264,14 @@
 
 	reverse_proxy ni-livekit:7880 {
 		import proxy
+
+		# A reload of this file (caddy reload) would otherwise close every
+		# call's signalling WebSocket at once. With this, the connections open
+		# at the reload stay up on the old configuration for up to 4 hours,
+		# longer than a call. Replacing the container (`up -d` when .env or a
+		# compose file changed) still closes them all: the browsers reconnect
+		# by themselves, and the media, which does not pass through Caddy,
+		# keeps flowing meanwhile.
+		stream_close_delay 4h
 	}
 }

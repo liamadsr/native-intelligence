@@ -198,6 +198,10 @@ docker network inspect ni-edge >/dev/null 2>&1 ||
 	docker network create --subnet 172.30.0.0/24 --ip-range 172.30.0.128/25 ni-edge >/dev/null
 docker network inspect ni-supabase-edge >/dev/null 2>&1 ||
 	docker network create ni-supabase-edge >/dev/null
+# Caddy and LiveKit only (deploy/livekit). An ordinary bridge, not internal:
+# LiveKit's way out (STUN, its webhooks) is through it.
+docker network inspect ni-livekit-edge >/dev/null 2>&1 ||
+	docker network create ni-livekit-edge >/dev/null
 docker network ls --format '{{.Name}}' | grep '^ni-' | sed 's/^/  /'
 
 say "Done"

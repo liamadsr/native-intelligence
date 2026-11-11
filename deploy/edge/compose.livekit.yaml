@@ -1,0 +1,20 @@
+# Added to compose.yaml once LiveKit runs on this server (../README.md, step 23), by
+# naming it in COMPOSE_FILE in .env, after any other file already there:
+#
+#   COMPOSE_FILE=compose.yaml:compose.supabase.yaml:compose.livekit.yaml
+#
+# It puts Caddy on one more network, shared with LiveKit and with nothing else, where
+# it finds LiveKit as ni-livekit. LiveKit is not on ni-edge: from there it could reach
+# every other stack's door. Without this file named, Caddy starts as before, and the
+# LiveKit name (LIVEKIT_HOST) answers 502.
+services:
+  caddy:
+    networks:
+      - livekit-edge
+
+networks:
+  # Created once by hand (see ../README.md, step 7, or ../server/setup.sh) so that
+  # neither stack owns it.
+  livekit-edge:
+    name: ni-livekit-edge
+    external: true

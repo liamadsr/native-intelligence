@@ -150,7 +150,8 @@ rank() {
 	*inngest*) echo 2 ;;
 	# The app needs its database and Inngest, and the edge needs the app's proxy.
 	*app*) echo 3 ;;
-	# LiveKit needs nothing else to start; it sends its webhooks to the app.
+	# LiveKit needs only its networks (setup.sh makes ni-livekit-edge, which Caddy
+	# joins too); its webhooks go to the app's public name, through the edge.
 	*livekit*) echo 3 ;;
 	*edge*) echo 4 ;;
 	*backup*) echo 5 ;;

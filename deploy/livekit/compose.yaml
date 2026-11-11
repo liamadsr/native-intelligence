@@ -1,8 +1,9 @@
 # LiveKit: the media server for audio and video calls, and its own Redis.
 #
 # Signalling (HTTP and WebSocket on 7880) is not published: Caddy (../edge) serves it
-# over TLS on its own name, reaching this container as ni-livekit:7880 over the shared
-# network ni-edge. The media is the one thing on this server besides Caddy that
+# over TLS on its own name, reaching this container as ni-livekit:7880 over the network
+# ni-livekit-edge, which holds Caddy and LiveKit and nothing else (not ni-edge, where
+# every other stack's door is). The media is the one thing on this server besides Caddy that
 # publishes ports, because it is not HTTP and cannot go through Caddy: WebRTC sends it
 # straight to the media server, encrypted end to end between browser and server
 # (DTLS-SRTP), over
@@ -34,7 +35,9 @@ services:
     ports:
       # Published on purpose, the one exception to "only Caddy publishes" (top of
       # this file). Docker opens these whatever ufw says; setup.sh lists them in ufw
-      # as well, so that the firewall's own list says what is open.
+      # as well, so that the firewall's own list says what is open. To spread a busy
+      # server's media over more sockets, the UDP port becomes a range here, in
+      # udp_port below and in ufw together (../README.md step 23, "One UDP port").
       - "7882:7882/udp"
       - "7881:7881/tcp"
     environment:
@@ -87,10 +90,11 @@ services:
     networks:
       # Private: Redis.
       internal: {}
-      # Shared with Caddy, which proxies the signalling here, and with the app's
-      # proxy (ni-app-proxy), which the webhooks are sent to. Also the way out, to
-      # the STUN server at startup.
-      edge: {}
+      # Shared with Caddy alone, which proxies the signalling here. Also the way
+      # out: to the STUN server at startup, and to the app's public name for the
+      # webhooks (back in through Caddy, like any other caller). From here no other
+      # stack's container is reachable.
+      livekit-edge: {}
     healthcheck:
       # "OK" once the node is up and reporting (pkg/service/server.go, healthCheck).
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7880/"]
@@ -142,7 +146,9 @@ networks:
   internal:
     name: ni-livekit
     internal: true
-  # Created once by hand (see ../README.md, step 7) so that no stack owns it.
-  edge:
-    name: ni-edge
+  # Caddy and LiveKit, and nothing else. Created once by hand (../README.md, step 7,
+  # or ../server/setup.sh) so that neither stack owns it. Not internal: LiveKit's way
+  # out is through it.
+  livekit-edge:
+    name: ni-livekit-edge
     external: true

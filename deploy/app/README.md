@@ -196,10 +196,11 @@ into both `.env` files. All three or none; empty, there are no calls, and the ch
 says so without blocking anything. Set, `check-settings.sh` makes a token from them
 exactly as the app's server library would and asks LiveKit's API to list its rooms
 through the public name: `ok` means the address, Caddy, the certificate and the
-pair all work together. LiveKit's webhooks reach the app over the shared network
-(`ni-app-proxy`, the address in `LIVEKIT_WEBHOOK_URL` in `../livekit/.env`), so
-their `Host` is that internal name, not a public one: the route that takes them
-proves where they came from by their signature, never by their address.
+pair all work together. LiveKit's webhooks come to the app's public name, in
+through the edge Caddy like any other request (`LIVEKIT_WEBHOOK_URL` in
+`../livekit/.env`); LiveKit is not on `ni-edge` and cannot reach this stack's proxy
+directly. The route that takes them proves where they came from by their
+signature, never by their address.
 
 ### Sealed copy (done once, then removed)
 
