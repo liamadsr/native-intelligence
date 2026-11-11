@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { applyVerdict, resolveTrust, type ApplyVerdictContext, type RunVerdict } from '../verdict-apply'
 import type { ResolvedTrustPolicy } from '@/lib/proposed-changes/trust-policy'
+import { relationNames } from '@/test/table-schema'
 import {
   WORK_TASK_MAX_CHARS,
   WORK_TITLE_MAX_CHARS,
@@ -34,7 +35,7 @@ function makeFake(seed: {
   proposals?: Row[]
   actions?: Row[]
   agent_run?: Row[]
-  action_github_prs?: Row[]
+  action_github_pr?: Row[]
   comment?: Row[]
   contacts?: Row[]
   participants?: Row[]
@@ -44,7 +45,7 @@ function makeFake(seed: {
     proposed_change: seed.proposals ?? [],
     actions: seed.actions ?? [],
     agent_run: seed.agent_run ?? [],
-    action_github_prs: seed.action_github_prs ?? [],
+    action_github_pr: seed.action_github_pr ?? [],
     comment: seed.comment ?? [],
     contact: seed.contacts ?? [],
     capture_participant: seed.participants ?? [],
@@ -130,6 +131,11 @@ function makeFake(seed: {
       count?: number
       error: { code?: string; message: string } | null
     } {
+      // Postgres refuses a table it doesn't have; the fake serves only real
+      // tables (checked against the schema below), so it refuses the rest.
+      if (!Object.hasOwn(tables, table)) {
+        return { data: null, error: { code: '42P01', message: `relation "public.${table}" does not exist` } }
+      }
       if (headCount) {
         // .select(cols, { count, head }) → a count of matching rows, no data.
         return { count: tables[table].filter(match).length, error: null }
@@ -871,7 +877,7 @@ describe('revoke — hard guardrails, fail-closed', () => {
     const fake = makeFake({
       proposals: [appliedAuto()],
       actions: [{ id: 'act1', workspace_id: 'ws1', updated_at: hoursAgo(1), agent_run_status: 'idle' }],
-      action_github_prs: [{ id: 'pr1', action_id: 'act1' }],
+      action_github_pr: [{ id: 'pr1', action_id: 'act1' }],
     })
     const ledger = await applyVerdict(
       { decisions: [{ proposal_id: 'p1', verdict: 'revoke', reason: 'x', confidence: 0.99 }], needs_user: [], summary: 's' },
@@ -879,6 +885,15 @@ describe('revoke — hard guardrails, fail-closed', () => {
     )
     expect(deleteAppliedEntityMock).not.toHaveBeenCalled()
     expect(ledger.entries[0].outcome).toBe('skipped')
+  })
+
+  it('the fake serves only tables the schema has, so a misnamed table fails here as it does in Postgres', () => {
+    // The probe once counted `action_github_prs` (the table is action_github_pr,
+    // migration 064) and this fake answered for that name, so the read that
+    // failed on every real call passed here and every revoke was refused.
+    const served = Object.keys(makeFake({})._tables)
+    expect(served.filter((table) => !relationNames().has(table))).toEqual([])
+    expect(relationNames().has('action_github_prs')).toBe(false)
   })
 })
 

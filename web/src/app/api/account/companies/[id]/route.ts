@@ -46,27 +46,34 @@ export async function GET(
   // exactly the people whose captures are most likely recent.
   const contactIds = companyContacts.slice(0, 100).map((c) => c.id)
 
+  //
+  // Read from the captures side so the newest meetings come first, once each:
+  // capture_participant has no created_at (it has joined_at), and ordering by
+  // it failed every read, so this section always showed "No captures yet."
   const capturesResult = contactIds.length
     ? await supabase
-        .from('capture_participant')
-        .select('capture:capture_id(id, title, ai_summary, started_at, status)')
-        .in('contact_id', contactIds)
+        .from('captures')
+        .select('id, title, ai_summary, started_at, status, cp:capture_participant!inner(contact_id)')
+        .eq('workspace_id', workspaceId)
+        .in('cp.contact_id', contactIds)
+        // Eval captures (migration 252) are synthetic meetings that RLS doesn't hide.
+        .neq('is_eval', true)
+        .order('started_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(20)
-    : { data: [] }
+    : { data: [], error: null }
 
-  const captures = (capturesResult.data || []).map((cp) => cp.capture).filter(Boolean)
-
-  // Remove duplicate captures
-  const uniqueCaptures = Array.from(
-    new Map(captures.map((c) => [(c as unknown as Record<string, unknown>).id, c])).values(),
-  )
+  // The company still shows without its meetings, but the failure is logged.
+  if (capturesResult.error) {
+    console.error('[companies/:id] captures read failed:', capturesResult.error.message)
+  }
+  const captures = (capturesResult.data || []).map(({ cp: _cp, ...capture }) => capture)
 
   return NextResponse.json({
     company: {
       ...company,
       contacts: companyContacts,
-      captures: uniqueCaptures,
+      captures,
     },
   })
 }

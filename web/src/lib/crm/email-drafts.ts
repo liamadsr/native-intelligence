@@ -24,6 +24,7 @@ import { chatgptPlanFor } from '@/lib/chatgpt/plan-route'
 import { draftGuardNote, draftGuardProblem, type DraftGuardProblem } from '@/lib/email/draft-guard'
 import { ownMailAddresses } from '@/lib/email/own-addresses'
 import { supersedeOtherDrafts } from '@/lib/email/one-draft'
+import { applyCaptureVisibility, isCaptureVisible } from '@/lib/ai/tools/_shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -620,21 +621,32 @@ export async function gatherDraftContext(
     context.contactInfo = contact
   }
 
-  // 2. Recent captures involving participants (scoped to workspace)
+  // 2. Recent captures involving participants (scoped to workspace). From the
+  //    captures side, newest meeting first, once each: capture_participant has
+  //    no created_at (it has joined_at), and ordering by it failed every read,
+  //    so no draft ever drew on a meeting. The service-role client bypasses
+  //    RLS, so the mailbox owner's capture visibility is the fence (another
+  //    member's private meeting and eval captures stay out).
   const participantEmails = (thread.participant_emails as string[]) || []
   if (participantEmails.length > 0) {
-    const { data: recentCaptures } = await supabaseAdmin
-      .from('capture_participant')
-      .select('capture:capture_id!inner(id, title, ai_summary, started_at, status, workspace_id)')
-      .in('external_email', participantEmails)
-      .eq('capture.workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
+    const { data: recentCaptures, error: capturesError } = await applyCaptureVisibility(
+      supabaseAdmin
+        .from('captures')
+        .select(
+          'id, title, ai_summary, started_at, user_id, visibility, is_eval, notes_owner_out, cp:capture_participant!inner(external_email)',
+        )
+        .eq('workspace_id', workspaceId)
+        .in('cp.external_email', participantEmails)
+        .not('ai_summary', 'is', null),
+      userId,
+    )
+      .order('started_at', { ascending: false, nullsFirst: false })
       .limit(5)
+    if (capturesError) console.warn('[email-drafts] recent captures read failed:', capturesError.message)
 
     context.captures = (recentCaptures || [])
-      .map((cp) => cp.capture as unknown as DraftContext['captures'][0])
-      .filter(Boolean)
-      .filter((c) => c.ai_summary)
+      .filter((c) => c.ai_summary && isCaptureVisible(c, userId))
+      .map((c) => ({ id: c.id, title: c.title, ai_summary: c.ai_summary, started_at: c.started_at }))
   }
 
   // 3. Related actions

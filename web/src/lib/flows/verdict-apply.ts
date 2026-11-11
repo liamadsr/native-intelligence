@@ -1158,12 +1158,18 @@ async function entityTouchedSince(
       // data-loss gap that opened once the idle-check was corrected.)
       const [{ count: agentRuns, error: aErr }, { count: prs, error: pErr }] = await Promise.all([
         ctx.supabase.from('agent_run').select('id', { count: 'exact', head: true }).eq('action_id', entityId),
+        // The table is action_github_pr (migration 064). Reading a misspelt
+        // `action_github_prs` failed every time, which refused every revoke.
         ctx.supabase
-          .from('action_github_prs')
+          .from('action_github_pr')
           .select('id', { count: 'exact', head: true })
           .eq('action_id', entityId),
       ])
-      if (aErr || pErr) return true // fail-closed
+      if (aErr || pErr) {
+        // Still fail-closed, but said aloud: a silent probe error reads as "the user touched it".
+        console.warn('[verdict-apply] revoke probe failed:', (aErr ?? pErr)?.message)
+        return true
+      }
       if ((agentRuns ?? 0) > 0 || (prs ?? 0) > 0) return true
     } else {
       // For a non-action create, we don't have a specialized freshness probe —
