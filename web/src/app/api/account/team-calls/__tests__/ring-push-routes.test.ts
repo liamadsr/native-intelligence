@@ -25,6 +25,8 @@ const PHONE = 'ab'.repeat(32)
 const h = vi.hoisted(() => ({
   afters: [] as Array<() => unknown>,
   db: null as unknown as SupabaseClient,
+  svcTables: {} as Record<string, Array<Record<string, unknown>>>,
+  answers: 0,
   rpc: {} as Record<string, { data: unknown; error: unknown }>,
   pushed: [] as unknown[],
   cancelled: [] as unknown[],
@@ -39,7 +41,10 @@ vi.mock('next/server', async (orig) => ({
 vi.mock('@/lib/api-auth', () => ({
   requireUser: async () => ({ supabase: h.db, user: { id: USER, user_metadata: {} } }),
 }))
-vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ svc: true }) }))
+vi.mock('@/lib/admin', async () => {
+  const { memoryDb } = await import('@/test/memory-db')
+  return { getServiceClient: () => memoryDb(h.svcTables) }
+})
 vi.mock('@/lib/inngest/client', () => ({ inngest: { send: async () => ({ ids: [] }) } }))
 vi.mock('@/lib/team-calls/livekit', async (orig) => ({
   ...(await orig<typeof import('@/lib/team-calls/livekit')>()),
@@ -70,6 +75,8 @@ const post = (url: string, body: unknown) => new NextRequest(url, { method: 'POS
 const runAfters = async () => {
   for (const task of h.afters.splice(0)) await task()
 }
+let ringRows: Array<Record<string, unknown>> = []
+let callRows: Array<Record<string, unknown>> = []
 const madeRing = { ring_id: RING, member_id: BEN, user_id: '55555555-5555-4555-8555-555555555555', state: 'ringing', expires_at: new Date(Date.now() + 40_000).toISOString() }
 
 beforeEach(() => {
@@ -78,10 +85,18 @@ beforeEach(() => {
     member: [{ id: ME, user_id: USER, workspace_id: WS, display_name: 'Ana Ruiz' }],
     team_chat_channel: [{ id: DM, workspace_id: WS, kind: 'dm', name: null, dm_key: [ME, BEN].sort().join(':'), archived_at: null }],
     team_call: [{ id: CALL, workspace_id: WS, channel_id: DM, message_id: MSG, room: `tc-${CALL}`, status: 'live', started_at: new Date().toISOString(), ringing: [], declined: [] }],
+    team_call_ring: [{ id: RING, state: 'ringing' }],
   }
+  h.svcTables = { team_call_ring: [{ id: RING, state: 'accepted' }] }
+  h.answers = 0
   h.db = Object.assign(memoryDb(tables), {
-    rpc: async (name: string) => h.rpc[name] ?? { data: null, error: null },
+    rpc: async (name: string) => {
+      if (name === 'team_call_answer') h.answers++
+      return h.rpc[name] ?? { data: null, error: null }
+    },
   }) as unknown as SupabaseClient
+  ringRows = tables.team_call_ring
+  callRows = tables.team_call
   h.afters = []
   h.pushed = []
   h.cancelled = []
@@ -115,6 +130,50 @@ describe('a ring made → the phones', () => {
     await startCall(post('http://x/api/account/team-calls', { channelId: DM }))
     await runAfters()
     expect(h.pushed).toEqual([])
+  })
+})
+
+describe('the phone answering a ring settled elsewhere', () => {
+  it('accepted on the web first: the phone gets no join, and hears it was answered elsewhere', async () => {
+    ringRows[0].state = 'accepted'
+    const res = await answer(post(`http://x/api/account/team-calls/rings/${RING}`, { accept: true, voipToken: PHONE, onlyIfRinging: true }), params(RING))
+    expect(await res.json()).toEqual({ state: 'accepted', elsewhere: true })
+    expect(h.answers).toBe(0)
+    await runAfters()
+    expect(h.cancelled).toEqual([])
+  })
+
+  it('the web (no onlyIfRinging) keeps its behaviour: the answer goes to the server', async () => {
+    ringRows[0].state = 'accepted'
+    h.rpc.team_call_answer = { data: [{ call_id: CALL, state: 'declined' }], error: null }
+    await answer(post(`http://x/api/account/team-calls/rings/${RING}`, { accept: false }), params(RING))
+    expect(h.answers).toBe(1)
+  })
+
+  it('still ringing: the phone’s answer goes through as before', async () => {
+    h.rpc.team_call_answer = { data: [{ call_id: CALL, state: 'declined' }], error: null }
+    const res = await answer(post(`http://x/api/account/team-calls/rings/${RING}`, { accept: false, onlyIfRinging: true }), params(RING))
+    expect(await res.json()).toEqual({ state: 'declined' })
+    expect(h.answers).toBe(1)
+  })
+})
+
+describe('an accept whose call is over', () => {
+  it('ended: 409, and the ring this answer accepted is missed, not answered (no device hears "answered elsewhere")', async () => {
+    callRows[0].status = 'ended'
+    h.rpc.team_call_answer = { data: [{ call_id: CALL, state: 'accepted' }], error: null }
+    const res = await answer(post(`http://x/api/account/team-calls/rings/${RING}`, { accept: true, onlyIfRinging: true }), params(RING))
+    expect(res.status).toBe(409)
+    expect(h.svcTables.team_call_ring[0].state).toBe('missed')
+  })
+
+  it('a ring accepted before this answer is left as it was', async () => {
+    ringRows[0].state = 'accepted'
+    callRows[0].status = 'ended'
+    h.rpc.team_call_answer = { data: [{ call_id: CALL, state: 'accepted' }], error: null }
+    const res = await answer(post(`http://x/api/account/team-calls/rings/${RING}`, { accept: true }), params(RING))
+    expect(res.status).toBe(409)
+    expect(h.svcTables.team_call_ring[0].state).toBe('accepted')
   })
 })
 

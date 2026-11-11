@@ -11,7 +11,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ApnsConfig, ApnsResult } from '../apns'
-import { freshTokens, hasPushTarget, pushToPerson, voipToPerson, PUSH_TOKEN_FRESH_MS, type PushDeps, type PushTokenRow } from '../send'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { freshTokens, hasPushTarget, livePushDeps, missingKindColumn, pushToPerson, voipToPerson, PUSH_TOKEN_FRESH_MS, type PushDeps, type PushTokenRow } from '../send'
 import { homeMessagePush, pushLine, teamChatPush, PUSH_BODY_CHARS } from '../compose'
 
 const CONFIG: ApnsConfig = { keyId: 'K', teamId: 'T', privateKey: 'pem', bundleId: 'com.example.app' }
@@ -176,6 +177,56 @@ describe('a VoIP push (a team call’s ring or its cancel)', () => {
     const { deps, disabled } = fake({ rows: [row(1)], answers: [{ ok: false, gone: true, status: 410, reason: 'Unregistered' }] })
     expect(await voipToPerson(deps, { userId: USER, push: ring })).toBe('failed')
     expect(disabled).toEqual([{ id: 't1', reason: 'Unregistered' }])
+  })
+})
+
+describe('a database without migration 570 (push_token.kind not there yet)', () => {
+  const ENV = { APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T', APNS_PRIVATE_KEY: 'pem', APNS_BUNDLE_ID: 'com.example.app' }
+  const live = { id: 't1', token: '1'.repeat(64), environment: 'production', last_seen_at: new Date().toISOString() }
+
+  /** push_token as PostgREST answers it, with or without the kind column. */
+  function svc(hasKind: boolean) {
+    const reads: string[][] = []
+    const from = () => {
+      const filters: string[] = []
+      const chain: Record<string, unknown> = {}
+      for (const m of ['select', 'is', 'gt', 'order']) chain[m] = () => chain
+      chain.eq = (col: string) => {
+        filters.push(col)
+        return chain
+      }
+      chain.limit = async () => {
+        reads.push(filters)
+        if (!hasKind && filters.includes('kind')) return { data: null, error: { code: '42703', message: 'column push_token.kind does not exist' } }
+        return { data: [live], error: null }
+      }
+      return chain
+    }
+    return { client: { from } as unknown as SupabaseClient, reads }
+  }
+
+  it('reads an alert install by kind when the column is there', async () => {
+    const { client, reads } = svc(true)
+    expect(await livePushDeps(client, ENV).tokens(USER, 'com.example.app', 'alert')).toEqual([live])
+    expect(reads).toEqual([['user_id', 'kind', 'bundle_id']])
+  })
+
+  it('without it, alerts still read every install (they are all alert tokens) and VoIP reads none', async () => {
+    const { client, reads } = svc(false)
+    const deps = livePushDeps(client, ENV)
+    expect(await deps.tokens(USER, 'com.example.app', 'alert')).toEqual([live])
+    expect(reads).toEqual([['user_id', 'kind', 'bundle_id'], ['user_id', 'bundle_id']])
+    expect(await deps.tokens(USER, 'com.example.app', 'voip')).toEqual([])
+    // So the away-router still finds the phone.
+    expect(await hasPushTarget(deps, USER)).toBe(true)
+  })
+
+  it('the unknown column is read from Postgres or PostgREST, only when it names kind', () => {
+    expect(missingKindColumn({ code: '42703', message: 'column push_token.kind does not exist' })).toBe(true)
+    expect(missingKindColumn({ code: 'PGRST204', message: "Could not find the 'kind' column of 'push_token' in the schema cache" })).toBe(true)
+    expect(missingKindColumn({ code: '42703', message: 'column push_token.other does not exist' })).toBe(false)
+    expect(missingKindColumn({ code: '57014', message: 'canceling statement due to statement timeout' })).toBe(false)
+    expect(missingKindColumn(null)).toBe(false)
   })
 })
 

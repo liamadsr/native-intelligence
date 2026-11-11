@@ -60,9 +60,10 @@ export interface CancelledRing {
 
 /**
  * A ring's VoIP push: the ids the phone answers and declines with, and what
- * its incoming-call screen says. `seconds_left` is the ring's time left as
- * it is sent, so the phone's own clock (whatever its skew) stops it on
- * time. Calls start with the camera off on every app, so none offers video
+ * its incoming-call screen says. When it stops ringing, twice: `expires_at`
+ * (absolute: a push delivered late never rings a full 40 seconds again)
+ * and `seconds_left` as it is sent (whatever the phone's clock skew); the
+ * phone stops at the earlier. Calls start with the camera off on every app, so none offers video
  * (`video` false: CallKit shows an audio call; the camera can go on in it).
  * Expires when the ring does: Apple drops a push it could not deliver by
  * then. Pure.
@@ -80,6 +81,7 @@ export function ringPush(ring: ClaimedRing, nowMs: number): ApnsVoipPush {
       channel_kind: ring.channel_kind,
       channel_name: ring.channel_name ? ring.channel_name.slice(0, 80) : null,
       video: false,
+      expires_at: ring.expires_at,
       seconds_left: Math.max(0, Math.round((expiresAtMs - nowMs) / 1000)),
     },
     expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs : 0,
@@ -149,7 +151,8 @@ export async function pushRings(deps: RingPushDeps, rings: ReadonlyArray<{ ringI
 
 /**
  * Stop the phones still ringing for rings that left ringing: these rings,
- * or one member's rings in one call (their join). Only rings that were
+ * one member's rings in one call (their join, their removal), or a call's
+ * rings (it ended by a trigger: its conversation archived). Only rings that were
  * pushed, once each; never to `exceptToken` (the phone that answered).
  * Returns how many cancels went. Never throws.
  */
@@ -158,7 +161,7 @@ export async function cancelRingPushes(
   filter: { ringIds?: readonly string[]; callId?: string; memberId?: string; exceptToken?: string | null },
 ): Promise<number> {
   if (!deps.push.config) return 0
-  if (!filter.ringIds?.length && !(filter.callId && filter.memberId)) return 0
+  if (!filter.ringIds?.length && !filter.callId) return 0
   let settled: CancelledRing[]
   try {
     settled = await deps.cancel(filter)

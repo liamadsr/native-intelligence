@@ -25,9 +25,11 @@
 --                     and no push went for it yet): its row is written and
 --                     what the push says is returned. Else nothing.
 --   team_call_ring_push_cancel(target_rings, for_call, for_member)  service
---                     role: the cancels that may go now, for these rings
---                     (or for one member's rings in one call: their join,
---                     from LiveKit's webhook): each was pushed, is no longer
+--                     role: the cancels that may go now, for these rings,
+--                     for one member's rings in one call (their join, from
+--                     LiveKit's webhook; their removal, from the eject
+--                     outbox), or for a call's rings (for_member null: the
+--                     call ended by a trigger): each was pushed, is no longer
 --                     ringing, its time is not up, and no cancel went for it
 --                     yet. Their rows are marked and they are returned with
 --                     how they were settled.
@@ -107,7 +109,7 @@ set search_path = public, pg_temp
 as $$
 #variable_conflict use_column
 begin
-  if target_rings is null and (for_call is null or for_member is null) then
+  if target_rings is null and for_call is null then
     return;
   end if;
   return query
@@ -120,7 +122,7 @@ begin
        and r.expires_at > now()
        and (
          (target_rings is not null and p.ring_id = any (target_rings))
-         or (for_call is not null and for_member is not null and r.call_id = for_call and r.member_id = for_member)
+         or (target_rings is null and for_call is not null and r.call_id = for_call and (for_member is null or r.member_id = for_member))
        )
     returning p.ring_id, r.call_id, p.user_id, r.state;
 end;

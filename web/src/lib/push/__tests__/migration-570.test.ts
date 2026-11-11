@@ -98,6 +98,6 @@ describe('migrations 570-571', () => {
     expect(cancel).toContain('and p.cancelled_at is null')
     expect(cancel).toContain("and r.state not in ('ringing', 'busy')")
     expect(cancel).toContain('and r.expires_at > now()')
-    expect(cancel).toContain('if target_rings is null and (for_call is null or for_member is null) then return;')
+    expect(cancel).toContain('if target_rings is null and for_call is null then return;')
   })
 })

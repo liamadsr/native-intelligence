@@ -125,6 +125,7 @@ describe('a ring made → its push', () => {
       channel_kind: 'dm',
       channel_name: null,
       video: false,
+      expires_at: claimed.expires_at,
       seconds_left: 38,
     })
     expect(seen[0].body).not.toMatch(/token|livekit|wss?:/i)
@@ -195,10 +196,16 @@ describe('a ring left ringing → its cancel', () => {
     expect(seen).toHaveLength(0)
   })
 
-  it('no ring named, or the settings unset: not even the claim runs', async () => {
+  it('a call a trigger ended: its rings, found by the call alone', async () => {
+    const d = deps()
+    expect(await cancelRingPushes(d, { callId: CALL })).toBe(1)
+    expect(d.cancel).toHaveBeenCalledWith({ callId: CALL })
+  })
+
+  it('no ring or call named, or the settings unset: not even the claim runs', async () => {
     const none = deps()
     expect(await cancelRingPushes(none, { ringIds: [] })).toBe(0)
-    expect(await cancelRingPushes(none, { callId: CALL })).toBe(0)
+    expect(await cancelRingPushes(none, { memberId: 'm1' })).toBe(0)
     expect(none.cancel).not.toHaveBeenCalled()
     const off = deps({ config: null })
     expect(await cancelRingPushes(off, { ringIds: [RING] })).toBe(0)

@@ -51,6 +51,22 @@ describe('drainTeamCallEjections', () => {
     expect(by.e3.attempts).toBe(2)
   })
 
+  it('each entry done stops the phones still ringing for it: a member’s rings, or the whole call’s', async () => {
+    tables.team_call_eject[0].call_id = 'call-a'
+    tables.team_call_eject[1].call_id = 'call-b'
+    tables.team_call_eject[3].call_id = 'call-d'
+    const stopped: Array<[string, string | null]> = []
+    await drainTeamCallEjections(db, {
+      remove: async (room) => {
+        if (room === 'tc-d') throw new Error('connect ECONNREFUSED')
+      },
+      close: async () => {},
+      stopPhones: async (_svc, callId, memberId) => void stopped.push([callId, memberId]),
+    })
+    // The one LiveKit refused waits, and so do its phones' cancels (the next drain sends them).
+    expect(stopped).toEqual([['call-a', 'mem-1'], ['call-b', null]])
+  })
+
   it('the next drain takes what waited', async () => {
     const deps = { remove: async () => {}, close: async () => {} }
     await drainTeamCallEjections(db, deps)

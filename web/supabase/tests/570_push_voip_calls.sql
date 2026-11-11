@@ -228,7 +228,9 @@ begin
   perform pg_temp.t570_check('Cy joins elsewhere', 'joined', public.team_call_participant_event(room_open, m_c, 'PA_c1', true, now(), now()));
   perform pg_temp.t570_check('the join''s cancel goes, found by call and member', ring_c::text || '/accepted',
     (select ring_id::text || '/' || state from public.team_call_ring_push_cancel(null, call_open, m_c)));
-  perform pg_temp.t570_check('nothing to find with neither rings nor a call and member', '0',
+  perform pg_temp.t570_check('nothing to find with neither rings nor a call', '0',
+    (select count(*)::text from public.team_call_ring_push_cancel(null, null, m_c)));
+  perform pg_temp.t570_check('a call''s rings, all of them: none left to cancel', '0',
     (select count(*)::text from public.team_call_ring_push_cancel(null, call_open, null)));
 
   -- The caller hangs up a DM: the open ring is missed before its time, and its cancel goes.
@@ -236,7 +238,7 @@ begin
   ring_g := pg_temp.t570_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm_g, m_g))::uuid;
   perform pg_temp.t570_check('Gus''s ring is pushed', '1', (select count(*)::text from public.team_call_ring_push_claim(ring_g)));
   perform pg_temp.t570_check('the caller hangs up', '1', (select count(*)::text from public.team_call_end(call_dm_g, 'left', now()) where ring_id = ring_g));
-  perform pg_temp.t570_check('its cancel goes: missed', 'missed', (select state from public.team_call_ring_push_cancel(array[ring_g], null, null)));
+  perform pg_temp.t570_check('its cancel goes, found by the call alone (a call a trigger ended): missed', 'missed', (select state from public.team_call_ring_push_cancel(null, call_dm_g, null)));
 
   -- The fence.
   perform pg_temp.t570_run('a person cannot claim a ring''s push', 'refused', u_b,

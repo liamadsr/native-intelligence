@@ -20,9 +20,15 @@
  * sweeper after its check. An entry LiveKit can't take now stays pending
  * and is tried again (attempts counts); one for a room or person already
  * gone is done. Nothing here runs while calling is off.
+ *
+ * The outbox is also how the app learns a trigger ended a call or took
+ * someone out of one: each entry done stops the phones still ringing for
+ * it (./ring-push.ts: the call's rings, or that member's, their cancel
+ * once, when they were pushed and settled before their time).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { closeTeamCallRoom, removeFromTeamCallRoom, teamCallsConfig, type TeamCallsConfig } from './livekit'
+import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 
 export const TEAM_CALL_EJECT_EVENT = 'team-calls/eject.requested' as const
 /** The most entries one drain takes. */
@@ -31,6 +37,8 @@ export const TEAM_CALL_EJECT_BATCH = 100
 export interface EjectDeps {
   remove: (room: string, identity: string) => Promise<void>
   close: (room: string) => Promise<void>
+  /** Stop the phones still ringing for this call (one member's rings, or all when null). */
+  stopPhones?: (svc: SupabaseClient, callId: string, memberId: string | null) => Promise<unknown>
 }
 
 export function liveEjectDeps(config: TeamCallsConfig): EjectDeps {
@@ -49,18 +57,20 @@ export interface EjectResult {
 export async function drainTeamCallEjections(svc: SupabaseClient, deps: EjectDeps): Promise<EjectResult> {
   const { data, error } = await svc
     .from('team_call_eject')
-    .select('id, room, identity, attempts')
+    .select('id, call_id, room, identity, attempts')
     .is('done_at', null)
     .order('created_at', { ascending: true })
     .limit(TEAM_CALL_EJECT_BATCH)
   if (error) throw new Error(`team calls: eject outbox read failed: ${error.message}`)
   const result: EjectResult = { done: 0, failed: 0 }
-  for (const row of (data ?? []) as Array<{ id: string; room: string; identity: string | null; attempts: number | null }>) {
+  const stop = deps.stopPhones ?? ((s: SupabaseClient, callId: string, memberId: string | null) => cancelRingPushes(liveRingPushDeps(s), { callId, memberId: memberId ?? undefined }))
+  for (const row of (data ?? []) as Array<{ id: string; call_id: string | null; room: string; identity: string | null; attempts: number | null }>) {
     try {
       if (row.identity) await deps.remove(row.room, row.identity)
       else await deps.close(row.room)
       await svc.from('team_call_eject').update({ done_at: new Date().toISOString() }).eq('id', row.id)
       result.done++
+      if (row.call_id) await stop(svc, row.call_id, row.identity).catch(() => undefined)
     } catch (err) {
       result.failed++
       await svc.from('team_call_eject').update({ attempts: (row.attempts ?? 0) + 1 }).eq('id', row.id)

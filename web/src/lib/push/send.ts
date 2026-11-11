@@ -55,6 +55,18 @@ export interface PushTokenRow {
  */
 export const PUSH_TOKEN_FRESH_MS = 30 * 24 * 60 * 60_000
 
+/**
+ * Whether a read failed only because `push_token.kind` isn't there yet
+ * (code running before migration 570): Postgres's undefined column, or
+ * PostgREST's unknown column, naming it. Pure.
+ */
+export function missingKindColumn(error: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (!error) return false
+  const code = error.code ?? ''
+  const message = error.message ?? ''
+  return (code === '42703' || code === 'PGRST204' || /column/i.test(message)) && /\bkind\b/.test(message)
+}
+
 /** The installs seen recently enough to push to. Pure. */
 export function freshTokens<T extends Pick<PushTokenRow, 'last_seen_at'>>(rows: readonly T[], nowMs: number): T[] {
   return rows.filter((r) => {
@@ -92,16 +104,23 @@ export function livePushDeps(svc: SupabaseClient, env: Record<string, string | u
   return {
     config: apnsConfig(env),
     tokens: async (userId, bundleId, kind) => {
-      const { data, error } = await svc
-        .from('push_token')
-        .select('id, token, environment, last_seen_at')
-        .eq('user_id', userId)
-        .eq('kind', kind)
-        .eq('bundle_id', bundleId)
-        .is('disabled_at', null)
-        .gt('last_seen_at', new Date(Date.now() - PUSH_TOKEN_FRESH_MS).toISOString())
-        .order('last_seen_at', { ascending: false })
-        .limit(10)
+      const read = (byKind: boolean) => {
+        let q = svc.from('push_token').select('id, token, environment, last_seen_at').eq('user_id', userId)
+        if (byKind) q = q.eq('kind', kind)
+        return q
+          .eq('bundle_id', bundleId)
+          .is('disabled_at', null)
+          .gt('last_seen_at', new Date(Date.now() - PUSH_TOKEN_FRESH_MS).toISOString())
+          .order('last_seen_at', { ascending: false })
+          .limit(10)
+      }
+      let { data, error } = await read(true)
+      if (missingKindColumn(error)) {
+        // A database without 570 (it goes on first; this only keeps alerts working if it didn't):
+        // every token there is an alert token, and there are no VoIP tokens.
+        if (kind === 'voip') return []
+        ;({ data, error } = await read(false))
+      }
       if (error) throw new Error(`push_token read failed: ${error.message}`)
       return (data ?? []) as PushTokenRow[]
     },
