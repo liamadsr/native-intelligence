@@ -22,6 +22,7 @@ const h = vi.hoisted(() => ({
   db: null as unknown as SupabaseClient,
   meta: {} as Record<string, unknown>,
   delivered: [] as Array<Record<string, unknown>>,
+  notified: [] as string[],
 }))
 
 vi.mock('next/server', async (orig) => ({
@@ -39,6 +40,13 @@ vi.mock('@/lib/api-auth', () => ({
   }),
 }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => h.db }))
+vi.mock('@/lib/team-chat/notify', async (orig) => ({
+  ...(await orig<typeof import('@/lib/team-chat/notify')>()),
+  // Every message asks for its notifications, last of what runs after the answer (migration 560).
+  requestTeamChatNotify: async (id: string) => {
+    h.notified.push(id)
+  },
+}))
 vi.mock('@/lib/team-chat/agent-turn', () => ({
   deliverTeamChatMention: async (_svc: unknown, input: Record<string, unknown>) => {
     h.delivered.push(input)
@@ -79,6 +87,7 @@ beforeEach(() => {
   h.afters = []
   h.meta = { assistant_name: 'Juniper' }
   h.delivered = []
+  h.notified = []
 })
 
 describe('posting', () => {
@@ -87,7 +96,11 @@ describe('posting', () => {
     expect(res.status).toBe(201)
     const { message } = await res.json()
     expect(message).toMatchObject({ channel_id: CH, workspace_id: WS, author_kind: 'member', author_member_id: ANA, body: 'Ready for @Ben Ortiz?', mentions: [BEN], mentions_agent: false })
-    expect(h.afters).toHaveLength(0)
+    // Only its notifications, after the answer.
+    expect(h.afters).toHaveLength(1)
+    await h.afters[0]()
+    expect(h.notified).toEqual([message.id])
+    expect(h.delivered).toHaveLength(0)
   })
 
   it('a channel RLS hides (not a member, another team, someone else’s DM) is a 404, and nothing is written', async () => {
@@ -102,7 +115,8 @@ describe('posting', () => {
     const { message } = await res.json()
     expect(message.mentions_agent).toBe(true)
     expect(h.delivered).toHaveLength(0)
-    expect(h.afters).toHaveLength(1)
+    // The agent's turn, then the notifications.
+    expect(h.afters).toHaveLength(2)
     await h.afters[0]()
     expect(h.delivered).toHaveLength(1)
     expect(h.delivered[0]).toMatchObject({ userId: USER, message: { id: message.id }, channel: { id: CH, workspace_id: WS, kind: 'channel' }, dmWith: null })
@@ -124,7 +138,10 @@ describe('posting', () => {
     tables.member.push({ id: STRANGER, workspace_id: WS, display_name: 'Joseph Lee' })
     const res = await (await postMessage(req(`/api/account/team-chat/channels/${CH}/messages`, { body: '@Joseph Lee can you check the quote?', mentions: [STRANGER] }), params(CH))).json()
     expect(res.message).toMatchObject({ mentions: [STRANGER], mentions_agent: false })
-    expect(h.afters).toHaveLength(0)
+    expect(h.afters).toHaveLength(1)
+    for (const task of h.afters) await task()
+    expect(h.delivered).toHaveLength(0)
+    expect(h.notified).toEqual([res.message.id])
   })
 
   it('refuses an empty or oversized message and a bad id', async () => {

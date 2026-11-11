@@ -46,7 +46,25 @@ export const PAGE_KIND_NAMES = [
 export type PageKind = (typeof PAGE_KIND_NAMES)[number]
 
 /** The places inside a page a card can open on, or the person can open. */
-export const PAGE_PLACE_TYPES = ['team', 'sequence', 'prospect_list', 'eval_suite', 'eval_case', 'eval_run', 'package', 'agent', 'skill', 'bot', 'work_item', 'guest', 'guest_message', 'agent_link', 'agent_link_exchange'] as const
+export const PAGE_PLACE_TYPES = [
+  'team',
+  'sequence',
+  'prospect_list',
+  'eval_suite',
+  'eval_case',
+  'eval_run',
+  'package',
+  'agent',
+  'skill',
+  'bot',
+  'work_item',
+  'guest',
+  'guest_message',
+  'agent_link',
+  'agent_link_exchange',
+  'team_chat_channel',
+  'team_chat_message',
+] as const
 export type PagePlaceType = (typeof PAGE_PLACE_TYPES)[number]
 
 /** One place inside a page: a team, a sequence, a prospect list… */
@@ -171,6 +189,8 @@ export const PAGE_KINDS: Record<PageKind, PageKindDef> = {
   // Team chat (roadmap #7, migration 474): the workspace's channels and DMs.
   // Gated with Teams (always allowed): it is the team talking. The person
   // opens it (from `/`); `show` doesn't offer it, so the agent's tools don't change.
+  // `at` (never `target`, so there is one team chat card): a channel, or one
+  // message to open on (a notification, a search hit), in its channel or thread.
   team_chat: {
     label: 'Team chat',
     rows: 'channels',
@@ -236,6 +256,8 @@ export const PLACE_NOUN: Record<PagePlaceType, string> = {
   guest_message: 'message',
   agent_link: 'link',
   agent_link_exchange: 'conversation',
+  team_chat_channel: 'channel',
+  team_chat_message: 'message',
 }
 
 export function isPageKind(value: unknown): value is PageKind {

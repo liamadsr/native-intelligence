@@ -234,6 +234,48 @@ export function lastReplyLabel(iso: string | null, now: Date = new Date(), local
   return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
 }
 
+/**
+ * A page into a channel's list, kept with what is there: rows already shown
+ * (realtime, an earlier page, a send on its way) stay unless the page has
+ * them. `alone` (a page around an old message that doesn't reach the newest:
+ * the server's hasNewer) replaces the list instead, keeping only the person's
+ * own sends on their way, so no gap is ever drawn as if it were unbroken.
+ */
+export function mergePage<T extends ShownMessage & { pending?: unknown }>(prev: readonly T[] | undefined, page: readonly T[], alone = false): T[] {
+  let list = [...page]
+  for (const m of prev ?? []) {
+    if (alone && !m.pending) continue
+    if (!list.some((x) => x.id === m.id || (!!m.client_id && x.client_id === m.client_id))) list = upsertMessage(list, m)
+  }
+  return list
+}
+
+/** A channel's counts as its row and the card's header use them (migration 560). */
+export interface ChannelCounts {
+  unread: number
+  mentions: number
+  thread_unread: number
+  thread_mentions: number
+  notify?: 'all' | 'mentions' | 'muted'
+}
+
+/**
+ * What a channel's row shows: how many are unread (a muted channel: none),
+ * and how many of those mention the person (a muted channel's mentions still
+ * show). Pure.
+ */
+export function channelBadge(c: ChannelCounts): { count: number; mentions: number } {
+  const mentions = c.mentions + c.thread_mentions
+  if (c.notify === 'muted') return { count: 0, mentions }
+  return { count: c.unread + c.thread_unread, mentions }
+}
+
+/** What a channel adds to the card's header count: its unread, or a muted channel's mentions only. Pure. */
+export function channelHeaderCount(c: ChannelCounts): number {
+  const badge = channelBadge(c)
+  return c.notify === 'muted' ? badge.mentions : badge.count
+}
+
 /** The typing line for these names, or null when nobody is typing (nothing is drawn). */
 export function typingLine(names: readonly string[]): string | null {
   if (names.length === 0) return null

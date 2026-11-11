@@ -9,6 +9,10 @@
  * (the RPC is revoked from `authenticated`; its contact-visibility fence needs
  * the requester).
  *
+ * Team chat messages (migration 561) go through team_chat_search with the
+ * caller's client: the function itself reads only the channels and DMs the
+ * caller may read (team_chat_can_read), never a deleted message.
+ *
  * Titles and names match as you type (each typed word somewhere in the name);
  * capture, document and action bodies match through their `fts` columns, whole
  * words only, ranked under any title match. With nothing typed, a kind lists
@@ -415,6 +419,39 @@ async function searchAgents(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
   }))
 }
 
+// ── Team chat messages ───────────────────────────────────────────────────────
+
+interface TeamChatHitRow {
+  id: string
+  channel_id: string
+  thread_root_id: string | null
+  place: string | null
+  author_name: string | null
+  snippet: string | null
+  created_at: string
+}
+
+/** A message matches by its words only, under any record's title match (a message is seldom what's looked for first). */
+export const MESSAGE_MATCH_SCORE = BODY_MATCH_SCORE
+
+async function searchTeamChatMessages(ctx: MenuQueryContext): Promise<MenuSearchRow[]> {
+  const { supabase, workspaceId, query, limit } = ctx
+  // Nothing typed, or too little to be a word: none (team chat lists its own).
+  if (normalizeQuery(query).length < 2) return []
+  const rows = await rowsOf<TeamChatHitRow>('team_chat_message', supabase.rpc('team_chat_search', { ws: workspaceId, q: query.slice(0, 200), lim: limit }))
+  return rows.map((r) => ({
+    kind: 'team_chat_message' as const,
+    id: r.id,
+    title: (r.snippet ?? '').replace(/\s+/g, ' ').trim() || 'A message',
+    place: r.place ?? 'Team chat',
+    author: r.author_name ?? 'A teammate',
+    channelId: r.channel_id,
+    threadRootId: r.thread_root_id,
+    createdAt: r.created_at,
+    score: MESSAGE_MATCH_SCORE,
+  }))
+}
+
 export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Promise<MenuSearchRow[]>> = {
   action: searchActions,
   document: searchDocuments,
@@ -426,4 +463,5 @@ export const MENU_QUERIES: Record<MenuSearchKind, (ctx: MenuQueryContext) => Pro
   deal: searchDeals,
   flow: searchFlows,
   agent: searchAgents,
+  team_chat_message: searchTeamChatMessages,
 }

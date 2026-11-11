@@ -147,6 +147,8 @@ describe('a retried send', () => {
     expect(h.accepted).toEqual([
       { name: 'team-chat/link-preview.requested', id: expect.stringMatching(new RegExp(`^team-chat-preview-${id}-`)) },
       { name: 'team-chat/turn.requested', id: `team-chat-turn-${id}` },
+      // Its notifications, asked for once whatever the retries (migration 560).
+      { name: 'team-chat/notify.requested', id: `team-chat-notify-${id}` },
     ])
     // One conversation for the channel, one copy of the person's words in it.
     expect(tables.chat_conversations).toHaveLength(1)

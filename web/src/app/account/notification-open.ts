@@ -28,6 +28,8 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
       return { type: 'work_item', id: target.id, title: target.title }
     case 'team_board':
       return { type: 'team_board', id: target.id, title: target.title }
+    case 'team_chat':
+      return { type: 'team_chat', messageId: target.id }
     case 'action':
     case 'capture':
     case 'document':
@@ -49,5 +51,6 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
 export function openNotificationTarget(target: NotificationTarget, opts: { foreignWorkspaceId: string | null }): boolean {
   const card = notificationCardTarget(target)
   if (!card) return false
-  return openTarget(card, { from: 'notification', workspaceId: opts.foreignWorkspaceId })
+  // Team chat is one card: the one in the chat comes back, on the message.
+  return openTarget(card, { from: 'notification', workspaceId: opts.foreignWorkspaceId, ...(card.type === 'team_chat' ? { reuse: true } : {}) })
 }

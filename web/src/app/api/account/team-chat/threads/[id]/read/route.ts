@@ -1,7 +1,10 @@
 /**
  * /api/account/team-chat/threads/[id]/read (migration 556)
  *   POST → { ok: true } the thread (its root message's id) read up to now for
- *          the person. Reading a thread they aren't in changes nothing.
+ *          the person. Reading a thread they aren't in changes nothing of
+ *          the thread's; its notifications are read either way (migration
+ *          560), so an email waiting for them leaves it out
+ *          (src/lib/team-chat/email.ts).
  */
 import { NextResponse } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'

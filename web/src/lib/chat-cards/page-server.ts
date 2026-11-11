@@ -129,7 +129,9 @@ async function candidates(scope: PageScope, type: PagePlaceType, resolved: Resol
     case 'guest_message':
     case 'agent_link':
     case 'agent_link_exchange':
-      // Only ever opened by the person (inside a suite, on a bot's page, from a guest's or a link's card), never named by the agent.
+    case 'team_chat_channel':
+    case 'team_chat_message':
+      // Only ever opened by the person (inside a suite, on a bot's page, from a guest's or a link's card, team chat), never named by the agent.
       return []
   }
 }
@@ -216,7 +218,9 @@ async function checkPlace(scope: PageScope, kind: PageKind, place: PagePlace): P
     case 'guest_message':
     case 'agent_link':
     case 'agent_link_exchange':
-      // A bot's page, a work item's panel, a guest's or a link's conversation: read_card answers them before reading any place.
+    case 'team_chat_channel':
+    case 'team_chat_message':
+      // A bot's page, a work item's panel, a guest's or a link's conversation, team chat: read_card answers them before reading any place.
       return null
   }
 }

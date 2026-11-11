@@ -59,6 +59,12 @@ export interface TeamChatChannel {
   thread_unread: number
   /** How many of those mention them. */
   thread_mentions: number
+  /**
+   * How loud it is for the person (migration 560): every message notifies,
+   * only mentions (a channel's default), or nothing (muted: no unread count
+   * either, `unread` and `thread_unread` are 0; a mention still counts).
+   */
+  notify: 'all' | 'mentions' | 'muted'
 }
 
 /** A file or image on a message (migration 555), as stored and drawn. */
