@@ -163,7 +163,7 @@ describe('the mention as the person’s message', () => {
     expect(send).toHaveBeenCalledWith({
       name: TEAM_CHAT_TURN_REQUESTED_EVENT,
       id: `team-chat-turn-${message().id}`,
-      data: { conversationId, userId: USER, workspaceId: WS, workItemIds: [], reason: 'team_chat' },
+      data: { conversationId, userId: USER, workspaceId: WS, workItemIds: [], reason: 'team_chat', teamChatMessageId: message().id },
     })
     // The row reads as a channel message, and the turn's body frames it as team chat.
     expect(isChannelMessageRow({ id: call.messageId, role: 'user', metadata: call.metadata })).toBe(true)
@@ -213,24 +213,43 @@ describe('the mention as the person’s message', () => {
 })
 
 describe('where the reply goes', () => {
+  // The person's mentions: one in the channel, one in a thread under m1.
+  const IN_CHANNEL = 'c0000000-0000-4000-8000-000000000001'
+  const IN_THREAD = 'c0000000-0000-4000-8000-000000000002'
   function withThread(over: Row = {}): Record<string, Row[]> {
     const tables = seeded()
-    tables.team_chat_agent_thread.push({ channel_id: CH, user_id: USER, workspace_id: WS, conversation_id: CONV, last_mention_message_id: 'm-last', ...over })
+    tables.team_chat_agent_thread.push({ channel_id: CH, user_id: USER, workspace_id: WS, conversation_id: CONV, last_mention_message_id: IN_THREAD, ...over })
+    tables.team_chat_message.push(
+      { id: IN_CHANNEL, channel_id: CH, author_kind: 'member', author_member_id: ANA, body: '@Juniper status?', thread_root_id: null, created_at: '2026-11-08T14:10:00.000Z', deleted_at: null },
+      { id: IN_THREAD, channel_id: CH, author_kind: 'member', author_member_id: ANA, body: '@Juniper and here?', thread_root_id: 'm1', created_at: '2026-11-08T14:11:00.000Z', deleted_at: null },
+    )
     return tables
   }
-  const data = { conversationId: CONV, userId: USER, workspaceId: WS }
+  const data = { conversationId: CONV, userId: USER, workspaceId: WS, teamChatMessageId: IN_CHANNEL }
 
-  it('the thread’s channel, as the person’s agent, answering their newest mention', async () => {
-    expect(await replyTarget(db(withThread()), data)).toEqual({ channelId: CH, workspaceId: WS, memberId: ANA, agentName: 'Juniper', inReplyTo: 'm-last', threadRootId: null })
+  it('the thread’s channel, as the person’s agent, answering the turn’s own mention', async () => {
+    expect(await replyTarget(db(withThread()), data)).toEqual({ channelId: CH, workspaceId: WS, memberId: ANA, agentName: 'Juniper', inReplyTo: IN_CHANNEL, threadRootId: null })
   })
 
   it('a mention made in a thread is answered in that thread (its root, as the database keeps it)', async () => {
+    expect(await replyTarget(db(withThread()), { ...data, teamChatMessageId: IN_THREAD })).toMatchObject({ inReplyTo: IN_THREAD, threadRootId: 'm1' })
+  })
+
+  it('two overlapping turns each answer where their own mention was, whatever came after', async () => {
+    // A thread mention's turn is still running when the person mentions the agent in the channel:
+    // the intake has moved the thread row on to the channel mention by the time the first settles.
+    const tables = withThread({ last_mention_message_id: IN_CHANNEL })
+    const first = await replyTarget(db(tables), { ...data, teamChatMessageId: IN_THREAD })
+    const second = await replyTarget(db(tables), { ...data, teamChatMessageId: IN_CHANNEL })
+    expect(first).toMatchObject({ inReplyTo: IN_THREAD, threadRootId: 'm1' })
+    expect(second).toMatchObject({ inReplyTo: IN_CHANNEL, threadRootId: null })
+  })
+
+  it('a mention that isn’t the person’s own in this channel (or none) answers in the channel itself', async () => {
     const tables = withThread()
-    tables.team_chat_message.push({ id: 'm-last', channel_id: CH, author_kind: 'member', author_member_id: ANA, body: '@Juniper?', thread_root_id: 'm1', created_at: '2026-11-08T14:10:00.000Z', deleted_at: null })
-    expect((await replyTarget(db(tables), data))?.threadRootId).toBe('m1')
-    // A mention row in another channel (never the case, but never trusted): the channel itself.
-    tables.team_chat_message.at(-1)!.channel_id = 'elsewhere'
-    expect((await replyTarget(db(tables), data))?.threadRootId).toBeNull()
+    tables.team_chat_message.push({ id: 'c0000000-0000-4000-8000-000000000003', channel_id: CH, author_kind: 'member', author_member_id: BEN, thread_root_id: 'm1', body: 'x', created_at: '2026-11-08T14:12:00.000Z' })
+    expect(await replyTarget(db(tables), { ...data, teamChatMessageId: 'c0000000-0000-4000-8000-000000000003' })).toMatchObject({ inReplyTo: null, threadRootId: null })
+    expect(await replyTarget(db(tables), { conversationId: CONV, userId: USER, workspaceId: WS })).toMatchObject({ inReplyTo: null, threadRootId: null })
   })
 
   it('the default name when they never named their agent', async () => {

@@ -180,7 +180,7 @@ describe('threads', () => {
 })
 
 describe('retry-safe sends', () => {
-  it('the same client id twice: one row, the second answer is the first’s row (replayed), and the agent is asked once', async () => {
+  it('the same client id twice: one row, the second answer is the first’s row (replayed), and the intake is asked for that same message (its turn’s id is the message’s: replay.test.ts)', async () => {
     const first = await post({ body: '@Juniper status?', clientId: SEND })
     expect(first.status).toBe(201)
     const sent = (await first.json()).message
@@ -190,7 +190,8 @@ describe('retry-safe sends', () => {
     const replay = await again.json()
     expect(replay).toMatchObject({ replayed: true, message: { id: sent.id } })
     expect(tables.team_chat_message.filter((m) => m.client_id === SEND)).toHaveLength(1)
-    expect(h.afters).toHaveLength(1)
+    for (const task of h.afters) await task()
+    expect(h.delivered.map((d) => (d.message as { id: string }).id)).toEqual([sent.id, sent.id])
     expect((await post({ body: 'x', clientId: 'nope' })).status).toBe(400)
   })
 })

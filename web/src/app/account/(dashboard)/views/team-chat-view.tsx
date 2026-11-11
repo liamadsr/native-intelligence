@@ -53,11 +53,13 @@ import {
   failPending,
   groupReactions,
   hasMention,
+  linkRuns,
   mentionSegments,
   mentionsStillIn,
   messageKey,
   messageTime,
   pendingMessageId,
+  replyCountLabel,
   typingLine,
   upsertMessage,
 } from '@/lib/team-chat/compose'
@@ -1257,7 +1259,8 @@ function ThreadPane({
           <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>
         ) : replies.length > 0 ? (
           <>
-            <p className="mb-1 mt-3 px-2 text-xs font-medium text-muted-foreground">{replies.filter((m) => !m.pending).length === 1 ? '1 reply' : `${replies.filter((m) => !m.pending).length} replies`}</p>
+            {/* As the summary counts them: the replies stored and not deleted. */}
+            <p className="mb-1 mt-3 px-2 text-xs font-medium text-muted-foreground">{replyCountLabel(replies.filter((m) => !m.pending && !m.deleted_at).length)}</p>
             <ul>{replies.map((m, i) => row(m, continuesGroup(replies[i - 1], m)))}</ul>
           </>
         ) : null}
@@ -1294,6 +1297,25 @@ function recordMentionFor(message: TeamChatMessage, text: string): TeamChatRecor
   const label = text.replace(/^@/, '').toLowerCase()
   const found = (message.record_mentions ?? []).find((r) => r.label.toLowerCase() === label)
   return found && recordMentionTarget(found) ? found : null
+}
+
+/** Plain words with their http(s) links drawn as links (a new tab; no other scheme is ever a link). */
+function LinkedText({ text }: { text: string }) {
+  const runs = linkRuns(text)
+  if (runs.length === 1 && !runs[0].href) return <span>{text}</span>
+  return (
+    <span>
+      {runs.map((run, i) =>
+        run.href ? (
+          <a key={i} href={run.href} target="_blank" rel="noopener noreferrer" data-team-chat-link="" className="text-primary underline [overflow-wrap:anywhere] underline-offset-2 hover:no-underline">
+            {run.text}
+          </a>
+        ) : (
+          <span key={i}>{run.text}</span>
+        ),
+      )}
+    </span>
+  )
 }
 
 function openRecordMention(r: TeamChatRecordMention) {
@@ -1383,7 +1405,7 @@ function MessageRow({
             {message.body && (
               <p className={cn('whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground', pending === 'sending' && 'text-foreground/70')}>
                 {mentionSegments(message.body, [...labels, ...(message.record_mentions ?? []).map((r) => r.label)]).map((seg, i) => {
-                  if (!seg.mention) return <span key={i}>{seg.text}</span>
+                  if (!seg.mention) return <LinkedText key={i} text={seg.text} />
                   // A record's mention opens its card; a person's is a highlight.
                   const record = recordMentionFor(message, seg.text)
                   // Right-click: the record's own actions (the one entity actions menu).
@@ -1623,7 +1645,19 @@ function Composer({
     setText('')
     setPicked([])
     setPickedRecords([])
+    // At once, not at the next render: the files sent are the message's now, never left to clean up.
+    latest.current.files = files.filter((f) => f.status === 'error')
     setFiles((prev) => prev.filter((f) => f.status === 'error'))
+  }, [])
+
+  // Leaving the box (another channel, the thread closed): uploads never sent go from storage.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      for (const f of latest.current.files) if (f.attachment) void discardTeamChatFile(f.attachment.path)
+    }
   }, [])
 
   // The box's words, at most a message's worth (the server refuses more).
@@ -1645,7 +1679,11 @@ function Composer({
       }
       setFiles((prev) => [...prev, { id, file, status: 'uploading' }])
       uploadTeamChatFile(latest.current.channelId, file).then(
-        (attachment) => setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: 'ready', attachment, storagePath: attachment.path } : f))),
+        (attachment) => {
+          // Done after the box was left (or the file taken off meanwhile): nobody will send it.
+          if (!mounted.current || !latest.current.files.some((f) => f.id === id)) return void discardTeamChatFile(attachment.path)
+          setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: 'ready', attachment, storagePath: attachment.path } : f)))
+        },
         (err: unknown) => setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: 'error', error: err instanceof Error ? err.message : 'Upload failed' } : f))),
       )
     }

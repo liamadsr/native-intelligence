@@ -18,6 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { inngest } from '@/lib/inngest/client'
 import { checkPublicUrl, fetchPublicPage, PublicFetchError, type PublicFetchOptions, type PublicPage } from '@/lib/link-preview/safe-fetch'
 import { decodeHtml, readPagePreview } from '@/lib/link-preview/parse'
+import { trimLinkEnd } from './compose'
 import type { TeamChatLinkPreview, TeamChatMessage } from './types'
 
 export const TEAM_CHAT_LINK_PREVIEW_EVENT = 'team-chat/link-preview.requested' as const
@@ -31,16 +32,8 @@ const MAX_URL_CHARS = 2048
  */
 export function firstLink(body: string): string | null {
   for (const match of body.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
-    let url = match[0]
     // Sentence punctuation and unbalanced closing brackets at the end belong to the sentence.
-    const count = (ch: string) => url.split(ch).length - 1
-    for (;;) {
-      const last = url.at(-1) ?? ''
-      const open = ({ ')': '(', ']': '[', '}': '{' } as Record<string, string>)[last]
-      if ('.,;:!?'.includes(last) && last) url = url.slice(0, -1)
-      else if (open && count(last) > count(open)) url = url.slice(0, -1)
-      else break
-    }
+    const url = trimLinkEnd(match[0])
     if (url.length > MAX_URL_CHARS) continue
     try {
       checkPublicUrl(url)

@@ -9,7 +9,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { formatFileSize, isInlineImage, isOwnTeamChatFilePath, teamChatFilePath, tidyAttachments, validateTeamChatFile, TEAM_CHAT_FILE_MAX_BYTES, TEAM_CHAT_MAX_FILES } from '../files'
 import { isReactionEmoji } from '../types'
-import { applyReaction, failPending, groupReactions, lastReplyLabel, messageKey, pendingMessageId, replyCountLabel, typingLine, upsertMessage, type ShownMessage } from '../compose'
+import { applyReaction, failPending, groupReactions, lastReplyLabel, linkRuns, messageKey, pendingMessageId, replyCountLabel, trimLinkEnd, typingLine, upsertMessage, type ShownMessage } from '../compose'
+import { parseHomeTurnRequested } from '@/lib/chat/home-turn'
 
 vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({}) }))
 import { parseTypingSignal, typingTopic } from '../typing'
@@ -126,6 +127,26 @@ describe('labels', () => {
     expect(typingLine(['Rosa Lind'])).toBe('Rosa Lind is typing…')
     expect(typingLine(['Rosa Lind', 'Ben Ortiz'])).toBe('Rosa Lind and Ben Ortiz are typing…')
     expect(typingLine(['a', 'b', 'c'])).toBe('Several people are typing…')
+  })
+})
+
+describe('links in a message’s words', () => {
+  it('http(s) links become links, without the sentence’s punctuation; nothing else does', () => {
+    expect(linkRuns('see https://news.example.test/a.')).toEqual([{ text: 'see ' }, { text: 'https://news.example.test/a', href: 'https://news.example.test/a' }, { text: '.' }])
+    expect(linkRuns('(https://x.example.test/a_(b))')).toEqual([{ text: '(' }, { text: 'https://x.example.test/a_(b)', href: 'https://x.example.test/a_(b)' }, { text: ')' }])
+    for (const plain of ['javascript:alert(1)', 'data:text/html,hi', 'ftp://x.example.test', 'mailto:a@x.test', 'no links']) {
+      expect(linkRuns(plain).every((r) => !r.href), plain).toBe(true)
+    }
+    expect(trimLinkEnd('https://x.example.test/?q=1!')).toBe('https://x.example.test/?q=1')
+  })
+})
+
+describe('a team chat turn carries its own mention', () => {
+  const base = { conversationId: CH, userId: ME, workspaceId: OTHER, workItemIds: [] }
+  it('kept for a team chat turn, refused on any other or when not an id', () => {
+    expect(parseHomeTurnRequested({ ...base, reason: 'team_chat', teamChatMessageId: F1 })?.teamChatMessageId).toBe(F1)
+    expect(parseHomeTurnRequested({ ...base, reason: 'slack', teamChatMessageId: F1 })).toBeNull()
+    expect(parseHomeTurnRequested({ ...base, reason: 'team_chat', teamChatMessageId: 'nope' })).toBeNull()
   })
 })
 

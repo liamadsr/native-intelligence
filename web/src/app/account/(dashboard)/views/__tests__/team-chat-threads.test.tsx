@@ -76,7 +76,7 @@ const msg = (over: Record<string, unknown>) => ({
   ...over,
 })
 const ROOT = msg({ id: 'root-1', body: 'Shall we ship on Friday?' })
-const PLAIN = msg({ id: 'plain-1', author_member_id: 'm-ben', body: 'Lunch is here.', created_at: '2026-11-09T10:30:00Z' })
+const PLAIN = msg({ id: 'plain-1', author_member_id: 'm-ben', body: 'Lunch is here: https://menu.example.test/today. Not javascript:alert(1)', created_at: '2026-11-09T10:30:00Z' })
 const REPLY = msg({ id: 'reply-1', author_member_id: 'm-ben', thread_root_id: 'root-1', body: 'Friday works.', created_at: '2026-11-09T10:05:00Z' })
 
 let requests: Array<{ url: string; method: string; body: unknown }> = []
@@ -204,6 +204,17 @@ describe('threads', () => {
     // The summary follows the live thread row.
     act(() => rt.handlers.get('team_chat_thread')!({ eventType: 'UPDATE', new: { root_id: 'root-1', channel_id: 'c-general', reply_count: 4, last_reply_at: '2026-11-09T10:45:00Z', participant_ids: ['m-rosa', 'm-me', 'm-ben'] } }))
     expect(row('root-1').querySelector('[data-team-chat-thread-bar]')!.textContent).toContain('4 replies')
+  })
+})
+
+describe('links', () => {
+  it('an http(s) link in the words is a link (a new tab, no opener, no referrer); no other scheme is', async () => {
+    await render()
+    const links = [...row('plain-1').querySelectorAll<HTMLAnchorElement>('[data-team-chat-link]')]
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['https://menu.example.test/today'])
+    expect(links[0].getAttribute('target')).toBe('_blank')
+    expect(links[0].getAttribute('rel')).toBe('noopener noreferrer')
+    expect(row('plain-1').textContent).toContain('today. Not javascript:alert(1)')
   })
 })
 

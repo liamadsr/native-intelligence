@@ -66,6 +66,53 @@ export function mentionSegments(body: string, labels: readonly string[]): TextSe
   return out
 }
 
+/**
+ * A link as typed, without what the sentence put after it: trailing
+ * punctuation, and a closing bracket the link didn't open ("(see
+ * https://x.test/a_(b))" keeps its own pair).
+ */
+export function trimLinkEnd(url: string): string {
+  let out = url
+  const count = (ch: string) => out.split(ch).length - 1
+  for (;;) {
+    const last = out.at(-1) ?? ''
+    const open = ({ ')': '(', ']': '[', '}': '{' } as Record<string, string>)[last]
+    if (last && '.,;:!?'.includes(last)) out = out.slice(0, -1)
+    else if (open && count(last) > count(open)) out = out.slice(0, -1)
+    else break
+  }
+  return out
+}
+
+export interface TextRun {
+  text: string
+  /** Set for an http(s) link: where it goes (never another scheme). */
+  href?: string
+}
+
+/** Plain words cut into text and http(s) links, for drawing links as links. */
+export function linkRuns(text: string): TextRun[] {
+  const out: TextRun[] = []
+  let last = 0
+  for (const m of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+    const at = m.index ?? 0
+    const url = trimLinkEnd(m[0])
+    let href: string | null = null
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') href = parsed.href
+    } catch {
+      href = null
+    }
+    if (!href) continue
+    if (at > last) out.push({ text: text.slice(last, at) })
+    out.push({ text: url, href })
+    last = at + url.length
+  }
+  if (last < text.length) out.push({ text: text.slice(last) })
+  return out
+}
+
 /** A message's time, as the list shows it: "3:04 PM". */
 export function messageTime(iso: string, locale?: string): string {
   const d = new Date(iso)

@@ -28,7 +28,9 @@
  *        against storage (its size is storage's, never the client's); with
  *        files, the words may be empty. `clientId`: the uuid the page minted
  *        for this send. A retry with the same one answers 200 with the
- *        message the first try made (`replayed`), and nothing runs twice.
+ *        message the first try made (`replayed`), and finishes what that try
+ *        may not have (its mention edges, its shares, the agent's turn, the
+ *        preview), none of it twice.
  *        When the message calls on the person's own agent
  *        (`mentionsAgent`, or "@<their assistant name>" in the words), its
  *        turn is requested after the answer (src/lib/team-chat/agent-turn.ts):
@@ -138,20 +140,26 @@ export async function POST(request: NextRequest, { params }: Params) {
       attachments,
       clientId: clientId as string | null,
     })
-    // A retry of a send that went through: its message, and nothing done twice.
-    if (replayed) return NextResponse.json({ message, shared: [], shared_with: null, replayed: true })
-    if (recordMentions.length > 0) {
-      await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: recordMentions })
+    // Everything after the insert runs again on a retry of a send that went
+    // through (`replayed`): the first try may have stored the message and
+    // failed before these. Each is keyed by the message and safe to run twice:
+    // the mention edges are synced to the stored list; a record the channel
+    // already has a grant for isn't granted again; the agent's turn and the
+    // preview are events whose ids are the message's, so a second send of
+    // either is dropped. They read what was stored, never this request's body.
+    const stored = message.record_mentions ?? []
+    if (stored.length > 0) {
+      await syncMessageMentions(auth.supabase, { ...scope, messageId: message.id, memberId: auth.member.id, records: stored })
     }
     const { shared, shared_with } = await shareMentionedRecords(auth.supabase, {
       ...scope,
       memberId: auth.member.id,
       channel,
-      records: recordMentions,
+      records: stored,
       source: input.share === true ? 'channel_share' : 'mention',
     })
     if (firstLink(message.body)) after(() => requestLinkPreview(message))
-    if (mentionsAgent) {
+    if (message.mentions_agent) {
       const userId = auth.user.id
       const memberId = auth.member.id
       after(async () => {
@@ -170,6 +178,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
       })
     }
+    if (replayed) return NextResponse.json({ message, shared, shared_with, replayed: true })
     return NextResponse.json({ message, shared, shared_with }, { status: 201 })
   } catch (err) {
     return teamChatErrorResponse(err, 'message post')

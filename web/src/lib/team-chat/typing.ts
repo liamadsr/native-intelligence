@@ -12,7 +12,10 @@
  * TYPING_SHOW_MS after the last word of theirs, then dropped by one timer (no
  * frame loop, no interval). The payload is a member id and the thread, never
  * a name or a word: the page draws the name from its own member list, and
- * ignores its own id.
+ * ignores its own id. Not enforced: Realtime tells a receiver nothing about
+ * who sent a broadcast, and 559's policies are checked when the topic is
+ * joined, not per message, so a reader of the channel could name another
+ * member as typing (no words ride with it).
  *
  * One topic is joined once per page, however many views show the channel (a
  * card and the full page): each joins it here and leaves it, and the last to

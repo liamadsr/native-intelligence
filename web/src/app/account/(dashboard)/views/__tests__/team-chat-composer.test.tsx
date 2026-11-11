@@ -33,6 +33,7 @@ vi.mock('@/lib/cached-fetch', () => ({
 const supa = vi.hoisted(() => ({
   handlers: new Map<string, (payload: unknown) => void>(),
   uploads: [] as Array<{ path: string; type: string }>,
+  removed: [] as string[],
 }))
 vi.mock('@/lib/supabase/client', () => ({
   createClient: () => {
@@ -49,7 +50,10 @@ vi.mock('@/lib/supabase/client', () => ({
         supa.uploads.push({ path, type: opts.contentType })
         return { data: { path }, error: null }
       },
-      remove: async () => ({ data: [], error: null }),
+      remove: async (paths: string[]) => {
+        supa.removed.push(...paths)
+        return { data: [], error: null }
+      },
       createSignedUrls: async (paths: string[]) => ({ data: paths.map((path) => ({ path, signedUrl: `https://files.test/${path}`, error: null })), error: null }),
     }
     return {
@@ -108,6 +112,7 @@ beforeEach(() => {
   holdPost = null
   supa.handlers.clear()
   supa.uploads = []
+  supa.removed = []
   channels = [channel()]
   fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/api/account/team-chat/channels') return new Response(JSON.stringify({ channels, threads: [], memberId: 'm-me' }))
@@ -366,6 +371,24 @@ describe("team chat's box is the main composer", () => {
     const sent = posts[0] as unknown as { body: string; attachments: Array<Record<string, unknown>> }
     expect(sent.body).toBe('')
     expect(sent.attachments).toEqual([{ path: supa.uploads[0].path, name: 'Quote.pdf', size: 1200, type: 'application/pdf' }])
+  })
+
+  it('an upload never sent is taken back when the box goes (another channel, the thread closed); one sent stays', async () => {
+    await render()
+    const input = () => container.querySelector<HTMLInputElement>('[data-team-chat-composer] input[type="file"]')!
+    const attach = async (name: string) => {
+      Object.defineProperty(input(), 'files', { configurable: true, value: [new File([new Uint8Array(10)], name, { type: 'application/pdf' })] })
+      act(() => input().dispatchEvent(new Event('change', { bubbles: true })))
+      await settle()
+    }
+    await attach('sent.pdf')
+    press('Enter')
+    await settle()
+    await attach('left.pdf')
+    expect(supa.uploads).toHaveLength(2)
+    await act(async () => root.render(<div />))
+    await settle()
+    expect(supa.removed).toEqual([supa.uploads[1].path])
   })
 
   it('dictation, where the desktop has it: the mic in the box, and no voice mode (a channel is no conversation with the agent)', async () => {
