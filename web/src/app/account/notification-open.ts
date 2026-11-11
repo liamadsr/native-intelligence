@@ -30,6 +30,9 @@ export function notificationCardTarget(target: NotificationTarget): OpenTarget |
       return { type: 'team_board', id: target.id, title: target.title }
     case 'team_chat':
       return { type: 'team_chat', messageId: target.id }
+    // A conversation itself (a meeting's guest waiting, 572): team chat on it.
+    case 'team_chat_channel':
+      return { type: 'team_chat', channelId: target.id }
     case 'action':
     case 'capture':
     case 'document':

@@ -52,6 +52,9 @@ import { isDesktopApp } from '@/lib/platform'
 import { EMPTY_RINGS, ringReducer } from '@/lib/team-calls/ring-state'
 import { TEAM_CALL_RING_COLUMNS, teamCallPlace, type TeamCallRing } from '@/lib/team-calls/types'
 import { IncomingCalls } from './incoming-calls'
+import { openTarget } from '@/lib/chat-cards/open-card'
+import { fetchMeetingOf, requestDecide, requestRemoveGuest } from '@/lib/meeting-links/client'
+import { MEETING_GUEST_COLUMNS, upsertGuest, type MeetingGuest } from '@/lib/meeting-links/shape'
 
 const CallPanel = lazyComponent(() => import('./call-panel').then((m) => m.CallPanel))
 
@@ -60,7 +63,7 @@ export interface ActiveTeamCall {
   callId: string
   channelId: string
   workspaceId: string
-  channelKind: 'channel' | 'dm'
+  channelKind: 'channel' | 'dm' | 'meeting'
   label: string
   session: TeamCallSession
   /** The person's member id in the call's workspace. */
@@ -69,6 +72,8 @@ export interface ActiveTeamCall {
   features: TeamCallFeatures
   /** Its notes and recording, live. */
   notes: TeamCallNotesView
+  /** A meeting's guests waiting or let in (phase 7), live; empty for any other call. */
+  guests: MeetingGuest[]
 }
 
 export interface TeamCallsApi {
@@ -80,9 +85,9 @@ export interface TeamCallsApi {
   minimized: boolean
   setMinimized: (minimized: boolean) => void
   /** Start a call in a conversation (or join the one live there). */
-  startCall: (channel: { id: string; kind: 'channel' | 'dm'; label: string }) => Promise<void>
+  startCall: (channel: { id: string; kind: 'channel' | 'dm' | 'meeting'; label: string }) => Promise<void>
   /** Join a live call (a call's message's Join). */
-  joinCall: (call: { callId: string; channelKind: 'channel' | 'dm'; label: string }) => Promise<void>
+  joinCall: (call: { callId: string; channelKind: 'channel' | 'dm' | 'meeting'; label: string }) => Promise<void>
   /** Ring people into the call this page is in. */
   ring: (memberIds: string[], names?: string[]) => Promise<void>
   leave: () => Promise<void>
@@ -90,6 +95,10 @@ export interface TeamCallsApi {
   setNotes: (on: boolean) => Promise<void>
   /** Start or stop recording the active call. */
   setRecording: (action: 'start' | 'stop') => Promise<void>
+  /** A meeting's waiting guest let into the active call, or declined. */
+  decideGuest: (guestId: string, admit: boolean) => Promise<void>
+  /** A meeting's guest removed, for good. */
+  removeGuest: (guestId: string) => Promise<void>
 }
 
 const OFF: TeamCallsApi = {
@@ -97,6 +106,8 @@ const OFF: TeamCallsApi = {
   features: NO_CALL_FEATURES,
   setNotes: async () => {},
   setRecording: async () => {},
+  decideGuest: async () => {},
+  removeGuest: async () => {},
   active: null,
   minimized: false,
   setMinimized: () => {},
@@ -227,6 +238,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       memberId: call.memberId,
       features: call.features,
       notes: call.notes,
+      guests: [],
     })
     setMinimized(false)
     session.setNotesMode(call.notes.notes)
@@ -275,6 +287,43 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       void supabase.removeChannel(channel)
     }
   }, [activeCallId])
+
+  // A meeting's lobby (phase 7): its guests waiting or let in, as the members in its call see them
+  // (573's meeting_guest, readable by the conversation's members). Read once more when subscribed.
+  const meetingChannel = active?.channelKind === 'meeting' ? active.channelId : null
+  useEffect(() => {
+    if (!meetingChannel || !activeCallId) return
+    const supabase = createClient()
+    const take = (rows: MeetingGuest[]) =>
+      setActive((a) => {
+        if (!a || a.callId !== activeCallId) return a
+        let guests = a.guests
+        for (const row of rows) guests = upsertGuest(guests, row)
+        return { ...a, guests: guests.filter((g) => g.state === 'waiting' || (g.state === 'admitted' && g.call_id === activeCallId)) }
+      })
+    const channel = supabase
+      .channel(`meeting-guests:${meetingChannel}:${Math.random().toString(36).slice(2, 10)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meeting_guest', filter: `channel_id=eq.${meetingChannel}` }, (payload) => {
+        const row = payload.new as MeetingGuest | undefined
+        if (row?.id) take([row])
+      })
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        void supabase
+          .from('meeting_guest')
+          .select(MEETING_GUEST_COLUMNS)
+          .eq('channel_id', meetingChannel)
+          .in('state', ['waiting', 'admitted'])
+          .order('requested_at', { ascending: true })
+          .limit(100)
+          .then(({ data }) => {
+            if (data) take(data as MeetingGuest[])
+          })
+      })
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [meetingChannel, activeCallId])
 
   /**
    * One call action at a time, in order: a second one waits for the first,
@@ -415,6 +464,34 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     if (action === 'start') setActive((a) => (a && a.callId === cur.callId && a.notes.recording !== 'on' ? { ...a, notes: { ...a.notes, recording: 'starting', recording_by: a.memberId } } : a))
   }, [])
 
+  const decideGuest = useCallback<TeamCallsApi['decideGuest']>(async (guestId, admit) => {
+    const res = await requestDecide(guestId, admit)
+    if (!res.ok) toast(res.line)
+    else if (admit && res.state !== 'admitted') toast(res.state === 'declined' ? 'Someone else declined them.' : 'They’re no longer waiting.')
+  }, [])
+
+  const removeGuest = useCallback<TeamCallsApi['removeGuest']>(async (guestId) => {
+    const res = await requestRemoveGuest(guestId)
+    if (!res.ok) toast(res.line)
+  }, [])
+
+  // A meeting link opened by a member (src/app/m/[token]/page.tsx sends them to /account?meeting=<conversation>):
+  // team chat on the meeting's conversation, and into its call. Once, then the address is clean.
+  const meetingAsked = useRef(false)
+  useEffect(() => {
+    if (!available || meetingAsked.current || typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const channelId = params.get('meeting')
+    // Switching workspace first: the page reloads with `meeting` kept (dashboard-shell.tsx).
+    if (!channelId || !/^[0-9a-f-]{36}$/i.test(channelId) || params.get('switch_to')) return
+    meetingAsked.current = true
+    params.delete('meeting')
+    const rest = params.toString()
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`)
+    openTarget({ type: 'team_chat', channelId }, { from: 'meeting-link', reuse: true })
+    void fetchMeetingOf(channelId).then((m) => startCall({ id: channelId, kind: 'meeting', label: m?.title ?? 'Meeting' }))
+  }, [available, startCall])
+
   // Signed out (or another person signed in): out of the call. The shell going away: out too.
   useEffect(() => {
     if (!userId) void activeRef.current?.session.leave()
@@ -432,8 +509,8 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   }, [active])
 
   const api = useMemo<TeamCallsApi>(
-    () => (available ? { available, features, active, minimized, setMinimized, startCall, joinCall, ring, leave, setNotes, setRecording } : OFF),
-    [available, features, active, minimized, startCall, joinCall, ring, leave, setNotes, setRecording],
+    () => (available ? { available, features, active, minimized, setMinimized, startCall, joinCall, ring, leave, setNotes, setRecording, decideGuest, removeGuest } : OFF),
+    [available, features, active, minimized, startCall, joinCall, ring, leave, setNotes, setRecording, decideGuest, removeGuest],
   )
 
   return (
