@@ -59,18 +59,22 @@ const PROJECT_COLUMNS = new Set([
 /**
  * The in-memory client returns whole rows whatever a select names. For
  * projects it answers as Postgres does: a select naming a column the table
- * lacks is an error, which is how every cloud coding run failed in production
- * (`column projects.team_id does not exist`) while these tests passed.
+ * lacks is an error. That is how a run started from chat, from a work card or
+ * for a website change failed in production (`column projects.team_id does
+ * not exist`) while these tests passed. It reads plain column lists (an
+ * `alias:column` too); an embedded relation is left to the client.
  */
 function refuseUnknownProjectColumns(target: FakeDb): void {
   const from = target.from
   target.from = (table: string) => {
     const chain = from(table) as Record<string, unknown>
     if (table !== 'projects') return chain
-    const select = chain.select as (projection?: string) => unknown
-    chain.select = (projection?: string) => {
-      const unknown = (projection ?? '*').split(',').map((c) => c.trim()).find((c) => c !== '*' && !PROJECT_COLUMNS.has(c))
-      if (!unknown) return select(projection)
+    const select = chain.select as (projection?: string, ...rest: unknown[]) => unknown
+    chain.select = (projection?: string, ...rest: unknown[]) => {
+      const named = projection ?? '*'
+      const columns = named.includes('(') ? [] : named.split(',').map((c) => c.trim().split(':').pop() ?? '')
+      const unknown = columns.find((c) => c !== '*' && !PROJECT_COLUMNS.has(c))
+      if (!unknown) return select(projection, ...rest)
       const answer = { data: null, error: { message: `column projects.${unknown} does not exist` } }
       const refusedQuery: unknown = new Proxy({}, {
         get: (_t, key) => {
