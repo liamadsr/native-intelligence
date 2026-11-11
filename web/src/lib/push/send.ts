@@ -14,11 +14,29 @@
  * team_chat_badge, their team chat unread in every workspace) and the ids
  * the app opens it at.
  *
+ * An install has two tokens (migration 570): its alert token, for the
+ * notifications above, and its VoIP token, for a team call's ring and its
+ * cancel ({@link voipToPerson}, src/lib/team-calls/ring-push.ts). Each read
+ * is of one kind: an alert never goes to a VoIP token, a ring never to an
+ * alert token.
+ *
  * Privacy: logs carry ids, counts and Apple's reasons, never a token or a
  * word.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { apnsConfig, createApnsSender, type ApnsConfig, type ApnsEnvironment, type ApnsNotification, type ApnsResult, type ApnsSender } from './apns'
+import {
+  apnsConfig,
+  createApnsSender,
+  type ApnsConfig,
+  type ApnsEnvironment,
+  type ApnsNotification,
+  type ApnsResult,
+  type ApnsSender,
+  type ApnsVoipPush,
+} from './apns'
+
+/** Which of an install's tokens (migration 570). */
+export type PushTokenKind = 'alert' | 'voip'
 
 export interface PushTokenRow {
   id: string
@@ -60,23 +78,25 @@ function senderFor(config: ApnsConfig): ApnsSender {
 export interface PushDeps {
   config: ApnsConfig | null
   now?: () => number
-  /** The person's installs of this app that aren't disabled, newest seen first (freshness is checked by {@link freshTokens}). */
-  tokens(userId: string, bundleId: string): Promise<PushTokenRow[]>
+  /** The person's installs of this app that aren't disabled, of one kind, newest seen first (freshness is checked by {@link freshTokens}). */
+  tokens(userId: string, bundleId: string, kind: PushTokenKind): Promise<PushTokenRow[]>
   /** Stop using an install Apple said is gone. */
   disable(tokenId: string, reason: string): Promise<void>
   badge(userId: string): Promise<number | null>
   send(config: ApnsConfig, input: { token: string; environment: ApnsEnvironment; notification: ApnsNotification }): Promise<ApnsResult>
+  sendVoip(config: ApnsConfig, input: { token: string; environment: ApnsEnvironment; push: ApnsVoipPush }): Promise<ApnsResult>
 }
 
 /** The real store and Apple, on the service client. */
 export function livePushDeps(svc: SupabaseClient, env: Record<string, string | undefined> = process.env): PushDeps {
   return {
     config: apnsConfig(env),
-    tokens: async (userId, bundleId) => {
+    tokens: async (userId, bundleId, kind) => {
       const { data, error } = await svc
         .from('push_token')
         .select('id, token, environment, last_seen_at')
         .eq('user_id', userId)
+        .eq('kind', kind)
         .eq('bundle_id', bundleId)
         .is('disabled_at', null)
         .gt('last_seen_at', new Date(Date.now() - PUSH_TOKEN_FRESH_MS).toISOString())
@@ -96,12 +116,13 @@ export function livePushDeps(svc: SupabaseClient, env: Record<string, string | u
       return Number.isFinite(n) ? n : null
     },
     send: (config, input) => senderFor(config).send(input),
+    sendVoip: (config, input) => senderFor(config).sendVoip(input),
   }
 }
 
-/** The person's installs that may be pushed to now: not disabled, seen recently. Throws on a failed read. */
-async function liveInstalls(deps: PushDeps, userId: string, config: ApnsConfig): Promise<PushTokenRow[]> {
-  return freshTokens(await deps.tokens(userId, config.bundleId), (deps.now ?? Date.now)())
+/** The person's installs that may be pushed to now, of one kind: not disabled, seen recently. Throws on a failed read. */
+async function liveInstalls(deps: PushDeps, userId: string, config: ApnsConfig, kind: PushTokenKind = 'alert'): Promise<PushTokenRow[]> {
+  return freshTokens(await deps.tokens(userId, config.bundleId, kind), (deps.now ?? Date.now)())
 }
 
 /** Whether a person can be pushed right now: push is on and they have a live, recently seen install. Never throws (false). */
@@ -158,5 +179,45 @@ export async function pushToPerson(deps: PushDeps, input: { userId: string; noti
     }
   }
   console.info(`[push] user=${input.userId} installs=${tokens.length} pushes=${input.notifications.length} sent=${sent}${reasons.length ? ` refused=${reasons.join(',')}` : ''}`)
+  return sent > 0 ? 'sent' : 'failed'
+}
+
+/**
+ * One VoIP push (a team call's ring, or its cancel) to every live VoIP
+ * install of the person's but the ones named in `exceptTokens` (the phone
+ * that answered: it is in the call, and needs no cancel). An install Apple
+ * says is gone is disabled. 'sent' when at least one took it. No badge, no
+ * words: the phone draws the call itself. Never throws.
+ */
+export async function voipToPerson(
+  deps: PushDeps,
+  input: { userId: string; push: ApnsVoipPush; exceptTokens?: readonly string[] },
+): Promise<PushOutcome> {
+  const config = deps.config
+  if (!config) return 'off'
+  let tokens: PushTokenRow[]
+  try {
+    tokens = await liveInstalls(deps, input.userId, config, 'voip')
+  } catch (err) {
+    console.warn(`[push] user=${input.userId} voip targets not read:`, err instanceof Error ? err.message : 'unknown')
+    return 'failed'
+  }
+  const except = new Set((input.exceptTokens ?? []).map((t) => t.toLowerCase()))
+  const targets = tokens.filter((t) => !except.has(t.token.toLowerCase()))
+  if (targets.length === 0) return 'no_target'
+  let sent = 0
+  const reasons: string[] = []
+  for (const row of targets) {
+    const result = await deps.sendVoip(config, { token: row.token, environment: row.environment, push: input.push }).catch(
+      (err): ApnsResult => ({ ok: false, gone: false, status: 0, reason: err instanceof Error ? err.message : 'unknown' }),
+    )
+    if (result.ok) {
+      sent++
+      continue
+    }
+    reasons.push(`${result.status}:${result.reason}`)
+    if (result.gone) await deps.disable(row.id, result.reason)
+  }
+  console.info(`[push] user=${input.userId} voip installs=${targets.length} sent=${sent}${reasons.length ? ` refused=${reasons.join(',')}` : ''}`)
   return sent > 0 ? 'sent' : 'failed'
 }

@@ -18,9 +18,17 @@
  * One HTTP/2 connection per host (production api.push.apple.com, sandbox
  * api.sandbox.push.apple.com: each install's token says which), opened on
  * first use, kept while it is used, closed when idle. A request is
- * POST /3/device/<token> with the push type (alert), the topic, a priority,
- * an expiration and a collapse id (a conversation's pushes replace each
- * other on the lock screen).
+ * POST /3/device/<token> with the push type, the topic, a priority, an
+ * expiration and, for an alert, a collapse id (a conversation's pushes
+ * replace each other on the lock screen). Two kinds:
+ *
+ *   alert  a notification (team chat, the agent): topic the bundle id, a
+ *          day to live (the phone may be off).
+ *   voip   a team call's ring, or its cancel (PushKit, an install's VoIP
+ *          token, migration 570): topic <bundle id>.voip, priority 10, and
+ *          the expiration the caller gives (a ring: when it stops ringing;
+ *          a cancel: 0, now or never). Its payload is the app's keys alone:
+ *          the phone turns it into an incoming call itself (CallKit).
  *
  * What Apple answers, as {@link ApnsResult}:
  *   200                 sent
@@ -61,6 +69,8 @@ export const APNS_REQUEST_TIMEOUT_MS = 15_000
 export const APNS_EXPIRATION_S = 24 * 60 * 60
 /** Apple's cap on an alert's payload. */
 export const APNS_MAX_PAYLOAD_BYTES = 4096
+/** Apple's cap on a VoIP push's payload. */
+export const APNS_MAX_VOIP_PAYLOAD_BYTES = 5120
 /** Apple's cap on a collapse id. */
 export const APNS_COLLAPSE_ID_MAX_BYTES = 64
 
@@ -87,6 +97,14 @@ export interface ApnsNotification {
   /** What the app reads when the push is tapped (ids only). */
   data?: Record<string, string | number | boolean | null>
 }
+
+/** A VoIP push (PushKit): the app's keys, and when Apple stops trying (ms since the epoch; 0: deliver now or never). */
+export interface ApnsVoipPush {
+  data: Record<string, string | number | boolean | null>
+  expiresAtMs: number
+}
+
+export type ApnsPushType = 'alert' | 'voip'
 
 export type ApnsResult =
   | { ok: true; apnsId: string | null }
@@ -150,14 +168,33 @@ export function apnsPayload(n: ApnsNotification): string {
   return json
 }
 
-/** The headers of one push (the provider token's `authorization` is added by the sender). Pure. */
-export function apnsHeaders(input: { topic: string; collapseId?: string; nowMs: number; apnsId?: string }): Record<string, string> {
-  const collapse = input.collapseId ? cutBytes(input.collapseId, APNS_COLLAPSE_ID_MAX_BYTES) : ''
+/** A VoIP push's JSON: the app's keys alone (no `aps`: the phone shows the call). Refused (null) past Apple's cap. Pure. */
+export function apnsVoipPayload(push: ApnsVoipPush): string | null {
+  const json = JSON.stringify(push.data)
+  return Buffer.byteLength(json) <= APNS_MAX_VOIP_PAYLOAD_BYTES ? json : null
+}
+
+/** A VoIP push's topic: the bundle id's `.voip` (Apple's rule for PushKit). */
+export function apnsVoipTopic(bundleId: string): string {
+  return `${bundleId}.voip`
+}
+
+/**
+ * The headers of one push (the provider token's `authorization` is added by
+ * the sender). An alert lives a day; a VoIP push until `expiresAtS` (seconds
+ * since the epoch, 0 for now or never, never in the past). Pure.
+ */
+export function apnsHeaders(input: { topic: string; collapseId?: string; nowMs: number; apnsId?: string; pushType?: ApnsPushType; expiresAtS?: number }): Record<string, string> {
+  const pushType = input.pushType ?? 'alert'
+  const collapse = pushType === 'alert' && input.collapseId ? cutBytes(input.collapseId, APNS_COLLAPSE_ID_MAX_BYTES) : ''
+  const nowS = Math.floor(input.nowMs / 1000)
+  const expiration =
+    pushType === 'voip' ? (input.expiresAtS && input.expiresAtS > nowS ? Math.floor(input.expiresAtS) : 0) : nowS + APNS_EXPIRATION_S
   return {
-    'apns-push-type': 'alert',
+    'apns-push-type': pushType,
     'apns-topic': input.topic,
     'apns-priority': '10',
-    'apns-expiration': String(Math.floor(input.nowMs / 1000) + APNS_EXPIRATION_S),
+    'apns-expiration': String(expiration),
     ...(collapse ? { 'apns-collapse-id': collapse } : {}),
     ...(input.apnsId ? { 'apns-id': input.apnsId } : {}),
   }
@@ -190,6 +227,8 @@ export interface ApnsSenderOptions {
 
 export interface ApnsSender {
   send(input: { token: string; environment: ApnsEnvironment; notification: ApnsNotification }): Promise<ApnsResult>
+  /** A VoIP push to an install's VoIP token (topic <bundle id>.voip). */
+  sendVoip(input: { token: string; environment: ApnsEnvironment; push: ApnsVoipPush }): Promise<ApnsResult>
   /** Close every connection (tests; a process going down). */
   close(): void
 }
@@ -233,7 +272,14 @@ export function createApnsSender(options: ApnsSenderOptions): ApnsSender {
     return session
   }
 
-  const once = (input: { token: string; environment: ApnsEnvironment; notification: ApnsNotification }, jwt: string): Promise<ApnsResult> =>
+  interface Request {
+    token: string
+    environment: ApnsEnvironment
+    payload: string
+    headers: (nowMs: number) => Record<string, string>
+  }
+
+  const once = (input: Request, jwt: string): Promise<ApnsResult> =>
     new Promise((resolve) => {
       let settled = false
       const done = (result: ApnsResult) => {
@@ -248,13 +294,12 @@ export function createApnsSender(options: ApnsSenderOptions): ApnsSender {
         done({ ok: false, gone: false, status: 0, reason: err instanceof Error ? err.message : 'connect failed' })
         return
       }
-      const payload = apnsPayload(input.notification)
       const req = session.request({
         [constants.HTTP2_HEADER_METHOD]: 'POST',
         [constants.HTTP2_HEADER_PATH]: `/3/device/${input.token}`,
         authorization: `bearer ${jwt}`,
         'content-type': 'application/json',
-        ...apnsHeaders({ topic: config.bundleId, collapseId: input.notification.collapseId, nowMs: now(), apnsId: randomUUID() }),
+        ...input.headers(now()),
       })
       let status = 0
       let apnsId: string | null = null
@@ -275,22 +320,42 @@ export function createApnsSender(options: ApnsSenderOptions): ApnsSender {
       req.on('end', () => done(apnsResultOf(status, body, apnsId)))
       req.on('error', (err) => done({ ok: false, gone: false, status: 0, reason: err.message || 'request failed' }))
       req.on('close', () => done({ ok: false, gone: false, status, reason: 'closed' }))
-      req.end(payload)
+      req.end(input.payload)
     })
 
+  const deliver = async (input: Request): Promise<ApnsResult> => {
+    if (!/^[0-9a-f]{64,200}$/.test(input.token)) return { ok: false, gone: true, status: 400, reason: 'BadDeviceToken' }
+    let jwt: string
+    try {
+      jwt = providerToken()
+    } catch {
+      return { ok: false, gone: false, status: 0, reason: 'bad key' }
+    }
+    const first = await once(input, jwt)
+    if (first.ok || first.status !== 403 || first.reason !== 'ExpiredProviderToken') return first
+    // Apple says the token is too old: make one now and try once more.
+    return once(input, providerToken(true))
+  }
+
   return {
-    async send(input) {
-      if (!/^[0-9a-f]{64,200}$/.test(input.token)) return { ok: false, gone: true, status: 400, reason: 'BadDeviceToken' }
-      let jwt: string
-      try {
-        jwt = providerToken()
-      } catch {
-        return { ok: false, gone: false, status: 0, reason: 'bad key' }
-      }
-      const first = await once(input, jwt)
-      if (first.ok || first.status !== 403 || first.reason !== 'ExpiredProviderToken') return first
-      // Apple says the token is too old: make one now and try once more.
-      return once(input, providerToken(true))
+    send(input) {
+      return deliver({
+        token: input.token,
+        environment: input.environment,
+        payload: apnsPayload(input.notification),
+        headers: (nowMs) => apnsHeaders({ topic: config.bundleId, collapseId: input.notification.collapseId, nowMs, apnsId: randomUUID() }),
+      })
+    },
+    async sendVoip(input) {
+      const payload = apnsVoipPayload(input.push)
+      if (payload === null) return { ok: false, gone: false, status: 0, reason: 'PayloadTooLarge' }
+      return deliver({
+        token: input.token,
+        environment: input.environment,
+        payload,
+        headers: (nowMs) =>
+          apnsHeaders({ topic: apnsVoipTopic(config.bundleId), nowMs, apnsId: randomUUID(), pushType: 'voip', expiresAtS: Math.floor(input.push.expiresAtMs / 1000) }),
+      })
     },
     close() {
       for (const session of sessions.values()) session.close()
