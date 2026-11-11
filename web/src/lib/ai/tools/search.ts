@@ -1001,7 +1001,7 @@ export function createSearchTools(
           }
           try {
             if (enrich_emails) {
-              const results = await searchEmailsWithContext(userId, workspaceId, query, limit ?? 20, readOpts)
+              const results = await searchEmailsWithContext(userId, workspaceId, query, limit ?? 20, { ...readOpts, requester: requestingUserId })
               return {
                 results: results.map((r) => ({
                   result_type: 'email',
