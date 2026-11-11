@@ -20,7 +20,7 @@ vi.mock('@/lib/inngest/client', () => ({ inngest: { send: hoisted.send } }))
 vi.mock('@/lib/work/agent-run-mirror', () => ({ ensureWorkForAgentRun: hoisted.ensureWork }))
 
 import { fakeDb, type FakeDb, type Row } from '@/lib/local-agent/__tests__/fake-db'
-import { cloudCodingFireKey, startCardCodingRun, startCloudCodingRun, type CloudCodingDeps } from '../cloud-coding-tools'
+import { cloudCodingFireKey, startCardCodingRun, startCloudCodingRun, startSiteCodingRun, type CloudCodingDeps } from '../cloud-coding-tools'
 import { ONLY_ME_PROJECT_REASON } from '@/lib/environments/start'
 import type { ChatRunTokenClaims } from '../chat-run-token'
 import type { StartCloudCodingRunInput } from '@/lib/ai/tools/cloud-coding'
@@ -56,34 +56,53 @@ const PROJECT_COLUMNS = new Set([
   'github_repo', 'priority', 'health', 'environment_id', 'custom_fields',
 ])
 
+/** What actions.source_type may hold (its CHECK, `actions_source_type_check`); left out, it is 'user'. */
+const ACTION_SOURCE_TYPES = new Set(['user', 'meeting_extraction', 'chat_suggestion', 'stt_extraction', 'insight_suggestion'])
+
+/** A query Postgres refused: whatever is chained on it, awaiting it gives the error. */
+function refusedQuery(message: string): unknown {
+  const answer = { data: null, error: { message } }
+  const query: unknown = new Proxy({}, {
+    get: (_t, key) => {
+      if (key === 'then') return (ok: (v: unknown) => unknown) => Promise.resolve(answer).then(ok)
+      if (key === 'maybeSingle' || key === 'single') return async () => answer
+      return () => query
+    },
+  })
+  return query
+}
+
 /**
- * The in-memory client returns whole rows whatever a select names. For
- * projects it answers as Postgres does: a select naming a column the table
- * lacks is an error. That is how a run started from chat, from a work card or
- * for a website change failed in production (`column projects.team_id does
- * not exist`) while these tests passed. It reads plain column lists (an
- * `alias:column` too); an embedded relation is left to the client.
+ * The in-memory client returns whole rows whatever a select names, and keeps
+ * whatever an insert holds. Where a coding run failed in production while
+ * these tests passed, it answers as Postgres does:
+ * - a select on projects naming a column the table lacks is an error
+ *   (`column projects.team_id does not exist`). It reads plain column lists
+ *   (an `alias:column` too); an embedded relation is left to the client;
+ * - an insert into actions with a source_type its CHECK does not list is an
+ *   error (the action was filed as 'chat').
  */
-function refuseUnknownProjectColumns(target: FakeDb): void {
+function answerAsPostgres(target: FakeDb): void {
   const from = target.from
   target.from = (table: string) => {
     const chain = from(table) as Record<string, unknown>
-    if (table !== 'projects') return chain
-    const select = chain.select as (projection?: string, ...rest: unknown[]) => unknown
-    chain.select = (projection?: string, ...rest: unknown[]) => {
-      const named = projection ?? '*'
-      const columns = named.includes('(') ? [] : named.split(',').map((c) => c.trim().split(':').pop() ?? '')
-      const unknown = columns.find((c) => c !== '*' && !PROJECT_COLUMNS.has(c))
-      if (!unknown) return select(projection, ...rest)
-      const answer = { data: null, error: { message: `column projects.${unknown} does not exist` } }
-      const refusedQuery: unknown = new Proxy({}, {
-        get: (_t, key) => {
-          if (key === 'then') return (ok: (v: unknown) => unknown) => Promise.resolve(answer).then(ok)
-          if (key === 'maybeSingle' || key === 'single') return async () => answer
-          return () => refusedQuery
-        },
-      })
-      return refusedQuery
+    if (table === 'projects') {
+      const select = chain.select as (projection?: string, ...rest: unknown[]) => unknown
+      chain.select = (projection?: string, ...rest: unknown[]) => {
+        const named = projection ?? '*'
+        const columns = named.includes('(') ? [] : named.split(',').map((c) => c.trim().split(':').pop() ?? '')
+        const unknown = columns.find((c) => c !== '*' && !PROJECT_COLUMNS.has(c))
+        return unknown ? refusedQuery(`column projects.${unknown} does not exist`) : select(projection, ...rest)
+      }
+    }
+    if (table === 'actions') {
+      const insert = chain.insert as (values: Row | Row[], ...rest: unknown[]) => unknown
+      chain.insert = (values: Row | Row[], ...rest: unknown[]) => {
+        const refusedRow = (Array.isArray(values) ? values : [values]).find((r) => r.source_type != null && !ACTION_SOURCE_TYPES.has(String(r.source_type)))
+        return refusedRow
+          ? refusedQuery('new row for relation "actions" violates check constraint "actions_source_type_check"')
+          : insert(values, ...rest)
+      }
     }
     return chain
   }
@@ -132,8 +151,9 @@ beforeEach(() => {
       { id: 'dev-1', workspace_id: WS, name: 'Dev', role: 'developer', autonomy: 'propose', team_id: 'team-1', created_at: '2026-01-01' },
     ],
   })
-  refuseUnknownProjectColumns(db)
-  hoisted.send.mockClear().mockResolvedValue({ ids: ['evt-1'] })
+  answerAsPostgres(db)
+  // mockReset, not mockClear: a rejection one test queued and never used must not reach the next.
+  hoisted.send.mockReset().mockResolvedValue({ ids: ['evt-1'] })
   hoisted.ensureWork.mockClear()
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
@@ -151,6 +171,9 @@ describe('start_cloud_coding_run', () => {
     expect(db.tables.actions).toEqual([
       expect.objectContaining({ workspace_id: WS, project_id: PROJECT, team_id: 'team-1', status_id: 'todo', title: 'Fix the CSV export', confirmation: 'confirmed', user_id: ME, assignee_id: 'member-1', assignee_ai_member_id: 'dev-1' }),
     ])
+    // The person asked for it, so it is their own action: source_type is left at its default.
+    // ('chat' is not a value the column takes: production refused the insert.)
+    expect('source_type' in db.tables.actions[0]).toBe(false)
     // A coding run needs its agent's persona (spec-rebuild's precondition): the Developer I can reach.
     expect(db.tables.agent_run).toEqual([
       expect.objectContaining({ action_id: db.tables.actions[0].id, ai_team_member_id: 'dev-1', triggered_by: ME, repo_full_name: 'acme/core', environment_id: CHAT_ENV, fire_key: cloudCodingFireKey(CONV, launch) }),
@@ -267,7 +290,7 @@ describe('startCardCodingRun (a work card’s Start in a cloud environment)', ()
     expect(out).toMatchObject({ status: 'started', repo: 'acme/core', environment: { id: PROJECT_ENV, name: 'Core sandbox', from: 'chosen' } })
     const [action] = db.tables.actions
     expect(action).toMatchObject({ project_id: PROJECT, team_id: 'team-1', title: 'Draft the diagram', description: 'Current and target state', assignee_ai_member_id: 'dev-1', context_data: { attention_item_id: CARD } })
-    // Not a chat's action: no source_type (its CHECK allows only capture and chat), as a work card's is.
+    // No source_type: the column keeps its default ('user'), as for a run started from chat.
     expect('source_type' in action).toBe(false)
     expect(db.tables.agent_run).toEqual([expect.objectContaining({ action_id: action.id, environment_id: PROJECT_ENV, repo_full_name: 'acme/core' })])
     // The card claim is the one start: no fire key to strand a retry on.
@@ -291,5 +314,21 @@ describe('startCardCodingRun (a work card’s Start in a cloud environment)', ()
     }
     expect(db.tables.actions).toHaveLength(0)
     expect(db.tables.agent_run).toHaveLength(0)
+  })
+})
+
+describe('a website change’s coding run', () => {
+  it('files its action with the change’s id and no source_type, keyed on the change', async () => {
+    const out = await startSiteCodingRun(
+      db as never,
+      { userId: ME, workspaceId: WS },
+      { projectId: PROJECT, environmentId: PROJECT_ENV, title: 'Update the hours', request: 'Open 8 to 6 on weekdays', changeId: 'change-1' },
+      deps,
+    )
+    expect(out).toMatchObject({ status: 'started', repo: 'acme/core', environment: { id: PROJECT_ENV, from: 'chosen' } })
+    const [action] = db.tables.actions
+    expect(action).toMatchObject({ project_id: PROJECT, title: 'Update the hours', context_data: { website_change_id: 'change-1' } })
+    expect('source_type' in action).toBe(false)
+    expect(db.tables.agent_run).toEqual([expect.objectContaining({ action_id: action.id, fire_key: 'website-change:change-1' })])
   })
 })
