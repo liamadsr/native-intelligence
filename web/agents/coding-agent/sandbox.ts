@@ -15,6 +15,20 @@
  * (network policy, GitHub credential brokering, clone, setup script) therefore
  * happens here, once, inside the selector.
  *
+ * ── WHERE THE SANDBOX RUNS ──────────────────────────────────────────────────
+ * On Vercel Sandbox (the "hosted sandbox" below) whenever it can log in: on
+ * Vercel with the deployment's own credentials, and off Vercel (the app's own
+ * server) when SANDBOX_ACCESS_TOKEN, SANDBOX_TEAM_ID and SANDBOX_PROJECT_ID are
+ * set: all three are then handed to eve's VercelSandbox environment, which eve
+ * passes to every Sandbox.create/get/delete (bindings/vercel-credentials.js) and
+ * keeps out of the sandbox name, the session state and the prepared artifact
+ * (bindings/vercel.js vercelIdentityOptions). They log the APP in to the
+ * service; nothing of them enters the sandbox. Everything below that says "on
+ * Vercel" holds for that mode too: the selector cannot tell the two apart. Only
+ * with none of the three set off Vercel does eve's DefaultSandbox run (the "OFF
+ * VERCEL" section). eve prepares the snapshot at `eve build`, so the build must
+ * see the same three (deploy/app/build-agents.sh).
+ *
  * ── EGRESS: WHY THIS IS ENFORCED, NOT ASSUMED (the security-critical part) ──
  * On Vercel the selector opens the session sandbox with
  * `environment.open({ networkPolicy })` on a DEDICATED `VercelSandbox`
@@ -95,10 +109,11 @@
  * repository, a branch, or a token. The push gate re-reads the run's repo and
  * branch itself, so even the spec isn't trusted for what a push may update.
  *
- * ── OFF VERCEL ─────────────────────────────────────────────────────────────
- * The provider is chosen exactly as eve's own DefaultSandbox chooses it
- * (`process.env.VERCEL`), so build-time preparation and runtime agree. Off
- * Vercel we use DefaultSandbox (Docker, else microsandbox, else just-bash),
+ * ── OFF VERCEL, WITHOUT THE HOSTED SANDBOX'S SETTINGS ──────────────────────
+ * The provider is chosen from `process.env.VERCEL` (as eve's own DefaultSandbox
+ * chooses) and the three settings, read when the module loads, at `eve build`
+ * and at runtime alike; deploy/app/entrypoint.sh refuses to start an agent whose
+ * build chose differently. Without them we use DefaultSandbox (Docker, else microsandbox, else just-bash),
  * whose typed handle hides provider capabilities, and apply the same policy
  * through the provider's setter (egress only, no credentials: see above):
  * microsandbox (the provider `eve info` reports on a Docker-less Mac; a root
@@ -115,6 +130,8 @@
  *     narrowed run with open egress.
  *   - a `trusted` run already asks for allow-all egress; it proceeds with a
  *     beat, and clone/push use the off-Vercel credential path described above.
+ *     (Outside eve dev the beat names the three settings: a container whose
+ *     sandbox is just-bash cannot run git at all.)
  *   - a session with NO spec asks for `deny-all`; off Vercel that is applied
  *     through the setter too, best-effort (a failure is logged and beaten, and
  *     the sandbox has nothing to clone and no credential in it either way).
@@ -822,10 +839,11 @@ export function sessionNetworkPolicy(spec: EveSpec | null): SandboxNetworkPolicy
 }
 
 /**
- * The run's git egress: the push gate at the app's public origin, and on Vercel
- * the credentials the firewall injects (read-only GitHub, the push token on
- * the gate's two endpoints). Off Vercel the policy carries no credential (see
- * this file's header).
+ * The run's git egress: the push gate at the app's public origin, and on the
+ * hosted sandbox (on Vercel, or off it with its settings) the credentials the
+ * firewall injects (read-only GitHub, the push token on the gate's two
+ * endpoints). With DefaultSandbox the policy carries no credential (see this
+ * file's header).
  */
 export function gitEgressFor(spec: EveSpec): GitEgress {
   const pushUrl = gitPushUrl()
@@ -834,7 +852,7 @@ export function gitEgressFor(spec: EveSpec): GitEgress {
   return {
     repoFullName: spec.repoFullName,
     pushUrl,
-    broker: ON_VERCEL
+    broker: vercelEnvironment
       ? { githubToken: spec.githubToken, pushToken: spec.gitPushToken ?? '' }
       : null,
   }
@@ -864,16 +882,52 @@ export function requireDefinedNetworkPolicy(
 const ON_VERCEL = Boolean(process.env.VERCEL)
 
 /**
+ * The settings that log the app in to the hosted sandbox service off Vercel:
+ * the same three the cloud browser uses (src/lib/cloud-browser/config.ts), and
+ * deploy/app/build-agents.sh reads the same names.
+ */
+export const SANDBOX_CREDENTIAL_ENVS = ['SANDBOX_ACCESS_TOKEN', 'SANDBOX_TEAM_ID', 'SANDBOX_PROJECT_ID'] as const
+
+/**
+ * The hosted sandbox's credentials off Vercel: all three settings, trimmed, or
+ * null when none is set. A partial set throws (at module load, so at `eve build`
+ * and when the agent starts) rather than quietly falling back to a sandbox that
+ * cannot run a coding run.
+ */
+export function hostedSandboxCredentials(
+  env: NodeJS.ProcessEnv = process.env,
+): { token: string; teamId: string; projectId: string } | null {
+  const [token, teamId, projectId] = SANDBOX_CREDENTIAL_ENVS.map((name) => env[name]?.trim() || '')
+  if (!token && !teamId && !projectId) return null
+  const missing = SANDBOX_CREDENTIAL_ENVS.filter((_, i) => ![token, teamId, projectId][i])
+  if (missing.length) {
+    throw new Error(
+      `coding-agent sandbox: ${missing.join(', ')} not set (all three of ${SANDBOX_CREDENTIAL_ENVS.join(', ')}, or none)`,
+    )
+  }
+  return { token, teamId, projectId }
+}
+
+/** Off Vercel only: on Vercel the deployment's own credentials are used, as before. */
+const HOSTED_CREDENTIALS = ON_VERCEL ? null : hostedSandboxCredentials()
+
+/**
  * Hosted: a dedicated Vercel environment, so `open()` accepts `networkPolicy`
  * and the handle's `setNetworkPolicy` is typed. The `deny-all` here is the
  * environment baseline — `open()` options override it per session. It only
  * covers an open where the `networkPolicy` key is absent (an explicit
  * undefined overrides it); openSessionSandbox always passes a defined policy.
+ * Off Vercel the credentials go on the ENVIRONMENT, as eve's docs say ("resume
+ * does not reconstruct start-only options"; open() does not even accept them):
+ * eve hands them to every Sandbox.create/get/delete it makes for this agent.
  */
-const vercelEnvironment = ON_VERCEL ? VercelSandbox.environment({ networkPolicy: 'deny-all' }) : null
+const vercelEnvironment =
+  ON_VERCEL || HOSTED_CREDENTIALS
+    ? VercelSandbox.environment({ networkPolicy: 'deny-all', ...HOSTED_CREDENTIALS })
+    : null
 
 /** Local dev: eve's default selection (Docker → microsandbox → just-bash). */
-const localEnvironment = ON_VERCEL ? null : DefaultSandbox.environment()
+const localEnvironment = vercelEnvironment ? null : DefaultSandbox.environment()
 
 export const environment = vercelEnvironment ?? localEnvironment!
 
@@ -905,12 +959,21 @@ async function openSessionSandbox(
   if (spec.networkAccess !== 'trusted' && !openEgressAllowedForNarrowedRun()) {
     await beat(runToken, `${failure}; refusing to run a ${spec.networkAccess} run with unrestricted egress.`)
     throw new Error(
-      `coding-agent sandbox: ${failure}. A ${spec.networkAccess} run cannot proceed off Vercel without a policy-capable sandbox provider.`,
+      `coding-agent sandbox: ${failure}. A ${spec.networkAccess} run cannot proceed off Vercel without a policy-capable sandbox provider (${HOSTED_SANDBOX_HINT}).`,
     )
   }
-  await beat(runToken, `${failure}; egress is unrestricted (dev only).`)
+  if (openEgressAllowedForNarrowedRun()) {
+    await beat(runToken, `${failure}; egress is unrestricted (dev only).`)
+  } else {
+    // Not eve dev: a self-hosted container with no hosted-sandbox settings. Say
+    // what is wrong and what fixes it, not "dev only".
+    await beat(runToken, `${failure}; egress is unrestricted, and this sandbox may not run git at all: ${HOSTED_SANDBOX_HINT}.`)
+  }
   return { sandbox, credentialBrokered: false }
 }
+
+/** What an operator sets to give this agent a sandbox that enforces its policy. */
+const HOSTED_SANDBOX_HINT = `set ${SANDBOX_CREDENTIAL_ENVS.join(', ')} to run it on the hosted sandbox, then build the agents again`
 
 /**
  * Whether a narrowed (`restricted` / `isolated`) run may degrade to open
