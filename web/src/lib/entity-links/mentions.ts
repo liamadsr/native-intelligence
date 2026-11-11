@@ -124,6 +124,13 @@ export interface SyncMentionsInput {
   fenced?: boolean
   /** A source whose mentions only grow (a chat: each turn adds its own, none is taken back): nothing is deleted. */
   addOnly?: boolean
+  /**
+   * The only targets a stale edge may be removed for (a document: what its
+   * previous text named and its new text doesn't, read unfenced). An edge to
+   * anything else stays, whoever drew it and whoever saves. Absent: every
+   * edge of the managed kinds not in `targets` is stale.
+   */
+  removable?: readonly MentionRef[]
 }
 
 export interface SyncMentionsResult {
@@ -161,7 +168,15 @@ export async function syncMentions(supabase: SupabaseClient, input: SyncMentions
     const now = new Set(mentioned.map(key))
     const rows = (existing ?? []) as Array<{ id: string; target_type: string; target_id: string }>
     const had = new Set(rows.map((r) => `${r.target_type}:${r.target_id}`))
-    const stale = input.addOnly ? [] : rows.filter((r) => !now.has(`${r.target_type}:${r.target_id}`)).map((r) => r.id)
+    const removable = input.removable ? new Set(input.removable.map(key)) : null
+    const stale = input.addOnly
+      ? []
+      : rows
+          .filter((r) => {
+            const k = `${r.target_type}:${r.target_id}`
+            return removable ? removable.has(k) && !now.has(k) : !now.has(k)
+          })
+          .map((r) => r.id)
     const fresh = mentioned.filter((r) => !had.has(key(r)))
 
     if (stale.length) {

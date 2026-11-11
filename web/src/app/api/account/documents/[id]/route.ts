@@ -187,6 +187,15 @@ export async function PATCH(
   const editorMemberId = access.memberId
   let data: Record<string, unknown> & { content?: string | null; published_status?: string }
 
+  // The body as it was, for the link sync below: a save takes back only the
+  // mentions its own text used to name (syncDocumentLinks). Read only when
+  // the body changes on a published doc.
+  let previousContent: string | null = null
+  if (body.content !== undefined && access.row.published_status === 'published') {
+    const { data: before } = await supabase.from('document').select('content').eq('id', id).eq('workspace_id', workspaceId).maybeSingle()
+    previousContent = typeof (before as { content?: unknown } | null)?.content === 'string' ? (before as { content: string }).content : null
+  }
+
   if (updates.title !== undefined || updates.content !== undefined) {
     // A change to the text names the revision it was made against (migration
     // 364): if the document moved on (an agent's edit, another tab), nothing is
@@ -255,7 +264,7 @@ export async function PATCH(
     typeof data.content === 'string'
   ) {
     const { syncDocumentLinks } = await import('@/lib/wiki/wikilinks')
-    await syncDocumentLinks(supabase, workspaceId, id, data.content, editorMemberId || null, user.id)
+    await syncDocumentLinks(supabase, workspaceId, id, data.content, editorMemberId || null, user.id, previousContent)
   }
 
   // Re-index embeddings whenever the body changed (document_chunks, migration

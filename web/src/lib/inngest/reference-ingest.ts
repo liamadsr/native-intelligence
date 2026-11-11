@@ -537,11 +537,15 @@ export const referenceIngest = inngest.createFunction(
       // Docs previously generated from this attachment — re-ingest replaces.
       const { data: priorRows } = await supabase
         .from('document')
-        .select('id, slug')
+        .select('id, slug, content')
         .eq('workspace_id', data.workspaceId)
         .contains('frontmatter', { generated: true, source_attachment_id: data.attachmentId })
       const prior = new Map<string, string>(
         (priorRows ?? []).map((d) => [d.slug as string, d.id as string]),
+      )
+      // Each prior page's body: what its links named before this write.
+      const priorContent = new Map<string, string>(
+        (priorRows ?? []).filter((d) => typeof d.content === 'string').map((d) => [d.slug as string, d.content as string]),
       )
 
       // Workspace slugs that would collide and are NOT ours to update.
@@ -712,6 +716,7 @@ export const referenceIngest = inngest.createFunction(
       }
 
       // Wikilinks in the index → mentions edges (slugs are final, so all resolve).
+      // A re-ingest takes back only the links the old index named.
       if (indexDocId) {
         await syncDocumentLinks(
           supabase,
@@ -719,6 +724,8 @@ export const referenceIngest = inngest.createFunction(
           indexDocId,
           indexContent,
           memberId,
+          null,
+          priorContent.get(indexSlug) ?? null,
         )
       }
 

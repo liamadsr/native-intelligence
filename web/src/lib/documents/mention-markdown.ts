@@ -9,7 +9,7 @@
  * RecordMention node), and the save turns it into a `mentions` edge
  * (syncDocumentLinks). Pure and client-safe: both halves read this one file.
  */
-import { isMentionableType, MENTION_LABEL_MAX, tidyMentionRefs, type MentionRef, type MentionableType } from '@/lib/entity-links/mentionable'
+import { MENTION_LABEL_MAX, tidyMentionRefs, type MentionRef, type MentionableType } from '@/lib/entity-links/mentionable'
 
 /** The scheme a mention's target is written with. */
 export const MENTION_SCHEME = 'mention://'
@@ -34,28 +34,19 @@ export function mentionMarkdown(m: DocumentMention): string {
   return `[@${mentionLabelText(m.label)}](${MENTION_SCHEME}${m.type}/${m.id.toLowerCase()})`
 }
 
-/** A run of inline text: plain words, or a mention. */
-export type MentionTextPart = { kind: 'text'; text: string } | { kind: 'mention'; mention: DocumentMention }
+/** Fenced code blocks and backtick spans: their text is code, never a mention (as the editor reads it). */
+const CODE_RE = /```[\s\S]*?```|`[^`\n]+`/g
 
-/** Split inline text into its words and its mentions (a link naming no mentionable kind stays words). */
-export function splitMentionLinks(text: string): MentionTextPart[] {
-  const parts: MentionTextPart[] = []
-  let last = 0
-  for (const match of text.matchAll(MENTION_LINK_RE)) {
-    const [whole, label, type, id] = match
-    if (!isMentionableType(type)) continue
-    const at = match.index ?? 0
-    if (at > last) parts.push({ kind: 'text', text: text.slice(last, at) })
-    parts.push({ kind: 'mention', mention: { type, id: id.toLowerCase(), label: label.trim() } })
-    last = at + whole.length
-  }
-  if (last < text.length) parts.push({ kind: 'text', text: text.slice(last) })
-  return parts.length ? parts : [{ kind: 'text', text }]
-}
-
-/** The records a body mentions, distinct (tidied: mentionable kinds, well-formed ids, capped). */
+/**
+ * The records a body mentions, distinct, in order (mentionable kinds,
+ * well-formed ids; a link inside code is not one). Not capped: the caller
+ * decides how many it keeps.
+ */
 export function parseDocumentMentions(markdown: string): MentionRef[] {
-  const raw: Array<{ type: string; id: string }> = []
-  for (const match of markdown.matchAll(MENTION_LINK_RE)) raw.push({ type: match[2], id: match[3] })
-  return tidyMentionRefs(raw)
+  const seen = new Map<string, MentionRef>()
+  for (const match of markdown.replace(CODE_RE, ' ').matchAll(MENTION_LINK_RE)) {
+    const [ref] = tidyMentionRefs([{ type: match[2], id: match[3] }])
+    if (ref && !seen.has(`${ref.type}:${ref.id}`)) seen.set(`${ref.type}:${ref.id}`, ref)
+  }
+  return [...seen.values()]
 }
