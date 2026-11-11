@@ -17,7 +17,7 @@
  * Mounted once by TeamCallsProvider. Draws nothing while nothing rings.
  */
 
-import { useEffect, useRef, type Dispatch } from 'react'
+import { useEffect, useRef, useState, type Dispatch } from 'react'
 import { Phone, PhoneOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -51,8 +51,8 @@ export function IncomingCalls({
   state: RingState
   dispatch: Dispatch<RingAction>
   inCall: string | null
-  onAccept: (ring: TeamCallRing) => void
-  onDecline: (ring: TeamCallRing) => void
+  onAccept: (ring: TeamCallRing) => Promise<unknown> | void
+  onDecline: (ring: TeamCallRing) => Promise<unknown> | void
 }) {
   // One timer, for the soonest ring to run out.
   const soonest = nextExpiry(state)
@@ -100,7 +100,14 @@ export function IncomingCalls({
   )
 }
 
-function RingCard({ ring, onAccept, onDecline }: { ring: TeamCallRing; onAccept: () => void; onDecline: () => void }) {
+function RingCard({ ring, onAccept, onDecline }: { ring: TeamCallRing; onAccept: () => Promise<unknown> | void; onDecline: () => Promise<unknown> | void }) {
+  // While its answer is on its way: the buttons wait (it keeps ringing until the server says).
+  const [answering, setAnswering] = useState(false)
+  const answer = (fn: () => Promise<unknown> | void) => {
+    if (answering) return
+    setAnswering(true)
+    void Promise.resolve(fn()).finally(() => setAnswering(false))
+  }
   const ringId = ring.id
   const expiresAt = ring.expires_at
   const acceptRef = useRef<HTMLButtonElement>(null)
@@ -162,7 +169,8 @@ function RingCard({ ring, onAccept, onDecline }: { ring: TeamCallRing; onAccept:
       </div>
       <button
         type="button"
-        onClick={onDecline}
+        onClick={() => answer(onDecline)}
+        disabled={answering}
         aria-label="Decline"
         title="Decline"
         data-team-call-decline=""
@@ -173,7 +181,8 @@ function RingCard({ ring, onAccept, onDecline }: { ring: TeamCallRing; onAccept:
       <button
         ref={acceptRef}
         type="button"
-        onClick={onAccept}
+        onClick={() => answer(onAccept)}
+        disabled={answering}
         aria-label="Accept"
         title="Accept"
         data-team-call-accept=""
