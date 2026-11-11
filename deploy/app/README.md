@@ -174,8 +174,10 @@ that failed, because it runs the two halves of `deploy.sh` one after the other:
   ./auto-deploy.sh clear-failure`.
 
 Each step is recorded as the failure before it starts, so a run that is killed
-leaves the right kind behind. `clear-failure` forgets the record, and the
-acknowledgements with it unless only a build had failed, and says in one line what
+leaves the right kind behind. `clear-failure` forgets the record and the mark of a
+rollback (below), and the acknowledgements with them unless only a build had failed;
+it takes what serves now, and what served before it, as where the next run starts,
+so one `clear-failure` is enough after a `--rollback`; and it says in one line what
 the next run would roll out: `origin/main` as last fetched, and whether that is or
 contains the commit that failed (so after a half-done roll-out it tells you the same
 commit is about to go out again; switch off first if it must not). Only the run in which
@@ -194,6 +196,8 @@ what was done while automatic deploys were off, and at the very first run.
 - **The mark of a rollback.** `deploy.sh --rollback` leaves the file `rolled-back`
   in the state folder (once that folder exists, so from `install` on). The next run
   takes it and holds everything, whatever was rolled out by hand after the rollback.
+  A mark left while automatic deploys are off waits: `status` shows it, `on` says
+  so, and the first run holds on it.
 - **The images.** `deploy.sh` keeps what served before the last roll-out as
   `ni-app:previous`, and `--rollback` swaps it with what serves. So the commit on
   `ni-app:previous` is what serves or an earlier one, unless the last roll-out went

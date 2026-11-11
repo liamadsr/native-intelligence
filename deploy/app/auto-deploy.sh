@@ -282,6 +282,9 @@ previous_commit() {
 	fi
 }
 
+# When deploy.sh --rollback left its mark (the mark holds nothing else).
+marked() { head -c 40 "$state/rolled-back" 2>/dev/null | tr -cd '0-9TZ:-'; }
+
 # web answers /api/version with the first 8 characters of its commit.
 version_serves() { # version_serves <commit>
 	local build i
@@ -526,8 +529,10 @@ cmd_run() {
 	fi
 	reason=""
 	if [ -e "$state/rolled-back" ]; then
-		halted="$serving"
-		reason="deploy.sh --rollback was run by hand ($(head -c 40 "$state/rolled-back" | tr -cd '0-9TZ:-'))"
+		# The commit it went back from, where the images still say: what the next
+		# roll-out after clear-failure would bring back.
+		case "$previous" in none | unreadable) halted="$serving" ;; *) halted="$previous" ;; esac
+		reason="deploy.sh --rollback was run by hand ($(marked))"
 	elif [ "$serving $previous" != "$seen $seen_previous" ]; then
 		if [ -n "$seen" ] && [ "$seen" != "$serving" ] && ! git_ merge-base --is-ancestor "$seen" "$serving" 2>/dev/null; then
 			halted="$seen"
@@ -688,6 +693,7 @@ cmd_status() {
 		echo "No run has recorded anything yet."
 	fi
 	[ ! -f "$state/failed" ] || echo "failed: $(cat "$state/failed")"
+	[ ! -e "$state/rolled-back" ] || echo "marked: deploy.sh --rollback was run by hand ($(marked)); the next run holds everything until clear-failure"
 	[ ! -f "$state/deployed" ] || echo "last deployed by this tool: $(cat "$state/deployed")"
 	if [ -s "$state/held" ]; then
 		echo
@@ -725,6 +731,8 @@ cmd_on() {
 	: >"$state/on"
 	echo "$(now) switched on" >>"$state/log"
 	echo "Switched on: a run every two minutes rolls out what is merged to main, unless something holds it (sudo ./auto-deploy.sh status says what). sudo ./auto-deploy.sh off switches it off."
+	[ ! -e "$state/rolled-back" ] ||
+		echo "Note: deploy.sh --rollback was run by hand ($(marked)) and no run has taken its mark yet: the first run holds everything until sudo ./auto-deploy.sh clear-failure."
 }
 
 cmd_off() {
@@ -759,26 +767,44 @@ cmd_acknowledge() {
 
 cmd_clear_failure() {
 	require_root
-	[ -f "$state/failed" ] || { echo "No failure or rollback is recorded: nothing to clear."; exit 0; }
+	[ -f "$state/failed" ] || [ -e "$state/rolled-back" ] || { echo "No failure or rollback is recorded: nothing to clear."; exit 0; }
 	exec 9>>"$lock" || die "cannot open the lock $lock."
 	flock -n 9 || die "a deploy is running; try again when it has ended (sudo ./auto-deploy.sh status)."
 	resolve_owner
-	local commit kind reason next="" now_serving="" contains=""
-	read -r commit kind reason <"$state/failed" || true
-	rm -f "$state/failed"
+	local commit="" kind="" reason="" next="" now_serving="" now_previous="" contains="" what mark=""
+	now_serving="$(serving_commit)" || now_serving=""
+	if now_previous="$(previous_commit)"; then :; else
+		case $? in 1) now_previous=unreadable ;; *) now_previous="" ;; esac
+	fi
+	[ ! -e "$state/rolled-back" ] || mark=", and the mark of a rollback by hand ($(marked))"
+	if [ -f "$state/failed" ]; then
+		read -r commit kind reason <"$state/failed" || true
+	else
+		# Only the mark of a rollback, which no run has taken yet: name the commit it
+		# went back from, where the images still say.
+		kind=rollback mark=""
+		case "$now_previous" in "" | none | unreadable) commit="$now_serving" ;; *) commit="$now_previous" ;; esac
+	fi
+	rm -f "$state/failed" "$state/rolled-back"
 	[ "$kind" = build ] || rm -f "$state/acknowledged"
+	# The person has looked: the next run starts from what serves now and what
+	# served before it, and does not hold on these same images a second time.
+	if [ -n "$now_serving" ] && [ -n "$now_previous" ]; then
+		printf '%s %s\n' "$now_serving" "$now_previous" >"$state/seen.new"
+		mv -f "$state/seen.new" "$state/seen"
+	fi
+	what="$kind${commit:+ of $(short "$commit")}$mark"
 	# What the next run would roll out, so that the person sees it before it happens.
 	next="$(git_ rev-parse -q --verify refs/remotes/origin/main)" || next=""
-	now_serving="$(serving_commit)" || now_serving=""
 	if is_commit "$commit" && [ -n "$next" ] && git_ merge-base --is-ancestor "$commit" "$next" 2>/dev/null; then
 		contains=", which is or contains $(short "$commit")"
 	fi
 	if [ -z "$next" ] || [ -z "$now_serving" ]; then
-		set_state "idle: cleared ($kind of $(short "$commit")); what the next run rolls out cannot be told now: sudo ./auto-deploy.sh run --dry-run"
+		set_state "idle: cleared ($what); what the next run rolls out cannot be told now: sudo ./auto-deploy.sh run --dry-run"
 	elif [ "$next" = "$now_serving" ]; then
-		set_state "idle: cleared ($kind of $(short "$commit")); origin/main ($(short "$next")) serves, so the next run rolls out nothing" "" "$now_serving"
+		set_state "idle: cleared ($what); origin/main ($(short "$next")) serves, so the next run rolls out nothing" "" "$now_serving"
 	else
-		set_state "idle: cleared ($kind of $(short "$commit")); the next run rolls out origin/main as last fetched, $(short "$next")$contains, over $(short "$now_serving"), unless something holds it (newer commits on main come with it)" "" "$now_serving"
+		set_state "idle: cleared ($what); the next run rolls out origin/main as last fetched, $(short "$next")$contains, over $(short "$now_serving"), unless something holds it (newer commits on main come with it)" "" "$now_serving"
 	fi
 }
 

@@ -885,6 +885,59 @@ class AutoDeploy(unittest.TestCase):
         self.run_ok("run")
         self.assertEqual(self.deploy_calls(), [d, n])
 
+    def test_the_mark_names_the_commit_it_went_back_from(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.rollback_by_hand()
+        write(os.path.join(self.state, "rolled-back"), "2026-01-01T00:00:00Z\n")
+        self.assertIn("marked: deploy.sh --rollback was run by hand (2026-01-01T00:00:00Z)", self.run_ok("status").stdout)
+        self.run_ok("off")
+        self.assertIn("the first run holds everything", self.run_ok("on").stdout)
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("failed: %s: deploy.sh --rollback was run by hand" % n[:12]), self.current())
+        self.assertIn("which is or contains %s" % n[:12], self.run_ok("clear-failure").stdout)
+        self.assertEqual(self.deploy_calls(), [d])
+
+    def test_after_a_half_done_roll_out_and_a_rollback_one_clear_failure_is_enough(self):
+        self.switch_on()
+        self.flag("rollout-fails")
+        bad = self.commit({"web/app.txt": "two\n"})
+        self.assertEqual(self.run_tool("run").returncode, 1)
+        self.flag("rollout-fails", on=False)
+        # sudo ./deploy.sh --rollback, as the failure says: what was being rolled out
+        # becomes ni-app:previous, and the rollback leaves its mark.
+        write(os.path.join(self.fake, "previous"), bad + "\n")
+        mark = os.path.join(self.state, "rolled-back")
+        write(mark, "2026-01-01T00:00:00Z\n")
+        r = self.run_ok("clear-failure")
+        self.assertIn("halt of %s, and the mark of a rollback by hand (2026-01-01T00:00:00Z)" % bad[:12], r.stdout)
+        self.assertIn("which is or contains %s" % bad[:12], r.stdout)
+        self.assertFalse(os.path.exists(mark))
+        self.run_ok("run")  # neither the mark nor the same images hold it a second time
+        self.assertEqual(self.deploy_calls(), [bad, bad])
+        self.assertTrue(self.current().startswith("deployed %s" % bad[:12]), self.current())
+
+    def test_clear_failure_takes_a_mark_no_run_has_taken(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.rollback_by_hand()
+        mark = os.path.join(self.state, "rolled-back")
+        write(mark, "2026-01-01T00:00:00Z\n")
+        r = self.run_ok("clear-failure")
+        self.assertIn("cleared (rollback of %s)" % n[:12], r.stdout)
+        self.assertIn("which is or contains %s" % n[:12], r.stdout)
+        self.assertFalse(os.path.exists(mark))
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [d, n])
+
     def test_a_rollback_drops_the_acknowledgements_at_once(self):
         self.switch_on()
         self.commit({"web/app.txt": "two\n"})
