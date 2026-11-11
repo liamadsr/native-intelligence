@@ -488,8 +488,10 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     params.delete('meeting')
     const rest = params.toString()
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`)
-    openTarget({ type: 'team_chat', channelId }, { from: 'meeting-link', reuse: true })
-    void fetchMeetingOf(channelId).then((m) => startCall({ id: channelId, kind: 'meeting', label: m?.title ?? 'Meeting' }))
+    // Into the call first: its message makes the conversation used, so team chat's list has it when it opens there.
+    void fetchMeetingOf(channelId)
+      .then((m) => startCall({ id: channelId, kind: 'meeting', label: m?.title ?? 'Meeting' }))
+      .then(() => openTarget({ type: 'team_chat', channelId }, { from: 'meeting-link', reuse: true }))
   }, [available, startCall])
 
   // Signed out (or another person signed in): out of the call. The shell going away: out too.

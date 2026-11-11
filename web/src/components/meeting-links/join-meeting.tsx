@@ -35,8 +35,9 @@ export function useJoinOurMeeting(): { join: (token: string) => Promise<void>; j
         toast(res.line)
         return
       }
-      openTarget({ type: 'team_chat', channelId: res.channelId }, { from: 'calendar', reuse: true })
+      // Into the call first: its message makes the conversation used, so team chat's list has it when it opens there.
       await startCall({ id: res.channelId, kind: 'meeting', label: res.title })
+      openTarget({ type: 'team_chat', channelId: res.channelId }, { from: 'calendar', reuse: true })
     },
     [joining, startCall],
   )
