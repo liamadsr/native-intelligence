@@ -58,6 +58,7 @@ function orClauses(filter: string): Array<(r: Row) => boolean> {
     const [col, op, ...rest] = p.split('.')
     const val = rest.join('.')
     if (op === 'eq') return (r: Row) => String(r[col]) === val
+    if (op === 'neq') return (r: Row) => String(r[col]) !== val
     if (op === 'in') {
       const vals = val.replace(/^\(|\)$/g, '').split(',')
       return (r: Row) => vals.includes(String(r[col]))
