@@ -969,6 +969,9 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
       return { title: row.title, detail: row.status, meta: null }
     case 'agent':
       return { title: row.title, detail: row.description, meta: null }
+    case 'team_chat_message':
+      // The words that matched, then who said it where, and when.
+      return { title: row.title, detail: `${row.author} · ${row.place}`, meta: formatCaptureDate(row.createdAt) }
     case 'contact':
       return {
         title: row.contact.full_name || row.contact.email || 'Unnamed contact',
@@ -1019,6 +1022,7 @@ const RECORD_ICONS: Partial<Record<MenuSearchRow['kind'], LucideIcon>> = {
   deal: Handshake,
   flow: Workflow,
   agent: Boxes,
+  team_chat_message: Hash,
 }
 
 /** A feed row's kind, as a glyph on a tile. */
