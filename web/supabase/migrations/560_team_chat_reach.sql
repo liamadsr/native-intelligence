@@ -39,6 +39,27 @@
 --                     the channel's own messages are read too.
 --   team_chat_mark_thread_read  556's, plus: the caller's unread
 --                     notifications for the thread's replies are read too.
+--   team_chat_notice_snippet(words, files)  what a notification says of a
+--                     message: its words on one line, at most 140
+--                     characters, or "Sent a file" for files alone (the same
+--                     as src/lib/team-chat/notify.ts teamChatNotificationCopy).
+--   team_chat_notification_live  before a team chat notification is
+--                     written: its message, locked for share, must still be
+--                     there and not deleted (else nothing is written), and
+--                     its words are the message's words NOW, never what the
+--                     fan-out read a moment before. The share lock makes a
+--                     delete or an edit that races the fan-out wait for it,
+--                     and then the trigger below sees the row.
+--   team_chat_message_notices_follow  after a message is edited or deleted:
+--                     its notifications say the new words, or go. Pasted a
+--                     secret and edited it out: the notification no longer
+--                     holds it.
+--   team_chat_readable_messages(mem, ids)  of these messages, the ones a
+--                     member may read now (not deleted, channel not archived,
+--                     still in the workspace, team_chat_member_can_read), with
+--                     their words as they are now: what the away email reads,
+--                     when it plans and again right before it sends. Service
+--                     role only.
 --   team_chat_notify_candidates(msg)  who a new message may notify, one row
 --                     per member it could be for (in the DM; mentioned; in
 --                     the thread; set to 'all' here; the person whose agent
@@ -51,13 +72,24 @@
 --
 -- Additive. Idempotent. Safe on a live database: the new column is nullable
 -- with no default (no table rewrite); the widened checks are added NOT VALID
--- and validated; the new unique index is partial on a type no row has yet.
--- The file runs as one transaction; lock_timeout (5 s) makes it fail and roll
--- back behind a long-running reader rather than queue every write behind it.
+-- and validated; the new unique index is partial on a type no row has yet
+-- (built in the transaction, not CONCURRENTLY: notification is small and the
+-- build takes a moment). The file is one transaction (begin ... commit
+-- below), so a failure anywhere rolls all of it back; lock_timeout (5 s)
+-- makes it fail and roll back behind a long-running reader rather than queue
+-- every write behind it.
 -- The app deployed before this keeps working: it never reads the new column,
 -- and the functions it calls keep their signatures. No backslashes anywhere
 -- in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
+
+-- One transaction, whatever applies it: the file opens with begin and ends
+-- with commit, so plain `psql -v ON_ERROR_STOP=1 < file` (no
+-- --single-transaction) is atomic too. A failure rolls the whole file back,
+-- and SET LOCAL's lock_timeout holds for every statement in it. Nothing in it
+-- is refused inside a transaction (no CONCURRENTLY, no VACUUM).
+
+begin;
 
 SET LOCAL lock_timeout = '5s';
 
@@ -211,6 +243,116 @@ revoke all on function public.team_chat_mark_thread_read(uuid) from public, anon
 grant execute on function public.team_chat_mark_read(uuid) to authenticated;
 grant execute on function public.team_chat_mark_thread_read(uuid) to authenticated;
 
+-- ── A notification says the message as it is now ────────────────────────────
+
+create or replace function public.team_chat_notice_snippet(words text, files integer)
+returns text
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select case
+           when char_length(w) > 140 then rtrim(left(w, 139)) || '…'
+           when w <> '' then w
+           when coalesce(files, 0) > 1 then 'Sent ' || files || ' files'
+           when coalesce(files, 0) = 1 then 'Sent a file'
+           else null
+         end
+    from (select btrim(regexp_replace(coalesce(words, ''), '[[:space:]]+', ' ', 'g')) as w) x;
+$$;
+
+revoke all on function public.team_chat_notice_snippet(text, integer) from public, anon;
+grant execute on function public.team_chat_notice_snippet(text, integer) to authenticated, service_role;
+
+-- Before a team chat notification is written: its message is still there, and
+-- it says the message's words now. Locked for share, so a delete or an edit
+-- racing the fan-out waits for it (and the trigger below then sees the row).
+create or replace function public.team_chat_notification_live()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  m record;
+begin
+  select x.body, x.attachments, x.deleted_at into m
+    from public.team_chat_message x
+   where x.id = new.target_id
+     for share;
+  if not found or m.deleted_at is not null then
+    return null;
+  end if;
+  new.body := public.team_chat_notice_snippet(m.body, case when jsonb_typeof(m.attachments) = 'array' then jsonb_array_length(m.attachments) else 0 end);
+  return new;
+end;
+$$;
+
+revoke all on function public.team_chat_notification_live() from public, anon, authenticated;
+
+drop trigger if exists team_chat_notification_live on public.notification;
+create trigger team_chat_notification_live
+  before insert on public.notification
+  for each row
+  when (new.type = 'team_chat_message')
+  execute function public.team_chat_notification_live();
+
+-- After a message is edited or deleted: its notifications follow (new words, or gone).
+create or replace function public.team_chat_message_notices_follow()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.deleted_at is not null then
+    delete from public.notification n
+     where n.target_type = 'team_chat_message'
+       and n.target_id = new.id
+       and n.type = 'team_chat_message';
+  elsif new.body is distinct from old.body or new.attachments is distinct from old.attachments then
+    update public.notification n
+       set body = public.team_chat_notice_snippet(new.body, case when jsonb_typeof(new.attachments) = 'array' then jsonb_array_length(new.attachments) else 0 end)
+     where n.target_type = 'team_chat_message'
+       and n.target_id = new.id
+       and n.type = 'team_chat_message';
+  end if;
+  return null;
+end;
+$$;
+
+revoke all on function public.team_chat_message_notices_follow() from public, anon, authenticated;
+
+drop trigger if exists team_chat_message_notices_follow on public.team_chat_message;
+create trigger team_chat_message_notices_follow
+  after update of body, attachments, deleted_at on public.team_chat_message
+  for each row
+  when (old.deleted_at is null)
+  execute function public.team_chat_message_notices_follow();
+
+-- ── What the away email may say ─────────────────────────────────────────────
+
+-- Of these messages, the ones this member may read now, with their words now.
+create or replace function public.team_chat_readable_messages(mem uuid, ids uuid[])
+returns table (id uuid, body text, files integer)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select x.id,
+         x.body,
+         case when jsonb_typeof(x.attachments) = 'array' then jsonb_array_length(x.attachments) else 0 end
+    from public.team_chat_message x
+    join public.team_chat_channel c on c.id = x.channel_id and c.archived_at is null
+   where x.id = any (ids)
+     and x.deleted_at is null
+     and public.team_chat_member_can_read(x.channel_id, mem);
+$$;
+
+revoke all on function public.team_chat_readable_messages(uuid, uuid[]) from public, anon, authenticated;
+grant execute on function public.team_chat_readable_messages(uuid, uuid[]) to service_role;
+
 -- ── Who a message may notify ────────────────────────────────────────────────
 
 -- One row per member a new message could be for, with what the rules read.
@@ -285,3 +427,5 @@ revoke all on function public.team_chat_notify_candidates(uuid) from public, ano
 grant execute on function public.team_chat_notify_candidates(uuid) to service_role;
 
 notify pgrst, 'reload schema';
+
+commit;

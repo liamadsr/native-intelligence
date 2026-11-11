@@ -187,11 +187,31 @@ describe('notifyTeamChatMessage (the fan-out)', () => {
     })
   })
 
-  it('run twice (a retry), nobody is told twice', async () => {
+  it('run twice (a retry), nobody is told twice, and everyone with one is still handed to the email (a partial failure left none behind)', async () => {
+    const { db, tables } = svc([cand(BEN, { mentioned: true, user_id: 'u-ben' }), cand(CY, { mentioned: true, user_id: 'u-cy' })])
+    // An earlier try wrote Ben's, then failed.
+    tables.notification.push({ id: 'n-ben', type: 'team_chat_message', target_type: 'team_chat_message', target_id: MSG, recipient_id: BEN })
+    const out = await notifyTeamChatMessage(db, MSG)
+    expect(tables.notification.filter((n) => n.recipient_id === BEN)).toHaveLength(1)
+    expect(out.outcome).toBe('notified')
+    expect(out.notified.map((n) => n.memberId).sort()).toEqual([BEN, CY].sort())
+    expect(await notifyTeamChatMessage(db, MSG)).toEqual({
+      outcome: 'already',
+      notified: expect.arrayContaining([expect.objectContaining({ memberId: BEN }), expect.objectContaining({ memberId: CY })]),
+    })
+    expect(tables.notification).toHaveLength(2)
+  })
+
+  it('the database wrote nothing (the message was deleted as the fan-out ran): nobody is handed on', async () => {
     const { db, tables } = svc([cand(BEN, { mentioned: true })])
-    await notifyTeamChatMessage(db, MSG)
-    expect(await notifyTeamChatMessage(db, MSG)).toEqual({ outcome: 'already', notified: [] })
-    expect(tables.notification).toHaveLength(1)
+    // 560's trigger refuses the row of a message deleted meanwhile: the insert answers, but nothing is there.
+    ;(db as unknown as { from: (t: string) => unknown }).from = ((orig) => (t: string) => {
+      const b = orig(t) as Record<string, unknown>
+      if (t === 'notification') b.insert = async () => ({ data: null, error: null })
+      return b
+    })((db as unknown as { from: (t: string) => unknown }).from.bind(db))
+    expect(await notifyTeamChatMessage(db, MSG)).toEqual({ outcome: 'gone', notified: [] })
+    expect(tables.notification).toHaveLength(0)
   })
 
   it('a deleted message, or one in an archived channel, notifies nobody', async () => {

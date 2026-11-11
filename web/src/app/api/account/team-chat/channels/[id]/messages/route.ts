@@ -4,9 +4,13 @@
  *        the channel's own messages (never a thread's replies), oldest first
  *        (the newest page without `before`), with the summaries of the
  *        threads under them and their reactions (migrations 556, 557).
- *   GET  ?from=<created_at> → the same, from that message on to the newest
- *        (at most 500: a page opened on an older message, from a search hit
- *        or a notification, runs on unbroken to now).
+ *   GET  ?around=<message id> → { messages, threads, reactions, hasOlder,
+ *        hasNewer } the page around one of the channel's own messages (a
+ *        search hit, a notification, a link opened on an older message): a
+ *        few before it, and on from it to the newest when that fits
+ *        (hasNewer false: the page runs on unbroken to now), else as many
+ *        after it as a page holds (hasNewer true: the view shows that page
+ *        alone, with a way to the newest).
  *   GET  ?thread=<root id> → { messages, reactions } that thread's replies,
  *        oldest first, and their reactions.
  *   POST { body, mentions?, mentionsAgent?, records?, thread?, attachments?,
@@ -56,6 +60,7 @@ import {
   getChannel,
   getMessage,
   listMessages,
+  listMessagesAround,
   listThread,
   messageReactions,
   postMessage,
@@ -80,8 +85,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!isUuid(id)) return notFound()
   const before = request.nextUrl.searchParams.get('before') ?? undefined
   if (before !== undefined && Number.isNaN(Date.parse(before))) return badRequest('before must be a timestamp')
-  const from = request.nextUrl.searchParams.get('from') ?? undefined
-  if (from !== undefined && Number.isNaN(Date.parse(from))) return badRequest('from must be a timestamp')
+  const around = request.nextUrl.searchParams.get('around')
+  if (around !== null && !isUuid(around)) return badRequest('around must be a message id')
   const thread = request.nextUrl.searchParams.get('thread')
   if (thread !== null && !isUuid(thread)) return badRequest('thread must be a message id')
   try {
@@ -94,7 +99,14 @@ export async function GET(request: NextRequest, { params }: Params) {
       const reactions = await messageReactions(auth.supabase, [root.id, ...messages.map((m) => m.id)])
       return NextResponse.json({ root, messages, reactions })
     }
-    const messages = await listMessages(auth.supabase, id, from ? { from } : { before })
+    if (around) {
+      const page = await listMessagesAround(auth.supabase, id, around)
+      if (!page) return notFound()
+      const ids = page.messages.map((m) => m.id)
+      const [threads, reactions] = await Promise.all([threadSummaries(auth.supabase, ids), messageReactions(auth.supabase, ids)])
+      return NextResponse.json({ ...page, threads, reactions })
+    }
+    const messages = await listMessages(auth.supabase, id, { before })
     const ids = messages.map((m) => m.id)
     const [threads, reactions] = await Promise.all([threadSummaries(auth.supabase, ids), messageReactions(auth.supabase, ids)])
     return NextResponse.json({ messages, threads, reactions })

@@ -4,6 +4,8 @@
 -- The TS tests (src/lib/team-chat/__tests__/migration-560.test.ts) pin the
 -- files' text; this runs the SQL.
 --
+-- The DEV run (the Supabase CLI: one statement) raises its report instead; a
+-- copy with v_raise_report true.
 -- Run against a database with the migrations applied (never PROD):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/560_team_chat_reach.sql
 -- Prints one line per probe and "560 team_chat_reach: all checks passed".
@@ -242,6 +244,43 @@ begin
     array[format('select 1 from public.team_chat_search(%L, %L, 25) where id = %L', w1, 'zebrafish & !looks:* | (good', reply_b)]);
   perform pg_temp.t560_run('at most lim rows', 'rows=1', u_c,
     array[format('select * from public.team_chat_search(%L, %L, 1)', w1, 'zebrafish')]);
+
+  -- ── A notification says the message as it is now ─────────────────────────
+  perform pg_temp.t560_check('a notification is written with the message''s own words, whatever the writer sent', 'zebrafish secret between us',
+    (select body from public.notification where recipient_id = m_b and target_id = msg_dm));
+  perform pg_temp.t560_run('pasted a secret, then edited it out: the notification no longer holds it', 'rows=1', u_a,
+    array[
+      format('update public.team_chat_message set body = %L where id = %L', 'nothing to see here', msg_dm),
+      format('select set_config(%L, %L, true)', 'request.jwt.claims', json_build_object('sub', u_b, 'role', 'authenticated')::text),
+      format('select 1 from public.notification where recipient_id = %L and target_id = %L and body = %L', m_b, msg_dm, 'nothing to see here')
+    ]);
+  perform pg_temp.t560_run('a deleted message''s notifications go, everyone''s', 'rows=0', u_a,
+    array[
+      format('update public.team_chat_message set deleted_at = now() where id = %L', msg_dm),
+      format('select set_config(%L, %L, true)', 'request.jwt.claims', json_build_object('sub', u_b, 'role', 'authenticated')::text),
+      format('select 1 from public.notification where target_id = %L', msg_dm)
+    ]);
+  insert into public.notification (workspace_id, recipient_id, type, title, body, target_type, target_id, group_key)
+  values (w1, m_c, 'team_chat_message', 't560 late', 'the words before the delete', 'team_chat_message', msg_gone, 'team_chat:' || ch_open::text);
+  perform pg_temp.t560_check('a notification of a message already deleted is never written (the fan-out racing a delete)', '0',
+    (select count(*)::text from public.notification where target_id = msg_gone));
+
+  -- ── What the away email may read (service role only) ─────────────────────
+  perform pg_temp.t560_run('a person cannot ask what someone may read', 'refused', u_a,
+    array[format('select * from public.team_chat_readable_messages(%L, array[%L]::uuid[])', m_a, root_a)]);
+  perform pg_temp.t560_check('only the messages the member may read now: not the team channel''s, not a DM they''re outside, not a deleted one', 'agent,root',
+    (select string_agg(case id when root_a then 'root' when msg_agent then 'agent' else id::text end, ',' order by case id when root_a then 'root' when msg_agent then 'agent' else id::text end)
+       from public.team_chat_readable_messages(m_c, array[root_a, msg_dm, msg_team, msg_gone, msg_agent])));
+  perform pg_temp.t560_check('a team member reads the team channel''s message, with its words now', 'zebrafish budget for the team only, cc t560ben',
+    (select body from public.team_chat_readable_messages(m_a, array[msg_team])));
+  -- Removed from the private channel's team before the email goes: nothing of it.
+  delete from public.team_member where team_id = t1 and member_id = m_a;
+  perform pg_temp.t560_check('mentioned, then removed from the private channel: the email reads nothing of it', '0',
+    (select count(*)::text from public.team_chat_readable_messages(m_a, array[msg_team])));
+  -- Left the workspace: nothing at all.
+  delete from public.member where id = m_c;
+  perform pg_temp.t560_check('no longer a member of the workspace: nothing at all', '0',
+    (select count(*)::text from public.team_chat_readable_messages(m_c, array[root_a, msg_agent])));
 
   -- ── Report ────────────────────────────────────────────────────────────────
   select string_agg(format('%s %s: expected %s, got %s', case when pass then 'PASS' else 'FAIL' end, label, expected, got), chr(10) order by n),

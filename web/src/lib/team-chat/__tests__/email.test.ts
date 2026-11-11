@@ -1,9 +1,13 @@
 /**
  * Team chat by email while you are away (src/lib/team-chat/email.ts, the
- * `team-chat-email` Inngest function): a burst in one conversation is one
- * email; reading it first cancels it; at an app, or in quiet hours, it waits;
- * a message is never emailed twice, nor a deleted one; push (the iOS app)
- * comes before email in the router's order and falls through.
+ * `team-chat-email` Inngest function): one email per PERSON, its sections the
+ * conversations still unread, bounded; a conversation read meanwhile drops
+ * out (nothing left: nothing sent); at an app, or in quiet hours, it waits;
+ * a message is never emailed twice; it says the words as they are now, and
+ * only what the person may still read, asked again right before it goes
+ * (mentioned, then removed from the private channel: nothing of it is sent);
+ * push (the iOS app) comes before email, is asked again too, and falls
+ * through.
  */
 import { describe, expect, it, vi } from 'vitest'
 
@@ -11,54 +15,67 @@ vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: (opts: unknown, fn: unknown) => ({ opts, fn }), send: vi.fn() } }))
 
 import {
-  hasUnreadTeamChatNotices,
   parseTeamChatEmailRequest,
   planTeamChatEmail,
-  sendTeamChatRead,
   teamChatAwayChannel,
   teamChatEmailContent,
-  teamChatEmailKey,
+  teamChatEmailEvent,
   teamChatMessageLink,
-  teamChatPushOf,
+  teamChatPushes,
   TEAM_CHAT_EMAIL_EVENT,
-  TEAM_CHAT_READ_EVENT,
+  TEAM_CHAT_EMAIL_MAX_CONVERSATIONS,
+  TEAM_CHAT_EMAIL_MAX_PER_CONVERSATION,
   type TeamChatEmailDecision,
   type TeamChatEmailDeps,
+  type TeamChatEmailItem,
   type TeamChatEmailNotice,
   type TeamChatEmailRequest,
+  type TeamChatLiveMessage,
 } from '../email'
 import { runTeamChatEmail, teamChatEmail } from '@/lib/inngest/team-chat-reach'
 
 const USER = '22222222-2222-4222-8222-222222222222'
 const MEMBER = '33333333-3333-4333-8333-333333333333'
+const MEMBER_2 = '44444444-4444-4444-8444-444444444444'
 const WS = '11111111-1111-4111-8111-111111111111'
+const WS_2 = '99999999-9999-4999-8999-999999999999'
 const CH = '55555555-5555-4555-8555-555555555555'
-const GROUP = `team_chat:${CH}`
+const CH_2 = '66666666-6666-4666-8666-666666666666'
 const NOW = Date.parse('2026-11-11T20:00:00.000Z')
 
-const req: TeamChatEmailRequest = { key: teamChatEmailKey(USER, GROUP), userId: USER, memberId: MEMBER, workspaceId: WS, groupKey: GROUP }
+const req: TeamChatEmailRequest = { key: USER, userId: USER, workspaceId: WS }
+const outcomeOf = (d: TeamChatEmailDecision) => (d.kind === 'done' ? d.outcome : d.kind)
 
+const hex = (n: number) => n.toString(16).padStart(12, '0')
 function notice(n: number, over: Partial<TeamChatEmailNotice> = {}): TeamChatEmailNotice {
   return {
-    id: `n0000000-0000-4000-8000-00000000000${n}`,
-    created_at: new Date(NOW - (10 - n) * 60_000).toISOString(),
+    id: `a0000000-0000-4000-8000-${hex(n)}`,
+    created_at: new Date(NOW - (60 - n) * 60_000).toISOString(),
+    recipient_id: MEMBER,
+    workspace_id: WS,
+    group_key: `team_chat:${CH}`,
     title: 'Ana Ruiz in #launch',
-    body: `message ${n}`,
-    target_id: `m0000000-0000-4000-8000-00000000000${n}`,
+    target_id: `b0000000-0000-4000-8000-${hex(n)}`,
     metadata: { author_name: 'Ana Ruiz', place: '#launch', thread_root_id: null },
     ...over,
   }
 }
 
-function deps(over: Partial<TeamChatEmailDeps> & { notices?: TeamChatEmailNotice[] } = {}) {
+function deps(over: Partial<TeamChatEmailDeps> & { notices?: TeamChatEmailNotice[]; words?: Map<string, TeamChatLiveMessage> } = {}) {
   const claims = new Set<string>()
   const sent: Array<{ to: string; subject: string; html: string; text: string }> = []
   const notices = over.notices ?? [notice(1), notice(2), notice(3)]
+  // The messages as they are now: their own words, unless a test says otherwise.
+  const words = over.words ?? new Map(notices.map((n) => [n.target_id!, { body: `message ${n.target_id!.slice(-2)}`, files: 0 }]))
+  const readableCalls: Array<{ memberId: string; ids: string[] }> = []
   const d: TeamChatEmailDeps = {
     now: () => NOW,
     unread: async () => notices,
     claimed: async ({ ids }) => new Set(ids.filter((id) => [...claims].some((c) => c.endsWith(`:${id}`)))),
-    liveMessages: async (ids) => new Set(ids),
+    readable: async (input) => {
+      readableCalls.push(input)
+      return new Map(input.ids.filter((id) => words.has(id)).map((id) => [id, words.get(id)!]))
+    },
     presence: async () => [],
     // Pacific: noon there, out of quiet hours.
     timeZone: async () => 'America/Los_Angeles',
@@ -74,26 +91,56 @@ function deps(over: Partial<TeamChatEmailDeps> & { notices?: TeamChatEmailNotice
       sent.push(input)
       return true
     },
-    link: (id) => teamChatMessageLink(id, 'https://app.example.test'),
+    link: (id, ws) => teamChatMessageLink(id, ws, 'https://app.example.test'),
     ...over,
   }
-  return { d, sent, claims }
+  return { d, sent, claims, readableCalls, words }
 }
 
-const outcomeOf = (d: TeamChatEmailDecision) => (d.kind === 'done' ? d.outcome : d.kind)
-
 describe('planTeamChatEmail', () => {
-  it('a burst in one conversation is ONE email carrying every unread message, linked to the newest', async () => {
+  it('a burst is ONE email carrying every unread message, with the words as they are now, linked into its workspace', async () => {
     const { d, sent } = deps()
     expect(await planTeamChatEmail(req, d)).toEqual({ kind: 'done', outcome: 'sent', messages: 3 })
     expect(sent).toHaveLength(1)
     expect(sent[0].to).toBe('ana@example.test')
-    expect(sent[0].subject).toBe('3 new messages in #launch')
-    for (const n of [1, 2, 3]) expect(sent[0].text).toContain(`Ana Ruiz: message ${n}`)
-    expect(sent[0].text).toContain(`https://app.example.test/account?team_chat_message=${notice(3).target_id}`)
+    expect(sent[0].subject).toBe('3 new messages: #launch')
+    for (const n of ['01', '02', '03']) expect(sent[0].text).toContain(`Ana Ruiz: message ${n}`)
+    expect(sent[0].text).toContain(`https://app.example.test/account?team_chat_message=${notice(3).target_id}&workspace=${WS}`)
   })
 
-  it('read first: nothing unread, nothing sent (the cancel)', async () => {
+  it('one email per person: several conversations (in two workspaces) are sections of the same email', async () => {
+    const notices = [
+      notice(1),
+      notice(2, { group_key: `team_chat_thread:${CH}`, metadata: { author_name: 'Ben Ortiz', place: '#launch', thread_root_id: CH } }),
+      notice(3, { recipient_id: MEMBER_2, workspace_id: WS_2, group_key: `team_chat:${CH_2}`, title: 'Rosa Lind', metadata: { author_name: 'Rosa Lind', place: null, thread_root_id: null } }),
+    ]
+    const { d, sent, readableCalls } = deps({ notices })
+    expect(outcomeOf(await planTeamChatEmail(req, d))).toBe('sent')
+    expect(sent).toHaveLength(1)
+    expect(sent[0].subject).toBe('3 new messages in 3 conversations')
+    expect(sent[0].text).toContain('A thread in #launch')
+    expect(sent[0].text).toContain('Rosa Lind, directly to you')
+    expect(sent[0].text).toContain(`workspace=${WS_2}`)
+    // What each member may read is asked as that member.
+    expect(new Set(readableCalls.map((c) => c.memberId))).toEqual(new Set([MEMBER, MEMBER_2]))
+  })
+
+  it('bounded: a few conversations and a few messages each, then "and N more"', () => {
+    const items: TeamChatEmailItem[] = []
+    for (let c = 0; c < TEAM_CHAT_EMAIL_MAX_CONVERSATIONS + 2; c++) {
+      for (let m = 0; m < (c === 0 ? TEAM_CHAT_EMAIL_MAX_PER_CONVERSATION + 3 : 1); m++) {
+        // The first conversation is the newest (sections run newest first), so it is shown, cut.
+        const n = c === 0 ? 200 + m : c * 20 + m + 1
+        items.push({ ...notice(n, { group_key: `team_chat:c${c}`, metadata: { author_name: 'Ana', place: `#c${c}`, thread_root_id: null } }), words: `words ${n}` })
+      }
+    }
+    const { text } = teamChatEmailContent({ items, link: (id) => `https://x.test/${id}` })
+    expect(text).toContain('and 3 more messages')
+    expect(text).toContain('and 2 more conversations')
+    expect((text.match(/^#c\d$/gm) ?? []).length).toBe(TEAM_CHAT_EMAIL_MAX_CONVERSATIONS)
+  })
+
+  it('a conversation read meanwhile drops out; everything read: nothing sent (the cancel)', async () => {
     const { d, sent } = deps({ notices: [] })
     expect(await planTeamChatEmail(req, d)).toEqual({ kind: 'done', outcome: 'read', messages: 0 })
     expect(sent).toHaveLength(0)
@@ -102,14 +149,38 @@ describe('planTeamChatEmail', () => {
   it('never twice: a second run finds every message claimed', async () => {
     const { d, sent } = deps()
     await planTeamChatEmail(req, d)
-    expect(await planTeamChatEmail(req, d)).toEqual({ kind: 'done', outcome: 'read', messages: 0 })
+    expect(outcomeOf(await planTeamChatEmail(req, d))).toBe('read')
     expect(sent).toHaveLength(1)
   })
 
-  it('a message deleted since is left out', async () => {
-    const { d, sent } = deps({ liveMessages: async (ids) => new Set(ids.filter((id) => id !== notice(2).target_id)) })
-    expect((await planTeamChatEmail(req, d)).messages).toBe(2)
-    expect(sent[0].text).not.toContain('message 2')
+  it('pasted a secret, then edited it out: the email says the words now, never the notification’s', async () => {
+    const words = new Map([[notice(1).target_id!, { body: 'nothing to see here', files: 0 }]])
+    const { d, sent } = deps({ notices: [notice(1)], words })
+    await planTeamChatEmail(req, d)
+    expect(sent[0].text).toContain('nothing to see here')
+    expect(sent[0].text).not.toContain('secret')
+  })
+
+  it('a deleted message, or one they may no longer read, is left out', async () => {
+    const words = new Map([[notice(1).target_id!, { body: 'still here', files: 0 }]])
+    const { d, sent } = deps({ words })
+    expect((await planTeamChatEmail(req, d)).messages).toBe(1)
+    expect(sent[0].text).toContain('still here')
+    expect(sent[0].text).not.toContain('message 02')
+  })
+
+  it('mentioned, then removed from the private channel before the email goes: access is asked again right before sending, and nothing is sent', async () => {
+    const { d, sent, words, readableCalls } = deps({ notices: [notice(1)] })
+    // Removed between the plan and the send (right after the claims).
+    const claim = d.claim
+    d.claim = async (input) => {
+      const out = await claim(input)
+      words.clear()
+      return out
+    }
+    expect(await planTeamChatEmail(req, d)).toEqual({ kind: 'done', outcome: 'gone', messages: 0 })
+    expect(sent).toHaveLength(0)
+    expect(readableCalls).toHaveLength(2)
   })
 
   it('at an app: no email now, look again later', async () => {
@@ -134,22 +205,51 @@ describe('planTeamChatEmail', () => {
     expect(failing.claims.size).toBe(3)
   })
 
-  it('a push is the conversation’s newest message, opened at it (its channel, its thread)', () => {
-    const push = teamChatPushOf({ workspaceId: WS, groupKey: GROUP, notices: [notice(1), notice(2, { metadata: { author_name: 'Ana Ruiz', place: '#launch', thread_root_id: null, channel_id: CH } })] })
-    expect(push).toMatchObject({
-      title: '2 new messages in #launch',
-      body: 'Ana Ruiz: message 2',
-      collapseId: GROUP,
-      data: { kind: 'team_chat', workspace_id: WS, channel_id: CH, message_id: notice(2).target_id, thread_root_id: null },
-    })
-    // A notice that names no channel can't be opened: no push (email then).
-    expect(teamChatPushOf({ workspaceId: WS, groupKey: GROUP, notices: [notice(1)] })).toBeNull()
+  it('a push is asked again right before it goes: an edit says its new words, a message lost meanwhile is not pushed', async () => {
+    const pushes: TeamChatEmailItem[][] = []
+    const edited = deps({ notices: [notice(1)], pushTarget: async () => true, sendPush: async ({ items }) => (pushes.push(items), true) })
+    const claim = edited.d.claim
+    edited.d.claim = async (input) => {
+      const out = await claim(input)
+      edited.words.set(notice(1).target_id!, { body: 'edited just now', files: 0 })
+      return out
+    }
+    expect(outcomeOf(await planTeamChatEmail(req, edited.d))).toBe('pushed')
+    expect(pushes[0].map((i) => i.words)).toEqual(['edited just now'])
+    expect(edited.readableCalls).toHaveLength(2)
+
+    const lost = deps({ notices: [notice(1)], pushTarget: async () => true, sendPush: async () => true })
+    const claimLost = lost.d.claim
+    lost.d.claim = async (input) => {
+      const out = await claimLost(input)
+      lost.words.clear()
+      return out
+    }
+    expect(await planTeamChatEmail(req, lost.d)).toEqual({ kind: 'done', outcome: 'gone', messages: 0 })
+    expect(lost.sent).toHaveLength(0)
   })
 
-  it('a push that throws falls through to email too', async () => {
+  it('a push that throws falls through to email', async () => {
     const threw = deps({ pushTarget: async () => true, sendPush: async () => Promise.reject(new Error('apple down')) })
-    expect(await planTeamChatEmail(req, threw.d)).toMatchObject({ kind: 'done', outcome: 'sent' })
+    expect(outcomeOf(await planTeamChatEmail(req, threw.d))).toBe('sent')
     expect(threw.sent).toHaveLength(1)
+  })
+
+  it('one push per conversation, newest first: its newest message’s words now, opened in its workspace at its message', () => {
+    const item = (n: number, over: Partial<TeamChatEmailNotice> = {}): TeamChatEmailItem => ({
+      ...notice(n, { metadata: { author_name: 'Ana Ruiz', place: '#launch', thread_root_id: null, channel_id: CH }, ...over }),
+      words: `words ${n}`,
+    })
+    const pushes = teamChatPushes([
+      item(1),
+      item(2),
+      item(3, { workspace_id: WS_2, group_key: `team_chat_thread:${CH_2}`, metadata: { author_name: 'Ben Ode', place: '#ops', thread_root_id: CH_2, channel_id: CH_2 } }),
+      // No channel in its row: it can't be opened, so no push of it.
+      item(4, { group_key: 'team_chat:other', metadata: { author_name: 'Ana Ruiz', place: '#x', thread_root_id: null } }),
+    ])
+    expect(pushes.map((p) => p.collapseId)).toEqual([`team_chat_thread:${CH_2}`, `team_chat:${CH}`])
+    expect(pushes[0]).toMatchObject({ title: 'Ana Ruiz in #launch', body: 'words 3', data: { workspace_id: WS_2, channel_id: CH_2, thread_root_id: CH_2, message_id: notice(3).target_id } })
+    expect(pushes[1]).toMatchObject({ title: '2 new messages in #launch', body: 'Ana Ruiz: words 2', data: { workspace_id: WS, channel_id: CH, message_id: notice(2).target_id } })
   })
 
   it('push comes first (the router’s order), and a push that doesn’t go falls through to email', async () => {
@@ -164,49 +264,36 @@ describe('planTeamChatEmail', () => {
 })
 
 describe('teamChatEmailContent', () => {
-  it('one message: its own title; a thread’s: replies; a DM’s: who wrote; the words are escaped', () => {
-    expect(teamChatEmailContent({ notices: [notice(1)], link: 'https://x.test' }).subject).toBe('Ana Ruiz in #launch')
-    const thread = [notice(1), notice(2)].map((n) => ({ ...n, metadata: { ...n.metadata, thread_root_id: 'r' } }))
-    expect(teamChatEmailContent({ notices: thread, link: 'https://x.test' }).subject).toBe('2 new replies in a thread in #launch')
-    const dm = [notice(1), notice(2)].map((n) => ({ ...n, metadata: { author_name: 'Ana Ruiz', place: null } }))
-    expect(teamChatEmailContent({ notices: dm, link: 'https://x.test' }).subject).toBe('2 new messages from Ana Ruiz')
-    const html = teamChatEmailContent({ notices: [notice(1, { body: '<script>alert(1)</script>' })], link: 'https://x.test' }).html
+  const link = (id: string) => `https://x.test/${id}`
+  const item = (n: number, over: Partial<TeamChatEmailItem> = {}): TeamChatEmailItem => ({ ...notice(n), words: `message ${n}`, ...over })
+  it('one message: its own title; a thread’s: where; a DM’s: who; the words are escaped', () => {
+    expect(teamChatEmailContent({ items: [item(1)], link }).subject).toBe('Ana Ruiz in #launch')
+    const thread = [item(1), item(2)].map((n) => ({ ...n, metadata: { ...n.metadata, thread_root_id: 'r' } }))
+    expect(teamChatEmailContent({ items: thread, link }).subject).toBe('2 new messages: A thread in #launch')
+    const dm = [item(1), item(2)].map((n) => ({ ...n, metadata: { author_name: 'Ana Ruiz', place: null } }))
+    expect(teamChatEmailContent({ items: dm, link }).subject).toBe('2 new messages: Ana Ruiz, directly to you')
+    const html = teamChatEmailContent({ items: [item(1, { words: '<script>alert(1)</script>' })], link }).html
     expect(html).not.toContain('<script>')
     expect(html).toContain('&lt;script&gt;')
   })
 })
 
-describe('the request and the cancel', () => {
-  it('keys one email per person and conversation; a malformed event is nothing', () => {
-    expect(parseTeamChatEmailRequest({ userId: USER, memberId: MEMBER, workspaceId: WS, groupKey: GROUP })).toEqual(req)
-    expect(parseTeamChatEmailRequest({ userId: USER, memberId: MEMBER, workspaceId: WS, groupKey: 'team_chat:nope' })).toBeNull()
+describe('the request', () => {
+  it('keyed by the person; a malformed event is nothing', () => {
+    expect(teamChatEmailEvent({ userId: USER, workspaceId: WS })).toEqual({ name: TEAM_CHAT_EMAIL_EVENT, data: { key: USER, userId: USER, workspaceId: WS } })
+    expect(parseTeamChatEmailRequest({ userId: USER, workspaceId: WS })).toEqual(req)
+    expect(parseTeamChatEmailRequest({ userId: USER, workspaceId: 'nope' })).toBeNull()
     expect(parseTeamChatEmailRequest(null)).toBeNull()
   })
 
-  it('the function waits for a quiet conversation, and reading it (or a newer request) cancels a waiting run, on the same key', () => {
+  it('the function waits for team chat to be quiet for the person, and a newer request cancels a waiting run, on the same key', () => {
     const opts = (teamChatEmail as unknown as { opts: Record<string, unknown> }).opts
     expect(opts.debounce).toEqual({ key: 'event.data.key', period: '3m', timeout: '10m' })
-    expect(opts.cancelOn).toEqual([
-      { event: TEAM_CHAT_READ_EVENT, match: 'data.key' },
-      { event: TEAM_CHAT_EMAIL_EVENT, match: 'data.key' },
-    ])
+    expect(opts.cancelOn).toEqual([{ event: TEAM_CHAT_EMAIL_EVENT, match: 'data.key' }])
   })
 
-  it('reading sends the cancel, keyed as the email is', async () => {
-    const sent: unknown[] = []
-    await sendTeamChatRead({ userId: USER, groupKey: GROUP }, async (e) => void sent.push(e))
-    expect(sent).toEqual([{ name: TEAM_CHAT_READ_EVENT, data: { key: req.key } }])
-  })
-
-  it('whether there is anything to cancel is read from the person’s own unread notifications of that conversation', async () => {
-    const calls: Array<[string, unknown]> = []
-    const builder: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'limit']) builder[m] = (...a: unknown[]) => (calls.push([m, a]), builder)
-    builder.then = (ok: (v: unknown) => unknown) => Promise.resolve({ data: [{ id: 'n1' }], error: null }).then(ok)
-    const supabase = { from: () => builder } as never
-    expect(await hasUnreadTeamChatNotices(supabase, { memberId: MEMBER, groupKey: GROUP })).toBe(true)
-    expect(calls).toContainEqual(['eq', ['group_key', GROUP]])
-    expect(calls).toContainEqual(['eq', ['is_read', false]])
+  it('a link names its message and its workspace', () => {
+    expect(teamChatMessageLink('m-1', WS, 'https://app.example.test/')).toBe(`https://app.example.test/account?team_chat_message=m-1&workspace=${WS}`)
   })
 })
 
@@ -220,7 +307,7 @@ describe('runTeamChatEmail', () => {
       sleepUntil: async (id: string) => void slept.push(id),
     }
   }
-  const event = { data: { userId: USER, memberId: MEMBER, workspaceId: WS, groupKey: GROUP } }
+  const event = { data: { userId: USER, workspaceId: WS } }
 
   it('at an app it looks again every while, then sends once they leave', async () => {
     const s = step([{ kind: 'present', messages: 2 }, { kind: 'present', messages: 2 }, { kind: 'done', outcome: 'sent', messages: 2 }])
