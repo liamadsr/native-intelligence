@@ -21,6 +21,7 @@ import {
   teamChatMessageLink,
   TEAM_CHAT_EMAIL_EVENT,
   TEAM_CHAT_READ_EVENT,
+  type TeamChatEmailDecision,
   type TeamChatEmailDeps,
   type TeamChatEmailNotice,
   type TeamChatEmailRequest,
@@ -78,6 +79,8 @@ function deps(over: Partial<TeamChatEmailDeps> & { notices?: TeamChatEmailNotice
   return { d, sent, claims }
 }
 
+const outcomeOf = (d: TeamChatEmailDecision) => (d.kind === 'done' ? d.outcome : d.kind)
+
 describe('planTeamChatEmail', () => {
   it('a burst in one conversation is ONE email carrying every unread message, linked to the newest', async () => {
     const { d, sent } = deps()
@@ -124,9 +127,9 @@ describe('planTeamChatEmail', () => {
   })
 
   it('no address: nothing sent; a failed send stays claimed (at most once)', async () => {
-    expect((await planTeamChatEmail(req, deps({ address: async () => null }).d)).outcome).toBe('no_address')
+    expect(outcomeOf(await planTeamChatEmail(req, deps({ address: async () => null }).d))).toBe('no_address')
     const failing = deps({ sendEmail: async () => false })
-    expect((await planTeamChatEmail(req, failing.d)).outcome).toBe('failed')
+    expect(outcomeOf(await planTeamChatEmail(req, failing.d))).toBe('failed')
     expect(failing.claims.size).toBe(3)
   })
 
@@ -137,7 +140,7 @@ describe('planTeamChatEmail', () => {
     expect(await planTeamChatEmail(req, pushed.d)).toEqual({ kind: 'done', outcome: 'pushed', messages: 3 })
     expect(pushed.sent).toHaveLength(0)
     const fell = deps({ pushTarget: async () => true, sendPush: async () => false })
-    expect((await planTeamChatEmail(req, fell.d)).outcome).toBe('sent')
+    expect(outcomeOf(await planTeamChatEmail(req, fell.d))).toBe('sent')
   })
 })
 
