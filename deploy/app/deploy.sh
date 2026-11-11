@@ -47,6 +47,12 @@ case "${1:-}" in
 esac
 
 [ "$(id -u)" = 0 ] || die "run it with sudo: the settings file is root's."
+# One deploy at a time, by hand or automatic. auto-deploy.sh holds this lock for its
+# whole run and says so with NI_DEPLOY_LOCK_HELD=1 (sudo does not pass that on).
+if [ "${NI_DEPLOY_LOCK_HELD:-}" != 1 ]; then
+	exec 8>>/run/ni-app-deploy.lock
+	flock -n 8 || die "another deploy is running (by hand, or the automatic deploys: ./auto-deploy.sh status); try again when it has ended."
+fi
 [ -f .env ] || die "no .env here. ../README.md step 20 says how it is made."
 command -v docker >/dev/null || die "Docker is not installed."
 
@@ -64,6 +70,28 @@ commit="$(sudo -u "$owner" git -C "$repo" rev-parse --short=12 HEAD 2>/dev/null 
 build_arg() {
 	compose config --format json 2>/dev/null |
 		python3 -I -c "import json,sys; print(json.load(sys.stdin)['services']['web']['build']['args'].get(sys.argv[1]) or '')" "$1"
+}
+
+# One setting of web's, as Compose resolves it from .env. Never printed: the caller
+# keeps it in a variable.
+setting() {
+	compose config --format json 2>/dev/null |
+		python3 -I -c "import json,sys; print(json.load(sys.stdin)['services']['web'].get('environment', {}).get(sys.argv[1]) or '')" "$1"
+}
+
+# Builds web's image. The hosted sandbox service's credentials go to the build as
+# BuildKit secrets (compose.yaml: web's build.secrets), which Compose takes from its
+# own environment: so they are read from .env and given to this one command, not
+# exported to the rest of the script. The coding agent's build uses them
+# (build-agents.sh); empty, its sandbox is just-bash. Never a build argument: those
+# are kept in the image's history.
+build_web() {
+	local token team project
+	token="$(setting SANDBOX_ACCESS_TOKEN)" || die "cannot read SANDBOX_ACCESS_TOKEN from .env (docker compose config)."
+	team="$(setting SANDBOX_TEAM_ID)" || die "cannot read SANDBOX_TEAM_ID from .env (docker compose config)."
+	project="$(setting SANDBOX_PROJECT_ID)" || die "cannot read SANDBOX_PROJECT_ID from .env (docker compose config)."
+	SANDBOX_ACCESS_TOKEN="$token" SANDBOX_TEAM_ID="$team" SANDBOX_PROJECT_ID="$project" \
+		NI_APP_COMMIT="$commit" compose build web
 }
 
 # The public address an image was built for (compose.yaml labels it). The client
@@ -205,7 +233,7 @@ deploy | build-only)
 	fi
 	say "Building the image from $commit for $(build_arg NEXT_PUBLIC_APP_URL) (the app keeps serving meanwhile)"
 	started=$SECONDS
-	NI_APP_COMMIT="$commit" compose build web
+	build_web
 	echo "$(ts) built in $(((SECONDS - started) / 60)) min $(((SECONDS - started) % 60)) s"
 	[ "$mode" = build-only ] && exit 0
 	check_image_url ni-app:live
@@ -228,6 +256,12 @@ rollback)
 	docker tag ni-app:previous ni-app:live
 	docker tag ni-app:rollback-swap ni-app:previous
 	docker rmi ni-app:rollback-swap >/dev/null
+	# A mark for the automatic deploys (auto-deploy.sh), where they are installed:
+	# their next run holds everything until a person has cleared it, whatever is
+	# rolled out by hand after this. Never a reason for the rollback itself to stop.
+	if [ -d /var/lib/ni-auto-deploy ]; then
+		date -u +%Y-%m-%dT%H:%M:%SZ >/var/lib/ni-auto-deploy/rolled-back 2>/dev/null || true
+	fi
 	rollout
 	;;
 esac
