@@ -1,9 +1,11 @@
 /**
  * POST /m/<token>/notice → { ok: true } an admitted guest has seen that the
  * meeting's call has notes (or a recording) on and pressed "Join with
- * microphone" (phase 7; the guests' side of phase 6's notice route): their
- * listen-only connection may publish from now on, raised through LiveKit to
- * a guest token's sources, never more. Only for a guest let into the live
+ * microphone" (phase 7; the guests' side of phase 6's notice route). The
+ * server records it first (574's meeting_guest_ack: this notes round, and
+ * the recording running now; only then is a notes file of theirs ever made),
+ * then lets their listen-only connection publish, raised through LiveKit to a
+ * guest token's sources, never more. Only for a guest let into the live
  * call; the cookie is checked first; limited per guest. 409 when they are
  * not connected (join first); 503 when LiveKit can't be asked.
  */
@@ -14,8 +16,8 @@ import { isSameOriginPost } from '@/lib/links/same-origin'
 import { allowGuestPublish, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { meetingMemoryLimiter, MEETING_LIMITS } from '@/lib/meeting-links/limits'
 import { tokenDigest } from '@/lib/meeting-links/link'
-import { guestOf, linkInactive, noGuest, privateHeaders, tooManyTries } from '@/lib/meeting-links/public'
-import { meetingByDigest } from '@/lib/meeting-links/store'
+import { guestOf, linkInactive, noGuest, privateHeaders, smallBody, tooManyTries } from '@/lib/meeting-links/public'
+import { ackGuest, meetingByDigest } from '@/lib/meeting-links/store'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,20 +31,15 @@ export async function POST(request: NextRequest, { params }: Params) {
   const guestId = guestOf(request, token)
   if (!guestId) return privateHeaders(noGuest())
   if (!meetingMemoryLimiter.hit(MEETING_LIMITS.tokenPerGuest, guestId)) return privateHeaders(tooManyTries())
+  const body = await smallBody(request)
+  if (body instanceof Response) return body
   try {
     const svc = getServiceClient()
     const meeting = await meetingByDigest(svc, tokenDigest(token))
     if (!meeting || meeting.revoked_at || Date.now() >= Date.parse(meeting.closes_at)) return privateHeaders(linkInactive())
-    const { data: guest } = await svc
-      .from('meeting_guest')
-      .select('state, call_id')
-      .eq('id', guestId)
-      .eq('meeting_id', meeting.id)
-      .maybeSingle<{ state: string; call_id: string | null }>()
-    if (!guest) return privateHeaders(noGuest())
-    if (guest.state !== 'admitted' || !guest.call_id) return privateHeaders(apiError('You are not in this call', { status: 409, code: 'NOT_ADMITTED' }))
-    const { data: call } = await svc.from('team_call').select('room, status').eq('id', guest.call_id).maybeSingle<{ room: string; status: string }>()
-    if (!call || call.status !== 'live') return privateHeaders(apiError('You are not in this call', { status: 409, code: 'NOT_ADMITTED' }))
+    // Recorded first: what is on now is theirs to be in (the notes round, the recording).
+    const call = await ackGuest(svc, guestId, tokenDigest(token))
+    if (!call) return privateHeaders(apiError('You are not in this call', { status: 409, code: 'NOT_ADMITTED' }))
     try {
       await allowGuestPublish(config, call.room, guestId)
     } catch (err) {

@@ -41,7 +41,7 @@ export interface MadeMeeting {
  */
 export async function insertMeeting(
   supabase: SupabaseClient,
-  input: { meetingId: string; workspaceId: string; title: string; tokenDigest: string; startsAt: string | null; minutes: number | null; hostMemberId?: string },
+  input: { meetingId: string; workspaceId: string; title: string; tokenDigest: string; tokenNonce: string; startsAt: string | null; minutes: number | null; hostMemberId?: string },
 ): Promise<MadeMeeting> {
   const { data, error } = await supabase.rpc(input.hostMemberId ? 'meeting_create_for' : 'meeting_create', {
     ...(input.hostMemberId ? { host_member: input.hostMemberId } : {}),
@@ -49,6 +49,7 @@ export async function insertMeeting(
     ws: input.workspaceId,
     meeting_title: input.title,
     token_digest: input.tokenDigest,
+    token_nonce: input.tokenNonce,
     starts: input.startsAt,
     minutes: input.minutes,
   })
@@ -75,6 +76,20 @@ export async function revokeMeeting(supabase: SupabaseClient, meetingId: string)
   if (error) throw teamChatErrorOf(error, 'meeting revoke')
   const row = (Array.isArray(data) ? data[0] : data) as { revoked?: boolean; call_id?: string | null; room?: string | null } | undefined
   return { revoked: row?.revoked === true, callId: row?.call_id ?? null, room: row?.room ?? null }
+}
+
+/** The host replaces the link (574's meeting_new_link): a new token; the old one stops working. */
+export async function replaceMeetingLink(supabase: SupabaseClient, input: { meetingId: string; tokenDigest: string; tokenNonce: string }): Promise<void> {
+  const { error } = await supabase.rpc('meeting_new_link', { target_meeting: input.meetingId, token_digest: input.tokenDigest, token_nonce: input.tokenNonce })
+  if (error?.code === '22023' && /^meetings: /.test(error.message ?? '')) throw new TeamChatError('bad_request', meetingLine(error.message))
+  if (error) throw teamChatErrorOf(error, 'meeting new link')
+}
+
+/** A meeting's link's nonce (the server's only: no client may read it), to show the link again. */
+export async function meetingNonce(svc: SupabaseClient, meetingId: string): Promise<string | null> {
+  const { data, error } = await svc.from('meeting').select('token_nonce').eq('id', meetingId).maybeSingle<{ token_nonce: string | null }>()
+  if (error) throw new Error(`meetings: nonce read failed: ${error.message}`)
+  return data?.token_nonce ?? null
 }
 
 /** Someone in the call lets a waiting guest in, or not (574's meeting_guest_decide). */
@@ -136,13 +151,14 @@ export interface PublicMeeting {
   opens_at: string
   closes_at: string
   revoked_at: string | null
+  token_nonce: string | null
 }
 
 /** The meeting a token's hash names, or null. */
 export async function meetingByDigest(svc: SupabaseClient, digest: string): Promise<PublicMeeting | null> {
   const { data, error } = await svc
     .from('meeting')
-    .select('id, workspace_id, channel_id, host_member_id, title, starts_at, opens_at, closes_at, revoked_at')
+    .select('id, workspace_id, channel_id, host_member_id, title, starts_at, opens_at, closes_at, revoked_at, token_nonce')
     .eq('token_hash', digest)
     .maybeSingle<PublicMeeting>()
   if (error) throw new Error(`meetings: lookup failed: ${error.message}`)
@@ -156,7 +172,7 @@ export async function hostName(svc: SupabaseClient, memberId: string | null): Pr
   return data?.display_name ?? null
 }
 
-export type GuestRequestOutcome = 'waiting' | 'early' | 'inactive' | 'refused' | 'full'
+export type GuestRequestOutcome = 'waiting' | 'early' | 'inactive' | 'full'
 
 export interface GuestRequest {
   outcome: GuestRequestOutcome
@@ -187,15 +203,45 @@ export interface GuestPoll {
   notes: boolean
   recording: string
   open: boolean
+  /** They must see the notice (notes or a recording on that they haven't said go to) before they may publish. */
+  needsNotice: boolean
+  /** Workspace members in the call now (none: the host has left). */
+  membersInCall: number
 }
 
 /** A guest's lobby, as their page polls it (574's meeting_guest_poll, one read: by the guest and the link's hash), or null for a guest that isn't this link's. */
 export async function pollGuest(svc: SupabaseClient, guestId: string, digest: string): Promise<GuestPoll | null> {
   const { data, error } = await svc.rpc('meeting_guest_poll', { target_guest: guestId, token_digest: digest })
   if (error) throw new Error(`meetings: poll failed: ${error.message}`)
-  const row = (Array.isArray(data) ? data[0] : data) as { state?: MeetingGuestState; call_id?: string | null; room?: string | null; notes?: boolean; recording?: string; open?: boolean } | undefined
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { state?: MeetingGuestState; call_id?: string | null; room?: string | null; notes?: boolean; recording?: string; open?: boolean; needs_notice?: boolean; members_in_call?: number }
+    | undefined
   if (!row?.state) return null
-  return { state: row.state, callId: row.call_id ?? null, room: row.room ?? null, notes: row.notes === true, recording: row.recording ?? 'off', open: row.open === true }
+  return {
+    state: row.state,
+    callId: row.call_id ?? null,
+    room: row.room ?? null,
+    notes: row.notes === true,
+    recording: row.recording ?? 'off',
+    open: row.open === true,
+    needsNotice: row.needs_notice === true,
+    membersInCall: Number(row.members_in_call ?? 0) || 0,
+  }
+}
+
+/** An admitted guest said go to the notice (574's meeting_guest_ack): their call's room, or null (not let into a live call). */
+export async function ackGuest(svc: SupabaseClient, guestId: string, digest: string): Promise<{ callId: string; room: string } | null> {
+  const { data, error } = await svc.rpc('meeting_guest_ack', { target_guest: guestId, token_digest: digest })
+  if (error) throw new Error(`meetings: ack failed: ${error.message}`)
+  const row = (Array.isArray(data) ? data[0] : data) as { call_id?: string; room?: string } | undefined
+  return row?.call_id && row.room ? { callId: row.call_id, room: row.room } : null
+}
+
+/** A meeting's live calls with guests and no member for `graceSeconds` (574's meeting_guest_only_calls): the sweeper ends them. */
+export async function guestOnlyCalls(svc: SupabaseClient, graceSeconds: number): Promise<Array<{ callId: string; room: string }>> {
+  const { data, error } = await svc.rpc('meeting_guest_only_calls', { grace_seconds: graceSeconds })
+  if (error) throw new Error(`meetings: guest-only calls read failed: ${error.message}`)
+  return ((data ?? []) as Array<{ call_id: string; room: string }>).map((r) => ({ callId: r.call_id, room: r.room }))
 }
 
 /** The guest went (574's meeting_guest_leave). */
@@ -231,7 +277,7 @@ export async function fenceGuests(svc: SupabaseClient): Promise<number> {
   return Array.isArray(data) ? data.length : 0
 }
 
-/** The sweeper's tidying: guests waiting who stopped polling have left; old limit windows are forgotten. */
+/** The sweeper's tidying (every five minutes): guests waiting who stopped polling have left. */
 export async function sweepMeetings(svc: SupabaseClient, now: Date = new Date()): Promise<{ gone: number }> {
   const { data, error } = await svc
     .from('meeting_guest')
@@ -240,9 +286,45 @@ export async function sweepMeetings(svc: SupabaseClient, now: Date = new Date())
     .lt('last_seen_at', new Date(now.getTime() - 2 * 60_000).toISOString())
     .select('id')
   if (error) throw new Error(`meetings: lobby sweep failed: ${error.message}`)
-  const { error: pruneError } = await svc.from('meeting_rate').delete().lt('window_start', new Date(now.getTime() - 24 * 60 * 60_000).toISOString())
-  if (pruneError) console.warn('[meetings] limit windows not pruned:', pruneError.message)
   return { gone: (data ?? []).length }
+}
+
+/** How long a guest's name is kept after they are done with a meeting, and their address key after they stop waiting. */
+export const MEETING_GUEST_NAME_KEEP_MS = 30 * 24 * 60 * 60_000
+export const MEETING_GUEST_KEY_KEEP_MS = 24 * 60 * 60_000
+
+/**
+ * The daily prune: limit windows over a day old go; a guest's address key
+ * goes a day after they stopped waiting (it only counts guests waiting); a
+ * guest done with a meeting for 30 days keeps no name ("Guest"; the row stays,
+ * as meeting_guest is published to Realtime and is never hard-deleted by the
+ * app). Throws only when nothing could be done.
+ */
+export async function pruneMeetingGuests(svc: SupabaseClient, now: Date = new Date()): Promise<{ rates: number; keys: number; names: number }> {
+  const day = new Date(now.getTime() - MEETING_GUEST_KEY_KEEP_MS).toISOString()
+  const month = new Date(now.getTime() - MEETING_GUEST_NAME_KEEP_MS).toISOString()
+  const out = { rates: 0, keys: 0, names: 0 }
+  const rates = await svc.from('meeting_rate').delete().lt('window_start', day).select('bucket')
+  if (rates.error) console.warn('[meetings] limit windows not pruned:', rates.error.message)
+  else out.rates = (rates.data ?? []).length
+  const done = await svc.from('meeting_guest').select('id').in('state', ['left', 'declined', 'removed']).lt('requested_at', day).limit(1000)
+  if (done.error) console.warn('[meetings] done guests not read:', done.error.message)
+  else if ((done.data ?? []).length > 0) {
+    const ids = (done.data as Array<{ id: string }>).map((g) => g.id)
+    const keys = await svc.from('meeting_guest_key').delete().in('guest_id', ids).select('guest_id')
+    if (keys.error) console.warn('[meetings] guest keys not pruned:', keys.error.message)
+    else out.keys = (keys.data ?? []).length
+  }
+  const names = await svc
+    .from('meeting_guest')
+    .update({ name: 'Guest', session_sid: null })
+    .in('state', ['left', 'declined', 'removed'])
+    .lt('requested_at', month)
+    .neq('name', 'Guest')
+    .select('id')
+  if (names.error) console.warn('[meetings] old guest names not cleared:', names.error.message)
+  else out.names = (names.data ?? []).length
+  return out
 }
 
 // ── The host's notice ───────────────────────────────────────────────────────

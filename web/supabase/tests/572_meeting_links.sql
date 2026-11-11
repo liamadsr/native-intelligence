@@ -3,12 +3,14 @@
 -- member joining by the link's hash, guests asking, waiting (the cap),
 -- being let in or declined by someone in the call, their LiveKit events
 -- (an admitted guest counts and stays; one not let in, or removed, is
--- ejected), removal sticking for the link, the members' fence leaving an
--- admitted guest alone, a guest's notes file, a call's end letting its
--- guests go, the notes' capture readable by the meeting's members and no
--- one else, the rate limit, and anon having nothing. The TS tests
--- (src/lib/meetings/__tests__/migration-572.test.ts) pin the files' text;
--- this runs the SQL.
+-- ejected), removal sticking for the guest (not for their address), the
+-- members' fence leaving an admitted guest alone, a guest's go to notes and
+-- recording (per notes round; no notes file of theirs before it), a call
+-- left to guests, a call's end letting its guests go, the notes' capture
+-- readable by the meeting's members and no one else, a new link replacing
+-- the old, the rate limit, and anon having nothing. The TS tests
+-- (src/lib/meeting-links/__tests__/migration-572.test.ts) pin the files'
+-- text; this runs the SQL.
 --
 -- Run against a database with 564-567 and 572-575 applied (never PROD):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/572_meeting_links.sql
@@ -30,11 +32,14 @@ declare
   d1 text := md5('t572-one') || md5('t572-one-b');
   d2 text := md5('t572-two') || md5('t572-two-b');
   d3 text := md5('t572-three') || md5('t572-three-b');
+  d4 text := md5('t572-four') || md5('t572-four-b');
+  d5 text := md5('t572-five') || md5('t572-five-b');
+  nn text := 't572-nonce-aaaaaaaaaaaa';
   key1 text := 't572-key-one-xxxxxxxx';
   key2 text := 't572-key-two-xxxxxxxx';
   ch1 uuid; ch2 uuid; ch_open uuid;
   call1 uuid; room1 text; call2 uuid; room2 text;
-  g1 uuid; g2 uuid; g3 uuid; g4 uuid; g5 uuid;
+  g1 uuid; g2 uuid; g3 uuid; g4 uuid; g5 uuid; g6 uuid;
   eg uuid;
   cap uuid;
   v_report text;
@@ -113,29 +118,31 @@ begin
 
   -- ── Making a meeting ──────────────────────────────────────────────────────
   perform pg_temp.t572_run('an outsider cannot make a meeting in the workspace', 'refused', u_x,
-    array[format('select * from public.meeting_create(%L, %L, %L, %L, null, null)', gen_random_uuid(), w1, 'Nope', d3)]);
+    array[format('select * from public.meeting_create(%L, %L, %L, %L, %L, null, null)', gen_random_uuid(), w1, 'Nope', d3, nn)]);
   perform pg_temp.t572_run('a meeting needs a title', 'refused', u_a,
-    array[format('select * from public.meeting_create(%L, %L, %L, %L, null, null)', gen_random_uuid(), w1, '   ', d3)]);
+    array[format('select * from public.meeting_create(%L, %L, %L, %L, %L, null, null)', gen_random_uuid(), w1, '   ', d3, nn)]);
   perform pg_temp.t572_run('a meeting is 5 minutes or more', 'refused', u_a,
-    array[format('select * from public.meeting_create(%L, %L, %L, %L, now() + interval ''1 day'', 3)', gen_random_uuid(), w1, 'Short', d3)]);
+    array[format('select * from public.meeting_create(%L, %L, %L, %L, %L, now() + interval ''1 day'', 3)', gen_random_uuid(), w1, 'Short', d3, nn)]);
   perform pg_temp.t572_run('a time that has passed (its window closed) is refused', 'refused', u_a,
-    array[format('select * from public.meeting_create(%L, %L, %L, %L, now() - interval ''1 day'', 30)', gen_random_uuid(), w1, 'Gone', d3)]);
+    array[format('select * from public.meeting_create(%L, %L, %L, %L, %L, now() - interval ''1 day'', 30)', gen_random_uuid(), w1, 'Gone', d3, nn)]);
   perform pg_temp.t572_run('a token hash too short is refused', 'refused', u_a,
-    array[format('select * from public.meeting_create(%L, %L, %L, %L, null, null)', gen_random_uuid(), w1, 'Short hash', 'abc')]);
-  ch1 := pg_temp.t572_as(u_a, format('select channel_id::text from public.meeting_create(%L, %L, %L, %L, null, null)', mt1, w1, '  Design   review ', d1))::uuid;
+    array[format('select * from public.meeting_create(%L, %L, %L, %L, %L, null, null)', gen_random_uuid(), w1, 'Short hash', 'abc', nn)]);
+  perform pg_temp.t572_run('a link''s nonce too short is refused', 'refused', u_a,
+    array[format('select * from public.meeting_create(%L, %L, %L, %L, %L, null, null)', gen_random_uuid(), w1, 'Short nonce', d3, 'abc')]);
+  ch1 := pg_temp.t572_as(u_a, format('select channel_id::text from public.meeting_create(%L, %L, %L, %L, %L, null, null)', mt1, w1, '  Design   review ', d1, nn))::uuid;
   perform pg_temp.t572_check('made: a conversation of its own kind, named for the title, its host its member',
     'meeting/Design review/1', (select c.kind || '/' || c.name || '/' || (select count(*) from public.team_chat_member tm where tm.channel_id = c.id and tm.member_id = m_a)::text from public.team_chat_channel c where c.id = ch1));
   perform pg_temp.t572_check('an unscheduled link works for 30 days from now', 'true',
     (select (closes_at between now() + interval '29 days 23 hours' and now() + interval '30 days 1 minute' and opens_at <= now())::text from public.meeting where id = mt1));
-  ch2 := pg_temp.t572_as(u_a, format('select channel_id::text from public.meeting_create(%L, %L, %L, %L, now() + interval ''1 day'', 45)', mt2, w1, 'Later', d2))::uuid;
+  ch2 := pg_temp.t572_as(u_a, format('select channel_id::text from public.meeting_create(%L, %L, %L, %L, %L, now() + interval ''1 day'', 45)', mt2, w1, 'Later', d2, nn))::uuid;
   perform pg_temp.t572_check('a scheduled one opens 15 minutes before its start, closes 2 hours after its planned end', 'true',
     (select (ends_at - starts_at = interval '45 minutes' and starts_at - opens_at = interval '15 minutes' and closes_at - ends_at = interval '2 hours')::text from public.meeting where id = mt2));
   perform pg_temp.t572_run('a person cannot make one for someone else (the service role''s)', 'refused', u_a,
-    array[format('select * from public.meeting_create_for(%L, %L, %L, %L, %L, null, null)', m_b, gen_random_uuid(), w1, 'For Ben', d3)]);
+    array[format('select * from public.meeting_create_for(%L, %L, %L, %L, %L, %L, null, null)', m_b, gen_random_uuid(), w1, 'For Ben', d3, nn)]);
   perform pg_temp.t572_check('the service role makes one for a member it knows', 'true',
-    (select (count(*) = 1)::text from public.meeting_create_for(m_b, mt3, w1, 'Ben''s', d3, null, null)));
+    (select (count(*) = 1)::text from public.meeting_create_for(m_b, mt3, w1, 'Ben''s', d3, nn, null, null)));
   begin
-    perform public.meeting_create_for(m_x, gen_random_uuid(), w1, 'Not theirs', md5('t572-x') || md5('t572-x2'), null, null);
+    perform public.meeting_create_for(m_x, gen_random_uuid(), w1, 'Not theirs', md5('t572-x') || md5('t572-x2'), nn, null, null);
     perform pg_temp.t572_check('… but never for a member of another workspace', 'refused', 'made');
   exception when others then
     perform pg_temp.t572_check('… but never for a member of another workspace', 'refused', 'refused');
@@ -144,6 +151,7 @@ begin
   -- ── Who may read it ───────────────────────────────────────────────────────
   perform pg_temp.t572_run('its host reads the meeting', 'rows=1', u_a, array[format('select 1 from public.meeting where id = %L', mt1)]);
   perform pg_temp.t572_run('… never its token''s hash', 'refused', u_a, array[format('select token_hash from public.meeting where id = %L', mt1)]);
+  perform pg_temp.t572_run('… nor its link''s nonce', 'refused', u_a, array[format('select token_nonce from public.meeting where id = %L', mt1)]);
   perform pg_temp.t572_run('a member of the workspace who never opened the link does not see it', 'rows=0', u_c, array[format('select 1 from public.meeting where id = %L', mt1)]);
   perform pg_temp.t572_run('… nor its conversation', 'rows=0', u_c, array[format('select 1 from public.team_chat_channel where id = %L', ch1)]);
   perform pg_temp.t572_run('… and cannot post in it', 'refused', u_c,
@@ -206,17 +214,42 @@ begin
     (select in_call::text || '/' || (select count(*) from public.team_call_eject where identity = 'guest-' || g1::text)::text from public.meeting_guest where id = g1));
   perform pg_temp.t572_check('… and so does the guests'' fence', '0', (select count(*)::text from public.meeting_guest_fence()));
   perform pg_temp.t572_check('the count still includes them', '3', (select participant_count::text from public.team_call where id = call1));
-  perform pg_temp.t572_check('the lobby''s poll by the link''s hash: admitted, the call''s room', 'admitted/' || room1 || '/true',
-    (select state || '/' || room || '/' || open::text from public.meeting_guest_poll(g1, d1)));
+  perform pg_temp.t572_check('the lobby''s poll by the link''s hash: admitted, the call''s room, no notice, two members in it', 'admitted/' || room1 || '/true/false/2',
+    (select state || '/' || room || '/' || open::text || '/' || needs_notice::text || '/' || members_in_call::text from public.meeting_guest_poll(g1, d1)));
   perform pg_temp.t572_check('… another link''s hash: nothing', '0', (select count(*)::text from public.meeting_guest_poll(g1, d2)));
 
   -- ── A guest's notes file ──────────────────────────────────────────────────
   perform pg_temp.t572_check('notes off: no file for a guest', '0', (select count(*)::text from public.meeting_guest_egress_claim(call1, g1, 'TR_g1')));
   perform pg_temp.t572_as(u_a, format('select notes::text from public.team_call_set_notes(%L, true)', call1));
+  perform pg_temp.t572_check('notes on mid-call: the guest must see the notice (the poll)', 'true',
+    (select needs_notice::text from public.meeting_guest_poll(g1, d1)));
+  perform pg_temp.t572_check('… and before their go, no notes file of theirs', '0', (select count(*)::text from public.meeting_guest_egress_claim(call1, g1, 'TR_g1')));
+  perform pg_temp.t572_check('a declined guest''s go: nothing', '0', (select count(*)::text from public.meeting_guest_ack(g3, d1)));
+  perform pg_temp.t572_check('… another link''s hash: nothing', '0', (select count(*)::text from public.meeting_guest_ack(g1, d2)));
+  perform pg_temp.t572_run('a person cannot say go for a guest (the service role''s)', 'refused', u_a,
+    array[format('select * from public.meeting_guest_ack(%L, %L)', g1, d1)]);
+  perform pg_temp.t572_check('the guest says go: this call''s room', room1, (select room from public.meeting_guest_ack(g1, d1)));
+  perform pg_temp.t572_check('… recorded for this notes round, the notice gone', '1/false',
+    (select notes_ack_round::text from public.meeting_guest where id = g1) || '/' || (select needs_notice::text from public.meeting_guest_poll(g1, d1)));
   select egress_row into eg from public.meeting_guest_egress_claim(call1, g1, 'TR_g1');
   perform pg_temp.t572_check('notes on: the guest''s microphone gets its file, theirs, no member''s', 'notes/' || g1::text || '/true',
     (select kind || '/' || guest_id::text || '/' || (member_id is null)::text from public.team_call_egress where id = eg));
   perform pg_temp.t572_check('a declined guest gets none', '0', (select count(*)::text from public.meeting_guest_egress_claim(call1, g3, 'TR_g3')));
+  perform pg_temp.t572_as(u_a, format('select notes::text from public.team_call_set_notes(%L, false)', call1));
+  perform pg_temp.t572_as(u_a, format('select notes::text from public.team_call_set_notes(%L, true)', call1));
+  perform pg_temp.t572_check('notes off and on again (a new round): the notice again, no file before the go', 'true/0',
+    (select needs_notice::text from public.meeting_guest_poll(g1, d1)) || '/' || (select count(*)::text from public.meeting_guest_egress_claim(call1, g1, 'TR_g1b')));
+  perform public.meeting_guest_ack(g1, d1);
+  perform pg_temp.t572_check('… their go for that round: the file', '1', (select count(*)::text from public.meeting_guest_egress_claim(call1, g1, 'TR_g1b')));
+  -- A recording: its own go.
+  update public.team_call set recording = 'on', recording_by = m_a, recording_started_at = now() where id = call1;
+  perform pg_temp.t572_check('a recording started: the notice for a guest who said go to notes only', 'true',
+    (select needs_notice::text from public.meeting_guest_poll(g1, d1)));
+  perform public.meeting_guest_ack(g1, d1);
+  perform pg_temp.t572_check('… their go to it: no notice', 'false', (select needs_notice::text from public.meeting_guest_poll(g1, d1)));
+  update public.team_call set recording_started_at = now() + interval '1 second' where id = call1;
+  perform pg_temp.t572_check('… a recording started after their go: the notice again', 'true', (select needs_notice::text from public.meeting_guest_poll(g1, d1)));
+  update public.team_call set recording = 'off' where id = call1;
 
   -- ── Removed, for good ─────────────────────────────────────────────────────
   perform pg_temp.t572_run('an outsider cannot remove a guest', 'refused', u_x, array[format('select * from public.meeting_guest_remove(%L)', g1)]);
@@ -226,7 +259,7 @@ begin
     (select g.in_call::text || '/' || t.participant_count::text || '/' || (select count(*) from public.team_call_eject where identity = 'guest-' || g1::text and done_at is null)::text
        from public.meeting_guest g join public.team_call t on t.id = call1 where g.id = g1));
   perform pg_temp.t572_check('rejoining on their old token: ejected', 'ejected', public.meeting_guest_event(room1, g1, 'PG_1b', true, now(), now()));
-  perform pg_temp.t572_check('asking again from the same address: refused', 'refused', (select outcome from public.meeting_guest_request(mt1, 'Dana again', key1, 10)));
+  perform pg_temp.t572_check('asking again from the same address: a new request, waiting (no refusal by address)', 'waiting', (select outcome from public.meeting_guest_request(mt1, 'Dana again', key1, 10)));
   perform pg_temp.t572_check('the lobby''s poll says removed', 'removed', (select state from public.meeting_guest_poll(g1, d1)));
 
   -- ── Leaving, and a call's end ─────────────────────────────────────────────
@@ -235,9 +268,11 @@ begin
   select id into g4 from public.meeting_guest where meeting_id = mt1 and name = 'Noor';
   perform pg_temp.t572_as(u_a, format('select state from public.meeting_guest_decide(%L, true)', g4));
   -- Let in, their join not landed yet: leaving through the route still takes them out of the room.
-  perform pg_temp.t572_check('two more from one address wait', 'waiting/waiting',
-    (select outcome from public.meeting_guest_request(mt1, 'Pat', 't572-key-three-xxxxx', 10)) || '/' || (select outcome from public.meeting_guest_request(mt1, 'Sam', 't572-key-three-xxxxx', 10)));
-  perform pg_temp.t572_check('… a third from the same address: full (one address can''t fill the lobby)', 'full',
+  perform pg_temp.t572_check('five from one address wait', 'waiting/waiting/waiting/waiting/waiting',
+    (select outcome from public.meeting_guest_request(mt1, 'Pat', 't572-key-three-xxxxx', 10)) || '/' || (select outcome from public.meeting_guest_request(mt1, 'Sam', 't572-key-three-xxxxx', 10))
+      || '/' || (select outcome from public.meeting_guest_request(mt1, 'Tia', 't572-key-three-xxxxx', 10)) || '/' || (select outcome from public.meeting_guest_request(mt1, 'Vic', 't572-key-three-xxxxx', 10))
+      || '/' || (select outcome from public.meeting_guest_request(mt1, 'Wes', 't572-key-three-xxxxx', 10)));
+  perform pg_temp.t572_check('… a sixth from the same address: full (one address can''t fill the lobby)', 'full',
     (select outcome from public.meeting_guest_request(mt1, 'Lou', 't572-key-three-xxxxx', 10)));
   select id into g5 from public.meeting_guest where meeting_id = mt1 and name = 'Pat';
   perform pg_temp.t572_as(u_a, format('select state from public.meeting_guest_decide(%L, true)', g5));
@@ -251,9 +286,16 @@ begin
   perform pg_temp.t572_check('… on the eject outbox too', '1',
     (select count(*)::text from public.team_call_eject where identity = 'guest-' || g5::text and done_at is null));
   perform public.meeting_guest_event(room1, g4, 'PG_4', true, now(), now());
+  perform pg_temp.t572_check('a guest in the call with members: not a call left to guests', '0', (select count(*)::text from public.meeting_guest_only_calls(0)));
   perform public.team_call_participant_event(room1, m_a, 'PA_a', false, now(), now());
   perform public.team_call_participant_event(room1, m_b, 'PA_b', false, now(), now());
+  perform pg_temp.t572_check('the members left just now: within the grace, not yet', '0', (select count(*)::text from public.meeting_guest_only_calls(180)));
+  perform pg_temp.t572_check('… and the poll tells the guest no member is in it', '0', (select members_in_call::text from public.meeting_guest_poll(g4, d1)));
+  update public.team_call_participant set first_joined_at = now() - interval '20 minutes', joined_at = now() - interval '20 minutes', left_at = now() - interval '10 minutes' where call_id = call1;
+  perform pg_temp.t572_check('… left past the grace: the call is one to end', call1::text, (select string_agg(call_id::text, ',') from public.meeting_guest_only_calls(180)));
+  perform pg_temp.t572_run('a person cannot list them (the service role''s)', 'refused', u_a, array['select * from public.meeting_guest_only_calls(180)']);
   perform public.team_call_end(call1, 'finished', now());
+  perform pg_temp.t572_check('… ended: nothing left to end', '0', (select count(*)::text from public.meeting_guest_only_calls(0)));
   perform pg_temp.t572_check('the call ended: its admitted guest has left, out of it', 'left/false',
     (select state || '/' || in_call::text from public.meeting_guest where id = g4));
   perform pg_temp.t572_check('… and the ended call counted the guests at its peak', 'true',
@@ -278,6 +320,21 @@ begin
   perform pg_temp.t572_check('… its poll says the link is closed', 'false', (select open::text from public.meeting_guest_poll(g5, d1)));
   perform pg_temp.t572_run('… and the conversation stays its members''', 'rows=1', u_b, array[format('select 1 from public.team_chat_channel where id = %L', ch1)]);
 
+  -- ── A new link: the old one stops, the meeting and its conversation stay ──
+  perform pg_temp.t572_run('only the host makes a new link', 'refused', u_b, array[format('select public.meeting_new_link(%L, %L, %L)', mt1, d4, nn)]);
+  perform pg_temp.t572_run('… with a hash and a nonce of the right size', 'refused', u_a, array[format('select public.meeting_new_link(%L, %L, %L)', mt1, d4, 'abc')]);
+  perform pg_temp.t572_check('the host makes one for a turned-off link', 'true',
+    pg_temp.t572_as(u_a, format('select public.meeting_new_link(%L, %L, %L)::text', mt1, d4, 't572-nonce-bbbbbbbbbbbb')));
+  perform pg_temp.t572_check('… it works again, on the new hash and nonce', 'true',
+    (select (revoked_at is null and token_hash = d4 and token_nonce = 't572-nonce-bbbbbbbbbbbb')::text from public.meeting where id = mt1));
+  perform pg_temp.t572_check('a guest asks on the new link', 'waiting', (select outcome from public.meeting_guest_request(mt1, 'Uma', 't572-key-five-xxxxxx', 10)));
+  select id into g6 from public.meeting_guest where meeting_id = mt1 and name = 'Uma';
+  perform pg_temp.t572_as(u_a, format('select public.meeting_new_link(%L, %L, %L)::text', mt1, d5, 't572-nonce-cccccccccccc'));
+  perform pg_temp.t572_check('another new link: the guest waiting on the old one is let go', 'left', (select state from public.meeting_guest where id = g6));
+  perform pg_temp.t572_run('… the old link opens nothing for a member', 'refused', u_c, array[format('select * from public.meeting_join(%L)', d4)]);
+  perform pg_temp.t572_check('… its lobby answers nothing', '0', (select count(*)::text from public.meeting_guest_poll(g6, d4)));
+  perform pg_temp.t572_run('… the new one does, into the same conversation', 'rows=1', u_c, array[format('select 1 from public.meeting_join(%L) where channel_id = %L', d5, ch1)]);
+
   -- ── Limits, notices, and nothing for anon ─────────────────────────────────
   perform pg_temp.t572_check('a limit: two hits pass, the third does not', 'true/true/false',
     public.meeting_rate_hit('t572', 'k', 2, 60)::text || '/' || public.meeting_rate_hit('t572', 'k', 2, 60)::text || '/' || public.meeting_rate_hit('t572', 'k', 2, 60)::text);
@@ -293,7 +350,7 @@ begin
     (select count(*)::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and (p.proname like 'meeting%' or p.proname = 'team_call_people_now')
         and has_function_privilege('anon', p.oid, 'execute')));
-  perform pg_temp.t572_check('a person may run only the five person functions', 'meeting_create,meeting_guest_decide,meeting_guest_remove,meeting_join,meeting_revoke',
+  perform pg_temp.t572_check('a person may run only the six person functions', 'meeting_create,meeting_guest_decide,meeting_guest_remove,meeting_join,meeting_new_link,meeting_revoke',
     (select string_agg(p.proname, ',' order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and (p.proname like 'meeting%' or p.proname = 'team_call_people_now')
         and has_function_privilege('authenticated', p.oid, 'execute')));

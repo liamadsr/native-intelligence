@@ -7,7 +7,12 @@
 -- ============================================================
 --   meeting            one link and its conversation (channel_id, one each).
 --                      token_hash: the sha256 of the link's token (at least
---                      128 bits, made by the server, never stored). The link
+--                      128 bits, made by the server, never stored).
+--                      token_nonce: 24 random bytes the server keys the token
+--                      with (an HMAC of the meeting's id and the nonce under
+--                      the server's secret), so a new nonce is a new link and
+--                      the old one stops working; read by the server only (no
+--                      client grant), useless without the server's key. The link
 --                      works from opens_at until closes_at (a scheduled one
 --                      from 15 minutes before its start until 2 hours after
 --                      its planned end; one with no time for 30 days), and
@@ -24,7 +29,12 @@
 --                      or the link stopped working). in_call, session_sid,
 --                      first_joined_at, joined_at, left_at, last_event_at:
 --                      what LiveKit's webhooks say of them, ordered as 565
---                      orders a member's sessions. last_seen_at: their lobby's
+--                      orders a member's sessions. notes_ack_round /
+--                      recording_ack_at: what the guest said go to (their
+--                      page's "Join with microphone"): the notes round, and
+--                      when, for a recording. Until they have for what is on
+--                      now they publish nothing and no notes file of theirs
+--                      is made. last_seen_at: their lobby's
 --                      last poll (a tab closed stops it; 574's sweep lets go
 --                      of a waiting guest not seen for two minutes). Members
 --                      who may read the conversation read it (the lobby, over
@@ -48,7 +58,10 @@
 --
 -- Additive. Idempotent. Safe on a live database with the deployed app
 -- running: new tables, empty; team_call_egress gains a nullable column (no
--- rewrite) and a check that holds for every row (no row has a guest). The
+-- rewrite) and a check that holds for every row (no row has a guest), added
+-- not valid and validated in the same transaction (the lock is held to the
+-- commit either way; the scan is short at the table's size, and lock_timeout
+-- bounds the wait for the lock). The
 -- deployed app never reads them. No backslashes anywhere in this file (one
 -- MCP transport decodes escapes).
 -- ------------------------------------------------------------
@@ -72,6 +85,7 @@ create table if not exists public.meeting (
   host_member_id uuid references public.member(id) on delete set null,
   title text not null check (char_length(title) between 1 and 80),
   token_hash text not null unique check (char_length(token_hash) between 40 and 128),
+  token_nonce text check (token_nonce is null or char_length(token_nonce) between 16 and 64),
   starts_at timestamptz,
   ends_at timestamptz,
   opens_at timestamptz not null,
@@ -85,6 +99,9 @@ create table if not exists public.meeting (
     and (ends_at is null or ends_at > starts_at)
   )
 );
+-- A database that made the tables before these columns came gets them too.
+alter table public.meeting add column if not exists token_nonce text check (token_nonce is null or char_length(token_nonce) between 16 and 64);
+
 create index if not exists meeting_workspace_idx on public.meeting (workspace_id, created_at desc);
 -- 574's cap on links a member makes in a day.
 create index if not exists meeting_host_idx on public.meeting (host_member_id, created_at desc);
@@ -107,6 +124,8 @@ create table if not exists public.meeting_guest (
   last_seen_at timestamptz not null default now(),
   decided_at timestamptz,
   decided_by uuid references public.member(id) on delete set null,
+  notes_ack_round integer not null default 0 check (notes_ack_round >= 0),
+  recording_ack_at timestamptz,
   constraint meeting_guest_shape check (
     (state <> 'admitted' or call_id is not null)
     and (not in_call or state = 'admitted')
@@ -118,6 +137,10 @@ alter table public.meeting_guest drop constraint if exists meeting_guest_call_id
 alter table public.meeting_guest
   add constraint meeting_guest_call_id_fkey foreign key (call_id) references public.team_call(id) on delete cascade not valid;
 alter table public.meeting_guest validate constraint meeting_guest_call_id_fkey;
+
+alter table public.meeting_guest
+  add column if not exists notes_ack_round integer not null default 0 check (notes_ack_round >= 0),
+  add column if not exists recording_ack_at timestamptz;
 
 create index if not exists meeting_guest_meeting_idx on public.meeting_guest (meeting_id, state, requested_at);
 create index if not exists meeting_guest_channel_idx on public.meeting_guest (channel_id, requested_at desc);
@@ -181,7 +204,7 @@ grant select (id, workspace_id, channel_id, host_member_id, title, starts_at, en
 grant select on table public.meeting_guest to authenticated;
 grant select, insert, update on table public.meeting to service_role;
 grant select, insert, update on table public.meeting_guest to service_role;
-grant select, insert on table public.meeting_guest_key to service_role;
+grant select, insert, delete on table public.meeting_guest_key to service_role;
 grant select, insert, update, delete on table public.meeting_rate to service_role;
 
 -- ── Realtime ────────────────────────────────────────────────────────────────

@@ -16,8 +16,8 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { TeamChatError } from '@/lib/team-chat/store'
-import { insertMeeting } from './store'
-import { meetingLink, meetingToken, tokenDigest } from './link'
+import { insertMeeting, replaceMeetingLink } from './store'
+import { meetingLink, meetingToken, newTokenNonce, tokenDigest } from './link'
 import { MEETING_DEFAULT_MINUTES, MEETING_MAX_MINUTES, MEETING_MIN_MINUTES, cleanMeetingTitle } from './shape'
 
 export interface MeetingLinkInput {
@@ -59,17 +59,31 @@ export async function createMeetingLink(supabase: SupabaseClient, input: Meeting
     throw new TeamChatError('bad_request', 'A meeting is 5 minutes to 8 hours long.')
   }
   const meetingId = randomUUID()
+  const nonce = newTokenNonce()
   const made = await insertMeeting(supabase, {
     meetingId,
     workspaceId: input.workspaceId,
     title,
-    tokenDigest: tokenDigest(meetingToken(meetingId)),
+    tokenDigest: tokenDigest(meetingToken(meetingId, nonce)),
+    tokenNonce: nonce,
     startsAt,
     minutes,
     ...(input.hostMemberId ? { hostMemberId: input.hostMemberId } : {}),
   })
   console.info(`[meetings] meeting=${made.meetingId} channel=${made.channelId} scheduled=${!!startsAt}`)
-  return { meetingId: made.meetingId, channelId: made.channelId, url: meetingLink(made.meetingId), title, opensAt: made.opensAt, closesAt: made.closesAt }
+  return { meetingId: made.meetingId, channelId: made.channelId, url: meetingLink(made.meetingId, nonce), title, opensAt: made.opensAt, closesAt: made.closesAt }
+}
+
+/**
+ * The host replaces a meeting's link (a leaked one, say): a new random nonce,
+ * so a new token; the old link stops working at once. The meeting and its
+ * conversation stay. As the person (574's meeting_new_link: the host only).
+ */
+export async function newMeetingLink(supabase: SupabaseClient, meetingId: string): Promise<string> {
+  const nonce = newTokenNonce()
+  await replaceMeetingLink(supabase, { meetingId, tokenDigest: tokenDigest(meetingToken(meetingId, nonce)), tokenNonce: nonce })
+  console.info(`[meetings] meeting=${meetingId} outcome=new_link`)
+  return meetingLink(meetingId, nonce)
 }
 
 /** The words a calendar event carries for a meeting link: its location, and a line for its description. */

@@ -9,7 +9,10 @@
  * in memory per guest and per address, then one read (574's
  * meeting_guest_poll, by the guest and the link's hash), which also says
  * they are still there. `notes` and `recording`: what the meeting's live
- * call has on, for the notice the guest sees before any audio is sent.
+ * call has on, for the notice the guest sees before any audio is sent;
+ * `needsNotice`: the server holds their publishing until they say go to it;
+ * `membersInCall`: none means the host has left (the call ends after a few
+ * minutes with no member in it).
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { serverError } from '@/lib/api-errors'
@@ -38,7 +41,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       out.cookies.set(MEETING_GUEST_COOKIE, '', clearedGuestCookieOptions(token))
       return privateHeaders(out)
     }
-    return privateHeaders(NextResponse.json({ state: poll.state, notes: poll.notes, recording: poll.recording, open: poll.open }))
+    return privateHeaders(
+      NextResponse.json({ state: poll.state, notes: poll.notes, recording: poll.recording, open: poll.open, needsNotice: poll.needsNotice, membersInCall: poll.membersInCall }),
+    )
   } catch (err) {
     console.error('[meetings] lobby failed:', err instanceof Error ? err.message : 'unknown')
     return privateHeaders(serverError())

@@ -40,10 +40,11 @@
 -- each answers exactly as before for every existing row.
 --
 -- Additive. Idempotent. Safe on a live database with the deployed app
--- running: checks only gain a value (each added not valid, then validated
--- inside the same transaction, so team_chat_channel, team_call_ring and
--- notification are locked for their scans: milliseconds at their sizes;
--- lock_timeout below bounds the wait to get the locks). The deployed app
+-- running: checks only gain a value. Each is added not valid and validated in
+-- the same transaction, which buys nothing on its own: the lock the add takes
+-- is held to the commit either way, so team_chat_channel, team_call_ring and
+-- notification wait for their scans. What keeps that short is their size
+-- (milliseconds), and lock_timeout below bounds the wait for the locks. The deployed app
 -- lists channels and DMs by their kind and never sees a meeting. No
 -- backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------

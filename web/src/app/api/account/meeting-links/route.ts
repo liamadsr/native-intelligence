@@ -20,7 +20,8 @@ import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { createMeetingLink } from '@/lib/meeting-links/create'
 import { meetingLink } from '@/lib/meeting-links/link'
-import { meetingOfChannel } from '@/lib/meeting-links/store'
+import { meetingNonce, meetingOfChannel } from '@/lib/meeting-links/store'
+import { getServiceClient } from '@/lib/admin'
 
 export async function GET(request: NextRequest) {
   if (!teamCallsConfig()) return teamCallsUnavailable()
@@ -32,7 +33,9 @@ export async function GET(request: NextRequest) {
     const meeting = await meetingOfChannel(auth.supabase, channelId)
     if (!meeting) return NextResponse.json({ meeting: null })
     const { workspace_id: _ws, ...rest } = meeting
-    return NextResponse.json({ meeting: { ...rest, url: meetingLink(meeting.id) } })
+    // The link's nonce is the server's alone (no client grant): read with the service role once RLS let the person see the meeting.
+    const nonce = await meetingNonce(getServiceClient(), meeting.id)
+    return NextResponse.json({ meeting: { ...rest, url: nonce ? meetingLink(meeting.id, nonce) : null } })
   } catch (err) {
     return teamChatErrorResponse(err, 'meeting read')
   }

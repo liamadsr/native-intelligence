@@ -5,18 +5,23 @@
 -- webhooks and the sweeper call the rest as the service role
 -- (src/lib/meeting-links/store.ts).
 -- ============================================================
---   meeting_create(meeting_ref, ws, meeting_title, token_digest, starts,
---                     minutes)  as the person, a member of the workspace:
+--   meeting_create(meeting_ref, ws, meeting_title, token_digest, token_nonce,
+--                     starts, minutes)  as the person, a member of the workspace:
 --                     the meeting's conversation (kind 'meeting', its
 --                     host its first member) and the meeting, with its link's
 --                     window: from 15 minutes before `starts` until 2 hours
 --                     after its end (`minutes` long, 30 when not given, 5 to
 --                     480), or from now for 30 days when it has no time. The
 --                     server makes the token and hands its sha256
---                     (token_digest) and the meeting's id (meeting_ref: the
---                     token is derived from it, so the host's link can be
---                     shown again without ever storing it). At most 50 a day
---                     per member.
+--                     (token_digest), the meeting's id and the random nonce
+--                     the token is keyed with (the server can show the host
+--                     the link again; the token is never stored). At most 50
+--                     a day per member.
+--   meeting_new_link(target_meeting, token_digest, token_nonce)  as the
+--                     person, its host only: a new link (a new nonce, a new
+--                     token); the old one stops working, a revoked meeting's
+--                     link works again, guests waiting on the old one are
+--                     let go. The meeting and its conversation stay.
 --   meeting_create_for(host_member, ...)  service role: the same, for a
 --                     member the server already knows (the agent's calendar
 --                     tool, a booked meeting's location); both go through
@@ -34,20 +39,32 @@
 --                     that call, or declined. Once: a guest settled already
 --                     answers with their state.
 --   meeting_guest_remove(target_guest)  as the person, a member of the
---                     conversation: the guest is removed for good (the link
---                     stays shut to their key), out of the room if in it.
+--                     conversation: the guest is removed for good (their
+--                     guest row and cookie never get in again; a new knock
+--                     from anyone waits for a member's admit as always), out
+--                     of the room if in it.
 --   meeting_guest_request(target_meeting, guest_name, key, max_waiting)
 --                     service role: a guest asks to join. Refused while the
---                     link does not work ('early', 'inactive'), when a guest
---                     with this key was removed from it ('refused'), or when
---                     max_waiting guests already wait, or two from this key
---                     ('full'); otherwise
+--                     link does not work ('early', 'inactive'), or when
+--                     max_waiting guests already wait, or five from this key
+--                     (one office behind one address; 'full'); otherwise
 --                     they wait. Says how many members are in its live call
 --                     (none: the app tells the host).
 --   meeting_guest_poll(target_guest, token_digest)  service role: the
 --                     lobby's answer for a guest (and that they are still
 --                     there: last_seen_at, written at most every 15 s). A
 --                     waiting guest of a link that stopped working has left.
+--                     Says whether they must see the notice before they may
+--                     publish (needs_notice), and how many members are in
+--                     the call (none: the host has left).
+--   meeting_guest_ack(target_guest, token_digest)  service role: an
+--                     admitted guest said go to the notice (the guest page's
+--                     "Join with microphone", POST notice): what is on now,
+--                     the notes round and the recording, is theirs to be in.
+--   meeting_guest_only_calls(grace_seconds)  service role (the sweeper): a
+--                     meeting's live calls with guests in them and no member
+--                     for grace_seconds (a host's reconnect doesn't end it):
+--                     for the app to end and close.
 --   meeting_guest_leave(target_guest, token_digest)  service role: the
 --                     guest went (the lobby's Cancel, the call's Leave, the
 --                     tab closed): left, out of the count, and out of the
@@ -63,7 +80,8 @@
 --                     is refused and ejected.
 --   meeting_guest_egress_claim(target_call, guest_ref, track_ref)  service
 --                     role: 567's team_call_egress_claim for an admitted
---                     guest's microphone (the notes name them).
+--                     guest's microphone (the notes name them), only once
+--                     they said go to this round of notes (notes_ack_round).
 --   meeting_guest_fence()  service role (the sweeper): every guest
 --                     connected who may no longer be (not admitted, the
 --                     call ended, the link revoked or closed) marked out and
@@ -126,7 +144,7 @@ $$;
 
 -- The one maker of a meeting, for a host already known to be the workspace's
 -- member (its two callers below say who). No client calls it.
-create or replace function public.meeting_make(me uuid, meeting_ref uuid, ws uuid, meeting_title text, token_digest text, starts timestamptz, minutes integer)
+create or replace function public.meeting_make(me uuid, meeting_ref uuid, ws uuid, meeting_title text, token_digest text, token_nonce text, starts timestamptz, minutes integer)
 returns table (meeting_id uuid, channel_id uuid, opens_at timestamptz, closes_at timestamptz)
 language plpgsql
 security definer
@@ -145,7 +163,8 @@ begin
   if me is null or not exists (select 1 from public.member m where m.id = me and m.workspace_id = ws) then
     raise exception 'meetings: not a member of this workspace' using errcode = '42501';
   end if;
-  if meeting_ref is null or token_digest is null or char_length(token_digest) not between 40 and 128 then
+  if meeting_ref is null or token_digest is null or char_length(token_digest) not between 40 and 128
+     or token_nonce is null or char_length(token_nonce) not between 16 and 64 then
     raise exception 'meetings: no such link' using errcode = '22023';
   end if;
   if title_now = '' then
@@ -177,31 +196,66 @@ begin
   values (ws, 'meeting', title_now, me)
   returning id into ch;
   insert into public.team_chat_member (channel_id, member_id, workspace_id) values (ch, me, ws);
-  insert into public.meeting (id, workspace_id, channel_id, host_member_id, title, token_hash, starts_at, ends_at, opens_at, closes_at)
-  values (meeting_ref, ws, ch, me, title_now, token_digest, starts, ends, opens, closes);
+  insert into public.meeting (id, workspace_id, channel_id, host_member_id, title, token_hash, token_nonce, starts_at, ends_at, opens_at, closes_at)
+  values (meeting_ref, ws, ch, me, title_now, token_digest, token_nonce, starts, ends, opens, closes);
   return query select meeting_ref, ch, opens, closes;
 end;
 $$;
 
 -- As the person: they are the host.
-create or replace function public.meeting_create(meeting_ref uuid, ws uuid, meeting_title text, token_digest text, starts timestamptz, minutes integer)
+create or replace function public.meeting_create(meeting_ref uuid, ws uuid, meeting_title text, token_digest text, token_nonce text, starts timestamptz, minutes integer)
 returns table (meeting_id uuid, channel_id uuid, opens_at timestamptz, closes_at timestamptz)
 language sql
 security definer
 set search_path = public, pg_temp
 as $$
-  select * from public.meeting_make(public.current_member_id(ws), meeting_ref, ws, meeting_title, token_digest, starts, minutes);
+  select * from public.meeting_make(public.current_member_id(ws), meeting_ref, ws, meeting_title, token_digest, token_nonce, starts, minutes);
 $$;
 
 -- As the service role, for a member the server already knows (the agent's
 -- calendar tool, a booked meeting): that member is the host.
-create or replace function public.meeting_create_for(host_member uuid, meeting_ref uuid, ws uuid, meeting_title text, token_digest text, starts timestamptz, minutes integer)
+create or replace function public.meeting_create_for(host_member uuid, meeting_ref uuid, ws uuid, meeting_title text, token_digest text, token_nonce text, starts timestamptz, minutes integer)
 returns table (meeting_id uuid, channel_id uuid, opens_at timestamptz, closes_at timestamptz)
 language sql
 security definer
 set search_path = public, pg_temp
 as $$
-  select * from public.meeting_make(host_member, meeting_ref, ws, meeting_title, token_digest, starts, minutes);
+  select * from public.meeting_make(host_member, meeting_ref, ws, meeting_title, token_digest, token_nonce, starts, minutes);
+$$;
+
+-- The host replaces the link: a new token (its hash and nonce); the old one stops working.
+create or replace function public.meeting_new_link(target_meeting uuid, token_digest text, token_nonce text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  m public.meeting%rowtype;
+  me uuid;
+begin
+  select * into m from public.meeting x where x.id = target_meeting;
+  if not found or not public.team_chat_can_read(m.channel_id) then
+    raise exception 'meetings: no such meeting' using errcode = '42501';
+  end if;
+  me := public.current_member_id(m.workspace_id);
+  if me is null or me is distinct from m.host_member_id then
+    raise exception 'meetings: only the host can make a new link' using errcode = '42501';
+  end if;
+  if token_digest is null or char_length(token_digest) not between 40 and 128 or token_nonce is null or char_length(token_nonce) not between 16 and 64 then
+    raise exception 'meetings: no such link' using errcode = '22023';
+  end if;
+  if now() >= m.closes_at then
+    raise exception 'meetings: this meeting is over' using errcode = '22023';
+  end if;
+  perform 1 from public.meeting x where x.id = m.id for update;
+  update public.meeting x
+     set token_hash = token_digest, token_nonce = meeting_new_link.token_nonce, revoked_at = null, revoked_by = null
+   where x.id = m.id;
+  -- Guests waiting on the old link: its lobby is gone.
+  update public.meeting_guest g set state = 'left' where g.meeting_id = m.id and g.state = 'waiting';
+  return true;
+end;
 $$;
 
 create or replace function public.meeting_join(token_digest text)
@@ -411,24 +465,16 @@ begin
     return query select 'inactive'::text, null::uuid, null::uuid, 0, null::uuid;
     return;
   end if;
-  -- Someone removed from this link, asking again from the same address.
-  if exists (
-    select 1 from public.meeting_guest_key k
-      join public.meeting_guest g on g.id = k.guest_id
-     where k.meeting_id = m.id and k.rate_key = key and g.state = 'removed'
-  ) then
-    return query select 'refused'::text, null::uuid, null::uuid, 0, null::uuid;
-    return;
-  end if;
   select count(*)::integer into waiting
     from public.meeting_guest g
    where g.meeting_id = m.id and g.state = 'waiting' and g.last_seen_at > now() - interval '2 minutes';
-  -- At most two waiting from one address, so one address can't fill the lobby for everyone.
+  -- At most five waiting from one address (a few colleagues behind one office's address), so one
+  -- address can't fill the lobby for everyone.
   if waiting >= greatest(coalesce(max_waiting, 10), 1) or (
     select count(*) from public.meeting_guest g
       join public.meeting_guest_key k on k.guest_id = g.id
      where g.meeting_id = m.id and k.rate_key = key and g.state = 'waiting' and g.last_seen_at > now() - interval '2 minutes'
-  ) >= 2 then
+  ) >= 5 then
     return query select 'full'::text, null::uuid, null::uuid, 0, null::uuid;
     return;
   end if;
@@ -445,7 +491,7 @@ end;
 $$;
 
 create or replace function public.meeting_guest_poll(target_guest uuid, token_digest text)
-returns table (state text, call_id uuid, room text, notes boolean, recording text, open boolean)
+returns table (state text, call_id uuid, room text, notes boolean, recording text, open boolean, needs_notice boolean, members_in_call integer)
 language plpgsql
 security definer
 set search_path = public, pg_temp
@@ -475,8 +521,71 @@ begin
                       case when g.state = 'admitted' and live.id = g.call_id then live.room else null::text end,
                       coalesce(live.notes, false),
                       coalesce(live.recording, 'off'),
-                      is_open;
+                      is_open,
+                      public.meeting_guest_needs_notice(g, live),
+                      case when live.id is null then 0
+                           else (select count(*)::integer from public.team_call_participant p where p.call_id = live.id and p.state = 'joined') end;
 end;
+$$;
+
+-- Must this guest see the notice (and say go) before they may publish? While the call has notes on in a
+-- round they haven't said go to, or a recording running they haven't said go to since it started.
+create or replace function public.meeting_guest_needs_notice(g public.meeting_guest, c public.team_call)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select c.id is not null and (
+    (c.notes and g.notes_ack_round < c.notes_round)
+    or (c.recording in ('starting', 'on') and (g.recording_ack_at is null or g.recording_ack_at < c.recording_started_at))
+  );
+$$;
+
+create or replace function public.meeting_guest_ack(target_guest uuid, token_digest text)
+returns table (call_id uuid, room text)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  g public.meeting_guest%rowtype;
+  c public.team_call%rowtype;
+begin
+  select x.* into g from public.meeting_guest x join public.meeting y on y.id = x.meeting_id where x.id = target_guest and y.token_hash = token_digest;
+  if not found or g.state <> 'admitted' or g.call_id is null then
+    return;
+  end if;
+  select * into c from public.team_call t where t.id = g.call_id and t.status = 'live' for update;
+  if not found then
+    return;
+  end if;
+  update public.meeting_guest x
+     set notes_ack_round = greatest(x.notes_ack_round, c.notes_round),
+         recording_ack_at = case when c.recording in ('starting', 'on') then now() else x.recording_ack_at end
+   where x.id = g.id and x.state = 'admitted';
+  return query select c.id, c.room;
+end;
+$$;
+
+-- A meeting's live calls with guests in them and no member for grace_seconds: ended by the app.
+create or replace function public.meeting_guest_only_calls(grace_seconds integer)
+returns table (call_id uuid, room text)
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select t.id, t.room
+    from public.team_call t
+    join public.team_chat_channel ch on ch.id = t.channel_id and ch.kind = 'meeting'
+   where t.status = 'live'
+     and exists (select 1 from public.meeting_guest g where g.call_id = t.id and g.in_call)
+     and not exists (select 1 from public.team_call_participant p where p.call_id = t.id and p.state = 'joined')
+     and coalesce((select max(p.left_at) from public.team_call_participant p where p.call_id = t.id), t.started_at)
+         < now() - make_interval(secs => greatest(coalesce(grace_seconds, 180), 0));
 $$;
 
 create or replace function public.meeting_guest_leave(target_guest uuid, token_digest text)
@@ -632,6 +741,7 @@ begin
   if not exists (
     select 1 from public.meeting_guest g
      where g.id = guest_ref and g.channel_id = c.channel_id and g.state = 'admitted' and g.call_id = c.id
+       and g.notes_ack_round >= c.notes_round
   ) then
     return;
   end if;
@@ -726,9 +836,13 @@ create trigger meeting_guests_on_call_end
 
 revoke all on function public.team_call_people_now(uuid) from public, anon, authenticated;
 revoke all on function public.meeting_is_open(public.meeting) from public, anon, authenticated;
-revoke all on function public.meeting_make(uuid, uuid, uuid, text, text, timestamptz, integer) from public, anon, authenticated;
-revoke all on function public.meeting_create(uuid, uuid, text, text, timestamptz, integer) from public, anon;
-revoke all on function public.meeting_create_for(uuid, uuid, uuid, text, text, timestamptz, integer) from public, anon, authenticated;
+revoke all on function public.meeting_make(uuid, uuid, uuid, text, text, text, timestamptz, integer) from public, anon, authenticated;
+revoke all on function public.meeting_create(uuid, uuid, text, text, text, timestamptz, integer) from public, anon;
+revoke all on function public.meeting_create_for(uuid, uuid, uuid, text, text, text, timestamptz, integer) from public, anon, authenticated;
+revoke all on function public.meeting_new_link(uuid, text, text) from public, anon;
+revoke all on function public.meeting_guest_needs_notice(public.meeting_guest, public.team_call) from public, anon, authenticated;
+revoke all on function public.meeting_guest_ack(uuid, text) from public, anon, authenticated;
+revoke all on function public.meeting_guest_only_calls(integer) from public, anon, authenticated;
 revoke all on function public.meeting_join(text) from public, anon;
 revoke all on function public.meeting_revoke(uuid) from public, anon;
 revoke all on function public.meeting_guest_decide(uuid, boolean) from public, anon;
@@ -742,8 +856,11 @@ revoke all on function public.meeting_guest_fence() from public, anon, authentic
 revoke all on function public.meeting_rate_hit(text, text, integer, integer) from public, anon, authenticated;
 revoke all on function public.meeting_guests_on_call_end() from public, anon, authenticated;
 grant execute on function public.team_call_people_now(uuid) to service_role;
-grant execute on function public.meeting_create(uuid, uuid, text, text, timestamptz, integer) to authenticated;
-grant execute on function public.meeting_create_for(uuid, uuid, uuid, text, text, timestamptz, integer) to service_role;
+grant execute on function public.meeting_create(uuid, uuid, text, text, text, timestamptz, integer) to authenticated;
+grant execute on function public.meeting_create_for(uuid, uuid, uuid, text, text, text, timestamptz, integer) to service_role;
+grant execute on function public.meeting_new_link(uuid, text, text) to authenticated;
+grant execute on function public.meeting_guest_ack(uuid, text) to service_role;
+grant execute on function public.meeting_guest_only_calls(integer) to service_role;
 grant execute on function public.meeting_join(text) to authenticated;
 grant execute on function public.meeting_revoke(uuid) to authenticated;
 grant execute on function public.meeting_guest_decide(uuid, boolean) to authenticated;

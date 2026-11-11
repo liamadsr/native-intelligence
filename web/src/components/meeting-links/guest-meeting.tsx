@@ -16,8 +16,13 @@
  *   3. The call: who is in it, their own mic, camera and screen, Leave. No
  *      team chat, no member list beyond who is in the call, no notes or
  *      recording controls; a badge says when either is on (asked every 10
- *      seconds). If notes came on after they asked to join, their microphone
- *      waits until they say go.
+ *      seconds). The server decides what they have said go to (each notes
+ *      round, and the recording): when notes or a recording come on that they
+ *      haven't, it takes their publishing away in LiveKit, the page sees that
+ *      at once (the permission event), holds their microphone and shows the
+ *      notice; "Join with microphone" records their go and gives it back.
+ *      With no member left in the call, the page says the host has left (the
+ *      sweeper ends a call left to guests after a few minutes).
  *
  * Nothing runs without a reason: no animation loop, no timer while hidden.
  */
@@ -30,7 +35,7 @@ import { TeamCallSession, type CallEnd, type CallSnapshot, type TeamCallJoin } f
 import { MEETING_GUEST_NAME_MAX, MEETING_LOBBY_POLL_MS, cleanGuestName } from '@/lib/meeting-links/shape'
 import { CallBadges, IconButton, TileView, callErrorLine, deviceNotice, initialsOf } from '@/components/team-calls/call-tiles'
 
-type Done = 'declined' | 'removed' | 'left' | 'ended' | 'inactive' | 'refused' | 'full' | 'limited' | 'early' | 'elsewhere' | 'error'
+type Done = 'declined' | 'removed' | 'left' | 'ended' | 'inactive' | 'full' | 'limited' | 'early' | 'elsewhere' | 'error'
 
 type Phase =
   | { kind: 'entry'; error?: string }
@@ -51,7 +56,6 @@ const DONE_COPY: Record<Done, { title: string; body: string; again?: boolean }> 
   left: { title: 'You left the meeting', body: 'You can close this page.', again: true },
   ended: { title: 'The meeting ended', body: 'You can close this page.', again: true },
   inactive: { title: 'This link is no longer active', body: 'Ask the person who sent it for a new one.' },
-  refused: { title: 'You can’t join this meeting', body: 'Ask the person who sent the link.' },
   full: { title: 'Too many people are waiting', body: 'Try again in a few minutes.', again: true },
   limited: { title: 'Too many tries', body: 'Wait a minute, then try again.', again: true },
   early: { title: 'This meeting hasn’t started yet', body: 'Come back closer to its start.' },
@@ -76,8 +80,6 @@ async function doneOf(res: Response | null): Promise<Done> {
       return 'inactive'
     case 'MEETING_EARLY':
       return 'early'
-    case 'MEETING_REFUSED':
-      return 'refused'
     case 'LOBBY_FULL':
       return 'full'
     case 'RATE_LIMITED':
@@ -107,8 +109,10 @@ export function GuestMeeting({
   const [phase, setPhase] = useState<Phase>({ kind: 'entry' })
   const [name, setName] = useState('')
   const [onNow, setOnNow] = useState<OnNow>({ notes, recording })
-  // What they were told before asking (the notice), so a change after it holds their microphone back.
-  const told = useRef<OnNow>({ notes, recording })
+  // Members in the call right now (the lobby poll): none means the host has left.
+  const [membersInCall, setMembersInCall] = useState<number | null>(null)
+  // Ask the lobby now (set by the poll effect): the server took their publishing away mid-call.
+  const askNow = useRef<(() => void) | null>(null)
   const [camera, setCamera] = useState<'off' | 'on' | 'blocked'>('off')
   const preview = useRef<MediaStream | null>(null)
   const phaseRef = useRef(phase)
@@ -145,9 +149,9 @@ export function GuestMeeting({
   /** Admitted: a token, then into the room (the SDK is fetched now, not before). */
   const enter = useCallback(async () => {
     setPhase({ kind: 'joining' })
-    // `seen`: what their page told them before they said go; a call with more on than that is joined listen-only.
-    const fetchJoin = async (noticeSeen = false): Promise<{ join: TeamCallJoin; call: OnNow } | null> => {
-      const res = await post(`${base}/token`, { seen: noticeSeen ? { notes: true, recording: true } : told.current })
+    // The server decides listen-only: from what this guest has said go to (each notes round, the recording).
+    const fetchJoin = async (): Promise<{ join: TeamCallJoin; call: OnNow } | null> => {
+      const res = await post(`${base}/token`)
       if (!res?.ok) return null
       const json = (await res.json().catch(() => null)) as { join?: TeamCallJoin; call?: { notes?: boolean; recording?: string } } | null
       if (!json?.join) return null
@@ -162,13 +166,11 @@ export function GuestMeeting({
     const session = new TeamCallSession(
       { callId: first.join.callId, channelId: '', channelKind: 'meeting', label: title, notesOffered },
       {
-        refreshJoin: async (noticeSeen) => (await fetchJoin(noticeSeen))?.join ?? null,
-        // "Join with microphone": the server lets their listen-only connection publish.
-        allowPublish: async () => {
-          const res = await post(`${base}/notice`)
-          if (res?.ok) told.current = { notes: true, recording: true }
-          return res?.ok === true
-        },
+        refreshJoin: async () => (await fetchJoin())?.join ?? null,
+        // "Join with microphone": the server records their go and lets their connection publish.
+        allowPublish: async () => (await post(`${base}/notice`))?.ok === true,
+        // The server held them for a notice mid-call: ask what is on now, at once.
+        onPublishBlocked: () => askNow.current?.(),
         hangUp: async () => {
           await post(`${base}/leave`)
         },
@@ -207,10 +209,13 @@ export function GuestMeeting({
         if (phaseRef.current.kind === 'waiting') setPhase({ kind: 'entry', error: 'Your place in the lobby was lost. Ask to join again.' })
         return
       }
-      const json = res?.ok ? ((await res.json().catch(() => null)) as { state?: string; notes?: boolean; recording?: string; open?: boolean } | null) : null
+      const json = res?.ok
+        ? ((await res.json().catch(() => null)) as { state?: string; notes?: boolean; recording?: string; open?: boolean; membersInCall?: number } | null)
+        : null
       if (stopped) return
       if (json) {
         setOnNow({ notes: json.notes === true, recording: json.recording === 'on' || json.recording === 'starting' })
+        setMembersInCall(typeof json.membersInCall === 'number' ? json.membersInCall : null)
         if (phaseRef.current.kind === 'waiting') {
           if (json.state === 'admitted') return void enter()
           if (json.state === 'declined') return finish('declined')
@@ -225,8 +230,13 @@ export function GuestMeeting({
     }
     document.addEventListener('visibilitychange', onVisible)
     timer = setTimeout(() => void ask(), waiting ? 0 : every)
+    askNow.current = () => {
+      if (timer) clearTimeout(timer)
+      void ask()
+    }
     return () => {
       stopped = true
+      askNow.current = null
       if (timer) clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
@@ -255,7 +265,6 @@ export function GuestMeeting({
       return
     }
     setPhase({ kind: 'asking' })
-    told.current = { ...onNow }
     // The browser asks for the microphone now, not before. Refused: they join listening only (the call says so).
     try {
       const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -274,14 +283,14 @@ export function GuestMeeting({
       return
     }
     finish(await doneOf(res))
-  }, [name, onNow, base, finish])
+  }, [name, base, finish])
 
   const cancel = useCallback(async () => {
     await post(`${base}/leave`)
     finish('left')
   }, [base, finish])
 
-  if (phase.kind === 'call') return <GuestCall session={phase.session} title={title} onNow={onNow} />
+  if (phase.kind === 'call') return <GuestCall session={phase.session} title={title} onNow={onNow} hostGone={membersInCall === 0} />
 
 
   return (
@@ -426,7 +435,7 @@ function useSnapshot(session: TeamCallSession): CallSnapshot {
 }
 
 /** The guest in the call: everyone in it, their own controls, Leave. Nothing of the workspace. */
-function GuestCall({ session, title, onNow }: { session: TeamCallSession; title: string; onNow: OnNow }) {
+function GuestCall({ session, title, onNow, hostGone }: { session: TeamCallSession; title: string; onNow: OnNow; hostGone: boolean }) {
   const snap = useSnapshot(session)
   const screens = snap.tiles.filter((t) => t.kind === 'screen')
   const people = snap.tiles.filter((t) => t.kind === 'person')
@@ -453,6 +462,12 @@ function GuestCall({ session, title, onNow }: { session: TeamCallSession; title:
         <CallBadges notes={{ notes: onNow.notes, recording: onNow.recording ? 'on' : 'off' }} />
       </header>
       <div className="mx-auto w-full max-w-5xl min-h-0 flex-1 overflow-y-auto px-3 pb-2 sm:px-4">
+        {hostGone && snap.phase === 'connected' && (
+          <div data-guest-host-left="" className="mb-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm font-semibold">The host has left</p>
+            <p className="mt-1 text-xs text-muted-foreground">Nobody from the meeting is in the call. It ends in a few minutes unless someone comes back.</p>
+          </div>
+        )}
         {snap.micHeld && snap.phase !== 'error' && (
           <div data-guest-mic-held="" className="mb-3 rounded-2xl border border-sky-500/30 bg-sky-500/10 px-4 py-3">
             <p className="text-sm font-semibold">{onNow.notes ? 'Notes are on for this meeting' : 'This meeting is being recorded'}</p>

@@ -219,6 +219,17 @@ export async function allowTeamCallPublish(config: TeamCallsConfig, room: string
   })
 }
 
+/**
+ * A connected guest may publish nothing until they say go to the notice
+ * (notes or a recording came on mid-call): LiveKit unpublishes what they
+ * publish now and their page hears of it at once (its permission change).
+ */
+export async function holdGuestPublish(config: TeamCallsConfig, room: string, guestId: string): Promise<void> {
+  await rooms(config).updateParticipant(room, guestIdentity(guestId), {
+    permission: { canSubscribe: true, canPublish: false, canPublishData: false, canPublishSources: [] },
+  })
+}
+
 /** A guest connected listen-only may publish now (they said go to the notice): a guest token's sources, never more. */
 export async function allowGuestPublish(config: TeamCallsConfig, room: string, guestId: string): Promise<void> {
   await rooms(config).updateParticipant(room, guestIdentity(guestId), {

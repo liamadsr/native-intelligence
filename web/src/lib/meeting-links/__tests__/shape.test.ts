@@ -11,7 +11,7 @@ import {
   firstNameOf,
   guestIdentity,
   guestIdOfIdentity,
-  guestJoinsListenOnly,
+  guestNeedsNotice,
   guestLabel,
   isGuestMetadata,
   isMeetingToken,
@@ -170,14 +170,37 @@ describe('the lobby', () => {
   })
 })
 
-describe('an admitted guest’s token waits for the notes notice', () => {
-  it('while notes or a recording are on that their page did not show them before they said go', () => {
-    expect(guestJoinsListenOnly({ notes: false, recording: 'off' }, undefined)).toBe(false)
-    expect(guestJoinsListenOnly({ notes: true, recording: 'off' }, { notes: false, recording: false })).toBe(true)
-    expect(guestJoinsListenOnly({ notes: true, recording: 'off' }, { notes: true, recording: false })).toBe(false)
-    expect(guestJoinsListenOnly({ notes: false, recording: 'on' }, { notes: true, recording: false })).toBe(true)
-    expect(guestJoinsListenOnly({ notes: false, recording: 'starting' }, { notes: true, recording: true })).toBe(false)
-    expect(guestJoinsListenOnly({ notes: true, recording: 'saved' }, { notes: 'yes' })).toBe(true)
-    expect(guestJoinsListenOnly({ notes: false, recording: 'saved' }, null)).toBe(false)
+describe('a guest must say go (the notice) before they may publish', () => {
+  const call = (o: Partial<{ notes: boolean; notes_round: number; recording: string; recording_started_at: string | null }> = {}) => ({
+    notes: false,
+    notes_round: 0,
+    recording: 'off',
+    recording_started_at: null,
+    ...o,
+  })
+  const at = (iso: string) => `2026-11-11T12:${iso}:00.000Z`
+
+  it('nothing on: no notice', () => {
+    expect(guestNeedsNotice(call(), { notes_ack_round: 0, recording_ack_at: null })).toBe(false)
+    expect(guestNeedsNotice(call({ notes_round: 3 }), { notes_ack_round: 0, recording_ack_at: null })).toBe(false)
+  })
+
+  it('notes on in a round they have not said go to (each round its own go)', () => {
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 1 }), { notes_ack_round: 0, recording_ack_at: null })).toBe(true)
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 1 }), { notes_ack_round: 1, recording_ack_at: null })).toBe(false)
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 2 }), { notes_ack_round: 1, recording_ack_at: null })).toBe(true)
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 1 }), { notes_ack_round: null, recording_ack_at: null })).toBe(true)
+  })
+
+  it('a recording running that they have not said go to since it started', () => {
+    expect(guestNeedsNotice(call({ recording: 'starting', recording_started_at: at('00') }), { notes_ack_round: 0, recording_ack_at: null })).toBe(true)
+    expect(guestNeedsNotice(call({ recording: 'on', recording_started_at: at('00') }), { notes_ack_round: 0, recording_ack_at: at('01') })).toBe(false)
+    expect(guestNeedsNotice(call({ recording: 'on', recording_started_at: at('05') }), { notes_ack_round: 0, recording_ack_at: at('01') })).toBe(true)
+    expect(guestNeedsNotice(call({ recording: 'saved', recording_started_at: at('05') }), { notes_ack_round: 0, recording_ack_at: null })).toBe(false)
+  })
+
+  it('a go to notes is not a go to a recording, nor the other way round', () => {
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 1, recording: 'on', recording_started_at: at('00') }), { notes_ack_round: 1, recording_ack_at: null })).toBe(true)
+    expect(guestNeedsNotice(call({ notes: true, notes_round: 2, recording: 'on', recording_started_at: at('00') }), { notes_ack_round: 1, recording_ack_at: at('01') })).toBe(true)
   })
 })

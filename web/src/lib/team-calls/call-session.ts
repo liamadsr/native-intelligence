@@ -110,6 +110,12 @@ export interface TeamCallSessionDeps {
   hangUp: () => Promise<void>
   /** Called once, when the call is over here. */
   onEnded?: (why: CallEnd) => void
+  /**
+   * The server took this person's publishing away mid-call (a meeting guest
+   * when notes or a recording came on that they haven't said go to): their
+   * microphone is held and the notice shows; the page asks what is on now.
+   */
+  onPublishBlocked?: () => void
   /** The SDK, injectable for tests. */
   loadSdk?: () => Promise<typeof import('livekit-client')>
 }
@@ -242,13 +248,44 @@ export class TeamCallSession {
     const room = this.room
     const lk = this.sdk
     if (!room || !lk || this.snapshot.phase !== 'connected') return
+    // The server lets them publish through LiveKit: wait (briefly) until the room says so here too.
+    await this.untilMayPublish(room, lk)
     await this.enableMic(room, lk)
     this.refresh()
     void this.refreshDevices()
   }
 
+  /** Until the room says this person may publish (at most 5 s): a permission raised by the server lands as an event. */
+  private untilMayPublish(room: Room, lk: typeof import('livekit-client')): Promise<void> {
+    if (room.localParticipant.permissions?.canPublish !== false) return Promise.resolve()
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        room.off(lk.RoomEvent.ParticipantPermissionsChanged, check)
+        resolve()
+      }
+      const check = () => {
+        if (room.localParticipant.permissions?.canPublish !== false) done()
+      }
+      const timer = setTimeout(done, 5000)
+      room.on(lk.RoomEvent.ParticipantPermissionsChanged, check)
+    })
+  }
+
   private wire(room: Room, lk: typeof import('livekit-client')) {
     const E = lk.RoomEvent
+    // The server took this person's publishing away (notes or a recording came on that a meeting guest
+    // hasn't said go to): LiveKit unpublished their tracks; the microphone waits for the notice.
+    room.on(E.ParticipantPermissionsChanged, (_prev, participant) => {
+      if (this.room !== room || participant !== room.localParticipant) return
+      if (participant.permissions?.canPublish === false && !this.holdMic) {
+        this.holdMic = true
+        this.mic = 'off'
+        this.emit({ micHeld: true })
+        this.refresh()
+        this.deps.onPublishBlocked?.()
+      }
+    })
     const refresh = () => {
       if (this.room === room) this.refresh()
     }

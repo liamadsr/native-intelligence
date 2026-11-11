@@ -130,11 +130,33 @@ describe('migrations 572-575', () => {
       expect(head, fn).toContain('set search_path = public, pg_temp')
       expect(body, fn).toMatch(new RegExp(`revoke all on function public\\.${fn}\\([^)]*\\) from public, anon`))
     }
-    const person = ['meeting_create', 'meeting_join', 'meeting_revoke', 'meeting_guest_decide', 'meeting_guest_remove']
+    const person = ['meeting_create', 'meeting_new_link', 'meeting_join', 'meeting_revoke', 'meeting_guest_decide', 'meeting_guest_remove']
     const granted = [...body.matchAll(/grant execute on function public\.(\w+)\([^)]*\) to authenticated;/g)].map((m) => m[1])
     expect(granted.sort()).toEqual([...person].sort())
     expect(body).toMatch(/revoke all on function public\.meeting_make\([^)]*\) from public, anon, authenticated;/)
     expect(body).not.toMatch(/grant execute on function public\.meeting_make/)
+  })
+
+  it('a guest’s go per notes round and per recording gates their notes file; no refusal by address; the cap per address is five', () => {
+    const tables = flat(FILES.tables)
+    expect(tables).toContain('notes_ack_round integer not null default 0')
+    expect(tables).toContain('recording_ack_at timestamptz')
+    expect(tables).toContain('token_nonce text')
+    // The nonce is the server's: never in the members' column grant (pinned above), and the prune may drop keys.
+    expect(tables).toContain('grant select, insert, delete on table public.meeting_guest_key to service_role;')
+    const body = flat(FILES.functions)
+    const fn = (name: string) => {
+      const i = body.indexOf(`function public.${name}(`)
+      return body.slice(i, body.indexOf('$$;', body.indexOf('as $$', i)))
+    }
+    expect(fn('meeting_guest_egress_claim')).toContain('g.notes_ack_round >= c.notes_round')
+    expect(fn('meeting_guest_needs_notice')).toContain('g.notes_ack_round < c.notes_round')
+    expect(fn('meeting_guest_needs_notice')).toContain('g.recording_ack_at < c.recording_started_at')
+    expect(fn('meeting_guest_ack')).toContain("g.state <> 'admitted'")
+    expect(fn('meeting_guest_request')).not.toContain("'refused'")
+    expect(fn('meeting_guest_request')).toMatch(/\) >= 5 then/)
+    expect(fn('meeting_guest_only_calls')).toContain("ch.kind = 'meeting'")
+    expect(fn('meeting_new_link')).toContain("set state = 'left' where g.meeting_id = m.id and g.state = 'waiting'")
   })
 
   it('572: a meeting’s conversation is its own kind, its notice a notification type the app knows; the newest word on both checks', () => {

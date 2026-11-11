@@ -13,10 +13,11 @@ import {
 } from '@/lib/team-calls/store'
 import { drainTeamCallEjections, liveEjectDeps, TEAM_CALL_EJECT_EVENT } from '@/lib/team-calls/eject'
 import { sweepTeamCalls } from '@/lib/team-calls/sweep'
-import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
+import { closeTeamCallRoom, openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
 import { sweepTeamCallEgress } from '@/lib/team-calls/notes-sweep'
-import { fenceGuests, sweepMeetings } from '@/lib/meeting-links/store'
+import { fenceGuests, pruneMeetingGuests, sweepMeetings } from '@/lib/meeting-links/store'
+import { endGuestOnlyCalls } from '@/lib/meeting-links/sweep'
 
 /** What the ring's timer reads of Inngest's run (a test hands its own). */
 export interface TeamCallRingTimerContext {
@@ -133,6 +134,9 @@ export const teamCallsSweep = inngest.createFunction(
     const guestsFenced = teamCallsConfig() ? await step.run('fence-guests', () => fenceGuests(getServiceClient())) : 0
     if (fenced + guestsFenced > 0) await step.sendEvent('eject', { name: TEAM_CALL_EJECT_EVENT, data: {} })
     await step.run('sweep-meetings', () => sweepMeetings(getServiceClient()))
+    // A meeting's call left to guests for a few minutes (no member in it): ended, its room closed.
+    const livekit = teamCallsConfig()
+    if (livekit) await step.run('guest-only-calls', () => endGuestOnlyCalls(getServiceClient(), { closeRoom: (room) => closeTeamCallRoom(livekit, room) }))
     // Their own step: a failed notice is retried alone (the rings are already missed), with any a lost event left untold.
     await step.run('notify', async () => {
       const backlog = await missedRingsNobodyWasToldOf(getServiceClient())
@@ -148,5 +152,25 @@ export const teamCallsSweep = inngest.createFunction(
       `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost}`,
     )
     return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable, egress }
+  },
+)
+
+/**
+ * Daily, meeting links' housekeeping (src/lib/meeting-links/store.ts
+ * pruneMeetingGuests): limit windows over a day old go, a guest's address key
+ * goes a day after they stopped waiting, and a guest done with a meeting for
+ * 30 days keeps no name.
+ */
+export const meetingLinksPrune = inngest.createFunction(
+  {
+    id: 'meeting-links-prune',
+    retries: 1,
+    singleton: { mode: 'skip' },
+    triggers: [{ cron: '17 4 * * *' }],
+  },
+  async ({ step }) => {
+    const out = await step.run('prune', () => pruneMeetingGuests(getServiceClient()))
+    console.info(`[meeting-links-prune] rates=${out.rates} keys=${out.keys} names=${out.names}`)
+    return out
   },
 )

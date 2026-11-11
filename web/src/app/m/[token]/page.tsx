@@ -1,13 +1,11 @@
-import { cookies, headers } from 'next/headers'
-import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { getServiceClient } from '@/lib/admin'
 import { createClient } from '@/lib/supabase/server'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
-import { WORKSPACE_COOKIE } from '@/lib/workspace'
-import { lookUpMeeting } from '@/lib/meeting-links/public'
+import { isMemberOf, lookUpMeeting } from '@/lib/meeting-links/public'
 import { firstNameOf } from '@/lib/meeting-links/shape'
-import { hostName, joinMeetingByDigest } from '@/lib/meeting-links/store'
+import { hostName } from '@/lib/meeting-links/store'
 import { GuestMeeting } from '@/components/meeting-links/guest-meeting'
 import { MeetingCard } from '@/components/meeting-links/meeting-card'
 
@@ -22,47 +20,46 @@ export const metadata = {
 
 /**
  * A meeting link (calls plan, phase 7). A member of the meeting's workspace,
- * signed in, joins its conversation and is taken to it and its call in the
- * app. Anyone else gets the guest page: no app around it, nothing of the
- * workspace beyond the meeting's title and its host's first name. A link
- * that doesn't work (unknown, revoked, run out) says only that; one that
- * opens later says when. Looking a link up is limited per address and per
- * link (src/lib/meeting-links/public.ts).
+ * signed in, sees the meeting and a Join button: joining is a same-origin
+ * POST (./enter), never the GET that opened the page (another site could
+ * have made their browser open it). Anyone else gets the guest page: no app
+ * around it, nothing of the workspace beyond the meeting's title and its
+ * host's first name. A link that doesn't work (unknown, revoked, replaced,
+ * run out) says only that; one that opens later says when. Looking a link up
+ * is limited per address and per link; a member is never shut out by others'
+ * tries (src/lib/meeting-links/public.ts).
  */
 export default async function MeetingLinkPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
   if (!teamCallsConfig()) return <Inactive />
   const svc = getServiceClient()
-  // Who is signed in first: a member is never shut out of their own meeting by others' tries on its link.
   const supabase = await createClient()
   const { data: auth } = await supabase.auth.getUser()
+  const userId = auth.user?.id ?? null
   let found: Awaited<ReturnType<typeof lookUpMeeting>>
   try {
-    found = await lookUpMeeting(svc, token, await headers(), { perLink: !auth.user })
+    found = await lookUpMeeting(svc, token, await headers(), { exempt: (m) => isMemberOf(svc, userId, m.workspace_id) })
   } catch {
     return <MeetingCard title="Something went wrong" description="We couldn’t open this link just now. Try it again in a moment." />
   }
   if (found.kind === 'limited') return <MeetingCard title="Too many tries" description="Wait a minute, then open the link again." />
   if (found.kind === 'inactive') return <Inactive />
-  const { meeting, digest } = found
+  const { meeting } = found
+  const host = firstNameOf(await hostName(svc, meeting.host_member_id))
 
-  // A member of the meeting's workspace: straight into its conversation and call.
-  if (auth.user) {
-    const { data: member } = await svc.from('member').select('id').eq('user_id', auth.user.id).eq('workspace_id', meeting.workspace_id).maybeSingle<{ id: string }>()
-    if (member) {
-      let channelId: string | null = null
-      try {
-        channelId = (await joinMeetingByDigest(supabase, digest)).channelId
-      } catch {
-        return <Inactive />
-      }
-      const current = (await cookies()).get(WORKSPACE_COOKIE)?.value
-      const switchTo = current && current !== meeting.workspace_id ? `&switch_to=${encodeURIComponent(meeting.workspace_id)}` : ''
-      redirect(`/account?meeting=${encodeURIComponent(channelId)}${switchTo}`)
-    }
+  // A member of the meeting's workspace: the meeting, and Join (a POST).
+  if (await isMemberOf(svc, userId, meeting.workspace_id)) {
+    return (
+      <MeetingCard title={meeting.title} description={`${host ? `${host}’s meeting` : 'A meeting'} in your workspace.`}>
+        <form method="post" action={`/m/${encodeURIComponent(token)}/enter`} className="mt-5">
+          <button type="submit" data-meeting-member-join="" className="h-11 w-full rounded-full bg-foreground px-5 text-sm font-semibold text-background hover:bg-foreground/90">
+            Join in the app
+          </button>
+        </form>
+      </MeetingCard>
+    )
   }
 
-  const host = firstNameOf(await hostName(svc, meeting.host_member_id))
   if (found.kind === 'early') {
     return (
       <MeetingCard

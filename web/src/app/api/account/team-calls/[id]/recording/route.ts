@@ -14,6 +14,7 @@
  *        after the call's own read under RLS), lasting an hour, never a
  *        public address. 404 for anyone else, or before it is saved.
  */
+import { holdGuestsForNotice } from '@/lib/meeting-links/consent'
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
 import { apiError, badRequest, forbidden, notFound } from '@/lib/api-errors'
@@ -80,7 +81,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       console.info(`[team-call-recording] call=${call.id} outcome=stop stopping=${stopping}`)
       return NextResponse.json({ stopping: stopping > 0 })
     }
-    const outcome = await startRecording(svc, port, { id: call.id, room: call.room }, me.id, maxLiveRecordings())
+    // A meeting's guests who haven't said go to a recording are held to listen-only before it starts (phase 7).
+    const livekit = teamCallsConfig()
+    const outcome = await startRecording(svc, port, { id: call.id, room: call.room }, me.id, maxLiveRecordings(), () =>
+      livekit && call.channel_kind === 'meeting' ? holdGuestsForNotice(svc, livekit, call.id) : Promise.resolve(0),
+    )
     console.info(`[team-call-recording] call=${call.id} outcome=${outcome}`)
     switch (outcome) {
       case 'claimed':

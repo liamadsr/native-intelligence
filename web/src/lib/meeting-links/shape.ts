@@ -179,7 +179,7 @@ export interface MeetingView {
   closes_at: string
   revoked_at: string | null
   /** The link (made again by the server from the meeting's id), for whoever may read the conversation. */
-  url: string
+  url: string | null
 }
 
 export const MEETING_COLUMNS = 'id, channel_id, host_member_id, title, starts_at, ends_at, opens_at, closes_at, revoked_at'
@@ -212,15 +212,21 @@ export function waitingGuests(list: readonly MeetingGuest[], now: number = Date.
 }
 
 /**
- * Does an admitted guest's token wait for them (phase 6's notice, for
- * guests)? Yes while the call has notes or a recording on that their page
- * did not show them before they said go (`seen`: what their page told them
- * when they asked to join, or after they pressed "Join with microphone").
+ * Must an admitted guest see the notice and say go before they may publish
+ * (phase 6's notice, enforced by the server for guests)? While the call has
+ * notes on in a round they haven't said go to, or a recording running they
+ * haven't said go to since it started. The same rule as 574's
+ * meeting_guest_needs_notice; what they said go to is the server's record
+ * (POST /m/<token>/notice), never anything their page sends.
  */
-export function guestJoinsListenOnly(call: { notes: boolean; recording: string | null | undefined }, seen: unknown): boolean {
-  const told = (seen ?? {}) as { notes?: unknown; recording?: unknown }
-  const recording = call.recording === 'on' || call.recording === 'starting'
-  return (call.notes && told.notes !== true) || (recording && told.recording !== true)
+export function guestNeedsNotice(
+  call: { notes: boolean; notes_round: number; recording: string | null | undefined; recording_started_at: string | null | undefined },
+  guest: { notes_ack_round: number | null | undefined; recording_ack_at: string | null | undefined },
+): boolean {
+  const notes = call.notes && (guest.notes_ack_round ?? 0) < call.notes_round
+  const recordingOn = call.recording === 'on' || call.recording === 'starting'
+  const recording = recordingOn && (!guest.recording_ack_at || (!!call.recording_started_at && Date.parse(guest.recording_ack_at) < Date.parse(call.recording_started_at)))
+  return notes || recording
 }
 
 /** The lobby's line for members: "Dana is waiting", "Dana and Lee are waiting", "3 people are waiting". */

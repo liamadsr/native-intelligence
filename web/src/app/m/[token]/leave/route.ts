@@ -9,7 +9,7 @@ import { apiError, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
 import { isSameOriginPost } from '@/lib/links/same-origin'
 import { clearedGuestCookieOptions, MEETING_GUEST_COOKIE, tokenDigest } from '@/lib/meeting-links/link'
-import { guestOf, noGuest, privateHeaders } from '@/lib/meeting-links/public'
+import { guestOf, noGuest, privateHeaders, smallBody } from '@/lib/meeting-links/public'
 import { leaveAsGuest } from '@/lib/meeting-links/store'
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +21,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!isSameOriginPost(request)) return privateHeaders(apiError('Forbidden', { status: 403, code: 'FORBIDDEN' }))
   const guestId = guestOf(request, token)
   if (!guestId) return privateHeaders(noGuest())
+  const body = await smallBody(request)
+  if (body instanceof Response) return body
   try {
     const state = await leaveAsGuest(getServiceClient(), guestId, tokenDigest(token))
     const res = NextResponse.json({ state })

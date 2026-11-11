@@ -1,12 +1,13 @@
 /**
  * A meeting link's token, and the guest's cookie (server only).
  *
- * The token: 24 bytes (192 bits) of an HMAC of the meeting's id under a key
- * kept for this one purpose, as 32 base64url characters. Only its sha256 is
- * stored (573's meeting.token_hash), and lookups go by that hash. Derived,
- * not random, so the host's link can be shown again from the meeting's id
- * without the token ever being stored. Unguessable without the key: the id
- * alone (a uuid a member may read) gives nothing.
+ * The token: 24 bytes (192 bits) of an HMAC of the meeting's id and a random
+ * nonce (24 bytes, per link) under a key kept for this one purpose, as 32
+ * base64url characters. Only its sha256 is stored (573's meeting.token_hash),
+ * with the nonce (server only), and lookups go by that hash. So the host's
+ * link can be shown again without the token ever being stored, and "New
+ * link" (a new nonce) replaces a leaked one: the old token stops working.
+ * Unguessable without the key: neither the id nor a stolen nonce gives it.
  *
  * The key: MEETING_LINK_SECRET when set, else one derived from the OAuth
  * state secret (which production requires) for this purpose. Changing it
@@ -34,9 +35,14 @@ function keyFor(purpose: string): string {
   return crypto.createHmac('sha256', baseKey()).update(purpose).digest('base64url')
 }
 
-/** The token of a meeting's link (the same every time for one meeting). */
-export function meetingToken(meetingId: string): string {
-  return crypto.createHmac('sha256', keyFor('token')).update(meetingId.toLowerCase()).digest().subarray(0, 24).toString('base64url')
+/** A new link's random nonce (24 bytes, base64url). */
+export function newTokenNonce(): string {
+  return crypto.randomBytes(24).toString('base64url')
+}
+
+/** The token of a meeting's link (the same for one meeting and nonce). */
+export function meetingToken(meetingId: string, nonce: string): string {
+  return crypto.createHmac('sha256', keyFor('token')).update(`${meetingId.toLowerCase()}:${nonce}`).digest().subarray(0, 24).toString('base64url')
 }
 
 /** What is stored of a token, and looked up by: its sha256, hex. */
@@ -45,13 +51,13 @@ export function tokenDigest(token: string): string {
 }
 
 /** A meeting's link, on the app's address. */
-export function meetingLink(meetingId: string, origin: string = appUrl()): string {
-  return meetingUrlOf(meetingToken(meetingId), origin)
+export function meetingLink(meetingId: string, nonce: string, origin: string = appUrl()): string {
+  return meetingUrlOf(meetingToken(meetingId, nonce), origin)
 }
 
-/** True when this token is this meeting's (a lookup by hash already found the meeting; this is the belt). */
-export function tokenIsMeetings(token: string, meetingId: string): boolean {
-  return isMeetingToken(token) && secretsEqual(token, meetingToken(meetingId))
+/** True when this token is the one the server made for this meeting's current link (never a token a caller chose). */
+export function tokenIsMeetings(token: string, meetingId: string, nonce: string | null | undefined): boolean {
+  return !!nonce && isMeetingToken(token) && secretsEqual(token, meetingToken(meetingId, nonce))
 }
 
 // ── The guest's cookie ──────────────────────────────────────────────────────
@@ -103,17 +109,23 @@ export function clearedGuestCookieOptions(token: string) {
 // ── The key requests are limited by ─────────────────────────────────────────
 
 /**
- * The address a request came from: the last X-Forwarded-For entry (the one
- * our own proxy added; an earlier one is whatever the client sent), else
- * X-Real-IP, else 'unknown'.
+ * The address a request came from. On the server the chain is: the edge
+ * Caddy (deploy/edge/Caddyfile: it drops any X-Forwarded-For a client sent,
+ * sets it to the client's address, and sets X-Real-IP to the same), then the
+ * app's own Caddy (deploy/app/proxy/Caddyfile: it trusts private ranges and
+ * appends its peer, the edge container), then web. So X-Real-IP is the
+ * client; failing that, the FIRST X-Forwarded-For entry (the last is the
+ * edge's own address, the same for everyone). On a host that sets neither,
+ * 'unknown'.
  */
 export function clientAddress(headers: Headers): string {
-  const forwarded = headers.get('x-forwarded-for')
-  const last = forwarded?.split(',').map((s) => s.trim()).filter(Boolean).pop()
-  return (last || headers.get('x-real-ip')?.trim() || 'unknown').slice(0, 64)
+  const real = headers.get('x-real-ip')?.trim()
+  if (real) return real.slice(0, 64)
+  const first = headers.get('x-forwarded-for')?.split(',').map((s) => s.trim()).find(Boolean)
+  return (first || 'unknown').slice(0, 64)
 }
 
-/** The key a request is limited by: an HMAC of its address (never the address), stored for a removed guest. */
+/** The key a request is limited by: an HMAC of its address (never the address). */
 export function rateKeyOf(headers: Headers): string {
   return crypto.createHmac('sha256', keyFor('rate-key')).update(clientAddress(headers)).digest('base64url').slice(0, 32)
 }

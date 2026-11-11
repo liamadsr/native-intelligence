@@ -56,6 +56,14 @@ export async function requestRevoke(meetingId: string): Promise<{ ok: true } | {
   return res?.ok ? { ok: true } : { ok: false, line: await errorLine(res, 'The link wasn’t turned off. Try again.') }
 }
 
+/** The host replaces the link: the old one stops working. */
+export async function requestNewLink(meetingId: string): Promise<{ ok: true; url: string } | { ok: false; line: string }> {
+  const res = await send(`/api/account/meeting-links/${meetingId}/new-link`, 'POST')
+  if (!res?.ok) return { ok: false, line: await errorLine(res, 'No new link was made. Try again.') }
+  const json = (await res.json().catch(() => null)) as { url?: string } | null
+  return json?.url ? { ok: true, url: json.url } : { ok: false, line: 'No new link was made. Try again.' }
+}
+
 /** The host ends the meeting's call for everyone. */
 export async function requestEnd(meetingId: string): Promise<{ ok: true } | { ok: false; line: string }> {
   const res = await send(`/api/account/meeting-links/${meetingId}/end`, 'POST')

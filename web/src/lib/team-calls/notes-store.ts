@@ -288,6 +288,8 @@ export async function startRecording(
   call: { id: string; room: string },
   memberId: string,
   maxLive: number,
+  /** Run once the recording is claimed, before its egress starts (meeting guests held to the notice, phase 7). */
+  beforeEgress?: () => Promise<unknown>,
 ): Promise<RecordingClaim | 'failed'> {
   const { data, error } = await svc.rpc('team_call_recording_begin', { target_call: call.id, member_ref: memberId, max_live: maxLive })
   if (error) throw new Error(`team calls: recording claim failed: ${error.message}`)
@@ -295,6 +297,7 @@ export async function startRecording(
   const outcome = row?.outcome ?? 'unknown'
   if (outcome !== 'claimed' || !row?.egress_row || !row.file_path) return outcome
   try {
+    await beforeEgress?.()
     const { egressId } = await port.startRecording(call.room, row.file_path)
     await applyEgressEvent(svc, { rowId: row.egress_row, egressId, status: 'starting', atNs: 0 })
     console.info(`[team-call-recording] call=${call.id} egress_row=${row.egress_row} outcome=started`)

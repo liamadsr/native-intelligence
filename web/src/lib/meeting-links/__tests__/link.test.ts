@@ -15,6 +15,7 @@ import {
   guestCookieOptions,
   meetingLink,
   meetingToken,
+  newTokenNonce,
   rateKeyOf,
   signGuestCookie,
   tokenDigest,
@@ -27,6 +28,8 @@ import { meetingGuestGrant, meetingGuestToken, teamCallGrant } from '@/lib/team-
 const MEETING = '33333333-3333-4333-8333-333333333333'
 const OTHER = '44444444-4444-4444-8444-444444444444'
 const GUEST = '55555555-5555-4555-8555-555555555555'
+const NONCE = 'nonce-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+const NONCE2 = 'nonce-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 
 beforeEach(() => {
   vi.stubEnv('MEETING_LINK_SECRET', 'test-meeting-secret')
@@ -35,41 +38,59 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('the token', () => {
-  it('is 192 bits as 32 base64url characters, the same for one meeting, another for another', () => {
-    const t = meetingToken(MEETING)
+  it('is 192 bits as 32 base64url characters, the same for one meeting and nonce, another for another', () => {
+    const t = meetingToken(MEETING, NONCE)
     expect(isMeetingToken(t)).toBe(true)
     expect(Buffer.from(t, 'base64url')).toHaveLength(24)
-    expect(meetingToken(MEETING.toUpperCase())).toBe(t)
-    expect(meetingToken(OTHER)).not.toBe(t)
-    expect(tokenIsMeetings(t, MEETING)).toBe(true)
-    expect(tokenIsMeetings(t, OTHER)).toBe(false)
+    expect(meetingToken(MEETING.toUpperCase(), NONCE)).toBe(t)
+    expect(meetingToken(OTHER, NONCE)).not.toBe(t)
+    expect(tokenIsMeetings(t, MEETING, NONCE)).toBe(true)
+    expect(tokenIsMeetings(t, OTHER, NONCE)).toBe(false)
+  })
+
+  it('a new nonce (New link) is a new token: the old one is no longer the meeting’s', () => {
+    const old = meetingToken(MEETING, NONCE)
+    const fresh = meetingToken(MEETING, NONCE2)
+    expect(fresh).not.toBe(old)
+    expect(tokenIsMeetings(old, MEETING, NONCE2)).toBe(false)
+    expect(tokenIsMeetings(fresh, MEETING, NONCE2)).toBe(true)
+    // No nonce stored: no token is the meeting's.
+    expect(tokenIsMeetings(old, MEETING, null)).toBe(false)
+    expect(tokenIsMeetings(old, MEETING, '')).toBe(false)
+  })
+
+  it('each link’s nonce is random, 24 bytes', () => {
+    const a = newTokenNonce()
+    expect(Buffer.from(a, 'base64url')).toHaveLength(24)
+    expect(a).toMatch(/^[A-Za-z0-9_-]{32}$/)
+    expect(newTokenNonce()).not.toBe(a)
   })
 
   it('depends on the key: another key, another token (turning every link off)', () => {
-    const t = meetingToken(MEETING)
+    const t = meetingToken(MEETING, NONCE)
     vi.stubEnv('MEETING_LINK_SECRET', 'another-secret')
-    expect(meetingToken(MEETING)).not.toBe(t)
+    expect(meetingToken(MEETING, NONCE)).not.toBe(t)
   })
 
   it('falls back to a key derived from the OAuth state secret', () => {
     vi.stubEnv('MEETING_LINK_SECRET', '')
     vi.stubEnv('OAUTH_STATE_SECRET', 'oauth-secret')
-    const t = meetingToken(MEETING)
+    const t = meetingToken(MEETING, NONCE)
     expect(isMeetingToken(t)).toBe(true)
     vi.stubEnv('OAUTH_STATE_SECRET', 'oauth-secret-2')
-    expect(meetingToken(MEETING)).not.toBe(t)
+    expect(meetingToken(MEETING, NONCE)).not.toBe(t)
   })
 
   it('is stored as its sha256 only, and the link is on the app’s address', () => {
-    const t = meetingToken(MEETING)
+    const t = meetingToken(MEETING, NONCE)
     expect(tokenDigest(t)).toMatch(/^[0-9a-f]{64}$/)
     expect(tokenDigest(t)).not.toContain(t)
-    expect(meetingLink(MEETING)).toBe(`https://nativeintelligence.dev/m/${t}`)
+    expect(meetingLink(MEETING, NONCE)).toBe(`https://nativeintelligence.dev/m/${t}`)
   })
 })
 
 describe('the guest’s cookie', () => {
-  const token = () => meetingToken(MEETING)
+  const token = () => meetingToken(MEETING, NONCE)
   const now = Date.parse('2026-11-11T12:00:00.000Z')
   const closes = new Date('2026-11-12T12:00:00.000Z')
 
@@ -86,7 +107,7 @@ describe('the guest’s cookie', () => {
     expect(verifyGuestCookie(token(), `${OTHER}.${exp}.${mac}`, now)).toBeNull()
     expect(verifyGuestCookie(token(), `${id}.${Number(exp) + 1}.${mac}`, now)).toBeNull()
     expect(verifyGuestCookie(token(), `${id}.${exp}.${mac.slice(0, -2)}xx`, now)).toBeNull()
-    expect(verifyGuestCookie(meetingToken(OTHER), c.value, now)).toBeNull()
+    expect(verifyGuestCookie(meetingToken(OTHER, NONCE), c.value, now)).toBeNull()
     expect(verifyGuestCookie(token(), c.value, c.expires.getTime())).toBeNull()
     for (const bad of [null, '', 'x', 'a.b', `${id}.${exp}`, 'x'.repeat(300)]) expect(verifyGuestCookie(token(), bad, now)).toBeNull()
   })
@@ -99,16 +120,29 @@ describe('the guest’s cookie', () => {
 })
 
 describe('the key requests are limited by', () => {
-  it('is the address our proxy added (the last X-Forwarded-For entry), never the address itself', () => {
-    const h = new Headers({ 'x-forwarded-for': '203.0.113.9, 198.51.100.7' })
-    expect(clientAddress(h)).toBe('198.51.100.7')
-    expect(clientAddress(new Headers({ 'x-real-ip': '198.51.100.8' }))).toBe('198.51.100.8')
+  // On the server: the edge Caddy sets X-Forwarded-For to the client and X-Real-IP to the same; the app's Caddy
+  // trusts private ranges and appends the edge's address. So web sees "client, edge" and X-Real-IP: client.
+  it('takes X-Real-IP (the edge sets it to the client) before anything else', () => {
+    const h = new Headers({ 'x-real-ip': '198.51.100.8', 'x-forwarded-for': '198.51.100.8, 172.18.0.5' })
+    expect(clientAddress(h)).toBe('198.51.100.8')
+    expect(clientAddress(new Headers({ 'x-real-ip': ' 198.51.100.8 ', 'x-forwarded-for': '203.0.113.1' }))).toBe('198.51.100.8')
+  })
+
+  it('without it, the FIRST X-Forwarded-For entry (the last is the edge, the same for everyone)', () => {
+    expect(clientAddress(new Headers({ 'x-forwarded-for': '198.51.100.7, 172.18.0.5' }))).toBe('198.51.100.7')
+    expect(clientAddress(new Headers({ 'x-forwarded-for': ' , 198.51.100.7, 172.18.0.5' }))).toBe('198.51.100.7')
+    expect(clientAddress(new Headers({ 'x-forwarded-for': '198.51.100.7' }))).toBe('198.51.100.7')
+    expect(clientAddress(new Headers({ 'x-real-ip': '  ' }))).toBe('unknown')
     expect(clientAddress(new Headers())).toBe('unknown')
-    const key = rateKeyOf(h)
-    expect(key).toHaveLength(32)
-    expect(key).not.toContain('198')
-    expect(rateKeyOf(new Headers({ 'x-forwarded-for': 'spoofed, 198.51.100.7' }))).toBe(key)
-    expect(rateKeyOf(new Headers({ 'x-forwarded-for': '198.51.100.70' }))).not.toBe(key)
+  })
+
+  it('two clients behind the same edge are two keys; one client is one key; never the address itself', () => {
+    const a = rateKeyOf(new Headers({ 'x-real-ip': '198.51.100.7', 'x-forwarded-for': '198.51.100.7, 172.18.0.5' }))
+    const b = rateKeyOf(new Headers({ 'x-real-ip': '198.51.100.70', 'x-forwarded-for': '198.51.100.70, 172.18.0.5' }))
+    expect(a).toHaveLength(32)
+    expect(a).not.toContain('198')
+    expect(b).not.toBe(a)
+    expect(rateKeyOf(new Headers({ 'x-forwarded-for': '198.51.100.7, 172.18.0.5' }))).toBe(a)
   })
 })
 

@@ -1,7 +1,8 @@
 /**
  * The members' meeting routes (src/app/api/account/meeting-links/*): a link
- * made as the person (they are its host; the token derived by the server,
- * only its hash sent), a conversation's meeting with its link, a member
+ * made as the person (they are its host; the token made by the server from
+ * a random nonce per link, only its hash and the nonce sent), a
+ * conversation's meeting with its link, the host's New link, a member
  * joining by a link inside the app, admitting, declining and removing a
  * guest (a removal drains the eject outbox at once), the host revoking and
  * ending; nothing at all while calling is off.
@@ -61,7 +62,10 @@ import { POST as joinLink } from '../join/route'
 import { POST as answerGuest } from '../guests/[id]/route'
 import { POST as revoke } from '../[id]/revoke/route'
 import { POST as end } from '../[id]/end/route'
+import { POST as newLink } from '../[id]/new-link/route'
 import { meetingToken, tokenDigest } from '@/lib/meeting-links/link'
+
+const NONCE = 'members-nonce-aaaaaaaaaaaaaaaaaaaa'
 
 let tables: Record<string, Array<Record<string, unknown>>>
 const post = (body?: unknown) => new NextRequest('https://nativeintelligence.dev/api/account/meeting-links', { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body), headers: { 'content-type': 'application/json' } })
@@ -76,7 +80,7 @@ beforeEach(() => {
   h.closed = []
   tables = {
     member: [{ id: ME, user_id: USER, workspace_id: WS, display_name: 'Rosa Lind' }],
-    meeting: [{ id: MEETING, workspace_id: WS, channel_id: CH, host_member_id: ME, title: 'Design review', starts_at: null, ends_at: null, opens_at: '2026-11-11T00:00:00.000Z', closes_at: '2026-12-11T00:00:00.000Z', revoked_at: null }],
+    meeting: [{ id: MEETING, workspace_id: WS, channel_id: CH, host_member_id: ME, title: 'Design review', starts_at: null, ends_at: null, opens_at: '2026-11-11T00:00:00.000Z', closes_at: '2026-12-11T00:00:00.000Z', revoked_at: null, token_nonce: NONCE }],
     team_call: [{ id: CALL, channel_id: CH, room: `tc-${CALL}`, status: 'live' }],
   }
   const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -97,8 +101,10 @@ describe('making a link', () => {
     const [name, args] = h.rpcs[0]
     expect(name).toBe('meeting_create')
     expect(args).toMatchObject({ ws: WS, meeting_title: 'Design review', starts: '2026-11-12T15:00:00.000Z', minutes: 45 })
-    expect(args.token_digest).toBe(tokenDigest(meetingToken(String(args.meeting_ref))))
-    expect(JSON.stringify(args)).not.toContain(meetingToken(String(args.meeting_ref)))
+    expect(String(args.token_nonce)).toMatch(/^[A-Za-z0-9_-]{32}$/)
+    const token = meetingToken(String(args.meeting_ref), String(args.token_nonce))
+    expect(args.token_digest).toBe(tokenDigest(token))
+    expect(JSON.stringify(args)).not.toContain(token)
     const json = await res.json()
     expect(json.meeting.channelId).toBe(CH)
     expect(json.meeting.url).toMatch(/\/m\/[A-Za-z0-9_-]{32}$/)
@@ -121,19 +127,41 @@ describe('making a link', () => {
 })
 
 describe('a conversation’s meeting', () => {
-  it('its link, made again from its id (never stored)', async () => {
+  it('its link, made again from its id and nonce (never stored)', async () => {
     const res = await getMeeting(new NextRequest(`https://nativeintelligence.dev/api/account/meeting-links?channel=${CH}`))
     const json = await res.json()
     expect(json.meeting).toMatchObject({ id: MEETING, title: 'Design review', host_member_id: ME })
-    expect(json.meeting.url).toBe(`https://nativeintelligence.dev/m/${meetingToken(MEETING)}`)
+    expect(json.meeting.url).toBe(`https://nativeintelligence.dev/m/${meetingToken(MEETING, NONCE)}`)
     expect(json.meeting.workspace_id).toBeUndefined()
+  })
+})
+
+describe('a new link', () => {
+  it('the host replaces it: a fresh nonce, only its hash and the nonce sent, the new link answered', async () => {
+    h.rpc.meeting_new_link = { data: true, error: null }
+    const res = await newLink(post(), idParams(MEETING))
+    expect(res.status).toBe(200)
+    const [name, args] = h.rpcs[0]
+    expect(name).toBe('meeting_new_link')
+    expect(args.target_meeting).toBe(MEETING)
+    expect(args.token_nonce).not.toBe(NONCE)
+    const token = meetingToken(MEETING, String(args.token_nonce))
+    expect(args.token_digest).toBe(tokenDigest(token))
+    expect(token).not.toBe(meetingToken(MEETING, NONCE))
+    expect((await res.json()).url).toBe(`https://nativeintelligence.dev/m/${token}`)
+  })
+
+  it('anyone but the host (574 refuses): 403; a bad id: 404', async () => {
+    h.rpc.meeting_new_link = { data: null, error: { code: '42501', message: 'meetings: only the host can make a new link' } }
+    expect((await newLink(post(), idParams(MEETING))).status).toBe(403)
+    expect((await newLink(post(), idParams('nope'))).status).toBe(404)
   })
 })
 
 describe('joining by a link inside the app', () => {
   it('by its hash, as the person; a link that is not theirs or not active is a plain 404', async () => {
     h.rpc.meeting_join = { data: [{ meeting_id: MEETING, channel_id: CH, workspace_id: WS, title: 'Design review' }], error: null }
-    const token = meetingToken(MEETING)
+    const token = meetingToken(MEETING, NONCE)
     const res = await joinLink(post({ token }))
     expect(await res.json()).toMatchObject({ channelId: CH, title: 'Design review' })
     expect(h.rpcs[0]).toEqual(['meeting_join', { token_digest: tokenDigest(token) }])

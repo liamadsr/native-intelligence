@@ -10,7 +10,9 @@
  * their cookie (signed, http-only, this meeting's path only) is what their
  * lobby and token routes trust. Nobody in the call to let them in: the host
  * gets one notice. A link that doesn't work answers as one, whatever the
- * reason; a guest removed from this link, from this address, is refused.
+ * reason. At most five wait from one address. A removed guest's own row and
+ * cookie never get in again; anyone's new knock waits for a member's admit.
+ * The body is capped (4 KB) before it is read.
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { apiError, badRequest, serverError } from '@/lib/api-errors'
@@ -19,7 +21,7 @@ import { isSameOriginPost } from '@/lib/links/same-origin'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { hitLimits, MEETING_LIMITS } from '@/lib/meeting-links/limits'
 import { guestCookieOptions, MEETING_GUEST_COOKIE, signGuestCookie } from '@/lib/meeting-links/link'
-import { guestOf, linkEarly, linkInactive, lookUpMeeting, privateHeaders, tooManyTries } from '@/lib/meeting-links/public'
+import { guestOf, linkEarly, linkInactive, lookUpMeeting, privateHeaders, smallBody, tooManyTries } from '@/lib/meeting-links/public'
 import { cleanGuestName } from '@/lib/meeting-links/shape'
 import { notifyHostWaiting, pollGuest, requestToJoin } from '@/lib/meeting-links/store'
 
@@ -31,8 +33,8 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { token } = await params
   if (!isSameOriginPost(request)) return privateHeaders(apiError('Forbidden', { status: 403, code: 'FORBIDDEN' }))
   if (!teamCallsConfig()) return privateHeaders(linkInactive())
-  const raw = await request.text().catch(() => '')
-  if (raw.length > 2_000) return privateHeaders(badRequest('Too large'))
+  const raw = await smallBody(request)
+  if (raw instanceof Response) return raw
   let input: { name?: unknown } = {}
   try {
     input = raw ? (JSON.parse(raw) as { name?: unknown }) : {}
@@ -68,8 +70,6 @@ export async function POST(request: NextRequest, { params }: Params) {
         break
       case 'early':
         return privateHeaders(linkEarly(meeting))
-      case 'refused':
-        return privateHeaders(apiError('You can’t join this meeting.', { status: 403, code: 'MEETING_REFUSED' }))
       case 'full':
         return privateHeaders(apiError('Too many people are waiting. Try again in a few minutes.', { status: 429, code: 'LOBBY_FULL' }))
       default:
