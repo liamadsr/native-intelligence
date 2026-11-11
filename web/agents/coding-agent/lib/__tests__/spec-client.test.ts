@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  gitPushUrl,
+  gitGateUrl,
   fetchEveSpec,
   postEvent,
   postOutcome,
@@ -67,7 +67,7 @@ describe('fetchEveSpec', () => {
     const spec = {
       systemPrompt: 'sp', taskPrompt: 'tp', model: 'claude-opus-4-8',
       repoFullName: 'o/r', baseBranch: 'main', branchName: 'dial8/x',
-      networkAccess: 'restricted', setupScript: null, envVars: {}, githubToken: 'ght',
+      networkAccess: 'restricted', setupScript: null, envVars: {}, gitPushToken: 'gate.token',
     }
     const spy = mockFetch(() => json(spec))
     const got = await fetchEveSpec('tok')
@@ -246,26 +246,26 @@ describe('validGatewayTelemetry (Phase A shape-guard — never crash the resolve
   }
 })
 
-describe('gitPushUrl', () => {
+describe('gitGateUrl', () => {
   afterEach(() => vi.unstubAllEnvs())
 
-  it("is the app's PUBLIC origin's push gate, never the deployment URL (whose protection would need a bypass secret in the sandbox)", () => {
+  it("is the app's PUBLIC origin's git gate, never the deployment URL (whose protection would need a bypass secret in the sandbox)", () => {
     vi.stubEnv('VERCEL_URL', 'dial8-abc123.vercel.app')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example.com/')
-    expect(gitPushUrl()).toBe('https://app.example.com/api/internal/agent-run/git')
+    expect(gitGateUrl()).toBe('https://app.example.com/api/internal/agent-run/git')
   })
 
   it('falls back to the local app when no public origin is set, off Vercel', () => {
     vi.stubEnv('VERCEL', '')
     vi.stubEnv('VERCEL_URL', '')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
-    expect(gitPushUrl()).toBe('http://localhost:3000/api/internal/agent-run/git')
+    expect(gitGateUrl()).toBe('http://localhost:3000/api/internal/agent-run/git')
   })
 
   it('is null on Vercel without a public origin (never the protected deployment URL)', () => {
     vi.stubEnv('VERCEL', '1')
     vi.stubEnv('VERCEL_URL', 'dial8-abc123.vercel.app')
     vi.stubEnv('NEXT_PUBLIC_APP_URL', '')
-    expect(gitPushUrl()).toBeNull()
+    expect(gitGateUrl()).toBeNull()
   })
 })
