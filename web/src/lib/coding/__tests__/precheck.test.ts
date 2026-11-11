@@ -26,6 +26,7 @@ import {
   type PrecheckAnswer,
 } from '../precheck'
 import { respondToWorkRun } from '@/lib/agent-run/respond-to-run'
+import { CODING_PRECHECK_PROMPT } from '@/lib/eve/utility/prompts'
 
 const WS = 'ws-1'
 const RUN = 'run-00000001'
@@ -208,5 +209,14 @@ describe('precheckTaskBlock', () => {
 
   it('is empty with nothing to say', () => {
     expect(precheckTaskBlock({ criteria: [], precheck: null })).toBe('')
+  })
+})
+
+describe('CODING_PRECHECK_PROMPT', () => {
+  it('asks only for criteria the reviewer can check from the change itself', () => {
+    expect(CODING_PRECHECK_PROMPT).toContain('Each must be checkable from the change itself (its diff, the files it touches, its commits)')
+    for (const banned of ["the pull request's text", 'a summary being provided', 'how the agent reports', '"the tests pass"', '"the app still runs"']) {
+      expect(CODING_PRECHECK_PROMPT).toContain(banned)
+    }
   })
 })
