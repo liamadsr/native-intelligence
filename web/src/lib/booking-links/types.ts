@@ -140,6 +140,8 @@ export interface PublicLinkData {
   title: string
   description: string | null
   duration_minutes: number
+  /** How many days ahead it opens (from today): the page's date picker goes no further. */
+  window_days: number
   host_mode: HostMode
   /** Display names, in the hosts' order (an `any` link's: who might take it). */
   host_names: string[]

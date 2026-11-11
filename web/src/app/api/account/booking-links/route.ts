@@ -7,7 +7,7 @@ import { appOrigin } from '@/lib/twilio/config'
  * /api/account/booking-links — Settings' booking links (availability phase
  * 4a) in the current workspace.
  *
- *   GET → { links: [{ id, url, profile, slug, purpose, title, …, hosts, active, can_edit }], handles: { me, workspace }, can_manage }
+ *   GET → { links: [{ id, url, profile, slug, purpose, title, …, hosts, active, can_edit }], handles: { me, workspace }, can_manage, user_id }
  *   POST { title, slug?, description?, duration_minutes?, buffer_before_minutes?, buffer_after_minutes?,
  *          notice_minutes?, window_days?, step_minutes?, daily_cap?, questions?, video?, location?,
  *          ask_first?, host_mode?, hosts?, weekly_hours?, time_zone?, active?, team? } → 201 { link }

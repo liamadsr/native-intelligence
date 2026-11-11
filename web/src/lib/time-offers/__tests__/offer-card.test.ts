@@ -69,12 +69,18 @@ describe('timeOfferCardOf', () => {
         { offer_id: 'o-1', state: 'open', recipient: { name: 'Dana Whitfield' }, title: 'Intro call', times: [{ label: 'Tue, Nov 17, 10:00 AM EST', state: 'open' }], expires: 'Tue, Nov 17, 10:00 AM EST' },
         { offer_id: 'o-2', state: 'mystery', recipient: { name: 'Sam Ortiz' }, title: 'Catch up', times: [] },
       ],
-      bookings: [{ booking_id: 'b-1', state: 'cancelled', guest: { name: 'Lee Okafor' }, title: 'Tour', when: 'Wed, Nov 18, 2:00 PM EST' }],
+      bookings: [
+        { booking_id: 'b-1', state: 'cancelled', guest: { name: 'Lee Okafor' }, title: 'Tour', when: 'Wed, Nov 18, 2:00 PM EST' },
+        { booking_id: 'b-2', state: 'requested', guest: { name: 'Rae Moss' }, title: 'Intro call', when: 'Thu, Nov 19, 9:00 AM EST', from_booking_link: true, waiting_on_you: true },
+      ],
     })
     expect(card).toEqual({
       kind: 'list',
       offers: [{ id: 'o-1', recipient: 'Dana Whitfield', title: 'Intro call', state: 'open', times: [{ label: 'Tue, Nov 17, 10:00 AM EST', booked: false }], expires: 'Tue, Nov 17, 10:00 AM EST' }],
-      bookings: [{ id: 'b-1', guest: 'Lee Okafor', title: 'Tour', when: 'Wed, Nov 18, 2:00 PM EST', state: 'cancelled' }],
+      bookings: [
+        { id: 'b-1', guest: 'Lee Okafor', title: 'Tour', when: 'Wed, Nov 18, 2:00 PM EST', state: 'cancelled', fromLink: false },
+        { id: 'b-2', guest: 'Rae Moss', title: 'Intro call', when: 'Thu, Nov 19, 9:00 AM EST', state: 'requested', fromLink: true },
+      ],
     })
     expect(timeOfferCardOf('list_time_offers', { success: true, offers: [], bookings: [] })).toBeNull()
   })

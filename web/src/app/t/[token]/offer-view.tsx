@@ -1,19 +1,18 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Clock, Globe, MapPin, Video } from 'lucide-react'
+import { Globe, MapPin, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { SchedulingNotice, SchedulingShell, TimeButton } from '@/components/scheduling/scheduling-shell'
+import { SchedulingMeta, SchedulingNotice, SchedulingShell, TimeButton } from '@/components/scheduling/scheduling-shell'
 import { useGuestTimeZone } from '@/components/scheduling/use-guest-time-zone'
 import {
   dayLabel,
   clockLabel,
   groupByDay,
-  lengthLabel,
   pickFailure,
   whenLabel,
   zoneShort,
@@ -33,29 +32,6 @@ function Final({ title, children, ...rest }: { title: string; children?: React.R
         {children && <CardDescription className="space-y-2 pt-1">{children}</CardDescription>}
       </CardHeader>
     </SchedulingShell>
-  )
-}
-
-/** Length and place: "30 min · Video call". */
-function Meta({ minutes, video, location }: { minutes: number; video: boolean; location: string | null }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-      <span className="flex items-center gap-1.5">
-        <Clock aria-hidden className="size-4" />
-        {lengthLabel(minutes)}
-      </span>
-      {video ? (
-        <span className="flex items-center gap-1.5">
-          <Video aria-hidden className="size-4" />
-          Video call
-        </span>
-      ) : location ? (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <MapPin aria-hidden className="size-4 shrink-0" />
-          <span className="truncate">{location}</span>
-        </span>
-      ) : null}
-    </div>
   )
 }
 
@@ -237,7 +213,7 @@ export function OfferView({ token, load }: { token: string; load: PageLoad<Publi
       <CardHeader data-offer-state="open">
         <p className="text-sm font-medium text-muted-foreground">{host}</p>
         <CardTitle className="text-2xl">{offer.title}</CardTitle>
-        <Meta minutes={offer.duration_minutes} video={offer.video} location={offer.location} />
+        <SchedulingMeta minutes={offer.duration_minutes} video={offer.video} location={offer.location} />
         {offer.message && (
           <blockquote className="mt-2 border-l-2 pl-3 text-sm italic text-foreground/80" data-offer-message>
             {offer.message}

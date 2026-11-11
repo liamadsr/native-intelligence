@@ -43,7 +43,7 @@ beforeEach(() => {
 describe('the booking link tools', () => {
   it('create_booking_link makes the person’s link and hands back the address to share', async () => {
     const out = await call(createBookingLinkTools(AVA, WS), 'create_booking_link', { title: 'Intro call', duration_minutes: 20, ask_first: true })
-    expect(out).toMatchObject({ success: true, link: { url: 'https://app.example/book/ava-lin/intro-call', duration_minutes: 20, ask_first: true, hosts: [AVA] } })
+    expect(out).toMatchObject({ success: true, link: { url: 'https://app.example/book/ava-lin/intro-call', duration_minutes: 20, ask_first: true, hosts: [AVA], host_names: ['Ava Lin'] } })
     expect(out.message).toBe('Made "Intro call". Its address: https://app.example/book/ava-lin/intro-call. Anyone with it can book a time, which waits for a yes.')
   })
 
@@ -53,6 +53,7 @@ describe('the booking link tools', () => {
     await call(createBookingLinkTools(BEN, WS), 'create_booking_link', { title: 'Office hours' })
     const listed = await call(createBookingLinkTools(BEN, WS), 'list_booking_links', {})
     expect(listed.your_handle).toBe('ben-ruiz')
+    expect((listed.links as Array<{ host_names: string[] }>).map((l) => l.host_names)).toEqual([['Ava Lin'], ['Ben Ruiz']])
     expect((listed.links as Array<{ title: string; yours: boolean; can_edit: boolean }>).map((l) => [l.title, l.yours, l.can_edit])).toEqual([
       ['Intro call', false, false],
       ['Office hours', true, true],

@@ -27,7 +27,7 @@ import { readWeekly } from '@/lib/availability/schedule'
 import { isStorableTimeZone } from '@/lib/agent-events/member-time-zone'
 import { hostDisplayName } from '@/lib/time-offers/offers'
 import { questionId, slugFromTitle, type CreateLinkInput, type LinkFieldsInput } from './input'
-import { countLinks, getLink, getProfile, insertLink, listLinks, setProfileHandle, updateLink, type LinkColumns, type LinkWrite } from './store'
+import { countLinks, deleteLinkRow, getLink, getProfile, insertLink, listLinks, setProfileHandle, updateLink, type LinkColumns, type LinkWrite } from './store'
 import { LINK_DEFAULTS, LINKS_PER_WORKSPACE_MAX, PROFILE_HANDLE_RE, type BookingLink, type BookingProfile, type LinkHost, type LinkQuestion } from './types'
 
 export type LinkFailure = { ok: false; code: 'BAD_INPUT' | 'NOT_FOUND' | 'NOT_ALLOWED' | 'SLUG_TAKEN' | 'HANDLE_TAKEN' | 'LIMIT' | 'FAILED'; message: string }
@@ -261,6 +261,24 @@ export async function changeLink(supabase: SupabaseClient, editor: Editor, linkI
 /** Turn a link off (delete is a turn-off: see the header). */
 export async function turnOffLink(supabase: SupabaseClient, editor: Editor, linkId: string): Promise<LinkResult> {
   return changeLink(supabase, editor, linkId, { active: false })
+}
+
+/**
+ * Delete a link for good (Settings' Delete; the agent only turns one off):
+ * its page goes, the meetings it booked stay. A business's job link is never
+ * deleted, only turned off.
+ */
+export async function deleteLink(supabase: SupabaseClient, editor: Editor, linkId: string): Promise<{ ok: true; link: BookingLink } | LinkFailure> {
+  try {
+    const link = await getLink(supabase, linkId, editor.workspaceId)
+    if (!link) return fail('NOT_FOUND', 'No booking link with that id in this workspace.')
+    if (!mayEdit(link, editor, await roleOf(supabase, editor))) return fail('NOT_ALLOWED', "Only the link's owner, or the workspace's owner or an admin, deletes it.")
+    if (link.purpose === 'job') return fail('BAD_INPUT', "The business's booking page can be turned off, not deleted.")
+    const gone = await deleteLinkRow(supabase, link)
+    return gone.ok ? { ok: true, link } : fail('FAILED', gone.error)
+  } catch (err) {
+    return fail('FAILED', err instanceof Error ? err.message : String(err))
+  }
 }
 
 export type HandleResult = { ok: true; profile: BookingProfile } | LinkFailure

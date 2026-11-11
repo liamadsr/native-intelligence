@@ -3,7 +3,7 @@
  * Copy availability (../copy-availability-button.tsx): nothing drawn without
  * a calendar connected; the text read from the server's engine for the
  * range picked, in the browser's zone; an unknown answer rejects with its
- * reason so nothing is copied.
+ * reason so nothing is copied. And the person's booking links to copy.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
@@ -12,8 +12,9 @@ import { act, createElement as h } from 'react'
 const hoisted = vi.hoisted(() => ({ connected: false }))
 vi.mock('@/components/account-filter-dropdown', () => ({ useHasConnectedAccount: () => hoisted.connected }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 
-import { CopyAvailabilityButton, fetchAvailabilityText } from '../copy-availability-button'
+import { CopyAvailabilityButton, fetchAvailabilityText, fetchMyBookingLinks } from '../copy-availability-button'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -29,6 +30,18 @@ describe('fetchAvailabilityText', () => {
   it('unknown or a failed request: rejects with why, never a text', async () => {
     await expect(fetchAvailabilityText('today', undefined, answer({ known: false, reason: 'A calendar account needs signing in again' }) as never)).rejects.toThrow('A calendar account needs signing in again')
     await expect(fetchAvailabilityText('today', undefined, answer({ error: 'Unauthorized' }, false) as never)).rejects.toThrow('Unauthorized')
+  })
+})
+
+describe('fetchMyBookingLinks', () => {
+  it('the person’s links that are on: ones they own or host, never a business page or a teammate’s', async () => {
+    const link = (id: string, extra: Record<string, unknown>) => ({ id, title: id, url: `https://app.example/book/x/${id}`, active: true, hosts: ['me'], owner_user_id: 'me', purpose: 'meeting', ...extra })
+    const load = answer({
+      user_id: 'me',
+      links: [link('intro', {}), link('team', { owner_user_id: 'boss' }), link('off', { active: false }), link('theirs', { owner_user_id: 'boss', hosts: ['boss'] }), link('pickup', { purpose: 'job' })],
+    })
+    expect((await fetchMyBookingLinks(load as never)).map((l) => l.id)).toEqual(['intro', 'team'])
+    expect(await fetchMyBookingLinks(answer({}, false) as never)).toEqual([])
   })
 })
 

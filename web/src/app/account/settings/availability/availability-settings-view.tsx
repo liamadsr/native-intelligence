@@ -13,6 +13,8 @@
  *                   (/api/account/availability/calendars).
  *   Teammates       whether this workspace's members may see when you are
  *                   busy (busy times only, never what an event is).
+ *   Booking links   pages anyone books a time with you from
+ *                   (./booking-links-section.tsx).
  *
  * Read once when the page opens; nothing polls.
  */
@@ -25,6 +27,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
+import { BookingLinksSection } from './booking-links-section'
 
 export interface DayRange {
   start: string
@@ -348,6 +351,8 @@ export function AvailabilitySettingsView() {
                 </div>
               </div>
             </section>
+
+            <BookingLinksSection />
           </>
         )}
       </div>

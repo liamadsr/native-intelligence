@@ -1,8 +1,18 @@
 import { tool } from 'ai'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 import { getServiceClient } from '@/lib/admin'
 import { createLinkInput, linkFieldsInput } from '@/lib/booking-links/input'
+import type { BookingLink } from '@/lib/booking-links/types'
 import { appOrigin } from '@/lib/twilio/config'
+
+/** Each link's hosts by name, in order (the chat's link card shows them): one member read per host. */
+async function withHostNames<T extends object>(supabase: SupabaseClient, workspaceId: string, links: ReadonlyArray<{ link: BookingLink; view: T }>): Promise<Array<T & { host_names: string[] }>> {
+  const { hostDisplayName } = await import('@/lib/time-offers/offers')
+  const ids = [...new Set(links.flatMap(({ link }) => link.hosts.map((h) => h.userId)))]
+  const names = new Map(await Promise.all(ids.map(async (id) => [id, await hostDisplayName(supabase, workspaceId, id).catch(() => null)] as const)))
+  return links.map(({ link, view }) => ({ ...view, host_names: link.hosts.map((h) => names.get(h.userId)).filter((n): n is string => !!n) }))
+}
 
 /**
  * Booking links (availability phase 4a, src/lib/booking-links/): standing
@@ -52,7 +62,11 @@ export function createBookingLinkTools(userId: string, workspaceId?: string) {
           return {
             success: true,
             your_handle: mine?.handle ?? null,
-            links: links.map((l) => ({ ...linkView(l, origin), yours: l.hosts.some((h) => h.userId === userId) || l.ownerUserId === userId, can_edit: mayEdit(l, { userId }, role.data?.role ?? null) })),
+            links: await withHostNames(
+              supabase,
+              workspaceId,
+              links.map((l) => ({ link: l, view: { ...linkView(l, origin), yours: l.hosts.some((h) => h.userId === userId) || l.ownerUserId === userId, can_edit: mayEdit(l, { userId }, role.data?.role ?? null) } })),
+            ),
             ...(links.length ? {} : { note: 'No booking links yet: create_booking_link makes one (a 30-minute one is a fine default).' }),
           }
         } catch (err) {
@@ -71,9 +85,10 @@ export function createBookingLinkTools(userId: string, workspaceId?: string) {
       execute: async (input) => {
         if (!workspaceId) return noWorkspace
         const { createLink, linkView } = await import('@/lib/booking-links/links')
-        const result = await createLink(getServiceClient(), editor(workspaceId), input)
+        const supabase = getServiceClient()
+        const result = await createLink(supabase, editor(workspaceId), input)
         if (!result.ok) return failed(result)
-        const view = linkView(result.link, appOrigin())
+        const [view] = await withHostNames(supabase, workspaceId, [{ link: result.link, view: linkView(result.link, appOrigin()) }])
         return { success: true, link: view, message: `Made "${view.title}". Its address: ${view.url}. Anyone with it can book${result.link.askFirst ? ' a time, which waits for a yes' : ''}.` }
       },
     }),
@@ -85,9 +100,10 @@ export function createBookingLinkTools(userId: string, workspaceId?: string) {
       execute: async ({ link_id, ...fields }) => {
         if (!workspaceId) return noWorkspace
         const { changeLink, linkView } = await import('@/lib/booking-links/links')
-        const result = await changeLink(getServiceClient(), editor(workspaceId), link_id, fields)
+        const supabase = getServiceClient()
+        const result = await changeLink(supabase, editor(workspaceId), link_id, fields)
         if (!result.ok) return failed(result)
-        const view = linkView(result.link, appOrigin())
+        const [view] = await withHostNames(supabase, workspaceId, [{ link: result.link, view: linkView(result.link, appOrigin()) }])
         return { success: true, link: view, message: `${view.title} is ${view.active ? `on, at ${view.url}` : 'off: its page takes no bookings'}.` }
       },
     }),
@@ -99,9 +115,11 @@ export function createBookingLinkTools(userId: string, workspaceId?: string) {
       execute: async ({ link_id }) => {
         if (!workspaceId) return noWorkspace
         const { turnOffLink, linkView } = await import('@/lib/booking-links/links')
-        const result = await turnOffLink(getServiceClient(), editor(workspaceId), link_id)
+        const supabase = getServiceClient()
+        const result = await turnOffLink(supabase, editor(workspaceId), link_id)
         if (!result.ok) return failed(result)
-        return { success: true, link: linkView(result.link, appOrigin()), message: `${result.link.title} is off. Its bookings stay; turning it back on brings its page back.` }
+        const [view] = await withHostNames(supabase, workspaceId, [{ link: result.link, view: linkView(result.link, appOrigin()) }])
+        return { success: true, link: view, message: `${result.link.title} is off. Its bookings stay; turning it back on brings its page back.` }
       },
     }),
   }

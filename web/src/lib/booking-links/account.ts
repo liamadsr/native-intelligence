@@ -4,11 +4,11 @@
  * route under /api/account/booking-links and /api/account/booking-profile is
  * a thin call into a handler here, pure over {@link AccountDeps}.
  *
- *   GET    /api/account/booking-links            → { links, handles, can_manage }
+ *   GET    /api/account/booking-links            → { links, handles, can_manage, user_id }
  *   POST   /api/account/booking-links            { title, …fields, team? } → 201 { link }
  *   GET    /api/account/booking-links/<id>       → { link }
  *   PATCH  /api/account/booking-links/<id>       { …fields } → { link }
- *   DELETE /api/account/booking-links/<id>       → { link } (turned off)
+ *   DELETE /api/account/booking-links/<id>       → { link, deleted: true } (gone for good; PATCH active false turns one off)
  *   PUT    /api/account/booking-links/<id>/hosts { hosts, host_mode? } → { link }
  *   GET    /api/account/booking-profile          → { handles }
  *   PUT    /api/account/booking-profile          { handle, scope? } → { handles }
@@ -21,7 +21,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { apiError, badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { createLinkInput, handleInput, linkFieldsInput } from './input'
-import { changeLink, createLink, linkView, mayEdit, setHandle, turnOffLink, type Editor, type LinkFailure } from './links'
+import { changeLink, createLink, deleteLink, linkView, mayEdit, setHandle, type Editor, type LinkFailure } from './links'
 import { getLink, getProfile, listLinks } from './store'
 import type { BookingLink } from './types'
 
@@ -74,11 +74,11 @@ async function handles(deps: AccountDeps, editor: Editor) {
   return { me: mine?.handle ?? null, workspace: workspace?.handle ?? null }
 }
 
-/** GET /api/account/booking-links: the workspace's links (each with whether the caller may edit it), the handles, and whether the caller manages the workspace. */
+/** GET /api/account/booking-links: the workspace's links (each with whether the caller may edit it), the handles, whether the caller manages the workspace, and who the caller is (a new link's host). */
 export async function handleListLinks(editor: Editor, deps: AccountDeps): Promise<Response> {
   try {
     const [links, role, h] = await Promise.all([listLinks(deps.supabase, { workspaceId: editor.workspaceId }), roleOf(deps, editor), handles(deps, editor)])
-    return Response.json({ links: links.map((l) => view(deps, l, editor, role)), handles: h, can_manage: role === 'owner' || role === 'admin' }, { headers: PRIVATE })
+    return Response.json({ links: links.map((l) => view(deps, l, editor, role)), handles: h, can_manage: role === 'owner' || role === 'admin', user_id: editor.userId }, { headers: PRIVATE })
   } catch (err) {
     return serverError(err instanceof Error ? err.message : 'Could not read the booking links')
   }
@@ -121,9 +121,11 @@ export async function handlePatchLink(request: Request, linkId: string, editor: 
   return answerChange(await changeLink(deps.supabase, editor, linkId, parsed.data), editor, deps)
 }
 
-/** DELETE /api/account/booking-links/<id>: turned off. */
+/** DELETE /api/account/booking-links/<id>: deleted for good (its bookings stay). */
 export async function handleDeleteLink(linkId: string, editor: Editor, deps: AccountDeps): Promise<Response> {
-  return answerChange(await turnOffLink(deps.supabase, editor, linkId), editor, deps)
+  const result = await deleteLink(deps.supabase, editor, linkId)
+  if (!result.ok) return failure(result)
+  return Response.json({ link: linkView(result.link, deps.origin), deleted: true }, { headers: PRIVATE })
 }
 
 /** PUT /api/account/booking-links/<id>/hosts. */

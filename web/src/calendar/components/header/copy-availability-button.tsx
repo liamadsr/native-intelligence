@@ -7,17 +7,20 @@
  * every calendar that counts, all-day events). Read only on the click.
  * When the time can't be known (a calendar needs signing in again), the
  * person is told so and nothing is copied: never a guess on the clipboard.
- * Renders nothing when no calendar is connected.
+ * Under them, the person's booking links (availability phase 4b), read when
+ * the menu opens: each copies its address. Renders nothing when no calendar
+ * is connected.
  */
 import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useHasConnectedAccount } from "@/components/account-filter-dropdown";
-import { copyDeferredTextToClipboard } from "@/lib/clipboard";
+import { copyDeferredTextToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { COPY_RANGES, COPY_RANGE_LABELS, type CopyRange } from "@/lib/availability/copy-ranges";
 
 /** The text for a range, or a rejection carrying why it is unknown. */
@@ -30,9 +33,42 @@ export async function fetchAvailabilityText(range: CopyRange, timeZone: string |
   return body.text;
 }
 
+export interface MenuLink {
+  id: string;
+  title: string;
+  url: string;
+}
+
+/** The person's booking links that are on, to copy (theirs to host or theirs to own), at most five. */
+export async function fetchMyBookingLinks(load: typeof fetch = fetch): Promise<MenuLink[]> {
+  const res = await load("/api/account/booking-links");
+  if (!res.ok) return [];
+  const body = (await res.json().catch(() => ({}))) as { user_id?: string; links?: Array<{ id: string; title: string; url: string | null; active: boolean; hosts: string[]; owner_user_id: string; purpose: string }> };
+  const me = body.user_id;
+  return (body.links ?? [])
+    .filter((l) => l.active && l.url && l.purpose === "meeting" && (l.owner_user_id === me || l.hosts.includes(me ?? "")))
+    .slice(0, 5)
+    .map((l) => ({ id: l.id, title: l.title, url: l.url as string }));
+}
+
 export function CopyAvailabilityButton({ compact = false, className }: { compact?: boolean; className?: string }) {
   const connected = useHasConnectedAccount("calendar");
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
+  // Read the first time the menu opens; null until then.
+  const [links, setLinks] = useState<MenuLink[] | null>(null);
+
+  const opened = useCallback(
+    (open: boolean) => {
+      if (open && links === null) void fetchMyBookingLinks().then(setLinks, () => setLinks([]));
+    },
+    [links],
+  );
+
+  const copyLink = useCallback(async (link: MenuLink) => {
+    if (await copyTextToClipboard(link.url)) toast.success(`Booking link copied · ${link.title}`);
+    else toast.error("Couldn't copy the link");
+  }, []);
 
   const copy = useCallback((range: CopyRange) => {
     let zone: string | undefined;
@@ -62,7 +98,7 @@ export function CopyAvailabilityButton({ compact = false, className }: { compact
   if (!connected) return null;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={opened}>
       <DropdownMenuTrigger asChild>
         {compact ? (
           <Button variant="ghost" size="sm" className={cn("h-7 w-7 shrink-0 rounded-full p-0", className)} aria-label="Copy availability" title="Copy availability" disabled={busy}>
@@ -75,13 +111,23 @@ export function CopyAvailabilityButton({ compact = false, className }: { compact
           </Button>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Copy your free time</DropdownMenuLabel>
         {COPY_RANGES.map((range) => (
           <DropdownMenuItem key={range} className="text-sm" onSelect={() => copy(range)}>
             {COPY_RANGE_LABELS[range]}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Booking links</DropdownMenuLabel>
+        {links?.map((link) => (
+          <DropdownMenuItem key={link.id} className="text-sm" onSelect={() => void copyLink(link)} data-booking-link-copy="">
+            <span className="truncate">Copy {link.title}</span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem className="text-sm text-muted-foreground" onSelect={() => router.push("/account/settings/availability")}>
+          {links && links.length === 0 ? "Make a booking link" : "Manage booking links"}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

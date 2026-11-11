@@ -78,6 +78,7 @@ describe('the link', () => {
       title: 'Intro call',
       description: 'A first chat.',
       duration_minutes: 30,
+      window_days: 30,
       host_mode: 'all',
       host_names: ['Ava Lin', 'Ben Ruiz'],
       questions: [{ id: 'company', label: 'Company', required: false, kind: 'text' }],
@@ -120,6 +121,16 @@ describe('its times', () => {
     expect(readTimes).toHaveBeenCalledTimes(1)
     await handleLinkTimes(get('?from=2031-01-08&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
     expect(readTimes).toHaveBeenCalledTimes(2)
+  })
+
+  it('a time found taken at booking drops the kept times, so the page’s next read is fresh', async () => {
+    const { deps, readTimes } = setup()
+    await handleLinkTimes(get('?from=2031-01-07&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
+    const taken = await handleBookLink(post({ start: hoursAhead(80, NOW), name: 'Dana', email: 'dana@initech.example' }), 'ava-lin', 'intro', deps)
+    expect(taken.status).toBe(409)
+    const calls = readTimes.mock.calls.length
+    await handleLinkTimes(get('?from=2031-01-07&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
+    expect(readTimes).toHaveBeenCalledTimes(calls + 1)
   })
 
   it('a host’s calendar that can’t be read is a 503, never an empty list', async () => {

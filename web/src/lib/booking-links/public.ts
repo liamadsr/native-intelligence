@@ -102,6 +102,7 @@ export async function publicLink(link: BookingLink, deps: LinkPublicDeps): Promi
     title: link.title,
     description: link.description,
     duration_minutes: link.durationMinutes,
+    window_days: link.windowDays,
     host_mode: link.hostMode,
     host_names: names,
     questions: link.questions.map((q) => ({ id: q.id, label: q.label, required: q.required, kind: q.kind })),
@@ -300,7 +301,11 @@ export async function handleBookLink(request: Request, profile: string, slug: st
     },
     { now: deps.now, ...(deps.readTimes ? { readTimes: deps.readTimes } : {}), ...deps.book },
   )
-  if (!result.ok) return bookFailure(result)
+  if (!result.ok) {
+    // A time just taken: the next read of the page's times must not hand it out again.
+    if (result.code === 'SLOT_TAKEN') forgetLink(link.id)
+    return bookFailure(result)
+  }
   forgetLink(link.id)
   const b = result.booking
   const out: PublicLinkBooked = {

@@ -17,7 +17,7 @@ import type { MeetingBookingState, OfferState } from '@/lib/time-offers/types'
 const FRAME = 'w-fit max-w-full self-start rounded-xl border border-border/60 bg-background px-3 py-2'
 const HEADING = 'mb-1.5 text-[11px] font-medium text-muted-foreground'
 
-function CopyButton({ value, label, ...rest }: { value: string; label: string } & Record<`data-${string}`, string>) {
+export function CopyButton({ value, label, ...rest }: { value: string; label: string } & Record<`data-${string}`, string>) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     try {
@@ -113,6 +113,13 @@ const BOOKING_STATE_LABEL: Record<MeetingBookingState, string> = {
 
 const live = (state: OfferState | MeetingBookingState) => state === 'open' || state === 'pending_send' || state === 'confirmed' || state === 'booking' || state === 'requested'
 
+/** Where the meetings came from: offers, booking links, or both. */
+function bookingsHeading(bookings: OfferListCardData['bookings']): string {
+  const fromLinks = bookings.filter((b) => b.fromLink).length
+  if (!fromLinks) return 'Meetings booked from offers'
+  return fromLinks === bookings.length ? 'Meetings booked from your links' : 'Meetings booked'
+}
+
 function ListCard({ data }: { data: OfferListCardData }) {
   return (
     <div data-time-offer-card="list" className={FRAME}>
@@ -135,13 +142,14 @@ function ListCard({ data }: { data: OfferListCardData }) {
       )}
       {data.bookings.length > 0 && (
         <>
-          <p className={cn(HEADING, data.offers.length > 0 && 'mt-2 border-t border-border/50 pt-2')}>Meetings booked from offers</p>
+          <p className={cn(HEADING, data.offers.length > 0 && 'mt-2 border-t border-border/50 pt-2')}>{bookingsHeading(data.bookings)}</p>
           <ul data-time-offer-bookings="" className="space-y-1">
             {data.bookings.map((b) => (
               <li key={b.id} data-state={b.state} className="text-xs">
                 <span className={b.state === 'cancelled' || b.state === 'failed' ? 'text-muted-foreground' : 'text-foreground'}>
                   {b.guest} · {b.when}
                 </span>
+                {b.fromLink && b.title && <span className="text-muted-foreground"> · {b.title}</span>}
                 <span className="text-muted-foreground"> · {BOOKING_STATE_LABEL[b.state]}</span>
               </li>
             ))}

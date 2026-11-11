@@ -79,12 +79,20 @@ describe('TimeOfferCard', () => {
         data: {
           kind: 'list',
           offers: [{ id: 'o-1', recipient: 'Dana Whitfield', title: 'Intro call', state: 'open', times: [{ label: 'Tue, Nov 17, 10:00 AM EST', booked: false }], expires: null }],
-          bookings: [{ id: 'b-1', guest: 'Lee Okafor', title: 'Tour', when: 'Wed, Nov 18, 2:00 PM EST', state: 'cancelled' }],
+          bookings: [
+            { id: 'b-1', guest: 'Lee Okafor', title: 'Tour', when: 'Wed, Nov 18, 2:00 PM EST', state: 'cancelled', fromLink: false },
+            { id: 'b-2', guest: 'Rae Moss', title: 'Intro call', when: 'Thu, Nov 19, 9:00 AM EST', state: 'requested', fromLink: true },
+          ],
         },
       }),
     )
     expect(q('[data-time-offer-offers] li')?.textContent).toBe('Dana Whitfield · Intro call · waiting for a pickTue, Nov 17, 10:00 AM EST')
-    expect(q('[data-time-offer-bookings] li')?.textContent).toBe('Lee Okafor · Wed, Nov 18, 2:00 PM EST · cancelled')
+    expect([...document.querySelectorAll('[data-time-offer-bookings] li')].map((li) => li.textContent)).toEqual([
+      'Lee Okafor · Wed, Nov 18, 2:00 PM EST · cancelled',
+      'Rae Moss · Thu, Nov 19, 9:00 AM EST · Intro call · waiting on your yes',
+    ])
+    expect(q('[data-time-offer-card="list"]')?.textContent).toContain('Meetings booked')
+    expect(q('[data-time-offer-card="list"]')?.textContent).not.toContain('from offers')
   })
 })
 

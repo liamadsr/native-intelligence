@@ -273,6 +273,18 @@ export async function updateLink(supabase: SupabaseClient, link: Pick<BookingLin
   }
 }
 
+/** Delete a link for good: its hosts go with it; its bookings stay (their link_id is set null). */
+export async function deleteLinkRow(supabase: SupabaseClient, link: Pick<BookingLink, 'id' | 'workspaceId'>): Promise<{ ok: true } | { ok: false; reason: 'failed'; error: string }> {
+  try {
+    const hosts = await supabase.from('booking_link_host').delete().eq('link_id', link.id)
+    if (hosts.error) return { ok: false, reason: 'failed', error: hosts.error.message }
+    const { error } = await supabase.from('booking_link').delete().eq('id', link.id).eq('workspace_id', link.workspaceId)
+    return error ? { ok: false, reason: 'failed', error: error.message } : { ok: true }
+  } catch (err) {
+    return { ok: false, reason: 'failed', error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 async function replaceHosts(supabase: SupabaseClient, row: Pick<LinkRow, 'id' | 'workspace_id'>, hosts: readonly LinkHost[]): Promise<{ ok: true } | { ok: false; reason: 'failed'; error: string }> {
   const gone = await supabase.from('booking_link_host').delete().eq('link_id', row.id)
   if (gone.error) return { ok: false, reason: 'failed', error: gone.error.message }

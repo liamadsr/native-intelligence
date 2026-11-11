@@ -8,6 +8,7 @@
  *                      pasted
  *   accept_time_offer  the meeting booked: who, when, its video link
  *   list_time_offers   each offer with its state, each booking with its time
+ *                      (from an offer or a booking link)
  *
  * Only what the answer already says to the person. Null (the generic chip
  * instead) for a refusal, or a list with nothing in it. Pure.
@@ -41,7 +42,8 @@ export interface BookedCardData {
 export interface OfferListCardData {
   kind: 'list'
   offers: Array<{ id: string; recipient: string; title: string; state: OfferState; times: Array<{ label: string; booked: boolean }>; expires: string | null }>
-  bookings: Array<{ id: string; guest: string; title: string; when: string; state: MeetingBookingState }>
+  /** `fromLink`: booked from one of the person's booking links, not an offer. */
+  bookings: Array<{ id: string; guest: string; title: string; when: string; state: MeetingBookingState; fromLink: boolean }>
 }
 
 export type TimeOfferCardData = OfferCardData | BookedCardData | OfferListCardData
@@ -72,14 +74,14 @@ function offerCardOf(o: Record<string, unknown>): OfferCardData | null {
   }
 }
 
-function bookingOf(b: unknown): { id: string; guest: string; title: string; when: string; state: MeetingBookingState; videoLink: string | null } | null {
+function bookingOf(b: unknown): { id: string; guest: string; title: string; when: string; state: MeetingBookingState; videoLink: string | null; fromLink: boolean } | null {
   if (!isRecord(b)) return null
   const state = bookingState(b.state)
   const guest = isRecord(b.guest) ? str(b.guest.name) : null
   const title = str(b.title)
   const when = str(b.when)
   if (!state || !guest || !title || !when) return null
-  return { id: str(b.booking_id) ?? `${guest}-${when}`, guest, title, when, state, videoLink: str(b.video_link) }
+  return { id: str(b.booking_id) ?? `${guest}-${when}`, guest, title, when, state, videoLink: str(b.video_link), fromLink: b.from_booking_link === true }
 }
 
 function listCardOf(o: Record<string, unknown>): OfferListCardData | null {
@@ -98,7 +100,7 @@ function listCardOf(o: Record<string, unknown>): OfferListCardData | null {
   }
   const bookings = (Array.isArray(o.bookings) ? o.bookings : []).map(bookingOf).filter((b): b is NonNullable<ReturnType<typeof bookingOf>> => !!b)
   if (!offers.length && !bookings.length) return null
-  return { kind: 'list', offers, bookings: bookings.map(({ id, guest, title, when, state }) => ({ id, guest, title, when, state })) }
+  return { kind: 'list', offers, bookings: bookings.map(({ id, guest, title, when, state, fromLink }) => ({ id, guest, title, when, state, fromLink })) }
 }
 
 export function timeOfferCardOf(toolName: string, output: unknown): TimeOfferCardData | null {

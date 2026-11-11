@@ -32,6 +32,8 @@ export default function robots(): MetadataRoute.Robots {
           // A time offer's page and a guest's manage page: one person's link each.
           '/t/',
           '/b/',
+          // Booking pages: a business's, a person's or a team's (each page is noindex too).
+          '/book/',
         ],
       },
     ],

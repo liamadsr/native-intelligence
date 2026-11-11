@@ -1,10 +1,13 @@
 /**
  * The public scheduling pages' frame and pieces: a business's booking page
- * (/book/<slug>), a time offer's page (/t/<token>) and a guest's manage page
- * (/b/<token>). One card on the page's background, the footer under it.
+ * (/book/<slug>), a booking link's page (/book/<handle>/<slug>), a time
+ * offer's page (/t/<token>) and a guest's manage page (/b/<token>). One card
+ * on the page's background, the footer under it.
  */
 import type { ReactNode } from 'react'
+import { Clock, MapPin, Video } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { lengthLabel } from '@/lib/time-offers/display'
 import { cn } from '@/lib/utils'
 
 export function SchedulingShell({ children }: { children: ReactNode }) {
@@ -45,6 +48,30 @@ export function SchedulingNotice({ tone = 'error', children, ...rest }: { tone?:
         tone === 'error' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-muted text-foreground',
       )}
     >
+      {children}
+    </div>
+  )
+}
+
+/** Length and place: "30 min · Video call". */
+export function SchedulingMeta({ minutes, video, location, children }: { minutes: number; video: boolean; location: string | null; children?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+      <span className="flex items-center gap-1.5">
+        <Clock aria-hidden className="size-4" />
+        {lengthLabel(minutes)}
+      </span>
+      {video ? (
+        <span className="flex items-center gap-1.5">
+          <Video aria-hidden className="size-4" />
+          Video call
+        </span>
+      ) : location ? (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <MapPin aria-hidden className="size-4 shrink-0" />
+          <span className="truncate">{location}</span>
+        </span>
+      ) : null}
       {children}
     </div>
   )

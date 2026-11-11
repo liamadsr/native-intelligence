@@ -143,14 +143,17 @@ describe('changing a link', () => {
     expect(clash).toMatchObject({ status: 409, body: { code: 'SLUG_TAKEN' } })
   })
 
-  it('delete turns it off: it stays listed, and comes back on', async () => {
+  it('active false turns it off and back on; delete removes it for good, by its owner', async () => {
     const id = await avasLink()
-    const off = await json(await handleDeleteLink(id, as(AVA), deps))
-    expect(off.body.link.active).toBe(false)
-    expect(tables.booking_link).toHaveLength(1)
+    expect((await json(await patch(id, { active: false }, AVA))).body.link.active).toBe(false)
     expect((await json(await handleGetLink(id, as(AVA), deps))).body.link.active).toBe(false)
     expect((await json(await patch(id, { active: true }, AVA))).body.link.active).toBe(true)
     expect((await handleDeleteLink(id, as(BEN), deps)).status).toBe(403)
+    const gone = await json(await handleDeleteLink(id, as(AVA), deps))
+    expect(gone).toMatchObject({ status: 200, body: { deleted: true, link: { id } } })
+    expect(tables.booking_link).toHaveLength(0)
+    expect(tables.booking_link_host.filter((h) => h.link_id === id)).toHaveLength(0)
+    expect((await handleGetLink(id, as(AVA), deps)).status).toBe(404)
   })
 
   it('a business’s job link keeps its shape: its hours, length, notice, window, description and on/off change, by an owner or admin', async () => {
@@ -176,7 +179,7 @@ describe('the list and the handles', () => {
     await handleCreateLink(req({ title: 'Office hours' }), as(BEN), deps)
     const seen = await json(await handleListLinks(as(BEN), deps))
     expect(seen.body.links.map((l: { title: string; can_edit: boolean }) => [l.title, l.can_edit])).toEqual([['Intro call', false], ['Office hours', true]])
-    expect(seen.body).toMatchObject({ handles: { me: 'ben-ruiz', workspace: null }, can_manage: false })
+    expect(seen.body).toMatchObject({ handles: { me: 'ben-ruiz', workspace: null }, can_manage: false, user_id: BEN })
     expect((await json(await handleListLinks(as(CARA), deps))).body.can_manage).toBe(true)
   })
 

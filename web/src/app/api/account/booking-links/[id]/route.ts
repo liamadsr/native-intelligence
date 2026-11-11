@@ -8,7 +8,7 @@ import { appOrigin } from '@/lib/twilio/config'
  *
  *   GET → { link }
  *   PATCH { …any field of POST /api/account/booking-links but team } → { link }
- *   DELETE → { link }: turned off (its page stops taking bookings; its bookings stay)
+ *   DELETE → { link, deleted: true }: gone for good (its bookings stay); PATCH { active: false } turns it off
  *
  * Its owner, or the workspace's owner or an admin, edits it.
  */
