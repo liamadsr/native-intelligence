@@ -76,7 +76,8 @@ MAY_BE_EMPTY = {
     "APP_DOWNLOAD_URL_WINDOWS": "empty: no Windows download is offered",
     "SENTRY_ORG": "read only by the build's source-map upload, which this image does not do",
     "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
-    "SLACK_SIGNING_SECRET": "Slack cannot run off the earlier host yet (../README.md step 21, Gate 1)",
+    "SLACK_SIGNING_SECRET": "empty: a button click Slack sends straight here, not through the connector, is refused",
+    "CONNECT_ENVIRONMENT": "empty: production",
     "GATEWAY_USAGE_REPORTING": "empty: the admin's AI usage page opens on its log view",
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
@@ -90,6 +91,8 @@ SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
     "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start",
+    "CONNECT_ACCESS_TOKEN": "Slack is off: the app cannot reach the connector",
+    "CONNECT_PROJECT_ID": "Slack's events and button clicks are refused",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",
     "CLOUD_BROWSER_BASE_SNAPSHOT_ID": "the cloud browser does not start",
     "BROWSER_INTERNAL_SECRET": "it falls back to RUN_SKILL_INTERNAL_SECRET's key: give it a value of its own (any)",
@@ -407,6 +410,53 @@ def check_sandbox(env, _opts):
     return False, "the sandbox service answered %d (403: the token's scope does not include the team)" % status
 
 
+SLACK_EVENTS_PATH = "/api/slack/events"
+
+
+def connector_verdict(status, body, project):
+    """(ok, note) for the connector service's answer about the Slack connector
+    itself: one of its trigger destinations must be `project` at the events path.
+    ok is None when the answer cannot tell (trouble on the way, or a shape not
+    known here)."""
+    if status == 0 or status >= 500:
+        return None, "the connector service could not be asked (%d): cannot tell" % status
+    if status in (401, 403, 404):
+        return False, ("the connector service answered %d: the token is not accepted for this connector on the "
+                       "path the app uses (another account or team, a revoked token, or SLACK_CONNECTOR is wrong)" % status)
+    if status != 200:
+        return None, "the connector service answered %d: cannot tell" % status
+    destinations = (body or {}).get("triggerDestinations") if isinstance(body, dict) else None
+    if not isinstance(destinations, list) or not all(isinstance(d, dict) for d in destinations):
+        return None, "the connector's trigger destinations are not in a form known here: cannot tell"
+    if any(d.get("projectId") == project and d.get("path") == SLACK_EVENTS_PATH for d in destinations):
+        return True, "the connector accepts the token and forwards its events to CONNECT_PROJECT_ID at %s" % SLACK_EVENTS_PATH
+    return False, "the connector accepts the token, but forwards no events to CONNECT_PROJECT_ID at %s" % SLACK_EVENTS_PATH
+
+
+def check_connect(env, _opts):
+    token = env["CONNECT_ACCESS_TOKEN"].strip()
+    if not token:
+        return False, "holds only whitespace: the app reads it as empty"
+    connector, project = env.get("SLACK_CONNECTOR", "").strip(), env.get("CONNECT_PROJECT_ID", "").strip()
+    if not connector or not project:
+        return False, "needs SLACK_CONNECTOR and CONNECT_PROJECT_ID too"
+    # The request the app's own client makes for a connector's metadata
+    # (@vercel/connect, connector.js getConnectorMetadata): the connector as one
+    # path segment, no team named, the same token. Read-only, and it answers no
+    # secret; a connector token is never requested here.
+    status, body = http("https://api.vercel.com/v1/connect/connectors/" + urllib.parse.quote(connector, safe="!*'()"),
+                        {"Authorization": "Bearer " + token})
+    return connector_verdict(status, body, project)
+
+
+def check_no_wildcard(name):
+    def check(env, _opts):
+        if "*" in env[name]:
+            return False, "contains *: the app then refuses every event the connector forwards"
+        return None, None
+    return check
+
+
 def check_deepgram(env, _opts):
     status, body = http("https://api.deepgram.com/v1/projects", {"Authorization": "Token " + env["DEEPGRAM_API_KEY"].strip()})
     if status == 200 and (body or {}).get("projects"):
@@ -431,6 +481,9 @@ CHECKS = {
     "GOOGLE_GENERATIVE_AI_API_KEY": check_google,
     "EMAIL_FROM": check_email_from,
     "SANDBOX_ACCESS_TOKEN": check_sandbox,
+    "CONNECT_ACCESS_TOKEN": check_connect,
+    "CONNECT_PROJECT_ID": check_no_wildcard("CONNECT_PROJECT_ID"),
+    "CONNECT_ENVIRONMENT": check_no_wildcard("CONNECT_ENVIRONMENT"),
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
 }

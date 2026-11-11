@@ -138,6 +138,29 @@ These may be new on the server (`PULL_GENERATE=1` makes the first three):
 Each of them falls back to `RUN_SKILL_INTERNAL_SECRET` when empty
 (`web/src/lib/eve/internal-secret.ts`), so give each its own value.
 
+These exist only here: the earlier host has no such settings, because there the
+app's own deployment token did their work (`web/src/lib/slack/config.ts`).
+
+- `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
+  Slack connector is in. Every call the app makes to the connector sends it.
+  `check-settings.sh` asks the connector service about the connector in
+  `SLACK_CONNECTOR` with it, on the path and without the team the app's own
+  client uses, so a green check means the token is accepted there. It never asks
+  the connector for a Slack token. A network or server failure is "cannot tell",
+  not wrong.
+- `CONNECT_PROJECT_ID`: the id of the project the connector forwards Slack's events
+  for. A forwarded event or button click must carry a token naming it; the check
+  requires a trigger destination of the connector with this project and the path
+  `/api/slack/events`.
+- `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
+  empty is `production`.
+
+A `*` in either of the last two makes the app refuse every forwarded event, and
+the check calls it wrong.
+
+`VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here in their place: other code
+reads `VERCEL_ENV` to tell production from a preview.
+
 ### Sealed copy (done once, then removed)
 
 The earlier host's write-only production settings reached this server once, on

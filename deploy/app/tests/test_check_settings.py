@@ -52,6 +52,10 @@ class Groups(unittest.TestCase):
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
         self.assertEqual(cs.group("GITHUB_WEBHOOK_SECRET"), "must match")
+        # Slack stays on: an empty token or project id blocks the gate, the environment defaults.
+        self.assertEqual(cs.group("CONNECT_ACCESS_TOKEN"), "needed")
+        self.assertEqual(cs.group("CONNECT_PROJECT_ID"), "needed")
+        self.assertEqual(cs.group("CONNECT_ENVIRONMENT"), "may be empty")
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -133,6 +137,77 @@ class Small(unittest.TestCase):
         self.assertEqual(cs.sender_domain("Made Up <hello@Example.dev>"), "example.dev")
         self.assertEqual(cs.sender_domain("hello@example.dev"), "example.dev")
         self.assertIsNone(cs.sender_domain("not an address"))
+
+
+class Connectors(unittest.TestCase):
+    PROJECT = "prj_madeup0001"
+
+    def answer(self, destinations):
+        return {"id": "scl_madeup0002", "uid": "slack/made-up", "triggerDestinations": destinations}
+
+    def test_the_connector_forwards_its_events_to_the_project(self):
+        ok, _ = cs.connector_verdict(200, self.answer([
+            {"projectId": "prj_madeup0002", "path": "/api/slack/events"},
+            {"projectId": self.PROJECT, "path": "/api/slack/events"},
+        ]), self.PROJECT)
+        self.assertIs(ok, True)
+
+    def test_another_project_or_path(self):
+        for destinations in ([{"projectId": "prj_madeup0003", "path": "/api/slack/events"}],
+                             [{"projectId": self.PROJECT, "path": "/api/other"}], []):
+            ok, note = cs.connector_verdict(200, self.answer(destinations), self.PROJECT)
+            self.assertIs(ok, False)
+            self.assertIn("forwards no events", note)
+
+    def test_a_shape_not_known_here_cannot_tell(self):
+        for body in (self.answer(None), self.answer([self.PROJECT]), self.answer({"projectId": self.PROJECT}), None, []):
+            self.assertIsNone(cs.connector_verdict(200, body, self.PROJECT)[0])
+
+    def test_refused(self):
+        for status in (401, 403, 404):
+            ok, note = cs.connector_verdict(status, None, self.PROJECT)
+            self.assertIs(ok, False)
+            self.assertIn("not accepted for this connector", note)
+
+    def test_trouble_on_the_way_cannot_tell(self):
+        for status in (0, 500, 503):
+            ok, note = cs.connector_verdict(status, None, self.PROJECT)
+            self.assertIsNone(ok)
+            self.assertIn("cannot tell", note)
+
+    def test_the_request_is_the_apps_own(self):
+        seen = []
+        real = cs.http
+        cs.http = lambda url, headers=None, auth=None: seen.append((url, headers, auth)) or (200, self.answer([{"projectId": self.PROJECT, "path": "/api/slack/events"}]))
+        try:
+            ok, _ = cs.check_connect({"CONNECT_ACCESS_TOKEN": " made-up\n", "SLACK_CONNECTOR": "slack/made-up", "CONNECT_PROJECT_ID": self.PROJECT}, {})
+        finally:
+            cs.http = real
+        self.assertIs(ok, True)
+        # The connector as one path segment, and no team named: as connector.js asks.
+        self.assertEqual(seen, [("https://api.vercel.com/v1/connect/connectors/slack%2Fmade-up", {"Authorization": "Bearer made-up"}, None)])
+
+    def test_whitespace_or_a_missing_setting_never_asks(self):
+        real = cs.http
+        cs.http = lambda *a, **k: self.fail("asked the connector service")
+        try:
+            ok, note = cs.check_connect({"CONNECT_ACCESS_TOKEN": "  \n", "SLACK_CONNECTOR": "slack/made-up", "CONNECT_PROJECT_ID": self.PROJECT}, {})
+            self.assertIs(ok, False)
+            self.assertIn("whitespace", note)
+            ok, note = cs.check_connect({"CONNECT_ACCESS_TOKEN": "made-up", "SLACK_CONNECTOR": "slack/made-up"}, {})
+            self.assertIs(ok, False)
+            self.assertIn("CONNECT_PROJECT_ID", note)
+        finally:
+            cs.http = real
+
+    def test_a_wildcard_is_wrong(self):
+        for name in ("CONNECT_PROJECT_ID", "CONNECT_ENVIRONMENT"):
+            ok, note = cs.CHECKS[name]({name: "*"}, {})
+            self.assertIs(ok, False)
+            self.assertIn("refuses every event", note)
+            self.assertEqual(cs.CHECKS[name]({name: "prj_madeup0001"}, {}), (None, None))
+        _, blockers, _ = cs.report({"CONNECT_ENVIRONMENT": "pro*"}, {"CONNECT_ENVIRONMENT": cs.CHECKS["CONNECT_ENVIRONMENT"]({"CONNECT_ENVIRONMENT": "pro*"}, {})})
+        self.assertEqual(len(blockers), 1)
 
 
 class Report(unittest.TestCase):
