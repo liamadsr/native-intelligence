@@ -22,7 +22,7 @@ vi.mock('server-only', () => ({}))
 
 import { MEETING_RECENT_MS, meetingPhase, meetingSection, meetingWhen, type MyMeeting } from '../section'
 import { listMyMeetings } from '../mine'
-import { addMeetingToCalendar, changeMeeting, meetingCalendarChanged, meetingCalendarEvents, meetingIdOfEvent, joinLine } from '../calendar-events'
+import { addMeetingToCalendar, changeMeeting, meetingCalendarChanged, meetingCalendarEvents, meetingIdOfEvent, joinLine, withNewLink, withoutLink } from '../calendar-events'
 import { accountOfDefaultCalendar, defaultCalendarOf } from '../calendar-pick'
 import { meetingToken } from '../link'
 
@@ -178,7 +178,7 @@ describe('a scheduled meeting on the host’s calendar', () => {
     const out = await addMeetingToCalendar(memoryDb(tables) as unknown as SupabaseClient, { meeting: MEETING, userId: 'user-me', workspaceId: 'ws-1' }, d)
     expect(out).toEqual({ written: 'provider', accountId: 'acct-google', eventId: 'evt-1' })
     expect(d.createEvent).toHaveBeenCalledWith('user-me', { title: 'Design review', description: joinLine(MEETING.url), start: MEETING.startsAt, end: MEETING.endsAt, location: MEETING.url }, 'acct-google', { video: false, idempotencyKey: MEETING.id })
-    expect(tables.meeting[0]).toMatchObject({ calendar_event_id: 'evt-1', calendar_account_id: 'acct-google' })
+    expect(tables.meeting[0]).toMatchObject({ calendar_event_id: 'evt-1', calendar_account_id: 'acct-google', calendar_event_kind: 'meeting' })
   })
 
   it('on the calendar the host picked; one that isn’t theirs (or isn’t writable) falls back to the default', async () => {
@@ -204,8 +204,8 @@ describe('a scheduled meeting on the host’s calendar', () => {
     expect(await addMeetingToCalendar(memoryDb(tables) as unknown as SupabaseClient, { meeting: MEETING, userId: 'user-me', workspaceId: 'ws-1' }, broken)).toEqual({ written: 'failed' })
   })
 
-  it('a new link, an end during it, a move and a revoke change the event on the SAME calendar', async () => {
-    Object.assign(tables.meeting[0], { calendar_event_id: 'evt-1', calendar_account_id: 'acct-outlook' })
+  it('its OWN event (the link made it): a new link, an end during it, a move and a revoke change it on the SAME calendar', async () => {
+    Object.assign(tables.meeting[0], { calendar_event_id: 'evt-1', calendar_account_id: 'acct-outlook', calendar_event_kind: 'meeting' })
     const db = memoryDb(tables) as unknown as SupabaseClient
     const d = deps()
     const url = 'https://app.example/m/ZyXwVuTsRqPoNmLkJiHgFeDcBa987654'
@@ -221,8 +221,43 @@ describe('a scheduled meeting on the host’s calendar', () => {
     expect(tables.meeting[0].calendar_event_id).toBeNull()
   })
 
+  it('an event the PERSON made and attached the link to: a new link swaps only the link, a revoke takes only the link out; never deleted, its times never changed', async () => {
+    const old = 'https://app.example/m/AbCdEfGhIjKlMnOpQrStUvWxYz012345'
+    const url = 'https://app.example/m/ZyXwVuTsRqPoNmLkJiHgFeDcBa987654'
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example')
+    Object.assign(tables.meeting[0], { calendar_event_id: 'evt-7', calendar_account_id: 'acct-google', calendar_event_kind: 'person' })
+    const db = memoryDb(tables) as unknown as SupabaseClient
+    // Typed: their own place and notes; the dialog put our link first in the notes.
+    let event = { location: 'Room 4B, 2nd floor', description: `${joinLine(old)}\n\nAgenda: budget, hiring.\nBring the Q3 numbers.` }
+    const d = { ...deps(), readEvent: vi.fn(async () => event), updateEvent: vi.fn(async (_u: string, _id: string, u: { location?: string; description?: string }) => ((event = { ...event, ...u }), {}) as never) }
+    expect(await meetingCalendarChanged(db, MEETING.id, { kind: 'relinked', url }, d)).toBe('updated')
+    expect(d.updateEvent).toHaveBeenLastCalledWith('user-me', 'evt-7', { description: `${joinLine(url)}\n\nAgenda: budget, hiring.\nBring the Q3 numbers.` }, { accountId: 'acct-google' })
+    expect(event.location).toBe('Room 4B, 2nd floor')
+    expect(await meetingCalendarChanged(db, MEETING.id, { kind: 'ended' }, d)).toBe('unchanged')
+    expect(await meetingCalendarChanged(db, MEETING.id, { kind: 'moved', startsAt: iso(NOW + 48 * H) }, d)).toBe('unchanged')
+    expect(await meetingCalendarChanged(db, MEETING.id, { kind: 'revoked' }, d)).toBe('updated')
+    expect(event).toEqual({ location: 'Room 4B, 2nd floor', description: 'Agenda: budget, hiring.\nBring the Q3 numbers.' })
+    expect(d.deleteEvent).not.toHaveBeenCalled()
+    expect(d.updateEvent.mock.calls.every((c) => !('start' in (c[2] as object)) && !('end' in (c[2] as object)))).toBe(true)
+    expect(tables.meeting[0]).toMatchObject({ calendar_event_id: null, calendar_event_kind: null })
+    vi.unstubAllEnvs()
+  })
+
+  it('the person’s event whose location IS our link: the new link goes there; a revoke clears only that', async () => {
+    const old = 'https://app.example/m/AbCdEfGhIjKlMnOpQrStUvWxYz012345'
+    const url = 'https://app.example/m/ZyXwVuTsRqPoNmLkJiHgFeDcBa987654'
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example')
+    expect(withNewLink({ location: old, description: joinLine(old) }, url)).toEqual({ location: url, description: joinLine(url) })
+    expect(withoutLink({ location: old, description: `${joinLine(old)}\n\nNotes` })).toEqual({ location: '', description: 'Notes' })
+    // Outlook keeps it as HTML.
+    expect(withoutLink({ location: 'Office', description: `<p>Join the meeting: <a href="${old}">${old}</a><br><br>Notes</p>` }).description).not.toContain(old)
+    // A link of ours they typed somewhere else, not our line: their words stand.
+    expect(withoutLink({ location: 'Office', description: `See ${old} for the recording` }).description).toBe(`See ${old} for the recording`)
+    vi.unstubAllEnvs()
+  })
+
   it('its account disconnected since, or a provider that refuses: quietly nothing (never a throw)', async () => {
-    Object.assign(tables.meeting[0], { calendar_event_id: 'evt-1', calendar_account_id: null })
+    Object.assign(tables.meeting[0], { calendar_event_id: 'evt-1', calendar_account_id: null, calendar_event_kind: 'meeting' })
     const d = deps()
     expect(await meetingCalendarChanged(memoryDb(tables) as unknown as SupabaseClient, MEETING.id, { kind: 'revoked' }, d)).toBe('skipped')
     expect(d.deleteEvent).not.toHaveBeenCalled()
@@ -243,6 +278,16 @@ describe('a scheduled meeting on the host’s calendar', () => {
     expect(tables.meeting[0]).toMatchObject({ title: 'Design sync', starts_at: iso(NOW + 48 * H), ends_at: iso(NOW + 48.5 * H), opens_at: iso(NOW + 47.75 * H), closes_at: iso(NOW + 50.5 * H) })
     expect(tables.team_chat_channel[0].name).toBe('Design sync')
     expect(d.updateEvent).toHaveBeenCalledWith('user-me', 'evt-1', { title: 'Design sync', start: iso(NOW + 48 * H), end: iso(NOW + 48.5 * H) }, { accountId: 'acct-google' })
+    // A length a meeting can't have: refused, or (the person's own event dragged there) clamped and said.
+    expect(await changeMeeting(db, { meetingId: MEETING.id, userId: 'user-me', startsAt: iso(NOW + 48 * H), endsAt: iso(NOW + 58 * H) }, d)).toMatchObject({ ok: false, status: 400 })
+    expect(await changeMeeting(db, { meetingId: MEETING.id, userId: 'user-me', startsAt: iso(NOW + 48 * H), endsAt: iso(NOW + 58 * H), clamp: true }, d)).toEqual({
+      ok: true,
+      title: 'Design sync',
+      startsAt: iso(NOW + 48 * H),
+      endsAt: iso(NOW + 56 * H),
+      clamped: 'longest',
+    })
+    expect(await changeMeeting(db, { meetingId: MEETING.id, userId: 'user-me', startsAt: iso(NOW + 48 * H), endsAt: iso(NOW + 48 * H + 60_000), clamp: true }, d)).toMatchObject({ ok: true, clamped: 'shortest', endsAt: iso(NOW + 48 * H + 5 * 60_000) })
     tables.meeting[0].booking_id = 'booking-1'
     expect(await changeMeeting(db, { meetingId: MEETING.id, userId: 'user-me', startsAt: iso(NOW + 72 * H) }, d)).toMatchObject({ ok: false, status: 400 })
   })
@@ -267,10 +312,12 @@ describe('the app’s calendar shows a host’s scheduled meetings that no provi
         { ...base, id: '55555555-5555-4555-8555-555555555555', title: 'Revoked', revoked_at: iso(NOW) },
         { ...base, id: '66666666-6666-4666-8666-666666666666', title: 'Ana’s', host_member_id: 'mem-ana' },
         { ...base, id: '77777777-7777-4777-8777-777777777777', title: 'Next month', starts_at: iso(NOW + 40 * 24 * H), ends_at: iso(NOW + 40 * 24 * H + H) },
+        { ...base, id: '88888888-8888-4888-8888-888888888888', title: 'Its account disconnected', calendar_event_id: 'evt-8', calendar_account_id: null },
       ],
     }
+    for (const m of tables.meeting) if (!('calendar_account_id' in m)) Object.assign(m, { calendar_account_id: m.calendar_event_id ? 'acct-google' : null })
     const events = await meetingCalendarEvents(memoryDb(tables) as unknown as SupabaseClient, 'user-me', { timeMin: iso(NOW), timeMax: iso(NOW + 7 * 24 * H), workspaceId: 'ws-1' })
-    expect(events.map((e) => e.title)).toEqual(['Shown'])
+    expect(events.map((e) => e.title)).toEqual(['Shown', 'Its account disconnected'])
     const url = `https://app.example/m/${meetingToken('11111111-1111-4111-8111-111111111111', 'nonce-aaaaaaaaaaaaaaaaaaaaaaaaaa')}`
     expect(events[0]).toMatchObject({ id: 'meeting:11111111-1111-4111-8111-111111111111', location: url, conferenceUrl: url, source: 'meeting_link', description: joinLine(url) })
     expect(meetingIdOfEvent(events[0].id)).toBe('11111111-1111-4111-8111-111111111111')

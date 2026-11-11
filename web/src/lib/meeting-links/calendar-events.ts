@@ -11,9 +11,17 @@
  *     provider event, and the app's calendar shows the meeting from the
  *     meeting table itself ({@link meetingCalendarEvents}).
  *   - A new link, a revoke, an end for everyone, a move or a rename:
- *     {@link meetingCalendarChanged} updates or removes that event on the same
- *     calendar. An account disconnected since (586 sets it null) or a provider
- *     that refuses: logged with ids, and the meeting's own change stands.
+ *     {@link meetingCalendarChanged} keeps that event in step on the same
+ *     calendar, as far as the event is the meeting's (586's
+ *     calendar_event_kind). One the link made for itself ('meeting') is the
+ *     meeting's: a revoke removes it, a new link rewrites its link, an end
+ *     shortens it. One the person made and attached the link to ('person', the
+ *     calendar dialog's "Add a meeting link") is theirs: the meeting only swaps
+ *     its old link for the new one, or takes its link out on a revoke, and
+ *     never deletes it or changes its times. An account disconnected since
+ *     (586 sets it null) or a provider that refuses: logged with ids, and the
+ *     meeting's own change stands (the app's calendar then shows the meeting
+ *     from the meeting table).
  *
  * Nothing here ever fails the meeting: every function returns what became of
  * the calendar and never throws. A booking's meeting (585) never comes here:
@@ -21,10 +29,10 @@
  */
 import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createCalendarEvent, deleteCalendarEvent, updateCalendarEvent, type CalendarEvent } from '@/lib/integrations/calendar'
+import { createCalendarEvent, deleteCalendarEvent, getCalendarEventFields, updateCalendarEvent, type CalendarEvent } from '@/lib/integrations/calendar'
 import { writableCalendarAccounts } from '@/lib/time-offers/host-calendar'
 import { meetingLink } from './link'
-import { MEETING_MAX_MINUTES, MEETING_MIN_MINUTES, MEETING_TITLE_MAX, cleanMeetingTitle } from './shape'
+import { MEETING_MAX_MINUTES, MEETING_MIN_MINUTES, MEETING_TITLE_MAX, cleanMeetingTitle, meetingUrlIn } from './shape'
 
 /** The source the app's calendar marks a meeting it shows from the meeting table with. */
 export const MEETING_CALENDAR_SOURCE = 'meeting_link'
@@ -41,7 +49,52 @@ export interface CalendarDeps {
   createEvent?: typeof createCalendarEvent
   updateEvent?: typeof updateCalendarEvent
   deleteEvent?: typeof deleteCalendarEvent
+  readEvent?: typeof getCalendarEventFields
   now?: () => number
+}
+
+/** Every one of our meeting links in a text (a location, a description), each once. Pure. */
+function ourLinks(text: string): string[] {
+  const found: string[] = []
+  let rest = text
+  for (let i = 0; i < 8; i++) {
+    const url = meetingUrlIn(rest)
+    if (!url) break
+    found.push(url)
+    rest = rest.split(url).join(' ')
+  }
+  return found
+}
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * An event the person made, its link replaced: the location only when it IS
+ * our link, the description's link wherever it is. Everything else as they
+ * wrote it. Pure.
+ */
+export function withNewLink(fields: { location: string; description: string }, url: string): { location: string; description: string } {
+  const loc = fields.location.trim()
+  const location = loc && ourLinks(loc).includes(loc) ? url : fields.location
+  let description = fields.description
+  for (const old of ourLinks(description)) description = description.split(old).join(url)
+  return { location, description }
+}
+
+/**
+ * An event the person made, its link taken out: the location cleared only
+ * when it IS our link; the "Join the meeting: <link>" line removed (as text or
+ * as the provider's HTML); everything else as they wrote it. Pure.
+ */
+export function withoutLink(fields: { location: string; description: string }): { location: string; description: string } {
+  const loc = fields.location.trim()
+  const location = loc && ourLinks(loc).includes(loc) ? '' : fields.location
+  let description = fields.description
+  for (const old of ourLinks(description)) {
+    const line = new RegExp(`Join the meeting:\\s*(?:<a[^>]*>\\s*)?${escape(old)}(?:\\s*</a>)?(?:\\s*<br\\s*/?>)*(?:\\r?\\n){0,2}`, 'g')
+    description = description.replace(line, '')
+  }
+  return { location, description: description.replace(/^\s+/, '') }
 }
 
 const idsOf = (meetingId: string, extra = '') => `meeting=${meetingId}${extra}`
@@ -68,7 +121,7 @@ export async function addMeetingToCalendar(
       account.id,
       { video: false, idempotencyKey: meeting.id },
     )
-    const { error } = await svc.from('meeting').update({ calendar_event_id: event.id, calendar_account_id: account.id }).eq('id', meeting.id)
+    const { error } = await svc.from('meeting').update({ calendar_event_id: event.id, calendar_account_id: account.id, calendar_event_kind: 'meeting' }).eq('id', meeting.id)
     if (error) throw new Error(`the meeting didn't keep its event: ${error.message}`)
     console.info(`[meetings] ${idsOf(meeting.id)} account=${account.id} outcome=calendar_event`)
     return { written: 'provider', accountId: account.id, eventId: event.id }
@@ -87,6 +140,7 @@ export type MeetingCalendarChange =
 interface MeetingEventRow {
   calendar_event_id: string | null
   calendar_account_id: string | null
+  calendar_event_kind: 'meeting' | 'person' | null
   host_member_id: string | null
   starts_at: string | null
   ends_at: string | null
@@ -105,7 +159,7 @@ export async function meetingCalendarChanged(
   try {
     const { data: m, error } = await svc
       .from('meeting')
-      .select('calendar_event_id, calendar_account_id, host_member_id, starts_at, ends_at')
+      .select('calendar_event_id, calendar_account_id, calendar_event_kind, host_member_id, starts_at, ends_at')
       .eq('id', meetingId)
       .maybeSingle<MeetingEventRow>()
     if (error) throw new Error(error.message)
@@ -118,10 +172,23 @@ export async function meetingCalendarChanged(
     const { data: host } = await svc.from('member').select('user_id').eq('id', m.host_member_id).maybeSingle<{ user_id: string }>()
     if (!host?.user_id) return 'skipped'
     const on = { accountId: m.calendar_account_id }
+    if (m.calendar_event_kind === 'person') {
+      // The person's own event: only the link in it is the meeting's. Never deleted, its times never changed.
+      if (change.kind !== 'relinked' && change.kind !== 'revoked') return 'unchanged'
+      const now = await (deps.readEvent ?? getCalendarEventFields)(m.calendar_event_id, m.calendar_account_id)
+      const next = change.kind === 'relinked' ? withNewLink(now, change.url) : withoutLink(now)
+      const updates: { location?: string; description?: string } = {}
+      if (next.location !== now.location) updates.location = next.location
+      if (next.description !== now.description) updates.description = next.description
+      if (Object.keys(updates).length) await (deps.updateEvent ?? updateCalendarEvent)(host.user_id, m.calendar_event_id, updates, on)
+      // Revoked: no longer the meeting's (a later edit of the event moves nothing).
+      if (change.kind === 'revoked') await svc.from('meeting').update({ calendar_event_id: null, calendar_event_kind: null }).eq('id', meetingId)
+      return Object.keys(updates).length ? 'updated' : 'unchanged'
+    }
     switch (change.kind) {
       case 'revoked':
         await (deps.deleteEvent ?? deleteCalendarEvent)(host.user_id, m.calendar_event_id, on)
-        await svc.from('meeting').update({ calendar_event_id: null }).eq('id', meetingId)
+        await svc.from('meeting').update({ calendar_event_id: null, calendar_event_kind: null }).eq('id', meetingId)
         return 'deleted'
       case 'relinked':
         await (deps.updateEvent ?? updateCalendarEvent)(host.user_id, m.calendar_event_id, { location: change.url, description: joinLine(change.url) }, on)
@@ -149,7 +216,9 @@ export async function meetingCalendarChanged(
   }
 }
 
-export type MeetingChangeResult = { ok: true; title: string; startsAt: string; endsAt: string } | { ok: false; status: 400 | 403 | 404; error: string }
+export type MeetingChangeResult =
+  | { ok: true; title: string; startsAt: string; endsAt: string; /** The length asked for was one a meeting can't have: the link's window took the nearest it can. */ clamped?: 'longest' | 'shortest' }
+  | { ok: false; status: 400 | 403 | 404; error: string }
 
 /**
  * The host moves or renames a scheduled meeting (from the app's calendar):
@@ -159,7 +228,7 @@ export type MeetingChangeResult = { ok: true; title: string; startsAt: string; e
  */
 export async function changeMeeting(
   svc: SupabaseClient,
-  args: { meetingId: string; userId: string; title?: string; startsAt?: string; endsAt?: string },
+  args: { meetingId: string; userId: string; title?: string; startsAt?: string; endsAt?: string; /** A length a meeting can't have: the nearest it can (the event keeps its own). */ clamp?: boolean },
   deps: CalendarDeps = {},
 ): Promise<MeetingChangeResult> {
   const { data: m } = await svc
@@ -175,11 +244,14 @@ export async function changeMeeting(
   const title = args.title !== undefined ? cleanMeetingTitle(args.title.slice(0, MEETING_TITLE_MAX + 40)) : m.title
   if (!title) return { ok: false, status: 400, error: 'Give the meeting a title of up to 80 characters.' }
   const startsAt = args.startsAt ?? m.starts_at
-  const endsAt = args.endsAt ?? (args.startsAt ? new Date(Date.parse(args.startsAt) + (Date.parse(m.ends_at) - Date.parse(m.starts_at))).toISOString() : m.ends_at)
-  const minutes = Math.round((Date.parse(endsAt) - Date.parse(startsAt)) / 60_000)
-  if (!Number.isFinite(minutes) || minutes < MEETING_MIN_MINUTES || minutes > MEETING_MAX_MINUTES) return { ok: false, status: 400, error: 'A meeting is 5 minutes to 8 hours long.' }
+  const asked = args.endsAt ?? (args.startsAt ? new Date(Date.parse(args.startsAt) + (Date.parse(m.ends_at) - Date.parse(m.starts_at))).toISOString() : m.ends_at)
+  const minutes = Math.round((Date.parse(asked) - Date.parse(startsAt)) / 60_000)
+  if (!Number.isFinite(minutes)) return { ok: false, status: 400, error: 'Pick a time.' }
+  const clamped = minutes > MEETING_MAX_MINUTES ? ('longest' as const) : minutes < MEETING_MIN_MINUTES ? ('shortest' as const) : undefined
+  if (clamped && !args.clamp) return { ok: false, status: 400, error: 'A meeting is 5 minutes to 8 hours long.' }
+  const length = clamped === 'longest' ? MEETING_MAX_MINUTES : clamped === 'shortest' ? MEETING_MIN_MINUTES : minutes
   const start = new Date(startsAt)
-  const end = new Date(endsAt)
+  const end = new Date(start.getTime() + length * 60_000)
   const renamed = title !== m.title
   const { error } = await svc
     .from('meeting')
@@ -194,8 +266,8 @@ export async function changeMeeting(
   if (error) return { ok: false, status: 400, error: 'The meeting could not be changed.' }
   if (renamed) await svc.from('team_chat_channel').update({ name: title }).eq('id', m.channel_id)
   await meetingCalendarChanged(svc, m.id, { kind: 'moved', title: renamed ? title : undefined, startsAt: start.toISOString(), endsAt: end.toISOString() }, deps)
-  console.info(`[meetings] ${idsOf(m.id)} outcome=moved`)
-  return { ok: true, title, startsAt: start.toISOString(), endsAt: end.toISOString() }
+  console.info(`[meetings] ${idsOf(m.id)} outcome=moved${clamped ? ` clamped=${clamped}` : ''}`)
+  return { ok: true, title, startsAt: start.toISOString(), endsAt: end.toISOString(), ...(clamped ? { clamped } : {}) }
 }
 
 /**
@@ -221,7 +293,8 @@ export async function meetingCalendarEvents(
     .in('host_member_id', ids)
     .is('revoked_at', null)
     .is('booking_id', null)
-    .is('calendar_event_id', null)
+    // No event of its own, or one on an account disconnected since (unreachable): shown from here.
+    .or('calendar_event_id.is.null,calendar_account_id.is.null')
     .not('starts_at', 'is', null)
     .lte('starts_at', range.timeMax)
     .gte('ends_at', range.timeMin)

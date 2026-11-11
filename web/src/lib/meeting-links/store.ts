@@ -78,6 +78,18 @@ export async function revokeMeeting(supabase: SupabaseClient, meetingId: string)
   return { revoked: row?.revoked === true, callId: row?.call_id ?? null, room: row?.room ?? null }
 }
 
+/**
+ * The host revokes a link from the app's calendar, with the service role
+ * (586's meeting_revoke_as: the meeting's host only, whoever signed in how,
+ * a device's token included). As meeting_revoke otherwise.
+ */
+export async function revokeMeetingAs(svc: SupabaseClient, meetingId: string, userId: string): Promise<{ revoked: boolean; callId: string | null; room: string | null }> {
+  const { data, error } = await svc.rpc('meeting_revoke_as', { target_meeting: meetingId, acting_user: userId })
+  if (error) throw teamChatErrorOf(error, 'meeting revoke')
+  const row = (Array.isArray(data) ? data[0] : data) as { revoked?: boolean; call_id?: string | null; room?: string | null } | undefined
+  return { revoked: row?.revoked === true, callId: row?.call_id ?? null, room: row?.room ?? null }
+}
+
 /** The host replaces the link (574's meeting_new_link): a new token; the old one stops working. */
 export async function replaceMeetingLink(supabase: SupabaseClient, input: { meetingId: string; tokenDigest: string; tokenNonce: string }): Promise<void> {
   const { error } = await supabase.rpc('meeting_new_link', { target_meeting: input.meetingId, token_digest: input.tokenDigest, token_nonce: input.tokenNonce })

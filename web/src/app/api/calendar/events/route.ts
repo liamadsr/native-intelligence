@@ -5,8 +5,12 @@ import { ensureContactsForCalendarEvents } from '@/lib/crm/calendar-contacts'
 import { requireWorkspace } from '@/lib/api-auth'
 import { meetingLinkForNewEvent } from '@/lib/meeting-links/calendar'
 import { changeMeeting, meetingIdOfEvent, meetingOfProviderEvent } from '@/lib/meeting-links/calendar-events'
-import { revokeMeeting } from '@/lib/meeting-links/store'
+import { revokeMeetingAs } from '@/lib/meeting-links/store'
 import { getServiceClient } from '@/lib/admin'
+import { writableCalendarAccounts } from '@/lib/time-offers/host-calendar'
+import { drainTeamCallEjections, liveEjectDeps } from '@/lib/team-calls/eject'
+import { teamCallsConfig } from '@/lib/team-calls/livekit'
+import { TeamChatError } from '@/lib/team-chat/store'
 
 export async function GET(req: Request) {
   try {
@@ -84,6 +88,7 @@ export async function POST(req: Request) {
     // "Add a meeting link" (phase 7): a meeting of ours, named and timed as the event, its link the event's location.
     let meetingUrl: string | null = null
     let meetingId: string | null = null
+    let onAccount: string | undefined = accountId || undefined
     if (body.meetingLink === true) {
       const ws = await requireWorkspace()
       if (ws instanceof Response) return ws
@@ -92,6 +97,8 @@ export async function POST(req: Request) {
       if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 })
       meetingUrl = made.link.url
       meetingId = made.link.meetingId
+      // The calendar it goes on, known (not the provider's guess), so the meeting can keep the event in step later.
+      if (!onAccount) onAccount = (await writableCalendarAccounts(getServiceClient(), user.id, ws.workspaceId).catch(() => []))[0]?.id
       location = made.location
       description = made.description
     }
@@ -104,11 +111,11 @@ export async function POST(req: Request) {
       location,
       attendees,
       isAllDay,
-    }, accountId)
+    }, onAccount)
 
-    // The meeting remembers its event (586), so a new link, a revoke or an end for everyone keeps it in step.
+    // The meeting remembers the event (586): the PERSON's, so it only ever swaps or takes out its own link in it.
     if (meetingId) {
-      const { error } = await getServiceClient().from('meeting').update({ calendar_event_id: event.id, calendar_account_id: event.accountId ?? accountId ?? null }).eq('id', meetingId)
+      const { error } = await getServiceClient().from('meeting').update({ calendar_event_id: event.id, calendar_account_id: event.accountId ?? onAccount ?? null, calendar_event_kind: 'person' }).eq('id', meetingId)
       if (error) console.warn(`[meetings] meeting=${meetingId} its calendar event not kept:`, error.message.slice(0, 120))
     }
 
@@ -154,18 +161,24 @@ export async function PATCH(req: Request) {
 
     const event = await updateCalendarEvent(user.id, eventId, updates)
 
-    // A meeting's own event, moved or renamed on the calendar: the meeting follows (its event already did). Never fails the edit.
+    // A meeting's event, moved or renamed on the calendar: the meeting follows (its event already did). Never fails the edit.
+    // A length a meeting can't have: the event keeps it, the link's window takes the nearest it can, and the person is told.
+    let notice: string | undefined
     if (start || end || typeof title === 'string') {
       const svc = getServiceClient()
       const tied = await meetingOfProviderEvent(svc, user.id, eventId).catch(() => null)
       if (tied) {
-        await changeMeeting(svc, { meetingId: tied, userId: user.id, title: typeof title === 'string' ? title : undefined, startsAt: start || undefined, endsAt: end || undefined }, { updateEvent: async () => event }).catch((err) =>
-          console.warn(`[meetings] meeting=${tied} didn't follow its event:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown'),
-        )
+        const followed = await changeMeeting(svc, { meetingId: tied, userId: user.id, title: typeof title === 'string' ? title : undefined, startsAt: start || undefined, endsAt: end || undefined, clamp: true }, { updateEvent: async () => event }).catch((err) => {
+          console.warn(`[meetings] meeting=${tied} didn't follow its event:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown')
+          return null
+        })
+        if (followed?.ok && followed.clamped === 'longest') notice = 'Saved. Its meeting link stays open for the first 8 hours only (a meeting’s longest).'
+        if (followed?.ok && followed.clamped === 'shortest') notice = 'Saved. Its meeting link keeps a 5-minute window (a meeting’s shortest).'
+        if (followed && !followed.ok) notice = `Saved. Its meeting link didn’t move: ${followed.error}`
       }
     }
 
-    return NextResponse.json({ event })
+    return NextResponse.json(notice ? { event, notice } : { event })
   } catch (error) {
     if (error instanceof Response) return error
     console.error('Calendar update event error:', error)
@@ -178,7 +191,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { user, supabase } = await authenticateUser(req)
+    const { user } = await authenticateUser(req)
     const url = new URL(req.url)
     const eventId = url.searchParams.get('eventId')
 
@@ -189,21 +202,35 @@ export async function DELETE(req: Request) {
       )
     }
 
-    // Deleting a meeting link from the calendar revokes it (as the host: 574's meeting_revoke).
+    const svc = getServiceClient()
+    // Revoked as its host (586's meeting_revoke_as: the person from their sign-in, a device's token included);
+    // anyone still in its call is taken out now (the minute's drain is the floor).
+    const revoke = async (meetingId: string) => {
+      const out = await revokeMeetingAs(svc, meetingId, user.id)
+      const config = out.revoked && out.callId ? teamCallsConfig() : null
+      if (config) await drainTeamCallEjections(svc, liveEjectDeps(config)).catch(() => undefined)
+      return out
+    }
+
+    // Deleting a meeting link the calendar shows from the meeting itself revokes it.
     const shownMeeting = meetingIdOfEvent(eventId)
     if (shownMeeting) {
-      await revokeMeeting(supabase, shownMeeting)
+      try {
+        await revoke(shownMeeting)
+      } catch (err) {
+        if (err instanceof TeamChatError && err.code === 'forbidden') return NextResponse.json({ error: 'Only the host can remove this meeting' }, { status: 403 })
+        throw err
+      }
       return NextResponse.json({ success: true })
     }
 
     await deleteCalendarEvent(user.id, eventId)
 
-    // A meeting's own event deleted: the meeting's link is revoked too (it has no event any more). Never fails the delete.
-    const svc = getServiceClient()
+    // A meeting's event deleted: the meeting's link is revoked too (it has no event any more). Never fails the delete.
     const tied = await meetingOfProviderEvent(svc, user.id, eventId).catch(() => null)
     if (tied) {
-      await svc.from('meeting').update({ calendar_event_id: null }).eq('id', tied)
-      await revokeMeeting(supabase, tied).catch((err) => console.warn(`[meetings] meeting=${tied} not revoked with its event:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown'))
+      await svc.from('meeting').update({ calendar_event_id: null, calendar_event_kind: null }).eq('id', tied)
+      await revoke(tied).catch((err) => console.warn(`[meetings] meeting=${tied} not revoked with its event:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown'))
     }
 
     return NextResponse.json({ success: true })

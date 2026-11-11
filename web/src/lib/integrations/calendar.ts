@@ -572,6 +572,28 @@ export async function getCalendarEventAttendees(userId: string, eventId: string)
 }
 
 /**
+ * An event's location and description as the provider has them now, on a
+ * given account (a meeting link swapping or removing its own line in an event
+ * the person made: src/lib/meeting-links/calendar-events.ts). Microsoft gives
+ * the body as HTML or text, as stored. Throws when it can't be read.
+ */
+export async function getCalendarEventFields(eventId: string, accountId: string): Promise<{ location: string; description: string }> {
+  const { provider, token } = await accountToken(accountId)
+  if (provider === 'google') {
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?fields=location,description`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error(`Google Calendar read error: ${res.status}`)
+    const data = (await res.json()) as { location?: string; description?: string }
+    return { location: data.location ?? '', description: data.description ?? '' }
+  }
+  const res = await fetch(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}?$select=location,body`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) throw new Error(`Microsoft Calendar read error: ${res.status}`)
+  const data = (await res.json()) as { location?: { displayName?: string }; body?: { content?: string } }
+  return { location: data.location?.displayName ?? '', description: data.body?.content ?? '' }
+}
+
+/**
  * Delete the event a caller's key made (CreateEventOptions.idempotencyKey),
  * if it made one, telling its attendees: Google's event by the id the key
  * names, Microsoft's by its transactionId. 'none' when there is no such
