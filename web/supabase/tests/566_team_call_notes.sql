@@ -1,4 +1,4 @@
--- DB-level test for migrations 566-567 (call notes and recordings): who may
+-- DB-level test for migrations 566-569 (call notes and recordings): who may
 -- turn a call's notes on or off, a microphone's file claimed once per track
 -- and round, LiveKit's egress events applied in order whatever order they
 -- arrive in, the recording's cap across the server, a call's end settling
@@ -9,7 +9,7 @@
 -- (src/lib/team-calls/__tests__/migration-566.test.ts) pin the files' text;
 -- this runs the SQL.
 --
--- Run against a database with 564-567 applied (never PROD):
+-- Run against a database with 564-569 applied (never PROD):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/566_team_call_notes.sql
 -- Everything runs in one transaction that is rolled back. A probe runs as one
 -- caller (role authenticated with that user's JWT claims) inside its own
@@ -30,6 +30,7 @@ declare
   row_a uuid; row_a2 uuid; row_a3 uuid; rec_t uuid; rec_t2 uuid; rec_o uuid;
   now_ns bigint;
   cap uuid;
+  clm uuid;
   v_report text;
   v_fail int;
   v_raise_report constant boolean := true;
@@ -76,6 +77,19 @@ begin
     reset role;
     perform set_config('request.jwt.claims', '{}', true);
     return v;
+  end $f$;
+
+  -- Run a statement as postgres (the server) and say whether it was refused; always rolled back.
+  create function pg_temp.t566_try(p_sql text)
+  returns text language plpgsql as $f$
+  begin
+    begin
+      execute p_sql;
+      raise exception using errcode = 'ZP566', message = 'done';
+    exception
+      when sqlstate 'ZP566' then return 'done';
+      when others then return 'refused';
+    end;
   end $f$;
 
   create function pg_temp.t566_check(p_label text, p_expect text, p_got text)
@@ -138,6 +152,7 @@ begin
     (select file_path from public.team_call_egress where id = row_a));
   perform pg_temp.t566_check('the same track again (a repeated webhook): nothing', '0',
     (select count(*)::text from public.team_call_egress_claim(call_t, m_b, 'TR_b')));
+  perform pg_temp.t566_check('a file not yet cut off while notes are on', 'true', (select (cutoff_at is null)::text from public.team_call_egress where id = row_a));
   perform pg_temp.t566_check('a member of another workspace: nothing',
     '0', (select count(*)::text from public.team_call_egress_claim(call_t, (select id from public.member where user_id = u_x), 'TR_x')));
 
@@ -206,6 +221,8 @@ begin
   -- Notes on for the last five minutes of it (the clock stands still inside one transaction).
   update public.team_call set notes_on_since = now() - interval '5 minutes' where id = call_t;
   perform public.team_call_end(call_t, 'finished', now());
+  perform pg_temp.t566_check('the call''s end cuts the open round''s files off at its end (no word after it reaches the notes)', '0',
+    (select count(*)::text from public.team_call_egress where call_id = call_t and kind = 'notes' and round = 2 and cutoff_at is null));
   perform pg_temp.t566_check('the call ends (565''s end, unchanged): notes off, their time counted, transcribing', 'false/transcribing/true',
     (select notes::text || '/' || notes_state || '/' || (notes_seconds > 0)::text from public.team_call where id = call_t));
   perform pg_temp.t566_run('notes can''t be turned on after the end', 'refused', u_a,
@@ -237,9 +254,37 @@ begin
     array[format('update public.captures set visibility = %L where id = %L', 'workspace', cap)]);
   perform pg_temp.t566_run('its owner cannot share them with someone outside the conversation', 'refused', u_a,
     array[format('insert into public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_member_id, granted_by) values (%L, %L, %L, %L, %L, %L)', w1, 'capture', cap, 'member', m_c, m_a)]);
+  perform pg_temp.t566_run('… nor to edit, even with its own conversation', 'refused', u_a,
+    array[format('update public.entity_access set level = %L where entity_type = %L and entity_id = %L', 'edit', 'capture', cap)]);
+  perform pg_temp.t566_check('… nor by the server (the guard holds for every writer)', 'refused', (
+    select case when exists (select 1) then pg_temp.t566_try(format('update public.entity_access set level = %L where entity_type = %L and entity_id = %L', 'edit', 'capture', cap)) end));
   perform pg_temp.t566_run('… nor with another channel', 'refused', u_a,
     array[format('insert into public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_channel_id, granted_by) values (%L, %L, %L, %L, %L, %L)', w1, 'capture', cap, 'channel', ch_open, m_a)]);
   perform pg_temp.t566_check('the notes carry their conversation', ch_team::text, (select notes_channel_id::text from public.captures where id = cap));
+
+  -- ── The owner's reads through the definer functions (568) ──────────────────
+  update public.captures set title = 't566 quokka notes' where id = cap;
+  insert into public.claim (workspace_id, text, type) values (w1, 't566 quokka claim', 'fact') returning id into clm;
+  insert into public.claim_source (claim_id, source_type, source_id) values (clm, 'capture', cap);
+  perform pg_temp.t566_check('in the conversation, the owner reads their notes: capture_visible_to', 'true', public.capture_visible_to(cap, u_a)::text);
+  perform pg_temp.t566_check('… claim_visible_to', 'true', public.claim_visible_to(clm, u_a)::text);
+  perform pg_temp.t566_check('… unified_search', '1', (select count(*)::text from public.unified_search(w1, 'quokka', array['capture'], 10, u_a) x where x.result_id = cap));
+  perform pg_temp.t566_check('… hybrid_search', '1', (select count(*)::text from public.hybrid_search(p_workspace_id => w1, p_query => 'quokka', p_types => array['capture'], p_requesting_user_id => u_a) x where x.result_id = cap));
+  perform pg_temp.t566_check('… and the agent''s flag says they are in', 'false', (select notes_owner_out::text from public.captures where id = cap));
+  delete from public.team_member where team_id = t1 and member_id = m_a;
+  perform pg_temp.t566_check('the owner taken off the team: the agent''s flag follows at once', 'true', (select notes_owner_out::text from public.captures where id = cap));
+  perform pg_temp.t566_check('… capture_visible_to says no', 'false', public.capture_visible_to(cap, u_a)::text);
+  perform pg_temp.t566_check('… the claim from the notes is hidden', 'false', public.claim_visible_to(clm, u_a)::text);
+  perform pg_temp.t566_check('… unified_search finds nothing', '0', (select count(*)::text from public.unified_search(w1, 'quokka', array['capture'], 10, u_a) x where x.result_id = cap));
+  perform pg_temp.t566_check('… hybrid_search finds nothing', '0', (select count(*)::text from public.hybrid_search(p_workspace_id => w1, p_query => 'quokka', p_types => array['capture'], p_requesting_user_id => u_a) x where x.result_id = cap));
+  perform pg_temp.t566_run('… and RLS hides it from them', 'rows=0', u_a, array[format('select 1 from public.captures where id = %L', cap)]);
+  insert into public.team_member (team_id, member_id) values (t1, m_a);
+  perform pg_temp.t566_check('back on the team: back in', 'false/true', (select notes_owner_out::text || '/' || public.capture_visible_to(cap, u_a)::text from public.captures where id = cap));
+  insert into public.captures (user_id, workspace_id, title) values (u_a, w1, 't566 plain capture');
+  delete from public.team_member where team_id = t1 and member_id = m_a;
+  perform pg_temp.t566_check('a capture of no call is untouched by any of this', 'false/1',
+    (select bool_or(notes_owner_out)::text || '/' || count(*)::text from public.captures where user_id = u_a and notes_channel_id is null));
+  insert into public.team_member (team_id, member_id) values (t1, m_a);
   perform pg_temp.t566_run('its owner cannot take the conversation off the notes', 'refused', u_a,
     array[format('update public.captures set notes_channel_id = null where id = %L', cap)]);
   perform pg_temp.t566_run('nobody makes a capture that claims to be a call''s notes', 'refused', u_a,
@@ -285,6 +330,10 @@ begin
   delete from public.team_chat_channel where id = ch_team;
   perform pg_temp.t566_check('a channel deleted: its notes stay, with its id', ch_team::text, (select notes_channel_id::text from public.captures where id = cap));
   perform pg_temp.t566_run('… read by no one, their owner included', 'rows=0', u_a, array[format('select 1 from public.captures where id = %L', cap)]);
+  perform pg_temp.t566_check('… not through the definer functions either', 'true/false/false',
+    (select notes_owner_out::text || '/' || public.capture_visible_to(cap, u_a)::text || '/' || public.claim_visible_to(clm, u_a)::text from public.captures where id = cap));
+  perform pg_temp.t566_check('… and the call''s files are orphans for the retention to remove', 'true',
+    (select (count(*) >= 1)::text from public.team_call_recordings_orphans(1000) o where o.name like ch_team::text || '/%'));
   perform pg_temp.t566_run('… nor changed by them (they no longer see it)', 'rows=0', u_a,
     array[format('update public.captures set visibility = %L where id = %L', 'workspace', cap)]);
 

@@ -38,6 +38,9 @@
 --                      newer one, and a finished egress never starts again.
 --                      started_at is when its file began (a notes file's
 --                      place in the call: its words are placed by it).
+--                      cutoff_at: when notes went off for this file's round
+--                      (or the call ended): no word said after it reaches
+--                      the notes, however late the egress stopped.
 --                      transcript_status / transcript: a notes file's words,
 --                      once transcribed. audio_deleted_at: its file was
 --                      removed after the notes were made. Service role only.
@@ -58,11 +61,16 @@
 --                      belong to. No foreign key on purpose: when the
 --                      channel is deleted the id stays, reads as no one's
 --                      conversation, and the notes go with it.
+--   captures.notes_owner_out  the notes' owner may no longer read their
+--                      conversation (568 keeps it true to the conversation's
+--                      membership): the server's own reads that name the
+--                      owner (the agent's tools) read it. No client sets it.
 --   fences, built on that column (triggers, for every writer that is a
 --     signed-in person, and one read policy):
 --     a call's notes capture stays private (never the whole workspace's: a
 --     DM's notes are its two people's), and it is shared only with its own
---     conversation (no grant to another member, team or channel). Its owner
+--     conversation, to view (no grant to another member, team or channel,
+--     and never to edit). Its owner
 --     may still remove the conversation's grant (narrower, never wider).
 --     captures_team_call_notes_fence, a restrictive read policy: a call's
 --     notes are read only by someone who may read its conversation now, the
@@ -72,7 +80,10 @@
 --
 -- Additive. Idempotent. Safe on a live database with the deployed app
 -- running: team_call gains columns with constant defaults or nullable ones,
--- captures one nullable column (no rewrite), the new table is empty, entity_access's check only gains a
+-- captures a nullable column and a boolean with a constant default (no
+-- rewrite) and a partial index on the column (built inside the transaction:
+-- captures' writes wait for that scan, a second or so at its size), the new
+-- table is empty, entity_access's check only gains a
 -- value, and the triggers refuse only what no deployed code does. The
 -- deployed app never reads the new columns. The file runs as one
 -- transaction; lock_timeout (5 s) makes it fail and roll back behind a long
@@ -152,6 +163,7 @@ create table if not exists public.team_call_egress (
   status_at_ns bigint not null default 0 check (status_at_ns >= 0),
   started_at timestamptz,
   ended_at timestamptz,
+  cutoff_at timestamptz,
   duration_ms bigint check (duration_ms is null or duration_ms >= 0),
   size_bytes bigint check (size_bytes is null or size_bytes >= 0),
   error text check (error is null or char_length(error) <= 500),
@@ -166,6 +178,9 @@ create table if not exists public.team_call_egress (
     or (kind = 'recording' and track_sid is null and transcript_status = 'none')
   )
 );
+
+-- A database that had the table before cutoff_at was added gets it too.
+alter table public.team_call_egress add column if not exists cutoff_at timestamptz;
 
 -- One notes file per microphone track per round of notes (a repeated track_published starts nothing).
 create unique index if not exists team_call_egress_one_per_track on public.team_call_egress (call_id, track_sid, round) where kind = 'notes';
@@ -220,6 +235,11 @@ alter table public.entity_access validate constraint entity_access_source;
 -- ── Fences: a call's notes are no wider than its conversation ───────────────
 
 alter table public.captures add column if not exists notes_channel_id uuid;
+-- The notes' owner may no longer read their conversation (568 keeps it true to the conversation's
+-- membership): the server's own reads, which name the owner, read it.
+alter table public.captures add column if not exists notes_owner_out boolean not null default false;
+-- The notes of a conversation (568's refresh, the grant fence).
+create index if not exists captures_notes_channel_idx on public.captures (notes_channel_id) where notes_channel_id is not null;
 
 comment on column public.captures.notes_channel_id is
   'A team call''s notes (566): the conversation they belong to. Read only by who may read it; never widened. No foreign key: a deleted channel''s notes are read by no one.';
@@ -234,13 +254,17 @@ begin
   if auth.uid() is null then
     return new;
   end if;
+  -- 568's refresh of notes_owner_out, run by a membership change a person made.
+  if coalesce(current_setting('team_call_notes.refresh', true), '') = 'on' then
+    return new;
+  end if;
   if tg_op = 'INSERT' then
-    if new.notes_channel_id is not null then
+    if new.notes_channel_id is not null or new.notes_owner_out then
       raise exception 'captures: only a call writes its notes' using errcode = '42501';
     end if;
     return new;
   end if;
-  if new.notes_channel_id is distinct from old.notes_channel_id then
+  if new.notes_channel_id is distinct from old.notes_channel_id or new.notes_owner_out is distinct from old.notes_owner_out then
     raise exception 'captures: only a call writes its notes' using errcode = '42501';
   end if;
   if new.notes_channel_id is not null and new.visibility <> 'private' then
@@ -254,7 +278,7 @@ revoke all on function public.team_call_notes_capture_guard() from public, anon,
 
 drop trigger if exists team_call_notes_capture_guard on public.captures;
 create trigger team_call_notes_capture_guard
-  before insert or update of visibility, notes_channel_id on public.captures
+  before insert or update of visibility, notes_channel_id, notes_owner_out on public.captures
   for each row execute function public.team_call_notes_capture_guard();
 
 create or replace function public.team_call_notes_grant_guard()
@@ -274,7 +298,7 @@ begin
     return new;
   end if;
   select c.notes_channel_id into call_channel from public.captures c where c.id = new.entity_id;
-  if call_channel is not null and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel) then
+  if call_channel is not null and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel or new.level <> 'view') then
     raise exception 'entity_access: a call''s notes are shared with its conversation only' using errcode = '42501';
   end if;
   return new;
@@ -285,7 +309,7 @@ revoke all on function public.team_call_notes_grant_guard() from public, anon, a
 
 drop trigger if exists team_call_notes_grant_guard on public.entity_access;
 create trigger team_call_notes_grant_guard
-  before insert or update of entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id
+  before insert or update of entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id, level
   on public.entity_access
   for each row execute function public.team_call_notes_grant_guard();
 

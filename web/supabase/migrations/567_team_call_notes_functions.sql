@@ -17,6 +17,8 @@
 --                     changed (a second press changes nothing).
 --   team_call_notes_stop(target_call)  service role: notes off, by the
 --                     server (the 3-hour bound).
+--   Every way notes go off (the switch, the bound, the call's end) stamps
+--   the round's files with cutoff_at: words after it never reach the notes.
 --   team_call_egress_claim(target_call, member_ref, track_ref)  service
 --                     role: a microphone track was published while notes
 --                     are on: its file's row and name, once per track and
@@ -126,6 +128,10 @@ begin
        set notes = false, notes_on_since = null, notes_seconds = t.notes_seconds + spent,
            notes_by = me, notes_changed_at = now(), updated_at = now()
      where t.id = c.id;
+    -- Nothing said from now on reaches the notes, however late an egress stops.
+    update public.team_call_egress x
+       set cutoff_at = now(), updated_at = now()
+     where x.call_id = c.id and x.kind = 'notes' and x.round = c.notes_round and x.cutoff_at is null;
     return query select false, c.notes_round, true;
   end if;
 end;
@@ -151,6 +157,9 @@ begin
          notes_seconds = t.notes_seconds + greatest(0, floor(extract(epoch from (now() - c.notes_on_since)))::integer),
          notes_by = null, notes_changed_at = now(), updated_at = now()
    where t.id = c.id;
+  update public.team_call_egress x
+     set cutoff_at = now(), updated_at = now()
+   where x.call_id = c.id and x.kind = 'notes' and x.round = c.notes_round and x.cutoff_at is null;
   return true;
 end;
 $$;
@@ -339,6 +348,11 @@ begin
     new.notes_seconds := old.notes_seconds + greatest(0, floor(extract(epoch from (
       greatest(coalesce(new.ended_at, now()), old.notes_on_since) - old.notes_on_since
     )))::integer);
+  end if;
+  if old.notes then
+    update public.team_call_egress x
+       set cutoff_at = coalesce(new.ended_at, now()), updated_at = now()
+     where x.call_id = old.id and x.kind = 'notes' and x.round = old.notes_round and x.cutoff_at is null;
   end if;
   new.notes := false;
   new.notes_on_since := null;
