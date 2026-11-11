@@ -225,12 +225,18 @@ extension PushNotificationService: UNUserNotificationCenterDelegate {
 }
 
 /// The app delegate: APNs hands the device token here, and the notification delegate is set at launch.
+/// PushKit's registry and the call center start here too: a team call's ring can be what launched the app.
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("-previewEveChat") || ProcessInfo.processInfo.arguments.contains("-previewTeamChat") { return true }
+        let previews = ["-previewEveChat", "-previewTeamChat", "-previewTeamCall"]
+        if previews.contains(where: ProcessInfo.processInfo.arguments.contains) { return true }
         #endif
-        MainActor.assumeIsolated { PushNotificationService.shared.start() }
+        MainActor.assumeIsolated {
+            PushNotificationService.shared.start()
+            TeamCallCenter.shared.start()
+            VoIPPushService.shared.start()
+        }
         return true
     }
 
