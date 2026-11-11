@@ -223,7 +223,8 @@ describe('buildMenu', () => {
   })
 
   it('`/` and `@` offer the same things, less what `@` can’t attach (pages, agents)', () => {
-    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents'])
+    // `/` also finds team chat messages (migration 561); `@` never attaches one.
+    expect(offeredKinds('/', MAIN)).toEqual(['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents', 'messages'])
     // Records first, the skills last (a tie goes to the record).
     expect(offeredKinds('@', MAIN)).toEqual(['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'skills'])
     expect(offeredKinds('@', RUN)).toEqual(['people', 'captures', 'companies', 'skills'])
@@ -263,11 +264,12 @@ describe('serverSearch', () => {
     expect(serverSearch('/', 'all', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('@', 'all', '', offeredKinds('@', MAIN))).toEqual({ kinds: ['contact'], limit: 8 })
     expect(serverSearch('/', 'all', 't', offeredKinds('/', MAIN))).toEqual({
-      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'agent'],
+      kinds: ['contact', 'action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow', 'agent', 'team_chat_message'],
       limit: 8,
     })
-    // `@` never asks for agents: nothing attaches them.
+    // `@` never asks for agents or messages: nothing attaches them.
     expect(serverSearch('@', 'all', 't', offeredKinds('@', MAIN))!.kinds).not.toContain('agent')
+    expect(serverSearch('@', 'all', 't', offeredKinds('@', MAIN))!.kinds).not.toContain('team_chat_message')
   })
   it('a tab with nothing typed asks for its own kind, a tab’s worth; a Pages tab asks nothing', () => {
     expect(serverSearch('/', 'actions', '', offeredKinds('/', MAIN))).toEqual({ kinds: ['action'], limit: 25 })

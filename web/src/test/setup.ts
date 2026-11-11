@@ -205,6 +205,14 @@ for (const flag of [
   // The app's own switch (src/lib/inngest/client.ts). Set in the build env the
   // day checkpointing has to go off; the suite must not change with it.
   'INNGEST_CHECKPOINTING',
+  // The forward from the old domain (src/lib/old-domain-forward.ts): set in the
+  // build env the day it is turned on; its tests set it themselves.
+  'NI_FORWARD_OLD_DOMAIN',
+  // Call notes and recording (src/lib/team-calls/egress.ts): set on the server the day
+  // its egress service runs; the tests that need them set them per-test.
+  'LIVEKIT_EGRESS',
+  'TEAM_CALL_RECORDING',
+  'TEAM_CALL_RECORDING_MAX',
   // Billed or user-visible outbound services, also injected into the build
   // env. Unset locally, so every suite already runs (and passes) without them,
   // and the ones that need a key stub their own. Scrubbed, an unmocked path

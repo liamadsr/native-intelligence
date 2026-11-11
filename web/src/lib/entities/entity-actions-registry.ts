@@ -201,7 +201,8 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   },
   team_chat_message: {
     open: 'team-chat',
-    link: false,
+    // `/account?team_chat_message=<id>`: team chat on the message (a team chat email's link).
+    link: true,
     // A message is edited by its author in the channel.
     rename: null,
     archive: { kind: 'none', why: 'A message is deleted by its author in the channel.' },

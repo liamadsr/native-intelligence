@@ -257,6 +257,13 @@ export interface HomeTurnRequestedData {
    * failed before its turn ran.
    */
   callSessionId?: string
+  /**
+   * 'team_chat' (src/lib/team-chat/agent-turn.ts): the team_chat_message the
+   * turn was requested for (the debounce keeps the last). Where its reply
+   * goes is read from that message (its channel, its thread), never from a
+   * row another mention may have moved on meanwhile.
+   */
+  teamChatMessageId?: string
 }
 
 /** The most agent_event ids one digest request carries. */
@@ -313,6 +320,11 @@ export function parseHomeTurnRequested(raw: unknown): HomeTurnRequestedData | nu
     const slot = d.checkInSlot as { date?: unknown; hour?: unknown } | null
     if (out.reason !== 'check_in' || !slot || typeof slot !== 'object' || typeof slot.date !== 'string' || !LOCAL_DATE.test(slot.date) || !isCheckInSlot(slot.hour)) return null
     out.checkInSlot = { date: slot.date, hour: slot.hour }
+  }
+  if (d.teamChatMessageId !== undefined) {
+    // A team chat turn's own mention only.
+    if (!id(d.teamChatMessageId) || out.reason !== 'team_chat') return null
+    out.teamChatMessageId = d.teamChatMessageId
   }
   // A linked agent's message is always answered by the owner's half for them, never the owner's own agent.
   if (out.reason === 'agent_ask' && !out.guestId) return null

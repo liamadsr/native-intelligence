@@ -8,9 +8,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
- * Where a notice went. 'push' (migration 454) is the iOS app's slot: the
- * router orders it before a text, but nothing sends on it until the iOS app
- * and its push adapter exist.
+ * Where a notice went. 'push' (migration 454) is the iOS app's: the router
+ * orders it before a text (src/lib/push sends it, migration 562).
  */
 export type ReachChannel = 'slack' | 'sms' | 'push'
 /**
@@ -18,17 +17,21 @@ export type ReachChannel = 'slack' | 'sms' | 'push'
  * message the router told the person about in the app for two hours while
  * they were there and never opened is done for good, and a message that only
  * ever banners (a prep-only report) is done once bannered. Nothing is sent on
- * it; later runs drop what it claims like anything already sent.
+ * it; later runs drop what it claims like anything already sent. 'email'
+ * (migration 560): a team chat message emailed while the person was away.
  */
-export type ReachClaimChannel = ReachChannel | 'banner'
+export type ReachClaimChannel = ReachChannel | 'banner' | 'email'
 /**
  * What a notice is about: an approval waiting on them, a guest's note
  * (migration 429), the look-ahead's message (migration 452,
  * src/lib/look-ahead/message.ts: one key per person, slot and date), or any
  * other message the agent wrote in their home thread (migration 454: its
- * chat_messages row id).
+ * chat_messages row id), or a team chat notification (migration 560: its
+ * notification id; the email that batches a conversation claims each one).
+ * The router never reads that one: team chat routes itself
+ * (src/lib/team-chat/email.ts).
  */
-export type ReachRefType = 'tool_approval' | 'guest_message' | 'look_ahead' | 'home_message'
+export type ReachRefType = 'tool_approval' | 'guest_message' | 'look_ahead' | 'home_message' | 'team_chat_notification'
 
 /**
  * Claim one approval (or, with another refType, the thing that refType names:

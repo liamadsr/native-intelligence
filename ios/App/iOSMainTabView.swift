@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 // `.openRecordingSheet` is declared in Shared/StartCaptureIntent.swift.
@@ -52,6 +53,17 @@ struct iOSMainTabView: View {
             guard previous == .recording else { return }
             guard !iOSRecordingService.shared.hasActiveSession else { return }
             Task { await NotesService.shared.refreshNotesLightweight() }
+        }
+        // A tapped push from the agent opens the chat; a team chat one has already set Home's path,
+        // and anything up over Home goes so it shows.
+        .onReceive(TeamChatRouter.shared.$chatRequest.dropFirst()) { _ in
+            presented = .chat
+        }
+        .onReceive(TeamChatRouter.shared.$path.dropFirst()) { path in
+            if !path.isEmpty, presented == .chat { presented = nil }
+        }
+        .onChange(of: presented) { _, now in
+            TeamChatRouter.shared.chatOpen = now == .chat
         }
         .onReceive(NotificationCenter.default.publisher(for: .openRecordingSheet)) { _ in
             // Whichever of this and the `.task` handoff below runs first wins;
