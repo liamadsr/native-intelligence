@@ -26,7 +26,7 @@ vi.mock('@/lib/ai/tools', () => ({ createTools: h.createTools }))
 vi.mock('@/lib/integrations/calendar', () => ({ listCalendarEventsUnified: vi.fn(async () => h.events) }))
 vi.mock('@/lib/agent-events/member-time-zone', () => ({ readMemberTimeZone: vi.fn(async () => ({ timeZone: 'America/Los_Angeles', source: 'member' })) }))
 
-import { GUEST_PAYMENT_STOP, freeBusyRange, guestDispatchContext, guestToolCall, parseRangeEdge, withGuestPaymentStop } from '../guest-tools'
+import { GUEST_PAYMENT_STOP, freeBusyRange, guestApprovalContext, guestDispatchContext, guestToolCall, parseRangeEdge, withGuestPaymentStop } from '../guest-tools'
 
 const CLAIMS = {
   conversationId: 'conv-g',
@@ -256,4 +256,10 @@ it('the payment stop: only on a browser task, once, and missing asks read as ask
   expect(withGuestPaymentStop('run_browser_task', { goal: 'x' }, ['changes'])).toEqual({ goal: `x\n\n${GUEST_PAYMENT_STOP}` })
   const once = withGuestPaymentStop('run_browser_task', { goal: 'x' }, ['payments'])
   expect(withGuestPaymentStop('run_browser_task', once, ['payments'])).toEqual(once)
+})
+
+it("a guest's or a linked agent's held call records omitGrants, so its approved replay reads no grant of the owner's", () => {
+  const guest = { id: 'g-1', displayName: 'Kai' }
+  expect(guestApprovalContext(guest).tools).toEqual({ origin: { actor: 'agent', depth: 1 }, omitGrants: true })
+  expect(guestApprovalContext(guest, { linkId: 'l-1' } as never).tools).toMatchObject({ omitGrants: true })
 })
