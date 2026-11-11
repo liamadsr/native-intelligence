@@ -101,6 +101,7 @@ export async function loadEntityAccess(
         const other = dmOtherMember(c.dm_key as string | null, memberId)
         return [c.id as string, other && memberName.get(other) ? `${memberName.get(other)} (direct message)` : 'A direct message']
       }
+      if (c.kind === 'meeting') return [c.id as string, c.name ? `${c.name as string} (meeting)` : 'A meeting']
       return [c.id as string, c.name ? `#${c.name as string}` : 'A channel']
     }),
   )

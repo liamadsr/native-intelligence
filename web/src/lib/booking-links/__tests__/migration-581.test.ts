@@ -48,7 +48,11 @@ describe('migration 581', () => {
 
   it('every column the stores read is one the tables have', () => {
     const link = table('booking_link')
-    for (const c of columns(constant(LINK_STORE, 'LINK_COLUMNS'))) expect(link, c).toMatch(new RegExp(`[( ,]${c} `))
+    // 585 (a meeting link as a booking's place) adds call_here.
+    const later = [...read('supabase/migrations/585_meeting_links_for_bookings.sql').matchAll(/alter table public\.booking_link add column if not exists (\w+) /g)].map((m) => m[1])
+    for (const c of columns(constant(LINK_STORE, 'LINK_COLUMNS'))) {
+      if (!later.includes(c)) expect(link, c).toMatch(new RegExp(`[( ,]${c} `))
+    }
     for (const c of columns(constant(LINK_STORE, 'PROFILE_COLUMNS'))) expect(table('booking_profile'), c).toMatch(new RegExp(`[( ,]${c} `))
     for (const c of columns(constant(LINK_STORE, 'HOST_COLUMNS'))) expect(table('booking_link_host'), c).toMatch(new RegExp(`[( ,]${c} `))
     const offerColumns = /export const BOOKING_COLUMNS =\s*'([^']+)'/.exec(OFFER_STORE)![1]

@@ -213,6 +213,8 @@ export interface NewOfferRow {
   title: string
   durationMinutes: number
   video: boolean
+  /** Meet on a call here (migration 585): the booking gets one of our meeting links. */
+  callHere?: boolean
   location: string | null
   message: string | null
   timeZone: string
@@ -245,6 +247,7 @@ export async function insertOffer(supabase: SupabaseClient, offer: NewOfferRow):
       title: offer.title,
       duration_minutes: offer.durationMinutes,
       video: offer.video,
+      ...(offer.callHere ? { call_here: true } : {}),
       location: offer.location,
       message: offer.message,
       time_zone: offer.timeZone,

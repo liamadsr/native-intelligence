@@ -127,8 +127,9 @@ export async function publicLink(link: BookingLink, deps: LinkPublicDeps): Promi
     host_names: names,
     questions: link.questions.map((q) => ({ id: q.id, label: q.label, required: q.required, kind: q.kind })),
     time_zone: zone,
-    video: link.video,
-    location: link.video ? null : link.location,
+    // Meeting on a call here is a video call too (its link comes with the booking).
+    video: link.video || link.callHere,
+    location: link.video || link.callHere ? null : link.location,
     ask_first: link.purpose === 'job' || link.askFirst,
     contact: link.purpose === 'job' ? 'phone' : texts ? 'email_or_phone' : 'email',
   }

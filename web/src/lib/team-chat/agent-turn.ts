@@ -65,7 +65,7 @@ type Svc = SupabaseClient
 export interface MentionChannel {
   id: string
   workspace_id: string
-  kind: 'channel' | 'dm'
+  kind: 'channel' | 'dm' | 'meeting'
   name: string | null
 }
 
@@ -85,7 +85,14 @@ export async function agentNameFor(svc: Svc, userId: string): Promise<string> {
  * thread in #general").
  */
 export function placeLabel(channel: Pick<MentionChannel, 'kind' | 'name'>, dmWith: string | null, inThread = false): string {
-  const place = channel.kind === 'channel' ? `#${channel.name ?? 'channel'}` : dmWith ? `a direct message with ${dmWith}` : 'a direct message'
+  const place =
+    channel.kind === 'channel'
+      ? `#${channel.name ?? 'channel'}`
+      : channel.kind === 'meeting'
+        ? `the meeting “${channel.name ?? 'Meeting'}”`
+        : dmWith
+          ? `a direct message with ${dmWith}`
+          : 'a direct message'
   return inThread ? `a thread in ${place}` : place
 }
 
@@ -310,7 +317,7 @@ export async function replyTarget(
       .from('team_chat_channel')
       .select('id, workspace_id, kind, team_id, archived_at')
       .eq('id', thread.channel_id)
-      .maybeSingle<{ id: string; workspace_id: string; kind: 'channel' | 'dm'; team_id: string | null; archived_at: string | null }>()
+      .maybeSingle<{ id: string; workspace_id: string; kind: 'channel' | 'dm' | 'meeting'; team_id: string | null; archived_at: string | null }>()
     if (!channel || channel.workspace_id !== data.workspaceId || channel.archived_at) return null
     const { data: member } = await svc
       .from('member')
@@ -319,7 +326,8 @@ export async function replyTarget(
       .eq('user_id', data.userId)
       .maybeSingle<{ id: string }>()
     if (!member) return null
-    if (channel.kind === 'dm') {
+    // A DM's and a meeting's (phase 7) readers are its members.
+    if (channel.kind === 'dm' || channel.kind === 'meeting') {
       const { data: inDm } = await svc.from('team_chat_member').select('member_id').eq('channel_id', channel.id).eq('member_id', member.id).maybeSingle()
       if (!inDm) return null
     } else if (channel.team_id) {

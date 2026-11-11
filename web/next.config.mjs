@@ -71,6 +71,23 @@ export async function headers() {
         },
       ],
     },
+    // A meeting link's page and its guest's routes (src/app/m, phase 7): out of the search index, no
+    // referrer to anywhere, never cached; the guest's own camera, microphone and screen for the call
+    // (the app-wide policy above turns the camera off). Later headers win for the same key.
+    {
+      source: '/m/:path*',
+      headers: [
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        { key: 'Referrer-Policy', value: 'no-referrer' },
+        { key: 'Cache-Control', value: 'private, no-store' },
+        { key: 'Permissions-Policy', value: 'microphone=(self), camera=(self), display-capture=(self), geolocation=()' },
+      ],
+    },
+    // Team calls inside the app (phases 5-7) turn the camera on and share screens.
+    {
+      source: '/account/:path*',
+      headers: [{ key: 'Permissions-Policy', value: 'microphone=(self), camera=(self), display-capture=(self), geolocation=()' }],
+    },
     // ONNX Runtime's files sit under their version (copy-ort-runtime.mjs), so
     // one URL never changes: cache the 21 MB binary for good.
     {

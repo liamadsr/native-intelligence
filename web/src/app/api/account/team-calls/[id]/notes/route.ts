@@ -27,6 +27,8 @@ import { liveKitEgress, teamCallEgressConfig, teamCallFeatures } from '@/lib/tea
 import { getCall } from '@/lib/team-calls/store'
 import { requestNotesStop, setNotes, startNotesForRoom } from '@/lib/team-calls/notes-store'
 import { callEnded, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { teamCallsConfig } from '@/lib/team-calls/livekit'
+import { holdGuestsForNotice } from '@/lib/meeting-links/consent'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -65,6 +67,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         try {
           // Off: stopped through Inngest, retried until LiveKit takes it (the sweeper stops what that misses,
           // and the notes keep no word said after this moment whatever happens).
+          // A meeting's guests who haven't said go to this round are held to listen-only first (phase 7;
+          // the database refuses their notes file either way).
+          const livekit = teamCallsConfig()
+          if (on && livekit && call.channel_kind === 'meeting') await holdGuestsForNotice(svc, livekit, call.id)
           if (on) await startNotesForRoom(svc, port, { id: call.id, room: call.room })
           else await requestNotesStop(call.id, round)
         } catch (err) {

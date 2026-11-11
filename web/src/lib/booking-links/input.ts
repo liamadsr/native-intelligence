@@ -34,6 +34,7 @@ export const linkFieldsInput = z.object({
   daily_cap: int(...LINK_LIMITS.dailyCap).nullable().optional().describe('At most this many of its bookings a day (null: no cap)'),
   questions: z.array(linkQuestionInput).max(LINK_QUESTIONS_MAX).optional(),
   video: z.boolean().optional().describe('A video link on each booking (default true)'),
+  call_here: z.boolean().optional().describe("Meet on a call here: each booking gets one of our meeting links instead of the calendar's video link (only where calls are set up; default false)"),
   location: z.string().trim().max(LINK_LOCATION_MAX).nullable().optional().describe('Where, when not on video'),
   ask_first: z.boolean().optional().describe('Each request waits for the host to say yes'),
   host_mode: z.enum(HOST_MODES).optional().describe("'one' host, 'all' (everyone free, everyone attends) or 'any' (any one, the least booked)"),

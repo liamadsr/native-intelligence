@@ -1,5 +1,6 @@
 import { getValidToken, getValidTokenForAccount, getValidTokenForCapability, getAllValidTokens } from '@/lib/oauth/token-manager'
 import { getServiceClient } from '@/lib/admin'
+import { meetingUrlIn } from '@/lib/meeting-links/shape'
 
 /**
  * One attendee with the display name the provider gave us.
@@ -16,6 +17,16 @@ export interface CalendarEventAttendee {
   name?: string
   isOrganizer?: boolean
   responseStatus?: string
+}
+
+/**
+ * An event's video call: the provider's own (Meet, Teams, a Zoom add-on), else
+ * one of our meeting links written into its location or description (phase
+ * 7: an event the app made with "Add a meeting link", or one a person pasted
+ * ours into), so it shows Join too. Only the app's own origins count.
+ */
+export function conferenceUrlOf(provider: string | null | undefined, location: string | null | undefined, description: string | null | undefined): string | undefined {
+  return provider || meetingUrlIn(location) || meetingUrlIn(description) || undefined
 }
 
 export interface CalendarEvent {
@@ -174,7 +185,7 @@ export async function listCalendarEventsUnified(
         location: row.location || undefined,
         organizer: row.organizer || undefined,
         attendees: Array.isArray(row.attendees) ? row.attendees : [],
-        conferenceUrl: row.conference_url || undefined,
+        conferenceUrl: conferenceUrlOf(row.conference_url, row.location, row.description),
         calendarName: row.calendar_name || 'Exchange (Local)',
         calendarId: row.calendar_id || undefined,
         hasRecurrence: row.has_recurrence || false,
@@ -677,7 +688,7 @@ async function listGoogleEvents(
             ...(typeof googleSelfResponse(e.attendees) === 'string' ? { myResponse: googleSelfResponse(e.attendees) } : {}),
             htmlLink: e.htmlLink as string,
             organizer: e.organizer?.email as string | undefined,
-            conferenceUrl: videoEntry?.uri,
+            conferenceUrl: conferenceUrlOf(videoEntry?.uri, e.location, e.description),
             calendarName: summary || 'Google Calendar',
             hasRecurrence: !!e.recurringEventId,
             seriesMasterId: (e.recurringEventId as string) || undefined,
@@ -992,7 +1003,7 @@ function parseMicrosoftEvents(items: any[], calendarId?: string): CalendarEvent[
       ...(e.isCancelled === true ? { status: 'cancelled' } : {}),
       htmlLink: e.webLink as string,
       organizer: e.organizer?.emailAddress?.address as string | undefined,
-      conferenceUrl: e.onlineMeeting?.joinUrl || e.onlineMeetingUrl || undefined,
+      conferenceUrl: conferenceUrlOf(e.onlineMeeting?.joinUrl || e.onlineMeetingUrl, e.location?.displayName, e.bodyPreview),
       calendarName: 'Outlook Calendar',
       hasRecurrence: !!e.seriesMasterId,
       seriesMasterId: (e.seriesMasterId as string) || undefined,

@@ -131,6 +131,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   'reset-password': flow('Where a password reset lands, with the session the reset link made on that domain.'),
   'sign-out': flow('Clears the session cookie of the domain it is called on.'),
   welcome: flow('Where a sign-in for the phone app returns before it opens the app; registered with the sign-in service per domain.'),
+  m: flow('A meeting link (/m/<token>) and its guest\'s steps under it (join, lobby, token, leave): public, no session; a guest\'s cookie is set on the domain the link was opened on, scoped to the link\'s path, so the page and its routes stay on that domain.'),
 
   // Programs.
   api: program('Every family in API_FAMILIES.'),

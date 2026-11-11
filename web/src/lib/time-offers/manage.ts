@@ -32,6 +32,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deleteCalendarEvent, updateCalendarEvent } from '@/lib/integrations/calendar'
+import { bookingMeetingCancelled } from '@/lib/meeting-links/bookings'
+import { meetingUrlIn } from '@/lib/meeting-links/shape'
 import { listCountedEvents } from '@/lib/availability/busy'
 import { intersectAll, type Span } from '@/lib/availability/engine'
 import { readFreeTime } from '@/lib/availability/find-times'
@@ -63,6 +65,8 @@ export interface ManageDeps {
   getLink?: (linkId: string, workspaceId: string) => Promise<BookingLink | null>
   /** The link's times (default: readLinkTimes). */
   linkTimes?: typeof readLinkTimes
+  /** After a cancellation: guests still in its meeting's call taken out now (585's trigger revoked the link; default: src/lib/meeting-links/bookings.ts). */
+  meetingCancelled?: (bookingId: string) => Promise<boolean>
 }
 
 /** A booking by its manage link's token. Throws on a failed read. */
@@ -111,6 +115,8 @@ export async function cancelMeeting(
       }
     }
     await deleteBookingClaims(supabase, booking.id).catch(() => {})
+    // Meets on a call here: 585's trigger revoked its link with the cancellation; anyone still in its call goes now.
+    await (deps.meetingCancelled ?? ((id) => bookingMeetingCancelled(supabase, id)))(booking.id)
     if (args.by === 'guest') {
       const zone = await hostZone(supabase, booking)
       await (deps.tellHost ?? ((a) => reportToOwner(supabase, a)))({
@@ -266,7 +272,9 @@ export async function rescheduleMeeting(
     const claim = await insertBookingClaim(supabase, booking, span)
     if (!claim.ok) return claim.conflict ? fail('SLOT_TAKEN', 'That time was just taken. Pick another.') : fail('FAILED', `The new time couldn't be held (${claim.error}).`)
     const releaseNew = () => deleteClaims(supabase, claim.ids).catch(() => {})
-    const words = bookingEventWords(booking, manageUrl(deps.origin ?? appOrigin(), manageTokenFor(booking.id, deps.secret)))
+    // A booking meeting on a call here keeps its link (the same meeting, moved below) at the top of the event.
+    const callUrl = booking.conferenceUrl && meetingUrlIn(booking.conferenceUrl) ? booking.conferenceUrl : null
+    const words = bookingEventWords(booking, manageUrl(deps.origin ?? appOrigin(), manageTokenFor(booking.id, deps.secret)), callUrl)
     // The move is fenced before the calendar is touched: of two moves at once
     // (a double submit, two tabs) only the one that wins here writes the
     // provider; the other leaves it alone.

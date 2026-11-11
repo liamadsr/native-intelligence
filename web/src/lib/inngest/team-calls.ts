@@ -13,9 +13,11 @@ import {
 } from '@/lib/team-calls/store'
 import { drainTeamCallEjections, liveEjectDeps, TEAM_CALL_EJECT_EVENT } from '@/lib/team-calls/eject'
 import { sweepTeamCalls } from '@/lib/team-calls/sweep'
-import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
+import { closeTeamCallRoom, openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
 import { sweepTeamCallEgress } from '@/lib/team-calls/notes-sweep'
+import { fenceGuests, pruneMeetingGuests, sweepMeetings } from '@/lib/meeting-links/store'
+import { endGuestOnlyCalls } from '@/lib/meeting-links/sweep'
 
 /** What the ring's timer reads of Inngest's run (a test hands its own). */
 export interface TeamCallRingTimerContext {
@@ -108,7 +110,8 @@ export const teamCallsEject = inngest.createFunction(
  * sweep.ts): live calls whose room is gone end, rings past their time are
  * missed, old webhook ids are forgotten; then everyone connected who may no
  * longer read their call's conversation is put out (565's team_call_fence,
- * drained by team-calls-eject), and the missed rings nobody was told of are
+ * drained by team-calls-eject), and so is every meeting guest who may no
+ * longer be in a call (574's meeting_guest_fence), and the missed rings nobody was told of are
  * told, in steps of their own; then the notes and recordings
  * (src/lib/team-calls/notes-sweep.ts). With LiveKit unset it still runs the
  * rings and the ids (there are none: calling is off), and ends nothing.
@@ -126,7 +129,14 @@ export const teamCallsSweep = inngest.createFunction(
       return sweepTeamCalls(getServiceClient(), { openRooms: config ? (names) => openTeamCallRooms(config, names) : null })
     })
     const fenced = teamCallsConfig() ? await step.run('fence', () => fenceTeamCalls(getServiceClient())) : 0
-    if (fenced > 0) await step.sendEvent('eject', { name: TEAM_CALL_EJECT_EVENT, data: {} })
+    // Meeting guests (phase 7): anyone connected who may no longer be (not let in, removed, a link revoked or
+    // closed, the call over) is put out too; guests waiting who stopped polling have left; old limit windows go.
+    const guestsFenced = teamCallsConfig() ? await step.run('fence-guests', () => fenceGuests(getServiceClient())) : 0
+    if (fenced + guestsFenced > 0) await step.sendEvent('eject', { name: TEAM_CALL_EJECT_EVENT, data: {} })
+    await step.run('sweep-meetings', () => sweepMeetings(getServiceClient()))
+    // A meeting's call left to guests for a few minutes (no member in it): ended, its room closed.
+    const livekit = teamCallsConfig()
+    if (livekit) await step.run('guest-only-calls', () => endGuestOnlyCalls(getServiceClient(), { closeRoom: (room) => closeTeamCallRoom(livekit, room) }))
     // Their own step: a failed notice is retried alone (the rings are already missed), with any a lost event left untold.
     await step.run('notify', async () => {
       const backlog = await missedRingsNobodyWasToldOf(getServiceClient())
@@ -142,5 +152,25 @@ export const teamCallsSweep = inngest.createFunction(
       `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost}`,
     )
     return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable, egress }
+  },
+)
+
+/**
+ * Daily, meeting links' housekeeping (src/lib/meeting-links/store.ts
+ * pruneMeetingGuests): limit windows over a day old go, a guest's address key
+ * goes a day after they stopped waiting, and a guest done with a meeting for
+ * 30 days keeps no name.
+ */
+export const meetingLinksPrune = inngest.createFunction(
+  {
+    id: 'meeting-links-prune',
+    retries: 1,
+    singleton: { mode: 'skip' },
+    triggers: [{ cron: '17 4 * * *' }],
+  },
+  async ({ step }) => {
+    const out = await step.run('prune', () => pruneMeetingGuests(getServiceClient()))
+    console.info(`[meeting-links-prune] rates=${out.rates} keys=${out.keys} names=${out.names}`)
+    return out
   },
 )

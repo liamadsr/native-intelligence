@@ -51,8 +51,12 @@ function fakeSdk(opts: { micError?: Error } = {}) {
       this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), fn])
       return this
     }
+    off(ev: string, fn: Handler) {
+      this.handlers.set(ev, (this.handlers.get(ev) ?? []).filter((h) => h !== fn))
+      return this
+    }
     emit(ev: string, ...args: unknown[]) {
-      for (const fn of this.handlers.get(ev) ?? []) fn(...args)
+      for (const fn of [...(this.handlers.get(ev) ?? [])]) fn(...args)
     }
     async connect(url: string, token: string) {
       this.connected = { url, token, room: 'tc-x', callId: 'x' }
@@ -294,6 +298,54 @@ describe('TeamCallSession, with call notes (phase 6)', () => {
     await s.connect(JOIN, { holdMic: true })
     rooms[0].emit('Disconnected', 9)
     await vi.waitFor(() => expect(refreshJoin).toHaveBeenCalledWith(false))
+  })
+
+  it('the server takes publishing away mid-call (a meeting guest, notes came on): the mic is held at once and the page told', async () => {
+    const { sdk, rooms, FakeParticipant } = fakeSdk()
+    const onPublishBlocked = vi.fn()
+    const s = session(sdk, { onPublishBlocked })
+    await s.connect(JOIN)
+    const room = rooms[0]
+    const local = room.localParticipant as unknown as { permissions?: { canPublish: boolean }; isMicrophoneEnabled: boolean }
+    expect(s.getSnapshot().mic).toBe('on')
+    // Someone else's permissions changing is not ours.
+    const ben = new FakeParticipant('ben', 'Ben Ito') as unknown as { permissions?: { canPublish: boolean } }
+    ben.permissions = { canPublish: false }
+    room.emit('ParticipantPermissionsChanged', { canPublish: true }, ben)
+    expect(s.getSnapshot().micHeld).toBeFalsy()
+    // LiveKit unpublishes their tracks and says so.
+    local.permissions = { canPublish: false }
+    local.isMicrophoneEnabled = false
+    room.emit('ParticipantPermissionsChanged', { canPublish: true }, local)
+    expect(s.getSnapshot().micHeld).toBe(true)
+    expect(s.getSnapshot().mic).toBe('off')
+    expect(onPublishBlocked).toHaveBeenCalledTimes(1)
+    room.emit('ParticipantPermissionsChanged', { canPublish: false }, local)
+    expect(onPublishBlocked).toHaveBeenCalledTimes(1)
+  })
+
+  it('"Join with microphone" after a hold: the server says go, the room raises the permission, then the mic publishes', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const room = () => rooms[0]
+    const local = () => room().localParticipant as unknown as { permissions?: { canPublish: boolean }; isMicrophoneEnabled: boolean }
+    const allowPublish = vi.fn(async () => {
+      // LiveKit's word arrives after the server's answer.
+      setTimeout(() => {
+        local().permissions = { canPublish: true }
+        room().emit('ParticipantPermissionsChanged', { canPublish: false }, local())
+      }, 20)
+      return true
+    })
+    const s = session(sdk, { allowPublish })
+    await s.connect(JOIN)
+    local().permissions = { canPublish: false }
+    local().isMicrophoneEnabled = false
+    room().emit('ParticipantPermissionsChanged', { canPublish: true }, local())
+    await s.releaseMic()
+    expect(allowPublish).toHaveBeenCalledTimes(1)
+    expect(local().permissions?.canPublish).toBe(true)
+    expect(local().isMicrophoneEnabled).toBe(true)
+    expect(s.getSnapshot().micHeld).toBe(false)
   })
 
   it('notes on: a mute ends the microphone track (a new file on unmute); notes off: a mute only mutes', async () => {

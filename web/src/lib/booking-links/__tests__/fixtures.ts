@@ -43,6 +43,7 @@ export function linkOf(over: Partial<BookingLink> = {}): BookingLink {
     dailyCap: null,
     questions: [{ id: 'company', label: 'Company', required: true, kind: 'text' }],
     video: true,
+    callHere: false,
     location: null,
     askFirst: false,
     hostMode: 'one',

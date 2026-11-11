@@ -38,7 +38,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { Bell, BellOff, Check, ChevronLeft, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, X } from 'lucide-react'
+import { Bell, BellOff, Check, ChevronLeft, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, Video, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -101,6 +101,8 @@ import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/shar
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
 import { upsertParticipant, type TeamCall, type TeamCallParticipant, type TeamCallView } from '@/lib/team-calls/types'
 import { CallMessage, CallButton } from './team-call-parts'
+import { NewMeetingDialog } from '@/components/meeting-links/new-meeting-dialog'
+import { MeetingLinkBar } from '@/components/meeting-links/meeting-link-bar'
 import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, ReactionChips, ThreadBar, type Member } from './team-chat-message-parts'
 
 /**
@@ -199,6 +201,7 @@ export function TeamChatView({
   const [waitingOnAgent, setWaitingOnAgent] = useState<Record<string, number>>({})
   const [newChannelOpen, setNewChannelOpen] = useState(false)
   const [newDmOpen, setNewDmOpen] = useState(false)
+  const [newMeetingOpen, setNewMeetingOpen] = useState(false)
   // The message the view was asked to open on (`focus`): where it is, and whether its pane has scrolled to it.
   const [focused, setFocused] = useState<{ id: string; channelId: string; rootId: string | null; shown: boolean } | null>(null)
 
@@ -716,10 +719,13 @@ export function TeamChatView({
   const selected = channels?.find((c) => c.id === selectedId) ?? null
   const channelList = (channels ?? []).filter((c) => c.kind === 'channel')
   const dmList = (channels ?? []).filter((c) => c.kind === 'dm')
+  // Meeting links' conversations (phase 7), once used; only where calling is on.
+  const meetingList = teamCalls.available ? (channels ?? []).filter((c) => c.kind === 'meeting') : []
 
   const channelTitle = useCallback(
     (c: TeamChatChannel): string => {
       if (c.kind === 'channel') return c.name ?? 'channel'
+      if (c.kind === 'meeting') return c.name ?? 'Meeting'
       if (c.dm_member_id && c.dm_member_id === meId) return `${memberName(membersById.get(c.dm_member_id))} (you)`
       return memberName(c.dm_member_id ? membersById.get(c.dm_member_id) : undefined)
     },
@@ -900,6 +906,14 @@ export function TeamChatView({
             />
           )
         })}
+        {teamCalls.available && (
+          <>
+            <SectionHeading label="Meetings" onAdd={() => setNewMeetingOpen(true)} addLabel="New meeting link" className="mt-5" />
+            {meetingList.map((c) => (
+              <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === onScreen} onSelect={() => openChannel(c.id)} />
+            ))}
+          </>
+        )}
       </div>
     </aside>
   )
@@ -1017,6 +1031,20 @@ export function TeamChatView({
         }}
       />
       <NewDmDialog open={newDmOpen} onOpenChange={setNewDmOpen} members={members} meId={meId} onPick={openDm} />
+      {teamCalls.available && (
+        <NewMeetingDialog
+          open={newMeetingOpen}
+          onOpenChange={setNewMeetingOpen}
+          onOpenMeeting={(m) => {
+            setNewMeetingOpen(false)
+            // The call's message makes the conversation used: it shows in the list once the call starts.
+            void teamCalls.startCall({ id: m.channelId, kind: 'meeting', label: m.title }).then(async () => {
+              await loadChannels()
+              openChannel(m.channelId)
+            })
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1065,6 +1093,8 @@ function ChannelRow({
     >
       {channel.kind === 'channel' ? (
         privateTeam ? <Lock className="h-4 w-4 shrink-0 opacity-70" /> : <Hash className="h-4 w-4 shrink-0 opacity-70" />
+      ) : channel.kind === 'meeting' ? (
+        <Video className="h-4 w-4 shrink-0 opacity-70" />
       ) : (
         <Avatar name={avatar?.name ?? title} url={avatar?.url} size="sm" />
       )}
@@ -1241,6 +1271,7 @@ function ChannelPane({
   const reactorNames = useReactorNames(membersById, meId)
   const placeholder = channel.kind === 'channel' ? `Message #${title}` : `Message ${title}`
   const archived = !!channel.archived_at
+  const meetingBar = useTeamCalls().available
 
   return (
     <>
@@ -1259,7 +1290,13 @@ function ChannelPane({
             <ChevronLeft className="h-5 w-5" />
           </button>
         )}
-        {channel.kind === 'channel' ? <Hash className="h-5 w-5 shrink-0 text-muted-foreground" /> : <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size="sm" />}
+        {channel.kind === 'channel' ? (
+          <Hash className="h-5 w-5 shrink-0 text-muted-foreground" />
+        ) : channel.kind === 'meeting' ? (
+          <Video className="h-5 w-5 shrink-0 text-muted-foreground" />
+        ) : (
+          <Avatar name={memberName(dmPerson)} url={dmPerson?.avatar_url} size="sm" />
+        )}
         <h2 className="truncate text-lg font-bold text-foreground">{title}</h2>
         {teamName && (
           <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -1272,13 +1309,18 @@ function ChannelPane({
         <CallButton channel={channel} label={channel.kind === 'channel' ? `#${title}` : title} />
         <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} />
       </div>
+      {channel.kind === 'meeting' && meetingBar && (
+        <MeetingLinkBar channelId={channel.id} meId={meId} live={Object.values(calls).some((c) => c.call.channel_id === channel.id && c.call.status === 'live')} />
+      )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {messages === null ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
         ) : messages.length === 0 ? (
           <div className="py-10 text-center">
-            <p className="text-[15px] font-semibold text-foreground">{channel.kind === 'channel' ? `This is the start of #${title}` : `This is the start of your messages with ${title}`}</p>
+            <p className="text-[15px] font-semibold text-foreground">
+              {channel.kind === 'channel' ? `This is the start of #${title}` : channel.kind === 'meeting' ? `This is the start of ${title}` : `This is the start of your messages with ${title}`}
+            </p>
             <p className="mt-1 text-sm text-muted-foreground">Type @{assistantName} to ask your agent; it answers here with what the channel has said.</p>
           </div>
         ) : (
@@ -1395,7 +1437,7 @@ function NotifyMenu({ kind, level, onChange }: { kind: TeamChatChannel['kind']; 
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <p className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">{kind === 'dm' ? 'Notify me about this conversation' : 'Notify me about this channel'}</p>
+        <p className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">{kind !== 'channel' ? 'Notify me about this conversation' : 'Notify me about this channel'}</p>
         {NOTIFY_OPTIONS.map((o) => (
           <DropdownMenuItem key={o.level} data-team-chat-notify-option={o.level} onSelect={() => o.level !== level && onChange(o.level)} className="items-start">
             {o.level === level ? <Check className="mt-0.5 h-4 w-4" aria-label="Chosen" /> : <span className="h-4 w-4 shrink-0" aria-hidden />}

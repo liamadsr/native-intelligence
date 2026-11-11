@@ -62,6 +62,8 @@ export interface BookingLink {
   dailyCap: number | null
   questions: LinkQuestion[]
   video: boolean
+  /** Meet on a call here (migration 585): each booking gets a meeting link of ours, not the provider's video link. */
+  callHere: boolean
   location: string | null
   askFirst: boolean
   hostMode: HostMode

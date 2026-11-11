@@ -49,6 +49,7 @@ import { cleanText } from './intake'
 import { remindersCancelled, remindersFollowBooking } from './reminder-store'
 import { bookingSetup, isSlotFree, localDate, localStartInstant, slotLabel, type FindOpenSlotsDeps } from './slots'
 import { moveMeetingBooking } from '@/lib/time-offers/store'
+import { bookingMeetingCancelled } from '@/lib/meeting-links/bookings'
 import { businessName, expireStaleBookings, getBooking, moveBooking } from './store'
 import { BOOKING_REQUEST_TTL_MS, type CustomerBooking } from './types'
 
@@ -132,6 +133,8 @@ export interface BookingChangeDeps {
   moveEvent?: MoveEvent
   deleteEvent?: (ownerUserId: string, eventId: string) => Promise<unknown>
   textCustomer?: (booking: CustomerBooking, body: string) => Promise<boolean>
+  /** After a cancellation: guests still in its meeting's call taken out now (585's trigger revoked the link; default: src/lib/meeting-links/bookings.ts). */
+  meetingCancelled?: (bookingId: string) => Promise<boolean>
 }
 
 const refuse = (code: string, error: string): ToolOutput => ({ success: false, code, error })
@@ -284,6 +287,8 @@ export async function ownerCancelBooking(
 
   const cancelled = await moveBooking(supabase, { workspaceId: booking.workspaceId, bookingId: booking.id, from: 'confirmed', to: 'cancelled' })
   if (!cancelled) return refuse('CHANGED', `That booking just changed (list_bookings shows it now). ${nothing}`)
+  // A booking meeting on a call here: 585's trigger revoked its link with the cancellation; anyone still in its call goes now.
+  await (deps.meetingCancelled ?? ((id) => bookingMeetingCancelled(supabase, id)))(booking.id).catch(() => false)
   // Its time as it was cancelled (a move may have landed since it was read).
   const label = slotLabel(cancelled.startsAt, zone)
 

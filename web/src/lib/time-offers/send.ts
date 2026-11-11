@@ -151,6 +151,7 @@ export function requestOf(args: { workspaceId: string; userId: string; browserTi
     slots: input.slots,
     durationMinutes: input.duration_minutes,
     video: input.video,
+    callHere: input.call_here === true,
     location: input.location ?? null,
     message: input.message ?? null,
     expiresAt: input.expires_at ?? null,

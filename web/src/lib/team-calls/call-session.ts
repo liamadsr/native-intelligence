@@ -33,6 +33,7 @@ import type {
   Room,
   Track,
 } from 'livekit-client'
+import { guestIdOfIdentity } from '@/lib/meeting-links/shape'
 
 export type CallDeviceKind = 'audioinput' | 'audiooutput' | 'videoinput'
 
@@ -49,6 +50,8 @@ export interface CallTile {
   name: string
   kind: 'person' | 'screen'
   isLocal: boolean
+  /** A meeting guest (identity `guest-<id>`, set by the server): labelled "Guest". */
+  guest: boolean
   speaking: boolean
   micOn: boolean
   /** The video to draw (a camera, or the screen), or null: draw the person's initials. */
@@ -88,7 +91,7 @@ export interface TeamCallJoin {
 export interface TeamCallSessionInfo {
   callId: string
   channelId: string
-  channelKind: 'channel' | 'dm'
+  channelKind: 'channel' | 'dm' | 'meeting'
   /** What the panel calls it: "#launch", or the other person's name. */
   label: string
   /**
@@ -107,6 +110,12 @@ export interface TeamCallSessionDeps {
   hangUp: () => Promise<void>
   /** Called once, when the call is over here. */
   onEnded?: (why: CallEnd) => void
+  /**
+   * The server took this person's publishing away mid-call (a meeting guest
+   * when notes or a recording came on that they haven't said go to): their
+   * microphone is held and the notice shows; the page asks what is on now.
+   */
+  onPublishBlocked?: () => void
   /** The SDK, injectable for tests. */
   loadSdk?: () => Promise<typeof import('livekit-client')>
 }
@@ -239,13 +248,44 @@ export class TeamCallSession {
     const room = this.room
     const lk = this.sdk
     if (!room || !lk || this.snapshot.phase !== 'connected') return
+    // The server lets them publish through LiveKit: wait (briefly) until the room says so here too.
+    await this.untilMayPublish(room, lk)
     await this.enableMic(room, lk)
     this.refresh()
     void this.refreshDevices()
   }
 
+  /** Until the room says this person may publish (at most 5 s): a permission raised by the server lands as an event. */
+  private untilMayPublish(room: Room, lk: typeof import('livekit-client')): Promise<void> {
+    if (room.localParticipant.permissions?.canPublish !== false) return Promise.resolve()
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        room.off(lk.RoomEvent.ParticipantPermissionsChanged, check)
+        resolve()
+      }
+      const check = () => {
+        if (room.localParticipant.permissions?.canPublish !== false) done()
+      }
+      const timer = setTimeout(done, 5000)
+      room.on(lk.RoomEvent.ParticipantPermissionsChanged, check)
+    })
+  }
+
   private wire(room: Room, lk: typeof import('livekit-client')) {
     const E = lk.RoomEvent
+    // The server took this person's publishing away (notes or a recording came on that a meeting guest
+    // hasn't said go to): LiveKit unpublished their tracks; the microphone waits for the notice.
+    room.on(E.ParticipantPermissionsChanged, (_prev, participant) => {
+      if (this.room !== room || participant !== room.localParticipant) return
+      if (participant.permissions?.canPublish === false && !this.holdMic) {
+        this.holdMic = true
+        this.mic = 'off'
+        this.emit({ micHeld: true })
+        this.refresh()
+        this.deps.onPublishBlocked?.()
+      }
+    })
     const refresh = () => {
       if (this.room === room) this.refresh()
     }
@@ -349,7 +389,8 @@ export class TeamCallSession {
   }
 
   private tileOf(p: Participant, lk: typeof import('livekit-client'), speaking: Set<string>, isLocal: boolean): CallTile[] {
-    const name = p.name?.trim() || (isLocal ? 'You' : 'A teammate')
+    const guest = guestIdOfIdentity(p.identity) !== null
+    const name = p.name?.trim() || (isLocal ? 'You' : guest ? 'Guest' : 'A teammate')
     const camera = p.getTrackPublication(lk.Track.Source.Camera)
     const screen = p.getTrackPublication(lk.Track.Source.ScreenShare)
     const tiles: CallTile[] = [
@@ -359,13 +400,14 @@ export class TeamCallSession {
         name,
         kind: 'person',
         isLocal,
+        guest,
         speaking: speaking.has(p.identity),
         micOn: p.isMicrophoneEnabled,
         video: camera && !camera.isMuted && camera.track ? camera.track : null,
       },
     ]
     if (screen?.track && !screen.isMuted) {
-      tiles.push({ key: `${p.identity}:screen`, identity: p.identity, name, kind: 'screen', isLocal, speaking: false, micOn: p.isMicrophoneEnabled, video: screen.track })
+      tiles.push({ key: `${p.identity}:screen`, identity: p.identity, name, kind: 'screen', isLocal, guest, speaking: false, micOn: p.isMicrophoneEnabled, video: screen.track })
     }
     return tiles
   }

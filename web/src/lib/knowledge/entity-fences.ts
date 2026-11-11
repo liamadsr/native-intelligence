@@ -132,7 +132,8 @@ const teamChatChannelFence: Fence = async (supabase, userId, ids, workspaceId) =
   const myMemberIds = [...members.values()]
 
   const teamIds = uniq(channels.filter((c) => c.kind === 'channel' && c.team_id).map((c) => c.team_id as string))
-  const dmIds = uniq(channels.filter((c) => c.kind === 'dm').map((c) => c.id as string))
+  // A DM's and a meeting's (572) readers are its members.
+  const dmIds = uniq(channels.filter((c) => c.kind === 'dm' || c.kind === 'meeting').map((c) => c.id as string))
   const [teamRows, dmRows] = await Promise.all([
     teamIds.length
       ? rowsByIds(teamIds, (c) => supabase.from('team_member').select('team_id, member_id').in('team_id', c).in('member_id', myMemberIds))
@@ -150,7 +151,7 @@ const teamChatChannelFence: Fence = async (supabase, userId, ids, workspaceId) =
     if (!me) continue
     if (c.kind === 'channel') {
       if (!c.team_id || (teamRows && myTeams.has(c.team_id as string))) out.add(c.id as string)
-    } else if (c.kind === 'dm') {
+    } else if (c.kind === 'dm' || c.kind === 'meeting') {
       if (dmRows && myDms.has(`${c.id as string}:${me}`)) out.add(c.id as string)
     }
   }

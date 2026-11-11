@@ -54,6 +54,7 @@ import { bookSlot, deleteBookingClaims, deleteHolds, getBooking, getOffer, getOf
 import { manageTokenFor, manageTokenHash, manageUrl, offerTokenHash } from './tokens'
 import { BOOKING_ATTEMPTS_MAX, BOOKING_PROVIDER_TIMEOUT_MS, GUEST_NOTE_MAX, RECIPIENT_NAME_MAX, openSlotsOf, type MeetingBooking, type OfferSlot, type TimeOffer } from './types'
 import { bookedReport, bookedText, bookingEventWords, failedReport } from './words'
+import { bookingMeetingUrl } from '@/lib/meeting-links/bookings'
 
 export type PickVia = 'link' | 'host' | 'customer'
 
@@ -104,6 +105,8 @@ export interface AcceptDeps {
   hostEmails?: (workspaceId: string, userIds: readonly string[]) => Promise<string[]>
   /** Text a mobile-only guest their confirmation (default: from the business's number, ../customers/booking.ts). */
   textGuest?: (booking: MeetingBooking, body: string) => Promise<boolean>
+  /** The booking's meeting link when it meets on a call here (default: src/lib/meeting-links/bookings.ts; null: it doesn't). */
+  meetingUrl?: (booking: MeetingBooking) => Promise<string | null>
 }
 
 async function hostEmailsDefault(workspaceId: string, userIds: readonly string[]): Promise<string[]> {
@@ -285,7 +288,15 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
   try {
     // A poll's meeting (./polls.ts): every attending guest and co-host on one event, no one guest's link in it.
     const party = attempt.source === 'poll' ? await (await import('./polls')).pollParty(supabase, attempt, deps) : null
-    const words = party?.words ?? bookingEventWords(attempt, link)
+    // Meets on a call here (migration 585): our meeting link is the place, made once per booking; no provider video link.
+    // A link that can't be had never fails the booking: it falls back to the provider's video link, as without the choice.
+    // (A cancellation, a move or a failure later reaches the meeting through 585's trigger on meeting_booking.)
+    const callUrl = await (deps.meetingUrl ?? ((b) => bookingMeetingUrl(supabase, b)))(attempt).catch((err: unknown) => {
+      console.warn(`[time-offers] booking=${attempt.id} meeting link not made, the provider's video link instead:`, err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+      return null
+    })
+    const partyWords = party?.words && callUrl ? { ...party.words, description: `Join the meeting: ${callUrl}\n\n${party.words.description}` } : party?.words
+    const words = partyWords ?? bookingEventWords(attempt, link, callUrl)
     const otherHosts = !party && attempt.otherHostIds.length ? await (deps.hostEmails ?? hostEmailsDefault)(attempt.workspaceId, attempt.otherHostIds) : []
     const attendees = party?.attendees ?? [...(attempt.guestEmail ? [attempt.guestEmail] : []), ...otherHosts]
     const event = await withinTime(
@@ -296,11 +307,11 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
           description: words.description,
           start: attempt.startsAt,
           end: attempt.endsAt,
-          ...(attempt.location ? { location: attempt.location } : {}),
+          ...(callUrl ? { location: callUrl } : attempt.location ? { location: attempt.location } : {}),
           ...(attendees.length ? { attendees } : {}),
         },
         attempt.calendarAccountId ?? undefined,
-        { sendInvites: true, video: attempt.video, idempotencyKey: attempt.id },
+        { sendInvites: true, video: callUrl ? false : attempt.video, idempotencyKey: attempt.id },
       ),
       deps.providerTimeoutMs ?? BOOKING_PROVIDER_TIMEOUT_MS,
     )
@@ -308,7 +319,7 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
       state: 'confirmed',
       calendar_event_id: event.id,
       calendar_id: event.calendarId ?? null,
-      conference_url: event.conferenceUrl ?? null,
+      conference_url: callUrl ?? event.conferenceUrl ?? null,
       calendar_account_id: event.accountId ?? attempt.calendarAccountId,
       last_error: null,
       confirmed_at: new Date().toISOString(),
@@ -330,7 +341,7 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
     // A mobile-only guest (a link's, booked on the host's yes) hears by text.
     const texted =
       !confirmed.guestEmail && confirmed.guestPhone && confirmed.source === 'link'
-        ? await (deps.textGuest ?? ((b, body) => textBookingCustomer(supabase, { workspaceId: b.workspaceId, customerPhone: b.guestPhone, guestId: null }, body)))(confirmed, bookedText(confirmed, zone, link)).catch(() => false)
+        ? await (deps.textGuest ?? ((b, body) => textBookingCustomer(supabase, { workspaceId: b.workspaceId, customerPhone: b.guestPhone, guestId: null }, body)))(confirmed, bookedText(confirmed, zone, link, callUrl)).catch(() => false)
         : false
     await tell({ workspaceId: confirmed.workspaceId, userId: confirmed.hostUserId, messageId: `meeting-booking:${confirmed.id}:booked`, text: bookedReport(confirmed, zone, !!confirmed.guestEmail, texted), routes: false }).catch(() => false)
     return confirmed

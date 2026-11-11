@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { LINK_DESCRIPTION_MAX, LINK_HOSTS_MAX, LINK_LOCATION_MAX, LINK_QUESTIONS_MAX, LINK_TITLE_MAX, QUESTION_LABEL_MAX } from '@/lib/booking-links/types'
 import { lengthLabel } from '@/lib/time-offers/display'
 import { cn } from '@/lib/utils'
+import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
 import {
   BUFFER_OPTIONS,
   LENGTH_OPTIONS,
@@ -84,6 +85,8 @@ export function BookingLinkDialog({
 }) {
   const [draft, setDraft] = useState(initial)
   const set = (patch: Partial<LinkDraft>) => setDraft((d) => ({ ...d, ...patch }))
+  // Meeting links are offered only where calling is set up (the dashboard's call provider says so).
+  const callsHere = useTeamCalls().available
   const problem = draftProblem(draft)
   const toggleHost = (userId: string, on: boolean) =>
     setDraft((d) => ({ ...d, hosts: on ? (d.hosts.includes(userId) ? d.hosts : [...d.hosts, userId].slice(0, LINK_HOSTS_MAX)) : d.hosts.filter((h) => h !== userId) }))
@@ -158,6 +161,15 @@ export function BookingLinkDialog({
                 <Label htmlFor="link-video">Video call</Label>
                 <Switch id="link-video" checked={draft.video} onCheckedChange={(video) => set({ video })} />
               </div>
+              {draft.video && callsHere && (
+                <div className="flex items-start justify-between gap-4 pl-3">
+                  <div className="min-w-0">
+                    <Label htmlFor="link-call-here">Use a meeting link here</Label>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Each booking gets one of your meeting links instead of the calendar&apos;s video link. Guests wait in the lobby until you let them in.</p>
+                  </div>
+                  <Switch id="link-call-here" checked={draft.callHere} onCheckedChange={(callHere) => set({ callHere })} data-link-call-here="" />
+                </div>
+              )}
               {!draft.video && <Input aria-label="Where" value={draft.location} maxLength={LINK_LOCATION_MAX} placeholder="Where: an address, or a phone call" onChange={(e) => set({ location: e.target.value })} />}
             </div>
 

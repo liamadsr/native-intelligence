@@ -51,6 +51,7 @@ describe('a new link', () => {
       window_days: 30,
       questions: [],
       video: true,
+      call_here: false,
       location: null,
       ask_first: false,
       hosts: [AVA],

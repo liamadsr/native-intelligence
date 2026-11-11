@@ -22,6 +22,7 @@
  * Server only; service role. Never throws: every outcome is a result.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { bookingCallsAvailable } from '@/lib/meeting-links/bookings'
 import { readRangeEdge } from '@/lib/integrations/calendar-zone'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 import { readWorkingHours } from '@/lib/availability/schedule'
@@ -65,6 +66,8 @@ export interface OfferRequest {
   slots: readonly string[]
   durationMinutes: number
   video?: boolean
+  /** Meet on a call here: the booking gets one of our meeting links (only where calling is set up). */
+  callHere?: boolean
   location?: string | null
   message?: string | null
   expiresAt?: string | null
@@ -88,6 +91,7 @@ export interface PlannedOffer {
   title: string
   durationMinutes: number
   video: boolean
+  callHere: boolean
   location: string | null
   message: string | null
   expiresAt: string
@@ -181,6 +185,8 @@ export function normalizeOfferRequest(
       title,
       durationMinutes: duration,
       video: req.video !== false,
+      // Only where calling is set up: otherwise nothing would make the link (the option isn't offered).
+      callHere: req.callHere === true && bookingCallsAvailable(),
       location,
       message,
       expiresAt: new Date(expires).toISOString(),
@@ -274,6 +280,7 @@ export async function createOffer(
       title: plan.title,
       durationMinutes: plan.durationMinutes,
       video: plan.video,
+      callHere: plan.callHere,
       location: plan.location,
       message: plan.message,
       timeZone: plan.timeZone,

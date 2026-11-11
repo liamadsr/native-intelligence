@@ -36,7 +36,7 @@ export function CallButton({ channel, label }: { channel: TeamChatChannel; label
   const { available, active, startCall, setMinimized } = useTeamCalls()
   if (!available || channel.archived_at) return null
   const here = active?.channelId === channel.id
-  const title = here ? 'Open the call' : channel.kind === 'dm' ? `Call ${label}` : `Start a call in ${label}`
+  const title = here ? 'Open the call' : channel.kind === 'dm' ? `Call ${label}` : channel.kind === 'meeting' ? `Start ${label}` : `Start a call in ${label}`
   return (
     <button
       type="button"
@@ -196,17 +196,23 @@ export function CallMessage({
           <Icon className="h-4 w-4" aria-hidden />
         </span>
         <span className="min-w-0 truncate text-sm text-foreground">{line}</span>
-        {ended && <CallAfterwards call={ended} title={place?.kind === 'channel' ? `Call in ${place.label}` : `Call with ${place?.label ?? 'them'}`} />}
+        {ended && (
+          <CallAfterwards call={ended} title={place?.kind === 'channel' ? `Call in ${place.label}` : place?.kind === 'meeting' ? place.label : `Call with ${place?.label ?? 'them'}`} />
+        )}
       </div>
     )
   }
 
   const people = inCallNow(call.participants).map((p) => p.member_id)
+  // A meeting's guests count in the call (575) but are no members: said as a number.
+  const guests = Math.max(0, (call.call.participant_count ?? 0) - people.length)
   const here = active?.callId === call.call.id
   const ringing = call.call.ringing.filter((id) => !people.includes(id))
   const status =
-    people.length > 2
-      ? `${people.length} people are in the call`
+    people.length + guests > 2
+      ? `${people.length + guests} people are in the call`
+      : guests > 0
+      ? `${[...(people.length ? [names(people, membersById, meId)] : []), guests === 1 ? 'a guest' : `${guests} guests`].join(' and ')} ${people.length + guests === 1 ? 'is' : 'are'} in the call`
       : people.length > 0
       ? `${names(people, membersById, meId)} ${people.length === 1 && people[0] !== meId ? 'is' : 'are'} in the call`
       : ringing.length > 0

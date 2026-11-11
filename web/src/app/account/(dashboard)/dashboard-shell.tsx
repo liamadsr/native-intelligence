@@ -422,7 +422,9 @@ export function WorkspaceAutoSwitch() {
       }
       // Now that the cookie really is switched, drop the param and reload to
       // pick up the new workspace context server-side.
-      window.history.replaceState({}, '', window.location.pathname)
+      // A meeting link opened in another workspace (src/app/m/[token]) keeps its `meeting` for after the reload.
+      const meeting = params.get('meeting')
+      window.history.replaceState({}, '', meeting ? `${window.location.pathname}?meeting=${encodeURIComponent(meeting)}` : window.location.pathname)
       window.location.reload()
     })
   }, [])

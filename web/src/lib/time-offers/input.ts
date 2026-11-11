@@ -57,6 +57,7 @@ export const offerTimesInput = z.object({
     .describe(`Start times exactly as find_times gave them (ISO, with their offset): ${OFFER_SLOTS_MIN} or ${OFFER_SLOTS_MAX} for one person, ${OFFER_SLOTS_MIN} to ${POLL_SLOTS_MAX} for a poll`),
   duration_minutes: z.number().int().min(5).max(480).describe('How long the meeting is'),
   video: z.boolean().optional().describe('Add a video link (Google Meet or Teams) when booked (default true)'),
+  call_here: z.boolean().optional().describe("Meet on a call here: the booking gets one of the person's meeting links instead of Google Meet or Teams (only where calls are set up; default false)"),
   location: z.string().max(LOCATION_MAX).optional().describe('Where, when it is in person or on a call they should know of'),
   message: z.string().max(OFFER_MESSAGE_MAX).optional().describe(`A short line of the person's own words to add (at most ${OFFER_MESSAGE_MAX} characters, no links), only when they gave one`),
   expires_at: z.string().max(40).optional().describe('When the offer lapses (an ISO date or date-time). Default 3 days; never after the first time starts'),

@@ -192,11 +192,16 @@ export async function sweepTeamCallEgress(svc: SupabaseClient, deps: NotesSweepD
   return result
 }
 
-/** Notes egresses still running whose notes are off (or on in a newer round), whose call ended, or whose person left: stopped. */
+/**
+ * Notes egresses still running whose notes are off (or on in a newer round),
+ * whose call ended, or whose person left: stopped. A meeting guest's file
+ * (phase 7, guest_id) is wanted while the guest is let into that call and in
+ * it (573's meeting_guest: admitted, in_call); a removed one's is not.
+ */
 export async function stopUnwanted(svc: SupabaseClient, port: TeamCallEgressPort, now: Date = new Date()): Promise<number> {
   const { data, error } = await svc
     .from('team_call_egress')
-    .select('id, call_id, member_id, round, egress_id')
+    .select('id, call_id, member_id, guest_id, round, egress_id')
     .eq('kind', 'notes')
     .in('status', ['starting', 'active'])
     .not('egress_id', 'is', null)
@@ -205,15 +210,23 @@ export async function stopUnwanted(svc: SupabaseClient, port: TeamCallEgressPort
     .order('created_at', { ascending: true })
     .limit(EGRESS_SWEEP_BATCH)
   if (error) throw new Error(`team calls sweep: running notes read failed: ${error.message}`)
-  const rows = (data ?? []) as Array<{ id: string; call_id: string; member_id: string | null; round: number; egress_id: string }>
+  const rows = (data ?? []) as Array<{ id: string; call_id: string; member_id: string | null; guest_id: string | null; round: number; egress_id: string }>
   if (rows.length === 0) return 0
   const callIds = [...new Set(rows.map((r) => r.call_id))]
-  const [calls, people] = await Promise.all([
+  const hasGuests = rows.some((r) => !!r.guest_id)
+  const [calls, people, guests] = await Promise.all([
     svc.from('team_call').select('id, status, notes, notes_round').in('id', callIds),
     svc.from('team_call_participant').select('call_id, member_id, state').in('call_id', callIds),
+    hasGuests ? svc.from('meeting_guest').select('id, call_id, state, in_call').in('call_id', callIds) : Promise.resolve({ data: [], error: null }),
   ])
   if (calls.error) throw new Error(`team calls sweep: calls read failed: ${calls.error.message}`)
   if (people.error) throw new Error(`team calls sweep: people read failed: ${people.error.message}`)
+  if (guests.error) throw new Error(`team calls sweep: guests read failed: ${guests.error.message}`)
+  const guestsIn = new Set(
+    ((guests.data ?? []) as Array<{ id: string; call_id: string | null; state: string; in_call: boolean }>)
+      .filter((g) => g.state === 'admitted' && g.in_call)
+      .map((g) => `${g.call_id}:${g.id}`),
+  )
   const byId = new Map(((calls.data ?? []) as Array<{ id: string; status: string; notes: boolean; notes_round: number }>).map((c) => [c.id, c]))
   const inCall = new Set(
     ((people.data ?? []) as Array<{ call_id: string; member_id: string; state: string }>).filter((p) => p.state === 'joined').map((p) => `${p.call_id}:${p.member_id}`),
@@ -221,7 +234,8 @@ export async function stopUnwanted(svc: SupabaseClient, port: TeamCallEgressPort
   let stopped = 0
   for (const row of rows) {
     const call = byId.get(row.call_id)
-    const wanted = !!call && call.status === 'live' && call.notes && call.notes_round === row.round && !!row.member_id && inCall.has(`${row.call_id}:${row.member_id}`)
+    const personIn = row.member_id ? inCall.has(`${row.call_id}:${row.member_id}`) : row.guest_id ? guestsIn.has(`${row.call_id}:${row.guest_id}`) : false
+    const wanted = !!call && call.status === 'live' && call.notes && call.notes_round === row.round && personIn
     if (wanted) continue
     try {
       await port.stop(row.egress_id)

@@ -224,3 +224,32 @@ describe('sweepTimeOffers', () => {
     expect(db.tables.booking_link_attempt.map((r) => r.id)).toEqual(['a-new'])
   })
 })
+
+describe('a booking meeting on a call here (migration 585: its trigger moves or revokes the meeting with every write)', () => {
+  it('cancelled: anyone still in its call is taken out now (the link itself was revoked by the trigger)', async () => {
+    const { db, booking, manage } = await booked()
+    const meetingCancelled = vi.fn(async () => true)
+    expect(await cancelMeeting(db, { booking, by: 'guest' }, { ...manage, meetingCancelled })).toMatchObject({ ok: true })
+    expect(meetingCancelled).toHaveBeenCalledWith(booking.id)
+  })
+
+  it('a cancellation the calendar refused takes no one out', async () => {
+    const { db, booking, manage } = await booked()
+    manage.deleteEvent.mockRejectedValueOnce(new Error('Google Calendar delete error: 500'))
+    const meetingCancelled = vi.fn(async () => true)
+    expect(await cancelMeeting(db, { booking, by: 'host' }, { ...manage, meetingCancelled })).toMatchObject({ ok: false })
+    expect(meetingCancelled).not.toHaveBeenCalled()
+  })
+
+  it('moved: the event keeps the link at the top (the same meeting, its window moved by the trigger)', async () => {
+    const { db, booking, manage, window } = await booked()
+    const call = 'https://app.example/m/AbCdEfGhIjKlMnOpQrStUvWxYz012345'
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.example')
+    const to = new Date(window.start).toISOString()
+    const out = await rescheduleMeeting(db, { booking: { ...booking, conferenceUrl: call }, start: to, by: 'guest' }, manage)
+    vi.unstubAllEnvs()
+    expect(out).toMatchObject({ ok: true })
+    const [, , update] = manage.updateEvent.mock.calls[0] as unknown as [string, string, { description: string }]
+    expect(update.description.split('\n')[0]).toBe(`Join the meeting: ${call}`)
+  })
+})

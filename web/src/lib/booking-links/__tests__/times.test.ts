@@ -165,6 +165,7 @@ describe('readLinkTimes: unknown is never free', () => {
     dailyCap: null,
     questions: [],
     video: true,
+    callHere: false,
     location: null,
     askFirst: false,
     hostMode: 'all',

@@ -94,7 +94,7 @@ export function joinsListenOnly(call: Partial<TeamCallNotesView> | null | undefi
 
 /** A readable call as a join answer names it: where it is, who the person is in it, what the server offers, its notes and recording. */
 export function callPlaceOf(
-  call: { id: string; channel_id: string; workspace_id: string; message_id: string | null; channel_kind: 'channel' | 'dm' } & Partial<TeamCallNotesView>,
+  call: { id: string; channel_id: string; workspace_id: string; message_id: string | null; channel_kind: 'channel' | 'dm' | 'meeting' } & Partial<TeamCallNotesView>,
   memberId: string,
 ) {
   return {
