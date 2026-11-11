@@ -147,6 +147,32 @@ begin
   perform pg_temp.t555_run('nobody joins a thread directly', 'refused', u_c,
     array[format('insert into public.team_chat_thread_member (root_id, member_id, channel_id, workspace_id, last_read_at) values (%L, %L, %L, %L, now())', root_team, m_c, ch_team, w1)]);
 
+  perform pg_temp.t555_run('a deleted reply leaves the summary (count, last reply and repliers recomputed)', 'rows=1', u_b,
+    array[
+      format('update public.team_chat_message set deleted_at = now() where id = %L', reply_b),
+      format('select 1 from public.team_chat_thread where root_id = %L and reply_count = 0 and last_reply_at is null and participant_ids = %L::uuid[]', root_a, '{}')
+    ]);
+  perform pg_temp.t555_run('a thread reply never moves its channel up the list', 'rows=1', u_c,
+    array[
+      format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, thread_root_id) values (%L, %L, %L, %L, %L)', ch_open, w1, m_c, 'quiet', root_a),
+      format('select 1 from public.team_chat_channel where id = %L and last_message_at < now() - interval %L', ch_open, '30 minutes')
+    ]);
+  perform pg_temp.t555_run('an edit that mentions someone new brings them into the thread', 'rows=1', u_b,
+    array[
+      format('update public.team_chat_message set mentions = array[%L, %L]::uuid[] where id = %L', m_c, m_g, reply_b),
+      format('select set_config(%L, %L, true)', 'request.jwt.claims', json_build_object('sub', u_g, 'role', 'authenticated')::text),
+      format('select 1 from public.team_chat_thread_unread(%L) where root_id = %L and mentions = 1', w1, root_a)
+    ]);
+  -- Someone a reply mentions who can't read the channel is never brought in (checked as postgres: their rows aren't the replier's to read).
+  insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, mentions, thread_root_id, created_at)
+  values (ch_team, w1, m_a, 'for the team, cc t555ben', array[m_b], root_team, t0 + interval '30 minutes');
+  insert into t555_results (label, expected, got, pass)
+  select 'a mention never brings in someone who can''t read the channel', 'rows=0', 'rows=' || count(*), count(*) = 0
+    from public.team_chat_thread_member where root_id = root_team and member_id = m_b;
+  insert into t555_results (label, expected, got, pass)
+  select 'the root''s author is in the thread (the same check lets them in)', 'rows=1', 'rows=' || count(*), count(*) = 1
+    from public.team_chat_thread_member where root_id = root_team and member_id = m_a;
+
   -- ── Unread, with threads ──────────────────────────────────────────────────
   perform pg_temp.t555_run('a thread reply is never the channel''s unread (Ana: none)', 'rows=1', u_a,
     array[format('select 1 from public.team_chat_unread(%L) where channel_id = %L and unread = 0', w1, ch_open)]);
@@ -237,6 +263,14 @@ begin
     array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, attachments) values (%L, %L, %L, %L, %L::jsonb)', ch_open, w1, m_a, 'see', json_build_array(json_build_object('path', f_team, 'name', 'plan.pdf', 'size', 10, 'type', 'application/pdf'))::text)]);
   perform pg_temp.t555_run('a message cannot carry someone else''s upload', 'refused', u_c,
     array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, attachments) values (%L, %L, %L, %L, %L::jsonb)', ch_open, w1, m_c, 'see', json_build_array(json_build_object('path', f_open, 'name', 'shot.png', 'size', 10, 'type', 'image/png'))::text)]);
+  perform pg_temp.t555_run('a file over 10 MB is refused even inserted directly', 'refused', u_b,
+    array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, attachments) values (%L, %L, %L, %L, %L::jsonb)', ch_open, w1, m_b, 'big', json_build_array(json_build_object('path', f_open, 'name', 'shot.png', 'size', 20971520, 'type', 'image/png'))::text)]);
+  perform pg_temp.t555_run('a file of a type a message may not carry is refused', 'refused', u_b,
+    array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, attachments) values (%L, %L, %L, %L, %L::jsonb)', ch_open, w1, m_b, 'page', json_build_array(json_build_object('path', f_open, 'name', 'shot.png', 'size', 10, 'type', 'text/html'))::text)]);
+  perform pg_temp.t555_run('a file with no name, a long name or a size that isn''t a number is refused', 'refused', u_b,
+    array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, attachments) values (%L, %L, %L, %L, %L::jsonb)', ch_open, w1, m_b, 'odd', json_build_array(json_build_object('path', f_open, 'name', repeat('x', 201), 'size', 10, 'type', 'image/png'))::text)]);
+  perform pg_temp.t555_run('a size that is not a number is refused, never cast', 'refused', u_b,
+    array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body, attachments) values (%L, %L, %L, %L, %L::jsonb)', ch_open, w1, m_b, 'odd', json_build_array(json_build_object('path', f_open, 'name', 'a.png', 'size', 'lots', 'type', 'image/png'))::text)]);
   perform pg_temp.t555_run('an empty message without files is still refused', 'refused', u_b,
     array[format('insert into public.team_chat_message (channel_id, workspace_id, author_member_id, body) values (%L, %L, %L, %L)', ch_open, w1, m_b, '')]);
 

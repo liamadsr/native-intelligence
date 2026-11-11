@@ -122,6 +122,36 @@ describe('migrations 555-559', () => {
     expect(fn(BODY.threads, 'team_chat_mark_thread_read')).toMatch(/if ch is null or not public\.team_chat_can_read\(ch\) then\s+raise exception/)
   })
 
+  it('556: only people who may read the channel are brought into a thread; the summary counts live replies; a reply never moves its channel', () => {
+    const canRead = fn(BODY.threads, 'team_chat_member_can_read')
+    expect(canRead).toContain('security definer')
+    expect(canRead).toContain('c.team_id is null or exists (select 1 from public.team_member tm where tm.team_id = c.team_id and tm.member_id = mem)')
+    expect(canRead).toContain("c.kind = 'dm' and exists (select 1 from public.team_chat_member cm where cm.channel_id = c.id and cm.member_id = mem)")
+    expect(BODY.threads).toContain('revoke all on function public.team_chat_member_can_read(uuid, uuid) from public, anon, authenticated;')
+    const track = fn(BODY.threads, 'team_chat_thread_track')
+    // Every way into a thread but the replier's own (they posted, so they may) goes through the fence.
+    expect(track.match(/public\.team_chat_member_can_read\(root\.channel_id, /g)?.length).toBe(4)
+    // A delete recomputes; an edit's new mentions come in.
+    expect(track).toMatch(/if old\.deleted_at is null and new\.deleted_at is not null then\s+perform public\.team_chat_thread_refresh\(root\.id\);/)
+    expect(track).toContain('where not (x = any (old.mentions))')
+    expect(BODY.threads).toMatch(/create trigger team_chat_thread_track_update\s+after update of deleted_at, mentions on public\.team_chat_message/)
+    const refresh = fn(BODY.threads, 'team_chat_thread_refresh')
+    expect(refresh).toContain('where thread_root_id = root and deleted_at is null')
+    // A thread emptied keeps its row at 0 (an UPDATE, which Realtime filters), never a DELETE.
+    expect(refresh).not.toMatch(/delete from/i)
+    const touch = fn(BODY.threads, 'team_chat_touch_channel')
+    expect(touch).toMatch(/if new\.thread_root_id is not null then\s+return new;/)
+  })
+
+  it('555: a file’s name, size and type are bounded in the database (the cap holds for a direct insert)', () => {
+    const guard = fn(BODY.columns, 'team_chat_message_insert_guard')
+    expect(guard).toContain("char_length(a ->> 'name') between 1 and 200")
+    expect(guard).toContain("(a ->> 'size')::numeric between 1 and 10485760")
+    expect(guard).toContain("coalesce(a ->> 'type', '') in (")
+    expect(guard).not.toContain("'text/html'")
+    expect(guard).not.toContain("'image/svg+xml'")
+  })
+
   it('557: reactions — one row per trio, written only by the function, which needs a channel the caller may post in', () => {
     expect(BODY.reactions).toContain('primary key (message_id, member_id, emoji)')
     expect(BODY.reactions).toContain('revoke all on table public.team_chat_reaction from anon, authenticated;')
@@ -169,6 +199,11 @@ describe('migrations 555-559', () => {
       "'a message cannot carry another channel''s file', 'refused'",
       "'a retried send (same client id) is refused as a duplicate', 'refused'",
       "'a client''s link preview is dropped on insert', 'rows=1'",
+      "'a mention never brings in someone who can''t read the channel', 'rows=0'",
+      "'a deleted reply leaves the summary (count, last reply and repliers recomputed)', 'rows=1'",
+      "'a thread reply never moves its channel up the list', 'rows=1'",
+      "'an edit that mentions someone new brings them into the thread', 'rows=1'",
+      "'a file over 10 MB is refused even inserted directly', 'refused'",
     ]) {
       expect(PROBES, label).toContain(label)
     }

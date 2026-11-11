@@ -29,12 +29,21 @@
 --                     words.
 --   team_chat_message_insert_guard  474's, plus: no link preview from a
 --                     client, and every attachment in the channel's folder,
---                     the author's own sub-folder.
+--                     the author's own sub-folder, with a name of 1 to 200
+--                     characters, a size of 1 byte to 10 MB and one of the
+--                     media types a message may carry (the same as
+--                     src/lib/team-chat/files.ts): the cap holds for a
+--                     direct insert too, not only through the route.
 --
 -- Additive. Idempotent. Safe on a live database: the new columns are
--- nullable or have constant defaults (no rewrite), and the new checks are
--- added NOT VALID, then validated (no long lock). No backslashes anywhere in
--- this file (one MCP transport decodes escapes).
+-- nullable or have constant defaults (no table rewrite). The file runs as
+-- one transaction, so the ACCESS EXCLUSIVE lock ADD COLUMN takes is held to
+-- commit, and the NOT VALID / VALIDATE pair below does not shorten it; what
+-- keeps this safe is that team_chat_message is small (the validating scans
+-- take milliseconds) and lock_timeout (5 s): behind a long-running reader
+-- the migration fails and rolls back rather than queueing every write
+-- behind it. No backslashes anywhere in this file (one MCP transport decodes
+-- escapes).
 -- ------------------------------------------------------------
 
 SET LOCAL lock_timeout = '5s';
@@ -131,7 +140,9 @@ $$;
 -- 474's insert guard, plus: no link preview from a client (the service
 -- role's to write), and every attachment in the channel's own folder, the
 -- author's sub-folder, named by a uuid (558's bucket fences reads by the
--- folder, so a path outside it would be a file of another channel).
+-- folder, so a path outside it would be a file of another channel), its name,
+-- size and type bounded (each CASE checks a value's JSON type before it is
+-- cast, since OR does not promise to stop early).
 create or replace function public.team_chat_message_insert_guard()
 returns trigger
 language plpgsql
@@ -152,6 +163,27 @@ begin
         or coalesce(a ->> 'path', '') !~ ('^' || new.channel_id::text || '/' || auth.uid()::text || '/[0-9a-f-]{36}[.][a-z0-9]{1,8}$')
   ) then
     raise exception 'team chat: a file must be in the channel''s own folder' using errcode = '42501';
+  end if;
+  if jsonb_typeof(new.attachments) = 'array' and exists (
+    select 1
+      from jsonb_array_elements(new.attachments) a
+     where not (
+       case when jsonb_typeof(a -> 'name') = 'string' then char_length(a ->> 'name') between 1 and 200 else false end
+       and case when jsonb_typeof(a -> 'size') = 'number' then (a ->> 'size')::numeric between 1 and 10485760 else false end
+       and coalesce(a ->> 'type', '') in (
+         'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/heic',
+         'application/pdf', 'text/plain', 'text/markdown', 'text/csv', 'application/json',
+         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+         'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+         'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+         'application/zip'
+       )
+       and case when not a ? 'width' then true when jsonb_typeof(a -> 'width') <> 'number' then false else (a ->> 'width')::numeric between 1 and 20000 end
+       and case when not a ? 'height' then true when jsonb_typeof(a -> 'height') <> 'number' then false else (a ->> 'height')::numeric between 1 and 20000 end
+     )
+  ) then
+    raise exception 'team chat: a file''s name, size or type is out of bounds' using errcode = '23514';
   end if;
   return new;
 end;

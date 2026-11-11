@@ -4,16 +4,27 @@
 -- ============================================================
 --   team_chat_thread         per thread (its root message): how many replies,
 --                            the newest reply's time and the last few people
---                            who replied (newest first, at most 5). Written
---                            by the trigger below only; read by anyone who
---                            may read the channel; live (Realtime).
+--                            who replied (newest first, at most 5), counting
+--                            the replies not deleted (recomputed on every
+--                            reply and every delete of one). Written by the
+--                            trigger below only; read by anyone who may read
+--                            the channel; live (Realtime).
 --   team_chat_thread_member  who a thread is for, per member: the root's
 --                            author (or, for an agent's root, its person),
 --                            everyone who replied, the person whose agent
---                            replied, and everyone a reply mentions; and when
---                            they last read it. Written by the trigger and
---                            team_chat_mark_thread_read only; each member
---                            reads their own rows.
+--                            replied, and everyone a reply mentions (when it
+--                            is posted, or added by an edit); and when they
+--                            last read it. Only members who may read the
+--                            channel (team_chat_member_can_read). Written by
+--                            the trigger and team_chat_mark_thread_read only;
+--                            each member reads their own rows.
+--   team_chat_member_can_read  team_chat_can_read for a given member rather
+--                            than the caller (the trigger's question about
+--                            the people a reply mentions). Not callable by
+--                            clients.
+--   team_chat_touch_channel  474's, but a thread's reply leaves the channel's
+--                            last_message_at alone: a channel never jumps to
+--                            the top of the list with nothing unread in it.
 --   team_chat_message_thread_root  a reply's thread_root_id is always a root:
 --                            a reply to a reply goes to the same root, and a
 --                            root in another channel is refused.
@@ -137,6 +148,77 @@ create policy team_chat_message_insert on public.team_chat_message
 
 -- ── The thread's summary and who it is for ──────────────────────────────────
 
+-- team_chat_can_read for a given member, not the caller: a member of the
+-- channel's workspace and, for a team channel, of the team; for a DM, one of
+-- its members. For the trigger below (who a reply's mention may bring into a
+-- thread); no client calls it.
+create or replace function public.team_chat_member_can_read(ch uuid, mem uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+      from public.team_chat_channel c
+      join public.member m on m.id = mem and m.workspace_id = c.workspace_id
+     where c.id = ch
+       and (
+         (c.kind = 'channel' and (c.team_id is null or exists (select 1 from public.team_member tm where tm.team_id = c.team_id and tm.member_id = mem)))
+         or (c.kind = 'dm' and exists (select 1 from public.team_chat_member cm where cm.channel_id = c.id and cm.member_id = mem))
+       )
+  );
+$$;
+
+revoke all on function public.team_chat_member_can_read(uuid, uuid) from public, anon, authenticated;
+
+-- A thread's summary from its replies as they are now (not deleted): how
+-- many, the newest one's time, and the last five members who replied,
+-- newest first. No reply left: a count of 0 (the bar draws nothing), kept as
+-- an UPDATE, which Realtime filters by the policy, never a DELETE.
+create or replace function public.team_chat_thread_refresh(root uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  ch uuid;
+  ws uuid;
+  n integer;
+  newest timestamptz;
+  people uuid[];
+begin
+  select m.channel_id, m.workspace_id into ch, ws from public.team_chat_message m where m.id = root;
+  if ch is null then
+    return;
+  end if;
+  select count(*)::integer, max(created_at) into n, newest
+    from public.team_chat_message
+   where thread_root_id = root and deleted_at is null;
+  select coalesce(array_agg(a.author_member_id order by a.latest desc), '{}') into people
+    from (
+      select author_member_id, max(created_at) as latest
+        from public.team_chat_message
+       where thread_root_id = root and deleted_at is null and author_kind = 'member' and author_member_id is not null
+       group by author_member_id
+       order by latest desc
+       limit 5
+    ) a;
+  insert into public.team_chat_thread (root_id, channel_id, workspace_id, reply_count, last_reply_at, participant_ids)
+  values (root, ch, ws, n, newest, people)
+  on conflict (root_id) do update
+     set reply_count = excluded.reply_count,
+         last_reply_at = excluded.last_reply_at,
+         participant_ids = excluded.participant_ids;
+end;
+$$;
+
+revoke all on function public.team_chat_thread_refresh(uuid) from public, anon, authenticated;
+
+-- After a reply is posted, deleted, or edited to mention someone new: the
+-- summary again, and who the thread is for.
 create or replace function public.team_chat_thread_track()
 returns trigger
 language plpgsql
@@ -146,6 +228,7 @@ as $$
 declare
   root public.team_chat_message%rowtype;
   replier uuid := case when new.author_kind = 'member' then new.author_member_id end;
+  added uuid[];
 begin
   if new.thread_root_id is null then
     return new;
@@ -155,21 +238,36 @@ begin
     return new;
   end if;
 
-  insert into public.team_chat_thread (root_id, channel_id, workspace_id, reply_count, last_reply_at, participant_ids)
-  values (root.id, root.channel_id, root.workspace_id, 1, new.created_at, case when replier is null then '{}'::uuid[] else array[replier] end)
-  on conflict (root_id) do update
-     set reply_count = team_chat_thread.reply_count + 1,
-         last_reply_at = greatest(team_chat_thread.last_reply_at, excluded.last_reply_at),
-         participant_ids = case
-           when replier is null then team_chat_thread.participant_ids
-           else (array[replier] || array_remove(team_chat_thread.participant_ids, replier))[1:5]
-         end;
+  if tg_op = 'UPDATE' then
+    -- A reply deleted: the summary without it.
+    if old.deleted_at is null and new.deleted_at is not null then
+      perform public.team_chat_thread_refresh(root.id);
+      return new;
+    end if;
+    -- An edit that mentions someone new brings them in, from this reply on.
+    if new.deleted_at is null then
+      select coalesce(array_agg(x), '{}') into added from unnest(new.mentions) x where not (x = any (old.mentions));
+      if cardinality(added) > 0 then
+        insert into public.team_chat_thread_member (root_id, member_id, channel_id, workspace_id, last_read_at)
+        select root.id, m.id, root.channel_id, root.workspace_id, new.created_at - interval '1 millisecond'
+          from public.member m
+         where m.workspace_id = root.workspace_id
+           and m.id = any (added)
+           and public.team_chat_member_can_read(root.channel_id, m.id)
+        on conflict (root_id, member_id) do nothing;
+      end if;
+    end if;
+    return new;
+  end if;
+
+  perform public.team_chat_thread_refresh(root.id);
 
   -- The root's person: its author, or the person whose agent wrote it. Unread from the root on.
   insert into public.team_chat_thread_member (root_id, member_id, channel_id, workspace_id, last_read_at)
   select root.id, p, root.channel_id, root.workspace_id, root.created_at
     from (select coalesce(root.author_member_id, root.agent_for_member_id) as p) x
    where p is not null
+     and public.team_chat_member_can_read(root.channel_id, p)
   on conflict (root_id, member_id) do nothing;
 
   -- Whoever replied has read it up to their reply.
@@ -181,18 +279,19 @@ begin
   end if;
 
   -- An agent's reply is for the person whose agent it is.
-  if new.author_kind = 'agent' and new.agent_for_member_id is not null then
+  if new.author_kind = 'agent' and new.agent_for_member_id is not null and public.team_chat_member_can_read(root.channel_id, new.agent_for_member_id) then
     insert into public.team_chat_thread_member (root_id, member_id, channel_id, workspace_id, last_read_at)
     values (root.id, new.agent_for_member_id, root.channel_id, root.workspace_id, root.created_at)
     on conflict (root_id, member_id) do nothing;
   end if;
 
-  -- Everyone the reply mentions (members of the workspace): unread from this reply on.
+  -- Everyone the reply mentions who may read the channel: unread from this reply on.
   insert into public.team_chat_thread_member (root_id, member_id, channel_id, workspace_id, last_read_at)
   select root.id, m.id, root.channel_id, root.workspace_id, new.created_at - interval '1 millisecond'
     from public.member m
    where m.workspace_id = root.workspace_id
      and m.id = any (new.mentions)
+     and public.team_chat_member_can_read(root.channel_id, m.id)
   on conflict (root_id, member_id) do nothing;
 
   return new;
@@ -205,6 +304,32 @@ drop trigger if exists team_chat_thread_track on public.team_chat_message;
 create trigger team_chat_thread_track
   after insert on public.team_chat_message
   for each row execute function public.team_chat_thread_track();
+
+drop trigger if exists team_chat_thread_track_update on public.team_chat_message;
+create trigger team_chat_thread_track_update
+  after update of deleted_at, mentions on public.team_chat_message
+  for each row
+  when (new.thread_root_id is not null)
+  execute function public.team_chat_thread_track();
+
+-- 474's, except a thread's reply: only the channel's own messages move it up the list.
+create or replace function public.team_chat_touch_channel()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if new.thread_root_id is not null then
+    return new;
+  end if;
+  update public.team_chat_channel
+     set last_message_at = new.created_at
+   where id = new.channel_id
+     and (last_message_at is null or last_message_at < new.created_at);
+  return new;
+end;
+$$;
 
 -- ── Unread ──────────────────────────────────────────────────────────────────
 
