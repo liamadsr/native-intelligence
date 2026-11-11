@@ -56,6 +56,7 @@ class Groups(unittest.TestCase):
         self.assertEqual(cs.group("CONNECT_ACCESS_TOKEN"), "needed")
         self.assertEqual(cs.group("CONNECT_PROJECT_ID"), "needed")
         self.assertEqual(cs.group("CONNECT_ENVIRONMENT"), "may be empty")
+        self.assertEqual(cs.group("CONNECT_TEAM_ID"), "may be empty")
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -139,66 +140,117 @@ class Small(unittest.TestCase):
         self.assertIsNone(cs.sender_domain("not an address"))
 
 
+class FakeHttp:
+    """Stands in for check_settings.http: answers by URL prefix, records each call."""
+
+    def __init__(self, answers):
+        self.answers, self.calls = answers, []
+
+    def __call__(self, url, headers=None, auth=None, post=None):
+        self.calls.append((url, headers, post))
+        for prefix, answer in self.answers:
+            if url.startswith(prefix):
+                return answer
+        raise AssertionError("unexpected request")
+
+    def __enter__(self):
+        self.real, cs.http = cs.http, self
+        return self
+
+    def __exit__(self, *_):
+        cs.http = self.real
+
+
 class Connectors(unittest.TestCase):
     PROJECT = "prj_madeup0001"
+    PROJECT_TOKEN = "made-up.project.token"
+    SLACK_TOKEN = "made-up-slack-bot-token"
+    ENV = {"CONNECT_ACCESS_TOKEN": " made-up-access-token\n", "SLACK_CONNECTOR": "slack/made-up",
+           "CONNECT_PROJECT_ID": PROJECT, "CONNECT_TEAM_ID": "team_madeup0001", "SANDBOX_TEAM_ID": "team_madeup0002"}
+    MINT = "https://api.vercel.com/v1/projects/"
+    META = "https://api.vercel.com/v1/connect/connectors/"
+    TOKEN = "https://api.vercel.com/v1/connect/token/"
+    SLACK = "https://slack.com/api/auth.test"
 
-    def answer(self, destinations):
-        return {"id": "scl_madeup0002", "uid": "slack/made-up", "triggerDestinations": destinations}
+    def answers(self, **over):
+        a = {
+            "mint": (200, {"token": self.PROJECT_TOKEN}),
+            "meta": (200, {"uid": "slack/made-up", "defaultInstallationId": "T0MADEUP1",
+                           "triggerDestinations": [{"projectId": "prj_madeup0002", "path": "/api/slack/events"},
+                                                   {"projectId": self.PROJECT, "path": "/api/slack/events"}]}),
+            "token": (200, {"token": self.SLACK_TOKEN, "expiresAt": 1}),
+            "slack": (200, {"ok": True, "team_id": "T0MADEUP1"}),
+        }
+        a.update(over)
+        return [(self.MINT, a["mint"]), (self.META, a["meta"]), (self.TOKEN, a["token"]), (self.SLACK, a["slack"])]
 
-    def test_the_connector_forwards_its_events_to_the_project(self):
-        ok, _ = cs.connector_verdict(200, self.answer([
-            {"projectId": "prj_madeup0002", "path": "/api/slack/events"},
-            {"projectId": self.PROJECT, "path": "/api/slack/events"},
-        ]), self.PROJECT)
+    def run_check(self, env=None, **over):
+        with FakeHttp(self.answers(**over)) as fake:
+            ok, note = cs.check_connect(dict(env or self.ENV), {})
+        for secret in ("made-up-access-token", self.PROJECT_TOKEN, self.SLACK_TOKEN):
+            self.assertNotIn(secret, note or "")
+        return ok, note, fake.calls
+
+    def test_the_whole_path(self):
+        ok, _, calls = self.run_check()
         self.assertIs(ok, True)
+        self.assertEqual([c[0] for c in calls], [
+            "https://api.vercel.com/v1/projects/prj_madeup0001/token?source=vercel-oidc-refresh&teamId=team_madeup0001",
+            "https://api.vercel.com/v1/connect/connectors/slack%2Fmade-up",
+            "https://api.vercel.com/v1/connect/token/slack%2Fmade-up",
+            "https://slack.com/api/auth.test",
+        ])
+        # The access token only makes the project token; the project token does the rest.
+        self.assertEqual(calls[0][1], {"Authorization": "Bearer made-up-access-token"})
+        self.assertEqual(calls[0][2], {})
+        self.assertEqual(calls[1][1], {"Authorization": "Bearer " + self.PROJECT_TOKEN})
+        self.assertEqual(calls[1][2], None)
+        self.assertEqual(calls[2][1], {"Authorization": "Bearer " + self.PROJECT_TOKEN})
+        self.assertEqual(calls[2][2], {"subject": {"type": "app"}, "installationId": "T0MADEUP1", "scopes": ["*"]})
+        self.assertEqual(calls[3][1], {"Authorization": "Bearer " + self.SLACK_TOKEN})
 
-    def test_another_project_or_path(self):
-        for destinations in ([{"projectId": "prj_madeup0003", "path": "/api/slack/events"}],
-                             [{"projectId": self.PROJECT, "path": "/api/other"}], []):
-            ok, note = cs.connector_verdict(200, self.answer(destinations), self.PROJECT)
-            self.assertIs(ok, False)
-            self.assertIn("forwards no events", note)
+    def test_the_team_falls_back_to_the_sandboxes(self):
+        env = dict(self.ENV, CONNECT_TEAM_ID="")
+        _, _, calls = self.run_check(env)
+        self.assertTrue(calls[0][0].endswith("&teamId=team_madeup0002"))
 
-    def test_a_shape_not_known_here_cannot_tell(self):
-        for body in (self.answer(None), self.answer([self.PROJECT]), self.answer({"projectId": self.PROJECT}), None, []):
-            self.assertIsNone(cs.connector_verdict(200, body, self.PROJECT)[0])
-
-    def test_refused(self):
-        for status in (401, 403, 404):
-            ok, note = cs.connector_verdict(status, None, self.PROJECT)
-            self.assertIs(ok, False)
-            self.assertIn("not accepted for this connector", note)
+    def test_each_step_says_where_it_stopped(self):
+        cases = [
+            ({"mint": (403, None)}, False, "step 1"),
+            ({"mint": (200, {"nothing": 1})}, False, "step 1"),
+            ({"meta": (403, None)}, False, "step 2"),
+            ({"meta": (200, {"defaultInstallationId": "T0MADEUP1", "triggerDestinations": [{"projectId": self.PROJECT, "path": "/api/other"}]})}, False, "step 2"),
+            ({"meta": (200, {"defaultInstallationId": "T0MADEUP1", "triggerDestinations": [self.PROJECT]})}, None, "step 2"),
+            ({"meta": (200, {"triggerDestinations": [{"projectId": self.PROJECT, "path": "/api/slack/events"}]})}, None, "step 2"),
+            ({"token": (403, {"error": {"code": "forbidden"}})}, False, "step 3"),
+            ({"slack": (200, {"ok": False, "error": "invalid_auth"})}, False, "invalid_auth"),
+            ({"slack": (200, {"ok": True, "team_id": "T0OTHER01"})}, False, "another team"),
+        ]
+        for over, want, where in cases:
+            ok, note, _ = self.run_check(**over)
+            self.assertIs(ok, want, over)
+            self.assertIn(where, note)
 
     def test_trouble_on_the_way_cannot_tell(self):
-        for status in (0, 500, 503):
-            ok, note = cs.connector_verdict(status, None, self.PROJECT)
-            self.assertIsNone(ok)
-            self.assertIn("cannot tell", note)
+        for step in ("mint", "meta", "token", "slack"):
+            for status in (0, 502):
+                ok, note, _ = self.run_check(**{step: (status, None)})
+                self.assertIsNone(ok, (step, status))
+                self.assertIn("cannot tell", note)
 
-    def test_the_request_is_the_apps_own(self):
-        seen = []
-        real = cs.http
-        cs.http = lambda url, headers=None, auth=None: seen.append((url, headers, auth)) or (200, self.answer([{"projectId": self.PROJECT, "path": "/api/slack/events"}]))
-        try:
-            ok, _ = cs.check_connect({"CONNECT_ACCESS_TOKEN": " made-up\n", "SLACK_CONNECTOR": "slack/made-up", "CONNECT_PROJECT_ID": self.PROJECT}, {})
-        finally:
-            cs.http = real
-        self.assertIs(ok, True)
-        # The connector as one path segment, and no team named: as connector.js asks.
-        self.assertEqual(seen, [("https://api.vercel.com/v1/connect/connectors/slack%2Fmade-up", {"Authorization": "Bearer made-up"}, None)])
+    def test_it_stops_at_the_first_failure(self):
+        _, _, calls = self.run_check(mint=(401, None))
+        self.assertEqual(len(calls), 1)
 
     def test_whitespace_or_a_missing_setting_never_asks(self):
-        real = cs.http
-        cs.http = lambda *a, **k: self.fail("asked the connector service")
-        try:
-            ok, note = cs.check_connect({"CONNECT_ACCESS_TOKEN": "  \n", "SLACK_CONNECTOR": "slack/made-up", "CONNECT_PROJECT_ID": self.PROJECT}, {})
+        with FakeHttp([]) as fake:
+            ok, note = cs.check_connect(dict(self.ENV, CONNECT_ACCESS_TOKEN="  \n"), {})
             self.assertIs(ok, False)
             self.assertIn("whitespace", note)
-            ok, note = cs.check_connect({"CONNECT_ACCESS_TOKEN": "made-up", "SLACK_CONNECTOR": "slack/made-up"}, {})
+            ok, note = cs.check_connect(dict(self.ENV, CONNECT_PROJECT_ID=""), {})
             self.assertIs(ok, False)
             self.assertIn("CONNECT_PROJECT_ID", note)
-        finally:
-            cs.http = real
+        self.assertEqual(fake.calls, [])
 
     def test_a_wildcard_is_wrong(self):
         for name in ("CONNECT_PROJECT_ID", "CONNECT_ENVIRONMENT"):
@@ -208,6 +260,20 @@ class Connectors(unittest.TestCase):
             self.assertEqual(cs.CHECKS[name]({name: "prj_madeup0001"}, {}), (None, None))
         _, blockers, _ = cs.report({"CONNECT_ENVIRONMENT": "pro*"}, {"CONNECT_ENVIRONMENT": cs.CHECKS["CONNECT_ENVIRONMENT"]({"CONNECT_ENVIRONMENT": "pro*"}, {})})
         self.assertEqual(len(blockers), 1)
+
+
+class Sandbox(unittest.TestCase):
+    ENV = {"SANDBOX_ACCESS_TOKEN": "made-up", "SANDBOX_TEAM_ID": "team_madeup0001", "SANDBOX_PROJECT_ID": "prj_madeup0001"}
+
+    def test_asks_the_api_address(self):
+        with FakeHttp([("https://api.vercel.com/v2/sandboxes?", (200, {"sandboxes": []}))]) as fake:
+            self.assertIs(cs.check_sandbox(self.ENV, {})[0], True)
+        self.assertEqual(fake.calls[0][0], "https://api.vercel.com/v2/sandboxes?limit=1&project=prj_madeup0001&teamId=team_madeup0001")
+
+    def test_answers(self):
+        for status, want in ((401, False), (403, False), (0, None), (503, None)):
+            with FakeHttp([("https://api.vercel.com/", (status, None))]):
+                self.assertIs(cs.check_sandbox(self.ENV, {})[0], want, status)
 
 
 class Report(unittest.TestCase):

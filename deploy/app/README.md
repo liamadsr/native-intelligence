@@ -142,21 +142,29 @@ These exist only here: the earlier host has no such settings, because there the
 app's own deployment token did their work (`web/src/lib/slack/config.ts`).
 
 - `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
-  Slack connector is in. Every call the app makes to the connector sends it.
-  `check-settings.sh` asks the connector service about the connector in
-  `SLACK_CONNECTOR` with it, on the path and without the team the app's own
-  client uses, so a green check means the token is accepted there. It never asks
-  the connector for a Slack token. A network or server failure is "cannot tell",
-  not wrong.
-- `CONNECT_PROJECT_ID`: the id of the project the connector forwards Slack's events
-  for. A forwarded event or button click must carry a token naming it; the check
-  requires a trigger destination of the connector with this project and the path
-  `/api/slack/events`.
+  Slack connector is in. The connector refuses it as the credential for a Slack
+  login (measured from this server), so the app only makes a short-lived project
+  token with it (`web/src/lib/slack/connect-auth.ts`) and sends that to the
+  connector. The project token is for the project's development environment, so
+  the connector must stay enabled for development as well as production.
+- `CONNECT_PROJECT_ID`: the id of the project the connector is attached to and
+  forwards Slack's events for. Required with the access token: the project token
+  is made for it. A forwarded event or button click must carry a token naming it.
+- `CONNECT_TEAM_ID`: that project's team, sent with the project-token request when
+  set. May stay empty; the request was measured with it.
 - `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
   empty is `production`.
 
-A `*` in either of the last two makes the app refuse every forwarded event, and
-the check calls it wrong.
+`check-settings.sh` walks the app's real path to a Slack login and says at which
+step it stopped: the project token (with `CONNECT_TEAM_ID`, else
+`SANDBOX_TEAM_ID`), the connector read with it (a trigger destination with
+`CONNECT_PROJECT_ID` and the path `/api/slack/events`), a Slack login for the
+connector's default installation, and Slack's own `auth.test` naming that
+workspace. It shows no token, at most a length; network or server trouble is
+"cannot tell", not wrong. This path was seen working end to end from this server.
+
+A `*` in `CONNECT_PROJECT_ID` or `CONNECT_ENVIRONMENT` makes the app refuse every
+forwarded event, and the check calls it wrong.
 
 `VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here in their place: other code
 reads `VERCEL_ENV` to tell production from a preview.

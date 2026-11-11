@@ -5,8 +5,8 @@
  * One customer-managed connector serves every customer's Slack workspace: each
  * workspace is one Connect installation. Connect holds the Slack app's
  * secrets and every bot token, rotates them, and authenticates this app by
- * its Vercel OIDC token, or off Vercel by CONNECT_ACCESS_TOKEN
- * ({@link connectOptions}). getToken caches in process (an LRU keyed on the
+ * its Vercel OIDC token, or off Vercel by a project token made with
+ * CONNECT_ACCESS_TOKEN (./connect-auth.ts). getToken caches in process (an LRU keyed on the
  * connector and the request params, not on how the app authenticated), so a
  * bot token is fetched from Connect once per team until it nears expiry
  * (token requests are billed per 1,000).
@@ -31,7 +31,8 @@ import {
   revokeToken,
   type ConnectTokenParams,
 } from '@vercel/connect'
-import { connectAccessToken, slackConnector } from './config'
+import { slackConnector } from './config'
+import { connectOptions, forgetConnectProjectToken } from './connect-auth'
 
 /** The installation id a Slack team's Connect installation is addressed by. */
 export function installationIdForTeam(teamId: string): string {
@@ -43,12 +44,18 @@ function appParams(installationId: string): ConnectTokenParams {
 }
 
 /**
- * How every Connect call authenticates: the access token when one is set (off
- * Vercel), else undefined, and the client uses the deployment's OIDC token.
+ * Run a Connect call with how this deployment authenticates (./connect-auth.ts:
+ * nothing on Vercel, a project token off it). When Connect refuses that
+ * project token (401/403), it is dropped, so the next call makes a new one.
  */
-function connectOptions(): { vercelToken: string } | undefined {
-  const vercelToken = connectAccessToken()
-  return vercelToken ? { vercelToken } : undefined
+async function withConnectAuth<T>(call: (options: { vercelToken: string } | undefined) => Promise<T>): Promise<T> {
+  const options = await connectOptions()
+  try {
+    return await call(options)
+  } catch (error) {
+    if (options && error instanceof ConnectError && (error.status === 401 || error.status === 403)) forgetConnectProjectToken()
+    throw error
+  }
 }
 
 function requireConnector(): string {
@@ -71,7 +78,8 @@ export function isInstallationGone(error: unknown): boolean {
 
 /** The bot token for a team's installation. Throws a ConnectError when there is none. */
 export async function slackBotToken(installationId: string): Promise<string> {
-  return getToken(requireConnector(), appParams(installationId), connectOptions())
+  const connector = requireConnector()
+  return withConnectAuth((options) => getToken(connector, appParams(installationId), options))
 }
 
 /**
@@ -92,7 +100,8 @@ export function forgetSlackBotToken(installationId: string): void {
 export async function verifySlackInstallation(teamId: string): Promise<{ token: string; installationId: string } | null> {
   const installationId = installationIdForTeam(teamId)
   try {
-    const response = await getTokenResponse(requireConnector(), appParams(installationId), connectOptions())
+    const connector = requireConnector()
+    const response = await withConnectAuth((options) => getTokenResponse(connector, appParams(installationId), options))
     if (response.tenantId && response.tenantId !== teamId) return null
     return { token: response.token, installationId }
   } catch (error) {
@@ -125,7 +134,7 @@ export class SlackInstallUnavailableError extends Error {
 export async function startSlackInstall(returnUrl: string): Promise<string> {
   const connector = requireConnector()
   try {
-    const install = await experimental_startInstallation(connector, {}, { returnUrl, ...connectOptions() })
+    const install = await withConnectAuth((options) => experimental_startInstallation(connector, {}, { returnUrl, ...options }))
     return install.url
   } catch (error) {
     if (error instanceof ConnectError && (error.status === 403 || error.status === 404)) {
@@ -143,7 +152,8 @@ export async function startSlackInstall(returnUrl: string): Promise<string> {
  */
 export async function revokeSlackInstallation(installationId: string): Promise<'revoked' | 'gone' | 'failed'> {
   try {
-    await revokeToken(requireConnector(), appParams(installationId), connectOptions())
+    const connector = requireConnector()
+    await withConnectAuth((options) => revokeToken(connector, appParams(installationId), options))
     return 'revoked'
   } catch (error) {
     if (isInstallationGone(error)) return 'gone'
