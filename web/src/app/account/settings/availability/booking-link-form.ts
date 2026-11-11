@@ -26,6 +26,8 @@ export interface SettingsLink {
   window_days: number
   questions: LinkQuestion[]
   video: boolean
+  /** Meet on a call here (migration 576); absent from a server without it. */
+  call_here?: boolean
   location: string | null
   ask_first: boolean
   host_mode: HostMode
@@ -56,6 +58,8 @@ export interface LinkDraft {
   windowDays: number
   questions: DraftQuestion[]
   video: boolean
+  /** The video call is one of our meeting links, not the calendar's (offered only where calling is set up). */
+  callHere: boolean
   location: string
   askFirst: boolean
   hosts: string[]
@@ -98,6 +102,7 @@ export function newDraft(me: string): LinkDraft {
     windowDays: LINK_DEFAULTS.windowDays,
     questions: [],
     video: LINK_DEFAULTS.video,
+    callHere: false,
     location: '',
     askFirst: LINK_DEFAULTS.askFirst,
     hosts: me ? [me] : [],
@@ -120,6 +125,7 @@ export function draftOf(link: SettingsLink): LinkDraft {
     windowDays: link.window_days,
     questions: link.questions.map((q) => ({ id: q.id, label: q.label, required: q.required, kind: q.kind })),
     video: link.video,
+    callHere: link.call_here === true,
     location: link.location ?? '',
     askFirst: link.ask_first,
     hosts: [...link.hosts],
@@ -167,6 +173,7 @@ function fieldsOf(draft: LinkDraft): Record<string, unknown> {
     window_days: draft.windowDays,
     questions: draft.questions.map((q) => ({ ...(q.id ? { id: q.id } : {}), label: q.label.trim(), required: q.required, kind: q.kind })),
     video: draft.video,
+    call_here: draft.video && draft.callHere,
     location: draft.video ? null : draft.location.trim() || null,
     ask_first: draft.askFirst,
     hosts: draft.hosts,

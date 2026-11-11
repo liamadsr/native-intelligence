@@ -181,10 +181,16 @@ export function offerCardHash(card: { title: string; why: string }): string {
 }
 
 /** The booked meeting's calendar event: its title, and a description with the manage link and where it came from. */
-export function bookingEventWords(b: { title: string; guestName: string; guestNote: string | null; location: string | null }, manageLink: string): { title: string; description: string } {
+export function bookingEventWords(
+  b: { title: string; guestName: string; guestNote: string | null; location: string | null },
+  manageLink: string,
+  /** The booking meets on a call here (migration 576): its meeting link, first. */
+  callUrl?: string | null,
+): { title: string; description: string } {
   return {
     title: `${b.title} (${b.guestName})`.slice(0, 200),
     description: [
+      ...(callUrl ? [`Join the meeting: ${callUrl}`, ''] : []),
       ...(b.guestNote ? [`Note from ${b.guestName}: ${b.guestNote}`, ''] : []),
       `Need to change it? Reschedule or cancel: ${manageLink}`,
       '',
@@ -200,8 +206,9 @@ export function bookedReport(b: { guestName: string; title: string; startsAt: st
 }
 
 /** The confirmation texted to a guest who gave only a mobile number: who, what, when, and their manage link. */
-export function bookedText(b: { hostName: string; title: string; startsAt: string }, timeZone: string, manageLink: string): string {
-  return `You're booked with ${b.hostName}: ${b.title}, ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))}. To move or cancel it: ${manageLink}`
+export function bookedText(b: { hostName: string; title: string; startsAt: string }, timeZone: string, manageLink: string, callUrl?: string | null): string {
+  const join = callUrl ? ` Join the call: ${callUrl}.` : ''
+  return `You're booked with ${b.hostName}: ${b.title}, ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))}.${join} To move or cancel it: ${manageLink}`
 }
 
 /** The host's line when a booking could not be put on their calendar. */

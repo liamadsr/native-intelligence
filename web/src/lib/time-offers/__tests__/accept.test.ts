@@ -221,3 +221,56 @@ describe('finishBooking: the provider event, retried', () => {
     expect(seams.deleteEvent).toHaveBeenCalledWith(HOST, 'evt-late', { accountId: 'acct-google', notifyAttendees: true })
   })
 })
+
+describe('finishBooking: meeting on a call here (one of our meeting links, migration 576)', () => {
+  const CALL = 'https://app.example/m/AbCdEfGhIjKlMnOpQrStUvWxYz012345'
+
+  it('the link is the event\'s place and the booking\'s conference link; no provider video link; the description leads with it', async () => {
+    const { db, token, seams, deps } = await open()
+    const meetingUrl = vi.fn(async () => CALL)
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, { ...deps, meetingUrl })
+    expect(result).toMatchObject({ ok: true, booking: { state: 'confirmed', conferenceUrl: CALL } })
+    if (!result.ok) return
+    expect(meetingUrl).toHaveBeenCalledWith(expect.objectContaining({ id: result.booking.id, title: 'Intro call', startsAt: SLOTS[0] }))
+    const [, event, , options] = seams.createEvent.mock.calls[0] as unknown as [string, { location?: string; description: string }, string, Record<string, unknown>]
+    expect(options).toMatchObject({ video: false, idempotencyKey: result.booking.id })
+    expect(event.location).toBe(CALL)
+    expect(event.description.split('\n')[0]).toBe(`Join the meeting: ${CALL}`)
+    expect(event.description).toContain(result.manageUrl)
+  })
+
+  it('a booking that doesn\'t meet here (or where calling isn\'t set up: no link) keeps the provider\'s video link', async () => {
+    const { db, token, seams, deps } = await open()
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, { ...deps, meetingUrl: async () => null })
+    expect(result).toMatchObject({ ok: true, booking: { conferenceUrl: 'https://meet.example/abc-defg-hij' } })
+    const [, event, , options] = seams.createEvent.mock.calls[0] as unknown as [string, { location?: string; description: string }, string, Record<string, unknown>]
+    expect(options).toMatchObject({ video: true })
+    expect(event.location).toBeUndefined()
+    expect(event.description).not.toContain('Join the meeting')
+  })
+
+  it('an offer asked to meet here keeps the choice only where calling is set up', async () => {
+    const unset = await open({ callHere: true })
+    expect(unset.tables.time_offer[0].call_here).toBeUndefined()
+    vi.stubEnv('LIVEKIT_URL', 'wss://lk.example')
+    vi.stubEnv('LIVEKIT_API_KEY', 'APIkey')
+    vi.stubEnv('LIVEKIT_API_SECRET', 'a-secret-of-at-least-32-characters!!')
+    const set = await open({ callHere: true })
+    vi.unstubAllEnvs()
+    expect(set.tables.time_offer[0].call_here).toBe(true)
+  })
+
+  it('a booking that fails at its last try revokes the meeting link made for it', async () => {
+    const { db, token, seams, deps } = await open()
+    seams.createEvent.mockRejectedValue(new Error('Google Calendar create error: 503'))
+    const meetingChanged = vi.fn(async () => true)
+    const all = { ...deps, meetingUrl: async () => CALL, meetingChanged }
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, all)
+    if (!result.ok) throw new Error('not booked')
+    await finishBooking(db, result.booking.id, all)
+    expect(meetingChanged).not.toHaveBeenCalled()
+    expect(await finishBooking(db, result.booking.id, all)).toMatchObject({ state: 'failed' })
+    expect(meetingChanged).toHaveBeenCalledWith({ bookingId: result.booking.id, cancelled: true })
+  })
+})
+

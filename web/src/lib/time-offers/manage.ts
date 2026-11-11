@@ -32,6 +32,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deleteCalendarEvent, updateCalendarEvent } from '@/lib/integrations/calendar'
+import { bookingMeetingChanged, type BookingMeetingChange } from '@/lib/meeting-links/bookings'
+import { meetingUrlIn } from '@/lib/meeting-links/shape'
 import { listCountedEvents } from '@/lib/availability/busy'
 import { intersectAll, type Span } from '@/lib/availability/engine'
 import { readFreeTime } from '@/lib/availability/find-times'
@@ -63,6 +65,8 @@ export interface ManageDeps {
   getLink?: (linkId: string, workspaceId: string) => Promise<BookingLink | null>
   /** The link's times (default: readLinkTimes). */
   linkTimes?: typeof readLinkTimes
+  /** Its meeting link follows the booking (default: src/lib/meeting-links/bookings.ts; nothing when it has none). */
+  meetingChanged?: (change: BookingMeetingChange) => Promise<boolean>
 }
 
 /** A booking by its manage link's token. Throws on a failed read. */
@@ -111,6 +115,8 @@ export async function cancelMeeting(
       }
     }
     await deleteBookingClaims(supabase, booking.id).catch(() => {})
+    // Meets on a call here: its link stops working (waiting guests let go).
+    await (deps.meetingChanged ?? ((c) => bookingMeetingChanged(supabase, c)))({ bookingId: booking.id, cancelled: true })
     if (args.by === 'guest') {
       const zone = await hostZone(supabase, booking)
       await (deps.tellHost ?? ((a) => reportToOwner(supabase, a)))({
@@ -266,7 +272,9 @@ export async function rescheduleMeeting(
     const claim = await insertBookingClaim(supabase, booking, span)
     if (!claim.ok) return claim.conflict ? fail('SLOT_TAKEN', 'That time was just taken. Pick another.') : fail('FAILED', `The new time couldn't be held (${claim.error}).`)
     const releaseNew = () => deleteClaims(supabase, claim.ids).catch(() => {})
-    const words = bookingEventWords(booking, manageUrl(deps.origin ?? appOrigin(), manageTokenFor(booking.id, deps.secret)))
+    // A booking meeting on a call here keeps its link (the same meeting, moved below) at the top of the event.
+    const callUrl = booking.conferenceUrl && meetingUrlIn(booking.conferenceUrl) ? booking.conferenceUrl : null
+    const words = bookingEventWords(booking, manageUrl(deps.origin ?? appOrigin(), manageTokenFor(booking.id, deps.secret)), callUrl)
     // The move is fenced before the calendar is touched: of two moves at once
     // (a double submit, two tabs) only the one that wins here writes the
     // provider; the other leaves it alone.
@@ -292,6 +300,8 @@ export async function rescheduleMeeting(
       }
     }
     await deleteBookingClaims(supabase, booking.id, claim.ids).catch(() => {})
+    // Meets on a call here: the meeting's window moves with it (the same link).
+    await (deps.meetingChanged ?? ((c) => bookingMeetingChanged(supabase, c)))({ bookingId: booking.id, startsAt: span.startsAt, endsAt: span.endsAt })
     if (args.by === 'guest') {
       const zone = await hostZone(supabase, moved)
       await (deps.tellHost ?? ((a) => reportToOwner(supabase, a)))({

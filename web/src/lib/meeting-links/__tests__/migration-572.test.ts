@@ -23,12 +23,13 @@ const FILES = {
   tables: read('573_meeting_links.sql'),
   functions: read('574_meeting_functions.sql'),
   counts: read('575_team_call_guest_counts.sql'),
+  bookings: read('576_meeting_links_for_bookings.sql'),
 }
 const CALLS = read('565_team_call_functions.sql')
 
 const defined = (sql: string) => [...bodyOf(sql).matchAll(/create or replace function public\.(\w+)\(/gi)].map((m) => m[1])
 
-describe('migrations 572-575', () => {
+describe('migrations 572-576', () => {
   it('each is one transaction whatever applies it, safe for a live database, and reloads the API schema', () => {
     for (const [name, sql] of Object.entries(FILES)) {
       const body = bodyOf(sql)
@@ -170,5 +171,21 @@ describe('migrations 572-575', () => {
     expect(body).toContain("(kind = 'meeting' and name is not null and char_length(name) between 1 and 80 and dm_key is null and team_id is null)")
     expect(body).toContain("'meeting_waiting'")
     expect(body).toContain("'team_chat_channel'")
+  })
+
+  it('576: a meeting link as a booking’s place, beside availability’s video and location, off by default; its function the service role’s', () => {
+    const body = flat(FILES.bookings)
+    expect(body).toContain('alter table public.booking_link add column if not exists call_here boolean not null default false;')
+    expect(body).toContain('alter table public.time_offer add column if not exists call_here boolean not null default false;')
+    expect(body).toContain('alter table public.meeting add column if not exists booking_id uuid null references public.meeting_booking(id) on delete set null;')
+    expect(body).toContain('create unique index if not exists meeting_booking_id_key on public.meeting (booking_id) where booking_id is not null;')
+    expect(defined(FILES.bookings)).toEqual(['meeting_booking_changed'])
+    expect(body).toContain('security definer set search_path = public, pg_temp')
+    expect(body).toContain('revoke all on function public.meeting_booking_changed(uuid, timestamptz, integer, boolean) from public, anon, authenticated;')
+    expect(body).toContain('grant execute on function public.meeting_booking_changed(uuid, timestamptz, integer, boolean) to service_role;')
+    // The members' column grant on meeting (573) never gains booking_id.
+    expect(flat(FILES.tables)).not.toMatch(/grant select \([^)]*booking_id/)
+    // Availability's own functions are not redefined.
+    for (const fn of ['book_meeting', 'book_time_offer_slot', 'move_meeting_booking', 'write_meeting_booking', 'book_time_offer_poll']) expect(body).not.toContain(`function public.${fn}(`)
   })
 })

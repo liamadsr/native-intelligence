@@ -25,7 +25,7 @@ import {
 } from './types'
 
 const LINK_COLUMNS =
-  'id, workspace_id, owner_user_id, profile_id, slug, purpose, title, description, duration_minutes, buffer_before_minutes, buffer_after_minutes, notice_minutes, window_days, step_minutes, daily_cap, questions, video, location, ask_first, host_mode, weekly_hours, time_zone, job_kind, active, created_at, updated_at'
+  'id, workspace_id, owner_user_id, profile_id, slug, purpose, title, description, duration_minutes, buffer_before_minutes, buffer_after_minutes, notice_minutes, window_days, step_minutes, daily_cap, questions, video, call_here, location, ask_first, host_mode, weekly_hours, time_zone, job_kind, active, created_at, updated_at'
 const PROFILE_COLUMNS = 'id, workspace_id, user_id, handle'
 const HOST_COLUMNS = 'link_id, user_id, position'
 
@@ -47,6 +47,7 @@ export interface LinkRow {
   daily_cap: number | null
   questions: unknown
   video: boolean
+  call_here?: boolean | null
   location: string | null
   ask_first: boolean
   host_mode: string
@@ -102,6 +103,7 @@ export function toLink(row: LinkRow, hosts: readonly HostRow[] = [], handle: str
     dailyCap: row.daily_cap ?? null,
     questions: readQuestions(row.questions),
     video: row.video,
+    callHere: row.call_here === true,
     location: row.location,
     askFirst: row.ask_first === true,
     hostMode: (HOST_MODES as readonly string[]).includes(row.host_mode) ? (row.host_mode as HostMode) : 'one',

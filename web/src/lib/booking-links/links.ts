@@ -25,6 +25,7 @@
  * throws: every outcome is a result.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { bookingCallsAvailable } from '@/lib/meeting-links/bookings'
 import { readSharing } from '@/lib/availability/sharing'
 import { readWeekly, readWorkingHours } from '@/lib/availability/schedule'
 import { isStorableTimeZone } from '@/lib/agent-events/member-time-zone'
@@ -87,6 +88,8 @@ export function columnsOf(input: LinkFieldsInput): { columns: LinkColumns } | Li
   if (input.daily_cap !== undefined) columns.daily_cap = input.daily_cap
   if (input.questions !== undefined) columns.questions = questionsOf(input.questions)
   if (input.video !== undefined) columns.video = input.video
+  // Only where calling is set up (otherwise the option isn't offered, and nothing would make the link).
+  if (input.call_here !== undefined) columns.call_here = input.call_here === true && bookingCallsAvailable()
   if (input.location !== undefined) columns.location = input.location?.trim() || null
   if (input.ask_first !== undefined) columns.ask_first = input.ask_first
   if (input.host_mode !== undefined) columns.host_mode = input.host_mode
@@ -356,6 +359,7 @@ export function linkView(link: BookingLink, origin: string) {
     daily_cap: link.dailyCap,
     questions: link.questions,
     video: link.video,
+    call_here: link.callHere,
     location: link.location,
     ask_first: link.askFirst,
     host_mode: link.hostMode,

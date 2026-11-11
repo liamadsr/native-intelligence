@@ -54,6 +54,7 @@ import { bookSlot, deleteBookingClaims, deleteHolds, getBooking, getOffer, getOf
 import { manageTokenFor, manageTokenHash, manageUrl, offerTokenHash } from './tokens'
 import { BOOKING_ATTEMPTS_MAX, BOOKING_PROVIDER_TIMEOUT_MS, GUEST_NOTE_MAX, RECIPIENT_NAME_MAX, openSlotsOf, type MeetingBooking, type OfferSlot, type TimeOffer } from './types'
 import { bookedReport, bookedText, bookingEventWords, failedReport } from './words'
+import { bookingMeetingChanged, bookingMeetingUrl } from '@/lib/meeting-links/bookings'
 
 export type PickVia = 'link' | 'host' | 'customer'
 
@@ -104,6 +105,10 @@ export interface AcceptDeps {
   hostEmails?: (workspaceId: string, userIds: readonly string[]) => Promise<string[]>
   /** Text a mobile-only guest their confirmation (default: from the business's number, ../customers/booking.ts). */
   textGuest?: (booking: MeetingBooking, body: string) => Promise<boolean>
+  /** The booking's meeting link when it meets on a call here (default: src/lib/meeting-links/bookings.ts; null: it doesn't). */
+  meetingUrl?: (booking: MeetingBooking) => Promise<string | null>
+  /** Its meeting revoked when the booking fails or was cancelled meanwhile (default: bookingMeetingChanged). */
+  meetingChanged?: (change: { bookingId: string; cancelled: true }) => Promise<boolean>
 }
 
 async function hostEmailsDefault(workspaceId: string, userIds: readonly string[]): Promise<string[]> {
@@ -285,7 +290,10 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
   try {
     // A poll's meeting (./polls.ts): every attending guest and co-host on one event, no one guest's link in it.
     const party = attempt.source === 'poll' ? await (await import('./polls')).pollParty(supabase, attempt, deps) : null
-    const words = party?.words ?? bookingEventWords(attempt, link)
+    // Meets on a call here (migration 576): our meeting link is the place, made once per booking; no provider video link.
+    const callUrl = await (deps.meetingUrl ?? ((b) => bookingMeetingUrl(supabase, b)))(attempt)
+    const partyWords = party?.words && callUrl ? { ...party.words, description: `Join the meeting: ${callUrl}\n\n${party.words.description}` } : party?.words
+    const words = partyWords ?? bookingEventWords(attempt, link, callUrl)
     const otherHosts = !party && attempt.otherHostIds.length ? await (deps.hostEmails ?? hostEmailsDefault)(attempt.workspaceId, attempt.otherHostIds) : []
     const attendees = party?.attendees ?? [...(attempt.guestEmail ? [attempt.guestEmail] : []), ...otherHosts]
     const event = await withinTime(
@@ -296,11 +304,11 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
           description: words.description,
           start: attempt.startsAt,
           end: attempt.endsAt,
-          ...(attempt.location ? { location: attempt.location } : {}),
+          ...(callUrl ? { location: callUrl } : attempt.location ? { location: attempt.location } : {}),
           ...(attendees.length ? { attendees } : {}),
         },
         attempt.calendarAccountId ?? undefined,
-        { sendInvites: true, video: attempt.video, idempotencyKey: attempt.id },
+        { sendInvites: true, video: callUrl ? false : attempt.video, idempotencyKey: attempt.id },
       ),
       deps.providerTimeoutMs ?? BOOKING_PROVIDER_TIMEOUT_MS,
     )
@@ -308,7 +316,7 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
       state: 'confirmed',
       calendar_event_id: event.id,
       calendar_id: event.calendarId ?? null,
-      conference_url: event.conferenceUrl ?? null,
+      conference_url: callUrl ?? event.conferenceUrl ?? null,
       calendar_account_id: event.accountId ?? attempt.calendarAccountId,
       last_error: null,
       confirmed_at: new Date().toISOString(),
@@ -320,6 +328,7 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
       const now = await getBooking(supabase, bookingId).catch(() => null)
       if (now && (now.state === 'cancelled' || now.state === 'failed') && now.calendarEventId !== event.id) {
         await (deps.deleteEvent ?? deleteCalendarEvent)(attempt.hostUserId, event.id, { accountId: attempt.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => {})
+        if (callUrl) await (deps.meetingChanged ?? ((c) => bookingMeetingChanged(supabase, c)))({ bookingId: attempt.id, cancelled: true })
       }
       return now
     }
@@ -330,7 +339,7 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
     // A mobile-only guest (a link's, booked on the host's yes) hears by text.
     const texted =
       !confirmed.guestEmail && confirmed.guestPhone && confirmed.source === 'link'
-        ? await (deps.textGuest ?? ((b, body) => textBookingCustomer(supabase, { workspaceId: b.workspaceId, customerPhone: b.guestPhone, guestId: null }, body)))(confirmed, bookedText(confirmed, zone, link)).catch(() => false)
+        ? await (deps.textGuest ?? ((b, body) => textBookingCustomer(supabase, { workspaceId: b.workspaceId, customerPhone: b.guestPhone, guestId: null }, body)))(confirmed, bookedText(confirmed, zone, link, callUrl)).catch(() => false)
         : false
     await tell({ workspaceId: confirmed.workspaceId, userId: confirmed.hostUserId, messageId: `meeting-booking:${confirmed.id}:booked`, text: bookedReport(confirmed, zone, !!confirmed.guestEmail, texted), routes: false }).catch(() => false)
     return confirmed
@@ -343,6 +352,8 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
     const failed = await updateBooking(supabase, attempt.id, ['booking'], { state: 'failed', last_error: reason }).catch(() => null)
     if (failed) {
       await deleteBookingClaims(supabase, failed.id).catch(() => {})
+      // A meeting link made for it goes too (nothing when it had none).
+      await (deps.meetingChanged ?? ((c) => bookingMeetingChanged(supabase, c)))({ bookingId: failed.id, cancelled: true })
       // The provider may have made the event before it failed (a timeout, an
       // error on its answer): one the key made comes off again, so no guest
       // holds an invitation to a booking that failed.

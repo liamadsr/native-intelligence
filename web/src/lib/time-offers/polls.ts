@@ -263,6 +263,7 @@ export async function createPoll(
       title: plan.title,
       durationMinutes: plan.durationMinutes,
       video: plan.video,
+      callHere: plan.callHere,
       location: plan.location,
       message: plan.message,
       timeZone: plan.timeZone,
