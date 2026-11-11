@@ -30,8 +30,9 @@
 #     web/supabase/migrations (this tool never touches the database);
 #     web/supabase/functions and web/supabase/templates (the Supabase stack uses
 #     them from the checkout: they change the moment the checkout moves); and
-#     deploy/edge, deploy/supabase, deploy/inngest, deploy/backup (other stacks,
-#     which take a change at their next restart or build, a reboot included); and
+#     deploy/edge, deploy/supabase, deploy/inngest, deploy/backup, deploy/livekit
+#     (other stacks, which take a change at their next restart or build, a reboot
+#     included, and whose scripts a person runs as root); and
 #     this server's own deploy tooling, which runs as root or sets what the
 #     containers may do: EVERYTHING in deploy/app (the scripts, compose.yaml and
 #     any other file Compose would read beside it, the Dockerfile, whose first
@@ -107,7 +108,7 @@ unit=ni-auto-deploy
 # Files a person takes care of before the checkout may move past them (see above).
 # In deploy/app everything is held but the paths named here, so that a file nobody
 # thought of (compose.override.yaml, a folder Python would import from) is held too.
-watched=(web/supabase/migrations web/supabase/functions web/supabase/templates deploy/edge deploy/supabase deploy/inngest deploy/backup
+watched=(web/supabase/migrations web/supabase/functions web/supabase/templates deploy/edge deploy/supabase deploy/inngest deploy/backup deploy/livekit
 	deploy/app ':(exclude)deploy/app/cron' ':(exclude)deploy/app/smoke' ':(exclude)deploy/app/healthcheck.mjs'
 	':(exclude)deploy/app/eve-origin.mjs' ':(exclude)deploy/app/tests' ':(exclude)deploy/app/README.md'
 	':(exclude)deploy/app/.env.example')
@@ -383,7 +384,7 @@ kinds = [
      "migrations not yet applied to the database"),
     ("live", lambda p: p.startswith(("web/supabase/functions/", "web/supabase/templates/")),
      "files the Supabase stack uses from the checkout, which change the moment it moves"),
-    ("stack", lambda p: p.startswith(("deploy/edge/", "deploy/supabase/", "deploy/inngest/", "deploy/backup/")),
+    ("stack", lambda p: p.startswith(("deploy/edge/", "deploy/supabase/", "deploy/inngest/", "deploy/backup/", "deploy/livekit/")),
      "files of other stacks, which take effect at their next restart (a reboot included) or build"),
     ("tooling", lambda p: p.startswith("deploy/app/"),
      "the server's own deploy tooling, which runs as root on the server or sets what the containers may do"),

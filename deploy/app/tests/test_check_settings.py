@@ -7,6 +7,7 @@ import base64
 import contextlib
 import hmac
 import io
+import json
 import os
 import sys
 import tempfile
@@ -276,6 +277,94 @@ class Sandbox(unittest.TestCase):
         for status, want in ((401, False), (403, False), (0, None), (429, None), (503, None)):
             with FakeHttp([("https://api.vercel.com/", (status, None))]):
                 self.assertIs(cs.check_sandbox(self.ENV, {})[0], want, status)
+
+
+class LiveKit(unittest.TestCase):
+    KEY = "APImadeup00001"
+    SECRET = "made-up-secret-made-up-secret-made-up-secret-00"
+    ENV = {"LIVEKIT_URL": "wss://livekit.example.dev", "LIVEKIT_API_KEY": KEY, "LIVEKIT_API_SECRET": SECRET}
+    API = "https://livekit.example.dev/twirp/livekit.RoomService/ListRooms"
+
+    def decode(self, token):
+        def part(p):
+            return json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        header, body, signature = token.split(".")
+        expected = base64.urlsafe_b64encode(hmac.digest(self.SECRET.encode(), ("%s.%s" % (header, body)).encode(), "sha256")).rstrip(b"=").decode()
+        self.assertEqual(signature, expected)
+        return part(header), part(body)
+
+    def test_the_token_is_one_livekit_reads(self):
+        header, claims = self.decode(cs.livekit_token(self.KEY, self.SECRET, 1_800_000_000))
+        self.assertEqual(header, {"alg": "HS256", "typ": "JWT"})
+        # The key is the issuer; the grant allows listing rooms and nothing else.
+        self.assertEqual(claims, {"iss": self.KEY, "nbf": 1_799_999_990, "exp": 1_800_000_300, "video": {"roomList": True}})
+
+    def test_the_address(self):
+        self.assertEqual(cs.livekit_api_base("wss://livekit.example.dev"), "https://livekit.example.dev")
+        self.assertEqual(cs.livekit_api_base(" wss://livekit.example.dev/\n"), "https://livekit.example.dev")
+        self.assertEqual(cs.livekit_api_base("wss://livekit.example.dev:8443"), "https://livekit.example.dev:8443")
+        for wrong in ("ws://livekit.example.dev", "https://livekit.example.dev", "wss://livekit.example.dev/rtc", "livekit.example.dev", ""):
+            self.assertIsNone(cs.livekit_api_base(wrong), wrong)
+
+    def test_one_call_to_the_server_api(self):
+        with FakeHttp([(self.API, (200, {"rooms": [{"name": "a"}]}))]) as fake:
+            ok, note = cs.check_livekit(dict(self.ENV), {})
+        self.assertIs(ok, True)
+        self.assertIn("1 room open", note)
+        self.assertEqual(len(fake.calls), 1)
+        url, headers, post, _ = fake.calls[0]
+        self.assertEqual(url, self.API)
+        self.assertEqual(post, {})
+        _, claims = self.decode(headers["Authorization"].split(" ", 1)[1])
+        self.assertEqual(claims["iss"], self.KEY)
+        self.assertNotIn(self.SECRET, note)
+
+    def test_answers(self):
+        for answer, want, words in (((200, {}), True, "0 rooms"), ((401, None), False, "refused"), ((404, None), False, "answered 404"),
+                                    ((0, None), None, "cannot tell"), ((429, None), None, "cannot tell"), ((502, None), None, "cannot tell")):
+            with FakeHttp([(self.API, answer)]):
+                ok, note = cs.check_livekit(dict(self.ENV), {})
+            self.assertIs(ok, want, answer)
+            self.assertIn(words, note)
+
+    def test_wrong_before_asking(self):
+        with FakeHttp([]) as fake:
+            self.assertIs(cs.check_livekit(dict(self.ENV, LIVEKIT_URL="ws://livekit.example.dev"), {})[0], False)
+            self.assertIs(cs.check_livekit(dict(self.ENV, LIVEKIT_API_SECRET=" "), {})[0], False)
+            self.assertIs(cs.check_livekit({"LIVEKIT_URL": "wss://livekit.example.dev"}, {})[0], False)
+        self.assertEqual(fake.calls, [])
+
+    def test_all_three_or_none(self):
+        self.assertEqual(cs.group("LIVEKIT_URL"), "may be empty")
+        self.assertEqual(cs.group("LIVEKIT_API_SECRET"), "may be empty")
+        ok, note = cs.CHECKS["LIVEKIT_API_SECRET"]({"LIVEKIT_URL": "", "LIVEKIT_API_SECRET": self.SECRET}, {})
+        self.assertIs(ok, False)
+        self.assertIn("LIVEKIT_URL", note)
+        self.assertEqual(cs.CHECKS["LIVEKIT_API_KEY"](dict(self.ENV), {}), (None, None))
+        # Empty, all three: calls are off, and that blocks nothing.
+        _, blockers, _ = cs.report({"LIVEKIT_URL": "", "LIVEKIT_API_KEY": "", "LIVEKIT_API_SECRET": ""}, {})
+        self.assertEqual(blockers, [])
+        # Set, and refused by the server: that blocks.
+        _, blockers, _ = cs.report(dict(self.ENV), {"LIVEKIT_URL": (False, "refused")})
+        self.assertEqual(blockers, ["LIVEKIT_URL: refused"])
+
+    def test_the_egress_switch(self):
+        self.assertEqual(cs.group("LIVEKIT_EGRESS"), "may be empty")
+        check = cs.CHECKS["LIVEKIT_EGRESS"]
+        self.assertEqual(check(dict(self.ENV, LIVEKIT_EGRESS="on"), {}), (None, None))
+        self.assertEqual(check(dict(self.ENV, LIVEKIT_EGRESS="on\n"), {}), (None, None))
+        for wrong in ("1", "true", "ON", "yes"):
+            ok, note = check(dict(self.ENV, LIVEKIT_EGRESS=wrong), {})
+            self.assertIs(ok, False, wrong)
+            self.assertIn("only on", note)
+        ok, note = check({"LIVEKIT_URL": "", "LIVEKIT_EGRESS": "on"}, {})
+        self.assertIs(ok, False)
+        self.assertIn("LIVEKIT_URL", note)
+        # Empty is off and blocks nothing; a wrong value blocks.
+        _, blockers, _ = cs.report({"LIVEKIT_EGRESS": ""}, {})
+        self.assertEqual(blockers, [])
+        _, blockers, _ = cs.report({"LIVEKIT_EGRESS": "1"}, {"LIVEKIT_EGRESS": check({"LIVEKIT_EGRESS": "1"}, {})})
+        self.assertEqual(len(blockers), 1)
 
 
 class Report(unittest.TestCase):

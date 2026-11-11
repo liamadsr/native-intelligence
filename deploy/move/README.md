@@ -9,7 +9,7 @@ Nothing on a server is set up by hand, which is what makes this possible:
 | The system setup (SSH, firewall, updates, Docker, networks) | [`../server/setup.sh`](../server/setup.sh) | `prepare` runs the script there |
 | What runs, and at which version | the compose files in this repository | `prepare` checks out the same commit the old server is on |
 | The settings and secrets | one `.env` file per folder, on the server only | `prepare` copies them across; their contents are never shown |
-| The data | Docker volumes whose names start with `ni-` | `sync` and `cutover` copy them, server to server |
+| The data | Docker volumes whose names start with `ni-` (LiveKit has none: it keeps nothing) | `sync` and `cutover` copy them, server to server |
 | The app's image | built on the server from the checkout, never pulled from a registry | `prepare` builds it there (about ten minutes), with the app's own [`../app/deploy.sh`](../app/deploy.sh) |
 | The public names | DNS records | you change them, after `cutover` |
 
@@ -99,6 +99,8 @@ dig +short inngest.nativeintelligence.dev sb.nativeintelligence.dev
 ```
 
 Once the app runs on the server, its names (`APP_HOSTS` in `edge/.env`) are among those records, and while they still point at the old server the app is down. Change those first.
+
+Once calls run on the server, LiveKit's name (`LIVEKIT_HOST` in `edge/.env`) is one of them too. Nothing else about LiveKit needs doing: it keeps no data (nothing to copy), the firewall lines for its media ports and its network with Caddy (`ni-livekit-edge`) come with `setup.sh`, and it finds the new server's public address by itself when it starts. Calls that were in progress at the cutover ended there; people start them again. If `LIVEKIT_NODE_IP` is set in `livekit/.env` (step 23 of [`../README.md`](../README.md) says when it would be), change it to the new server's address, or empty it, before the cutover: it is the one setting that names the old server.
 
 Then check the platform itself, the same way as after the first installation: the checks at the end of step 9 in [`../README.md`](../README.md), the Inngest dashboard (step 10) showing the app with its functions and no error, and one backup taken by hand (step 11).
 

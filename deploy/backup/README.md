@@ -8,6 +8,8 @@ One small container (`ni-backup`) that runs cron. Each line in [`crontab`](cront
 | `supabase` | Every hour | A dump of the whole Supabase database, the cluster's roles, and the key its vault is encrypted with. Kept: the newest 48, and the newest of each of the last 30 days. |
 | `supabase-storage` | Nightly | Every file in Supabase Storage. A file deleted or replaced there is kept 30 days more, counted from the night the job found it gone. Every file is then read back from Storage and from the backup and compared. |
 
+LiveKit ([`../livekit`](../livekit), calls) has no job here on purpose: it keeps nothing on disk. Rooms exist only while people are in them, and its Redis holds only that. What it needs to be rebuilt is its folder and its `.env` (the key pair), which belongs in the password manager like every other `.env`.
+
 Everything is encrypted in the container and uploaded to one Backblaze B2 bucket, and each job requests its own dead-man URL after a good run. Setting it up is step 11 of [`../README.md`](../README.md), and step 17 for the two Supabase jobs, which stay off until then. This page is about what the backups are and how to get one back. The first half is Inngest; [Supabase](#supabase) has its own half below.
 
 ## What a backup is

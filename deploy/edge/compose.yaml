@@ -1,5 +1,7 @@
-# Caddy: the one container that publishes ports (80 and 443), with automatic
-# certificates. It reaches the other stacks over the shared `ni-edge` network.
+# Caddy: the public door for everything that is HTTP (ports 80 and 443), with
+# automatic certificates. It reaches the other stacks over the shared `ni-edge`
+# network. The only other ports published on this server are LiveKit's two media
+# ports (../livekit), which are not HTTP.
 #
 # Run from this folder, as root so the root-only .env can be read:
 #   sudo docker compose up -d
@@ -20,6 +22,9 @@ services:
       # Never empty: Caddy reads an empty value as a site with no name and refuses
       # the whole file. The default is a name no request carries (Caddyfile).
       APP_HOSTS: ${APP_HOSTS:-http://app.invalid}
+      # LiveKit's signalling (../livekit). The same kind of default as APP_HOSTS:
+      # until it is set, no certificate is asked for a name with no DNS record yet.
+      LIVEKIT_HOST: ${LIVEKIT_HOST:-http://livekit.invalid}
     volumes:
       # The folder, not the file: git replaces a file when it updates it, and
       # a single-file mount would keep showing the old one until a restart.
