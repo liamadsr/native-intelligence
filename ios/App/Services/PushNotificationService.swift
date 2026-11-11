@@ -6,12 +6,20 @@
 //  agent's messages while the person is away from every app.
 //
 //  - Permission is asked when it means something: the first time team chat
-//    opens, never at launch. Once granted, every signed-in launch registers
-//    again, so a token Apple rotated reaches the server (last_seen moves).
+//    opens, never at launch.
+//  - On every launch and every return to the foreground the app reads what
+//    iOS Settings say (PushSync): allowed, it registers again (the server's
+//    last_seen_at moves, and the server pushes only to installs seen within
+//    30 days); turned off, or nothing would show, it takes the install off
+//    (push_token_remove), so the server sends the text, Slack or email the
+//    person will actually see instead of a push nobody sees.
 //  - The token goes to the server as the person (migration 562's
-//    push_token_register: their own install only), and is taken off before
-//    they sign out (push_token_remove), so a phone handed on never gets the
-//    last person's messages.
+//    push_token_register: their own install only). It never outlives the
+//    session: before an explicit sign-out it is removed as the person, and
+//    when the session ends any other way (expired, its refresh failed) it is
+//    forgotten by the token alone (push_token_forget, no sign-in needed). A
+//    removal that can't reach the server (offline) is remembered and done on
+//    the next launch, before anything is registered.
 //  - In the foreground a push for the conversation on screen shows nothing
 //    (the message is right there); any other shows its banner.
 //  - A tap opens where the push says (TeamChatRouter), switching workspace
@@ -32,7 +40,14 @@ final class PushNotificationService: NSObject, ObservableObject {
     @Published private(set) var authorization: UNAuthorizationStatus = .notDetermined
 
     private let center = UNUserNotificationCenter.current()
+    /// This phone's APNs token, as hex (the device's, whoever is signed in).
     private static let tokenKey = "push_device_token_hex"
+    /// The server holds this install for the signed-in person.
+    private static let registeredKey = "push_token_registered"
+    /// A removal that didn't reach the server yet: done before anything is registered.
+    private static let pendingForgetKey = "push_token_pending_forget"
+
+    private var defaults: UserDefaults { .standard }
 
     /// Apple's environment this build's tokens come from: a Development build is signed for
     /// the sandbox (Config/Dial8-Development.entitlements), Release for production.
@@ -51,24 +66,36 @@ final class PushNotificationService: NSObject, ObservableObject {
     /// At launch (the app delegate): the delegate is set before any push can be tapped.
     func start() {
         center.delegate = self
-        NotificationCenter.default.addObserver(forName: .authenticationComplete, object: nil, queue: .main) { _ in
-            Task { @MainActor in await PushNotificationService.shared.registerIfAllowed() }
+        let resync: @Sendable (Notification) -> Void = { _ in
+            Task { @MainActor in await PushNotificationService.shared.sync() }
         }
-        NotificationCenter.default.addObserver(forName: .userSignedIn, object: nil, queue: .main) { _ in
-            Task { @MainActor in await PushNotificationService.shared.registerIfAllowed() }
+        NotificationCenter.default.addObserver(forName: .authenticationComplete, object: nil, queue: .main, using: resync)
+        NotificationCenter.default.addObserver(forName: .userSignedIn, object: nil, queue: .main, using: resync)
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main, using: resync)
+        // The session ended, however it ended: this install stops getting the person's pushes.
+        NotificationCenter.default.addObserver(forName: .userSignedOut, object: nil, queue: .main) { _ in
+            Task { @MainActor in await PushNotificationService.shared.forget() }
         }
-        Task { await registerIfAllowed() }
+        Task { await sync() }
     }
 
-    /// Signed in and already allowed: register again (the token may have changed).
-    func registerIfAllowed() async {
+    /// Launch, sign-in, every return to the foreground: what Settings say now, told to the server.
+    func sync() async {
+        await flushPendingForget()
         let settings = await center.notificationSettings()
         authorization = settings.authorizationStatus
-        guard SupabaseManager.shared.isAuthenticated else { return }
-        switch settings.authorizationStatus {
-        case .authorized, .provisional, .ephemeral:
+        let action = PushSync.action(
+            Self.authorization(of: settings.authorizationStatus),
+            alertsVisible: Self.alertsVisible(settings),
+            signedIn: SupabaseManager.shared.isAuthenticated,
+            registered: defaults.bool(forKey: Self.registeredKey)
+        )
+        switch action {
+        case .register:
             UIApplication.shared.registerForRemoteNotifications()
-        default:
+        case .remove:
+            await removeAsPerson()
+        case .wait:
             break
         }
     }
@@ -78,7 +105,7 @@ final class PushNotificationService: NSObject, ObservableObject {
         let settings = await center.notificationSettings()
         authorization = settings.authorizationStatus
         guard settings.authorizationStatus == .notDetermined else {
-            await registerIfAllowed()
+            await sync()
             return
         }
         let granted = (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) ?? false
@@ -86,11 +113,24 @@ final class PushNotificationService: NSObject, ObservableObject {
         if granted { UIApplication.shared.registerForRemoteNotifications() }
     }
 
+    private static func authorization(of status: UNAuthorizationStatus) -> PushAuthorization {
+        switch status {
+        case .authorized, .provisional, .ephemeral: return .allowed
+        case .denied: return .denied
+        default: return .notDetermined
+        }
+    }
+
+    /// Whether a push would show anywhere: a banner, the lock screen or Notification Center.
+    private static func alertsVisible(_ s: UNNotificationSettings) -> Bool {
+        s.alertSetting == .enabled || s.lockScreenSetting == .enabled || s.notificationCenterSetting == .enabled
+    }
+
     // MARK: - The token
 
     func didRegister(deviceToken: Data) {
         let hex = PushToken.hex(deviceToken)
-        UserDefaults.standard.set(hex, forKey: Self.tokenKey)
+        defaults.set(hex, forKey: Self.tokenKey)
         Task { await upload(hex) }
     }
 
@@ -99,7 +139,8 @@ final class PushNotificationService: NSObject, ObservableObject {
     }
 
     private func upload(_ hex: String) async {
-        guard SupabaseManager.shared.isAuthenticated else { return }
+        // A removal still owed goes first; while it can't reach the server, nothing is registered.
+        guard await flushPendingForget(), SupabaseManager.shared.isAuthenticated else { return }
         do {
             try await SupabaseManager.shared.client
                 .rpc("push_token_register", params: [
@@ -109,24 +150,57 @@ final class PushNotificationService: NSObject, ObservableObject {
                     "name_of_device": UIDevice.current.name,
                 ])
                 .execute()
+            defaults.set(true, forKey: Self.registeredKey)
             print("🔔 Push: install registered (\(Self.environment))")
         } catch {
             print("❌ Push: register failed: \(error)")
         }
     }
 
-    /// Before signing out (while the session still works): this install is taken off the person.
-    func unregister() async {
-        guard let hex = UserDefaults.standard.string(forKey: Self.tokenKey) else { return }
+    /// Notifications turned off: this install comes off the person (as the person).
+    private func removeAsPerson() async {
+        guard let hex = defaults.string(forKey: Self.tokenKey) else { return }
         do {
             try await SupabaseManager.shared.client.rpc("push_token_remove", params: ["device_token": hex]).execute()
+            defaults.set(false, forKey: Self.registeredKey)
         } catch {
             print("⚠️ Push: remove failed: \(error)")
         }
+    }
+
+    /// Before an explicit sign-out (while the session still works): this install comes off the person.
+    func unregister() async {
+        await removeAsPerson()
         try? await center.setBadgeCount(0)
         center.removeAllDeliveredNotifications()
     }
+
+    /// The session has ended (any way): the install is forgotten by its token alone. Offline, it is
+    /// remembered and done on the next launch, before anything is registered.
+    func forget() async {
+        guard let hex = defaults.string(forKey: Self.tokenKey) else { return }
+        defaults.set(hex, forKey: Self.pendingForgetKey)
+        defaults.set(false, forKey: Self.registeredKey)
+        try? await center.setBadgeCount(0)
+        center.removeAllDeliveredNotifications()
+        await flushPendingForget()
+    }
+
+    /// Do a removal still owed. True when nothing is owed any more.
+    @discardableResult
+    private func flushPendingForget() async -> Bool {
+        guard let hex = defaults.string(forKey: Self.pendingForgetKey) else { return true }
+        do {
+            try await SupabaseManager.shared.client.rpc("push_token_forget", params: ["device_token": hex]).execute()
+            defaults.removeObject(forKey: Self.pendingForgetKey)
+            return true
+        } catch {
+            print("⚠️ Push: forget failed, kept for the next launch: \(error)")
+            return false
+        }
+    }
 }
+
 
 extension PushNotificationService: UNUserNotificationCenterDelegate {
     /// In the foreground: nothing for the conversation on screen, a banner for anything else.

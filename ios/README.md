@@ -91,8 +91,12 @@ xcrun simctl launch <device> com.dial8-iOS-26 -previewTeamChat YES \
   -previewTeamChatScreen list|conversation|focus|thread|mention
 ```
 
-Push: the app asks for permission the first time team chat opens, registers its APNs token
-with the server (`push_token_register`, migration 562) and takes it off before signing out.
+Push: the app asks for permission the first time team chat opens. On every launch and return
+to the foreground it checks Settings: allowed, it registers its APNs token again
+(`push_token_register`, migration 562; the server pushes only to installs seen within 30 days);
+turned off, it takes the install off (`push_token_remove`). When the session ends, however it
+ends, the install is forgotten (`push_token_forget`), and a removal that couldn't reach the server
+is done on the next launch before anything is registered.
 `Config/Dial8-Development.entitlements` (sandbox) and `Config/Dial8.entitlements`
 (production) carry `aps-environment`; the App ID needs the Push Notifications capability.
 

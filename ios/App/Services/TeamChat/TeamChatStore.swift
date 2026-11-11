@@ -178,9 +178,11 @@ final class TeamChatStore: ObservableObject {
     private func comeBack() async {
         await refresh()
         if live == nil || live?.status != .subscribed {
-            await leaveLive()
+            await leaveLive(closingTyping: false)
             await joinLive()
         }
+        // The open conversations' typing topics too: same screens listening, a fresh socket.
+        for topic in typing.values { await topic.rejoinIfDropped(client) }
         events.send(.refetch)
     }
 
@@ -286,11 +288,14 @@ final class TeamChatStore: ObservableObject {
         }
     }
 
-    private func leaveLive() async {
+    /// Leave the workspace's channel; `closingTyping` (a workspace switch, a sign-out) closes the
+    /// typing topics for good, else they stay with their listeners.
+    private func leaveLive(closingTyping: Bool = true) async {
         liveSubscriptions.forEach { $0.cancel() }
         liveSubscriptions = []
         if let live { await client.removeChannel(live) }
         live = nil
+        guard closingTyping else { return }
         for topic in typing.values { await topic.close(client) }
         typing = [:]
     }
@@ -430,14 +435,22 @@ final class TeamChatStore: ObservableObject {
 }
 
 /// One channel's private typing topic (migration 559), shared by every screen showing the channel.
+/// Its listeners outlive its socket: a topic that dropped while the app slept is joined again
+/// with the same screens listening (`rejoinIfDropped`).
 @MainActor
 private final class TypingTopic {
     var listeners: [UUID: (TeamChatTypingSignal) -> Void] = [:]
-    private let channel: RealtimeChannelV2
+    private let channelId: String
+    private var channel: RealtimeChannelV2?
     private var subscription: RealtimeSubscription?
 
     init(channelId: String, client: SupabaseClient) {
-        channel = client.channel(TeamChatTypingSignal.topic(channelId: channelId)) {
+        self.channelId = channelId
+        join(client)
+    }
+
+    private func join(_ client: SupabaseClient) {
+        let channel = client.channel(TeamChatTypingSignal.topic(channelId: channelId)) {
             $0.isPrivate = true
             $0.broadcast.receiveOwnBroadcasts = false
         }
@@ -448,24 +461,36 @@ private final class TypingTopic {
                 for listener in self.listeners.values { listener(signal) }
             }
         }
-        let channel = self.channel
+        self.channel = channel
         Task { try? await channel.subscribeWithError() }
     }
 
+    /// Coming back to the foreground: a socket that dropped is joined again, same listeners.
+    func rejoinIfDropped(_ client: SupabaseClient) async {
+        guard channel?.status != .subscribed else { return }
+        await leave(client)
+        join(client)
+    }
+
     func say(_ signal: TeamChatTypingSignal) {
-        guard channel.status == .subscribed else { return }
+        guard let channel, channel.status == .subscribed else { return }
         let message: JSONObject = [
             "member_id": .string(signal.memberId),
             "thread": signal.thread.map { .string($0) } ?? .null,
             "typing": .bool(signal.typing),
         ]
-        let channel = self.channel
         Task { await channel.broadcast(event: TeamChatTypingSignal.event, message: message) }
     }
 
-    func close(_ client: SupabaseClient) async {
+    private func leave(_ client: SupabaseClient) async {
         subscription?.cancel()
         subscription = nil
-        await client.removeChannel(channel)
+        if let channel { await client.removeChannel(channel) }
+        channel = nil
+    }
+
+    func close(_ client: SupabaseClient) async {
+        listeners = [:]
+        await leave(client)
     }
 }

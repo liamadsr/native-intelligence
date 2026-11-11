@@ -571,6 +571,55 @@ enum PushToken {
     }
 }
 
+// MARK: - Push permission, kept in step with the server
+
+/// What iOS says about notifications for the app.
+enum PushAuthorization: Equatable {
+    case notDetermined
+    case denied
+    /// Authorized, provisional or ephemeral.
+    case allowed
+}
+
+enum PushSyncAction: Equatable {
+    /// Register with APNs again: the token reaches the server, and its last-seen moves.
+    case register
+    /// Take this install off the person (push_token_remove): nothing they would see arrives by push,
+    /// so the server must fall back to a text, Slack or email.
+    case remove
+    case wait
+}
+
+enum PushSync {
+    /// On every launch and return to the foreground. Notifications turned off in Settings (or every
+    /// way of showing one turned off) takes the install off; allowed registers it again. Not yet
+    /// asked: wait for the first time team chat opens.
+    static func action(_ authorization: PushAuthorization, alertsVisible: Bool, signedIn: Bool, registered: Bool) -> PushSyncAction {
+        guard signedIn else { return .wait }
+        switch authorization {
+        case .allowed where alertsVisible:
+            return .register
+        case .allowed, .denied:
+            return registered ? .remove : .wait
+        case .notDetermined:
+            return .wait
+        }
+    }
+}
+
+// MARK: - Links
+
+enum TeamChatLinks {
+    /// A link a message's words or a preview card may open: http or https with a host, nothing else
+    /// (no tel:, sms:, file:, app schemes or javascript:).
+    static func safeURL(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty else { return nil }
+        return url
+    }
+}
+
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }

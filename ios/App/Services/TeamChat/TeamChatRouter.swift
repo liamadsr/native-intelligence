@@ -37,8 +37,11 @@ final class TeamChatRouter: ObservableObject {
         path = [.list]
     }
 
-    /// A tapped push, or a link: take its steps.
+    /// A tapped push, or a link: take its steps. On a cold launch the person's workspaces
+    /// aren't loaded yet; they are waited for (a while), so another workspace's push switches
+    /// to it first instead of opening in the wrong one.
     func open(_ route: PushRoute) async {
+        await workspacesLoaded()
         let workspaces = Set(WorkspaceService.shared.memberships.map { $0.workspaceId.uuidString.lowercased() })
         let current = WorkspaceService.shared.workspaceId?.uuidString.lowercased()
         for step in PushTap.steps(for: route, currentWorkspaceId: current, memberOf: workspaces) {
@@ -56,6 +59,14 @@ final class TeamChatRouter: ObservableObject {
                 path = []
                 chatRequest += 1
             }
+        }
+    }
+
+    /// Until WorkspaceService has filled its list (sign-in, then its bootstrap), at most `timeout`.
+    private func workspacesLoaded(timeout: TimeInterval = 20) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !WorkspaceService.shared.hasLoadedWorkspaces, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 200_000_000)
         }
     }
 }

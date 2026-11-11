@@ -60,6 +60,8 @@ import Foundation
         pushPayloads()
         pushTaps()
         presentation()
+        permission()
+        links()
         if failures > 0 {
             print("\(failures) of \(checks) checks failed")
             exit(1)
@@ -284,6 +286,26 @@ import Foundation
         check(PushPresentation.showsBanner(threadPush, onScreen: TeamChatOnScreen(channelId: ch, threadRootId: nil)), "the channel on screen: its thread's reply banners")
         check(PushPresentation.showsBanner(channelPush, onScreen: nil), "nothing open: a banner")
         check(!PushPresentation.showsBanner(.homeMessage(workspaceId: nil, conversationId: "h1"), onScreen: nil, chatOpen: true), "the chat open: no banner for the agent's message")
+    }
+}
+
+extension TeamChatTests {
+    static func permission() {
+        equal(PushSync.action(.allowed, alertsVisible: true, signedIn: true, registered: false), .register, "allowed: register (the server's last-seen moves)")
+        equal(PushSync.action(.allowed, alertsVisible: true, signedIn: true, registered: true), .register, "allowed and registered: register again every launch and return")
+        equal(PushSync.action(.denied, alertsVisible: false, signedIn: true, registered: true), .remove, "turned off in Settings: the install comes off, so the text, Slack or email goes instead")
+        equal(PushSync.action(.allowed, alertsVisible: false, signedIn: true, registered: true), .remove, "allowed but nothing shows (alerts, lock screen, centre all off): off too")
+        equal(PushSync.action(.denied, alertsVisible: false, signedIn: true, registered: false), .wait, "nothing registered: nothing to take off")
+        equal(PushSync.action(.notDetermined, alertsVisible: false, signedIn: true, registered: false), .wait, "not asked yet: wait for team chat to open")
+        equal(PushSync.action(.allowed, alertsVisible: true, signedIn: false, registered: true), .wait, "signed out: the session's end took it off already")
+    }
+
+    static func links() {
+        equal(TeamChatLinks.safeURL("https://printshop.example/specs")?.host, "printshop.example", "https opens")
+        check(TeamChatLinks.safeURL("http://example.test") != nil, "http opens")
+        for bad in ["javascript:alert(1)", "tel:5550100", "sms:5550100", "file:///etc/hosts", "dial8://capture", "https://", "not a link"] {
+            check(TeamChatLinks.safeURL(bad) == nil, "\(bad) never opens")
+        }
     }
 }
 

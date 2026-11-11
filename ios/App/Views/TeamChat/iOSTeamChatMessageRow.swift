@@ -126,7 +126,9 @@ struct iOSTeamChatMessageRow: View {
         var out = AttributedString(text)
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return out }
         for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-            guard let url = match.url, let r = Range(match.range, in: text), let ar = Range(r, in: out) else { continue }
+            // Only http and https open from a message (never tel:, sms:, file: or an app's scheme).
+            guard let found = match.url, let url = TeamChatLinks.safeURL(found.absoluteString),
+                  let r = Range(match.range, in: text), let ar = Range(r, in: out) else { continue }
             out[ar].link = url
             out[ar].underlineStyle = .single
         }
@@ -147,31 +149,39 @@ struct iOSTeamChatMessageRow: View {
         }
     }
 
+    @ViewBuilder
     private func linkCard(_ p: TeamChatLinkPreview) -> some View {
-        Link(destination: URL(string: p.url) ?? URL(string: "about:blank")!) {
-            HStack(alignment: .top, spacing: 0) {
-                Rectangle().fill(Color(.separator)).frame(width: 3)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(p.site).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
-                    if let title = p.title { Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(2) }
-                    if let d = p.description { Text(d).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(3) }
-                    if let image = p.image.flatMap(URL.init(string:)), !store.isFixture {
-                        AsyncImage(url: image) { img in img.resizable().scaledToFill() } placeholder: { Color.clear }
-                            .frame(maxWidth: 240, maxHeight: 130)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .padding(.top, 4)
-                    }
-                }
-                .multilineTextAlignment(.leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: 300, alignment: .leading)
-            .background(TeamChatStyle.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        // Only an http or https preview opens (the server reads only those; this holds it here too).
+        if let url = TeamChatLinks.safeURL(p.url) {
+            Link(destination: url) { linkCardBody(p) }
+                .buttonStyle(.plain)
+        } else {
+            linkCardBody(p)
         }
-        .buttonStyle(.plain)
+    }
+
+    private func linkCardBody(_ p: TeamChatLinkPreview) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            Rectangle().fill(Color(.separator)).frame(width: 3)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(p.site).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                if let title = p.title { Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary).lineLimit(2) }
+                if let d = p.description { Text(d).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(3) }
+                if let image = TeamChatLinks.safeURL(p.image), !store.isFixture {
+                    AsyncImage(url: image) { img in img.resizable().scaledToFill() } placeholder: { Color.clear }
+                        .frame(maxWidth: 240, maxHeight: 130)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .padding(.top, 4)
+                }
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: 300, alignment: .leading)
+        .background(TeamChatStyle.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var failedLine: some View {
