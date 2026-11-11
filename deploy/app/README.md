@@ -16,6 +16,7 @@ deploy/app/
 ├── compose.yaml      the stack: proxy, web, worker, eight agents, cron (project ni-app)
 ├── .env              its settings (root only, never in git; .env.example lists them)
 ├── deploy.sh         build the image here and roll it out; --rollback goes back
+├── auto-deploy.sh    automatic deploys of main (off unless switched on), see below
 ├── pull-settings.sh  run on your own machine: fills .env from the earlier host
 ├── check-settings.sh run on your own machine: checks .env before the switch
 └── proxy/Caddyfile   the stack's router
@@ -40,11 +41,19 @@ own network got `401` from `sb.nativeintelligence.dev/auth/v1/health`).
 |---|---|
 | Ship what is checked out | `git pull` as the checkout's owner, then `sudo ./deploy.sh` |
 | Go back to the image before | `sudo ./deploy.sh --rollback` |
+| See what the automatic deploys did, or why they hold | `sudo ./auto-deploy.sh status` ([Automatic deploys](#automatic-deploys)) |
 | See what runs | `sudo docker compose ps` |
 | Read a part's log | `sudo docker compose logs -f --tail 100 web` (`worker`, `cron`, `agent-chat-agent`, `proxy` …) |
 | Which commit runs | `sudo docker image inspect ni-app:live -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'` |
 | Restart one part | `sudo docker compose restart agent-chat-agent` |
 | Call one scheduled job now | `sudo docker compose exec cron node /app/deploy/app/cron/call.mjs /api/cron/<name>` |
+
+Run git as the checkout's owner, never as root. When `git pull` says "Permission
+denied", files in the checkout are owned by root (something was copied in or run as
+root): find them with `sudo find . ! -user <owner>` from `/opt/native-intelligence` and
+give them back. A script that opens several ssh connections in a row can fail with
+exit code 255: the firewall allows about six new ones in 30 seconds, so wait a minute.
+More of these under "Day to day" in [`../README.md`](../README.md#day-to-day).
 
 Logs are Docker's own, capped at 5 files of 20 MB per container (step 6 of
 `../README.md`); nothing ships them anywhere else. Errors also go to Sentry when
@@ -66,8 +75,184 @@ Every image is labelled with the public address it was built for (`ni.app-url`),
 and `deploy.sh` refuses to put one into service while `.env` names another: the
 rehearsal's image, built for the test address, never serves production.
 
+One deploy at a time: `deploy.sh` takes the lock `/run/ni-app-deploy.lock` (a folder only root can write to, so no other user can hold it) and
+stops at once, saying so, while another deploy holds it (by hand, or the automatic
+deploys below).
+
 Merging to `main` does not deploy here. Someone runs `git pull` and `deploy.sh` on
-the server.
+the server, or the automatic deploys below do, when the owner has switched them on.
+
+### Automatic deploys
+
+`auto-deploy.sh` rolls out what is merged to `main` by itself, within minutes. It is
+**off** until someone switches it on, on the server, and stays as it was across
+reboots. Nothing outside the server can start it or reach it: a systemd timer on the
+server runs it every two minutes, and each run asks GitHub, as the checkout's owner,
+whether `main` moved (`git fetch origin main`).
+
+**What switching it on means.** With it on, a merge to `main` runs its code on the
+production server, inside the app's containers, without a person in between. The
+holds below cover what reaches further: the database, the other stacks, and this
+server's own deploy tooling, which runs as root. Everything else in the merge (the
+app, and what `cron/` puts into its image) goes out by itself.
+
+What is new is measured from **what serves**, not from the checkout: the commit on
+the image `ni-app:running`, which `deploy.sh` tags only after a finished roll-out.
+When that cannot be read (no such image, no commit on it, a commit the checkout does
+not have), the run holds: roll out by hand once, and it knows again. So a checkout
+someone pulled by hand is still "something to deploy", and every check below covers
+everything between what serves and `origin/main`. When `origin/main` serves, the run
+ends without a word.
+
+When all is well, it moves the checkout to exactly the commit it checked (`git merge
+--ff-only`, as the owner: `git pull` without a second fetch), builds (`deploy.sh
+--build-only`, while the old version keeps serving), rolls out (`deploy.sh
+--no-build`, as that file's header describes), and then checks that the new commit
+serves: `ni-app:running` must carry it, and `/api/version`, asked through the stack's
+proxy from inside its container, must answer with its first eight characters.
+
+What it never does: touch the database, add or change a setting, roll back, or roll
+out anything while a deploy runs. It holds the same lock as `deploy.sh` for its whole
+run: while someone deploys by hand, a run does nothing and the status says `waiting:
+a deploy is running`; while it deploys, `deploy.sh` by hand stops at once.
+
+**Holds.** The run changes nothing, and says why in the status (and once in the
+log), until a person resolves it. Any error while checking holds too; it never
+counts as "nothing to hold".
+
+| Holds when | What a person does |
+|---|---|
+| Between what serves and `origin/main`, a file in `web/supabase/migrations/` is added, changed, renamed or removed | Apply the migrations (below), then `sudo ./auto-deploy.sh acknowledge <commit>`, with the commit the hold names. |
+| The same for `web/supabase/functions/` or `web/supabase/templates/` | These are mounted from the checkout into the Supabase stack (`../supabase/compose.override.yaml`: the `stripe-webhook` function, and the mail templates' file server): they change the moment the checkout moves, whatever happens to the build. Read the change, then `acknowledge <commit>`. |
+| The same for `deploy/edge/`, `deploy/supabase/`, `deploy/inngest/` or `deploy/backup/` | Other stacks. Edge reads its folder (`Caddyfile`) when Caddy starts; Supabase's compose files and mounted files, and Inngest's `sync.sh`, take effect when those containers are next created or started; the backup container has its files built in, so its next `up --build`. A reboot restarts the first three, so a broken file there takes its stack down at the next reboot even though the app's build is fine. Read the change, `acknowledge <commit>`, and once the checkout has moved, roll that stack out by hand (Day to day in [`../README.md`](../README.md#day-to-day)). |
+| The same for the server's own deploy tooling: **everything in `deploy/app/`** except the few paths named on the right | These run as root on the server in this same run (`deploy.sh`) or the next (`auto-deploy.sh`, `check_settings.py`), set what the containers may do (`compose.yaml`, and any other file Compose reads beside it by itself, such as a `compose.override.yaml`: privileges, mounts), decide what a build may take from the checkout, where the other stacks' settings files lie (the `Dockerfile`, whose first line names the program that drives the build, and `Dockerfile.dockerignore`, which that program applies), or say where traffic goes (`proxy/` sits on the edge network). A file or folder that is new there is held too, whatever its name: the rule lists what is let through, not what is held. Read the change, then `acknowledge <commit>`. Let through, because they only ever run inside the containers with the rights `compose.yaml` gives them: `cron/`, `smoke/`, `healthcheck.mjs`, `eve-origin.mjs`, and the app itself; and `tests/`, `README.md`, and `.env.example` (next row). |
+| The new `deploy/app/.env.example` names a setting `.env` has no line for (names only; no value is read out or shown) | Copy the line into `.env` (`sudo nano .env`) and fill it in where needed. The next run sees it. |
+| The new commits remove `deploy/app/.env.example`, make it a link or a folder, or give it a line that is neither `NAME=value` nor a comment (`export NAME=`, an indented line: forms the reader of settings skips but Compose takes) | The settings the new commits need cannot be checked, and that is not "no new setting". Put the file right on `main`, or roll out by hand once sure. |
+| The new commits add a path that exists untracked or ignored in the checkout (`deploy/app/.env` is one: the fast-forward would overwrite it) | Look at it and move it away, or roll out by hand. |
+| `origin/main` is not a plain step forward from what serves or from the checkout (history was rewritten), the checkout is not on `main`, has changes of its own, or holds files its owner does not own | Look as the owner (`git status`, `git log --oneline HEAD...origin/main`) and put the checkout right by hand. The hold says which. |
+| What serves cannot be told | Roll out by hand once (`git pull` as the owner, `sudo ./deploy.sh`). |
+| A commit's build failed (below) | That commit only; a newer one on `main` goes ahead. |
+| A roll-out was left half done, the checkout was moved during the run, or what serves went anywhere but forward (a rollback, below) | Everything, until `clear-failure`. |
+| `git fetch` failed | Usually the network: the next run tries again. |
+
+A hold names how many files wait, the first eight of each kind, and the commit;
+`sudo ./auto-deploy.sh status` lists every one (`held` in the state folder).
+`acknowledge <commit>` records each of them by its mode and content at that commit,
+in a root-only file, and prints every one. It covers exactly those: a later change
+to one of them (its content or its mode, or a file becoming a link), or another file,
+is held again. It takes only a commit of `origin/main` as the last run fetched it, at
+or after what serves: it does not fetch, so a newer commit than the last run saw is
+never covered. An earlier commit of that range only covers less.
+
+**Applying a held migration.** Either pull first (as the owner) and apply the file
+as "Apply a database migration" under [Day to day](../README.md#day-to-day) says, or
+apply it straight from the commit the hold names, without moving the checkout, from
+`/opt/native-intelligence` as its owner:
+
+```bash
+git show <commit>:web/supabase/migrations/<file> | sudo docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction
+```
+
+then the second step, the schema reload, as that row says. Then `sudo
+./deploy/app/auto-deploy.sh acknowledge <commit>`. Both ways work: what is held is
+measured from what serves, not from the checkout.
+
+**Failures.** A run's output is in `runs/`. It tells two kinds apart by the step
+that failed, because it runs the two halves of `deploy.sh` one after the other:
+
+- **The build** (`deploy.sh --build-only`) failed, or the run stopped during it: the
+  old version still serves the app, nothing was replaced. That commit is not tried
+  again; a newer one on `main` is. But the checkout has moved, so files other stacks
+  use from it (the held kinds above) are already the new ones: they were
+  acknowledged before the run moved it.
+- **The roll-out** (`deploy.sh --no-build`) failed, or the run stopped during it (a
+  reboot, the service's two-hour limit), or the checkout could not be moved, or it
+  was moved by someone between the checks and the build or during the build (then
+  nothing was rolled out), or the new commit does not serve afterwards: it may be
+  half done, so nothing is rolled out on top. Everything holds until a person has looked (`sudo docker compose ps`,
+  then `sudo ./deploy.sh --no-build` or `--rollback`) and run `sudo
+  ./auto-deploy.sh clear-failure`.
+
+Each step is recorded as the failure before it starts, so a run that is killed
+leaves the right kind behind. `clear-failure` forgets the record and the mark of a
+rollback (below), and the acknowledgements with them unless only a build had failed;
+it takes what serves now, and what served before it, as where the next run starts,
+so one `clear-failure` is enough after a `--rollback`; and it says in one line what
+the next run would roll out: `origin/main` as last fetched, and whether that is or
+contains the commit that failed (so after a half-done roll-out it tells you the same
+commit is about to go out again; switch off first if it must not). Only the run in which
+a deploy fails exits non-zero; every other run exits 0 and the status file and the
+pings carry the state, so that systemd does not report a failure every two minutes.
+
+**Rollbacks.** When what serves went anywhere but forward (a `sudo ./deploy.sh
+--rollback`, whoever made the roll-out before it, or an older commit rolled out by
+hand), the next run holds everything, naming both commits, and drops every
+acknowledgement: a newer merge does not lift it, so a rolled-back change cannot go
+out again with an unrelated one. Only `clear-failure` does, and it says what would
+go out next. Three things tell a run so, and the first two need no run to have seen
+it happen: they hold for a deploy and a rollback made by hand between two runs, for
+what was done while automatic deploys were off, and at the very first run.
+
+- **The mark of a rollback.** `deploy.sh --rollback` leaves the file `rolled-back`
+  in the state folder (once that folder exists, so from `install` on). The next run
+  takes it and holds everything, whatever was rolled out by hand after the rollback.
+  A mark left while automatic deploys are off waits: `status` shows it, `on` says
+  so, and the first run holds on it.
+- **The images.** `deploy.sh` keeps what served before the last roll-out as
+  `ni-app:previous`, and `--rollback` swaps it with what serves. So the commit on
+  `ni-app:previous` is what serves or an earlier one, unless the last roll-out went
+  back (a rollback, or an older commit rolled out by hand). It remembers one step:
+  a second roll-out by hand covers it, which is what the mark is for. When that
+  image is there but carries no commit the checkout knows, a rollback cannot be
+  ruled out, and that holds everything too (once: `clear-failure` settles it). When
+  docker does not answer, the run holds and the next one asks again.
+- **What the last run saw serving** (`seen`), which what serves now must be or come
+  after.
+
+Each is judged once; the record of the failure keeps the hold until `clear-failure`.
+Rolling forward again by hand (a second `--rollback`, or a newer `deploy.sh`) does
+not clear a hold a run has already recorded. Not covered: an older commit rolled
+out by hand with a plain `deploy.sh` (no `--rollback`, so no mark) and then a second
+roll-out by hand, all between two runs or while it is off.
+
+| To | Command (from this folder) |
+|---|---|
+| Put the service and timer in place (once, and after they change) | `sudo ./auto-deploy.sh install`: enables and starts nothing |
+| Switch it on | `sudo ./auto-deploy.sh on` (enables the timer and sets the switch) |
+| Switch it off | `sudo ./auto-deploy.sh off`: a deploy running now finishes what it started |
+| What serves, what it did, and why it holds | `sudo ./auto-deploy.sh status` |
+| What a run would do now, changing nothing | `sudo ./auto-deploy.sh run --dry-run` (fetches and checks; no move, no build, no state) |
+| Release a hold on migrations, other stacks' files or the deploy tooling | `sudo ./auto-deploy.sh acknowledge <commit>` |
+| Forget a failure or a rollback (it says what the next run would roll out) | `sudo ./auto-deploy.sh clear-failure` |
+
+"On" is two things, both on the server: the timer is enabled, and the switch file
+`/var/lib/ni-auto-deploy/on` exists. Every run reads the switch file first, so a
+timer enabled by anything else still deploys nothing. Installing never sets either.
+
+Everything it keeps is in `/var/lib/ni-auto-deploy`: `status` (the last run's time;
+the state: `idle`, `deployed <commit> at <time>`, `waiting`, `holding: <reason>` or
+`failed: <commit>: <reason>`; what a person does; and the commit that serves;
+readable by anyone), `log` (one line per change of state), `runs/` (each deploy's
+own output, the newest 30), `failed`, `seen` (what served at the last run, and what
+`ni-app:previous` carried then), `rolled-back` (the mark `deploy.sh --rollback`
+leaves, until a run takes it), `deployed`, `acknowledged`, `held`, and `settings`.
+`systemctl status ni-auto-deploy` and `journalctl -u ni-auto-deploy` have systemd's
+side.
+
+`settings` holds three addresses, each optional, requested at the end of every run
+while it is on (like the backups' `*_PING_URL`, a plain request):
+`AUTO_DEPLOY_PING_URL` after a run that ended well (nothing new, waiting, deployed),
+`AUTO_DEPLOY_HOLD_PING_URL` after a run that holds, `AUTO_DEPLOY_FAIL_PING_URL` after
+a run whose deploy failed and every run while that stands. A check elsewhere can
+then tell running and well (the first, every two minutes), holding, failed, and not
+running at all (none).
+
+**The undo.** `sudo ./deploy.sh --rollback` goes back to the version before the last
+roll-out, whoever made it, and leaves a mark for the automatic deploys. The next run
+takes the mark and holds everything (Rollbacks, above), also when the roll-out that
+is undone was made by hand a minute before, or while automatic deploys were off:
+nothing goes out again until a person runs `clear-failure`, which says what would.
+`sudo ./auto-deploy.sh off` stops the automatic deploys altogether.
 
 ### NI_LIVE: rehearsal or production
 
@@ -95,6 +280,10 @@ read those back, so they are entered by hand with
 answer leaves that one as it is), from the password manager or from the provider
 that issued them. `check-settings.sh` then says, without showing a value, which are
 set and, where the server can tell, which are right (`../README.md` step 21, Gate 1).
+
+These tools only change values of lines that already exist in `.env`; none adds a
+line. A new setting's line is copied from `.env.example` by hand (`sudo nano .env`),
+then filled in.
 
 Some values must be exactly what the earlier host has, because what they sign or
 encrypt is already stored or held elsewhere:
@@ -142,11 +331,14 @@ These exist only here: the earlier host has no such settings, because there the
 app's own deployment token did their work (`web/src/lib/slack/config.ts`).
 
 - `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
-  Slack connector is in. The connector refuses it as the credential for a Slack
-  login (measured from this server), so the app only makes a short-lived project
-  token with it (`web/src/lib/slack/connect-auth.ts`) and sends that to the
-  connector. The project token is for the project's development environment, so
-  the connector must stay enabled for development as well as production.
+  Slack connector is in. The connector refuses this team token as the credential
+  for a Slack login (measured from this server), so the app only makes a
+  short-lived project token with it (`web/src/lib/slack/connect-auth.ts`) and sends
+  that to the connector. The project token is for the project's development
+  environment, so the connector must stay enabled for development as well as
+  production. An access token narrowed to the project, instead of scoped to the
+  team, is refused outright, here and by the sandbox service (`SANDBOX_ACCESS_TOKEN`
+  is scoped to the team too).
 - `CONNECT_PROJECT_ID`: the id of the project the connector is attached to and
   forwards Slack's events for. Required with the access token: the project token
   is made for it. A forwarded event or button click must carry a token naming it.
@@ -155,6 +347,17 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   the team named.
 - `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
   empty is `production`.
+- `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID`, `SANDBOX_PROJECT_ID`: an access token
+  of that account scoped to the team, and the ids of the team and project the
+  sandboxes belong to. All three or none. They serve two things: the cloud
+  browser's sandboxes (`web/src/lib/cloud-browser/config.ts`), and the coding
+  agent's, which run on the same sandbox service when the three are set
+  (`web/agents/coding-agent/sandbox.ts`): there each run's network policy is set
+  when its sandbox is created, and its GitHub credentials are added by the
+  service's firewall, never put in the sandbox. Without them the coding agent's
+  sandbox is `just-bash`, where no coding run can work. The coding agent's
+  snapshot is prepared when the image is built, so the build needs them too
+  ("What is fixed when the image is built"); after changing one, build again.
 
 `check-settings.sh` makes the app's own requests for a Slack login, in order, and
 says at which step it stopped: the project token, made exactly as the app makes it
@@ -269,6 +472,35 @@ test. On the server they come from `.env`, and changing one needs a new build.
   `/eve/<name>/v1/*` to. `entrypoint.sh` refuses to start the web role under a
   different value.
 
+One more choice is made at the build, and it takes secrets: where the coding
+agent's sandbox runs. `eve build` prepares each agent's sandbox, and for the coding
+agent with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID` that
+is a snapshot on the hosted sandbox service; without them, a `just-bash` template
+like every other agent's. The three reach the build only as BuildKit secrets:
+`deploy.sh` reads them from `.env` and gives them to its `compose build` command
+alone, `compose.yaml` lists them as web's build
+`secrets`, and the `Dockerfile` mounts them, as environment variables, into the one
+step that runs `build-agents.sh`, which gives them to the coding agent's build
+alone. A secret mount is not part of any layer, and `build-agents.sh` fails the
+build if the access token turns up anywhere in the app's folder (dependencies
+aside), `/tmp` or `$HOME` after that build. The build argument
+`NI_CODING_AGENT_SANDBOX` carries no secret: `vercel/<team id>/<project id>`, or
+nothing. A change of choice, team or project rebuilds that step, which BuildKit's
+cache would otherwise skip (secrets are not part of its key) and so reuse a
+snapshot made elsewhere. It cannot see a snapshot that expired or was deleted on
+the service. Coding runs then fail (closed), and a rebuild may not help: eve
+reuses the snapshot its template sandbox on the service names. Whether the
+service expires these snapshots is not known yet.
+
+At run time only the containers that read them get the three: web and worker (the
+cloud browser, `web/src/lib/cloud-browser/config.ts`) and the coding agent.
+`compose.yaml` blanks them for the scheduler and the seven other agents
+(`environment` wins over `env_file`). The container test and CI build without
+secrets, so their coding agent is `just-bash`. When the coding agent's container
+starts, `entrypoint.sh` (`build-agents.sh --check-sandbox`) refuses to run it if
+the settings in its environment call for the other sandbox than the one it was
+built with: change the three, then build again, never only restart.
+
 The agents read their environment when they start.
 
 ## The proxy
@@ -301,7 +533,8 @@ the move script and the backups find them):
 
 - `agents/<name>/.eve/.workflow-data`: its workflow runs.
 - `agents/<name>/.eve/sandbox-cache/just-bash/sessions`: its sandbox's files, per
-  session.
+  session. (A coding agent built for the hosted sandbox service keeps its sandboxes
+  there, not here; its volume stays empty.)
 
 The rest of `agents/<name>/.eve` is written by `eve build` (the sandbox template)
 and has to come from the image, so the volumes are not on `.eve` itself: a volume
@@ -358,7 +591,8 @@ still run the same schedule against the same database: switch those off first
 | `proxy/Caddyfile` | The stack's router, on the server and in the test. |
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |
 | `deploy.sh` | Build and roll out on the server, or go back. |
+| `auto-deploy.sh`, `ni-auto-deploy.service`, `ni-auto-deploy.timer` | Automatic deploys of `main`, off unless switched on; `tests/test_auto_deploy.py` is its test. |
 | `pull-settings.sh` | Fill the server's `.env` from the earlier host, unseen. |
-| `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/` is its test. |
+| `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/test_check_settings.py` is its test. |
 | `smoke/compose.yaml`, `smoke/.env.example` | The container test's stack. |
 | `smoke.sh` | The container test. |
