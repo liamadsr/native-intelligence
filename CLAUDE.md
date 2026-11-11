@@ -50,10 +50,12 @@ Read this before reporting anything as live or touching production. The code gui
 - **Still at the earlier host, on purpose:** Slack's connector, the cloud browser's
   sandboxes and the coding agent's, the AI Gateway, and DNS. The coding agent's sandbox
   runs on that host's sandbox service when `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
-  `SANDBOX_PROJECT_ID` are set at the image build and in the container. It holds no
-  GitHub credential: it clones, fetches and pushes through the app's git gate, which
-  adds the GitHub token server-side, and that service's firewall rules add only the
-  run's gate token, on the gate's endpoints. Written and tested without live
+  `SANDBOX_PROJECT_ID` are set at the image build and in the container. It is not
+  handed the person's GitHub token: it clones, fetches and pushes through the app's
+  git gate, which adds the token server-side and refuses an LFS answer that contains
+  it, and that service's firewall rules add only the run's gate token, on the gate's
+  endpoints. (GitHub's own short-lived LFS storage links, in its LFS answers, are not
+  checked, as before.) Written and tested without live
   calls, NOT yet proven by a live coding run from the server ("The coding agent" in
   `deploy/README.md` lists the checks to do first).
 - No server address, ssh user or ids in this repository: it is public. Use the

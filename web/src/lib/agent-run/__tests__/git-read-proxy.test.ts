@@ -26,13 +26,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 
-import { GIT_PUSH_PATH, type GitPushProxyDeps, type PushTarget } from '../git-push-proxy'
+import { GIT_PUSH_PATH, type PushTarget } from '../git-push-proxy'
 import {
   FORWARDED_READ_HEADERS,
   handleGitGate,
   handleGitRead,
+  MAX_LFS_ANSWER_BYTES,
   MAX_LFS_REQUEST_BYTES,
   MAX_UPLOAD_PACK_REQUEST_BYTES,
+  READS_PER_RUN,
+  ReadSlots,
+  type GitReadDeps,
 } from '../git-read-proxy'
 import { mintGitPushToken, verifyGitPushToken } from '../git-push-token'
 import { mintAgentRunToken } from '../agent-run-token'
@@ -54,7 +58,8 @@ afterEach(() => {
   delete process.env.AGENT_RUN_INTERNAL_SECRET
 })
 
-function deps(over: Partial<GitPushProxyDeps> = {}) {
+/** Fresh seams per call, with a slot table of their own (so one test's open reads never reach another's). */
+function deps(over: Partial<GitReadDeps> = {}) {
   const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) =>
     new Response('upstream-ok', {
       status: 200,
@@ -62,13 +67,16 @@ function deps(over: Partial<GitPushProxyDeps> = {}) {
     }),
   )
   const loadTarget = vi.fn(async () => TARGET as PushTarget | { refused: string })
-  return { verifyToken: (t: string | null) => verifyGitPushToken(t), loadTarget, fetchImpl, ...over } as GitPushProxyDeps & {
+  return { verifyToken: (t: string | null) => verifyGitPushToken(t), loadTarget, fetchImpl, readSlots: new ReadSlots(), ...over } as GitReadDeps & {
     fetchImpl: typeof fetchImpl
     loadTarget: typeof loadTarget
+    readSlots: ReadSlots
   }
 }
 
 const gateToken = () => mintGitPushToken(RUN)
+/** ONE gate token instance: a leak check must look for the very token the request carried. */
+const GATE_TOKEN = mintGitPushToken(RUN)
 const basicAuth = (token: string) => 'Basic ' + Buffer.from(`x-access-token:${token}`).toString('base64')
 const auth = (token = gateToken()) => ({ authorization: basicAuth(token) })
 
@@ -113,7 +121,8 @@ describe('handleGitRead: what reaches GitHub', () => {
     const [url, init] = upstreamCall(d)
     expect(url).toBe(e.upstream)
     expect(init.method).toBe(e.method)
-    expect(init.redirect).toBe('error')
+    // A redirect is never followed (a moved repo is answered, see below).
+    expect(init.redirect).toBe('manual')
     expect(init.headers).toEqual({
       authorization: GH_BASIC,
       'user-agent': 'git/2.45.1',
@@ -126,12 +135,15 @@ describe('handleGitRead: what reaches GitHub', () => {
   })
 
   it("the client's Authorization (the gate token, Basic or Bearer) never reaches GitHub, nor any cookie", async () => {
-    for (const authorization of [basicAuth(gateToken()), `Bearer ${gateToken()}`]) {
+    for (const authorization of [basicAuth(GATE_TOKEN), `Bearer ${GATE_TOKEN}`]) {
       const d = deps()
       const res = await handleGitRead(req('GET', 'info/refs?service=git-upload-pack', { authorization, cookie: 'a=b' }), ['info', 'refs'], d)
       expect(res.status).toBe(200)
       const sent = JSON.stringify(upstreamCall(d)[1].headers)
-      expect(sent).not.toContain(gateToken().split('.')[0])
+      // The very token this request carried, raw, in parts and in its Basic form.
+      expect(sent).not.toContain(GATE_TOKEN.split('.')[0])
+      expect(sent).not.toContain(GATE_TOKEN.split('.')[1])
+      expect(sent).not.toContain(basicAuth(GATE_TOKEN).slice(6))
       expect(sent).not.toContain('cookie')
       expect((upstreamCall(d)[1].headers as Record<string, string>).authorization).toBe(GH_BASIC)
     }
@@ -207,6 +219,234 @@ describe('handleGitRead: what comes back', () => {
     const res = await handleGitRead(req('POST', 'git-upload-pack', auth(), '0000'), ['git-upload-pack'], d)
     expect(res.status).toBe(502)
   })
+
+  it("the client's abort signal reaches the GitHub request, on every endpoint", async () => {
+    for (const e of ENDPOINTS) {
+      const d = deps()
+      const request = req(e.method, e.path, auth(), e.method === 'POST' ? '0000' : undefined)
+      await handleGitRead(request, segmentsOf(e.path), d)
+      expect(upstreamCall(d)[1].signal).toBe(request.signal)
+    }
+  })
+})
+
+describe("handleGitRead: GitHub's 401, redirects and headers", () => {
+  it("a 401 from GitHub reaches git as a 403 saying GitHub refused the person's credential, with nothing of GitHub's answer", async () => {
+    for (const e of ENDPOINTS) {
+      const d = deps({
+        fetchImpl: vi.fn(async () => new Response(`Bad credentials ${GH_TOKEN}`, { status: 401, headers: { 'www-authenticate': 'Basic realm="GitHub"', 'content-type': 'text/plain' } })),
+      })
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const res = await handleGitRead(req(e.method, e.path, auth(), e.method === 'POST' ? '0000' : undefined), segmentsOf(e.path), d)
+      expect(res.status).toBe(403)
+      expect(res.headers.get('www-authenticate')).toBeNull()
+      const text = await res.text()
+      expect(text).toMatch(/GitHub refused/)
+      expect(text).not.toContain(GH_TOKEN)
+      expect(JSON.stringify(warn.mock.calls)).toContain(RUN.agentRunId)
+      warn.mockRestore()
+    }
+  })
+
+  it.each([301, 302, 307, 308])('a %i from GitHub (a moved or renamed repo) is a 502 saying so; never followed, no location relayed', async (status) => {
+    for (const e of ENDPOINTS) {
+      const d = deps({
+        fetchImpl: vi.fn(async () => new Response(null, { status, headers: { location: 'https://github.com/copper-kite/new-shop.git/info/refs' } })),
+      })
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const res = await handleGitRead(req(e.method, e.path, auth(), e.method === 'POST' ? '0000' : undefined), segmentsOf(e.path), d)
+      expect(res.status).toBe(502)
+      expect(res.headers.get('location')).toBeNull()
+      const text = await res.text()
+      expect(text).toMatch(/moved or been renamed/)
+      expect(text).not.toContain('new-shop')
+      expect(d.fetchImpl).toHaveBeenCalledTimes(1)
+      expect(upstreamCall(d)[1].redirect).toBe('manual')
+      warn.mockRestore()
+    }
+  })
+
+  it('www-authenticate and location from GitHub never reach the client, streamed or LFS', async () => {
+    for (const e of ENDPOINTS) {
+      for (const status of [200, 404]) {
+        const d = deps({
+          fetchImpl: vi.fn(async () => new Response('{}', { status, headers: { 'content-type': 'application/json', 'www-authenticate': 'Basic realm="GitHub"', location: 'https://example.com/' } })),
+        })
+        const res = await handleGitRead(req(e.method, e.path, auth(), e.method === 'POST' ? '0000' : undefined), segmentsOf(e.path), d)
+        expect(res.status).toBe(status)
+        expect(res.headers.get('www-authenticate')).toBeNull()
+        expect(res.headers.get('location')).toBeNull()
+      }
+    }
+  })
+
+  it("the push gate still relays GitHub's own status, a 401 included (unchanged)", async () => {
+    const d = deps({ fetchImpl: vi.fn(async () => new Response('Bad credentials', { status: 401 })) })
+    const res = await handleGitGate(req('GET', 'info/refs?service=git-receive-pack'), ['info', 'refs'], d)
+    expect(res.status).toBe(401)
+    expect(upstreamCall(d)[1].redirect).toBe('error')
+  })
+})
+
+describe("handleGitRead: an LFS answer never carries the person's GitHub token to the sandbox", () => {
+  const LFS = [
+    ['the LFS batch API', 'info/lfs/objects/batch'],
+    ["git-lfs's lock check", 'info/lfs/locks/verify'],
+  ] as const
+  const lfsDeps = (body: BodyInit, status = 200) =>
+    deps({ fetchImpl: vi.fn(async () => new Response(body, { status, headers: { 'content-type': 'application/vnd.git-lfs+json' } })) })
+
+  it.each(LFS)('%s: an answer with the token raw is a 502, with nothing of the answer, logged with the run id only', async (_label, path) => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const d = lfsDeps(JSON.stringify({ objects: [{ oid: 'a1', actions: { download: { href: 'https://lfs.example/a1', header: { Authorization: `token ${GH_TOKEN}` } } } }] }))
+    const res = await handleGitRead(req('POST', path, auth(), '{}'), segmentsOf(path), d)
+    expect(res.status).toBe(502)
+    const text = await res.text()
+    expect(text).not.toContain(GH_TOKEN)
+    expect(text).not.toContain('lfs.example')
+    const logged = JSON.stringify(err.mock.calls)
+    expect(logged).toContain(RUN.agentRunId)
+    expect(logged).not.toContain(GH_TOKEN)
+    err.mockRestore()
+  })
+
+  it.each(LFS)('%s: an answer with the token as its Basic credential (base64) is a 502 too', async (_label, path) => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const d = lfsDeps(JSON.stringify({ objects: [{ oid: 'a1', actions: { download: { href: 'https://lfs.example/a1', header: { Authorization: GH_BASIC } } } }] }))
+    const res = await handleGitRead(req('POST', path, auth(), '{}'), segmentsOf(path), d)
+    expect(res.status).toBe(502)
+    expect(await res.text()).not.toContain(GH_BASIC.slice(6))
+    err.mockRestore()
+  })
+
+  it.each(LFS)('%s: an answer without the token comes back byte for byte, with its status and content type', async (_label, path) => {
+    for (const status of [200, 422]) {
+      const bytes = new Uint8Array(Buffer.from(JSON.stringify({ objects: [{ oid: 'b2', size: 7, actions: { download: { href: 'https://lfs.example/b2', header: { Authorization: 'RemoteAuth short-lived' } } } }] }) + 'é', 'utf8'))
+      const d = lfsDeps(bytes, status)
+      const res = await handleGitRead(req('POST', path, auth(), '{}'), segmentsOf(path), d)
+      expect(res.status).toBe(status)
+      expect(res.headers.get('content-type')).toBe('application/vnd.git-lfs+json')
+      expect(res.headers.get('cache-control')).toBe('no-cache')
+      expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([...bytes])
+    }
+  })
+
+  it.each(LFS)('%s: an answer over the cap is a 502; at the cap it comes back', async (_label, path) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const over = await handleGitRead(req('POST', path, auth(), '{}'), segmentsOf(path), lfsDeps(new Uint8Array(MAX_LFS_ANSWER_BYTES + 1)))
+    expect(over.status).toBe(502)
+    expect((await over.text()).length).toBeLessThan(1000)
+    const at = await handleGitRead(req('POST', path, auth(), '{}'), segmentsOf(path), lfsDeps(new Uint8Array(MAX_LFS_ANSWER_BYTES)))
+    expect(at.status).toBe(200)
+    expect((await at.arrayBuffer()).byteLength).toBe(MAX_LFS_ANSWER_BYTES)
+    warn.mockRestore()
+  })
+
+  it('the LFS answer cap is 4 MB', () => {
+    expect(MAX_LFS_ANSWER_BYTES).toBe(4 * 1024 * 1024)
+  })
+})
+
+describe('handleGitRead: at most READS_PER_RUN reads in flight per run', () => {
+  const RUN2 = { ...RUN, agentRunId: 'run-copper-kite-10', branchName: 'dial8/web-10-run00010' }
+  const TARGET2: PushTarget = { ...TARGET, branchName: RUN2.branchName }
+
+  /** "GitHub" answering every upload-pack with a stream that stays open until the test ends it. */
+  function openUpstreams() {
+    const controllers: Array<ReadableStreamDefaultController<Uint8Array>> = []
+    const fetchImpl = vi.fn(async () => {
+      const body = new ReadableStream<Uint8Array>({ start: (c) => { controllers.push(c) } })
+      controllers.at(-1)?.enqueue(new TextEncoder().encode('PACK'))
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/x-git-upload-pack-result' } })
+    })
+    const d = deps({
+      fetchImpl,
+      loadTarget: vi.fn(async (c: { agentRunId: string }) => (c.agentRunId === RUN2.agentRunId ? TARGET2 : TARGET)),
+    })
+    return { d, controllers }
+  }
+  const read = (d: GitReadDeps, token = GATE_TOKEN, init: { signal?: AbortSignal } = {}) =>
+    handleGitRead(
+      new Request(`https://app.test${GIT_PUSH_PATH}/git-upload-pack`, { method: 'POST', headers: auth(token), body: '0000', ...init }),
+      ['git-upload-pack'],
+      d,
+    )
+
+  it('is 4', () => {
+    expect(READS_PER_RUN).toBe(4)
+  })
+
+  it('the fifth concurrent read of one run is a 429 while four are open, and GitHub is not asked; another run is unaffected', async () => {
+    const { d } = openUpstreams()
+    const open = await Promise.all([read(d), read(d), read(d), read(d)])
+    expect(open.map((r) => r.status)).toEqual([200, 200, 200, 200])
+    expect(d.readSlots!.count(RUN.agentRunId)).toBe(4)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const fifth = await read(d)
+    expect(fifth.status).toBe(429)
+    expect(d.fetchImpl).toHaveBeenCalledTimes(4)
+    expect(JSON.stringify(warn.mock.calls)).toContain(RUN.agentRunId)
+    warn.mockRestore()
+    const other = await read(d, mintGitPushToken(RUN2))
+    expect(other.status).toBe(200)
+    expect(d.readSlots!.count(RUN2.agentRunId)).toBe(1)
+  })
+
+  it('a slot comes back when an answer ends, is cancelled, or fails mid-stream', async () => {
+    const { d, controllers } = openUpstreams()
+    const open = await Promise.all([read(d), read(d), read(d), read(d)])
+    // Ended: GitHub finishes and the client reads to the end.
+    controllers[0].close()
+    await open[0].text()
+    expect(d.readSlots!.count(RUN.agentRunId)).toBe(3)
+    // Cancelled: the client goes away mid-stream.
+    await open[1].body!.cancel()
+    expect(d.readSlots!.count(RUN.agentRunId)).toBe(2)
+    // Failed: GitHub's stream errors mid-transfer.
+    controllers[2].error(new Error('connection reset'))
+    await open[2].text().catch(() => {})
+    expect(d.readSlots!.count(RUN.agentRunId)).toBe(1)
+    expect((await Promise.all([read(d), read(d), read(d)])).map((r) => r.status)).toEqual([200, 200, 200])
+    expect((await read(d)).status).toBe(429)
+  })
+
+  it('a slot comes back when the client aborts, even if nothing reads or cancels the answer', async () => {
+    const { d } = openUpstreams()
+    const abort = new AbortController()
+    const res = await read(d, GATE_TOKEN, { signal: abort.signal })
+    expect(res.status).toBe(200)
+    expect(d.readSlots!.count(RUN.agentRunId)).toBe(1)
+    abort.abort()
+    expect(d.readSlots!.count(RUN.agentRunId)).toBe(0)
+  })
+
+  it('no slot is kept by a read that never streams: GitHub unreachable, a 401, a redirect, an LFS answer, a body over the cap', async () => {
+    const quiet = [vi.spyOn(console, 'warn').mockImplementation(() => {}), vi.spyOn(console, 'error').mockImplementation(() => {})]
+    const slots = new ReadSlots()
+    const answers: Array<() => Promise<Response>> = [
+      async () => { throw new TypeError('fetch failed') },
+      async () => new Response('Bad credentials', { status: 401 }),
+      async () => new Response(null, { status: 301, headers: { location: 'https://github.com/x/y.git' } }),
+      async () => new Response(`{"t":"${GH_TOKEN}"}`, { status: 200 }),
+      async () => new Response('{}', { status: 200 }),
+    ]
+    for (const answer of answers) {
+      for (let i = 0; i < READS_PER_RUN + 2; i++) {
+        const d = deps({ fetchImpl: vi.fn(answer), readSlots: slots })
+        const res = await handleGitRead(req('POST', 'info/lfs/objects/batch', auth(), '{}'), segmentsOf('info/lfs/objects/batch'), d)
+        expect(res.status).not.toBe(429)
+        await res.arrayBuffer()
+      }
+      expect(slots.count(RUN.agentRunId)).toBe(0)
+    }
+    for (let i = 0; i < READS_PER_RUN + 2; i++) {
+      const d = deps({ readSlots: slots })
+      const res = await handleGitRead(req('POST', 'git-upload-pack', auth(), new Uint8Array(MAX_UPLOAD_PACK_REQUEST_BYTES + 1)), ['git-upload-pack'], d)
+      expect(res.status).toBe(413)
+    }
+    expect(slots.count(RUN.agentRunId)).toBe(0)
+    for (const q of quiet) q.mockRestore()
+  })
 })
 
 describe('handleGitRead: refusals (nothing reaches GitHub)', () => {
@@ -264,14 +504,16 @@ describe('handleGitRead: refusals (nothing reaches GitHub)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     for (const refused of ['this run has ended', 'this run is not runnable']) {
       const d = deps({ loadTarget: vi.fn(async () => ({ refused })) })
-      const res = await handleGitRead(req('POST', 'git-upload-pack', auth(), '0000'), ['git-upload-pack'], d)
+      const res = await handleGitRead(req('POST', 'git-upload-pack', auth(GATE_TOKEN), '0000'), ['git-upload-pack'], d)
       expect(res.status).toBe(403)
       expect(d.fetchImpl).not.toHaveBeenCalled()
     }
     const logged = JSON.stringify(warn.mock.calls)
     expect(logged).toContain(RUN.agentRunId)
     expect(logged).not.toContain(GH_TOKEN)
-    expect(logged).not.toContain(gateToken().split('.')[1])
+    // The very token the requests carried.
+    expect(logged).not.toContain(GATE_TOKEN.split('.')[0])
+    expect(logged).not.toContain(GATE_TOKEN.split('.')[1])
     warn.mockRestore()
   })
 
@@ -493,7 +735,7 @@ describe('handleGitGate with real git: a shallow clone and a fetch through the g
   const cloneEnv = () => ({
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: `http.${gateUrl}.extraheader`,
-    GIT_CONFIG_VALUE_0: `Authorization: ${basicAuth(gateToken())}`,
+    GIT_CONFIG_VALUE_0: `Authorization: ${basicAuth(GATE_TOKEN)}`,
   })
 
   it.each(['2', '0'])('a shallow clone (protocol v%s) through the gate, then a fetch of another branch', async (version) => {
@@ -503,7 +745,7 @@ describe('handleGitGate with real git: a shallow clone and a fetch through the g
     expect(clone.code).toBe(0)
     expect(readFileSync(join(work, 'index.html'), 'utf8')).toBe('<h1>Copper Kite 3</h1>\n')
     // As the sandbox does: the token moves into the repo config for the gate URL only.
-    await git(['config', `http.${gateUrl}.extraheader`, `Authorization: ${basicAuth(gateToken())}`], { cwd: work })
+    await git(['config', `http.${gateUrl}.extraheader`, `Authorization: ${basicAuth(GATE_TOKEN)}`], { cwd: work })
     const fetched = await git(['-c', `protocol.version=${version}`, 'fetch', '--depth', '2', 'origin', 'refs/heads/dial8/fix-pr:refs/remotes/origin/dial8/fix-pr'], { cwd: work })
     expect(fetched.code).toBe(0)
     const show = await git(['show', 'origin/dial8/fix-pr:index.html'], { cwd: work })
@@ -514,7 +756,10 @@ describe('handleGitGate with real git: a shallow clone and a fetch through the g
     for (const s of seen) {
       expect(s.url.startsWith(`${GITHUB}/`)).toBe(true)
       expect(s.headers.authorization).toBe(GH_BASIC)
-      expect(JSON.stringify(s.headers)).not.toContain(gateToken().split('.')[1])
+      // The very token git sent the gate (raw parts and Basic form) never reaches GitHub.
+      expect(JSON.stringify(s.headers)).not.toContain(GATE_TOKEN.split('.')[0])
+      expect(JSON.stringify(s.headers)).not.toContain(GATE_TOKEN.split('.')[1])
+      expect(JSON.stringify(s.headers)).not.toContain(basicAuth(GATE_TOKEN).slice(6))
       expect(Object.keys(s.headers).sort()).toEqual(
         expect.arrayContaining(['authorization', 'user-agent']),
       )

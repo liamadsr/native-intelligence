@@ -12,8 +12,9 @@
  *   POST /api/internal/agent-run/git/git-receive-pack                     (push)
  * Auth is the run's git gate token (HTTP Basic password or Bearer), which the
  * hosted sandbox's firewall injects, or git's own config holds on any other
- * sandbox provider. The GitHub token is added server-side and never leaves the
- * app. Everything else, and why this exists, is in
+ * sandbox provider. The GitHub token is added server-side: it is not handed to
+ * the coding agent, a network policy or the sandbox, and the read gate refuses
+ * an LFS answer that contains it. Everything else, and why this exists, is in
  * src/lib/agent-run/git-read-proxy.ts (reads, and the dispatch) and
  * src/lib/agent-run/git-push-proxy.ts (pushes).
  */
@@ -24,11 +25,15 @@ export const dynamic = 'force-dynamic'
 /**
  * A clone's pack streams from GitHub through this route for as long as GitHub
  * takes to send it, so the route must not be cut at a short, fixed time.
- * `maxDuration` is honoured only on Vercel (Next's own server, which serves
- * production on our server, enforces no duration at all; there a stalled
- * transfer is bounded by the edge proxy's 15-minute quiet timeouts). On Vercel
- * 300 s is what the app's longest routes already ask for: room for a clone of
- * a large repo (the sandbox clones `--depth 50`) where 120 s could cut it.
+ * `maxDuration` is honoured only on Vercel. Next's own server, which serves
+ * production on our server, enforces no duration at all: there the edge
+ * proxy's 15-minute timeouts cut only a connection that goes fully silent for
+ * that long, not a slow trickle. What bounds reads there is the read gate:
+ * at most a few in flight per run (READS_PER_RUN), each request body capped,
+ * and the client's abort, which ends the GitHub request too
+ * (git-read-proxy.ts). On Vercel 300 s is what the app's longest routes
+ * already ask for: room for a clone of a large repo (the sandbox clones
+ * `--depth 50`) where 120 s could cut it.
  */
 export const maxDuration = 300
 

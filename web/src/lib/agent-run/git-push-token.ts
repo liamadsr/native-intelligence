@@ -6,8 +6,10 @@
  * predates the read gate.)
  *
  * Why a token of its own: the GitHub token behind a run (the triggering
- * person's, repo scope) never leaves the app, so nothing in the sandbox can
- * write the repo on GitHub, or read it, except through the gate. The gate
+ * person's, repo scope) is not handed to the coding agent, any network policy
+ * or the sandbox (and the read gate refuses an LFS answer that contains it),
+ * so nothing in the sandbox can write the repo on GitHub, or read a private
+ * one, except through the gate. The gate
  * needs to know which run is asking, so the hosted sandbox's firewall (or, on
  * any other provider, git's config for the gate URL only) presents this token,
  * and the gate adds the GitHub token server-side.

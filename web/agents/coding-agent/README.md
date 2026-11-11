@@ -57,7 +57,10 @@ run's `networkAccess` applied AT CREATION (`restricted` → exactly
 `RESTRICTED_ALLOW_HOSTS` — GitHub + the npm registry — the single source of truth
 for that tier; `trusted` → allow-all; `isolated` or unknown → `github.com` only;
 every tier also allows the app's git gate; no spec → `deny-all`). The run's
-GitHub token never reaches the sandbox (the spec doesn't carry it): every
+GitHub token is not handed to the agent (the spec doesn't carry it), to any
+network policy or to the sandbox, and the read gate refuses an LFS answer that
+contains it; not checked are the short-lived links and headers GitHub's LFS
+answers carry for its own storage, as before. Every
 clone, fetch, LFS request and push goes to the app's git gate on its public
 origin (`/api/internal/agent-run/git`: `src/lib/agent-run/git-read-proxy.ts`
 serves the run's repo for reads, `git-push-proxy.ts` pushes only the run's own
@@ -84,7 +87,7 @@ fallback that clones from GitHub directly).
 ### What the push gate guarantees, and what it doesn't
 
 No push from the sandbox can move any ref but the run's own `dial8/…` branch:
-the sandbox holds no GitHub credential at all, and the gate refuses
+the sandbox is handed no GitHub token (only GitHub's short-lived LFS storage links), and the gate refuses
 every other ref, deletes and push options. What the gate does NOT stop (residual risk, the owner's call; nothing is built for it): a pushed `dial8/…` branch can change what the repo's existing CI runs on that branch (package.json scripts, tests, build config). The owner's token has no `workflow` scope, so the run can't edit `.github/workflows` itself. But on a repo whose Actions `GITHUB_TOKEN` can write (`default_workflow_permissions: write`, or a workflow with `contents: write`) and whose workflows run on `push` or `pull_request`, such a workflow could run the branch's code with that write token and push the default branch itself. A ruleset or branch protection on the default branch, or read-only workflow permissions, closes it.
 
 ## Configuration

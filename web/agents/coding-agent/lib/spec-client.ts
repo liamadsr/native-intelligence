@@ -89,7 +89,7 @@ export interface EveSpec {
    * The app's git gate (GIT_PUSH_PATH) takes it for the run's clones, fetches
    * and LFS requests (its repo only) and its pushes (its own branch only),
    * while the run is live, and adds the GitHub token server-side. The spec
-   * carries no GitHub token: it never leaves the app. The sandbox refuses to
+   * carries no GitHub token: it is not handed to this agent at all. The sandbox refuses to
    * start without this one (it could neither clone nor push).
    */
   gitPushToken?: string

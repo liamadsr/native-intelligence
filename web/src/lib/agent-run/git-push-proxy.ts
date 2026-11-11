@@ -105,7 +105,10 @@ export const defaultGitGateDeps: GitPushProxyDeps = {
   fetchImpl: (...args) => fetch(...args),
 }
 
-/** The GitHub token as git's HTTP Basic credential (server-side only: it never leaves the app). */
+/**
+ * The GitHub token as git's HTTP Basic credential, for the gate's upstream
+ * requests only (it is not handed to the coding agent or the sandbox).
+ */
 export function githubAuth(token: string): string {
   return `Basic ${Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')}`
 }
@@ -116,10 +119,16 @@ export function userAgent(request: Request): string {
   return /^git\/[\w.\-]+/.test(ua) ? ua.slice(0, 200) : 'git/2.45.0 ni-git-gate'
 }
 
-/** A request body read into memory, or null once it passes `maxBytes` (the read stops there). */
-export async function readCapped(request: Request, maxBytes: number): Promise<Uint8Array<ArrayBuffer> | null> {
-  if (!request.body) return new Uint8Array(0)
-  const reader = request.body.getReader()
+/**
+ * A body (a request's, or an upstream answer's) read into memory, or null once
+ * it passes `maxBytes` (the read stops there and the rest is cancelled).
+ */
+export async function readCapped(
+  source: { body: ReadableStream<Uint8Array> | null },
+  maxBytes: number,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  if (!source.body) return new Uint8Array(0)
+  const reader = source.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
   for (;;) {
@@ -144,13 +153,16 @@ export async function readCapped(request: Request, maxBytes: number): Promise<Ui
 /**
  * Pass GitHub's answer back as git expects it: its status, its content type,
  * `cache-control: no-cache`, and its body STREAMED through (never read into
- * memory: a clone's pack can be large). No other upstream header is relayed.
+ * memory: a clone's pack can be large). No other upstream header is relayed
+ * (no `www-authenticate`, no `location`). `body` lets the read gate pass the
+ * same stream wrapped (git-read-proxy.ts); the push gate always relays
+ * GitHub's own body and status as they are.
  */
-export function relay(upstream: Response): Response {
+export function relay(upstream: Response, body: BodyInit | null = upstream.body): Response {
   const headers = new Headers({ 'cache-control': 'no-cache' })
   const type = upstream.headers.get('content-type')
   if (type) headers.set('content-type', type)
-  return new Response(upstream.body, { status: upstream.status, headers })
+  return new Response(body, { status: upstream.status, headers })
 }
 
 /** Which push endpoint a path (after GIT_PUSH_PATH) names. */
@@ -167,6 +179,8 @@ function endpointOf(segments: string[]): 'info-refs' | 'receive-pack' | null {
  * run; the run's live repo and branch are still the ones the token was minted
  * for. A Response when the request can't go at all (403: never git's 401,
  * which would make git prompt for a password; 503 when the run can't be read).
+ * This covers the gate's OWN refusals; what GitHub answers afterwards is each
+ * half's to relay (the push gate relays GitHub's status as it is).
  * Refusals are logged with the run id only, never a token.
  */
 export async function authorizeRun(

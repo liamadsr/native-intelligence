@@ -70,20 +70,25 @@
  *
  * ── GIT: ALL OF IT THROUGH THE APP'S GIT GATE. NO GITHUB CREDENTIAL HERE ───
  * The run's GitHub token (the triggering person's, repo scope: it can write
- * every branch, the live (default) one included) never reaches the sandbox:
- * not in a command, an env, a file, git's config or the network policy. The
- * spec this module is served does not even carry it. Every git request of the
- * run goes to the app's git gate (`<the app's public origin>/api/internal/
- * agent-run/git`, gitGateUrl), which reads the run from the database, adds
- * the GitHub token server-side, and forwards to the run's repo on GitHub:
+ * every branch, the live (default) one included) is not handed to this agent
+ * (the spec it is served does not carry it), to any network policy, or to the
+ * sandbox: not in a command, an env, a file or git's config. The read gate
+ * also refuses an LFS answer from GitHub that contains it. NOT checked: the
+ * other credentials GitHub's LFS answers carry for its storage (its own
+ * short-lived object links and their headers), as before the gate. Every git
+ * request of the run goes to the app's git gate (`<the app's public
+ * origin>/api/internal/agent-run/git`, gitGateUrl), which reads the run from
+ * the database, adds the GitHub token server-side, and forwards to the run's
+ * repo on GitHub:
  *   - READS (src/lib/agent-run/git-read-proxy.ts): the clone's remote IS the
  *     gate URL (`git clone … <gate URL> .`), so the clone and every later
  *     fetch go there, and `lfs.url` is `<gate URL>/info/lfs`, so git-lfs's
- *     batch and lock-check requests do too. The gate serves only the run's
- *     repo, only while the run is live. ACCEPTED: its LFS batch endpoint also
- *     answers `upload` batches (see git-read-proxy.ts); the LFS objects
- *     themselves move between the sandbox and GitHub's LFS storage on the
- *     short-lived links in GitHub's batch answer (*.githubusercontent.com).
+ *     batch and lock-check calls do too. The gate serves only the run's repo,
+ *     only while the run is live. ACCEPTED: its LFS batch endpoint also
+ *     answers `upload` batches (see git-read-proxy.ts). The LFS object
+ *     transfers themselves go to whatever links GitHub's batch answer names,
+ *     which the gate does not control; a `restricted` or `isolated` run
+ *     reaches them only if its allow-list has their host.
  *   - PUSHES (src/lib/agent-run/git-push-proxy.ts): the push URL is the same
  *     gate URL (the remote's URL, and `remote.origin.pushurl` pinned to it
  *     too). The gate refuses every ref update but `refs/heads/<the run's
@@ -104,10 +109,14 @@
  *     the policy, transforms included, on host disk). So the policy only
  *     narrows egress; the clone gets the gate token as a one-shot
  *     GIT_CONFIG_* env (there is no repo yet to hold it), and right after the
- *     clone it goes into the repo's git config as an extra header for the gate
- *     URL only, where later fetches, LFS and pushes find it. ACCEPTED: the
- *     model can read it there; it can do no more with it than the gate allows.
- *     It is in no command string either way.
+ *     clone a `git config` writes it into the repo's config as an extra header
+ *     for the gate URL only, where later fetches, LFS and pushes find it. Both
+ *     times it is passed in the command's ENV, never in the command text sent
+ *     to the provider; the `git config` process does get it as an argument
+ *     (the shell expands the env reference) for a moment during setup, before
+ *     any model command runs. ACCEPTED: afterwards the model can read it in
+ *     `.git/config` (as the push token before the read gate); it can do no
+ *     more with it than the gate allows.
  * A plain `git push` works; `git push https://github.com/…`, `--no-verify`,
  * `git send-pack` or raw HTTP to GitHub all arrive anonymous: the sandbox has
  * no GitHub credential to send. (github.com stays in every tier's allow-list,
@@ -277,6 +286,10 @@ export interface GitEgress {
  *                    gate's host ONLY (no npm, no api.github.com, no "*"):
  *                    the tightest policy that still lets the run clone and
  *                    push. An unknown value fails toward this bucket, never open.
+ *
+ * Clones no longer need github.com in any tier (they go through the gate);
+ * it stays allowed as before, and tightening `isolated` is a separate
+ * follow-up.
  *
  * On the hosted sandbox this is a creation option; on any other provider it
  * goes through the provider's setter when there is one (see this file's header).
@@ -631,9 +644,11 @@ async function runRequired(
  * `gateUrl` (the gate serves the run's repo, whatever the URL says: it takes
  * the repo from the run). With `credentialBrokered` (the hosted sandbox) the
  * firewall injects the gate token and no token is used here; without it (any
- * other provider, see this file's header) the gate token travels as a one-shot
- * env for the clone, then sits in the repo's config for the gate URL only;
- * never in a command string. No GitHub token exists here at all. Every git
+ * other provider, see this file's header) the gate token travels in the
+ * commands' env (never their text): a one-shot env for the clone, then a
+ * `git config` that writes it into the repo's config for the gate URL only
+ * (that process sees it as an argument during setup; the model can read it in
+ * `.git/config` afterwards). No GitHub token exists here at all. Every git
  * step must exit 0 or the selector throws (see runRequired).
  */
 async function seedWorkspace(
