@@ -329,8 +329,9 @@ export async function startCloudCodingRun(
 /**
  * The run itself, once the project and the environment are settled: the
  * person's GitHub, the workspace's coding agent, the action it works (filed
- * in the project), and the start. Shared by the chat's tool and a work
- * card's Start in a cloud environment (startCardCodingRun).
+ * in the project), and the start. Shared by the chat's tool, a work card's
+ * Start in a cloud environment (startCardCodingRun) and a website change
+ * (startSiteCodingRun).
  */
 async function launchCodingRun(
   svc: Svc,

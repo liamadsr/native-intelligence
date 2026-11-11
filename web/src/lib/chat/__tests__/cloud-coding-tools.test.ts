@@ -152,7 +152,8 @@ beforeEach(() => {
     ],
   })
   answerAsPostgres(db)
-  hoisted.send.mockClear().mockResolvedValue({ ids: ['evt-1'] })
+  // mockReset, not mockClear: a rejection one test queued and never used must not reach the next.
+  hoisted.send.mockReset().mockResolvedValue({ ids: ['evt-1'] })
   hoisted.ensureWork.mockClear()
   vi.spyOn(console, 'warn').mockImplementation(() => {})
 })
