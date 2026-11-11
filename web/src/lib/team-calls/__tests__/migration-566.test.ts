@@ -65,19 +65,21 @@ describe('migrations 566-567', () => {
     const body = flat(SCHEMA)
     expect(body).toMatch(/insert into storage\.buckets \(id, name, public, file_size_limit, allowed_mime_types\) values \( 'team-call-recordings', 'team-call-recordings', false,/)
     expect(body).toContain('set public = false,')
-    expect(body).toContain("bucket_id = 'team-call-recordings' and public.team_chat_can_read(public.team_chat_file_channel(name))")
+    expect(body).toContain("bucket_id = 'team-call-recordings' and split_part(name, '/', 3) = 'recording' and public.team_chat_can_read(public.team_chat_file_channel(name))")
     const policies = [...body.matchAll(/create policy "([^"]+)" on storage\.objects for (\w+)/g)].map((m) => [m[1], m[2]])
     expect(policies).toEqual([['team call recordings read', 'select']])
   })
 
   it('the fences: notes stay private, shared with their conversation only, read only while it is', () => {
     const body = flat(SCHEMA)
-    expect(body).toContain('before update of visibility on public.captures')
     expect(body).toContain("raise exception 'captures: a call''s notes are shared with its conversation only'")
     expect(body).toContain('before insert or update of entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id on public.entity_access')
-    expect(body).toContain("new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel")
+    expect(body).toContain("call_channel is not null and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel)")
     expect(body).toContain("check (source in ('manual', 'mention', 'channel_share', 'team_call')) not valid;")
-    expect(body).toMatch(/create policy captures_team_call_notes_fence on public\.captures as restrictive for select to authenticated using \(not \(id = any \(coalesce\(\(select public\.team_call_notes_hidden\(\)\), '\{\}'::uuid\[\]\)\)\)\);/)
+    expect(body).toContain('create policy captures_team_call_notes_fence on public.captures as restrictive for select to authenticated using (notes_channel_id is null or public.team_chat_can_read(notes_channel_id));')
+    expect(body).toContain('alter table public.captures add column if not exists notes_channel_id uuid;')
+    expect(body).toContain('before insert or update of visibility, notes_channel_id on public.captures')
+    expect(body).toContain("and split_part(name, '/', 3) = 'recording'")
   })
 
   it('every function: a definer with a pinned search_path, revoked from public and anon, granted to one role', () => {
@@ -95,7 +97,6 @@ describe('migrations 566-567', () => {
         'team_call_notes_settle',
         'team_call_notes_capture_guard',
         'team_call_notes_grant_guard',
-        'team_call_notes_hidden',
       ]),
     )
     for (const fn of fns) {
@@ -123,5 +124,6 @@ describe('migrations 566-567', () => {
     expect(body).toContain('perform pg_advisory_xact_lock(566001);')
     expect(body).toContain("select count(*)::integer into running from public.team_call t where t.recording in ('starting', 'on');")
     expect(body).toContain('if stamp < e.status_at_ns')
+    expect(flat(SCHEMA)).toContain("create unique index if not exists team_call_egress_one_recording on public.team_call_egress (call_id) where kind = 'recording' and status in ('starting', 'active', 'ending');")
   })
 })

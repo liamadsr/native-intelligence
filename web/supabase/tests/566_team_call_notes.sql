@@ -27,7 +27,8 @@ declare
   m_a uuid; m_b uuid; m_c uuid;
   ch_team uuid; ch_open uuid;
   call_t uuid; room_t text; call_o uuid; room_o text;
-  row_a uuid; row_a2 uuid; rec_t uuid; rec_o uuid;
+  row_a uuid; row_a2 uuid; row_a3 uuid; rec_t uuid; rec_t2 uuid; rec_o uuid;
+  now_ns bigint;
   cap uuid;
   v_report text;
   v_fail int;
@@ -157,11 +158,25 @@ begin
   perform public.team_call_egress_event(row_a2, 'EG_t566_a2', 'complete', 10, null, now(), 0, 0, null);
   perform pg_temp.t566_check('a file with nothing in it: empty, no words to wait for', 'empty',
     (select transcript_status from public.team_call_egress where id = row_a2));
+  select egress_row into row_a3 from public.team_call_egress_claim(call_t, m_a, 'TR_a3');
+  perform public.team_call_egress_event(row_a3, 'EG_t566_a3', 'active', 1762850000000000000, null, null, null, null, null);
+  now_ns := (extract(epoch from clock_timestamp()) * 1000000000)::bigint;
+  perform pg_temp.t566_check('the app''s own word that it failed (stamped now) lands after LiveKit''s events', 'applied/failed',
+    (select outcome || '/' || status from public.team_call_egress_event(row_a3, null, 'failed', now_ns, null, null, null, null, 'lost: never finished')));
+  perform pg_temp.t566_check('… and LiveKit''s newer finish with a file after all still lands', 'applied/complete',
+    (select outcome || '/' || status from public.team_call_egress_event(row_a3, 'EG_t566_a3', 'complete', now_ns + 1000000000, null, now(), 1000, 5000, null)));
+  perform pg_temp.t566_check('… its words wanted again', 'pending', (select transcript_status from public.team_call_egress where id = row_a3));
 
   -- ── The recording and its cap ─────────────────────────────────────────────
   call_o := pg_temp.t566_as(u_a, format('select call_id::text from public.team_call_start(%L)', ch_open))::uuid;
   select room into room_o from public.team_call where id = call_o;
   perform public.team_call_participant_event(room_o, m_c, 'PA_c', true, now(), now());
+  perform pg_temp.t566_run('the starter who never joined may turn notes on', 'rows=1', u_a,
+    array[format('select 1 from public.team_call_set_notes(%L, true) where changed', call_o)]);
+  perform public.team_call_participant_event(room_o, m_a, 'PA_ao', true, now() - interval '2 minutes', now() - interval '2 minutes');
+  perform public.team_call_participant_event(room_o, m_a, 'PA_ao', false, now() - interval '1 minute', now() - interval '2 minutes');
+  perform pg_temp.t566_run('… not once they have left the call', 'refused', u_a,
+    array[format('select * from public.team_call_set_notes(%L, true)', call_o)]);
   perform public.team_call_participant_event(room_t, m_a, 'PA_a', true, now(), now());
   perform pg_temp.t566_check('someone not in the call cannot record it', 'not_in_call',
     (select outcome from public.team_call_recording_begin(call_t, m_c, 1)));
@@ -176,9 +191,15 @@ begin
   perform public.team_call_egress_event(rec_t, 'EG_t566_rec', 'active', 100, null, null, null, null, null);
   perform pg_temp.t566_check('its egress active: the call is recording, for everyone', 'on',
     (select recording from public.team_call where id = call_t));
+  perform public.team_call_egress_event(rec_t, 'EG_t566_rec', 'complete', 150, null, now(), 0, 0, null);
+  perform pg_temp.t566_check('it ended with no file: the recording failed', 'failed', (select recording from public.team_call where id = call_t));
+  perform pg_temp.t566_check('… and another may be started in the same call', 'claimed',
+    (select outcome from public.team_call_recording_begin(call_t, m_a, 1 + (select count(*)::integer from public.team_call where recording in ('starting', 'on')))));
+  select id into rec_t2 from public.team_call_egress where call_id = call_t and kind = 'recording' and status = 'starting';
+  perform public.team_call_egress_event(rec_t2, 'EG_t566_rec2', 'active', 160, null, null, null, null, null);
 
   -- ── The end ───────────────────────────────────────────────────────────────
-  perform public.team_call_egress_event(rec_t, 'EG_t566_rec', 'complete', 200, null, now(), 600000, 50000000, null);
+  perform public.team_call_egress_event(rec_t2, 'EG_t566_rec2', 'complete', 200, null, now(), 600000, 50000000, null);
   perform pg_temp.t566_check('its file saved', 'saved', (select recording from public.team_call where id = call_t));
   perform pg_temp.t566_check('a saved recording is the call''s: no second', 'saved',
     (select outcome from public.team_call_recording_begin(call_t, m_a, 99)));
@@ -218,15 +239,24 @@ begin
     array[format('insert into public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_member_id, granted_by) values (%L, %L, %L, %L, %L, %L)', w1, 'capture', cap, 'member', m_c, m_a)]);
   perform pg_temp.t566_run('… nor with another channel', 'refused', u_a,
     array[format('insert into public.entity_access (workspace_id, entity_type, entity_id, grantee_kind, grantee_channel_id, granted_by) values (%L, %L, %L, %L, %L, %L)', w1, 'capture', cap, 'channel', ch_open, m_a)]);
+  perform pg_temp.t566_check('the notes carry their conversation', ch_team::text, (select notes_channel_id::text from public.captures where id = cap));
+  perform pg_temp.t566_run('its owner cannot take the conversation off the notes', 'refused', u_a,
+    array[format('update public.captures set notes_channel_id = null where id = %L', cap)]);
+  perform pg_temp.t566_run('nobody makes a capture that claims to be a call''s notes', 'refused', u_a,
+    array[format('insert into public.captures (user_id, workspace_id, title, notes_channel_id) values (%L, %L, %L, %L)', u_a, w1, 't566 fake', ch_open)]);
   perform pg_temp.t566_run('its owner taken off the team: they lose the notes with the conversation', 'rows=0', u_a,
     array[format('delete from public.team_member where team_id = %L and member_id = %L', t1, m_a), format('select 1 from public.captures where id = %L', cap)]);
   perform pg_temp.t566_run('… a capture of no call is untouched by that fence', 'rows=1', u_a,
     array[format('insert into public.captures (user_id, workspace_id, title) values (%L, %L, %L)', u_a, w1, 't566 plain'), 'select 1 from public.captures where title = ''t566 plain'''] );
 
   -- ── The recordings bucket ─────────────────────────────────────────────────
-  insert into storage.objects (bucket_id, name) values ('team-call-recordings', ch_team::text || '/' || call_t::text || '/recording/' || rec_t::text || '.mp4');
+  insert into storage.objects (bucket_id, name) values
+    ('team-call-recordings', ch_team::text || '/' || call_t::text || '/recording/' || rec_t2::text || '.mp4'),
+    ('team-call-recordings', ch_team::text || '/' || call_t::text || '/notes/' || row_a::text || '.ogg');
   perform pg_temp.t566_run('the conversation''s reader may read a recording''s object (to be signed for them)', 'rows=1', u_b,
-    array[format('select 1 from storage.objects where bucket_id = %L and name like %L', 'team-call-recordings', ch_team::text || '/%')]);
+    array[format('select 1 from storage.objects where bucket_id = %L and name like %L', 'team-call-recordings', ch_team::text || '/%/recording/%')]);
+  perform pg_temp.t566_run('… never a microphone''s raw notes audio (the server''s alone)', 'rows=0', u_b,
+    array[format('select 1 from storage.objects where bucket_id = %L and name like %L', 'team-call-recordings', ch_team::text || '/%/notes/%')]);
   perform pg_temp.t566_run('someone outside the conversation may not', 'rows=0', u_c,
     array[format('select 1 from storage.objects where bucket_id = %L and name like %L', 'team-call-recordings', ch_team::text || '/%')]);
   perform pg_temp.t566_run('no client writes to the bucket', 'refused', u_b,
@@ -249,6 +279,14 @@ begin
   perform pg_temp.t566_run('a person cannot write notes', 'refused', u_a, array[format('select public.team_call_attach_notes(%L, %L, %L, %L, %L, %L, %L)', call_o, u_a, 'x', 'x', '', '[]', '{}')]);
   perform pg_temp.t566_run('a person cannot settle notes', 'refused', u_a, array[format('select public.team_call_notes_settle(%L, %L)', call_o, 'failed')]);
   perform pg_temp.t566_run('a person cannot stop notes as the server', 'refused', u_a, array[format('select public.team_call_notes_stop(%L)', call_o)]);
+
+  -- A channel deleted: its notes are read by no one, their owner included (the call row goes with
+  -- the channel; the capture keeps its conversation's id, which reads as no one's).
+  delete from public.team_chat_channel where id = ch_team;
+  perform pg_temp.t566_check('a channel deleted: its notes stay, with its id', ch_team::text, (select notes_channel_id::text from public.captures where id = cap));
+  perform pg_temp.t566_run('… read by no one, their owner included', 'rows=0', u_a, array[format('select 1 from public.captures where id = %L', cap)]);
+  perform pg_temp.t566_run('… nor changed by them (they no longer see it)', 'rows=0', u_a,
+    array[format('update public.captures set visibility = %L where id = %L', 'workspace', cap)]);
 
   -- ── Report ────────────────────────────────────────────────────────────────
   select string_agg(format('%s %s: expected %s, got %s', case when pass then 'PASS' else 'FAIL' end, label, expected, got), chr(10) order by n),

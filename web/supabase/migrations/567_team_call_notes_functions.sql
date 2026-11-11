@@ -7,9 +7,10 @@
 -- ============================================================
 --   team_call_set_notes(target_call, turn_on)  as the person: turn the
 --                     call's notes on or off. Only someone in the call now,
---                     or the one who started it (who starts it with notes
---                     on when their "Auto-record meetings" setting is on,
---                     before LiveKit has said they joined). Off keeps what
+--                     or the one who started it before LiveKit has said
+--                     they joined (who starts it with notes on when their
+--                     "Auto-record meetings" setting is on), never after
+--                     they left. Off keeps what
 --                     was written so far. A call's notes stop for good at
 --                     3 hours (10800 seconds) of notes: turning them on past
 --                     that is refused. Returns the state and whether it
@@ -28,7 +29,10 @@
 --   team_call_egress_event(row_ref, egress_ref, new_status, at_ns,
 --                     file_started, file_ended, file_duration_ms, file_size,
 --                     failure)  service role: an egress's state, as LiveKit
---                     reported it at at_ns (its updatedAt, in nanoseconds).
+--                     reported it at at_ns (its updatedAt, in nanoseconds;
+--                     the app's own word that one failed carries the time it
+--                     said so, so only a newer finish from LiveKit, a real
+--                     file after all, can follow it).
 --                     Applied in that order: an older or repeated event
 --                     changes nothing, a finished egress only ever takes a
 --                     newer finish. A recording's state follows onto its
@@ -41,7 +45,9 @@
 --                     transcript_text, notes_text, people, meta)  service
 --                     role: the call's notes are written. One capture, once
 --                     (a second call returns the first): private to its
---                     owner, shared with the call's conversation by one
+--                     owner, its conversation written on it
+--                     (notes_channel_id, 566's fences), shared with that
+--                     conversation by one
 --                     entity_access grant (492; source 'team_call'), with a
 --                     participant row for each person who was in the call.
 --   team_call_notes_settle(target_call, final_state)  service role: notes
@@ -88,11 +94,15 @@ begin
     raise exception 'team calls: the call has ended' using errcode = '22023';
   end if;
   me := public.current_member_id(c.workspace_id);
+  -- In the call now; or its starter before LiveKit has said they joined (never after they left).
   if me is null or not (
-    me is not distinct from c.started_by
-    or exists (
+    exists (
       select 1 from public.team_call_participant p
        where p.call_id = c.id and p.member_id = me and p.state = 'joined'
+    )
+    or (
+      me is not distinct from c.started_by
+      and not exists (select 1 from public.team_call_participant p where p.call_id = c.id and p.member_id = me)
     )
   ) then
     raise exception 'team calls: only someone in the call can change its notes' using errcode = '42501';
@@ -291,7 +301,8 @@ begin
          transcript_status = case
            when x.kind <> 'notes' then 'none'
            when not (new_status = any (finished)) then x.transcript_status
-           when has_file then x.transcript_status
+           -- A file after all (LiveKit's newer finish after the app's own failure): its words are wanted.
+           when has_file then case when x.transcript_status = 'none' then 'pending' else x.transcript_status end
            when new_status in ('complete', 'limit') then 'empty'
            else 'none'
          end,
@@ -379,14 +390,15 @@ begin
 
   insert into public.captures (
     user_id, workspace_id, title, transcript, user_notes, status, recorded_at, started_at, ended_at,
-    duration_seconds, visibility, live_mode, is_transcript_locked, metadata
+    duration_seconds, visibility, live_mode, is_transcript_locked, metadata, notes_channel_id
   )
   values (
     owner_user, c.workspace_id, left(coalesce(nullif(trim(capture_title), ''), 'Call'), 200), transcript_text, nullif(notes_text, ''),
     'active', c.started_at, c.started_at, c.ended_at, c.duration_seconds, 'private', false, true,
     coalesce(meta, '{}'::jsonb) || jsonb_build_object(
       'source', 'team_call', 'team_call_id', c.id, 'channel_id', c.channel_id, 'message_id', c.message_id
-    )
+    ),
+    c.channel_id
   )
   returning id into made;
 

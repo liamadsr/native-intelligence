@@ -226,33 +226,42 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     void session.connect(join, { holdMic: holdMicOnJoin(call) })
   }, [])
 
-  // The active call's own row: its notes and recording, as everyone in it sees them.
+  // The active call's own row: its notes and recording, as everyone in it sees them. Read once
+  // more when the subscription is up, so a change between the join's answer and now isn't lost.
   const activeCallId = active?.callId ?? null
   useEffect(() => {
     if (!activeCallId) return
     const supabase = createClient()
+    const apply = (row: (Partial<TeamCallNotesView> & { id?: string }) | null | undefined) => {
+      const cur = activeRef.current
+      if (!row || row.id !== activeCallId || !cur || cur.callId !== activeCallId) return
+      const next: TeamCallNotesView = {
+        notes: row.notes === true,
+        notes_by: row.notes_by ?? null,
+        notes_state: row.notes_state ?? cur.notes.notes_state,
+        capture_id: row.capture_id ?? null,
+        recording: row.recording ?? cur.notes.recording,
+        recording_by: row.recording_by ?? null,
+      }
+      if (next.notes !== cur.notes.notes && next.notes_by !== cur.memberId) toast(next.notes ? 'Notes are on for this call.' : 'Notes are off for this call.')
+      if (next.recording === 'on' && cur.notes.recording !== 'on' && next.recording_by !== cur.memberId) toast('This call is being recorded.')
+      if (next.recording === 'failed' && cur.notes.recording !== 'failed') toast('The recording stopped: it couldn’t be written.')
+      setActive((a) => (a && a.callId === activeCallId ? { ...a, notes: next } : a))
+    }
     const channel = supabase
       .channel(`team-call:${activeCallId}:${Math.random().toString(36).slice(2, 10)}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'team_call', filter: `id=eq.${activeCallId}` }, (payload) => {
-        const row = payload.new as Partial<TeamCallNotesView> & { id?: string }
-        if (row?.id !== activeCallId) return
-        setActive((cur) => {
-          if (!cur || cur.callId !== activeCallId) return cur
-          const next: TeamCallNotesView = {
-            notes: row.notes === true,
-            notes_by: row.notes_by ?? null,
-            notes_state: row.notes_state ?? cur.notes.notes_state,
-            capture_id: row.capture_id ?? null,
-            recording: row.recording ?? cur.notes.recording,
-            recording_by: row.recording_by ?? null,
-          }
-          if (next.notes !== cur.notes.notes && next.notes_by !== cur.memberId) toast(next.notes ? 'Notes are on for this call.' : 'Notes are off for this call.')
-          if (next.recording === 'on' && cur.notes.recording !== 'on' && next.recording_by !== cur.memberId) toast('This call is being recorded.')
-          if (next.recording === 'failed' && cur.notes.recording !== 'failed') toast('The recording stopped: it couldn’t be written.')
-          return { ...cur, notes: next }
-        })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'team_call', filter: `id=eq.${activeCallId}` }, (payload) =>
+        apply(payload.new as Partial<TeamCallNotesView> & { id?: string }),
+      )
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') return
+        void supabase
+          .from('team_call')
+          .select('id, notes, notes_by, notes_state, capture_id, recording, recording_by')
+          .eq('id', activeCallId)
+          .maybeSingle()
+          .then(({ data }) => apply(data as (Partial<TeamCallNotesView> & { id?: string }) | null))
       })
-      .subscribe()
     return () => {
       void supabase.removeChannel(channel)
     }

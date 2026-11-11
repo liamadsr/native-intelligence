@@ -111,6 +111,16 @@ export async function applyEgressEvent(svc: SupabaseClient, input: EgressEventIn
 const shortError = (err: unknown) => (err instanceof Error ? err.message : String(err)).slice(0, 300)
 
 /**
+ * Now, in nanoseconds, as 567 orders an egress's events: the stamp the app's
+ * own word that an egress failed carries, so it lands after anything LiveKit
+ * said before, and only a newer finish from LiveKit (a file after all) can
+ * follow it.
+ */
+export function nowNs(now: number = Date.now()): string {
+  return (BigInt(Math.floor(now)) * BigInt(1_000_000)).toString()
+}
+
+/**
  * Notes for one microphone track, once per track and round (567's claim):
  * the row first (its name is the file's), then LiveKit's egress, then its
  * id onto the row. A refused start (the egress service full or down) is
@@ -127,16 +137,34 @@ export async function startNotesForTrack(
   if (error) throw new Error(`team calls: notes claim failed: ${error.message}`)
   const row = (Array.isArray(data) ? data[0] : data) as { egress_row?: string; file_path?: string } | undefined
   if (!row?.egress_row || !row.file_path) return 'claimed_already'
+  let egressId: string
   try {
-    const { egressId } = await port.startTrack(call.room, trackSid, row.file_path)
+    egressId = (await port.startTrack(call.room, trackSid, row.file_path)).egressId
     await applyEgressEvent(svc, { rowId: row.egress_row, egressId, status: 'starting', atNs: 0 })
-    console.info(`[team-call-notes] call=${call.id} egress_row=${row.egress_row} outcome=started`)
-    return 'started'
   } catch (err) {
     console.warn(`[team-call-notes] call=${call.id} egress_row=${row.egress_row} not started:`, shortError(err))
-    await applyEgressEvent(svc, { rowId: row.egress_row, egressId: null, status: 'failed', atNs: 0, error: `not started: ${shortError(err)}` })
+    await applyEgressEvent(svc, { rowId: row.egress_row, egressId: null, status: 'failed', atNs: nowNs(), error: `not started: ${shortError(err)}` })
     return 'failed'
   }
+  // Notes may have gone off (or off and on again) while LiveKit was starting it: a stop that ran
+  // before this egress had an id missed it, so look again and stop it here.
+  if (!(await stillWanted(svc, call.id, row.egress_row))) {
+    await port.stop(egressId).catch((err) => console.warn(`[team-call-notes] egress_row=${row.egress_row} not stopped:`, shortError(err)))
+    console.info(`[team-call-notes] call=${call.id} egress_row=${row.egress_row} outcome=stopped_notes_went_off`)
+    return 'started'
+  }
+  console.info(`[team-call-notes] call=${call.id} egress_row=${row.egress_row} outcome=started`)
+  return 'started'
+}
+
+/** Notes still on, in the round this file was claimed for. */
+async function stillWanted(svc: SupabaseClient, callId: string, rowId: string): Promise<boolean> {
+  const [{ data: call }, { data: row }] = await Promise.all([
+    svc.from('team_call').select('notes, notes_round, status').eq('id', callId).maybeSingle<{ notes: boolean; notes_round: number; status: string }>(),
+    svc.from('team_call_egress').select('round').eq('id', rowId).maybeSingle<{ round: number }>(),
+  ])
+  if (!call || !row) return true
+  return call.status === 'live' && call.notes === true && call.notes_round === row.round
 }
 
 /** Notes just went on: every microphone in the room now (a later one starts from its track_published webhook). */
@@ -212,7 +240,7 @@ export async function startRecording(
     return 'claimed'
   } catch (err) {
     console.warn(`[team-call-recording] call=${call.id} egress_row=${row.egress_row} not started:`, shortError(err))
-    await applyEgressEvent(svc, { rowId: row.egress_row, egressId: null, status: 'failed', atNs: 0, error: `not started: ${shortError(err)}` })
+    await applyEgressEvent(svc, { rowId: row.egress_row, egressId: null, status: 'failed', atNs: nowNs(), error: `not started: ${shortError(err)}` })
     return 'failed'
   }
 }
@@ -493,7 +521,7 @@ export async function notesStatus(svc: SupabaseClient, callId: string): Promise<
 /** Egresses that never finished, or files whose words never came, after the finish gave them their time: failed, their audio kept. */
 export async function giveUpOnNotes(svc: SupabaseClient, status: Pick<NotesStatus, 'running' | 'pending'>): Promise<void> {
   for (const rowId of status.running) {
-    await applyEgressEvent(svc, { rowId, egressId: null, status: 'failed', atNs: 0, error: 'lost: the egress never finished' })
+    await applyEgressEvent(svc, { rowId, egressId: null, status: 'failed', atNs: nowNs(), error: 'lost: the egress never finished' })
   }
   for (const rowId of status.pending) await markTranscript(svc, rowId, 'failed', null)
 }

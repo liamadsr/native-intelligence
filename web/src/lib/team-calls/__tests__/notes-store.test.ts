@@ -156,6 +156,32 @@ describe('a microphone\'s notes file', () => {
     expect(rpcs[1][1]).toMatchObject({ row_ref: ROW_A, egress_ref: 'EG_TR_mic', new_status: 'starting', at_ns: '0' })
   })
 
+  it('notes went off (or on again) while LiveKit was starting it: the new egress is stopped at once', async () => {
+    answers.team_call_egress_claim = { data: [{ egress_row: ROW_A, file_path: path(ROW_A) }], error: null }
+    tables.team_call[0] = { ...tables.team_call[0], status: 'live', notes: false, notes_round: 1 }
+    tables.team_call_egress.push(egress({ status: 'starting', round: 1 }))
+    const p = port()
+    await startNotesForTrack(svc, p, { id: CALL, room: 'r' }, ANA, 'TR_mic')
+    expect(p.stopped).toEqual(['EG_TR_mic'])
+    // Still on, same round: kept.
+    tables.team_call[0].notes = true
+    const q = port()
+    await startNotesForTrack(svc, q, { id: CALL, room: 'r' }, ANA, 'TR_mic')
+    expect(q.stopped).toEqual([])
+    // On again, a newer round: this file's round is over.
+    tables.team_call[0].notes_round = 2
+    const r = port()
+    await startNotesForTrack(svc, r, { id: CALL, room: 'r' }, ANA, 'TR_mic')
+    expect(r.stopped).toEqual(['EG_TR_mic'])
+  })
+
+  it("the app's own word that a file failed carries now (in nanoseconds), so it lands after what LiveKit said before", async () => {
+    answers.team_call_egress_claim = { data: [{ egress_row: ROW_A, file_path: path(ROW_A) }], error: null }
+    const before = BigInt(Date.now()) * BigInt(1_000_000)
+    await startNotesForTrack(svc, port({ startTrack: async () => Promise.reject(new Error('down')) }), { id: CALL, room: 'r' }, ANA, 'TR_mic')
+    expect(BigInt(String(rpcs[1][1].at_ns)) >= before).toBe(true)
+  })
+
   it('a repeated webhook for the same track and round starts nothing', async () => {
     answers.team_call_egress_claim = { data: [], error: null }
     const p = port()

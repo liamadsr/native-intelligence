@@ -9,25 +9,27 @@ import { maxLiveRecordings, recordingEncoding, teamCallEgressConfig, teamCallFea
 import { TEAM_CALL_RECORDING_MAX_SECONDS } from '../notes'
 import { LIVEKIT_ENV } from './signing'
 
+const env = (e: Record<string, string>) => e as unknown as NodeJS.ProcessEnv
+
 describe('teamCallFeatures', () => {
   it('nothing without LiveKit, or without the egress service', () => {
-    expect(teamCallFeatures({ LIVEKIT_EGRESS: 'on', DEEPGRAM_API_KEY: 'k', TEAM_CALL_RECORDING: 'on' })).toEqual({ notes: false, recording: false })
-    expect(teamCallFeatures({ ...LIVEKIT_ENV, DEEPGRAM_API_KEY: 'k', TEAM_CALL_RECORDING: 'on' })).toEqual({ notes: false, recording: false })
-    expect(teamCallFeatures({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: 'yes', DEEPGRAM_API_KEY: 'k' })).toEqual({ notes: false, recording: false })
-    expect(teamCallEgressConfig({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: ' On ' })?.apiUrl).toBe('https://livekit.example.invalid')
+    expect(teamCallFeatures(env({ LIVEKIT_EGRESS: 'on', DEEPGRAM_API_KEY: 'k', TEAM_CALL_RECORDING: 'on' }))).toEqual({ notes: false, recording: false })
+    expect(teamCallFeatures(env({ ...LIVEKIT_ENV, DEEPGRAM_API_KEY: 'k', TEAM_CALL_RECORDING: 'on' }))).toEqual({ notes: false, recording: false })
+    expect(teamCallFeatures(env({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: 'yes', DEEPGRAM_API_KEY: 'k' }))).toEqual({ notes: false, recording: false })
+    expect(teamCallEgressConfig(env({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: ' On ' }))?.apiUrl).toBe('https://livekit.example.invalid')
   })
   it('notes with a Deepgram key; recording only when allowed', () => {
-    expect(teamCallFeatures({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: 'on', DEEPGRAM_API_KEY: 'k' })).toEqual({ notes: true, recording: false })
-    expect(teamCallFeatures({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: 'on', DEEPGRAM_API_KEY: ' ', TEAM_CALL_RECORDING: 'on' })).toEqual({ notes: false, recording: true })
+    expect(teamCallFeatures(env({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: 'on', DEEPGRAM_API_KEY: 'k' }))).toEqual({ notes: true, recording: false })
+    expect(teamCallFeatures(env({ ...LIVEKIT_ENV, LIVEKIT_EGRESS: 'on', DEEPGRAM_API_KEY: ' ', TEAM_CALL_RECORDING: 'on' }))).toEqual({ notes: false, recording: true })
   })
 })
 
 describe('the recordings', () => {
   it('one at a time across the server unless set otherwise (1 to 20)', () => {
-    expect(maxLiveRecordings({})).toBe(1)
-    expect(maxLiveRecordings({ TEAM_CALL_RECORDING_MAX: '3' })).toBe(3)
-    expect(maxLiveRecordings({ TEAM_CALL_RECORDING_MAX: '0' })).toBe(1)
-    expect(maxLiveRecordings({ TEAM_CALL_RECORDING_MAX: 'lots' })).toBe(1)
+    expect(maxLiveRecordings(env({}))).toBe(1)
+    expect(maxLiveRecordings(env({ TEAM_CALL_RECORDING_MAX: '3' }))).toBe(3)
+    expect(maxLiveRecordings(env({ TEAM_CALL_RECORDING_MAX: '0' }))).toBe(1)
+    expect(maxLiveRecordings(env({ TEAM_CALL_RECORDING_MAX: 'lots' }))).toBe(1)
   })
   it('a recording at its bound fits the bucket\'s 2 GB', () => {
     const e = recordingEncoding()

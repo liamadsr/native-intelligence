@@ -20,7 +20,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { TeamCallEgressPort } from './egress'
 import { TEAM_CALL_NOTES_MAX_SECONDS, TEAM_CALL_RECORDING_MAX_SECONDS, egressStatusOf } from './notes'
-import { applyEgressEvent, notesFinishEvent, requestNotesFiles, stopEgresses, stopNotesAtBound } from './notes-store'
+import { applyEgressEvent, notesFinishEvent, nowNs, requestNotesFiles, stopEgresses, stopNotesAtBound } from './notes-store'
 import { webhookTimeNs } from './webhook'
 
 /** An egress this long without finishing is asked about. */
@@ -149,7 +149,7 @@ export async function sweepTeamCallEgress(svc: SupabaseClient, deps: NotesSweepD
           rowId: row.id,
           egressId: null,
           status: 'failed',
-          atNs: 0,
+          atNs: nowNs(now.getTime()),
           error: row.egress_id ? 'lost: LiveKit no longer knows this egress' : 'lost: never started',
         })
         result.egressesLost++

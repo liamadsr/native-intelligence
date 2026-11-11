@@ -42,27 +42,37 @@
 --                      once transcribed. audio_deleted_at: its file was
 --                      removed after the notes were made. Service role only.
 --   storage bucket team-call-recordings  private. Objects are named
---                      <channel id>/<call id>/...: whoever may read the
---                      channel may read them (558's team_chat_file_channel
---                      reads the first folder). Clients never write here and
---                      only ever read through a signed link the server makes
---                      as them after its own check; LiveKit Egress writes
---                      with the storage's own S3 keys, the app's server
---                      deletes with the service role.
+--                      <channel id>/<call id>/<notes|recording>/...: a
+--                      recording may be read by whoever may read the channel
+--                      (558's team_chat_file_channel reads the first folder),
+--                      through a signed link the server makes as them after
+--                      its own check. The notes' raw audio is the server's
+--                      alone (no client reads it). Clients never write here;
+--                      LiveKit Egress writes with the storage's own S3 keys,
+--                      the app's server reads and deletes with the service
+--                      role.
 --   entity_access.source  492's, plus 'team_call': the grant that shares a
 --                      call's notes with its conversation.
---   fences (triggers, for every writer that is a signed-in person):
+--   captures.notes_channel_id  set on a call's notes capture only (567
+--                      writes it, no client may): the conversation the notes
+--                      belong to. No foreign key on purpose: when the
+--                      channel is deleted the id stays, reads as no one's
+--                      conversation, and the notes go with it.
+--   fences, built on that column (triggers, for every writer that is a
+--     signed-in person, and one read policy):
 --     a call's notes capture stays private (never the whole workspace's: a
 --     DM's notes are its two people's), and it is shared only with its own
 --     conversation (no grant to another member, team or channel). Its owner
 --     may still remove the conversation's grant (narrower, never wider).
---   captures_team_call_notes_fence  a restrictive read policy: a call's
+--     captures_team_call_notes_fence, a restrictive read policy: a call's
 --     notes are read only by someone who may read its conversation now, the
---     owner included (access ends with the conversation's).
+--     owner included (access ends with the conversation's, and a deleted
+--     channel's notes are read by no one). It costs nothing on any other
+--     capture (a null column).
 --
 -- Additive. Idempotent. Safe on a live database with the deployed app
--- running: team_call gains columns with constant defaults or nullable ones
--- (no rewrite), the new table is empty, entity_access's check only gains a
+-- running: team_call gains columns with constant defaults or nullable ones,
+-- captures one nullable column (no rewrite), the new table is empty, entity_access's check only gains a
 -- value, and the triggers refuse only what no deployed code does. The
 -- deployed app never reads the new columns. The file runs as one
 -- transaction; lock_timeout (5 s) makes it fail and roll back behind a long
@@ -159,8 +169,10 @@ create table if not exists public.team_call_egress (
 
 -- One notes file per microphone track per round of notes (a repeated track_published starts nothing).
 create unique index if not exists team_call_egress_one_per_track on public.team_call_egress (call_id, track_sid, round) where kind = 'notes';
--- One recording per call at a time (one that failed leaves room for another).
-create unique index if not exists team_call_egress_one_recording on public.team_call_egress (call_id) where kind = 'recording' and status not in ('failed', 'aborted');
+-- One recording running per call at a time (a finished one, saved or not, leaves room for
+-- another; a saved one is refused by 567 itself).
+drop index if exists public.team_call_egress_one_recording;
+create unique index if not exists team_call_egress_one_recording on public.team_call_egress (call_id) where kind = 'recording' and status in ('starting', 'active', 'ending');
 create index if not exists team_call_egress_call_idx on public.team_call_egress (call_id, created_at);
 -- The sweeper's read: egresses not finished.
 create index if not exists team_call_egress_open_idx on public.team_call_egress (created_at) where status in ('starting', 'active', 'ending');
@@ -186,13 +198,15 @@ on conflict (id) do update
        file_size_limit = excluded.file_size_limit,
        allowed_mime_types = excluded.allowed_mime_types;
 
--- Read: whoever may read the channel the object's first folder names. No
--- insert, update or delete policy: no client ever writes here.
+-- Read: a recording, by whoever may read the channel the object's first
+-- folder names. The notes' raw audio has no client reader. No insert,
+-- update or delete policy: no client ever writes here.
 drop policy if exists "team call recordings read" on storage.objects;
 create policy "team call recordings read" on storage.objects
   for select to authenticated
   using (
     bucket_id = 'team-call-recordings'
+    and split_part(name, '/', 3) = 'recording'
     and public.team_chat_can_read(public.team_chat_file_channel(name))
   );
 
@@ -205,6 +219,11 @@ alter table public.entity_access validate constraint entity_access_source;
 
 -- ── Fences: a call's notes are no wider than its conversation ───────────────
 
+alter table public.captures add column if not exists notes_channel_id uuid;
+
+comment on column public.captures.notes_channel_id is
+  'A team call''s notes (566): the conversation they belong to. Read only by who may read it; never widened. No foreign key: a deleted channel''s notes are read by no one.';
+
 create or replace function public.team_call_notes_capture_guard()
 returns trigger
 language plpgsql
@@ -215,9 +234,16 @@ begin
   if auth.uid() is null then
     return new;
   end if;
-  if new.visibility is distinct from old.visibility
-     and new.visibility <> 'private'
-     and exists (select 1 from public.team_call t where t.capture_id = new.id) then
+  if tg_op = 'INSERT' then
+    if new.notes_channel_id is not null then
+      raise exception 'captures: only a call writes its notes' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  if new.notes_channel_id is distinct from old.notes_channel_id then
+    raise exception 'captures: only a call writes its notes' using errcode = '42501';
+  end if;
+  if new.notes_channel_id is not null and new.visibility <> 'private' then
     raise exception 'captures: a call''s notes are shared with its conversation only' using errcode = '42501';
   end if;
   return new;
@@ -228,7 +254,7 @@ revoke all on function public.team_call_notes_capture_guard() from public, anon,
 
 drop trigger if exists team_call_notes_capture_guard on public.captures;
 create trigger team_call_notes_capture_guard
-  before update of visibility on public.captures
+  before insert or update of visibility, notes_channel_id on public.captures
   for each row execute function public.team_call_notes_capture_guard();
 
 create or replace function public.team_call_notes_grant_guard()
@@ -247,8 +273,8 @@ begin
   if new.entity_type <> 'capture' then
     return new;
   end if;
-  select t.channel_id into call_channel from public.team_call t where t.capture_id = new.entity_id;
-  if found and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel) then
+  select c.notes_channel_id into call_channel from public.captures c where c.id = new.entity_id;
+  if call_channel is not null and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel) then
     raise exception 'entity_access: a call''s notes are shared with its conversation only' using errcode = '42501';
   end if;
   return new;
@@ -267,35 +293,13 @@ create trigger team_call_notes_grant_guard
 -- readable only by someone who may read the call's conversation now. A
 -- restrictive policy (it narrows every other select policy on captures and
 -- widens none): someone taken off the channel's team, out of the DM, or a
--- channel deleted, loses the notes with the conversation. Flat cost: the
--- notes the caller may not read are listed once per query (an initplan over
--- the calls with notes in the caller's workspaces), and each row is compared
--- against that list, as 493's grant pre-check does.
-create index if not exists team_call_capture_idx on public.team_call (workspace_id) where capture_id is not null;
-
-create or replace function public.team_call_notes_hidden()
-returns uuid[]
-language sql
-stable
-security definer
-set search_path = public, pg_temp
-as $$
-  select coalesce(array_agg(t.capture_id), '{}'::uuid[])
-    from public.member me
-    join public.team_call t on t.workspace_id = me.workspace_id
-   where me.user_id = auth.uid()
-     and t.capture_id is not null
-     and not public.team_chat_can_read(t.channel_id);
-$$;
-
-revoke all on function public.team_call_notes_hidden() from public, anon;
-grant execute on function public.team_call_notes_hidden() to authenticated, service_role;
-
+-- channel deleted, loses the notes with the conversation. Any other capture
+-- has no notes_channel_id and passes at the cost of a null check.
 drop policy if exists captures_team_call_notes_fence on public.captures;
 create policy captures_team_call_notes_fence on public.captures
   as restrictive
   for select to authenticated
-  using (not (id = any (coalesce((select public.team_call_notes_hidden()), '{}'::uuid[]))));
+  using (notes_channel_id is null or public.team_chat_can_read(notes_channel_id));
 
 notify pgrst, 'reload schema';
 
