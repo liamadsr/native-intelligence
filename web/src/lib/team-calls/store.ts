@@ -13,7 +13,9 @@
  * message is (phase 2, migration 560), so it toasts, raises the desktop
  * banner, opens the conversation on the call when clicked, is read by
  * reading the conversation, and is emailed to someone away by the same
- * batcher. Each throws a TeamChatError on a failed call as the person (the
+ * batcher; a phone still ringing for one is stopped first (./ring-push.ts:
+ * the ring's cancel, when it was pushed and ended before its time). Each
+ * throws a TeamChatError on a failed call as the person (the
  * routes turn its code into a status); the service role's throw plain
  * errors (a step retries).
  *
@@ -36,6 +38,7 @@ import {
   type TeamCallRingState,
   type TeamCallView,
 } from './types'
+import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 
 // ── As the person ───────────────────────────────────────────────────────────
 
@@ -219,13 +222,20 @@ async function sendEvents(events: Array<ReturnType<typeof teamChatEmailEvent>>, 
 }
 
 /**
- * Tell each person a ring missed: one `team_chat_message` notification of
- * the call's message (written, or the one they had for it turned into the
- * missed call and unread again), then the email batcher. Never throws for
- * one person (logged); throws when nothing could be written (a step
- * retries).
+ * Tell each person a ring missed: their phones still ringing for it stop
+ * (its VoIP cancel, once, when it was pushed: a ring that ran out needs
+ * none), then one `team_chat_message` notification of the call's message
+ * (written, or the one they had for it turned into the missed call and
+ * unread again), then the email batcher. Never throws for one person
+ * (logged); throws when nothing could be written (a step retries).
  */
-export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly MissedRing[], send?: SendEvents): Promise<number> {
+export async function notifyMissedCalls(
+  svc: SupabaseClient,
+  missed: readonly MissedRing[],
+  send?: SendEvents,
+  stopPhones: (ringIds: string[]) => Promise<unknown> = (ringIds) => cancelRingPushes(liveRingPushDeps(svc), { ringIds }),
+): Promise<number> {
+  if (missed.length > 0) await stopPhones(missed.map((r) => r.ring_id)).catch(() => undefined)
   let told = 0
   const emails: Array<ReturnType<typeof teamChatEmailEvent>> = []
   let failures = 0

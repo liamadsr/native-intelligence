@@ -12,7 +12,9 @@
  *     stale (a reconnect's old leave lands in the same second as its new
  *     join);
  *   - room_finished ends the call once (team_call_end), whatever came
- *     before or comes after; the rings still open then are missed calls.
+ *     before or comes after; the rings still open then are missed calls;
+ *   - a member joining answers their ring there, so their phones still
+ *     ringing for it are stopped (./ring-push.ts: its cancel, once).
  *
  * A room that is none of ours (another app's on the same server, a test
  * room), an identity that is not a member id, and any other event are
@@ -22,6 +24,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { isUuid } from '@/lib/team-chat/types'
 import { endCall, liveCallOfRoom, notifyMissedCalls, participantEvent, type MissedRing, type ParticipantOutcome } from './store'
 import { teamCallIdOfRoom } from './types'
+import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 
 /** What the route hands over: the parts of LiveKit's WebhookEvent read here. */
 export interface TeamCallWebhookEvent {
@@ -37,6 +40,8 @@ export type TeamCallWebhookOutcome = 'repeat' | 'ignored' | ParticipantOutcome |
 
 export interface TeamCallWebhookDeps {
   notifyMissed?: (svc: SupabaseClient, missed: readonly MissedRing[]) => Promise<unknown>
+  /** A member joined: stop their phones still ringing for this call. */
+  stopPhones?: (svc: SupabaseClient, callId: string, memberId: string) => Promise<unknown>
   now?: () => Date
 }
 
@@ -92,14 +97,20 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
       // Sessions are ordered by when they joined, never by when an event arrived (a reconnect's old leave and new join share a second).
       const sessionJoined = sessionJoinedAt(event.participant)
       const when = joined ? (sessionJoined ?? at) : at
-      return participantEvent(svc, {
+      const memberId = identity.toLowerCase()
+      const outcome = await participantEvent(svc, {
         room,
-        memberId: identity.toLowerCase(),
+        memberId,
         sid: event.participant?.sid ?? null,
         joined,
         at: when.toISOString(),
         sessionJoinedAt: sessionJoined?.toISOString() ?? null,
       })
+      if (outcome === 'joined') {
+        const stop = deps.stopPhones ?? ((s: SupabaseClient, callId: string, member: string) => cancelRingPushes(liveRingPushDeps(s), { callId, memberId: member }))
+        await stop(svc, teamCallIdOfRoom(room)!, memberId).catch(() => undefined)
+      }
+      return outcome
     }
     case 'room_finished': {
       const call = await liveCallOfRoom(svc, room)

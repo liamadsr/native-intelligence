@@ -8,7 +8,8 @@
  *      never ended on a guess.
  *   2. Rings past their time are missed (their own timer never ran).
  *   3. Webhook ids older than TEAM_CALL_WEBHOOK_MEMORY_MS are forgotten
- *      (LiveKit repeats an event within minutes, not days).
+ *      (LiveKit repeats an event within minutes, not days), and so are the
+ *      rings' push rows (migration 571: a ring is over in a minute).
  *
  * The rings 1 and 2 left missed are handed back (`missedRings`): the cron
  * tells their people in a step of its own, so a failed notice is retried on
@@ -80,5 +81,10 @@ export async function sweepTeamCalls(svc: SupabaseClient, deps: TeamCallSweepDep
     .delete()
     .lt('received_at', new Date(now.getTime() - TEAM_CALL_WEBHOOK_MEMORY_MS).toISOString())
   if (pruneError) console.warn('[team-calls-sweep] webhook ids not pruned:', pruneError.message)
+  const { error: pushPruneError } = await svc
+    .from('team_call_ring_push')
+    .delete()
+    .lt('pushed_at', new Date(now.getTime() - TEAM_CALL_WEBHOOK_MEMORY_MS).toISOString())
+  if (pushPruneError) console.warn('[team-calls-sweep] ring pushes not pruned:', pushPruneError.message)
   return result
 }

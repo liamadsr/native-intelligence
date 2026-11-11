@@ -9,7 +9,9 @@
  *        conversation: a second start joins it). A new call gets its LiveKit
  *        room (with LiveKit's own timers: nobody comes, or the last person
  *        leaves, and it closes) and its message in the conversation; in a DM
- *        the other person is rung, in a channel nobody is (its people get
+ *        the other person is rung (on the web over Realtime, and on their
+ *        phones as a call: src/lib/team-calls/ring-push.ts), in a channel
+ *        nobody is (its people get
  *        one ordinary notification of the call's message, by their levels:
  *        src/lib/team-chat/notify.ts). A live call whose room is gone (its
  *        end never arrived) is ended and a new one started. `join` is the
@@ -29,6 +31,7 @@ import { dmOtherMember, isUuid } from '@/lib/team-chat/types'
 import { createTeamCallRoom, openTeamCallRooms, teamCallsConfig, type TeamCallsConfig } from '@/lib/team-calls/livekit'
 import { endCall, getCall, notifyMissedCalls, openRings, requestRingTimers, ringMembers, startCall, type MadeRing, type StartedCall } from '@/lib/team-calls/store'
 import { joinAnswer, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /** A live call older than this whose room is gone is ended, not joined. */
@@ -105,7 +108,7 @@ export async function POST(request: NextRequest) {
     const join = await joinAnswer(config, { callId: started.callId, room: started.room, memberId: me.id, name: me.display_name })
     const messageId = started.messageId
     after(async () => {
-      await requestRingTimers(rings)
+      await Promise.all([requestRingTimers(rings), rings.length ? pushRings(liveRingPushDeps(getServiceClient()), rings) : null])
       // A channel's people hear of it as of any message (a DM's ring is its notice).
       if (started.created && channel.kind === 'channel' && messageId) await requestTeamChatNotify(messageId)
     })

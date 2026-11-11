@@ -1,13 +1,16 @@
 /**
- * POST /api/account/team-calls/rings/[id] { accept } → { state, join? } the
- * person answers their own ring (565's team_call_answer: only theirs, and
- * once). The state lands on the ring's row, which Realtime sends to every
- * tab and device of theirs, so the ring stops everywhere at once. Accepted:
+ * POST /api/account/team-calls/rings/[id] { accept, voipToken? } → { state,
+ * join? } the person answers their own ring (565's team_call_answer: only
+ * theirs, and once). The state lands on the ring's row, which Realtime sends
+ * to every tab and device of theirs, so the ring stops everywhere at once;
+ * their phones ringing for it get its cancel (src/lib/team-calls/
+ * ring-push.ts), all but the one that answered (the iOS app names its own
+ * VoIP token, `voipToken`: it is in the call). Accepted:
  * `join` is the address and a token for the call's room. A ring settled
  * already (answered elsewhere, or run out) answers with how it was settled
  * and joins nothing unless it was accepted.
  */
-import { NextResponse, type NextRequest } from 'next/server'
+import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
 import { apiError, badRequest, notFound } from '@/lib/api-errors'
 import { isUuid } from '@/lib/team-chat/types'
@@ -15,6 +18,8 @@ import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { answerRing, getCall } from '@/lib/team-calls/store'
 import { joinAnswer, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { cancelRingPushes, liveRingPushDeps, voipTokenOf } from '@/lib/team-calls/ring-push'
+import { getServiceClient } from '@/lib/admin'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -34,6 +39,10 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (typeof input.accept !== 'boolean') return badRequest('accept must be true or false')
   try {
     const answered = await answerRing(auth.supabase, id, input.accept)
+    if (answered.state !== 'ringing' && answered.state !== 'busy') {
+      const exceptToken = voipTokenOf(input.voipToken)
+      after(() => cancelRingPushes(liveRingPushDeps(getServiceClient()), { ringIds: [id], exceptToken }))
+    }
     if (!input.accept || answered.state !== 'accepted') return NextResponse.json({ state: answered.state })
     const call = await getCall(auth.supabase, answered.callId)
     if (!call) return notFound()
