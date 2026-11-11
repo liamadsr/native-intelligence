@@ -47,6 +47,12 @@ case "${1:-}" in
 esac
 
 [ "$(id -u)" = 0 ] || die "run it with sudo: the settings file is root's."
+# One deploy at a time, by hand or automatic. auto-deploy.sh holds this lock for its
+# whole run and says so with NI_DEPLOY_LOCK_HELD=1 (sudo does not pass that on).
+if [ "${NI_DEPLOY_LOCK_HELD:-}" != 1 ]; then
+	exec 8>>/run/ni-app-deploy.lock
+	flock -n 8 || die "another deploy is running (by hand, or the automatic deploys: ./auto-deploy.sh status); try again when it has ended."
+fi
 [ -f .env ] || die "no .env here. ../README.md step 20 says how it is made."
 command -v docker >/dev/null || die "Docker is not installed."
 
@@ -249,6 +255,12 @@ rollback)
 	docker tag ni-app:previous ni-app:live
 	docker tag ni-app:rollback-swap ni-app:previous
 	docker rmi ni-app:rollback-swap >/dev/null
+	# A mark for the automatic deploys (auto-deploy.sh), where they are installed:
+	# their next run holds everything until a person has cleared it, whatever is
+	# rolled out by hand after this. Never a reason for the rollback itself to stop.
+	if [ -d /var/lib/ni-auto-deploy ]; then
+		date -u +%Y-%m-%dT%H:%M:%SZ >/var/lib/ni-auto-deploy/rolled-back 2>/dev/null || true
+	fi
 	rollout
 	;;
 esac
