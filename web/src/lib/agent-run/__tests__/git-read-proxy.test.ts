@@ -35,6 +35,7 @@ import {
   MAX_LFS_REQUEST_BYTES,
   MAX_UPLOAD_PACK_REQUEST_BYTES,
   READS_PER_RUN,
+  READ_SLOT_MAX_AGE_MS,
   ReadSlots,
   type GitReadDeps,
 } from '../git-read-proxy'
@@ -446,6 +447,29 @@ describe('handleGitRead: at most READS_PER_RUN reads in flight per run', () => {
     }
     expect(slots.count(RUN.agentRunId)).toBe(0)
     for (const q of quiet) q.mockRestore()
+  })
+
+  it('a slot nothing ever gives back comes back by itself after READ_SLOT_MAX_AGE_MS, and a late release then changes nothing', () => {
+    vi.useFakeTimers()
+    try {
+      const slots = new ReadSlots()
+      const releases = Array.from({ length: READS_PER_RUN }, () => slots.acquire(RUN.agentRunId))
+      expect(releases.every((r) => typeof r === 'function')).toBe(true)
+      expect(slots.acquire(RUN.agentRunId)).toBeNull()
+      vi.advanceTimersByTime(READ_SLOT_MAX_AGE_MS - 1)
+      expect(slots.count(RUN.agentRunId)).toBe(READS_PER_RUN)
+      vi.advanceTimersByTime(1)
+      expect(slots.count(RUN.agentRunId)).toBe(0)
+      const fresh = slots.acquire(RUN.agentRunId)
+      expect(fresh).not.toBeNull()
+      // The old reads' own releases arrive late: they must not free the new read's slot.
+      for (const release of releases) release!()
+      expect(slots.count(RUN.agentRunId)).toBe(1)
+      fresh!()
+      expect(slots.count(RUN.agentRunId)).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

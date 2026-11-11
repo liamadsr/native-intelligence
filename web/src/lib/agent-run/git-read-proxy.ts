@@ -66,8 +66,10 @@
  *
  * WHAT BOUNDS A READ: at most READS_PER_RUN in flight per run (a slot is held
  * from authorization until the answer's body has ended, failed or been
- * cancelled, or the client went away), each request body by its cap, and the
- * client's abort. A slow trickle from GitHub is not cut by time here.
+ * cancelled, or the client went away, and for READ_SLOT_MAX_AGE_MS at most),
+ * each request body by its cap, and the client's abort. A slow trickle from
+ * GitHub is not cut by time here: after READ_SLOT_MAX_AGE_MS it only stops
+ * counting against the run.
  *
  * ACCEPTED: the LFS batch endpoint forwards whatever operation the body names,
  * `download` AND `upload` (as the hosted sandbox's firewall rule did before the
@@ -122,6 +124,14 @@ export const MAX_LFS_ANSWER_BYTES = 4 * 1024 * 1024
 /** Reads one run may have in flight at once in this process (beyond it: 429). */
 export const READS_PER_RUN = 4
 
+/**
+ * A slot is given back after this long whatever became of its read: as long as
+ * the hosted sandbox itself may live. A read still going then only stops being
+ * counted; one whose slot nothing would ever have released stops holding the
+ * run out of the gate.
+ */
+export const READ_SLOT_MAX_AGE_MS = 30 * 60 * 1000
+
 /** The client request headers forwarded to GitHub, and nothing else (lower-case). */
 export const FORWARDED_READ_HEADERS = ['git-protocol', 'content-type', 'content-encoding', 'accept'] as const
 
@@ -146,7 +156,10 @@ const READ_ENDPOINTS: Record<ReadEndpoint, { method: 'GET' | 'POST'; upstreamPat
 export class ReadSlots {
   private readonly inFlight = new Map<string, number>()
 
-  constructor(private readonly perRun: number = READS_PER_RUN) {}
+  constructor(
+    private readonly perRun: number = READS_PER_RUN,
+    private readonly maxAgeMs: number = READ_SLOT_MAX_AGE_MS,
+  ) {}
 
   /** A release function, or null when the run already has `perRun` reads in flight. */
   acquire(runId: string): (() => void) | null {
@@ -154,13 +167,20 @@ export class ReadSlots {
     if (n >= this.perRun) return null
     this.inFlight.set(runId, n + 1)
     let released = false
-    return () => {
+    const release = () => {
       if (released) return
       released = true
+      clearTimeout(expiry)
       const left = (this.inFlight.get(runId) ?? 1) - 1
       if (left <= 0) this.inFlight.delete(runId)
       else this.inFlight.set(runId, left)
     }
+    // A slot nothing ever gives back (a read whose answer is neither read to
+    // its end nor cancelled, with no abort from the client) comes back by
+    // itself, so a run can never lock itself out of the gate for good.
+    const expiry = setTimeout(release, this.maxAgeMs)
+    expiry.unref?.()
+    return release
   }
 
   /** Reads in flight for a run (for tests and diagnostics). */
