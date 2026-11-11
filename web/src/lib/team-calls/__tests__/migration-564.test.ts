@@ -53,7 +53,7 @@ describe('migrations 564-565', () => {
 
   it('every table: RLS on, fenced from anon and the person, readable only as its policy says', () => {
     const body = flat(SCHEMA)
-    for (const t of ['team_call', 'team_call_participant', 'team_call_ring', 'team_call_webhook_event']) {
+    for (const t of ['team_call', 'team_call_participant', 'team_call_ring', 'team_call_webhook_event', 'team_call_eject']) {
       expect(body, t).toContain(`alter table public.${t} enable row level security;`)
       expect(body, t).toContain(`revoke all on table public.${t} from anon, authenticated;`)
     }
@@ -61,6 +61,7 @@ describe('migrations 564-565', () => {
     // No insert, update or delete for a client, ever; the webhook ids are not even readable.
     expect(body).not.toMatch(/grant [^;]*(insert|update|delete)[^;]* to authenticated/)
     expect(body).not.toMatch(/grant [^;]* on table public\.team_call_webhook_event to authenticated/)
+    expect(body).not.toMatch(/grant [^;]* on table public\.team_call_eject to authenticated/)
     expect(body).toContain('create policy team_call_select on public.team_call for select to authenticated using (public.team_chat_can_read(channel_id));')
     expect(body).toContain('create policy team_call_participant_select on public.team_call_participant for select to authenticated using (public.team_chat_can_read(channel_id));')
     // A person's rings are theirs alone.
@@ -78,6 +79,7 @@ describe('migrations 564-565', () => {
   it('Realtime publishes what the page listens to', () => {
     for (const t of ['team_call', 'team_call_participant', 'team_call_ring']) expect(SCHEMA).toContain(`alter publication supabase_realtime add table public.${t};`)
     expect(SCHEMA).not.toContain('add table public.team_call_webhook_event')
+    expect(SCHEMA).not.toContain('add table public.team_call_eject')
   })
 
   it('a member’s own insert is a plain message: 556’s policy, every rule kept, plus that', () => {
@@ -109,6 +111,7 @@ describe('migrations 564-565', () => {
       ['team_call_participant_event', 'service_role'],
       ['team_call_end', 'service_role'],
       ['team_call_expire_rings', 'service_role'],
+      ['team_call_fence', 'service_role'],
     ]
     const body = flat(FUNCTIONS)
     for (const [name, role] of fns) {
@@ -152,5 +155,62 @@ describe('migrations 564-565', () => {
 
   it('a ring past its time can’t be accepted', () => {
     expect(fn(FUNCTIONS, 'team_call_answer')).toContain('and x.expires_at > now()')
+  })
+})
+
+describe('migrations 564-565: access ends, the person is out of the call', () => {
+  const body = flat(FUNCTIONS)
+
+  it('a trigger on every way access ends, none of which can refuse the change', () => {
+    for (const [trigger, when, table, fnName] of [
+      ['team_call_fence_team_member', 'after delete', 'team_member', 'team_call_fence_member_trigger'],
+      ['team_call_fence_dm_member', 'after delete', 'team_chat_member', 'team_call_fence_dm_trigger'],
+      ['team_call_fence_member_moved', 'after update of workspace_id, user_id', 'member', 'team_call_fence_moved_trigger'],
+      ['team_call_member_gone', 'before delete', 'member', 'team_call_member_gone_trigger'],
+      ['team_call_channel_changed', 'after update of archived_at, team_id, kind', 'team_chat_channel', 'team_call_channel_changed_trigger'],
+      ['team_call_channel_gone', 'before delete', 'team_chat_channel', 'team_call_channel_gone_trigger'],
+    ] as const) {
+      expect(body, trigger).toContain(`drop trigger if exists ${trigger} on public.${table};`)
+      expect(body, trigger).toMatch(new RegExp(`create trigger ${trigger} ${when} on public\\.${table} for each row[^;]* execute function public\\.${fnName}\\(\\);`))
+      const def = fn(FUNCTIONS, fnName)
+      expect(def, fnName).toContain('security definer')
+      expect(def, fnName).toContain('set search_path = public, pg_temp')
+      expect(def, fnName).not.toMatch(/raise exception/)
+      expect(body, fnName).toContain(`revoke all on function public.${fnName}() from public, anon, authenticated;`)
+    }
+  })
+
+  it('archiving a channel ends its live call and closes its room; the call\u2019s words are written past the guard by the call\u2019s own setting', () => {
+    const changed = fn(FUNCTIONS, 'team_call_channel_changed_trigger')
+    expect(changed).toContain("perform public.team_call_end(live.id, 'archived', now());")
+    expect(changed).toContain("values (live.id, live.room, null, 'archived')")
+    const end = fn(FUNCTIONS, 'team_call_end')
+    expect(end.indexOf("set_config('team_calls.writing', 'on', true)")).toBeLessThan(end.indexOf('update public.team_chat_message m'))
+    expect(fn(SCHEMA, 'team_chat_message_guard')).toContain("coalesce(current_setting('team_calls.writing', true), '') = 'on'")
+  })
+
+  it('a join by someone without access is refused onto the outbox', () => {
+    const def = fn(FUNCTIONS, 'team_call_participant_event')
+    expect(def.indexOf('if is_join and not public.team_chat_member_can_read(c.channel_id, member_ref) then')).toBeGreaterThan(0)
+    expect(def).toContain("return 'ejected';")
+  })
+
+  it('the outbox has no key to team_call (a room still closes when its call is deleted) and one pending entry per room and person', () => {
+    const outbox = SCHEMA.slice(SCHEMA.indexOf('create table if not exists public.team_call_eject'), SCHEMA.indexOf(');', SCHEMA.indexOf('create table if not exists public.team_call_eject')))
+    expect(outbox).not.toContain('references')
+    expect(flat(SCHEMA)).toContain("create unique index if not exists team_call_eject_pending_key on public.team_call_eject (room, coalesce(identity, '')) where done_at is null;")
+  })
+
+  it('ring limits: per request, per call, never again after a decline or a ring-out, a minute per caller and person, a DM decline\u2019s two minutes', () => {
+    const def = fn(FUNCTIONS, 'team_call_ring_members')
+    expect(def).toContain('exit when rung >= 20;')
+    expect(def).toContain("r.state in ('declined', 'missed')")
+    expect(def).toContain("r.created_at > now() - interval '60 seconds'")
+    expect(def).toContain("> now() - interval '2 minutes'")
+  })
+
+  it('a decline always lands: no cap on the arrays it writes', () => {
+    expect(bodyOf(SCHEMA)).not.toMatch(/add constraint team_call_rings_bounded/)
+    expect(bodyOf(SCHEMA)).toContain('drop constraint if exists team_call_rings_bounded;')
   })
 })
