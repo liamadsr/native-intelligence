@@ -4,6 +4,7 @@
  * caller needs, or a plain line it can say in a toast.
  */
 import type { MeetingView } from './shape'
+import type { MyMeeting } from './section'
 
 async function send(url: string, method: 'POST' | 'GET', body?: unknown): Promise<Response | null> {
   try {
@@ -32,14 +33,49 @@ export interface CreatedMeeting {
   title: string
   opensAt: string
   closesAt: string
+  startsAt?: string | null
+  endsAt?: string | null
 }
 
 /** Make a meeting link (a title, maybe a start and a length). */
-export async function requestNewMeeting(input: { title: string; startsAt?: string | null; minutes?: number | null }): Promise<{ ok: true; meeting: CreatedMeeting } | { ok: false; line: string }> {
+export async function requestNewMeeting(input: { title: string; startsAt?: string | null; minutes?: number | null; calendarAccountId?: string | null }): Promise<{ ok: true; meeting: CreatedMeeting } | { ok: false; line: string }> {
   const res = await send('/api/account/meeting-links', 'POST', input)
   if (!res?.ok) return { ok: false, line: await errorLine(res, 'The link wasn’t made. Try again.') }
   const json = (await res.json().catch(() => null)) as { meeting?: CreatedMeeting } | null
   return json?.meeting ? { ok: true, meeting: json.meeting } : { ok: false, line: 'The link wasn’t made. Try again.' }
+}
+
+/** The person's meetings for team chat's meetings section (unordered: ./section.ts orders them), or null on a failed read. */
+export async function fetchMyMeetings(): Promise<MyMeeting[] | null> {
+  const res = await send('/api/account/meeting-links?view=mine', 'GET')
+  if (!res?.ok) return null
+  const json = (await res.json().catch(() => null)) as { meetings?: MyMeeting[] } | null
+  return Array.isArray(json?.meetings) ? json.meetings : null
+}
+
+/** A calendar a scheduled meeting can be put on (the person's own, writable; the default first). */
+export interface MeetingCalendar {
+  id: string
+  provider: 'google' | 'microsoft'
+  label: string
+}
+
+/** The person's writable calendars in this workspace, the default first; [] when none (or on a failed read). */
+export async function fetchMeetingCalendars(): Promise<MeetingCalendar[]> {
+  const res = await send('/api/account/meeting-links?view=calendars', 'GET')
+  if (!res?.ok) return []
+  const json = (await res.json().catch(() => null)) as { calendars?: MeetingCalendar[] } | null
+  return Array.isArray(json?.calendars) ? json.calendars : []
+}
+
+/** The meeting's entry path: its link's same-origin Join (POST /m/<token>/enter), from its URL. */
+export function enterPathOf(url: string): string | null {
+  try {
+    const path = new URL(url).pathname
+    return /^\/m\/[A-Za-z0-9_-]{32}$/.test(path) ? `${path}/enter` : null
+  } catch {
+    return null
+  }
 }
 
 /** A conversation's meeting and its link, or null (not a meeting, or not readable). */

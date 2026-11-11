@@ -15,6 +15,7 @@ import { teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { getServiceClient } from '@/lib/admin'
 import { drainTeamCallEjections, liveEjectDeps } from '@/lib/team-calls/eject'
 import { revokeMeeting } from '@/lib/meeting-links/store'
+import { meetingCalendarChanged } from '@/lib/meeting-links/calendar-events'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -30,6 +31,8 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     const res = await revokeMeeting(auth.supabase, id)
     if (res.revoked && res.callId) after(() => drainNow())
+    // Its calendar event (if it was put on one) goes too, on the calendar it was written to; never fails the revoke.
+    if (res.revoked) after(() => meetingCalendarChanged(getServiceClient(), id, { kind: 'revoked' }).then(() => undefined))
     console.info(`[meetings] meeting=${id} outcome=${res.revoked ? 'revoked' : 'revoked_already'}`)
     return NextResponse.json({ revoked: true })
   } catch (err) {
