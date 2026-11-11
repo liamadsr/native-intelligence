@@ -402,6 +402,7 @@ fi
 # Merge each key from our custom Info.plist into the bundle's generated plist
 PLIST_KEYS=(
     "NSMicrophoneUsageDescription"
+    "NSCameraUsageDescription"
     "NSAudioCaptureUsageDescription"
     "NSSpeechRecognitionUsageDescription"
     "NSCalendarsUsageDescription"
@@ -421,6 +422,7 @@ done
 # Verify all required keys are present
 REQUIRED_KEYS=(
     "NSMicrophoneUsageDescription"
+    "NSCameraUsageDescription"
     "NSSpeechRecognitionUsageDescription"
     "NSCalendarsFullAccessUsageDescription"
     "NSCalendarsUsageDescription"
