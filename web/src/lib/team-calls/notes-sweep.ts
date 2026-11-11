@@ -7,6 +7,11 @@
  *      server, and their egresses are stopped. The notes keep what was
  *      written and say they stopped.
  *   2. A recording past its bound (2 hours) is stopped.
+ *   2b. Every run, a notes egress still running that is no longer wanted is
+ *      stopped: its call's notes are off, or on in a newer round, or the call
+ *      ended, or its person is no longer in the call (the off switch's own
+ *      stop failed, or came too early). Whatever it writes after the moment
+ *      notes went off never reaches the notes (567's cutoff).
  *   3. Egresses not finished a while after they began are asked about:
  *      LiveKit's own list says what became of them (applied as its webhook
  *      would have been); one LiveKit no longer lists (10 minutes old, or 10
@@ -42,6 +47,7 @@ export interface NotesSweepDeps {
 
 export interface NotesSweepResult {
   notesStopped: number
+  unwantedStopped: number
   recordingsStopped: number
   egressesChecked: number
   egressesSettled: number
@@ -60,15 +66,16 @@ interface OpenEgress {
 
 export async function sweepTeamCallEgress(svc: SupabaseClient, deps: NotesSweepDeps): Promise<NotesSweepResult> {
   const now = deps.now?.() ?? new Date()
-  const result: NotesSweepResult = { notesStopped: 0, recordingsStopped: 0, egressesChecked: 0, egressesSettled: 0, egressesLost: 0, finishesAsked: 0, unreachable: false }
+  const result: NotesSweepResult = { notesStopped: 0, unwantedStopped: 0, recordingsStopped: 0, egressesChecked: 0, egressesSettled: 0, egressesLost: 0, finishesAsked: 0, unreachable: false }
   const port = deps.egress
 
   // 1. Notes past the bound.
   const { data: onNow, error: onError } = await svc.from('team_call').select('id, notes_on_since, notes_seconds').eq('notes', true).limit(EGRESS_SWEEP_BATCH)
   if (onError) throw new Error(`team calls sweep: notes read failed: ${onError.message}`)
   for (const c of (onNow ?? []) as Array<{ id: string; notes_on_since: string; notes_seconds: number }>) {
-    const spent = c.notes_seconds + Math.max(0, (now.getTime() - Date.parse(c.notes_on_since)) / 1000)
-    if (spent < TEAM_CALL_NOTES_MAX_SECONDS) continue
+    const since = Date.parse(c.notes_on_since)
+    const spent = c.notes_seconds + (Number.isFinite(since) ? Math.max(0, (now.getTime() - since) / 1000) : 0)
+    if (!(spent >= TEAM_CALL_NOTES_MAX_SECONDS)) continue
     if (await stopNotesAtBound(svc, c.id)) result.notesStopped++
     if (port) await stopEgresses(svc, port, c.id, 'notes')
   }
@@ -84,6 +91,9 @@ export async function sweepTeamCallEgress(svc: SupabaseClient, deps: NotesSweepD
     if (recError) throw new Error(`team calls sweep: recordings read failed: ${recError.message}`)
     for (const c of (recording ?? []) as Array<{ id: string }>) result.recordingsStopped += await stopEgresses(svc, port, c.id, 'recording')
   }
+
+  // 2b. Notes egresses running that nobody wants any more.
+  if (port) result.unwantedStopped = await stopUnwanted(svc, port, now)
 
   // 3. Egresses not finished.
   if (port) {
@@ -180,4 +190,45 @@ export async function sweepTeamCallEgress(svc: SupabaseClient, deps: NotesSweepD
     }
   }
   return result
+}
+
+/** Notes egresses still running whose notes are off (or on in a newer round), whose call ended, or whose person left: stopped. */
+export async function stopUnwanted(svc: SupabaseClient, port: TeamCallEgressPort, now: Date = new Date()): Promise<number> {
+  const { data, error } = await svc
+    .from('team_call_egress')
+    .select('id, call_id, member_id, round, egress_id')
+    .eq('kind', 'notes')
+    .in('status', ['starting', 'active'])
+    .not('egress_id', 'is', null)
+    // A minute old at least: a person's join can land just after their microphone's egress began.
+    .lt('created_at', new Date(now.getTime() - 60_000).toISOString())
+    .order('created_at', { ascending: true })
+    .limit(EGRESS_SWEEP_BATCH)
+  if (error) throw new Error(`team calls sweep: running notes read failed: ${error.message}`)
+  const rows = (data ?? []) as Array<{ id: string; call_id: string; member_id: string | null; round: number; egress_id: string }>
+  if (rows.length === 0) return 0
+  const callIds = [...new Set(rows.map((r) => r.call_id))]
+  const [calls, people] = await Promise.all([
+    svc.from('team_call').select('id, status, notes, notes_round').in('id', callIds),
+    svc.from('team_call_participant').select('call_id, member_id, state').in('call_id', callIds),
+  ])
+  if (calls.error) throw new Error(`team calls sweep: calls read failed: ${calls.error.message}`)
+  if (people.error) throw new Error(`team calls sweep: people read failed: ${people.error.message}`)
+  const byId = new Map(((calls.data ?? []) as Array<{ id: string; status: string; notes: boolean; notes_round: number }>).map((c) => [c.id, c]))
+  const inCall = new Set(
+    ((people.data ?? []) as Array<{ call_id: string; member_id: string; state: string }>).filter((p) => p.state === 'joined').map((p) => `${p.call_id}:${p.member_id}`),
+  )
+  let stopped = 0
+  for (const row of rows) {
+    const call = byId.get(row.call_id)
+    const wanted = !!call && call.status === 'live' && call.notes && call.notes_round === row.round && !!row.member_id && inCall.has(`${row.call_id}:${row.member_id}`)
+    if (wanted) continue
+    try {
+      await port.stop(row.egress_id)
+      stopped++
+    } catch (err) {
+      console.warn(`[team-calls-sweep] egress_row=${row.id} not stopped:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown')
+    }
+  }
+  return stopped
 }

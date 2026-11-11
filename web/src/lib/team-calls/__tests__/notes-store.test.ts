@@ -153,6 +153,8 @@ describe('a microphone\'s notes file', () => {
     expect(await startNotesForTrack(svc, p, { id: CALL, room: `tc-${CALL}` }, ANA, 'TR_mic')).toBe('started')
     expect(p.started).toEqual([[`tc-${CALL}`, 'TR_mic', path(ROW_A)]])
     expect(rpcs.map((r) => r[0])).toEqual(['team_call_egress_claim', 'team_call_egress_event'])
+    // (This fixture's call has ended: the look after the start stops it, as it should.)
+    expect(p.stopped).toEqual(['EG_TR_mic'])
     expect(rpcs[1][1]).toMatchObject({ row_ref: ROW_A, egress_ref: 'EG_TR_mic', new_status: 'starting', at_ns: '0' })
   })
 
@@ -173,6 +175,14 @@ describe('a microphone\'s notes file', () => {
     const r = port()
     await startNotesForTrack(svc, r, { id: CALL, room: 'r' }, ANA, 'TR_mic')
     expect(r.stopped).toEqual(['EG_TR_mic'])
+  })
+
+  it('a check that fails to read (or finds nothing) fails closed: the egress is stopped', async () => {
+    answers.team_call_egress_claim = { data: [{ egress_row: ROW_A, file_path: path(ROW_A) }], error: null }
+    // No egress row to read back: not wanted.
+    const p = port()
+    await startNotesForTrack(svc, p, { id: CALL, room: 'r' }, ANA, 'TR_mic')
+    expect(p.stopped).toEqual(['EG_TR_mic'])
   })
 
   it("the app's own word that a file failed carries now (in nanoseconds), so it lands after what LiveKit said before", async () => {
@@ -288,6 +298,9 @@ describe('writing the notes', () => {
       egress({ id: ROW_C, member_id: CY, status: 'failed', transcript_status: 'none', error: 'not started' }),
     )
     answers.team_call_attach_notes = { data: CAPTURE, error: null }
+    // Ben's file was cut when notes went off at 40 s: a word he said after it never reaches the notes.
+    tables.team_call_egress[1].cutoff_at = at(40)
+    ;(tables.team_call_egress[1].transcript as Array<Record<string, unknown>>).push({ start: 20, end: 21, text: 'After the switch.' })
     const written = await writeNotes(svc, CALL)
     expect(written).toEqual({ outcome: 'ready', captureId: CAPTURE, ownerUserId: ANA_USER, workspaceId: WS })
     const args = rpcs.find((r) => r[0] === 'team_call_attach_notes')![1]
@@ -350,11 +363,11 @@ describe('the raw audio, after', () => {
     expect(await removeNotesAudio(svc, CALL)).toBe(0)
   })
 
-  it('keeps every file when the call was also recorded', async () => {
+  it('removes them when the call was also recorded too (the recording is the kept file, not the per-person audio)', async () => {
     tables.team_call[0].recording = 'saved'
     tables.team_call_egress.push(egress({ transcript_status: 'done' }))
-    expect(await removeNotesAudio(svc, CALL)).toBe(0)
-    expect(removed).toEqual([])
+    expect(await removeNotesAudio(svc, CALL)).toBe(1)
+    expect(removed).toEqual([[path(ROW_A)]])
   })
 })
 

@@ -7,8 +7,10 @@
  *
  * On: every microphone published in the room now gets its file (LiveKit
  * Egress, audio only); one published later gets its own from the
- * track_published webhook. Off: the running files are stopped and kept;
- * they become the call's notes when it ends.
+ * track_published webhook. Off: the running files are stopped through
+ * Inngest (retried; the sweeper stops any left) and kept, and nothing said
+ * after this moment reaches the notes (567's cutoff); they become the
+ * call's notes when it ends.
  *
  * 404 when the server offers no notes (LIVEKIT_EGRESS off, or no Deepgram
  * key) or the call isn't the person's to read; 409 once it ended; 403 for
@@ -23,7 +25,7 @@ import { TeamChatError } from '@/lib/team-chat/store'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { liveKitEgress, teamCallEgressConfig, teamCallFeatures } from '@/lib/team-calls/egress'
 import { getCall } from '@/lib/team-calls/store'
-import { setNotes, startNotesForRoom, stopEgresses } from '@/lib/team-calls/notes-store'
+import { requestNotesStop, setNotes, startNotesForRoom } from '@/lib/team-calls/notes-store'
 import { callEnded, teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
@@ -58,10 +60,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (changed.changed) {
       const port = liveKitEgress(config)
       const svc = getServiceClient()
+      const round = changed.round
       after(async () => {
         try {
+          // Off: stopped through Inngest, retried until LiveKit takes it (the sweeper stops what that misses,
+          // and the notes keep no word said after this moment whatever happens).
           if (on) await startNotesForRoom(svc, port, { id: call.id, room: call.room })
-          else await stopEgresses(svc, port, call.id, 'notes')
+          else await requestNotesStop(call.id, round)
         } catch (err) {
           console.warn(`[team-call-notes] call=${call.id} egresses not ${on ? 'started' : 'stopped'}:`, err instanceof Error ? err.message : 'unknown')
         }

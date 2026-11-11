@@ -159,12 +159,17 @@ export async function startNotesForTrack(
 
 /** Notes still on, in the round this file was claimed for. */
 async function stillWanted(svc: SupabaseClient, callId: string, rowId: string): Promise<boolean> {
-  const [{ data: call }, { data: row }] = await Promise.all([
-    svc.from('team_call').select('notes, notes_round, status').eq('id', callId).maybeSingle<{ notes: boolean; notes_round: number; status: string }>(),
-    svc.from('team_call_egress').select('round').eq('id', rowId).maybeSingle<{ round: number }>(),
-  ])
-  if (!call || !row) return true
-  return call.status === 'live' && call.notes === true && call.notes_round === row.round
+  // Fails closed: a read that fails, or finds nothing, is "not wanted" (the egress is stopped).
+  try {
+    const [call, row] = await Promise.all([
+      svc.from('team_call').select('notes, notes_round, status').eq('id', callId).maybeSingle<{ notes: boolean; notes_round: number; status: string }>(),
+      svc.from('team_call_egress').select('round').eq('id', rowId).maybeSingle<{ round: number }>(),
+    ])
+    if (call.error || row.error || !call.data || !row.data) return false
+    return call.data.status === 'live' && call.data.notes === true && call.data.notes_round === row.data.round
+  } catch {
+    return false
+  }
 }
 
 /** Notes just went on: every microphone in the room now (a later one starts from its track_published webhook). */
@@ -185,8 +190,19 @@ export async function startNotesForRoom(svc: SupabaseClient, port: TeamCallEgres
   return started
 }
 
-/** Stop a call's egresses of one kind that are still running (notes went off; a recording stopped; the bound). Never throws for one. */
-export async function stopEgresses(svc: SupabaseClient, port: TeamCallEgressPort, callId: string, kind: 'notes' | 'recording'): Promise<number> {
+/**
+ * Stop a call's egresses of one kind that are still running (notes went off;
+ * a recording stopped; the bound). Never throws for one, unless `strict`:
+ * then any stop that failed throws after the rest were tried (Inngest tries
+ * again).
+ */
+export async function stopEgresses(
+  svc: SupabaseClient,
+  port: TeamCallEgressPort,
+  callId: string,
+  kind: 'notes' | 'recording',
+  opts: { strict?: boolean } = {},
+): Promise<number> {
   const { data, error } = await svc
     .from('team_call_egress')
     .select('id, egress_id')
@@ -195,16 +211,30 @@ export async function stopEgresses(svc: SupabaseClient, port: TeamCallEgressPort
     .in('status', ['starting', 'active'])
   if (error) throw new Error(`team calls: egress read failed: ${error.message}`)
   let stopped = 0
+  let failed = 0
   for (const row of (data ?? []) as Array<{ id: string; egress_id: string | null }>) {
     if (!row.egress_id) continue
     try {
       await port.stop(row.egress_id)
       stopped++
     } catch (err) {
+      failed++
       console.warn(`[team-call-notes] egress_row=${row.id} not stopped:`, shortError(err))
     }
   }
+  if (opts.strict && failed > 0) throw new Error(`team calls: ${failed} egress(es) not stopped`)
   return stopped
+}
+
+export const TEAM_CALL_NOTES_STOP_EVENT = 'team-calls/notes.stop' as const
+
+/** Stop a call's notes egresses through Inngest (retried until LiveKit takes it). Never throws: the sweeper stops what this misses. */
+export async function requestNotesStop(callId: string, round: number, sender?: SendEvents): Promise<void> {
+  try {
+    await send([{ name: TEAM_CALL_NOTES_STOP_EVENT, id: `team-call-notes-stop-${callId}-${round}`, data: { callId } }], sender)
+  } catch (err) {
+    console.warn(`[team-call-notes] call=${callId} stop not requested:`, shortError(err))
+  }
 }
 
 /** Notes off, by the server (the 3-hour bound). True when they were on. */
@@ -395,9 +425,10 @@ interface EgressRow {
   transcript: NotesUtterance[] | null
   audio_deleted_at: string | null
   error: string | null
+  cutoff_at: string | null
 }
 
-const EGRESS_COLUMNS = 'id, call_id, kind, member_id, file_path, status, started_at, created_at, duration_ms, transcript_status, transcript, audio_deleted_at, error'
+const EGRESS_COLUMNS = 'id, call_id, kind, member_id, file_path, status, started_at, created_at, duration_ms, transcript_status, transcript, audio_deleted_at, error, cutoff_at'
 
 export type TranscribeOutcome = 'done' | 'empty' | 'failed' | 'skipped'
 
@@ -425,6 +456,11 @@ export async function transcribeNotesFile(svc: SupabaseClient, rowId: string, de
   }
   const utterances = utterancesOfDeepgram(json)
   const outcome = utterances.length > 0 ? 'done' : 'empty'
+  // The file's audio should run as long as the egress did (no DTX, a mute ends the file): say so when it doesn't.
+  const audioSeconds = (json as { metadata?: { duration?: number } })?.metadata?.duration
+  if (typeof audioSeconds === 'number' && data.duration_ms && data.duration_ms / 1000 - audioSeconds > 2) {
+    console.warn(`[team-call-notes] egress_row=${rowId} audio_short_by=${Math.round(data.duration_ms / 1000 - audioSeconds)}s`)
+  }
   await markTranscript(svc, rowId, outcome, utterances)
   const seconds = Math.round(((json as { metadata?: { duration?: number } })?.metadata?.duration ?? (data.duration_ms ?? 0) / 1000) || 0)
   if (seconds > 0) {
@@ -560,7 +596,7 @@ export async function writeNotes(svc: SupabaseClient, callId: string): Promise<N
 
   const files: NotesFile[] = progress.rows
     .filter((r) => r.transcript_status === 'done' && r.member_id && Array.isArray(r.transcript))
-    .map((r) => ({ memberId: r.member_id!, startedAt: r.started_at ?? r.created_at, utterances: r.transcript! }))
+    .map((r) => ({ memberId: r.member_id!, startedAt: r.started_at ?? r.created_at, utterances: r.transcript!, cutoffAt: r.cutoff_at }))
   const merged = mergeNotes(call.started_at, files, labels)
 
   const missing = new Map<string, NotesGap>()
@@ -644,12 +680,14 @@ async function titleOf(svc: SupabaseClient, call: NotesCall, ownerMemberId: stri
 
 /**
  * After the notes are written: each file whose words are in is removed from
- * the bucket, unless the call was also recorded (then they are kept beside
- * the recording). A file whose words could not be read is always kept.
+ * the bucket, whether or not the call was also recorded (the recording is
+ * the call's kept file; the per-person audio is not kept beside it). A file
+ * whose words could not be read is kept a week (the daily retention removes
+ * it, src/lib/team-calls/notes-retention.ts).
  */
 export async function removeNotesAudio(svc: SupabaseClient, callId: string): Promise<number> {
   const progress = await notesProgress(svc, callId)
-  if (!progress.call || progress.call.recording === 'saved' || progress.call.recording === 'on' || progress.call.recording === 'starting') return 0
+  if (!progress.call) return 0
   const done = progress.rows.filter((r) => !r.audio_deleted_at && (r.transcript_status === 'done' || r.transcript_status === 'empty'))
   if (done.length === 0) return 0
   const { error } = await svc.storage.from(TEAM_CALL_RECORDINGS_BUCKET).remove(done.map((r) => r.file_path))

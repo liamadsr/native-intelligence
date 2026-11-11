@@ -9,7 +9,7 @@
  * calls agent owns them). Run on DEV by supabase/tests/566_team_call_notes.sql
  * (rolled back); this pins the files' text.
  */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -19,10 +19,23 @@ const flat = (sql: string) => bodyOf(sql).replace(/\s+/g, ' ')
 
 const SCHEMA = read('566_team_call_notes.sql')
 const FUNCTIONS = read('567_team_call_notes_functions.sql')
-const FILES = { schema: SCHEMA, functions: FUNCTIONS }
+const OWNER_READS = read('568_team_call_notes_owner_reads.sql')
+const RETENTION = read('569_team_call_notes_retention.sql')
+const FILES = { schema: SCHEMA, functions: FUNCTIONS, ownerReads: OWNER_READS, retention: RETENTION }
 const CALLS = read('565_team_call_functions.sql')
 
-describe('migrations 566-567', () => {
+/** A function's definition as a file has it: from its CREATE OR REPLACE through its closing dollar quote and clause. */
+function definition(sql: string, name: string): string {
+  const starts = [...sql.matchAll(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${name}\\(`, 'g'))].map((m) => m.index!)
+  expect(starts.length, name).toBeGreaterThan(0)
+  const start = starts[starts.length - 1]
+  const tag = /AS (\$[a-zA-Z_]*\$)/.exec(sql.slice(start))!
+  const bodyStart = start + tag.index + tag[0].length
+  const bodyEnd = sql.indexOf(tag[1], bodyStart) + tag[1].length
+  return sql.slice(start, sql.indexOf(';', bodyEnd) + 1)
+}
+
+describe('migrations 566-569', () => {
   it('each is one transaction whatever applies it, safe for a live database, and reloads the API schema', () => {
     for (const [name, sql] of Object.entries(FILES)) {
       const body = bodyOf(sql)
@@ -32,6 +45,7 @@ describe('migrations 566-567', () => {
       expect((body.match(/^(begin|commit);$/gm) ?? []).length, name).toBe(2)
       expect(body, name).not.toMatch(/concurrently|vacuum/i)
       expect(body, name).not.toMatch(/drop table|delete from|truncate|drop column|drop function/i)
+      if (name === 'ownerReads') continue // its four bodies are other migrations' (their rules are theirs)
       expect(body, name).not.toMatch(/to anon/)
       expect(body, name).not.toMatch(/create (unique )?index (?!if not exists)/)
       expect(body, name).not.toMatch(/add column (?!if not exists)/)
@@ -42,6 +56,27 @@ describe('migrations 566-567', () => {
         expect(body, c).toContain(`validate constraint ${c};`)
       }
     }
+  })
+
+  it('568 redefines the four definer reads from their current bodies, changing only the owner arm', () => {
+    const sources: Array<[string, string]> = [
+      ['capture_visible_to', '223_capture_visibility.sql'],
+      ['claim_visible_to', '369_document_visibility.sql'],
+      ['unified_search', '506_agent_reads_shared_records.sql'],
+      ['hybrid_search', '506_agent_reads_shared_records.sql'],
+    ]
+    const arm = /\b(c|cap|cap2|cap3)\.user_id = (p_user_id|v_requester)\b/g
+    for (const [name, file] of sources) {
+      // No later migration redefines it (else this would have to be re-based on that one).
+      const later = readdirSync(join(process.cwd(), 'supabase/migrations'))
+        .filter((f) => f > file && f < '568' && f.endsWith('.sql'))
+        .filter((f) => read(f).includes(`FUNCTION public.${name}(`))
+      expect(later, name).toEqual([])
+      const expected = definition(read(file), name).replace(arm, (_m, a: string, who: string) => `(${a}.user_id = ${who} AND public.team_call_notes_open_to(${a}.notes_channel_id, ${a}.workspace_id, ${who}))`)
+      expect(definition(OWNER_READS, name), name).toBe(expected)
+      expect(expected, name).toContain('team_call_notes_open_to')
+    }
+    expect(bodyOf(OWNER_READS)).toContain('public.team_chat_member_can_read(p_channel, m.id)')
   })
 
   it('redefines no function of 565', () => {
@@ -73,12 +108,12 @@ describe('migrations 566-567', () => {
   it('the fences: notes stay private, shared with their conversation only, read only while it is', () => {
     const body = flat(SCHEMA)
     expect(body).toContain("raise exception 'captures: a call''s notes are shared with its conversation only'")
-    expect(body).toContain('before insert or update of entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id on public.entity_access')
-    expect(body).toContain("call_channel is not null and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel)")
+    expect(body).toContain('before insert or update of entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id, level on public.entity_access')
+    expect(body).toContain("call_channel is not null and (new.grantee_kind <> 'channel' or new.grantee_channel_id is distinct from call_channel or new.level <> 'view')")
     expect(body).toContain("check (source in ('manual', 'mention', 'channel_share', 'team_call')) not valid;")
     expect(body).toContain('create policy captures_team_call_notes_fence on public.captures as restrictive for select to authenticated using (notes_channel_id is null or public.team_chat_can_read(notes_channel_id));')
     expect(body).toContain('alter table public.captures add column if not exists notes_channel_id uuid;')
-    expect(body).toContain('before insert or update of visibility, notes_channel_id on public.captures')
+    expect(body).toContain('before insert or update of visibility, notes_channel_id, notes_owner_out on public.captures')
     expect(body).toContain("and split_part(name, '/', 3) = 'recording'")
   })
 

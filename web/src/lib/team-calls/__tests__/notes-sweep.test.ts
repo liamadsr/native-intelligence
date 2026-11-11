@@ -145,6 +145,33 @@ describe('egresses whose end was lost', () => {
   })
 })
 
+describe('notes egresses nobody wants any more (the off switch\'s own stop failed)', () => {
+  it('stops one whose notes are off, on in a newer round, whose call ended, or whose person left; keeps the wanted and the young', async () => {
+    const C3 = '99999999-9999-4999-8999-999999999999'
+    tables.team_call.push(
+      { id: CALL, room: 'r1', status: 'live', notes: false, notes_round: 1, recording: 'off' },
+      { id: CALL2, room: 'r2', status: 'live', notes: true, notes_round: 2, recording: 'off' },
+      { id: C3, room: 'r3', status: 'ended', ended_at: ago(1), notes: false, notes_round: 1, recording: 'off' },
+    )
+    tables.team_call_participant = [
+      { call_id: CALL2, member_id: 'm-in', state: 'joined' },
+      { call_id: CALL2, member_id: 'm-gone', state: 'left' },
+    ]
+    tables.team_call_egress.push(
+      { id: 'e-off', call_id: CALL, kind: 'notes', member_id: 'm-in', round: 1, status: 'active', egress_id: 'EG_off', created_at: ago(3) },
+      { id: 'e-old-round', call_id: CALL2, kind: 'notes', member_id: 'm-in', round: 1, status: 'active', egress_id: 'EG_old', created_at: ago(3) },
+      { id: 'e-wanted', call_id: CALL2, kind: 'notes', member_id: 'm-in', round: 2, status: 'active', egress_id: 'EG_ok', created_at: ago(3) },
+      { id: 'e-left', call_id: CALL2, kind: 'notes', member_id: 'm-gone', round: 2, status: 'active', egress_id: 'EG_left', created_at: ago(3) },
+      { id: 'e-ended', call_id: C3, kind: 'notes', member_id: 'm-in', round: 1, status: 'starting', egress_id: 'EG_end', created_at: ago(3) },
+      { id: 'e-young', call_id: CALL, kind: 'notes', member_id: 'm-in', round: 1, status: 'active', egress_id: 'EG_young', created_at: new Date(NOW.getTime() - 20_000).toISOString() },
+    )
+    const p = port()
+    const result = await sweepTeamCallEgress(svc, deps(p))
+    expect(p.stopped.sort()).toEqual(['EG_end', 'EG_left', 'EG_off', 'EG_old'])
+    expect(result.unwantedStopped).toBe(4)
+  })
+})
+
 describe('notes whose finish was lost', () => {
   it('asked for again 20 minutes after their call ended, not before', async () => {
     tables.team_call.push(

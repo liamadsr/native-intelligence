@@ -85,6 +85,52 @@ describe('mergeNotes', () => {
   })
 })
 
+describe('the moment notes went off (cutoff)', () => {
+  const w = (word: string, start: number, end: number): [string, number, number] => [word, start, end]
+  it('keeps what was said before it, cuts a stretch at its last word before it, drops what began after', () => {
+    const files: NotesFile[] = [
+      {
+        memberId: ANA,
+        startedAt: at(10),
+        // Notes went off 20 s into the call: 10 s into this file.
+        cutoffAt: at(20),
+        utterances: [
+          { start: 1, end: 3, text: 'Before the switch.' },
+          { start: 8, end: 13, text: 'Half before, half after.', words: [w('Half', 8, 8.5), w('before,', 8.6, 9.4), w('half', 10.2, 10.6), w('after.', 10.7, 11.2)] },
+          { start: 12, end: 14, text: 'Well after the switch.' },
+        ],
+      },
+    ]
+    const { lines } = mergeNotes(T0, files, labels)
+    expect(lines.map((l) => l.text)).toEqual(['Before the switch.', 'Half before,'])
+    expect(lines[1].end).toBeLessThanOrEqual(20)
+  })
+
+  it('a stretch running past it with no word times is dropped whole (never a word too many)', () => {
+    const { lines } = mergeNotes(T0, [{ memberId: ANA, startedAt: at(0), cutoffAt: at(5), utterances: [{ start: 4, end: 7, text: 'No word times here.' }] }], labels)
+    expect(lines).toEqual([])
+  })
+
+  it('a late stop (the egress ran a minute past the switch) leaks nothing after it', () => {
+    const late = { memberId: BEN, startedAt: at(0), cutoffAt: at(30), utterances: [{ start: 31, end: 33, text: 'Said after notes went off.' }, { start: 89, end: 90, text: 'Still recording.' }] }
+    expect(mergeNotes(T0, [late], labels).lines).toEqual([])
+  })
+
+  it("a muted stretch is a gap between two files (a mute ends the microphone's track while notes are on), each placed by its own start", () => {
+    const files: NotesFile[] = [
+      { memberId: ANA, startedAt: at(0), utterances: [{ start: 2, end: 4, text: 'Before I mute.' }] },
+      // Muted at 10 s, unmuted at 70 s: a new track, a new file starting at 70 s.
+      { memberId: ANA, startedAt: at(70), utterances: [{ start: 1, end: 2, text: 'Back from mute.' }] },
+      { memberId: BEN, startedAt: at(0), utterances: [{ start: 40, end: 42, text: 'Meanwhile.' }] },
+    ]
+    expect(mergeNotes(T0, files, labels).lines.map((l) => [l.label, l.at, l.text])).toEqual([
+      ['Ana Ruiz', 2, 'Before I mute.'],
+      ['Ben Okafor', 40, 'Meanwhile.'],
+      ['Ana Ruiz', 71, 'Back from mute.'],
+    ])
+  })
+})
+
 describe('speakerLabels', () => {
   it('names each person once, unique within the call, without brackets', () => {
     const l = speakerLabels([
@@ -127,9 +173,15 @@ describe("Deepgram's answer", () => {
     expect(
       utterancesOfDeepgram({
         metadata: { duration: 12 },
-        results: { utterances: [{ start: 0.4, end: 2.1, transcript: ' Hello there. ' }, { start: 3, end: 3.5, transcript: '' }, { start: 'x', transcript: 'bad' }] },
+        results: {
+          utterances: [
+            { start: 0.4, end: 2.1, transcript: ' Hello there. ', words: [{ word: 'hello', punctuated_word: 'Hello', start: 0.4, end: 0.9 }, { word: 'there', start: 1.0, end: 2.1 }] },
+            { start: 3, end: 3.5, transcript: '' },
+            { start: 'x', transcript: 'bad' },
+          ],
+        },
       }),
-    ).toEqual([{ start: 0.4, end: 2.1, text: 'Hello there.' }])
+    ).toEqual([{ start: 0.4, end: 2.1, text: 'Hello there.', words: [['Hello', 0.4, 0.9], ['there', 1.0, 2.1]] }])
     expect(utterancesOfDeepgram({ results: {} })).toEqual([])
     expect(utterancesOfDeepgram(null)).toEqual([])
   })

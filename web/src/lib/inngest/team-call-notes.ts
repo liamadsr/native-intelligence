@@ -5,6 +5,7 @@ import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
 import {
   TEAM_CALL_NOTES_FILE_EVENT,
   TEAM_CALL_NOTES_FINISH_EVENT,
+  TEAM_CALL_NOTES_STOP_EVENT,
   giveUpOnNotes,
   markTranscript,
   notesStatus,
@@ -17,6 +18,7 @@ import {
   type NotesStatus,
   type NotesWritten,
 } from '@/lib/team-calls/notes-store'
+import { sweepCallAudio } from '@/lib/team-calls/notes-retention'
 import { postExtraction, runOwnerBatch } from './capture-finalizer'
 
 /**
@@ -141,4 +143,47 @@ export const teamCallNotesFinish = inngest.createFunction(
     triggers: [{ event: TEAM_CALL_NOTES_FINISH_EVENT }],
   },
   runTeamCallNotesFinish,
+)
+
+/**
+ * team-calls/notes.stop → a call's notes went off: its running egresses are
+ * stopped, retried until LiveKit takes every stop (a failed stop throws).
+ * The sweeper stops any egress whose notes are off on each run too, and the
+ * notes keep no word said after the moment they went off (567's cutoff), so
+ * a late stop never leaks into them.
+ */
+export async function runTeamCallNotesStop({ event, step }: Pick<NotesRunContext, 'event'> & { step: Pick<NotesRunContext['step'], 'run'> }) {
+  const callId = (event.data as { callId?: unknown } | undefined)?.callId
+  if (!isUuid(callId)) return { status: 'skipped', reason: 'bad_event' }
+  const stopped = await step.run('stop', async () => {
+    const config = teamCallEgressConfig()
+    return config ? stopEgresses(getServiceClient(), liveKitEgress(config), callId, 'notes', { strict: true }) : 0
+  })
+  return { status: 'done', stopped }
+}
+
+export const teamCallNotesStop = inngest.createFunction(
+  {
+    id: 'team-call-notes-stop',
+    retries: 5,
+    concurrency: [{ limit: 1, key: 'event.data.callId' }],
+    triggers: [{ event: TEAM_CALL_NOTES_STOP_EVENT }],
+  },
+  runTeamCallNotesStop,
+)
+
+/**
+ * Every day, how long call audio is kept (src/lib/team-calls/notes-retention.ts):
+ * raw notes audio whose words are in is removed (recorded calls too), audio
+ * whose words could not be read after a week, and the files of calls whose
+ * rows are gone. Bounded per run.
+ */
+export const teamCallNotesRetention = inngest.createFunction(
+  {
+    id: 'team-call-notes-retention',
+    retries: 1,
+    singleton: { mode: 'skip' },
+    triggers: [{ cron: '17 4 * * *' }],
+  },
+  async ({ step }) => step.run('sweep', () => sweepCallAudio(getServiceClient())),
 )

@@ -23,6 +23,8 @@ const h = vi.hoisted(() => ({
   gaveUp: null as unknown,
   settled: [] as Array<[string, string]>,
   marked: [] as Array<[string, string]>,
+  stopArgs: [] as Array<[string, boolean]>,
+  stopFails: false,
 }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({}) }))
 vi.mock('@/lib/inngest/client', () => ({ inngest: { createFunction: () => ({}) } }))
@@ -42,8 +44,10 @@ vi.mock('@/lib/team-calls/notes-store', async (orig) => ({
   requestNotesFiles: async (ids: string[]) => {
     h.asked.push(ids)
   },
-  stopEgresses: async () => {
+  stopEgresses: async (_svc: unknown, _port: unknown, _call: string, kind: string, opts?: { strict?: boolean }) => {
     h.stopped++
+    h.stopArgs.push([kind, opts?.strict === true])
+    if (h.stopFails) throw new Error('1 egress(es) not stopped')
     return 1
   },
   giveUpOnNotes: async (_svc: unknown, s: unknown) => {
@@ -66,7 +70,7 @@ vi.mock('@/lib/team-calls/notes-store', async (orig) => ({
   },
 }))
 
-import { FINISH_ROUNDS, runTeamCallNotesFinish, teamCallNotesFileFailed, teamCallNotesFinishFailed } from '../team-call-notes'
+import { FINISH_ROUNDS, runTeamCallNotesFinish, runTeamCallNotesStop, teamCallNotesFileFailed, teamCallNotesFinishFailed } from '../team-call-notes'
 
 function stepTools() {
   const ids: string[] = []
@@ -95,6 +99,8 @@ beforeEach(() => {
   h.gaveUp = null
   h.settled = []
   h.marked = []
+  h.stopArgs = []
+  h.stopFails = false
 })
 
 describe('the notes finish', () => {
@@ -151,5 +157,15 @@ describe('when retries are spent', () => {
   it("the finish's: the notes failed", async () => {
     await teamCallNotesFinishFailed({ event: { data: { event: { data: { callId: CALL } } } } })
     expect(h.settled).toEqual([[CALL, 'failed']])
+  })
+})
+
+describe('the notes stop', () => {
+  it("strict: a stop LiveKit didn't take throws, so Inngest tries again", async () => {
+    const { step } = stepTools()
+    expect(await runTeamCallNotesStop({ event: { data: { callId: CALL } }, step })).toEqual({ status: 'done', stopped: 1 })
+    expect(h.stopArgs).toEqual([['notes', true]])
+    h.stopFails = true
+    await expect(runTeamCallNotesStop({ event: { data: { callId: CALL } }, step })).rejects.toThrow('not stopped')
   })
 })

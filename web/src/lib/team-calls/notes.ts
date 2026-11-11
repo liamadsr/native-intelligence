@@ -99,11 +99,13 @@ export function egressRowOfPath(path: string | null | undefined): { channelId: s
 
 // ── The transcript ──────────────────────────────────────────────────────────
 
-/** One stretch of speech in one file, in seconds from the file's start. */
+/** One stretch of speech in one file, in seconds from the file's start; its words with their own times, to cut it at the moment notes went off. */
 export interface NotesUtterance {
   start: number
   end: number
   text: string
+  /** [word, start, end], seconds from the file's start. */
+  words?: Array<[string, number, number]>
 }
 
 /** One microphone's file: whose it is, when it began, what was said in it. */
@@ -112,6 +114,8 @@ export interface NotesFile {
   /** When the file began (ISO): its words' place in the call. */
   startedAt: string
   utterances: NotesUtterance[]
+  /** When notes went off for this file's round (or the call ended), ISO: nothing said after it reaches the notes. */
+  cutoffAt?: string | null
 }
 
 export interface NotesLine {
@@ -158,10 +162,15 @@ export function mergeNotes(callStartedAt: string, files: readonly NotesFile[], l
   const t0 = Date.parse(callStartedAt)
   const all: NotesLine[] = []
   for (const file of files) {
-    const offset = Math.max(0, (Date.parse(file.startedAt) - t0) / 1000)
+    const fileStart = Date.parse(file.startedAt)
+    const offset = Math.max(0, (fileStart - t0) / 1000)
     if (!Number.isFinite(offset)) continue
     const label = labels.get(file.memberId) ?? 'Teammate'
-    for (const u of file.utterances) {
+    // The moment notes went off, in this file's own time: nothing said after it is kept.
+    const cutoff = file.cutoffAt ? (Date.parse(file.cutoffAt) - fileStart) / 1000 : Number.POSITIVE_INFINITY
+    for (const raw of file.utterances) {
+      const u = cutUtterance(raw, cutoff)
+      if (!u) continue
       const text = u.text.replace(/\s+/g, ' ').trim()
       if (!text || !Number.isFinite(u.start)) continue
       const start = Math.max(0, u.start)
@@ -182,16 +191,35 @@ export function mergeNotes(callStartedAt: string, files: readonly NotesFile[], l
   return { lines, text: lines.map((l) => `[${l.label}] ${l.text}`).join('\n') }
 }
 
+/**
+ * A stretch as it stands at the cutoff (file time): whole before it; cut at
+ * its last word before it when it runs past; gone when it began after it,
+ * or runs past it with no word times to cut by (never a word too many).
+ */
+export function cutUtterance(u: NotesUtterance, cutoff: number): NotesUtterance | null {
+  if (!Number.isFinite(cutoff)) return u
+  if (!(u.start < cutoff)) return null
+  if (!(u.end > cutoff)) return u
+  const words = (u.words ?? []).filter((w) => w[1] < cutoff)
+  if (!u.words || words.length === 0) return null
+  return { start: u.start, end: Math.min(cutoff, words[words.length - 1][2]), text: words.map((w) => w[0]).join(' '), words }
+}
+
 /** Deepgram's prerecorded answer (utterances=true) as a file's stretches. */
 export function utterancesOfDeepgram(json: unknown): NotesUtterance[] {
   const list = (json as { results?: { utterances?: unknown } } | null)?.results?.utterances
   if (!Array.isArray(list)) return []
   const out: NotesUtterance[] = []
-  for (const u of list as Array<{ start?: unknown; end?: unknown; transcript?: unknown }>) {
+  for (const u of list as Array<{ start?: unknown; end?: unknown; transcript?: unknown; words?: unknown }>) {
     if (typeof u?.start !== 'number' || typeof u.transcript !== 'string') continue
     const text = u.transcript.trim()
     if (!text) continue
-    out.push({ start: u.start, end: typeof u.end === 'number' ? u.end : u.start, text })
+    const words: Array<[string, number, number]> = []
+    for (const w of Array.isArray(u.words) ? (u.words as Array<{ word?: unknown; punctuated_word?: unknown; start?: unknown; end?: unknown }>) : []) {
+      const word = typeof w?.punctuated_word === 'string' ? w.punctuated_word : typeof w?.word === 'string' ? w.word : null
+      if (word && typeof w.start === 'number' && typeof w.end === 'number') words.push([word, w.start, w.end])
+    }
+    out.push({ start: u.start, end: typeof u.end === 'number' ? u.end : u.start, text, ...(words.length ? { words } : {}) })
   }
   return out
 }
