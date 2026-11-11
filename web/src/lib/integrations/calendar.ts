@@ -110,6 +110,12 @@ interface ListEventsOptions {
    * throws instead.
    */
   onSkipped?: (skipped: CalendarSkip) => void
+  /**
+   * The app's own calendar view: the person's scheduled meeting links that no
+   * provider event stands for (src/lib/meeting-links/calendar-events.ts) are
+   * shown too. Off for every other reader (the agents, the watches, the CRM).
+   */
+  includeMeetingLinks?: boolean
 }
 
 /** A calendar a non-strict read left out, and why (ListEventsOptions.onSkipped). */
@@ -305,10 +311,24 @@ export async function listCalendarEventsUnified(
     }
   })()
 
-  const [oauthEvents, localEvents] = await Promise.all([oauthEventsPromise, localEventsPromise])
+  // Meeting links (phase 7): only for the app's calendar view; a read that fails leaves them out, never the calendar.
+  const meetingEventsPromise: Promise<CalendarEvent[]> = options.includeMeetingLinks
+    ? import('@/lib/meeting-links/calendar-events')
+        .then(({ meetingCalendarEvents }) => meetingCalendarEvents(supabase, userId, { timeMin, timeMax, workspaceId: options.workspaceId }))
+        .catch((err: unknown) => {
+          console.warn('[calendar] meeting links not read:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+          return []
+        })
+    : Promise.resolve([])
+
+  const [oauthEvents, localEvents, meetingEvents] = await Promise.all([oauthEventsPromise, localEventsPromise, meetingEventsPromise])
+
+  // A meeting link a provider event already carries (the calendar dialog's "Add a meeting link", a booking) shows once: the provider's.
+  const carried = new Set([...oauthEvents, ...localEvents].map((e) => e.conferenceUrl).filter((u): u is string => !!u))
+  const ownMeetings = meetingEvents.filter((e) => !e.conferenceUrl || !carried.has(e.conferenceUrl))
 
   // Merge all events, sort by start time
-  const allEvents = [...oauthEvents, ...localEvents]
+  const allEvents = [...oauthEvents, ...localEvents, ...ownMeetings]
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
 
   // Dedup: if same event title + start + end appears across accounts, keep first
@@ -549,6 +569,28 @@ export async function getCalendarEventAttendees(userId: string, eventId: string)
   } catch {
     return null
   }
+}
+
+/**
+ * An event's location and description as the provider has them now, on a
+ * given account (a meeting link swapping or removing its own line in an event
+ * the person made: src/lib/meeting-links/calendar-events.ts). Microsoft gives
+ * the body as HTML or text, as stored. Throws when it can't be read.
+ */
+export async function getCalendarEventFields(eventId: string, accountId: string): Promise<{ location: string; description: string }> {
+  const { provider, token } = await accountToken(accountId)
+  if (provider === 'google') {
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?fields=location,description`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error(`Google Calendar read error: ${res.status}`)
+    const data = (await res.json()) as { location?: string; description?: string }
+    return { location: data.location ?? '', description: data.description ?? '' }
+  }
+  const res = await fetch(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}?$select=location,body`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!res.ok) throw new Error(`Microsoft Calendar read error: ${res.status}`)
+  const data = (await res.json()) as { location?: { displayName?: string }; body?: { content?: string } }
+  return { location: data.location?.displayName ?? '', description: data.body?.content ?? '' }
 }
 
 /**

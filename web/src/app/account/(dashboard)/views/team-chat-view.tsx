@@ -103,6 +103,7 @@ import { upsertParticipant, type TeamCall, type TeamCallParticipant, type TeamCa
 import { CallMessage, CallButton } from './team-call-parts'
 import { NewMeetingDialog } from '@/components/meeting-links/new-meeting-dialog'
 import { MeetingLinkBar } from '@/components/meeting-links/meeting-link-bar'
+import { MeetingsSection } from '@/components/meeting-links/meetings-section'
 import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, ReactionChips, ThreadBar, type Member } from './team-chat-message-parts'
 
 /**
@@ -202,6 +203,8 @@ export function TeamChatView({
   const [newChannelOpen, setNewChannelOpen] = useState(false)
   const [newDmOpen, setNewDmOpen] = useState(false)
   const [newMeetingOpen, setNewMeetingOpen] = useState(false)
+  // A meeting just made: the meetings section asks again.
+  const [meetingsMade, setMeetingsMade] = useState(0)
   // The message the view was asked to open on (`focus`): where it is, and whether its pane has scrolled to it.
   const [focused, setFocused] = useState<{ id: string; channelId: string; rootId: string | null; shown: boolean } | null>(null)
 
@@ -719,8 +722,31 @@ export function TeamChatView({
   const selected = channels?.find((c) => c.id === selectedId) ?? null
   const channelList = (channels ?? []).filter((c) => c.kind === 'channel')
   const dmList = (channels ?? []).filter((c) => c.kind === 'dm')
-  // Meeting links' conversations (phase 7), once used; only where calling is on.
-  const meetingList = teamCalls.available ? (channels ?? []).filter((c) => c.kind === 'meeting') : []
+  // Meetings (phase 7): the section reads the person's meetings itself (from the moment they are made); only where calling is on.
+  // It asks again when a meeting is made, a meeting's conversation moves (its call's message) or a call starts or ends.
+  const liveMeetingChannels = useMemo(
+    () => new Set(Object.values(calls).filter((c) => c.call.status === 'live').map((c) => c.call.channel_id)),
+    [calls],
+  )
+  const meetingsKey = useMemo(
+    () =>
+      [
+        meetingsMade,
+        [...liveMeetingChannels].sort().join(','),
+        (channels ?? [])
+          .filter((c) => c.kind === 'meeting')
+          .map((c) => `${c.id}:${c.last_message_at ?? ''}`)
+          .join(','),
+      ].join('|'),
+    [meetingsMade, liveMeetingChannels, channels],
+  )
+  const unreadOf = useCallback(
+    (channelId: string) => {
+      const c = channels?.find((x) => x.id === channelId)
+      return c ? c.unread + (c.thread_unread ?? 0) : 0
+    },
+    [channels],
+  )
 
   const channelTitle = useCallback(
     (c: TeamChatChannel): string => {
@@ -909,9 +935,7 @@ export function TeamChatView({
         {teamCalls.available && (
           <>
             <SectionHeading label="Meetings" onAdd={() => setNewMeetingOpen(true)} addLabel="New meeting link" className="mt-5" />
-            {meetingList.map((c) => (
-              <ChannelRow key={c.id} channel={c} title={channelTitle(c)} active={c.id === onScreen} onSelect={() => openChannel(c.id)} />
-            ))}
+            <MeetingsSection refreshKey={meetingsKey} liveChannels={liveMeetingChannels} unread={unreadOf} activeChannelId={onScreen} onOpen={(id) => openChannel(id)} />
           </>
         )}
       </div>
@@ -1035,13 +1059,10 @@ export function TeamChatView({
         <NewMeetingDialog
           open={newMeetingOpen}
           onOpenChange={setNewMeetingOpen}
-          onOpenMeeting={(m) => {
-            setNewMeetingOpen(false)
-            // The call's message makes the conversation used: it shows in the list once the call starts.
-            void teamCalls.startCall({ id: m.channelId, kind: 'meeting', label: m.title }).then(async () => {
-              await loadChannels()
-              openChannel(m.channelId)
-            })
+          onCreated={() => {
+            setMeetingsMade((n) => n + 1)
+            // Its conversation is listed from the moment it is made (so its row opens it).
+            void loadChannels()
           }}
         />
       )}

@@ -10,7 +10,7 @@
  * 404 for both while calling is off (the LiveKit settings unset): there is
  * nothing a meeting could be.
  */
-import { NextResponse, type NextRequest } from 'next/server'
+import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireUser, requireWorkspace } from '@/lib/api-auth'
 import { badRequest } from '@/lib/api-errors'
 import { TeamChatError } from '@/lib/team-chat/store'
@@ -22,9 +22,34 @@ import { createMeetingLink } from '@/lib/meeting-links/create'
 import { meetingLink } from '@/lib/meeting-links/link'
 import { meetingNonce, meetingOfChannel } from '@/lib/meeting-links/store'
 import { getServiceClient } from '@/lib/admin'
+import { addMeetingToCalendar } from '@/lib/meeting-links/calendar-events'
+import { listMyMeetings } from '@/lib/meeting-links/mine'
+import { writableCalendarAccounts } from '@/lib/time-offers/host-calendar'
 
 export async function GET(request: NextRequest) {
   if (!teamCallsConfig()) return teamCallsUnavailable()
+  const view = request.nextUrl.searchParams.get('view')
+  // ?view=mine: team chat's meetings section (the person's meetings, current first).
+  if (view === 'mine') {
+    const ws = await requireWorkspace()
+    if (ws instanceof Response) return ws
+    try {
+      return NextResponse.json({ meetings: await listMyMeetings(ws.supabase, getServiceClient(), { workspaceId: ws.workspaceId, userId: ws.user.id }) })
+    } catch (err) {
+      return teamChatErrorResponse(err, 'meetings read')
+    }
+  }
+  // ?view=calendars: where a scheduled meeting can be put (the person's writable calendars, the default first).
+  if (view === 'calendars') {
+    const ws = await requireWorkspace()
+    if (ws instanceof Response) return ws
+    try {
+      const calendars = await writableCalendarAccounts(getServiceClient(), ws.user.id, ws.workspaceId)
+      return NextResponse.json({ calendars })
+    } catch (err) {
+      return teamChatErrorResponse(err, 'calendars read')
+    }
+  }
   const auth = await requireUser()
   if (auth instanceof Response) return auth
   const channelId = request.nextUrl.searchParams.get('channel')
@@ -53,8 +78,15 @@ export async function POST(request: NextRequest) {
   }
   const startsAt = typeof input.startsAt === 'string' && input.startsAt ? input.startsAt : null
   const minutes = typeof input.minutes === 'number' ? input.minutes : null
+  const calendarAccountId = typeof input.calendarAccountId === 'string' && isUuid(input.calendarAccountId) ? input.calendarAccountId : null
   try {
     const made = await createMeetingLink(auth.supabase, { workspaceId: auth.workspaceId, title: String(input.title ?? ''), startsAt, minutes })
+    // Scheduled: on the host's calendar (the one they picked, else their default), after the answer;
+    // a calendar that fails never fails the meeting (it still shows in team chat and the app's calendar).
+    if (made.startsAt && made.endsAt) {
+      const meeting = { id: made.meetingId, title: made.title, startsAt: made.startsAt, endsAt: made.endsAt, url: made.url }
+      after(() => addMeetingToCalendar(getServiceClient(), { meeting, userId: auth.user.id, workspaceId: auth.workspaceId, accountId: calendarAccountId }).then(() => undefined))
+    }
     return NextResponse.json({ meeting: made })
   } catch (err) {
     if (err instanceof TeamChatError && err.code === 'bad_request') return badRequest(err.message)

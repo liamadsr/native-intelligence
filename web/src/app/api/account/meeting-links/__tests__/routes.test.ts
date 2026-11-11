@@ -29,6 +29,8 @@ const h = vi.hoisted(() => ({
   rpc: {} as Record<string, { data: unknown; error: unknown }>,
   drained: 0,
   closed: [] as string[],
+  calendar: [] as Array<[string, unknown]>,
+  calendarFails: false,
 }))
 
 vi.mock('server-only', () => ({}))
@@ -51,6 +53,25 @@ vi.mock('@/lib/team-calls/eject', async (orig) => ({
 vi.mock('@/lib/team-calls/livekit', async (orig) => ({
   ...(await orig<typeof import('@/lib/team-calls/livekit')>()),
   closeTeamCallRoom: async (_c: unknown, room: string) => void h.closed.push(room),
+}))
+vi.mock('@/lib/meeting-links/calendar-events', async (orig) => ({
+  ...(await orig<typeof import('@/lib/meeting-links/calendar-events')>()),
+  addMeetingToCalendar: async (_svc: unknown, args: unknown) => {
+    h.calendar.push(['add', args])
+    if (h.calendarFails) throw new Error('calendar down')
+    return { written: 'app' }
+  },
+  meetingCalendarChanged: async (_svc: unknown, id: string, change: unknown) => {
+    h.calendar.push(['changed', { id, change }])
+    return 'updated'
+  },
+}))
+vi.mock('@/lib/meeting-links/mine', () => ({
+  listMyMeetings: async (_db: unknown, _svc: unknown, args: unknown) => [{ id: 'm-1', args }],
+}))
+vi.mock('@/lib/time-offers/host-calendar', async (orig) => ({
+  ...(await orig<typeof import('@/lib/time-offers/host-calendar')>()),
+  writableCalendarAccounts: async () => [{ id: 'acct-google', provider: 'google', label: 'rosa@example.com' }],
 }))
 vi.mock('@/lib/team-calls/notes-store', async (orig) => ({
   ...(await orig<typeof import('@/lib/team-calls/notes-store')>()),
@@ -78,6 +99,8 @@ beforeEach(() => {
   h.rpc = {}
   h.drained = 0
   h.closed = []
+  h.calendar = []
+  h.calendarFails = false
   tables = {
     member: [{ id: ME, user_id: USER, workspace_id: WS, display_name: 'Rosa Lind' }],
     meeting: [{ id: MEETING, workspace_id: WS, channel_id: CH, host_member_id: ME, title: 'Design review', starts_at: null, ends_at: null, opens_at: '2026-11-11T00:00:00.000Z', closes_at: '2026-12-11T00:00:00.000Z', revoked_at: null, token_nonce: NONCE }],
@@ -209,3 +232,50 @@ describe('the host', () => {
     expect((await end(post(), idParams(MEETING))).status).toBe(403)
   })
 })
+
+describe('meetings people can find (the follow-up)', () => {
+  const ACCT = '88888888-8888-4888-8888-888888888888'
+  it('a scheduled link goes on the host’s calendar after the answer (the one they picked); an unscheduled one never does', async () => {
+    h.rpc.meeting_create = { data: [{ meeting_id: 'set-below', channel_id: CH, opens_at: 'a', closes_at: 'b' }], error: null }
+    const res = await createMeeting(post({ title: 'Design review', startsAt: '2026-11-12T15:00:00.000Z', minutes: 45, calendarAccountId: ACCT }))
+    const json = await res.json()
+    expect(json.meeting).toMatchObject({ startsAt: '2026-11-12T15:00:00.000Z', endsAt: '2026-11-12T15:45:00.000Z' })
+    expect(h.calendar).toEqual([])
+    await Promise.all(h.afters.map((a) => a()))
+    expect(h.calendar).toEqual([['add', { meeting: { id: json.meeting.meetingId, title: 'Design review', startsAt: '2026-11-12T15:00:00.000Z', endsAt: '2026-11-12T15:45:00.000Z', url: json.meeting.url }, userId: USER, workspaceId: WS, accountId: ACCT }]])
+    h.afters = []
+    h.calendar = []
+    await createMeeting(post({ title: 'Any time' }))
+    await Promise.all(h.afters.map((a) => a()))
+    expect(h.calendar).toEqual([])
+  })
+
+  it('a calendar that fails never fails making the link (it is after the answer)', async () => {
+    h.calendarFails = true
+    h.rpc.meeting_create = { data: [{ meeting_id: 'x', channel_id: CH, opens_at: 'a', closes_at: 'b' }], error: null }
+    const res = await createMeeting(post({ title: 'Design review', startsAt: '2026-11-12T15:00:00.000Z', minutes: 30 }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).meeting.channelId).toBe(CH)
+  })
+
+  it('a new link and a revoke tell the meeting’s calendar event (after the answer)', async () => {
+    h.rpc.meeting_new_link = { data: true, error: null }
+    const res = await newLink(post(), idParams(MEETING))
+    const { url } = await res.json()
+    h.rpc.meeting_revoke = { data: [{ revoked: true, call_id: null, room: null }], error: null }
+    await revoke(post(), idParams(MEETING))
+    await Promise.all(h.afters.map((a) => a()))
+    expect(h.calendar).toEqual([
+      ['changed', { id: MEETING, change: { kind: 'relinked', url } }],
+      ['changed', { id: MEETING, change: { kind: 'revoked' } }],
+    ])
+  })
+
+  it('the section’s list (?view=mine) and the dialog’s calendars (?view=calendars)', async () => {
+    const mine = await getMeeting(new NextRequest('https://nativeintelligence.dev/api/account/meeting-links?view=mine'))
+    expect(await mine.json()).toEqual({ meetings: [{ id: 'm-1', args: { workspaceId: WS, userId: USER } }] })
+    const cals = await getMeeting(new NextRequest('https://nativeintelligence.dev/api/account/meeting-links?view=calendars'))
+    expect(await cals.json()).toEqual({ calendars: [{ id: 'acct-google', provider: 'google', label: 'rosa@example.com' }] })
+  })
+})
+
