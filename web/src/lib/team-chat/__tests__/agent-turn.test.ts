@@ -66,9 +66,13 @@ function message(over: Partial<TeamChatMessage> = {}): TeamChatMessage {
     agent_for_member_id: null,
     agent_name: null,
     in_reply_to: null,
+    thread_root_id: null,
+    client_id: null,
     body: '@Juniper what did we decide about the launch date?',
     mentions: [],
     mentions_agent: true,
+    attachments: [],
+    link_preview: null,
     created_at: '2026-11-08T15:00:00.000Z',
     edited_at: null,
     deleted_at: null,
@@ -176,6 +180,31 @@ describe('the mention as the person’s message', () => {
     expect(send).toHaveBeenCalledTimes(2)
   })
 
+  it('a mention in a thread: the thread is its place and its context (the root and replies before it), never the channel’s other messages', async () => {
+    const tables = seeded()
+    tables.team_chat_message.push(
+      { id: 't-root', channel_id: CH, author_kind: 'member', author_member_id: BEN, agent_for_member_id: null, agent_name: null, thread_root_id: null, body: 'Should we move the demo?', created_at: '2026-11-08T14:30:00.000Z', deleted_at: null },
+      { id: 't-1', channel_id: CH, author_kind: 'member', author_member_id: BEN, agent_for_member_id: null, agent_name: null, thread_root_id: 't-root', body: 'Thursday works for the client.', created_at: '2026-11-08T14:40:00.000Z', deleted_at: null },
+    )
+    const send = vi.fn(async () => undefined)
+    await deliverTeamChatMention(db(tables), { message: message({ thread_root_id: 't-root' }), channel: CHANNEL, userId: USER }, { send })
+    const text = (persisted.calls[0].parts as Array<{ text: string }>)[0].text
+    expect(text.startsWith('In a thread in #launch:')).toBe(true)
+    expect(text.indexOf('- Ben Ortiz: Should we move the demo?')).toBeLessThan(text.indexOf('- Ben Ortiz: Thursday works for the client.'))
+    expect(text).not.toContain('Launch moves to the 14th.')
+    // The conversation stays the channel's (named for it), threads included.
+    expect(tables.chat_conversations[0]).toMatchObject({ title: 'Team chat: #launch' })
+  })
+
+  it('a mention in the channel itself never reads a thread’s replies as its context', async () => {
+    const tables = seeded()
+    tables.team_chat_message.push({ id: 't-1', channel_id: CH, author_kind: 'member', author_member_id: BEN, agent_for_member_id: null, agent_name: null, thread_root_id: 'm1', body: 'a reply in a thread', created_at: '2026-11-08T14:40:00.000Z', deleted_at: null })
+    await deliverTeamChatMention(db(tables), { message: message(), channel: CHANNEL, userId: USER }, { send: vi.fn(async () => undefined) })
+    const text = (persisted.calls[0].parts as Array<{ text: string }>)[0].text
+    expect(text).toContain('Launch moves to the 14th.')
+    expect(text).not.toContain('a reply in a thread')
+  })
+
   it('an empty message requests nothing', async () => {
     const send = vi.fn(async () => undefined)
     expect(await deliverTeamChatMention(db(seeded()), { message: message({ body: '   ' }), channel: CHANNEL, userId: USER }, { send })).toBe('empty')
@@ -192,7 +221,16 @@ describe('where the reply goes', () => {
   const data = { conversationId: CONV, userId: USER, workspaceId: WS }
 
   it('the thread’s channel, as the person’s agent, answering their newest mention', async () => {
-    expect(await replyTarget(db(withThread()), data)).toEqual({ channelId: CH, workspaceId: WS, memberId: ANA, agentName: 'Juniper', inReplyTo: 'm-last' })
+    expect(await replyTarget(db(withThread()), data)).toEqual({ channelId: CH, workspaceId: WS, memberId: ANA, agentName: 'Juniper', inReplyTo: 'm-last', threadRootId: null })
+  })
+
+  it('a mention made in a thread is answered in that thread (its root, as the database keeps it)', async () => {
+    const tables = withThread()
+    tables.team_chat_message.push({ id: 'm-last', channel_id: CH, author_kind: 'member', author_member_id: ANA, body: '@Juniper?', thread_root_id: 'm1', created_at: '2026-11-08T14:10:00.000Z', deleted_at: null })
+    expect((await replyTarget(db(tables), data))?.threadRootId).toBe('m1')
+    // A mention row in another channel (never the case, but never trusted): the channel itself.
+    tables.team_chat_message.at(-1)!.channel_id = 'elsewhere'
+    expect((await replyTarget(db(tables), data))?.threadRootId).toBeNull()
   })
 
   it('the default name when they never named their agent', async () => {
@@ -227,7 +265,7 @@ describe('where the reply goes', () => {
 })
 
 describe('the reply', () => {
-  const target = { channelId: CH, workspaceId: WS, memberId: ANA, agentName: 'Juniper', inReplyTo: 'm-last' }
+  const target = { channelId: CH, workspaceId: WS, memberId: ANA, agentName: 'Juniper', inReplyTo: 'm-last', threadRootId: null }
 
   it('strips the card markers and stays quiet when nothing is left', () => {
     expect(teamChatReplyBody([{ type: 'text', text: 'The launch is on the 14th.\n<!-- card:3 -->' }])).toBe('The launch is on the 14th.')
@@ -259,6 +297,12 @@ describe('the reply', () => {
     // A retried step finds reply_sent_at taken.
     expect(await postTeamChatReply(db(tables), args, target)).toEqual({ posted: false, reason: 'already_sent' })
     expect(tables.team_chat_message.filter((m) => m.author_kind === 'agent' && m.agent_for_member_id === ANA)).toHaveLength(1)
+  })
+
+  it('answers in the thread the mention was made in', async () => {
+    const tables = withReply('It moved to the 14th.')
+    expect(await postTeamChatReply(db(tables), { userId: USER, conversationId: CONV, rowId: ROW }, { ...target, threadRootId: 'm1' })).toEqual({ posted: true })
+    expect(tables.team_chat_message.at(-1)).toMatchObject({ author_kind: 'agent', thread_root_id: 'm1', in_reply_to: 'm-last' })
   })
 
   it('settles: a failed turn with nothing to say gets a short notice; an unfinished one says so', async () => {
