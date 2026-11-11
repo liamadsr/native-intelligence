@@ -123,6 +123,8 @@ export function createCaptureTools(
   const requester = captureRequester(userId, omitPrivateCaptures)
   // Whom a grant (492) may open a capture to on this turn: the requester, or no one.
   const grantee = grantReader(requester, omitGrants)
+  // And a contact (migration 519): no grant on one opens it on such a turn.
+  const contactOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
 
   /**
    * Resolve a capture id to its workspace AND confirm it is visible to the
@@ -372,7 +374,7 @@ export function createCaptureTools(
         // Another member's private/team contact: RLS hides it on a user client,
         // but this may run service-role (contact-visibility.ts). Same error as
         // a missing contact, so its existence does not leak either.
-        if (!(await isContactVisibleTo(supabase, contact_id, userId))) {
+        if (!(await isContactVisibleTo(supabase, contact_id, userId, contactOpts))) {
           return { success: false, error: 'Contact not found in this workspace' }
         }
 
@@ -644,7 +646,7 @@ export function createCaptureTools(
           .map((p) => p.contact as unknown as { id?: unknown } | null)
           .filter((c): c is { id?: unknown } => Boolean(c))
         const visibleContactIds = new Set(
-          (await filterVisibleContacts(supabase, userId, embeddedContacts)).map((c) => c.id),
+          (await filterVisibleContacts(supabase, userId, embeddedContacts, contactOpts)).map((c) => c.id),
         )
 
         const participants = (participantRows || []).map((p) => {

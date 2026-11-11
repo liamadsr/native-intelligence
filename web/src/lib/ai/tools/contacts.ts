@@ -48,7 +48,11 @@ export function createContactTools(
   // guest's or linked agent's turn (omitGrants), never on an unattended one
   // (a home turn, a skill or work run, open to injected text). Off unless said.
   editGrants = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // contact shared with the person (a grant, 492) stays theirs, unread here.
+  omitGrants = false,
 ) {
+  const readOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
   return {
     list_contacts: tool({
       description:
@@ -91,7 +95,7 @@ export function createContactTools(
         if (error) return { success: false, error: error.message }
         // Other members' private/team contacts: RLS hides them on a user
         // client, but this may run service-role (contact-visibility.ts).
-        const visible = await filterVisibleContacts(supabase, userId, data || [])
+        const visible = await filterVisibleContacts(supabase, userId, data || [], readOpts)
         // Job title and department can come from web enrichment: fenced (web-derived.ts).
         const contacts = visible.map((c) => fenceWebFields(c as Record<string, unknown>, CONTACT_WEB_FIELDS))
         return { success: true, contacts, count: contacts.length }
@@ -136,7 +140,7 @@ export function createContactTools(
         const { data: rows, error } = await query.limit(contact_id ? 1 : 10)
 
         if (error) return { success: false, error: error.message }
-        const [data] = await filterVisibleContacts(supabase, userId, (rows ?? []) as Array<{ id?: unknown }>)
+        const [data] = await filterVisibleContacts(supabase, userId, (rows ?? []) as Array<{ id?: unknown }>, readOpts)
         // A contact the caller cannot see is indistinguishable from a missing one.
         if (!data) return { success: false, error: 'Contact not found' }
         // The workspace's own fields on contacts (migration 473): the set ones,

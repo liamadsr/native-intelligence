@@ -57,7 +57,8 @@ export async function customFieldWriteRefusal(
     switch (entity) {
       case 'contact':
         if (await isContactWritableTo(db, id, userId, { grants })) return null
-        return (await isContactVisibleTo(db, id, userId)) ? forbidden : notFound
+        // Without grants a contact only a grant shows is not found, not forbidden: its existence is the owner's.
+        return (await isContactVisibleTo(db, id, userId, { grants })) ? forbidden : notFound
       case 'company':
         return (await isCompanyWritableTo(db, id, userId, { grants })) ? null : notFound
       case 'document': {

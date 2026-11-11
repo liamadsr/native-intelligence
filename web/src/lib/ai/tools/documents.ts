@@ -1042,7 +1042,7 @@ export function createDocumentTools(
           ...((outbound ?? []) as Array<{ target_type: string; target_id: string }>).map((l) => ({ type: l.target_type, id: l.target_id })),
         ]
         const hiddenEnds = linkRefs.some((r) => isLinkFencedKind(r.type))
-          ? await hiddenGraphRefs(supabase, linkRefs, omitPrivate ? null : userId, resolved.workspaceId)
+          ? await hiddenGraphRefs(supabase, linkRefs, omitPrivate ? null : userId, resolved.workspaceId, extra.omitGrants ? { grants: false } : {})
           : new Set<string>()
         const shownBacklinks = (backlinks ?? []).filter((l) => !hiddenEnds.has(`${l.source_type}:${l.source_id}`))
         const shownOutbound = (outbound ?? []).filter((l) => !hiddenEnds.has(`${l.target_type}:${l.target_id}`))

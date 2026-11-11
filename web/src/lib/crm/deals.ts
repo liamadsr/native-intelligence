@@ -249,6 +249,8 @@ async function resolveInput(
   input: DealInput,
   current: Deal | null,
   viewer: string | null,
+  // false on a guest's or linked agent's turn: no grant (492) makes a company or contact theirs to put on a deal.
+  grants: boolean = true,
 ): Promise<Resolved> {
   const row: Record<string, unknown> = {}
 
@@ -313,7 +315,7 @@ async function resolveInput(
       if (!data) return { ok: false, error: 'Company not found.' }
       // On a service-role client (the agent's tools), a company the person
       // can't see is not found, as their own page would say.
-      if (viewer && input.company_id !== current?.company_id && !(await isCompanyVisibleTo(db, input.company_id, viewer))) {
+      if (viewer && input.company_id !== current?.company_id && !(await isCompanyVisibleTo(db, input.company_id, viewer, grants ? {} : { grants: false }))) {
         return { ok: false, error: 'Company not found.' }
       }
     }
@@ -331,7 +333,7 @@ async function resolveInput(
       // Contacts already on the deal stay; a new one must be one the person can see.
       if (viewer) {
         const already = new Set(current?.contact_ids ?? [])
-        const fresh = await filterVisibleContacts(db, viewer, rows.filter((r) => !already.has(r.id)))
+        const fresh = await filterVisibleContacts(db, viewer, rows.filter((r) => !already.has(r.id)), grants ? {} : { grants: false })
         rows = [...rows.filter((r) => already.has(r.id)), ...fresh]
       }
       const found = new Set(rows.map((c) => c.id))
@@ -415,6 +417,8 @@ async function logEvent(
  */
 export interface WriteOptions {
   viewer?: string | null
+  /** false on a guest's or a linked agent's turn (omitGrants): the viewer's grants open nothing. */
+  grants?: boolean
 }
 
 export type DealWriteResult =
@@ -437,7 +441,7 @@ export async function createDeal(
   actor: DealActor,
   opts: WriteOptions = {},
 ): Promise<DealWriteResult> {
-  const resolved = await resolveInput(db, workspaceId, input, null, opts.viewer ?? null)
+  const resolved = await resolveInput(db, workspaceId, input, null, opts.viewer ?? null, opts.grants !== false)
   if (!resolved.ok) return resolved
   const row = resolved.row
   if (row.owner_id === undefined && actor.userId) {
@@ -472,7 +476,7 @@ export async function updateDeal(
 ): Promise<DealWriteResult> {
   const current = await getDeal(db, workspaceId, dealId)
   if (!current) return { ok: false, error: 'Deal not found' }
-  const resolved = await resolveInput(db, workspaceId, input, current, opts.viewer ?? null)
+  const resolved = await resolveInput(db, workspaceId, input, current, opts.viewer ?? null, opts.grants !== false)
   if (!resolved.ok) return resolved
   const changes = diffDeal(current, resolved.row)
   if (!Object.keys(changes).length) return { ok: true, deal: current, changes, eventId: null }
@@ -676,7 +680,14 @@ export function describeDeal(
 }
 
 /** Names for the ids a set of deals points at, in three small reads. */
-export async function lookupDealNames(db: SupabaseClient, workspaceId: string, deals: readonly Deal[], viewer: string | null = null) {
+export async function lookupDealNames(
+  db: SupabaseClient,
+  workspaceId: string,
+  deals: readonly Deal[],
+  viewer: string | null = null,
+  // `grants: false` on a guest's or linked agent's turn: a grant opens no name (contact-visibility.ts).
+  opts: { grants?: boolean } = {},
+) {
   const companyIds = [...new Set(deals.map((d) => d.company_id).filter((x): x is string => !!x))]
   const contactIds = [...new Set(deals.flatMap((d) => d.contact_ids))].slice(0, 200)
   const ownerIds = [...new Set(deals.map((d) => d.owner_id).filter((x): x is string => !!x))]
@@ -689,7 +700,7 @@ export async function lookupDealNames(db: SupabaseClient, workspaceId: string, d
   let companyRows = (companies.data ?? []) as { id: string; name: string }[]
   let contactRows = (contacts.data ?? []) as { id: string; full_name: string | null; email: string | null }[]
   if (viewer) {
-    ;[companyRows, contactRows] = await Promise.all([filterVisibleCompanies(db, viewer, companyRows), filterVisibleContacts(db, viewer, contactRows)])
+    ;[companyRows, contactRows] = await Promise.all([filterVisibleCompanies(db, viewer, companyRows, opts), filterVisibleContacts(db, viewer, contactRows, opts)])
   }
   return {
     companies: new Map(companyRows.map((c) => [c.id, c.name])),

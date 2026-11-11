@@ -41,6 +41,10 @@ export function createCompanyTools(
   // EDIT GRANTS (512): createTools's one flag (never a guest's, linked
   // agent's or unattended turn). Off unless said.
   editGrants = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // company shared with the person, or one of its contacts, lists nothing
+  // (migration 519's p_grants).
+  omitGrants = false,
 ) {
   /**
    * update_company's gate: the company's own edit rule (an owner or admin,
@@ -95,6 +99,7 @@ export function createCompanyTools(
           p_limit: Math.min(limit ?? 50, 200),
           p_offset: offset ?? 0,
           p_user_id: userId,
+          ...(omitGrants ? { p_grants: false } : {}),
         })
         if (error) return { success: false, error: error.message }
 
