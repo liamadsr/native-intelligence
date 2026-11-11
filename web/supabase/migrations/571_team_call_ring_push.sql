@@ -33,10 +33,11 @@
 --                     how they were settled.
 --
 -- Additive. Idempotent. Safe on a live database: one new empty table and
--- two new functions; nothing else changes. Lock order: the claims take no
--- lock on a call or a ring row (the push row's foreign key only shares its
--- ring's key), so they never wait on 565's functions or make them wait. No
--- backslashes anywhere in this file (one MCP transport decodes escapes).
+-- two new functions; nothing else changes. Lock order: the claim shares its
+-- one ring row (it waits for an answer committing on it, then reads the
+-- answer) and takes no call row; the cancel takes only push rows. Neither
+-- holds a lock 565's functions want before theirs, so they never deadlock.
+-- No backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
 
 -- One transaction, whatever applies it: the file opens with begin and ends
@@ -81,7 +82,8 @@ declare
   r public.team_call_ring%rowtype;
   made uuid;
 begin
-  select * into r from public.team_call_ring x where x.id = target_ring;
+  -- Shared: an answer committing now is waited for and read, so a ring settled a moment ago is never pushed.
+  select * into r from public.team_call_ring x where x.id = target_ring for share;
   if not found or r.state <> 'ringing' or r.expires_at <= now() then
     return;
   end if;

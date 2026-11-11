@@ -22,6 +22,7 @@ protocol CallKitBridgeDelegate: AnyObject {
     func callKitAnswer(_ uuid: UUID, action: CXAnswerCallAction)
     func callKitEnd(_ uuid: UUID, action: CXEndCallAction)
     func callKitStart(_ uuid: UUID, action: CXStartCallAction)
+    func callKitTimedOut(_ action: CXAction)
     func callKitMute(_ uuid: UUID, muted: Bool)
     func callKitHold(_ uuid: UUID, held: Bool)
     func callKitAudio(active: Bool, session: AVAudioSession)
@@ -127,6 +128,10 @@ final class CallKitBridge: NSObject, CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         MainActor.assumeIsolated { delegate?.callKitStart(action.callUUID, action: action) }
+    }
+
+    func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
+        MainActor.assumeIsolated { delegate?.callKitTimedOut(action) }
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {

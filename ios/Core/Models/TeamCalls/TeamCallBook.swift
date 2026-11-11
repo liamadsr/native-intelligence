@@ -64,6 +64,9 @@ enum TeamCallEffect: Equatable {
     /// A report owed while a call is already up: report onto that call's id (refused as a
     /// duplicate, which is fine: the system sees a call, and nothing else shows).
     case reportOnExisting(UUID, TeamCallKitUpdate)
+    /// A cancel owing a report for the call it ends: report onto that call's id first, then end it
+    /// (in the report's answer: ending first would make the report a new call).
+    case reportOnExistingThenEnd(UUID, TeamCallKitUpdate, TeamCallEndReason)
     /// Tell the system a call it shows has ended (reportCall(with:endedAt:reason:)).
     case ended(UUID, TeamCallEndReason)
     /// Answer the ring on the server (the same function the web uses), then join.
@@ -164,8 +167,8 @@ struct TeamCallBook: Equatable {
         if let e = entry(ringId: id) {
             if e.phase == .ringing {
                 entries.removeAll { $0.uuid == e.uuid }
-                // The report owed is this very call (it is up until this returns).
-                return [.ended(e.uuid, .of(settled: settledState))]
+                // Owed a report: onto this very call, then it ends.
+                return mustReport ? [.reportOnExistingThenEnd(e.uuid, e.update, .of(settled: settledState))] : [.ended(e.uuid, .of(settled: settledState))]
             }
             // Answered here: the answer's own reply decides.
             return owedOnExisting(mustReport) ?? []
@@ -187,6 +190,14 @@ struct TeamCallBook: Equatable {
         entries.removeAll { $0.uuid == e.uuid }
         let ranOut = state == .missed && (e.deadline.map { now >= $0.addingTimeInterval(-Self.deadlineSlack) } ?? false)
         return [.ended(e.uuid, ranOut ? .unanswered : .of(settled: state))]
+    }
+
+    /// The system wouldn't show a ring (Focus, Do Not Disturb, a blocked caller): it is silent here,
+    /// and not rung here again (its row still says ringing: the other devices ring it).
+    mutating func refused(_ uuid: UUID) {
+        guard let e = entry(uuid), e.phase == .ringing else { return }
+        entries.removeAll { $0.uuid == uuid }
+        if let ring = e.ringId { remember(ring, .declined) }
     }
 
     /// The clock: rings past their time stop here (the server's timer marks them missed).

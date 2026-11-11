@@ -119,7 +119,8 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
       if (outcome === 'ejected') await deps.drainEjections?.()
       if (outcome === 'joined') {
         const stop = deps.stopPhones ?? ((s: SupabaseClient, callId: string, member: string) => cancelRingPushes(liveRingPushDeps(s), { callId, memberId: member }))
-        await stop(svc, teamCallIdOfRoom(room)!, identity.toLowerCase()).catch(() => undefined)
+        // Never waited on: a slow Apple never holds LiveKit's delivery.
+        void stop(svc, teamCallIdOfRoom(room)!, identity.toLowerCase()).catch(() => undefined)
       }
       return outcome
     }

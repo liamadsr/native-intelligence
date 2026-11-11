@@ -142,11 +142,16 @@ final class TeamCallCenter: ObservableObject {
         }
     }
 
-    /// The person's own rings, live (RLS: theirs only).
+    /// The person's own rings, live (RLS: theirs only); a channel that dropped is joined again.
+    /// Not signed in yet (a push launched the app): later, when the session is restored.
     private func joinRings() async {
-        guard rings == nil, let uid = SupabaseManager.shared.currentUser?.id.uuidString.lowercased() else {
-            if rings?.status != .subscribed { await rejoinRings() }
-            return
+        guard let uid = SupabaseManager.shared.currentUser?.id.uuidString.lowercased() else { return }
+        if let existing = rings {
+            guard existing.status != .subscribed else { return }
+            ringSubscription?.cancel()
+            ringSubscription = nil
+            rings = nil
+            await client.removeChannel(existing)
         }
         let channel = client.channel("team-call-rings:\(uid):\(UUID().uuidString.prefix(8).lowercased())")
         let decoder = JSONDecoder()
@@ -167,14 +172,6 @@ final class TeamCallCenter: ObservableObject {
         } catch {
             print("⚠️ Team call: rings channel not joined: \(error.localizedDescription)")
         }
-    }
-
-    private func rejoinRings() async {
-        ringSubscription?.cancel()
-        ringSubscription = nil
-        if let rings { await client.removeChannel(rings) }
-        rings = nil
-        await joinRings()
     }
 
     private func signedOut() async {
@@ -272,6 +269,14 @@ final class TeamCallCenter: ObservableObject {
             case let .reportOnExisting(uuid, update):
                 group.enter()
                 callKit.reportIncoming(uuid, update) { _ in group.leave() }
+            case let .reportOnExistingThenEnd(uuid, update, reason):
+                group.enter()
+                callKit.reportIncoming(uuid, update) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.ended(uuid, reason: reason)
+                        group.leave()
+                    }
+                }
             case let .ended(uuid, reason):
                 ended(uuid, reason: reason)
             case let .acceptOnServer(ringId):
@@ -304,8 +309,8 @@ final class TeamCallCenter: ObservableObject {
             && (code == CXErrorCodeIncomingCallError.filteredByDoNotDisturb.rawValue || code == CXErrorCodeIncomingCallError.filteredByBlockList.rawValue)
         guard let e = book.entry(uuid), e.phase == .ringing else { return }
         if filtered {
-            // Focus or Do Not Disturb: silent here; the ring stays the other devices'.
-            _ = book.callEnded(uuid, reason: .failed)
+            // Focus or Do Not Disturb: silent here, and not rung here again; the ring stays the other devices'.
+            book.refused(uuid)
             return
         }
         // The system can't show calls here (the Simulator): the app shows the ring while it is open.
@@ -348,7 +353,14 @@ final class TeamCallCenter: ObservableObject {
 
     private func accept(_ ringId: String) async {
         do {
-            let answer = try await api.answer(ringId: ringId, accept: true, voipToken: VoIPPushService.shared.token)
+            let answer: TeamCallAnswer
+            do {
+                answer = try await api.answer(ringId: ringId, accept: true, voipToken: VoIPPushService.shared.token)
+            } catch TeamCallAPIError.unreachable {
+                // Once more: a ring this person accepted already answers with its join.
+                guard book.entry(ringId: ringId) != nil else { return }
+                answer = try await api.answer(ringId: ringId, accept: true, voipToken: VoIPPushService.shared.token)
+            }
             if answer.state == .accepted, let join = answer.join, let place = answer.call {
                 guard let e = book.entry(ringId: ringId) else { return }
                 joins[e.uuid] = join
@@ -388,6 +400,13 @@ final class TeamCallCenter: ObservableObject {
                 joined = try await api.join(callId: callId)
             } else {
                 joined = try await api.start(channelId: e.channelId)
+            }
+            guard book.entry(uuid) != nil else {
+                // Hung up while the server was starting it: out of the call there too.
+                action?.fail()
+                pendingKinds[uuid] = nil
+                await api.leave(callId: joined.call.id)
+                return
             }
             book.learned(uuid, callId: joined.call.id)
             joins[uuid] = joined.join
@@ -504,6 +523,13 @@ extension TeamCallCenter: CallKitBridgeDelegate {
         if let pending = answerActions.removeValue(forKey: uuid) { pending.fail() }
         run(book.end(uuid))
         action.fulfill()
+    }
+
+    /// The system gave up waiting on an action (an answer the server was slow to take): the call it
+    /// dropped goes here too, so a late answer joins nothing.
+    func callKitTimedOut(_ action: CXAction) {
+        guard let answer = action as? CXAnswerCallAction, answerActions.removeValue(forKey: answer.callUUID) != nil else { return }
+        run(book.end(answer.callUUID))
     }
 
     func callKitStart(_ uuid: UUID, action: CXStartCallAction) {

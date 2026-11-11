@@ -156,12 +156,24 @@ import Foundation
     static func cancels() {
         var book = TeamCallBook()
         _ = book.ringPushed(incoming(), now: t0, mustReport: true, newID: uuid(1))
-        equal(book.cancelPushed(ringId: ring1, state: .accepted, mustReport: true, newID: uuid(2)), [.ended(uuid(1), .answeredElsewhere)],
-              "a cancel ends the ringing call (the call it is is the report owed)")
+        equal(book.cancelPushed(ringId: ring1, state: .accepted, mustReport: true, newID: uuid(2)),
+              [.reportOnExistingThenEnd(uuid(1), TeamCallKitUpdate.incoming(incoming()), .answeredElsewhere)],
+              "a cancel owing a report: reported onto the ringing call, then that call ends")
         equal(book.ringRow(id: ring1, state: .accepted, now: t0), [], "its row after: nothing more")
         equal(book.ringPushed(incoming(), now: t0, mustReport: true, newID: uuid(3)),
               [.reportAndEnd(uuid(3), TeamCallKitUpdate.incoming(incoming()), .answeredElsewhere)],
               "the ring's push arriving after its cancel: reported and ended, never rung")
+
+        var quiet = TeamCallBook()
+        _ = quiet.ringPushed(incoming(), now: t0, mustReport: true, newID: uuid(9))
+        equal(quiet.cancelPushed(ringId: ring1, state: .declined, mustReport: false, newID: uuid(10)), [.ended(uuid(9), .declinedElsewhere)],
+              "a cancel owing no report (iOS 26.4: in the foreground): the call just ends")
+
+        var filtered = TeamCallBook()
+        _ = filtered.ringPushed(incoming(), now: t0, mustReport: true, newID: uuid(11))
+        filtered.refused(uuid(11))
+        check(filtered.entries.isEmpty, "a ring the system wouldn't show (Focus): nothing rings here")
+        equal(filtered.ringHeard(incoming(), now: t0, newID: uuid(12)), [], "… and its row read again (still ringing) never rings it here again")
 
         var unknown = TeamCallBook()
         equal(unknown.cancelPushed(ringId: ring2, state: .declined, mustReport: true, newID: uuid(4)),
