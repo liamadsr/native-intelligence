@@ -11,7 +11,7 @@
 #   sudo ./auto-deploy.sh run [--dry-run]         one run (what the timer calls); --dry-run changes nothing
 #   sudo ./auto-deploy.sh acknowledge <commit>    the files the hold names, up to <commit>, are taken
 #                                                 care of (migrations applied, other stacks checked)
-#   sudo ./auto-deploy.sh clear-failure           forget a failure or a rollback, so that main is tried again
+#   sudo ./auto-deploy.sh clear-failure           forget a failure or a rollback; says what the next run rolls out
 #
 # What is "new" is measured from what SERVES, never from the checkout: the commit
 # on the image ni-app:running, which deploy.sh tags only after a finished roll-out.
@@ -31,12 +31,19 @@
 #     web/supabase/functions and web/supabase/templates (the Supabase stack uses
 #     them from the checkout: they change the moment the checkout moves); and
 #     deploy/edge, deploy/supabase, deploy/inngest, deploy/backup (other stacks,
-#     which take a change at their next restart or build, a reboot included);
+#     which take a change at their next restart or build, a reboot included); and
+#     this server's own deploy tooling, which runs as root or sets what the
+#     containers may do: deploy/app/*.sh, *.py, compose.yaml, ni-auto-deploy.*
+#     and proxy/ (the router on the edge network). The image's own content
+#     (Dockerfile, cron/, the app) is not held: it runs inside the containers,
+#     with the rights compose.yaml gives them;
 #   - the new deploy/app/.env.example names a setting that .env has no line for
 #     (names only: no value is read out or shown);
-#   - the commit's build failed before (until main moves on, or `clear-failure`);
-#     the commit was rolled back by hand (the same); or a roll-out was left half
-#     done (everything, until `clear-failure`).
+#   - the commit's build failed before (that commit only, until main moves on or
+#     `clear-failure`); or, holding everything until `clear-failure`: a roll-out
+#     was left half done, the checkout moved under the run, or what serves went
+#     anywhere but forward since the last run (deploy.sh --rollback, or anything
+#     else done by hand).
 # Any error while checking is a hold, never a pass.
 #
 # Else it moves the checkout to exactly the commit it checked (git merge
@@ -56,12 +63,14 @@
 #                   action (what a person does), serving; readable by anyone
 #   log             one line per change of state, appended
 #   runs/           each deploy's own output (root only; the newest 30 kept)
-#   failed          "<commit> <kind> <reason>": kind build (that commit is skipped),
-#                   rollback (the same) or halt (everything holds)
+#   failed          "<commit> <kind> <reason>": kind build (that commit is skipped)
+#                   or halt (everything holds)
+#   seen            the commit that served at the last run
 #   deployed        the last commit this tool rolled out, and when
-#   acknowledged    the files acknowledged, each by its content (root only)
+#   acknowledged    the files acknowledged, each by its mode and content (root only)
+#   held            every file the current hold names
 #   settings        the ping addresses (root only)
-# The lock is /run/lock/ni-app-deploy.lock, shared with deploy.sh.
+# The lock is /run/ni-app-deploy.lock (only root can create it), shared with deploy.sh.
 #
 # For the tests (deploy/app/tests/test_auto_deploy.py), the outside world can be
 # replaced: AUTO_DEPLOY_REPO, AUTO_DEPLOY_STATE, AUTO_DEPLOY_LOCK,
@@ -74,7 +83,7 @@ umask 022
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="${AUTO_DEPLOY_REPO:-$(cd "$here/../.." && pwd)}"
 state="${AUTO_DEPLOY_STATE:-/var/lib/ni-auto-deploy}"
-lock="${AUTO_DEPLOY_LOCK:-/run/lock/ni-app-deploy.lock}"
+lock="${AUTO_DEPLOY_LOCK:-/run/ni-app-deploy.lock}"
 deploy_sh="${AUTO_DEPLOY_DEPLOY_SH:-$here/deploy.sh}"
 docker="${AUTO_DEPLOY_DOCKER:-docker}"
 curl="${AUTO_DEPLOY_CURL:-curl}"
@@ -83,7 +92,8 @@ systemctl="${AUTO_DEPLOY_SYSTEMCTL:-systemctl}"
 envfile="$repo/deploy/app/.env"
 unit=ni-auto-deploy
 # Files a person takes care of before the checkout may move past them (see above).
-watched=(web/supabase/migrations web/supabase/functions web/supabase/templates deploy/edge deploy/supabase deploy/inngest deploy/backup)
+watched=(web/supabase/migrations web/supabase/functions web/supabase/templates deploy/edge deploy/supabase deploy/inngest deploy/backup
+	':(glob)deploy/app/*.sh' ':(glob)deploy/app/*.py' deploy/app/compose.yaml ':(glob)deploy/app/ni-auto-deploy.*' deploy/app/proxy)
 dry=false
 owner=""
 tmp=""
@@ -179,7 +189,7 @@ hold() { # hold <reason> <what a person does>
 write_failed() { printf '%s %s %s\n' "$1" "$2" "$3" >"$state/failed"; } # write_failed <commit> <kind> <reason>
 
 after_build="The old version still serves: nothing was replaced. A newer commit on main is tried by itself; to try this one again: sudo ./auto-deploy.sh clear-failure."
-after_halt="The roll-out may be half done, so nothing more is rolled out by itself. Look (sudo docker compose ps in deploy/app, the run's output), put it right by hand (sudo ./deploy.sh --no-build, or --rollback), then: sudo ./auto-deploy.sh clear-failure."
+after_halt="Nothing more is rolled out by itself. Look (sudo docker compose ps in deploy/app, the run's output in runs/), put it right by hand (sudo ./deploy.sh --no-build, or --rollback), then: sudo ./auto-deploy.sh clear-failure, which says what the next run would roll out."
 
 fail() { # fail <commit> <kind> <reason>: this run's deploy failed
 	local action="$after_build"
@@ -279,15 +289,16 @@ found = [p for p in open(added, "rb").read().split(b"\0") if p and os.path.lexis
 open(out, "wb").write(b"".join(p + b"\0" for p in found))' "$repo" "$tmp/added" "$3"
 }
 
-# The watched files <from>..<to> adds, changes or removes, each keyed by its
-# content at <to> (removed: all zeros), against the acknowledged ones.
-#   watched pending <raw diff> <short commit>  prints a hold's reason and action, or nothing
-#   watched ack <raw diff>                     records them as acknowledged; prints what
+# The watched files <from>..<to> adds, changes or removes, each keyed by its mode
+# and content at <to> (removed: all zeros), against the acknowledged ones.
+#   watched_files pending <raw diff> <short commit> <list file>
+#       prints a hold's reason and action, or nothing; writes every held file to <list file>
+#   watched_files ack <raw diff>
+#       records them as acknowledged; prints every one
 watched_files() {
 	python3 -I - "$@" "$state/acknowledged" <<'PY'
 import json, os, sys
 mode, raw, ackfile = sys.argv[1], sys.argv[2], sys.argv[-1]
-commit = sys.argv[3] if mode == "pending" else ""
 data = open(raw, "rb").read().split(b"\0")
 entries = []
 i = 0
@@ -297,8 +308,10 @@ while i + 1 < len(data) and data[i]:
     if not meta.startswith(":") or len(fields) != 5:
         sys.exit("unexpected git diff --raw output")
     path = data[i + 1].decode("utf-8", "surrogateescape")
-    entries.append(("%s %s" % (fields[3], json.dumps(path)), path))
+    entries.append(("%s %s %s" % (fields[1], fields[3], json.dumps(path)), path))
     i += 2
+if i + 1 < len(data):
+    sys.exit("unexpected git diff --raw output")
 acked = set(open(ackfile).read().splitlines()) if os.path.exists(ackfile) else set()
 todo = [(k, p) for k, p in entries if k not in acked]
 if not todo:
@@ -306,34 +319,43 @@ if not todo:
 def show(p):
     s = p.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
     return s if s.isprintable() else repr(s)
-def listed(ps):
-    return ", ".join(show(p) for p in ps[:8]) + (" and %d more" % (len(ps) - 8) if len(ps) > 8 else "")
 if mode == "ack":
     with os.fdopen(os.open(ackfile, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a") as f:
         for k, _ in todo:
             f.write(k + "\n")
-    print(listed([p for _, p in todo]))
+    print("%d file%s: %s" % (len(todo), "" if len(todo) == 1 else "s", ", ".join(show(p) for _, p in todo)))
     sys.exit(0)
+commit, listfile = sys.argv[3], sys.argv[4]
+def tooling(p):
+    d, name = os.path.split(p)
+    return p.startswith("deploy/app/proxy/") or (d == "deploy/app" and (
+        name.endswith((".sh", ".py")) or name == "compose.yaml" or name.startswith("ni-auto-deploy.")))
 kinds = [
-    ("migration", ("web/supabase/migrations/",),
+    ("migration", lambda p: p.startswith("web/supabase/migrations/"),
      "migrations not yet applied to the database"),
-    ("live", ("web/supabase/functions/", "web/supabase/templates/"),
+    ("live", lambda p: p.startswith(("web/supabase/functions/", "web/supabase/templates/")),
      "files the Supabase stack uses from the checkout, which change the moment it moves"),
-    ("stack", ("deploy/edge/", "deploy/supabase/", "deploy/inngest/", "deploy/backup/"),
+    ("stack", lambda p: p.startswith(("deploy/edge/", "deploy/supabase/", "deploy/inngest/", "deploy/backup/")),
      "files of other stacks, which take effect at their next restart (a reboot included) or build"),
+    ("tooling", tooling,
+     "the server's own deploy tooling, which runs as root on the server or sets what the containers may do"),
 ]
-parts, actions = [], []
-for kind, prefixes, what in kinds:
-    ps = [p for _, p in todo if p.startswith(prefixes)]
+parts, found, lines = [], [], []
+for kind, match, what in kinds:
+    ps = [p for _, p in todo if match(p)]
     if ps:
-        parts.append("%s: %s" % (what, listed(ps)))
-        actions.append(kind)
+        shown = ", ".join(show(p) for p in ps[:8]) + (" and %d more" % (len(ps) - 8) if len(ps) > 8 else "")
+        parts.append("%s (%d): %s" % (what, len(ps), shown))
+        found.append(kind)
+        lines += ["%s: %s" % (kind, show(p)) for p in ps]
+with open(listfile, "w") as f:
+    f.write("\n".join(lines) + "\n")
 steps = []
-if "migration" in actions:
+if "migration" in found:
     steps.append("apply the migrations to the database (deploy/app/README.md, Automatic deploys, says how without pulling)")
-if "live" in actions or "stack" in actions:
-    steps.append("read the other files' changes: a person rolls those out, and restarts the stacks concerned once the checkout has moved")
-print("a person deploys this one: " + "; ".join(parts) + " (up to %s)" % commit)
+if set(found) - {"migration"}:
+    steps.append("read the other files' changes (a person rolls them out, and restarts the stacks concerned once the checkout has moved)")
+print("a person deploys this one, %d file%s: " % (len(lines), "" if len(lines) == 1 else "s") + "; ".join(parts) + " (up to %s; every file: sudo ./auto-deploy.sh status)" % commit)
 print("First " + ", then ".join(steps) + "; then: sudo ./auto-deploy.sh acknowledge %s" % commit)
 PY
 }
@@ -352,6 +374,15 @@ with open(sys.argv[3]) as f:
     have = parse_env(f.read())
 print(", ".join(name for name in wanted if name not in have))
 PY
+}
+
+# The checkout is at the commit the run checked ($head is set to where it is).
+at_target() { head="$(git_ rev-parse --verify HEAD)" && [ "$head" = "$target" ]; }
+
+# The image just built carries that commit ($built is set to its label).
+built_from_target() {
+	built="$("$docker" image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ni-app:live 2>/dev/null)" || built=""
+	[ "${#built}" -ge 7 ] && case "$built" in *[!0-9a-f]*) false ;; esac && case "$target" in "$built"*) true ;; *) false ;; esac
 }
 
 # --- the commands --------------------------------------------------------------------
@@ -387,7 +418,7 @@ cmd_run() {
 	export NI_DEPLOY_LOCK_HELD=1
 	resolve_owner
 
-	local out head target failed_commit="" failed_kind="" failed_reason="" deployed_commit="" deployed_at=""
+	local out head target failed_commit="" failed_kind="" failed_reason="" deployed_commit="" deployed_at="" seen=""
 	local branch missing reason action
 	if ! out="$(git_ fetch --quiet origin main 2>&1)"; then
 		hold "git fetch origin main failed: $(printf '%s\n' "$out" | sed -n '$p')" "Usually the network, and the next run tries again. If it stays: git fetch origin main as the checkout's owner, in $repo."
@@ -401,36 +432,47 @@ cmd_run() {
 	fi
 	[ ! -f "$state/failed" ] || read -r failed_commit failed_kind failed_reason <"$state/failed" || true
 	[ ! -f "$state/deployed" ] || read -r deployed_commit deployed_at <"$state/deployed" || true
+	[ ! -f "$state/seen" ] || read -r seen <"$state/seen" || true
 	# A record that cannot be read is not "no record".
-	if [ -f "$state/failed" ] && ! { is_commit "$failed_commit" && case "$failed_kind" in build | rollback | halt) true ;; *) false ;; esac; }; then
+	if [ -f "$state/failed" ] && ! { is_commit "$failed_commit" && case "$failed_kind" in build | halt) true ;; *) false ;; esac; }; then
 		hold "$state/failed cannot be read" "Look at it; sudo ./auto-deploy.sh clear-failure removes it."
 	fi
 	if [ -f "$state/deployed" ] && ! is_commit "$deployed_commit"; then
 		hold "$state/deployed cannot be read" "Look at it; deleting it is safe once you know what serves."
 	fi
+	if [ -f "$state/seen" ] && ! is_commit "$seen"; then
+		hold "$state/seen cannot be read" "Look at it; deleting it is safe once you know what serves."
+	fi
 
-	# A roll-out left half done holds everything.
+	# Every run notes what serves. When it is neither what the last run saw nor a
+	# later commit, someone went back (deploy.sh --rollback) or did something by hand
+	# this tool does not understand: everything holds until a person clears it, and
+	# no acknowledgement made before it counts any more.
+	if [ -n "$seen" ] && [ "$seen" != "$serving" ] && ! git_ merge-base --is-ancestor "$seen" "$serving" 2>/dev/null; then
+		reason="what serves went from $(short "$seen") to $(short "$serving"), which is not a later commit: a rollback, or something done by hand"
+		if $dry; then echo "Would hold everything: $reason."; exit 0; fi
+		write_failed "$seen" halt "$reason"
+		rm -f "$state/acknowledged"
+		failed_commit="$seen" failed_kind=halt failed_reason="$reason"
+	fi
+	if ! $dry; then
+		printf '%s\n' "$serving" >"$state/seen.new"
+		mv -f "$state/seen.new" "$state/seen"
+		rm -f "$state/held"
+	fi
+
+	# After a rollback, or a roll-out that may be half done, nothing is rolled out
+	# until a person runs clear-failure.
 	if [ "$failed_kind" = halt ]; then
-		if $dry; then echo "Would do nothing: $(short "$failed_commit") failed and may be half rolled out ($failed_reason)."; exit 0; fi
+		if $dry; then echo "Would do nothing: $(short "$failed_commit"): $failed_reason."; exit 0; fi
 		set_state "failed: $(short "$failed_commit"): $failed_reason" "$after_halt" "$serving"
 		send_ping fail
 		exit 0
 	fi
-	# What serves is no longer what this tool last rolled out, and not a later commit
-	# either: someone went back (deploy.sh --rollback). That commit is not rolled out
-	# again by itself.
-	if [ -n "$deployed_commit" ] && [ "$deployed_commit" != "$serving" ] && ! $dry; then
-		if ! git_ merge-base --is-ancestor "$deployed_commit" "$serving" 2>/dev/null; then
-			write_failed "$deployed_commit" rollback "it was rolled back by hand ($(short "$serving") serves)"
-			failed_commit="$deployed_commit" failed_kind=rollback failed_reason="it was rolled back by hand ($(short "$serving") serves)"
-		fi
-		rm -f "$state/deployed"
-		deployed_commit=""
-	fi
 
 	if [ "$serving" = "$target" ]; then
 		if $dry; then echo "Nothing new: $(short "$target"), origin/main, serves."; exit 0; fi
-		# A failure or rollback of this commit is over: it serves (deployed by hand).
+		# A failed build of this commit is over: it serves (deployed by hand).
 		[ "$failed_commit" != "$target" ] || rm -f "$state/failed"
 		if [ "$deployed_commit" = "$serving" ]; then
 			set_state "deployed $(short "$serving") at $deployed_at" "" "$serving"
@@ -440,11 +482,9 @@ cmd_run() {
 		send_ping ok
 		exit 0
 	fi
+	# A failed build skips that commit; a newer one is tried.
 	if [ "$failed_commit" = "$target" ]; then
-		if $dry; then echo "Would do nothing: $(short "$target") is held ($failed_kind: $failed_reason)."; exit 0; fi
-		if [ "$failed_kind" = rollback ]; then
-			hold "$(short "$target") is not rolled out again: $failed_reason" "A newer commit on main is rolled out by itself. To roll this one out again: sudo ./auto-deploy.sh clear-failure."
-		fi
+		if $dry; then echo "Would do nothing: the build of $(short "$target") failed ($failed_reason)."; exit 0; fi
 		set_state "failed: $(short "$target"): $failed_reason" "$after_build" "$serving"
 		send_ping fail
 		exit 0
@@ -471,11 +511,14 @@ cmd_run() {
 			"Look at them (deploy/app/.env holds the settings); move them away or roll out by hand. The next run sees it."
 	git_ diff --raw -z --no-abbrev --no-renames "$serving" "$target" -- "${watched[@]}" >"$tmp/watched" ||
 		hold "could not list the files the new commits change" "Look at the checkout ($repo) as its owner."
-	watched_files pending "$tmp/watched" "$(short "$target")" >"$tmp/pending" ||
+	local held="$state/held"
+	! $dry || held="$tmp/held"
+	watched_files pending "$tmp/watched" "$(short "$target")" "$held" >"$tmp/pending" ||
 		hold "could not compare the changed files with the acknowledged ones" "Look at $state/acknowledged."
 	if [ -s "$tmp/pending" ]; then
 		reason="$(sed -n 1p "$tmp/pending")"
 		action="$(sed -n 2p "$tmp/pending")"
+		! $dry || { echo "Every held file:"; cat "$held"; }
 		hold "$reason" "$action"
 	fi
 	git_ ls-tree -z "$target" -- deploy/app/.env.example >"$tmp/example-entry" || hold "could not read the new deploy/app/.env.example" "Look at the checkout ($repo) as its owner."
@@ -494,7 +537,7 @@ cmd_run() {
 	fi
 
 	init_state
-	local runlog problem
+	local runlog problem built=""
 	runlog="$state/runs/$(date -u +%Y%m%dT%H%M%SZ)-$(short "$target").log"
 	(umask 077 && : >"$runlog")
 	# Each phase is recorded before it starts, so a run that is killed (a reboot, the
@@ -502,8 +545,12 @@ cmd_run() {
 	write_failed "$target" halt "the run stopped while moving the checkout, see $runlog"
 	set_state "deploying $(short "$target") since $(now)" "Its output: $runlog" "$serving"
 	git_ merge --ff-only --quiet "$target" >>"$runlog" 2>&1 || fail "$target" halt "git merge --ff-only failed in the checkout, see $runlog"
+	# The lock does not stop a person's git pull: build only what was checked.
+	at_target || fail "$target" halt "after the merge the checkout is at $(short "$head"), not $(short "$target"): it was moved meanwhile, so nothing was built"
 	write_failed "$target" build "the run stopped during the build (a reboot, a time-out or a kill), see $runlog"
 	"$deploy_sh" --build-only </dev/null >>"$runlog" 2>&1 || fail "$target" build "the build failed, see $runlog"
+	at_target && built_from_target ||
+		fail "$target" halt "after the build the checkout is at $(short "$head") and ni-app:live says ${built:-nothing}, not $(short "$target"): the checkout was moved during the build, so nothing was rolled out"
 	write_failed "$target" halt "the run stopped during the roll-out (a reboot, a time-out or a kill), see $runlog"
 	"$deploy_sh" --no-build </dev/null >>"$runlog" 2>&1 || fail "$target" halt "the roll-out failed, see $runlog"
 	if ! problem="$(serving_commit)" || [ "$problem" != "$target" ]; then
@@ -512,6 +559,7 @@ cmd_run() {
 	problem="$(version_serves "$target")" || fail "$target" halt "deploy.sh finished, but $problem"
 	serving="$target"
 	printf '%s %s\n' "$target" "$(now)" >"$state/deployed"
+	printf '%s\n' "$target" >"$state/seen"
 	rm -f "$state/failed" "$state/acknowledged"
 	set_state "deployed $(short "$target") at $(now)" "" "$serving"
 	send_ping ok
@@ -531,6 +579,11 @@ cmd_status() {
 	fi
 	[ ! -f "$state/failed" ] || echo "failed: $(cat "$state/failed")"
 	[ ! -f "$state/deployed" ] || echo "last deployed by this tool: $(cat "$state/deployed")"
+	if [ -s "$state/held" ]; then
+		echo
+		echo "Every held file:"
+		cat "$state/held"
+	fi
 	if [ -f "$state/log" ]; then
 		echo
 		echo "Last lines of $state/log:"
@@ -583,12 +636,15 @@ cmd_acknowledge() {
 	resolve_owner
 	local commit listed
 	commit="$(git_ rev-parse -q --verify "$1^{commit}")" || die "no commit $1 in the checkout; the hold names it."
+	# Only a commit of main as the last run fetched it: what a hold can have shown.
+	git_ merge-base --is-ancestor "$commit" refs/remotes/origin/main ||
+		die "$1 is not on origin/main as last fetched; acknowledge the commit the hold names."
 	serving="$(serving_commit)" || die "cannot tell which commit serves: $serving."
 	git_ merge-base --is-ancestor "$serving" "$commit" || die "$1 is not ahead of what serves ($(short "$serving"))."
 	git_ diff --raw -z --no-abbrev --no-renames "$serving" "$commit" -- "${watched[@]}" >"$tmp/watched" || die "git diff failed."
 	listed="$(watched_files ack "$tmp/watched")" || die "could not record them."
 	[ -n "$listed" ] || die "nothing waits between what serves ($(short "$serving")) and $(short "$commit"): nothing to acknowledge."
-	log "acknowledged, up to $(short "$commit"): $listed; a later change to them, or another file, is held again"
+	log "acknowledged, up to $(short "$commit"), $listed; a later change to them, or another file, is held again"
 }
 
 cmd_clear_failure() {
@@ -596,10 +652,24 @@ cmd_clear_failure() {
 	[ -f "$state/failed" ] || { echo "No failure or rollback is recorded: nothing to clear."; exit 0; }
 	exec 9>>"$lock" || die "cannot open the lock $lock."
 	flock -n 9 || die "a deploy is running; try again when it has ended (sudo ./auto-deploy.sh status)."
-	local commit kind reason
+	resolve_owner
+	local commit kind reason next="" now_serving="" contains=""
 	read -r commit kind reason <"$state/failed" || true
 	rm -f "$state/failed"
-	set_state "idle: the $kind of $(short "$commit") was cleared; the next run rolls out origin/main unless something holds it"
+	[ "$kind" = build ] || rm -f "$state/acknowledged"
+	# What the next run would roll out, so that the person sees it before it happens.
+	next="$(git_ rev-parse -q --verify refs/remotes/origin/main)" || next=""
+	now_serving="$(serving_commit)" || now_serving=""
+	if is_commit "$commit" && [ -n "$next" ] && git_ merge-base --is-ancestor "$commit" "$next" 2>/dev/null; then
+		contains=", which is or contains $(short "$commit")"
+	fi
+	if [ -z "$next" ] || [ -z "$now_serving" ]; then
+		set_state "idle: cleared ($kind of $(short "$commit")); what the next run rolls out cannot be told now: sudo ./auto-deploy.sh run --dry-run"
+	elif [ "$next" = "$now_serving" ]; then
+		set_state "idle: cleared ($kind of $(short "$commit")); origin/main ($(short "$next")) serves, so the next run rolls out nothing" "" "$now_serving"
+	else
+		set_state "idle: cleared ($kind of $(short "$commit")); the next run rolls out origin/main as last fetched, $(short "$next")$contains, over $(short "$now_serving"), unless something holds it (newer commits on main come with it)" "" "$now_serving"
+	fi
 }
 
 case "${1:-}" in

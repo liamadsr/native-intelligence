@@ -31,6 +31,9 @@ case "$mode" in
 --build-only)
 	echo "$commit" >>"$FAKE/deploy-calls"
 	[ ! -e "$FAKE/build-fails" ] || { echo "the build failed" >&2; exit 1; }
+	echo "$commit" >"$FAKE/built"
+	# Someone moves the checkout while the image builds.
+	[ ! -e "$FAKE/moved-during-build" ] || git -C "$AUTO_DEPLOY_REPO" commit -q --allow-empty -m moved
 	;;
 --no-build)
 	[ ! -e "$FAKE/rollout-fails" ] || { echo "the roll-out failed" >&2; exit 1; }
@@ -45,6 +48,7 @@ running="$(cat "$FAKE/running" 2>/dev/null || true)"
 version="$(cat "$FAKE/version" 2>/dev/null || echo "$running")"
 case "$*" in
 *"image inspect"*ni-app:running*) [ -n "$running" ] || exit 1; echo "${running:0:12}" ;;
+*"image inspect"*ni-app:live*) built="$(cat "$FAKE/built" 2>/dev/null || true)"; echo "${built:0:12}" ;;
 *"exec ni-app-proxy wget"*/api/version*) printf '{"buildId":"%s"}\\n' "${version:0:8}" ;;
 *) exit 1 ;;
 esac
@@ -373,6 +377,70 @@ class AutoDeploy(unittest.TestCase):
             self.run_ok("run")
             self.assertEqual(self.deploy_calls()[-1], new)
 
+    def test_a_mode_change_or_a_symlink_after_acknowledging_holds(self):
+        self.switch_on()
+        a = self.commit({"deploy/backup/run.sh": "echo hi\n", "deploy/backup/target": "../app/x"})
+        self.run_tool("run")
+        self.run_ok("acknowledge", a)
+        os.chmod(os.path.join(self.dev, "deploy/backup/run.sh"), 0o755)
+        self.commit({})
+        self.assertHeld(self.run_tool("run"), "run.sh")
+        os.chmod(os.path.join(self.dev, "deploy/backup/run.sh"), 0o644)
+        os.remove(os.path.join(self.dev, "deploy/backup/target"))
+        os.symlink("../app/x", os.path.join(self.dev, "deploy/backup/target"))
+        self.commit({})
+        self.assertHeld(self.run_tool("run"), "target")
+        self.assertEqual(self.deploy_calls(), [])
+
+    def test_a_failing_watched_files_diff_holds(self):
+        self.switch_on()
+        self.commit({"web/supabase/migrations/002_more.sql": "select 1;\n"})
+        wrap = os.path.join(self.tmp, "gitwrap")
+        # Only the diff of the watched files fails (it is the one with --raw).
+        write(os.path.join(wrap, "git"), '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = --raw ] && { echo boom >&2; exit 128; }; done\nexec %s "$@"\n' % shutil.which("git"), 0o755)
+        self.env["PATH"] = wrap + os.pathsep + self.env["PATH"]
+        self.assertHeld(self.run_tool("run"), "could not list the files the new commits change")
+        self.assertEqual(self.deploy_calls(), [])
+
+    def test_the_servers_own_deploy_tooling_holds(self):
+        self.switch_on()
+        for name in ("deploy/app/deploy.sh", "deploy/app/auto-deploy.sh", "deploy/app/check_settings.py",
+                     "deploy/app/compose.yaml", "deploy/app/ni-auto-deploy.timer", "deploy/app/proxy/Caddyfile"):
+            new = self.commit({name: "changed\n"})
+            self.assertHeld(self.run_tool("run"), name, "deploy tooling")
+            self.run_ok("acknowledge", new)
+            self.run_ok("run")
+            self.assertEqual(self.deploy_calls()[-1], new)
+        # What runs inside the containers is the app's, like web/: not held.
+        new = self.commit({"deploy/app/Dockerfile": "FROM x\n", "deploy/app/cron/crontab": "* * * * * x\n",
+                           "deploy/app/smoke/compose.yaml": "x\n", "deploy/app/healthcheck.mjs": "x\n"})
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls()[-1], new)
+
+    def test_every_held_file_is_counted_and_listed(self):
+        self.switch_on()
+        new = self.commit({"web/supabase/migrations/1%02d.sql" % i: "select %d;\n" % i for i in range(12)})
+        self.assertHeld(self.run_tool("run"), "(12)", "and 4 more", "every file: sudo ./auto-deploy.sh status")
+        status = self.run_ok("status").stdout
+        for i in range(12):
+            self.assertIn("migration: web/supabase/migrations/1%02d.sql" % i, status)
+        self.assertIn("111.sql", self.run_ok("run", "--dry-run").stdout)
+        r = self.run_ok("acknowledge", new)
+        self.assertIn("12 files", r.stdout)
+        self.assertIn("111.sql", r.stdout)
+
+    def test_acknowledge_takes_only_a_commit_of_main(self):
+        self.switch_on()
+        self.commit({"web/supabase/migrations/002.sql": "select 1;\n"})
+        self.run_tool("run")
+        self.git(self.dev, "switch", "-q", "-c", "side")
+        side = self.commit_on_branch("side", {"web/supabase/migrations/003.sql": "select 1;\n"}) or self.git(self.dev, "rev-parse", "HEAD")
+        self.git(self.dev, "push", "-q", "origin", "side")
+        self.git(self.checkout, "fetch", "-q", "origin", "side")
+        r = self.run_tool("acknowledge", side)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not on origin/main", r.stderr)
+
     # --- settings, and the state of the checkout -------------------------------
 
     def test_a_new_setting_holds_until_env_has_its_line(self):
@@ -527,27 +595,87 @@ class AutoDeploy(unittest.TestCase):
         self.assertIn("/api/version", self.current())
         self.assertIn("%s halt" % new, read(os.path.join(self.state, "failed")))
 
-    def test_a_rollback_by_hand_is_not_undone(self):
+    def test_a_rollback_by_hand_holds_everything_until_cleared(self):
         self.switch_on()
         new = self.commit({"web/app.txt": "two\n"})
         self.run_ok("run")
         write(os.path.join(self.fake, "running"), self.first + "\n")  # sudo ./deploy.sh --rollback
-        self.assertHeld(self.run_tool("run"), "rolled back by hand")
-        self.assertHeld(self.run_tool("run"), "rolled back by hand")
-        self.assertEqual(self.deploy_calls(), [new])
-        self.run_ok("clear-failure")
         self.run_ok("run")
-        self.assertEqual(self.deploy_calls(), [new, new])
+        self.assertIn("a rollback", self.current())
+        self.assertTrue(self.current().startswith("failed: "))
+        self.commit({"README.txt": "docs only\n"})  # a newer merge does not lift it
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [new])
+        r = self.run_ok("clear-failure")
+        self.assertIn("which is or contains %s" % new[:12], r.stdout)  # says what goes out next
+        self.run_ok("run")
+        self.assertEqual(len(self.deploy_calls()), 2)
 
-    def test_after_a_rollback_a_newer_commit_is_deployed(self):
+    def test_a_rollback_after_a_deploy_by_hand_is_not_undone(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.git(self.checkout, "pull", "-q")
+        write(os.path.join(self.fake, "running"), n + "\n")  # deployed by hand
+        self.run_ok("run")
+        write(os.path.join(self.fake, "running"), d + "\n")  # then rolled back by hand
+        self.run_ok("run")
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [d])
+        self.assertIn("went from %s to %s" % (n[:12], d[:12]), self.current())
+
+    def test_a_rollback_drops_the_acknowledgements(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/supabase/migrations/002.sql": "alter table t add column n int;\n"})
+        self.run_tool("run")
+        self.run_ok("acknowledge", n)
+        self.git(self.checkout, "pull", "-q")
+        write(os.path.join(self.fake, "running"), n + "\n")  # rolled out by hand
+        self.run_ok("run")
+        write(os.path.join(self.fake, "running"), d + "\n")  # --rollback
+        self.run_ok("run")
+        self.run_ok("clear-failure")
+        self.assertHeld(self.run_tool("run"), "002.sql")  # acknowledged again, or nothing
+        self.assertEqual(self.deploy_calls(), [d])
+
+    def test_after_a_halt_clearing_says_the_same_commit_goes_out_again(self):
+        self.switch_on()
+        self.flag("rollout-fails")
+        bad = self.commit({"web/app.txt": "two\n"})
+        self.run_tool("run")
+        self.flag("rollout-fails", on=False)
+        r = self.run_ok("clear-failure")
+        self.assertIn("the next run rolls out origin/main as last fetched, %s, which is or contains %s" % (bad[:12], bad[:12]), r.stdout)
+
+    def test_a_checkout_moved_before_the_build_is_not_built(self):
         self.switch_on()
         new = self.commit({"web/app.txt": "two\n"})
-        self.run_ok("run")
-        write(os.path.join(self.fake, "running"), self.first + "\n")
-        self.run_tool("run")
-        newer = self.commit({"web/app.txt": "three\n"})
-        self.run_ok("run")
-        self.assertEqual(self.deploy_calls(), [new, newer])
+        later = self.commit({"web/app.txt": "three\n"})
+        self.git(self.dev, "push", "-q", "origin", "%s:refs/heads/later" % later)
+        self.git(self.dev, "push", "-q", "--force", "origin", "%s:main" % new)
+        self.git(self.checkout, "fetch", "-q", "origin", "later")
+        wrap = os.path.join(self.tmp, "gitwrap")
+        # A person's git pull lands between the run's checks and its merge.
+        write(os.path.join(wrap, "git"), '#!/usr/bin/env bash\nreal=%s\nfor a in "$@"; do if [ "$a" = merge ]; then "$real" -C "$AUTO_DEPLOY_REPO" merge -q --ff-only %s; fi; done\nexec "$real" "$@"\n' % (shutil.which("git"), later), 0o755)
+        self.env["PATH"] = wrap + os.pathsep + self.env["PATH"]
+        r = self.run_tool("run")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.deploy_calls(), [])
+        self.assertIn("it was moved meanwhile", self.current())
+
+    def test_a_checkout_moved_during_the_build_is_not_rolled_out(self):
+        self.switch_on()
+        self.flag("moved-during-build")
+        new = self.commit({"web/app.txt": "two\n"})
+        r = self.run_tool("run")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.deploy_calls(), [new])
+        self.assertEqual(self.serving(), self.first)  # --no-build never ran
+        self.assertIn("moved during the build", self.current())
+        self.assertIn(" halt ", read(os.path.join(self.state, "failed")))
 
     # --- the lock, the dry run, pings, systemd ---------------------------------
 

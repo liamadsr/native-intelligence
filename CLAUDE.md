@@ -19,9 +19,12 @@ Read this before reporting anything as live or touching production. The code gui
   `main` is rolled out within minutes, EXCEPT when it brings a migration, a new setting
   in `deploy/app/.env.example`, or a change to files other stacks use (Supabase's
   functions and mail templates, `deploy/edge`, `deploy/supabase`, `deploy/inngest`,
-  `deploy/backup`): those hold it until a person has taken care of them. A failed
-  roll-out or a rollback by hand holds it too. So "merged" still does not mean "live":
-  `sudo ./auto-deploy.sh status` on the server says what serves.
+  `deploy/backup`), or to the server's own deploy tooling (`deploy/app/*.sh`, `*.py`,
+  `compose.yaml`, `ni-auto-deploy.*`, `proxy/`): those hold it until a person has taken
+  care of them. A failed roll-out or a rollback by hand holds everything until the
+  owner clears it. With it on, a merge to `main` runs its code on the production server,
+  inside the app's containers, without a person in between. So "merged" still does not
+  mean "live": `sudo ./auto-deploy.sh status` on the server says what serves.
 - **Never report a merged change as live.** Say "merged, not rolled out" until the
   roll-out has happened. Who rolls out, and when, is the owner's decision: never do it
   unasked, and never switch the automatic deploys on, or release one of their holds
