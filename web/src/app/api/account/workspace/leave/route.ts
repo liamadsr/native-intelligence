@@ -4,6 +4,7 @@ import { apiError, badRequest, forbidden, notMember, serverError } from '@/lib/a
 import { WORKSPACE_COOKIE, getCurrentWorkspaceId } from '@/lib/workspace'
 import { NextResponse, type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
+import { requestTeamCallEjections } from '@/lib/team-calls/eject'
 
 /**
  * POST /api/account/workspace/leave
@@ -83,6 +84,9 @@ export async function POST(request: NextRequest) {
       code: 'NOT_LEFT',
     })
   }
+
+  // Out of any call of the workspace now (the database queued it; this drains it at once).
+  await requestTeamCallEjections()
 
   // If the user left their active workspace, clear the cookie so the next
   // request resolves a different workspace (or the empty state if none remain).

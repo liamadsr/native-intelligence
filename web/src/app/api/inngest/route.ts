@@ -34,7 +34,7 @@ import { slackTurn } from '@/lib/inngest/slack-turn'
 import { teamChatTurn } from '@/lib/inngest/team-chat-turn'
 import { teamChatLinkPreview } from '@/lib/inngest/team-chat-link-preview'
 import { teamChatEmail, teamChatNotify } from '@/lib/inngest/team-chat-reach'
-import { teamCallRingTimer, teamCallsSweep } from '@/lib/inngest/team-calls'
+import { teamCallMissed, teamCallRingTimer, teamCallsEject, teamCallsSweep } from '@/lib/inngest/team-calls'
 import { textTurn } from '@/lib/inngest/text-turn'
 import { agentNumbersBalance, agentNumbersDaily } from '@/lib/inngest/agent-numbers'
 import { agentLinkTurn } from '@/lib/inngest/agent-link-turn'
@@ -137,6 +137,8 @@ export const { GET, POST, PUT } = serve({
     teamChatEmail,
     teamCallRingTimer,
     teamCallsSweep,
+    teamCallMissed,
+    teamCallsEject,
     textTurn,
     agentNumbersBalance,
     agentNumbersDaily,

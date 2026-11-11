@@ -21,9 +21,27 @@ const h = vi.hoisted(() => ({
   db: null as unknown as SupabaseClient,
   rpcs: [] as Array<[string, Record<string, unknown>]>,
   rpc: {} as Record<string, { data: unknown; error: unknown }>,
+  events: [] as Array<{ name: string; id?: string; data: unknown }>,
+  removed: [] as Array<[string, string]>,
+  openRooms: new Set<string>(),
 }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => h.db }))
-vi.mock('@/lib/inngest/client', () => ({ inngest: { send: async () => ({ ids: [] }) } }))
+vi.mock('@/lib/inngest/client', () => ({
+  inngest: {
+    send: async (events: unknown) => {
+      for (const e of (Array.isArray(events) ? events : [events]) as Array<{ name: string; id?: string; data: unknown }>) h.events.push(e)
+      return { ids: [] }
+    },
+  },
+}))
+vi.mock('@/lib/team-calls/livekit', async (orig) => ({
+  ...(await orig<typeof import('@/lib/team-calls/livekit')>()),
+  openTeamCallRooms: async (_c: unknown, names: string[]) => new Set(names.filter((n) => h.openRooms.has(n))),
+  removeFromTeamCallRoom: async (_c: unknown, room: string, identity: string) => {
+    h.removed.push([room, identity])
+  },
+  closeTeamCallRoom: async () => {},
+}))
 
 import { POST } from '../route'
 
@@ -33,6 +51,7 @@ beforeEach(() => {
   tables = {
     team_call: [{ id: CALL, room: ROOM, status: 'live' }],
     team_call_webhook_event: [],
+    team_call_eject: [],
     notification: [],
   }
   h.db = Object.assign(memoryDb(tables), {
@@ -42,6 +61,9 @@ beforeEach(() => {
     },
   }) as unknown as SupabaseClient
   h.rpcs = []
+  h.events = []
+  h.removed = []
+  h.openRooms = new Set()
   h.rpc = { team_call_participant_event: { data: 'joined', error: null }, team_call_end: { data: [], error: null } }
 })
 afterEach(() => {
@@ -134,7 +156,7 @@ describe('POST /api/calls/livekit/webhook', () => {
     expect(h.rpcs[0][1].is_join).toBe(false)
   })
 
-  it('room_finished ends the call once, and the people still being rung get a missed call', async () => {
+  it('room_finished ends the call once; the people still being rung are told through an event per ring, never inline', async () => {
     h.rpc.team_call_end = {
       data: [
         {
@@ -147,8 +169,24 @@ describe('POST /api/calls/livekit/webhook', () => {
     const res = await deliver({ id: 'EV_9', event: 'room_finished', createdAt: '1762851000', room: { name: ROOM } })
     expect(await res.json()).toEqual({ ok: true, outcome: 'ended' })
     expect(h.rpcs).toEqual([['team_call_end', { target_call: CALL, end_reason: 'finished', end_at: new Date(1762851000 * 1000).toISOString() }]])
-    expect(tables.notification).toHaveLength(1)
-    expect(tables.notification[0]).toMatchObject({ recipient_id: 'mem-b', title: 'Missed call from Ana Ruiz in #launch', target_id: 'm1', group_key: 'team_chat:c1' })
+    expect(tables.notification).toEqual([])
+    expect(h.events).toEqual([{ name: 'team-calls/missed.requested', id: 'team-call-missed-r1', data: { ringId: 'r1' } }])
+  })
+
+  it('room_finished for a room made again since (the live call joined after it closed): not the call\u2019s end', async () => {
+    h.openRooms.add(ROOM)
+    const res = await deliver({ id: 'EV_11', event: 'room_finished', createdAt: '1762851000', room: { name: ROOM } })
+    expect(await res.json()).toEqual({ ok: true, outcome: 'reopened' })
+    expect(h.rpcs).toEqual([])
+  })
+
+  it('a join by someone who may no longer read the conversation: refused by the database, and taken out of the room at once', async () => {
+    h.rpc.team_call_participant_event = { data: 'ejected', error: null }
+    tables.team_call_eject.push({ id: 'ej1', room: ROOM, identity: MEMBER, attempts: 0, done_at: null, created_at: '2026-11-11T10:00:00Z' })
+    const res = await deliver(joined('EV_40', 'PA_9', 1762850000))
+    expect(await res.json()).toEqual({ ok: true, outcome: 'ejected' })
+    expect(h.removed).toEqual([[ROOM, MEMBER]])
+    expect(tables.team_call_eject[0].done_at).toBeTruthy()
   })
 
   it('room_finished for a call already ended (the hang-up got there first): nothing to do', async () => {

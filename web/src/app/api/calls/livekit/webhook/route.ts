@@ -15,8 +15,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { apiError, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
-import { receiveTeamCallWebhook, teamCallsConfig } from '@/lib/team-calls/livekit'
+import { openTeamCallRooms, receiveTeamCallWebhook, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { applyTeamCallWebhook } from '@/lib/team-calls/webhook'
+import { drainTeamCallEjections, liveEjectDeps } from '@/lib/team-calls/eject'
 import { teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 /** The most a delivery's body may be (an event is a few KB). */
@@ -30,7 +31,11 @@ export async function POST(request: NextRequest) {
   const event = await receiveTeamCallWebhook(config, body, request.headers.get('authorization'))
   if (!event) return apiError('Unauthorized', { status: 401, code: 'BAD_SIGNATURE' })
   try {
-    const outcome = await applyTeamCallWebhook(getServiceClient(), event)
+    const svc = getServiceClient()
+    const outcome = await applyTeamCallWebhook(svc, event, {
+      drainEjections: () => drainTeamCallEjections(svc, liveEjectDeps(config)),
+      roomOpen: async (room) => (await openTeamCallRooms(config, [room])).has(room),
+    })
     console.info(`[team-calls-webhook] event=${event.event || '-'} room=${event.room?.name ?? '-'} outcome=${outcome}`)
     return NextResponse.json({ ok: true, outcome })
   } catch (err) {

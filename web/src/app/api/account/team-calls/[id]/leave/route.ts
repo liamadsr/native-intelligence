@@ -15,7 +15,7 @@ import { getServiceClient } from '@/lib/admin'
 import { isUuid } from '@/lib/team-chat/types'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { closeTeamCallRoom, teamCallsConfig } from '@/lib/team-calls/livekit'
-import { endCall, getCall, notifyMissedCalls } from '@/lib/team-calls/store'
+import { endCall, getCall, requestMissedNotices } from '@/lib/team-calls/store'
 import { teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
@@ -34,7 +34,8 @@ export async function POST(_request: Request, { params }: Params) {
     const svc = getServiceClient()
     const missed = await endCall(svc, call.id, 'left')
     after(async () => {
-      if (missed.length) await notifyMissedCalls(svc, missed).catch((err) => console.warn('[team-calls] missed call notice failed:', err instanceof Error ? err.message : 'unknown'))
+      // One notice per ring, through Inngest (the sweeper finds any not asked for).
+      await requestMissedNotices(missed)
       await closeTeamCallRoom(config, call.room).catch((err) => console.warn(`[team-calls] call=${call.id} room not closed:`, err instanceof Error ? err.message : 'unknown'))
     })
     console.info(`[team-calls] call=${call.id} outcome=left missed=${missed.length}`)

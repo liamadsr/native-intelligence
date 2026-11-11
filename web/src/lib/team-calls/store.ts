@@ -88,7 +88,7 @@ export async function answerRing(supabase: SupabaseClient, ringId: string, accep
 export async function getCall(
   supabase: SupabaseClient,
   callId: string,
-): Promise<(TeamCall & { room: string; workspace_id: string; channel_kind: 'channel' | 'dm' }) | null> {
+): Promise<(TeamCall & { room: string; workspace_id: string; channel_kind: 'channel' | 'dm'; channel_archived: boolean }) | null> {
   const { data, error } = await supabase
     .from('team_call')
     .select(`${TEAM_CALL_COLUMNS}, room, workspace_id`)
@@ -98,12 +98,12 @@ export async function getCall(
   if (!data) return null
   const { data: channel, error: channelError } = await supabase
     .from('team_chat_channel')
-    .select('kind')
+    .select('kind, archived_at')
     .eq('id', data.channel_id)
-    .maybeSingle<{ kind: 'channel' | 'dm' }>()
+    .maybeSingle<{ kind: 'channel' | 'dm'; archived_at: string | null }>()
   if (channelError) throw teamChatErrorOf(channelError, 'call channel read')
   if (!channel) return null
-  return { ...data, ringing: data.ringing ?? [], declined: data.declined ?? [], channel_kind: channel.kind }
+  return { ...data, ringing: data.ringing ?? [], declined: data.declined ?? [], channel_kind: channel.kind, channel_archived: !!channel.archived_at }
 }
 
 /** The calls these messages show, with who is in them (a page of a conversation). */
@@ -139,7 +139,7 @@ export async function openRings(supabase: SupabaseClient, now: Date = new Date()
 
 // ── As the service role ─────────────────────────────────────────────────────
 
-export type ParticipantOutcome = 'joined' | 'left' | 'same' | 'stale' | 'ended' | 'unknown'
+export type ParticipantOutcome = 'joined' | 'left' | 'same' | 'stale' | 'ended' | 'unknown' | 'ejected'
 
 /** A LiveKit participant event, applied in order of the sessions' joins (565's team_call_participant_event). */
 export async function participantEvent(
@@ -221,15 +221,24 @@ async function sendEvents(events: Array<ReturnType<typeof teamChatEmailEvent>>, 
 /**
  * Tell each person a ring missed: one `team_chat_message` notification of
  * the call's message (written, or the one they had for it turned into the
- * missed call and unread again), then the email batcher. Never throws for
- * one person (logged); throws when nothing could be written (a step
- * retries).
+ * missed call and unread again), then the email batcher. Once per ring: a
+ * ring whose person was told already (team_call_ring.notified_at) is
+ * skipped, and each one told is marked, so a retry, a second event or the
+ * sweeper's backlog never tells anyone twice. Never throws for one person
+ * (logged); throws when nothing could be written (a step retries).
  */
 export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly MissedRing[], send?: SendEvents): Promise<number> {
   let told = 0
   const emails: Array<ReturnType<typeof teamChatEmailEvent>> = []
   let failures = 0
+  const ids = [...new Set(missed.map((r) => r.ring_id))]
+  if (ids.length === 0) return 0
+  const { data: untold, error: readError } = await svc.from('team_call_ring').select('id').in('id', ids).is('notified_at', null)
+  if (readError) throw new Error(`team calls: rings read failed: ${readError.message}`)
+  const open = new Set(((untold ?? []) as Array<{ id: string }>).map((r) => r.id))
   for (const ring of missed) {
+    if (!open.has(ring.ring_id)) continue
+    open.delete(ring.ring_id)
     if (!ring.message_id) continue
     const title = missedCallTitle(ring)
     const groupKey = `team_chat:${ring.channel_id}`
@@ -276,6 +285,7 @@ export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly Mi
       continue
     }
     told++
+    await svc.from('team_call_ring').update({ notified_at: new Date().toISOString() }).eq('id', ring.ring_id)
     emails.push(teamChatEmailEvent({ userId: ring.user_id, workspaceId: ring.workspace_id }))
   }
   if (failures > 0 && told === 0) throw new Error(`team calls: no missed call written (${failures} failed)`)
@@ -285,6 +295,87 @@ export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly Mi
     console.warn('[team-calls] missed call emails not requested:', err instanceof Error ? err.message : 'unknown')
   }
   return told
+}
+
+const MISSED_RING_COLUMNS = 'id, call_id, workspace_id, channel_id, channel_kind, channel_name, member_id, user_id, caller_member_id, caller_name'
+
+async function asMissed(svc: SupabaseClient, rows: Array<Record<string, unknown>>): Promise<MissedRing[]> {
+  if (rows.length === 0) return []
+  const callIds = [...new Set(rows.map((r) => String(r.call_id)))]
+  const { data: calls, error } = await svc.from('team_call').select('id, message_id').in('id', callIds)
+  if (error) throw new Error(`team calls: calls read failed: ${error.message}`)
+  const messageOf = new Map(((calls ?? []) as Array<{ id: string; message_id: string | null }>).map((c) => [c.id, c.message_id]))
+  return rows.map((r) => ({
+    ring_id: String(r.id),
+    call_id: String(r.call_id),
+    message_id: messageOf.get(String(r.call_id)) ?? null,
+    workspace_id: String(r.workspace_id),
+    channel_id: String(r.channel_id),
+    channel_kind: r.channel_kind as MissedRing['channel_kind'],
+    channel_name: (r.channel_name as string | null) ?? null,
+    member_id: String(r.member_id),
+    user_id: String(r.user_id),
+    caller_member_id: (r.caller_member_id as string | null) ?? null,
+    caller_name: String(r.caller_name ?? ''),
+  }))
+}
+
+/** These rings, if missed and their person not told yet. */
+export async function untoldMissedRings(svc: SupabaseClient, ringIds: readonly string[]): Promise<MissedRing[]> {
+  if (ringIds.length === 0) return []
+  const { data, error } = await svc.from('team_call_ring').select(MISSED_RING_COLUMNS).in('id', [...ringIds]).eq('state', 'missed').is('notified_at', null)
+  if (error) throw new Error(`team calls: rings read failed: ${error.message}`)
+  return asMissed(svc, (data ?? []) as Array<Record<string, unknown>>)
+}
+
+/** The sweeper's backlog: missed rings nobody was told about (a notice that failed), older than a moment, within a day. */
+export async function missedRingsNobodyWasToldOf(svc: SupabaseClient, now: Date = new Date()): Promise<MissedRing[]> {
+  const { data, error } = await svc
+    .from('team_call_ring')
+    .select(MISSED_RING_COLUMNS)
+    .eq('state', 'missed')
+    .is('notified_at', null)
+    .lt('created_at', new Date(now.getTime() - 2 * 60_000).toISOString())
+    .gt('created_at', new Date(now.getTime() - 24 * 60 * 60_000).toISOString())
+    .order('created_at', { ascending: true })
+    .limit(100)
+  if (error) throw new Error(`team calls: missed rings read failed: ${error.message}`)
+  return asMissed(svc, (data ?? []) as Array<Record<string, unknown>>)
+}
+
+// ── Missed-call notices, through Inngest ────────────────────────────────────
+
+export const TEAM_CALL_MISSED_EVENT = 'team-calls/missed.requested' as const
+
+/** The event that tells one missed ring's person (its id is the ring's: one notice however often asked). */
+export function teamCallMissedEvent(ringId: string) {
+  return { name: TEAM_CALL_MISSED_EVENT, id: `team-call-missed-${ringId}`, data: { ringId } }
+}
+
+/**
+ * Ask for these missed rings' notices (after a call ended, out of the
+ * request path). Never throws: a notice not asked for is found by the
+ * sweeper (notified_at still empty).
+ */
+export async function requestMissedNotices(missed: readonly Pick<MissedRing, 'ring_id'>[], send?: (events: Array<ReturnType<typeof teamCallMissedEvent>>) => Promise<unknown>): Promise<void> {
+  if (missed.length === 0) return
+  const events = [...new Set(missed.map((r) => r.ring_id))].map(teamCallMissedEvent)
+  try {
+    if (send) await send(events)
+    else {
+      const { inngest } = await import('@/lib/inngest/client')
+      await inngest.send(events)
+    }
+  } catch (err) {
+    console.warn(`[team-calls] missed call notices not requested (${events.length}):`, err instanceof Error ? err.message : 'unknown')
+  }
+}
+
+/** The sweeper's check: everyone connected to a live call who may no longer read its conversation, marked left and put on the eject outbox (565's team_call_fence). */
+export async function fenceTeamCalls(svc: SupabaseClient): Promise<number> {
+  const { data, error } = await svc.rpc('team_call_fence', { only_member: null, only_channel: null })
+  if (error) throw new Error(`team calls: fence failed: ${error.message}`)
+  return Array.isArray(data) ? data.length : 0
 }
 
 // ── The ring's timer ────────────────────────────────────────────────────────

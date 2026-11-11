@@ -34,7 +34,7 @@ const h = vi.hoisted(() => ({
   svcRpcs: [] as Array<[string, Record<string, unknown>]>,
   rpc: {} as Record<string, { data: unknown; error: unknown } | Array<{ data: unknown; error: unknown }>>,
   events: [] as Array<{ name: string; data: unknown }>,
-  rooms: { made: [] as string[], closed: [] as string[], open: new Set<string>(), failMake: false },
+  rooms: { made: [] as string[], closed: [] as string[], open: new Set<string>(), failMake: false, unreachable: false },
 }))
 
 vi.mock('next/server', async (orig) => ({
@@ -62,7 +62,10 @@ vi.mock('@/lib/team-calls/livekit', async (orig) => ({
     h.rooms.made.push(room)
     h.rooms.open.add(room)
   },
-  openTeamCallRooms: async (_c: unknown, names: string[]) => new Set(names.filter((n) => h.rooms.open.has(n))),
+  openTeamCallRooms: async (_c: unknown, names: string[]) => {
+    if (h.rooms.unreachable) throw new Error('connect ECONNREFUSED')
+    return new Set(names.filter((n) => h.rooms.open.has(n)))
+  },
   closeTeamCallRoom: async (_c: unknown, room: string) => {
     h.rooms.closed.push(room)
   },
@@ -130,7 +133,7 @@ beforeEach(() => {
   h.svcRpcs = []
   h.rpc = {}
   h.events = []
-  h.rooms = { made: [], closed: [], open: new Set([`tc-${CALL}`]), failMake: false }
+  h.rooms = { made: [], closed: [], open: new Set([`tc-${CALL}`]), failMake: false, unreachable: false }
 })
 
 afterEach(() => {
@@ -217,6 +220,34 @@ describe('POST /api/account/team-calls/[id]/token', () => {
   it('a call in a workspace the person is not in: 404', async () => {
     tables.team_call[0].workspace_id = '12121212-1212-4212-8212-121212121212'
     expect((await token(post('http://localhost/x'), params(CALL))).status).toBe(404)
+  })
+
+  it('a live call in an archived conversation: 409, no token', async () => {
+    tables.team_chat_channel[0].archived_at = new Date().toISOString()
+    const res = await token(post('http://localhost/x'), params(CALL))
+    expect(res.status).toBe(409)
+    expect((await res.json()).join).toBeUndefined()
+  })
+
+  it('its room gone (the call young): made again before the token, never left to LiveKit', async () => {
+    h.rooms.open.clear()
+    const res = await token(post('http://localhost/x'), params(CALL))
+    expect(res.status).toBe(200)
+    expect(h.rooms.made).toEqual([`tc-${CALL}`])
+  })
+
+  it('its room gone long ago (its end was lost): the call ends, 409', async () => {
+    h.rooms.open.clear()
+    tables.team_call[0].started_at = new Date(Date.now() - 10 * 60_000).toISOString()
+    const res = await token(post('http://localhost/x'), params(CALL))
+    expect(res.status).toBe(409)
+    expect(h.svcRpcs).toContainEqual(['team_call_end', expect.objectContaining({ target_call: CALL, end_reason: 'swept' })])
+    expect(h.rooms.made).toEqual([])
+  })
+
+  it('the call server can\u2019t be asked: 503, no token', async () => {
+    h.rooms.unreachable = true
+    expect((await token(post('http://localhost/x'), params(CALL))).status).toBe(503)
   })
 
   it('an ended call: 409, no token', async () => {
@@ -376,8 +407,9 @@ describe('POST /api/account/team-calls/[id]/leave', () => {
     expect(h.svcRpcs[0]).toEqual(['team_call_end', expect.objectContaining({ target_call: CALL, end_reason: 'left' })])
     await runAfters()
     expect(h.rooms.closed).toEqual([`tc-${CALL}`])
-    expect(svcTables.notification).toHaveLength(1)
-    expect(svcTables.notification[0]).toMatchObject({ recipient_id: BEN, type: 'team_chat_message', target_id: MSG, title: 'Missed call from Ana Ruiz' })
+    // Told through an event per ring (team-call-missed), never inline: a failed write can't lose it.
+    expect(svcTables.notification).toEqual([])
+    expect(h.events).toContainEqual({ name: 'team-calls/missed.requested', data: { ringId: RING } })
   })
 
   it('a channel’s call goes on: nothing ends', async () => {
