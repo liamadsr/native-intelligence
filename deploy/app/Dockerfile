@@ -114,14 +114,14 @@ RUN VERCEL_GIT_COMMIT_SHA="$NI_BUILD_ID" node scripts/cloud-browser/build-assets
 # sandbox is prepared there (a snapshot), as its runs need.
 #
 # Those three reach this step ONLY as BuildKit secrets (compose.yaml's build
-# secrets, which deploy.sh fills from .env): each is an environment variable of this
+# secrets, which deploy.sh fills from .env for that command alone): each is an environment variable of this
 # one RUN and of nothing else, never a build argument or an ENV, and is written to no
 # layer. build-agents.sh refuses to finish if the access token turns up in what the
 # build wrote. Without them (the CI build, the container test) the step runs as
 # before. NI_CODING_AGENT_SANDBOX holds no secret, only which sandbox deploy.sh meant
-# ("vercel" or empty): BuildKit's cache key ignores secrets, so this is what makes a
-# change of sandbox rebuild this step, and build-agents.sh stops if the secrets
-# disagree with it.
+# ("vercel/<team id>/<project id>", ids that are not secret, or empty): BuildKit's
+# cache key ignores secrets, so this is what makes a change of sandbox, team or
+# project rebuild this step, and build-agents.sh stops if the secrets disagree with it.
 ARG NI_CODING_AGENT_SANDBOX=
 RUN --mount=type=secret,id=SANDBOX_ACCESS_TOKEN,env=SANDBOX_ACCESS_TOKEN \
     --mount=type=secret,id=SANDBOX_TEAM_ID,env=SANDBOX_TEAM_ID \

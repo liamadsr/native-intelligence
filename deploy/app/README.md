@@ -477,14 +477,25 @@ agent's sandbox runs. `eve build` prepares each agent's sandbox, and for the cod
 agent with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID` that
 is a snapshot on the hosted sandbox service; without them, a `just-bash` template
 like every other agent's. The three reach the build only as BuildKit secrets:
-`deploy.sh` exports them from `.env`, `compose.yaml` lists them as web's build
+`deploy.sh` reads them from `.env` and gives them to its `compose build` command
+alone, `compose.yaml` lists them as web's build
 `secrets`, and the `Dockerfile` mounts them, as environment variables, into the one
 step that runs `build-agents.sh`, which gives them to the coding agent's build
 alone. A secret mount is not part of any layer, and `build-agents.sh` fails the
-build if the access token turns up in what the build wrote. The build argument
-`NI_CODING_AGENT_SANDBOX` carries only the word `vercel` (or nothing): it makes a
-change of choice rebuild that step, which BuildKit's cache would otherwise skip
-(secrets are not part of its key). The container test and CI build without
+build if the access token turns up anywhere in the app's folder (dependencies
+aside), `/tmp` or `$HOME` after that build. The build argument
+`NI_CODING_AGENT_SANDBOX` carries no secret: `vercel/<team id>/<project id>`, or
+nothing. A change of choice, team or project rebuilds that step, which BuildKit's
+cache would otherwise skip (secrets are not part of its key) and so reuse a
+snapshot made elsewhere. It cannot see a snapshot that expired or was deleted on
+the service. Coding runs then fail (closed), and a rebuild may not help: eve
+reuses the snapshot its template sandbox on the service names. Whether the
+service expires these snapshots is not known yet.
+
+At run time only the containers that read them get the three: web and worker (the
+cloud browser, `web/src/lib/cloud-browser/config.ts`) and the coding agent.
+`compose.yaml` blanks them for the scheduler and the seven other agents
+(`environment` wins over `env_file`). The container test and CI build without
 secrets, so their coding agent is `just-bash`. When the coding agent's container
 starts, `entrypoint.sh` (`build-agents.sh --check-sandbox`) refuses to run it if
 the settings in its environment call for the other sandbox than the one it was

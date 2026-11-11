@@ -134,16 +134,61 @@ class SecretsNeverInALayer(unittest.TestCase):
     def test_compose_passes_them_as_build_secrets_never_as_arguments(self):
         compose = read("compose.yaml")
         args = compose.split("      args:\n", 1)[1].split("      secrets:\n", 1)[0]
-        # The one argument that mentions the token yields a word, never its value.
-        self.assertEqual(re.findall(r"\$\{[^}]*SANDBOX_[^}]*\}", args), ["${SANDBOX_ACCESS_TOKEN:+vercel}"])
+        # The one argument that mentions the token yields a word and the two ids,
+        # never the token's value.
+        self.assertIn(
+            "NI_CODING_AGENT_SANDBOX: ${SANDBOX_ACCESS_TOKEN:+vercel/${SANDBOX_TEAM_ID:-}/${SANDBOX_PROJECT_ID:-}}\n", args)
+        self.assertEqual(len(re.findall(r"SANDBOX_ACCESS_TOKEN", args)), 1)
         for name in NAMES:
             self.assertIn("  %s:\n    environment: %s\n" % (name, name), compose)
             self.assertIn("        - %s\n" % name, compose)
 
-    def test_deploy_never_gives_them_as_build_arguments(self):
+    def test_deploy_gives_them_to_the_build_command_alone(self):
         deploy = read("deploy.sh")
         self.assertNotIn("--build-arg", deploy)
-        self.assertIn("export_build_secrets\n\tNI_APP_COMMIT=\"$commit\" compose build web", deploy)
+        self.assertNotRegex(deploy, r"export[^\n]*SANDBOX_")
+        self.assertIn(
+            'SANDBOX_ACCESS_TOKEN="$token" SANDBOX_TEAM_ID="$team" SANDBOX_PROJECT_ID="$project" \\\n'
+            '\t\tNI_APP_COMMIT="$commit" compose build web\n', deploy)
+        self.assertEqual(deploy.count("compose build"), 1)
+
+
+@unittest.skipUnless(shutil.which("docker"), "needs docker compose (no daemon)")
+class ComposeGivesThemOnlyToTheirReaders(unittest.TestCase):
+    """docker compose config, with a made-up .env: who gets the three at run time."""
+
+    READERS = {"web", "worker", "agent-coding-agent"}
+
+    def config(self, env):
+        d = tempfile.mkdtemp()
+        try:
+            shutil.copy(os.path.join(APP, "compose.yaml"), d)
+            with open(os.path.join(d, ".env"), "w") as f:
+                f.write("NEXT_PUBLIC_APP_URL=https://app.example.com\n")
+                f.writelines("%s=%s\n" % kv for kv in env.items())
+            clean = {k: v for k, v in os.environ.items() if k not in NAMES and k != "NI_CODING_AGENT_SANDBOX"}
+            out = subprocess.run(["docker", "compose", "config", "--format", "json"], cwd=d, env=clean,
+                                 capture_output=True, text=True, check=True).stdout
+            return json.loads(out)
+        finally:
+            shutil.rmtree(d)
+
+    def test_readers_keep_them_everyone_else_gets_them_blank(self):
+        services = self.config(CREDS)["services"]
+        self.assertTrue(self.READERS <= set(services))
+        for name, service in services.items():
+            if name == "proxy":
+                self.assertNotIn("environment", service)
+                continue
+            env = service.get("environment", {})
+            for key in NAMES:
+                self.assertEqual(env.get(key), CREDS[key] if name in self.READERS else "", (name, key))
+
+    def test_the_build_argument_carries_the_ids_and_never_the_token(self):
+        args = self.config(CREDS)["services"]["web"]["build"]["args"]
+        self.assertEqual(args["NI_CODING_AGENT_SANDBOX"], "vercel/team_madeup0001/prj_madeup0001")
+        self.assertNotIn(TOKEN, json.dumps(args))
+        self.assertEqual(self.config({n: "" for n in NAMES})["services"]["web"]["build"]["args"]["NI_CODING_AGENT_SANDBOX"], "")
 
 
 if __name__ == "__main__":

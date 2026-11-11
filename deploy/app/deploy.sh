@@ -72,24 +72,26 @@ build_arg() {
 		python3 -I -c "import json,sys; print(json.load(sys.stdin)['services']['web']['build']['args'].get(sys.argv[1]) or '')" "$1"
 }
 
-# One value of .env, as Compose reads it (env_file values are part of each service's
-# resolved environment). Never printed: the callers keep it in a variable.
+# One setting of web's, as Compose resolves it from .env. Never printed: the caller
+# keeps it in a variable.
 setting() {
 	compose config --format json 2>/dev/null |
 		python3 -I -c "import json,sys; print(json.load(sys.stdin)['services']['web'].get('environment', {}).get(sys.argv[1]) or '')" "$1"
 }
 
-# The hosted sandbox service's credentials go to the build as BuildKit secrets
-# (compose.yaml: web's build.secrets), which Compose takes from its own environment:
-# so they are exported here, from .env, for the build alone. The coding agent's
-# build uses them (build-agents.sh); empty, its sandbox is just-bash. Never a build
-# argument: those are kept in the image's history.
-export_build_secrets() {
-	local name value
-	for name in SANDBOX_ACCESS_TOKEN SANDBOX_TEAM_ID SANDBOX_PROJECT_ID; do
-		value="$(setting "$name")" || die "cannot read $name from .env (docker compose config)."
-		export "$name=$value"
-	done
+# Builds web's image. The hosted sandbox service's credentials go to the build as
+# BuildKit secrets (compose.yaml: web's build.secrets), which Compose takes from its
+# own environment: so they are read from .env and given to this one command, not
+# exported to the rest of the script. The coding agent's build uses them
+# (build-agents.sh); empty, its sandbox is just-bash. Never a build argument: those
+# are kept in the image's history.
+build_web() {
+	local token team project
+	token="$(setting SANDBOX_ACCESS_TOKEN)" || die "cannot read SANDBOX_ACCESS_TOKEN from .env (docker compose config)."
+	team="$(setting SANDBOX_TEAM_ID)" || die "cannot read SANDBOX_TEAM_ID from .env (docker compose config)."
+	project="$(setting SANDBOX_PROJECT_ID)" || die "cannot read SANDBOX_PROJECT_ID from .env (docker compose config)."
+	SANDBOX_ACCESS_TOKEN="$token" SANDBOX_TEAM_ID="$team" SANDBOX_PROJECT_ID="$project" \
+		NI_APP_COMMIT="$commit" compose build web
 }
 
 # The public address an image was built for (compose.yaml labels it). The client
@@ -231,8 +233,7 @@ deploy | build-only)
 	fi
 	say "Building the image from $commit for $(build_arg NEXT_PUBLIC_APP_URL) (the app keeps serving meanwhile)"
 	started=$SECONDS
-	export_build_secrets
-	NI_APP_COMMIT="$commit" compose build web
+	build_web
 	echo "$(ts) built in $(((SECONDS - started) / 60)) min $(((SECONDS - started) % 60)) s"
 	[ "$mode" = build-only ] && exit 0
 	check_image_url ni-app:live

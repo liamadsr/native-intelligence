@@ -58,6 +58,11 @@ sandbox_provider() {
   fi
 }
 
+# A value without its spaces and line breaks (the agent trims the settings too).
+trimmed() {
+  printf '%s' "$1" | tr -d '[:space:]'
+}
+
 # A build log, with the access token (if this environment has one) cut out.
 redacted() {
   NI_REDACT="$(printf '%s' "${SANDBOX_ACCESS_TOKEN:-}" | tr -d '[:space:]')" awk '
@@ -150,11 +155,18 @@ for name in $names; do
   }
   expected="$(sandbox_provider "$name")"
   # deploy.sh says which sandbox it meant the coding agent to get (compose.yaml,
-  # NI_CODING_AGENT_SANDBOX: "vercel" when .env has the access token). If the
-  # secrets did not arrive, stop here rather than build the wrong one.
-  if [ "$name" = coding-agent ] && [ -n "${NI_CODING_AGENT_SANDBOX:-}" ] && [ "$NI_CODING_AGENT_SANDBOX" != "$expected" ]; then
-    echo "build-agents: the build was meant to give coding-agent the $NI_CODING_AGENT_SANDBOX sandbox, but the secrets it was given call for $expected. Did $CREDENTIALS reach the build as secrets (compose.yaml, deploy.sh)?" >&2
-    exit 1
+  # NI_CODING_AGENT_SANDBOX: "vercel/<team id>/<project id>" when .env has the
+  # access token). If the secrets did not arrive, or name another team or project,
+  # stop here rather than build the wrong one.
+  if [ "$name" = coding-agent ] && [ -n "${NI_CODING_AGENT_SANDBOX:-}" ]; then
+    given="$expected"
+    if [ "$expected" = "$HOSTED_PROVIDER" ]; then
+      given="$HOSTED_PROVIDER/$(trimmed "$SANDBOX_TEAM_ID")/$(trimmed "$SANDBOX_PROJECT_ID")"
+    fi
+    if [ "$(trimmed "$NI_CODING_AGENT_SANDBOX")" != "$given" ]; then
+      echo "build-agents: the build was meant to give coding-agent the $NI_CODING_AGENT_SANDBOX sandbox, but the secrets it was given call for $given. Did $CREDENTIALS reach the build as secrets (compose.yaml, deploy.sh)?" >&2
+      exit 1
+    fi
   fi
   # Only the coding agent's build sees the hosted sandbox's credentials.
   keep=""
@@ -207,11 +219,13 @@ for name in $names; do
   # nothing this build leaves in the image. (Only the token is a secret: the ids
   # are not.) grep's own exit status 2 (an error) fails the build too.
   if [ -n "$keep" ]; then
-    token="$(printf '%s' "$SANDBOX_ACCESS_TOKEN" | tr -d '[:space:]')"
+    token="$(trimmed "$SANDBOX_ACCESS_TOKEN")"
     status=0
-    grep -rqF -e "$token" "$dir" /tmp/eve-build.log || status=$?
+    # The whole app (not the dependencies), the build's scratch space and $HOME,
+    # where a tool could have cached something.
+    grep -rqF -D skip --exclude-dir=node_modules -e "$token" "$WEB" /tmp "${HOME:-/root}" || status=$?
     [ "$status" = 1 ] || {
-      echo "build-agents: SANDBOX_ACCESS_TOKEN turned up in $name's build output (or grep failed): refusing to put it in the image" >&2
+      echo "build-agents: SANDBOX_ACCESS_TOKEN turned up in a file after $name's build (or grep failed): refusing to put it in the image" >&2
       exit 1
     }
   fi
