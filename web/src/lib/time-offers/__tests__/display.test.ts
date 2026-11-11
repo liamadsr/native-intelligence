@@ -4,7 +4,7 @@
  * to a guest.
  */
 import { describe, expect, it } from 'vitest'
-import { bookingPhase, groupByDay, isTimeZone, lengthLabel, manageFailureView, movesLeftLabel, pickFailure, whenLabel, zoneShort } from '../display'
+import { answerFailure, bookingPhase, groupByDay, isTimeZone, lengthLabel, manageFailureView, movesLeftLabel, pickFailure, waitingLabel, whenLabel, zoneShort } from '../display'
 
 // Tue Nov 17 2026, 15:00 and 23:30 UTC; Wed Nov 18, 14:00 UTC.
 const SLOTS = [
@@ -93,5 +93,27 @@ describe('bookingPhase', () => {
     expect(bookingPhase(b, Date.parse(SLOTS[1].end))).toBe('past')
     expect(bookingPhase({ ...b, state: 'cancelled' }, start - 1)).toBe('cancelled')
     expect(bookingPhase({ ...b, state: 'failed' }, start - 1)).toBe('failed')
+  })
+})
+
+describe('answerFailure', () => {
+  it('reads a failed save of a poll answer for the guest', () => {
+    expect(answerFailure(410, { error: 'x', code: 'BOOKED' })).toEqual({ kind: 'closed', state: 'booked' })
+    expect(answerFailure(410, { error: 'x', code: 'WITHDRAWN' })).toEqual({ kind: 'closed', state: 'withdrawn' })
+    expect(answerFailure(410, { error: 'x', code: 'EXPIRED' })).toEqual({ kind: 'closed', state: 'expired' })
+    expect(answerFailure(404, null)).toEqual({ kind: 'missing' })
+    expect(answerFailure(429, null)).toEqual({ kind: 'message', message: 'Too many changes today. Reply to the host instead.' })
+    expect(answerFailure(400, { error: 'Mark every time that works, or say none of them do.' })).toEqual({ kind: 'message', message: 'Mark every time that works, or say none of them do.' })
+    expect(answerFailure(500, { error: 'boom' })).toEqual({ kind: 'message', message: "That didn't go through. Try again in a moment." })
+    expect(answerFailure(0, null)).toEqual({ kind: 'message', message: "That didn't go through. Try again in a moment." })
+  })
+})
+
+describe('waitingLabel', () => {
+  it('counts only, and only once they answered', () => {
+    expect(waitingLabel(2, false)).toBeNull()
+    expect(waitingLabel(2, true)).toBe('2 people still to answer.')
+    expect(waitingLabel(1, true)).toBe('1 person still to answer.')
+    expect(waitingLabel(0, true)).toBe('Everyone has answered.')
   })
 })

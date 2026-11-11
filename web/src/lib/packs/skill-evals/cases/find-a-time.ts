@@ -7,7 +7,8 @@ import type { SkillEvalCase } from '../types'
  * a hand count over the events; two or three slots, then the invite only
  * after the yes: `forbidParams`/`avoid` hold the first turn to reading. An
  * outside guest is offered the slots with `offer_times` (555), a link by
- * default: the times are held and nothing is sent.
+ * default: the times are held and nothing is sent; several outside guests
+ * at once are one poll, offer_times with `recipients` (584).
  */
 export const cases: SkillEvalCase[] = [
   {
@@ -88,5 +89,15 @@ export const cases: SkillEvalCase[] = [
     forbidParams: { offer_times: [{ send_by: 'email' }, { send_by: 'text' }] },
     avoid: ['create_calendar_event', 'create_email_draft'],
     why: 'offer_times by link holds the times and returns the link and the text to paste; nothing is sent.',
+  },
+  // 584: several outside guests at once are one poll (offer_times' recipients), never an offer each.
+  {
+    request: 'find three times next week for a 30 minute call with morgan@hooli.example and priya@initech.example, and give me their links',
+    loads: ['calendar-playbook', 'find-a-time'],
+    tools: ['load_skill', 'find_times', 'offer_times'],
+    params: { find_times: { duration_minutes: 30 }, offer_times: { duration_minutes: 30 } },
+    forbidParams: { offer_times: [{ send_by: 'email' }, { send_by: 'text' }] },
+    avoid: ['create_calendar_event', 'create_email_draft'],
+    why: 'Two outside guests are one poll: offer_times with both in recipients, by link; each gets their own link and the last answer books.',
   },
 ]

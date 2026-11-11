@@ -27,7 +27,9 @@
  *                 let go, and the host told. A booking link's guest who
  *                 gave only a mobile number (booked on the host's yes:
  *                 src/lib/booking-links/book.ts) is texted the confirmation
- *                 from the business's number instead.
+ *                 from the business's number instead. A poll's meeting
+ *                 (./polls.ts pollParty) invites every attending guest and
+ *                 co-host on the one event, and texts its mobile-only guests.
  *
  * The host hears of each pick in their home thread (a line, kept there), and
  * of a failure where they are (routed).
@@ -139,6 +141,15 @@ export async function acceptOffer(supabase: SupabaseClient, input: AcceptInput, 
   try {
     const offer = await loadOffer(supabase, input.offer)
     if (!offer || (offer.state === 'pending_send' && input.via === 'link')) return fail('NOT_FOUND', 'This offer does not exist.')
+    // A poll is answered, never picked (./polls.ts recordAnswer).
+    if (offer.mode === 'poll') {
+      return fail(
+        'BAD_INPUT',
+        input.via === 'customer'
+          ? 'Those times went to several people: record which work for this customer with answer_offered_times.'
+          : "That offer went to several people: record each guest's answer with record_time_offer_answer, or book a time with book_poll_time.",
+      )
+    }
     if (input.via === 'host' && offer.hostUserId !== input.actingUserId) return fail('NOT_FOUND', 'No offer of yours with that id in this workspace (list_time_offers).')
     if (input.via === 'customer' && (!input.guestPhone || normalizeE164(input.guestPhone) !== offer.recipientPhone)) return fail('NOT_FOUND', 'No offer for this customer with that id.')
 
@@ -250,12 +261,14 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
 
   const origin = deps.origin ?? appOrigin()
   const link = manageUrl(origin, manageTokenFor(attempt.id, deps.secret))
-  const words = bookingEventWords(attempt, link)
   const tell = deps.tellHost ?? tellHostDefault(supabase)
   const zone = await hostZone(supabase, attempt)
   try {
-    const otherHosts = attempt.otherHostIds.length ? await (deps.hostEmails ?? hostEmailsDefault)(attempt.workspaceId, attempt.otherHostIds) : []
-    const attendees = [...(attempt.guestEmail ? [attempt.guestEmail] : []), ...otherHosts]
+    // A poll's meeting (./polls.ts): every attending guest and co-host on one event, no one guest's link in it.
+    const party = attempt.source === 'poll' ? await (await import('./polls')).pollParty(supabase, attempt, deps) : null
+    const words = party?.words ?? bookingEventWords(attempt, link)
+    const otherHosts = !party && attempt.otherHostIds.length ? await (deps.hostEmails ?? hostEmailsDefault)(attempt.workspaceId, attempt.otherHostIds) : []
+    const attendees = party?.attendees ?? [...(attempt.guestEmail ? [attempt.guestEmail] : []), ...otherHosts]
     const event = await (deps.createEvent ?? createCalendarEvent)(
       attempt.hostUserId,
       {
@@ -282,6 +295,10 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
       // Cancelled while the event was being written: the event goes too.
       await (deps.deleteEvent ?? deleteCalendarEvent)(attempt.hostUserId, event.id, { accountId: attempt.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => {})
       return getBooking(supabase, bookingId).catch(() => null)
+    }
+    if (party) {
+      await party.after(confirmed, zone)
+      return confirmed
     }
     // A mobile-only guest (a link's, booked on the host's yes) hears by text.
     const texted =

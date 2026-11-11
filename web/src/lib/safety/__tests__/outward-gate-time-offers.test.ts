@@ -79,7 +79,7 @@ describe('offer_times at the outward gate', () => {
   it('by email or text: its own card, the words pinned; by link, no hold', async () => {
     const hold = await outwardHoldOf({ workspaceId: 'w', userId: 'u-ava', toolName: 'offer_times', input: INPUT })
     expect(hold).toMatchObject({ reason: 'time_offer', card: CARD, context: { timeOffer: { card_hash: 'h-1' } }, refusal: expect.stringContaining("send_by 'link'") })
-    expect(mocks.hold).toHaveBeenCalledWith({ service: true }, { workspaceId: 'w', userId: 'u-ava', input: INPUT })
+    expect(mocks.hold).toHaveBeenCalledWith({ service: true }, { workspaceId: 'w', userId: 'u-ava', input: INPUT, toolName: 'offer_times' })
     expect(await outwardHoldOf({ workspaceId: 'w', userId: 'u-ava', toolName: 'offer_times', input: { ...INPUT, send_by: 'link' } })).toBeNull()
     expect(mocks.hold).toHaveBeenCalledTimes(1)
     // A call the tool refuses anyway, or unreadable rows: no hold (the tool says why).

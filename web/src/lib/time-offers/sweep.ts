@@ -4,7 +4,10 @@
  * (offers', booking links' and customers' jobs alike, migration 581):
  *
  *   1. offers past their expiry (open, or still waiting on a card) expire,
- *      and their holds go;
+ *      and their holds go; a poll that went out is reported to its host
+ *      (who never answered, the time most could make: ./polls.ts);
+ *   1b. a poll every guest answered but not yet booked (a calendar that
+ *      couldn't be read, a crash) is tried again;
  *   2. expired holds left behind are deleted (none blocks anything anyway:
  *      every insert deletes the host's first, and every read skips them);
  *      a request whose hold ran out with no answer from the host (a booking
@@ -24,11 +27,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { finishBooking, type AcceptDeps } from './accept'
 import { closeOffer } from './offers'
+import { answeredOpenPolls } from './poll-store'
+import { bookWhenAnswered, reportPollExpired } from './polls'
 import { deleteBookingClaims, deleteEndedBookingClaims, deleteExpiredHolds, getBooking, keepBookingClaims, lapsedOffers, lapsedRequestClaims, stuckBookings } from './store'
 import { BOOKING_STUCK_MS } from './types'
 
 export interface SweepResult {
   expired: number
+  /** Polls every guest answered, booked on a later try. */
+  pollsBooked: number
   /** Requests whose hold ran out unanswered. */
   lapsedRequests: number
   finished: number
@@ -39,11 +46,16 @@ export interface SweepResult {
 export async function sweepTimeOffers(supabase: SupabaseClient, deps: AcceptDeps = {}): Promise<SweepResult> {
   const now = (deps.now ?? Date.now)()
   const nowIso = new Date(now).toISOString()
-  const result: SweepResult = { expired: 0, lapsedRequests: 0, finished: 0, failed: 0, stillBooking: 0 }
+  const result: SweepResult = { expired: 0, pollsBooked: 0, lapsedRequests: 0, finished: 0, failed: 0, stillBooking: 0 }
 
   for (const { id } of await lapsedOffers(supabase, nowIso)) {
     const closed = await closeOffer(supabase, id, ['open', 'pending_send'], 'expired').catch(() => null)
     if (closed) result.expired++
+    if (closed?.mode === 'poll') await reportPollExpired(supabase, id, deps)
+  }
+  for (const id of await answeredOpenPolls(supabase, nowIso)) {
+    const attempt = await bookWhenAnswered(supabase, id, deps)
+    if (attempt.status === 'booked' && !attempt.already) result.pollsBooked++
   }
   await deleteExpiredHolds(supabase, null, nowIso)
 

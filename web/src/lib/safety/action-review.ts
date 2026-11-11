@@ -71,10 +71,13 @@ import { macJobAgentName, macJobPlace, type LocalAgentApprovalContext } from './
 import { outwardHoldOf, type ExternalToolPolicy, type OutwardHold } from './outward-gate'
 import type { TimeOfferApprovalContext } from './approved-call'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
-import { offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
+import { NUDGE_TIME_OFFER_TOOL, offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
 
-/** The host's agent booking one of an offer's own times (src/lib/ai/tools/time-offers.ts). */
-const ACCEPT_TIME_OFFER_TOOL = 'accept_time_offer'
+/**
+ * The host's agent booking from an offer's own times (src/lib/ai/tools/time-offers.ts): one an
+ * offer's guest picked, a poll guest's answer that may book it, a poll's time booked at the person's word.
+ */
+const OFFER_BOOKING_TOOLS: ReadonlySet<string> = new Set(['accept_time_offer', 'record_time_offer_answer', 'book_poll_time'])
 
 import { isReadShapedExternalName } from '@/lib/mcp/read-names'
 import type { AlwaysAllowOffer } from '@/lib/mcp-client/always-allow'
@@ -90,7 +93,7 @@ import { bareToolName } from '@/lib/mcp/tool-names'
  * refuses it and says why: never a generic card that could never run.
  */
 const QUOTE_REPLY_TOOLS: ReadonlySet<string> = new Set([SEND_QUOTE_TOOL, BOOK_QUOTE_TOOL])
-/** And offer_times by email or text (src/lib/time-offers/send.ts): it sends only as the replay of its own card. */
+/** And offer_times or nudge_time_offer by email or text (src/lib/time-offers/send.ts): each sends only as the replay of its own card. */
 const isQuoteReply = (toolName: string, input?: unknown) => QUOTE_REPLY_TOOLS.has(bareToolName(toolName)) || offerTimesSends(bareToolName(toolName), input)
 
 /**
@@ -103,11 +106,17 @@ const isQuoteReply = (toolName: string, input?: unknown) => QUOTE_REPLY_TOOLS.ha
  *     own recipient, the person's agent reading the recipient's reply. The
  *     person already approved offering exactly those times to exactly that
  *     person, which is what the public link lets the recipient do too: the
- *     tool takes only the offer and a start, and books nothing else.
+ *     tool takes only the offer and a start, and books nothing else;
+ *   - a poll's own (phase 5): record_time_offer_answer records one of its
+ *     own guests' answer, in its own times (the last answer books the
+ *     earliest time all can make, as the guests' links do); book_poll_time
+ *     books one of its own times with its own guests at the person's word;
+ *     nudge_time_offer by link hands the person each guest's reminder and
+ *     sends nothing (by email or text it is the outward gate's card).
  */
 function preApprovedCall(name: string, input: unknown): boolean {
-  if (name === ACCEPT_TIME_OFFER_TOOL) return true
-  return name === OFFER_TIMES_TOOL && input !== undefined && !offerTimesSends(name, input)
+  if (OFFER_BOOKING_TOOLS.has(name)) return true
+  return (name === OFFER_TIMES_TOOL || name === NUDGE_TIME_OFFER_TOOL) && input !== undefined && !offerTimesSends(name, input)
 }
 
 // The mode (ACTION_REVIEW_MODE) lives in ./review-mode, which has only a type

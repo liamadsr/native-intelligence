@@ -63,6 +63,8 @@ export const PROMPT_REWRITE_MIGRATIONS = [
   '580_offer_times_to_outside_guests.sql',
   // Availability phase 4a: the calendar playbook hands out a booking link when someone asks for the person's calendar.
   '582_booking_links_in_calendar_playbook.sql',
+  // Availability phase 5: several outside guests at once are a poll (offer_times' `recipients`), and its three tools.
+  '584_polls_in_find_a_time.sql',
 ] as const
 
 /**

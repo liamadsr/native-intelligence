@@ -64,7 +64,9 @@ export interface QuoteReplyApprovalContext {
  * email or text, src/lib/time-offers/send.ts): the offer made for the card
  * (its times held while the card waits) and the hash of the card's words
  * (who gets what, from where). The replay builds the card again from that
- * offer as it is then, and sends nothing when its words differ.
+ * offer as it is then, and sends nothing when its words differ. A poll's
+ * reminder (nudge_time_offer, phase 5) pins its poll and the words to the
+ * guests still to answer the same way.
  */
 export interface TimeOfferApprovalContext {
   offer_id: string

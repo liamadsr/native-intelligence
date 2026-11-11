@@ -36,6 +36,8 @@ const LATER = '553_find_a_time_with_teammates.sql'
 const LATEST = '580_offer_times_to_outside_guests.sql'
 /** And last for the calendar playbook: its booking links line (availability phase 4a). */
 const NEWEST = '582_booking_links_in_calendar_playbook.sql'
+/** And last for both: polls (availability phase 5). */
+const POLLS = '584_polls_in_find_a_time.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
 
@@ -102,23 +104,23 @@ describe('migration 551', () => {
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    // Only 553 (availability phase 2: teammates), 580 (phase 3a: offer_times) and 582 (phase 4a: the calendar playbook's booking links) rewrite them after this one.
-    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER, LATEST, NEWEST])
+    // Only 553 (availability phase 2: teammates), 580 (phase 3a: offer_times), 582 (phase 4a: the calendar playbook's booking links) and 584 (phase 5: polls) rewrite them after this one.
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER, LATEST, NEWEST, POLLS])
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).toContain(FILE)
     // The calendar core's text was 338's (no rewrite between but 553), find-a-time's 325's.
     const between = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf('338_skill_helper_lines.sql') + 1, PROMPT_REWRITE_MIGRATIONS.indexOf(FILE))
     for (const file of between) expect(promptRewrites(file).some((r) => r.id === CALENDAR), file).toBe(false)
-    for (const file of PROMPT_REWRITE_MIGRATIONS.filter((f) => f !== FILE && f !== LATER && f !== LATEST)) {
+    for (const file of PROMPT_REWRITE_MIGRATIONS.filter((f) => f !== FILE && f !== LATER && f !== LATEST && f !== POLLS)) {
       expect(promptRewrites(file).some((r) => r.id === FIND_A_TIME), file).toBe(false)
     }
     for (const id of [CALENDAR, FIND_A_TIME]) expect(PREVIOUS[id], id).not.toBe('')
   })
 
-  it("is the text 553 and then 580 rewrite (and 582 the calendar playbook's)", () => {
+  it("is the text 553, 580 (and 582 the calendar playbook's) and then 584 rewrite", () => {
     for (const id of [CALENDAR, FIND_A_TIME]) {
       const slug = rows.find((r) => r.id === id)!.slug
-      const last = id === CALENDAR ? NEWEST : LATEST
-      // 553 rewrote it next, and 580 (or, for the calendar playbook, 582) last.
+      const last = POLLS
+      // 553 rewrote it next, and 584 last.
       expect(promptRewrites(LATER).some((r) => r.id === id && r.slug === slug), id).toBe(true)
       expect(rewrittenAfter(FILE, id, slug), id).toBe(last)
       const shipped = allShippedSkills().find((s) => s.id === id)!

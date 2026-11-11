@@ -10,10 +10,10 @@
  * Server only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { BookingAnswer, MeetingBooking, MeetingBookingSource, MeetingBookingState, OfferSlot, OfferState, SendBy, TimeOffer } from './types'
+import type { BookingAnswer, MeetingBooking, MeetingBookingSource, MeetingBookingState, OfferMode, OfferSlot, OfferState, SendBy, TimeOffer } from './types'
 
 const OFFER_COLUMNS =
-  'id, workspace_id, host_user_id, created_by, host_name, recipient_name, recipient_email, recipient_phone, contact_id, title, duration_minutes, video, location, message, time_zone, state, sent_via, card_hash, approval_id, booking_id, expires_at, created_at'
+  'id, workspace_id, host_user_id, created_by, host_name, recipient_name, recipient_email, recipient_phone, contact_id, title, duration_minutes, video, location, message, time_zone, state, sent_via, card_hash, approval_id, booking_id, expires_at, created_at, mode, co_host_ids'
 const SLOT_COLUMNS = 'id, offer_id, starts_at, ends_at, state'
 export const BOOKING_COLUMNS =
   'id, workspace_id, host_user_id, host_name, source, offer_id, link_id, guest_name, guest_email, guest_phone, guest_time_zone, guest_note, contact_id, title, starts_at, ends_at, state, video, location, calendar_account_id, calendar_id, calendar_event_id, conference_url, attempts, reschedule_count, last_error, cancelled_by, answers, other_host_ids, host_time_zone, created_at, updated_at'
@@ -41,6 +41,9 @@ interface OfferRow {
   booking_id: string | null
   expires_at: string
   created_at: string
+  /** Migration 583: read as a pick and no co-hosts when missing. */
+  mode?: OfferMode | null
+  co_host_ids?: string[] | null
 }
 
 interface SlotRow {
@@ -117,6 +120,8 @@ function toOffer(row: OfferRow, slots: readonly SlotRow[]): TimeOffer {
     expiresAt: iso(row.expires_at),
     createdAt: row.created_at,
     slots: slots.map(toSlot).sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)),
+    mode: row.mode === 'poll' ? 'poll' : 'pick',
+    coHostIds: Array.isArray(row.co_host_ids) ? row.co_host_ids.filter((id) => typeof id === 'string' && id !== row.host_user_id) : [],
   }
 }
 
@@ -165,6 +170,11 @@ export function readAnswers(value: unknown): BookingAnswer[] {
     .map((a) => ({ id: a.id, label: a.label, answer: a.answer }))
 }
 
+/** Everyone an offer holds time of: its host, then a poll's co-hosts. Pure. */
+export function offerHosts(offer: Pick<TimeOffer, 'hostUserId'> & Partial<Pick<TimeOffer, 'coHostIds'>>): string[] {
+  return [offer.hostUserId, ...(offer.coHostIds ?? []).filter((id) => id !== offer.hostUserId)]
+}
+
 /** Everyone a booking claims time of: its organizer first, then the other attending hosts. Pure. */
 export function bookingHosts(booking: Pick<MeetingBooking, 'hostUserId' | 'otherHostIds'>): string[] {
   return [booking.hostUserId, ...booking.otherHostIds.filter((id) => id !== booking.hostUserId)]
@@ -210,6 +220,9 @@ export interface NewOfferRow {
   cardHash: string | null
   expiresAt: string
   slots: ReadonlyArray<{ startsAt: string; endsAt: string }>
+  /** A poll (migration 583): its guests are written apart (./poll-store.ts). */
+  mode?: OfferMode
+  coHostIds?: readonly string[]
 }
 
 /** Write an offer and its slots (no holds yet: ./offers.ts places them). Throws on a failed write, the offer gone with it. */
@@ -236,6 +249,7 @@ export async function insertOffer(supabase: SupabaseClient, offer: NewOfferRow):
       sent_via: offer.sentVia,
       card_hash: offer.cardHash,
       expires_at: offer.expiresAt,
+      ...(offer.mode === 'poll' ? { mode: 'poll', co_host_ids: [...(offer.coHostIds ?? [])] } : {}),
     })
     .select(OFFER_COLUMNS)
     .single<OfferRow>()
@@ -391,11 +405,13 @@ export async function deleteExpiredHolds(supabase: SupabaseClient, hostUserId: s
  * another claim of the host's overlaps one of them.
  */
 export async function insertHolds(supabase: SupabaseClient, offer: TimeOffer): Promise<{ ok: true } | { ok: false; conflict: boolean; error: string }> {
-  await deleteExpiredHolds(supabase, offer.hostUserId, new Date().toISOString())
+  // A poll's co-hosts are held with the host (migration 583): the booking claims them all.
+  const hosts = offerHosts(offer)
+  for (const host of hosts) await deleteExpiredHolds(supabase, host, new Date().toISOString())
   const { error } = await supabase.from('host_time_claim').insert(
-    offer.slots.map((slot) => ({
+    hosts.flatMap((host) => offer.slots.map((slot) => ({
       workspace_id: offer.workspaceId,
-      host_user_id: offer.hostUserId,
+      host_user_id: host,
       starts_at: slot.startsAt,
       ends_at: slot.endsAt,
       kind: 'hold',
@@ -403,7 +419,7 @@ export async function insertHolds(supabase: SupabaseClient, offer: TimeOffer): P
       offer_id: offer.id,
       slot_id: slot.id,
       expires_at: offer.expiresAt,
-    })),
+    }))),
   )
   if (!error) return { ok: true }
   return { ok: false, conflict: isConflict(error), error: error.message }

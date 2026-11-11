@@ -2,8 +2,8 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import { getServiceClient } from '@/lib/admin'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
-import { offerTimesInput } from '@/lib/time-offers/input'
-import type { MeetingBooking, TimeOffer } from '@/lib/time-offers/types'
+import { bookPollTimeInput, nudgeTimeOfferInput, offerTimesInput, recordTimeOfferAnswerInput } from '@/lib/time-offers/input'
+import type { MeetingBooking, TimeOffer, TimeOfferPoll } from '@/lib/time-offers/types'
 
 /**
  * Time offers (availability phase 3a, src/lib/time-offers/): offering an
@@ -32,6 +32,23 @@ import type { MeetingBooking, TimeOffer } from '@/lib/time-offers/types'
  *                           offer and a start, never another time or guest
  *                           (src/lib/safety/action-review.ts preApprovedCall).
  *
+ * And polls (availability phase 5, src/lib/time-offers/polls.ts): offer_times
+ * with several `recipients` (and teammates as `co_hosts`); each guest marks
+ * every time that works, and the last answer books the earliest time that
+ * works for everyone.
+ *
+ *   record_time_offer_answer  a poll guest answered in words ("Tuesday or
+ *                           Thursday work"): only that poll's own guest and
+ *                           its own times, as accept_time_offer is gated.
+ *   book_poll_time          book one of a poll's times with whoever can
+ *                           make it, at the person's word ("Tuesday at 10
+ *                           without Dana"). Gated as accept_time_offer, and
+ *                           never an unattended run's (it overrides the
+ *                           guests' answers).
+ *   nudge_time_offer        remind the guests still to answer: by link (the
+ *                           person pastes it) or, as offer_times, only as the
+ *                           replay of the person's card by email or text.
+ *
  * Only the person's own offers: the host is always the caller.
  */
 export interface TimeOfferToolContext {
@@ -41,6 +58,8 @@ export interface TimeOfferToolContext {
   unattended?: boolean
   /** This turn's browser zone, read as find_times reads it. */
   timeZone?: string | null
+  /** A guest's or a linked agent's own turn: no grant of the person's is read (a linked guest's free/busy, #74). */
+  omitGrants?: boolean
 }
 
 function label(iso: string, timeZone: string): string {
@@ -51,11 +70,29 @@ function label(iso: string, timeZone: string): string {
   }
 }
 
-function offerForModel(offer: TimeOffer) {
+/** A poll's guests as the model reads them: who, their link, and what they answered (never shown to another guest). */
+function guestsForModel(poll: TimeOfferPoll, origin: string, recipientLink: (origin: string, id: string) => string) {
+  return poll.recipients.map((r) => ({
+    guest_id: r.id,
+    name: r.name,
+    ...(r.email ? { email: r.email } : {}),
+    ...(r.phone ? { phone: r.phone } : {}),
+    ...(r.sent ? { link: recipientLink(origin, r.id) } : {}),
+    answered: !!r.answeredAt,
+    ...(r.answeredAt ? { works: poll.slots.filter((s) => r.works.includes(s.id)).map((s) => s.startsAt), ...(r.works.length ? {} : { none_work: true }) } : {}),
+    ...(r.answeredVia === 'calendar' ? { from_calendar: true } : {}),
+    ...(r.note ? { note: r.note } : {}),
+    ...(r.attending !== null ? { attending: r.attending } : {}),
+  }))
+}
+
+function offerForModel(offer: TimeOffer, poll?: { poll: TimeOfferPoll; origin: string; recipientLink: (origin: string, id: string) => string; best?: string | null }) {
   return {
     offer_id: offer.id,
     state: offer.state,
-    recipient: { name: offer.recipientName, email: offer.recipientEmail, phone: offer.recipientPhone },
+    ...(poll
+      ? { mode: 'poll', guests: guestsForModel(poll.poll, poll.origin, poll.recipientLink), ...(offer.coHostIds.length ? { co_hosts: offer.coHostIds.length } : {}), ...(poll.best ? { best_time: poll.best } : {}) }
+      : { recipient: { name: offer.recipientName, email: offer.recipientEmail, phone: offer.recipientPhone } }),
     title: offer.title,
     duration_minutes: offer.durationMinutes,
     sent_via: offer.sentVia,
@@ -76,6 +113,7 @@ function bookingForModel(booking: MeetingBooking, timeZone: string) {
     ...(booking.conferenceUrl ? { video_link: booking.conferenceUrl } : {}),
     ...(booking.offerId ? { offer_id: booking.offerId } : {}),
     ...(booking.linkId ? { from_booking_link: true } : {}),
+    ...(booking.source === 'poll' ? { from_poll: true } : {}),
     ...(booking.state === 'requested' ? { waiting_on_you: true } : {}),
     ...(booking.state === 'failed' && booking.lastError ? { why_failed: booking.lastError.slice(0, 160) } : {}),
   }
@@ -90,19 +128,24 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
         'They pick on a private link, or by replying; it is then booked on the person\'s calendar and the calendar sends them the invitation, with a video link unless video is false. ' +
         "send_by 'link' (the default) sends nothing: it returns the link and `paste_text` for the person to send. " +
         "send_by 'email' (from the person's mailbox) or 'text' (from the business's number, when the workspace has one) never runs in the turn: it becomes the person's approval card showing exactly who gets what, and sends once when they accept. " +
-        'For teammates, create_calendar_event instead. The link is shown only once, here.',
+        'Several outside people at once: `recipients` (a poll, up to 8), and teammates who attend too in `co_hosts` (with times find_times gave for them all): each guest gets their own link and marks every time that works; ' +
+        'when the last has answered, the earliest time that works for everyone is booked with all of them, and the person is told (or told the best option when none works). ' +
+        "A guest whose agent is linked with the person's and shares free/busy is answered from their calendar at once. " +
+        "For teammates only, find_times and create_calendar_event instead. A single offer's link is shown only once, here; a poll guest's link list_time_offers shows again.",
       inputSchema: offerTimesInput,
       execute: async (input) => {
         if (!workspaceId) return noWorkspace
         // Loaded on use: the offer, calendar and sending code stays out of every tool set's imports.
         const { runOfferTimes } = await import('@/lib/time-offers/send')
-        return runOfferTimes(getServiceClient(), { userId, workspaceId, approvedCall: ctx.approvedCall, browserTimeZone: ctx.timeZone ?? null }, input)
+        return runOfferTimes(getServiceClient(), { userId, workspaceId, approvedCall: ctx.approvedCall, browserTimeZone: ctx.timeZone ?? null, omitGrants: ctx.omitGrants === true }, input)
       },
     }),
 
     list_time_offers: tool({
       description:
-        "The person's time offers (open, waiting on their card, booked, expired, withdrawn) and the meetings booked from them or from their booking links (a request still waiting on their yes is requested), newest first: who, what, the times and their state. Use it to find an offer's id before withdraw_time_offer or accept_time_offer, or a booking's before cancel_offered_meeting.",
+        "The person's time offers (open, waiting on their card, booked, expired, withdrawn) and the meetings booked from them or from their booking links (a request still waiting on their yes is requested), newest first: who, what, the times and their state. " +
+        "A poll lists each guest with their own link and what they answered (from_calendar when their calendar answered), and best_time when everyone answered and no time works for all. " +
+        "Use it to find an offer's id before withdraw_time_offer, accept_time_offer, record_time_offer_answer, book_poll_time or nudge_time_offer, or a booking's before cancel_offered_meeting.",
       inputSchema: z.object({
         open_only: z.boolean().optional().describe('Only offers still waiting for a pick (default false: also the last 30 days)'),
         limit: z.number().int().min(1).max(30).optional().describe('At most this many of each (default 10)'),
@@ -110,18 +153,33 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
       execute: async ({ open_only, limit }) => {
         if (!workspaceId) return noWorkspace
         try {
-          const { listOffers, listBookings } = await import('@/lib/time-offers/store')
+          const [{ listOffers, listBookings }, { withRecipients }, { recipientLink }, { bestSlot, commonSlots, everyoneAnswered }, { bestOptionWords }, { appOrigin }] = await Promise.all([
+            import('@/lib/time-offers/store'),
+            import('@/lib/time-offers/poll-store'),
+            import('@/lib/time-offers/polls'),
+            import('@/lib/time-offers/types'),
+            import('@/lib/time-offers/words'),
+            import('@/lib/twilio/config'),
+          ])
           const supabase = getServiceClient()
           const since = new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString()
-          const [offers, bookings] = await Promise.all([
+          const [listed, bookings] = await Promise.all([
             listOffers(supabase, { workspaceId, hostUserId: userId, ...(open_only ? { states: ['open', 'pending_send'] } : { sinceIso: since }), limit: limit ?? 10 }),
-            open_only ? Promise.resolve([]) : listBookings(supabase, { workspaceId, hostUserId: userId, sinceIso: since, limit: limit ?? 10 }),
+            open_only ? Promise.resolve([]) : listBookings(supabase, { workspaceId, hostUserId: userId, sinceIso: since, limit: limit ?? 10, sources: ['offer', 'link', 'poll'] }),
           ])
+          // Every poll's guests and answers: two reads, whatever the count.
+          const offers = await withRecipients(supabase, listed)
+          const origin = appOrigin()
+          const now = Date.now()
           const zoneOf = new Map(offers.map((o) => [o.id, o.timeZone]))
           const fallbackZone = offers[0]?.timeZone ?? 'UTC'
           return {
             success: true,
-            offers: offers.map(offerForModel),
+            offers: offers.map((o) => {
+              if (o.mode !== 'poll') return offerForModel(o)
+              const stuck = o.state === 'open' && everyoneAnswered(o.recipients) && !commonSlots(o, now).length ? bestSlot(o, now) : null
+              return offerForModel(o, { poll: o, origin, recipientLink: (base, id) => recipientLink(base, id), best: stuck ? bestOptionWords(stuck, o.timeZone) : null })
+            }),
             bookings: bookings.map((b) => bookingForModel(b, b.hostTimeZone || (b.offerId && zoneOf.get(b.offerId)) || fallbackZone)),
           }
         } catch (err) {
@@ -160,6 +218,79 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : String(err) }
         }
+      },
+    }),
+
+    record_time_offer_answer: tool({
+      description:
+        "Record which of a poll's times work for one of its own guests, when they answered in words (\"Tuesday or Thursday work\", \"none of those\", in an email or a message the person shows you): every time that works, or none_work. It replaces their earlier answer. " +
+        "Only that poll's own guest (guest_id from list_time_offers) and its own times: never another time or person. When it is the last answer, the earliest time that works for everyone is booked (the calendar sends the invitations). No approval card: the person already offered them these times.",
+      inputSchema: recordTimeOfferAnswerInput,
+      execute: async (input) => {
+        if (!workspaceId) return noWorkspace
+        const { recordAnswer } = await import('@/lib/time-offers/polls')
+        const result = await recordAnswer(getServiceClient(), {
+          ref: { offerId: input.offer_id, workspaceId, recipientId: input.guest_id },
+          works: input.works,
+          none: input.none_work === true,
+          note: input.note ?? null,
+          via: 'host',
+          actingUserId: userId,
+        })
+        if (!result.ok) {
+          return { success: false, code: result.code, error: result.message, ...(result.openSlots ? { still_open: result.openSlots.map((s) => ({ start: s.startsAt })) } : {}) }
+        }
+        const zone = result.poll.timeZone
+        const b = result.booking
+        return {
+          success: true,
+          offer_id: result.poll.id,
+          guest: { guest_id: result.recipient.id, name: result.recipient.name },
+          works: result.poll.slots.filter((s) => result.recipient.works.includes(s.id)).map((s) => ({ start: s.startsAt, label: label(s.startsAt, zone) })),
+          waiting: result.waiting,
+          ...(b ? { booking: bookingForModel(b, zone) } : {}),
+          message: b
+            ? `Recorded. Everyone has answered: ${b.title} is booked for ${label(b.startsAt, zone)}${b.state === 'confirmed' ? ', and the invitations went out' : '; the calendar event follows shortly'}.`
+            : result.waiting
+              ? `Recorded ${result.recipient.name}'s answer. ${result.waiting} still to answer.`
+              : `Recorded. Everyone has answered, but no time works for all of them: list_time_offers shows the best one; book_poll_time books it with whoever can make it, if the person says so.`,
+        }
+      },
+    }),
+
+    book_poll_time: tool({
+      description:
+        "Book one of a poll's own times now, with whoever can make it, when the person says so (\"book Tuesday 10 without Dana\"): everyone but those who said it doesn't work and those named in `without`; a guest who hasn't answered is invited. " +
+        "It is booked on the person's calendar (co-hosts too) and the calendar sends the invitations. Only the poll's own times and guests.",
+      inputSchema: bookPollTimeInput,
+      execute: async (input) => {
+        if (ctx.unattended) return { success: false, code: 'NEEDS_PERSON', error: "Only the person books a poll's time over its guests' answers. Leave it to them." }
+        if (!workspaceId) return noWorkspace
+        const { bookPollAnyway } = await import('@/lib/time-offers/polls')
+        const result = await bookPollAnyway(getServiceClient(), { workspaceId, userId, offerId: input.offer_id, start: input.start, without: input.without })
+        if (!result.ok) return { success: false, code: result.code, error: result.message }
+        const zone = result.poll.timeZone
+        const b = result.booking
+        const on = result.poll.recipients.filter((r) => r.attending).map((r) => r.name)
+        return {
+          success: true,
+          booking: bookingForModel(b, zone),
+          attending: on,
+          ...(result.left.length ? { left_out: result.left.map((r) => r.name) } : {}),
+          message: `Booked ${b.title} for ${label(b.startsAt, zone)} with ${on.join(', ')}.${result.left.length ? ` Not on it: ${result.left.map((r) => r.name).join(', ')} (they were not told: tell them if they should know).` : ''}`,
+        }
+      },
+    }),
+
+    nudge_time_offer: tool({
+      description:
+        "Remind a poll's guests who haven't answered yet (at most three times each, 12 hours apart). send_by 'link' (the default) sends nothing: each comes back with their link and a reminder to paste. " +
+        "send_by 'email' or 'text' never runs in the turn: it becomes the person's approval card showing exactly who gets what, and sends once when they accept.",
+      inputSchema: nudgeTimeOfferInput,
+      execute: async (input) => {
+        if (!workspaceId) return noWorkspace
+        const { runNudge } = await import('@/lib/time-offers/poll-send')
+        return runNudge(getServiceClient(), { userId, workspaceId, approvedCall: ctx.approvedCall }, input)
       },
     }),
 

@@ -1,7 +1,7 @@
 /**
  * What the guest's pages draw (availability phase 3b): the offer's page
- * /t/<token> (src/app/t/[token]/) and the manage page /b/<token>
- * (src/app/b/[token]/). The shapes the public API answers
+ * /t/<token> (src/app/t/[token]/), a poll guest's page at the same address
+ * (phase 5), and the manage page /b/<token> (src/app/b/[token]/). The shapes the public API answers
  * (./public.ts publicOffer / publicBooking), the times grouped by day in the
  * guest's own zone, and what each error of the API means to a guest.
  *
@@ -32,6 +32,52 @@ export interface PublicOfferData {
   booked_start: string | null
 }
 
+/** A poll guest's own answer, as their page shows it. */
+export interface PublicPollAnswer {
+  /** The starts of the times that work for them. */
+  works: string[]
+  none: boolean
+  note: string | null
+  answered_at: string
+  /** Filled in from their own calendar (a linked guest): they can still change it. */
+  from_calendar: boolean
+}
+
+/**
+ * GET /api/public/time-offers/<token>'s `poll` (phase 5): one guest's page of
+ * a poll. Of the other guests only counts: never a name or an answer.
+ */
+export interface PublicPollData {
+  state: PublicOfferState
+  host_name: string
+  title: string
+  duration_minutes: number
+  video: boolean
+  location: string | null
+  message: string | null
+  time_zone: string
+  expires_at: string
+  /** Their own name, as the host gave it. */
+  recipient_name: string
+  /** The times still open to mark. */
+  slots: PublicSlot[]
+  answer: PublicPollAnswer | null
+  /** How many people the poll went to, them included, and how many of them are still to answer. */
+  guests: number
+  waiting: number
+  /** Once booked: the meeting, and whether they are on it (with their own manage link). */
+  booked: { start: string; end: string; attending: boolean; video: boolean; conference_url: string | null; location: string | null; manage_url: string | null } | null
+}
+
+/** POST /api/public/time-offers/<token>/answer's answer: the page as it is now. */
+export interface AnsweredPoll {
+  ok: true
+  poll: PublicPollData
+}
+
+/** What a server-rendered poll page starts from. */
+export type OfferPageLoad = PageLoad<PublicOfferData> | { kind: 'poll'; data: PublicPollData }
+
 /** GET /api/public/bookings/<token>'s `booking`. */
 export interface PublicBookingData {
   /** requested: a booking link's request still waiting on the host's yes; declined and expired: the host said no, or never answered. */
@@ -51,6 +97,12 @@ export interface PublicBookingData {
   can_cancel: boolean
   can_reschedule: boolean
   reschedules_left: number
+  /**
+   * A poll's group meeting, read through one guest's own link (phase 5):
+   * they can say they can't make it (can_cancel), never move or cancel it
+   * for everyone; `attending` false once they said so (or were left out).
+   */
+  group?: { attending: boolean }
 }
 
 /** The accept's 201 / 200 answer. */
@@ -165,6 +217,26 @@ export function pickFailure(status: number, body: ApiError | null, hostName: str
   if (status === 400 || status === 429) return { kind: 'message', message: messageOf(body, SOMETHING_WRONG) }
   if (status === 503) return { kind: 'message', message: `We couldn't check ${hostName}'s calendar just now. Try again in a minute.` }
   return { kind: 'message', message: SOMETHING_WRONG }
+}
+
+/** What a failed save of a poll answer means on the guest's page. */
+export type AnswerFailureView = { kind: 'closed'; state: Exclude<PublicOfferState, 'open'> } | { kind: 'missing' } | { kind: 'message'; message: string }
+
+/** A failed POST /answer, read for the guest (null `body` for a network error). Pure. */
+export function answerFailure(status: number, body: ApiError | null): AnswerFailureView {
+  const code = body?.code
+  if (status === 410) return { kind: 'closed', state: code === 'BOOKED' ? 'booked' : code === 'WITHDRAWN' ? 'withdrawn' : 'expired' }
+  if (status === 404) return { kind: 'missing' }
+  if (status === 429) return { kind: 'message', message: messageOf(body, 'Too many changes today. Reply to the host instead.') }
+  if (status === 400) return { kind: 'message', message: messageOf(body, SOMETHING_WRONG) }
+  return { kind: 'message', message: SOMETHING_WRONG }
+}
+
+/** "2 people still to answer", "Everyone has answered": counts only, never who. Pure. */
+export function waitingLabel(waiting: number, answered: boolean): string | null {
+  if (!answered) return null
+  if (waiting <= 0) return 'Everyone has answered.'
+  return waiting === 1 ? '1 person still to answer.' : `${waiting} people still to answer.`
 }
 
 /** What a failed cancel, move or move's times means on the manage page. */

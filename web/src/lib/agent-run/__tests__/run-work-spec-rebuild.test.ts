@@ -316,6 +316,10 @@ describe('computeWorkRunCeiling', () => {
         'offer_times',
         'cancel_offered_meeting',
         'accept_time_offer',
+        // Availability phase 5: a poll's answer that may book, its time booked anyway, its reminder, external writes.
+        'record_time_offer_answer',
+        'book_poll_time',
+        'nudge_time_offer',
       ].sort(),
     )
   })

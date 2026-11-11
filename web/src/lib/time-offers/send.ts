@@ -25,6 +25,10 @@
  * The card shows every word that goes out but the link's token (minted only
  * when sent, never stored), shown as the link's address with "…".
  *
+ * A poll (several guests, or co-hosts: ./polls.ts) and its reminders
+ * (nudge_time_offer) go out the same three ways (./poll-send.ts): one card
+ * for every guest, the same words to each but their own link.
+ *
  * Server only; service role. Never throws.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -39,15 +43,16 @@ import { isNanpNumber } from '@/lib/twilio/phone'
 import { plainSmsText } from '@/lib/twilio/sms-format'
 import { offerTimesInput, type OfferTimesInput } from './input'
 import { closeOffer, createOffer, planOffer, type OfferDeps, type OfferRefusal, type PlannedOffer } from './offers'
+import { isPollRequest, type PollDeps } from './polls'
 import { getOffer, moveOffer, setOfferApproval } from './store'
 import { mintOfferToken, offerTokenHash, offerUrl, offerUrlShown } from './tokens'
-import { OFFER_TIMES_TOOL, type TimeOffer } from './types'
+import { NUDGE_TIME_OFFER_TOOL, OFFER_TIMES_TOOL, type TimeOffer } from './types'
 import { emailWords, fitOfferWords, offerCard, offerCardHash, pasteText, slotLabel, smsText, zoneLabel, type OfferDelivery, type OfferWords } from './words'
 
 type Refusal = { success: false; code: string; error: string }
 const refusal = (r: OfferRefusal | { code: string; message: string }): Refusal => ({ success: false, code: r.code, error: r.message })
 
-export interface SendDeps extends OfferDeps {
+export interface SendDeps extends OfferDeps, PollDeps {
   origin?: string
   optedOut?: (phone: string) => Promise<boolean>
   businessNumber?: (workspaceId: string) => Promise<{ phone: string } | null>
@@ -56,7 +61,7 @@ export interface SendDeps extends OfferDeps {
 }
 
 /** What a card or a paste is made of: an offer's words, from a plan or a stored offer. */
-interface WordsSource {
+export interface WordsSource {
   hostName: string
   recipientName: string
   title: string
@@ -71,15 +76,15 @@ interface WordsSource {
 
 const firstName = (name: string) => name.split(/\s+/)[0]?.slice(0, 40) || null
 
-function baseWords(s: WordsSource): OfferWords {
+export function baseWords(s: WordsSource): OfferWords {
   return { hostName: s.hostName, recipientFirstName: firstName(s.recipientName), title: s.title, durationMinutes: s.durationMinutes, video: s.video, location: s.location, message: s.message, timeZone: s.timeZone, starts: s.starts }
 }
 
-function sourceOfPlan(plan: PlannedOffer): WordsSource {
+export function sourceOfPlan(plan: PlannedOffer): WordsSource {
   return { hostName: plan.hostName, recipientName: plan.recipient.name, title: plan.title, durationMinutes: plan.durationMinutes, video: plan.video, location: plan.location, message: plan.message, timeZone: plan.timeZone, starts: plan.slots.map((s) => s.startsAt), expiresAt: plan.expiresAt }
 }
 
-function sourceOfOffer(offer: TimeOffer): WordsSource {
+export function sourceOfOffer(offer: TimeOffer): WordsSource {
   return { hostName: offer.hostName, recipientName: offer.recipientName, title: offer.title, durationMinutes: offer.durationMinutes, video: offer.video, location: offer.location, message: offer.message, timeZone: offer.timeZone, starts: offer.slots.map((s) => s.startsAt), expiresAt: offer.expiresAt }
 }
 
@@ -115,11 +120,27 @@ async function deliveryOf(
   return { ok: true, delivery: { via: 'text', to: recipient.phone, from: number.phone } }
 }
 
-function requestOf(args: { workspaceId: string; userId: string; browserTimeZone?: string | null }, input: OfferTimesInput) {
+/**
+ * Who the call names: one `recipient` (a pick), or `recipients` (a poll; one
+ * of them with no co-hosts is a pick too). Pure.
+ */
+export function guestsOf(input: OfferTimesInput): { ok: true; recipient: NonNullable<OfferTimesInput['recipient']>; recipients: null } | { ok: true; recipient: null; recipients: NonNullable<OfferTimesInput['recipients']> } | { ok: false; error: string } {
+  if (input.recipient && input.recipients?.length) return { ok: false, error: 'Give recipient (one person) or recipients (several), not both.' }
+  if (input.recipient) return input.co_hosts?.length ? { ok: true, recipient: null, recipients: [input.recipient] } : { ok: true, recipient: input.recipient, recipients: null }
+  if (!input.recipients?.length) return { ok: false, error: 'Who are the times for? Give recipient (one person) or recipients (several).' }
+  if (input.recipients.length === 1 && !input.co_hosts?.length) return { ok: true, recipient: input.recipients[0], recipients: null }
+  return { ok: true, recipient: null, recipients: input.recipients }
+}
+
+export function requestOf(args: { workspaceId: string; userId: string; browserTimeZone?: string | null; omitGrants?: boolean }, input: OfferTimesInput) {
+  const guests = guestsOf(input)
+  const one = guests.ok && guests.recipient ? guests.recipient : (input.recipient ?? input.recipients?.[0] ?? { name: '' })
   return {
     workspaceId: args.workspaceId,
     hostUserId: args.userId,
-    recipient: { name: input.recipient.name, email: input.recipient.email ?? null, phone: input.recipient.phone ?? null },
+    recipient: { name: one.name, email: one.email ?? null, phone: one.phone ?? null },
+    ...(guests.ok && guests.recipients ? { recipients: guests.recipients, coHosts: input.co_hosts ?? [] } : {}),
+    omitGrants: args.omitGrants === true,
     title: input.title,
     slots: input.slots,
     durationMinutes: input.duration_minutes,
@@ -136,8 +157,8 @@ function requestOf(args: { workspaceId: string; userId: string; browserTimeZone?
 
 export interface TimeOfferHold {
   card: { title: string; why: string }
-  context: { timeOffer: Pick<TimeOfferApprovalContext, 'card_hash'> }
-  /** Make the offer for the card (its times held): only once a card will be raised. */
+  context: { timeOffer: Partial<TimeOfferApprovalContext> & Pick<TimeOfferApprovalContext, 'card_hash'> }
+  /** Make the offer for the card (its times held): only once a card will be raised. A reminder makes nothing: its context as it is. */
   prepare: () => Promise<{ ok: true; context: { timeOffer: TimeOfferApprovalContext } } | { ok: false; message: string }>
   /** The card was raised: its approval is recorded on the offer. */
   held: (context: { timeOffer?: TimeOfferApprovalContext }, approvalId: string) => Promise<void>
@@ -152,14 +173,24 @@ export interface TimeOfferHold {
  */
 export async function timeOfferHold(
   supabase: SupabaseClient,
-  args: { workspaceId: string; userId: string; input: unknown; browserTimeZone?: string | null },
+  args: { workspaceId: string; userId: string; input: unknown; browserTimeZone?: string | null; toolName?: string },
   deps: SendDeps = {},
 ): Promise<TimeOfferHold | null> {
+  if (args.toolName === NUDGE_TIME_OFFER_TOOL) {
+    const { nudgeHold } = await import('./poll-send')
+    return nudgeHold(supabase, args, deps)
+  }
   const parsed = offerTimesInput.safeParse(args.input)
   if (!parsed.success) return null
   const sendBy = parsed.data.send_by ?? 'link'
   if (sendBy === 'link') return null
-  const planned = await planOffer(supabase, requestOf(args, parsed.data), deps)
+  const request = requestOf(args, parsed.data)
+  if (isPollRequest(request)) {
+    const { pollHold } = await import('./poll-send')
+    return pollHold(supabase, args, request, deps)
+  }
+  if (!guestsOf(parsed.data).ok) return null
+  const planned = await planOffer(supabase, request, deps)
   if (!planned.ok) return null
   const plan = planned.plan
   const way = await deliveryOf(supabase, args.workspaceId, sendBy, plan.recipient, deps)
@@ -224,7 +255,7 @@ function offerResult(offer: TimeOffer, link: string, sentVia: 'link' | 'email' |
 /** Run one offer_times call (see the header). Never throws. */
 export async function runOfferTimes(
   supabase: SupabaseClient,
-  args: { userId: string; workspaceId: string; approvedCall?: ApprovedCall; browserTimeZone?: string | null },
+  args: { userId: string; workspaceId: string; approvedCall?: ApprovedCall; browserTimeZone?: string | null; omitGrants?: boolean },
   input: unknown,
   deps: SendDeps = {},
 ): Promise<Record<string, unknown>> {
@@ -233,6 +264,12 @@ export async function runOfferTimes(
     const parsed = offerTimesInput.safeParse(input)
     if (!parsed.success) return { success: false, code: 'BAD_INPUT', error: parsed.error.issues[0]?.message ?? 'Invalid input.' }
     const sendBy = parsed.data.send_by ?? 'link'
+    const guests = guestsOf(parsed.data)
+    if (!guests.ok) return { success: false, code: 'BAD_INPUT', error: guests.error }
+    if (guests.recipients) {
+      const { runPollTimes } = await import('./poll-send')
+      return runPollTimes(supabase, args, parsed.data, deps)
+    }
 
     if (sendBy === 'link') {
       const planned = await planOffer(supabase, requestOf(args, parsed.data), deps)

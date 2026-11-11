@@ -418,6 +418,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'cancel_offered_meeting', sideEffect: 'external-write', label: 'Cancel Offered Meeting', description: 'Cancel a meeting a guest booked from a time offer; the calendar tells them' },
       // external-write: the provider event and its invitation; pre-approved by the offer itself (action-review.ts preApprovedCall).
       { name: 'accept_time_offer', sideEffect: 'external-write', label: 'Accept Time Offer', description: "Book one of an offer's own times for its own recipient, who answered in words" },
+      // Polls (availability phase 5): an offer to several guests, booked when all have answered.
+      // external-write: the last answer books (the provider event and its invitations); pre-approved as accept_time_offer.
+      { name: 'record_time_offer_answer', sideEffect: 'external-write', label: 'Record Poll Answer', description: "Record which of a poll's own times work for one of its own guests, who answered in words; the last answer books" },
+      // external-write: the provider event and its invitations, at the person's word; pre-approved as accept_time_offer.
+      { name: 'book_poll_time', sideEffect: 'external-write', label: 'Book Poll Time', description: "Book one of a poll's times now with whoever can make it" },
+      // external-write: by email or text it reaches the guests (the outward gate's card); by link it sends nothing.
+      { name: 'nudge_time_offer', sideEffect: 'external-write', label: 'Nudge Poll Guests', description: "Remind a poll's guests who haven't answered; by email or text only on the person's card" },
       // Booking links (src/lib/booking-links): standing public pages to book time with the person or their team.
       // internal-write: a link is the workspace's own and undoable (turned off, changed back); no card. Attended only (ATTENDED_ONLY_TOOL_NAMES).
       { name: 'list_booking_links', sideEffect: 'read', label: 'List Booking Links', description: "The workspace's booking links, each with its address to share" },
@@ -1275,6 +1282,11 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // Neither `offer_` nor `withdraw_` is a write verb. (accept_time_offer and cancel_offered_meeting match.)
   'offer_times',
   'withdraw_time_offer',
+  // Polls (phase 5): a guest's answer may book, a poll's time booked at the person's word, a reminder sent.
+  // None of `record_`, `book_`, `nudge_` is a write verb.
+  'record_time_offer_answer',
+  'book_poll_time',
+  'nudge_time_offer',
 ]
 
 /**

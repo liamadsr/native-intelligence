@@ -471,6 +471,8 @@ export async function updateCalendarEvent(
     start?: string
     end?: string
     location?: string
+    /** The whole attendee list, replacing the event's (a group meeting's guest who dropped out). */
+    attendees?: string[]
   },
   options: ChangeEventOptions = {},
 ): Promise<CalendarEvent> {
@@ -713,6 +715,7 @@ async function updateGoogleEvent(
     start?: string
     end?: string
     location?: string
+    attendees?: string[]
   },
   notifyAttendees = false,
 ): Promise<CalendarEvent> {
@@ -722,6 +725,7 @@ async function updateGoogleEvent(
   if (updates.location !== undefined) body.location = updates.location
   if (updates.start) body.start = { dateTime: updates.start }
   if (updates.end) body.end = { dateTime: updates.end }
+  if (updates.attendees) body.attendees = updates.attendees.map((email) => ({ email }))
 
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}${notifyAttendees ? '?sendUpdates=all' : ''}`,
@@ -1005,6 +1009,7 @@ async function updateMicrosoftEvent(
     start?: string
     end?: string
     location?: string
+    attendees?: string[]
   },
 ): Promise<CalendarEvent> {
   const body: Record<string, unknown> = {}
@@ -1017,6 +1022,7 @@ async function updateMicrosoftEvent(
   }
   if (updates.start) body.start = { dateTime: graphUtcDateTime(updates.start), timeZone: 'UTC' }
   if (updates.end) body.end = { dateTime: graphUtcDateTime(updates.end), timeZone: 'UTC' }
+  if (updates.attendees) body.attendees = updates.attendees.map((address) => ({ emailAddress: { address }, type: 'required' }))
 
   const res = await fetch(
     `https://graph.microsoft.com/v1.0/me/events/${eventId}`,

@@ -51,7 +51,9 @@
  *     approval with the offer made for it. The offer, its times held while
  *     the card waits, is made only once a card will really be raised (the
  *     hold's `prepare`); no card, no offer. By link it sends nothing and is
- *     not held here.
+ *     not held here. A poll (several guests, phase 5) is the same card naming
+ *     every guest and their address; so is nudge_time_offer, a reminder to
+ *     its guests still to answer (nothing to make first: its card pins who).
  *
  * What a hold becomes is the trust authority's call, made in gateRiskyCall
  * (caller.ts decideAction(caller, 'outward', tool)): for the person, in the
@@ -72,7 +74,7 @@ import { paymentsReady } from '@/lib/payments/ready'
 import { paymentLinkCard, parsePaymentLinkCall, SEND_PAYMENT_LINK } from '@/lib/payments/tool-input'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
 import { bareToolName } from '@/lib/mcp/tool-names'
-import { offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
+import { NUDGE_TIME_OFFER_TOOL, offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
 import type { TimeOfferHold } from '@/lib/time-offers/send'
 
 /** The calendar writes that invite attendees (bare names). */
@@ -132,7 +134,7 @@ export interface OutwardCheck {
   /** Test seam: a send_quote / book_quote call's card and check (null: the tool would refuse it anyway). */
   quoteCard?: (args: { workspaceId: string; userId: string; toolName: string; input: unknown }) => Promise<QuoteCardHold | null>
   /** Test seam: an offer_times call's card, check and offer (null: the tool would refuse it anyway). */
-  timeOfferCard?: (args: { workspaceId: string; userId: string; input: unknown }) => Promise<TimeOfferHold | null>
+  timeOfferCard?: (args: { workspaceId: string; userId: string; input: unknown; toolName: string }) => Promise<TimeOfferHold | null>
 }
 
 /** A quote reply's card and the check its replay makes (src/lib/customers/quote-reply.ts quoteReplyHold). */
@@ -288,7 +290,7 @@ async function quoteReplyOutwardHold(check: OutwardCheck, bare: string): Promise
   }
 }
 
-async function defaultTimeOfferCard(args: { workspaceId: string; userId: string; input: unknown }): Promise<TimeOfferHold | null> {
+async function defaultTimeOfferCard(args: { workspaceId: string; userId: string; input: unknown; toolName: string }): Promise<TimeOfferHold | null> {
   // Loaded on use: the offer and sending code stays out of every door's imports.
   const [{ getServiceClient }, { timeOfferHold }] = await Promise.all([import('@/lib/admin'), import('@/lib/time-offers/send')])
   return timeOfferHold(getServiceClient(), args)
@@ -299,11 +301,11 @@ async function defaultTimeOfferCard(args: { workspaceId: string; userId: string;
  * refuse anyway, or rows that can't be read: no hold, and the tool (which
  * sends only as the card's replay) refuses it, saying why.
  */
-async function timeOfferOutwardHold(check: OutwardCheck): Promise<OutwardHold | null> {
-  if (!check.userId || !offerTimesSends(OFFER_TIMES_TOOL, check.input)) return null
+async function timeOfferOutwardHold(check: OutwardCheck, bare: string): Promise<OutwardHold | null> {
+  if (!check.userId || !offerTimesSends(bare, check.input)) return null
   let found: TimeOfferHold | null = null
   try {
-    found = await (check.timeOfferCard ?? defaultTimeOfferCard)({ workspaceId: check.workspaceId, userId: check.userId, input: check.input })
+    found = await (check.timeOfferCard ?? defaultTimeOfferCard)({ workspaceId: check.workspaceId, userId: check.userId, input: check.input, toolName: bare })
   } catch (err) {
     console.warn('[outward-gate] time offer card unreadable; the tool refuses unapproved:', err instanceof Error ? err.message : String(err))
     found = null
@@ -313,8 +315,8 @@ async function timeOfferOutwardHold(check: OutwardCheck): Promise<OutwardHold | 
     reason: 'time_offer',
     card: found.card,
     refusal:
-      `Nothing was sent. ${check.toolName} by email or text sends an outside person times to meet, which only ever happens on the person's own approval card, and nobody is here to give it. ` +
-      "Do not retry; offer the times by send_by 'link' instead, or tell the person what you would have sent.",
+      `Nothing was sent. ${check.toolName} by email or text sends outside people times to meet, which only ever happens on the person's own approval card, and nobody is here to give it. ` +
+      "Do not retry; use send_by 'link' instead (the person sends it themselves), or tell the person what you would have sent.",
     context: found.context,
     prepare: found.prepare,
     held: found.held,
@@ -345,7 +347,7 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
   if (bare === 'unsubscribe_thread') return unsubscribeHold(check)
   if (bare === SEND_PAYMENT_LINK) return paymentLinkHold(check)
   if (bare === SEND_QUOTE_TOOL || bare === BOOK_QUOTE_TOOL) return quoteReplyOutwardHold(check, bare)
-  if (bare === OFFER_TIMES_TOOL) return timeOfferOutwardHold(check)
+  if (bare === OFFER_TIMES_TOOL || bare === NUDGE_TIME_OFFER_TOOL) return timeOfferOutwardHold(check, bare)
   if (CALENDAR_INVITE_TOOLS.has(bare) || CALENDAR_EXISTING_EVENT_TOOLS.has(bare)) {
     const added = CALENDAR_INVITE_TOOLS.has(bare) ? attendeeEmailsOf(check.input) : []
     // An existing event's attendees, from the provider: editing or cancelling

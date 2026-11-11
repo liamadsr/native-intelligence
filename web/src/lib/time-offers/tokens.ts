@@ -4,6 +4,11 @@
  *   /t/<token>   the offer's page: the guest picks a time. A random token
  *                (144 bits) minted when the offer is sent; only its sha256
  *                is stored (time_offer.token_hash).
+ *   /t/<token>   a poll guest's page (migration 583): an HMAC of their row's
+ *                id under a key kept for this one purpose, so the host can
+ *                copy the same link again (list_time_offers, a nudge); only
+ *                its sha256 is stored (time_offer_recipient.token_hash), and
+ *                only once the poll is sent.
  *   /b/<token>   the guest's manage page for a booking: cancel or move it.
  *                An HMAC of the booking's id under a key kept for this one
  *                purpose (derived from the OAuth state secret, as the
@@ -42,6 +47,20 @@ function manageKey(secret: string): string {
 /** A booking's manage token: the same for the same booking, unguessable without the server's secret. */
 export function manageTokenFor(bookingId: string, secret: string = oauthStateSecret()): string {
   return createHmac('sha256', manageKey(secret)).update(`booking:${bookingId}`).digest().subarray(0, 18).toString('base64url')
+}
+
+function pollKey(secret: string): string {
+  return createHmac('sha256', secret).update('ni-time-offer-poll-guest-v1').digest('base64url')
+}
+
+/** A poll guest's link token: the same for the same guest, unguessable without the server's secret. */
+export function pollTokenFor(recipientId: string, secret: string = oauthStateSecret()): string {
+  return createHmac('sha256', pollKey(secret)).update(`poll-guest:${recipientId}`).digest().subarray(0, 18).toString('base64url')
+}
+
+/** A poll guest's own manage token for their group meeting: theirs alone, never the meeting's. */
+export function pollManageTokenFor(bookingId: string, recipientId: string, secret: string = oauthStateSecret()): string {
+  return createHmac('sha256', manageKey(secret)).update(`booking:${bookingId}:guest:${recipientId}`).digest().subarray(0, 18).toString('base64url')
 }
 
 /** The stored form of a manage token. */

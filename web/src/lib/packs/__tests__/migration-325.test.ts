@@ -55,11 +55,11 @@ const CORE_HEADINGS = ["What's here", 'How to find things', 'Doing it well', 'Pi
 /**
  * 325's rows whose text a later migration changed, by slug: the file whose text ships (338: the cores' helper line, and helper
  * passages; 444: the mail texts' tidying lines; 551: the calendar playbook's and find-a-time's find_times lines; 553: their
- * teammates lines, on 551's text; 580: their offer_times lines, on 553's; 582: the calendar playbook's booking links line, on 580's).
+ * teammates lines, on 551's text; 580: their offer_times lines, on 553's; 582: the calendar playbook's booking links line, on 580's; 584: their polls lines, on 582's and 580's).
  */
 const LATER_TEXT: Readonly<Record<string, string>> = {
-  'calendar-playbook': '582_booking_links_in_calendar_playbook.sql',
-  'find-a-time': '580_offer_times_to_outside_guests.sql',
+  'calendar-playbook': '584_polls_in_find_a_time.sql',
+  'find-a-time': '584_polls_in_find_a_time.sql',
   'captures-playbook': '338_skill_helper_lines.sql',
   'mail-playbook': '444_mail_playbooks_tidy.sql',
   'clear-inbox': '444_mail_playbooks_tidy.sql',

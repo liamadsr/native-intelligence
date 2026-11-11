@@ -297,7 +297,7 @@ export async function rebuildGuestChatSpec(
   const stable = customer
     ? `${identityNote}\n\n${buildCustomerWhoYouAre({ businessName: customer.businessName, ownerName, customerName: guest.displayName, bookingKind: customer.profile?.bookingKind ?? 'pickup', facts: customer.profile?.customerFacts ?? null, memory })}`
     : `${identityNote}\n\n${buildGuestWhoYouAre({ ownerName, guest: { ...guest, askTools: guestCardTools(guest) }, toolNames: ceilingNames, memory })}`
-  const record = customer ? customerRecordSection(guest.displayName, customer.customer.quotes, customer.customer.bookings, businessZone, customer.customer.reminders, customer.customer.offers, now.getTime()) : null
+  const record = customer ? customerRecordSection(guest.displayName, customer.customer.quotes, customer.customer.bookings, businessZone, customer.customer.reminders, customer.customer.offers, now.getTime(), customer.customer.polls) : null
   const turnContext = customer
     ? [
         { key: 'time', markdown: `${formatClock(now, businessZone)} (${customer.businessName}'s time zone, ${businessZone})` },

@@ -22,6 +22,11 @@
  *                      src/lib/time-offers/): booked at once, only that
  *                      offer's own time, only an offer made to the number
  *                      they text from;
+ *   answer_offered_times  which of a poll's times work for them (times
+ *                      offered to several people at once, availability
+ *                      phase 5): recorded, only that poll's own times, only
+ *                      the guest with the number they text from; the last
+ *                      answer books;
  *   message_owner      pass the owner a note (the guest tool, ./reach-owner.ts);
  *   remember_about_guest  keep one thing they said about themselves.
  *
@@ -33,7 +38,7 @@
  * Pure and client-safe.
  */
 
-export const CUSTOMER_TOOLS = ['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'pick_offered_time', 'message_owner', 'remember_about_guest'] as const
+export const CUSTOMER_TOOLS = ['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'pick_offered_time', 'answer_offered_times', 'message_owner', 'remember_about_guest'] as const
 export type CustomerToolName = (typeof CUSTOMER_TOOLS)[number]
 
 const CUSTOMER_TOOL_SET: ReadonlySet<string> = new Set(CUSTOMER_TOOLS)
@@ -43,7 +48,7 @@ export function isCustomerTool(name: string): name is CustomerToolName {
 }
 
 /** The customer-only tools' descriptions, as the customer's agent reads them. */
-export const CUSTOMER_TOOL_DESCRIPTIONS: Record<'get_my_quotes' | 'find_open_slots' | 'request_booking' | 'confirm_appointment' | 'move_appointment' | 'pick_offered_time', string> = {
+export const CUSTOMER_TOOL_DESCRIPTIONS: Record<'get_my_quotes' | 'find_open_slots' | 'request_booking' | 'confirm_appointment' | 'move_appointment' | 'pick_offered_time' | 'answer_offered_times', string> = {
   get_my_quotes:
     "This customer's own quotes: what they asked for, the sizes, the price and where it stands. Only theirs (sent from this number or linked to them). Use it before you answer about their quote",
   find_open_slots:
@@ -56,6 +61,8 @@ export const CUSTOMER_TOOL_DESCRIPTIONS: Record<'get_my_quotes' | 'find_open_slo
     'Move a booked job they were reminded of to another open time they picked (its exact start from find_open_slots). It moves at once on the owner’s calendar and the owner is told. Not for a meeting: pass their times to the owner with message_owner',
   pick_offered_time:
     'Book one of the times the business offered this customer (the offer id and the time’s exact start, from their "times offered" line). It is booked at once and the person who offered is told. Only those times: never another one',
+  answer_offered_times:
+    'Record which of the times the business asked several people about work for this customer (the poll id and the exact starts of every one that works, from their "times asked about" line), or none_work. It replaces their earlier answer. When everyone has answered, the earliest time that works for all is booked and they get a confirmation. Only those times',
 }
 
 /** Their inputs as plain JSON Schema, for the customer spec's proxies. */
@@ -105,6 +112,16 @@ export const CUSTOMER_TOOL_INPUT_JSON_SCHEMAS = {
       start: { type: 'string', description: "The picked time's exact start, as that line gives it (ISO date-time)" },
     },
     required: ['offer_id', 'start'],
+    additionalProperties: false,
+  },
+  answer_offered_times: {
+    type: 'object',
+    properties: {
+      offer_id: { type: 'string', description: 'The poll, from their "times asked about" line' },
+      works: { type: 'array', items: { type: 'string' }, description: 'The exact start of every time that works for them, as that line gives it (ISO date-times); empty with none_work' },
+      none_work: { type: 'boolean', description: 'None of the times work for them' },
+    },
+    required: ['offer_id', 'works'],
     additionalProperties: false,
   },
 } as const

@@ -11,10 +11,12 @@
 import { describe, it, expect } from 'vitest'
 import { ALL_TOOL_NAMES, ATTENDED_ONLY_TOOL_NAMES } from '@/lib/ai/tool-registry'
 import { estimateTokens } from '../memory'
-import { allShippedSkills, PREFERRED_TOOLS_REWRITE_MIGRATIONS, PROMPT_REWRITE_MIGRATIONS, promptRewrites, preferredToolsRewrites, readMigration } from './playbook-seeds'
+import { allShippedSkills, PREFERRED_TOOLS_REWRITE_MIGRATIONS, PROMPT_REWRITE_MIGRATIONS, promptRewrites, preferredToolsRewrites, readMigration, rewrittenAfter } from './playbook-seeds'
 
 const FILE = '582_booking_links_in_calendar_playbook.sql'
 const BEFORE = '580_offer_times_to_outside_guests.sql'
+/** The rewrite after this one: polls (availability phase 5). */
+const LATER = '584_polls_in_find_a_time.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
 
@@ -30,18 +32,18 @@ const BODY = sql
   .replace(/\s+/g, ' ')
 
 describe('migration 582', () => {
-  it('rewrites only the calendar playbook, by id and slug, after 580 and registered last', () => {
+  it('rewrites only the calendar playbook, by id and slug, after 580, with only 584 after it', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([[CALENDAR, 'calendar-playbook']])
-    expect(PROMPT_REWRITE_MIGRATIONS.at(-1)).toBe(FILE)
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
     // Only text: the preferred tools stay as 551 and 580 left them.
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).not.toContain(FILE as never)
     expect(preferredToolsRewrites(FILE)).toEqual([])
   })
 
-  it('is the text that ships', () => {
+  it('is the text 584 rewrites (polls)', () => {
     const shipped = allShippedSkills().find((s) => s.id === CALENDAR)!
-    expect(shipped.file).toBe(FILE)
-    expect(shipped.prompt).toBe(text)
+    expect(shipped.file).toBe(LATER)
+    expect(rewrittenAfter(FILE, CALENDAR, 'calendar-playbook')).toBe(LATER)
   })
 
   it("keeps every other line of 580's text, byte for byte and in order, and rewrites only the one on finding a time", () => {

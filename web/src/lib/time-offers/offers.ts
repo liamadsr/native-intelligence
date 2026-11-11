@@ -43,6 +43,7 @@ import {
   OFFER_SLOTS_MAX,
   OFFER_SLOTS_MIN,
   OPEN_OFFERS_MAX,
+  POLL_SLOTS_MAX,
   RECIPIENT_NAME_MAX,
   TITLE_MAX,
   type OfferState,
@@ -70,6 +71,12 @@ export interface OfferRequest {
   sendBy: SendBy
   /** This turn's browser zone: the host's zone when their hours follow them (as find_times reads it). */
   browserTimeZone?: string | null
+  /** A poll (availability phase 5, ./polls.ts): several guests instead of `recipient`. */
+  recipients?: ReadonlyArray<{ name: string; email?: string | null; phone?: string | null }>
+  /** A poll's co-hosts: teammates by name or sign-in email. */
+  coHosts?: readonly string[]
+  /** A guest's or a linked agent's own turn: no grant of the person's is read (a linked guest's free/busy). */
+  omitGrants?: boolean
 }
 
 export interface PlannedOffer {
@@ -109,6 +116,8 @@ export function cleanEmail(value: string | null | undefined): string | null {
 export function normalizeOfferRequest(
   req: OfferRequest,
   ctx: { timeZone: string; hostName: string; now: number },
+  /** A poll's (./polls.ts): up to POLL_SLOTS_MAX times, open until its last time starts rather than its first. */
+  poll: boolean = false,
 ): { ok: true; plan: PlannedOffer } | OfferRefusal {
   const name = oneLine(req.recipient.name, RECIPIENT_NAME_MAX)
   if (!name) return refuse('BAD_INPUT', "I need the recipient's name.")
@@ -130,7 +139,10 @@ export function normalizeOfferRequest(
   const duration = Math.round(req.durationMinutes)
   if (!Number.isFinite(duration) || duration < 5 || duration > 480) return refuse('BAD_INPUT', 'duration_minutes is 5 to 480.')
 
-  if (req.slots.length < OFFER_SLOTS_MIN || req.slots.length > OFFER_SLOTS_MAX) return refuse('BAD_INPUT', `Offer ${OFFER_SLOTS_MIN} or ${OFFER_SLOTS_MAX} times.`)
+  const slotsMax = poll ? POLL_SLOTS_MAX : OFFER_SLOTS_MAX
+  if (req.slots.length < OFFER_SLOTS_MIN || req.slots.length > slotsMax) {
+    return refuse('BAD_INPUT', poll ? `Offer ${OFFER_SLOTS_MIN} to ${POLL_SLOTS_MAX} times.` : `Offer ${OFFER_SLOTS_MIN} or ${OFFER_SLOTS_MAX} times.`)
+  }
   const starts: number[] = []
   for (const raw of req.slots) {
     const value = String(raw).trim()
@@ -154,8 +166,8 @@ export function normalizeOfferRequest(
     if (at === null) return refuse('BAD_INPUT', `${req.expiresAt.slice(0, 40)} isn't a date I can read for the expiry.`)
     expires = at
   }
-  // Never open after the first time starts, nor longer than two weeks.
-  expires = Math.min(expires, starts[0], ctx.now + OFFER_MAX_TTL_MS)
+  // Never open after the first time starts (a poll's: its last), nor longer than two weeks.
+  expires = Math.min(expires, poll ? starts[starts.length - 1] : starts[0], ctx.now + OFFER_MAX_TTL_MS)
   if (expires <= ctx.now + 60_000) return refuse('BAD_INPUT', 'The offer would expire right away: pick a later expiry.')
 
   return {
@@ -198,7 +210,8 @@ export async function hostDisplayName(supabase: SupabaseClient, workspaceId: str
   return oneLine(ws.data?.name, 80) ?? 'Your host'
 }
 
-async function defaultZone(supabase: SupabaseClient, req: OfferRequest): Promise<string> {
+/** The host's zone for an offer's words: their working hours' zone, this turn's browser zone when their hours follow them. Throws on a failed read. */
+export async function defaultZone(supabase: SupabaseClient, req: Pick<OfferRequest, 'hostUserId' | 'workspaceId' | 'browserTimeZone'>): Promise<string> {
   const hours = await readWorkingHours(supabase, { userId: req.hostUserId, workspaceId: req.workspaceId })
   return hours.zoneSource === 'member' && isTimeZone(req.browserTimeZone) ? req.browserTimeZone : hours.timeZone
 }

@@ -84,4 +84,73 @@ describe('timeOfferCardOf', () => {
     })
     expect(timeOfferCardOf('list_time_offers', { success: true, offers: [], bookings: [] })).toBeNull()
   })
+
+  it("offer_times for a poll: the grid of guests by times, each guest's link, who answered from their calendar", () => {
+    const card = timeOfferCardOf('offer_times', {
+      success: true,
+      offer_id: 'p-1',
+      mode: 'poll',
+      state: 'open',
+      title: 'Planning session',
+      duration_minutes: 45,
+      sent_via: 'link',
+      times: [
+        { start: '2026-11-17T15:00:00.000Z', label: 'Tue, Nov 17, 10:00 AM EST', state: 'open' },
+        { start: '2026-11-18T19:00:00.000Z', label: 'Wed, Nov 18, 2:00 PM EST', state: 'open' },
+      ],
+      expires: 'Wed, Nov 18, 2:00 PM EST',
+      guests: [
+        { guest_id: 'r-1', name: 'Dana Reyes', link: 'https://app.example/t/A', answered: false, paste_text: 'x' },
+        { guest_id: 'r-2', name: 'Sam Ortiz', link: 'https://app.example/t/B', answered: true, works: ['2026-11-18T19:00:00.000Z'], from_calendar: true },
+        { name: '' },
+      ],
+      co_hosts: 1,
+    })
+    expect(card).toEqual({
+      kind: 'poll',
+      title: 'Planning session',
+      durationMinutes: 45,
+      state: 'open',
+      times: [
+        { start: '2026-11-17T15:00:00.000Z', label: 'Tue, Nov 17, 10:00 AM EST', booked: false },
+        { start: '2026-11-18T19:00:00.000Z', label: 'Wed, Nov 18, 2:00 PM EST', booked: false },
+      ],
+      guests: [
+        { id: 'r-1', name: 'Dana Reyes', link: 'https://app.example/t/A', answered: false, works: [], fromCalendar: false, attending: null },
+        { id: 'r-2', name: 'Sam Ortiz', link: 'https://app.example/t/B', answered: true, works: ['2026-11-18T19:00:00.000Z'], fromCalendar: true, attending: null },
+      ],
+      sentVia: 'link',
+      expires: 'Wed, Nov 18, 2:00 PM EST',
+      best: null,
+      booking: null,
+      coHosts: 1,
+    })
+  })
+
+  it('list_time_offers with a booked poll: its grid in the list, the meeting from the bookings, the best time when stuck', () => {
+    const times = [{ start: '2026-11-17T15:00:00.000Z', label: 'Tue, Nov 17, 10:00 AM EST', state: 'booked' }]
+    const card = timeOfferCardOf('list_time_offers', {
+      success: true,
+      offers: [
+        { offer_id: 'p-1', state: 'booked', mode: 'poll', title: 'Planning session', sent_via: 'email', times, booking_id: 'b-9', guests: [{ guest_id: 'r-1', name: 'Dana Reyes', answered: true, works: [times[0].start], attending: true }] },
+        { offer_id: 'p-2', state: 'open', mode: 'poll', title: 'Review', times: [{ ...times[0], state: 'open' }], best_time: 'Tue, Nov 17, 10:00 AM EST (Dana Reyes can)', guests: [{ guest_id: 'r-1', name: 'Dana Reyes', answered: true, works: [] }, { guest_id: 'r-2', name: 'Sam Ortiz', answered: true, works: [] }] },
+      ],
+      bookings: [{ booking_id: 'b-9', state: 'confirmed', guest: { name: 'Dana Reyes' }, title: 'Planning session', when: 'Tue, Nov 17, 10:00 AM EST', video_link: 'https://meet.example/x', from_poll: true }],
+    })
+    if (card?.kind !== 'list') throw new Error('not a list')
+    expect(card.offers.map((o) => [o.recipient, o.state, o.poll?.kind])).toEqual([
+      ['Dana Reyes', 'booked', 'poll'],
+      ['2 people', 'open', 'poll'],
+    ])
+    expect(card.offers[0].poll?.booking).toEqual({ when: 'Tue, Nov 17, 10:00 AM EST', videoLink: 'https://meet.example/x', state: 'confirmed' })
+    expect(card.offers[0].times).toEqual([{ label: 'Tue, Nov 17, 10:00 AM EST', booked: true }])
+    expect(card.offers[1].poll?.best).toBe('Tue, Nov 17, 10:00 AM EST (Dana Reyes can)')
+  })
+
+  it('record_time_offer_answer and book_poll_time draw the booked card when they booked, the chip otherwise', () => {
+    const booking = { booking_id: 'b-9', state: 'confirmed', guest: { name: 'Dana Reyes and Sam Ortiz' }, title: 'Planning session', when: 'Tue, Nov 17, 10:00 AM EST' }
+    expect(timeOfferCardOf('record_time_offer_answer', { success: true, booking })?.kind).toBe('booked')
+    expect(timeOfferCardOf('book_poll_time', { success: true, booking })?.kind).toBe('booked')
+    expect(timeOfferCardOf('record_time_offer_answer', { success: true, waiting: 2 })).toBeNull()
+  })
 })

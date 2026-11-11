@@ -5,12 +5,16 @@
  * time's exact start and the offer's id, and pick_offered_time books one
  * (../customer-tools.ts): only an offer made to the number on their live
  * row, only that offer's own time, the offer's own recipient as the guest.
+ * A poll (phase 5) asked of several people, this number among them, shows
+ * as "times asked about" with what they said, and answer_offered_times
+ * records which work: only as the number on their live row.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-const offers = vi.hoisted(() => ({ accept: vi.fn() }))
+const offers = vi.hoisted(() => ({ accept: vi.fn(), record: vi.fn() }))
 vi.mock('@/lib/time-offers/accept', () => ({ acceptOffer: offers.accept }))
+vi.mock('@/lib/time-offers/polls', () => ({ recordAnswer: offers.record }))
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
@@ -57,14 +61,26 @@ beforeEach(() => {
       offerRow({ id: 'o-expired', expires_at: new Date(NOW - 60_000).toISOString() }),
       offerRow({ id: 'o-bob', recipient_phone: '+12125550111' }),
       offerRow({ id: 'o-elsewhere', workspace_id: 'ws-other' }),
+      offerRow({ id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', mode: 'poll', recipient_name: 'Sarah Lee and Bob Ray', recipient_phone: null, title: 'Planning' }),
+    ],
+    time_offer_recipient: [
+      { id: 'r-sarah', offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', workspace_id: WS, position: 0, name: 'Sarah Lee', phone: SARAH, token_hash: 'h-1', answered_at: new Date(NOW - 60_000).toISOString(), answered_via: 'link' },
+      { id: 'r-bob', offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', workspace_id: WS, position: 1, name: 'Bob Ray', phone: '+12125550111', token_hash: 'h-2' },
+    ],
+    time_offer_response: [
+      { recipient_id: 'r-sarah', slot_id: 'p-1', offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', works: true },
+      { recipient_id: 'r-sarah', slot_id: 'p-2', offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', works: false },
     ],
     time_offer_slot: [
       { id: 's-1', offer_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601', starts_at: at(24), ends_at: at(24.5), state: 'open' },
       { id: 's-2', offer_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601', starts_at: at(48), ends_at: at(48.5), state: 'released' },
       { id: 's-3', offer_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601', starts_at: at(72), ends_at: at(72.5), state: 'open' },
+      { id: 'p-1', offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', starts_at: at(30), ends_at: at(30.5), state: 'open' },
+      { id: 'p-2', offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', starts_at: at(54), ends_at: at(54.5), state: 'open' },
     ],
   })
   offers.accept.mockReset()
+  offers.record.mockReset()
 })
 
 describe("the customer agent's record", () => {
@@ -111,5 +127,33 @@ describe('pick_offered_time', () => {
     expect((await call({ offer_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601', start: at(24) }, { ...guest, phone: null })).output).toMatchObject({ success: false, code: 'NOT_FOUND' })
     expect((await call({ offer_id: 'not-a-uuid', start: at(24) })).code).toBe('INPUT_INVALID')
     expect(offers.accept).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a poll asked of several people, this number among them', () => {
+  const guest = { id: 'g-sarah', ownerUserId: OWNER, workspaceId: WS, displayName: 'Sarah Lee', phone: SARAH, contactId: null, preset: 'customer' } as AgentGuest
+  const claims = { userId: OWNER, workspaceId: WS }
+  const call = async (input: unknown, who: AgentGuest = guest) => (await (await customerToolCall(db, claims, who, 'answer_offered_times', { input })).json()) as { output?: Record<string, unknown>; code?: string }
+
+  it('shows as times asked about, with what they said, never the other guests', async () => {
+    const found = await findCustomerByPhone(db, { workspaceId: WS, phone: SARAH }, NOW)
+    expect(found.polls.map((p) => p.recipient.name)).toEqual(['Sarah Lee'])
+    const section = customerRecordSection('Sarah Lee', [], [], 'America/New_York', [], found.offers, NOW, found.polls)!
+    expect(section).toContain('Times asked about by Moe Ortiz for Planning (30 min), with other people too:')
+    expect(section).toContain(`(start ${at(30)})`)
+    expect(section).toContain('They said these work:')
+    expect(section).toContain('[poll 9f3d4e5a-6172-4c83-8d94-1ea5f6071823]')
+    expect(section).not.toContain('Bob Ray')
+    const prompt = buildCustomerWhoYouAre({ businessName: 'Bright Loom', ownerName: 'Moe', customerName: 'Sarah Lee', bookingKind: 'pickup', facts: null, memory: [] })
+    expect(prompt).toContain('call answer_offered_times once with that poll and the starts of every one that works, or none_work')
+  })
+
+  it('records their answer as the number on their live row; none on their row records nothing', async () => {
+    offers.record.mockResolvedValueOnce({ ok: true, poll: {}, recipient: {}, booking: null, waiting: 1 })
+    const out = await call({ offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', works: [at(30)] })
+    expect(offers.record).toHaveBeenCalledWith(db, { ref: { offerId: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', workspaceId: WS }, works: [at(30)], none: false, via: 'text', guestPhone: SARAH })
+    expect(out.output).toMatchObject({ success: true, status: 'recorded', message: expect.stringContaining("Tell them it's recorded") })
+    expect((await call({ offer_id: '9f3d4e5a-6172-4c83-8d94-1ea5f6071823', works: [] }, { ...guest, phone: null })).output).toMatchObject({ success: false, code: 'NOT_FOUND' })
+    expect(offers.record).toHaveBeenCalledTimes(1)
   })
 })

@@ -17,6 +17,7 @@ import { OFFER_STATES, SEND_BY, SLOT_STATES } from '../types'
 const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/554_time_offers.sql'), 'utf8')
 // 581 widens meeting_booking for booking links and customers' jobs (its own test pins it).
 const SQL_581 = readFileSync(join(process.cwd(), 'supabase/migrations/581_booking_links.sql'), 'utf8')
+const SQL_583 = readFileSync(join(process.cwd(), 'supabase/migrations/583_time_offer_polls.sql'), 'utf8')
 const BODY = SQL.split('\n')
   .filter((l) => !l.trim().startsWith('--'))
   .join('\n')
@@ -100,7 +101,12 @@ describe('migration 554', () => {
     const booking = /export const BOOKING_COLUMNS =\s*'([^']+)'/.exec(STORE)![1]
     const offerTable = BODY.slice(BODY.indexOf('create table if not exists public.time_offer ('), BODY.indexOf('comment on table public.time_offer is'))
     const bookingTable = BODY.slice(BODY.indexOf('create table if not exists public.meeting_booking ('), BODY.indexOf('comment on table public.meeting_booking is'))
-    for (const c of columns(offer)) expect(offerTable, c).toMatch(new RegExp(`[( ,]${c} `))
+    // 583 adds a poll's mode and co-hosts.
+    const pollAdded = [...SQL_583.matchAll(/alter table public\.time_offer add column if not exists (\w+) /g)].map((m) => m[1])
+    for (const c of columns(offer)) {
+      if (pollAdded.includes(c)) continue
+      expect(offerTable, c).toMatch(new RegExp(`[( ,]${c} `))
+    }
     const added = [...SQL_581.matchAll(/alter table public\.meeting_booking add column if not exists (\w+) /g)].map((m) => m[1])
     for (const c of columns(booking)) {
       if (added.includes(c)) continue

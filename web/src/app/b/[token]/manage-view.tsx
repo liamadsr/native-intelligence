@@ -124,6 +124,19 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
     )
   }
 
+  // A poll's group meeting, through one guest's own link: they can say they can't make it, never move it.
+  const group = booking.group
+  if (group && !group.attending) {
+    return (
+      <Final title="You're off this meeting" data-manage-state="left">
+        <span className="block">
+          {booking.title} with {host}, {when}.
+        </span>
+        <span className="block">{news || `To find another time, reply to ${host}.`}</span>
+      </Final>
+    )
+  }
+
   async function reload() {
     try {
       const res = await fetch(base, { cache: 'no-store' })
@@ -181,7 +194,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
   }
 
   async function cancel() {
-    if (await post('cancel')) setNews(`${host} has been told.`)
+    if (await post('cancel')) setNews(group ? `${host} has been told, and the calendar takes you off the invitation. To find another time, reply to ${host}.` : `${host} has been told.`)
     setMode('view')
   }
 
@@ -204,7 +217,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
       <CardHeader data-manage-state={live ? 'live' : phase}>
         <p className="text-sm font-medium text-muted-foreground">{host}</p>
         <CardTitle className="text-2xl">{booking.title}</CardTitle>
-        <CardDescription>{live ? 'Happening now.' : `Booked for ${booking.guest_name}.`}</CardDescription>
+        <CardDescription>{live ? 'Happening now.' : group ? `A meeting with several people, ${booking.guest_name} among them.` : `Booked for ${booking.guest_name}.`}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-2">
@@ -247,22 +260,29 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
                   }}
                   data-manage-cancel=""
                 >
-                  Cancel meeting
+                  {group ? "I can't make it" : 'Cancel meeting'}
                 </Button>
               )}
             </div>
             {booking.can_reschedule && movesLeft && <p className="text-xs text-muted-foreground">{movesLeft}</p>}
+            {group && (
+              <p className="text-xs text-muted-foreground" data-manage-group-move>
+                To move it, reply to {host}.
+              </p>
+            )}
           </div>
         )}
 
         {mode === 'cancel' && (
           <div className="space-y-3 rounded-lg border p-4" data-manage-confirm-cancel>
             <p className="text-sm">
-              Cancel this meeting? {host} will be told, and you can&apos;t undo it from here.
+              {group
+                ? `Tell ${host} you can't make it? You'll come off the invitation; the meeting stays on for the others.`
+                : `Cancel this meeting? ${host} will be told, and you can't undo it from here.`}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button variant="destructive" onClick={cancel} disabled={busy}>
-                {busy ? 'Cancelling…' : 'Yes, cancel it'}
+                {busy ? (group ? 'Sending…' : 'Cancelling…') : group ? "Yes, I can't make it" : 'Yes, cancel it'}
               </Button>
               <Button variant="outline" className="border" onClick={() => setMode('view')} disabled={busy}>
                 Keep it

@@ -46,6 +46,30 @@ const OFFER: TimeOfferCardData = {
   pasteText: 'Could we meet for Intro call?',
 }
 
+const T = ['2030-11-19T15:00:00.000Z', '2030-11-19T19:00:00.000Z', '2030-11-20T16:00:00.000Z']
+const POLL: TimeOfferCardData = {
+  kind: 'poll',
+  title: 'Planning session',
+  durationMinutes: 45,
+  state: 'open',
+  times: [
+    { start: T[0], label: 'Tue, Nov 19, 10:00 AM EST', booked: false },
+    { start: T[1], label: 'Tue, Nov 19, 2:00 PM EST', booked: false },
+    { start: T[2], label: 'Wed, Nov 20, 11:00 AM EST', booked: false },
+  ],
+  guests: [
+    { id: 'r-1', name: 'Dana Reyes', link: 'https://app.example/t/AAAAAAAAAAAAAAAAAAAAAAAA', answered: true, works: [T[0], T[2]], fromCalendar: false, attending: null },
+    { id: 'r-2', name: 'Sam Ortiz', link: 'https://app.example/t/BBBBBBBBBBBBBBBBBBBBBBBB', answered: true, works: [T[2]], fromCalendar: true, attending: null },
+    { id: 'r-3', name: 'Lee Park', link: 'https://app.example/t/CCCCCCCCCCCCCCCCCCCCCCCC', answered: false, works: [], fromCalendar: false, attending: null },
+  ],
+  sentVia: 'link',
+  expires: 'Wed, Nov 20, 11:00 AM EST',
+  best: null,
+  booking: null,
+  coHosts: 1,
+}
+const marks = (guest: string) => [...container.querySelectorAll(`tr[data-guest="${guest}"] td[data-mark]`)].map((td) => td.getAttribute('data-mark'))
+
 describe('TimeOfferCard', () => {
   it('an offer by link: who, the times, the link, both copies, held and not sent', async () => {
     const writeText = vi.fn(async () => {})
@@ -96,6 +120,55 @@ describe('TimeOfferCard', () => {
   })
 })
 
+describe('a poll', () => {
+  it('waiting: the grid of guests by times, the calendar marker, each guest\'s link to copy, how many still to answer', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    draw(h(TimeOfferCard, { data: POLL }))
+    expect(q('[data-time-offer-card="poll"]')?.textContent).toContain('Times asked of 3 people · 45 min · with a teammate')
+    expect([...container.querySelectorAll('thead th[scope="col"]')].map((th) => th.textContent)).toEqual(['Tue, Nov 1910:00 AM', 'Tue, Nov 192:00 PM', 'Wed, Nov 2011:00 AM'])
+    expect(marks('Dana Reyes')).toEqual(['works', 'no', 'works'])
+    expect(marks('Sam Ortiz')).toEqual(['no', 'no', 'works'])
+    expect(marks('Lee Park')).toEqual(['waiting', 'waiting', 'waiting'])
+    expect(q('tr[data-guest="Sam Ortiz"] [data-from-calendar]')).not.toBeNull()
+    expect(q('tr[data-guest="Dana Reyes"] [data-from-calendar]')).toBeNull()
+    await act(async () => (q('[data-time-offer-copy="guest:r-3"]') as HTMLButtonElement).click())
+    expect(writeText).toHaveBeenCalledWith('https://app.example/t/CCCCCCCCCCCCCCCCCCCCCCCC')
+    expect(q('[data-time-offer-status]')?.textContent).toBe("1 of 3 still to answer. Held until everyone answers or Wed, Nov 20, 11:00 AM EST. Nothing was sent: share each guest's link.")
+  })
+
+  it('booked: the booked time marked, the video link, no links to copy, who is off it struck', () => {
+    draw(
+      h(TimeOfferCard, {
+        data: {
+          ...POLL,
+          state: 'booked',
+          times: POLL.kind === 'poll' ? POLL.times.map((t, i) => ({ ...t, booked: i === 2 })) : [],
+          guests: POLL.kind === 'poll' ? POLL.guests.map((g, i) => ({ ...g, answered: true, works: [T[2]], attending: i !== 2 })) : [],
+          booking: { when: 'Wed, Nov 20, 11:00 AM EST', videoLink: 'https://meet.example/abc', state: 'confirmed' },
+        },
+      }),
+    )
+    expect(q('thead th[data-booked]')?.textContent).toBe('Wed, Nov 2011:00 AM')
+    expect(container.querySelector('[data-time-offer-copy]')).toBeNull()
+    expect(q('[data-time-offer-status]')?.textContent).toBe('Booked: Wed, Nov 20, 11:00 AM EST.')
+    expect(container.textContent).toContain('meet.example/abc')
+    expect(q('tr[data-guest="Lee Park"] th')?.className).toContain('line-through')
+  })
+
+  it('no common time: the best option', () => {
+    draw(h(TimeOfferCard, { data: { ...POLL, best: 'Wed, Nov 20, 11:00 AM EST (Dana Reyes and Sam Ortiz can; Lee Park can\'t)' } }))
+    expect(q('[data-time-offer-status]')?.textContent).toBe("No time works for everyone. Most can make Wed, Nov 20, 11:00 AM EST (Dana Reyes and Sam Ortiz can; Lee Park can't).")
+  })
+
+  it('a poll in the list carries its grid instead of the times line', () => {
+    draw(h(TimeOfferCard, { data: { kind: 'list', offers: [{ id: 'p-1', recipient: '3 people', title: 'Planning session', state: 'open', times: [], expires: null, poll: POLL as Extract<TimeOfferCardData, { kind: 'poll' }> }], bookings: [] } }))
+    expect(q('[data-time-offer-offers] li')?.textContent).toContain('3 people · Planning session')
+    expect(q('[data-time-offer-offers] [data-time-offer-grid]')).not.toBeNull()
+    expect(q('[data-time-offer-offers] li')?.textContent).not.toContain('waiting for a pick')
+  })
+})
+
 describe('the chat renders it for the time-offer tools', () => {
   const ctx = (toolName: string, state: ToolRenderContext['state'], output?: unknown): ToolRenderContext =>
     ({
@@ -129,6 +202,9 @@ describe('the chat renders it for the time-offer tools', () => {
     expect(rendererFor('accept_time_offer')).toBeDefined()
     expect(rendererFor('list_time_offers')).toBeDefined()
     expect(rendererFor('list_time_offers')!.render(ctx('list_time_offers', 'result', { success: true, offers: [], bookings: [] }))).toBeUndefined()
+    expect(rendererFor('record_time_offer_answer')).toBeDefined()
+    expect(rendererFor('book_poll_time')).toBeDefined()
+    expect(rendererFor('nudge_time_offer')).toBeUndefined()
     expect(rendererFor('withdraw_time_offer')).toBeUndefined()
     expect(rendererFor('cancel_offered_meeting')).toBeUndefined()
   })

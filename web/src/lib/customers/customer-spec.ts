@@ -24,7 +24,7 @@ import { findCustomerByPhone, type CustomerByPhone } from './lookup'
 import { reminderAt, type CustomerReminder } from './reminder-store'
 import { getBusinessProfile } from './store'
 import { formatCents, quoteSummary, type BusinessProfile, type CustomerBooking, type CustomerQuote } from './types'
-import { openSlotsOf, type TimeOffer } from '@/lib/time-offers/types'
+import { openSlotsOf, type PollRecipient, type TimeOffer, type TimeOfferPoll } from '@/lib/time-offers/types'
 import { slotLabel as offerSlotLabel, zoneLabel } from '@/lib/time-offers/words'
 
 export interface CustomerContext {
@@ -87,6 +87,7 @@ export function buildCustomerWhoYouAre(input: {
     `- Booking a ${kind}: find_open_slots, then offer two or three of the open times in one short sentence. When they pick one, make sure you have their name and the address for the ${kind}, then call request_booking once with that slot's exact start. ` +
       `It holds the slot and asks ${o} by text: tell them ${o} will confirm by text shortly. Never say it's booked before then.`,
     `- Times someone at ${b} offered them (in their section, "times offered", with the offer's id and each time's start): when they pick one, call pick_offered_time once with that offer and that time's exact start. It is booked at once; tell them it's confirmed. Only those times: for any other time, pass it on with message_owner.`,
+    `- Times someone at ${b} asked several people about (in their section, "times asked about", with the poll's id and each time's start): when they say which work (any number, or none), call answer_offered_times once with that poll and the starts of every one that works, or none_work. They can change it until it's booked; tell them it's noted. Only those times.`,
     `- A reminder we texted them (in their bookings section, with its id): when they say yes, confirm_appointment. When they want another time for a booked ${kind}, find_open_slots, offer two or three, then move_appointment with the one they pick. A meeting is ${o}'s to move: ask what suits them and pass it on with message_owner.`,
     `- Anything else for ${o} (a question you can't answer, a complaint, a special request): message_owner, in their words. Mark it urgent only when it is.`,
     `- When they tell you something worth knowing next time (how to reach them, their building's doorman, that the rug is silk), keep it with remember_about_guest.`,
@@ -139,10 +140,22 @@ export function customerRecordSection(
   reminders: readonly CustomerReminder[] = [],
   offers: readonly TimeOffer[] = [],
   now: number = Date.now(),
+  polls: ReadonlyArray<{ poll: TimeOfferPoll; recipient: PollRecipient }> = [],
 ): string | null {
   const open = offers.map((o) => ({ offer: o, slots: openSlotsOf(o, now) })).filter((o) => o.slots.length > 0)
-  if (!quotes.length && !bookings.length && !reminders.length && !open.length) return null
+  const asked = polls.map((p) => ({ ...p, slots: openSlotsOf(p.poll, now) })).filter((p) => p.slots.length > 0)
+  if (!quotes.length && !bookings.length && !reminders.length && !open.length && !asked.length) return null
   const lines = [`## ${customerName}'s quotes and bookings`]
+  for (const { poll, recipient, slots } of asked.slice(0, 3)) {
+    const zone = zoneLabel(poll.timeZone, Date.parse(slots[0].startsAt))
+    const times = slots.map((s) => `${offerSlotLabel(s.startsAt, poll.timeZone)} ${zone} (start ${s.startsAt})`).join('; ')
+    const said = recipient.answeredAt
+      ? recipient.works.length
+        ? ` They said these work: ${slots.filter((s) => recipient.works.includes(s.id)).map((s) => offerSlotLabel(s.startsAt, poll.timeZone)).join('; ')}.`
+        : ' They said none of these work.'
+      : ''
+    lines.push(`- Times asked about by ${poll.hostName} for ${poll.title} (${poll.durationMinutes} min), with other people too: ${times}.${said} [poll ${poll.id}]`)
+  }
   for (const { offer, slots } of open.slice(0, 3)) {
     const zone = zoneLabel(offer.timeZone, Date.parse(slots[0].startsAt))
     const times = slots.map((s) => `${offerSlotLabel(s.startsAt, offer.timeZone)} ${zone} (start ${s.startsAt})`).join('; ')

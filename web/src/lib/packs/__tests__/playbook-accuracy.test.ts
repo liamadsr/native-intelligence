@@ -74,10 +74,10 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
     'thread_ids', 'types', 'undo', 'unread',
   ],
   // A1c meetings-mail: rewritten in 325; find_times' answer (suggested, free, unknown) in 551; its teammates (people, coverage)
-  // and the working hours' availability_sharing in 553; offer_times' send_by (link, email, text) in 580.
+  // and the working hours' availability_sharing in 553; offer_times' send_by (link, email, text) in 580; its recipients (a poll) in 584.
   'calendar-playbook': [
     'account_email', 'attendees', 'availability_sharing', 'calendar', 'capture_status', 'coverage', 'description', 'email', 'end', 'end_date',
-    'event_id', 'free', 'from', 'hours_ahead', 'link', 'local_exchange', 'location', 'max_results', 'participant_email', 'people', 'send_by',
+    'event_id', 'free', 'from', 'hours_ahead', 'link', 'local_exchange', 'location', 'max_results', 'participant_email', 'people', 'recipients', 'send_by',
     'since', 'start', 'start_date', 'suggested', 'text', 'title', 'truncated', 'unknown', 'view',
   ],
   'actions-playbook': [
@@ -189,9 +189,9 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
   ],
   // A1c meetings-mail: 325's recipes (write-in-your-tone and clear-inbox, rewritten in 325, are above; meeting-prep is the 159 row).
   'meeting-prep': ['all_time', 'attendees', 'domain', 'email', 'event_id', 'max_results', 'participant_email'],
-  // 551: find_times' inputs and answer in place of reading the events; 553: its teammates (people).
+  // 551: find_times' inputs and answer in place of reading the events; 553: its teammates (people); 584: a poll's offer_times (recipients, co_hosts).
   'find-a-time': [
-    'attendees', 'buffer_minutes', 'duration_minutes', 'end', 'free', 'from', 'location', 'people', 'start', 'suggested', 'time_zone', 'title',
+    'attendees', 'buffer_minutes', 'co_hosts', 'duration_minutes', 'end', 'free', 'from', 'location', 'people', 'recipients', 'start', 'suggested', 'time_zone', 'title',
     'to', 'unknown', 'working_hours_are_default',
   ],
   'meeting-recap': ['capture_id', 'has_more', 'next_offset', 'project_id', 'since'],

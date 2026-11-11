@@ -441,7 +441,8 @@ export function createTools(
     ...createAvailabilityTools(userId, workspaceId, { timeZone: options?.timeZone, omitGrants }),
     // Times offered to an outside person, held until they pick one (src/lib/time-offers/).
     // offer_times by email or text sends only as the person's approved call; cancel_offered_meeting is never an unattended run's.
-    ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, timeZone: options?.timeZone }),
+    // A guest's or a linked agent's turn reads no grant of the person's: no linked guest is answered from their calendar.
+    ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, timeZone: options?.timeZone, omitGrants }),
     // Booking links: standing public pages to book time with the person or their team (src/lib/booking-links/).
     // Making and changing one is attended only (ATTENDED_ONLY_TOOL_NAMES): the ceiling keeps them out of unattended runs.
     ...createBookingLinkTools(userId, workspaceId),
