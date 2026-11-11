@@ -110,6 +110,12 @@ interface ListEventsOptions {
    * throws instead.
    */
   onSkipped?: (skipped: CalendarSkip) => void
+  /**
+   * The app's own calendar view: the person's scheduled meeting links that no
+   * provider event stands for (src/lib/meeting-links/calendar-events.ts) are
+   * shown too. Off for every other reader (the agents, the watches, the CRM).
+   */
+  includeMeetingLinks?: boolean
 }
 
 /** A calendar a non-strict read left out, and why (ListEventsOptions.onSkipped). */
@@ -305,10 +311,24 @@ export async function listCalendarEventsUnified(
     }
   })()
 
-  const [oauthEvents, localEvents] = await Promise.all([oauthEventsPromise, localEventsPromise])
+  // Meeting links (phase 7): only for the app's calendar view; a read that fails leaves them out, never the calendar.
+  const meetingEventsPromise: Promise<CalendarEvent[]> = options.includeMeetingLinks
+    ? import('@/lib/meeting-links/calendar-events')
+        .then(({ meetingCalendarEvents }) => meetingCalendarEvents(supabase, userId, { timeMin, timeMax, workspaceId: options.workspaceId }))
+        .catch((err: unknown) => {
+          console.warn('[calendar] meeting links not read:', err instanceof Error ? err.message.slice(0, 160) : 'unknown')
+          return []
+        })
+    : Promise.resolve([])
+
+  const [oauthEvents, localEvents, meetingEvents] = await Promise.all([oauthEventsPromise, localEventsPromise, meetingEventsPromise])
+
+  // A meeting link a provider event already carries (the calendar dialog's "Add a meeting link", a booking) shows once: the provider's.
+  const carried = new Set([...oauthEvents, ...localEvents].map((e) => e.conferenceUrl).filter((u): u is string => !!u))
+  const ownMeetings = meetingEvents.filter((e) => !e.conferenceUrl || !carried.has(e.conferenceUrl))
 
   // Merge all events, sort by start time
-  const allEvents = [...oauthEvents, ...localEvents]
+  const allEvents = [...oauthEvents, ...localEvents, ...ownMeetings]
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
 
   // Dedup: if same event title + start + end appears across accounts, keep first

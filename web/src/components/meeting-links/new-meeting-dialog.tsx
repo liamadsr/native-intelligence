@@ -2,10 +2,13 @@
 
 /**
  * "New meeting link" (calls plan, phase 7), from team chat: a title, and
- * optionally a time and a length. Made, it shows the link with Copy and
- * Open; the meeting's conversation shows in team chat once it is used.
- * Without a time, the link works from now for 30 days; with one, from 15
- * minutes before until 2 hours after its planned end.
+ * optionally a time and a length. Made, it shows the link with Copy and Join
+ * now (the link's own same-origin Join), and it shows in team chat's
+ * meetings section at once. Without a time, the link works from now for 30
+ * days; with one, from 15 minutes before until 2 hours after its planned end,
+ * and it goes on the person's calendar: the one they pick when they have
+ * more than one writable calendar (remembered for next time), their only one,
+ * or, with none connected, the app's own calendar.
  */
 
 import { useEffect, useState } from 'react'
@@ -14,7 +17,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { copyTextToClipboard } from '@/lib/clipboard'
-import { requestNewMeeting, type CreatedMeeting } from '@/lib/meeting-links/client'
+import { enterPathOf, fetchMeetingCalendars, requestNewMeeting, type CreatedMeeting, type MeetingCalendar } from '@/lib/meeting-links/client'
+import { defaultCalendarOf, rememberCalendarChoice, storedCalendarChoice } from '@/lib/meeting-links/calendar-pick'
 import { MEETING_DEFAULT_MINUTES, MEETING_TITLE_MAX } from '@/lib/meeting-links/shape'
 
 const LENGTHS = [15, 30, 45, 60, 90, 120]
@@ -26,7 +30,19 @@ export function localInputToIso(value: string): string | null {
   return Number.isNaN(at.getTime()) ? null : at.toISOString()
 }
 
-export function NewMeetingDialog({ open, onOpenChange, onOpenMeeting }: { open: boolean; onOpenChange: (open: boolean) => void; onOpenMeeting?: (meeting: CreatedMeeting) => void }) {
+export function NewMeetingDialog({
+  open,
+  onOpenChange,
+  onCreated,
+  initialCalendars,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Made: the meetings section shows it now. */
+  onCreated?: (meeting: CreatedMeeting) => void
+  /** Tests and screenshots: the person's writable calendars, as read. */
+  initialCalendars?: MeetingCalendar[]
+}) {
   const [title, setTitle] = useState('')
   const [scheduled, setScheduled] = useState(false)
   const [when, setWhen] = useState('')
@@ -35,6 +51,26 @@ export function NewMeetingDialog({ open, onOpenChange, onOpenMeeting }: { open: 
   const [saving, setSaving] = useState(false)
   const [made, setMade] = useState<CreatedMeeting | null>(null)
   const [copied, setCopied] = useState(false)
+  // The person's writable calendars (asked once a time is set), and the one picked.
+  const [calendars, setCalendars] = useState<MeetingCalendar[] | null>(initialCalendars ?? null)
+  const [calendarId, setCalendarId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || !scheduled || calendars) return
+    let cancelled = false
+    void fetchMeetingCalendars().then((found) => {
+      if (!cancelled) setCalendars(found)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, scheduled, calendars])
+
+  useEffect(() => {
+    if (!calendars) return
+    const { remembered, appDefault } = storedCalendarChoice()
+    setCalendarId((cur) => (cur && calendars.some((c) => c.id === cur) ? cur : defaultCalendarOf(calendars.map((c) => c.id), remembered, appDefault)))
+  }, [calendars])
 
   useEffect(() => {
     if (!open) return
@@ -53,11 +89,17 @@ export function NewMeetingDialog({ open, onOpenChange, onOpenMeeting }: { open: 
     if (scheduled && !startsAt) return setError('Pick a date and time, or turn off the schedule.')
     setSaving(true)
     setError(null)
-    const res = await requestNewMeeting({ title, startsAt, minutes: scheduled ? minutes : null })
+    const onCalendar = scheduled && calendars && calendars.length ? calendarId : null
+    const res = await requestNewMeeting({ title, startsAt, minutes: scheduled ? minutes : null, calendarAccountId: onCalendar })
     setSaving(false)
     if (!res.ok) return setError(res.line)
+    if (onCalendar && calendars && calendars.length > 1) rememberCalendarChoice(onCalendar)
     setMade(res.meeting)
+    onCreated?.(res.meeting)
   }
+
+  const enter = made ? enterPathOf(made.url) : null
+  const chosen = calendars?.find((c) => c.id === calendarId) ?? null
 
   const copy = async () => {
     if (!made) return
@@ -86,9 +128,19 @@ export function NewMeetingDialog({ open, onOpenChange, onOpenMeeting }: { open: 
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied ? 'Copied' : 'Copy'}
               </Button>
+              {enter && (
+                <form method="post" action={enter} className="shrink-0">
+                  <Button size="sm" type="submit" data-new-meeting-join="">
+                    Join now
+                  </Button>
+                </form>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {scheduled ? 'It works from 15 minutes before the start until 2 hours after the planned end.' : 'It works for the next 30 days.'} You can turn it off from the meeting’s conversation.
+              {scheduled
+                ? `It works from 15 minutes before the start until 2 hours after the planned end${chosen ? `, and it’s on your calendar (${chosen.label})` : ', and it’s on your calendar here'}.`
+                : 'It works for the next 30 days.'}{' '}
+              It’s in Meetings in team chat; you can turn it off there.
             </p>
           </div>
         ) : (
@@ -119,21 +171,36 @@ export function NewMeetingDialog({ open, onOpenChange, onOpenMeeting }: { open: 
                 </label>
               </div>
             )}
+            {scheduled && calendars && calendars.length > 1 && (
+              <label className="block space-y-1">
+                <span className="text-xs font-medium text-muted-foreground">Calendar</span>
+                <select
+                  value={calendarId ?? ''}
+                  onChange={(e) => setCalendarId(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  data-new-meeting-calendar=""
+                >
+                  {calendars.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label} · {c.provider === 'google' ? 'Google Calendar' : 'Outlook'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {scheduled && calendars && calendars.length === 1 && (
+              <p className="text-xs text-muted-foreground" data-new-meeting-calendar-one="">
+                It goes on your calendar ({calendars[0].label}).
+              </p>
+            )}
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         )}
         <DialogFooter>
           {made ? (
-            <>
-              {onOpenMeeting && (
-                <Button variant="outline" size="sm" onClick={() => onOpenMeeting(made)}>
-                  Start the meeting
-                </Button>
-              )}
-              <Button size="sm" onClick={() => onOpenChange(false)}>
-                Done
-              </Button>
-            </>
+            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
+              Done
+            </Button>
           ) : (
             <>
               <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>

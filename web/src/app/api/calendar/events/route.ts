@@ -4,6 +4,9 @@ import { listCalendarEventsUnified, listCalendarEvents, createCalendarEvent, upd
 import { ensureContactsForCalendarEvents } from '@/lib/crm/calendar-contacts'
 import { requireWorkspace } from '@/lib/api-auth'
 import { meetingLinkForNewEvent } from '@/lib/meeting-links/calendar'
+import { changeMeeting, meetingIdOfEvent, meetingOfProviderEvent } from '@/lib/meeting-links/calendar-events'
+import { revokeMeeting } from '@/lib/meeting-links/store'
+import { getServiceClient } from '@/lib/admin'
 
 export async function GET(req: Request) {
   try {
@@ -25,6 +28,8 @@ export async function GET(req: Request) {
       accountIds,
       calendarIds,
       workspaceId,
+      // The app's calendar view: the person's scheduled meeting links show too (phase 7).
+      includeMeetingLinks: true,
     }
 
     console.log('[Calendar Events] workspaceId:', workspaceId, 'accountIds:', accountIds, 'userId:', user.id)
@@ -78,6 +83,7 @@ export async function POST(req: Request) {
 
     // "Add a meeting link" (phase 7): a meeting of ours, named and timed as the event, its link the event's location.
     let meetingUrl: string | null = null
+    let meetingId: string | null = null
     if (body.meetingLink === true) {
       const ws = await requireWorkspace()
       if (ws instanceof Response) return ws
@@ -85,6 +91,7 @@ export async function POST(req: Request) {
       const made = await meetingLinkForNewEvent(ws.supabase, { workspaceId: ws.workspaceId, title: String(title), start, end, isAllDay, location, description })
       if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 })
       meetingUrl = made.link.url
+      meetingId = made.link.meetingId
       location = made.location
       description = made.description
     }
@@ -98,6 +105,12 @@ export async function POST(req: Request) {
       attendees,
       isAllDay,
     }, accountId)
+
+    // The meeting remembers its event (586), so a new link, a revoke or an end for everyone keeps it in step.
+    if (meetingId) {
+      const { error } = await getServiceClient().from('meeting').update({ calendar_event_id: event.id, calendar_account_id: event.accountId ?? accountId ?? null }).eq('id', meetingId)
+      if (error) console.warn(`[meetings] meeting=${meetingId} its calendar event not kept:`, error.message.slice(0, 120))
+    }
 
     return NextResponse.json(meetingUrl ? { event, meetingUrl } : { event })
   } catch (error) {
@@ -124,6 +137,14 @@ export async function PATCH(req: Request) {
       )
     }
 
+    // A meeting link the app's calendar shows from the meeting itself: moving or renaming it moves or renames the meeting.
+    const shownMeeting = meetingIdOfEvent(eventId)
+    if (shownMeeting) {
+      const changed = await changeMeeting(getServiceClient(), { meetingId: shownMeeting, userId: user.id, title: typeof title === 'string' ? title : undefined, startsAt: start || undefined, endsAt: end || undefined })
+      if (!changed.ok) return NextResponse.json({ error: changed.error }, { status: changed.status })
+      return NextResponse.json({ event: { id: eventId, title: changed.title, start: changed.startsAt, end: changed.endsAt } })
+    }
+
     const updates: Record<string, string> = {}
     if (start) updates.start = start
     if (end) updates.end = end
@@ -132,6 +153,17 @@ export async function PATCH(req: Request) {
     if (location !== undefined) updates.location = location
 
     const event = await updateCalendarEvent(user.id, eventId, updates)
+
+    // A meeting's own event, moved or renamed on the calendar: the meeting follows (its event already did). Never fails the edit.
+    if (start || end || typeof title === 'string') {
+      const svc = getServiceClient()
+      const tied = await meetingOfProviderEvent(svc, user.id, eventId).catch(() => null)
+      if (tied) {
+        await changeMeeting(svc, { meetingId: tied, userId: user.id, title: typeof title === 'string' ? title : undefined, startsAt: start || undefined, endsAt: end || undefined }, { updateEvent: async () => event }).catch((err) =>
+          console.warn(`[meetings] meeting=${tied} didn't follow its event:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown'),
+        )
+      }
+    }
 
     return NextResponse.json({ event })
   } catch (error) {
@@ -146,7 +178,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { user } = await authenticateUser(req)
+    const { user, supabase } = await authenticateUser(req)
     const url = new URL(req.url)
     const eventId = url.searchParams.get('eventId')
 
@@ -157,7 +189,22 @@ export async function DELETE(req: Request) {
       )
     }
 
+    // Deleting a meeting link from the calendar revokes it (as the host: 574's meeting_revoke).
+    const shownMeeting = meetingIdOfEvent(eventId)
+    if (shownMeeting) {
+      await revokeMeeting(supabase, shownMeeting)
+      return NextResponse.json({ success: true })
+    }
+
     await deleteCalendarEvent(user.id, eventId)
+
+    // A meeting's own event deleted: the meeting's link is revoked too (it has no event any more). Never fails the delete.
+    const svc = getServiceClient()
+    const tied = await meetingOfProviderEvent(svc, user.id, eventId).catch(() => null)
+    if (tied) {
+      await svc.from('meeting').update({ calendar_event_id: null }).eq('id', tied)
+      await revokeMeeting(supabase, tied).catch((err) => console.warn(`[meetings] meeting=${tied} not revoked with its event:`, err instanceof Error ? err.message.slice(0, 120) : 'unknown'))
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

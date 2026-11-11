@@ -14,6 +14,7 @@
  * the routes turn into a status.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { MEETING_RECENT_MS } from '@/lib/meeting-links/section'
 import {
   TEAM_CHAT_MESSAGE_COLUMNS,
   TEAM_CHAT_PAGE_SIZE,
@@ -109,8 +110,11 @@ export async function listChannels(
     const sum = inThreads.get(t.channel_id) ?? { unread: 0, mentions: 0 }
     inThreads.set(t.channel_id, { unread: sum.unread + t.unread, mentions: sum.mentions + t.mentions })
   }
-  // A meeting's conversation (phase 7) shows once it was used: a call or a message in it.
-  const list = ((channels.data ?? []) as ChannelRow[]).filter((row) => row.kind !== 'meeting' || !!row.last_message_at).map((row): TeamChatChannel => {
+  // A meeting's conversation (phase 7) is listed once it was used (a call or a message in it), or while its meeting is current
+  // (made, upcoming, live, or ended within MEETING_RECENT_MS): team chat's meetings section opens it from the moment it is made.
+  const rows = (channels.data ?? []) as ChannelRow[]
+  const current = await currentMeetingChannels(supabase, rows.filter((row) => row.kind === 'meeting' && !row.last_message_at).map((row) => row.id))
+  const list = rows.filter((row) => row.kind !== 'meeting' || !!row.last_message_at || current.has(row.id)).map((row): TeamChatChannel => {
     const notify = notifyLevelOf(row.kind, levelOf.get(row.id))
     const muted = notify === 'muted'
     return {
@@ -131,6 +135,17 @@ export async function listChannels(
     }
   })
   return { channels: list, threads }
+}
+
+/** Of these unused meeting conversations, the ones whose meeting is current (not revoked or run out more than MEETING_RECENT_MS ago). */
+async function currentMeetingChannels(supabase: SupabaseClient, channelIds: readonly string[]): Promise<Set<string>> {
+  if (!channelIds.length) return new Set()
+  const since = new Date(Date.now() - MEETING_RECENT_MS).toISOString()
+  const { data, error } = await supabase.from('meeting').select('channel_id, revoked_at').in('channel_id', [...channelIds]).gte('closes_at', since)
+  // A failed read: they stay out of the list, as before this (the section still shows them, from its own read).
+  if (error) return new Set()
+  const floor = Date.parse(since)
+  return new Set(((data ?? []) as Array<{ channel_id: string; revoked_at: string | null }>).filter((m) => !m.revoked_at || Date.parse(m.revoked_at) >= floor).map((m) => m.channel_id))
 }
 
 /** One channel the person may read, or null. */
