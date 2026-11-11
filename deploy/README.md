@@ -1156,7 +1156,7 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
-| Apply a database migration | After `git pull` has brought the file, in `supabase/stack`: `sudo docker compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 < /opt/native-intelligence/web/supabase/migrations/<file>` (before the code that needs it is rolled out) |
+| Apply a database migration | After `git pull` has brought the file: `sudo docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 < /opt/native-intelligence/web/supabase/migrations/<file>`, before the code that needs it is rolled out. This is the command production's migrations have been applied with since the move. If the file does not end with ``notify pgrst, 'reload schema';``, send that line the same way afterwards, or the data API keeps its old picture of the tables and functions. |
 
 Stopping and starting is safe: Redis writes every change to disk within a second and Postgres is Postgres. `sudo docker compose down` keeps the volumes. **`down -v` deletes them.** In `supabase/stack` that is the app's whole database and every stored file: never run it there.
 
