@@ -12,8 +12,10 @@ import { LINK_FENCED_KINDS, PRIVATE_GRAPH_KINDS } from '../entity-fences'
 const all = migrationsInOrder()
 const sql = all.find((m) => m.file.startsWith('522_'))!.sql
 const sql503 = all.find((m) => m.file.startsWith('503_'))!.sql
-function fnBlock(text: string): string {
-  const i = text.indexOf('create or replace function public.entity_visible_to(')
+const sql519 = all.find((m) => m.file.startsWith('519_'))!.sql
+const FIVE = 'create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid, p_grants boolean)'
+function fnBlock(text: string, head = 'create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)\n'): string {
+  const i = text.indexOf(head)
   const open = text.indexOf('$$', i)
   return text.slice(i, text.indexOf('$$;', open + 2) + 3)
 }
@@ -48,6 +50,21 @@ describe('migration 522: table edges follow the table', () => {
     for (const kind of LINK_FENCED_KINDS) expect(fn, kind).toMatch(new RegExp(`'${kind}'`))
   })
 
+  it('519’s 5-arg form gains the same arms, its grant arm only when grants count', () => {
+    const fn = fnBlock(sql, FIVE)
+    expect(fn).toContain('return case when p_grants is true then public.data_table_visible_to(v_table, p_user)')
+    expect(fn).toContain('else public.data_table_visible_ungranted(v_table, p_user) end;')
+    const back = fn
+      .replace('  v_table uuid;\n', '')
+      .replace(
+        "  elsif v_type = 'data_table' then\n    select t.workspace_id, t.id into v_ws, v_table from public.data_table t where t.id = p_id;\n  elsif v_type = 'data_row' then\n    select r.workspace_id, r.table_id into v_ws, v_table from public.data_row r where r.id = p_id;\n",
+        '',
+      )
+      .replace(", 'data_table', 'data_row') then return false;", ') then return false;')
+      .replace(/  -- A table, and a row through its table: 520's rule for p_user, its grant\n[\s\S]*?  end if;\n\n/, '')
+    expect(back).toBe(fnBlock(sql519, FIVE))
+  })
+
   it('the select and insert policies are 503’s with the two kinds in both lists, and writing asks the read rule', () => {
     for (const name of ['entity_link_select', 'entity_link_insert']) {
       const here = policy(sql, name)
@@ -63,10 +80,11 @@ describe('migration 522: table edges follow the table', () => {
   })
 
   it('is the newest word on both, restates no grant, and carries no backslash', () => {
-    for (const needle of ['create or replace function public.entity_visible_to(', 'create policy entity_link_select', 'create policy entity_link_insert']) {
+    for (const needle of ['create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)\n', FIVE, 'create policy entity_link_select', 'create policy entity_link_insert']) {
       expect([...all].reverse().find((m) => m.sql.includes(needle))!.file.startsWith('522_'), needle).toBe(true)
     }
-    expect(sql).not.toMatch(/(grant|revoke)[^;]*function public\.entity_visible_to\(/i)
+    const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+    expect(code).not.toMatch(/(grant|revoke) [^;]*function public\.entity_visible_to\(/i)
     expect(sql).not.toContain('\\')
   })
 })

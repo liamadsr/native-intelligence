@@ -113,7 +113,11 @@ describe('migration 520: tables, rows and one write path', () => {
     const mine = fn('my_data_table_ids')
     expect(mine).toContain("public.my_entity_grant_ids('data_table')")
     expect(mine).toContain("public.has_entity_grant('data_table', t.id, t.workspace_id)")
-    expect(fn('visible_data_table_ids')).toContain('public.data_table_visible_to(t.id, p_user_id)')
+    // The fences' batched form, with grants or (a guest's turn, 519) without.
+    expect(fn('visible_data_table_ids')).toContain('case when p_grants is true then public.data_table_visible_to(t.id, p_user_id)')
+    expect(fn('visible_data_table_ids')).toContain('else public.data_table_visible_ungranted(t.id, p_user_id) end;')
+    expect(fn('data_table_visible_ungranted')).not.toMatch(/entity_grant|has_entity_grant/)
+    expect(sql).toContain('drop function if exists public.visible_data_table_ids(uuid[], uuid);')
     expect(fn('create_data_table')).toContain("if v_role = 'guest' then")
   })
 

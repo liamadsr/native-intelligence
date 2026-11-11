@@ -27,8 +27,10 @@ function db(fail = false) {
     (name, args) => {
       if (fail) return { data: null, error: { message: 'boom' } }
       expect(name).toBe('visible_data_table_ids')
-      // The reader sees the open table and the other workspace's, never the private one.
-      const ids = (args.p_ids as string[]).filter((id) => id !== PRIVATE)
+      // The reader sees the open table and the other workspace's, never the
+      // private one, which only a grant opens (and a guest's turn reads none).
+      const ids = (args.p_ids as string[]).filter((id) => id !== PRIVATE || args.p_grants === true)
+      if (args.p_grants === true) return { data: args.p_user_id === 'u-1' ? ids.filter((id) => id !== PRIVATE) : [], error: null }
       return { data: args.p_user_id === 'u-1' ? ids : [], error: null }
     },
   )
@@ -47,6 +49,13 @@ describe('table fences', () => {
     expect([...(await visiblePrivateKindIds(f.client, 'data_row', 'u-1', ['row-open', 'row-private'], WS))]).toEqual(['row-open'])
     const hidden = await hiddenPrivateRefs(f.client, [{ type: 'data_row', id: 'row-private' }, { type: 'data_table', id: OPEN }, { type: 'project', id: 'p' }], 'u-1', WS)
     expect([...hidden]).toEqual(['data_row:row-private'])
+  })
+
+  it('asks with grants by default, and without them on a guest’s turn', async () => {
+    const f = db()
+    await visiblePrivateKindIds(f.client, 'data_table', 'u-1', [OPEN])
+    await visiblePrivateKindIds(f.client, 'data_row', 'u-1', ['row-open'], WS, { grants: false })
+    expect(f.rpcCalls.map((c) => c.args.p_grants)).toEqual([true, false])
   })
 
   it('fails closed: no user, another user, a failed read', async () => {

@@ -38,9 +38,10 @@
 --      Rows and changes follow their table.
 --      The read policies compare against my_data_table_ids(), one array per
 --      query (an InitPlan), so a page of rows costs one lookup, not one call
---      per row. visible_data_table_ids(ids, user) is the batched form for the
---      graph fences that run on the service role
---      (src/lib/knowledge/entity-fences.ts).
+--      per row. visible_data_table_ids(ids, user, grants) is the batched form
+--      for the graph fences that run on the service role
+--      (src/lib/knowledge/entity-fences.ts); without grants it is
+--      data_table_visible_ungranted, for a guest's turn (519).
 --   6. Writes. A member writes none of the three tables directly (SELECT
 --      only); every write is one of two SECURITY DEFINER functions, which
 --      check the caller's edit access themselves:
@@ -293,8 +294,32 @@ as $$
       or (t.id in (select id from granted) and public.has_entity_grant('data_table', t.id, t.workspace_id));
 $$;
 
--- The ids among p_ids that p_user may read: the graph fences' batched form.
-create or replace function public.visible_data_table_ids(p_ids uuid[], p_user_id uuid)
+-- The same without the grant arm: what a guest's or a linked agent's turn
+-- reads (519's rule: a grant shares a table with the person, never with
+-- whoever they let talk to their agent).
+create or replace function public.data_table_visible_ungranted(p_table_id uuid, p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select p_user_id is not null
+     and (auth.uid() is null or auth.uid() = p_user_id)
+     and exists (
+       select 1
+         from public.data_table t
+         join public.member m on m.workspace_id = t.workspace_id and m.user_id = p_user_id
+        where t.id = p_table_id
+          and (t.visibility = 'workspace'
+               or (t.owner_member_id is not null and t.owner_member_id = m.id))
+     );
+$$;
+
+-- The ids among p_ids that p_user may read, with grants or without: the
+-- graph fences' batched form. No default on p_grants, as 519's forms.
+drop function if exists public.visible_data_table_ids(uuid[], uuid);
+create or replace function public.visible_data_table_ids(p_ids uuid[], p_user_id uuid, p_grants boolean)
 returns uuid[]
 language sql
 stable
@@ -304,17 +329,20 @@ as $$
   select coalesce(array_agg(t.id), '{}'::uuid[])
     from public.data_table t
    where t.id = any (coalesce(p_ids, '{}'::uuid[]))
-     and public.data_table_visible_to(t.id, p_user_id);
+     and case when p_grants is true then public.data_table_visible_to(t.id, p_user_id)
+              else public.data_table_visible_ungranted(t.id, p_user_id) end;
 $$;
 
 revoke all on function public.data_table_visible_to(uuid, uuid) from public, anon;
 revoke all on function public.data_table_editable_by(uuid, uuid) from public, anon;
 revoke all on function public.my_data_table_ids() from public, anon;
-revoke all on function public.visible_data_table_ids(uuid[], uuid) from public, anon;
+revoke all on function public.data_table_visible_ungranted(uuid, uuid) from public, anon;
+revoke all on function public.visible_data_table_ids(uuid[], uuid, boolean) from public, anon;
 grant execute on function public.data_table_visible_to(uuid, uuid) to authenticated, service_role;
 grant execute on function public.data_table_editable_by(uuid, uuid) to authenticated, service_role;
 grant execute on function public.my_data_table_ids() to authenticated, service_role;
-grant execute on function public.visible_data_table_ids(uuid[], uuid) to authenticated, service_role;
+grant execute on function public.data_table_visible_ungranted(uuid, uuid) to authenticated, service_role;
+grant execute on function public.visible_data_table_ids(uuid[], uuid, boolean) to authenticated, service_role;
 
 alter table public.data_table enable row level security;
 alter table public.data_row enable row level security;

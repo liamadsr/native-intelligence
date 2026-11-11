@@ -238,16 +238,22 @@ const decisionFence: Fence = async (supabase, userId, ids, workspaceId, opts = {
 }
 
 /**
- * A table: data_table_visible_to for the user, through 520's batched form
- * (one call, however many ids). On a session client the function answers
+ * A table: data_table_visible_to for the user (without grants on a guest's
+ * turn: data_table_visible_ungranted), through 520's batched form (one
+ * call, however many ids). On a session client the function answers
  * only for the caller themself, so another user's question comes back empty.
  */
-const dataTableFence: Fence = async (supabase, userId, ids, workspaceId) => {
+const dataTableFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
   const wanted = uniq(ids)
   if (!userId || wanted.length === 0) return new Set()
   const out = new Set<string>()
   for (let i = 0; i < wanted.length; i += ID_CHUNK) {
-    const { data, error } = await supabase.rpc('visible_data_table_ids', { p_ids: wanted.slice(i, i + ID_CHUNK), p_user_id: userId })
+    const { data, error } = await supabase.rpc('visible_data_table_ids', {
+      p_ids: wanted.slice(i, i + ID_CHUNK),
+      p_user_id: userId,
+      // A guest's or a linked agent's turn: no grant opens a table (519's rule).
+      p_grants: opts.grants !== false,
+    })
     if (error) {
       console.warn('[entity-fences] read failed:', error.message)
       return new Set()
@@ -260,7 +266,7 @@ const dataTableFence: Fence = async (supabase, userId, ids, workspaceId) => {
 }
 
 /** A row is readable by whoever may read its table. */
-const dataRowFence: Fence = async (supabase, userId, ids, workspaceId) => {
+const dataRowFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
   const wanted = uniq(ids)
   if (!userId || wanted.length === 0) return new Set()
   const rows = await rowsByIds(wanted, (c) => {
@@ -274,6 +280,7 @@ const dataRowFence: Fence = async (supabase, userId, ids, workspaceId) => {
     userId,
     rows.map((r) => r.table_id as string),
     workspaceId,
+    opts,
   )
   return new Set(rows.filter((r) => readable.has(r.table_id as string)).map((r) => r.id as string))
 }
