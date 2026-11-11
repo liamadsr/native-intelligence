@@ -28,6 +28,7 @@ import {
   TEAM_CALL_MAX_PARTICIPANTS,
   TEAM_CALL_TOKEN_TTL_SECONDS,
 } from './types'
+import { GUEST_METADATA, guestIdentity } from '@/lib/meeting-links/shape'
 
 export interface TeamCallsConfig {
   /** wss:// (or ws:// on a developer's machine): what the browser dials. */
@@ -95,6 +96,49 @@ export async function teamCallToken(config: TeamCallsConfig, input: { room: stri
     ttl: TEAM_CALL_TOKEN_TTL_SECONDS,
   })
   token.addGrant(teamCallGrant(input.room, { listenOnly: input.listenOnly }))
+  return token.toJwt()
+}
+
+/**
+ * The grants a meeting guest's token carries (phase 7): one room; publish the
+ * microphone, the camera and a shared screen, and subscribe. Nothing else:
+ * no data, no metadata or name of their own (the server's `{"guest":true}`
+ * stays what members see), never room admin, never hidden.
+ */
+export const MEETING_GUEST_PUBLISH_SOURCES = [TrackSource.MICROPHONE, TrackSource.CAMERA, TrackSource.SCREEN_SHARE]
+
+/**
+ * `listenOnly` as a member's (phase 6): the meeting's call has notes or a
+ * recording on that the guest's page has not shown them and they have not
+ * said go to; nothing is published until they do (allowGuestPublish).
+ */
+export function meetingGuestGrant(room: string, opts: { listenOnly?: boolean } = {}): VideoGrant {
+  const listenOnly = opts.listenOnly === true
+  return {
+    room,
+    roomJoin: true,
+    canSubscribe: true,
+    canPublish: !listenOnly,
+    canPublishSources: listenOnly ? [] : MEETING_GUEST_PUBLISH_SOURCES,
+    canPublishData: false,
+    canUpdateOwnMetadata: false,
+    roomCreate: false,
+    roomAdmin: false,
+    roomList: false,
+    roomRecord: false,
+    hidden: false,
+  }
+}
+
+/** A join token for one admitted guest: identity `guest-<id>` (never a member id), the name they typed, marked a guest by the server. */
+export async function meetingGuestToken(config: TeamCallsConfig, input: { room: string; guestId: string; name: string; listenOnly?: boolean }): Promise<string> {
+  const token = new AccessToken(config.apiKey, config.apiSecret, {
+    identity: guestIdentity(input.guestId),
+    name: input.name.trim().slice(0, 60) || 'Guest',
+    metadata: GUEST_METADATA,
+    ttl: TEAM_CALL_TOKEN_TTL_SECONDS,
+  })
+  token.addGrant(meetingGuestGrant(input.room, { listenOnly: input.listenOnly }))
   return token.toJwt()
 }
 
@@ -172,5 +216,12 @@ export async function receiveTeamCallWebhook(config: TeamCallsConfig, body: stri
 export async function allowTeamCallPublish(config: TeamCallsConfig, room: string, identity: string): Promise<void> {
   await rooms(config).updateParticipant(room, identity, {
     permission: { canSubscribe: true, canPublish: true, canPublishData: false, canPublishSources: TEAM_CALL_PUBLISH_SOURCES },
+  })
+}
+
+/** A guest connected listen-only may publish now (they said go to the notice): a guest token's sources, never more. */
+export async function allowGuestPublish(config: TeamCallsConfig, room: string, guestId: string): Promise<void> {
+  await rooms(config).updateParticipant(room, guestIdentity(guestId), {
+    permission: { canSubscribe: true, canPublish: true, canPublishData: false, canPublishSources: MEETING_GUEST_PUBLISH_SOURCES },
   })
 }

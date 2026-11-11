@@ -224,9 +224,10 @@ export function utterancesOfDeepgram(json: unknown): NotesUtterance[] {
   return out
 }
 
-/** The notes' title, from the conversation: "Call in #launch", "Call with Rosa Lind" (a DM, named for its other person). */
-export function notesTitle(place: { kind: 'channel' | 'dm'; name: string | null; otherName?: string | null }): string {
+/** The notes' title, from the conversation: "Call in #launch", "Call with Rosa Lind" (a DM, named for its other person), a meeting's own title. */
+export function notesTitle(place: { kind: 'channel' | 'dm' | 'meeting'; name: string | null; otherName?: string | null }): string {
   if (place.kind === 'channel') return `Call in #${(place.name ?? '').trim() || 'channel'}`
+  if (place.kind === 'meeting') return (place.name ?? '').trim() || 'Meeting'
   const other = place.otherName?.trim()
   return other ? `Call with ${other}` : 'Call'
 }

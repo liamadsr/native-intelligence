@@ -33,6 +33,7 @@ import type {
   Room,
   Track,
 } from 'livekit-client'
+import { guestIdOfIdentity } from '@/lib/meeting-links/shape'
 
 export type CallDeviceKind = 'audioinput' | 'audiooutput' | 'videoinput'
 
@@ -49,6 +50,8 @@ export interface CallTile {
   name: string
   kind: 'person' | 'screen'
   isLocal: boolean
+  /** A meeting guest (identity `guest-<id>`, set by the server): labelled "Guest". */
+  guest: boolean
   speaking: boolean
   micOn: boolean
   /** The video to draw (a camera, or the screen), or null: draw the person's initials. */
@@ -88,7 +91,7 @@ export interface TeamCallJoin {
 export interface TeamCallSessionInfo {
   callId: string
   channelId: string
-  channelKind: 'channel' | 'dm'
+  channelKind: 'channel' | 'dm' | 'meeting'
   /** What the panel calls it: "#launch", or the other person's name. */
   label: string
   /**
@@ -349,7 +352,8 @@ export class TeamCallSession {
   }
 
   private tileOf(p: Participant, lk: typeof import('livekit-client'), speaking: Set<string>, isLocal: boolean): CallTile[] {
-    const name = p.name?.trim() || (isLocal ? 'You' : 'A teammate')
+    const guest = guestIdOfIdentity(p.identity) !== null
+    const name = p.name?.trim() || (isLocal ? 'You' : guest ? 'Guest' : 'A teammate')
     const camera = p.getTrackPublication(lk.Track.Source.Camera)
     const screen = p.getTrackPublication(lk.Track.Source.ScreenShare)
     const tiles: CallTile[] = [
@@ -359,13 +363,14 @@ export class TeamCallSession {
         name,
         kind: 'person',
         isLocal,
+        guest,
         speaking: speaking.has(p.identity),
         micOn: p.isMicrophoneEnabled,
         video: camera && !camera.isMuted && camera.track ? camera.track : null,
       },
     ]
     if (screen?.track && !screen.isMuted) {
-      tiles.push({ key: `${p.identity}:screen`, identity: p.identity, name, kind: 'screen', isLocal, speaking: false, micOn: p.isMicrophoneEnabled, video: screen.track })
+      tiles.push({ key: `${p.identity}:screen`, identity: p.identity, name, kind: 'screen', isLocal, guest, speaking: false, micOn: p.isMicrophoneEnabled, video: screen.track })
     }
     return tiles
   }

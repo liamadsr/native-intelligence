@@ -2,6 +2,8 @@ import { NextResponse, after } from 'next/server'
 import { authenticateUser } from '@/lib/ai/auth'
 import { listCalendarEventsUnified, listCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, getCalendarProvider } from '@/lib/integrations/calendar'
 import { ensureContactsForCalendarEvents } from '@/lib/crm/calendar-contacts'
+import { requireWorkspace } from '@/lib/api-auth'
+import { meetingLinkForNewEvent } from '@/lib/meeting-links/calendar'
 
 export async function GET(req: Request) {
   try {
@@ -64,13 +66,27 @@ export async function POST(req: Request) {
     const { user } = await authenticateUser(req)
     const body = await req.json()
 
-    const { title, start, end, description, location, attendees, isAllDay, accountId } = body
+    const { title, start, end, attendees, isAllDay, accountId } = body
+    let { description, location } = body
 
     if (!title || !start || !end) {
       return NextResponse.json(
         { error: 'title, start, and end are required' },
         { status: 400 },
       )
+    }
+
+    // "Add a meeting link" (phase 7): a meeting of ours, named and timed as the event, its link the event's location.
+    let meetingUrl: string | null = null
+    if (body.meetingLink === true) {
+      const ws = await requireWorkspace()
+      if (ws instanceof Response) return ws
+      if (ws.user.id !== user.id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      const made = await meetingLinkForNewEvent(ws.supabase, { workspaceId: ws.workspaceId, title: String(title), start, end, isAllDay, location, description })
+      if (!made.ok) return NextResponse.json({ error: made.error }, { status: 400 })
+      meetingUrl = made.link.url
+      location = made.location
+      description = made.description
     }
 
     const event = await createCalendarEvent(user.id, {
@@ -83,7 +99,7 @@ export async function POST(req: Request) {
       isAllDay,
     }, accountId)
 
-    return NextResponse.json({ event })
+    return NextResponse.json(meetingUrl ? { event, meetingUrl } : { event })
   } catch (error) {
     if (error instanceof Response) return error
     console.error('Calendar create event error:', error)

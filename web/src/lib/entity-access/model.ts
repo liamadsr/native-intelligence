@@ -94,5 +94,6 @@ export function sharedToastText(shared: readonly Pick<SharedRecord, 'label'>[], 
 /** Who a channel's grant reaches, in words: "#launch", a DM's other person, or null. */
 export function channelAudience(channel: { kind: string; name: string | null }, dmOtherName?: string | null): string | null {
   if (channel.kind === 'dm') return dmOtherName?.trim() || null
+  if (channel.kind === 'meeting') return channel.name ? `the meeting ${channel.name}` : null
   return channel.name ? `#${channel.name}` : null
 }

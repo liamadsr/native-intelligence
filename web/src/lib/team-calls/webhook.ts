@@ -29,9 +29,15 @@
  *     still finds it) or by the egress id. A notes file that ended with
  *     audio is transcribed next (its own Inngest run).
  *
+ *   - a meeting guest's identity (`guest-<id>`, phase 7) is never a member
+ *     id, so 565's member rules never see it: its joins and leaves are
+ *     574's meeting_guest_event (a join by a guest not let into this call,
+ *     a removed one with an old token, is refused and ejected at once), and
+ *     its microphone's notes file is claimed for the guest.
+ *
  * A room that is none of ours (another app's on the same server, a test
- * room), an identity that is not a member id, and any other event are
- * answered and ignored: LiveKit would only send them again.
+ * room), an identity that is neither a member id nor a guest's, and any
+ * other event are answered and ignored: LiveKit would only send them again.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isUuid } from '@/lib/team-chat/types'
@@ -39,7 +45,9 @@ import { endCall, liveCallOfRoom, participantEvent, requestMissedNotices, type M
 import { teamCallIdOfRoom } from './types'
 import type { TeamCallEgressPort } from './egress'
 import { egressRowOfPath, egressStatusOf } from './notes'
-import { applyEgressEvent, liveCallForEgress, requestNotesFiles, startNotesForTrack } from './notes-store'
+import { applyEgressEvent, liveCallForEgress, requestNotesFiles, startNotesForGuestTrack, startNotesForTrack } from './notes-store'
+import { guestIdOfIdentity } from '@/lib/meeting-links/shape'
+import { guestEvent } from '@/lib/meeting-links/store'
 
 /** What the route hands over: the parts of LiveKit's WebhookEvent read here. */
 export interface TeamCallWebhookEvent {
@@ -140,14 +148,29 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
     case 'participant_left':
     case 'participant_connection_aborted': {
       const identity = event.participant?.identity
-      if (!isUuid(identity)) return 'ignored'
+      const guestId = guestIdOfIdentity(identity)
+      if (!isUuid(identity) && !guestId) return 'ignored'
       const joined = event.event === 'participant_joined'
       // Sessions are ordered by when they joined, never by when an event arrived (a reconnect's old leave and new join share a second).
       const sessionJoined = sessionJoinedAt(event.participant)
       const when = joined ? (sessionJoined ?? at) : at
+      if (guestId) {
+        // A meeting guest: 574's own rules (let into this call, or out again).
+        const outcome = await guestEvent(svc, {
+          room,
+          guestId,
+          sid: event.participant?.sid ?? null,
+          joined,
+          at: when.toISOString(),
+          sessionJoinedAt: sessionJoined?.toISOString() ?? null,
+        })
+        if (outcome === 'ejected') await deps.drainEjections?.()
+        return outcome
+      }
+      const memberId = identity as string
       const outcome = await participantEvent(svc, {
         room,
-        memberId: identity.toLowerCase(),
+        memberId: memberId.toLowerCase(),
         sid: event.participant?.sid ?? null,
         joined,
         at: when.toISOString(),
@@ -170,11 +193,14 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
     case 'track_published': {
       const track = event.track
       const identity = event.participant?.identity
-      // A member's microphone, audio (TrackType AUDIO 0, TrackSource MICROPHONE 2).
-      if (!deps.egress || !track?.sid || track.type !== 0 || track.source !== 2 || !isUuid(identity)) return 'ignored'
+      // A member's (or a meeting guest's) microphone, audio (TrackType AUDIO 0, TrackSource MICROPHONE 2).
+      const guestId = guestIdOfIdentity(identity)
+      if (!deps.egress || !track?.sid || track.type !== 0 || track.source !== 2 || (!isUuid(identity) && !guestId)) return 'ignored'
       const call = await liveCallForEgress(svc, room)
       if (!call?.notes) return 'ignored'
-      const started = await startNotesForTrack(svc, deps.egress, call, identity.toLowerCase(), track.sid)
+      const started = guestId
+        ? await startNotesForGuestTrack(svc, deps.egress, call, guestId, track.sid)
+        : await startNotesForTrack(svc, deps.egress, call, (identity as string).toLowerCase(), track.sid)
       return started === 'started' ? 'notes_started' : 'notes_not_started'
     }
     default:

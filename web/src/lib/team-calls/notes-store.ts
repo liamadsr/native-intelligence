@@ -19,6 +19,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { TeamChatError, teamChatErrorOf } from '@/lib/team-chat/store'
 import { dmOtherMember } from '@/lib/team-chat/types'
 import type { TeamCallEgressPort } from './egress'
+import { guestIdOfIdentity, guestLabel } from '@/lib/meeting-links/shape'
 import {
   TEAM_CALL_NOTES_MAX_SECONDS,
   TEAM_CALL_RECORDINGS_BUCKET,
@@ -133,7 +134,32 @@ export async function startNotesForTrack(
   memberId: string,
   trackSid: string,
 ): Promise<'started' | 'claimed_already' | 'failed'> {
-  const { data, error } = await svc.rpc('team_call_egress_claim', { target_call: call.id, member_ref: memberId, track_ref: trackSid })
+  return startNotesFile(svc, port, call, trackSid, () => svc.rpc('team_call_egress_claim', { target_call: call.id, member_ref: memberId, track_ref: trackSid }))
+}
+
+/**
+ * Notes for a meeting guest's microphone (phase 7): the same, claimed by
+ * 574's meeting_guest_egress_claim (a guest let into this call only), so the
+ * notes name them as the name they typed, "(guest)".
+ */
+export async function startNotesForGuestTrack(
+  svc: SupabaseClient,
+  port: TeamCallEgressPort,
+  call: { id: string; room: string },
+  guestId: string,
+  trackSid: string,
+): Promise<'started' | 'claimed_already' | 'failed'> {
+  return startNotesFile(svc, port, call, trackSid, () => svc.rpc('meeting_guest_egress_claim', { target_call: call.id, guest_ref: guestId, track_ref: trackSid }))
+}
+
+async function startNotesFile(
+  svc: SupabaseClient,
+  port: TeamCallEgressPort,
+  call: { id: string; room: string },
+  trackSid: string,
+  claim: () => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+): Promise<'started' | 'claimed_already' | 'failed'> {
+  const { data, error } = await claim()
   if (error) throw new Error(`team calls: notes claim failed: ${error.message}`)
   const row = (Array.isArray(data) ? data[0] : data) as { egress_row?: string; file_path?: string } | undefined
   if (!row?.egress_row || !row.file_path) return 'claimed_already'
@@ -184,6 +210,11 @@ export async function startNotesForRoom(svc: SupabaseClient, port: TeamCallEgres
   }
   let started = 0
   for (const t of tracks) {
+    const guestId = guestIdOfIdentity(t.identity)
+    if (guestId) {
+      if ((await startNotesForGuestTrack(svc, port, call, guestId, t.trackSid)) === 'started') started++
+      continue
+    }
     if (!/^[0-9a-f-]{36}$/i.test(t.identity)) continue
     if ((await startNotesForTrack(svc, port, call, t.identity.toLowerCase(), t.trackSid)) === 'started') started++
   }
@@ -416,6 +447,8 @@ interface EgressRow {
   call_id: string
   kind: 'notes' | 'recording'
   member_id: string | null
+  /** A meeting guest's file (573), member_id null. */
+  guest_id: string | null
   file_path: string
   status: TeamCallEgressStatus
   started_at: string | null
@@ -428,7 +461,7 @@ interface EgressRow {
   cutoff_at: string | null
 }
 
-const EGRESS_COLUMNS = 'id, call_id, kind, member_id, file_path, status, started_at, created_at, duration_ms, transcript_status, transcript, audio_deleted_at, error, cutoff_at'
+const EGRESS_COLUMNS = 'id, call_id, kind, member_id, guest_id, file_path, status, started_at, created_at, duration_ms, transcript_status, transcript, audio_deleted_at, error, cutoff_at'
 
 export type TranscribeOutcome = 'done' | 'empty' | 'failed' | 'skipped'
 
@@ -592,18 +625,25 @@ export async function writeNotes(svc: SupabaseClient, callId: string): Promise<N
   const people = (peopleRows ?? []) as PersonRow[]
   const memberIds = [...new Set([...people.map((p) => p.member_id), ...progress.rows.map((r) => r.member_id).filter((id): id is string => !!id)])]
   const names = await memberNames(svc, memberIds)
-  const labels = speakerLabels(memberIds.map((id) => ({ memberId: id, name: names.get(id) })))
+  // A meeting's guests (phase 7): each speaker is a member id or `guest:<id>`, named "Dana (guest)".
+  const guestIds = [...new Set(progress.rows.map((r) => r.guest_id).filter((id): id is string => !!id))]
+  const guestNames = await guestNamesOf(svc, guestIds)
+  const labels = speakerLabels([
+    ...memberIds.map((id) => ({ memberId: id, name: names.get(id) })),
+    ...guestIds.map((id) => ({ memberId: guestSpeaker(id), name: guestLabel(guestNames.get(id) ?? 'Guest') })),
+  ])
 
   const files: NotesFile[] = progress.rows
-    .filter((r) => r.transcript_status === 'done' && r.member_id && Array.isArray(r.transcript))
-    .map((r) => ({ memberId: r.member_id!, startedAt: r.started_at ?? r.created_at, utterances: r.transcript!, cutoffAt: r.cutoff_at }))
+    .filter((r) => r.transcript_status === 'done' && speakerOf(r) && Array.isArray(r.transcript))
+    .map((r) => ({ memberId: speakerOf(r)!, startedAt: r.started_at ?? r.created_at, utterances: r.transcript!, cutoffAt: r.cutoff_at }))
   const merged = mergeNotes(call.started_at, files, labels)
 
   const missing = new Map<string, NotesGap>()
   for (const r of progress.rows) {
-    if (!r.member_id) continue
-    if (r.status === 'failed') missing.set(r.member_id, 'not_recorded')
-    else if (r.transcript_status === 'failed' && !missing.has(r.member_id)) missing.set(r.member_id, 'not_transcribed')
+    const who = speakerOf(r)
+    if (!who) continue
+    if (r.status === 'failed') missing.set(who, 'not_recorded')
+    else if (r.transcript_status === 'failed' && !missing.has(who)) missing.set(who, 'not_transcribed')
   }
 
   if (merged.lines.length === 0) {
@@ -637,7 +677,10 @@ export async function writeNotes(svc: SupabaseClient, callId: string): Promise<N
       const p = people.find((x) => x.member_id === id)
       return { member_id: id, name: names.get(id) ?? null, label: spoke.has(id) ? labels.get(id) : null, joined_at: p?.first_joined_at ?? null, left_at: p?.left_at ?? null }
     }),
-    meta: { capture_mode: 'team_call', missing: [...missing.entries()].map(([member_id, why]) => ({ member_id, why })) },
+    meta: {
+      capture_mode: 'team_call',
+      missing: [...missing.entries()].map(([who, why]) => (who.startsWith(GUEST_SPEAKER) ? { guest_id: who.slice(GUEST_SPEAKER.length), why } : { member_id: who, why })),
+    },
   })
   if (error || typeof captureId !== 'string') throw new Error(`team calls: notes not written: ${error?.message ?? 'no capture'}`)
   console.info(`[team-call-notes] call=${callId} capture=${captureId} outcome=ready lines=${merged.lines.length} missing=${missing.size}`)
@@ -649,6 +692,26 @@ export async function settleNotes(svc: SupabaseClient, callId: string, state: 's
   const { data, error } = await svc.rpc('team_call_notes_settle', { target_call: callId, final_state: state })
   if (error) throw new Error(`team calls: notes settle failed: ${error.message}`)
   return data === true
+}
+
+const GUEST_SPEAKER = 'guest:'
+
+/** A meeting guest's speaker key in the notes (never a member id). */
+function guestSpeaker(guestId: string): string {
+  return `${GUEST_SPEAKER}${guestId}`
+}
+
+/** Whose a notes file is: a member id, `guest:<id>`, or null. */
+function speakerOf(r: Pick<EgressRow, 'member_id' | 'guest_id'>): string | null {
+  return r.member_id ?? (r.guest_id ? guestSpeaker(r.guest_id) : null)
+}
+
+/** The names meeting guests typed (573's meeting_guest), by id. */
+async function guestNamesOf(svc: SupabaseClient, ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map()
+  const { data, error } = await svc.from('meeting_guest').select('id, name').in('id', [...ids])
+  if (error) throw new Error(`team calls: guest names read failed: ${error.message}`)
+  return new Map(((data ?? []) as Array<{ id: string; name: string | null }>).map((g) => [g.id, g.name?.trim() || 'Guest']))
 }
 
 async function memberNames(svc: SupabaseClient, ids: readonly string[]): Promise<Map<string, string>> {
@@ -669,9 +732,9 @@ async function ownerOf(svc: SupabaseClient, call: NotesCall, others: readonly st
 }
 
 async function titleOf(svc: SupabaseClient, call: NotesCall, ownerMemberId: string, names: Map<string, string>): Promise<string> {
-  const { data } = await svc.from('team_chat_channel').select('kind, name, dm_key').eq('id', call.channel_id).maybeSingle<{ kind: 'channel' | 'dm'; name: string | null; dm_key: string | null }>()
+  const { data } = await svc.from('team_chat_channel').select('kind, name, dm_key').eq('id', call.channel_id).maybeSingle<{ kind: 'channel' | 'dm' | 'meeting'; name: string | null; dm_key: string | null }>()
   if (!data) return 'Call'
-  if (data.kind === 'channel') return notesTitle({ kind: 'channel', name: data.name })
+  if (data.kind === 'channel' || data.kind === 'meeting') return notesTitle({ kind: data.kind, name: data.name })
   const other = dmOtherMember(data.dm_key, ownerMemberId)
   let otherName = other && other !== ownerMemberId ? names.get(other) ?? null : null
   if (other && other !== ownerMemberId && !otherName) otherName = (await memberNames(svc, [other])).get(other) ?? null

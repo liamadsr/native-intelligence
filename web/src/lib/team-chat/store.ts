@@ -53,7 +53,7 @@ export function teamChatErrorOf(error: { code?: string; message?: string } | nul
 
 interface ChannelRow {
   id: string
-  kind: 'channel' | 'dm'
+  kind: 'channel' | 'dm' | 'meeting'
   name: string | null
   topic: string | null
   team_id: string | null
@@ -109,7 +109,8 @@ export async function listChannels(
     const sum = inThreads.get(t.channel_id) ?? { unread: 0, mentions: 0 }
     inThreads.set(t.channel_id, { unread: sum.unread + t.unread, mentions: sum.mentions + t.mentions })
   }
-  const list = ((channels.data ?? []) as ChannelRow[]).map((row): TeamChatChannel => {
+  // A meeting's conversation (phase 7) shows once it was used: a call or a message in it.
+  const list = ((channels.data ?? []) as ChannelRow[]).filter((row) => row.kind !== 'meeting' || !!row.last_message_at).map((row): TeamChatChannel => {
     const notify = notifyLevelOf(row.kind, levelOf.get(row.id))
     const muted = notify === 'muted'
     return {

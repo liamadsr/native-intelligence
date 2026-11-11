@@ -89,7 +89,7 @@ export async function answerRing(supabase: SupabaseClient, ringId: string, accep
 export async function getCall(
   supabase: SupabaseClient,
   callId: string,
-): Promise<(TeamCall & { room: string; workspace_id: string; channel_kind: 'channel' | 'dm'; channel_archived: boolean }) | null> {
+): Promise<(TeamCall & { room: string; workspace_id: string; channel_kind: 'channel' | 'dm' | 'meeting'; channel_archived: boolean }) | null> {
   const { data, error } = await supabase
     .from('team_call')
     .select(`${TEAM_CALL_COLUMNS}, room, workspace_id`)
@@ -101,7 +101,7 @@ export async function getCall(
     .from('team_chat_channel')
     .select('kind, archived_at')
     .eq('id', data.channel_id)
-    .maybeSingle<{ kind: 'channel' | 'dm'; archived_at: string | null }>()
+    .maybeSingle<{ kind: 'channel' | 'dm' | 'meeting'; archived_at: string | null }>()
   if (channelError) throw teamChatErrorOf(channelError, 'call channel read')
   if (!channel) return null
   return { ...data, ringing: data.ringing ?? [], declined: data.declined ?? [], channel_kind: channel.kind, channel_archived: !!channel.archived_at }
@@ -166,7 +166,7 @@ export interface MissedRing {
   message_id: string | null
   workspace_id: string
   channel_id: string
-  channel_kind: 'channel' | 'dm'
+  channel_kind: 'channel' | 'dm' | 'meeting'
   channel_name: string | null
   member_id: string
   user_id: string

@@ -72,7 +72,7 @@ export interface TeamCallRing {
   member_id: string
   caller_member_id: string | null
   caller_name: string
-  channel_kind: 'channel' | 'dm'
+  channel_kind: 'channel' | 'dm' | 'meeting'
   channel_name: string | null
   state: TeamCallRingState
   created_at: string
@@ -117,7 +117,7 @@ export function teamCallDuration(seconds: number | null | undefined): string {
  * its message: "Call ended · 12 min · 3 people", "Missed call" for a DM
  * nobody answered, "Call ended" when nobody joined.
  */
-export function teamCallSummary(channelKind: 'channel' | 'dm', seconds: number | null | undefined, peak: number | null | undefined): string {
+export function teamCallSummary(channelKind: 'channel' | 'dm' | 'meeting', seconds: number | null | undefined, peak: number | null | undefined): string {
   const people = Math.max(0, Math.floor(peak ?? 0))
   if (channelKind === 'dm' && people <= 1) return 'Missed call'
   if (people === 0) return 'Call ended'
@@ -136,8 +136,9 @@ export function upsertParticipant(list: readonly TeamCallParticipant[] | undefin
   return next
 }
 
-/** Where a ring is from, as the incoming-call surface says it: "#launch", or null for a DM. */
+/** Where a ring is from, as the incoming-call surface says it: "#launch", a meeting's title, or null for a DM. */
 export function teamCallPlace(ring: Pick<TeamCallRing, 'channel_kind' | 'channel_name'>): string | null {
+  if (ring.channel_kind === 'meeting') return ring.channel_name?.trim() || 'a meeting'
   return ring.channel_kind === 'channel' ? `#${ring.channel_name ?? 'channel'}` : null
 }
 
