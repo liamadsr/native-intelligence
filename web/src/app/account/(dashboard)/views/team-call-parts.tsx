@@ -101,7 +101,7 @@ export function CallMessage({
         <p className="truncate text-xs text-muted-foreground">{status}</p>
       </div>
       {people.length > 0 && (
-        <span className="flex shrink-0 -space-x-1.5" aria-hidden>
+        <span className="flex shrink-0 -space-x-1" aria-hidden>
           {people.slice(0, 4).map((id) => {
             const m = membersById.get(id)
             return <Avatar key={id} name={memberName(m)} url={m?.avatar_url} size="sm" className="ring-2 ring-background" />
