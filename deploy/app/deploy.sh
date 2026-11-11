@@ -47,6 +47,12 @@ case "${1:-}" in
 esac
 
 [ "$(id -u)" = 0 ] || die "run it with sudo: the settings file is root's."
+# One deploy at a time, by hand or automatic. auto-deploy.sh holds this lock for its
+# whole run and says so with NI_DEPLOY_LOCK_HELD=1 (sudo does not pass that on).
+if [ "${NI_DEPLOY_LOCK_HELD:-}" != 1 ]; then
+	exec 8>>/run/lock/ni-app-deploy.lock
+	flock -n 8 || die "another deploy is running (by hand, or the automatic deploys: ./auto-deploy.sh status); try again when it has ended."
+fi
 [ -f .env ] || die "no .env here. ../README.md step 20 says how it is made."
 command -v docker >/dev/null || die "Docker is not installed."
 

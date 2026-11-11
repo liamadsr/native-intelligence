@@ -75,6 +75,10 @@ Every image is labelled with the public address it was built for (`ni.app-url`),
 and `deploy.sh` refuses to put one into service while `.env` names another: the
 rehearsal's image, built for the test address, never serves production.
 
+One deploy at a time: `deploy.sh` takes the lock `/run/lock/ni-app-deploy.lock` and
+stops at once, saying so, while another deploy holds it (by hand, or the automatic
+deploys below).
+
 Merging to `main` does not deploy here. Someone runs `git pull` and `deploy.sh` on
 the server, or the automatic deploys below do, when the owner has switched them on.
 
@@ -84,71 +88,122 @@ the server, or the automatic deploys below do, when the owner has switched them 
 **off** until someone switches it on, on the server, and stays as it was across
 reboots. Nothing outside the server can start it or reach it: a systemd timer on the
 server runs it every two minutes, and each run asks GitHub, as the checkout's owner,
-whether `main` moved (`git fetch origin main`). If the checkout is already there, the
-run ends without a word.
+whether `main` moved (`git fetch origin main`).
 
-When `main` moved, the run checks the new commits. When all is well it moves the
-checkout to exactly the commit it checked (`git merge --ff-only`, as the owner, which
-is `git pull` without a second fetch), runs `deploy.sh` (build while the old version
-serves, then the roll-out its header describes), and then checks that the new commit
-serves: `ni-app:running`, which `deploy.sh` tags only after a finished roll-out, must
-carry it, and `/api/version`, asked through the stack's proxy from inside its
-container, must answer with its first eight characters.
+What is new is measured from **what serves**, not from the checkout: the commit on
+the image `ni-app:running`, which `deploy.sh` tags only after a finished roll-out.
+When that cannot be read (no such image, no commit on it, a commit the checkout does
+not have), the run holds: roll out by hand once, and it knows again. So a checkout
+someone pulled by hand is still "something to deploy", and every check below covers
+everything between what serves and `origin/main`. When `origin/main` serves, the run
+ends without a word.
 
-What it never does: touch the database, add or change a setting, roll back, or try a
-failed commit again on its own. It runs nothing while `deploy.sh` is already running
-(someone deploying by hand), and two runs never overlap.
+When all is well, it moves the checkout to exactly the commit it checked (`git merge
+--ff-only`, as the owner: `git pull` without a second fetch), builds (`deploy.sh
+--build-only`, while the old version keeps serving), rolls out (`deploy.sh
+--no-build`, as that file's header describes), and then checks that the new commit
+serves: `ni-app:running` must carry it, and `/api/version`, asked through the stack's
+proxy from inside its container, must answer with its first eight characters.
 
-**Holds.** The run changes nothing, says why in the status and the log, and exits
-non-zero (systemd shows the service as failed) until a person resolves it:
+What it never does: touch the database, add or change a setting, roll back, or roll
+out anything while a deploy runs. It holds the same lock as `deploy.sh` for its whole
+run: while someone deploys by hand, a run does nothing and the status says `waiting:
+a deploy is running`; while it deploys, `deploy.sh` by hand stops at once.
+
+**Holds.** The run changes nothing, and says why in the status (and once in the
+log), until a person resolves it. Any error while checking holds too; it never
+counts as "nothing to hold".
 
 | Holds when | What a person does |
 |---|---|
-| The new commits add, change or remove a file in `web/supabase/migrations/` | Apply them ([Day to day](../README.md#day-to-day), "Apply a database migration"), then `sudo ./auto-deploy.sh migrations-applied <commit>`, with the commit the hold names. It records those files, each by its content: a later change to one of them, or a new one, is held again. |
+| Between what serves and `origin/main`, a file in `web/supabase/migrations/` is added, changed, renamed or removed | Apply the migrations (below), then `sudo ./auto-deploy.sh acknowledge <commit>`, with the commit the hold names. |
+| The same for `web/supabase/functions/` or `web/supabase/templates/` | These are mounted from the checkout into the Supabase stack (`../supabase/compose.override.yaml`: the `stripe-webhook` function, and the mail templates' file server): they change the moment the checkout moves, whatever happens to the build. Read the change, then `acknowledge <commit>`. |
+| The same for `deploy/edge/`, `deploy/supabase/`, `deploy/inngest/` or `deploy/backup/` | Other stacks. Edge reads its folder (`Caddyfile`) when Caddy starts; Supabase's compose files and mounted files, and Inngest's `sync.sh`, take effect when those containers are next created or started; the backup container has its files built in, so its next `up --build`. A reboot restarts the first three, so a broken file there takes its stack down at the next reboot even though the app's build is fine. Read the change, `acknowledge <commit>`, and once the checkout has moved, roll that stack out by hand (Day to day in [`../README.md`](../README.md#day-to-day)). |
 | The new `deploy/app/.env.example` names a setting `.env` has no line for (names only; no value is read out or shown) | Copy the line into `.env` (`sudo nano .env`) and fill it in where needed. The next run sees it. |
-| `origin/main` is not a plain step forward from the checkout (history was rewritten), the checkout is not on `main`, has changes of its own, or holds files its owner does not own | Look as the owner (`git status`, `git log --oneline HEAD...origin/main`), put the checkout right by hand, and roll out by hand if needed. The hold says which. |
+| The new commits add a path that exists untracked or ignored in the checkout (`deploy/app/.env` is one: the fast-forward would overwrite it) | Look at it and move it away, or roll out by hand. |
+| `origin/main` is not a plain step forward from what serves or from the checkout (history was rewritten), the checkout is not on `main`, has changes of its own, or holds files its owner does not own | Look as the owner (`git status`, `git log --oneline HEAD...origin/main`) and put the checkout right by hand. The hold says which. |
+| What serves cannot be told | Roll out by hand once (`git pull` as the owner, `sudo ./deploy.sh`). |
+| A commit was rolled back by hand (below), or its build failed | That commit only; a newer one on `main` goes ahead. |
+| A roll-out was left half done (below) | Everything, until `clear-failure`. |
 | `git fetch` failed | Usually the network: the next run tries again. |
 
-**Failures.** When the build or the roll-out fails, or the new commit is not what
-serves afterwards, the commit is recorded as failed, with its output in
-`runs/`. It is not tried again; a newer commit on `main` is. A failed build leaves
-the old version serving. A roll-out that stopped half way needs a person: `sudo
-docker compose ps`, then `sudo ./deploy.sh --no-build` or `--rollback`. When it is
-fixed, or to try the same commit again, `sudo ./auto-deploy.sh clear-failure` (if
-the commit already serves by then, it is recorded as deployed and nothing is
-built). A run that is killed half way (a reboot, the service's two-hour limit) is a
-failure too.
+`acknowledge <commit>` records each held file by its content at that commit, in a
+root-only file. It covers exactly those: a later change to one of them, or another
+file, is held again. It does not fetch, so it never covers a commit nobody has seen
+in a hold.
+
+**Applying a held migration.** Either pull first (as the owner) and apply the file
+as "Apply a database migration" under [Day to day](../README.md#day-to-day) says, or
+apply it straight from the commit the hold names, without moving the checkout, from
+`/opt/native-intelligence` as its owner:
+
+```bash
+git show <commit>:web/supabase/migrations/<file> | sudo docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction
+```
+
+then the second step, the schema reload, as that row says. Then `sudo
+./deploy/app/auto-deploy.sh acknowledge <commit>`. Both ways work: what is held is
+measured from what serves, not from the checkout.
+
+**Failures.** A run's output is in `runs/`. It tells two kinds apart by the step
+that failed, because it runs the two halves of `deploy.sh` one after the other:
+
+- **The build** (`deploy.sh --build-only`) failed, or the run stopped during it: the
+  old version still serves the app, nothing was replaced. That commit is not tried
+  again; a newer one on `main` is. But the checkout has moved, so files other stacks
+  use from it (the held kinds above) are already the new ones: they were
+  acknowledged before the run moved it.
+- **The roll-out** (`deploy.sh --no-build`) failed, or the run stopped during it (a
+  reboot, the service's two-hour limit), or the checkout could not be moved, or the
+  new commit does not serve afterwards: it may be half done, so nothing is rolled
+  out on top. Everything holds until a person has looked (`sudo docker compose ps`,
+  then `sudo ./deploy.sh --no-build` or `--rollback`) and run `sudo
+  ./auto-deploy.sh clear-failure`.
+
+Each step is recorded as the failure before it starts, so a run that is killed
+leaves the right kind behind. `clear-failure` forgets the record: the next run rolls
+out `origin/main` (unless it already serves, deployed by hand). Only the run in which
+a deploy fails exits non-zero; every other run exits 0 and the status file and the
+pings carry the state, so that systemd does not report a failure every two minutes.
+
+**Rollbacks.** `sudo ./deploy.sh --rollback` by hand is noticed at the next run: what
+serves is no longer the commit this tool last rolled out, nor a later one. That
+commit is then held and not rolled out again; a newer commit on `main` is. To roll
+it out again: `clear-failure`.
 
 | To | Command (from this folder) |
 |---|---|
 | Put the service and timer in place (once, and after they change) | `sudo ./auto-deploy.sh install`: enables and starts nothing |
 | Switch it on | `sudo ./auto-deploy.sh on` (enables the timer and sets the switch) |
-| Switch it off | `sudo ./auto-deploy.sh off`: a run in progress finishes what it started |
-| What it did, and why it holds | `sudo ./auto-deploy.sh status` |
-| What a run would do now, changing nothing | `sudo ./auto-deploy.sh run --dry-run` (fetches, checks, no pull, no build) |
-| Release a migration hold | `sudo ./auto-deploy.sh migrations-applied <commit>` |
-| Forget a failure, so that the commit is tried again | `sudo ./auto-deploy.sh clear-failure` |
+| Switch it off | `sudo ./auto-deploy.sh off`: a deploy running now finishes what it started |
+| What serves, what it did, and why it holds | `sudo ./auto-deploy.sh status` |
+| What a run would do now, changing nothing | `sudo ./auto-deploy.sh run --dry-run` (fetches and checks; no move, no build, no state) |
+| Release a hold on migrations or other stacks' files | `sudo ./auto-deploy.sh acknowledge <commit>` |
+| Forget a failure or a rollback | `sudo ./auto-deploy.sh clear-failure` |
 
 "On" is two things, both on the server: the timer is enabled, and the switch file
 `/var/lib/ni-auto-deploy/on` exists. Every run reads the switch file first, so a
 timer enabled by anything else still deploys nothing. Installing never sets either.
 
-Everything it keeps is in `/var/lib/ni-auto-deploy`: `status` (the last run's time,
-the state, `idle`, `deployed <commit> at <time>`, `holding: <reason>` or `failed:
-<commit>: <reason>`, and what a person does; readable by anyone), `log` (one line per
-change of state; a hold is logged once, not every two minutes), `runs/` (each
-deploy's own output, the newest 30), `failed`, `migrations-acknowledged`, and
-`settings`. `systemctl status ni-auto-deploy` and `journalctl -u ni-auto-deploy` have
-systemd's side.
+Everything it keeps is in `/var/lib/ni-auto-deploy`: `status` (the last run's time;
+the state: `idle`, `deployed <commit> at <time>`, `waiting`, `holding: <reason>` or
+`failed: <commit>: <reason>`; what a person does; and the commit that serves;
+readable by anyone), `log` (one line per change of state), `runs/` (each deploy's
+own output, the newest 30), `failed`, `deployed`, `acknowledged`, and `settings`.
+`systemctl status ni-auto-deploy` and `journalctl -u ni-auto-deploy` have systemd's
+side.
 
-`settings` has one line, `AUTO_DEPLOY_PING_URL=`, like the backups' `*_PING_URL`:
-when set, that address is requested after every successful deploy, never on a hold
-or a failure, so that a check elsewhere can alarm when deploys stop coming.
+`settings` holds three addresses, each optional, requested at the end of every run
+while it is on (like the backups' `*_PING_URL`, a plain request):
+`AUTO_DEPLOY_PING_URL` after a run that ended well (nothing new, waiting, deployed),
+`AUTO_DEPLOY_HOLD_PING_URL` after a run that holds, `AUTO_DEPLOY_FAIL_PING_URL` after
+a run whose deploy failed and every run while that stands. A check elsewhere can
+then tell running and well (the first, every two minutes), holding, failed, and not
+running at all (none).
 
 **The undo.** `sudo ./auto-deploy.sh off` stops the automatic deploys; `sudo
 ./deploy.sh --rollback` goes back to the version before the last roll-out, whoever
-made it. After a rollback, switch it off first, or the next commit on `main` is
-rolled out again.
+made it, and the automatic deploys do not undo that.
 
 ### NI_LIVE: rehearsal or production
 

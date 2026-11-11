@@ -14,8 +14,9 @@ ExecStart=/opt/native-intelligence/deploy/app/auto-deploy.sh run
 # A build is about ten minutes, but a roll-out may wait up to 15 minutes for the
 # worker's work in flight and again for a running scheduled job. Killing deploy.sh
 # half way through a roll-out is worse than waiting, so this only ends a run that
-# hangs; the script records it as a failure.
+# hangs; the script recorded the step it was in, and holds accordingly.
 TimeoutStartSec=2h
-# No Restart=: a run that holds or fails exits non-zero and stays visible as failed
-# (systemctl status ni-auto-deploy); the timer starts the next run, and the script
-# does not try a failed commit again.
+# No Restart=: the timer starts the next run. A run exits non-zero only when its own
+# deploy failed or the script could not work; a hold exits 0, and the state is in
+# /var/lib/ni-auto-deploy/status and the pings, not in a unit failure every two
+# minutes.
