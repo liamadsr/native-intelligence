@@ -76,10 +76,13 @@ interface CodingRequest {
   request: string
 }
 
-/** What the filed action records about where it came from. */
+/**
+ * What the filed action records about where it came from. Its source_type is
+ * never set: the person asked for the run, so the action is their own and the
+ * column keeps its default ('user'). The column's CHECK lists no value for a
+ * chat, and an insert with one is refused.
+ */
 interface FiledFrom {
-  /** actions.source_type: 'chat' from a chat; null (omitted) from a card, as a work card's action is. */
-  sourceType: 'chat' | null
   contextData?: Record<string, unknown>
 }
 
@@ -255,7 +258,6 @@ async function fileAction(
       priority: 'none',
       status_id: statusId,
       confirmation: 'confirmed',
-      ...(from.sourceType ? { source_type: from.sourceType } : {}),
       ...(from.contextData ? { context_data: from.contextData } : {}),
       all_day: true,
       links: [],
@@ -321,7 +323,7 @@ export async function startCloudCodingRun(
   if (!found.ok) return found.output
   const chosen = await environmentFor(svc, claims, input.environment_id)
   if (!chosen.ok) return chosen.output
-  return launchCodingRun(svc, claims, found.value, chosen.value, input, { fireKey, from: { sourceType: 'chat' } }, deps)
+  return launchCodingRun(svc, claims, found.value, chosen.value, input, { fireKey, from: {} }, deps)
 }
 
 /**
@@ -476,7 +478,7 @@ export async function startSiteCodingRun(
     found.value,
     { environmentId: named.id, name: named.name, networkAccess: named.networkAccess, source: 'chosen' },
     { title: input.title, request: input.request },
-    { fireKey: `website-change:${input.changeId}`, from: { sourceType: 'chat', contextData: { website_change_id: input.changeId } } },
+    { fireKey: `website-change:${input.changeId}`, from: { contextData: { website_change_id: input.changeId } } },
     deps,
   )
 }
@@ -500,7 +502,7 @@ async function cardCodingRun(
     found.value,
     { environmentId: named.id, name: named.name, networkAccess: named.networkAccess, source: 'chosen' },
     { title: input.title, request: input.request },
-    { from: { sourceType: null, contextData: { attention_item_id: input.attentionItemId } } },
+    { from: { contextData: { attention_item_id: input.attentionItemId } } },
     deps,
   )
 }
