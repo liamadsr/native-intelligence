@@ -8,9 +8,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
- * Where a notice went. 'push' (migration 454) is the iOS app's slot: the
- * router orders it before a text, but nothing sends on it until the iOS app
- * and its push adapter exist.
+ * Where a notice went. 'push' (migration 454) is the iOS app's: the router
+ * orders it before a text (src/lib/push sends it, migration 562).
  */
 export type ReachChannel = 'slack' | 'sms' | 'push'
 /**

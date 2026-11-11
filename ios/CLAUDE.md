@@ -19,7 +19,9 @@ Guidance for Claude Code in this repository. `README.md` has the layout and buil
   `Dial8.xcodeproj/project.pbxproj`; change `project.yml`, run `xcodegen`, commit both.
   Adding or removing a Swift file needs neither (synchronized folders).
 - `Scripts/test-eve-chat.sh` runs the Eve chat contract tests; `Scripts/test-chat-reply-text.sh`
-  runs the chat bubble's comment-stripping tests (`Core/Models/ChatReplyText.swift`).
+  runs the chat bubble's comment-stripping tests (`Core/Models/ChatReplyText.swift`);
+  `Scripts/test-team-chat.sh` runs team chat's rules (`Core/Models/TeamChat/`, Foundation only:
+  keep the decisions there, and the Supabase and SwiftUI code in `App/`).
 
 ## Code
 
@@ -29,4 +31,7 @@ Guidance for Claude Code in this repository. `README.md` has the layout and buil
   (`Watch/WatchSync.swift` ↔ `App/Services/WatchConnectivityService.swift`).
 - Chat runs on the web app's Eve chat agent; the contract is in `docs/ios-eve-chat.md`. The app
   never calls a model provider directly.
+- Team chat goes through the web app's team chat routes (the same rules as the web page) and
+  reads members, Realtime and files straight from Supabase as the person.
+  `-previewTeamChat YES -previewTeamChatScreen <screen>` shows its screens over fixtures (DEBUG).
 - New fixtures and examples use made-up names, never real people, customers or companies.

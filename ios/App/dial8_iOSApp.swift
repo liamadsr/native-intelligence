@@ -2,9 +2,13 @@ import SwiftUI
 
 @main
 struct dial8_iOSApp: App {
+    /// APNs hands the device token to an app delegate, and a tapped push needs its delegate set at launch.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     init() {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-previewEveChat") { return }
+        if ProcessInfo.processInfo.arguments.contains("-previewTeamChat") { return }
         #endif
         // Initialize shared services
         AnalyticsService.shared.setup()
@@ -58,6 +62,8 @@ struct dial8_iOSApp: App {
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-previewEveChat") {
                     iOSEveChatPreview()
+                } else if ProcessInfo.processInfo.arguments.contains("-previewTeamChat") {
+                    iOSTeamChatPreview()
                 } else { iOSRootView() }
                 #else
                 iOSRootView()
