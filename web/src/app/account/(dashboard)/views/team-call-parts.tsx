@@ -83,14 +83,16 @@ export function CallMessage({
   const here = active?.callId === call.call.id
   const ringing = call.call.ringing.filter((id) => !people.includes(id))
   const status =
-    people.length > 0
+    people.length > 2
+      ? `${people.length} people are in the call`
+      : people.length > 0
       ? `${names(people, membersById, meId)} ${people.length === 1 && people[0] !== meId ? 'is' : 'are'} in the call`
       : ringing.length > 0
         ? `Ringing ${names(ringing, membersById, meId)}…`
         : 'Waiting for people to join'
 
   return (
-    <div data-team-call-message="live" className="mt-1 flex w-full max-w-md items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+    <div data-team-call-message="live" className="mt-1 flex w-full max-w-lg items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
         <PhoneIncoming className="h-4 w-4" aria-hidden />
       </span>
@@ -99,10 +101,10 @@ export function CallMessage({
         <p className="truncate text-xs text-muted-foreground">{status}</p>
       </div>
       {people.length > 0 && (
-        <span className="flex shrink-0 -space-x-2" aria-hidden>
+        <span className="flex shrink-0 -space-x-1.5" aria-hidden>
           {people.slice(0, 4).map((id) => {
             const m = membersById.get(id)
-            return <Avatar key={id} name={memberName(m)} url={m?.avatar_url} size="xs" className="ring-2 ring-card" />
+            return <Avatar key={id} name={memberName(m)} url={m?.avatar_url} size="sm" className="ring-2 ring-background" />
           })}
         </span>
       )}
