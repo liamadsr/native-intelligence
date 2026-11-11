@@ -14,17 +14,20 @@
 -- kinds. 519's 5-arg form, for the agent's graph reads, gains the same arms,
 -- reading no grant when told not to (a guest's or a linked agent's turn).
 --
--- Each object below is 503's (or 519's) definition with only the table arms added
+-- Each function below is 572's definition (meeting chats, after 503 and 519) with only
+-- the table arms added, and each policy 503's
 -- (src/lib/knowledge/__tests__/migration-522.test.ts compares them); create
 -- or replace keeps every grant and revoke 500 left in place.
 --
--- After 503, 519 and 520. Idempotent (create or replace, drop policy if exists).
+-- Apply after 503, 519, 520 and 572: 572 (numbered later) restated both
+-- functions without the table arms, so 522 has to land after it. Idempotent
+-- (create or replace, drop policy if exists).
 -- No backslashes anywhere in this file.
 -- ------------------------------------------------------------
 
 SET LOCAL lock_timeout = '5s';
 
--- entity_visible_to, from 503_one_name_for_mail.sql, with the table arms.
+-- entity_visible_to, from 572_meeting_conversations.sql, with the table arms.
 create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)
 returns boolean
 language plpgsql
@@ -145,7 +148,7 @@ begin
     if v_kind = 'channel' then
       return v_team is null or exists (select 1 from public.team_member tm where tm.team_id = v_team and tm.member_id = v_member);
     end if;
-    return v_kind = 'dm' and exists (select 1 from public.team_chat_member cm where cm.channel_id = v_channel and cm.member_id = v_member);
+    return v_kind in ('dm', 'meeting') and exists (select 1 from public.team_chat_member cm where cm.channel_id = v_channel and cm.member_id = v_member);
   elsif v_type = 'decision' then
     -- The decision table's view policy (493), through its capture.
     if v_vis = 'workspace' or v_owner = p_user or v_confirmation = 'confirmed' then return true; end if;
@@ -155,7 +158,7 @@ begin
 end;
 $$;
 
--- The 5-arg entity_visible_to, from 519_guest_turns_skip_contact_grants.sql, with the
+-- The 5-arg entity_visible_to (519's), from 572_meeting_conversations.sql, with the
 -- table arms (the agent's graph reads; a guest's turn reads no grant).
 create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid, p_grants boolean)
 returns boolean
@@ -281,7 +284,7 @@ begin
     if v_kind = 'channel' then
       return v_team is null or exists (select 1 from public.team_member tm where tm.team_id = v_team and tm.member_id = v_member);
     end if;
-    return v_kind = 'dm' and exists (select 1 from public.team_chat_member cm where cm.channel_id = v_channel and cm.member_id = v_member);
+    return v_kind in ('dm', 'meeting') and exists (select 1 from public.team_chat_member cm where cm.channel_id = v_channel and cm.member_id = v_member);
   elsif v_type = 'decision' then
     -- The decision table's view policy (493), through its capture.
     if v_vis = 'workspace' or v_owner = p_user or v_confirmation = 'confirmed' then return true; end if;
