@@ -10,7 +10,7 @@ import { noticeEventKind } from '@/lib/agent-events/types'
 /**
  * Runtime list backing the NotificationType union — single source of truth
  * for code that needs the types at runtime. Must stay in sync with the DB
- * CHECK constraint (migration 401 is the latest DROP+ADD: it dropped the
+ * CHECK constraint (migration 560 is the latest DROP+ADD; 401 dropped the
  * types nothing writes any more, with their rows, when the notifications page
  * went: docs/plans/retire-notifications-page.md). Which of these reach the
  * agent, and as what: agent-events/types.ts NOTICE_EVENT_KIND.
@@ -64,6 +64,13 @@ export const NOTIFICATION_TYPES = [
   // focused; no target, so a click opens the home thread. Sent by the router,
   // src/lib/reach/route.ts.
   'agent_message',
+  // A team chat message for this person (migration 560): a DM, a mention, a
+  // reply in a thread they are in, a channel they set to all messages, their
+  // agent's reply. One per message per person; targets the message
+  // (target_type 'team_chat_message', context the channel), grouped by its
+  // conversation, read when the conversation is. Written by
+  // src/lib/team-chat/notify.ts only (never through createNotification).
+  'team_chat_message',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -77,7 +84,7 @@ export interface CreateNotificationParams {
   body?: string
   actorId?: string
   // Must stay in sync with the notification.target_type CHECK (migration 031,
-  // widened by 172, then 197, then 224, then 273) — an out-of-set value fails the
+  // widened by 172, then 197, then 224, then 273, then 560) — an out-of-set value fails the
   // insert, which createNotification swallows, silently dropping the row.
   // 'flow_run'/'flow' deep-link loop notifications to the Loop Activity surface
   // (WS-3b); 'agent_run' deep-links a work_run_ready notification to the run
@@ -88,6 +95,7 @@ export interface CreateNotificationParams {
     | 'action' | 'capture' | 'document' | 'project' | 'contact'
     | 'cycle' | 'comment' | 'decision' | 'share' | 'flow_run' | 'flow'
     | 'agent_run' | 'initiative' | 'work_item' | 'email_draft' | 'sequence'
+    | 'team_chat_message'
   targetId?: string
   contextType?: string
   contextId?: string

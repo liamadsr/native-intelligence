@@ -14,6 +14,13 @@
  * It may also @-mention records (`record_mentions`, migration 480: a task, a
  * doc, a deal, …), each written to the graph as a `mentions` edge
  * (src/lib/entity-links/mentions.ts).
+ *
+ * Migrations 555-559 complete it: a message may be a reply in a thread
+ * (`thread_root_id`, the thread's root, one level deep), carry files and
+ * images (`attachments`, in the team-chat-files bucket: ./files.ts) and a
+ * preview of its first link (`link_preview`, fetched once by the server:
+ * ./link-preview.ts); people react to it (team_chat_reaction); a send carries
+ * the id its page minted (`client_id`), so a retry never posts twice.
  */
 import type { LabeledMentionRef } from '@/lib/entity-links/mentionable'
 
@@ -44,10 +51,72 @@ export interface TeamChatChannel {
   dm_member_id: string | null
   last_message_at: string | null
   archived_at: string | null
-  /** Messages from others since the person last read it. */
+  /** Messages from others since the person last read it (the channel's own: never a thread's replies). */
   unread: number
   /** How many of those mention them. */
   mentions: number
+  /** Replies from others, unread, in the threads here the person is in (migration 556). */
+  thread_unread: number
+  /** How many of those mention them. */
+  thread_mentions: number
+  /**
+   * How loud it is for the person (migration 560): every message notifies,
+   * only mentions (a channel's default), or nothing (muted: no unread count
+   * either, `unread` and `thread_unread` are 0; a mention still counts).
+   */
+  notify: 'all' | 'mentions' | 'muted'
+}
+
+/** A file or image on a message (migration 555), as stored and drawn. */
+export interface TeamChatAttachment {
+  /** Its object in the team-chat-files bucket: `<channel id>/<user id>/<uuid>.<ext>`. */
+  path: string
+  /** The name it was uploaded with. */
+  name: string
+  /** Bytes, as storage measured it. */
+  size: number
+  /** Its media type, as storage recorded it. */
+  type: string
+  /** An image's own size, px (so it takes its room before it loads). */
+  width?: number
+  height?: number
+}
+
+/** A message's first link, as the server read it once (migration 555). */
+export interface TeamChatLinkPreview {
+  url: string
+  /** The site's own name, else its host. */
+  site: string
+  title: string | null
+  description: string | null
+  /** An https image the page names for itself (og:image), or null. */
+  image: string | null
+}
+
+/** A thread's summary, under its root (migration 556). */
+export interface TeamChatThreadSummary {
+  root_id: string
+  channel_id: string
+  reply_count: number
+  last_reply_at: string | null
+  /** The last few members who replied, newest first. */
+  participant_ids: string[]
+}
+
+/** A thread the person is in with replies they haven't read. */
+export interface TeamChatThreadUnread {
+  root_id: string
+  channel_id: string
+  unread: number
+  mentions: number
+}
+
+/** One member's reaction on a message (migration 557); `active` false: taken back. */
+export interface TeamChatReaction {
+  message_id: string
+  member_id: string
+  emoji: string
+  active: boolean
 }
 
 /** A message as the page shows it. */
@@ -63,6 +132,10 @@ export interface TeamChatMessage {
   agent_name: string | null
   /** The message an agent's reply answers. */
   in_reply_to: string | null
+  /** The thread it is a reply in (its root message), or null for a message in the channel itself. */
+  thread_root_id: string | null
+  /** The id the sender's page minted for the send: its optimistic bubble is this row. */
+  client_id: string | null
   /** The words ('' once deleted). */
   body: string
   mentions: string[]
@@ -73,6 +146,10 @@ export interface TeamChatMessage {
    * before 480 (and on an old realtime payload): none.
    */
   record_mentions?: TeamChatRecordMention[]
+  /** Files and images on it (none once deleted). */
+  attachments: TeamChatAttachment[]
+  /** Its first link's preview, once the server has read it. */
+  link_preview: TeamChatLinkPreview | null
   created_at: string
   edited_at: string | null
   deleted_at: string | null
@@ -83,7 +160,12 @@ export type TeamChatRecordMention = LabeledMentionRef
 
 /** The columns a message is read with. */
 export const TEAM_CHAT_MESSAGE_COLUMNS =
-  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, body, mentions, mentions_agent, record_mentions, created_at, edited_at, deleted_at'
+  'id, channel_id, author_kind, author_member_id, agent_for_member_id, agent_name, in_reply_to, thread_root_id, client_id, body, mentions, mentions_agent, record_mentions, attachments, link_preview, created_at, edited_at, deleted_at'
+
+/** The most replies a thread's pane loads at once. */
+export const TEAM_CHAT_THREAD_MAX = 200
+/** The most emoji one member puts on one message (migration 557's cap). */
+export const TEAM_CHAT_MAX_REACTIONS = 20
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -98,6 +180,17 @@ export function tidyChannelName(raw: unknown): string | null {
   const name = raw.trim().replace(/^#+/, '').replace(/\s+/g, ' ').trim()
   if (!name || [...name].length > TEAM_CHAT_NAME_MAX) return null
   return name
+}
+
+/**
+ * True for one emoji, as a reaction is: pictographs with their joiners,
+ * variation selectors, skin tones and keycaps, never words, markup or spaces
+ * (migration 557's check is the looser fence under this one).
+ */
+export function isReactionEmoji(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 16) return false
+  if (!/\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u.test(value)) return false
+  return /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|\p{Emoji_Modifier}|\u200d|\ufe0f|\u20e3)+$/u.test(value)
 }
 
 /** A message's words as sent, or null when empty or too long. */

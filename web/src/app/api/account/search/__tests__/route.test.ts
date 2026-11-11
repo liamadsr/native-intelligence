@@ -19,10 +19,13 @@ const hoisted = vi.hoisted(() => ({
   resolve: (() => ({ data: [], error: null })) as Resolver,
   builders: [] as { table: string; calls: Call[] }[],
   rpc: vi.fn(),
+  /** The caller's own client's RPCs (team_chat_search, migration 561). */
+  userRpc: vi.fn(),
 }))
 
 function fakeClient() {
   return {
+    rpc: hoisted.userRpc,
     from: (table: string) => {
       const record = { table, calls: [] as Call[] }
       hoisted.builders.push(record)
@@ -64,6 +67,8 @@ beforeEach(() => {
   hoisted.resolve = () => ({ data: [], error: null })
   hoisted.rpc.mockReset()
   hoisted.rpc.mockResolvedValue({ data: [], error: null })
+  hoisted.userRpc.mockReset()
+  hoisted.userRpc.mockResolvedValue({ data: [], error: null })
 })
 
 describe('GET /api/account/search', () => {
@@ -76,10 +81,29 @@ describe('GET /api/account/search', () => {
   it('answers every kind by default, and only the kinds asked for (junk dropped)', async () => {
     const all = await (await GET(req('q=pricing'))).json()
     expect(Object.keys(all.results).sort()).toEqual(
-      ['action', 'agent', 'capture', 'company', 'contact', 'deal', 'document', 'flow', 'initiative', 'project'].sort(),
+      ['action', 'agent', 'capture', 'company', 'contact', 'deal', 'document', 'flow', 'initiative', 'project', 'team_chat_message'].sort(),
     )
     const some = await (await GET(req('q=pricing&types=action,claim,document'))).json()
     expect(Object.keys(some.results)).toEqual(['action', 'document'])
+  })
+
+  it('finds team chat messages through team_chat_search as the caller (the function fences what they may read), each opening team chat on it', async () => {
+    hoisted.userRpc.mockResolvedValue({
+      data: [{ id: 'm-1', channel_id: 'ch-1', thread_root_id: null, place: '#launch', author_name: 'Ben Ortiz', snippet: 'the  launch\nplan', created_at: '2026-11-10T10:00:00Z' }],
+      error: null,
+    })
+    const res = await (await GET(req('q=launch%20plan&types=team_chat_message'))).json()
+    expect(hoisted.userRpc).toHaveBeenCalledWith('team_chat_search', { ws: 'ws-1', q: 'launch plan', lim: 8 })
+    // Never the service client: the caller's own may only find what they may read.
+    expect(hoisted.rpc).not.toHaveBeenCalled()
+    expect(res.results.team_chat_message).toEqual([
+      { kind: 'team_chat_message', id: 'm-1', title: 'the launch plan', place: '#launch', author: 'Ben Ortiz', channelId: 'ch-1', threadRootId: null, createdAt: '2026-11-10T10:00:00Z', score: 0.3 },
+    ])
+    // Nothing typed (or one letter): no search at all.
+    hoisted.userRpc.mockClear()
+    await GET(req('q=&types=team_chat_message'))
+    await GET(req('q=l&types=team_chat_message'))
+    expect(hoisted.userRpc).not.toHaveBeenCalled()
   })
 
   it('scopes every table read to the caller workspace', async () => {

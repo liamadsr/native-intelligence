@@ -94,7 +94,7 @@ describe('migration 336', () => {
     const types = /check \(type = any \(array\[([^\]]*)\]\)\)/.exec(BODY)?.[1].split(',').map((t) => t.trim().replace(/'/g, '')) ?? []
     expect(types).toContain('agent_digest')
     // every type the app knew then; workspace_merged arrived with 407, agent_check_in with 443, agent_look_ahead with 452, agent_message with 454
-    for (const t of NOTIFICATION_TYPES.filter((t) => t !== 'workspace_merged' && t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message')) expect(types).toContain(t)
+    for (const t of NOTIFICATION_TYPES.filter((t) => t !== 'workspace_merged' && t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message' && t !== 'team_chat_message')) expect(types).toContain(t)
     expect(BODY).toContain("select m.id, 'agent_digest', true, false from public.member m on conflict (member_id, notification_type) do nothing;")
   })
 

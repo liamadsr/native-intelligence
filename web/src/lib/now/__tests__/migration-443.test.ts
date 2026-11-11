@@ -106,7 +106,7 @@ describe('migration 443', () => {
     const listed = notificationTypes(BODY)
     expect(listed).toEqual([...notificationTypes(flat(read('407_merge_workspaces_phase2.sql'))), 'agent_check_in'])
     // 'agent_check_in' lands in NOTIFICATION_TYPES with the check-in's notice, either may come first.
-    expect(listed).toEqual([...NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message'), 'agent_check_in'])
+    expect(listed).toEqual([...NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_check_in' && t !== 'agent_look_ahead' && t !== 'agent_message' && t !== 'team_chat_message'), 'agent_check_in'])
   })
 
   it('server_helper gains check_in, on chat work only; its item is required there and nowhere else, and unique per person', () => {
