@@ -230,6 +230,8 @@ async function searchContactsInWorkspace(
   query: string,
   limit: number,
   relationshipType?: string,
+  // `grants: false` on a guest's or a linked agent's turn (omitGrants): a contact shared with the person is no hit.
+  readOpts: { grants?: boolean } = {},
 ) {
   // Shared with the live agent's search_contacts and resolveContactIdByName:
   // strips what could add `.or()` conditions or turn the ilike into match-all.
@@ -248,7 +250,7 @@ async function searchContactsInWorkspace(
   const { data, error } = await q
   if (error) return { results: [], error: error.message }
 
-  const visible = (await filterVisibleContacts(supabase, userId, data || [])).slice(0, clampContactLimit(limit))
+  const visible = (await filterVisibleContacts(supabase, userId, data || [], readOpts)).slice(0, clampContactLimit(limit))
 
   const results = visible.map((c) => {
     const company = c.company as unknown as { id: string; name: string } | null
@@ -377,7 +379,13 @@ const ANCHOR_LABEL_PREFIX: Record<string, string> = {
  *     `source_label` is rewritten to "Project: <name>" / "Company: <name>"
  *     (field shape unchanged — still a string).
  */
-async function enrichWithAnchorNames(supabase: SupabaseClient, rows: HybridRow[], requester: string | null): Promise<void> {
+async function enrichWithAnchorNames(
+  supabase: SupabaseClient,
+  rows: HybridRow[],
+  requester: string | null,
+  // `grants: false` on a guest's or a linked agent's turn: an anchor only a grant opens is no anchor.
+  readOpts: { grants?: boolean } = {},
+): Promise<void> {
   if (rows.length === 0) return
 
   // Claim ids get the entity_link anchor-edge lookup; capture/document ids read
@@ -419,7 +427,7 @@ async function enrichWithAnchorNames(supabase: SupabaseClient, rows: HybridRow[]
     // An edge is readable only when both ends are (migration 500), and this
     // runs service-role: an anchor the requester can't read (a company hidden
     // from them) is no anchor, so its name never rides along.
-    const hidden = await hiddenGraphRefs(supabase, [...claimToAnchor.values()], requester)
+    const hidden = await hiddenGraphRefs(supabase, [...claimToAnchor.values()], requester, undefined, readOpts)
     for (const [claimId, anchor] of claimToAnchor) if (hidden.has(`${anchor.type}:${anchor.id}`)) claimToAnchor.delete(claimId)
   }
 
@@ -505,10 +513,12 @@ export function createSearchTools(
    * A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
    * only a grant found (506's arm in unified_search / hybrid_search) is
    * dropped from find and search, since a grant shares with the person, not
-   * their guest.
+   * their guest. Contacts too: a contact shared with the person is no hit
+   * (contact-visibility.ts `grants: false`), nor is an anchor only a grant opens.
    */
   omitGrants = false,
 ) {
+  const readOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
   // The toolset's default, spoken in the descriptions so the model knows what
   // a search with no window covers here.
   const defaultsToRecent = searchDefaultWindow === 'past_4_weeks'
@@ -738,7 +748,7 @@ export function createSearchTools(
         const contactRunner = (async () => {
           if (!wantsContacts) return { results: [] as HybridRow[], error: undefined as string | undefined }
           const perWorkspace = await Promise.all(
-            targetWorkspaces.map((w) => searchContactsInWorkspace(supabase, userId, w, query, cap)),
+            targetWorkspaces.map((w) => searchContactsInWorkspace(supabase, userId, w, query, cap, undefined, readOpts)),
           )
           const errors = perWorkspace.map((p) => p.error).filter((e): e is string => Boolean(e))
           const rows: HybridRow[] = perWorkspace
@@ -827,7 +837,7 @@ export function createSearchTools(
         // provenance is a bare anchor now labels it by name, and every
         // capture/document/claim gets `anchor_name` (+ `project_name` when that
         // anchor is a project) so multi-anchor reasoning can tell hits apart.
-        await enrichWithAnchorNames(supabase, combined, requestingUserId)
+        await enrichWithAnchorNames(supabase, combined, requestingUserId, readOpts)
 
         // What this search covered. Capture hits are MATCHED on their transcript
         // too, but no transcript passage comes back (the excerpt is the summary),
@@ -976,7 +986,7 @@ export function createSearchTools(
           }
           const perWorkspace = await Promise.all(
             targetWorkspaces.map((w) =>
-              searchContactsInWorkspace(supabase, userId, w, query, limit ?? 20, relationship_type),
+              searchContactsInWorkspace(supabase, userId, w, query, limit ?? 20, relationship_type, readOpts),
             ),
           )
           const merged = perWorkspace.flatMap((r) => r.results)
@@ -991,7 +1001,7 @@ export function createSearchTools(
           }
           try {
             if (enrich_emails) {
-              const results = await searchEmailsWithContext(userId, workspaceId, query, limit ?? 20)
+              const results = await searchEmailsWithContext(userId, workspaceId, query, limit ?? 20, readOpts)
               return {
                 results: results.map((r) => ({
                   result_type: 'email',

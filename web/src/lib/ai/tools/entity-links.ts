@@ -23,7 +23,11 @@ export function createEntityLinkTools(
   strictWorkspace = false,
   /** An unattended run: no private graph kind's row is the run's to see (as claims.ts). */
   omitPrivate = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): an end
+  // only a grant opens to the person is hidden too (migration 519).
+  omitGrants = false,
 ) {
+  const grantOpts = omitGrants ? { grants: false } : {}
   // An edge is readable only when both its ends are (migration 500): every
   // kind some members can't read (src/lib/knowledge/entity-fences.ts
   // LINK_FENCED_KINDS) is fenced to the person, and on an unattended run to
@@ -86,7 +90,7 @@ export function createEntityLinkTools(
           { type: target_type as string, id: target_id },
         ]
         if (ends.some((e) => isLinkFencedKind(e.type))) {
-          const hidden = await hiddenGraphRefs(supabase, ends, requester, targetWs)
+          const hidden = await hiddenGraphRefs(supabase, ends, requester, targetWs, grantOpts)
           if (hidden.size > 0) return { success: false, error: 'Entity not found' }
         }
 
@@ -201,7 +205,7 @@ export function createEntityLinkTools(
           ...results.inbound.map((e) => ({ type: e.source_type, id: e.source_id })),
         ].filter((r) => isLinkFencedKind(r.type))
         if (privateRefs.length > 0) {
-          const hidden = await hiddenGraphRefs(supabase, privateRefs, requester, workspaceId)
+          const hidden = await hiddenGraphRefs(supabase, privateRefs, requester, workspaceId, grantOpts)
           if (hidden.has(`${entity_type}:${entity_id}`)) {
             results.outbound = []
             results.inbound = []

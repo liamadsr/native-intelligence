@@ -26,7 +26,7 @@ vi.mock('@/lib/ai/tools', () => ({ createTools: h.createTools }))
 vi.mock('@/lib/integrations/calendar', () => ({ listCalendarEventsUnified: vi.fn(async () => h.events) }))
 vi.mock('@/lib/agent-events/member-time-zone', () => ({ readMemberTimeZone: vi.fn(async () => ({ timeZone: 'America/Los_Angeles', source: 'member' })) }))
 
-import { GUEST_PAYMENT_STOP, freeBusyRange, guestDispatchContext, guestToolCall, parseRangeEdge, withGuestPaymentStop } from '../guest-tools'
+import { GUEST_PAYMENT_STOP, freeBusyRange, guestApprovalContext, guestDispatchContext, guestToolCall, parseRangeEdge, withGuestPaymentStop } from '../guest-tools'
 
 const CLAIMS = {
   conversationId: 'conv-g',
@@ -147,6 +147,10 @@ describe('guestToolCall', () => {
       reviewOverride: { alwaysHold: { reason: 'guest_text' } },
     })
     expect(h.createTools).toHaveBeenCalledWith('owner-1', supabase, 'ws-1', undefined, expect.objectContaining({ origin: { actor: 'agent', depth: 1 } }))
+    // A grant shares with the owner, never with their guest or a linked agent: the tools read none (migration 519).
+    expect(h.createTools.mock.calls[0][4]).toMatchObject({ omitGrants: true })
+    // And the held call records it, so the owner's yes replays it the same way (storedToolOptions).
+    expect(ctx.approvalContext.tools).toMatchObject({ omitGrants: true })
   })
 
   it('a delete waits for the owner while the person’s deletes ask first, and runs without the hold once the owner turned that off and allowed the tool', async () => {
@@ -256,4 +260,10 @@ it('the payment stop: only on a browser task, once, and missing asks read as ask
   expect(withGuestPaymentStop('run_browser_task', { goal: 'x' }, ['changes'])).toEqual({ goal: `x\n\n${GUEST_PAYMENT_STOP}` })
   const once = withGuestPaymentStop('run_browser_task', { goal: 'x' }, ['payments'])
   expect(withGuestPaymentStop('run_browser_task', once, ['payments'])).toEqual(once)
+})
+
+it("a guest's or a linked agent's held call records omitGrants, so its approved replay reads no grant of the owner's", () => {
+  const guest = { id: 'g-1', displayName: 'Kai' }
+  expect(guestApprovalContext(guest).tools).toEqual({ origin: { actor: 'agent', depth: 1 }, omitGrants: true })
+  expect(guestApprovalContext(guest, { linkId: 'l-1' } as never).tools).toMatchObject({ omitGrants: true })
 })

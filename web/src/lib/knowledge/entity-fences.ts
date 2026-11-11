@@ -43,11 +43,20 @@ export function isPrivateGraphKind(type: string): type is PrivateGraphKind {
 /** Ids per `.in(…)`: keeps each request URL well under proxy limits. */
 const ID_CHUNK = 200
 
+/**
+ * `grants: false` on a guest's or a linked agent's turn (CreateToolsOptions.
+ * omitGrants): a grant (492) shares a record with the person, never with
+ * whoever they let talk to their agent, so no fence lets a grant through.
+ * Absent: grants count, as the policies read them.
+ */
+export type GrantOpts = { grants?: boolean }
+
 type Fence = (
   supabase: SupabaseClient,
   userId: string | null | undefined,
   ids: readonly string[],
   workspaceId?: string | null,
+  opts?: GrantOpts,
 ) => Promise<Set<string>>
 
 type Row = Record<string, unknown>
@@ -174,7 +183,7 @@ const teamChatMessageFence: Fence = async (supabase, userId, ids, workspaceId) =
  * mirror is src/lib/entity-access/grants.ts). Evaluation captures (`is_eval`)
  * are never in the product.
  */
-const decisionFence: Fence = async (supabase, userId, ids, workspaceId) => {
+const decisionFence: Fence = async (supabase, userId, ids, workspaceId, opts = {}) => {
   const wanted = uniq(ids)
   if (!userId || wanted.length === 0) return new Set()
   const decisions = await rowsByIds(wanted, (c) => supabase.from('decision').select('id, capture_id, confirmation').in('id', c))
@@ -209,7 +218,7 @@ const decisionFence: Fence = async (supabase, userId, ids, workspaceId) => {
       ;(viaGrant.get(ws) ?? viaGrant.set(ws, []).get(ws)!).push(capture.id as string)
     }
   }
-  if (viaGrant.size > 0) {
+  if (viaGrant.size > 0 && opts.grants !== false) {
     // Loaded here, not at the top: the grant mirror reads this file's team chat fence.
     const { grantedEntityIds } = await import('@/lib/entity-access/grants')
     const granted = new Set<string>()
@@ -240,9 +249,10 @@ export async function visiblePrivateKindIds(
   userId: string | null | undefined,
   ids: readonly string[],
   workspaceId?: string | null,
+  opts: GrantOpts = {},
 ): Promise<Set<string>> {
   try {
-    return await FENCES[type](supabase, userId, ids, workspaceId)
+    return await FENCES[type](supabase, userId, ids, workspaceId, opts)
   } catch (err) {
     console.warn('[entity-fences] fence threw:', type, err instanceof Error ? err.message : 'unknown')
     return new Set()
@@ -263,6 +273,7 @@ export async function hiddenPrivateRefs(
   refs: ReadonlyArray<{ type: string; id: string }>,
   userId: string | null | undefined,
   workspaceId?: string | null,
+  opts: GrantOpts = {},
 ): Promise<Set<string>> {
   const byType = new Map<PrivateGraphKind, Set<string>>()
   for (const r of refs) {
@@ -272,7 +283,7 @@ export async function hiddenPrivateRefs(
   const hidden = new Set<string>()
   await Promise.all(
     [...byType.entries()].map(async ([type, ids]) => {
-      const visible = await visiblePrivateKindIds(supabase, type, userId, [...ids], workspaceId)
+      const visible = await visiblePrivateKindIds(supabase, type, userId, [...ids], workspaceId, opts)
       for (const id of ids) if (!visible.has(id)) hidden.add(`${type}:${id}`)
     }),
   )
@@ -328,13 +339,16 @@ export function isLinkFencedKind(type: string): type is LinkFencedKind {
  * ONE call of entity_refs_hidden, the SQL rule the entity_link SELECT policy
  * itself uses (no user, an unattended run: only what every member of the
  * workspace reads). A malformed id (it fails the RPC's uuid[] cast) or a
- * failed read: every ref it asked about is hidden.
+ * failed read: every ref it asked about is hidden. `grants: false`
+ * (GrantOpts): an end only a grant opens is hidden too (519's 5-arg
+ * entity_refs_hidden, and the decision fence's capture grants).
  */
 export async function hiddenGraphRefs(
   supabase: SupabaseClient,
   refs: ReadonlyArray<{ type: string; id: string }>,
   userId: string | null | undefined,
   workspaceId?: string | null,
+  opts: GrantOpts = {},
 ): Promise<Set<string>> {
   const asked = new Map<string, { type: string; id: string }>()
   const privateRefs: Array<{ type: string; id: string }> = []
@@ -344,8 +358,8 @@ export async function hiddenGraphRefs(
     else asked.set(`${r.type}:${r.id}`, r)
   }
   const [hiddenPrivate, hiddenOther] = await Promise.all([
-    privateRefs.length > 0 ? hiddenPrivateRefs(supabase, privateRefs, userId, workspaceId) : Promise.resolve(new Set<string>()),
-    asked.size > 0 ? hiddenByRule(supabase, asked, userId, workspaceId) : Promise.resolve(new Set<string>()),
+    privateRefs.length > 0 ? hiddenPrivateRefs(supabase, privateRefs, userId, workspaceId, opts) : Promise.resolve(new Set<string>()),
+    asked.size > 0 ? hiddenByRule(supabase, asked, userId, workspaceId, opts) : Promise.resolve(new Set<string>()),
   ])
   return new Set([...hiddenPrivate, ...hiddenOther])
 }
@@ -355,6 +369,7 @@ async function hiddenByRule(
   asked: ReadonlyMap<string, { type: string; id: string }>,
   userId: string | null | undefined,
   workspaceId: string | null | undefined,
+  opts: GrantOpts,
 ): Promise<Set<string>> {
   const all = new Set(asked.keys())
   let rows: unknown
@@ -364,6 +379,8 @@ async function hiddenByRule(
       p_workspace: workspaceId ?? null,
       p_types: [...asked.values()].map((r) => r.type),
       p_ids: [...asked.values()].map((r) => r.id),
+      // 519's 5-arg form: no grant arm on any kind.
+      ...(opts.grants === false ? { p_grants: false } : {}),
     })
     if (error) {
       console.warn('[entity-fences] entity_refs_hidden failed:', error.message)

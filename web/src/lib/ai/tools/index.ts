@@ -167,7 +167,9 @@ export interface CreateToolsOptions {
    * with the PERSON, not with whoever they let talk to their agent: with
    * this set, no read tool lets a grant through (the documents, captures,
    * comments, decisions, attachments, project notes and claim labels the
-   * grant would open, and find / search drop what only a grant found).
+   * grant would open, the contacts and companies and their names on deals,
+   * sequences, meetings and the graph (migration 519), and find / search
+   * drop what only a grant found).
    * Everything else reads as before. Absent: the person's own turn.
    */
   omitGrants?: boolean
@@ -404,7 +406,7 @@ export function createTools(
     // Posts (content C0): the deterministic check and the fresh-eyes review. Nothing posts.
     ...createContentTools(userId, supabase, workspaceId, { writerModel: options?.contentContext?.writerModel ?? null, approvedCall: options?.approvedCall, unattended: options?.unattended === true }),
     ...createDecisionTools(userId, supabase, workspaceId, strict, createPolicy, omitPrivate, options?.actionRules, omitGrants, editGrants),
-    ...createContactTools(userId, supabase, workspaceId, strict, createPolicy, options?.unattended ?? false, editGrants),
+    ...createContactTools(userId, supabase, workspaceId, strict, createPolicy, options?.unattended ?? false, editGrants, omitGrants),
     // The business's front door (roadmap B): customers' quotes, its profile, booking slots and bookings. See ./business.ts.
     // send_quote / book_quote run only as the owner's approved call (roadmap F3).
     // move_booking / cancel_booking text the customer: never an unattended run's.
@@ -413,9 +415,9 @@ export function createTools(
     ...createPaymentTools(userId, supabase, workspaceId, { approvedCall: options?.approvedCall }),
     // Companies — the CRM's other half. `get_company_overview` (crm.ts) reads
     // ONE account you can already name; these are the index and the writes.
-    ...createCompanyTools(userId, supabase, workspaceId, strict, createPolicy, editGrants),
+    ...createCompanyTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
     // Deals and custom fields (roadmap #8): apply with undo, every change logged. See ./deals.ts.
-    ...createDealTools(userId, supabase, workspaceId, strict, createPolicy, editGrants),
+    ...createDealTools(userId, supabase, workspaceId, strict, createPolicy, editGrants, omitGrants),
     // Campaigns — Marketing's anchor entity. Read + create + update; no delete
     // (a campaign is something claims point at).
     // launch_campaign raises the person's card and sends on their yes (roadmap D2).
@@ -424,6 +426,7 @@ export function createTools(
       approvedCall: options?.approvedCall,
       approvalContext: options?.approvalContext,
       unattended: options?.unattended === true,
+      omitGrants,
     }),
     ...createInitiativeTools(userId, supabase, workspaceId, strict, createPolicy),
     ...createProjectTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy, omitGrants),
@@ -439,18 +442,18 @@ export function createTools(
     ...createSearchTools(userId, supabase, workspaceId, omitPrivate, options?.searchDefaultWindow ?? 'all_time', strict, options?.nowContext?.readable === true, omitGrants),
     ...createNotificationTools(userId, supabase, workspaceId),
     ...createBrowserTools(userId, supabase, workspaceId, options?.browserAttribution, options?.browserSourceRequest, options?.approvedCall),
-    ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate),
+    ...createCalendarCaptureTools(userId, supabase, workspaceId, accessToken, omitPrivate, omitGrants),
     // The person's goal for one of their meetings (the prep card's composer writes the same store).
     ...createMeetingGoalTools(userId, supabase, workspaceId, options?.unattended ?? false),
     ...createVocabularyTools(userId, supabase, workspaceId, { omitPrivate, unattended: options?.unattended ?? false }),
-    ...createCrmTools(userId, supabase, workspaceId, omitPrivate, strict, editGrants),
+    ...createCrmTools(userId, supabase, workspaceId, omitPrivate, strict, editGrants, omitGrants),
     // enrich_contact: one paid web search for one contact, only on the person's
     // yes (confirmed_with_user), the same run as the contact page's Enrich
     // button. Nothing enriches on its own. See ./enrich-contact.ts.
     ...createEnrichContactTools(userId, supabase, workspaceId, strict, editGrants),
     // Review requests (roadmap D3): the owner's Google review link, and the
     // jobs they say are done, each sending that customer the link once.
-    ...createReviewTools(userId, supabase, workspaceId, strict, { unattended: options?.unattended === true }),
+    ...createReviewTools(userId, supabase, workspaceId, strict, { unattended: options?.unattended === true, omitGrants }),
     ...createEmailManagementTools(userId, supabase, workspaceId, accessToken),
     ...createAttachmentTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants),
     // The browser zone: a schedule loop with no timezone takes the person's.
@@ -473,7 +476,7 @@ export function createTools(
     // One guest's conversation with the agent the person made for them (guest access): a read of their own guests.
     ...createGuestConversationTools(userId, supabase, workspaceId),
     ...createClaimTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy, omitGrants),
-    ...createEntityLinkTools(userId, supabase, workspaceId, strict, omitPrivate),
+    ...createEntityLinkTools(userId, supabase, workspaceId, strict, omitPrivate, omitGrants),
     ...createPackageTools(userId, supabase, workspaceId, strict, createPolicy),
     ...createAsanaTools(userId, supabase, workspaceId, strict),
     ...createJiraTools(userId, supabase, workspaceId, strict),
@@ -490,6 +493,7 @@ export function createTools(
       approvedCall: options?.approvedCall,
       approvalContext: options?.approvalContext,
       unattended: options?.unattended === true,
+      omitGrants,
     }),
     // Prospecting — the tools behind the `build-prospect-list` skill. Every
     // search, and publish, takes `confirmed_with_user` and refuses, running
@@ -536,7 +540,7 @@ export function createTools(
     ...createFollowThroughTools(userId, supabase, workspaceId),
     // Stage suggestions the person settles with one click, where the agent
     // wrote about them. See ./suggestions.ts.
-    ...createSuggestionTools(userId, supabase, workspaceId, options?.suggestionContext),
+    ...createSuggestionTools(userId, supabase, workspaceId, options?.suggestionContext, omitGrants),
     // The main agent reads the bots' work (bots-v4 Phase A1): list_bot_work,
     // get_bot_item; and acts on it (Phase A2): settle_work_item,
     // send_work_answer. Attended only, like the follow-through above: only the
