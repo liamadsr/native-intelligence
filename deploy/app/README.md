@@ -153,12 +153,14 @@ These exist only here: the earlier host has no such settings, because there the
 app's own deployment token did their work (`web/src/lib/slack/config.ts`).
 
 - `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
-  Slack connector is in. One narrowed to the project is refused, here and by the
-  sandbox service (`SANDBOX_ACCESS_TOKEN` is scoped to the team too). The connector refuses it as the credential for a Slack
-  login (measured from this server), so the app only makes a short-lived project
-  token with it (`web/src/lib/slack/connect-auth.ts`) and sends that to the
-  connector. The project token is for the project's development environment, so
-  the connector must stay enabled for development as well as production.
+  Slack connector is in. The connector refuses this team token as the credential
+  for a Slack login (measured from this server), so the app only makes a
+  short-lived project token with it (`web/src/lib/slack/connect-auth.ts`) and sends
+  that to the connector. The project token is for the project's development
+  environment, so the connector must stay enabled for development as well as
+  production. An access token narrowed to the project, instead of scoped to the
+  team, is refused outright, here and by the sandbox service (`SANDBOX_ACCESS_TOKEN`
+  is scoped to the team too).
 - `CONNECT_PROJECT_ID`: the id of the project the connector is attached to and
   forwards Slack's events for. Required with the access token: the project token
   is made for it. A forwarded event or button click must carry a token naming it.

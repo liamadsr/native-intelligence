@@ -135,8 +135,8 @@ build when a name from `scripts/open-source/denylist.txt` turns up in either.
 - Stripe for payments
 - Deepgram for transcription (via desktop app)
 - Claude (Anthropic) and other Gateway models for AI features. Server model calls run on
-  Vercel eve agents (`agents/*`, eve 0.79.1) through the Vercel AI Gateway; the eval graders
-  and embeddings are the only exceptions
+  eve agents (`agents/*`, eve 0.79.1; in production, containers on our own server) through the
+  Vercel AI Gateway; the eval graders and embeddings are the only exceptions
 
 ### Key Directories
 - `src/app/account/` - Authenticated dashboard (actions, captures, email, calendar, CRM, etc.)

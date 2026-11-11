@@ -1,6 +1,6 @@
 # The server
 
-Everything Native Intelligence runs on its own server lives in this folder. It has been moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (then still on Vercel) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files. The third (steps 20 to 22) is the app itself: the web app, its eight agents and its scheduled jobs, from the container image in [`app/`](app).
+Everything Native Intelligence runs on its own server lives in this folder. It has been moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (then still on its earlier host) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files. The third (steps 20 to 22) is the app itself: the web app, its eight agents and its scheduled jobs, from the container image in [`app/`](app).
 
 | Folder | What it runs | Public? |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ Everything Native Intelligence runs on its own server lives in this folder. It h
 
 Everything runs on one server, and is kept movable: [`move/README.md`](move/README.md) is how the whole of it goes to another machine.
 
-Follow this page top to bottom on a fresh server. Steps 3 to 7 are also available as one script, [`server/setup.sh`](server/setup.sh), which does what those steps describe and can be run again: it only adds what is missing, and restarts nothing that has not changed. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end. Steps 1 to 13 have since run on two real servers, the second time through `server/setup.sh` and [`move/`](move). Steps 14 to 18 ran on the real server on 2026-11-10 and steps 20 and 21 on 2026-11-11 (neither undo was needed): production is on the server since then, and [the record](#the-record) at the end says how each switch went.
+Follow this page top to bottom on a fresh server. Steps 3 to 7 are also available as one script, [`server/setup.sh`](server/setup.sh), which does what those steps describe and can be run again: it only adds what is missing, and restarts nothing that has not changed. Every command is meant to be pasted as written, except where a value in `<angle brackets>` is yours to fill in. [What was and was not tested](#what-was-tested-and-what-was-not) is at the end. Steps 1 to 13 have since run on two real servers, the second time through `server/setup.sh` and [`move/`](move). Steps 14 to 18 and the app's rehearsal (step 20) ran on the real server on 2026-11-10, and step 21 on 2026-11-11 (neither undo was needed): production is on the server since then, and [the record](#the-record) at the end says how each switch went.
 
 ## 1. What you need
 
@@ -1070,7 +1070,7 @@ The app's names move here from its current host. For the people using it, the sw
   1. Find the one address each name answers with today, and check that this one address serves every name as before (`curl --resolve <name>:443:<that address> -sI https://<name>/` for each).
   2. Add an explicit `A` record for each name, TTL 60, pointing at that address. Nothing changes for anyone yet.
   3. Ask the DNS host's own name servers (`dig +short <name> @<one of its name servers>`) and check that the explicit record is what they answer.
-  4. Wait out the old timer, 30 minutes, before step 4.
+  4. Wait out the old timer, 30 minutes, before step 21.4.
 
   At step 4 these same records are changed to `<server>`. A name that never worked on the current host needs no preparation.
 - Know the current values of those records: they are the undo. Changing a record gives it a new id at that DNS host, so list the records again before an undo rather than using ids written down before.
@@ -1156,7 +1156,7 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
-| Apply a database migration | After `git pull` has brought the file: `sudo docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 < /opt/native-intelligence/web/supabase/migrations/<file>`, before the code that needs it is rolled out. This is the command production's migrations have been applied with since the move. If the file does not end with ``notify pgrst, 'reload schema';``, send that line the same way afterwards, or the data API keeps its old picture of the tables and functions. |
+| Apply a database migration | After `git pull` has brought the file: `sudo docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction < /opt/native-intelligence/web/supabase/migrations/<file>`, before the code that needs it is rolled out. This is the command production's migrations have been applied with since the move, with `--single-transaction` added so that a failing file changes nothing; a migration that cannot run inside a transaction (one that says `CONCURRENTLY`; none in `web/supabase/migrations` does today) is applied without it. Then, as the second step, make the data API read the new tables and functions: `echo "notify pgrst, 'reload schema';" \| sudo docker exec -i supabase-db psql -U postgres -d postgres`. Skip it only when the file itself contains that line; most do not. Nothing records which migrations have been applied: to tell, look in the database for what the file creates (a function, a table, a policy). |
 
 Stopping and starting is safe: Redis writes every change to disk within a second and Postgres is Postgres. `sudo docker compose down` keeps the volumes. **`down -v` deletes them.** In `supabase/stack` that is the app's whole database and every stored file: never run it there.
 
@@ -1295,16 +1295,16 @@ Tested on the real server, 2026-11-10, with production's settings and on product
 **Not tested yet, and why:**
 
 - **A helper agent calling back into a chat** (`EVE_CALLBACK_BASE_URL`): the chat that was sent used no helper.
-- **Connections** (Gmail, GitHub and the like) on the rehearsal: their stored logins are encrypted with `CREDENTIAL_ENCRYPTION_KEY`, one of the values that must come from the earlier host and is not entered yet. Until it is, listing a connector's tools fails ("is not set" in web's log).
+- **Connections** (Gmail, GitHub and the like) on the rehearsal: their stored logins are encrypted with `CREDENTIAL_ENCRYPTION_KEY`, one of the values that must come from the earlier host, and not yet entered when the rehearsal ran: listing a connector's tools failed ("is not set" in web's log). It was copied over later on 2026-11-10, and the settings check proves it opens the stored credentials.
 - **The undo** (step 22). The live switch itself ran on 2026-11-11 ([the record](#the-record)); before it, by design, nothing here took production's traffic, scheduled jobs or background work.
-- **The cloud browser:** needs the access token, team and project ids for its sandboxes. Not started on the rehearsal on purpose either: it would share production's sandbox names.
+- **The cloud browser:** needs the access token, team and project ids for its sandboxes. Not started on the rehearsal on purpose either: it would share production's sandbox names. After the switch, the sandbox service accepts the access token from inside the app's container; no cloud browser session has been started on the server yet.
 - **The coding agent.** Off its earlier host every agent's shell is eve's `just-bash`, an emulated shell in the container, not a VM. The coding agent's restricted and isolated runs refuse to start there (they need a sandbox that can enforce a network policy), and its GitHub credentials come from a broker that exists only on the earlier host. Expect coding runs to fail until its sandbox runs on that host's sandbox service with the token above, which is a change to `web/agents/coding-agent/sandbox.ts`, not written.
 - **Slack:** needs `CONNECT_ACCESS_TOKEN` and `CONNECT_PROJECT_ID` in the server's file (a Slack login through the connector was seen working from the server with them); its forwarded events go to the production domain, so they reach this server only after the switch (step 21, Gate 1 and step 5). After the switch a Slack message was answered by this server.
 
 **Not done:**
 
 - **Deleting the finished runs of utility and web-research.** They set `experimental.workflow.retention: 0` so that the mail text in their runs is kept nowhere; eve's file store here does not honour it, so the runs stay on their volumes. They are left out of the backup; a job that deletes their finished runs is still to be written, once the store's layout has been looked at with real runs in it.
-- **Every server-side call to Supabase arrives from one address**, so Auth's per-address limits (token refresh: 150 an hour by default) count all of the app's own refreshes and sign-ins together. On the current host they come from a handful of addresses, so this is not new, but it is tighter. The fix is for the app to pass the person's address along on its server-side Auth calls.
+- **Every server-side call to Supabase arrives from one address**, so Auth's per-address limits (token refresh: 150 an hour by default) count all of the app's own refreshes and sign-ins together. On the earlier host they came from a handful of addresses, so this is not new, but it is tighter. The fix is for the app to pass the person's address along on its server-side Auth calls.
 - **Deploys are by hand:** merging to `main` does not deploy here. A workflow that runs `deploy.sh` over SSH after a merge would need a deploy key on the server and in GitHub.
 - **An agent's live stream is cut when that agent is replaced** (eve's store allows one process per agent), and a phone call older than two minutes is cut when web is.
 
@@ -1312,4 +1312,4 @@ Tested on the real server, 2026-11-10, with production's settings and on product
 
 **The database, 2026-11-10** (steps 14 to 18). The door closed at 18:42:18 UTC and the switch was made at 18:47:40: 5 minutes 22 seconds without the database. 931 MB, 255 tables. Every table's rows, the accounts, the files and the permissions compared equal on both sides.
 
-**The app, 2026-11-11** (steps 20 and 21). The earlier host's scheduled jobs off at 04:01 UTC, the server live at 04:02, the six names moved from 04:05 to 04:07. Checked afterwards: sessions kept (still signed in), the scheduled jobs called, background jobs arriving, mail push messages arriving, and a Slack message answered by the server. The earlier host keeps its last deployment as the undo; the repository is no longer connected to it, so a merge to `main` deploys nothing until `deploy.sh` runs on the server.
+**The app, 2026-11-11** (step 21; the rehearsal, step 20, was on 2026-11-10). The earlier host's scheduled jobs off at 04:01 UTC, the server live at 04:02, the six names moved from 04:05 to 04:07. Checked afterwards: sessions kept (still signed in), the scheduled jobs called, background jobs arriving, mail push messages arriving, and a Slack message answered by the server. The earlier host keeps its last deployment as the undo; the repository is no longer connected to it, so a merge to `main` deploys nothing until `deploy.sh` runs on the server.
