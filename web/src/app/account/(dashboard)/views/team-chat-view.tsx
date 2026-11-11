@@ -1292,7 +1292,7 @@ function useScrollToFocus(scrollRef: RefObject<HTMLDivElement | null>, focusId: 
 const NOTIFY_OPTIONS: ReadonlyArray<{ level: TeamChatNotifyLevel; label: string; hint: string }> = [
   { level: 'all', label: 'All messages', hint: 'Every new message notifies you' },
   { level: 'mentions', label: 'Mentions only', hint: 'Only @-mentions and your threads' },
-  { level: 'muted', label: 'Muted', hint: 'Nothing notifies you; no unread count' },
+  { level: 'muted', label: 'Muted', hint: 'No notifications, no unread count' },
 ]
 
 /** The channel header's menu: how loud it is for the person (migration 560). */
@@ -1316,7 +1316,7 @@ function NotifyMenu({ kind, level, onChange }: { kind: TeamChatChannel['kind']; 
         <p className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">{kind === 'dm' ? 'Notify me about this conversation' : 'Notify me about this channel'}</p>
         {NOTIFY_OPTIONS.map((o) => (
           <DropdownMenuItem key={o.level} data-team-chat-notify-option={o.level} onSelect={() => o.level !== level && onChange(o.level)} className="items-start">
-            <Check className={cn('mt-0.5 h-4 w-4', o.level === level ? 'opacity-100' : 'opacity-0')} />
+            {o.level === level ? <Check className="mt-0.5 h-4 w-4" aria-label="Chosen" /> : <span className="h-4 w-4 shrink-0" aria-hidden />}
             <span className="flex min-w-0 flex-col">
               <span className="text-sm text-foreground">{o.label}</span>
               <span className="text-xs text-muted-foreground">{o.hint}</span>

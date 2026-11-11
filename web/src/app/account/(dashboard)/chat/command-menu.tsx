@@ -971,7 +971,8 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
       return { title: row.title, detail: row.description, meta: null }
     case 'team_chat_message':
       // The words that matched, then who said it where, and when.
-      return { title: row.title, detail: `${row.author} · ${row.place}`, meta: formatCaptureDate(row.createdAt) }
+      // A DM's other person wrote it: "Ben Ortiz · DM", never the name twice.
+      return { title: row.title, detail: row.author === row.place ? `${row.author} · DM` : `${row.author} · ${row.place}`, meta: formatCaptureDate(row.createdAt) }
     case 'contact':
       return {
         title: row.contact.full_name || row.contact.email || 'Unnamed contact',
