@@ -89,6 +89,8 @@ export interface DataRow {
 /** A table with its live columns, in order. */
 export interface DataTableWithColumns extends DataTable {
   columns: DataColumn[]
+  /** The reader may change it (520's data_table_editable_by); read when the caller says who is asking. */
+  can_edit?: boolean
 }
 
 // ── Ops: what a write batch asks for ────────────────────────────────────────

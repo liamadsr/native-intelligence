@@ -21,10 +21,13 @@ const changes = [
 const calls: Array<{ url: string; init?: RequestInit }> = []
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+/** What the table read says about the reader (520's data_table_editable_by). */
+let canEdit = true
 let container: HTMLDivElement
 let root: Root
 beforeEach(() => {
   calls.length = 0
+  canEdit = true
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, init })
     if (url === '/api/account/tables' && init?.method === 'POST') return json({ table: { ...table, id: 'new', name: 'Hires' } }, 201)
@@ -32,7 +35,7 @@ beforeEach(() => {
     if (url.endsWith('/undo')) return json({ kept: [] })
     if (url.includes('/rows')) return json({ rows, has_more: false })
     if (url.includes('/changes')) return json({ changes })
-    return json({ table: { ...table, columns } })
+    return json({ table: { ...table, columns, can_edit: canEdit } })
   }))
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -69,6 +72,16 @@ it('lists the tables and opens one: its columns, its rows, its history with Undo
   const undo = calls.find((c) => c.url.endsWith('/undo'))!
   expect(JSON.parse(String(undo.init?.body))).toEqual({ change_id: 'ch2' })
   expect(container.textContent).toContain('Undone.')
+})
+
+it('shows no Undo to a reader who can’t change the table', async () => {
+  canEdit = false
+  await act(async () => root.render(<TablesView />))
+  await flush()
+  await act(async () => button('Fernhill orders').click())
+  await flush()
+  expect(container.textContent).toContain('Edited 1 row')
+  expect([...container.querySelectorAll('button')].filter((b) => b.textContent?.includes('Undo'))).toHaveLength(0)
 })
 
 it('makes a table by name and opens it', async () => {

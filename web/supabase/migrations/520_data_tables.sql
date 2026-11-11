@@ -153,6 +153,10 @@ alter table public.data_row
 alter table public.data_row drop constraint if exists data_row_custom_fields_object;
 alter table public.data_row
   add constraint data_row_custom_fields_object check (jsonb_typeof(custom_fields) = 'object');
+-- numeric takes 'NaN', which sorts after every number and breaks the midpoint.
+alter table public.data_row drop constraint if exists data_row_position_number;
+alter table public.data_row
+  add constraint data_row_position_number check (position <> 'NaN'::numeric);
 
 create index if not exists data_row_table_position_idx on public.data_row (table_id, position) where archived_at is null;
 create index if not exists data_row_table_archived_idx on public.data_row (table_id, archived_at) where archived_at is not null;
@@ -507,6 +511,7 @@ declare
   v_next numeric;
   v_n int;
   v_id uuid;
+  v_rows int := 0;
 begin
   if p_ops is null or jsonb_typeof(p_ops) <> 'array' then
     raise exception 'ops must be a list' using errcode = '22023';
@@ -518,6 +523,19 @@ begin
   for op in select value from jsonb_array_elements(p_ops) loop
     select * into t from public.data_table where id = p_table_id;
     kind := op ->> 'op';
+    -- An archived table takes nothing but its restore (or archive) until that runs.
+    if t.archived_at is not null and kind not in ('restore_table', 'archive_table') then
+      raise exception 'the table is archived: restore it first' using errcode = '22023';
+    end if;
+    -- Rows a batch inserts, archives or restores, all its ops together: at most 5000.
+    if kind = 'insert_rows' and jsonb_typeof(op -> 'rows') = 'array' then
+      v_rows := v_rows + jsonb_array_length(op -> 'rows');
+    elsif kind in ('archive_rows', 'restore_rows') and jsonb_typeof(op -> 'row_ids') = 'array' then
+      v_rows := v_rows + jsonb_array_length(op -> 'row_ids');
+    end if;
+    if v_rows > 5000 then
+      raise exception 'at most 5000 rows in one batch' using errcode = '22023';
+    end if;
 
     if kind = 'update_table' then
       fields := '{}'::jsonb;

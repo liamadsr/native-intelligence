@@ -390,7 +390,7 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
         if (e.fields?.label) {
           if (same(col.label, e.fields.label.to)) {
             back.label = e.fields.label.from
-            restored.push(`column ${quote(e.fields.label.from)}'s name`)
+            restored.push(`column ${colName(e.key)}'s name`)
           } else kept.push(`column ${colName(e.key)}'s name (changed since)`)
         }
         if (e.fields?.options) {
@@ -459,7 +459,7 @@ export function planUndo(change: Pick<DataChange, 'changes' | 'undo_of' | 'undon
           if (field === 'title') {
             if (same(row.title, c.to)) {
               back.title = String(c.from ?? '')
-              restored.push(`the name of ${quote(back.title)}`)
+              restored.push(`the name of ${rowName(e.row_id)}`)
             } else kept.push(`the name of ${rowName(e.row_id)} (changed since)`)
             continue
           }

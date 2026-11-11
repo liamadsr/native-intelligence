@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspace } from '@/lib/api-auth'
-import { badRequest } from '@/lib/api-errors'
+import { badRequest, serverError } from '@/lib/api-errors'
 import { applyOps } from '@/lib/tables/store'
 import { tableRefusal } from '@/lib/tables/responses'
 
@@ -18,13 +18,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!body || typeof body !== 'object') return badRequest('Send { base_version, ops }.')
   const base = body.base_version
   if (typeof base !== 'number' || !Number.isInteger(base) || base < 0) return badRequest('base_version is the table version you read.')
-  const result = await applyOps(
-    supabase,
-    workspaceId,
-    id,
-    { baseVersion: base, ops: body.ops },
-    { userId: user.id, source: 'person', reason: typeof body.reason === 'string' ? body.reason : null },
-  )
-  if (!result.ok) return tableRefusal(result)
-  return NextResponse.json(result.value)
+  try {
+    const result = await applyOps(
+      supabase,
+      workspaceId,
+      id,
+      { baseVersion: base, ops: body.ops },
+      { userId: user.id, source: 'person', reason: typeof body.reason === 'string' ? body.reason : null },
+    )
+    if (!result.ok) return tableRefusal(result)
+    return NextResponse.json(result.value)
+  } catch (e) {
+    return serverError(e instanceof Error ? e.message : 'Could not change the table')
+  }
 }

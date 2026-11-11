@@ -135,3 +135,22 @@ describe('rows, history and undo', () => {
     expect(refused.status).toBe(400)
   })
 })
+
+describe('a failed database read', () => {
+  it('answers 500 in the api-errors shape on every write route, never a bare throw', async () => {
+    const broken = () => {
+      throw new Error('connection reset')
+    }
+    Object.assign(f.client, { from: broken, rpc: broken })
+    const answers = await Promise.all([
+      createTable(send(base, 'POST', { name: 'Hires' })),
+      patchTable(send(`${base}/${T}`, 'PATCH', { name: 'X' }), ctx()),
+      postOps(send(`${base}/${T}/ops`, 'POST', { base_version: 4, ops: [{ op: 'archive_table' }] }), ctx()),
+      postUndo(send(`${base}/${T}/undo`, 'POST', {}), ctx()),
+    ])
+    for (const res of answers) {
+      expect(res.status).toBe(500)
+      expect(await readJson(res)).toMatchObject({ error: expect.any(String) })
+    }
+  })
+})

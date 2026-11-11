@@ -104,13 +104,22 @@ export async function listColumns(db: SupabaseClient, workspaceId: string, table
   return ((data ?? []) as DataColumn[]).map((c) => ({ ...c, options: c.options ?? [] }))
 }
 
-/** One table with its live columns, or null when the caller can't read it. */
-export async function getTable(db: SupabaseClient, workspaceId: string, tableId: string): Promise<DataTableWithColumns | null> {
+/**
+ * One table with its live columns, or null when the caller can't read it.
+ * With `userId`, also whether that person may change it (`can_edit`): a
+ * reader with a view grant sees no Undo.
+ */
+export async function getTable(db: SupabaseClient, workspaceId: string, tableId: string, opts: { userId?: string } = {}): Promise<DataTableWithColumns | null> {
   if (!isUuid(tableId)) return null
   const { data, error } = await db.from('data_table').select(TABLE_SELECT).eq('workspace_id', workspaceId).eq('id', tableId).maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) return null
-  return { ...(data as DataTable), columns: await listColumns(db, workspaceId, tableId) }
+  const [columns, editable] = await Promise.all([
+    listColumns(db, workspaceId, tableId),
+    opts.userId ? db.rpc('data_table_editable_by', { p_table_id: tableId, p_user_id: opts.userId }) : Promise.resolve(null),
+  ])
+  if (editable?.error) throw new Error(editable.error.message)
+  return { ...(data as DataTable), columns, ...(editable ? { can_edit: editable.data === true } : {}) }
 }
 
 /** A page of a table's rows, in order: the live ones, or the archived ones. */

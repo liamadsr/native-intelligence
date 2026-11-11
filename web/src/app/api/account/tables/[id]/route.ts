@@ -10,10 +10,10 @@ type Ctx = { params: Promise<{ id: string }> }
 export async function GET(_request: NextRequest, { params }: Ctx) {
   const auth = await requireWorkspace()
   if (auth instanceof Response) return auth
-  const { supabase, workspaceId } = auth
+  const { supabase, user, workspaceId } = auth
   const { id } = await params
   try {
-    const table = await getTable(supabase, workspaceId, id)
+    const table = await getTable(supabase, workspaceId, id, { userId: user.id })
     if (!table) return notFound('Table not found')
     return NextResponse.json({ table })
   } catch (e) {
@@ -34,8 +34,12 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
   if (!body || typeof body !== 'object') return badRequest('Nothing to change.')
   const op: Record<string, unknown> = { op: 'update_table' }
   for (const k of ['name', 'icon', 'description', 'visibility']) if (k in body) op[k] = body[k]
-  const result = await applyOps(supabase, workspaceId, id, { baseVersion: null, ops: [op] }, { userId: user.id, source: 'person' })
-  if (!result.ok) return tableRefusal(result)
-  const table = await getTable(supabase, workspaceId, id)
-  return NextResponse.json({ table, change_id: result.value.change_id })
+  try {
+    const result = await applyOps(supabase, workspaceId, id, { baseVersion: null, ops: [op] }, { userId: user.id, source: 'person' })
+    if (!result.ok) return tableRefusal(result)
+    const table = await getTable(supabase, workspaceId, id, { userId: user.id })
+    return NextResponse.json({ table, change_id: result.value.change_id })
+  } catch (e) {
+    return serverError(e instanceof Error ? e.message : 'Could not change the table')
+  }
 }

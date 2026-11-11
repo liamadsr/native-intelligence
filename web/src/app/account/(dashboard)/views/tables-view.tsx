@@ -302,7 +302,7 @@ function TableDetail({ tableId, onBack }: { tableId: string; onBack: () => void 
                   </span>
                   {ch.source !== 'person' && <span className="shrink-0 text-xs text-muted-foreground">{ch.source === 'agent' ? 'Agent' : ch.source}</span>}
                   <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(ch.created_at)}</span>
-                  {canOfferUndo(ch) && (
+                  {table?.can_edit && canOfferUndo(ch) && (
                     <Button size="sm" variant="ghost" className="h-7 shrink-0 px-2" disabled={undoing !== null} onClick={() => void undo(ch.id)}>
                       <Undo2 className="h-3.5 w-3.5" />
                       Undo
