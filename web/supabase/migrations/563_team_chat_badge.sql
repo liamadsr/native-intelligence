@@ -20,6 +20,14 @@
 -- backslashes anywhere in this file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
 
+-- One transaction, whatever applies it: the file opens with begin and ends
+-- with commit, so plain `psql -v ON_ERROR_STOP=1 < file` (no
+-- --single-transaction) is atomic too. A failure rolls the whole file back,
+-- and SET LOCAL's lock_timeout holds for every statement in it. Nothing in it
+-- is refused inside a transaction (no CONCURRENTLY, no VACUUM).
+
+begin;
+
 SET LOCAL lock_timeout = '5s';
 
 create or replace function public.team_chat_badge(for_user uuid default null)
@@ -86,3 +94,5 @@ revoke all on function public.team_chat_badge(uuid) from public, anon;
 grant execute on function public.team_chat_badge(uuid) to authenticated, service_role;
 
 notify pgrst, 'reload schema';
+
+commit;

@@ -24,13 +24,14 @@ function fn(sql: string, name: string): string {
 }
 
 describe('migrations 562-563', () => {
-  it('each is safe for a live database and the hand-applying transport, and reloads the API schema', () => {
+  it('each is one transaction, safe for a live database and the hand-applying transport, and reloads the API schema', () => {
     for (const [name, sql] of Object.entries({ TOKENS, BADGE })) {
       const body = bodyOf(sql)
       expect(sql, name).not.toContain('\\')
       expect(body, name).not.toMatch(/drop table|truncate|drop column|drop function|alter table public\.(?!push_token)/i)
-      expect(body, name).toContain("SET LOCAL lock_timeout = '5s';")
-      expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';"), name).toBe(true)
+      // One transaction whatever applies it (production: plain psql < file).
+      expect(body, name).toMatch(/^\s*begin;\s*SET LOCAL lock_timeout = '5s';/)
+      expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';\n\ncommit;"), name).toBe(true)
       expect(body, name).not.toMatch(/to anon/)
       expect(body, name).not.toMatch(/create (unique )?index (?!if not exists)/)
       expect(body, name).not.toMatch(/create table (?!if not exists)/)
