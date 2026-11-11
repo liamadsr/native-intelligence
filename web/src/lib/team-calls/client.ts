@@ -72,9 +72,13 @@ export async function requestStart(channelId: string, notes = false): Promise<{ 
   return { ok: true, call: json.call, join: json.join }
 }
 
-/** A join for a live call (the Join button, a rejoin). */
-export async function requestJoin(callId: string): Promise<{ ok: true; call: CallPlace; join: TeamCallJoin } | { ok: false; why: CallFailure }> {
-  const res = await post(`/api/account/team-calls/${callId}/token`)
+/**
+ * A join for a live call (the Join button, a rejoin). `noticeSeen`: the
+ * person already saw that its notes are on (a rejoin after they said go);
+ * otherwise a call with notes on is joined listen-only until they do.
+ */
+export async function requestJoin(callId: string, noticeSeen = false): Promise<{ ok: true; call: CallPlace; join: TeamCallJoin } | { ok: false; why: CallFailure }> {
+  const res = await post(`/api/account/team-calls/${callId}/token`, { noticeSeen })
   if (!res?.ok) return { ok: false, why: await failureOf(res) }
   const json = (await res.json().catch(() => null)) as { call?: CallPlace; join?: TeamCallJoin } | null
   if (!json?.call || !json.join) return { ok: false, why: 'failed' }
@@ -104,6 +108,12 @@ export async function requestRing(callId: string, memberIds: string[]): Promise<
 /** Tell the server the person hung up. */
 export async function requestLeave(callId: string): Promise<void> {
   await post(`/api/account/team-calls/${callId}/leave`)
+}
+
+/** The person saw the notes notice: their listen-only connection may publish. False when the server didn't take it. */
+export async function requestNotice(callId: string): Promise<boolean> {
+  const res = await post(`/api/account/team-calls/${callId}/notice`)
+  return res?.ok === true
 }
 
 /** Turn the call's notes on or off; a failure carries what its toast says. */

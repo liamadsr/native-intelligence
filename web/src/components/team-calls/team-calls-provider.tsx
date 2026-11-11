@@ -41,6 +41,7 @@ import {
   requestJoin,
   requestLeave,
   requestNotes,
+  requestNotice,
   requestRecording,
   requestRing,
   requestStart,
@@ -197,11 +198,16 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
 
   const begin = useCallback((call: CallPlace, join: TeamCallJoin, label: string) => {
     const session = new TeamCallSession(
-      { callId: call.id, channelId: call.channelId, channelKind: call.channelKind, label },
+      { callId: call.id, channelId: call.channelId, channelKind: call.channelKind, label, notesOffered: call.features.notes },
       {
-        refreshJoin: async () => {
-          const again = await requestJoin(call.id)
+        refreshJoin: async (noticeSeen) => {
+          const again = await requestJoin(call.id, noticeSeen)
           return again.ok ? again.join : null
+        },
+        allowPublish: async () => {
+          const ok = await requestNotice(call.id)
+          if (!ok) toast('Your microphone couldn’t be turned on. Try again.')
+          return ok
         },
         hangUp: () => requestLeave(call.id),
         onEnded: (why) => {
@@ -223,7 +229,9 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       notes: call.notes,
     })
     setMinimized(false)
-    void session.connect(join, { holdMic: holdMicOnJoin(call) })
+    session.setNotesMode(call.notes.notes)
+    // Held for the notice: the notes are on by someone else, it is being recorded, or the server gave a listen-only token.
+    void session.connect(join, { holdMic: holdMicOnJoin(call) || join.canPublish === false })
   }, [])
 
   // The active call's own row: its notes and recording, as everyone in it sees them. Read once
@@ -246,6 +254,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       if (next.notes !== cur.notes.notes && next.notes_by !== cur.memberId) toast(next.notes ? 'Notes are on for this call.' : 'Notes are off for this call.')
       if (next.recording === 'on' && cur.notes.recording !== 'on' && next.recording_by !== cur.memberId) toast('This call is being recorded.')
       if (next.recording === 'failed' && cur.notes.recording !== 'failed') toast('The recording stopped: it couldn’t be written.')
+      cur.session.setNotesMode(next.notes)
       setActive((a) => (a && a.callId === activeCallId ? { ...a, notes: next } : a))
     }
     const channel = supabase
@@ -391,6 +400,7 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
       return
     }
     // The row's Realtime update follows; this is the person's own press, drawn now.
+    cur.session.setNotesMode(res.notes)
     setActive((a) => (a && a.callId === cur.callId ? { ...a, notes: { ...a.notes, notes: res.notes, notes_by: a.memberId, notes_state: res.notes ? 'capturing' : a.notes.notes_state } } : a))
   }, [])
 

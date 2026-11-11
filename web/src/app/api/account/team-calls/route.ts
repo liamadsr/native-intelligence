@@ -36,7 +36,7 @@ import { requestTeamChatNotify } from '@/lib/team-chat/notify'
 import { dmOtherMember, isUuid } from '@/lib/team-chat/types'
 import { createTeamCallRoom, teamCallsConfig, type TeamCallsConfig } from '@/lib/team-calls/livekit'
 import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall, type MadeRing, type StartedCall } from '@/lib/team-calls/store'
-import { callsUnreachable, joinAnswer, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
 import { setNotes } from '@/lib/team-calls/notes-store'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -127,7 +127,13 @@ export async function POST(request: NextRequest) {
     } else if (!started.created) {
       notes = notesViewOf(await getCall(auth.supabase, started.callId))
     }
-    const join = await joinAnswer(config, { callId: started.callId, room: started.room, memberId: me.id, name: me.display_name })
+    const join = await joinAnswer(config, {
+      callId: started.callId,
+      room: started.room,
+      memberId: me.id,
+      name: me.display_name,
+      listenOnly: joinsListenOnly(notes, me.id, input.noticeSeen),
+    })
     const messageId = started.messageId
     after(async () => {
       await requestRingTimers(rings)

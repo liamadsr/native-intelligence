@@ -81,6 +81,8 @@ export interface TeamCallJoin {
   token: string
   room: string
   callId: string
+  /** False: a listen-only token (the notes notice comes first; the server lifts it after). */
+  canPublish?: boolean
 }
 
 export interface TeamCallSessionInfo {
@@ -89,11 +91,18 @@ export interface TeamCallSessionInfo {
   channelKind: 'channel' | 'dm'
   /** What the panel calls it: "#launch", or the other person's name. */
   label: string
+  /**
+   * The server offers call notes (phase 6): the microphone is sent without
+   * DTX, so a notes file's time runs with the call's even in silence.
+   */
+  notesOffered?: boolean
 }
 
 export interface TeamCallSessionDeps {
-  /** A fresh join (the token route). Null: the call has ended. */
-  refreshJoin: () => Promise<TeamCallJoin | null>
+  /** A fresh join (the token route); `noticeSeen`: the person already saw the notes notice. Null: the call has ended. */
+  refreshJoin: (noticeSeen: boolean) => Promise<TeamCallJoin | null>
+  /** The person saw the notes notice: the server lets their listen-only connection publish (POST [id]/notice). */
+  allowPublish?: () => Promise<boolean>
   /** Tell the server the person hung up (a DM's call ends with it). */
   hangUp: () => Promise<void>
   /** Called once, when the call is over here. */
@@ -147,6 +156,10 @@ export class TeamCallSession {
   private mic: CallDeviceState = 'off'
   private camera: CallDeviceState = 'off'
   private holdMic = false
+  /** The person muted themselves: a rejoin keeps them muted. */
+  private userMuted = false
+  /** The call's notes are on: muting unpublishes the microphone, so each unmuted stretch is its own notes file at its own place in the call. */
+  private notesMode = false
 
   constructor(
     readonly info: TeamCallSessionInfo,
@@ -183,7 +196,7 @@ export class TeamCallSession {
       adaptiveStream: true,
       dynacast: true,
       disconnectOnPageLeave: true,
-      publishDefaults: { simulcast: true, videoCodec: 'vp8', dtx: true, red: true },
+      publishDefaults: { simulcast: true, videoCodec: 'vp8', dtx: !this.info.notesOffered, red: true },
       videoCaptureDefaults: { resolution: lk.VideoPresets.h720.resolution },
       audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     })
@@ -202,7 +215,8 @@ export class TeamCallSession {
     }
     if (this.over || this.room !== room) return
     this.emit({ phase: 'connected', error: null, micHeld: this.holdMic })
-    if (!this.holdMic) await this.enableMic(room, lk)
+    // Held for the notice, or muted by the person before a rejoin: the microphone stays off.
+    if (!this.holdMic && !this.userMuted) await this.enableMic(room, lk)
     this.refresh()
     void this.refreshDevices()
   }
@@ -216,9 +230,11 @@ export class TeamCallSession {
     }
   }
 
-  /** The person read the notice and says go: their microphone is sent from now on. */
+  /** The person read the notice and says go: the server lets them publish, and their microphone is sent from now on. */
   async releaseMic(): Promise<void> {
+    if (this.holdMic && this.deps.allowPublish && !(await this.deps.allowPublish())) return
     this.holdMic = false
+    this.userMuted = false
     this.emit({ micHeld: false })
     const room = this.room
     const lk = this.sdk
@@ -294,7 +310,7 @@ export class TeamCallSession {
     this.clearAudio()
     let join: TeamCallJoin | null = null
     try {
-      join = await this.deps.refreshJoin()
+      join = await this.deps.refreshJoin(!this.holdMic)
     } catch {
       join = null
     }
@@ -397,6 +413,11 @@ export class TeamCallSession {
     })
   }
 
+  /** The call's notes went on or off: from now on a mute unpublishes the microphone (on) or only mutes it (off). */
+  setNotesMode(on: boolean): void {
+    this.notesMode = on
+  }
+
   async toggleMic(): Promise<void> {
     if (this.holdMic) return this.releaseMic()
     const room = this.room
@@ -404,8 +425,16 @@ export class TeamCallSession {
     if (!room || !lk) return
     const on = !room.localParticipant.isMicrophoneEnabled
     try {
-      await room.localParticipant.setMicrophoneEnabled(on)
+      const mic = room.localParticipant.getTrackPublication(lk.Track.Source.Microphone)
+      if (!on && this.notesMode && mic?.track) {
+        // Notes on: a mute ends this microphone track (and its notes file); unmuting publishes a new one,
+        // a new file whose place in the call is its own start. No stretch of a file is muted time.
+        await room.localParticipant.unpublishTrack(mic.track, true)
+      } else {
+        await room.localParticipant.setMicrophoneEnabled(on)
+      }
       this.mic = on ? 'on' : 'off'
+      this.userMuted = !on
     } catch (err) {
       this.mic = deviceStateOfError(err, lk.MediaDeviceFailure.getFailure(err))
     }
@@ -456,7 +485,7 @@ export class TeamCallSession {
     this.emit({ phase: 'connecting', error: null })
     let join: TeamCallJoin | null = null
     try {
-      join = await this.deps.refreshJoin()
+      join = await this.deps.refreshJoin(!this.holdMic)
     } catch {
       join = null
     }

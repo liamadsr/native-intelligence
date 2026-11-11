@@ -60,14 +60,23 @@ export function teamCallsConfig(env: NodeJS.ProcessEnv = process.env): TeamCalls
   return { url: url.replace(/\/+$/, ''), apiUrl, apiKey, apiSecret }
 }
 
-/** The grants a member's token carries: one room, and only what a call needs. */
-export function teamCallGrant(room: string): VideoGrant {
+/** What a member may publish in a call. */
+export const TEAM_CALL_PUBLISH_SOURCES = [TrackSource.MICROPHONE, TrackSource.CAMERA, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO]
+
+/**
+ * The grants a member's token carries: one room, and only what a call needs.
+ * `listenOnly`: nothing may be published (a call whose notes or recording are
+ * on, joined before the person has said they saw that; phase 6): the server
+ * lifts it once they have (allowTeamCallPublish).
+ */
+export function teamCallGrant(room: string, opts: { listenOnly?: boolean } = {}): VideoGrant {
+  const listenOnly = opts.listenOnly === true
   return {
     room,
     roomJoin: true,
     canSubscribe: true,
-    canPublish: true,
-    canPublishSources: [TrackSource.MICROPHONE, TrackSource.CAMERA, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO],
+    canPublish: !listenOnly,
+    canPublishSources: listenOnly ? [] : TEAM_CALL_PUBLISH_SOURCES,
     canPublishData: false,
     canUpdateOwnMetadata: false,
     roomCreate: false,
@@ -79,13 +88,13 @@ export function teamCallGrant(room: string): VideoGrant {
 }
 
 /** A join token for one member and one room. */
-export async function teamCallToken(config: TeamCallsConfig, input: { room: string; memberId: string; name: string }): Promise<string> {
+export async function teamCallToken(config: TeamCallsConfig, input: { room: string; memberId: string; name: string; listenOnly?: boolean }): Promise<string> {
   const token = new AccessToken(config.apiKey, config.apiSecret, {
     identity: input.memberId,
     name: input.name.trim().slice(0, 120) || 'A teammate',
     ttl: TEAM_CALL_TOKEN_TTL_SECONDS,
   })
-  token.addGrant(teamCallGrant(input.room))
+  token.addGrant(teamCallGrant(input.room, { listenOnly: input.listenOnly }))
   return token.toJwt()
 }
 
@@ -153,4 +162,15 @@ export async function receiveTeamCallWebhook(config: TeamCallsConfig, body: stri
   } catch {
     return null
   }
+}
+
+/**
+ * A member connected listen-only (the notes notice) may publish now: their
+ * permissions in the room, raised to a token's (never more). Throws when
+ * LiveKit can't be asked or they aren't in the room.
+ */
+export async function allowTeamCallPublish(config: TeamCallsConfig, room: string, identity: string): Promise<void> {
+  await rooms(config).updateParticipant(room, identity, {
+    permission: { canSubscribe: true, canPublish: true, canPublishData: false, canPublishSources: TEAM_CALL_PUBLISH_SOURCES },
+  })
 }

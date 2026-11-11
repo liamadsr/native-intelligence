@@ -32,6 +32,9 @@ const h = vi.hoisted(() => ({
   rpc: {} as Record<string, { data: unknown; error: unknown }>,
   port: { started: [] as string[], stopped: [] as string[], mics: [] as Array<{ identity: string; trackSid: string }> },
   signed: [] as Array<[string, number]>,
+  events: [] as Array<{ name: string; id?: string; data: unknown }>,
+  allowed: [] as Array<[string, string]>,
+  notConnected: false,
 }))
 
 vi.mock('next/server', async (orig) => ({
@@ -42,7 +45,14 @@ vi.mock('next/server', async (orig) => ({
 }))
 vi.mock('@/lib/api-auth', () => ({ requireUser: async () => ({ supabase: h.db, user: { id: USER, user_metadata: {} } }) }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => h.svc }))
-vi.mock('@/lib/inngest/client', () => ({ inngest: { send: async () => ({ ids: [] }) } }))
+vi.mock('@/lib/inngest/client', () => ({
+  inngest: {
+    send: async (events: unknown) => {
+      for (const e of (Array.isArray(events) ? events : [events]) as Array<{ name: string; id?: string; data: unknown }>) h.events.push(e)
+      return { ids: [] }
+    },
+  },
+}))
 vi.mock('@/lib/team-calls/egress', async (orig) => ({
   ...(await orig<typeof import('@/lib/team-calls/egress')>()),
   liveKitEgress: () => ({
@@ -65,11 +75,19 @@ vi.mock('@/lib/team-calls/livekit', async (orig) => ({
   ...(await orig<typeof import('@/lib/team-calls/livekit')>()),
   createTeamCallRoom: async () => {},
   openTeamCallRooms: async (_c: unknown, names: string[]) => new Set(names),
+  allowTeamCallPublish: async (_c: unknown, room: string, identity: string) => {
+    if (h.notConnected) throw new Error('participant not found')
+    h.allowed.push([room, identity])
+  },
 }))
 
 import { POST as notes } from '../[id]/notes/route'
 import { GET as recordingLink, POST as recording } from '../[id]/recording/route'
 import { POST as startCall } from '../route'
+import { POST as token } from '../[id]/token/route'
+import { POST as notice } from '../[id]/notice/route'
+import { TokenVerifier } from 'livekit-server-sdk'
+import { KEY, SECRET } from '@/lib/team-calls/__tests__/signing'
 
 let tables: Record<string, Array<Record<string, unknown>>>
 let svcTables: Record<string, Array<Record<string, unknown>>>
@@ -130,6 +148,9 @@ beforeEach(() => {
   h.rpc = {}
   h.port = { started: [], stopped: [], mics: [] }
   h.signed = []
+  h.events = []
+  h.allowed = []
+  h.notConnected = false
 })
 afterEach(() => {
   for (const name of [...Object.keys(LIVEKIT_ENV), 'LIVEKIT_EGRESS', 'DEEPGRAM_API_KEY', 'TEAM_CALL_RECORDING', 'TEAM_CALL_RECORDING_MAX']) delete process.env[name]
@@ -165,12 +186,11 @@ describe('POST /api/account/team-calls/[id]/notes', () => {
     expect(h.port.started).toEqual(['TR_a'])
   })
 
-  it('off: the running files are stopped', async () => {
-    h.rpc.team_call_set_notes = { data: [{ notes: false, notes_round: 1, changed: true }], error: null }
-    svcTables.team_call_egress.push({ id: REC, call_id: CALL, kind: 'notes', status: 'active', egress_id: 'EG_a' })
+  it('off: the running files are stopped through Inngest (retried until LiveKit takes it), one event per round', async () => {
+    h.rpc.team_call_set_notes = { data: [{ notes: false, notes_round: 3, changed: true }], error: null }
     await notes(post('/n', { on: false }), params)
     await runAfters()
-    expect(h.port.stopped).toEqual(['EG_a'])
+    expect(h.events).toEqual([{ name: 'team-calls/notes.stop', id: `team-call-notes-stop-${CALL}-3`, data: { callId: CALL } }])
   })
 
   it('a press that changed nothing starts or stops nothing', async () => {
@@ -292,5 +312,42 @@ describe('starting a call with notes on', () => {
     const res = await startCall(post('/api/account/team-calls', { channelId: CH, notes: true }))
     expect(h.rpcs.map((r) => r[0])).toEqual(['team_call_start', 'team_call_start'])
     expect((await res.json()).call.features).toEqual({ notes: false, recording: true })
+  })
+})
+
+describe('joining a call whose notes are on: listen-only until the notice was seen', () => {
+  const grantOf = async (jwt: string) => (await new TokenVerifier(KEY, SECRET).verify(jwt)).video
+  const tokenReq = (body?: unknown) =>
+    new Request('http://localhost/t', { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body), headers: { 'content-type': 'application/json' } })
+
+  it("notes on by someone else: a token that can't publish, unless the join says the notice was seen", async () => {
+    tables.team_call[0] = call({ notes: true, notes_by: 'someone-else', notes_state: 'capturing' })
+    const quiet = await (await token(tokenReq(), params)).json()
+    expect(quiet.join.canPublish).toBe(false)
+    expect(await grantOf(quiet.join.token)).toMatchObject({ canPublish: false, canSubscribe: true })
+    const seen = await (await token(tokenReq({ noticeSeen: true }), params)).json()
+    expect(seen.join.canPublish).toBe(true)
+    expect(await grantOf(seen.join.token)).toMatchObject({ canPublish: true })
+  })
+
+  it('being recorded: listen-only too; nothing on: publish as before', async () => {
+    tables.team_call[0] = call({ recording: 'on', recording_by: ME })
+    expect((await (await token(tokenReq(), params)).json()).join.canPublish).toBe(false)
+    tables.team_call[0] = call()
+    expect((await (await token(tokenReq(), params)).json()).join.canPublish).toBe(true)
+  })
+
+  it('their own notes (their Auto-record started them): no wait', async () => {
+    tables.team_call[0] = call({ notes: true, notes_by: ME, notes_state: 'capturing' })
+    expect((await (await token(tokenReq(), params)).json()).join.canPublish).toBe(true)
+  })
+
+  it('POST notice: LiveKit lets their connection publish; not connected is a 409; an ended call takes nothing', async () => {
+    expect(await (await notice(new Request('http://localhost/n', { method: 'POST' }), params)).json()).toEqual({ ok: true })
+    expect(h.allowed).toEqual([[`tc-${CALL}`, ME]])
+    h.notConnected = true
+    expect((await notice(new Request('http://localhost/n', { method: 'POST' }), params)).status).toBe(409)
+    tables.team_call[0] = call({ status: 'ended' })
+    expect((await notice(new Request('http://localhost/n', { method: 'POST' }), params)).status).toBe(409)
   })
 })

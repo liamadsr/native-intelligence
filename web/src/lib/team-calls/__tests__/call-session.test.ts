@@ -247,3 +247,83 @@ describe('deviceStateOfError', () => {
     expect(deviceStateOfError(Object.assign(new Error('x'), { name: 'NotFoundError' }), undefined)).toBe('missing')
   })
 })
+
+describe('TeamCallSession, with call notes (phase 6)', () => {
+  it('a full rejoin keeps a person muted who had muted themselves', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const refreshJoin = vi.fn(async () => ({ ...JOIN, token: 't2' }))
+    const s = session(sdk, { refreshJoin })
+    await s.connect(JOIN)
+    await s.toggleMic()
+    expect(s.getSnapshot().mic).toBe('off')
+    rooms[0].emit('Disconnected', 9)
+    await vi.waitFor(() => expect(rooms).toHaveLength(2))
+    await vi.waitFor(() => expect(s.getSnapshot().phase).toBe('connected'))
+    expect(rooms[1].localParticipant.isMicrophoneEnabled).toBe(false)
+    expect(s.getSnapshot().mic).toBe('off')
+    // The rejoin says the notice was seen already (they were not held).
+    expect(refreshJoin).toHaveBeenCalledWith(true)
+  })
+
+  it('held for the notice: nothing published until they say go, and the server is asked first', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const allowPublish = vi.fn(async () => true)
+    const s = session(sdk, { allowPublish })
+    await s.connect({ ...JOIN, canPublish: false }, { holdMic: true })
+    expect(s.getSnapshot().micHeld).toBe(true)
+    expect(rooms[0].localParticipant.isMicrophoneEnabled).toBe(false)
+    await s.releaseMic()
+    expect(allowPublish).toHaveBeenCalledTimes(1)
+    expect(rooms[0].localParticipant.isMicrophoneEnabled).toBe(true)
+    expect(s.getSnapshot().micHeld).toBe(false)
+  })
+
+  it('the server refusing to lift listen-only keeps the microphone held', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = session(sdk, { allowPublish: async () => false })
+    await s.connect(JOIN, { holdMic: true })
+    await s.releaseMic()
+    expect(s.getSnapshot().micHeld).toBe(true)
+    expect(rooms[0].localParticipant.isMicrophoneEnabled).toBe(false)
+  })
+
+  it('a rejoin while still held says the notice was not seen (a listen-only token)', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const refreshJoin = vi.fn(async () => ({ ...JOIN, token: 't2', canPublish: false }))
+    const s = session(sdk, { refreshJoin })
+    await s.connect(JOIN, { holdMic: true })
+    rooms[0].emit('Disconnected', 9)
+    await vi.waitFor(() => expect(refreshJoin).toHaveBeenCalledWith(false))
+  })
+
+  it('notes on: a mute ends the microphone track (a new file on unmute); notes off: a mute only mutes', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = session(sdk)
+    await s.connect(JOIN)
+    const local = rooms[0].localParticipant as unknown as { getTrackPublication: () => unknown; unpublishTrack: (t: unknown, stop: boolean) => Promise<void>; isMicrophoneEnabled: boolean }
+    const track = { sid: 'TR_1' }
+    const unpublished: unknown[] = []
+    local.getTrackPublication = () => ({ track })
+    local.unpublishTrack = async (t) => {
+      unpublished.push(t)
+      local.isMicrophoneEnabled = false
+    }
+    s.setNotesMode(true)
+    await s.toggleMic()
+    expect(unpublished).toEqual([track])
+    await s.toggleMic()
+    expect(local.isMicrophoneEnabled).toBe(true)
+    s.setNotesMode(false)
+    await s.toggleMic()
+    expect(unpublished).toHaveLength(1)
+    expect(local.isMicrophoneEnabled).toBe(false)
+  })
+
+  it('no DTX when the server offers notes (a file\'s time runs with the call\'s)', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const s = new TeamCallSession({ ...INFO, notesOffered: true }, { refreshJoin: async () => null, hangUp: async () => {}, loadSdk: async () => sdk })
+    await s.connect(JOIN)
+    expect(rooms[0].options).toMatchObject({ publishDefaults: expect.objectContaining({ dtx: false }) })
+  })
+})
+

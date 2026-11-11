@@ -16,11 +16,11 @@ import { isUuid } from '@/lib/team-chat/types'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { getCall } from '@/lib/team-calls/store'
-import { callEnded, callPlaceOf, callsUnreachable, joinAnswer, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callEnded, callPlaceOf, callsUnreachable, joinAnswer, joinsListenOnly, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
 
-export async function POST(_request: Request, { params }: Params) {
+export async function POST(request: Request, { params }: Params) {
   const config = teamCallsConfig()
   if (!config) return teamCallsUnavailable()
   const auth = await requireUser()
@@ -43,7 +43,15 @@ export async function POST(_request: Request, { params }: Params) {
       return callsUnreachable()
     }
     if (room === 'ended') return callEnded()
-    const join = await joinAnswer(config, { callId: call.id, room: call.room, memberId: me.id, name: me.display_name })
+    // { noticeSeen: true } once the client showed the notes notice; without it a call with notes on is joined listen-only.
+    const input = ((await request.json().catch(() => null)) ?? {}) as { noticeSeen?: unknown }
+    const join = await joinAnswer(config, {
+      callId: call.id,
+      room: call.room,
+      memberId: me.id,
+      name: me.display_name,
+      listenOnly: joinsListenOnly(call, me.id, input.noticeSeen),
+    })
     return NextResponse.json({
       join,
       call: callPlaceOf(call, me.id),
