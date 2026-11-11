@@ -27,14 +27,16 @@
  *            src/lib/reach/dispatch.ts): wait until they end
  *   away     the router's order for someone away (src/lib/reach/route.ts
  *            routeChoice), with texts and Slack left out (team chat never
- *            texts): push first, which has no adapter yet (the iOS app's
- *            slot: targets.push is false until it exists, and a push that
- *            doesn't go falls through), then email to their account's
- *            address. Every message it carries is claimed first, so a
- *            retried step or a second run never emails one twice, and what
- *            they may read is asked AGAIN right before it goes: a message
- *            they lost access to (removed from the channel, gone from the
- *            workspace), or that was deleted, in between is left out
+ *            texts): push first, to the iOS app (src/lib/push: when push is
+ *            set up and they have a live install; one push per
+ *            conversation, its newest message, collapsed with the ones
+ *            before it), then email to their account's address when push is
+ *            off or didn't go. Every message it carries is claimed first, so
+ *            a retried step or a second run never sends one twice, and what
+ *            they may read is asked AGAIN right before it goes, push or
+ *            email: a message they lost access to (removed from the channel,
+ *            gone from the workspace), or that was deleted, in between is
+ *            left out, and an edited one says its words as they are then
  *
  * The email is bounded: at most TEAM_CHAT_EMAIL_MAX_CONVERSATIONS sections,
  * the newest TEAM_CHAT_EMAIL_MAX_PER_CONVERSATION messages in each, with "and
@@ -49,6 +51,7 @@ import { smsQuietUntil } from '@/lib/reach/dispatch'
 import { routeChoice } from '@/lib/reach/route'
 import { escapeHtml } from '@/lib/email/plain-text-to-html'
 import { appUrl } from '@/lib/app-url'
+import { teamChatPush } from '@/lib/push/compose'
 import { TEAM_CHAT_NOTIFICATION_TYPE } from './notify'
 
 export const TEAM_CHAT_EMAIL_EVENT = 'team-chat/email.requested' as const
@@ -124,12 +127,12 @@ export interface TeamChatEmailDeps {
   readable(input: { memberId: string; ids: string[] }): Promise<Map<string, TeamChatLiveMessage>>
   presence(userId: string): Promise<PresenceRow[]>
   timeZone(input: { userId: string; workspaceId: string }): Promise<string | null>
-  /** The iOS app's push for them. No adapter yet: always false today. */
+  /** Whether they can be pushed (the iOS app): push set up and a live install of theirs. */
   pushTarget(userId: string): Promise<boolean>
   /** Their account's email address, or null. */
   address(userId: string): Promise<string | null>
   claim(input: { userId: string; workspaceId: string; notificationId: string; channel: 'push' | 'email' }): Promise<'claimed' | 'taken' | 'unavailable'>
-  /** Send on push (no adapter yet: false). */
+  /** The pushes for these (their words read just now), one per conversation; true when an install took one. */
   sendPush?(input: { userId: string; items: TeamChatEmailItem[] }): Promise<boolean>
   sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<boolean>
   /** Their deep link to a message, in its workspace. */
@@ -273,7 +276,12 @@ export async function planTeamChatEmail(req: TeamChatEmailRequest, deps: TeamCha
   const channel = teamChatAwayChannel({ push: await deps.pushTarget(req.userId) })
   if (channel === 'push' && deps.sendPush) {
     const mine = await claimAll('push')
-    if (mine.length && (await deps.sendPush({ userId: req.userId, items: mine }))) return { kind: 'done', outcome: 'pushed', messages: mine.length }
+    // Right before it goes, as for the email: what they may read NOW, with its words now.
+    const pushable = mine.length ? await liveItems(mine, deps.readable) : []
+    if (mine.length && pushable.length === 0) return { kind: 'done', outcome: 'gone', messages: 0 }
+    if (pushable.length && (await deps.sendPush({ userId: req.userId, items: pushable }).catch(() => false))) {
+      return { kind: 'done', outcome: 'pushed', messages: pushable.length }
+    }
     // A push that didn't go falls through to email (its claims say it was tried).
   }
 
@@ -336,8 +344,15 @@ export function liveTeamChatEmailDeps(svc: SupabaseClient): TeamChatEmailDeps {
       const zone = await readMemberTimeZone(svc, input)
       return zone.source === 'utc' ? null : zone.timeZone
     },
-    // The iOS app's push has no adapter yet (src/lib/reach/route.ts targets): never a target today.
-    pushTarget: async () => false,
+    pushTarget: async (userId) => {
+      const { hasPushTarget, livePushDeps } = await import('@/lib/push/send')
+      return hasPushTarget(livePushDeps(svc), userId)
+    },
+    sendPush: async (input) => {
+      const { livePushDeps, pushToPerson } = await import('@/lib/push/send')
+      // One run, one read of their installs and one badge, however many conversations.
+      return (await pushToPerson(livePushDeps(svc), { userId: input.userId, notifications: teamChatPushes(input.items) })) === 'sent'
+    },
     address: async (userId) => {
       try {
         const { data } = await svc.auth.admin.getUserById(userId)
@@ -370,6 +385,34 @@ export function liveTeamChatEmailDeps(svc: SupabaseClient): TeamChatEmailDeps {
     },
     link: (messageId, workspaceId) => teamChatMessageLink(messageId, workspaceId),
   }
+}
+
+/**
+ * The pushes for a person's unread items: one per conversation (its newest
+ * message, with how many wait there), newest conversation first, at most
+ * TEAM_CHAT_EMAIL_MAX_CONVERSATIONS. Each opens its message in its
+ * workspace, and says the words `items` carry (read just before). Pure.
+ */
+export function teamChatPushes(items: readonly TeamChatEmailItem[]): ReturnType<typeof teamChatPush>[] {
+  const groups = new Map<string, TeamChatEmailItem[]>()
+  for (const item of items) groups.set(item.group_key, [...(groups.get(item.group_key) ?? []), item])
+  return [...groups.entries()]
+    .map(([groupKey, list]) => {
+      const sorted = [...list].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+      return { groupKey, newest: sorted[sorted.length - 1], count: sorted.length }
+    })
+    .filter((g) => !!g.newest.target_id && !!str(g.newest.metadata?.channel_id))
+    .sort((a, b) => Date.parse(b.newest.created_at) - Date.parse(a.newest.created_at))
+    .slice(0, TEAM_CHAT_EMAIL_MAX_CONVERSATIONS)
+    .map(({ groupKey, newest, count }) => {
+      const meta = newest.metadata ?? {}
+      return teamChatPush({
+        groupKey,
+        target: { workspaceId: newest.workspace_id, channelId: str(meta.channel_id)!, messageId: newest.target_id!, threadRootId: str(meta.thread_root_id) },
+        newest: { title: newest.title, body: newest.words, authorName: str(meta.author_name), place: str(meta.place) },
+        count,
+      })
+    })
 }
 
 /**

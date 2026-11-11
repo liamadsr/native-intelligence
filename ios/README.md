@@ -71,10 +71,34 @@ To run against your own backend, change those two files.
 ```sh
 Scripts/test-eve-chat.sh
 Scripts/test-chat-reply-text.sh
+Scripts/test-team-chat.sh
 ```
 
 The first runs the real Swift chat transport against a local fixture server (see
 `docs/ios-eve-chat.md`). The second checks how the chat bubble drops HTML comments from a reply.
+The third checks team chat's rules on the phone (`Core/Models/TeamChat`): the list's badges, a
+send's optimistic bubble reconciled with its row, reactions, mentions, typing, files, and where a
+tapped push opens.
+
+## Team chat and push
+
+Team chat (Home's speech-bubble button) talks to the web app's `/api/account/team-chat/*`
+routes, the same ones the web page uses, and listens on Supabase Realtime. Its screens can be
+seen without signing in, over made-up people, in a Development build:
+
+```sh
+xcrun simctl launch <device> com.dial8-iOS-26 -previewTeamChat YES \
+  -previewTeamChatScreen list|conversation|focus|thread|mention
+```
+
+Push: the app asks for permission the first time team chat opens. On every launch and return
+to the foreground it checks Settings: allowed, it registers its APNs token again
+(`push_token_register`, migration 562; the server pushes only to installs seen within 30 days);
+turned off, it takes the install off (`push_token_remove`). When the session ends, however it
+ends, the install is forgotten (`push_token_forget`), and a removal that couldn't reach the server
+is done on the next launch before anything is registered.
+`Config/Dial8-Development.entitlements` (sandbox) and `Config/Dial8.entitlements`
+(production) carry `aps-environment`; the App ID needs the Push Notifications capability.
 
 ## Third-party code
 
