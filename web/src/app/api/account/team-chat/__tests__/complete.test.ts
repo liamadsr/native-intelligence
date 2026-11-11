@@ -32,6 +32,7 @@ const h = vi.hoisted(() => ({
   rpcAnswer: { data: true as unknown, error: null as unknown },
   objects: new Map<string, number>(),
   removed: [] as string[][],
+  notified: [] as string[],
 }))
 
 vi.mock('next/server', async (orig) => ({
@@ -49,6 +50,13 @@ vi.mock('@/lib/team-chat/agent-turn', () => ({
     h.delivered.push(input)
     return 'queued'
   },
+}))
+vi.mock('@/lib/team-chat/notify', async (orig) => ({
+  ...(await orig<typeof import('@/lib/team-chat/notify')>()),
+  requestTeamChatNotify: async (id: string) => {
+    h.notified.push(id)
+  },
+  removeTeamChatNotifications: async () => {},
 }))
 vi.mock('@/lib/team-chat/link-preview', async (orig) => ({
   ...(await orig<typeof import('@/lib/team-chat/link-preview')>()),
@@ -192,6 +200,8 @@ describe('retry-safe sends', () => {
     expect(tables.team_chat_message.filter((m) => m.client_id === SEND)).toHaveLength(1)
     for (const task of h.afters) await task()
     expect(h.delivered.map((d) => (d.message as { id: string }).id)).toEqual([sent.id, sent.id])
+    // Asked for twice, with the message's own event id: Inngest takes the first (replay.test.ts).
+    expect(h.notified).toEqual([sent.id, sent.id])
     expect((await post({ body: 'x', clientId: 'nope' })).status).toBe(400)
   })
 })
@@ -246,9 +256,11 @@ describe('reactions', () => {
 describe('link previews', () => {
   it('a message with a link asks for its preview after the answer; one without asks nothing', async () => {
     await post({ body: 'no link here' })
-    expect(h.afters).toHaveLength(0)
-    const { message: sent } = await (await post({ body: 'read https://news.example.test/story' })).json()
+    // Only its notifications.
     expect(h.afters).toHaveLength(1)
+    h.afters = []
+    const { message: sent } = await (await post({ body: 'read https://news.example.test/story' })).json()
+    expect(h.afters).toHaveLength(2)
     await h.afters[0]()
     expect(h.previews).toEqual([sent.id])
   })

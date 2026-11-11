@@ -4,6 +4,9 @@
  *        the channel's own messages (never a thread's replies), oldest first
  *        (the newest page without `before`), with the summaries of the
  *        threads under them and their reactions (migrations 556, 557).
+ *   GET  ?from=<created_at> → the same, from that message on to the newest
+ *        (at most 500: a page opened on an older message, from a search hit
+ *        or a notification, runs on unbroken to now).
  *   GET  ?thread=<root id> → { messages, reactions } that thread's replies,
  *        oldest first, and their reactions.
  *   POST { body, mentions?, mentionsAgent?, records?, thread?, attachments?,
@@ -36,7 +39,10 @@
  *        turn is requested after the answer (src/lib/team-chat/agent-turn.ts):
  *        the reply arrives in the channel (or the thread) as their agent,
  *        live. A message with a link asks for its preview after the answer
- *        (src/lib/team-chat/link-preview.ts): it arrives live too.
+ *        (src/lib/team-chat/link-preview.ts): it arrives live too. Every
+ *        message asks for its notifications after the answer
+ *        (src/lib/team-chat/notify.ts, migration 560): the DM, the people it
+ *        mentions, the thread's people, whoever set the channel to all.
  * Reads and the post run as the person, under RLS; only the agent's turn
  * and the link preview run with the service role.
  */
@@ -58,6 +64,7 @@ import {
 } from '@/lib/team-chat/store'
 import { deliverTeamChatMention } from '@/lib/team-chat/agent-turn'
 import { firstLink, requestLinkPreview } from '@/lib/team-chat/link-preview'
+import { requestTeamChatNotify } from '@/lib/team-chat/notify'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { tidyAttachments } from '@/lib/team-chat/files'
@@ -73,6 +80,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   if (!isUuid(id)) return notFound()
   const before = request.nextUrl.searchParams.get('before') ?? undefined
   if (before !== undefined && Number.isNaN(Date.parse(before))) return badRequest('before must be a timestamp')
+  const from = request.nextUrl.searchParams.get('from') ?? undefined
+  if (from !== undefined && Number.isNaN(Date.parse(from))) return badRequest('from must be a timestamp')
   const thread = request.nextUrl.searchParams.get('thread')
   if (thread !== null && !isUuid(thread)) return badRequest('thread must be a message id')
   try {
@@ -85,7 +94,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const reactions = await messageReactions(auth.supabase, [root.id, ...messages.map((m) => m.id)])
       return NextResponse.json({ root, messages, reactions })
     }
-    const messages = await listMessages(auth.supabase, id, { before })
+    const messages = await listMessages(auth.supabase, id, from ? { from } : { before })
     const ids = messages.map((m) => m.id)
     const [threads, reactions] = await Promise.all([threadSummaries(auth.supabase, ids), messageReactions(auth.supabase, ids)])
     return NextResponse.json({ messages, threads, reactions })
@@ -178,6 +187,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         }
       })
     }
+    // Its notifications, last (the event's id is the message's: a replay asks once).
+    after(() => requestTeamChatNotify(message.id))
     if (replayed) return NextResponse.json({ message, shared, shared_with, replayed: true })
     return NextResponse.json({ message, shared, shared_with }, { status: 201 })
   } catch (err) {

@@ -28,6 +28,7 @@ import {
   type TeamChatThreadUnread,
 } from './types'
 import { TEAM_CHAT_FILE_MAX_BYTES, TEAM_CHAT_FILES_BUCKET, teamChatFileType } from './files'
+import { notifyLevelOf, type TeamChatNotifyLevel } from './notify'
 
 export type TeamChatErrorCode = 'not_found' | 'forbidden' | 'conflict' | 'bad_request' | 'failed'
 
@@ -67,13 +68,15 @@ interface ChannelRow {
  * unread counts: unread first, then the newest message first. Archived
  * channels are left out. `threads` are the threads they are in with replies
  * they haven't read (migration 556); each channel's thread_unread is its
- * threads' summed.
+ * threads' summed. Each carries how loud it is for them (migration 560's
+ * notify_level, else the kind's default); a muted one counts its mentions
+ * only.
  */
 export async function listChannels(
   supabase: SupabaseClient,
   scope: { workspaceId: string; memberId: string },
 ): Promise<{ channels: TeamChatChannel[]; threads: TeamChatThreadUnread[] }> {
-  const [channels, unread, threadUnread] = await Promise.all([
+  const [channels, unread, threadUnread, levels] = await Promise.all([
     supabase
       .from('team_chat_channel')
       .select('id, kind, name, topic, team_id, dm_key, last_message_at, archived_at, created_at')
@@ -83,10 +86,14 @@ export async function listChannels(
       .limit(500),
     supabase.rpc('team_chat_unread', { ws: scope.workspaceId }),
     supabase.rpc('team_chat_thread_unread', { ws: scope.workspaceId }),
+    // Their own rows only (474's policy): how loud each channel is for them.
+    supabase.from('team_chat_member').select('channel_id, notify_level').eq('workspace_id', scope.workspaceId).eq('member_id', scope.memberId),
   ])
   if (channels.error) throw teamChatErrorOf(channels.error, 'channels read')
   if (unread.error) throw teamChatErrorOf(unread.error, 'unread read')
   if (threadUnread.error) throw teamChatErrorOf(threadUnread.error, 'thread unread read')
+  if (levels.error) throw teamChatErrorOf(levels.error, 'levels read')
+  const levelOf = new Map(((levels.data ?? []) as Array<{ channel_id: string; notify_level: string | null }>).map((r) => [r.channel_id, r.notify_level]))
   const counts = new Map<string, { unread: number; mentions: number }>()
   for (const row of (unread.data ?? []) as Array<{ channel_id: string; unread: number; mentions: number }>) {
     counts.set(row.channel_id, { unread: Number(row.unread) || 0, mentions: Number(row.mentions) || 0 })
@@ -102,20 +109,26 @@ export async function listChannels(
     const sum = inThreads.get(t.channel_id) ?? { unread: 0, mentions: 0 }
     inThreads.set(t.channel_id, { unread: sum.unread + t.unread, mentions: sum.mentions + t.mentions })
   }
-  const list = ((channels.data ?? []) as ChannelRow[]).map((row) => ({
-    id: row.id,
-    kind: row.kind,
-    name: row.name,
-    topic: row.topic,
-    team_id: row.team_id,
-    dm_member_id: row.kind === 'dm' ? dmOtherMember(row.dm_key, scope.memberId) : null,
-    last_message_at: row.last_message_at ?? row.created_at,
-    archived_at: row.archived_at,
-    unread: counts.get(row.id)?.unread ?? 0,
-    mentions: counts.get(row.id)?.mentions ?? 0,
-    thread_unread: inThreads.get(row.id)?.unread ?? 0,
-    thread_mentions: inThreads.get(row.id)?.mentions ?? 0,
-  }))
+  const list = ((channels.data ?? []) as ChannelRow[]).map((row): TeamChatChannel => {
+    const notify = notifyLevelOf(row.kind, levelOf.get(row.id))
+    const muted = notify === 'muted'
+    return {
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      topic: row.topic,
+      team_id: row.team_id,
+      dm_member_id: row.kind === 'dm' ? dmOtherMember(row.dm_key, scope.memberId) : null,
+      last_message_at: row.last_message_at ?? row.created_at,
+      archived_at: row.archived_at,
+      // Muted: no unread count, only its mentions.
+      unread: muted ? 0 : (counts.get(row.id)?.unread ?? 0),
+      mentions: counts.get(row.id)?.mentions ?? 0,
+      thread_unread: muted ? 0 : (inThreads.get(row.id)?.unread ?? 0),
+      thread_mentions: inThreads.get(row.id)?.mentions ?? 0,
+      notify,
+    }
+  })
   return { channels: list, threads }
 }
 
@@ -130,16 +143,22 @@ export async function getChannel(supabase: SupabaseClient, channelId: string): P
   return data ?? null
 }
 
+/** The most messages a page from a given message on (`from`) holds: a search hit or a notification opened in the past. */
+export const TEAM_CHAT_FROM_MAX = 500
+
 /**
  * A page of a channel's own messages (never a thread's replies), oldest
- * first: the newest page, or the one before `before` (a message's created_at).
+ * first: the newest page, the one before `before` (a message's created_at),
+ * or (`from`, a message's created_at) everything from that message to the
+ * newest, so the page opened on it runs on unbroken to now (at most
+ * TEAM_CHAT_FROM_MAX: the newest of them).
  */
 export async function listMessages(
   supabase: SupabaseClient,
   channelId: string,
-  opts: { before?: string; limit?: number } = {},
+  opts: { before?: string; from?: string; limit?: number } = {},
 ): Promise<TeamChatMessage[]> {
-  const limit = Math.min(Math.max(opts.limit ?? TEAM_CHAT_PAGE_SIZE, 1), 200)
+  const limit = opts.from ? TEAM_CHAT_FROM_MAX : Math.min(Math.max(opts.limit ?? TEAM_CHAT_PAGE_SIZE, 1), 200)
   let query = supabase
     .from('team_chat_message')
     .select(TEAM_CHAT_MESSAGE_COLUMNS)
@@ -148,6 +167,7 @@ export async function listMessages(
     .order('created_at', { ascending: false })
     .limit(limit)
   if (opts.before) query = query.lt('created_at', opts.before)
+  if (opts.from) query = query.gte('created_at', opts.from)
   const { data, error } = await query
   if (error) throw teamChatErrorOf(error, 'messages read')
   return ((data ?? []) as TeamChatMessage[]).reverse()
@@ -267,6 +287,18 @@ export async function openDm(supabase: SupabaseClient, input: { workspaceId: str
   const { data, error } = await supabase.rpc('team_chat_open_dm', { ws: input.workspaceId, other_member: input.memberId })
   if (error) throw teamChatErrorOf(error, 'dm open')
   if (typeof data !== 'string') throw new TeamChatError('failed', 'dm open returned no id')
+  return data
+}
+
+/**
+ * How loud a channel is for the person (560's team_chat_set_notify): every
+ * message, mentions only, or muted; null puts the kind's default back.
+ * Returns the level now in effect.
+ */
+export async function setNotifyLevel(supabase: SupabaseClient, channelId: string, level: TeamChatNotifyLevel | null): Promise<TeamChatNotifyLevel> {
+  const { data, error } = await supabase.rpc('team_chat_set_notify', { ch: channelId, level })
+  if (error) throw teamChatErrorOf(error, 'notify level')
+  if (data !== 'all' && data !== 'mentions' && data !== 'muted') throw new TeamChatError('failed', 'notify level returned nothing')
   return data
 }
 

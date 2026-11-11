@@ -47,6 +47,7 @@ import { stripHtmlComments } from '@/lib/chat/strip-comments'
 import { finishHomeTurn, type HomeTurnReadResult, type HomeTurnRow, type HomeTurnSkip } from '@/lib/chat/home-turn-server'
 import { DEFAULT_ASSISTANT_NAME, sanitizeAssistantName } from '@/lib/voice/assistant-name'
 import { TEAM_CHAT_MESSAGE_MAX, type TeamChatMessage } from './types'
+import { requestTeamChatNotify } from './notify'
 
 /** The Inngest event a team chat turn is requested with (home/turn.requested's data, reason 'team_chat'). */
 export const TEAM_CHAT_TURN_REQUESTED_EVENT = 'team-chat/turn.requested' as const
@@ -355,21 +356,32 @@ export async function replyTarget(
   }
 }
 
-/** Post a message into the channel as the person's agent. True when written. Never throws. */
+/**
+ * Post a message into the channel as the person's agent. True when written.
+ * The reply is posted once, finished (never streamed into the row), so it
+ * notifies the person who asked once (./notify.ts: the agent's reply is for
+ * them alone). Never throws.
+ */
 export async function postAsAgent(svc: Svc, target: TeamChatTarget, body: string): Promise<boolean> {
   const text = body.length > TEAM_CHAT_MESSAGE_MAX ? `${body.slice(0, TEAM_CHAT_MESSAGE_MAX - 1)}…` : body
   try {
-    const { error } = await svc.from('team_chat_message').insert({
-      channel_id: target.channelId,
-      workspace_id: target.workspaceId,
-      author_kind: 'agent',
-      agent_for_member_id: target.memberId,
-      agent_name: target.agentName.slice(0, 60),
-      in_reply_to: target.inReplyTo,
-      thread_root_id: target.threadRootId ?? null,
-      body: text,
-    })
-    return !error
+    const { data, error } = await svc
+      .from('team_chat_message')
+      .insert({
+        channel_id: target.channelId,
+        workspace_id: target.workspaceId,
+        author_kind: 'agent',
+        agent_for_member_id: target.memberId,
+        agent_name: target.agentName.slice(0, 60),
+        in_reply_to: target.inReplyTo,
+        thread_root_id: target.threadRootId ?? null,
+        body: text,
+      })
+      .select('id')
+      .single<{ id: string }>()
+    if (error) return false
+    if (data?.id) await requestTeamChatNotify(data.id)
+    return true
   } catch {
     return false
   }
