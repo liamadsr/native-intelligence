@@ -9,9 +9,11 @@
  *   2. A recording past its bound (2 hours) is stopped.
  *   3. Egresses not finished a while after they began are asked about:
  *      LiveKit's own list says what became of them (applied as its webhook
- *      would have been); one LiveKit no longer knows, or that never got an
- *      egress id, is failed (its call's notes then say whose words are
- *      missing). When LiveKit can't be asked, nothing is decided.
+ *      would have been); one LiveKit no longer lists (10 minutes old, or 10
+ *      minutes after its call ended), or that never got an egress id in 5
+ *      minutes, is failed (its call's notes then say whose words are
+ *      missing; a recording stops holding the server's cap). When LiveKit
+ *      can't be asked, nothing is decided.
  *   4. Calls whose notes are still 'transcribing' long after they ended
  *      (their finish event was lost) are asked to finish again.
  */
@@ -138,7 +140,10 @@ export async function sweepTeamCallEgress(svc: SupabaseClient, deps: NotesSweepD
         }
         const age = now.getTime() - Date.parse(row.created_at)
         const endedFor = call.ended_at ? now.getTime() - Date.parse(call.ended_at) : 0
-        const lost = row.egress_id ? call.status === 'ended' && endedFor > EGRESS_LOST_AFTER_END_MS : age > EGRESS_NEVER_STARTED_MS
+        // LiveKit lists a room's running egresses and those that ended lately: one it doesn't list is gone.
+        const lost = row.egress_id
+          ? (call.status === 'ended' && endedFor > EGRESS_LOST_AFTER_END_MS) || age > EGRESS_LOST_AFTER_END_MS
+          : age > EGRESS_NEVER_STARTED_MS
         if (!lost) continue
         await applyEgressEvent(svc, {
           rowId: row.id,

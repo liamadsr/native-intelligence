@@ -117,6 +117,17 @@ describe('egresses whose end was lost', () => {
     ])
   })
 
+  it('a recording LiveKit no longer lists, in a call still live, is lost after 10 minutes (it no longer holds the cap)', async () => {
+    tables.team_call.push({ id: CALL, room: 'r1', status: 'live', ended_at: null, notes: false, recording: 'starting' })
+    tables.team_call_egress.push(
+      { id: ROW_C, call_id: CALL, kind: 'recording', status: 'starting', egress_id: 'EG_rec', created_at: ago(12) },
+      { id: ROW_A, call_id: CALL, kind: 'notes', status: 'active', egress_id: 'EG_young', created_at: ago(4) },
+    )
+    const result = await sweepTeamCallEgress(svc, deps(port()))
+    expect(result.egressesLost).toBe(1)
+    expect(rpcs.filter((r) => r[0] === 'team_call_egress_event').map((r) => r[1].row_ref)).toEqual([ROW_C])
+  })
+
   it("LiveKit can't be asked: nothing decided", async () => {
     tables.team_call.push({ id: CALL, room: 'r1', status: 'ended', ended_at: ago(60), notes: false, recording: 'off' })
     tables.team_call_egress.push({ id: ROW_A, call_id: CALL, kind: 'notes', status: 'active', egress_id: 'EG_a', created_at: ago(90) })
