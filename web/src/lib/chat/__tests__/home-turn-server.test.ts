@@ -1916,7 +1916,12 @@ describe('sendHomeTurn: eve has no run for the thread’s session (409 session_n
    * `refuse`, and the fresh one a create makes ('sess-new'), which takes the
    * send (or refuses with `refuseNew`) and streams `events`.
    */
-  function goneEve(refuse: Error, events: (tag: string) => HandleMessageStreamEvent[], opts: { refuseNew?: Error; tag: string }) {
+  function goneEve(
+    refuse: Error,
+    events: (tag: string) => HandleMessageStreamEvent[],
+    opts: { refuseNew?: Error; tag: string; createIds?: string[]; onRefuse?: () => void },
+  ) {
+    const ids = [...(opts.createIds ?? ['sess-new'])]
     const creates: string[] = []
     const attaches: Array<{ id: string; streamIndex: number }> = []
     const sends: Array<{ id: string; message: unknown; options: unknown }> = []
@@ -1925,7 +1930,10 @@ describe('sendHomeTurn: eve has no run for the thread’s session (409 session_n
       return {
         ...scripted.session,
         send: vi.fn(async (message: unknown, options: unknown) => {
-          if (id === 'sess-home') throw refuse
+          if (id === 'sess-home') {
+            opts.onRefuse?.()
+            throw refuse
+          }
           if (opts.refuseNew) throw opts.refuseNew
           sends.push({ id, message, options })
           return { [Symbol('acceptedDeliveryId')]: 'd-own' }
@@ -1939,7 +1947,7 @@ describe('sendHomeTurn: eve has no run for the thread’s session (409 session_n
           create: async (o: unknown) => {
             expect(o).toEqual({})
             creates.push(args.token)
-            return { session: { state: { sessionId: 'sess-new' } } }
+            return { session: { state: { sessionId: ids.shift() ?? 'sess-extra' } } }
           },
           attach: (id: string, o: { streamIndex: number }) => (attaches.push({ id, streamIndex: o.streamIndex }), sessionFor(id)),
         },
@@ -2079,6 +2087,163 @@ describe('sendHomeTurn: eve has no run for the thread’s session (409 session_n
     expect(message.startsWith(PRIMER)).toBe(true)
     expect(message).toContain('what did we decide?')
     expect(db.tables.home_turn[0]).toMatchObject({ eve_session_id: 'sess-new', stream_position: 0 })
+  })
+
+  it('a crash after the fresh session is registered, before the row moved: the row is back at claimed, and the retry sends once, primed, to that session', async () => {
+    const { db, plan, row } = await claimed()
+    const first = goneEve(await notActive(), (tag) => ownTurn(tag), { tag: homeTurnTag(row.id) })
+    let registered!: () => void
+    const atRegister = new Promise<void>((resolve) => (registered = resolve))
+    // The first attempt registers 'sess-new', then its process dies (the step never returns).
+    void sendHomeTurn(db.client, DATA, plan, row, {
+      makeClient: first.makeClient,
+      ensureSession: async (previous) => {
+        await ensureHomeSession(db.client, DATA, { previous }, { makeClient: first.makeClient })
+        registered()
+        return new Promise(() => {})
+      },
+      budgetMs: 1000,
+    })
+    await atRegister
+    expect(db.tables.chat_conversations[0].eve_session_id).toBe('sess-new')
+    expect(db.tables.home_turn[0]).toMatchObject({ status: 'claimed', eve_session_id: 'sess-home' })
+
+    // The retried step: the old session refuses again; ensureHomeSession finds 'sess-new' (its own create is parked unused).
+    const retry = goneEve(await notActive(), (tag) => ownTurn(tag), { tag: homeTurnTag(row.id), createIds: ['sess-extra'] })
+    const peekTail = vi.fn(async () => ({ tailIndex: -1, events: [] }))
+    const out = await sendHomeTurn(db.client, DATA, plan, row, { makeClient: retry.makeClient, peekTail, renderPrimer: async () => PRIMER, budgetMs: 1000 })
+    expect(peekTail).toHaveBeenCalledWith('sess-new')
+    expect(retry.sends).toHaveLength(1)
+    expect(retry.sends[0].id).toBe('sess-new')
+    expect(String(retry.sends[0].message)).toContain('User: earlier words')
+    expect(db.tables.chat_conversations[0].eve_session_id).toBe('sess-new')
+    expect(db.tables.home_turn[0]).toMatchObject({ status: 'sent', eve_session_id: 'sess-new', stream_position: 0 })
+    expect(out).toMatchObject({ kind: 'read', result: { done: true, end: 'completed', state: { sessionId: 'sess-new' } } })
+  })
+
+  it('a crash after the row moved, before the send: the retry reads the new session and never sends (the same at-most-once trade the first send makes)', async () => {
+    const { db, plan, row } = await claimed()
+    // Where a crash between the move and the send leaves things: the row sent on the new session at its start.
+    db.tables.chat_conversations[0].eve_session_id = 'sess-new'
+    Object.assign(db.tables.home_turn[0], { status: 'sent', eve_session_id: 'sess-new', stream_position: 0 })
+    const eve = goneEve(await notActive(), () => [], { tag: homeTurnTag(row.id) })
+    const out = await sendHomeTurn(db.client, DATA, plan, row, { makeClient: eve.makeClient, budgetMs: 50 })
+    expect(eve.sends).toHaveLength(0)
+    expect(eve.creates).toHaveLength(0)
+    expect(eve.attaches).toEqual([{ id: 'sess-new', streamIndex: 0 }])
+    expect(out).toMatchObject({ kind: 'read', result: { done: false, state: { sessionId: 'sess-new', nextIndex: 0 } } })
+  })
+
+  it('another caller’s session (created: false) is read as the plan reads one: a tail means no primer and the read starts after it', async () => {
+    const { db, plan, row } = await claimed()
+    const earlier = [ev('turn.started', {}, ['x']), ev('turn.completed', {}, ['x']), ev('session.waiting', {}, ['x']), ev('turn.started', {}, ['y']), ev('turn.completed', {}, ['y'])]
+    const eve = goneEve(await notActive(), (tag) => [...earlier, ...ownTurn(tag)], { tag: homeTurnTag(row.id) })
+    const renderPrimer = vi.fn(async () => PRIMER)
+    const io = {
+      makeClient: eve.makeClient,
+      ensureSession: async () => ({ ok: true as const, sessionId: 'sess-browser', created: false }),
+      peekTail: async () => ({ tailIndex: 4, events: earlier }),
+      renderPrimer,
+      budgetMs: 1000,
+    }
+    const out = await sendHomeTurn(db.client, DATA, plan, row, io)
+    expect(renderPrimer).not.toHaveBeenCalled()
+    expect(eve.sends).toHaveLength(1)
+    expect(eve.sends[0].id).toBe('sess-browser')
+    expect(String(eve.sends[0].message)).not.toContain('restored for context')
+    expect(db.tables.home_turn[0]).toMatchObject({ status: 'sent', eve_session_id: 'sess-browser', stream_position: 5 })
+    expect(eve.attaches.at(-1)).toEqual({ id: 'sess-browser', streamIndex: 5 })
+    expect(out).toMatchObject({ kind: 'read', result: { done: true, end: 'completed', state: { sessionId: 'sess-browser' } } })
+  })
+
+  it('another caller’s session with no events yet still gets the history primer', async () => {
+    const { db, plan, row } = await claimed()
+    const eve = goneEve(await notActive(), (tag) => ownTurn(tag), { tag: homeTurnTag(row.id) })
+    await sendHomeTurn(db.client, DATA, plan, row, {
+      makeClient: eve.makeClient,
+      ensureSession: async () => ({ ok: true as const, sessionId: 'sess-browser', created: false }),
+      peekTail: async () => ({ tailIndex: -1, events: [] }),
+      renderPrimer: async () => PRIMER,
+      budgetMs: 1000,
+    })
+    expect(String(eve.sends[0].message)).toContain('User: earlier words')
+    expect(db.tables.home_turn[0]).toMatchObject({ status: 'sent', eve_session_id: 'sess-browser', stream_position: 0 })
+  })
+
+  it('another caller’s session parked on the person’s question: the turn stops with the first refusal, nothing sent', async () => {
+    const { db, plan, row } = await claimed()
+    const eve = goneEve(await notActive(), (tag) => ownTurn(tag), { tag: homeTurnTag(row.id) })
+    const asked = [ev('input.requested', { requests: [{ requestId: 'q1', kind: 'question' }] })]
+    const out = await sendHomeTurn(db.client, DATA, plan, row, {
+      makeClient: eve.makeClient,
+      ensureSession: async () => ({ ok: true as const, sessionId: 'sess-browser', created: false }),
+      peekTail: async () => ({ tailIndex: 0, events: asked }),
+      renderPrimer: async () => PRIMER,
+      budgetMs: 1000,
+    })
+    expect(out).toEqual({ kind: 'failed', error: 'send_refused_409_session_not_active' })
+    expect(eve.sends).toHaveLength(0)
+    // Failed before eve accepted anything: what it carried is still undelivered.
+    expect(db.tables.home_turn[0]).toMatchObject({ status: 'failed', error: 'send_refused_409_session_not_active' })
+  })
+
+  it('a row another attempt moved meanwhile is left to it: nothing sent, nothing written', async () => {
+    // The move to the new session finds the row no longer claimed (another attempt sent it).
+    const a = await claimed()
+    const eveA = goneEve(await notActive(), (tag) => ownTurn(tag), { tag: homeTurnTag(a.row.id) })
+    const outA = await sendHomeTurn(a.db.client, DATA, a.plan, a.row, {
+      makeClient: eveA.makeClient,
+      ensureSession: async () => {
+        Object.assign(a.db.tables.home_turn[0], { status: 'sent', eve_session_id: 'sess-home', stream_position: 0 })
+        return { ok: true as const, sessionId: 'sess-new', created: true }
+      },
+      renderPrimer: async () => PRIMER,
+      budgetMs: 1000,
+    })
+    expect(outA).toEqual({ kind: 'failed', error: 'send_unconfirmed' })
+    expect(eveA.sends).toHaveLength(0)
+    expect(a.db.tables.home_turn[0]).toMatchObject({ status: 'sent', eve_session_id: 'sess-home', stream_position: 0 })
+    expect(a.db.tables.home_turn[0].error ?? null).toBeNull()
+
+    // The put-back finds the row no longer on the old session.
+    const b = await claimed()
+    const eveB = goneEve(await notActive(), (tag) => ownTurn(tag), {
+      tag: homeTurnTag(b.row.id),
+      onRefuse: () => Object.assign(b.db.tables.home_turn[0], { eve_session_id: 'sess-other' }),
+    })
+    const ensureSession = vi.fn(async () => ({ ok: true as const, sessionId: 'sess-new', created: true }))
+    expect(await sendHomeTurn(b.db.client, DATA, b.plan, b.row, { makeClient: eveB.makeClient, ensureSession, budgetMs: 1000 })).toEqual({ kind: 'failed', error: 'send_unconfirmed' })
+    expect(ensureSession).not.toHaveBeenCalled()
+    expect(b.db.tables.home_turn[0]).toMatchObject({ status: 'sent', eve_session_id: 'sess-other' })
+  })
+
+  it('a guest’s text turn: the fresh session goes on that guest’s own thread', async () => {
+    const GUEST: HomeTurnRequestedData = { conversationId: CONV, userId: USER, workspaceId: WS, workItemIds: [], reason: 'text', guestId: 'guest-1' }
+    const text = {
+      conversation_id: CONV,
+      user_id: USER,
+      workspace_id: WS,
+      role: 'user',
+      created_at: new Date(Date.now() - 60_000).toISOString(),
+      ui_message: { id: 'sms-in:SM7', role: 'user', parts: [{ type: 'text', text: 'Is Thursday still on?' }], metadata: { kind: 'channel_message', channel: 'sms' } },
+    }
+    const db = memDb(baseSeed({ conv: { is_home: null, agent_guest_id: 'guest-1' }, reports: [text] }))
+    TAIL = { tailIndex: 3, events: [] }
+    const plan = (await planHomeTurn(db.client, GUEST)) as HomeTurnPlan
+    expect(plan).toMatchObject({ ok: true, channelPlace: 'thread', sessionId: 'sess-home' })
+    const { row } = (await claimHomeTurn(db.client, GUEST, plan)) as { row: HomeTurnRow }
+    const eve = goneEve(await notActive(), (tag) => ownTurn(tag), { tag: homeTurnTag(row.id) })
+    await sendHomeTurn(db.client, GUEST, plan, row, { makeClient: eve.makeClient, renderPrimer: async () => PRIMER, budgetMs: 1000 })
+    expect(db.tables.chat_conversations[0].eve_session_id).toBe('sess-new')
+    expect(verifyChatRunToken(eve.creates[0])).toMatchObject({ server: 'channel_turn', surface: 'sms', guestId: 'guest-1' })
+    expect(eve.sends).toHaveLength(1)
+    expect(String(eve.sends[0].message)).toContain('Is Thursday still on?')
+    expect(db.tables.home_turn[0]).toMatchObject({ status: 'sent', eve_session_id: 'sess-new', stream_position: 0 })
+
+    // Another guest's thread is never written.
+    const other = memDb(baseSeed({ conv: { is_home: null, agent_guest_id: 'guest-2', eve_session_id: 'sess-home' } }))
+    expect(await ensureHomeSession(other.client, GUEST, { previous: 'sess-home', channelThread: true }, { makeClient: goneEve(await notActive(), () => [], { tag: 'x' }).makeClient })).toEqual({ ok: false, reason: 'no_session' })
+    expect(other.tables.chat_conversations[0].eve_session_id).toBe('sess-home')
   })
 
   it('isSendSessionGoneError: only eve’s 409 session_not_active', async () => {

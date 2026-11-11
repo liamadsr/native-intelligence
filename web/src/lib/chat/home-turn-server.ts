@@ -1712,6 +1712,8 @@ export async function sendHomeTurn(
     // storage made): it carried nothing, so the turn goes once to a fresh
     // session. Never a check-in's (its session is its own, made by its plan).
     const moved = isSendSessionGoneError(err) && data.reason !== 'check_in' ? await moveToFreshSession(supabase, data, plan, row, update, io) : null
+    // Another attempt holds the row now (two at once): it is theirs to send, read and settle.
+    if (moved && !moved.ok && moved.lost) return { kind: 'failed', error: 'send_unconfirmed' }
     if (!moved || !moved.ok) {
       const final = moved?.error ?? error
       await updateRow(supabase, row.id, { status: 'failed', error: final.slice(0, 200) })
@@ -1750,6 +1752,15 @@ export function isSendSessionGoneError(err: unknown): boolean {
  * and its start index BEFORE the send (a retried step reads there and never
  * sends again), then one send. Any failure before that send keeps the first
  * refusal (nothing accepted); the second send's own failure is final.
+ *
+ * The row goes back to `claimed` first (the 409 says nothing was accepted),
+ * so a crash anywhere before the move leaves it where a retried step sends
+ * again: the old session refuses again, ensureHomeSession finds the session
+ * this attempt registered (`created: false`, read as another caller's), and
+ * the move goes ahead. Both row writes are conditional (the put-back on
+ * `sent` with the old session, the move on `claimed` with it), as is the
+ * step's own claimed → sent: of two attempts at once only one moves the row
+ * each time, and one that finds it moved (`lost`) sends nothing and leaves it.
  */
 async function moveToFreshSession(
   supabase: SupabaseClient,
@@ -1758,12 +1769,21 @@ async function moveToFreshSession(
   row: HomeTurnRow,
   update: string,
   io: HomeTurnIo,
-): Promise<{ ok: true; session: ClientSession; response: MessageResponse; sessionId: string; fromIndex: number } | { ok: false; error?: string }> {
+): Promise<{ ok: true; session: ClientSession; response: MessageResponse; sessionId: string; fromIndex: number } | { ok: false; error?: string; lost?: true }> {
   let session: ClientSession | null
   let sessionId: string
   let fromIndex: number
   let body: string
   try {
+    const { data: back, error: backError } = await supabase
+      .from('home_turn')
+      .update({ status: 'claimed', updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'sent')
+      .eq('eve_session_id', plan.sessionId)
+      .select('id')
+    if (backError) return { ok: false }
+    if (!Array.isArray(back) || back.length === 0) return { ok: false, lost: true }
     // The kind of conversation the plan checked: a channel turn outside the home thread names its place 'thread'.
     const channelThread = plan.channelPlace === 'thread'
     const ensured = await (io.ensureSession ?? ((previous: string) => ensureHomeSession(supabase, data, { previous, channelThread }, io)))(plan.sessionId)
@@ -1778,12 +1798,13 @@ async function moveToFreshSession(
     body = withHomeTurnPrimer(update, primer, { lead: channelOfReason(data.reason) !== null })
     const { data: moved, error } = await supabase
       .from('home_turn')
-      .update({ eve_session_id: sessionId, stream_position: fromIndex, updated_at: new Date().toISOString() })
+      .update({ status: 'sent', eve_session_id: sessionId, stream_position: fromIndex, updated_at: new Date().toISOString() })
       .eq('id', row.id)
-      .eq('status', 'sent')
+      .eq('status', 'claimed')
       .eq('eve_session_id', plan.sessionId)
       .select('id')
-    if (error || !Array.isArray(moved) || moved.length === 0) return { ok: false }
+    if (error) return { ok: false }
+    if (!Array.isArray(moved) || moved.length === 0) return { ok: false, lost: true }
     session = attachSession(data, sessionId, fromIndex, io, 'send', plan.chatgptPlan === true)
   } catch (err) {
     console.warn(`[home-turn] fresh session for row ${row.id} failed: ${err instanceof Error ? err.message : String(err)}`)
