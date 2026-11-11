@@ -30,6 +30,8 @@ import {
 } from './playbook-seeds'
 
 const FILE = '551_find_a_time_uses_availability.sql'
+/** The rewrite after this one: teammates in find_times (availability phase 2). */
+const LATER = '553_find_a_time_with_teammates.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
 
@@ -96,21 +98,24 @@ describe('migration 551', () => {
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    expect(PROMPT_REWRITE_MIGRATIONS.at(-1)).toBe(FILE)
+    // Only 553 (availability phase 2: teammates) rewrites them after this one.
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).toContain(FILE)
-    // The calendar core's text was 338's (no rewrite between), find-a-time's 325's.
-    expect(rewrittenAfter('338_skill_helper_lines.sql', CALENDAR, 'calendar-playbook')).toBe(FILE)
-    for (const file of PROMPT_REWRITE_MIGRATIONS.filter((f) => f !== FILE)) {
+    // The calendar core's text was 338's (no rewrite between but 553), find-a-time's 325's.
+    const between = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf('338_skill_helper_lines.sql') + 1, PROMPT_REWRITE_MIGRATIONS.indexOf(FILE))
+    for (const file of between) expect(promptRewrites(file).some((r) => r.id === CALENDAR), file).toBe(false)
+    for (const file of PROMPT_REWRITE_MIGRATIONS.filter((f) => f !== FILE && f !== LATER)) {
       expect(promptRewrites(file).some((r) => r.id === FIND_A_TIME), file).toBe(false)
     }
     for (const id of [CALENDAR, FIND_A_TIME]) expect(PREVIOUS[id], id).not.toBe('')
   })
 
-  it('is the text that ships for both', () => {
+  it("is the text 553 rewrites, and its preferred tools ship", () => {
     for (const id of [CALENDAR, FIND_A_TIME]) {
+      const slug = rows.find((r) => r.id === id)!.slug
+      expect(rewrittenAfter(FILE, id, slug), id).toBe(LATER)
       const shipped = allShippedSkills().find((s) => s.id === id)!
-      expect(shipped.file, id).toBe(FILE)
-      expect(shipped.prompt, id).toBe(text(id))
+      expect(shipped.file, id).toBe(LATER)
     }
   })
 

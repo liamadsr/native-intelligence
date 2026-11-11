@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import type { SubCalendar } from '@/lib/integrations/calendar'
-import { countedCalendarIds, countedOf, countsByDefault, listCountedEvents } from '../busy'
+import { countedCalendarIds, countedOf, countsByDefault, hasCountedCalendar, listCountedEvents } from '../busy'
 
 const GOOGLE = { provider: 'google', account_email: 'ada.finch@example.com' }
 const OUTLOOK = { provider: 'microsoft', account_email: 'Ada.Finch@Example.org' }
@@ -187,5 +187,47 @@ describe('listCountedEvents', () => {
     d.microsoftCalendars.mockRejectedValue(new Error('Microsoft Calendars API error: 401'))
     await expect(listCountedEvents(USER, { timeMin: 'a', timeMax: 'b', workspaceId: WS }, { ...d, listEvents })).rejects.toThrow('Microsoft Calendars API error: 401')
     expect(listEvents).not.toHaveBeenCalled()
+  })
+})
+
+describe('hasCountedCalendar', () => {
+  it('an enabled calendar account of theirs in the workspace', async () => {
+    expect(await hasCountedCalendar(USER, WS, { supabase: memoryDb(tables()) })).toBe(true)
+    // With no workspace, any enabled calendar account of theirs.
+    expect(await hasCountedCalendar('user-bo', undefined, { supabase: memoryDb(tables()) })).toBe(true)
+  })
+
+  it('accounts only in another workspace, disabled, or for mail are not a calendar here', async () => {
+    const t = tables({
+      connected_account: [
+        { id: 'acc-elsewhere', user_id: USER, provider: 'google', capability: 'calendar', is_enabled: true },
+        { id: 'acc-off', user_id: USER, provider: 'google', capability: 'calendar', is_enabled: false },
+        { id: 'acc-mail', user_id: USER, provider: 'google', capability: 'email', is_enabled: true },
+      ],
+      connected_account_workspace: [
+        { account_id: 'acc-elsewhere', workspace_id: 'ws-other' },
+        { account_id: 'acc-off', workspace_id: WS },
+        { account_id: 'acc-mail', workspace_id: WS },
+      ],
+    })
+    expect(await hasCountedCalendar(USER, WS, { supabase: memoryDb(t) })).toBe(false)
+    expect(await hasCountedCalendar('user-nobody', WS, { supabase: memoryDb(t) })).toBe(false)
+  })
+
+  it("the desktop's Exchange rows count, in any workspace", async () => {
+    const t = tables({ connected_account: [], connected_account_workspace: [], local_calendar_event: [{ id: 'l-1', user_id: USER }] })
+    expect(await hasCountedCalendar(USER, WS, { supabase: memoryDb(t) })).toBe(true)
+  })
+
+  it('a failed read throws, never answers no', async () => {
+    const failing = {
+      from: (table: string) => {
+        const chain: Record<string, unknown> = {}
+        for (const k of ['select', 'eq', 'in', 'limit']) chain[k] = () => chain
+        chain.then = (resolve: (v: unknown) => unknown) => resolve({ data: null, count: 0, error: table === 'connected_account' ? { message: 'down' } : null })
+        return chain
+      },
+    } as never
+    await expect(hasCountedCalendar(USER, WS, { supabase: failing })).rejects.toThrow('Calendar accounts could not be read: down')
   })
 })

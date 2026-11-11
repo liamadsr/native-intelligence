@@ -57,6 +57,8 @@ export const PROMPT_REWRITE_MIGRATIONS = [
   '461_outreach_launch_playbooks.sql',
   // Availability phase 1: the calendar playbook and find-a-time call find_times (and the working hours tools).
   '551_find_a_time_uses_availability.sql',
+  // Availability phase 2: find_times takes teammates (`people`); an outside guest's calendar still can't be seen.
+  '553_find_a_time_with_teammates.sql',
 ] as const
 
 /**

@@ -85,6 +85,29 @@ export async function countedCalendarIds(userId: string, workspaceId: string | u
   return out
 }
 
+/**
+ * Whether the person has a calendar the read would see: an enabled calendar
+ * account of theirs in the workspace (the same scoping countedCalendarIds
+ * reads), or the desktop's Exchange rows. Without one the read finds no
+ * events, which is not the same as free. Throws on a failed read.
+ */
+export async function hasCountedCalendar(userId: string, workspaceId: string | undefined, deps: { supabase?: SupabaseClient } = {}): Promise<boolean> {
+  const supabase = deps.supabase ?? getServiceClient()
+  const [accounts, local] = await Promise.all([
+    supabase.from('connected_account').select('id').eq('user_id', userId).eq('capability', 'calendar').eq('is_enabled', true),
+    supabase.from('local_calendar_event').select('id', { count: 'exact', head: true }).eq('user_id', userId).limit(1),
+  ])
+  if (accounts.error) throw new Error(`Calendar accounts could not be read: ${accounts.error.message}`)
+  if (local.error) throw new Error(`Exchange calendar could not be read: ${local.error.message}`)
+  if ((local.count ?? 0) > 0) return true
+  const ids = ((accounts.data as Array<{ id: string }> | null) ?? []).map((r) => r.id)
+  if (!ids.length) return false
+  if (!workspaceId) return true
+  const junction = await supabase.from('connected_account_workspace').select('account_id').eq('workspace_id', workspaceId).in('account_id', ids).limit(1)
+  if (junction.error) throw new Error(`Calendar accounts could not be read: ${junction.error.message}`)
+  return ((junction.data as unknown[] | null) ?? []).length > 0
+}
+
 export interface CountedEventsOptions {
   timeMin: string
   timeMax: string

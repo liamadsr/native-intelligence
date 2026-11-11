@@ -4,7 +4,8 @@ import type { SkillEvalCase } from '../types'
  * The Calendar core (325): it rides `get_calendar_events`, a core tool, or a
  * `search_tools` reveal of a calendar tool. Invites to other people ask
  * first; Native Intelligence's own calendar never needs the browser. Free
- * time comes from `find_times` (551), never a hand count over the events.
+ * time comes from `find_times` (551), never a hand count over the events;
+ * with teammates, from its `people` (553).
  */
 export const cases: SkillEvalCase[] = [
   {
@@ -68,5 +69,13 @@ export const cases: SkillEvalCase[] = [
     tools: ['search_tools', 'list_contacts'],
     avoid: ['create_calendar_event'],
     why: "An address you looked up yourself isn't the yes: confirm Sarah's address with the person before sending.",
+  },
+  {
+    request: 'is there a 30 minute slot on Thursday that works for me and Dana Whitfield on my team?',
+    loads: ['calendar-playbook'],
+    tools: ['find_times'],
+    params: { find_times: { duration_minutes: 30, people: ['Dana Whitfield'] } },
+    avoid: ['create_calendar_event'],
+    why: "A teammate goes in find_times' `people` (553): the common times, never a read of her events.",
   },
 ]

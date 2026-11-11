@@ -37,12 +37,18 @@ export interface FindTimesDeps {
   listEvents?: typeof listCountedEvents
 }
 
-/** The person's free time in [from, to), never before now (see the header). */
-export async function findTimes(input: FindTimesInput, deps: FindTimesDeps = {}): Promise<FindTimesResult> {
+export type FreeTimeResult = { known: true; free: Span[] } | { known: false; reason: string }
+
+/**
+ * Every free stretch of the person's in [from, to), never before now, at
+ * least the duration long, uncapped: what findTimes offers from, and one
+ * person's share of a group's time (./team.ts).
+ */
+export async function readFreeTime(input: FindTimesInput, deps: FindTimesDeps = {}): Promise<FreeTimeResult> {
   const { schedule } = input
   // Nothing is offered in the past, and a time to offer starts on a quarter hour.
   const notBefore = Math.ceil(Math.max(input.from, input.now) / QUARTER_MS) * QUARTER_MS
-  if (input.to <= notBefore) return { known: true, free: [], suggested: [] }
+  if (input.to <= notBefore) return { known: true, free: [] }
 
   // The day before and after, so an all-day event's UTC midnights are seen.
   const timeMin = new Date(notBefore - DAY_MS).toISOString()
@@ -69,9 +75,16 @@ export async function findTimes(input: FindTimesInput, deps: FindTimesDeps = {})
     notBefore,
     notAfter: input.to,
   })
+  return { known: true, free }
+}
+
+/** The person's free time in [from, to), never before now (see the header). */
+export async function findTimes(input: FindTimesInput, deps: FindTimesDeps = {}): Promise<FindTimesResult> {
+  const read = await readFreeTime(input, deps)
+  if (!read.known) return read
   return {
     known: true,
-    free: free.slice(0, FREE_WINDOWS_MAX),
-    suggested: suggestTimes(free, { durationMinutes: input.durationMinutes, timeZone: schedule.timeZone }),
+    free: read.free.slice(0, FREE_WINDOWS_MAX),
+    suggested: suggestTimes(read.free, { durationMinutes: input.durationMinutes, timeZone: input.schedule.timeZone }),
   }
 }

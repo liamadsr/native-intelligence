@@ -58,6 +58,16 @@ export function allDayTakes(block: { start: number; end: number }, dayStart: num
   return Math.min(block.end, dayEnd) - Math.max(block.start, dayStart) >= Math.min(HALF_DAY_MS, dayEnd - dayStart)
 }
 
+/** A zone's short name at `at` ("EST", "GMT+1"), or null for one Intl doesn't know. Pure. */
+export function zoneAbbreviation(timeZone: unknown, at: number): string | null {
+  if (typeof timeZone !== 'string' || !timeZone) return null
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' }).formatToParts(new Date(at)).find((p) => p.type === 'timeZoneName')?.value ?? null
+  } catch {
+    return null
+  }
+}
+
 export function clockMinutes(clock: string): number {
   const [h, m] = clock.split(':').map(Number)
   return h * 60 + m

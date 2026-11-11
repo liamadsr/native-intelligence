@@ -38,6 +38,8 @@ import { HelpersRow, helpersRowModel } from './helpers-row'
 import { UPDATE_PLAN_TOOL_NAME, planStepsOfPart } from './chat-widgets-model'
 import { MeetingGoalSetLine, meetingGoalToolResult } from './meeting-goal-composer'
 import { ConnectCard } from './connect-card'
+import { FindTimesCard } from './find-times-card'
+import { findTimesCardOf } from '@/lib/availability/find-times-card'
 import { connectCardFromOutput } from '@/lib/connections/connect-card'
 import { ASK_CARD_PART_TYPE, ASK_CARDS_PART_TYPE, askCardPartData, askCardsPartData } from '@/lib/attention/chat-asks'
 import { ChatAskCard, ChatAskCardGroup } from '@/components/attention/chat-ask-card'
@@ -307,8 +309,19 @@ const connectCard: ToolRenderer = ({ part, state, toolCallId }) => {
   return card ? <ConnectCard key={toolCallId} card={card} /> : undefined
 }
 
+// The times find_times found (availability): the ones to offer, and for a
+// group each person with a tick or why their time is unknown. A call still
+// running, or one that failed before reading anyone, falls through to the
+// generic chip, which says why.
+const findTimesCard: ToolRenderer = ({ part, state, toolCallId }) => {
+  if (state !== 'result') return undefined
+  const data = findTimesCardOf(output(part))
+  return data ? <FindTimesCard key={toolCallId} data={data} /> : undefined
+}
+
 const ENTRIES: Record<string, ToolRendererEntry> = {
   connect: { render: connectCard },
+  find_times: { render: findTimesCard },
   ask_user: { render: askUser },
   suggest_changes: { render: suggestChanges },
   [WEB_SEARCH_TOOL_NAME]: { render: webSearch },

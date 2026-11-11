@@ -161,6 +161,47 @@ export function subtractSpans(spans: readonly Span[], holes: readonly Span[]): S
   return out
 }
 
+/** `spans` sorted, with overlapping and touching spans joined. Empty spans dropped. Pure. */
+export function mergeSpans(spans: readonly Span[]): Span[] {
+  const sorted = spans.filter((s) => s.end > s.start).sort((a, b) => a.start - b.start)
+  const out: Span[] = []
+  for (const span of sorted) {
+    const last = out[out.length - 1]
+    if (last && span.start <= last.end) last.end = Math.max(last.end, span.end)
+    else out.push({ start: span.start, end: span.end })
+  }
+  return out
+}
+
+/** The time in both `a` and `b`: each list in any order, overlaps allowed. Soonest first. Pure. */
+export function intersectSpans(a: readonly Span[], b: readonly Span[]): Span[] {
+  const x = mergeSpans(a)
+  const y = mergeSpans(b)
+  const out: Span[] = []
+  let i = 0
+  let j = 0
+  while (i < x.length && j < y.length) {
+    const start = Math.max(x[i].start, y[j].start)
+    const end = Math.min(x[i].end, y[j].end)
+    if (end > start) out.push({ start, end })
+    // The one that ends first can meet nothing further on.
+    if (x[i].end < y[j].end) i++
+    else j++
+  }
+  return out
+}
+
+/**
+ * The time every list holds (several people's free time: when they are all
+ * free). No lists, no time: a group of nobody has no common time. Pure.
+ */
+export function intersectAll(lists: readonly (readonly Span[])[]): Span[] {
+  if (!lists.length) return []
+  let out = mergeSpans(lists[0])
+  for (let k = 1; k < lists.length && out.length; k++) out = intersectSpans(out, lists[k])
+  return out
+}
+
 export interface FreeWindowsInput extends AvailabilityDays {
   /** A window shorter than this is dropped. */
   minMinutes: number

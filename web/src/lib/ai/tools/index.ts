@@ -434,8 +434,9 @@ export function createTools(
     ...createCycleTools(userId, supabase, workspaceId, strict, createPolicy),
     // get_calendar_events reads and writes times in the person's zone: this turn's browser zone, else their saved one.
     ...createCalendarTools(userId, workspaceId, { supabase, timeZone: options?.timeZone }),
-    // When the person can meet, and their working hours (src/lib/availability).
-    ...createAvailabilityTools(userId, workspaceId, { timeZone: options?.timeZone }),
+    // When the person can meet, alone or with teammates, and their working hours (src/lib/availability).
+    // A guest's or a linked agent's turn reads only the person's own time, never a teammate's.
+    ...createAvailabilityTools(userId, workspaceId, { timeZone: options?.timeZone, omitGrants }),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

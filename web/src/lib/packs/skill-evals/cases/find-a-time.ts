@@ -53,4 +53,28 @@ export const cases: SkillEvalCase[] = [
     avoid: ['create_calendar_event'],
     why: 'The email of options is a draft the person sends, after they pick the slots.',
   },
+  // 553: teammates go in `people`; an outside guest's calendar is never read.
+  {
+    request: 'find 30 minutes next week that works for me and Priya from my team',
+    loads: ['calendar-playbook', 'find-a-time'],
+    tools: ['load_skill', 'find_times'],
+    params: { find_times: { duration_minutes: 30, people: ['Priya'] } },
+    avoid: ['create_calendar_event', 'get_calendar_events'],
+    why: 'A teammate goes in `people`: find_times returns the times that work for both, never a read of anyone\'s events.',
+  },
+  {
+    request: 'when are Sam Ortiz and Lee Okafor on my team both free for an hour with me this week?',
+    loads: ['calendar-playbook', 'find-a-time'],
+    tools: ['load_skill', 'find_times'],
+    params: { find_times: { duration_minutes: 60, people: ['Sam Ortiz', 'Lee Okafor'] } },
+    avoid: ['create_calendar_event'],
+  },
+  {
+    request: 'find a time for a 30 minute call with jordan@globex.example next week',
+    loads: ['calendar-playbook', 'find-a-time'],
+    tools: ['load_skill', 'find_times'],
+    forbidParams: { find_times: { people: ['jordan@globex.example'] } },
+    avoid: ['create_calendar_event'],
+    why: "An outside guest's calendar can't be read: find times on the person's own calendar and say so.",
+  },
 ]

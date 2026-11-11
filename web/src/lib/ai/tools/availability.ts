@@ -6,7 +6,10 @@ import { isoInZone, readRangeEdge } from '@/lib/integrations/calendar-zone'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 import { findTimes, FIND_TIMES_MAX_DAYS } from '@/lib/availability/find-times'
 import { readWorkingHours, saveWorkingHours, type WorkingHours } from '@/lib/availability/schedule'
-import type { DayRange } from '@/lib/availability/engine'
+import type { DayRange, Span } from '@/lib/availability/engine'
+import { findWorkspacePeople, TEAM_MAX_PEOPLE } from '@/lib/availability/people'
+import { findTimesTogether, type PersonCoverage } from '@/lib/availability/team'
+import { AVAILABILITY_SHARING, readSharing, saveSharing, type AvailabilitySharing } from '@/lib/availability/sharing'
 
 const DAY_MS = 24 * 60 * 60_000
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const
@@ -34,28 +37,57 @@ function spanForModel(span: { start: number; end: number }, timeZone: string) {
   return { start: isoInZone(span.start, timeZone), end: isoInZone(span.end, timeZone), label: `${day}, ${clock(span.start)} to ${clock(span.end)}` }
 }
 
+const spansForModel = (spans: readonly Span[], timeZone: string) => spans.map((span) => spanForModel(span, timeZone))
+
+/** One person of a group as a model reads them: whether their time is known, and their zone. Never their events. */
+function personForModel(person: PersonCoverage) {
+  return {
+    name: person.name,
+    ...(person.isRequester ? { you: true } : {}),
+    coverage: person.coverage,
+    ...(person.reason ? { reason: person.reason } : {}),
+    time_zone: person.timeZone,
+  }
+}
+
 /**
- * Availability (src/lib/availability): when the person can meet, from their
- * working hours and every calendar of theirs that counts as busy, and the
- * working hours themselves.
+ * Availability (src/lib/availability): when the person can meet, alone or
+ * with teammates in the workspace, from working hours and every calendar
+ * that counts as busy; the working hours themselves; and whether teammates
+ * may see when the person is busy.
+ *
+ * `omitGrants` (a guest's or a linked agent's turn, CreateToolsOptions):
+ * such a turn may read the person's own free time, never their teammates'.
  */
-export function createAvailabilityTools(userId: string, workspaceId?: string, zone?: { timeZone?: string | null }) {
+export function createAvailabilityTools(userId: string, workspaceId?: string, zone?: { timeZone?: string | null; omitGrants?: boolean }) {
   const person = { userId, workspaceId: workspaceId ?? '' }
   return {
     find_times: tool({
       description:
         "When the person is free to meet: their working hours minus everything busy on every calendar of theirs that counts (events marked free and invites they declined don't count), with a short gap kept around existing meetings. " +
-        'Returns `suggested` (up to three times on different days, ready to offer) and `free` (every free stretch in the range, to pick another time from). ' +
+        "With `people` (teammates in this workspace, by name or email), when everyone is free: each person's own working hours in their own zone and their busy time, never what their events are. " +
+        'Returns `suggested` (up to three times on different days, ready to offer) and `free` (every free stretch in the range, to pick another time from); with `people`, those are the times that work for everyone, and `people` says for each person whether their time is known. ' +
         "Every time is in the person's time zone (`time_zone`), written with its offset. " +
-        'When a calendar cannot be read the answer is `unknown`, never a guess: say which calendar and do not offer times.',
+        'When a calendar cannot be read, or a teammate does not share their availability, the answer is `unknown`, never a guess: say who and why and do not offer times. ' +
+        "Only workspace members can be included: an outside guest's calendar cannot be seen.",
       inputSchema: z.object({
         duration_minutes: z.number().int().min(5).max(480).optional().describe('How long the meeting is (default 30)'),
         from: z.string().min(1).max(40).optional().describe("Start of the range: an ISO date or date-time in the person's time zone. Default: now"),
         to: z.string().min(1).max(40).optional().describe(`End of the range: an ISO date (covers that whole day) or date-time. Default: 7 days after the start. At most ${FIND_TIMES_MAX_DAYS} days after it`),
         buffer_minutes: z.number().int().min(0).max(120).optional().describe('Minutes kept clear before and after existing meetings (default 10)'),
+        people: z
+          .array(z.string().min(1).max(200))
+          .max(TEAM_MAX_PEOPLE - 1)
+          .optional()
+          .describe(`Teammates in this workspace to find a time with, each by display name or sign-in email (the person is always included; at most ${TEAM_MAX_PEOPLE - 1}). Never an outside guest.`),
       }),
-      execute: async ({ duration_minutes, from, to, buffer_minutes }) => {
+      execute: async ({ duration_minutes, from, to, buffer_minutes, people }) => {
         const supabase = getServiceClient()
+        const asked = (people ?? []).map((p) => p.trim()).filter(Boolean)
+        if (asked.length && zone?.omitGrants) {
+          return { success: false, error: "Teammates' availability is read only on the person's own turn. Find a time on the person's calendar alone." }
+        }
+        if (asked.length && !workspaceId) return { success: false, error: 'Teammates can be included only in a workspace.' }
         const provider = await getCalendarProvider(userId)
         if (!provider) {
           return { success: false, error: 'No calendar connected. Offer the person a Connect card: call connect with provider "google" or "microsoft" and capability "calendar". Never ask for a password or token.' }
@@ -78,7 +110,50 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
 
         const durationMinutes = duration_minutes ?? 30
         const bufferMinutes = buffer_minutes ?? 10
-        const found = await findTimes({ userId, workspaceId, schedule: { ...hours, timeZone }, from: start, to: end, durationMinutes, bufferMinutes, now })
+        const schedule = { ...hours, timeZone }
+
+        if (asked.length && workspaceId) {
+          let resolved
+          try {
+            resolved = await findWorkspacePeople(supabase, workspaceId, userId, asked)
+          } catch (err) {
+            return { success: false, error: err instanceof Error ? err.message : 'Workspace members could not be read' }
+          }
+          if (!resolved.ok) return { success: false, error: resolved.error }
+          if (resolved.requester.role === 'guest') return { success: false, error: "A workspace guest can't see teammates' availability. Find a time on the person's calendar alone." }
+          if (resolved.others.length) {
+            const together = await findTimesTogether(
+              { workspaceId, requester: { userId, name: resolved.requester.name, schedule }, others: resolved.others, from: start, to: end, durationMinutes, bufferMinutes, now },
+              { supabase },
+            )
+            const group = together.people.map(personForModel)
+            if (!together.known) {
+              const missing = together.people.filter((p) => p.coverage === 'unknown').map((p) => `${p.isRequester ? 'you' : p.name}: ${p.reason}`)
+              return {
+                success: false,
+                unknown: true,
+                time_zone: timeZone,
+                duration_minutes: durationMinutes,
+                people: group,
+                error: `Free time together is unknown (${missing.join('; ')}). Say who and why; never offer a time that leaves someone out. Offer to find a time without them.`,
+              }
+            }
+            return {
+              success: true,
+              time_zone: timeZone,
+              duration_minutes: durationMinutes,
+              buffer_minutes: bufferMinutes,
+              working_hours_are_default: !hours.saved,
+              people: group,
+              suggested: spansForModel(together.suggested, timeZone),
+              free: spansForModel(together.free, timeZone),
+              ...(together.free.length ? {} : { note: 'No time in this range works for everyone inside their working hours. Say so, and offer a wider range, a shorter meeting or fewer people.' }),
+            }
+          }
+          // Only the person themselves was named: their own time, as below.
+        }
+
+        const found = await findTimes({ userId, workspaceId, schedule, from: start, to: end, durationMinutes, bufferMinutes, now })
         if (!found.known) {
           return { success: false, unknown: true, error: `Free time is unknown: ${found.reason}. Say so; never offer a time on a calendar that could not be read.` }
         }
@@ -88,19 +163,23 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
           duration_minutes: durationMinutes,
           buffer_minutes: bufferMinutes,
           working_hours_are_default: !hours.saved,
-          suggested: found.suggested.map((span) => spanForModel(span, timeZone)),
-          free: found.free.map((span) => spanForModel(span, timeZone)),
+          suggested: spansForModel(found.suggested, timeZone),
+          free: spansForModel(found.free, timeZone),
           ...(found.free.length ? {} : { note: 'Nothing is free in this range inside their working hours. Say so, and offer a wider range or a shorter meeting.' }),
         }
       },
     }),
 
     get_working_hours: tool({
-      description: "The person's working hours: each weekday's ranges, the dated changes (a day off, different hours on one date) and the time zone they are in. `is_default` means they never set any (weekdays 9 to 6).",
+      description:
+        "The person's working hours: each weekday's ranges, the dated changes (a day off, different hours on one date) and the time zone they are in. `is_default` means they never set any (weekdays 9 to 6). " +
+        "`availability_sharing`: whether teammates in this workspace may see when they are busy ('busy_only', the default: busy times only, never what an event is) or not ('none').",
       inputSchema: z.object({}),
       execute: async () => {
+        const supabase = getServiceClient()
         try {
-          return { success: true, ...hoursForModel(await readWorkingHours(getServiceClient(), person)) }
+          const [hours, sharing] = await Promise.all([readWorkingHours(supabase, person), workspaceId ? readSharing(supabase, person).catch(() => null) : Promise.resolve(null)])
+          return { success: true, ...hoursForModel(hours), ...(sharing ? { availability_sharing: sharing } : {}) }
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : 'Working hours could not be read' }
         }
@@ -110,23 +189,32 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
     set_working_hours: tool({
       description:
         "Change the person's working hours, which decide the times find_times offers. Pass only what changes: `week` replaces the days it names (a day with no ranges is a day off) and leaves the others; `dates` sets one date's hours (no ranges: off that day); `clear_dates` puts dates back on the weekly pattern. " +
-        'Only on what the person said about their own hours.',
+        "`availability_sharing` sets whether teammates in this workspace may see when the person is busy: 'busy_only' (busy times only, never what an event is) or 'none'. " +
+        'Only on what the person said about their own hours or sharing.',
       inputSchema: z.object({
         week: z.partialRecord(z.enum(WEEKDAYS), z.array(rangeSchema).max(6)).optional().describe('The weekdays to change, each with its ranges'),
         dates: z.record(z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.array(rangeSchema).max(6)).optional().describe('ISO dates to set, each with its ranges (empty: a day off)'),
         clear_dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(60).optional().describe('ISO dates to put back on the weekly pattern'),
         time_zone: z.string().max(64).nullable().optional().describe('An IANA zone the hours are always in, or null to follow the zone the person is in (the default)'),
+        availability_sharing: z.enum(AVAILABILITY_SHARING).optional().describe("Whether teammates in this workspace may see when the person is busy: 'busy_only' or 'none'"),
       }),
-      execute: async ({ week, dates, clear_dates, time_zone }) => {
+      execute: async ({ week, dates, clear_dates, time_zone, availability_sharing }) => {
         const supabase = getServiceClient()
         try {
+          let sharing: AvailabilitySharing | undefined
+          if (availability_sharing) {
+            if (!workspaceId) return { success: false, error: 'Availability sharing is set per workspace, and there is none here.' }
+            sharing = await saveSharing(supabase, person, availability_sharing)
+          }
+          const hoursChange = !!(week && Object.keys(week).length) || dates !== undefined || clear_dates !== undefined || time_zone !== undefined
+          if (!hoursChange && sharing) return { success: true, ...hoursForModel(await readWorkingHours(supabase, person)), availability_sharing: sharing }
           let weekly: DayRange[][] | undefined
           if (week && Object.keys(week).length) {
             const current = await readWorkingHours(supabase, person)
             weekly = WEEKDAYS.map((name, i) => week[name] ?? current.weekly[i])
           }
           const saved = await saveWorkingHours(supabase, person, { weekly, setOverrides: dates, clearOverrides: clear_dates, ...(time_zone !== undefined ? { timeZone: time_zone } : {}) })
-          return { success: true, ...hoursForModel(saved) }
+          return { success: true, ...hoursForModel(saved), ...(sharing ? { availability_sharing: sharing } : {}) }
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : 'Working hours could not be saved' }
         }

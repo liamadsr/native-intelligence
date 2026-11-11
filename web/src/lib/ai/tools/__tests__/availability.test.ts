@@ -15,12 +15,19 @@ const hoisted = vi.hoisted(() => ({
   findTimes: vi.fn(),
   readWorkingHours: vi.fn(),
   saveWorkingHours: vi.fn(),
+  findWorkspacePeople: vi.fn(),
+  findTimesTogether: vi.fn(),
+  readSharing: vi.fn(),
+  saveSharing: vi.fn(),
 }))
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ marker: 'service' }) }))
 vi.mock('@/lib/integrations/calendar', () => ({ getCalendarProvider: hoisted.getCalendarProvider }))
 vi.mock('@/lib/availability/find-times', () => ({ findTimes: hoisted.findTimes, FIND_TIMES_MAX_DAYS: 31 }))
 vi.mock('@/lib/availability/schedule', () => ({ readWorkingHours: hoisted.readWorkingHours, saveWorkingHours: hoisted.saveWorkingHours }))
+vi.mock('@/lib/availability/people', () => ({ findWorkspacePeople: hoisted.findWorkspacePeople, TEAM_MAX_PEOPLE: 12 }))
+vi.mock('@/lib/availability/team', () => ({ findTimesTogether: hoisted.findTimesTogether }))
+vi.mock('@/lib/availability/sharing', () => ({ AVAILABILITY_SHARING: ['busy_only', 'none'], readSharing: hoisted.readSharing, saveSharing: hoisted.saveSharing }))
 
 import { createAvailabilityTools } from '../availability'
 
@@ -35,8 +42,9 @@ const WEEK = [[], NINE_TO_SIX, NINE_TO_SIX, NINE_TO_SIX, NINE_TO_SIX, NINE_TO_SI
 const hours = (extra: Partial<WorkingHours> = {}): WorkingHours => ({ timeZone: NY, zoneSource: 'member', weekly: WEEK.map((d) => [...d]), overrides: {}, saved: false, ...extra })
 
 type Answer = Record<string, unknown> & { success: boolean; error?: string }
-const tools = (zone: { timeZone?: string } = {}) => createAvailabilityTools('user-ada', 'ws-fernhill', zone)
-const run = async (name: 'find_times' | 'get_working_hours' | 'set_working_hours', input: Record<string, unknown>, zone: { timeZone?: string } = {}) =>
+type Zone = { timeZone?: string; omitGrants?: boolean }
+const tools = (zone: Zone = {}) => createAvailabilityTools('user-ada', 'ws-fernhill', zone)
+const run = async (name: 'find_times' | 'get_working_hours' | 'set_working_hours', input: Record<string, unknown>, zone: Zone = {}) =>
   (await tools(zone)[name].execute!(input as never, EXEC)) as unknown as Answer
 const plain = (s: unknown) => String(s).replace(/\s/g, ' ')
 
@@ -47,7 +55,14 @@ beforeEach(() => {
   hoisted.findTimes.mockReset().mockResolvedValue({ known: true, free: [], suggested: [] })
   hoisted.readWorkingHours.mockReset().mockResolvedValue(hours())
   hoisted.saveWorkingHours.mockReset().mockImplementation(async (_s: unknown, _p: unknown, change: { weekly?: unknown }) => hours({ saved: true, ...(change.weekly ? { weekly: change.weekly as WorkingHours['weekly'] } : {}) }))
+  hoisted.findWorkspacePeople.mockReset().mockResolvedValue({ ok: true, requester: ADA_MEMBER, others: [DANA_MEMBER] })
+  hoisted.findTimesTogether.mockReset().mockResolvedValue({ known: true, people: [], free: [], suggested: [] })
+  hoisted.readSharing.mockReset().mockResolvedValue('busy_only')
+  hoisted.saveSharing.mockReset().mockImplementation(async (_s: unknown, _p: unknown, sharing: string) => sharing)
 })
+
+const ADA_MEMBER = { memberId: 'm-ada', userId: 'user-ada', name: 'Ada Finch', role: 'owner', sharing: 'busy_only' }
+const DANA_MEMBER = { memberId: 'm-dana', userId: 'user-dana', name: 'Dana Whitfield', role: 'member', sharing: 'busy_only' }
 
 afterEach(() => {
   vi.useRealTimers()
@@ -150,6 +165,122 @@ describe('find_times', () => {
   })
 })
 
+describe('find_times with people', () => {
+  const together = () => hoisted.findTimesTogether.mock.calls[0][0] as Record<string, unknown> & { requester: { userId: string; name: string; schedule: { timeZone: string } }; others: unknown[] }
+  const complete = (name: string, timeZone: string, isRequester = false) => ({ userId: `user-${name}`, name, isRequester, coverage: 'complete', timeZone })
+
+  it("resolves the names in this workspace and reads everyone's time together, in this turn's zone", async () => {
+    hoisted.findTimesTogether.mockResolvedValue({
+      known: true,
+      people: [complete('Ada Finch', NY, true), complete('Dana Whitfield', 'America/Chicago')],
+      suggested: [{ start: at('2026-11-03T16:00:00.000Z'), end: at('2026-11-03T16:30:00.000Z') }],
+      free: [{ start: at('2026-11-03T16:00:00.000Z'), end: at('2026-11-03T18:00:00.000Z') }],
+    })
+    const out = await run('find_times', { people: ['Dana'], from: '2026-11-03', to: '2026-11-03', duration_minutes: 30 })
+    expect(hoisted.findWorkspacePeople).toHaveBeenCalledWith({ marker: 'service' }, 'ws-fernhill', 'user-ada', ['Dana'])
+    expect(together()).toMatchObject({ workspaceId: 'ws-fernhill', requester: { userId: 'user-ada', name: 'Ada Finch', schedule: { timeZone: NY } }, others: [DANA_MEMBER], from: at('2026-11-03T05:00:00.000Z'), to: at('2026-11-04T05:00:00.000Z'), durationMinutes: 30, bufferMinutes: 10, now: NOW })
+    expect(hoisted.findTimes).not.toHaveBeenCalled()
+    expect(out).toMatchObject({ success: true, time_zone: NY, duration_minutes: 30 })
+    expect(out.people).toEqual([
+      { name: 'Ada Finch', you: true, coverage: 'complete', time_zone: NY },
+      { name: 'Dana Whitfield', coverage: 'complete', time_zone: 'America/Chicago' },
+    ])
+    expect(plain((out.suggested as Array<{ label: string }>)[0].label)).toBe('Tue, Nov 3, 11:00 AM to 11:30 AM')
+    expect((out.free as unknown[]).length).toBe(1)
+  })
+
+  it('anyone unknown: no times, and who and why', async () => {
+    hoisted.findTimesTogether.mockResolvedValue({
+      known: false,
+      people: [complete('Ada Finch', NY, true), { userId: 'user-sam', name: 'Sam Ortiz', isRequester: false, coverage: 'unknown', reason: "they don't share their availability", timeZone: null }],
+    })
+    const out = await run('find_times', { people: ['Sam'] })
+    expect(out).toMatchObject({ success: false, unknown: true })
+    expect(out.suggested).toBeUndefined()
+    expect(out.free).toBeUndefined()
+    expect(out.error).toContain("Sam Ortiz: they don't share their availability")
+    expect(out.people).toEqual([
+      { name: 'Ada Finch', you: true, coverage: 'complete', time_zone: NY },
+      { name: 'Sam Ortiz', coverage: 'unknown', reason: "they don't share their availability", time_zone: null },
+    ])
+  })
+
+  it('an unknown or ambiguous name is the error as resolved, and nothing is read', async () => {
+    hoisted.findWorkspacePeople.mockResolvedValue({ ok: false, ambiguous: true, error: '"Dana" could be Dana Whitfield (dana.w@example.com), Dana Kerr (dana.kerr@example.com). Ask the person which one they mean' })
+    const out = await run('find_times', { people: ['Dana'] })
+    expect(out).toEqual({ success: false, error: expect.stringContaining('"Dana" could be Dana Whitfield') })
+    expect(hoisted.findTimesTogether).not.toHaveBeenCalled()
+    expect(hoisted.findTimes).not.toHaveBeenCalled()
+  })
+
+  it('only the person named: their own time, as without people', async () => {
+    hoisted.findWorkspacePeople.mockResolvedValue({ ok: true, requester: ADA_MEMBER, others: [] })
+    const out = await run('find_times', { people: ['Ada'] })
+    expect(hoisted.findTimesTogether).not.toHaveBeenCalled()
+    expect(hoisted.findTimes).toHaveBeenCalledTimes(1)
+    expect(out.people).toBeUndefined()
+  })
+
+  it("a guest's or a linked agent's turn never reads a teammate", async () => {
+    const out = await run('find_times', { people: ['Dana'] }, { omitGrants: true })
+    expect(out.success).toBe(false)
+    expect(out.error).toMatch(/only on the person's own turn/)
+    expect(hoisted.findWorkspacePeople).not.toHaveBeenCalled()
+    expect(hoisted.getCalendarProvider).not.toHaveBeenCalled()
+    // Their own time is still theirs to read on such a turn.
+    expect((await run('find_times', {}, { omitGrants: true })).success).toBe(true)
+  })
+
+  it("a workspace guest can't read teammates", async () => {
+    hoisted.findWorkspacePeople.mockResolvedValue({ ok: true, requester: { ...ADA_MEMBER, role: 'guest' }, others: [DANA_MEMBER] })
+    const out = await run('find_times', { people: ['Dana'] })
+    expect(out.error).toMatch(/A workspace guest can't see teammates' availability/)
+    expect(hoisted.findTimesTogether).not.toHaveBeenCalled()
+  })
+
+  it('no workspace: no teammates', async () => {
+    const out = (await createAvailabilityTools('user-ada').find_times.execute!({ people: ['Dana'] } as never, EXEC)) as unknown as Answer
+    expect(out).toEqual({ success: false, error: 'Teammates can be included only in a workspace.' })
+  })
+
+  it('takes at most 11 people, each a non-empty name', () => {
+    const schema = tools().find_times.inputSchema as unknown as z.ZodType
+    expect(schema.safeParse({ people: Array.from({ length: 11 }, (_, i) => `P${i}`) }).success).toBe(true)
+    expect(schema.safeParse({ people: Array.from({ length: 12 }, (_, i) => `P${i}`) }).success).toBe(false)
+    expect(schema.safeParse({ people: [''] }).success).toBe(false)
+  })
+})
+
+describe('availability sharing', () => {
+  it('get_working_hours says it; a failed read leaves it out, never fails the hours', async () => {
+    expect((await run('get_working_hours', {})).availability_sharing).toBe('busy_only')
+    hoisted.readSharing.mockRejectedValue(new Error('down'))
+    const out = await run('get_working_hours', {})
+    expect(out.success).toBe(true)
+    expect('availability_sharing' in out).toBe(false)
+  })
+
+  it('set_working_hours changes it alone, without touching the hours', async () => {
+    const out = await run('set_working_hours', { availability_sharing: 'none' })
+    expect(hoisted.saveSharing).toHaveBeenCalledWith({ marker: 'service' }, { userId: 'user-ada', workspaceId: 'ws-fernhill' }, 'none')
+    expect(hoisted.saveWorkingHours).not.toHaveBeenCalled()
+    expect(out).toMatchObject({ success: true, availability_sharing: 'none' })
+  })
+
+  it('with hours too, both change', async () => {
+    const out = await run('set_working_hours', { availability_sharing: 'busy_only', dates: { '2026-11-27': [] } })
+    expect(hoisted.saveSharing).toHaveBeenCalled()
+    expect(hoisted.saveWorkingHours).toHaveBeenCalled()
+    expect(out).toMatchObject({ success: true, availability_sharing: 'busy_only' })
+  })
+
+  it('takes busy_only or none only', () => {
+    const schema = tools().set_working_hours.inputSchema as unknown as z.ZodType
+    expect(schema.safeParse({ availability_sharing: 'busy_only' }).success).toBe(true)
+    expect(schema.safeParse({ availability_sharing: 'everything' }).success).toBe(false)
+  })
+})
+
 describe('get_working_hours', () => {
   it('each weekday by name, the dated changes, and where the zone comes from', async () => {
     hoisted.readWorkingHours.mockResolvedValue(hours({ overrides: { '2026-11-27': [] }, saved: true }))
@@ -161,6 +292,7 @@ describe('get_working_hours', () => {
       is_default: false,
       week: { sunday: [], monday: NINE_TO_SIX, tuesday: NINE_TO_SIX, wednesday: NINE_TO_SIX, thursday: NINE_TO_SIX, friday: NINE_TO_SIX, saturday: [] },
       dated_changes: { '2026-11-27': [] },
+      availability_sharing: 'busy_only',
     })
   })
 

@@ -405,9 +405,10 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     tools: [
       { name: 'get_calendar_events', sideEffect: 'read', label: 'Get Events', description: 'List calendar events for a date range' },
       // Availability (src/lib/availability): working hours minus busy time on every calendar that counts.
-      { name: 'find_times', sideEffect: 'read', label: 'Find Times', description: 'When the person is free to meet: up to three times to offer and every free stretch in a range' },
-      { name: 'get_working_hours', sideEffect: 'read', label: 'Get Working Hours', description: "The person's working hours and dated changes" },
-      { name: 'set_working_hours', sideEffect: 'internal-write', writeTarget: 'board', label: 'Set Working Hours', description: "Change the person's working hours, a date's hours or a day off" },
+      // With `people`, a time that works for teammates in the workspace too: busy time only crosses between them (src/lib/availability/team.ts).
+      { name: 'find_times', sideEffect: 'read', label: 'Find Times', description: 'When the person, or the person and teammates, are free to meet: up to three times to offer and every free stretch in a range' },
+      { name: 'get_working_hours', sideEffect: 'read', label: 'Get Working Hours', description: "The person's working hours, dated changes and whether teammates see when they're busy" },
+      { name: 'set_working_hours', sideEffect: 'internal-write', writeTarget: 'board', label: 'Set Working Hours', description: "Change the person's working hours, a date's hours, a day off, or whether teammates see when they're busy" },
       // external-write: provider write: the provider emails every attendee
       { name: 'create_calendar_event', sideEffect: 'external-write', label: 'Create Event', description: 'Create a new calendar event' },
       // external-write: provider write: attendees get update emails
@@ -948,9 +949,10 @@ export function isChatNativeTool(name: string): boolean {
  *   unsubscribe_thread    a list's one-click link or unsubscribe email.
  *
  * And set_working_hours (availability): the person's hours decide every time
- * offered for them. An injected email must never get a run to clear their
- * week or open their weekend. Their own MCP connector doesn't offer it
- * either (src/lib/mcp/attended-tools.ts).
+ * offered for them, and its availability_sharing whether teammates see when
+ * they are busy. An injected email must never get a run to clear their week,
+ * open their weekend or share their time. Their own MCP connector doesn't
+ * offer it either (src/lib/mcp/attended-tools.ts).
  *
  * NEVER in an unattended run: skill runs (computeSkillCeiling, and
  * NON_CHAT_TOOL_NAMES for inherit-all), work runs (WORK_RUN_EXCLUDED_TOOLS),
