@@ -43,6 +43,14 @@
 -- transport decodes escapes).
 -- ------------------------------------------------------------
 
+-- One transaction, whatever applies it: the file opens with begin and ends
+-- with commit, so plain `psql -v ON_ERROR_STOP=1 < file` (no
+-- --single-transaction) is atomic too. A failure rolls the whole file back,
+-- and SET LOCAL's lock_timeout holds for every statement in it. Nothing in it
+-- is refused inside a transaction (no CONCURRENTLY, no VACUUM).
+
+begin;
+
 SET LOCAL lock_timeout = '5s';
 
 -- ── Tables ──────────────────────────────────────────────────────────────────
@@ -436,3 +444,5 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+commit;
