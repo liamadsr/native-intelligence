@@ -15,6 +15,8 @@ import type { EntityType } from '@/lib/knowledge/entity-registry'
 /**
  * The kinds the search finds, in the order the menu lists them by default:
  * registered entity kinds, plus 'agent' (a recipe offered as someone to @).
+ * 'team_chat_message' (migration 561): a message in a channel or DM the
+ * person may read, found by its words; opened in team chat, scrolled to it.
  */
 export const MENU_SEARCH_KINDS = [
   'action',
@@ -27,6 +29,7 @@ export const MENU_SEARCH_KINDS = [
   'deal',
   'flow',
   'agent',
+  'team_chat_message',
 ] as const satisfies readonly (EntityType | 'agent')[]
 export type MenuSearchKind = (typeof MENU_SEARCH_KINDS)[number]
 
@@ -178,7 +181,23 @@ export interface MenuAgentRow extends Scored {
   icon: string | null
 }
 
+export interface MenuTeamChatMessageRow extends Scored {
+  kind: 'team_chat_message'
+  id: string
+  /** The words that matched (a passage of the message). */
+  title: string
+  /** Where it was said: "#general", or the DM's other person. */
+  place: string
+  /** Who wrote it (a member, or an agent by its name). */
+  author: string
+  channelId: string
+  /** The thread it is a reply in (its root), or null. */
+  threadRootId: string | null
+  createdAt: string
+}
+
 export type MenuSearchRow =
+  | MenuTeamChatMessageRow
   | MenuActionRow
   | MenuDocumentRow
   | MenuProjectRow
@@ -221,6 +240,8 @@ export function menuRowTarget(row: MenuSearchRow): OpenTarget {
       return { type: 'company', id: row.company.id, title: row.company.name }
     case 'agent':
       return { type: 'agent', id: row.id, title: row.title }
+    case 'team_chat_message':
+      return { type: 'team_chat', messageId: row.id, channelId: row.channelId }
     default:
       return { type: row.kind, id: row.id, title: row.title }
   }
@@ -314,9 +335,11 @@ export function toMentionRecord(row: MenuSearchRow): MentionRecord | null {
  * by its title, a company by its name, the rest by title). Null for what is
  * not a record (an agent).
  */
-export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKind, 'agent'>; id: string; label: string } | null {
+export function menuRowMention(row: MenuSearchRow): { type: Exclude<MenuSearchKind, 'agent' | 'team_chat_message'>; id: string; label: string } | null {
   switch (row.kind) {
     case 'agent':
+    case 'team_chat_message':
+      // Not a record a message mentions: a message is opened, never attached.
       return null
     case 'capture':
       return { type: 'capture', id: row.capture.id, label: row.capture.title || 'Untitled capture' }

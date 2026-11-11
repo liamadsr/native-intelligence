@@ -63,9 +63,21 @@ across versions — so a properly-signed update does **not** re-prompt.
 
 ## Where Native Intelligence actually prompts (prompt origins in this codebase)
 
-Only two TCC-gated capabilities are ever requested — microphone and Audio
-Capture — and both prompts originate in the **main process** (`dial8-desktop`),
-never the sidecar. The app never requests screen recording.
+The native code requests two TCC-gated capabilities, microphone and Audio
+Capture, and both prompts originate in the **main process** (`dial8-desktop`),
+never the sidecar. The native code never requests screen recording.
+
+Team calls (the web app's calls between people, in the main window's web view)
+add the **camera** (`kTCCServiceCamera`): WebKit asks for it when a person turns
+their camera on in a call (`getUserMedia`; wry grants the web view's own
+request, then macOS prompts once for the app). It needs
+`NSCameraUsageDescription` in `Info.plist` (merged into the bundle by
+`release.sh`, which refuses a bundle without it: macOS kills a process that
+touches the camera without one) and `com.apple.security.device.camera` in both
+entitlements files (the hardened runtime refuses the camera without it). The
+call's microphone is the same `kTCCServiceMicrophone` grant as above. Sharing a
+screen in a call uses `getDisplayMedia`, which shows macOS's own content picker;
+that path has not been tried by hand in the app yet.
 
 - **Microphone (`kTCCServiceMicrophone`)** — triggered when the main process
   opens the input device via `cpal`'s `build_input_stream`

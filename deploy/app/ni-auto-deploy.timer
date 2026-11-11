@@ -1,0 +1,15 @@
+# Starts ni-auto-deploy.service every two minutes. Installed by
+# `sudo ./auto-deploy.sh install`, enabled and started only by
+# `sudo ./auto-deploy.sh on`, disabled by `off`. A run still going when the next
+# one is due is not started twice.
+[Unit]
+Description=Automatic deploy of the app, every two minutes (when switched on)
+
+[Timer]
+OnCalendar=*:0/2
+# A run missed while the server was off happens once it is up again.
+Persistent=true
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

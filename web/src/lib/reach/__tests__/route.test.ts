@@ -17,6 +17,7 @@ import {
   parseRouteRequested,
   pickRouteChannel,
   planRoute,
+  routeChoice,
   routeLive,
   routeLogLine,
   routeRequestEvent,
@@ -212,10 +213,64 @@ describe('away: the channel', () => {
     expect(pickRouteChannel({ targets: { push: false, sms: null, slack: SLACK }, latest, presence: [], nowMs: ny('14:00') })).toBe('slack')
   })
 
-  it('orders push before a text (the iOS slot), though no target offers it today', () => {
+  it('orders push (the iOS app) before a text; without a live install, a text as before', () => {
     expect(pickRouteChannel({ targets: { push: true, sms: 'away', slack: SLACK }, latest: null, presence: [], nowMs: ny('14:00') })).toBe('push')
     expect(pickRouteChannel({ targets: { push: false, sms: 'away', slack: SLACK }, latest: null, presence: [], nowMs: ny('14:00') })).toBe('sms')
     expect(pickRouteChannel({ targets: { push: false, sms: null, slack: null }, latest: null, presence: [], nowMs: ny('14:00') })).toBeNull()
+    // The channel he last talked on still wins over push.
+    const latest = { createdAt: new Date(ny('13:00')).toISOString(), channel: 'sms' }
+    expect(pickRouteChannel({ targets: { push: true, sms: 'away', slack: SLACK }, latest, presence: [], nowMs: ny('14:00') })).toBe('sms')
+  })
+
+  it('a message carrying an approval goes where a plain yes answers it: a text, Slack, then push', () => {
+    expect(routeChoice({ targets: { push: true, sms: 'away', slack: SLACK }, sticky: null, asks: true })).toEqual({ channel: 'sms' })
+    expect(routeChoice({ targets: { push: true, sms: null, slack: SLACK }, sticky: null, asks: true })).toEqual({ channel: 'slack' })
+    expect(routeChoice({ targets: { push: true, sms: null, slack: null }, sticky: null, asks: true })).toEqual({ channel: 'push' })
+  })
+})
+
+describe('away: push (the iOS app)', () => {
+  it('a live install: the message goes by push, claimed on push, nothing texted', async () => {
+    const m = homeTurn(ny('13:00'), 'Ken moved to Friday.')
+    const h = harness({ now: ny('14:00'), rows: [m], targets: { push: true, sms: 'away' } })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', channel: 'push', sent: 1, rowIds: [m.id] })
+    expect(h.sent).toEqual([{ channel: 'push', message: { text: 'Ken moved to Friday.', approvals: [] } }])
+    expect(h.claimCalls.map((c) => c.channel)).toEqual(['push'])
+    expect(h.deps.send).toHaveBeenCalledWith(expect.objectContaining({ conversationId: DATA.conversationId, channel: 'push' }))
+  })
+
+  it('no live install (or push not set up): exactly as before, a text', async () => {
+    const h = harness({ now: ny('14:00'), rows: [homeTurn(ny('13:00'), 'x')], targets: { push: false, sms: 'away' } })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', channel: 'sms', sent: 1 })
+    expect(h.claimCalls.map((c) => c.channel)).toEqual(['sms'])
+  })
+
+  it('a push that doesn’t go falls through to the next channel, claimed there too, once', async () => {
+    const m = homeTurn(ny('13:00'), 'Ken moved to Friday.')
+    const h = harness({ now: ny('14:00'), rows: [m], targets: { push: true, sms: 'away', slack: SLACK } })
+    ;(h.deps.send as ReturnType<typeof vi.fn>).mockImplementation(async ({ channel, message }: { channel: RouteChannel; message: OutboundMessage<ChannelApproval> }) => {
+      h.sent.push({ channel, message })
+      return channel !== 'push'
+    })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', sent: 1, failed: 0, rowIds: [m.id] })
+    expect(h.sent.map((s) => s.channel)).toEqual(['push', 'sms'])
+    expect(h.claimCalls.map((c) => c.channel)).toEqual(['push', 'sms'])
+    // Done for good: the next run finds it claimed.
+    expect(await planRoute(DATA, h.deps)).toEqual({ kind: 'done', outcome: 'nothing', rows: 0 })
+  })
+
+  it('a push that doesn’t go with nowhere else to fall: failed, at most once', async () => {
+    const h = harness({ now: ny('14:00'), rows: [homeTurn(ny('13:00'), 'x')], targets: { push: true, sms: null, slack: null } })
+    ;(h.deps.send as ReturnType<typeof vi.fn>).mockResolvedValue(false)
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', channel: 'push', sent: 0, failed: 1 })
+    expect(h.deps.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('an approval still goes by text with push set up (a plain yes answers it there)', async () => {
+    const turn = homeTurn(ny('13:30'), '', { parts: [text('Dana wants Friday.'), heldPart()] })
+    const h = harness({ now: ny('14:00'), rows: [turn], pending: [APPROVAL], targets: { push: true, sms: 'away' } })
+    expect(await planRoute(DATA, h.deps)).toMatchObject({ kind: 'sent', channel: 'sms', sent: 1 })
+    expect(h.sent).toEqual([{ channel: 'sms', message: { text: 'Dana wants Friday.', approvals: [APPROVAL] } }])
   })
 })
 

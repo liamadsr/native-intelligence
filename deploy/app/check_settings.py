@@ -99,7 +99,7 @@ SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
-    "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start",
+    "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start, and no coding run works (its sandbox is just-bash)",
     "CONNECT_ACCESS_TOKEN": "Slack is off: the app cannot reach the connector",
     "CONNECT_PROJECT_ID": "Slack's events and button clicks are refused",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",

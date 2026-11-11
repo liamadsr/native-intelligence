@@ -4,6 +4,8 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Native Intelligence needs access to your microphone to record audio during meetings and voice notes.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Native Intelligence uses your camera for video calls with your team, only while you have it on in a call.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Native Intelligence captures system audio to record meeting participants, enabling speaker-separated transcripts.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

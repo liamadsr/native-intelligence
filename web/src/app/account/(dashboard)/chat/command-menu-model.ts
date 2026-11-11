@@ -190,7 +190,7 @@ export function appendMention(value: string, text: string): { value: string; car
 // ── What the menu lists ─────────────────────────────────────────────────────
 
 /** The record kinds, as the menu's sections name them. */
-export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'agents'
+export type RecordMenuKind = 'actions' | 'docs' | 'projects' | 'initiatives' | 'captures' | 'people' | 'companies' | 'deals' | 'flows' | 'agents' | 'messages'
 /**
  * `record_actions`: the actions on the record whose card is in front. `inbox`
  * and `recent`: the palette's first view, from the activity feed (what
@@ -217,6 +217,7 @@ export const TAB_LABELS: Record<MenuTab, string> = {
   deals: 'Deals',
   flows: 'Flows',
   agents: 'Agents',
+  messages: 'Messages',
 }
 
 /** The app term behind each record kind (src/lib/editions/words.ts), for its name in an edition's words. */
@@ -254,6 +255,7 @@ export const SEARCH_KIND: Record<RecordMenuKind, MenuSearchKind> = {
   deals: 'deal',
   flows: 'flow',
   agents: 'agent',
+  messages: 'team_chat_message',
 }
 export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
   action: 'actions',
@@ -266,6 +268,7 @@ export const MENU_KIND: Record<MenuSearchKind, RecordMenuKind> = {
   deal: 'deals',
   flow: 'flows',
   agent: 'agents',
+  team_chat_message: 'messages',
 }
 
 export function isRecordKind(kind: MenuKind): kind is RecordMenuKind {
@@ -308,7 +311,7 @@ export interface ComposerMentionList {
    * kinds must not include contacts (the host's options are its people).
    */
   records?: {
-    kinds: readonly Exclude<MenuSearchKind, 'contact' | 'agent'>[]
+    kinds: readonly Exclude<MenuSearchKind, 'contact' | 'agent' | 'team_chat_message'>[]
     onPick: (row: MenuSearchRow) => void
   }
 }
@@ -395,7 +398,7 @@ export function verbFor(trigger: MenuTrigger, item: MenuItem): MenuVerb {
 }
 
 /** The kinds in order: tabs keep these places, and a tie between two kinds' best rows keeps it. */
-const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents']
+const ORDER: readonly MenuKind[] = ['pages', 'skills', 'people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'agents', 'messages']
 /** `@`'s: the records first (`@ma` is Maya before a skill named like her), its skills last. */
 const AT_ORDER: readonly MenuKind[] = ['people', 'actions', 'docs', 'projects', 'initiatives', 'captures', 'companies', 'deals', 'flows', 'skills']
 /** What each shows before anything is typed, in this order: recent people first. */

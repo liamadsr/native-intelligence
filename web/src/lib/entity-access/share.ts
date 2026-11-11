@@ -72,7 +72,7 @@ export async function shareRecordsWithChannel(supabase: SupabaseClient, input: S
     const needsRole = byType.has('contact') || byType.has('company')
     const [docs, caps, contacts, companies, openContacts, role, existing] = await Promise.all([
       byType.has('document') ? read(supabase.from('document').select('id, visibility, created_by').eq('workspace_id', ws).in('id', ids('document'))) : none,
-      byType.has('capture') ? read(supabase.from('captures').select('id, visibility, user_id, is_eval').eq('workspace_id', ws).in('id', ids('capture'))) : none,
+      byType.has('capture') ? read(supabase.from('captures').select('id, visibility, user_id, is_eval, notes_channel_id').eq('workspace_id', ws).in('id', ids('capture'))) : none,
       byType.has('contact') ? read(supabase.from('contact').select('id, visibility, created_by_member_id').eq('workspace_id', ws).in('id', ids('contact'))) : none,
       byType.has('company') ? read(supabase.from('company').select('id').eq('workspace_id', ws).in('id', ids('company'))) : none,
       // A company is hidden from no member when one of its live contacts is workspace-wide (235's rule).
@@ -105,7 +105,11 @@ export async function shareRecordsWithChannel(supabase: SupabaseClient, input: S
 
     const toGrant: Array<{ type: GrantableType; id: string }> = []
     for (const d of docs) if (d.visibility === 'private' && d.created_by === memberId) toGrant.push({ type: 'document', id: d.id as string })
-    for (const c of caps) if (c.visibility === 'private' && c.user_id === userId && c.is_eval !== true) toGrant.push({ type: 'capture', id: c.id as string })
+    // A team call's notes (notes_channel_id, migration 566) are shared with their own conversation
+    // and nowhere else: never granted here (the database would refuse the whole insert).
+    for (const c of caps) {
+      if (c.visibility === 'private' && c.user_id === userId && c.is_eval !== true && !c.notes_channel_id) toGrant.push({ type: 'capture', id: c.id as string })
+    }
     for (const c of contacts) {
       if (c.visibility !== 'workspace' && (c.created_by_member_id === memberId || admin)) toGrant.push({ type: 'contact', id: c.id as string })
     }

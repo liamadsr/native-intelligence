@@ -25,7 +25,9 @@ export function entityOpenTarget(type: string, id: string, title?: string | null
     case 'eval_suite':
       return { type: 'eval_suite', id, title: t }
     case 'team-chat':
-      // Team chat itself (which channel it opens on is its own).
+      // Team chat, on the message (in its channel or thread, scrolled to it) or the channel.
+      if (type === 'team_chat_message') return { type: 'team_chat', messageId: id }
+      if (type === 'team_chat_channel') return { type: 'team_chat', channelId: id }
       return { type: 'page', slug: 'team-chat' }
     default:
       return null
