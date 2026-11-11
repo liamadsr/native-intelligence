@@ -222,7 +222,7 @@ describe('handleGitPush: the rest of the surface', () => {
     expect((init.headers as Record<string, string>).authorization).toBe(GH_BASIC)
   })
 
-  it('never serves a fetch (upload-pack): reads go to GitHub directly', async () => {
+  it('the push half never serves a fetch (upload-pack) itself: the read gate does (git-read-proxy.ts, through handleGitGate)', async () => {
     const d = deps()
     const adv = await handleGitPush(new Request(`https://app.test${GIT_PUSH_PATH}/info/refs?service=git-upload-pack`, { headers: auth() }), ['info', 'refs'], d)
     expect(adv.status).toBe(403)

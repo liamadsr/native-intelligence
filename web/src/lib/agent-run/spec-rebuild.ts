@@ -5,14 +5,17 @@
  * Given a run's routing facts (agentRunId + workspace tenancy), reconstruct
  * EXACTLY what the eve coding-agent resolvers need — the persona system prompt,
  * the task text, the target repo/branch, the cloud-environment shaping (network
- * policy, env vars, setup script), and the triggering user's GitHub OAuth token —
- * from live DB state.
+ * policy, env vars, setup script) — and, for the app's own server-side use
+ * only, the triggering user's GitHub OAuth token, from live DB state.
  *
- * Two callers, one function (so they can never disagree on "is this runnable"):
+ * One function for every caller (so they can never disagree on "is this runnable"):
  *   - the internal spec route (rebuildAgentRunSpec, keyed by a VERIFIED run token)
- *     — what the eve agent's resolvers fetch at session start;
+ *     — what the eve agent's resolvers fetch at session start (without the
+ *     GitHub token: CodingAgentSpec);
  *   - agentRunExecute's precondition guard (buildAgentRunSpec), which fails a run
- *     with an origin-aware reason BEFORE an eve session is ever created.
+ *     with an origin-aware reason BEFORE an eve session is ever created;
+ *   - the git gate (loadPushTarget in git-push-proxy.ts), which reads the
+ *     run's repo, branch and GitHub token on every clone, fetch and push.
  *
  * ── Two origins ─────────────────────────────────────────────────────────────
  *   - ACTION-ORIGIN (`action_id` set — "Start" on an assigned action, or a
@@ -91,17 +94,13 @@ export interface EveAgentRunSpec {
   /** User-supplied env vars from the linked cloud environment (parsed .env). */
   envVars: Record<string, string>
   /**
-   * Triggering user's GitHub OAuth token (repo scope). The sandbox brokers it
-   * for git READS only (clone, fetch, LFS); it never pushes with it. Pushes go
-   * through the git push gate (git-push-proxy.ts), which uses it server-side.
+   * Triggering user's GitHub OAuth token (repo scope). SERVER-SIDE ONLY: the
+   * git gate (git-read-proxy.ts, git-push-proxy.ts) reads it through this
+   * build to clone, fetch and push for the run. It is never served to the
+   * coding agent: the spec route's build (rebuildAgentRunSpec,
+   * CodingAgentSpec) drops it.
    */
   githubToken: string
-  /**
-   * The run's push credential for the git push gate (git-push-token.ts). Only
-   * the spec route's build carries it (rebuildAgentRunSpec); the sandbox
-   * refuses to start without it, since it couldn't push.
-   */
-  gitPushToken?: string
   /**
    * A CI fix run (P10 F7): the open PR's branch, which the sandbox fetches
    * and forks the working branch (a side branch) from, instead of the base.
@@ -116,6 +115,14 @@ export interface EveAgentRunSpec {
    */
   gatewayTelemetry?: GatewayTelemetryValues
 }
+
+/**
+ * The spec the coding agent is served (the spec route's response): the build
+ * WITHOUT the GitHub token, plus the run's git gate token (git-push-token.ts),
+ * the only credential the sandbox side gets. The sandbox refuses to start
+ * without it, since it could neither clone nor push.
+ */
+export type CodingAgentSpec = Omit<EveAgentRunSpec, 'githubToken'> & { gitPushToken: string }
 
 /** Which kind of agent_run row the spec was built from. */
 export type AgentRunOrigin = 'action' | 'flow'
@@ -159,8 +166,8 @@ export const RUN_ENVIRONMENT_UNREADABLE = "The run's cloud environment could not
 export const BAD_REPO_REASON = "The project's GitHub repository isn't a plain owner/repo. Fix it on the project, then start the run again."
 
 /**
- * Statuses in which a run may no longer be handed its spec (and with it the
- * triggering user's GitHub token): the user asked it to stop, or it settled.
+ * Statuses in which a run may no longer be handed its spec (and with it a git
+ * gate token), nor use the git gate: the user asked it to stop, or it settled.
  */
 export const NOT_LIVE_STATUSES: ReadonlySet<string> = new Set(['canceling', 'pr_open', 'completed', 'failed', 'canceled'])
 
@@ -480,23 +487,29 @@ export async function buildAgentRunSpec(
  *
  * Also null once the run is canceling or settled: a run token lives an hour, and
  * a canceled or finished run must not be able to re-obtain the spec (and the
- * GitHub token inside it). The dispatcher calls buildAgentRunSpec directly and
- * keeps its own idempotency guard for terminal rows, so this check lives here.
+ * git gate token minted with it). The dispatcher calls buildAgentRunSpec
+ * directly and keeps its own idempotency guard for terminal rows, so this
+ * check lives here.
+ *
+ * The GitHub token is dropped here: the coding agent never receives it (the git
+ * gate adds it server-side). The run's git gate token is minted instead.
  */
 export async function rebuildAgentRunSpec(
   claims: AgentRunTokenClaims,
-): Promise<EveAgentRunSpec | null> {
+): Promise<CodingAgentSpec | null> {
   const built = await buildAgentRunSpec(getServiceClient(), {
     agentRunId: claims.agentRunId,
     workspaceId: claims.workspaceId,
   })
   if (!built.ok) return null
   if (built.run.status && NOT_LIVE_STATUSES.has(built.run.status)) return null
+  const { githubToken: _serverSideOnly, ...served } = built.spec
+  void _serverSideOnly
   const gitPushToken = mintGitPushToken({
     agentRunId: claims.agentRunId,
     workspaceId: claims.workspaceId,
-    repoFullName: built.spec.repoFullName,
-    branchName: built.spec.branchName,
+    repoFullName: served.repoFullName,
+    branchName: served.branchName,
   })
-  return { ...built.spec, gitPushToken }
+  return { ...served, gitPushToken }
 }

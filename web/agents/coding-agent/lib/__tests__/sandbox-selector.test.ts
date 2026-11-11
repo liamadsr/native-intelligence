@@ -4,7 +4,7 @@
  *
  * The security-critical invariant: on Vercel the session sandbox is OPENED with
  * the run's network policy (egress narrowed to RESTRICTED_ALLOW_HOSTS for a
- * `restricted` run, the GitHub credential brokered at the firewall), so the
+ * `restricted` run, the git gate token injected at the firewall), so the
  * policy is part of sandbox creation and precedes every command — the clone
  * included. With no spec the sandbox opens `deny-all`, and the environment
  * itself carries a `deny-all` baseline (which only covers an ABSENT key — the
@@ -18,11 +18,14 @@
  * User env values (often registry tokens) must reach no recorded command and
  * no command env either: they go through the file API and are sourced.
  *
- * The GitHub token: on Vercel it is brokered for reads only, so it must appear
- * in NO command string, NO env and NO remote URL. Off Vercel it travels only
- * as the clone's one-shot env, and is NEVER persisted (a persisted GitHub
- * credential could push the live branch). Pushes go to the app's push gate
- * (remote.origin.pushurl), the only place a push can authenticate.
+ * The GitHub token: the sandbox never gets one (the spec doesn't carry it, and
+ * a stray one is used nowhere). Clone, fetch, LFS and push all go to the app's
+ * git gate: the gate URL is the clone's remote, `remote.origin.pushurl` and
+ * the `lfs.url` base, and no command names github.com. The git gate token: on
+ * the hosted sandbox the firewall injects it, so it appears in NO command
+ * string, NO env and NO git config. Elsewhere it travels as the clone's
+ * one-shot env, then sits in the repo's config for the gate URL only, set by
+ * env reference: never in a command string.
  *
  * Every describe pins `VERCEL` explicitly: sandbox.ts reads it at module load,
  * and Vercel's build env (where `npm run build` runs this suite) sets VERCEL=1.
@@ -36,7 +39,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const TOKEN = 'gho_exampletoken1234567890'
+const GATE_TOKEN = 'push.tokenexample'
 
 const SPEC = {
   systemPrompt: 'p',
@@ -48,8 +51,7 @@ const SPEC = {
   networkAccess: 'restricted' as const,
   setupScript: null,
   envVars: {},
-  githubToken: TOKEN,
-  gitPushToken: 'push.tokenexample',
+  gitPushToken: GATE_TOKEN,
 }
 
 const PUSH_URL = 'https://app-abc123.vercel.app/api/internal/agent-run/git'
@@ -102,11 +104,15 @@ function fakeSandbox(calls: Call[], opts?: FakeOpts) {
   return sandbox
 }
 
-/** The token in any form a leak could take: raw, or inside the Basic credential. */
-const BASIC = Buffer.from(`x-access-token:${TOKEN}`, 'utf8').toString('base64')
-const leaksToken = (text: string) => text.includes(TOKEN) || text.includes(BASIC)
-const PUSH_BASIC = Buffer.from('x-access-token:push.tokenexample', 'utf8').toString('base64')
-const leaksPushToken = (text: string) => text.includes('push.tokenexample') || text.includes(PUSH_BASIC)
+/** The gate token in any form a leak could take: raw, or inside the Basic credential. */
+const GATE_BASIC = Buffer.from(`x-access-token:${GATE_TOKEN}`, 'utf8').toString('base64')
+const leaksGateToken = (text: string) => text.includes(GATE_TOKEN) || text.includes(GATE_BASIC)
+/** A GitHub token a stale spec might still carry: it must be used nowhere. */
+const STRAY_GITHUB_TOKEN = 'gho_strayexampletoken0123456789'
+const leaksGithubToken = (text: string) =>
+  text.includes(STRAY_GITHUB_TOKEN) || text.includes(Buffer.from(`x-access-token:${STRAY_GITHUB_TOKEN}`, 'utf8').toString('base64'))
+/** The clone command's `lfs.url` option: the gate's LFS endpoints. */
+const LFS_OPTION = `-c 'lfs.url=${PUSH_URL}/info/lfs'`
 const runCommands = (calls: Call[]) => calls.filter((c) => c.kind === 'run').map((c) => String(c.arg))
 const runEnvs = (calls: Call[]) => calls.filter((c) => c.kind === 'run').map((c) => JSON.stringify(c.env ?? {}))
 
@@ -118,7 +124,7 @@ async function loadSandboxModule() {
   vi.doMock('../spec-client', () => ({
     fetchEveSpec,
     postEvent,
-    gitPushUrl: () => pushUrlNow,
+    gitGateUrl: () => pushUrlNow,
     runTokenFromAuth: (auth: { current?: { attributes?: { runToken?: unknown } } }) =>
       typeof auth.current?.attributes?.runToken === 'string' ? auth.current.attributes.runToken : '',
   }))
@@ -174,7 +180,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     expect(envOptions).toEqual([{ networkPolicy: 'deny-all' }])
   })
 
-  it('restricted run: OPENS with the RESTRICTED_ALLOW_HOSTS policy (+ brokered github credential) before any command', async () => {
+  it('restricted run: OPENS with the RESTRICTED_ALLOW_HOSTS policy (+ the gate token on the gate) before any command', async () => {
     vi.stubEnv('VERCEL', '1')
     const calls: Call[] = []
     mockVercel(calls)
@@ -188,9 +194,8 @@ describe('coding-agent sandbox selector — on Vercel', () => {
       kind: 'open',
       arg: {
         networkPolicy: mod.buildNetworkPolicy('restricted', {
-          repoFullName: 'acme/app',
-          pushUrl: PUSH_URL,
-          broker: { githubToken: TOKEN, pushToken: 'push.tokenexample' },
+          gateUrl: PUSH_URL,
+          broker: { gateToken: GATE_TOKEN },
         }),
       },
     })
@@ -231,7 +236,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     }
   })
 
-  it('the GitHub token is in no command string, no env and no remote: the clone uses the bare github.com URL (the firewall injects the credential)', async () => {
+  it('no credential is in any command string, env or git config, and nothing names github.com: the clone comes from the gate URL (the firewall injects the gate token)', async () => {
     for (const networkAccess of ['restricted', 'trusted'] as const) {
       vi.resetModules()
       vi.stubEnv('VERCEL', '1')
@@ -242,16 +247,16 @@ describe('coding-agent sandbox selector — on Vercel', () => {
       await mod.default(selectorCtx as never)
 
       const commands = runCommands(calls)
-      expect(commands[0]).toContain(`'https://github.com/acme/app.git'`)
-      expect(commands.some(leaksToken)).toBe(false)
-      expect(runEnvs(calls).some(leaksToken)).toBe(false)
-      expect(commands.some(leaksPushToken)).toBe(false)
-      expect(runEnvs(calls).some(leaksPushToken)).toBe(false)
+      expect(commands[0]).toBe(`git clone --depth 50 --branch 'main' ${LFS_OPTION} '${PUSH_URL}' .`)
+      expect(commands.some((c) => c.includes('github.com'))).toBe(false)
+      expect(commands.some(leaksGateToken)).toBe(false)
+      expect(runEnvs(calls).some(leaksGateToken)).toBe(false)
+      expect(calls.some((c) => c.kind === 'run' && c.env)).toBe(false)
       expect(commands.some((c) => c.includes('extraheader'))).toBe(false)
     }
   })
 
-  it('every push goes to the app\'s push gate: pushurl is set before the checkout, and LFS stays on GitHub', async () => {
+  it('clone, fetch, LFS and push all go to the app\'s git gate: the remote, pushurl (set before the checkout) and lfs.url are the gate URL', async () => {
     vi.stubEnv('VERCEL', '1')
     const calls: Call[] = []
     mockVercel(calls)
@@ -261,12 +266,30 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     await mod.default(selectorCtx as never)
 
     const commands = runCommands(calls)
+    // The clone's remote IS the gate, and lfs.url is set in the new repo before its checkout.
+    expect(commands[0]).toContain(` '${PUSH_URL}' .`)
+    expect(commands[0]).toContain(LFS_OPTION)
     const pushurl = commands.indexOf(`git config remote.origin.pushurl '${PUSH_URL}'`)
     expect(pushurl).toBeGreaterThan(0)
     expect(pushurl).toBeLessThan(commands.findIndex((c) => c.startsWith('git checkout -b')))
-    expect(commands).toContain(`git config lfs.url 'https://github.com/acme/app.git/info/lfs'`)
     // The hook is told the gate's URL (git hands it the push URL).
     expect(commands).toContain(mod.installPushGuardCommand({ home: SANDBOX_HOME, branchName: 'dial8/fix-1', remoteUrl: PUSH_URL }))
+  })
+
+  it('a spec without a GitHub token seeds (none is needed), and a stray one in a stale spec is used nowhere', async () => {
+    vi.stubEnv('VERCEL', '1')
+    expect(SPEC).not.toHaveProperty('githubToken')
+    for (const spec of [SPEC, { ...SPEC, githubToken: STRAY_GITHUB_TOKEN }]) {
+      vi.resetModules()
+      postEvent.mockClear()
+      const calls: Call[] = []
+      mockVercel(calls)
+      fetchEveSpec.mockResolvedValue(spec)
+      const mod = await loadSandboxModule()
+      await mod.default(selectorCtx as never)
+      expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(true)
+      expect(calls.some((c) => leaksGithubToken(JSON.stringify(c)))).toBe(false)
+    }
   })
 
   it("no public app origin (NEXT_PUBLIC_APP_URL unset on Vercel): refused before anything opens, and the person is told why", async () => {
@@ -282,7 +305,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     expect(beats().some((b) => b.includes('NEXT_PUBLIC_APP_URL') && b.startsWith('Refusing to run'))).toBe(true)
   })
 
-  it('a spec with no push credential is refused before anything opens', async () => {
+  it('a spec with no git gate credential is refused before anything opens (it could neither clone nor push)', async () => {
     vi.stubEnv('VERCEL', '1')
     const calls: Call[] = []
     mockVercel(calls)
@@ -290,7 +313,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     fetchEveSpec.mockResolvedValue(noPush)
     const mod = await loadSandboxModule()
 
-    await expect(mod.default(selectorCtx as never)).rejects.toThrow(/no push credential/)
+    await expect(mod.default(selectorCtx as never)).rejects.toThrow(/no git gate credential/)
     expect(calls).toEqual([])
   })
 
@@ -308,7 +331,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     expect(Object.keys(opened.networkPolicy.allow).sort()).toEqual([PUSH_HOST, 'github.com'])
   })
 
-  it('the brokered GitHub credential is read-only and scoped to the run\'s repo in the policy the sandbox is opened with', async () => {
+  it('the policy the sandbox is opened with puts the gate token on the gate\'s six endpoints, and no rule (no credential) on github.com', async () => {
     vi.stubEnv('VERCEL', '1')
     const calls: Call[] = []
     mockVercel(calls)
@@ -318,8 +341,8 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     await mod.default(selectorCtx as never)
 
     const opened = calls[0].arg as { networkPolicy: { allow: Record<string, unknown> } }
-    expect(opened.networkPolicy.allow['github.com']).toEqual(mod.githubReadRules(TOKEN, 'acme/app'))
-    expect(JSON.stringify(opened.networkPolicy.allow['github.com'])).not.toContain('receive-pack')
+    expect(opened.networkPolicy.allow['github.com']).toEqual([])
+    expect(opened.networkPolicy.allow[PUSH_HOST]).toEqual(mod.gitGateRules(PUSH_URL, GATE_TOKEN))
   })
 
   it('a FAILED clone throws (eve deletes the sandbox) instead of announcing a ready sandbox over an empty /workspace', async () => {
@@ -329,7 +352,7 @@ describe('coding-agent sandbox selector — on Vercel', () => {
       fail: {
         match: /^git clone/,
         exitCode: 128,
-        stderr: `remote: Repository not found.\nfatal: Authentication failed (Basic ${BASIC}) ${TOKEN}`,
+        stderr: `remote: Repository not found.\nfatal: Authentication failed (Basic ${GATE_BASIC}) ${GATE_TOKEN}`,
       },
     })
     fetchEveSpec.mockResolvedValue(SPEC)
@@ -346,9 +369,9 @@ describe('coding-agent sandbox selector — on Vercel', () => {
     expect(runCommands(calls)).toHaveLength(1)
     expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(false)
     expect(beats().some((b) => b.includes('git clone of acme/app@main failed (exit 128)'))).toBe(true)
-    // The quoted stderr never carries the credential, in either form.
-    expect(leaksToken(err!.message)).toBe(false)
-    expect(beats().some(leaksToken)).toBe(false)
+    // The quoted stderr never carries the gate credential, in either form.
+    expect(leaksGateToken(err!.message)).toBe(false)
+    expect(beats().some(leaksGateToken)).toBe(false)
   })
 
   it('a failed branch checkout also throws', async () => {
@@ -612,18 +635,24 @@ describe('coding-agent sandbox selector — off Vercel', () => {
     expect(calls[0]).toEqual({ kind: 'open', arg: undefined })
     expect(calls[1]).toEqual({
       kind: 'setNetworkPolicy',
-      arg: mod.buildNetworkPolicy('restricted', { repoFullName: 'acme/app', pushUrl: PUSH_URL, broker: null }),
+      arg: mod.buildNetworkPolicy('restricted', { gateUrl: PUSH_URL, broker: null }),
     })
     expect(JSON.stringify(calls[1].arg)).not.toContain('Basic')
     expect(calls[2].kind).toBe('run')
-    // The token appears in no command; only the clone's one-shot env carries it.
-    expect(runCommands(calls)[0]).toContain(`'https://github.com/acme/app.git'`)
-    expect(runCommands(calls).some(leaksToken)).toBe(false)
-    const withToken = calls.filter((c) => c.kind === 'run' && leaksToken(JSON.stringify(c.env ?? {})))
-    expect(withToken.map((c) => String(c.arg))).toEqual([runCommands(calls)[0]])
+    // The gate token appears in no command; only the clone's one-shot env and
+    // the one command that writes it into the repo's config carry it.
+    const commands = runCommands(calls)
+    expect(commands[0]).toBe(`git clone --depth 50 --branch 'main' ${LFS_OPTION} '${PUSH_URL}' .`)
+    expect(commands.some(leaksGateToken)).toBe(false)
+    expect(commands.some((c) => c.includes('github.com'))).toBe(false)
+    const withToken = calls.filter((c) => c.kind === 'run' && leaksGateToken(JSON.stringify(c.env ?? {})))
+    expect(withToken.map((c) => String(c.arg))).toEqual([
+      commands[0],
+      `git config 'http.${PUSH_URL}.extraheader' "$NI_GIT_GATE_AUTH_HEADER"`,
+    ])
   })
 
-  it('no policy could be applied (trusted run, just-bash): the token travels ONLY as env values — never in a command string or the remote', async () => {
+  it('no policy could be applied (trusted run, just-bash): the gate token travels ONLY as env values (the clone\'s, then the repo config for the gate URL), never in a command string or the remote', async () => {
     const calls: Call[] = []
     mockDefault(calls, 'absent')
     fetchEveSpec.mockResolvedValue({ ...SPEC, networkAccess: 'trusted' })
@@ -632,27 +661,47 @@ describe('coding-agent sandbox selector — off Vercel', () => {
     await mod.default(selectorCtx as never)
 
     const runs = calls.filter((c) => c.kind === 'run')
-    expect(runCommands(calls).some(leaksToken)).toBe(false)
-    // The clone: bare remote + a one-shot git-config env carrying the header.
-    expect(String(runs[0].arg)).toContain(`'https://github.com/acme/app.git'`)
+    expect(runCommands(calls).some(leaksGateToken)).toBe(false)
+    // The clone: the gate URL as remote + a one-shot git-config env carrying the
+    // header, for the gate URL only.
+    expect(String(runs[0].arg)).toContain(` '${PUSH_URL}' .`)
     expect(runs[0].env).toEqual({
       GIT_CONFIG_COUNT: '1',
-      GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader',
-      GIT_CONFIG_VALUE_0: `Authorization: Basic ${BASIC}`,
+      GIT_CONFIG_KEY_0: `http.${PUSH_URL}.extraheader`,
+      GIT_CONFIG_VALUE_0: `Authorization: Basic ${GATE_BASIC}`,
       GIT_TERMINAL_PROMPT: '0',
     })
-    // NEVER persisted: no later command gets it (a persisted GitHub
-    // credential could push the live branch), and no config names github.com's
-    // extraheader.
-    expect(runs.slice(1).some((r) => leaksToken(JSON.stringify(r.env ?? {})))).toBe(false)
-    expect(runCommands(calls).some((c) => c.includes('http.https://github.com/.extraheader'))).toBe(false)
-    // The push token is kept for the push URL only, by env REFERENCE.
-    expect(runs).toContainEqual({
+    // Right after the clone, the token goes into the repo's config for the gate
+    // URL only, by env REFERENCE, before anything else runs.
+    expect(runs[1]).toEqual({
       kind: 'run',
-      arg: `git config '${'http.' + PUSH_URL + '.extraheader'}' "$NI_PUSH_AUTH_HEADER"`,
-      env: { NI_PUSH_AUTH_HEADER: `Authorization: Basic ${PUSH_BASIC}` },
+      arg: `git config 'http.${PUSH_URL}.extraheader' "$NI_GIT_GATE_AUTH_HEADER"`,
+      env: { NI_GIT_GATE_AUTH_HEADER: `Authorization: Basic ${GATE_BASIC}` },
     })
-    expect(runCommands(calls).some(leaksPushToken)).toBe(false)
+    // No other command gets it, and no extraheader names any other URL.
+    expect(runs.slice(2).some((r) => leaksGateToken(JSON.stringify(r.env ?? {})))).toBe(false)
+    const extraheaders = runCommands(calls).filter((c) => c.includes('extraheader'))
+    expect(extraheaders).toEqual([`git config 'http.${PUSH_URL}.extraheader' "$NI_GIT_GATE_AUTH_HEADER"`])
+  })
+
+  it('a CI fix run off the hosted sandbox fetches the PR branch from the gate with the repo config\'s credential: no env on the fetch (the header would go twice)', async () => {
+    const calls: Call[] = []
+    mockDefault(calls, 'absent')
+    fetchEveSpec.mockResolvedValue({ ...SPEC, networkAccess: 'trusted', branchName: 'dial8/fix-1-cifix-abcd1234', startFrom: 'dial8/fix-1' })
+    const mod = await loadSandboxModule()
+
+    await mod.default(selectorCtx as never)
+
+    const commands = runCommands(calls)
+    const fetchCmd = "git fetch --depth 50 origin 'refs/heads/dial8/fix-1:refs/remotes/origin/dial8/fix-1'"
+    const fetchCall = calls.find((c) => c.kind === 'run' && c.arg === fetchCmd)
+    expect(fetchCall).toBeDefined()
+    expect(fetchCall!.env).toBeUndefined()
+    // `origin` is the gate: the clone's remote. The gate credential is in the
+    // repo's config before the fetch runs.
+    expect(commands[0]).toContain(` '${PUSH_URL}' .`)
+    expect(commands.indexOf(`git config 'http.${PUSH_URL}.extraheader' "$NI_GIT_GATE_AUTH_HEADER"`)).toBeLessThan(commands.indexOf(fetchCmd))
+    expect(commands.some((c) => c.includes('github.com'))).toBe(false)
   })
 
   it('no spec: applies deny-all through the setter too (a no-spec sandbox never keeps the provider default)', async () => {
@@ -879,7 +928,7 @@ describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'
     expect(envOptions).toEqual([{ networkPolicy: 'deny-all', ...CREDS }])
   })
 
-  it('every run tier OPENS with its policy and the brokered GitHub + push credentials, exactly as on Vercel; no setter, no credential in any command', async () => {
+  it('every run tier OPENS with its policy and the firewall-injected gate token, exactly as on Vercel; no setter, no credential in any command', async () => {
     for (const networkAccess of ['restricted', 'isolated', 'trusted', 'something-new'] as const) {
       vi.resetModules()
       postEvent.mockClear()
@@ -894,21 +943,20 @@ describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'
         kind: 'open',
         arg: {
           networkPolicy: mod.buildNetworkPolicy(networkAccess as never, {
-            repoFullName: 'acme/app',
-            pushUrl: PUSH_URL,
-            broker: { githubToken: TOKEN, pushToken: 'push.tokenexample' },
+            gateUrl: PUSH_URL,
+            broker: { gateToken: GATE_TOKEN },
           }),
         },
       })
       const opened = calls[0].arg as { networkPolicy: { allow: Record<string, unknown> } }
-      expect(opened.networkPolicy.allow['github.com']).toEqual(mod.githubReadRules(TOKEN, 'acme/app'))
+      expect(opened.networkPolicy.allow['github.com']).toEqual([])
+      expect(opened.networkPolicy.allow[PUSH_HOST]).toEqual(mod.gitGateRules(PUSH_URL, GATE_TOKEN))
       if (networkAccess !== 'trusted') expect(Object.keys(opened.networkPolicy.allow)).not.toContain('*')
       expect(calls.some((c) => c.kind === 'setNetworkPolicy')).toBe(false)
-      // The brokered path: no GitHub or push credential, no extraheader, in any command or env.
+      // The brokered path: no gate credential, no extraheader, in any command or env; the clone is from the gate.
       const commands = runCommands(calls)
-      expect(commands[0]).toContain(`'https://github.com/acme/app.git'`)
-      expect(commands.some(leaksToken) || runEnvs(calls).some(leaksToken)).toBe(false)
-      expect(commands.some(leaksPushToken) || runEnvs(calls).some(leaksPushToken)).toBe(false)
+      expect(commands[0]).toContain(` '${PUSH_URL}' .`)
+      expect(commands.some(leaksGateToken) || runEnvs(calls).some(leaksGateToken)).toBe(false)
       expect(commands.some((c) => c.includes('extraheader'))).toBe(false)
       expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(true)
       // The access token logs the app in to the service: it is in no policy,
@@ -979,7 +1027,7 @@ describe('requireDefinedNetworkPolicy (the guard every open goes through)', () =
     expect(() => mod.requireDefinedNetworkPolicy(undefined)).toThrow(/refusing to open/)
     expect(() => mod.requireDefinedNetworkPolicy(null)).toThrow(/refusing to open/)
     expect(mod.requireDefinedNetworkPolicy('deny-all')).toBe('deny-all')
-    const p = mod.buildNetworkPolicy('restricted', { repoFullName: 'acme/app', pushUrl: PUSH_URL, broker: null })
+    const p = mod.buildNetworkPolicy('restricted', { gateUrl: PUSH_URL, broker: null })
     expect(mod.requireDefinedNetworkPolicy(p)).toBe(p)
   })
 
