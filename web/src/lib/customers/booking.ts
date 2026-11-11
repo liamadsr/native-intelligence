@@ -4,8 +4,9 @@
  * booking page), and:
  *
  *   1. REQUEST: the slot must still be open (./slots.ts, read again now);
- *      it is held (customer_booking, state requested: one live booking per
- *      start), and ONE approval goes to the owner: tool `confirm_booking`,
+ *      it is held (a meeting_booking, source customer, state requested, with
+ *      its claim on the owner's time: never two on one time), and ONE
+ *      approval goes to the owner: tool `confirm_booking`,
  *      external-write (it writes a calendar provider event and texts the
  *      customer), its card naming who, when, where and the quote. Nobody is
  *      in a chat to see it, so it asks in the owner's home thread and the
@@ -30,7 +31,13 @@
  *
  * At accept the approval re-checks the booking itself (bookingApprovalPermits):
  * still requested, still this workspace's, and a texting customer still
- * active. Server only; service role. Pure over {@link BookingDeps}.
+ * active.
+ *
+ * The same card answers a booking link's request (src/lib/booking-links/
+ * book.ts): confirmBooking and settleBookingApproval hand a link's booking to
+ * confirmLinkRequest and settleLinkRequest there.
+ *
+ * Server only; service role. Pure over {@link BookingDeps}.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createCalendarEvent, getCalendarProvider } from '@/lib/integrations/calendar'
@@ -50,6 +57,7 @@ import {
   getBooking,
   getQuote,
   insertBooking,
+  keepBookingTime,
   moveBooking,
   quotesForCustomer,
   setBookingApproval,
@@ -197,6 +205,7 @@ export async function requestBooking(
     customerPhone: phone,
     address,
     note,
+    timeZone: open.timeZone,
   })
   if (!held.ok) {
     return held.reason === 'taken'
@@ -292,6 +301,8 @@ export interface ConfirmDeps {
   textCustomer?: (booking: CustomerBooking, body: string) => Promise<boolean>
   isSlotFree?: typeof isSlotFree
   timeZone?: (business: { workspaceId: string; ownerUserId: string }) => Promise<string>
+  /** A booking link's request (default: src/lib/booking-links/book.ts confirmLinkRequest). */
+  confirmLink?: (args: { userId: string; workspaceId: string; bookingId: string }) => Promise<Record<string, unknown>>
 }
 
 /** The business's zone, for the times in its texts. Never throws (UTC when unreadable). */
@@ -315,6 +326,10 @@ export async function confirmBooking(
   try {
     const booking = await getBooking(supabase, args.workspaceId, args.bookingId)
     if (!booking || booking.ownerUserId !== args.userId) return { success: false, error: 'That booking is gone.' }
+    if (booking.origin === 'link') {
+      const confirmLink = deps.confirmLink ?? (async (a) => (await import('@/lib/booking-links/book')).confirmLinkRequest(supabase, a))
+      return confirmLink(args)
+    }
     if (booking.state !== 'requested') return { success: false, error: `That booking was already ${booking.state}.` }
     const business = { workspaceId: booking.workspaceId, ownerUserId: booking.ownerUserId }
     const name = await businessName(supabase, booking.workspaceId)
@@ -338,6 +353,18 @@ export async function confirmBooking(
     if (!free) {
       await release('declined')
       return { success: false, code: 'SLOT_TAKEN', error: `Something else is on your calendar then now, so it wasn't booked. ${told('was asked to pick another time.')}` }
+    }
+    // The yes keeps the time for good (a hold that lapsed is taken again, unless someone has it now).
+    const kept = await keepBookingTime(supabase, booking)
+    if (!kept.ok && kept.conflict) {
+      await release('declined')
+      return { success: false, code: 'SLOT_TAKEN', error: `That time was booked by something else meanwhile, so it wasn't booked. ${told('was asked to pick another time.')}` }
+    }
+    // A time that couldn't be kept for good isn't booked: a job whose claim
+    // still lapses could be double booked.
+    if (!kept.ok) {
+      await release('cancelled')
+      return { success: false, code: 'FAILED', error: `The time couldn't be kept on your calendar just now, so it wasn't booked. ${told("was told it isn't booked.")} Ask them again in a moment.` }
     }
 
     const quote = booking.quoteId ? await getQuote(supabase, booking.workspaceId, booking.quoteId).catch(() => null) : null
@@ -395,18 +422,38 @@ export async function settleBookingApproval(
   const bookingId = row.context?.booking?.bookingId
   if (typeof bookingId !== 'string') return
   try {
-    const moved = await moveBooking(supabase, { workspaceId: row.workspace_id, bookingId, from: 'requested', to: outcome === 'denied' ? 'declined' : 'expired' })
-    if (!moved) return
-    // A number typed on the booking page is nobody's verified number, and the
-    // owner didn't approve it: it is texted only after their yes (never on a
-    // no or a lapse), so the page can't be used to text strangers.
-    if (moved.source === 'link') return
-    const name = await businessName(supabase, moved.workspaceId)
-    const zone = await businessZone(supabase, { workspaceId: moved.workspaceId, ownerUserId: moved.ownerUserId })
-    await (deps.textCustomer ?? ((b, body) => textBookingCustomer(supabase, b, body)))(moved, bookingDeclinedText(name, moved, slotLabel(moved.startsAt, zone)))
+    const found = await getBooking(supabase, row.workspace_id, bookingId)
+    if (found?.origin === 'link') {
+      const { settleLinkRequest } = await import('@/lib/booking-links/book')
+      await settleLinkRequest(supabase, bookingId, outcome === 'denied' ? 'declined' : 'expired')
+      return
+    }
+    await expireOrDecline(supabase, { workspaceId: row.workspace_id, bookingId }, outcome === 'denied' ? 'declined' : 'expired', deps)
   } catch (err) {
     console.warn('[booking] settle skipped:', err instanceof Error ? err.message : String(err))
   }
+}
+
+/**
+ * A customer's request leaves its slot, declined or expired, and a texting
+ * customer is told: the owner's no, a lapsed approval, or a hold the sweep
+ * found run out (src/lib/time-offers/sweep.ts). Throws on a failed write.
+ */
+export async function expireOrDecline(
+  supabase: SupabaseClient,
+  ref: { workspaceId: string; bookingId: string },
+  to: 'declined' | 'expired',
+  deps: { textCustomer?: (booking: CustomerBooking, body: string) => Promise<boolean> } = {},
+): Promise<void> {
+  const moved = await moveBooking(supabase, { workspaceId: ref.workspaceId, bookingId: ref.bookingId, from: 'requested', to })
+  if (!moved) return
+  // A number typed on the booking page is nobody's verified number, and the
+  // owner didn't approve it: it is texted only after their yes (never on a
+  // no or a lapse), so the page can't be used to text strangers.
+  if (moved.source === 'link') return
+  const name = await businessName(supabase, moved.workspaceId)
+  const zone = await businessZone(supabase, { workspaceId: moved.workspaceId, ownerUserId: moved.ownerUserId })
+  await (deps.textCustomer ?? ((b, body) => textBookingCustomer(supabase, b, body)))(moved, bookingDeclinedText(name, moved, slotLabel(moved.startsAt, zone)))
 }
 
 /**

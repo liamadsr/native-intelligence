@@ -7,8 +7,10 @@
  *                   Nothing else may be on the owner's calendar or booked
  *                   then (isSlotFree, the check the owner's yes makes); the
  *                   booking hours bind customers, not the owner. The booking
- *                   moves (its unique live-slot key keeps two from one
- *                   start), its calendar event follows (a calendar that
+ *                   moves with its claim on the owner's time, in one
+ *                   transaction (migration 581 move_meeting_booking: the
+ *                   exclusion constraint keeps two from one time), its
+ *                   calendar event follows (a calendar that
  *                   refuses puts the booking back), the customer's yes to the
  *                   old time is cleared, and the customer is texted the
  *                   new time. Its reminder follows it the same day; to
@@ -33,6 +35,11 @@
  * The customer's own move from their reminder (./reminder-replies.ts) shares
  * {@link rescheduleWithCalendar}.
  *
+ * A booking from one of the workspace's booking links (src/lib/booking-links/)
+ * is in the same lists and takes both tools the same way; its calendar event
+ * has the guest on it, so the provider tells them of the move or the
+ * cancellation too.
+ *
  * Server only; service role, every read fenced to the workspace.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -41,7 +48,8 @@ import { textBookingCustomer } from './booking'
 import { cleanText } from './intake'
 import { remindersCancelled, remindersFollowBooking } from './reminder-store'
 import { bookingSetup, isSlotFree, localDate, localStartInstant, slotLabel, type FindOpenSlotsDeps } from './slots'
-import { BOOKING_SELECT, businessName, expireStaleBookings, getBooking, moveBooking, toBooking } from './store'
+import { moveMeetingBooking } from '@/lib/time-offers/store'
+import { businessName, expireStaleBookings, getBooking, moveBooking } from './store'
 import { BOOKING_REQUEST_TTL_MS, type CustomerBooking } from './types'
 
 type ToolOutput = Record<string, unknown>
@@ -55,6 +63,12 @@ export type RescheduleResult = { ok: true; booking: CustomerBooking; calendar: C
 export type MoveEvent = (ownerUserId: string, eventId: string, slot: { start: string; end: string }) => Promise<unknown>
 
 const defaultMoveEvent: MoveEvent = (userId, eventId, slot) => updateCalendarEvent(userId, eventId, { start: slot.start, end: slot.end })
+
+/** A link's booking's event: on its own account, its guest told by the provider. */
+const linkMoveEvent =
+  (booking: Pick<CustomerBooking, 'calendarAccountId'>): MoveEvent =>
+  (userId, eventId, slot) =>
+    updateCalendarEvent(userId, eventId, { start: slot.start, end: slot.end }, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true })
 
 /**
  * Move a confirmed booking to [slot.start, slot.end), fenced on it still
@@ -72,36 +86,24 @@ export async function rescheduleWithCalendar(
   slot: { start: string; end: string },
   opts: { nowIso: string; confirmedAt: string | null; moveEvent?: MoveEvent },
 ): Promise<RescheduleResult> {
-  const { data, error } = await supabase
-    .from('customer_booking')
-    .update({ starts_at: slot.start, ends_at: slot.end, customer_confirmed_at: opts.confirmedAt, updated_at: opts.nowIso })
-    .eq('workspace_id', booking.workspaceId)
-    .eq('id', booking.id)
-    .eq('state', 'confirmed')
-    .eq('starts_at', booking.startsAt)
-    .select(BOOKING_SELECT)
-    .maybeSingle()
-  if (error?.code === '23505') return { ok: false, code: 'SLOT_TAKEN' }
-  if (error) throw new Error(`customer_booking update failed: ${error.message}`)
-  if (!data) return { ok: false, code: 'CHANGED' }
-  const moved = toBooking(data as Parameters<typeof toBooking>[0])
+  const outcome = await moveMeetingBooking(supabase, { bookingId: booking.id, fromStart: booking.startsAt, startsAt: slot.start, endsAt: slot.end, customerConfirmedAt: opts.confirmedAt })
+  if (outcome === 'taken') return { ok: false, code: 'SLOT_TAKEN' }
+  if (outcome === 'changed') return { ok: false, code: 'CHANGED' }
+  const moved: CustomerBooking = (await getBooking(supabase, booking.workspaceId, booking.id)) ?? { ...booking, startsAt: slot.start, endsAt: slot.end, customerConfirmedAt: opts.confirmedAt }
   if (!booking.calendarEventId) return { ok: true, booking: moved, calendar: 'none' }
   try {
-    await (opts.moveEvent ?? defaultMoveEvent)(booking.ownerUserId, booking.calendarEventId, slot)
+    await (opts.moveEvent ?? (booking.origin === 'link' ? linkMoveEvent(booking) : defaultMoveEvent))(booking.ownerUserId, booking.calendarEventId, slot)
     return { ok: true, booking: moved, calendar: 'moved' }
   } catch (err) {
     console.warn('[bookings] calendar move failed:', err instanceof Error ? err.message : String(err))
-    const { data: back, error: backError } = await supabase
-      .from('customer_booking')
-      .update({ starts_at: booking.startsAt, ends_at: booking.endsAt, customer_confirmed_at: booking.customerConfirmedAt, updated_at: opts.nowIso })
-      .eq('workspace_id', booking.workspaceId)
-      .eq('id', booking.id)
-      .eq('state', 'confirmed')
-      .eq('starts_at', slot.start)
-      .select('id')
-      .maybeSingle()
-    if (!backError && back) return { ok: false, code: 'CALENDAR_FAILED' }
-    console.warn('[bookings] booking not put back:', backError?.message ?? 'it changed')
+    let back: Awaited<ReturnType<typeof moveMeetingBooking>> | null = null
+    try {
+      back = await moveMeetingBooking(supabase, { bookingId: booking.id, fromStart: slot.start, startsAt: booking.startsAt, endsAt: booking.endsAt, customerConfirmedAt: booking.customerConfirmedAt })
+    } catch (backErr) {
+      console.warn('[bookings] booking not put back:', backErr instanceof Error ? backErr.message : String(backErr))
+    }
+    if (back === 'moved') return { ok: false, code: 'CALENDAR_FAILED' }
+    console.warn('[bookings] booking not put back:', back ?? 'the move back failed')
     return { ok: true, booking: moved, calendar: 'stuck' }
   }
 }
@@ -168,8 +170,8 @@ function toldLine(booking: Pick<CustomerBooking, 'customerName'>, tellCustomer: 
  * on it still being booked. Throws on a failed read or write.
  */
 async function reopenQuote(supabase: SupabaseClient, workspaceId: string, quoteId: string, nowIso: string): Promise<void> {
-  const { data: live, error } = await supabase.from('customer_booking').select('id').eq('workspace_id', workspaceId).eq('quote_id', quoteId).in('state', ['requested', 'confirmed']).limit(1)
-  if (error) throw new Error(`customer_booking read failed: ${error.message}`)
+  const { data: live, error } = await supabase.from('meeting_booking').select('id').eq('workspace_id', workspaceId).eq('quote_id', quoteId).in('state', ['requested', 'booking', 'confirmed']).limit(1)
+  if (error) throw new Error(`meeting_booking read failed: ${error.message}`)
   if (live?.length) return
   const reopened = await supabase.from('customer_quote').update({ status: 'accepted', updated_at: nowIso }).eq('workspace_id', workspaceId).eq('id', quoteId).eq('status', 'booked')
   if (reopened.error) throw new Error(`customer_quote update failed: ${reopened.error.message}`)
@@ -288,7 +290,9 @@ export async function ownerCancelBooking(
   let calendar: 'deleted' | 'none' | 'stuck' = 'none'
   if (booking.calendarEventId) {
     try {
-      await (deps.deleteEvent ?? deleteCalendarEvent)(booking.ownerUserId, booking.calendarEventId)
+      // A link's booking's guest is on its event: the provider tells them.
+      const link = booking.origin === 'link' ? { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true } : undefined
+      await (deps.deleteEvent ?? ((userId: string, eventId: string) => deleteCalendarEvent(userId, eventId, link)))(booking.ownerUserId, booking.calendarEventId)
       calendar = 'deleted'
     } catch (err) {
       console.warn('[bookings] calendar delete failed:', err instanceof Error ? err.message : String(err))

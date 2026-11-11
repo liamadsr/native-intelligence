@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CalendarEvent } from '@/lib/integrations/calendar'
 import { routeOf } from '@/lib/reach/route-policy'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb, seedBookings, type CustomerBookingSeed } from '@/test/booking-db'
 import { textBookingCustomer } from '../booking'
 import { ensureCustomerGuest } from '../customer-guests'
 import { CUSTOMER_REMINDER_MESSAGE_KIND, CUSTOMER_REMINDER_ROUTES_KEY } from '../reminder-message'
@@ -64,6 +64,19 @@ const event = (over: Partial<CalendarEvent>): CalendarEvent => ({
 
 const who = (email: string) => ({ email, responseStatus: 'needsAction' })
 
+// The customer bookings, as migration 458 named them: meeting_booking rows (with their claims) since 581.
+const BOOKINGS = [
+  booking({ id: 'b-dana', starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA, address: '400 Lake St, Oak Park', calendar_event_id: 'evt-dana' }),
+  booking({ id: 'b-sam', starts_at: '2026-11-05T20:30:00.000Z', ends_at: '2026-11-05T22:00:00.000Z', customer_name: 'Sam Ortiz', customer_phone: SAM, contact_id: 'c-sam' }),
+  booking({ starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:30:00.000Z', customer_name: 'Still Waiting', customer_phone: '+13125550111', state: 'requested' }),
+  booking({ starts_at: '2026-11-05T18:00:00.000Z', ends_at: '2026-11-05T19:00:00.000Z', customer_name: 'No Phone' }),
+  booking({ starts_at: '2026-11-04T20:00:00.000Z', ends_at: '2026-11-04T21:00:00.000Z', customer_name: 'Today', customer_phone: '+13125550122' }),
+  booking({ starts_at: '2026-11-06T15:00:00.000Z', ends_at: '2026-11-06T16:00:00.000Z', customer_name: 'Day After', customer_phone: '+13125550133' }),
+  booking({ starts_at: '2026-11-05T19:00:00.000Z', ends_at: '2026-11-05T19:30:00.000Z', customer_name: 'Abroad', customer_phone: '+447700900123' }),
+  booking({ starts_at: '2026-11-05T21:30:00.000Z', ends_at: '2026-11-05T22:30:00.000Z', customer_name: 'Said Stop', customer_phone: GONE }),
+  booking({ workspace_id: 'ws-other', starts_at: '2026-11-05T16:00:00.000Z', ends_at: '2026-11-05T17:00:00.000Z', customer_name: 'Other Business', customer_phone: '+13125550155' }),
+] as CustomerBookingSeed[]
+
 beforeEach(async () => {
   tables = {
     business_profile: [{ workspace_id: WS, owner_user_id: OWNER, business_name: 'Brightside Window Washing', customer_facts: null, time_zone: CHICAGO, booking_days: [1, 2, 3, 4, 5], booking_start: '08:00', booking_end: '17:00', slot_minutes: 90, lead_hours: 12, horizon_days: 21, booking_kind: 'visit', booking_slug: null, reminders: true }],
@@ -79,21 +92,11 @@ beforeEach(async () => {
       contact({ id: 'c-dana', full_name: 'Dana Ruiz', email: 'dana@example.com', phone: DANA, relationship_type: 'customer' }),
       contact({ id: 'c-ana', full_name: 'Ana Silva', email: 'ana@example.com', phone: '+13125550166', relationship_type: 'customer', tags: ['unsubscribed sms'] }),
     ],
-    customer_booking: [
-      booking({ id: 'b-dana', starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA, address: '400 Lake St, Oak Park', calendar_event_id: 'evt-dana' }),
-      booking({ id: 'b-sam', starts_at: '2026-11-05T20:30:00.000Z', ends_at: '2026-11-05T22:00:00.000Z', customer_name: 'Sam Ortiz', customer_phone: SAM, contact_id: 'c-sam' }),
-      booking({ starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:30:00.000Z', customer_name: 'Still Waiting', customer_phone: '+13125550111', state: 'requested' }),
-      booking({ starts_at: '2026-11-05T18:00:00.000Z', ends_at: '2026-11-05T19:00:00.000Z', customer_name: 'No Phone' }),
-      booking({ starts_at: '2026-11-04T20:00:00.000Z', ends_at: '2026-11-04T21:00:00.000Z', customer_name: 'Today', customer_phone: '+13125550122' }),
-      booking({ starts_at: '2026-11-06T15:00:00.000Z', ends_at: '2026-11-06T16:00:00.000Z', customer_name: 'Day After', customer_phone: '+13125550133' }),
-      booking({ starts_at: '2026-11-05T19:00:00.000Z', ends_at: '2026-11-05T19:30:00.000Z', customer_name: 'Abroad', customer_phone: '+447700900123' }),
-      booking({ starts_at: '2026-11-05T21:30:00.000Z', ends_at: '2026-11-05T22:30:00.000Z', customer_name: 'Said Stop', customer_phone: GONE }),
-      booking({ workspace_id: 'ws-other', starts_at: '2026-11-05T16:00:00.000Z', ends_at: '2026-11-05T17:00:00.000Z', customer_name: 'Other Business', customer_phone: '+13125550155' }),
-    ],
     customer_reminder: [],
     agent_guest: [],
   }
-  db = memoryDb(tables, {
+  seedBookings(tables, BOOKINGS)
+  db = bookingDb(tables, {
     customer_reminder: (a, b) => a.workspace_id === b.workspace_id && a.subject_type === b.subject_type && a.subject_id === b.subject_id && a.phone_e164 === b.phone_e164,
   })
   // Kim texted the business's number once: a customer, though the CRM still calls her a lead.
@@ -206,6 +209,15 @@ describe("one business's day", () => {
     expect(route).toHaveBeenCalledWith({ userId: OWNER, workspaceId: WS, conversationId: '11111111-1111-4111-8111-111111111111' }, 'customer-reminders:ws-brightside:2026-11-04')
   })
 
+  it("never texts a booking link's guest (a number only typed on a public page), nor a teammate's booking", async () => {
+    const [link] = seedBookings(tables, [booking({ id: 'b-link', starts_at: '2026-11-05T16:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Typed Number', customer_phone: '+13125550160' }) as CustomerBookingSeed])
+    link.source = 'link'
+    seedBookings(tables, [booking({ id: 'b-teammate', owner_user_id: 'user-teammate', starts_at: '2026-11-05T17:30:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', customer_name: 'Their Customer', customer_phone: '+13125550161' }) as CustomerBookingSeed])
+    const { d, texts } = deps()
+    await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, d)
+    expect(texts.map((t) => t.to)).toEqual([DANA, KIM, LEE])
+  })
+
   it('never twice for one booking: a second run (a retry, a second request) texts no one, and its report is the same message', async () => {
     const first = deps()
     await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, first.d)
@@ -240,11 +252,11 @@ describe("one business's day", () => {
 
   it('tomorrow is the business’s own day, across the fall-back change (a 25-hour day)', async () => {
     // Sat Oct 31, 10:00 AM in Chicago (CDT); Sun Nov 1 runs 05:00Z to Nov 2 06:00Z.
-    tables.customer_booking.push(
-      { ...tables.customer_booking[0], id: 'b-late', starts_at: '2026-11-02T05:30:00.000Z', ends_at: '2026-11-02T06:00:00.000Z', customer_name: 'Late Sunday', customer_phone: '+13125550135', calendar_event_id: null },
-      { ...tables.customer_booking[0], id: 'b-monday', starts_at: '2026-11-02T06:30:00.000Z', ends_at: '2026-11-02T07:00:00.000Z', customer_name: 'Early Monday', customer_phone: '+13125550136', calendar_event_id: null },
-      { ...tables.customer_booking[0], id: 'b-sat', starts_at: '2026-11-01T04:30:00.000Z', ends_at: '2026-11-01T05:00:00.000Z', customer_name: 'Saturday Night', customer_phone: '+13125550137', calendar_event_id: null },
-    )
+    seedBookings(tables, [
+      { ...BOOKINGS[0], id: 'b-late', starts_at: '2026-11-02T05:30:00.000Z', ends_at: '2026-11-02T06:00:00.000Z', customer_name: 'Late Sunday', customer_phone: '+13125550135', calendar_event_id: null },
+      { ...BOOKINGS[0], id: 'b-monday', starts_at: '2026-11-02T06:30:00.000Z', ends_at: '2026-11-02T07:00:00.000Z', customer_name: 'Early Monday', customer_phone: '+13125550136', calendar_event_id: null },
+      { ...BOOKINGS[0], id: 'b-sat', starts_at: '2026-11-01T04:30:00.000Z', ends_at: '2026-11-01T05:00:00.000Z', customer_name: 'Saturday Night', customer_phone: '+13125550137', calendar_event_id: null },
+    ])
     const { d, texts } = deps({ now: () => Date.parse('2026-10-31T15:00:00Z'), listEvents: vi.fn(async () => []) })
     await sendDayReminders(db, { workspaceId: WS, localDate: '2026-10-31' }, d)
     expect(texts.map((t) => t.to)).toEqual(['+13125550135'])

@@ -378,7 +378,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // holds every call as the owner's card showing exactly who gets what text; the tool runs only as that card's
       // replay. Neither moves money (send_payment_link stays the one money tool).
       { name: 'send_quote', sideEffect: 'external-write', label: 'Send Quote', description: "Send a customer their quote's price and the booking link to pick a time; always the owner's approval card first" },
-      // external-write: books the time the customer chose (a customer_booking, the owner's calendar, the customer's confirmation text).
+      // external-write: books the time the customer chose (a customer's booking, the owner's calendar, the customer's confirmation text).
       { name: 'book_quote', sideEffect: 'external-write', label: 'Book Quote', description: "Book the time a customer chose for their quote: the owner's calendar and a confirmation text; always the owner's approval card first" },
       // external-write: a payment link to a customer (roadmap C2): a Stripe Payment Link on the owner's own
       // connected account, texted from the business number / emailed from their mailbox. The agent's ONE money
@@ -404,6 +404,34 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     icon: '📅',
     tools: [
       { name: 'get_calendar_events', sideEffect: 'read', label: 'Get Events', description: 'List calendar events for a date range' },
+      // Availability (src/lib/availability): working hours minus busy time on every calendar that counts.
+      // With `people`, a time that works for teammates in the workspace too: busy time only crosses between them (src/lib/availability/team.ts).
+      { name: 'find_times', sideEffect: 'read', label: 'Find Times', description: 'When the person, or the person and teammates, are free to meet: up to three times to offer and every free stretch in a range' },
+      { name: 'get_working_hours', sideEffect: 'read', label: 'Get Working Hours', description: "The person's working hours, dated changes and whether teammates see when they're busy" },
+      { name: 'set_working_hours', sideEffect: 'internal-write', writeTarget: 'board', label: 'Set Working Hours', description: "Change the person's working hours, a date's hours, a day off, or whether teammates see when they're busy" },
+      // Time offers (src/lib/time-offers): times offered to an outside person, held until they pick one.
+      // external-write: by email or text it reaches them (the outward gate's card); by link it sends nothing (action-review.ts preApprovedCall).
+      { name: 'offer_times', sideEffect: 'external-write', label: 'Offer Times', description: "Offer someone outside two or three times to meet, held until they pick one on a private link or by replying; by email or text only on the person's card" },
+      { name: 'list_time_offers', sideEffect: 'read', label: 'List Time Offers', description: "The person's time offers and the meetings booked from them" },
+      { name: 'withdraw_time_offer', sideEffect: 'internal-write', writeTarget: 'board', label: 'Withdraw Time Offer', description: 'Take back an open time offer: its held times are free again' },
+      // external-write: deletes the provider event, and the calendar tells the guest.
+      { name: 'cancel_offered_meeting', sideEffect: 'external-write', label: 'Cancel Offered Meeting', description: 'Cancel a meeting a guest booked from a time offer; the calendar tells them' },
+      // external-write: the provider event and its invitation; pre-approved when the person saw who the offer went to, else their card (src/lib/time-offers/agent-booking.ts).
+      { name: 'accept_time_offer', sideEffect: 'external-write', label: 'Accept Time Offer', description: "Book one of an offer's own times for its own recipient, who answered in words" },
+      // Polls (availability phase 5): an offer to several guests, booked when all have answered.
+      // external-write: the last answer books (the provider event and its invitations); gated as accept_time_offer.
+      { name: 'record_time_offer_answer', sideEffect: 'external-write', label: 'Record Poll Answer', description: "Record which of a poll's own times work for one of its own guests, who answered in words; the last answer books" },
+      // external-write: the provider event and its invitations, at the person's word; gated as accept_time_offer.
+      { name: 'book_poll_time', sideEffect: 'external-write', label: 'Book Poll Time', description: "Book one of a poll's times now with whoever can make it" },
+      // external-write: by email or text it reaches the guests (the outward gate's card); by link it sends nothing.
+      { name: 'nudge_time_offer', sideEffect: 'external-write', label: 'Nudge Poll Guests', description: "Remind a poll's guests who haven't answered; by email or text only on the person's card" },
+      // Booking links (src/lib/booking-links): standing public pages to book time with the person or their team.
+      // internal-write: a link is the workspace's own and undoable (turned off, changed back); no card. Attended only (ATTENDED_ONLY_TOOL_NAMES).
+      { name: 'list_booking_links', sideEffect: 'read', label: 'List Booking Links', description: "The workspace's booking links, each with its address to share" },
+      { name: 'create_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Booking Link', description: 'Make a standing page anyone can book time with the person (or their team) from' },
+      { name: 'update_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Booking Link', description: 'Change a booking link, or turn it off or on' },
+      // delete (every delete_ tool is): its page stops taking bookings; the row stays, and update_booking_link turns it back on.
+      { name: 'delete_booking_link', sideEffect: 'delete', label: 'Turn Off Booking Link', description: 'Turn a booking link off: its page stops taking bookings' },
       // external-write: provider write: the provider emails every attendee
       { name: 'create_calendar_event', sideEffect: 'external-write', label: 'Create Event', description: 'Create a new calendar event' },
       // external-write: provider write: attendees get update emails
@@ -943,6 +971,12 @@ export function isChatNativeTool(name: string): boolean {
  *   update_email_thread   archive, read, star, label, mute (reversible);
  *   unsubscribe_thread    a list's one-click link or unsubscribe email.
  *
+ * And set_working_hours (availability): the person's hours decide every time
+ * offered for them, and its availability_sharing whether teammates see when
+ * they are busy. An injected email must never get a run to clear their week,
+ * open their weekend or share their time. Their own MCP connector doesn't
+ * offer it either (src/lib/mcp/attended-tools.ts).
+ *
  * NEVER in an unattended run: skill runs (computeSkillCeiling, and
  * NON_CHAT_TOOL_NAMES for inherit-all), work runs (WORK_RUN_EXCLUDED_TOOLS),
  * the live agent's ceiling, the device ask (SURFACE_EXCLUDED_TOOLS) and a
@@ -991,6 +1025,12 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   // Roadmap B: what customers are told, and the website form's secret URL, change only at the person's word.
   'update_business_profile',
   'create_quote_form_link',
+  // Availability: the person's working hours decide every time offered for them, so they change only at the person's word.
+  'set_working_hours',
+  // Availability phase 4a: a booking link opens the person's (or a teammate's) calendar to anyone, so it changes only at the person's word.
+  'create_booking_link',
+  'update_booking_link',
+  'delete_booking_link',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */
@@ -1238,6 +1278,15 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // Moves a customer's booking and texts them (issue #11's follow-up). `move_` is not a write verb.
   // (cancel_booking matches `cancel_`.)
   'move_booking',
+  // Time offers (availability phase 3a): an offer holds the person's time and may send; withdrawing lets it go.
+  // Neither `offer_` nor `withdraw_` is a write verb. (accept_time_offer and cancel_offered_meeting match.)
+  'offer_times',
+  'withdraw_time_offer',
+  // Polls (phase 5): a guest's answer may book, a poll's time booked at the person's word, a reminder sent.
+  // None of `record_`, `book_`, `nudge_` is a write verb.
+  'record_time_offer_answer',
+  'book_poll_time',
+  'nudge_time_offer',
 ]
 
 /**

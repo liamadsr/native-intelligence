@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb, seedBookings, type CustomerBookingSeed } from '@/test/booking-db'
 import {
   DAILY_JOBS_EVENT,
   buildDailyJobs,
@@ -37,26 +37,29 @@ const booking = (over: Row): Row => ({
   created_at: '2026-11-01T12:00:00Z', ...over,
 })
 
+// The customer bookings, as migration 458 named them: meeting_booking rows (with their claims) since 581.
+const BOOKINGS = [
+  // Nov 4 in Chicago (standard time, UTC-6) runs 06:00Z to 06:00Z the next day.
+  booking({ starts_at: '2026-11-04T05:30:00Z', ends_at: '2026-11-04T06:30:00Z', customer_name: 'Before Midnight' }), // Nov 3, 11:30 PM
+  booking({ starts_at: '2026-11-04T15:00:00Z', ends_at: '2026-11-04T16:30:00Z', customer_name: 'Dana Ruiz', customer_phone: '+13125550142', address: '400 Lake St, Oak Park', quote_id: QUOTE }),
+  booking({ starts_at: '2026-11-04T20:30:00Z', ends_at: '2026-11-04T22:00:00Z', customer_name: 'Sam Ortiz', customer_phone: '+13125550199', address: '12 Pine Ave' }),
+  booking({ starts_at: '2026-11-04T18:00:00Z', ends_at: '2026-11-04T19:00:00Z', customer_name: 'Still Waiting', state: 'requested' }),
+  booking({ starts_at: '2026-11-04T17:00:00Z', ends_at: '2026-11-04T18:00:00Z', customer_name: 'Said No', state: 'declined' }),
+  booking({ starts_at: '2026-11-05T05:00:00Z', ends_at: '2026-11-05T06:00:00Z', customer_name: 'Late Customer' }), // Nov 4, 11:00 PM
+  booking({ starts_at: '2026-11-05T06:30:00Z', ends_at: '2026-11-05T07:30:00Z', customer_name: 'Next Day' }), // Nov 5, 12:30 AM
+  booking({ workspace_id: 'ws-other', starts_at: '2026-11-04T16:00:00Z', ends_at: '2026-11-04T17:00:00Z', customer_name: 'Other Business' }),
+] as CustomerBookingSeed[]
+
 beforeEach(() => {
   tables = {
     business_profile: [{ workspace_id: WS, owner_user_id: OWNER, business_name: 'Brightside Window Washing', customer_facts: null, time_zone: CHICAGO, booking_days: [1, 2, 3, 4, 5], booking_start: '08:00', booking_end: '17:00', slot_minutes: 90, lead_hours: 12, horizon_days: 21, booking_kind: 'visit', booking_slug: null }],
     workspace: [{ id: WS, name: 'Brightside HQ', settings: {} }],
     customer_quote: [{ id: QUOTE, workspace_id: WS, contact_id: 'c-dana', source: 'web_form', status: 'booked', customer_name: 'Dana Ruiz', customer_email: null, customer_phone: '+13125550142', address: '400 Lake St, Oak Park', service: 'Window screens', items: [{ description: 'Screen', width: 3, length: 5, unit: 'ft', quantity: 2 }], total_cents: 15_000, currency: 'usd', requested_dates: [], notes: null, created_at: '2026-11-01T12:00:00Z', updated_at: '2026-11-01T12:00:00Z' }],
-    customer_booking: [
-      // Nov 4 in Chicago (standard time, UTC-6) runs 06:00Z to 06:00Z the next day.
-      booking({ starts_at: '2026-11-04T05:30:00Z', ends_at: '2026-11-04T06:30:00Z', customer_name: 'Before Midnight' }), // Nov 3, 11:30 PM
-      booking({ starts_at: '2026-11-04T15:00:00Z', ends_at: '2026-11-04T16:30:00Z', customer_name: 'Dana Ruiz', customer_phone: '+13125550142', address: '400 Lake St, Oak Park', quote_id: QUOTE }),
-      booking({ starts_at: '2026-11-04T20:30:00Z', ends_at: '2026-11-04T22:00:00Z', customer_name: 'Sam Ortiz', customer_phone: '+13125550199', address: '12 Pine Ave' }),
-      booking({ starts_at: '2026-11-04T18:00:00Z', ends_at: '2026-11-04T19:00:00Z', customer_name: 'Still Waiting', state: 'requested' }),
-      booking({ starts_at: '2026-11-04T17:00:00Z', ends_at: '2026-11-04T18:00:00Z', customer_name: 'Said No', state: 'declined' }),
-      booking({ starts_at: '2026-11-05T05:00:00Z', ends_at: '2026-11-05T06:00:00Z', customer_name: 'Late Customer' }), // Nov 4, 11:00 PM
-      booking({ starts_at: '2026-11-05T06:30:00Z', ends_at: '2026-11-05T07:30:00Z', customer_name: 'Next Day' }), // Nov 5, 12:30 AM
-      booking({ workspace_id: 'ws-other', starts_at: '2026-11-04T16:00:00Z', ends_at: '2026-11-04T17:00:00Z', customer_name: 'Other Business' }),
-    ],
     member: [{ workspace_id: WS, user_id: OWNER, role: 'owner' }],
     user_profiles: [],
   }
-  db = memoryDb(tables)
+  seedBookings(tables, BOOKINGS)
+  db = bookingDb(tables)
 })
 
 describe('7 o’clock in the business’s own zone', () => {
@@ -115,6 +118,13 @@ describe("the day's list", () => {
         '11:00 PM - Late Customer - visit',
       ].join('\n'),
     })
+  })
+
+  it("leaves out a teammate's booking (their booking-link meeting and its guest are theirs)", async () => {
+    seedBookings(tables, [booking({ owner_user_id: 'user-teammate', starts_at: '2026-11-04T16:00:00Z', ends_at: '2026-11-04T16:30:00Z', customer_name: 'Their Guest' }) as CustomerBookingSeed])
+    const plan = await buildDailyJobs(db, { workspaceId: WS, localDate: '2026-11-04' }, { paused: async () => false })
+    expect(plan).toMatchObject({ outcome: 'ready', jobs: 3 })
+    expect((plan as { body: string }).body).not.toContain('Their Guest')
   })
 
   it('an empty day sends nothing at all; a paused agent or a workspace with no profile is skipped', async () => {

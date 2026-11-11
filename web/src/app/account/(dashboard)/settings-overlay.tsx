@@ -84,6 +84,7 @@ const settingsViews: Record<string, React.LazyExoticComponent<React.ComponentTyp
       </SettingsPageWrapper>
     ),
   }))),
+  'availability': lazy(() => import('../settings/availability/availability-settings-view').then(m => ({ default: m.AvailabilitySettingsView }))),
   'recording': lazy(() => import('../settings/recording/recording-settings-view').then(m => ({ default: m.RecordingSettingsView }))),
   'voice': lazy(() => import('../settings/voice/voice-settings-view').then(m => ({ default: m.VoiceSettingsView }))),
   'autonomy': lazy(() => import('../settings/autonomy/autonomy-settings-view').then(m => ({ default: m.AutonomySettingsView }))),
