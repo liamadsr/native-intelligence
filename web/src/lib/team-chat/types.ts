@@ -36,7 +36,7 @@ export const TEAM_CHAT_MAX_MENTIONS = 50
 /** How many messages a page of a channel's history holds. */
 export const TEAM_CHAT_PAGE_SIZE = 50
 
-export type TeamChatChannelKind = 'channel' | 'dm'
+export type TeamChatChannelKind = 'channel' | 'dm' | 'meeting'
 
 /** A channel or DM as the list shows it. */
 export interface TeamChatChannel {

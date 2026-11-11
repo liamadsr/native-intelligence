@@ -33,14 +33,14 @@ export async function bookingJobDone(
   args: { workspaceId: string; quoteId: string; contactId: string | null; userId: string | null; now?: number },
 ): Promise<BookingJobDone | null> {
   const { data, error } = await supabase
-    .from('customer_booking')
+    .from('meeting_booking')
     .select('id, contact_id, state, starts_at')
     .eq('workspace_id', args.workspaceId)
     .eq('quote_id', args.quoteId)
     .eq('state', 'confirmed')
     .order('starts_at', { ascending: false })
     .limit(1)
-  if (error) throw new Error(`customer_booking read failed: ${error.message}`)
+  if (error) throw new Error(`meeting_booking read failed: ${error.message}`)
   const booking = (data as Array<{ id: string; contact_id: string | null }> | null)?.[0]
   const contactId = booking?.contact_id ?? args.contactId
   if (!booking || !contactId) return null

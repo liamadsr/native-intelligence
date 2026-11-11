@@ -14,7 +14,7 @@ const slots = vi.hoisted(() => ({ find: vi.fn() }))
 vi.mock('../slots', async (importOriginal) => ({ ...(await importOriginal<typeof import('../slots')>()), findOpenSlots: slots.find }))
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb } from '@/test/booking-db'
 import type { AgentGuest } from '@/lib/guests/store'
 import { buildCustomerWhoYouAre, customerRecordSection, customerSmsNote, quoteForCustomerAgent } from '../customer-spec'
 import { customerToolCall } from '../customer-tools'
@@ -55,9 +55,8 @@ beforeEach(() => {
     contact: [{ id: 'c-sarah', workspace_id: WS, full_name: 'Sarah Lee', email: 'sarah@example.com', phone: '(212) 555-0199', merged_into_contact_id: null }],
     agent_guest: [{ id: 'g-sarah', owner_user_id: OWNER, workspace_id: WS, phone_e164: SARAH, preset: 'customer', state: 'active', contact_id: 'c-sarah', business_number_id: 'bn-1', display_name: 'Sarah Lee', channels: ['sms'], tools: [], ask_before: [], calendar_emails: [] }],
     customer_quote: [quoteRow(), quoteRow({ id: '22222222-2222-4222-8222-222222222222', contact_id: 'c-bob', customer_name: 'Bob', customer_phone: BOB, notes: null })],
-    customer_booking: [],
   }
-  db = memoryDb(tables)
+  db = bookingDb(tables)
   booking.request.mockReset()
   slots.find.mockReset()
 })
@@ -105,7 +104,8 @@ describe("the customer agent's prompt", () => {
   })
 
   it('advertises a real schema for each of its own tools', () => {
-    expect(CUSTOMER_TOOLS).toEqual(['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'message_owner', 'remember_about_guest'])
+    expect(CUSTOMER_TOOLS).toEqual(['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'pick_offered_time', 'answer_offered_times', 'message_owner', 'remember_about_guest'])
+    expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.pick_offered_time.required).toEqual(['offer_id', 'start'])
     expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.request_booking.required).toEqual(['start', 'name'])
     expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.confirm_appointment.required).toEqual(['reminder_id'])
     expect(CUSTOMER_TOOL_INPUT_JSON_SCHEMAS.move_appointment.required).toEqual(['reminder_id', 'start'])

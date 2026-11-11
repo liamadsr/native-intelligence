@@ -1,0 +1,275 @@
+# LiveKit: the media server for audio and video calls, and its own Redis.
+#
+# Signalling (HTTP and WebSocket on 7880) is not published: Caddy (../edge) serves it
+# over TLS on its own name, reaching this container as ni-livekit:7880 over the network
+# ni-livekit-edge, which holds Caddy and LiveKit and nothing else (not ni-edge, where
+# every other stack's door is). The media is the one thing on this server besides Caddy that
+# publishes ports, because it is not HTTP and cannot go through Caddy: WebRTC sends it
+# straight to the media server, encrypted end to end between browser and server
+# (DTLS-SRTP), over
+#
+#   UDP 7882   every call's media, all of it multiplexed on this one port
+#   TCP 7881   ICE over TCP: the same media, for networks that block UDP
+#
+# ../README.md step 23 has why these two and no others (no TURN), which networks
+# they do not reach, and the firewall lines that go with them.
+#
+# LiveKit keeps nothing on disk: rooms live in memory and in Redis, and both are gone
+# after a restart (a call in progress is cut, and the people in it rejoin). There is
+# no volume and nothing to back up; ../move needs nothing for it but this folder and
+# its .env.
+#
+# Run from this folder, as root so the root-only .env can be read:
+#   sudo docker compose up -d
+name: ni-livekit
+
+services:
+  livekit:
+    # Pinned on purpose. To upgrade: read the release notes
+    # (https://github.com/livekit/livekit/releases), change the tag, then
+    # `sudo docker compose pull livekit && sudo docker compose up -d livekit`.
+    # Calls in progress are cut and rejoin by themselves.
+    image: livekit/livekit-server:v1.13.11
+    container_name: ni-livekit
+    restart: unless-stopped
+    ports:
+      # Published on purpose, the one exception to "only Caddy publishes" (top of
+      # this file). Docker opens these whatever ufw says; setup.sh lists them in ufw
+      # as well, so that the firewall's own list says what is open. To spread a busy
+      # server's media over more sockets, the UDP port becomes a range here, in
+      # udp_port below and in ufw together (../README.md step 23, "One UDP port").
+      - "7882:7882/udp"
+      - "7881:7881/tcp"
+    environment:
+      # The whole configuration, as LiveKit reads it from LIVEKIT_CONFIG
+      # (cmd/server/main.go, --config-body). It is here rather than in a file
+      # because two of its values are secrets: Compose fills them in from .env,
+      # so nothing secret is in the repository and no second file has to be kept
+      # in step. The keys are letters and digits only (make-keys.sh), which YAML
+      # takes as they are.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        logging:
+          level: info
+        rtc:
+          # Media over one UDP port (a mux) instead of a range of thousands.
+          udp_port: 7882
+          # ICE over TCP, for networks that block UDP.
+          tcp_port: 7881
+          # The address LiveKit tells browsers to send media to. Inside Docker the
+          # container only sees its own private address, so by default it asks a
+          # public STUN server which address its packets leave the server from,
+          # which is the server's public one: right on this server and on any
+          # server it moves to. LIVEKIT_NODE_IP in .env sets it by hand instead;
+          # the line below is then `node_ip: <that address>` and discovery is
+          # off, and when it is empty the line is `use_external_ip: true`.
+          ${LIVEKIT_NODE_IP:+node_ip: }${LIVEKIT_NODE_IP:-use_external_ip: true}
+        # Needed later by recording and agents, which find rooms through it. Holds
+        # only what is live; nothing in it outlives a call.
+        redis:
+          address: redis:6379
+        keys:
+          ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env (make-keys.sh)}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env (make-keys.sh)}
+        # Room and participant events, signed with the key above, sent to the app.
+        # Empty LIVEKIT_WEBHOOK_URL: none are sent.
+        webhook:
+          api_key: ${LIVEKIT_API_KEY}
+          urls: [${LIVEKIT_WEBHOOK_URL-}]
+        # LiveKit's own TURN server stays off: ../README.md step 23 says why.
+        turn:
+          enabled: false
+        # A room exists only once the app has made it through the server API
+        # (CreateRoom), before it hands out tokens: a join token alone cannot
+        # make one. Joining a room that does not exist is refused.
+        room:
+          auto_create: false
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Writes nothing: no state on disk, scratch in /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      # Private: Redis.
+      internal: {}
+      # Shared with Caddy alone, which proxies the signalling here. Also the way
+      # out: to the STUN server at startup, and to the app's public name for the
+      # webhooks (back in through Caddy, like any other caller). From here no other
+      # stack's container is reachable.
+      livekit-edge: {}
+    healthcheck:
+      # "OK" once the node is up and reporting (pkg/service/server.go, healthCheck).
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7880/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Time to tell the people in a call that the server is going away.
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          # A media server forwards packets and keeps little: a few hundred MB for
+          # dozens of people in calls. The limit is there so that a fault cannot take
+          # memory from the database and the app on the same machine.
+          memory: 4g
+
+  redis:
+    image: redis:7-alpine
+    container_name: ni-livekit-redis
+    restart: unless-stopped
+    # Nothing worth keeping: no snapshots, no append-only file, no volume. Never
+    # evict: a dropped key is a room that loses track of who is in it.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # LiveKit Egress: records a call, or one track of it, into a file in Storage (the
+  # call notes and recordings). Off until asked for: it starts only with
+  # COMPOSE_PROFILES=egress in .env (../README.md step 23, "Egress"). Plain
+  # `sudo docker compose up -d` leaves it out.
+  #
+  # It takes its work from LiveKit through Redis, joins the rooms it records like a
+  # participant (ws://livekit:7880 on the private network), and uploads what it
+  # wrote to the Storage of this server's Supabase stack through its S3 endpoint at
+  # the public name (sb.<domain>/storage/v1/s3), in through Caddy like any other
+  # caller. The app gives only a file path in each request; the storage settings
+  # are here.
+  egress:
+    profiles: ["egress"]
+    # Pinned on purpose. To upgrade: read the release notes
+    # (https://github.com/livekit/egress/releases), change the tag, then
+    # `sudo docker compose pull egress && sudo docker compose up -d egress`. A
+    # recording in progress is finished first (SIGTERM), up to stop_grace_period.
+    image: livekit/egress:v1.15.0
+    container_name: ni-livekit-egress
+    restart: unless-stopped
+    environment:
+      # The whole configuration, as Egress reads it from EGRESS_CONFIG_BODY
+      # (cmd/server/main.go), filled in from .env by Compose as LiveKit's is.
+      # Every value is ${...:-}: with the profile off nothing here may stop
+      # `docker compose up -d`; with it on, empty storage settings make every
+      # upload fail, and part E2 of the README checks them first.
+      EGRESS_CONFIG_BODY: |
+        api_key: ${LIVEKIT_API_KEY:-}
+        api_secret: ${LIVEKIT_API_SECRET:-}
+        # LiveKit's signalling on the private network, not through Caddy.
+        ws_url: ws://livekit:7880
+        # Chrome (room composite) may use that plain ws:// address: it never
+        # leaves the private network.
+        insecure: true
+        # Must be LiveKit's own Redis: that is how LiveKit hands Egress its work.
+        redis:
+          address: redis:6379
+        health_port: 9090
+        logging:
+          level: info
+        # What Egress counts each kind of job as, against the CPUs it may use
+        # times max_cpu_utilization: it refuses a job that would go over. It reads
+        # the CPUs from its cgroup's quota (cpu.max, livekit/protocol hwstats), so
+        # that is deploy.resources.limits.cpus below, and its memory from the
+        # cgroup too (memory_source). With 4 CPUs at 0.8 that is 3.2: one
+        # room composite (video with Chrome, 3.0) at a time and nothing beside
+        # it, or about six track recordings (audio of one participant, 0.5 each),
+        # which are the main use and light.
+        cpu_cost:
+          max_cpu_utilization: 0.8
+          room_composite_cpu_cost: 3.0
+          audio_room_composite_cpu_cost: 1.0
+          web_cpu_cost: 3.0
+          track_composite_cpu_cost: 1.0
+          track_cpu_cost: 0.5
+          # GB; below the container's 4 GB, so a job is refused before the
+          # kernel would kill the container.
+          max_memory: 3.5
+          memory_source: cgroup
+        # No recording runs longer than a long meeting.
+        session_limits:
+          file_output_max_duration: 4h
+        # Where files go unless a request names other storage: the private
+        # bucket in this server's Supabase Storage, through its S3 protocol. No
+        # prefix: the path in each request is the object's whole name.
+        # Storage refuses files over its global FILE_SIZE_LIMIT (50 MB as
+        # Supabase ships it) whatever the bucket allows: ../README.md step 23, E1.
+        storage:
+          s3:
+            # In single quotes, so that any character but ' stays as it is
+            # (make-keys.sh copies no value with one).
+            access_key: '${LIVEKIT_EGRESS_S3_ACCESS_KEY:-}'
+            secret: '${LIVEKIT_EGRESS_S3_SECRET:-}'
+            region: '${LIVEKIT_EGRESS_S3_REGION:-}'
+            endpoint: '${LIVEKIT_EGRESS_S3_ENDPOINT:-}'
+            bucket: '${LIVEKIT_EGRESS_BUCKET:-team-call-recordings}'
+            # Supabase's S3 endpoint takes the bucket in the path, not the name.
+            force_path_style: true
+    # No capability added. A room composite runs Chrome, and Egress starts it
+    # without Chrome's own sandbox by default (--no-sandbox), so it needs neither
+    # SYS_ADMIN nor a custom seccomp profile; Docker's default profile and
+    # capabilities still apply to the whole container. Turning Chrome's sandbox on
+    # (enable_chrome_sandbox) would need LiveKit's seccomp profile beside this file
+    # (their README, "Chrome sandboxing"). Nothing in the image needs setuid with
+    # the sandbox off.
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      redis:
+        condition: service_healthy
+      livekit:
+        condition: service_healthy
+    networks:
+      # LiveKit and its Redis.
+      internal: {}
+      # The way out, to Storage's public name (and to LiveKit's public media
+      # address). Not a network with the Supabase gateway: the gateway answers on
+      # every network it is on, Studio and its SQL endpoint included.
+      livekit-edge: {}
+    healthcheck:
+      # Any path on the health port answers with the service's status.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:9090/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # SIGTERM: Egress finishes the recordings in progress, then exits.
+    stop_grace_period: 2m
+    deploy:
+      resources:
+        limits:
+          # The heaviest thing in this stack while a room composite runs (Chrome
+          # and a video encoder). Capped so that it cannot take the database's or
+          # the app's share of the machine: 4 CPUs, 4 GB.
+          cpus: "4"
+          memory: 4g
+
+networks:
+  # LiveKit, its Redis and its Egress, and nothing else. No route out.
+  internal:
+    name: ni-livekit
+    internal: true
+  # Caddy and this stack (LiveKit, and Egress when it runs), and nothing else.
+  # Created once by hand (../README.md, step 7, or ../server/setup.sh) so that
+  # neither stack owns it. Not internal: this stack's way out is through it.
+  livekit-edge:
+    name: ni-livekit-edge
+    external: true

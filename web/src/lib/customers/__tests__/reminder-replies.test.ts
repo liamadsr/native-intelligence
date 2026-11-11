@@ -10,7 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb, customerRows, seedBookings, type CustomerBookingSeed } from '@/test/booking-db'
 import type { AgentGuest } from '@/lib/guests/store'
 import { customerRecordSection } from '../customer-spec'
 import { customerToolCall } from '../customer-tools'
@@ -39,23 +39,24 @@ const reminder = (over: Row): Row => ({
   sent_at: '2026-11-04T16:00:00.000Z', created_at: '2026-11-04T16:00:00.000Z', ...over,
 })
 
+// The customer bookings, as migration 458 named them: meeting_booking rows (with their claims) since 581.
+const BOOKINGS: CustomerBookingSeed[] = [
+  {
+    id: B_DANA, workspace_id: WS, owner_user_id: OWNER, quote_id: null, contact_id: null, guest_id: null, source: 'sms', kind: 'visit',
+    starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA,
+    address: '400 Lake St', note: null, state: 'confirmed', approval_id: null, calendar_event_id: 'evt-dana', customer_confirmed_at: null, created_at: '2026-11-01T12:00:00Z',
+  },
+]
+
 beforeEach(() => {
   tables = {
-    customer_booking: [
-      {
-        id: B_DANA, workspace_id: WS, owner_user_id: OWNER, quote_id: null, contact_id: null, guest_id: null, source: 'sms', kind: 'visit',
-        starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA,
-        address: '400 Lake St', note: null, state: 'confirmed', approval_id: null, calendar_event_id: 'evt-dana', customer_confirmed_at: null, created_at: '2026-11-01T12:00:00Z',
-      },
-    ],
     customer_reminder: [
       reminder({ id: R_DANA, subject_type: 'booking', subject_id: B_DANA, phone_e164: DANA, customer_name: 'Dana Ruiz', starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z' }),
       reminder({ id: R_LEE, subject_type: 'meeting', subject_id: 'evt-lee', phone_e164: LEE, customer_name: 'Lee Chan', kind: 'meeting', starts_at: '2026-11-05T22:00:00.000Z', ends_at: '2026-11-05T23:00:00.000Z' }),
     ],
   }
-  db = memoryDb(tables, {
-    customer_booking: (a, b) => a.workspace_id === b.workspace_id && a.starts_at === b.starts_at && ['requested', 'confirmed'].includes(a.state as string) && ['requested', 'confirmed'].includes(b.state as string),
-  })
+  seedBookings(tables, BOOKINGS)
+  db = bookingDb(tables)
 })
 
 function deps(over: Partial<ReminderReplyDeps> = {}) {
@@ -102,7 +103,7 @@ describe('yes: confirm_appointment', () => {
     expect(await confirmAppointment(db, { ...business, phone: LEE, reminderId: R_DANA }, d)).toMatchObject({ success: false, code: 'NOT_FOUND' })
     expect(await confirmAppointment(db, { workspaceId: 'ws-other', ownerUserId: OWNER, phone: DANA, reminderId: R_DANA }, d)).toMatchObject({ code: 'NOT_FOUND' })
     expect(await confirmAppointment(db, { ...business, phone: DANA, reminderId: R_DANA }, { ...d, now: () => Date.parse('2026-11-05T16:00:00Z') })).toMatchObject({ code: 'NOT_FOUND' })
-    tables.customer_booking[0].state = 'cancelled'
+    tables.meeting_booking[0].state = 'cancelled'
     expect(await confirmAppointment(db, { ...business, phone: DANA, reminderId: R_DANA }, d)).toMatchObject({ code: 'BOOKING_GONE' })
     expect(tables.customer_reminder[0].answer).toBeNull()
   })
@@ -135,11 +136,11 @@ describe('another time: move_appointment', () => {
   it("a time that isn't open, or one someone just took, changes nothing", async () => {
     const closed = deps({ openSlotAt: vi.fn(async () => ({ slot: null, timeZone: CHICAGO, rules: {} as never })) })
     expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: NEW_SLOT.start }, closed.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
-    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'other', customer_phone: '+13125550199', starts_at: NEW_SLOT.start, ends_at: NEW_SLOT.end })
+    seedBookings(tables, [{ ...BOOKINGS[0], id: 'other', customer_phone: '+13125550199', starts_at: NEW_SLOT.start, ends_at: NEW_SLOT.end }])
     const raced = deps()
     expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: NEW_SLOT.start }, raced.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
     expect(raced.moveEvent).not.toHaveBeenCalled()
-    expect(tables.customer_booking[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
+    expect(customerRows(tables)[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
     expect(tables.customer_reminder[0].answer).toBeNull()
     expect(closed.append).not.toHaveBeenCalled()
   })
@@ -156,7 +157,7 @@ describe('another time: move_appointment', () => {
     const { d, append, route } = deps({
       moveEvent: vi.fn(async () => {
         // Another customer's request takes the freed 9:00 before the rollback.
-        tables.customer_booking.push({ ...tables.customer_booking[0], id: 'other', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T15:00:00.000Z', created_at: '2026-11-04T18:00:00Z' })
+        seedBookings(tables, [{ ...BOOKINGS[0], id: 'other', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T15:00:00.000Z', created_at: '2026-11-04T18:00:00Z' }])
         throw new Error('403')
       }),
     })
@@ -184,18 +185,18 @@ describe('another time: move_appointment', () => {
     })
 
     it("a request the owner never answered doesn't hold its slot: it is expired first, and the move takes the time", async () => {
-      tables.customer_booking.push({ ...tables.customer_booking[0], id: 'stale', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', calendar_event_id: null, created_at: '2026-11-01T12:00:00Z' })
+      seedBookings(tables, [{ ...BOOKINGS[0], id: 'stale', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', calendar_event_id: null, created_at: '2026-11-01T12:00:00Z' }])
       const { d } = real()
       expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-05T17:00:00.000Z' }, d)).toMatchObject({ success: true, status: 'moved' })
-      expect(tables.customer_booking.find((b) => b.id === 'stale')?.state).toBe('expired')
+      expect(customerRows(tables).find((b) => b.id === 'stale')?.state).toBe('expired')
     })
 
     it('another confirmed booking, or a time outside the hours, is not open', async () => {
-      tables.customer_booking.push({ ...tables.customer_booking[0], id: 'taken', customer_phone: '+13125550199', starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', calendar_event_id: null })
+      seedBookings(tables, [{ ...BOOKINGS[0], id: 'taken', customer_phone: '+13125550199', starts_at: '2026-11-05T17:00:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', calendar_event_id: null }])
       const { d } = real()
       expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-05T17:00:00.000Z' }, d)).toMatchObject({ code: 'SLOT_TAKEN' })
       expect(await moveAppointment(db, { ...business, phone: DANA, reminderId: R_DANA, start: '2026-11-06T01:00:00.000Z' }, d)).toMatchObject({ code: 'SLOT_TAKEN' })
-      expect(tables.customer_booking[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
+      expect(customerRows(tables)[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
     })
   })
 
@@ -218,7 +219,7 @@ describe('STOP', () => {
     const { d, append, route } = deps()
     expect(await remindersStopped(db, { workspaceId: WS, phone: DANA, businessName: 'Brightside' }, d)).toBe(1)
     expect(tables.customer_reminder[0].answer).toBe('opted_out')
-    expect(tables.customer_booking[0].state).toBe('confirmed')
+    expect(customerRows(tables)[0].state).toBe('confirmed')
     expect(append.mock.calls[0][1]).toMatchObject({
       messageId: `customer-reminder:${R_DANA}:stop`,
       parts: [{ type: 'text', text: "Dana Ruiz replied STOP to their reminder, so Brightside can't text them any more. Their visit on Thu, Nov 5 at 9:00 AM still stands; call them if you need to." }],

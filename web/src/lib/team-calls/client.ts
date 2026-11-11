@@ -14,7 +14,7 @@ export interface CallPlace {
   /** The call's workspace (a ring can come from one other than the one on screen). */
   workspaceId: string
   messageId: string | null
-  channelKind: 'channel' | 'dm'
+  channelKind: 'channel' | 'dm' | 'meeting'
   /** The person's member id in the call's workspace. */
   memberId: string
   /** What the server offers this call (notes, recording); nothing shows for what is off. */

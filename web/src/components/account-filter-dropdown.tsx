@@ -64,6 +64,54 @@ function setCachedOauthAccounts(accounts: RawConnectedAccount[]) {
   }
 }
 
+let inflightOauthAccounts: Promise<RawConnectedAccount[] | null> | null = null
+
+/** One read of /api/oauth/status for every caller that asks at once; null when it failed. */
+function fetchOauthAccounts(): Promise<RawConnectedAccount[] | null> {
+  if (inflightOauthAccounts) return inflightOauthAccounts
+  inflightOauthAccounts = (async () => {
+    try {
+      const res = await fetch('/api/oauth/status')
+      if (!res.ok) return null
+      const data = await res.json()
+      const all = (data.accounts || []) as RawConnectedAccount[]
+      setCachedOauthAccounts(all)
+      return all
+    } catch {
+      return null
+    } finally {
+      inflightOauthAccounts = null
+    }
+  })()
+  return inflightOauthAccounts
+}
+
+/**
+ * Whether the person has an enabled account of this capability in the
+ * current workspace, from the same cached read as the dropdown (one request
+ * shared by every caller; a fresh copy reused). False until known.
+ */
+export function useHasConnectedAccount(capability: 'email' | 'calendar'): boolean {
+  const workspaceId = useWorkspaceId()
+  const [has, setHas] = useState(() => {
+    const cached = getCachedOauthAccounts()
+    return cached ? filterAccountsFor(cached, capability, workspaceId).length > 0 : false
+  })
+  useEffect(() => {
+    const cached = getCachedOauthAccounts()
+    if (cached) setHas(filterAccountsFor(cached, capability, workspaceId).length > 0)
+    if (cached && Date.now() - cachedOauthAccountsAt < OAUTH_ACCOUNTS_FRESH_MS) return
+    let live = true
+    void fetchOauthAccounts().then((all) => {
+      if (live && all) setHas(filterAccountsFor(all, capability, workspaceId).length > 0)
+    })
+    return () => {
+      live = false
+    }
+  }, [capability, workspaceId])
+  return has
+}
+
 function filterAccountsFor(
   accounts: RawConnectedAccount[],
   capability: 'email' | 'calendar',
@@ -120,15 +168,8 @@ export function AccountFilterDropdown({
       return
     }
     try {
-      const res = await fetch('/api/oauth/status')
-      if (res.ok) {
-        const data = await res.json()
-        const all = (data.accounts || []) as RawConnectedAccount[]
-        setCachedOauthAccounts(all)
-        setAccounts(filterAccountsFor(all, capability, workspaceId))
-      }
-    } catch {
-      // silently fail
+      const all = await fetchOauthAccounts()
+      if (all) setAccounts(filterAccountsFor(all, capability, workspaceId))
     } finally {
       setLoaded(true)
     }

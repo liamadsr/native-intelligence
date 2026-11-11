@@ -80,6 +80,21 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   // The owner's answer to a quote (roadmap F3): theirs alone, on their own card.
   'send_quote',
   'book_quote',
+  // Time offers (availability phase 3a): the person's own time, offered and booked at their word.
+  'offer_times',
+  'list_time_offers',
+  'withdraw_time_offer',
+  'cancel_offered_meeting',
+  'accept_time_offer',
+  // Polls (availability phase 5): the person's own time, booked at their word, and their reminders.
+  'record_time_offer_answer',
+  'book_poll_time',
+  'nudge_time_offer',
+  // Booking links (availability phase 4a): the person's own public pages.
+  'list_booking_links',
+  'create_booking_link',
+  'update_booking_link',
+  'delete_booking_link',
 ])
 const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content'])
 

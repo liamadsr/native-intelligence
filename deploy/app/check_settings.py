@@ -38,6 +38,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -87,6 +88,11 @@ MAY_BE_EMPTY = {
     "RECONCILER_ENABLED": "a switch: empty is off",
     "RUN_SKILL_LOCAL_DISPATCH_ENABLED": "a switch: empty is off",
     "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
+    # Until the app makes calls (../livekit; ../README.md step 23). All three or none.
+    "LIVEKIT_URL": "empty: no audio or video calls",
+    "LIVEKIT_API_KEY": "empty: no audio or video calls",
+    "LIVEKIT_API_SECRET": "empty: no audio or video calls",
+    "LIVEKIT_EGRESS": "a switch: empty is off (no call notes or recordings; on once Egress runs, ../README.md step 23)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
@@ -540,6 +546,74 @@ def check_openai(env, _opts):
     return False, "OpenAI answered %d" % status
 
 
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def livekit_token(key, secret, now, ttl=300):
+    """An access token for LiveKit's server API, as livekit-server-sdk makes one
+    (AccessToken: HS256, the API key as issuer, the grants under "video"). This one
+    may only list rooms."""
+    header = b64url(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
+    claims = {"iss": key, "nbf": int(now) - 10, "exp": int(now) + ttl, "video": {"roomList": True}}
+    body = b64url(json.dumps(claims, separators=(",", ":")).encode())
+    signature = hmac.digest(secret.encode(), ("%s.%s" % (header, body)).encode(), "sha256")
+    return "%s.%s.%s" % (header, body, b64url(signature))
+
+
+def livekit_api_base(url):
+    """https://<host> for the wss://<host> browsers connect to, or None when the
+    value is not one: the app's pages are served over HTTPS, so a browser refuses
+    anything but wss:// to a server of another origin."""
+    m = re.fullmatch(r"wss://([A-Za-z0-9.-]+(?::[0-9]{1,5})?)/?", url.strip())
+    return "https://" + m.group(1) if m else None
+
+
+def livekit_list_rooms(base, key, secret, now=None):
+    """(ok, note) for one RoomService call (ListRooms) at `base` with a token made
+    from key and secret: the server must accept it. Changes nothing there."""
+    token = livekit_token(key, secret, time.time() if now is None else now)
+    status, body = http(base + "/twirp/livekit.RoomService/ListRooms", {"Authorization": "Bearer " + token}, post={})
+    if status == 200 and isinstance(body, dict):
+        rooms = body.get("rooms") or []
+        return True, "LiveKit accepts a token made with the key and secret (%d room%s open)" % (len(rooms), "" if len(rooms) == 1 else "s")
+    if status == 401:
+        return False, "LiveKit refused a token made with them (401): not the key and secret in ../livekit/.env"
+    if trouble(status):
+        return None, "LiveKit could not be asked (%d): cannot tell" % status
+    return False, "LiveKit answered %d to its own API (is the address its, and Caddy's LIVEKIT_HOST set?)" % status
+
+
+def check_livekit(env, _opts):
+    """The URL the browsers get, and the key pair the app signs their tokens with,
+    proven together: a token made here as the app makes one, sent to that server."""
+    key, secret = env.get("LIVEKIT_API_KEY", "").strip(), env.get("LIVEKIT_API_SECRET", "").strip()
+    if not key or not secret:
+        return False, "needs LIVEKIT_API_KEY and LIVEKIT_API_SECRET too (../livekit/make-keys.sh writes them)"
+    base = livekit_api_base(env["LIVEKIT_URL"])
+    if base is None:
+        return False, "not wss://<host name>: browsers on the app's HTTPS pages refuse anything else"
+    return livekit_list_rooms(base, key, secret)
+
+
+def check_livekit_key(env, _opts):
+    if not env.get("LIVEKIT_URL", "").strip():
+        return False, "set without LIVEKIT_URL: all three or none"
+    return None, None  # proven by LIVEKIT_URL's check
+
+
+def check_livekit_egress(env, _opts):
+    """`on` or empty, and `on` only with calls set up: Egress takes its jobs through
+    the same LiveKit. Whether Egress itself runs is not visible from here (LiveKit's
+    API answers the same without it); step 23's test recording is the proof."""
+    value = env["LIVEKIT_EGRESS"].strip()
+    if value != "on":
+        return False, "is %r: only on, or empty for off" % (value[:12],)
+    if not env.get("LIVEKIT_URL", "").strip():
+        return False, "on without LIVEKIT_URL: Egress works through the calls' LiveKit"
+    return None, None
+
+
 CHECKS = {
     "CREDENTIAL_ENCRYPTION_KEY": check_credential_key,
     "RUN_SKILL_INTERNAL_SECRET": check_run_skill,
@@ -555,6 +629,10 @@ CHECKS = {
     "CONNECT_ENVIRONMENT": check_no_wildcard("CONNECT_ENVIRONMENT"),
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
+    "LIVEKIT_URL": check_livekit,
+    "LIVEKIT_API_KEY": check_livekit_key,
+    "LIVEKIT_API_SECRET": check_livekit_key,
+    "LIVEKIT_EGRESS": check_livekit_egress,
 }
 
 

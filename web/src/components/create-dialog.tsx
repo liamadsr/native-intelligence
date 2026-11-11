@@ -51,6 +51,7 @@ import {
   Send,
   Loader2,
   MapPin,
+  Video,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -71,6 +72,7 @@ import { cn } from '@/lib/utils'
 import { useModKeyLabel } from '@/lib/hotkeys'
 import { useTeams } from '@/app/account/teams-context'
 import { openTarget } from '@/lib/chat-cards/open-card'
+import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
 import { toast } from 'sonner'
 import { PRIORITY_OPTIONS } from '@/lib/views/property-options'
 import {
@@ -262,6 +264,9 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
   const [eventStart, setEventStart] = useState<Date | undefined>(undefined)
   const [eventEnd, setEventEnd] = useState<Date | undefined>(undefined)
   const [eventLocation, setEventLocation] = useState('')
+  // "Add a meeting link" (phase 7): a meeting of ours as the event's location, only when asked for.
+  const [eventMeetingLink, setEventMeetingLink] = useState(false)
+  const meetingLinks = useTeamCalls().available
   const [eventIsAllDay, setEventIsAllDay] = useState(false)
   const [eventAttendees, setEventAttendees] = useState<string[]>([])
   const [eventAccountId, setEventAccountId] = useState<string | undefined>(undefined)
@@ -515,6 +520,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     setEventStart(undefined)
     setEventEnd(undefined)
     setEventLocation('')
+    setEventMeetingLink(false)
     setEventIsAllDay(false)
     setEventAttendees([])
     setEventAccountId(undefined)
@@ -829,6 +835,7 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
     }
     if (description.trim()) body.description = description.trim()
     if (eventLocation.trim()) body.location = eventLocation.trim()
+    if (eventMeetingLink && meetingLinks && !eventIsAllDay) body.meetingLink = true
     if (eventAttendees.length > 0) body.attendees = eventAttendees
     if (eventAccountId) body.accountId = eventAccountId
 
@@ -1898,6 +1905,24 @@ export function CreateDialog({ onCreated }: CreateDialogProps) {
                     </div>
                   )}
                 </PropertyPill>
+
+                {/* A meeting link of ours (phase 7): only where calling is on, never added by itself. */}
+                {meetingLinks && !eventIsAllDay && (
+                  <button
+                    type="button"
+                    data-create-event-meeting-link={eventMeetingLink ? 'on' : 'off'}
+                    aria-pressed={eventMeetingLink}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted',
+                      eventMeetingLink ? 'text-foreground' : 'text-muted-foreground',
+                    )}
+                    onClick={() => setEventMeetingLink((v) => !v)}
+                  >
+                    <Video className="h-3 w-3" />
+                    {eventMeetingLink ? 'Meeting link added' : 'Add a meeting link'}
+                    {eventMeetingLink && <span className="text-primary">✓</span>}
+                  </button>
+                )}
 
                 {/* Attendees */}
                 <PropertyPill

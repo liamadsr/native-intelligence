@@ -9,7 +9,8 @@ import { JOB_COMPLETED_EVENT, bookingJobDone, emitBookingJobDone } from '../job-
 
 const WS = 'ws-rug'
 const Q = 'q-1'
-const db = (bookings: Record<string, unknown>[]) => memoryDb({ customer_booking: bookings })
+// Customer bookings are meeting_booking rows (source customer) since migration 581.
+const db = (bookings: Record<string, unknown>[]) => memoryDb({ meeting_booking: bookings.map((b) => ({ source: 'customer', ...b })) })
 
 describe('bookingJobDone', () => {
   it("names the quote's confirmed booking and its customer", async () => {

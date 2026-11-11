@@ -402,7 +402,8 @@ class AutoDeploy(unittest.TestCase):
     def test_files_other_stacks_use_hold(self):
         self.switch_on()
         for name in ("web/supabase/functions/hook/index.ts", "web/supabase/templates/invite.html",
-                     "deploy/edge/Caddyfile", "deploy/supabase/x.yaml", "deploy/inngest/sync.sh", "deploy/backup/crontab"):
+                     "deploy/edge/Caddyfile", "deploy/supabase/x.yaml", "deploy/inngest/sync.sh", "deploy/backup/crontab",
+                     "deploy/livekit/compose.yaml"):
             new = self.commit({name: "changed %s\n" % name})
             r = self.run_tool("run")
             self.assertHeld(r, name, "a person deploys this one")

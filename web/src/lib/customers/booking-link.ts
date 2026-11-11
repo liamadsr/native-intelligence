@@ -1,7 +1,11 @@
 /**
  * The public booking link (roadmap B4): /book/<slug>, the business's own
  * page where a customer picks an open slot and leaves their name, mobile
- * number and address. It shows open times only (./slots.ts), never anything
+ * number and address. Since migration 581 the slug is the workspace's
+ * booking profile handle and the page its job link
+ * (src/lib/booking-links/): /book/<slug>/<job link's slug> is the same page
+ * through the general links API, which hands a job link's booking here
+ * ({@link postBookingRequest}). It shows open times only (./slots.ts), never anything
  * of the owner's calendar, and a request goes the same way as one by text
  * (./booking.ts requestBooking, source 'link'): the slot is held, the owner
  * gets a text to approve, and the customer is texted from the business's
@@ -94,15 +98,8 @@ export async function handleBookingLinkPost(request: Request, slug: string, deps
   if (!body || typeof body !== 'object') return badRequest('Send the booking as JSON.')
   // A honeypot a person never fills: answered as if taken, so a bot learns nothing.
   if (typeof body.website === 'string' && body.website.trim()) return Response.json({ ok: true, status: 'requested' })
-  const start = typeof body.start === 'string' ? body.start : ''
-  const name = typeof body.name === 'string' ? body.name.trim() : ''
-  const phone = normalizeE164(body.phone)
-  if (!start || !Number.isFinite(Date.parse(start))) return badRequest('Pick a time.')
-  if (!name || name.length > 120) return badRequest('Add your name.')
-  if (!phone || !isNanpNumber(phone)) return badRequest('Add a US or Canadian mobile number, so we can text you the confirmation.')
-  const address = typeof body.address === 'string' && body.address.trim() ? body.address.trim().slice(0, 300) : null
-  const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 1000) : null
-
+  const read = readRequestFields(body)
+  if (!read.ok) return badRequest(read.message)
   let profile: BusinessProfile | null
   try {
     profile = await deps.profileBySlug(slug)
@@ -110,6 +107,35 @@ export async function handleBookingLinkPost(request: Request, slug: string, deps
     return serverError('Booking is not available right now.')
   }
   if (!profile) return notFound('This booking page does not exist.')
+  const made = await postBookingRequest(profile, body, deps)
+  if (made instanceof Response) return made
+  return Response.json({ ok: true, status: 'requested', when: made.label }, { status: 201 })
+}
+
+type RequestFields = { start: string; name: string; phone: string; address: string | null; note: string | null }
+
+/** What a customer typed on the booking page, checked. Pure. */
+export function readRequestFields(body: Record<string, unknown>): { ok: true; fields: RequestFields } | { ok: false; message: string } {
+  const start = typeof body.start === 'string' ? body.start : ''
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  const phone = normalizeE164(body.phone)
+  if (!start || !Number.isFinite(Date.parse(start))) return { ok: false, message: 'Pick a time.' }
+  if (!name || name.length > 120) return { ok: false, message: 'Add your name.' }
+  if (!phone || !isNanpNumber(phone)) return { ok: false, message: 'Add a US or Canadian mobile number, so we can text you the confirmation.' }
+  const address = typeof body.address === 'string' && body.address.trim() ? body.address.trim().slice(0, 300) : null
+  const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 1000) : null
+  return { ok: true, fields: { start, name, phone, address, note } }
+}
+
+/**
+ * A customer's request on the business's page, by either address (see the
+ * header): its fields checked, capped, then requested. The caller found the
+ * profile. The request made, or the error response. Never throws.
+ */
+export async function postBookingRequest(profile: BusinessProfile, body: Record<string, unknown>, deps: BookingLinkDeps): Promise<Extract<BookingRequestResult, { ok: true }> | Response> {
+  const read = readRequestFields(body)
+  if (!read.ok) return badRequest(read.message)
+  const { start, name, phone, address, note } = read.fields
   const business = { workspaceId: profile.workspaceId, ownerUserId: profile.ownerUserId }
   const now = (deps.now ?? Date.now)()
   try {
@@ -129,7 +155,7 @@ export async function handleBookingLinkPost(request: Request, slug: string, deps
     return serverError("We couldn't send that request. Try again in a moment.")
   }
   console.info(`[booking-link] ws=${business.workspaceId} booking=${result.booking.id} requested`)
-  return Response.json({ ok: true, status: 'requested', when: result.label }, { status: 201 })
+  return result
 }
 
 /**
@@ -155,10 +181,16 @@ export function supabaseBookingLinkDeps(supabase: SupabaseClient): BookingLinkDe
       return value
     },
     countLinkRequestsSince: async (workspaceId, sinceIso, phone) => {
-      let query = supabase.from('customer_booking').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('source', 'link').gte('created_at', sinceIso)
-      if (phone) query = query.eq('customer_phone', phone)
+      let query = supabase
+        .from('meeting_booking')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .eq('source', 'customer')
+        .eq('channel', 'link')
+        .gte('created_at', sinceIso)
+      if (phone) query = query.eq('guest_phone', phone)
       const { count, error } = await query
-      if (error) throw new Error(`customer_booking count failed: ${error.message}`)
+      if (error) throw new Error(`meeting_booking count failed: ${error.message}`)
       return count ?? 0
     },
     request: (business, input) => requestBooking(supabase, { business, source: 'link', input }),

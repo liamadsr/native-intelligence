@@ -140,7 +140,9 @@ export type LaunchWorkItemResult =
  * The tracked action a person's Start files (step 1 of launchWorkItem, and a
  * work card started on a Mac, src/lib/environments/start.ts startWorkOnMac):
  * the default workflow state of the default team, confirmed, 'starting'.
- * OMIT source_type (its CHECK allows only the capture and chat sources).
+ * OMIT source_type: it keeps its default, 'user'. Its CHECK lists user,
+ * meeting_extraction, chat_suggestion, stt_extraction and insight_suggestion,
+ * and refuses anything else ('chat' and 'capture' are not values it takes).
  */
 export async function fileTrackedAction(
   supabase: SupabaseClient,
@@ -219,8 +221,9 @@ export async function launchWorkItem(
   }
 
   // 1. The tracked action (a person's Start only; an attempt anchors to its
-  //    capture instead). OMIT source_type (its CHECK allows only the capture
-  //    and chat sources); the default workflow state of the default team.
+  //    capture instead). OMIT source_type (it keeps its default, 'user'; its
+  //    CHECK refuses a value it does not list, 'chat' among them); the default
+  //    workflow state of the default team.
   let actionId: string | null = null
   let identifier: string | null = null
   const existingActionId = input.existingActionId ?? null

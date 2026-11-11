@@ -9,6 +9,7 @@ import { AccountFilterDropdown } from "@/components/account-filter-dropdown";
 
 import { useCalendar } from "@/calendar/contexts/calendar-context";
 import { AddEventDialog } from "@/calendar/components/dialogs/add-event-dialog";
+import { CopyAvailabilityButton } from "@/calendar/components/header/copy-availability-button";
 import { navigateDate, rangeText } from "@/calendar/helpers";
 
 import type { IEvent } from "@/calendar/interfaces";
@@ -73,6 +74,8 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
 
           <div className="flex-1" />
 
+          <CopyAvailabilityButton />
+
           <AddEventDialog>
             <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
               <Plus className="h-3.5 w-3.5" />
@@ -124,6 +127,7 @@ export function CalendarHeader({ view, events, onViewChange, filterAccountIds, o
                 <AccountFilterDropdown capability="calendar" selectedAccountIds={filterAccountIds ?? null} onSelectionChange={onFilterChange} />
               </div>
             )}
+            {card && <CopyAvailabilityButton compact className="hidden @[30rem]/calbar:inline-flex" />}
             {card && (
               <AddEventDialog>
                 <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 rounded-full p-0" aria-label="New event">

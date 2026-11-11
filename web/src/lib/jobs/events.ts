@@ -7,7 +7,7 @@
  *   - 'done': complete_job, when the owner says a job is done ("the Smith
  *     rug is done", by text): job type 'action' (a board action) or 'manual'
  *     (that customer's job today); bookings (roadmap track B,
- *     customer_booking) when one is done;
+ *     a customer's meeting_booking) when one is done;
  *   - 'paid': a paid payment link (roadmap track C, the Connect webhook),
  *     jobRef the quote, booking or action it was for, or the
  *     payment_request itself.

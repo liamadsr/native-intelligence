@@ -11,7 +11,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb, customerRows, seedBookings, type CustomerBookingSeed } from '@/test/booking-db'
 import { bookingCancelledText, bookingMovedText, ownerCancelBooking, ownerMoveBooking, rescheduleWithCalendar, type BookingChangeDeps } from '../booking-changes'
 import { customerRecordSection } from '../customer-spec'
 import { confirmAppointment, remindersStopped } from '../reminder-replies'
@@ -30,6 +30,13 @@ const R_DANA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 // Dana's visit: Thu, Nov 5, 9:00 to 10:30 AM in Chicago, on the owner's calendar as evt-dana.
 const ownEvent = { id: 'evt-dana', title: 'Visit: Dana Ruiz', start: '2026-11-05T15:00:00.000Z', end: '2026-11-05T16:30:00.000Z' }
 
+// Dana's booking as the customer flow names it (migration 458's words): a meeting_booking with its claim since 581.
+const DANA_SEED: CustomerBookingSeed = {
+  id: B_DANA, workspace_id: WS, owner_user_id: OWNER, quote_id: null, contact_id: null, guest_id: null, source: 'sms', kind: 'visit',
+  starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA,
+  address: '400 Lake St', note: null, state: 'confirmed', approval_id: null, calendar_event_id: 'evt-dana', customer_confirmed_at: '2026-11-04T16:30:00.000Z', created_at: '2026-11-01T12:00:00Z',
+}
+
 type Row = Record<string, unknown>
 let tables: Record<string, Row[]>
 let db: SupabaseClient
@@ -44,13 +51,6 @@ beforeEach(() => {
     business_profile: [
       { workspace_id: WS, owner_user_id: OWNER, business_name: 'Brightside', customer_facts: null, time_zone: CHICAGO, booking_days: [1, 2, 3, 4, 5], booking_start: '08:00', booking_end: '17:00', slot_minutes: 60, lead_hours: 12, horizon_days: 21, booking_kind: 'visit', booking_slug: null, reminders: true },
     ],
-    customer_booking: [
-      {
-        id: B_DANA, workspace_id: WS, owner_user_id: OWNER, quote_id: null, contact_id: null, guest_id: null, source: 'sms', kind: 'visit',
-        starts_at: '2026-11-05T15:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA,
-        address: '400 Lake St', note: null, state: 'confirmed', approval_id: null, calendar_event_id: 'evt-dana', customer_confirmed_at: '2026-11-04T16:30:00.000Z', created_at: '2026-11-01T12:00:00Z',
-      },
-    ],
     customer_reminder: [
       {
         id: R_DANA, workspace_id: WS, owner_user_id: OWNER, subject_type: 'booking', subject_id: B_DANA, contact_id: null, phone_e164: DANA, customer_name: 'Dana Ruiz', kind: 'visit',
@@ -59,8 +59,8 @@ beforeEach(() => {
       },
     ],
   }
-  db = memoryDb(tables, {
-    customer_booking: (a, b) => a.workspace_id === b.workspace_id && a.starts_at === b.starts_at && ['requested', 'confirmed'].includes(a.state as string) && ['requested', 'confirmed'].includes(b.state as string),
+  seedBookings(tables, [DANA_SEED])
+  db = bookingDb(tables, {
     customer_reminder: (a, b) => a.workspace_id === b.workspace_id && a.subject_type === b.subject_type && a.subject_id === b.subject_id && a.phone_e164 === b.phone_e164,
   })
 })
@@ -140,7 +140,7 @@ describe('move_booking', () => {
   })
 
   it("another booking or anything on the owner's calendar then is refused, and so is a calendar that can't be read: nothing changes", async () => {
-    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'other', customer_phone: '+13125550199', starts_at: '2026-11-06T19:30:00.000Z', ends_at: '2026-11-06T20:30:00.000Z', calendar_event_id: null })
+    seedBookings(tables, [{ ...DANA_SEED, id: 'other', customer_phone: '+13125550199', starts_at: '2026-11-06T19:30:00.000Z', ends_at: '2026-11-06T20:30:00.000Z', calendar_event_id: null }])
     const booked = deps()
     expect(await move('2026-11-06T13:00', booked.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
     const busy = deps({ listEvents: vi.fn(async () => [ownEvent, { id: 'dentist', title: 'Dentist', start: '2026-11-06T15:00:00.000Z', end: '2026-11-06T16:00:00.000Z' }]) as never })
@@ -151,17 +151,17 @@ describe('move_booking', () => {
       expect(d.moveEvent).not.toHaveBeenCalled()
       expect(texts).toEqual([])
     }
-    expect(tables.customer_booking[0]).toMatchObject({ starts_at: '2026-11-05T15:00:00.000Z', customer_confirmed_at: '2026-11-04T16:30:00.000Z' })
+    expect(customerRows(tables)[0]).toMatchObject({ starts_at: '2026-11-05T15:00:00.000Z', customer_confirmed_at: '2026-11-04T16:30:00.000Z' })
     expect(tables.customer_reminder[0]).toMatchObject({ moved_to: null, answer: 'confirmed' })
   })
 
   it("a fresh request holds its time; one the owner never answered is expired first; a day off (all-day) is busy", async () => {
-    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'fresh', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-06T19:00:00.000Z', ends_at: '2026-11-06T20:00:00.000Z', calendar_event_id: null, created_at: '2026-11-04T12:00:00Z' })
+    seedBookings(tables, [{ ...DANA_SEED, id: 'fresh', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-06T19:00:00.000Z', ends_at: '2026-11-06T20:00:00.000Z', calendar_event_id: null, created_at: '2026-11-04T12:00:00Z' }])
     const fresh = deps()
     expect(await move('2026-11-06T13:00', fresh.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
-    tables.customer_booking[1].created_at = '2026-11-01T12:00:00Z'
+    tables.meeting_booking[1].created_at = '2026-11-01T12:00:00Z'
     expect(await move('2026-11-06T13:00', fresh.d)).toMatchObject({ success: true, status: 'moved' })
-    expect(tables.customer_booking[1].state).toBe('expired')
+    expect(customerRows(tables)[1].state).toBe('expired')
     const dayOff = deps({ listEvents: vi.fn(async () => [{ id: 'off', title: 'Day off', start: '2026-11-09T00:00:00.000Z', end: '2026-11-10T00:00:00.000Z', isAllDay: true }]) as never })
     expect(await move('2026-11-09T13:00', dayOff.d)).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
   })
@@ -170,7 +170,7 @@ describe('move_booking', () => {
     tables.customer_reminder[0].answer = 'moved'
     const { d, texts } = deps({
       moveEvent: vi.fn(async () => {
-        tables.customer_booking[0].starts_at = '2026-11-06T21:00:00.000Z'
+        tables.meeting_booking[0].starts_at = '2026-11-06T21:00:00.000Z'
         tables.customer_reminder[0].moved_to = '2026-11-06T21:00:00.000Z'
       }),
     })
@@ -182,12 +182,12 @@ describe('move_booking', () => {
   it('a cancel that lands while the calendar refuses is never undone by the rollback', async () => {
     const { d, texts } = deps({
       moveEvent: vi.fn(async () => {
-        tables.customer_booking[0].state = 'cancelled'
+        tables.meeting_booking[0].state = 'cancelled'
         throw new Error('410')
       }),
     })
     expect(await move('2026-11-06T13:00', d)).toMatchObject({ success: false, code: 'CHANGED' })
-    expect(tables.customer_booking[0]).toMatchObject({ state: 'cancelled', starts_at: '2026-11-06T19:00:00.000Z' })
+    expect(customerRows(tables)[0]).toMatchObject({ state: 'cancelled', starts_at: '2026-11-06T19:00:00.000Z' })
     expect(texts).toEqual([])
   })
 
@@ -223,17 +223,28 @@ describe('move_booking', () => {
     expect(await ownerMoveBooking(db, { userId: OWNER, workspaceId: 'ws-other', bookingId: B_DANA, start: '2026-11-06T13:00', tellCustomer: true }, d)).toMatchObject({ success: false })
     tables.member.push({ id: 'm-other', workspace_id: 'ws-other', user_id: OWNER, role: 'owner' })
     expect(await ownerMoveBooking(db, { userId: OWNER, workspaceId: 'ws-other', bookingId: B_DANA, start: '2026-11-06T13:00', tellCustomer: true }, d)).toMatchObject({ success: false, code: 'NOT_FOUND' })
-    tables.customer_booking[0].state = 'requested'
+    tables.meeting_booking[0].state = 'requested'
     expect(await move('2026-11-06T13:00', d)).toMatchObject({ success: false, code: 'WAITING' })
-    tables.customer_booking[0].state = 'cancelled'
+    tables.meeting_booking[0].state = 'cancelled'
     expect(await move('2026-11-06T13:00', d)).toMatchObject({ success: false, code: 'NOT_BOOKED' })
     expect(d.moveEvent).not.toHaveBeenCalled()
-    tables.customer_booking[0].state = 'confirmed'
+    tables.meeting_booking[0].state = 'confirmed'
     expect(await move('2026-11-06T13:00', d, { userId: ADMIN })).toMatchObject({ success: true, status: 'moved' })
   })
 })
 
 describe('cancel_booking', () => {
+  it('a booking meeting on a call here (migration 585): its trigger revoked the link; anyone still in the call is taken out now', async () => {
+    const meetingCancelled = vi.fn(async () => true)
+    const { d } = deps({ meetingCancelled })
+    expect(await cancel(d)).toMatchObject({ success: true, status: 'cancelled' })
+    expect(meetingCancelled).toHaveBeenCalledWith(B_DANA)
+    // Refused (not live any more): no one is taken out.
+    meetingCancelled.mockClear()
+    expect(await cancel(d)).toMatchObject({ success: false })
+    expect(meetingCancelled).not.toHaveBeenCalled()
+  })
+
   it('cancels it, deletes its calendar event and texts the customer; their reminder says so, a late yes is refused, and STOP no longer says it stands', async () => {
     const { d, texts } = deps()
     expect(await cancel(d)).toEqual({
@@ -246,7 +257,7 @@ describe('cancel_booking', () => {
       message: "Cancelled Dana Ruiz's visit on Thu, Nov 5, 9:00 AM. It's off your calendar too. Dana Ruiz got a text saying so.",
     })
     expect(d.deleteEvent).toHaveBeenCalledWith(OWNER, 'evt-dana')
-    expect(tables.customer_booking[0].state).toBe('cancelled')
+    expect(customerRows(tables)[0].state).toBe('cancelled')
     expect(texts).toEqual([{ to: DANA, body: "Brightside: your visit on Thu, Nov 5, 9:00 AM is cancelled. Reply here if you'd like another time." }])
     expect(tables.customer_reminder[0]).toMatchObject({ answer: 'cancelled', answered_at: '2026-11-04T18:00:00.000Z' })
     const open = await openRemindersForPhone(db, WS, DANA, NOW)
@@ -266,18 +277,18 @@ describe('cancel_booking', () => {
       customer_texted: false,
       message: "Cancelled Dana Ruiz's visit on Thu, Nov 5, 9:00 AM. Your calendar wouldn't delete its event: remove it yourself. Dana Ruiz wasn't texted.",
     })
-    expect(tables.customer_booking[0].state).toBe('cancelled')
+    expect(customerRows(tables)[0].state).toBe('cancelled')
     expect(texts).toEqual([])
   })
 
   it("only a confirmed booking not yet started, by an owner or admin", async () => {
     const { d, texts } = deps()
     expect(await cancel(d, { userId: SAM })).toMatchObject({ success: false, code: 'NOT_ALLOWED' })
-    tables.customer_booking[0].state = 'requested'
+    tables.meeting_booking[0].state = 'requested'
     expect(await cancel(d)).toMatchObject({ success: false, code: 'WAITING' })
-    tables.customer_booking[0].state = 'confirmed'
+    tables.meeting_booking[0].state = 'confirmed'
     expect(await cancel({ ...d, now: () => Date.parse('2026-11-05T15:30:00Z') })).toMatchObject({ success: false, code: 'STARTED' })
-    expect(tables.customer_booking[0].state).toBe('confirmed')
+    expect(customerRows(tables)[0].state).toBe('confirmed')
     expect(d.deleteEvent).not.toHaveBeenCalled()
     expect(texts).toEqual([])
     expect(await cancel(d, { userId: ADMIN })).toMatchObject({ success: true, status: 'cancelled' })
@@ -290,19 +301,20 @@ describe('rescheduleWithCalendar (shared with the customer\'s own move)', () => 
 
   it("another live booking at that start is SLOT_TAKEN; a booking that moved since is CHANGED; nothing changes", async () => {
     const booking = (await getBooking(db, WS, B_DANA))!
-    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'other', customer_phone: '+13125550199', starts_at: slot.start, ends_at: slot.end, calendar_event_id: null })
+    seedBookings(tables, [{ ...DANA_SEED, id: 'other', customer_phone: '+13125550199', starts_at: slot.start, ends_at: slot.end, calendar_event_id: null }])
     const moveEvent = vi.fn(async () => ({}))
     expect(await rescheduleWithCalendar(db, booking, slot, { nowIso, confirmedAt: null, moveEvent })).toEqual({ ok: false, code: 'SLOT_TAKEN' })
-    tables.customer_booking.pop()
+    tables.meeting_booking = tables.meeting_booking.filter((b) => b.id !== 'other')
+    tables.host_time_claim = tables.host_time_claim.filter((c) => c.booking_id !== 'other')
     expect(await rescheduleWithCalendar(db, { ...booking, startsAt: '2026-11-05T14:00:00.000Z' }, slot, { nowIso, confirmedAt: null, moveEvent })).toEqual({ ok: false, code: 'CHANGED' })
     expect(moveEvent).not.toHaveBeenCalled()
-    expect(tables.customer_booking[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
+    expect(customerRows(tables)[0].starts_at).toBe('2026-11-05T15:00:00.000Z')
   })
 
   it("a calendar that refuses after the old time was taken can't go back: it stays moved, the calendar stuck", async () => {
     const booking = (await getBooking(db, WS, B_DANA))!
     const moveEvent = vi.fn(async () => {
-      tables.customer_booking.push({ ...tables.customer_booking[0], id: 'taker', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T15:00:00.000Z', calendar_event_id: null, created_at: nowIso })
+      seedBookings(tables, [{ ...DANA_SEED, id: 'taker', state: 'requested', customer_phone: '+13125550199', starts_at: '2026-11-05T15:00:00.000Z', calendar_event_id: null, created_at: nowIso }])
       throw new Error('403')
     })
     expect(await rescheduleWithCalendar(db, booking, slot, { nowIso, confirmedAt: nowIso, moveEvent })).toMatchObject({ ok: true, calendar: 'stuck', booking: { startsAt: slot.start, customerConfirmedAt: nowIso } })
@@ -312,7 +324,7 @@ describe('rescheduleWithCalendar (shared with the customer\'s own move)', () => 
 describe('cancel_booking and its quote', () => {
   const Q = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
   beforeEach(() => {
-    tables.customer_booking[0].quote_id = Q
+    tables.meeting_booking[0].quote_id = Q
     tables.customer_quote = [{ id: Q, workspace_id: WS, status: 'booked', updated_at: '2026-11-01T12:00:00Z' }]
   })
 
@@ -322,7 +334,7 @@ describe('cancel_booking and its quote', () => {
   })
 
   it('leaves it booked while another live booking holds it', async () => {
-    tables.customer_booking.push({ ...tables.customer_booking[0], id: 'second', customer_phone: '+13125550199', starts_at: '2026-11-12T15:00:00.000Z', ends_at: '2026-11-12T16:30:00.000Z' })
+    seedBookings(tables, [{ ...DANA_SEED, quote_id: Q, id: 'second', customer_phone: '+13125550199', starts_at: '2026-11-12T15:00:00.000Z', ends_at: '2026-11-12T16:30:00.000Z' }])
     expect(await cancel(deps().d)).toMatchObject({ success: true })
     expect(tables.customer_quote[0].status).toBe('booked')
   })
@@ -336,7 +348,7 @@ describe('cancel_booking and its quote', () => {
   it('texts the time it was cancelled at, even when a move landed after it was read', async () => {
     const { d, texts } = deps({
       timeZone: async () => {
-        tables.customer_booking[0].starts_at = '2026-11-06T19:00:00.000Z'
+        tables.meeting_booking[0].starts_at = '2026-11-06T19:00:00.000Z'
         return CHICAGO
       },
     })

@@ -96,7 +96,13 @@ export function useUpdateEvent() {
       }).then(res => {
         // A non-2xx response never throws — revert here too, not just in catch.
         if (!res.ok) revert();
-        else patchCacheWithEvent(newEvent);
+        else {
+          patchCacheWithEvent(newEvent);
+          // Saved, with a word to say (a meeting link that couldn't follow the new length exactly).
+          void res.json().then((json: { notice?: string }) => {
+            if (json?.notice) toast(json.notice);
+          }).catch(() => {});
+        }
       }).catch(() => {
         revert();
       }).finally(() => {
