@@ -21,6 +21,7 @@ import {
   PRIVATE_GRAPH_KINDS,
   PRIVATE_KIND_LABEL,
   hiddenGraphRefs,
+  type GrantOpts,
   isLinkFencedKind,
   isPrivateGraphKind,
   visiblePrivateKindIds,
@@ -90,10 +91,12 @@ export async function entityInWorkspace(
   type: LinkableEntityType,
   id: string,
   requesterUserId?: string | null,
+  // `grants: false` on a guest's or a linked agent's turn: a row only a grant shows them (a decision of a granted capture) is not theirs to link.
+  grantOpts: GrantOpts = {},
 ): Promise<boolean> {
   if (isPrivateGraphKind(type)) {
     if (!requesterUserId) return false
-    const visible = await visiblePrivateKindIds(supabase, type, requesterUserId, [id], workspaceId)
+    const visible = await visiblePrivateKindIds(supabase, type, requesterUserId, [id], workspaceId, grantOpts)
     return visible.has(id)
   }
   const table = WORKSPACE_SCOPED_TABLE[type]
@@ -188,6 +191,8 @@ export async function reconcileProvenance(
   claimIds: string[],
   prefetched?: PrefetchedProvenance,
   requester?: CaptureRequester,
+  // `grants: false` on a guest's or a linked agent's turn: an edge whose far end only a grant opens is left out.
+  grantOpts: GrantOpts = {},
 ): Promise<Map<string, ReconciledProvenance[]>> {
   const out = new Map<string, ReconciledProvenance[]>()
   if (claimIds.length === 0) return out
@@ -244,7 +249,7 @@ export async function reconcileProvenance(
       .filter((l) => typeof l.target_type === 'string' && typeof l.target_id === 'string' && isLinkFencedKind(l.target_type))
       .map((l) => ({ type: l.target_type as string, id: l.target_id as string }))
     if (linkRefs.length > 0) {
-      const hiddenEnds = await hiddenGraphRefs(supabase, linkRefs, requester, workspaceId)
+      const hiddenEnds = await hiddenGraphRefs(supabase, linkRefs, requester, workspaceId, grantOpts)
       links = links.filter((l) => !hiddenEnds.has(`${l.target_type as string}:${l.target_id as string}`))
     }
   }
@@ -342,6 +347,8 @@ interface LabelFence {
     userId: string,
     rows: Array<{ id: string }>,
     workspaceId?: string,
+    /** `grants: false` on a guest's or a linked agent's turn: a grant names nothing. */
+    opts?: GrantOpts,
   ) => Promise<Array<{ id: string }>>
   placeholder: string
 }
@@ -349,8 +356,8 @@ interface LabelFence {
 /** A private graph kind's fence (src/lib/knowledge/entity-fences.ts), as a label fence. */
 function privateKindLabelFence(type: PrivateGraphKind): LabelFence {
   return {
-    filterVisible: async (supabase, userId, rows, workspaceId) => {
-      const visible = await visiblePrivateKindIds(supabase, type, userId, rows.map((r) => r.id), workspaceId)
+    filterVisible: async (supabase, userId, rows, workspaceId, opts) => {
+      const visible = await visiblePrivateKindIds(supabase, type, userId, rows.map((r) => r.id), workspaceId, opts)
       return rows.filter((r) => visible.has(r.id))
     },
     placeholder: PRIVATE_KIND_LABEL[type],
@@ -363,8 +370,8 @@ function privateKindLabelFence(type: PrivateGraphKind): LabelFence {
  * (`linkable` in the registry) only once its fence is.
  */
 export const FENCED_LABEL_TYPES: Readonly<Record<string, LabelFence>> = {
-  contact: { filterVisible: filterVisibleContacts, placeholder: PRIVATE_CONTACT_LABEL },
-  company: { filterVisible: filterVisibleCompanies, placeholder: PRIVATE_COMPANY_LABEL },
+  contact: { filterVisible: (supabase, userId, rows, _ws, opts) => filterVisibleContacts(supabase, userId, rows, opts), placeholder: PRIVATE_CONTACT_LABEL },
+  company: { filterVisible: (supabase, userId, rows, _ws, opts) => filterVisibleCompanies(supabase, userId, rows, opts), placeholder: PRIVATE_COMPANY_LABEL },
   ...Object.fromEntries(PRIVATE_GRAPH_KINDS.map((type) => [type, privateKindLabelFence(type)])),
 }
 
@@ -379,6 +386,7 @@ async function fenceBundleLabels(
   supabase: SupabaseClient,
   userId: string,
   nodes: readonly unknown[],
+  grantOpts: GrantOpts = {},
 ): Promise<unknown[]> {
   type Node = { node_type?: unknown; node_id?: unknown; label?: unknown }
   const fencedType = (n: unknown): string | null => {
@@ -400,7 +408,7 @@ async function fenceBundleLabels(
   const visible = new Set<string>()
   await Promise.all(
     [...idsByType.entries()].map(async ([type, ids]) => {
-      const rows = await FENCED_LABEL_TYPES[type].filterVisible(supabase, userId, [...ids].map((id) => ({ id })))
+      const rows = await FENCED_LABEL_TYPES[type].filterVisible(supabase, userId, [...ids].map((id) => ({ id })), undefined, grantOpts)
       for (const r of rows) visible.add(`${type}:${r.id}`)
     }),
   )
@@ -424,6 +432,7 @@ export async function dropHiddenFromBundle(
   supabase: SupabaseClient,
   bundle: { center: { type: string; id: string }; nodes: unknown[]; edges: unknown[] },
   requester: string | null,
+  grantOpts: GrantOpts = {},
 ): Promise<{ nodes: unknown[]; edges: unknown[] } | null> {
   type Node = { node_type?: unknown; node_id?: unknown }
   type Edge = { source_type?: unknown; source_id?: unknown; target_type?: unknown; target_id?: unknown }
@@ -457,7 +466,7 @@ export async function dropHiddenFromBundle(
     claimIds.size > 0 ? claimIdsHiddenFrom(supabase, [...claimIds], requester) : new Set<string>(),
     conversationIds.size > 0 ? conversationIdsHiddenFrom(supabase, [...conversationIds], requester) : new Set<string>(),
     documentIds.size > 0 ? documentIdsHiddenFrom(supabase, [...documentIds], requester) : new Set<string>(),
-    privateRefs.length > 0 ? hiddenGraphRefs(supabase, privateRefs, requester) : new Set<string>(),
+    privateRefs.length > 0 ? hiddenGraphRefs(supabase, privateRefs, requester, undefined, grantOpts) : new Set<string>(),
   ])
   if (!hiddenClaims || !hiddenChats || !hiddenDocs) return null
   const hidden = (type: unknown, id: unknown) =>
@@ -496,6 +505,8 @@ export function createClaimTools(
   // was shared with the person stays theirs, never their guest's.
   omitGrants = false,
 ) {
+  // The same for a contact, a company or a graph edge's far end (migration 519).
+  const grantOpts: GrantOpts = omitGrants ? { grants: false } : {}
   // Threaded into the visibility-aware SECURITY DEFINER RPCs; null = fail closed
   // (claims sourced only from private captures are excluded).
   const requestingUserId = captureRequester(userId, omitPrivateCaptures)
@@ -618,6 +629,7 @@ export function createClaimTools(
                       fenceUser,
                       rows.filter((r): r is Record<string, unknown> & { id: string } => typeof r.id === 'string'),
                       ws,
+                      grantOpts,
                     )
                   ).map((r) => r.id)
                 : [],
@@ -838,6 +850,7 @@ export function createClaimTools(
             rows.map((r) => r.id),
             undefined,
             requestingUserId,
+            grantOpts,
           )
           return rows.map((r) => ({ ...r, provenance: provMap.get(r.id) ?? [] }))
         }
@@ -1239,6 +1252,7 @@ export function createClaimTools(
           ],
           requestingUserId,
           resolved.workspaceId,
+          grantOpts,
         )
         const shownOutbound = visibleOutbound.filter((l) => !hiddenEnds.has(`${l.target_type as string}:${l.target_id as string}`))
         const shownInbound = visibleInbound.filter((l) => !hiddenEnds.has(`${l.source_type as string}:${l.source_id as string}`))
@@ -1271,6 +1285,7 @@ export function createClaimTools(
             })),
           },
           requestingUserId,
+          grantOpts,
         )
         const provenance = provMap.get(claim_id) ?? []
 
@@ -1430,6 +1445,7 @@ export function createClaimTools(
             s.source_type as (typeof LINKABLE_ENTITY_TYPES)[number],
             s.source_id,
             requestingUserId,
+            grantOpts,
           )
           if (!ok) {
             return {
@@ -1445,6 +1461,7 @@ export function createClaimTools(
             l.entity_type,
             l.entity_id,
             requestingUserId,
+            grantOpts,
           )
           if (!ok) {
             return {
@@ -1785,6 +1802,7 @@ export function createClaimTools(
           source_type,
           source_id,
           requestingUserId,
+          grantOpts,
         )
         if (!srcOk) {
           return {
@@ -1798,6 +1816,7 @@ export function createClaimTools(
           target_type,
           target_id,
           requestingUserId,
+          grantOpts,
         )
         if (!tgtOk) {
           return {
@@ -2160,7 +2179,7 @@ export function createClaimTools(
           claimIds.length > 0 ? claimIdsHiddenFrom(supabase, claimIds, requestingUserId) : new Set<string>(),
           chatIds.length > 0 ? conversationIdsHiddenFrom(supabase, chatIds, requestingUserId) : new Set<string>(),
           privateRefs.length > 0
-            ? hiddenGraphRefs(supabase, privateRefs, requestingUserId, scopeWorkspaceId)
+            ? hiddenGraphRefs(supabase, privateRefs, requestingUserId, scopeWorkspaceId, grantOpts)
             : new Set<string>(),
         ])
         if (!hiddenClaims || !hiddenChats) return { success: false, error: 'Could not read the graph. Try again.' }
@@ -2297,10 +2316,10 @@ export function createClaimTools(
           center: bundle.center ?? { type: entity_type, id: entity_id },
           nodes: bundle.nodes ?? [],
           edges: bundle.edges ?? [],
-        }, requestingUserId)
+        }, requestingUserId, grantOpts)
         if (!withoutMail) return { success: false, error: 'Could not read the graph. Try again.' }
         bundle.edges = withoutMail.edges
-        bundle.nodes = await fenceBundleLabels(supabase, userId, withoutMail.nodes)
+        bundle.nodes = await fenceBundleLabels(supabase, userId, withoutMail.nodes, grantOpts)
         return {
           success: true,
           ...bundle,

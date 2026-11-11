@@ -31,6 +31,8 @@ import { readReviewSettings, saveReviewLink } from '@/lib/reviews/link'
 export interface ReviewToolsContext {
   /** Nobody at the keyboard (a work run's, a loop's or a home turn's own work). */
   unattended?: boolean
+  /** A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a contact shared with the person (a grant) is not found. */
+  omitGrants?: boolean
 }
 
 /** Today's date in UTC: a job with no id counts as that customer's job today. */
@@ -79,7 +81,7 @@ export function createReviewTools(
           }
         }
         const resolved = await resolveEntityWorkspace(supabase, userId, 'contact', contact_id, workspaceId, strictWorkspace)
-        if (!resolved || !(await isContactVisibleTo(supabase, contact_id, userId))) {
+        if (!resolved || !(await isContactVisibleTo(supabase, contact_id, userId, ctx.omitGrants ? { grants: false } : {}))) {
           return { success: false, error: 'Contact not found' }
         }
         const targetWs = resolved.workspaceId

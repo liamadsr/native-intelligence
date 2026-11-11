@@ -48,16 +48,21 @@ export async function customFieldWriteRefusal(
   workspaceId: string,
   entity: CustomFieldRecordEntity,
   id: string,
-  opts: { grants?: boolean } = {},
+  // grants: whether an EDIT grant lets the write through (createTools's editGrants: off on a guest's,
+  // a linked agent's and an unattended turn). readGrants: whether a VIEW grant counts when telling
+  // "forbidden" from "not found" (off only on a guest's or a linked agent's turn, omitGrants).
+  opts: { grants?: boolean; readGrants?: boolean } = {},
 ): Promise<CustomFieldWriteRefusal | null> {
   const grants = opts.grants !== false
+  const readGrants = opts.readGrants !== false
   const notFound: CustomFieldWriteRefusal = { reason: 'not_found', error: customFieldNotFound(entity) }
   const forbidden: CustomFieldWriteRefusal = { reason: 'forbidden', error: customFieldForbidden(entity) }
   try {
     switch (entity) {
       case 'contact':
         if (await isContactWritableTo(db, id, userId, { grants })) return null
-        return (await isContactVisibleTo(db, id, userId)) ? forbidden : notFound
+        // On a guest's or a linked agent's turn a contact only a grant shows is not found, not forbidden: its existence is the owner's.
+        return (await isContactVisibleTo(db, id, userId, { grants: readGrants })) ? forbidden : notFound
       case 'company':
         return (await isCompanyWritableTo(db, id, userId, { grants })) ? null : notFound
       case 'document': {
