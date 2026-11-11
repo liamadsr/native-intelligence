@@ -62,6 +62,7 @@ class SupabaseManager: ObservableObject {
         print("🔷 SupabaseManager: Switching environment to \(env.description)...")
 
         // Sign out from current environment
+        await PushNotificationService.shared.unregister()
         try? await client.auth.signOut()
         authStateListener?.cancel()
 
@@ -365,6 +366,8 @@ class SupabaseManager: ObservableObject {
     }
 
     func signOut() async throws {
+        // This install stops getting the person's pushes first, while the session can still say so.
+        await PushNotificationService.shared.unregister()
         do {
             try await client.auth.signOut()
             print("🔷 SupabaseManager: Signed out successfully")

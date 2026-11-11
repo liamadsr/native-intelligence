@@ -78,8 +78,12 @@ targets:
       configs:
         Development:
           OTHER_SWIFT_FLAGS: "$(inherited) -DDEVELOPMENT"
+          # Push from Apple's sandbox (a build run from Xcode).
+          CODE_SIGN_ENTITLEMENTS: Config/Dial8-Development.entitlements
         Release:
           OTHER_SWIFT_FLAGS: "$(inherited) -DPRODUCTION"
+          # Push from Apple's production service (TestFlight and the App Store).
+          CODE_SIGN_ENTITLEMENTS: Config/Dial8.entitlements
 
   Dial8Widgets:
     type: app-extension
