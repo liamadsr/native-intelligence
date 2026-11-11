@@ -20,11 +20,16 @@ export interface EventTimes {
   end: string
   isAllDay?: boolean
   status?: string
+  /** Marked as free time on its calendar: never busy. */
+  transparent?: boolean
+  /** The person's own answer to the invite: one they declined is never busy. */
+  myResponse?: string
 }
 
 /**
  * The busy blocks of `events` inside [windowStart, windowEnd): cancelled and
- * unparseable events dropped, each clipped to the window, overlapping or
+ * unparseable events dropped, with those marked free and those the person
+ * declined, each clipped to the window, overlapping or
  * touching timed blocks merged, sorted by start. All-day blocks are kept
  * apart (they say "busy that day", not a time).
  */
@@ -36,7 +41,7 @@ export function busyBlocks(events: readonly EventTimes[], windowStart: string, w
   const timed: Array<[number, number]> = []
   const allDay = new Map<string, BusyBlock>()
   for (const event of events) {
-    if (!event || event.status === 'cancelled') continue
+    if (!event || event.status === 'cancelled' || event.transparent || event.myResponse === 'declined') continue
     const start = Date.parse(event.start)
     const end = Date.parse(event.end)
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue

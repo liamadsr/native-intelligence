@@ -293,6 +293,12 @@ describe('computeWorkRunCeiling', () => {
         // form's secret link, internal writes out as attended-only.
         'update_business_profile',
         'create_quote_form_link',
+        // Availability: the person's working hours, an internal write out as attended-only.
+        'set_working_hours',
+        // Availability phase 4a: booking links, made and changed only at the person's word.
+        'create_booking_link',
+        'update_booking_link',
+        'delete_booking_link',
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',
@@ -306,6 +312,14 @@ describe('computeWorkRunCeiling', () => {
         // Issue #11's follow-up: the owner's own move or cancel of a booking texts the customer, an external write.
         'move_booking',
         'cancel_booking',
+        // Availability phase 3a: offering an outside guest times, booking or cancelling one, external writes.
+        'offer_times',
+        'cancel_offered_meeting',
+        'accept_time_offer',
+        // Availability phase 5: a poll's answer that may book, its time booked anyway, its reminder, external writes.
+        'record_time_offer_answer',
+        'book_poll_time',
+        'nudge_time_offer',
       ].sort(),
     )
   })

@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Bug, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal } from 'lucide-react'
+import { ArrowLeft, Bug, CalendarClock, CreditCard, Mic, Link2, Building2, User, UserCircle, Tag, Mail, Terminal, Cpu, MessageSquare, MessageSquareText, Server, AudioWaveform, Sparkles, Lightbulb, SpellCheck, Keyboard, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { navRowClass, navSectionLabelClass } from '@/lib/nav-styles'
 import { useIsDesktop } from '@/components/desktop-titlebar'
@@ -51,6 +51,8 @@ const navSections: NavSection[] = [
     items: [
       { href: '/account/settings/profile', label: 'Profile', icon: UserCircle },
       { href: '/account/settings', label: 'Preferences', icon: User },
+      // Working hours, the calendars that make you busy, and sharing busy times with teammates.
+      { href: '/account/settings/availability', label: 'Availability', icon: CalendarClock },
       { href: '/account/settings/feedback', label: 'Feedback', icon: MessageSquare },
     ],
   },

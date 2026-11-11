@@ -88,6 +88,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   '': page('The home page.'),
   about: page('Marketing page.'),
   account: page('The app itself. Its API is under api/account, never forwarded.'),
+  b: page('A guest\'s page for a meeting they booked; its buttons post to the API of the domain it was loaded from.'),
   admin: page('The admin panel.', {
     auth: flow('admin/auth/callback: the admin sign-in returns here with a code its own domain\'s verifier cookie exchanges.'),
     'sign-out': flow('Clears the session cookie of the domain it is called on.'),
@@ -114,6 +115,7 @@ export const ROUTES: Readonly<Record<string, RouteRule>> = {
   s: page('A shared page; "create an account to comment" signs in on the domain it was opened on.'),
   sales: page('Marketing page.'),
   scribe: page('Marketing page.'),
+  t: page('The times a guest was offered; picking one posts to the API of the domain it was loaded from.'),
   vs: page('Comparison pages.'),
 
   // Kept on the old domain while the SMS campaign names it.

@@ -176,7 +176,7 @@ export async function buildDailyJobs(
   const next = new Date(Date.UTC(day.y, day.m - 1, day.d + 1))
   const dayEnd = zonedTime({ y: next.getUTCFullYear(), m: next.getUTCMonth() + 1, d: next.getUTCDate() }, '00:00', timeZone)
 
-  const bookings = (await listBookings(supabase, args.workspaceId, { fromIso: new Date(dayStart).toISOString(), state: 'confirmed', limit: 100 }))
+  const bookings = (await listBookings(supabase, args.workspaceId, { fromIso: new Date(dayStart).toISOString(), state: 'confirmed', hostUserId: profile.ownerUserId, limit: 100 }))
     .filter((b) => Date.parse(b.startsAt) < dayEnd)
   if (!bookings.length) return { outcome: 'empty' }
 

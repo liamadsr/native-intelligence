@@ -86,7 +86,7 @@ import { deferLogWrite } from '@/lib/log/agent-log'
 import { requestRoute } from '@/lib/reach/route'
 import { recordAgentEvents } from '@/lib/agent-events/record'
 import { agentEventKey } from '@/lib/agent-events/types'
-import type { BotApprovalContext, ConnectionApprovalContext, DocumentApprovalContext, FlowApprovalContext, FlowStepApprovalContext, LoopStepApprovalContext, OutreachApprovalContext, QuoteReplyApprovalContext, SkillRunMcpContext, UnsubscribeApprovalContext } from './approved-call'
+import type { BotApprovalContext, ConnectionApprovalContext, DocumentApprovalContext, FlowApprovalContext, FlowStepApprovalContext, LoopStepApprovalContext, OutreachApprovalContext, QuoteReplyApprovalContext, SkillRunMcpContext, TimeOfferApprovalContext, UnsubscribeApprovalContext } from './approved-call'
 import { mayApprove, type Approver } from './caller'
 import { requestApprovalTurn } from './approval-turn'
 import { activeGuestCeiling } from '@/lib/guests/guest-turn'
@@ -210,6 +210,8 @@ export interface ApprovalContext {
   unsubscribe?: UnsubscribeApprovalContext
   /** A quote reply card (send_quote, book_quote): which quote and its words' hash, set by the server's outward gate, never by a model. */
   quoteReply?: QuoteReplyApprovalContext
+  /** A time offer card (offer_times by email or text): the offer made for it and its words' hash, set by the server's outward gate, never by a model. */
+  timeOffer?: TimeOfferApprovalContext
   /**
    * Guest access: a call by the agent the owner made for one person who texts
    * it (src/lib/guests/). At accept the guest must still be active and still
@@ -437,12 +439,14 @@ export async function createToolApproval(supabase: SupabaseClient, approval: New
     const macJobId = approval.context?.localAgent?.sessionId ?? null
     // A quote reply's card is its words (roadmap F3): the same input with other words is a new card.
     const quoteCardHash = approval.context?.quoteReply?.card_hash ?? null
+    const offerCardHash = approval.context?.timeOffer?.card_hash ?? null
     const same = pending.find((row) =>
       row.tool === approval.toolName && row.input_hash === hash && row.card_id &&
       (row.flow_run_id ?? null) === runId &&
       (row.conversation_id ?? null) === conversationId &&
       (row.context?.localAgent?.sessionId ?? null) === macJobId &&
-      (row.context?.quoteReply?.card_hash ?? null) === quoteCardHash)
+      (row.context?.quoteReply?.card_hash ?? null) === quoteCardHash &&
+      (row.context?.timeOffer?.card_hash ?? null) === offerCardHash)
     if (same) return { ok: true, approvalId: same.id, cardId: same.card_id as string, reused: true }
     // A loop step's card is ONE per run and step, whatever its input (F4
     // review S3): a retried dispatch re-renders earlier steps, and a second
@@ -773,6 +777,8 @@ export async function denyToolCall(
   for (const row of (data ?? []) as SettledRow[]) await (deps.settled ?? notifyFlowStepSettled)(row, 'denied').catch(warnUnsettled)
   // A customer's booking: its slot opens again and they are told (roadmap B4).
   await settleBookings(supabase, (data ?? []) as SettledRow[], 'denied')
+  // A time offer's card: its held times go (availability phase 3a).
+  await settleTimeOffers(supabase, (data ?? []) as SettledRow[], 'denied')
   // A website change: its pull request is closed (roadmap track E).
   await settleWebsites(supabase, (data ?? []) as SettledRow[], 'denied')
   // A guest's call: the guest hears it was declined, after the response.
@@ -797,6 +803,14 @@ async function settleBookings(supabase: SupabaseClient, rows: readonly SettledRo
   if (!bookings.length) return
   const { settleBookingApproval } = await import('@/lib/customers/booking')
   for (const row of bookings) await settleBookingApproval(supabase, { workspace_id: row.workspace_id as string, context: row.context }, outcome)
+}
+
+/** Each time offer card among `rows` that was declined or lapsed: its offer's held times go (best effort, never throws). */
+async function settleTimeOffers(supabase: SupabaseClient, rows: readonly SettledRow[], outcome: 'denied' | 'expired'): Promise<void> {
+  const offers = rows.filter((row) => typeof row.context?.timeOffer?.offer_id === 'string')
+  if (!offers.length) return
+  const { settleTimeOfferApproval } = await import('@/lib/time-offers/send')
+  for (const row of offers) await settleTimeOfferApproval(supabase, { context: row.context }, outcome)
 }
 
 /** Each website merge card among `rows` that was declined or lapsed: its change settles (best effort, never throws). */
@@ -916,6 +930,8 @@ export async function expireLapsedApprovals(
   await settleExpired(rows, 'expired')
   // A customer's booking nobody answered: its slot opens again (roadmap B4).
   await settleBookings(supabase, rows.filter((row) => moved.has(row.id)), 'expired')
+  // A time offer's card nobody answered: its held times go (availability phase 3a).
+  await settleTimeOffers(supabase, rows.filter((row) => moved.has(row.id)), 'expired')
   // A website change nobody answered: it lapses, its pull request left open (roadmap track E).
   await settleWebsites(supabase, rows.filter((row) => moved.has(row.id)), 'expired')
   // A guest's call nobody answered: the guest hears it lapsed.
@@ -1204,6 +1220,7 @@ export async function executeStoredCall(
           ...(row.context?.browser ? { browser: row.context.browser } : {}),
           ...(row.context?.unsubscribe ? { unsubscribe: row.context.unsubscribe } : {}),
           ...(row.context?.quoteReply ? { quoteReply: row.context.quoteReply } : {}),
+          ...(row.context?.timeOffer ? { timeOffer: row.context.timeOffer } : {}),
         },
       }
     : {}

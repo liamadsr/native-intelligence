@@ -49,6 +49,8 @@ vi.mock('@/components/views/page-title', () => ({ PageTitle: () => null }))
 vi.mock('@/components/account-filter-dropdown', () => ({
   AccountFilterDropdown: ({ onSelectionChange }: { onSelectionChange: (ids: string[] | null) => void }) =>
     h('button', { 'data-pick-account': '', onClick: () => onSelectionChange(['acct-picked']) }, 'accounts'),
+  // Copy availability (the toolbar's): not what this test is about, so no calendar reads as connected.
+  useHasConnectedAccount: () => false,
 }))
 
 const fetchMock = vi.fn(async (url: string) => {
