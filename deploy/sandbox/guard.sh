@@ -34,13 +34,25 @@
 #    Containers, other sandboxes and, later, the tunnel to the app's server
 #    all have private addresses; the internet does not.
 #
-#   guard.sh apply    load the table, replacing an older copy in one step
-#   guard.sh check    exit 0 only when all three rules are loaded
-#   guard.sh ensure   check, and apply when the check fails (the timer's job)
-#   guard.sh count    how many connections rule 1 has refused (IPv4) since it was loaded
+#   guard.sh apply     load the table, replacing an older copy in one step
+#   guard.sh check     exit 0 only when the table is loaded exactly as apply left it
+#   guard.sh ensure    check, and apply when the check fails (the timer's job)
+#   guard.sh forget    empty the note of refused connections (check.py, before its tries)
+#   guard.sh refused   that note, as JSON: every address and port rule 1 refused since
 set -eu
 
 table=ni_sandbox_guard
+# The rules "apply" loaded, without their counters: "check" compares the live rules with them.
+expected=/run/ni-sandbox-guard.expected
+private='{ 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }'
+
+# The three chains, rule by rule. Not the whole table: that would include the
+# note's contents, which change with every refusal.
+listing() {
+	for chain in outbound inbound forward; do
+		nft -s list chain inet "$table" "$chain" 2>/dev/null || return 1
+	done
+}
 
 load() {
 	# "table" first so that "delete" has something to delete the first time;
@@ -49,8 +61,25 @@ load() {
 table inet $table
 delete table inet $table
 table inet $table {
+	# Which of this machine's addresses and ports rule 1 refused, for check.py:
+	# a count of packets cannot tell one try from another, this can.
+	set refused4 {
+		type ipv4_addr . inet_service
+		size 65535
+		flags dynamic,timeout
+		timeout 15m
+	}
 	chain outbound {
 		type filter hook output priority -150; policy accept;
+		# A refusal answers with an error message, and on this machine that
+		# message is itself addressed to one of this machine's addresses. Let it
+		# through: refused again, it would never arrive, and the caller would
+		# wait out its timeout instead of hearing "refused" at once.
+		icmp type destination-unreachable accept
+		icmpv6 type destination-unreachable accept
+		# Noted, then refused. When the note is full this rule stops matching,
+		# and the next one, which notes nothing, refuses all the same.
+		meta l4proto tcp fib daddr type local ip daddr != 127.0.0.0/8 update @refused4 { ip daddr . tcp dport } counter reject comment "own-address-v4-noted"
 		fib daddr type local ip daddr != 127.0.0.0/8 counter reject comment "own-address-v4"
 		meta nfproto ipv6 fib daddr type local counter reject comment "own-address-v6"
 	}
@@ -63,19 +92,22 @@ table inet $table {
 	}
 	chain forward {
 		type filter hook forward priority -150; policy accept;
-		iifname "e2b-*" ip daddr { 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 } counter drop comment "sandbox-to-private"
+		# By the link a sandbox's traffic comes in on, and by the address the
+		# runtime gives it: either alone would miss a renamed link or a forged address.
+		iifname "e2b-*" ip daddr $private counter drop comment "sandbox-link-to-private"
+		ip saddr 10.11.0.0/16 ip daddr $private counter drop comment "sandbox-range-to-private"
 		iifname "e2b-*" meta nfproto ipv6 counter drop comment "sandbox-ipv6"
 	}
 }
 EOF
+	(umask 077 && listing >"$expected.new") && mv -f "$expected.new" "$expected"
 }
 
+# Loaded, and the same as what apply loaded: a table that is there but was
+# changed since (a rule put in front, a chain moved) does not count.
 loaded() {
-	rules="$(nft list table inet "$table" 2>/dev/null)" || return 1
-	# The listing may name the priority instead of printing its number, so it is not matched.
-	for want in 'hook output' 'own-address-v4' 'own-address-v6' 'hook input' 'runtime-ports' 'hook forward' 'sandbox-to-private' 'sandbox-ipv6'; do
-		case "$rules" in *"$want"*) ;; *) return 1 ;; esac
-	done
+	[ -s "$expected" ] || return 1
+	[ "$(listing)" = "$(cat "$expected")" ]
 }
 
 case "${1:-}" in
@@ -86,21 +118,24 @@ check)
 	if loaded; then
 		echo "guard: loaded (this machine's own addresses refused, the runtime's ports closed to the outside, nothing passed on from a sandbox to a private address)"
 	else
-		echo "guard: NOT loaded" >&2
+		echo "guard: NOT loaded, or not as it was loaded" >&2
 		exit 1
 	fi
 	;;
 ensure)
 	if ! loaded; then
 		load
-		echo "guard: was missing, loaded again"
+		echo "guard: was missing or changed, loaded again"
 	fi
 	;;
-count)
-	nft list chain inet "$table" outbound | sed -n 's/.*counter packets \([0-9][0-9]*\) .*own-address-v4.*/\1/p'
+forget)
+	nft flush set inet "$table" refused4
+	;;
+refused)
+	nft -j list set inet "$table" refused4
 	;;
 *)
-	echo "usage: guard.sh apply | check | ensure | count" >&2
+	echo "usage: guard.sh apply | check | ensure | forget | refused" >&2
 	exit 2
 	;;
 esac

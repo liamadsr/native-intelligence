@@ -14,15 +14,15 @@ Four things are tried from inside the sandbox:
    machine's loopback and its own addresses as the host, in case the proxy
    connects to the name it is told instead of the place it was pointed at.
 3. A datagram (UDP) to every address. Those do not pass through the proxy.
-4. The internet, on a web port and on another port, so that "nothing
-   reached" cannot simply mean "nothing works": the two travel the same two
-   paths inside the proxy as the tries above. Two sites for each, of which
-   one must answer, so that one site's bad day is not this server's.
+4. The internet: a web port, another port, and a datagram that must be
+   answered, so that "nothing reached" cannot simply mean "nothing works".
+   They travel the same paths as the tries above. Two sites for each, of
+   which one must answer, so that one site's bad day is not this server's.
 
-And one thing is read on the machine: the guard's own count of refused
-connections, before and after. A listener that says nothing to the probe (one
-that speaks TLS, for one) looks the same reached or not, so silence is not
-taken as proof: every try at a public address must show up in that count.
+And one thing is read on the machine: the guard's own note of the addresses
+and ports it refused. A listener that says nothing to the probe (one that
+speaks TLS, for one) looks the same reached or not, so silence is not taken
+as proof: every try at a public address must be in that note.
 """
 import argparse
 import ipaddress
@@ -72,24 +72,28 @@ def straight(target):
         return 0
 
 def named(name):
-    # To an outside site, naming this machine as the host.
-    try:
-        s = socket.create_connection(("example.com", 80), timeout=6)
-        s.settimeout(6)
-        s.sendall(("GET /health HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" % name).encode())
-        got = b""
+    # To an outside site, naming this machine as the host. The first site that
+    # answers with HTTP at all is the answer: "no answer" must not pass for "refused".
+    for site in spec["sites"]:
         try:
-            while len(got) < 2000:
-                chunk = s.recv(2000)
-                if not chunk:
-                    break
-                got += chunk
+            s = socket.create_connection((site, 80), timeout=6)
+            s.settimeout(6)
+            s.sendall(("GET /health HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n" % name).encode())
+            got = b""
+            try:
+                while len(got) < 2000:
+                    chunk = s.recv(2000)
+                    if not chunk:
+                        break
+                    got += chunk
+            except Exception:
+                pass
+            s.close()
+            if got.startswith(b"HTTP/"):
+                return got.decode("latin-1")
         except Exception:
             pass
-        s.close()
-        return got.decode("latin-1")
-    except Exception:
-        return ""
+    return ""
 
 def datagram(host):
     try:
@@ -100,19 +104,47 @@ def datagram(host):
     except Exception:
         pass
 
+def clock(host):
+    # A time request: a datagram out, and its answer back.
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(4)
+        s.sendto(b"\x1b" + 47 * b"\0", (host, 123))
+        got = len(s.recvfrom(64)[0])
+        s.close()
+        return got
+    except Exception:
+        return 0
+
 with ThreadPoolExecutor(16) as pool:
     out = {
         "straight": dict(zip(spec["straight"], pool.map(straight, spec["straight"]))),
         "named": dict(zip(spec["named"], pool.map(named, spec["named"]))),
+        "clock": dict(zip(spec["clocks"], pool.map(clock, spec["clocks"]))),
     }
     list(pool.map(datagram, spec["udp"]))
 print(json.dumps(out))
 """
 
 
-def guard_count() -> int:
-    out = subprocess.run([GUARD, "count"], capture_output=True, text=True, check=True).stdout.strip()
-    return int(out)
+def guard_refused() -> set:
+    """The (address, port) pairs the guard has noted since its note was last emptied."""
+    listing = json.loads(subprocess.run([GUARD, "refused"], capture_output=True, text=True, check=True).stdout)
+    pairs = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            concat = node.get("concat")
+            if isinstance(concat, list) and len(concat) == 2:
+                pairs.add((str(concat[0]), int(concat[1])))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(listing)
+    return pairs
 
 
 def main() -> int:
@@ -146,17 +178,18 @@ def main() -> int:
     listener.bind(("0.0.0.0", UDP_PORT))
     listener.settimeout(0.2)
 
-    before = guard_count()
+    clocks = ["time.cloudflare.com", "pool.ntp.org"]
+    subprocess.run([GUARD, "forget"], check=True)
     sandbox = Sandbox.create(timeout=180)
     try:
         sandbox.files.write("/tmp/probe.py", PROBE)
-        spec = {"straight": own + outside, "named": names, "udp": addresses, "udp_port": UDP_PORT}
+        spec = {"straight": own + outside, "named": names, "sites": ["example.com", "one.one.one.one"], "udp": addresses, "udp_port": UDP_PORT, "clocks": clocks}
         sandbox.files.write("/tmp/spec.json", json.dumps(spec))
         result = sandbox.commands.run('python3 /tmp/probe.py "$(cat /tmp/spec.json)"', timeout=150)
         got = json.loads(result.stdout)
     finally:
         sandbox.kill()
-    refused = guard_count() - before
+    noted = guard_refused()
 
     datagrams = 0
     try:
@@ -169,9 +202,12 @@ def main() -> int:
 
     reached = sorted(t for t in own if got["straight"].get(t, 0) > 0)
     by_name = sorted(n for n, answer in got["named"].items() if own_answer in answer)
+    unanswered = sorted(n for n, answer in got["named"].items() if not answer.startswith("HTTP/"))
     web_up = [t for t in web if got["straight"].get(t, 0) > 0]
     other_up = [t for t in other if got["straight"].get(t, 0) > 0]
-    expected = len(public) * len(ports)
+    clock_up = [c for c in clocks if got["clock"].get(c, 0) > 0]
+    tried_public = {(a, p) for a in public for p in ports}
+    unnoted = sorted(tried_public - noted)
 
     ok = True
     print(f"  from inside a sandbox: {len(own)} address and port pairs of this machine tried, {len(reached)} reached")
@@ -181,15 +217,17 @@ def main() -> int:
     print(f"  by name ({len(names)} names for this machine in a request to an outside site): {len(by_name)} answered by the runtime")
     for n in by_name:
         print(f"  REACHED BY NAME: {n}")
-    ok = ok and not by_name
+    if unanswered:
+        print(f"  NO ANSWER AT ALL for {len(unanswered)} of them, so those prove nothing: {', '.join(unanswered[:4])}")
+    ok = ok and not by_name and not unanswered
     print(f"  datagrams to this machine's addresses: {datagrams} arrived")
     ok = ok and datagrams == 0
-    print(f"  the guard refused {refused} connections during the tries ({expected} were made at a public address)")
-    if refused < expected:
-        print("  FEWER THAN TRIED: some of them did not reach the guard, so their silence proves nothing")
-        ok = False
-    print(f"  the internet from inside a sandbox: a web port {'reached' if web_up else 'NOT reached'}, another port {'reached' if other_up else 'NOT reached'}")
-    ok = ok and bool(web_up) and bool(other_up)
+    print(f"  the guard noted {len(tried_public) - len(unnoted)} of the {len(tried_public)} tries made at a public address as refused")
+    for a, p in unnoted[:8]:
+        print(f"  NOT NOTED: {a} port {p} (it did not reach the guard, so its silence proves nothing)")
+    ok = ok and not unnoted
+    print(f"  the internet from inside a sandbox: a web port {'reached' if web_up else 'NOT reached'}, another port {'reached' if other_up else 'NOT reached'}, a datagram {'answered' if clock_up else 'NOT answered'}")
+    ok = ok and bool(web_up) and bool(other_up) and bool(clock_up)
     return 0 if ok else 1
 
 

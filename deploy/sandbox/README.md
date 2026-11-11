@@ -45,15 +45,16 @@ Three rules of this server's own, kept in a firewall table of their own ([`guard
 How it is kept in place:
 
 - It is loaded at boot before Docker, and again by Docker itself each time Docker starts. When that fails, Docker does not start, so no container and no sandbox runs without it.
-- A timer looks every minute and loads it again if it is gone.
+- A timer looks every minute and loads it again if it is gone, or if its rules are no longer the ones that were loaded (a rule put in front, a chain moved).
 - To load it by hand: `sudo ni-sandbox-guard apply`. That replaces the table in one step, with no moment without it.
+- **Never enable or restart `nftables.service` on this server.** It empties every firewall table on the machine. The guard is back within a minute; Docker's and `ufw`'s rules are not, until those are restarted.
 
 What [`check.sh`](check.sh) proves about it, each time it runs:
 
 - From the machine itself, the runtime answers on loopback and on none of the machine's own addresses, IPv4 and IPv6.
 - From inside a real sandbox with the widest network policy: none of the machine's addresses answers on any port that listens here; requests to an outside site that name this machine as the host are not answered by the runtime; datagrams to the machine do not arrive.
-- The guard's own count of refused connections grew by at least the number of tries. Some listeners say nothing to a probe whether reached or not, so silence alone is not taken as proof.
-- The internet is reached on a web port and on another port, so "nothing reached" cannot mean "nothing works".
+- The guard's own note of what it refused holds every address and port that was tried at a public address. Some listeners say nothing to a probe whether reached or not, so silence alone is not taken as proof.
+- The internet is reached on a web port and on another port, and a datagram sent out is answered, so "nothing reached" cannot mean "nothing works".
 
 IPv4 loopback is the one place the guard leaves to the runtime's proxy alone, since the runtime needs it. The proxy refused it in every way tried.
 
@@ -63,7 +64,7 @@ IPv4 loopback is the one place the guard leaves to the runtime's proxy alone, si
 
 **A port that a container publishes is open to the internet whatever `ufw` says**: Docker sees to that itself. The runtime's own containers publish on loopback only. `check.sh` fails when any container publishes beyond loopback; the guard keeps sandboxes and this machine away from such a port, not the internet.
 
-The app's server will need the runtime's API (3000) and the sandboxes' traffic port (3002). Those two get opened to that one server only, over a private tunnel, when the tunnel is set up. They are never opened to the internet.
+The app's server will need the runtime's API (3000) and the sandboxes' traffic port (3002). Those two get opened to that one server only, over a private tunnel, when the tunnel is set up. They are never opened to the internet. Opening them takes a line in the guard's second rule as well as one in `ufw`: a `ufw` rule alone changes nothing, because the guard drops first.
 
 ## Memory, and how many sandboxes fit
 
@@ -107,9 +108,9 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 - **Reaching in.** A port inside a sandbox is reached through the one traffic port (3002), named by a header. A WebSocket through it worked and survived 75 s of silence.
 - **Between sandboxes.** One sandbox could not reach another, by any address tried.
 - **The way out.** Three settings were tried. Open: the internet, and nothing private. A list of allowed names: only those names, and an allowed name cannot be used as a mask for another server (the proxy looks the name up itself). Closed: nothing, name lookups included. The setting can be changed on a running sandbox and takes effect at once.
-- **The machine's own loopback.** Could not be reached from a sandbox by any of the tricks tried (requests to an outside site naming `localhost`, `[::1]`, `0.0.0.0` or this machine's addresses as the host; a public name that resolves to `127.0.0.1`).
-- **The guard.** With it taken out by hand, `check.sh` fails: the runtime answers on the machine's own addresses. With a container made to publish a port, a sandbox reached that port before rule 3 existed and not after, and `check.sh` fails either way, because the port is open to the internet. From another machine only SSH answered, and the guard's own counter showed it had dropped the tries at the runtime's ports itself, ahead of `ufw`.
-- **A reboot.** Twice. The second time, with the guard as it is now: the machine was back two minutes after the command; the guard was loaded 29 s into the boot, five seconds before Docker began to start; the runtime was ready by itself 3 min 50 s after the command, and `check.sh` passed with nothing done by hand. The first time, a sandbox paused before the reboot resumed after it in 1.4 s with its files and its running program. The one that was running was gone, and the runtime still listed it as running: whatever calls the runtime must expect that.
+- **The machine's own loopback.** Could not be reached from a sandbox by any of the tricks tried: requests to an outside site naming `localhost`, `[::1]`, `0.0.0.0` or this machine's addresses as the host; and, with a list of allowed names, names on that list that resolve to `127.0.0.1`, `::1`, `0.0.0.0` or this machine's public address. Do not rely on that last one: keep names whose address someone else decides off the lists.
+- **The guard.** With it taken out by hand, `check.sh` fails: the runtime answers on the machine's own addresses. With a container made to publish a port, a sandbox reached that port before rule 3 existed and not after, and `check.sh` fails either way, because the port is open to the internet. From another machine only SSH answered, and the guard's own counter showed it had dropped the tries at the runtime's ports itself, ahead of `ufw`. A connection the guard refuses fails at once (0.007 s); in a first version the refusal's own error message was refused too, and the caller waited out its timeout.
+- **A reboot.** Three times. The last, with the guard as it is now: the machine was back two minutes after the command; the guard was loaded 28 s into the boot, before Docker started; the runtime was ready by itself 3 min 45 s after the command, and `check.sh` passed with nothing done by hand. The first time, a sandbox paused before the reboot resumed after it in 1.4 s with its files and its running program. The one that was running was gone, and the runtime still listed it as running: whatever calls the runtime must expect that.
 - **How many.** With 16 GiB set aside, twenty base sandboxes ran at once (the runtime's own limit).
 - **A browser.** An image from a registry with a browser in it was built in 42 s. A 2 GiB sandbox from it started in 0.07 s; the browser answered from outside, through the traffic port, 3.8 s later; it was driven over a WebSocket (it opened a page); and it still showed that page after a pause (1.2 s) and a resume (0.5 s).
 

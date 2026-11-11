@@ -53,6 +53,12 @@ else
 	bad "the runtime does not answer on loopback, so the guard cannot be tried"
 fi
 
+# The guard knows a sandbox's link by its name. A link the runtime named the
+# way it once did would slip past half of rule 3.
+if ip -o link show | awk -F': ' '{ print $2 }' | grep -q -E '^veth-[0-9]'; then
+	bad "the runtime made links named veth-<n>, which the guard does not know by name"
+fi
+
 # 2. The firewall: nothing comes in but SSH and the sandboxes' own range.
 status="$(ufw status verbose 2>/dev/null)"
 if echo "$status" | grep -q '^Status: active' && echo "$status" | grep -q 'deny (incoming)'; then
