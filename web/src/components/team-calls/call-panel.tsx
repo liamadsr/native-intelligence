@@ -26,6 +26,7 @@ import {
   ChevronDown,
   Circle,
   NotebookPen,
+  Square,
   Maximize2,
   Mic,
   MicOff,
@@ -154,7 +155,7 @@ export function CallBadges({ notes, small = false }: { notes: ActiveTeamCall['no
           className={cn('flex items-center gap-1 rounded-full bg-sky-500/15 font-medium text-sky-800 dark:text-sky-200', small ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-0.5 text-[11px]')}
         >
           <NotebookPen className="h-3 w-3" aria-hidden />
-          {small ? 'Notes' : 'Notes are on'}
+          {small ? 'Notes on' : 'Notes are on'}
         </span>
       )}
       {recording && (
@@ -449,10 +450,10 @@ function RecordButton({ call }: { call: ActiveTeamCall }) {
         setBusy(true)
         void setRecording(on ? 'stop' : 'start').finally(() => setBusy(false))
       }}
-      active={on}
+      danger={on}
       data-team-call-record={call.notes.recording}
     >
-      <Circle className={cn('h-5 w-5', on ? 'fill-red-500 text-red-500' : 'text-red-500')} />
+      {on ? <Square className="h-4 w-4 fill-current" /> : <Circle className="h-5 w-5 fill-red-500 text-red-500" />}
     </IconButton>
   )
 }
