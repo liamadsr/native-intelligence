@@ -26,6 +26,8 @@ final class TeamChatConversationModel: ObservableObject {
     /// The message to scroll to and mark (a push, a search hit), once it is in the list.
     @Published var focusMessageId: String?
     @Published private(set) var typingLine: String?
+    /// The calls this conversation's call messages show, with who is in them (live over Realtime).
+    @Published private(set) var calls: [String: TeamCallView] = [:]
 
     // The composer.
     @Published var draft = "" {
@@ -100,13 +102,13 @@ final class TeamChatConversationModel: ObservableObject {
             } else if let focus = focusMessageId, !state.rows.contains(where: { $0.id == focus }) {
                 // Opened at a message (a push): the page around it; a message gone meanwhile opens the newest.
                 do {
-                    state.loaded(try await api.messages(channelId: channelId, around: focus))
+                    loaded(try await api.messages(channelId: channelId, around: focus))
                 } catch {
                     guard case TeamChatAPIError.http(404, _) = error else { throw error }
-                    state.loaded(try await api.messages(channelId: channelId))
+                    loaded(try await api.messages(channelId: channelId))
                 }
             } else {
-                state.loaded(try await api.messages(channelId: channelId))
+                loaded(try await api.messages(channelId: channelId))
             }
             hasLoaded = true
             errorMessage = nil
@@ -120,7 +122,7 @@ final class TeamChatConversationModel: ObservableObject {
         guard !store.isFixture else { return }
         focusMessageId = nil
         do {
-            state.loaded(try await api.messages(channelId: channelId))
+            loaded(try await api.messages(channelId: channelId))
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -131,14 +133,35 @@ final class TeamChatConversationModel: ObservableObject {
         isLoadingOlder = true
         defer { isLoadingOlder = false }
         do {
-            state.loadedOlder(try await api.messages(channelId: channelId, before: cursor))
+            let page = try await api.messages(channelId: channelId, before: cursor)
+            state.loadedOlder(page)
+            absorbCalls(page)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    /// A page in, with its calls.
+    private func loaded(_ page: TeamChatMessagesResponse) {
+        state.loaded(page)
+        absorbCalls(page)
+    }
+
+    private func absorbCalls(_ page: TeamChatMessagesResponse) {
+        for view in page.calls ?? [] { calls[view.call.id.lowercased()] = view }
+    }
+
     private func handle(_ event: TeamChatLiveEvent) {
         switch event {
+        case let .call(c):
+            guard c.channelId.lowercased() == channelId.lowercased() else { return }
+            let id = c.id.lowercased()
+            calls[id] = TeamCallView(call: c, participants: calls[id]?.participants ?? [])
+        case let .callParticipant(p):
+            let id = p.callId.lowercased()
+            guard var view = calls[id] else { return }
+            view.upsert(p)
+            calls[id] = view
         case let .message(row, _):
             state.receive(row)
         case let .reaction(r):
@@ -352,7 +375,7 @@ final class TeamChatConversationModel: ObservableObject {
 
     #if DEBUG
     func loadFixture(_ page: TeamChatMessagesResponse, pending: [TeamChatPendingSend] = [], typing: String? = nil, draft: String = "", attachments: [TeamChatAttachment] = []) {
-        state.loaded(page)
+        loaded(page)
         for p in pending { state.beginSend(p) }
         hasLoaded = true
         typingLine = typing

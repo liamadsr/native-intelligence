@@ -13,9 +13,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
   APNS_EXPIRATION_S,
   APNS_MAX_PAYLOAD_BYTES,
+  APNS_MAX_VOIP_PAYLOAD_BYTES,
   APNS_TOKEN_REFRESH_MS,
   apnsConfig,
   apnsPayload,
+  apnsVoipPayload,
   createApnsSender,
   type ApnsConfig,
   type ApnsSender,
@@ -175,6 +177,47 @@ describe('a push', () => {
     const json = apnsPayload({ title: 't', body: 'word '.repeat(2000) })
     expect(Buffer.byteLength(json)).toBeLessThanOrEqual(APNS_MAX_PAYLOAD_BYTES)
     expect(JSON.parse(json).aps.alert.body.endsWith('…')).toBe(true)
+  })
+})
+
+describe('a VoIP push (a team call’s ring, or its cancel)', () => {
+  const ringData = { kind: 'team_call_ring', ring_id: 'r1', call_id: 'c1', channel_id: 'ch1', workspace_id: 'w1', caller_name: 'Ana Ruiz', video: false }
+
+  it('has Apple’s VoIP headers: voip, the .voip topic, priority 10, alive until the ring stops, no collapse id', async () => {
+    const expiresAtMs = NOW + 37_400
+    expect(await sender().sendVoip({ token: TOKEN, environment: 'sandbox', push: { data: ringData, expiresAtMs } })).toMatchObject({ ok: true })
+    const h = seen[0].headers
+    expect(h[':path']).toBe(`/3/device/${TOKEN}`)
+    expect(h['apns-push-type']).toBe('voip')
+    expect(h['apns-topic']).toBe('com.example.app.voip')
+    expect(h['apns-priority']).toBe('10')
+    expect(h['apns-expiration']).toBe(String(Math.floor(expiresAtMs / 1000)))
+    expect(h).not.toHaveProperty('apns-collapse-id')
+    // The same provider token as an alert's.
+    expect(verifies(jwtOf(h), publicKey)).toBe(true)
+  })
+
+  it('carries the app’s keys alone: no aps, no words, no badge', async () => {
+    await sender().sendVoip({ token: TOKEN, environment: 'production', push: { data: ringData, expiresAtMs: NOW + 30_000 } })
+    expect(JSON.parse(seen[0].body)).toEqual(ringData)
+  })
+
+  it('a cancel lives now or never (0); a time already past is never sent as one', async () => {
+    const s = sender()
+    await s.sendVoip({ token: TOKEN, environment: 'sandbox', push: { data: { kind: 'team_call_cancel', ring_id: 'r1' }, expiresAtMs: 0 } })
+    await s.sendVoip({ token: TOKEN, environment: 'sandbox', push: { data: { kind: 'team_call_ring', ring_id: 'r2' }, expiresAtMs: NOW - 5_000 } })
+    expect(seen.map((x) => x.headers['apns-expiration'])).toEqual(['0', '0'])
+  })
+
+  it('a payload past Apple’s 5 KB never goes out', async () => {
+    expect(apnsVoipPayload({ data: { caller_name: 'x'.repeat(APNS_MAX_VOIP_PAYLOAD_BYTES) }, expiresAtMs: 0 })).toBeNull()
+    expect(await sender().sendVoip({ token: TOKEN, environment: 'sandbox', push: { data: { caller_name: 'x'.repeat(6000) }, expiresAtMs: 0 } })).toMatchObject({ ok: false, gone: false, reason: 'PayloadTooLarge' })
+    expect(seen).toHaveLength(0)
+  })
+
+  it('Apple saying the VoIP token is gone says so (the caller disables it)', async () => {
+    answers[TOKEN] = [{ status: 400, reason: 'DeviceTokenNotForTopic' }]
+    expect(await sender().sendVoip({ token: TOKEN, environment: 'sandbox', push: { data: ringData, expiresAtMs: NOW + 30_000 } })).toMatchObject({ ok: false, gone: true })
   })
 })
 

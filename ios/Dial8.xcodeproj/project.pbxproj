@@ -11,6 +11,7 @@
 		1C43094BCEC45B5F68645C75 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 16522D4FD9008508BADA8A28 /* MarkdownUI */; };
 		20DEA7959D9FEEE25E85FAA6 /* Dial8 Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = E1F5EEEE6BD3A7F4F6F11100 /* Dial8 Watch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2435D9774FF5E0CA8563CF96 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 0114FCD90C1B1AB9210703D4 /* Supabase */; };
+		4A9704175611F0DB41C9B285 /* LiveKit in Frameworks */ = {isa = PBXBuildFile; productRef = B1C9983551307CC43E290506 /* LiveKit */; };
 		4D293C0A66C1EC8FD8375240 /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = EBC8FC3989BBFB29D59AE292 /* Functions */; };
 		504D30CA180B2DC0F2AE3FED /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 5AF89E5FEA81A0224798260C /* PostgREST */; };
 		AFE2E45FC30A2F4A493581E4 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = 105D426C53F652D817605E48 /* PostHog */; };
@@ -128,6 +129,7 @@
 				2435D9774FF5E0CA8563CF96 /* Supabase in Frameworks */,
 				AFE2E45FC30A2F4A493581E4 /* PostHog in Frameworks */,
 				1C43094BCEC45B5F68645C75 /* MarkdownUI in Frameworks */,
+				4A9704175611F0DB41C9B285 /* LiveKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,6 +213,7 @@
 				0114FCD90C1B1AB9210703D4 /* Supabase */,
 				105D426C53F652D817605E48 /* PostHog */,
 				16522D4FD9008508BADA8A28 /* MarkdownUI */,
+				B1C9983551307CC43E290506 /* LiveKit */,
 			);
 			productName = Dial8;
 			productReference = E3399BDE7AF100D613B9B94D /* Dial8.app */;
@@ -271,6 +274,7 @@
 			mainGroup = B47E883E6B5C13FDFF79E0E1;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				CA470FF23FB2A8D7C1BC9F92 /* XCRemoteSwiftPackageReference "client-sdk-swift" */,
 				1AABE03B97045D43C5FAFB50 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				D71BB38AC50F3B7AC80EEADB /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */,
@@ -383,7 +387,8 @@
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = NI;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence needs microphone access to record voice notes and transcribe audio.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Native Intelligence uses the camera when you turn on video in a team call.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence needs microphone access to record voice notes, transcribe audio and talk on team calls.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -478,7 +483,8 @@
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Config/App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = NI;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence needs microphone access to record voice notes and transcribe audio.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Native Intelligence uses the camera when you turn on video in a team call.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Native Intelligence needs microphone access to record voice notes, transcribe audio and talk on team calls.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -686,6 +692,14 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		CA470FF23FB2A8D7C1BC9F92 /* XCRemoteSwiftPackageReference "client-sdk-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/livekit/client-sdk-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 2.19.0;
+			};
+		};
 		CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/supabase/supabase-swift";
@@ -734,6 +748,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CCD108FFFAFAB5E1371DEE7C /* XCRemoteSwiftPackageReference "supabase-swift" */;
 			productName = Storage;
+		};
+		B1C9983551307CC43E290506 /* LiveKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CA470FF23FB2A8D7C1BC9F92 /* XCRemoteSwiftPackageReference "client-sdk-swift" */;
+			productName = LiveKit;
 		};
 		EBC8FC3989BBFB29D59AE292 /* Functions */ = {
 			isa = XCSwiftPackageProductDependency;

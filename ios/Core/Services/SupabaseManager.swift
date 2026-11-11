@@ -63,6 +63,7 @@ class SupabaseManager: ObservableObject {
 
         // Sign out from current environment
         await PushNotificationService.shared.unregister()
+        await VoIPPushService.shared.unregister()
         try? await client.auth.signOut()
         authStateListener?.cancel()
 
@@ -368,6 +369,7 @@ class SupabaseManager: ObservableObject {
     func signOut() async throws {
         // This install stops getting the person's pushes first, while the session can still say so.
         await PushNotificationService.shared.unregister()
+        await VoIPPushService.shared.unregister()
         do {
             try await client.auth.signOut()
             print("🔷 SupabaseManager: Signed out successfully")

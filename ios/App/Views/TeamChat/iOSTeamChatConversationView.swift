@@ -60,6 +60,9 @@ struct iOSTeamChatConversationView: View {
         .toolbar {
             if let channel {
                 ToolbarItem(placement: .topBarTrailing) {
+                    iOSTeamCallButton(channel: channel, store: store)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     TeamChatNotifyMenu(channel: channel, store: store) {
                         Image(systemName: channel.notify == .muted ? "bell.slash" : channel.notify == .all ? "bell.badge" : "bell")
                     }

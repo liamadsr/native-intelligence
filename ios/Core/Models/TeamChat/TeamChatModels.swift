@@ -119,8 +119,12 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
     let createdAt: String
     var editedAt: String?
     var deletedAt: String?
+    /// "message", or "call": a team call's own row in the conversation (migration 564), its words what happened.
+    let kind: String
+    let callId: String?
 
     var isAgent: Bool { authorKind == "agent" }
+    var isCall: Bool { kind == "call" && callId != nil }
     var isDeleted: Bool { deletedAt != nil }
 
     enum CodingKeys: String, CodingKey {
@@ -139,6 +143,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case editedAt = "edited_at"
         case deletedAt = "deleted_at"
+        case kind
+        case callId = "call_id"
     }
 
     init(
@@ -147,7 +153,7 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         threadRootId: String? = nil, clientId: String? = nil, body: String, mentions: [String] = [],
         mentionsAgent: Bool = false, recordMentions: [TeamChatRecordMention] = [],
         attachments: [TeamChatAttachment] = [], linkPreview: TeamChatLinkPreview? = nil,
-        createdAt: String, editedAt: String? = nil, deletedAt: String? = nil
+        createdAt: String, editedAt: String? = nil, deletedAt: String? = nil, kind: String = "message", callId: String? = nil
     ) {
         self.id = id
         self.channelId = channelId
@@ -167,6 +173,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         self.createdAt = createdAt
         self.editedAt = editedAt
         self.deletedAt = deletedAt
+        self.kind = kind
+        self.callId = callId
     }
 
     /// Lenient: a realtime row, or one from before a column existed, may leave any of the
@@ -191,6 +199,8 @@ struct TeamChatMessage: Codable, Identifiable, Equatable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         editedAt = try c.decodeIfPresent(String.self, forKey: .editedAt)
         deletedAt = try c.decodeIfPresent(String.self, forKey: .deletedAt)
+        kind = (try? c.decode(String.self, forKey: .kind)) ?? "message"
+        callId = (try? c.decodeIfPresent(String.self, forKey: .callId))?.lowercased()
     }
 }
 
@@ -294,6 +304,8 @@ struct TeamChatMessagesResponse: Decodable {
     var hasOlder: Bool? = nil
     /// … and newer ones past it than the page holds (it shows alone, with a way to the newest).
     var hasNewer: Bool? = nil
+    /// The calls the page's call messages show, with who is in them (migration 564).
+    var calls: [TeamCallView]? = nil
 }
 
 struct TeamChatPostResponse: Decodable {

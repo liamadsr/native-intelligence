@@ -78,7 +78,13 @@ struct iOSTeamChatMessageRow: View {
 
     @ViewBuilder
     private var content: some View {
-        if m.isDeleted {
+        if m.isCall {
+            // A call's message is the call's: its card (live with Join, or how it went), reactions, its thread.
+            iOSTeamCallCard(message: m, model: model)
+            let chips = model.chips(for: m.id)
+            if !chips.isEmpty { reactions(chips) }
+            if let summary, summary.replyCount > 0, let openThread { threadBar(summary, open: { openThread(m) }) }
+        } else if m.isDeleted {
             Text("This message was deleted.")
                 .font(.system(size: 16).italic())
                 .foregroundStyle(.secondary)
@@ -271,13 +277,13 @@ struct iOSTeamChatMessageRow: View {
         if showsThreadActions, let openThread {
             Button { openThread(m) } label: { Label("Reply in thread", systemImage: "bubble.left.and.bubble.right") }
         }
-        if !m.body.isEmpty {
+        if !m.body.isEmpty, !m.isCall {
             Button { UIPasteboard.general.string = m.body } label: { Label("Copy", systemImage: "doc.on.doc") }
         }
-        if isMine, !m.body.isEmpty {
+        if isMine, !m.body.isEmpty, !m.isCall {
             Button { model.beginEdit(m) } label: { Label("Edit", systemImage: "pencil") }
         }
-        if isMine || isMyAgent {
+        if (isMine && !m.isCall) || isMyAgent {
             Button(role: .destructive) { confirmingDelete = true } label: { Label("Delete", systemImage: "trash") }
         }
     }

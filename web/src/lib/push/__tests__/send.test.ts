@@ -11,7 +11,8 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ApnsConfig, ApnsResult } from '../apns'
-import { freshTokens, hasPushTarget, pushToPerson, PUSH_TOKEN_FRESH_MS, type PushDeps, type PushTokenRow } from '../send'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { freshTokens, hasPushTarget, livePushDeps, missingKindColumn, pushToPerson, voipToPerson, PUSH_TOKEN_FRESH_MS, type PushDeps, type PushTokenRow } from '../send'
 import { homeMessagePush, pushLine, teamChatPush, PUSH_BODY_CHARS } from '../compose'
 
 const CONFIG: ApnsConfig = { keyId: 'K', teamId: 'T', privateKey: 'pem', bundleId: 'com.example.app' }
@@ -28,6 +29,7 @@ function fake(over: Partial<PushDeps> & { rows?: PushTokenRow[]; answers?: ApnsR
   const answers = [...(over.answers ?? [])]
   const disabled: Array<{ id: string; reason: string }> = []
   const sent: Array<{ token: string; environment: string; badge?: number; title: string }> = []
+  const voip: Array<{ token: string; environment: string; data: Record<string, unknown>; expiresAtMs: number }> = []
   const deps: PushDeps = {
     config: CONFIG,
     now: () => NOW,
@@ -38,9 +40,13 @@ function fake(over: Partial<PushDeps> & { rows?: PushTokenRow[]; answers?: ApnsR
       sent.push({ token: input.token, environment: input.environment, badge: input.notification.badge, title: input.notification.title })
       return answers.shift() ?? ({ ok: true, apnsId: null } as ApnsResult)
     }),
+    sendVoip: vi.fn(async (_config, input) => {
+      voip.push({ token: input.token, environment: input.environment, data: input.push.data, expiresAtMs: input.push.expiresAtMs })
+      return answers.shift() ?? ({ ok: true, apnsId: null } as ApnsResult)
+    }),
     ...over,
   }
-  return { deps, disabled, sent }
+  return { deps, disabled, sent, voip }
 }
 
 const note = { title: 'Ana Ruiz in #launch', body: 'Ready' }
@@ -59,7 +65,7 @@ describe('push off', () => {
     const { deps } = fake({ rows: [] })
     expect(await hasPushTarget(deps, USER)).toBe(false)
     expect(await pushToPerson(deps, { userId: USER, notifications: [note] })).toBe('no_target')
-    expect(deps.tokens).toHaveBeenCalledWith(USER, 'com.example.app')
+    expect(deps.tokens).toHaveBeenCalledWith(USER, 'com.example.app', 'alert')
   })
 
   it('a failed read is no target (the router falls through), never a throw', async () => {
@@ -124,6 +130,103 @@ describe('push on', () => {
     const { deps, sent } = fake({ badge: async () => null })
     await pushToPerson(deps, { userId: USER, notifications: [note] })
     expect(sent[0].badge).toBeUndefined()
+  })
+})
+
+describe('a VoIP push (a team call’s ring or its cancel)', () => {
+  const ring = { data: { kind: 'team_call_ring', ring_id: 'r1' }, expiresAtMs: NOW + 30_000 }
+
+  it('goes to the person’s VoIP installs only (an alert never reads them, a ring never reads alert tokens)', async () => {
+    const { deps, voip, sent } = fake({ rows: [row(1, 'production'), row(2, 'sandbox')] })
+    expect(await voipToPerson(deps, { userId: USER, push: ring })).toBe('sent')
+    expect(deps.tokens).toHaveBeenCalledWith(USER, 'com.example.app', 'voip')
+    expect(voip).toEqual([
+      { token: '1'.repeat(64), environment: 'production', data: ring.data, expiresAtMs: ring.expiresAtMs },
+      { token: '2'.repeat(64), environment: 'sandbox', data: ring.data, expiresAtMs: ring.expiresAtMs },
+    ])
+    expect(sent).toHaveLength(0)
+    expect(deps.badge).not.toHaveBeenCalled()
+    await pushToPerson(deps, { userId: USER, notifications: [note] })
+    expect(deps.tokens).toHaveBeenLastCalledWith(USER, 'com.example.app', 'alert')
+  })
+
+  it('push off: nothing read, nothing sent', async () => {
+    const { deps, voip } = fake({ config: null })
+    expect(await voipToPerson(deps, { userId: USER, push: ring })).toBe('off')
+    expect(deps.tokens).not.toHaveBeenCalled()
+    expect(voip).toHaveLength(0)
+  })
+
+  it('no fresh VoIP install: no target, nothing sent', async () => {
+    const none = fake({ rows: [] })
+    expect(await voipToPerson(none.deps, { userId: USER, push: ring })).toBe('no_target')
+    const stale = fake({ rows: [row(1, 'production', 31)] })
+    expect(await voipToPerson(stale.deps, { userId: USER, push: ring })).toBe('no_target')
+    expect([...none.voip, ...stale.voip]).toHaveLength(0)
+  })
+
+  it('the phone that answered gets no cancel; with only it, nobody is pushed', async () => {
+    const { deps, voip } = fake({ rows: [row(1), row(2)] })
+    expect(await voipToPerson(deps, { userId: USER, push: ring, exceptTokens: ['1'.repeat(64).toUpperCase()] })).toBe('sent')
+    expect(voip.map((v) => v.token)).toEqual(['2'.repeat(64)])
+    const only = fake({ rows: [row(1)] })
+    expect(await voipToPerson(only.deps, { userId: USER, push: ring, exceptTokens: ['1'.repeat(64)] })).toBe('no_target')
+  })
+
+  it('an install Apple says is gone is disabled', async () => {
+    const { deps, disabled } = fake({ rows: [row(1)], answers: [{ ok: false, gone: true, status: 410, reason: 'Unregistered' }] })
+    expect(await voipToPerson(deps, { userId: USER, push: ring })).toBe('failed')
+    expect(disabled).toEqual([{ id: 't1', reason: 'Unregistered' }])
+  })
+})
+
+describe('a database without migration 570 (push_token.kind not there yet)', () => {
+  const ENV = { APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T', APNS_PRIVATE_KEY: 'pem', APNS_BUNDLE_ID: 'com.example.app' }
+  const live = { id: 't1', token: '1'.repeat(64), environment: 'production', last_seen_at: new Date().toISOString() }
+
+  /** push_token as PostgREST answers it, with or without the kind column. */
+  function svc(hasKind: boolean) {
+    const reads: string[][] = []
+    const from = () => {
+      const filters: string[] = []
+      const chain: Record<string, unknown> = {}
+      for (const m of ['select', 'is', 'gt', 'order']) chain[m] = () => chain
+      chain.eq = (col: string) => {
+        filters.push(col)
+        return chain
+      }
+      chain.limit = async () => {
+        reads.push(filters)
+        if (!hasKind && filters.includes('kind')) return { data: null, error: { code: '42703', message: 'column push_token.kind does not exist' } }
+        return { data: [live], error: null }
+      }
+      return chain
+    }
+    return { client: { from } as unknown as SupabaseClient, reads }
+  }
+
+  it('reads an alert install by kind when the column is there', async () => {
+    const { client, reads } = svc(true)
+    expect(await livePushDeps(client, ENV).tokens(USER, 'com.example.app', 'alert')).toEqual([live])
+    expect(reads).toEqual([['user_id', 'kind', 'bundle_id']])
+  })
+
+  it('without it, alerts still read every install (they are all alert tokens) and VoIP reads none', async () => {
+    const { client, reads } = svc(false)
+    const deps = livePushDeps(client, ENV)
+    expect(await deps.tokens(USER, 'com.example.app', 'alert')).toEqual([live])
+    expect(reads).toEqual([['user_id', 'kind', 'bundle_id'], ['user_id', 'bundle_id']])
+    expect(await deps.tokens(USER, 'com.example.app', 'voip')).toEqual([])
+    // So the away-router still finds the phone.
+    expect(await hasPushTarget(deps, USER)).toBe(true)
+  })
+
+  it('the unknown column is read from Postgres or PostgREST, only when it names kind', () => {
+    expect(missingKindColumn({ code: '42703', message: 'column push_token.kind does not exist' })).toBe(true)
+    expect(missingKindColumn({ code: 'PGRST204', message: "Could not find the 'kind' column of 'push_token' in the schema cache" })).toBe(true)
+    expect(missingKindColumn({ code: '42703', message: 'column push_token.other does not exist' })).toBe(false)
+    expect(missingKindColumn({ code: '57014', message: 'canceling statement due to statement timeout' })).toBe(false)
+    expect(missingKindColumn(null)).toBe(false)
   })
 })
 

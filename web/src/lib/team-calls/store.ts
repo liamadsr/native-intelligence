@@ -37,6 +37,7 @@ import {
   type TeamCallRingState,
   type TeamCallView,
 } from './types'
+import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 
 // ── As the person ───────────────────────────────────────────────────────────
 
@@ -177,13 +178,24 @@ export interface MissedRing {
 /**
  * End a call, once (565's team_call_end, 567's with the notes). Returns its
  * rings that were still open: missed. A call whose notes were ever on has
- * them written next (requestNotesFinish; never throws).
+ * them written next (requestNotesFinish; never throws). The phones still
+ * ringing for the missed rings are stopped (./ring-push.ts: each ring's
+ * cancel, once, when it was pushed), started here and never waited on: a
+ * slow Apple never holds a hang-up or a webhook.
  */
-export async function endCall(svc: SupabaseClient, callId: string, reason: TeamCallEndReason, at: Date = new Date()): Promise<MissedRing[]> {
+export async function endCall(
+  svc: SupabaseClient,
+  callId: string,
+  reason: TeamCallEndReason,
+  at: Date = new Date(),
+  stopPhones: (ringIds: string[]) => Promise<unknown> = (ringIds) => cancelRingPushes(liveRingPushDeps(svc), { ringIds }),
+): Promise<MissedRing[]> {
   const { data, error } = await svc.rpc('team_call_end', { target_call: callId, end_reason: reason, end_at: at.toISOString() })
   if (error) throw new Error(`team calls: end failed: ${error.message}`)
+  const missed = (data ?? []) as MissedRing[]
+  if (missed.length > 0) void stopPhones(missed.map((r) => r.ring_id)).catch(() => undefined)
   await requestNotesFinish(svc, callId)
-  return (data ?? []) as MissedRing[]
+  return missed
 }
 
 /** Rings past their time are missed (565's team_call_expire_rings): just this one, or all. */
