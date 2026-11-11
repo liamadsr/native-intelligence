@@ -143,22 +143,51 @@ export async function getChannel(supabase: SupabaseClient, channelId: string): P
   return data ?? null
 }
 
-/** The most messages a page from a given message on (`from`) holds: a search hit or a notification opened in the past. */
-export const TEAM_CHAT_FROM_MAX = 500
+/** Around a message: how many before it, and the most after it (more: the page shows alone, with a way to the newest). */
+export const TEAM_CHAT_AROUND_BEFORE = 25
+export const TEAM_CHAT_AROUND_AFTER = 200
+
+/**
+ * The page around one of the channel's own messages (the person may read
+ * it: RLS): TEAM_CHAT_AROUND_BEFORE before it, then it and on to the newest
+ * when that is at most TEAM_CHAT_AROUND_AFTER (`hasNewer` false: the page
+ * runs on unbroken to now), else that many from it (`hasNewer` true).
+ * `hasOlder`: there are messages before the page. Null when it is no message
+ * of this channel's own (another channel's, a thread's reply, gone).
+ */
+export async function listMessagesAround(
+  supabase: SupabaseClient,
+  channelId: string,
+  messageId: string,
+): Promise<{ messages: TeamChatMessage[]; hasOlder: boolean; hasNewer: boolean } | null> {
+  const target = await getMessage(supabase, messageId)
+  if (!target || target.channel_id !== channelId || target.thread_root_id) return null
+  const page = () => supabase.from('team_chat_message').select(TEAM_CHAT_MESSAGE_COLUMNS).eq('channel_id', channelId).is('thread_root_id', null)
+  const [older, newer] = await Promise.all([
+    page().lt('created_at', target.created_at).order('created_at', { ascending: false }).limit(TEAM_CHAT_AROUND_BEFORE + 1),
+    page().gte('created_at', target.created_at).order('created_at', { ascending: true }).limit(TEAM_CHAT_AROUND_AFTER + 1),
+  ])
+  if (older.error) throw teamChatErrorOf(older.error, 'messages read')
+  if (newer.error) throw teamChatErrorOf(newer.error, 'messages read')
+  const before = (older.data ?? []) as TeamChatMessage[]
+  const after = (newer.data ?? []) as TeamChatMessage[]
+  return {
+    messages: [...before.slice(0, TEAM_CHAT_AROUND_BEFORE).reverse(), ...after.slice(0, TEAM_CHAT_AROUND_AFTER)],
+    hasOlder: before.length > TEAM_CHAT_AROUND_BEFORE,
+    hasNewer: after.length > TEAM_CHAT_AROUND_AFTER,
+  }
+}
 
 /**
  * A page of a channel's own messages (never a thread's replies), oldest
- * first: the newest page, the one before `before` (a message's created_at),
- * or (`from`, a message's created_at) everything from that message to the
- * newest, so the page opened on it runs on unbroken to now (at most
- * TEAM_CHAT_FROM_MAX: the newest of them).
+ * first: the newest page, or the one before `before` (a message's created_at).
  */
 export async function listMessages(
   supabase: SupabaseClient,
   channelId: string,
-  opts: { before?: string; from?: string; limit?: number } = {},
+  opts: { before?: string; limit?: number } = {},
 ): Promise<TeamChatMessage[]> {
-  const limit = opts.from ? TEAM_CHAT_FROM_MAX : Math.min(Math.max(opts.limit ?? TEAM_CHAT_PAGE_SIZE, 1), 200)
+  const limit = Math.min(Math.max(opts.limit ?? TEAM_CHAT_PAGE_SIZE, 1), 200)
   let query = supabase
     .from('team_chat_message')
     .select(TEAM_CHAT_MESSAGE_COLUMNS)
@@ -167,7 +196,6 @@ export async function listMessages(
     .order('created_at', { ascending: false })
     .limit(limit)
   if (opts.before) query = query.lt('created_at', opts.before)
-  if (opts.from) query = query.gte('created_at', opts.from)
   const { data, error } = await query
   if (error) throw teamChatErrorOf(error, 'messages read')
   return ((data ?? []) as TeamChatMessage[]).reverse()

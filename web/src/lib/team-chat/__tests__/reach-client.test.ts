@@ -11,7 +11,7 @@ import { entityLink } from '@/lib/entities/entity-actions-registry'
 import { menuRowTarget, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { notificationCardTarget } from '@/app/account/notification-open'
 import { resolveNotificationDetailPanel } from '@/app/account/notification-panel'
-import { channelBadge, channelHeaderCount } from '../compose'
+import { channelBadge, channelHeaderCount, mergePage } from '../compose'
 import { isTeamChatNoticeOnScreen, setTeamChatOnScreen } from '../on-screen'
 
 const CH = '55555555-5555-4555-8555-555555555555'
@@ -78,5 +78,15 @@ describe('a muted channel’s badge', () => {
     expect(channelBadge({ ...counts, notify: 'muted' })).toEqual({ count: 0, mentions: 2 })
     expect(channelHeaderCount({ ...counts, notify: 'mentions' })).toBe(6)
     expect(channelHeaderCount({ ...counts, notify: 'muted' })).toBe(2)
+  })
+})
+
+describe('a page around an old message', () => {
+  const row = (id: string, at: string, over: Record<string, unknown> = {}) => ({ id, client_id: null as string | null, created_at: at, ...over })
+  it('reaching the newest: merged with what is shown; not reaching it: shown alone, only the person’s own sends on their way kept', () => {
+    const shown = [row('n1', '2026-11-10T12:00:00Z'), row('pending:c1', '2026-11-10T12:05:00Z', { client_id: 'c1', pending: 'sending' })]
+    const page = [row('o1', '2026-11-01T09:00:00Z'), row('o2', '2026-11-01T09:01:00Z')]
+    expect(mergePage(shown, page).map((m) => m.id)).toEqual(['o1', 'o2', 'n1', 'pending:c1'])
+    expect(mergePage(shown, page, true).map((m) => m.id)).toEqual(['o1', 'o2', 'pending:c1'])
   })
 })

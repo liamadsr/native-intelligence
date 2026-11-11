@@ -61,6 +61,7 @@ import {
   channelBadge,
   channelHeaderCount,
   continuesGroup,
+  mergePage,
   failPending,
   groupReactions,
   hasMention,
@@ -290,28 +291,45 @@ export function TeamChatView({
     })
   }, [])
 
-  // The newest page; or (`from`, a message's time) everything from that message on, so the page opened on it runs on to now.
+  // Channels showing a page around an old message that doesn't reach the newest (the server's
+  // hasNewer): that page alone, with Jump to newest. Nothing newer is put under it (no gap drawn as unbroken).
+  const [windowed, setWindowed] = useState<Record<string, boolean>>({})
+  const windowedRef = useRef(windowed)
+  windowedRef.current = windowed
+  const setWindow = useCallback((channelId: string, on: boolean) => {
+    windowedRef.current = { ...windowedRef.current, [channelId]: on }
+    setWindowed((prev) => (!!prev[channelId] === on ? prev : { ...prev, [channelId]: on }))
+  }, [])
+
+  // The newest page (`fresh`: it replaces a page shown alone); or (`around`, a message's id) the page around
+  // that message: on to the newest when that fits (merged), else that page alone.
   const loadMessages = useCallback(
-    async (channelId: string, from?: string) => {
-      const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages${from ? `?from=${encodeURIComponent(from)}` : ''}`)
+    async (channelId: string, opts: { around?: string; fresh?: boolean } = {}) => {
+      const query = opts.around ? `?around=${encodeURIComponent(opts.around)}` : ''
+      const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages${query}`)
       if (!res.ok) return
-      const json = (await res.json()) as { messages?: TeamChatMessage[]; threads?: TeamChatThreadSummary[]; reactions?: TeamChatReaction[] }
+      const json = (await res.json()) as { messages?: TeamChatMessage[]; threads?: TeamChatThreadSummary[]; reactions?: TeamChatReaction[]; hasOlder?: boolean; hasNewer?: boolean }
       const page = Array.isArray(json.messages) ? json.messages : []
-      // A page from a message on says nothing of what is older (the newest page's load does).
-      if (!from) setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
-      setMessages((prev) => {
+      if (opts.around) {
+        const alone = json.hasNewer === true
+        setWindow(channelId, alone)
+        setMore((prev) => ({ ...prev, [channelId]: alone || prev[channelId] === undefined ? !!json.hasOlder : prev[channelId] || !!json.hasOlder }))
+        setMessages((prev) => ({ ...prev, [channelId]: mergePage(prev[channelId], page, alone) }))
+      } else {
+        // A page shown alone stays until the person jumps to the newest (or sends).
+        if (windowedRef.current[channelId] && !opts.fresh) return
+        if (opts.fresh) setWindow(channelId, false)
+        setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
         // Keep anything realtime (or an earlier page, or a send on its way) brought in while the page was loading.
-        let list: Shown[] = page
-        for (const m of prev[channelId] ?? []) if (!list.some((x) => x.id === m.id || (!!m.client_id && x.client_id === m.client_id))) list = upsertMessage(list, m)
-        return { ...prev, [channelId]: list }
-      })
+        setMessages((prev) => ({ ...prev, [channelId]: mergePage(prev[channelId], page, !!opts.fresh) }))
+      }
       takeExtras(
         page.map((m) => m.id),
         json.threads,
         json.reactions,
       )
     },
-    [takeExtras],
+    [takeExtras, setWindow],
   )
 
   // The page before the oldest message shown.
@@ -410,9 +428,8 @@ export function TeamChatView({
       setOpened(true)
       setOpenThread(rootId ? { channelId: m.channel_id, rootId } : null)
       setFocused({ id: m.id, channelId: m.channel_id, rootId, shown: false })
-      // A reply's thread hangs off its root: the channel's page runs from the root.
-      const from = rootId ? (json?.root?.created_at ?? null) : m.created_at
-      if (from) await loadMessages(m.channel_id, from)
+      // The page around it (a reply's thread hangs off its root: the page around the root), however old.
+      await loadMessages(m.channel_id, { around: rootId ?? m.id })
     })()
     return () => {
       alive = false
@@ -511,7 +528,8 @@ export function TeamChatView({
         if (root) {
           setThreadReplies((prev) => (prev[root] ? { ...prev, [root]: upsertMessage(prev[root], shown) } : prev))
         } else {
-          setMessages((prev) => (prev[row.channel_id] ? { ...prev, [row.channel_id]: upsertMessage(prev[row.channel_id], shown) } : prev))
+          // A page shown alone (an old message's) takes nothing newer under it: Jump to newest brings it.
+          setMessages((prev) => (prev[row.channel_id] && !windowedRef.current[row.channel_id] ? { ...prev, [row.channel_id]: upsertMessage(prev[row.channel_id], shown) } : prev))
         }
         // Only the person's own agent's new reply ends their "looking into it" line (in the channel, or the thread).
         if (payload.eventType === 'INSERT' && row.author_kind === 'agent' && row.agent_for_member_id && row.agent_for_member_id === meRef.current) {
@@ -713,6 +731,8 @@ export function TeamChatView({
   const sendDraft = useCallback(
     async (draft: TeamChatSendDraft) => {
       drafts.current.set(draft.clientId, draft)
+      // Sending from a page shown alone (an old message's): the newest first, so the bubble lands at the end of now.
+      if (!draft.threadRootId && windowedRef.current[draft.channelId]) await loadMessages(draft.channelId, { fresh: true })
       place({
         id: pendingMessageId(draft.clientId),
         client_id: draft.clientId,
@@ -768,7 +788,7 @@ export function TeamChatView({
         }
       }
     },
-    [place],
+    [place, loadMessages],
   )
   // Retry: the same send again, with the same client id (the server answers with the row if the first one made it).
   const retry = useCallback(
@@ -883,6 +903,8 @@ export function TeamChatView({
               typing={typingFor(null)}
               hasMore={!!more[selected.id]}
               onLoadEarlier={(before) => loadEarlier(selected.id, before)}
+              windowed={!!windowed[selected.id]}
+              onJumpToNewest={() => void loadMessages(selected.id, { fresh: true })}
               onBack={narrow ? backToList : undefined}
               onNotify={(level) => void setNotify(selected.id, level)}
               focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
@@ -1094,6 +1116,8 @@ function ChannelPane({
   typing,
   hasMore,
   onLoadEarlier,
+  windowed,
+  onJumpToNewest,
   onBack,
   onNotify,
   focusId,
@@ -1114,6 +1138,9 @@ function ChannelPane({
   title: string
   /** How loud it is for the person: the header's menu sets it. */
   onNotify: (level: TeamChatNotifyLevel) => void
+  /** It shows a page around an old message alone (nothing newer under it): Jump to newest. */
+  windowed: boolean
+  onJumpToNewest: () => void
   /** A direct message's other person, for the avatar beside their name. */
   dmPerson?: Member
   teamName: string | null
@@ -1253,6 +1280,13 @@ function ChannelPane({
         )}
         {waitingOnAgent && <AgentWaiting name={assistantName} />}
       </div>
+      {windowed && (
+        <div className="flex shrink-0 justify-center pb-1">
+          <Button size="sm" variant="secondary" data-team-chat-jump-newest="" onClick={onJumpToNewest}>
+            Jump to newest
+          </Button>
+        </div>
+      )}
 
       <Composer
         channelId={channel.id}
