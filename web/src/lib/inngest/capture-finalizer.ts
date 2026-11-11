@@ -249,7 +249,7 @@ async function batchStamped(
  * indexed summary chunk carries it. A title failure never skips the index, and
  * neither failure fails the step.
  */
-async function postExtraction(
+export async function postExtraction(
   service: SupabaseClient,
   args: { captureId: string; workspaceId: string; ownerId: string; captureProcessed: boolean },
 ): Promise<void> {

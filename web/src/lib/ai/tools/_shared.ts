@@ -310,11 +310,22 @@ export function applyCaptureVisibility<T>(
   const q = query as unknown as Q
   const scoped = (includeEvalCaptures ? query : q.neq('is_eval', true)) as unknown as Q
   return requester
-    ? scoped.or(`visibility.eq.workspace,user_id.eq.${requester}${grantArm(granted)}`)
+    ? (scoped.or(`visibility.eq.workspace,user_id.eq.${requester}${grantArm(granted)}`) as unknown as Q).or(ownerOutArm(requester))
     : scoped.eq('visibility', 'workspace')
 }
 
 const GRANT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * A second condition beside the visibility arms: not the requester's own team
+ * call notes once they may no longer read its conversation
+ * (captures.notes_owner_out, migrations 566 and 568, kept true to the
+ * conversation's membership by the database). Anyone else's reading (a
+ * grant, the workspace) is untouched.
+ */
+function ownerOutArm(requester: string): string {
+  return `notes_owner_out.neq.true,user_id.neq.${requester}`
+}
 
 /** The `,id.in.(…)` arm a grant adds to a visibility `or`, or nothing. Only well-formed uuids reach the filter. */
 function grantArm(granted: readonly string[] | undefined): string {
@@ -343,7 +354,9 @@ export function applyEmbeddedCaptureVisibility<T>(
   const q = query as unknown as Q
   const scoped = (includeEvalCaptures ? query : q.neq(`${alias}.is_eval`, true)) as unknown as Q
   return requester
-    ? scoped.or(`visibility.eq.workspace,user_id.eq.${requester}${grantArm(granted)}`, { referencedTable: alias })
+    ? (scoped.or(`visibility.eq.workspace,user_id.eq.${requester}${grantArm(granted)}`, { referencedTable: alias }) as unknown as Q).or(ownerOutArm(requester), {
+        referencedTable: alias,
+      })
     : scoped.eq(`${alias}.visibility`, 'workspace')
 }
 
@@ -359,7 +372,7 @@ export function applyEmbeddedCaptureVisibility<T>(
  */
 export function isCaptureVisible(
   capture:
-    | { id?: string | null; visibility?: string | null; user_id?: string | null; is_eval?: boolean | null }
+    | { id?: string | null; visibility?: string | null; user_id?: string | null; is_eval?: boolean | null; notes_owner_out?: boolean | null }
     | null
     | undefined,
   requester: CaptureRequester,
@@ -371,7 +384,8 @@ export function isCaptureVisible(
   if (!includeEvalCaptures && capture.is_eval === true) return false
   if (capture.visibility !== 'private') return true
   if (requester === null) return false
-  return capture.user_id === requester || (!!capture.id && !!granted?.has(capture.id))
+  // A team call's notes whose owner left the conversation are not theirs to read (566/568).
+  return (capture.user_id === requester && capture.notes_owner_out !== true) || (!!capture.id && !!granted?.has(capture.id))
 }
 
 /**
@@ -388,12 +402,12 @@ export async function captureVisibleToRequester(
 ): Promise<boolean> {
   const { data } = await supabase
     .from('captures')
-    .select('visibility, user_id, is_eval')
+    .select('visibility, user_id, is_eval, notes_owner_out')
     .eq('id', captureId)
     .eq('workspace_id', workspaceId)
     .maybeSingle()
   return isCaptureVisible(
-    data as { visibility?: string | null; user_id?: string | null; is_eval?: boolean | null } | null,
+    data as { visibility?: string | null; user_id?: string | null; is_eval?: boolean | null; notes_owner_out?: boolean | null } | null,
     requester,
     includeEvalCaptures,
   )

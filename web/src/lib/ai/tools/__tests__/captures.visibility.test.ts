@@ -92,7 +92,11 @@ function captureTableChain(rows: CaptureRow[]) {
     // Only the capture-visibility disjunction is modeled: "visibility.eq.X,user_id.eq.Y".
     const clauses = filter.split(',').map((c) => c.split('.'))
     filtered = filtered.filter((r) =>
-      clauses.some(([col, , val]) => (r as unknown as Record<string, unknown>)[col] === val),
+      clauses.some(([col, op, val]) => {
+        const v = (r as unknown as Record<string, unknown>)[col]
+        // The owner-out condition (migration 568) is "neq": a column the fixture lacks is not that value.
+        return op === 'neq' ? String(v) !== val : v === val
+      }),
     )
     return chain
   })
@@ -159,7 +163,7 @@ describe('applyCaptureVisibility', () => {
     const q: Record<string, ReturnType<typeof vi.fn>> = {}
     Object.assign(q, {
       neq: vi.fn(() => q),
-      or: vi.fn(() => 'or'),
+      or: vi.fn(() => q),
       eq: vi.fn(() => 'eq'),
     })
     return q
@@ -167,8 +171,10 @@ describe('applyCaptureVisibility', () => {
 
   it('uses the or-disjunction for a real requester', () => {
     const q = visibilityQuery()
-    expect(applyCaptureVisibility(q, USER_ID)).toBe('or')
+    expect(applyCaptureVisibility(q, USER_ID)).toBe(q)
     expect(q.or).toHaveBeenCalledWith(`visibility.eq.workspace,user_id.eq.${USER_ID}`)
+    // …and never the requester's own call notes once they left the conversation (568's notes_owner_out).
+    expect(q.or).toHaveBeenCalledWith(`notes_owner_out.neq.true,user_id.neq.${USER_ID}`)
     expect(q.eq).not.toHaveBeenCalled()
   })
 

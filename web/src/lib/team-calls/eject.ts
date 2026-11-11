@@ -28,6 +28,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { closeTeamCallRoom, removeFromTeamCallRoom, teamCallsConfig, type TeamCallsConfig } from './livekit'
+import { requestNotesFinish } from './notes-store'
 import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 
 export const TEAM_CALL_EJECT_EVENT = 'team-calls/eject.requested' as const
@@ -67,7 +68,16 @@ export async function drainTeamCallEjections(svc: SupabaseClient, deps: EjectDep
   for (const row of (data ?? []) as Array<{ id: string; call_id: string | null; room: string; identity: string | null; attempts: number | null }>) {
     try {
       if (row.identity) await deps.remove(row.room, row.identity)
-      else await deps.close(row.room)
+      else {
+        await deps.close(row.room)
+        // The call ended with its channel (565's 'archived'): its notes, if any, are written next.
+        try {
+          const { data: ended } = await svc.from('team_call').select('id').eq('room', row.room).maybeSingle<{ id: string }>()
+          if (ended?.id) await requestNotesFinish(svc, ended.id)
+        } catch {
+          // The sweeper asks for notes left unfinished.
+        }
+      }
       await svc.from('team_call_eject').update({ done_at: new Date().toISOString() }).eq('id', row.id)
       result.done++
       if (row.call_id) await stop(svc, row.call_id, row.identity).catch(() => undefined)

@@ -20,6 +20,11 @@
  *        arrived) is ended and a new one started. `join` is the
  *        address and a ten-minute token for the room (src/lib/team-calls/
  *        livekit.ts); the API secret never leaves the server.
+ *        `notes: true` (the starter's "Auto-record meetings" setting is on)
+ *        starts a NEW call with its notes on, where the server offers notes
+ *        (LIVEKIT_EGRESS=on and a Deepgram key); joining a live call never
+ *        changes its notes. The answer carries what the server offers
+ *        (`features`) and the call's notes and recording (`notes`).
  * As the person, under RLS, for every read and the start; the room's
  * failure and a stale call's end run with the service role.
  */
@@ -33,7 +38,9 @@ import { requestTeamChatNotify } from '@/lib/team-chat/notify'
 import { dmOtherMember, isUuid } from '@/lib/team-chat/types'
 import { createTeamCallRoom, teamCallsConfig, type TeamCallsConfig } from '@/lib/team-calls/livekit'
 import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall, type MadeRing, type StartedCall } from '@/lib/team-calls/store'
-import { callsUnreachable, joinAnswer, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { teamCallFeatures } from '@/lib/team-calls/egress'
+import { setNotes } from '@/lib/team-calls/notes-store'
 import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -44,7 +51,7 @@ export async function GET() {
   if (auth instanceof Response) return auth
   try {
     const rings = await openRings(auth.supabase)
-    return NextResponse.json({ available: true, rings })
+    return NextResponse.json({ available: true, rings, features: teamCallFeatures() })
   } catch (err) {
     return teamChatErrorResponse(err, 'calls read')
   }
@@ -110,7 +117,26 @@ export async function POST(request: NextRequest) {
         if (other && other !== me.id) rings = await ringMembers(auth.supabase, started.callId, [other])
       }
     }
-    const join = await joinAnswer(config, { callId: started.callId, room: started.room, memberId: me.id, name: me.display_name })
+    const features = teamCallFeatures()
+    let notes = notesViewOf(null)
+    if (started.created && input.notes === true && features.notes) {
+      try {
+        const on = await setNotes(auth.supabase, started.callId, true)
+        notes = notesViewOf({ notes: on.notes, notes_by: on.notes ? me.id : null, notes_state: on.notes ? 'capturing' : 'none' })
+      } catch (err) {
+        // The call goes on without notes; the panel offers them.
+        console.warn(`[team-calls] call=${started.callId} notes not turned on:`, err instanceof Error ? err.message : 'unknown')
+      }
+    } else if (!started.created) {
+      notes = notesViewOf(await getCall(auth.supabase, started.callId))
+    }
+    const join = await joinAnswer(config, {
+      callId: started.callId,
+      room: started.room,
+      memberId: me.id,
+      name: me.display_name,
+      listenOnly: joinsListenOnly(notes, me.id, input.noticeSeen),
+    })
     const messageId = started.messageId
     after(async () => {
       await Promise.all([requestRingTimers(rings), rings.length ? pushRings(liveRingPushDeps(getServiceClient()), rings) : null])
@@ -119,7 +145,18 @@ export async function POST(request: NextRequest) {
     })
     console.info(`[team-calls] call=${started.callId} channel=${channelId} created=${started.created} rung=${rings.length}`)
     return NextResponse.json({
-      call: { id: started.callId, channelId, workspaceId: channel.workspace_id, messageId, created: started.created, channelKind: channel.kind, channelName: channel.name },
+      call: {
+        id: started.callId,
+        channelId,
+        workspaceId: channel.workspace_id,
+        messageId,
+        created: started.created,
+        channelKind: channel.kind,
+        channelName: channel.name,
+        memberId: me.id,
+        features,
+        notes,
+      },
       rings: rings.map((r) => ({ memberId: r.memberId, state: r.state })),
       join,
     })

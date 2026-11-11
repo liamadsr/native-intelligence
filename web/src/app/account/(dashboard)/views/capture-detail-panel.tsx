@@ -93,6 +93,7 @@ import { cachedJson } from '@/lib/cached-fetch'
 import { useScopedLabels } from '@/lib/labels/use-scoped-labels'
 import { LabelPickerContent } from '@/components/labels/label-picker-content'
 import { createClient } from '@/lib/supabase/client'
+import { CallRecordingRow } from './team-call-parts'
 import { AttributionTooltip } from '@/components/note-attribution/attribution-tooltip'
 import { LiveVoiceIdRow } from '@/components/capture/live-capture-header'
 import { useLiveHudUp } from '@/components/capture/voice-id-hud-publisher'
@@ -3322,6 +3323,9 @@ export function CaptureDetailPanel({
                                 <span>{formatDuration(capture.duration_seconds)}</span>
                               </div>
                             )}
+
+                            {/* A team call's notes: the call's recording, when one was saved */}
+                            <CallRecordingRow metadata={capture.metadata} />
 
                             {/* Project */}
                             <ProjectPanelField

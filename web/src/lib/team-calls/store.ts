@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { TeamChatError, teamChatErrorOf } from '@/lib/team-chat/store'
 import { TEAM_CHAT_NOTIFICATION_TYPE } from '@/lib/team-chat/notify'
 import { teamChatEmailEvent } from '@/lib/team-chat/email'
+import { requestNotesFinish } from './notes-store'
 import {
   TEAM_CALL_COLUMNS,
   TEAM_CALL_MAX_RING,
@@ -175,10 +176,12 @@ export interface MissedRing {
 }
 
 /**
- * End a call, once (565's team_call_end). Returns its rings that were still
- * open: missed. The phones still ringing for them are stopped (./ring-push.ts:
- * each ring's cancel, once, when it was pushed), started here and never
- * waited on: a slow Apple never holds a hang-up or a webhook.
+ * End a call, once (565's team_call_end, 567's with the notes). Returns its
+ * rings that were still open: missed. A call whose notes were ever on has
+ * them written next (requestNotesFinish; never throws). The phones still
+ * ringing for the missed rings are stopped (./ring-push.ts: each ring's
+ * cancel, once, when it was pushed), started here and never waited on: a
+ * slow Apple never holds a hang-up or a webhook.
  */
 export async function endCall(
   svc: SupabaseClient,
@@ -191,6 +194,7 @@ export async function endCall(
   if (error) throw new Error(`team calls: end failed: ${error.message}`)
   const missed = (data ?? []) as MissedRing[]
   if (missed.length > 0) void stopPhones(missed.map((r) => r.ring_id)).catch(() => undefined)
+  await requestNotesFinish(svc, callId)
   return missed
 }
 

@@ -10,6 +10,8 @@ import { apiError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
 import { createTeamCallRoom, openTeamCallRooms, teamCallToken, type TeamCallsConfig } from './livekit'
 import { endCall, requestMissedNotices } from './store'
+import { holdMicOnJoin, type TeamCallNotesView } from './notes'
+import { teamCallFeatures } from './egress'
 
 /** Calling is off (the LiveKit settings are unset): every call route says so, the same way. */
 export function teamCallsUnavailable(): Response {
@@ -67,9 +69,54 @@ export interface TeamCallJoin {
   token: string
   room: string
   callId: string
+  /** False: the token is listen-only until the person has seen the notes notice. */
+  canPublish: boolean
 }
 
-export async function joinAnswer(config: TeamCallsConfig, input: { callId: string; room: string; memberId: string; name: string | null }): Promise<TeamCallJoin> {
-  const token = await teamCallToken(config, { room: input.room, memberId: input.memberId, name: input.name ?? '' })
-  return { url: config.url, token, room: input.room, callId: input.callId }
+export async function joinAnswer(
+  config: TeamCallsConfig,
+  input: { callId: string; room: string; memberId: string; name: string | null; listenOnly?: boolean },
+): Promise<TeamCallJoin> {
+  const token = await teamCallToken(config, { room: input.room, memberId: input.memberId, name: input.name ?? '', listenOnly: input.listenOnly })
+  return { url: config.url, token, room: input.room, callId: input.callId, canPublish: input.listenOnly !== true }
+}
+
+/**
+ * Does this join's token wait for the person (phase 6)? Yes when the call's
+ * notes are on by someone else's doing, or it is being recorded, and the
+ * join request did not say the person has seen that (`noticeSeen: true`, sent
+ * only after the client showed its notice). A client that doesn't send it
+ * joins listen-only; POST [id]/notice lifts it once they have seen it.
+ */
+export function joinsListenOnly(call: Partial<TeamCallNotesView> | null | undefined, memberId: string, noticeSeen: unknown): boolean {
+  return noticeSeen !== true && holdMicOnJoin({ memberId, notes: notesViewOf(call) })
+}
+
+/** A readable call as a join answer names it: where it is, who the person is in it, what the server offers, its notes and recording. */
+export function callPlaceOf(
+  call: { id: string; channel_id: string; workspace_id: string; message_id: string | null; channel_kind: 'channel' | 'dm' } & Partial<TeamCallNotesView>,
+  memberId: string,
+) {
+  return {
+    id: call.id,
+    channelId: call.channel_id,
+    workspaceId: call.workspace_id,
+    messageId: call.message_id,
+    channelKind: call.channel_kind,
+    memberId,
+    features: teamCallFeatures(),
+    notes: notesViewOf(call),
+  }
+}
+
+/** A call's notes and recording, as a join answer carries them (the panel draws its indicators from these, then from Realtime). */
+export function notesViewOf(call: Partial<TeamCallNotesView> | null | undefined): TeamCallNotesView {
+  return {
+    notes: call?.notes === true,
+    notes_by: call?.notes_by ?? null,
+    notes_state: call?.notes_state ?? 'none',
+    capture_id: call?.capture_id ?? null,
+    recording: call?.recording ?? 'off',
+    recording_by: call?.recording_by ?? null,
+  }
 }

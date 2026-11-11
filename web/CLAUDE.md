@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Production runs on our own server, and merging to `main` deploys nothing: read "How
+production works" in [`../CLAUDE.md`](../CLAUDE.md) before calling a change live, applying a
+migration or changing a production setting.
+
 ## Project Overview
 
 Native Intelligence is a cross-platform workspace combining meeting capture, project management, and CRM — think Linear meets Granola. This repository contains the web application (Next.js) which serves both the marketing site and the full SaaS dashboard.
@@ -108,7 +112,8 @@ tool route. Where it **blocks** is `ACTION_REVIEW_MODE`'s call (`src/lib/safety/
 
 A blocked call never runs: the person gets an approval card that says why (a chat-native
 tool gets a `NEEDS_PERSON` refusal instead). A review that can't run (Jev down or slow) is a
-hold, never a run. Setting the env var on Vercel is a founder decision.
+hold, never a run. Setting the env var in production (the server's `deploy/app/.env`) is a
+founder decision.
 
 ### Testing
 
@@ -130,8 +135,8 @@ build when a name from `scripts/open-source/denylist.txt` turns up in either.
 - Stripe for payments
 - Deepgram for transcription (via desktop app)
 - Claude (Anthropic) and other Gateway models for AI features. Server model calls run on
-  Vercel eve agents (`agents/*`, eve 0.79.1) through the Vercel AI Gateway; the eval graders
-  and embeddings are the only exceptions
+  eve agents (`agents/*`, eve 0.79.1; in production, containers on our own server) through the
+  Vercel AI Gateway; the eval graders and embeddings are the only exceptions
 
 ### Key Directories
 - `src/app/account/` - Authenticated dashboard (actions, captures, email, calendar, CRM, etc.)

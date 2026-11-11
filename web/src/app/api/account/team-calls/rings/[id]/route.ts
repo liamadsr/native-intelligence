@@ -27,7 +27,7 @@ import { isUuid } from '@/lib/team-chat/types'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { answerRing, getCall } from '@/lib/team-calls/store'
-import { callEnded, callsUnreachable, joinAnswer, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callEnded, callPlaceOf, callsUnreachable, joinAnswer, joinsListenOnly, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { cancelRingPushes, liveRingPushDeps, voipTokenOf } from '@/lib/team-calls/ring-push'
 import { getServiceClient } from '@/lib/admin'
 import type { TeamCallRingState } from '@/lib/team-calls/types'
@@ -80,8 +80,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       return callsUnreachable()
     }
     if (room === 'ended') return over(callEnded())
-    const join = await joinAnswer(config, { callId: call.id, room: call.room, memberId: me.id, name: me.display_name })
-    return NextResponse.json({ state: answered.state, join, call: { id: call.id, channelId: call.channel_id, workspaceId: call.workspace_id, messageId: call.message_id, channelKind: call.channel_kind } })
+    const join = await joinAnswer(config, {
+      callId: call.id,
+      room: call.room,
+      memberId: me.id,
+      name: me.display_name,
+      listenOnly: joinsListenOnly(call, me.id, input.noticeSeen),
+    })
+    return NextResponse.json({ state: answered.state, join, call: callPlaceOf(call, me.id) })
   } catch (err) {
     return teamChatErrorResponse(err, 'call answer')
   }
