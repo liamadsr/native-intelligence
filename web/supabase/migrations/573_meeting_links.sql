@@ -92,6 +92,8 @@ create table if not exists public.meeting (
   closes_at timestamptz not null,
   revoked_at timestamptz,
   revoked_by uuid references public.member(id) on delete set null,
+  -- A booked meeting's own (585: a meeting link as a booking's place; 554's table). Server only.
+  booking_id uuid references public.meeting_booking(id) on delete set null,
   created_at timestamptz not null default now(),
   constraint meeting_window check (
     closes_at > opens_at
@@ -101,6 +103,9 @@ create table if not exists public.meeting (
 );
 -- A database that made the tables before these columns came gets them too.
 alter table public.meeting add column if not exists token_nonce text check (token_nonce is null or char_length(token_nonce) between 16 and 64);
+alter table public.meeting add column if not exists booking_id uuid references public.meeting_booking(id) on delete set null;
+-- One meeting per booking (585's meeting_create_for_booking relies on it).
+create unique index if not exists meeting_booking_id_key on public.meeting (booking_id) where booking_id is not null;
 
 create index if not exists meeting_workspace_idx on public.meeting (workspace_id, created_at desc);
 -- 574's cap on links a member makes in a day.

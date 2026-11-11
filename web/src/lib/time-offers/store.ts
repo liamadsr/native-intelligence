@@ -213,7 +213,7 @@ export interface NewOfferRow {
   title: string
   durationMinutes: number
   video: boolean
-  /** Meet on a call here (migration 576): the booking gets one of our meeting links. */
+  /** Meet on a call here (migration 585): the booking gets one of our meeting links. */
   callHere?: boolean
   location: string | null
   message: string | null

@@ -26,7 +26,7 @@ export interface SettingsLink {
   window_days: number
   questions: LinkQuestion[]
   video: boolean
-  /** Meet on a call here (migration 576); absent from a server without it. */
+  /** Meet on a call here (migration 585); absent from a server without it. */
   call_here?: boolean
   location: string | null
   ask_first: boolean

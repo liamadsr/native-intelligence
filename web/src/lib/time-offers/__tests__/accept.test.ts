@@ -222,7 +222,7 @@ describe('finishBooking: the provider event, retried', () => {
   })
 })
 
-describe('finishBooking: meeting on a call here (one of our meeting links, migration 576)', () => {
+describe('finishBooking: meeting on a call here (one of our meeting links, migration 585)', () => {
   const CALL = 'https://app.example/m/AbCdEfGhIjKlMnOpQrStUvWxYz012345'
 
   it('the link is the event\'s place and the booking\'s conference link; no provider video link; the description leads with it', async () => {
@@ -260,17 +260,18 @@ describe('finishBooking: meeting on a call here (one of our meeting links, migra
     expect(set.tables.time_offer[0].call_here).toBe(true)
   })
 
-  it('a booking that fails at its last try revokes the meeting link made for it', async () => {
+  it('a meeting link that can\'t be had never fails the booking: confirmed, with the provider\'s video link instead', async () => {
     const { db, token, seams, deps } = await open()
-    seams.createEvent.mockRejectedValue(new Error('Google Calendar create error: 503'))
-    const meetingChanged = vi.fn(async () => true)
-    const all = { ...deps, meetingUrl: async () => CALL, meetingChanged }
-    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, all)
-    if (!result.ok) throw new Error('not booked')
-    await finishBooking(db, result.booking.id, all)
-    expect(meetingChanged).not.toHaveBeenCalled()
-    expect(await finishBooking(db, result.booking.id, all)).toMatchObject({ state: 'failed' })
-    expect(meetingChanged).toHaveBeenCalledWith({ bookingId: result.booking.id, cancelled: true })
+    const meetingUrl = vi.fn(async () => {
+      throw new Error('meetings: booking meeting not made: down')
+    })
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, { ...deps, meetingUrl })
+    expect(result).toMatchObject({ ok: true, booking: { state: 'confirmed', attempts: 1, conferenceUrl: 'https://meet.example/abc-defg-hij', lastError: null } })
+    const [, event, , options] = seams.createEvent.mock.calls[0] as unknown as [string, { location?: string; description: string }, string, Record<string, unknown>]
+    expect(options).toMatchObject({ video: true })
+    expect(event.location).toBeUndefined()
+    expect(event.description).not.toContain('Join the meeting')
+    expect(seams.tellHost).toHaveBeenCalledWith(expect.objectContaining({ text: expect.stringContaining('picked') }))
   })
 })
 

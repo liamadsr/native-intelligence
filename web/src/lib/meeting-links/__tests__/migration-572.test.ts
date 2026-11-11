@@ -1,5 +1,5 @@
 /**
- * Migrations 572-575 (meeting links). Each is one transaction whatever
+ * Migrations 572-575 and 585 (meeting links). Each is one transaction whatever
  * applies it, safe on a live database, and reloads the API schema; the new
  * tables have RLS on and anon has nothing; a guest's key and the limits are
  * the service role's alone; the token's hash is no client's to read; every
@@ -23,13 +23,13 @@ const FILES = {
   tables: read('573_meeting_links.sql'),
   functions: read('574_meeting_functions.sql'),
   counts: read('575_team_call_guest_counts.sql'),
-  bookings: read('576_meeting_links_for_bookings.sql'),
+  bookings: read('585_meeting_links_for_bookings.sql'),
 }
 const CALLS = read('565_team_call_functions.sql')
 
 const defined = (sql: string) => [...bodyOf(sql).matchAll(/create or replace function public\.(\w+)\(/gi)].map((m) => m[1])
 
-describe('migrations 572-576', () => {
+describe('migrations 572-575 and 585', () => {
   it('each is one transaction whatever applies it, safe for a live database, and reloads the API schema', () => {
     for (const [name, sql] of Object.entries(FILES)) {
       const body = bodyOf(sql)
@@ -173,16 +173,32 @@ describe('migrations 572-576', () => {
     expect(body).toContain("'team_chat_channel'")
   })
 
-  it('576: a meeting link as a booking’s place, beside availability’s video and location, off by default; its function the service role’s', () => {
+  it('585: a meeting link as a booking’s place, beside availability’s video and location, off by default; made per booking, followed by a trigger', () => {
     const body = flat(FILES.bookings)
     expect(body).toContain('alter table public.booking_link add column if not exists call_here boolean not null default false;')
     expect(body).toContain('alter table public.time_offer add column if not exists call_here boolean not null default false;')
-    expect(body).toContain('alter table public.meeting add column if not exists booking_id uuid null references public.meeting_booking(id) on delete set null;')
-    expect(body).toContain('create unique index if not exists meeting_booking_id_key on public.meeting (booking_id) where booking_id is not null;')
-    expect(defined(FILES.bookings)).toEqual(['meeting_booking_changed'])
-    expect(body).toContain('security definer set search_path = public, pg_temp')
-    expect(body).toContain('revoke all on function public.meeting_booking_changed(uuid, timestamptz, integer, boolean) from public, anon, authenticated;')
+    // The booking's meeting: 573's column and unique index; 574's daily allowance for a host's own links skips booking meetings.
+    expect(flat(FILES.tables)).toContain('alter table public.meeting add column if not exists booking_id uuid references public.meeting_booking(id) on delete set null;')
+    expect(flat(FILES.tables)).toContain('create unique index if not exists meeting_booking_id_key on public.meeting (booking_id) where booking_id is not null;')
+    expect(flat(FILES.functions)).toContain('where x.host_member_id = me and x.booking_id is null and x.created_at > now() - interval')
+    expect(defined(FILES.bookings).sort()).toEqual(['meeting_booking_changed', 'meeting_booking_follow', 'meeting_create_for_booking'])
+    for (const fn of defined(FILES.bookings)) {
+      const i = body.indexOf(`function public.${fn}(`)
+      expect(body.slice(i, body.indexOf(' as $$', i)), fn).toContain('security definer set search_path = public, pg_temp')
+      expect(body, fn).toMatch(new RegExp(`revoke all on function public\\.${fn}\\([^)]*\\) from public, anon, authenticated;`))
+    }
+    expect(body).toContain('grant execute on function public.meeting_create_for_booking(uuid, uuid, text, text) to service_role;')
     expect(body).toContain('grant execute on function public.meeting_booking_changed(uuid, timestamptz, integer, boolean) to service_role;')
+    // Made and tied to its booking in one step, the booking's row locked first; never 574's daily allowance.
+    const create = body.slice(body.indexOf('function public.meeting_create_for_booking('), body.indexOf('function public.meeting_booking_changed('))
+    expect(create).toContain('from public.meeting_booking x where x.id = booking_ref for update;')
+    expect(create).toContain('values (meeting_ref, b.workspace_id, ch, host, title_now, digest, nonce, b.starts_at, ends, opens, closes, b.id);')
+    expect(create).not.toContain('too many links today')
+    expect(create).not.toContain('meeting_make')
+    // Every writer of a booking's time or state reaches its meeting: a trigger, which never stops the write.
+    expect(body).toContain('create trigger meeting_booking_follow after update of state, starts_at, ends_at on public.meeting_booking for each row execute function public.meeting_booking_follow();')
+    expect(body).toContain('create trigger meeting_booking_follow_delete before delete on public.meeting_booking for each row execute function public.meeting_booking_follow();')
+    expect(body).toContain("exception when others then raise warning 'meetings: booking % not followed by its meeting: %'")
     // The members' column grant on meeting (573) never gains booking_id.
     expect(flat(FILES.tables)).not.toMatch(/grant select \([^)]*booking_id/)
     // Availability's own functions are not redefined.

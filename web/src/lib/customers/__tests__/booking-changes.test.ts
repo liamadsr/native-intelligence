@@ -234,6 +234,17 @@ describe('move_booking', () => {
 })
 
 describe('cancel_booking', () => {
+  it('a booking meeting on a call here (migration 585): its trigger revoked the link; anyone still in the call is taken out now', async () => {
+    const meetingCancelled = vi.fn(async () => true)
+    const { d } = deps({ meetingCancelled })
+    expect(await cancel(d)).toMatchObject({ success: true, status: 'cancelled' })
+    expect(meetingCancelled).toHaveBeenCalledWith(B_DANA)
+    // Refused (not live any more): no one is taken out.
+    meetingCancelled.mockClear()
+    expect(await cancel(d)).toMatchObject({ success: false })
+    expect(meetingCancelled).not.toHaveBeenCalled()
+  })
+
   it('cancels it, deletes its calendar event and texts the customer; their reminder says so, a late yes is refused, and STOP no longer says it stands', async () => {
     const { d, texts } = deps()
     expect(await cancel(d)).toEqual({

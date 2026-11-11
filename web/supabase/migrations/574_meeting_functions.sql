@@ -173,7 +173,8 @@ begin
   if length_min not between 5 and 480 then
     raise exception 'meetings: a meeting is 5 minutes to 8 hours' using errcode = '22023';
   end if;
-  select count(*)::integer into made from public.meeting x where x.host_member_id = me and x.created_at > now() - interval '1 day';
+  -- The links a member makes themself: a booked meeting's (585, one per booking) never counts.
+  select count(*)::integer into made from public.meeting x where x.host_member_id = me and x.booking_id is null and x.created_at > now() - interval '1 day';
   if made >= 50 then
     raise exception 'meetings: too many links today' using errcode = '22023';
   end if;

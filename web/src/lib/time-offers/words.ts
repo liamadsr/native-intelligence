@@ -184,7 +184,7 @@ export function offerCardHash(card: { title: string; why: string }): string {
 export function bookingEventWords(
   b: { title: string; guestName: string; guestNote: string | null; location: string | null },
   manageLink: string,
-  /** The booking meets on a call here (migration 576): its meeting link, first. */
+  /** The booking meets on a call here (migration 585): its meeting link, first. */
   callUrl?: string | null,
 ): { title: string; description: string } {
   return {

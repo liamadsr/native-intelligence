@@ -32,7 +32,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deleteCalendarEvent, updateCalendarEvent } from '@/lib/integrations/calendar'
-import { bookingMeetingChanged, type BookingMeetingChange } from '@/lib/meeting-links/bookings'
+import { bookingMeetingCancelled } from '@/lib/meeting-links/bookings'
 import { meetingUrlIn } from '@/lib/meeting-links/shape'
 import { listCountedEvents } from '@/lib/availability/busy'
 import { intersectAll, type Span } from '@/lib/availability/engine'
@@ -65,8 +65,8 @@ export interface ManageDeps {
   getLink?: (linkId: string, workspaceId: string) => Promise<BookingLink | null>
   /** The link's times (default: readLinkTimes). */
   linkTimes?: typeof readLinkTimes
-  /** Its meeting link follows the booking (default: src/lib/meeting-links/bookings.ts; nothing when it has none). */
-  meetingChanged?: (change: BookingMeetingChange) => Promise<boolean>
+  /** After a cancellation: guests still in its meeting's call taken out now (585's trigger revoked the link; default: src/lib/meeting-links/bookings.ts). */
+  meetingCancelled?: (bookingId: string) => Promise<boolean>
 }
 
 /** A booking by its manage link's token. Throws on a failed read. */
@@ -115,8 +115,8 @@ export async function cancelMeeting(
       }
     }
     await deleteBookingClaims(supabase, booking.id).catch(() => {})
-    // Meets on a call here: its link stops working (waiting guests let go).
-    await (deps.meetingChanged ?? ((c) => bookingMeetingChanged(supabase, c)))({ bookingId: booking.id, cancelled: true })
+    // Meets on a call here: 585's trigger revoked its link with the cancellation; anyone still in its call goes now.
+    await (deps.meetingCancelled ?? ((id) => bookingMeetingCancelled(supabase, id)))(booking.id)
     if (args.by === 'guest') {
       const zone = await hostZone(supabase, booking)
       await (deps.tellHost ?? ((a) => reportToOwner(supabase, a)))({
@@ -300,8 +300,6 @@ export async function rescheduleMeeting(
       }
     }
     await deleteBookingClaims(supabase, booking.id, claim.ids).catch(() => {})
-    // Meets on a call here: the meeting's window moves with it (the same link).
-    await (deps.meetingChanged ?? ((c) => bookingMeetingChanged(supabase, c)))({ bookingId: booking.id, startsAt: span.startsAt, endsAt: span.endsAt })
     if (args.by === 'guest') {
       const zone = await hostZone(supabase, moved)
       await (deps.tellHost ?? ((a) => reportToOwner(supabase, a)))({
