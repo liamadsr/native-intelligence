@@ -1,10 +1,10 @@
 /**
  * Team chat's phase 2 routes (migration 560): reading a channel or a thread
- * reads its notifications (560's functions do it, as the person) and cancels
- * a waiting email only when there was something unread; a channel's level is
+ * reads its notifications (560's functions do it, as the person; an email
+ * waiting leaves it out), with no event per read; a channel's level is
  * set through team_chat_set_notify; one message opens where it is (its
  * channel, its thread's root), never another workspace's or a deleted one;
- * a deleted message's notifications go with it.
+ * and the page around an older message loads instead of giving up.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
@@ -51,7 +51,8 @@ vi.mock('@/lib/inngest/client', () => ({
 import { POST as readChannel } from '../channels/[id]/read/route'
 import { POST as readThread } from '../threads/[id]/read/route'
 import { POST as setNotify } from '../channels/[id]/notify/route'
-import { GET as getMessage, DELETE as deleteMessage } from '../messages/[id]/route'
+import { GET as getMessage } from '../messages/[id]/route'
+import { GET as getMessages } from '../channels/[id]/messages/route'
 
 let tables: Record<string, Array<Record<string, unknown>>>
 beforeEach(() => {
@@ -91,39 +92,21 @@ async function runAfters() {
 }
 
 describe('read clears', () => {
-  it('reading a channel marks it (and, in the database, its notifications) read, and cancels its waiting email', async () => {
-    const res = await readChannel(post(`/api/account/team-chat/channels/${CH}/read`), params(CH))
-    expect(res.status).toBe(200)
-    expect(h.rpcs).toEqual([['team_chat_mark_read', { ch: CH }]])
+  it('reading a channel or a thread goes through 560’s functions, which read its notifications too (an email waiting leaves it out: email.test.ts)', async () => {
+    expect((await readChannel(post(`/api/account/team-chat/channels/${CH}/read`), params(CH))).status).toBe(200)
+    expect((await readThread(post(`/api/account/team-chat/threads/${ROOT}/read`), params(ROOT))).status).toBe(200)
+    expect(h.rpcs).toEqual([
+      ['team_chat_mark_read', { ch: CH }],
+      ['team_chat_mark_thread_read', { root: ROOT }],
+    ])
+    // A read mark is not an event: nothing is sent per read.
     await runAfters()
-    expect(h.events).toEqual([{ name: 'team-chat/read', data: { key: `${USER}:team_chat:${CH}` } }])
-  })
-
-  it('nothing unread there: no cancel sent (a read mark is not an event)', async () => {
-    tables.notification[0].is_read = true
-    await readChannel(post(`/api/account/team-chat/channels/${CH}/read`), params(CH))
-    await runAfters()
-    expect(h.rpcs).toHaveLength(1)
     expect(h.events).toEqual([])
   })
 
-  it('reading a thread marks it read and cancels the thread’s email only when the person had one waiting', async () => {
-    await readThread(post(`/api/account/team-chat/threads/${ROOT}/read`), params(ROOT))
-    await runAfters()
-    expect(h.rpcs).toEqual([['team_chat_mark_thread_read', { root: ROOT }]])
-    // The thread's notification is someone else's: nothing of the person's to cancel.
-    expect(h.events).toEqual([])
-    tables.notification.push({ id: 'n3', recipient_id: ANA, type: 'team_chat_message', target_id: REPLY, group_key: `team_chat_thread:${ROOT}`, is_read: false })
-    await readThread(post(`/api/account/team-chat/threads/${ROOT}/read`), params(ROOT))
-    await runAfters()
-    expect(h.events).toEqual([{ name: 'team-chat/read', data: { key: `${USER}:team_chat_thread:${ROOT}` } }])
-  })
-
-  it('a channel they may not read is refused, and nothing is cancelled', async () => {
+  it('a channel they may not read is refused', async () => {
     h.rpcAnswer = { data: null, error: { code: '42501', message: 'no such channel' } }
     expect((await readChannel(post(`/api/account/team-chat/channels/${CH}/read`), params(CH))).status).toBe(403)
-    await runAfters()
-    expect(h.events).toEqual([])
   })
 })
 
@@ -163,10 +146,32 @@ describe('one message, where it is', () => {
     expect((await get('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')).status).toBe(404)
   })
 
-  it('a deleted message’s notifications go with it, everyone’s', async () => {
-    const res = await deleteMessage(new NextRequest(new URL(`/api/account/team-chat/messages/${REPLY}`, 'http://localhost'), { method: 'DELETE' }), params(REPLY))
-    expect(res.status).toBe(200)
-    await runAfters()
-    expect(tables.notification.map((n) => n.id)).toEqual(['n1'])
+  it('the page around an older message: a few before it, on to the newest when that fits, else that page alone (hasNewer)', async () => {
+    // Root-level messages of the channel, a minute apart.
+    tables.team_chat_message = []
+    for (let i = 0; i < 260; i++) {
+      tables.team_chat_message.push({ id: `c0000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`, channel_id: CH, workspace_id: WS, author_kind: 'member', author_member_id: ANA, thread_root_id: null, body: `m${i}`, created_at: new Date(Date.UTC(2026, 10, 10, 0, i)).toISOString(), deleted_at: null, attachments: [] })
+    }
+    const idOf = (i: number) => `c0000000-0000-4000-8000-${i.toString(16).padStart(12, '0')}`
+    const around = async (i: number) =>
+      (await getMessages(new NextRequest(new URL(`/api/account/team-chat/channels/${CH}/messages?around=${idOf(i)}`, 'http://localhost')), params(CH))).json()
+    // An old one: 25 before it, 200 from it, more after (shown alone, with a way to the newest).
+    const old = await around(10)
+    expect(old.messages[0].body).toBe('m0')
+    expect(old.messages.map((m: { body: string }) => m.body)).toContain('m10')
+    expect(old.messages).toHaveLength(10 + 200)
+    expect(old).toMatchObject({ hasOlder: false, hasNewer: true })
+    // A recent one: on to the newest, unbroken (merged with the newest page).
+    const recent = await around(200)
+    expect(recent.messages[0].body).toBe('m175')
+    expect(recent.messages.at(-1).body).toBe('m259')
+    expect(recent).toMatchObject({ hasOlder: true, hasNewer: false })
+  })
+
+  it('around a message that isn’t one of the channel’s own (another channel’s, a thread’s reply) is a 404; a bad id a 400', async () => {
+    const at = (q: string) => getMessages(new NextRequest(new URL(`/api/account/team-chat/channels/${CH}/messages?around=${q}`, 'http://localhost')), params(CH))
+    expect((await at(REPLY)).status).toBe(404)
+    expect((await at(ELSEWHERE)).status).toBe(404)
+    expect((await at('nope')).status).toBe(400)
   })
 })

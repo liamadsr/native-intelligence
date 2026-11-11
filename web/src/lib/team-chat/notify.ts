@@ -209,7 +209,8 @@ interface MessageRow {
  * its channel, asks 560's team_chat_notify_candidates who it may be for,
  * decides ({@link teamChatRecipients}) and writes one `team_chat_message`
  * notification each, skipping anyone who has one for it already (a retry).
- * Returns who was told now. Throws on a failed read (the step retries).
+ * Returns everyone who has one now (a retry's too, so none of them is left
+ * out of the email). Throws on a failed read (the step retries).
  */
 export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: string): Promise<{ outcome: TeamChatNotifyOutcome; notified: TeamChatNotified[] }> {
   const { data: message, error } = await svc
@@ -232,16 +233,9 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
   const recipients = teamChatRecipients(message, channel.kind, (rows ?? []) as TeamChatNotifyCandidate[])
   if (recipients.length === 0) return { outcome: 'nobody', notified: [] }
 
-  // A retry: whoever has theirs already isn't written again.
-  const { data: had, error: hadError } = await svc
-    .from('notification')
-    .select('recipient_id')
-    .eq('type', TEAM_CHAT_NOTIFICATION_TYPE)
-    .eq('target_id', messageId)
-  if (hadError) throw new Error(`team chat notify: notification read failed: ${hadError.message}`)
-  const done = new Set(((had ?? []) as Array<{ recipient_id: string }>).map((r) => r.recipient_id))
+  // A retry: whoever has theirs already isn't written again (but is handed on below).
+  const done = await notifiedAlready(svc, messageId)
   const fresh = recipients.filter((r) => !done.has(r.memberId))
-  if (fresh.length === 0) return { outcome: 'already', notified: [] }
 
   let authorName = 'A teammate'
   if (message.author_kind === 'member' && message.author_member_id) {
@@ -281,33 +275,37 @@ export async function notifyTeamChatMessage(svc: SupabaseClient, messageId: stri
       place,
     },
   })
-  const { error: insertError } = await svc.from('notification').insert(fresh.map(rowFor))
-  let written = fresh
-  if (insertError) {
-    if (insertError.code !== '23505') throw new Error(`team chat notify: write failed: ${insertError.message}`)
-    // Raced with another run for some of them: one at a time, each duplicate skipped.
-    written = []
-    for (const r of fresh) {
-      const { error: one } = await svc.from('notification').insert(rowFor(r))
-      if (!one) written.push(r)
-      else if (one.code !== '23505') throw new Error(`team chat notify: write failed: ${one.message}`)
+  if (fresh.length > 0) {
+    // The database writes each with the message's words as they are now, and none at all once it is deleted
+    // (560's team_chat_notification_live, which also makes a racing edit or delete wait and then follow).
+    const { error: insertError } = await svc.from('notification').insert(fresh.map(rowFor))
+    if (insertError) {
+      if (insertError.code !== '23505') throw new Error(`team chat notify: write failed: ${insertError.message}`)
+      // Raced with another run for some of them: one at a time, each duplicate skipped.
+      for (const r of fresh) {
+        const { error: one } = await svc.from('notification').insert(rowFor(r))
+        if (one && one.code !== '23505') throw new Error(`team chat notify: write failed: ${one.message}`)
+      }
     }
   }
+  // Everyone who has one now, written by this try or an earlier one (a retry after a
+  // partial failure still hands every one of them to the email batcher).
+  const have = await notifiedAlready(svc, messageId)
+  const told = recipients.filter((r) => have.has(r.memberId))
   return {
-    outcome: written.length ? 'notified' : 'already',
-    notified: written.map((r) => ({ memberId: r.memberId, userId: r.userId, workspaceId: message.workspace_id, groupKey })),
+    outcome: told.length === 0 ? 'gone' : fresh.length === 0 ? 'already' : 'notified',
+    notified: told.map((r) => ({ memberId: r.memberId, userId: r.userId, workspaceId: message.workspace_id, groupKey })),
   }
 }
 
-/**
- * A deleted message's notifications go with it (service role): nobody is
- * told, or emailed, about words that are gone. Never throws (logged).
- */
-export async function removeTeamChatNotifications(svc: SupabaseClient, messageId: string): Promise<void> {
-  try {
-    const { error } = await svc.from('notification').delete().eq('type', TEAM_CHAT_NOTIFICATION_TYPE).eq('target_id', messageId)
-    if (error) console.warn(`[team-chat-notify] message=${messageId} notifications not removed:`, error.message)
-  } catch (err) {
-    console.warn(`[team-chat-notify] message=${messageId} notifications not removed:`, err instanceof Error ? err.message : 'unknown')
-  }
+/** Who has this message's notification already. Throws on a failed read. */
+async function notifiedAlready(svc: SupabaseClient, messageId: string): Promise<Set<string>> {
+  const { data, error } = await svc
+    .from('notification')
+    .select('recipient_id')
+    .eq('target_type', 'team_chat_message')
+    .eq('target_id', messageId)
+    .eq('type', TEAM_CHAT_NOTIFICATION_TYPE)
+  if (error) throw new Error(`team chat notify: notification read failed: ${error.message}`)
+  return new Set(((data ?? []) as Array<{ recipient_id: string }>).map((r) => r.recipient_id))
 }

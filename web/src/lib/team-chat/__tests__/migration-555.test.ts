@@ -37,8 +37,11 @@ describe('migrations 555-559', () => {
       const body = bodyOf(sql)
       expect(sql, name).not.toContain('\\')
       expect(body, name).not.toMatch(/drop table|delete from|truncate|drop column/i)
-      expect(body, name).toContain("SET LOCAL lock_timeout = '5s';")
-      expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';"), name).toBe(true)
+      // One transaction whatever applies it (plain psql too): begin first, then the lock timeout, the reload, commit last.
+      expect(body, name).toMatch(/^\s*begin;\s*SET LOCAL lock_timeout = '5s';/)
+      expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';\n\ncommit;"), name).toBe(true)
+      expect((body.match(/^(begin|commit);$/gm) ?? []).length, name).toBe(2)
+      expect(body, name).not.toMatch(/concurrently|vacuum/i)
       expect((body.match(/create table if not exists/g) ?? []).length, name).toBe((body.match(/create table/g) ?? []).length)
       expect(body, name).not.toMatch(/to anon/)
     }

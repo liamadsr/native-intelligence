@@ -21,6 +21,7 @@ import {
 } from 'react'
 import { OPEN_CARD_EVENT, cardForTarget, parseOpenCardRequest, type OpenCardRequest } from '@/lib/chat-cards/open-card'
 import { useSwitchWorkspace, useWorkspaceId } from '@/app/account/workspace-switcher'
+import { toast } from 'sonner'
 import { DEEP_LINK_TYPES } from '@/lib/entities/entity-actions-registry'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { prunePersistedEvents } from '@/calendar/persisted-events'
@@ -78,9 +79,14 @@ const DEEP_LINK_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
  * links the Linear, Jira and Asana pushes and flow templates hand out),
  * `?project=` and `?initiative=` (flow templates), and the record a menu's
  * Copy link copied (a doc, a capture, a contact, a company, a deal, a flow).
- * Uuids only. One per boot.
+ * `&workspace=<id>` (a team chat email's link) names the workspace it is in:
+ * the card opens there, switched to first, as any card asked for in another
+ * workspace does (a workspace the person isn't in opens nothing). Uuids only.
+ * One per boot.
  */
 export function deepLinkCard(params: URLSearchParams): { param: string; request: OpenCardRequest } | null {
+  const workspace = params.get(DEEP_LINK_WORKSPACE)
+  const workspaceId = workspace && DEEP_LINK_ID.test(workspace) ? workspace : null
   for (const param of DEEP_LINK_TYPES) {
     const id = params.get(param)
     // Ids only: a link is outside input, and every one of these is a uuid.
@@ -89,10 +95,13 @@ export function deepLinkCard(params: URLSearchParams): { param: string; request:
     const card = target ? cardForTarget(target) : null
     if (!card) continue
     // The seed is where inside the card it starts (a flow's editor).
-    return { param, request: { spec: card.spec, from: 'link', ...(card.seed ? { seed: card.seed } : {}) } }
+    return { param, request: { spec: card.spec, from: 'link', ...(card.seed ? { seed: card.seed } : {}), ...(workspaceId ? { workspaceId } : {}) } }
   }
   return null
 }
+
+/** The deep link's workspace parameter. */
+export const DEEP_LINK_WORKSPACE = 'workspace'
 
 interface MainChatValue {
   /** The chat of the workspace on screen, as the panel mounts on it. */
@@ -203,9 +212,11 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
       const params = new URLSearchParams(window.location.search)
       const link = deepLinkCard(params)
       if (link) {
-        if (workspaceId) deliverTo(chatRef.current.chatSessionId, link.request)
+        // A link naming its workspace waits for the real id, which says whether it is another one to switch to.
+        if (workspaceId && !link.request.workspaceId) deliverTo(chatRef.current.chatSessionId, link.request)
         else pendingDeepLinkCardRef.current = link.request
         params.delete(link.param)
+        params.delete(DEEP_LINK_WORKSPACE)
         const rest = params.toString()
         window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''))
       }
@@ -245,8 +256,17 @@ export function MainChatProvider({ children }: { children: React.ReactNode }) {
       sweepLegacyTabKeys()
       sweepClaudeCodeKeys()
       prunePersistedEvents()
-      const card = pendingDeepLinkCardRef.current ?? takeParkedCard()
+      let card = pendingDeepLinkCardRef.current ?? takeParkedCard()
       pendingDeepLinkCardRef.current = null
+      // A deep link into another workspace: switched to, and opened there (as a card asked for there is).
+      if (card?.workspaceId && card.workspaceId !== workspaceId) {
+        pendingCrossWorkspaceCardRef.current = { workspaceId: card.workspaceId, request: card }
+        if (!switchWorkspaceRef.current(card.workspaceId)) {
+          pendingCrossWorkspaceCardRef.current = null
+          toast('That link is to a workspace you aren’t in.')
+        }
+        card = null
+      }
       const bootWs = bootWorkspaceRef.current
       if (bootWs === workspaceId) {
         if (card) deliver(card)

@@ -234,6 +234,22 @@ export function lastReplyLabel(iso: string | null, now: Date = new Date(), local
   return d.toLocaleDateString(locale, { month: 'short', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) })
 }
 
+/**
+ * A page into a channel's list, kept with what is there: rows already shown
+ * (realtime, an earlier page, a send on its way) stay unless the page has
+ * them. `alone` (a page around an old message that doesn't reach the newest:
+ * the server's hasNewer) replaces the list instead, keeping only the person's
+ * own sends on their way, so no gap is ever drawn as if it were unbroken.
+ */
+export function mergePage<T extends ShownMessage & { pending?: unknown }>(prev: readonly T[] | undefined, page: readonly T[], alone = false): T[] {
+  let list = [...page]
+  for (const m of prev ?? []) {
+    if (alone && !m.pending) continue
+    if (!list.some((x) => x.id === m.id || (!!m.client_id && x.client_id === m.client_id))) list = upsertMessage(list, m)
+  }
+  return list
+}
+
 /** A channel's counts as its row and the card's header use them (migration 560). */
 export interface ChannelCounts {
   unread: number

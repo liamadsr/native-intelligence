@@ -22,13 +22,22 @@
 -- (document_chunks, capture_chunks) embeds a record's text in chunks after
 -- it is written; adding a kind to it is its own job. Full text only.
 --
--- Additive. Idempotent. Safe on a live database: one new index (the build
--- takes a SHARE lock on team_chat_message, which holds writes back for as
--- long as the build runs: milliseconds at this table's size; lock_timeout
--- makes it fail rather than queue behind a long reader) and one new
--- function. No backslashes anywhere in this file (one MCP transport decodes
+-- Additive. Idempotent. Safe on a live database: one new index, built in
+-- the transaction rather than CONCURRENTLY (the build takes a SHARE lock on
+-- team_chat_message, which holds writes back for as long as it runs:
+-- milliseconds at this table's size; lock_timeout makes it fail rather than
+-- queue behind a long reader), and one new function. The file is one
+-- transaction (begin ... commit below): a failure rolls all of it back. No backslashes anywhere in this file (one MCP transport decodes
 -- escapes).
 -- ------------------------------------------------------------
+
+-- One transaction, whatever applies it: the file opens with begin and ends
+-- with commit, so plain `psql -v ON_ERROR_STOP=1 < file` (no
+-- --single-transaction) is atomic too. A failure rolls the whole file back,
+-- and SET LOCAL's lock_timeout holds for every statement in it. Nothing in it
+-- is refused inside a transaction (no CONCURRENTLY, no VACUUM).
+
+begin;
 
 SET LOCAL lock_timeout = '5s';
 
@@ -135,3 +144,5 @@ revoke all on function public.team_chat_search(uuid, text, integer) from public,
 grant execute on function public.team_chat_search(uuid, text, integer) to authenticated;
 
 notify pgrst, 'reload schema';
+
+commit;

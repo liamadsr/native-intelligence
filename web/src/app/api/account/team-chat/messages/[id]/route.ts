@@ -17,17 +17,16 @@
  *         first link may have changed: src/lib/team-chat/link-preview.ts).
  *   DELETE → { ok: true } deleted (soft: its words, files and link preview
  *         are cleared for everyone): their own message, or their own agent's
- *         reply. Its `mentions` edges are removed, its files (the
- *         person's own uploads) removed from storage, and its notifications
- *         go (migration 560: nobody is told, or emailed, about words that
- *         are gone).
+ *         reply. Its `mentions` edges are removed, and its files (the
+ *         person's own uploads) removed from storage. Its notifications go
+ *         with it, and an edit's notifications say the new words, in the
+ *         database (560's team_chat_message_notices_follow): nobody is told,
+ *         or emailed, about words that are gone.
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, notFound } from '@/lib/api-errors'
-import { getServiceClient } from '@/lib/admin'
 import { deleteMessage, editMessage, getChannel, getMessage, removeFiles, workspaceMemberIds } from '@/lib/team-chat/store'
-import { removeTeamChatNotifications } from '@/lib/team-chat/notify'
 import { requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { fenceRecordMentions, storedRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
@@ -107,8 +106,6 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
     if (!deleted) return notFound()
     // Its files go with it (558's policy lets the person remove only their own uploads).
     await removeFiles(auth.supabase, deleted.paths)
-    // And everyone's notifications of it (others' rows: the service role, for this message only).
-    after(() => removeTeamChatNotifications(getServiceClient(), id))
     // A deleted message mentions nothing (the guard cleared its words): its edges go too.
     await syncMessageMentions(auth.supabase, {
       workspaceId: auth.workspaceId,
