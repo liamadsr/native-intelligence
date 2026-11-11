@@ -1,5 +1,6 @@
 'use client'
 
+import { useJoinOurMeeting, useOurMeeting } from '@/components/meeting-links/join-meeting'
 import { useCallback, useEffect, useState } from 'react'
 import { endOfDay, format, isToday, isTomorrow, isValid, isYesterday, parseISO } from 'date-fns'
 import {
@@ -119,6 +120,9 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
   const [startDate, setStartDate] = useState<Date>(parseISO(event.startDate))
   const [endDate, setEndDate] = useState<Date>(parseISO(event.endDate))
   const [location, setLocation] = useState(event.location || '')
+  // One of our meeting links (phase 7): Join opens the meeting in the app.
+  const ourMeeting = useOurMeeting(event.conferenceUrl)
+  const { join: joinOurMeeting, joining } = useJoinOurMeeting()
   const [description, setDescription] = useState(event.description || '')
 
   // Track if any field has been modified
@@ -319,6 +323,9 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
           }),
         })
         if (!res.ok) throw new Error(`Event update failed: ${res.status}`)
+        // Saved, with a word to say (a meeting link that couldn't follow the new length exactly).
+        const saved = (await res.json().catch(() => null)) as { notice?: string } | null
+        if (saved?.notice) toast(saved.notice)
       }
       // Fold the confirmed edit into the shared events cache so the calendar
       // grid and widget show it without waiting for the next poll.
@@ -392,7 +399,13 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
       {/* Header toolbar */}
       <div className="flex h-10 shrink-0 items-center px-3">
         <div className="ml-auto flex items-center gap-1">
-          {event.conferenceUrl && (
+          {event.conferenceUrl && ourMeeting && (
+            <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" disabled={joining} onClick={() => void joinOurMeeting(ourMeeting)} data-calendar-join-meeting="">
+              <Video className="h-3.5 w-3.5" />
+              Join
+            </Button>
+          )}
+          {event.conferenceUrl && !ourMeeting && (
             <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" asChild>
               {/* Joining launches the meeting app (and needs a camera and
                   mic): the user's browser, never the in-app one. */}
@@ -559,6 +572,11 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
             {event.conferenceUrl && (
               <div className="flex items-center gap-3">
                 <Video className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {ourMeeting ? (
+                  <button type="button" disabled={joining} onClick={() => void joinOurMeeting(ourMeeting)} className="min-w-0 flex-1 truncate text-left text-sm text-primary hover:underline">
+                    Join meeting
+                  </button>
+                ) : (
                 <a
                   href={event.conferenceUrl}
                   target="_blank"
@@ -568,6 +586,7 @@ export function CalendarEventDetailPanel({ event, onClose, onEventUpdate, onEven
                 >
                   Join meeting
                 </a>
+                )}
               </div>
             )}
           </div>

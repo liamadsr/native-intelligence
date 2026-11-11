@@ -17,6 +17,9 @@ import { createBusinessTools } from './business'
 import { createInitiativeTools } from './initiatives'
 import { createProjectTools } from './projects'
 import { createCycleTools } from './cycles'
+import { createAvailabilityTools } from './availability'
+import { createTimeOfferTools } from './time-offers'
+import { createBookingLinkTools } from './booking-links'
 import { createCalendarTools } from './calendar'
 import { createEmailTools } from './email'
 import { createCommentTools } from './comments'
@@ -195,6 +198,17 @@ export interface CreateToolsOptions {
    * family.
    */
   unattended?: boolean
+  /**
+   * The person is the caller, at the keyboard, and reads this turn as it runs
+   * (the chat tool route's caller class `person`, from the verified token;
+   * never anything model-visible). An offer made by link in such a turn is
+   * marked as shown to them (time_offer.recipients_shown), so their agent
+   * may later book its times for its guests without a second card. Absent
+   * everywhere else: such a booking waits on the person's card
+   * (src/lib/time-offers/agent-booking.ts). Threaded only to the time
+   * offers family.
+   */
+  personAttended?: boolean
   /**
    * The person's own text to the Native Intelligence number (a channel turn, surface sms,
    * no guest, relay or teammate: isPersonTextTurn in
@@ -433,6 +447,17 @@ export function createTools(
     ...createCycleTools(userId, supabase, workspaceId, strict, createPolicy),
     // get_calendar_events reads and writes times in the person's zone: this turn's browser zone, else their saved one.
     ...createCalendarTools(userId, workspaceId, { supabase, timeZone: options?.timeZone }),
+    // When the person can meet, alone or with teammates, and their working hours (src/lib/availability).
+    // A guest's or a linked agent's turn reads only the person's own time, never a teammate's.
+    ...createAvailabilityTools(userId, workspaceId, { timeZone: options?.timeZone, omitGrants }),
+    // Times offered to an outside person, held until they pick one (src/lib/time-offers/).
+    // offer_times by email or text sends only as the person's approved call; cancel_offered_meeting is never an unattended run's.
+    // A guest's or a linked agent's turn reads no grant of the person's: no linked guest is answered from their calendar.
+    // An offer by link is marked shown only in the person's own attended turn (personAttended): only then may their agent book its times without a card.
+    ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, personAttended: options?.personAttended === true && options?.unattended !== true, timeZone: options?.timeZone, omitGrants }),
+    // Booking links: standing public pages to book time with the person or their team (src/lib/booking-links/).
+    // Making and changing one is attended only (ATTENDED_ONLY_TOOL_NAMES): the ceiling keeps them out of unattended runs.
+    ...createBookingLinkTools(userId, workspaceId),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

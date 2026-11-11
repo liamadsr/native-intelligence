@@ -1,6 +1,9 @@
 /**
  * /api/account/team-chat/channels/[id]/read (roadmap #7, migration 474)
- *   POST → { ok: true } the channel read up to now for the person.
+ *   POST → { ok: true } the channel read up to now for the person, and its
+ *          notifications with it (migration 560: the banners and the chat
+ *          agree). An email waiting for them leaves this conversation out:
+ *          it reads only what is still unread (src/lib/team-chat/email.ts).
  */
 import { NextResponse } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'

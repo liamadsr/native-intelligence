@@ -301,6 +301,11 @@ describe('buildAgentRunSpec — flow-origin (action_id NULL)', () => {
     seedFlowRunnable()
     const spec = await rebuildAgentRunSpec(FLOW_CLAIMS)
     expect(spec?.taskPrompt).toBe(FLOW_TASK)
+    // The spec route's build drops the GitHub token (the git gate keeps reading
+    // it server-side through buildAgentRunSpec) and carries the gate token instead.
+    expect(spec).not.toHaveProperty('githubToken')
+    expect(JSON.stringify(spec)).not.toContain('ghp_flow_token')
+    expect(spec?.gitPushToken).toEqual(expect.any(String))
   })
 
   it('gatewayTelemetry tags the flow, not an action', async () => {

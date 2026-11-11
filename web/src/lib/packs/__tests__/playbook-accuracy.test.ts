@@ -73,11 +73,12 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
     'last_message_id', 'mail', 'max_drafts', 'max_results', 'needs_reply', 'previous_draft_id', 'query', 'read', 'thread_id',
     'thread_ids', 'types', 'undo', 'unread',
   ],
-  // A1c meetings-mail: rewritten in 325.
+  // A1c meetings-mail: rewritten in 325; find_times' answer (suggested, free, unknown) in 551; its teammates (people, coverage)
+  // and the working hours' availability_sharing in 553; offer_times' send_by (link, email, text) in 580; its recipients (a poll) in 584.
   'calendar-playbook': [
-    'account_email', 'attendees', 'calendar', 'capture_status', 'description', 'email', 'end', 'end_date', 'event_id', 'from',
-    'hours_ahead', 'local_exchange', 'location', 'max_results', 'participant_email', 'since', 'start', 'start_date', 'title', 'truncated',
-    'view',
+    'account_email', 'attendees', 'availability_sharing', 'calendar', 'capture_status', 'coverage', 'description', 'email', 'end', 'end_date',
+    'event_id', 'free', 'from', 'hours_ahead', 'link', 'local_exchange', 'location', 'max_results', 'participant_email', 'people', 'recipients', 'send_by',
+    'since', 'start', 'start_date', 'suggested', 'text', 'title', 'truncated', 'unknown', 'view',
   ],
   'actions-playbook': [
     'assignee', 'assignee_id', 'assignee_name', 'confirmation', 'due_at', 'filter', 'has_more', 'id', 'identifier', 'is_relative',
@@ -188,7 +189,11 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
   ],
   // A1c meetings-mail: 325's recipes (write-in-your-tone and clear-inbox, rewritten in 325, are above; meeting-prep is the 159 row).
   'meeting-prep': ['all_time', 'attendees', 'domain', 'email', 'event_id', 'max_results', 'participant_email'],
-  'find-a-time': ['attendees', 'end', 'end_date', 'location', 'max_results', 'start', 'start_date', 'title', 'truncated'],
+  // 551: find_times' inputs and answer in place of reading the events; 553: its teammates (people); 584: a poll's offer_times (recipients, co_hosts).
+  'find-a-time': [
+    'attendees', 'buffer_minutes', 'co_hosts', 'duration_minutes', 'end', 'free', 'from', 'location', 'people', 'recipients', 'start', 'suggested', 'time_zone', 'title',
+    'to', 'unknown', 'working_hours_are_default',
+  ],
   'meeting-recap': ['capture_id', 'has_more', 'next_offset', 'project_id', 'since'],
   // P8: content (384) and marketing (385).
   // P9 (391): the recipes by name, built with create_flow's `recipe`.
@@ -239,6 +244,10 @@ const CHAT_ONLY_NAMED: Record<string, readonly string[]> = {
   'x-post': ['review_post'],
   'linkedin-post': ['review_post'],
   'marketing-playbook': ['create_flow'],
+  // 551: changing the working hours is the person's step, on what they said in the chat.
+  // The working hours (551), and making a booking link (582): the person's own steps, in their chat.
+  'calendar-playbook': ['create_booking_link', 'set_working_hours'],
+  'find-a-time': ['set_working_hours'],
 }
 
 /** The operators a `show` filter takes (show.ts filterSchema). */

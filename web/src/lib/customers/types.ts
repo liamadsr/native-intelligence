@@ -1,9 +1,14 @@
 /**
  * The customer front door's vocabulary (roadmap track B, migration 458;
  * docs/plans/customer-front-door.md): a service business's profile, its
- * customers' quotes and bookings, as the app reads them. Client-safe (no
- * server imports): the public booking page reads these shapes too.
+ * customers' quotes and bookings, as the app reads them. Since migration 581
+ * a booking is a meeting_booking (source 'customer', or 'link' for a booking
+ * link's) and the profile's booking rules are its job link's
+ * (src/lib/booking-links/): these are the views the customer flow reads.
+ * Client-safe (no server imports): the public booking page reads these
+ * shapes too.
  */
+import type { DayRange } from '@/lib/availability/engine'
 
 export const QUOTE_SOURCES = ['web_form', 'sms', 'phone', 'owner'] as const
 export type QuoteSource = (typeof QUOTE_SOURCES)[number]
@@ -11,6 +16,7 @@ export type QuoteSource = (typeof QUOTE_SOURCES)[number]
 export const QUOTE_STATUSES = ['new', 'sent', 'accepted', 'declined', 'booked', 'done', 'cancelled'] as const
 export type QuoteStatus = (typeof QUOTE_STATUSES)[number]
 
+/** A customer's way in (meeting_booking.channel): by text, on the booking page, by a call, or the owner. */
 export const BOOKING_SOURCES = ['sms', 'link', 'phone', 'owner'] as const
 export type BookingSource = (typeof BOOKING_SOURCES)[number]
 
@@ -90,6 +96,8 @@ export interface BusinessProfile {
   /** The job word customers see: "pickup", "visit", "walk". */
   bookingKind: string
   bookingSlug: string | null
+  /** The bookable hours by weekday (Sunday first) when they are more than one range a day (the job link's own); null: bookingDays from bookingStart to bookingEnd. */
+  bookingWeekly?: DayRange[][] | null
   /** Text customers a reminder the day before a booked job or meeting (migration 472). On unless the owner turns it off. */
   reminders: boolean
 }
@@ -97,7 +105,11 @@ export interface BusinessProfile {
 export interface CustomerBooking {
   id: string
   workspaceId: string
+  /** The booking's host (meeting_booking.host_user_id). */
   ownerUserId: string
+  /** customer: a customer's job; link: booked on one of the workspace's booking links (migration 581). */
+  origin: 'customer' | 'link'
+  linkId: string | null
   quoteId: string | null
   contactId: string | null
   guestId: string | null
@@ -112,6 +124,8 @@ export interface CustomerBooking {
   state: BookingState
   approvalId: string | null
   calendarEventId: string | null
+  /** The calendar account its event is on (a link's booking chose one); null: the owner's default. */
+  calendarAccountId: string | null
   /** The customer said yes to its reminder, or picked the time it moved to (migration 472). */
   customerConfirmedAt: string | null
   createdAt: string

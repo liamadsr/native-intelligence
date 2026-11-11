@@ -32,6 +32,7 @@ import { announceNotification } from '@/lib/sounds/triggers'
 import { botNoticeCopy, noticeTeammateId, readBotNotice } from '@/lib/bots/bot-notice'
 import { noticeFaceOf, noticeSpeakerOf } from '@/lib/bots/notice-faces'
 import { announceHomeMessage, homeMessageOfNotice } from '@/lib/chat/home-message'
+import { isTeamChatNoticeOnScreen } from '@/lib/team-chat/on-screen'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -707,6 +708,9 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             // (bots-v4 Phase 4c). Any other notice toasts exactly as before
             // (noticeSurface).
             if (noticeSurface(newNotification) === 'silent') return
+            // A team chat message about what is on screen (the channel, or the thread, open in a team chat view):
+            // the person is reading it, and the view's read mark reads this too (migration 560).
+            if (isTeamChatNoticeOnScreen(newNotification)) return
             const showToast = () => {
               const copy = toastCopy(newNotification)
               toast(copy.title, { description: copy.description })

@@ -47,15 +47,15 @@ describe('migration 452', () => {
 
   it("notification.type is 443's list plus agent_look_ahead: the app's types then (454 adds agent_message)", () => {
     expect(types(BODY)).toEqual([...types(flat(read('443_now_follow_up.sql'))), 'agent_look_ahead'])
-    expect(types(BODY)).toEqual(NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_message'))
+    expect(types(BODY)).toEqual(NOTIFICATION_TYPES.filter((t: string) => t !== 'agent_message' && t !== 'team_chat_message' && t !== 'meeting_waiting'))
   })
 
   it("reach_notice.ref_type is 435's list plus look_ahead", () => {
     expect(refTypes(BODY)).toEqual([...refTypes(flat(read('435_agent_links.sql'))), 'look_ahead'])
   })
 
-  it('is the newest word on agent_log.kind; 454 is the newest on the other two, built on 452', () => {
-    const newest = (re: RegExp) => [...migrationsInOrder()].reverse().find((m) => re.test(m.sql))!.file
+  it('is the newest word on agent_log.kind; 454 is the newest on the other two, built on 452 (until 560 widens them again)', () => {
+    const newest = (re: RegExp) => [...migrationsInOrder()].filter((m) => m.num < 560).reverse().find((m) => re.test(m.sql))!.file
     expect(newest(/add constraint agent_log_kind_check/i)).toBe('452_look_ahead.sql')
     expect(newest(/add constraint notification_type_check/i)).toBe('454_presence_and_reach_route.sql')
     expect(newest(/add constraint reach_notice_ref_type_check/i)).toBe('454_presence_and_reach_route.sql')

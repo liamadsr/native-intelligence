@@ -246,11 +246,16 @@ export interface ReminderSubject {
   place: string | null
 }
 
-/** Tomorrow's confirmed bookings with a number to text. Pure. */
+/**
+ * Tomorrow's confirmed customer bookings with a number to text. A booking
+ * link's meeting is never one: its number is whatever the guest typed on a
+ * public page, never a customer's own, so it is never texted. Pure.
+ */
 export function bookingSubjects(bookings: readonly CustomerBooking[], window: { from: number; to: number }): ReminderSubject[] {
   const out: ReminderSubject[] = []
   for (const b of bookings) {
     const at = Date.parse(b.startsAt)
+    if (b.origin === 'link') continue
     if (b.state !== 'confirmed' || at < window.from || at >= window.to) continue
     if (!b.customerPhone || !isNanpNumber(b.customerPhone)) continue
     out.push({
@@ -436,7 +441,7 @@ export async function sendDayReminders(
   }
   const window = { from: zonedTime(next(1), '00:00', timeZone), to: zonedTime(next(2), '00:00', timeZone) }
 
-  const bookings = await listBookings(supabase, args.workspaceId, { fromIso: new Date(window.from).toISOString(), state: 'confirmed', limit: 100 })
+  const bookings = await listBookings(supabase, args.workspaceId, { fromIso: new Date(window.from).toISOString(), state: 'confirmed', hostUserId: profile.ownerUserId, limit: 100 })
   const fromBookings = bookingSubjects(bookings, window)
   const bookingEvents = new Set(bookings.map((b) => b.calendarEventId).filter((id): id is string => !!id))
   let events: CalendarEvent[] = []

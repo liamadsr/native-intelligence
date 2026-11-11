@@ -4,8 +4,8 @@
  * INTERNAL-ONLY. The eve `coding-agent`'s dynamic resolvers (instructions, model,
  * sandbox) call this at session start to get the run's persona system prompt,
  * task text (the action's `<issue>` block, or a flow-origin run's own
- * task_prompt), target repo/branch, cloud-environment shaping, and the
- * triggering user's GitHub OAuth token. The spec is REBUILT DETERMINISTICALLY
+ * task_prompt), target repo/branch, cloud-environment shaping, and the run's
+ * git gate token. The spec is REBUILT DETERMINISTICALLY
  * from live DB state keyed by the verified token's claims — there is no
  * cross-instance store, so this works across separate Vercel function instances
  * (see src/lib/agent-run/agent-run-token.ts and
@@ -17,10 +17,13 @@
  * caller to one run. Tenancy comes ONLY from the verified token — never a header,
  * never the model.
  *
- * The response carries the GitHub OAuth token so the sandbox can broker it for
- * git READS (clone, fetch), and the run's push token for the git push gate
- * (src/lib/agent-run/git-push-proxy.ts), the only way its pushes reach GitHub.
- * Both transit ONLY this internal authed channel; neither is in the run token.
+ * The response does NOT carry the triggering user's GitHub OAuth token: the
+ * coding agent never holds it (rebuildAgentRunSpec drops it). It carries the
+ * run's git gate token (src/lib/agent-run/git-push-token.ts) instead, for the
+ * app's git gate (git-read-proxy.ts, git-push-proxy.ts), the only way the
+ * run's clones, fetches and pushes reach GitHub; the gate adds the GitHub
+ * token server-side. The gate token transits ONLY this internal authed
+ * channel, and is not in the run token.
  */
 import { NextResponse } from 'next/server'
 import {

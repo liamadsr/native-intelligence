@@ -111,12 +111,14 @@ describe('migration 454, part C: the router', () => {
     const listed = listIn('reach_notice_ref_type_check', 'ref_type')
     const prior = quoted(/reach_notice_ref_type_check check \(ref_type in \(([^)]*)\)\)/.exec(read('452_look_ahead.sql'))?.[1] ?? '')
     expect(listed).toEqual([...prior, 'home_message'])
-    const app: Record<ReachRefType, true> = { tool_approval: true, guest_message: true, look_ahead: true, home_message: true }
+    // 560 adds team_chat_notification (src/lib/team-chat/__tests__/migration-560.test.ts).
+    const app: Record<Exclude<ReachRefType, 'team_chat_notification'>, true> = { tool_approval: true, guest_message: true, look_ahead: true, home_message: true }
     for (const ref of Object.keys(app)) expect(listed).toContain(ref)
   })
 
   it('reach_notice.channel adds push (the iOS slot) and banner (settled, never sent): exactly what the app claims on', () => {
-    const app: Record<ReachClaimChannel, true> = { slack: true, sms: true, push: true, banner: true }
+    // 560 adds email (src/lib/team-chat/__tests__/migration-560.test.ts).
+    const app: Record<Exclude<ReachClaimChannel, 'email'>, true> = { slack: true, sms: true, push: true, banner: true }
     expect(listIn('reach_notice_channel_check', 'channel').sort()).toEqual(Object.keys(app).sort())
     expect(BODY).toContain('alter table public.reach_notice drop constraint if exists reach_notice_channel_check;')
   })
@@ -135,12 +137,13 @@ describe('migration 454, part C: the router', () => {
 
   it("notification.type is 452's list plus agent_message: exactly the app's types", () => {
     expect(notificationTypes(BODY)).toEqual([...notificationTypes(read('452_look_ahead.sql')), 'agent_message'])
-    expect(notificationTypes(BODY)).toEqual([...NOTIFICATION_TYPES])
+    // 560 adds team_chat_message (src/lib/team-chat/__tests__/migration-560.test.ts), 572 meeting_waiting.
+    expect(notificationTypes(BODY)).toEqual(NOTIFICATION_TYPES.filter((t) => t !== 'team_chat_message' && t !== 'meeting_waiting'))
   })
 
-  it('is the newest word on every check it widens', () => {
-    const newest = (re: RegExp) => [...migrationsInOrder()].reverse().find((m) => re.test(m.sql))!.file
-    // sms_message_kind_check's newest word is 457's (src/lib/sms/__tests__/migration-457.test.ts).
+  it('was the newest word on every check it widens until 560', () => {
+    const newest = (re: RegExp) => [...migrationsInOrder()].filter((m) => m.num < 560).reverse().find((m) => re.test(m.sql))!.file
+    // sms_message_kind_check's newest word is 457's (src/lib/sms/__tests__/migration-457.test.ts); 560 widens these three again.
     for (const check of ['reach_notice_ref_type_check', 'reach_notice_channel_check', 'notification_type_check']) {
       expect(newest(new RegExp(`add constraint ${check}`, 'i')), check).toBe('454_presence_and_reach_route.sql')
     }

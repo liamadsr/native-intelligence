@@ -15,7 +15,7 @@
  *   book_quote   a request where the customer already chose a time (the
  *                quote's requested dates, or a time in their notes, which the
  *                agent reads: no site's format is parsed here). The owner's
- *                yes books it: a customer_booking (source 'owner') for the
+ *                yes books it: a customer booking (channel 'owner') for the
  *                quote's customer, then the same confirmBooking a customer's
  *                own request gets on the owner's yes (./booking.ts): the slot
  *                checked again, the owner's calendar written, the booking

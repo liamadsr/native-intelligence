@@ -82,7 +82,7 @@ function review(verdict: 'approve' | 'request_changes' | 'reject', pass = verdic
     object: {
       verdict,
       summary: verdict === 'approve' ? 'Does what the item asks.' : 'The button stays enabled on error.',
-      criteria: [{ index: 1, pass, evidence: pass ? 'button.disabled = exporting' : 'Nothing re-enables it on failure.' }],
+      criteria: [{ index: 1, result: pass ? 'pass' : 'fail', kind: 'content', evidence: pass ? 'button.disabled = exporting' : 'Nothing re-enables it on failure.' }],
       changes: verdict === 'request_changes' ? [{ file: 'src/export.ts', issue: 'Re-enable on error', fix: 'Use finally.' }] : [],
     },
     model: 'deepseek-v4-flash',

@@ -207,6 +207,7 @@ export const ChatInput = memo(function ChatInput({
   environment,
   mentionList,
   layout = 'stacked',
+  fileAccept,
 }: {
   value: string
   onChange: (value: string) => void
@@ -313,6 +314,12 @@ export const ChatInput = memo(function ChatInput({
    * message), then scrolls.
    */
   layout?: ChatInputLayout
+  /**
+   * The file picker's `accept`, for a host with its own file types (team
+   * chat: files for people, src/lib/team-chat/files.ts). Absent: the AI
+   * chat's (upload-allowlist.ts).
+   */
+  fileAccept?: string
 }) {
   const inline = layout === 'inline'
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
@@ -992,7 +999,7 @@ export const ChatInput = memo(function ChatInput({
     },
   }
 
-  // A chat that takes no files (team chat: text only) says so in the + menu, and takes no drop or paste.
+  // A chat that takes no files says so in the + menu, and takes no drop or paste.
   const filesOff = !!unavailable?.files
 
   const handleFileSelect = useCallback(() => {
@@ -1178,7 +1185,7 @@ export const ChatInput = memo(function ChatInput({
         className="hidden"
         // A chat that can't take photos offers text files only (a dropped or
         // pasted photo is refused by the host, with the reason).
-        accept={unavailable?.photos ? UPLOAD_TEXT_ACCEPT_ATTR : UPLOAD_ACCEPT_ATTR}
+        accept={fileAccept ?? (unavailable?.photos ? UPLOAD_TEXT_ACCEPT_ATTR : UPLOAD_ACCEPT_ATTR)}
         onChange={handleFileInputChange}
       />
       <PromptInput

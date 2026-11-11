@@ -200,6 +200,12 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
           .string()
           .optional()
           .describe('Which calendar account to create the event on. Defaults to the primary account.'),
+        add_meeting_link: z
+          .boolean()
+          .optional()
+          .describe(
+            'Add a meeting link of our own (a video call anyone invited can join from the event, guests without an account included) as the event\'s location. Only when the person asks for a call, a video meeting or a meeting link; never by default.',
+          ),
       }),
       execute: async ({
         title,
@@ -210,6 +216,7 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
         attendees,
         is_all_day,
         account_email,
+        add_meeting_link,
       }) => {
         const provider = await getCalendarProvider(userId)
         if (!provider) {
@@ -254,6 +261,22 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
             }
           }
 
+          // A meeting link, only when asked for (the person is its host; the tools run as the service role).
+          let meetingUrl: string | null = null
+          if (add_meeting_link) {
+            if (!workspaceId) return { success: false, error: 'A meeting link needs a workspace.' }
+            const { getServiceClient } = await import('@/lib/admin')
+            const { meetingLinkForNewEvent } = await import('@/lib/meeting-links/calendar')
+            const svc = getServiceClient()
+            const { data: me } = await svc.from('member').select('id').eq('user_id', userId).eq('workspace_id', workspaceId).maybeSingle<{ id: string }>()
+            if (!me) return { success: false, error: 'You are not a member of this workspace.' }
+            const made = await meetingLinkForNewEvent(svc, { workspaceId, title, start, end, isAllDay: is_all_day, location, description, hostMemberId: me.id })
+            if (!made.ok) return { success: false, error: made.error }
+            meetingUrl = made.link.url
+            location = made.location
+            description = made.description
+          }
+
           const event = await createCalendarEvent(userId, {
             title,
             start,
@@ -264,7 +287,7 @@ export function createCalendarTools(userId: string, workspaceId?: string, zone?:
             isAllDay: is_all_day,
           }, accountId)
 
-          return { success: true, event }
+          return meetingUrl ? { success: true, event, meeting_link: meetingUrl } : { success: true, event }
         } catch (err) {
           return {
             success: false,

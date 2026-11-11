@@ -27,6 +27,13 @@
  * Where it goes is rebuilt from the server's own rows (the thread row and the
  * channel), never from the person's message row.
  *
+ * In a thread (migration 556): a mention in a thread's reply has the thread
+ * (its root and the replies before it) as its context, not the channel, and
+ * the agent answers in that thread: the turn's event carries its own mention
+ * (teamChatMessageId), whose thread_root_id the service role reads back when
+ * it answers, so a mention made elsewhere while the turn runs can't move it. A mention in the channel itself has the
+ * channel's own messages as context and is answered there, as before.
+ *
  * Privacy: the plan step hands on message ids only (redactChannelPlan); logs
  * carry ids and outcomes, never words.
  */
@@ -40,6 +47,7 @@ import { stripHtmlComments } from '@/lib/chat/strip-comments'
 import { finishHomeTurn, type HomeTurnReadResult, type HomeTurnRow, type HomeTurnSkip } from '@/lib/chat/home-turn-server'
 import { DEFAULT_ASSISTANT_NAME, sanitizeAssistantName } from '@/lib/voice/assistant-name'
 import { TEAM_CHAT_MESSAGE_MAX, type TeamChatMessage } from './types'
+import { requestTeamChatNotify } from './notify'
 
 /** The Inngest event a team chat turn is requested with (home/turn.requested's data, reason 'team_chat'). */
 export const TEAM_CHAT_TURN_REQUESTED_EVENT = 'team-chat/turn.requested' as const
@@ -57,7 +65,7 @@ type Svc = SupabaseClient
 export interface MentionChannel {
   id: string
   workspace_id: string
-  kind: 'channel' | 'dm'
+  kind: 'channel' | 'dm' | 'meeting'
   name: string | null
 }
 
@@ -71,10 +79,21 @@ export async function agentNameFor(svc: Svc, userId: string): Promise<string> {
   }
 }
 
-/** Where the mention was said, in the words of the person's message: "#general", or "a direct message with Ben Ortiz". */
-export function placeLabel(channel: Pick<MentionChannel, 'kind' | 'name'>, dmWith: string | null): string {
-  if (channel.kind === 'channel') return `#${channel.name ?? 'channel'}`
-  return dmWith ? `a direct message with ${dmWith}` : 'a direct message'
+/**
+ * Where the mention was said, in the words of the person's message:
+ * "#general", "a direct message with Ben Ortiz", or a thread in either ("a
+ * thread in #general").
+ */
+export function placeLabel(channel: Pick<MentionChannel, 'kind' | 'name'>, dmWith: string | null, inThread = false): string {
+  const place =
+    channel.kind === 'channel'
+      ? `#${channel.name ?? 'channel'}`
+      : channel.kind === 'meeting'
+        ? `the meeting “${channel.name ?? 'Meeting'}”`
+        : dmWith
+          ? `a direct message with ${dmWith}`
+          : 'a direct message'
+  return inThread ? `a thread in ${place}` : place
 }
 
 /** One line of context: who wrote it, then its words on one line, cut to TEAM_CHAT_CONTEXT_MESSAGE_CHARS. */
@@ -124,12 +143,24 @@ async function memberNames(svc: Svc, workspaceId: string, ids: readonly string[]
   return new Map(((data ?? []) as Array<{ id: string; display_name: string | null }>).map((m) => [m.id, m.display_name?.trim() || 'A teammate']))
 }
 
-/** The channel's messages before this one (not deleted), oldest first, as context lines. Throws on a failed read. */
-export async function channelContext(svc: Svc, channel: MentionChannel, before: Pick<TeamChatMessage, 'id' | 'created_at'>): Promise<string[]> {
-  const { data, error } = await svc
+/**
+ * The messages before this one (not deleted), oldest first, as context
+ * lines: for a mention in a thread, the thread's (its root and the replies
+ * before it); else the channel's own (never a thread's replies). Throws on a
+ * failed read.
+ */
+export async function channelContext(
+  svc: Svc,
+  channel: MentionChannel,
+  before: Pick<TeamChatMessage, 'id' | 'created_at'> & { thread_root_id?: string | null },
+): Promise<string[]> {
+  const root = before.thread_root_id ?? null
+  let query = svc
     .from('team_chat_message')
     .select('id, author_kind, author_member_id, agent_for_member_id, agent_name, body, created_at')
     .eq('channel_id', channel.id)
+  query = root ? query.or(`id.eq.${root},thread_root_id.eq.${root}`) : query.is('thread_root_id', null)
+  const { data, error } = await query
     .is('deleted_at', null)
     .lt('created_at', before.created_at)
     .order('created_at', { ascending: false })
@@ -205,12 +236,13 @@ export async function deliverTeamChatMention(
   const { message, channel, userId } = input
   const body = message.body.trim()
   if (!body) return 'empty'
-  const place = placeLabel(channel, input.dmWith ?? null)
+  const place = placeLabel(channel, input.dmWith ?? null, !!message.thread_root_id)
+  // One conversation per channel and person, threads included: named for the channel.
   const thread = await ensureAgentThread(svc, {
     channelId: channel.id,
     userId,
     workspaceId: channel.workspace_id,
-    title: `Team chat: ${place}`,
+    title: `Team chat: ${placeLabel(channel, input.dmWith ?? null)}`,
   })
   const context = await channelContext(svc, channel, message)
   const text = renderMentionText({ place, body, context })
@@ -238,7 +270,10 @@ export async function deliverTeamChatMention(
     workspaceId: channel.workspace_id,
     workItemIds: [],
     reason: 'team_chat',
+    // Where the reply goes is this message's place (replyTarget), carried by the turn itself.
+    teamChatMessageId: message.id,
   }
+  // The id is the message's: a replayed send (or a retried intake) never starts a second turn.
   await (deps.send ?? ((e) => inngest.send(e as never)))({ name: TEAM_CHAT_TURN_REQUESTED_EVENT, id: `team-chat-turn-${message.id}`, data })
   return 'queued'
 }
@@ -252,8 +287,10 @@ export interface TeamChatTarget {
   /** The person's member id: the agent posts as theirs. */
   memberId: string
   agentName: string
-  /** The mention the reply answers (the thread's newest). */
+  /** The mention the reply answers (the turn's own, from its event), or null. */
   inReplyTo: string | null
+  /** The thread that mention was made in (its root), where the reply goes; null: the channel itself. */
+  threadRootId: string | null
 }
 
 /**
@@ -261,22 +298,26 @@ export interface TeamChatTarget {
  * this conversation (service-written), in the turn's workspace, still open,
  * and one the person may still read (a member of the workspace; of the team,
  * for a team channel; of the DM, for a DM). Null when any of that fails (the
- * reply stays in their conversation). Never throws.
+ * reply stays in their conversation). In the channel, or in the thread the
+ * turn's own mention (data.teamChatMessageId) was made in. Never throws.
  */
-export async function replyTarget(svc: Svc, data: Pick<HomeTurnRequestedData, 'conversationId' | 'userId' | 'workspaceId'>): Promise<TeamChatTarget | null> {
+export async function replyTarget(
+  svc: Svc,
+  data: Pick<HomeTurnRequestedData, 'conversationId' | 'userId' | 'workspaceId' | 'teamChatMessageId'>,
+): Promise<TeamChatTarget | null> {
   try {
     const { data: thread } = await svc
       .from('team_chat_agent_thread')
-      .select('channel_id, workspace_id, last_mention_message_id')
+      .select('channel_id, workspace_id')
       .eq('conversation_id', data.conversationId)
       .eq('user_id', data.userId)
-      .maybeSingle<{ channel_id: string; workspace_id: string; last_mention_message_id: string | null }>()
+      .maybeSingle<{ channel_id: string; workspace_id: string }>()
     if (!thread || thread.workspace_id !== data.workspaceId) return null
     const { data: channel } = await svc
       .from('team_chat_channel')
       .select('id, workspace_id, kind, team_id, archived_at')
       .eq('id', thread.channel_id)
-      .maybeSingle<{ id: string; workspace_id: string; kind: 'channel' | 'dm'; team_id: string | null; archived_at: string | null }>()
+      .maybeSingle<{ id: string; workspace_id: string; kind: 'channel' | 'dm' | 'meeting'; team_id: string | null; archived_at: string | null }>()
     if (!channel || channel.workspace_id !== data.workspaceId || channel.archived_at) return null
     const { data: member } = await svc
       .from('member')
@@ -285,39 +326,70 @@ export async function replyTarget(svc: Svc, data: Pick<HomeTurnRequestedData, 'c
       .eq('user_id', data.userId)
       .maybeSingle<{ id: string }>()
     if (!member) return null
-    if (channel.kind === 'dm') {
+    // A DM's and a meeting's (phase 7) readers are its members.
+    if (channel.kind === 'dm' || channel.kind === 'meeting') {
       const { data: inDm } = await svc.from('team_chat_member').select('member_id').eq('channel_id', channel.id).eq('member_id', member.id).maybeSingle()
       if (!inDm) return null
     } else if (channel.team_id) {
       const { data: inTeam } = await svc.from('team_member').select('id').eq('team_id', channel.team_id).eq('member_id', member.id).maybeSingle()
       if (!inTeam) return null
     }
+    // The turn's own mention (its event's), never the thread row's newest: another mention
+    // made while this turn ran must not move its answer. A mention in a thread is answered in
+    // that thread (its root, as the database keeps it). Only the person's own message in this
+    // channel counts; anything else answers in the channel itself.
+    let inReplyTo: string | null = null
+    let threadRootId: string | null = null
+    if (data.teamChatMessageId) {
+      const { data: mention } = await svc
+        .from('team_chat_message')
+        .select('id, thread_root_id, channel_id, author_member_id')
+        .eq('id', data.teamChatMessageId)
+        .maybeSingle<{ id: string; thread_root_id: string | null; channel_id: string; author_member_id: string | null }>()
+      if (mention && mention.channel_id === channel.id && mention.author_member_id === member.id) {
+        inReplyTo = mention.id
+        threadRootId = mention.thread_root_id ?? null
+      }
+    }
     return {
       channelId: channel.id,
       workspaceId: channel.workspace_id,
       memberId: member.id,
       agentName: await agentNameFor(svc, data.userId),
-      inReplyTo: thread.last_mention_message_id,
+      inReplyTo,
+      threadRootId,
     }
   } catch {
     return null
   }
 }
 
-/** Post a message into the channel as the person's agent. True when written. Never throws. */
+/**
+ * Post a message into the channel as the person's agent. True when written.
+ * The reply is posted once, finished (never streamed into the row), so it
+ * notifies the person who asked once (./notify.ts: the agent's reply is for
+ * them alone). Never throws.
+ */
 export async function postAsAgent(svc: Svc, target: TeamChatTarget, body: string): Promise<boolean> {
   const text = body.length > TEAM_CHAT_MESSAGE_MAX ? `${body.slice(0, TEAM_CHAT_MESSAGE_MAX - 1)}…` : body
   try {
-    const { error } = await svc.from('team_chat_message').insert({
-      channel_id: target.channelId,
-      workspace_id: target.workspaceId,
-      author_kind: 'agent',
-      agent_for_member_id: target.memberId,
-      agent_name: target.agentName.slice(0, 60),
-      in_reply_to: target.inReplyTo,
-      body: text,
-    })
-    return !error
+    const { data, error } = await svc
+      .from('team_chat_message')
+      .insert({
+        channel_id: target.channelId,
+        workspace_id: target.workspaceId,
+        author_kind: 'agent',
+        agent_for_member_id: target.memberId,
+        agent_name: target.agentName.slice(0, 60),
+        in_reply_to: target.inReplyTo,
+        thread_root_id: target.threadRootId ?? null,
+        body: text,
+      })
+      .select('id')
+      .single<{ id: string }>()
+    if (error) return false
+    if (data?.id) await requestTeamChatNotify(data.id)
+    return true
   } catch {
     return false
   }

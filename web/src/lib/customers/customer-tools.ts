@@ -2,7 +2,12 @@
  * The tool route's answer to a business customer's own tools (roadmap B2/B4;
  * ./customer-tools-list.ts): get_my_quotes, find_open_slots,
  * request_booking, and their answers to a reminder (issue #11,
- * ./reminder-replies.ts): confirm_appointment and move_appointment.
+ * ./reminder-replies.ts): confirm_appointment and move_appointment; and
+ * pick_offered_time, one of the times someone at the business offered their
+ * number (src/lib/time-offers/accept.ts: only that offer's own time, only an
+ * offer made to the number on their live row); and answer_offered_times,
+ * which of a poll's times work for them (src/lib/time-offers/polls.ts: only
+ * that poll's own times, only its guest with the number on their live row).
  * guestToolCall (src/lib/guests/guest-tools.ts) has already
  * re-read the customer's row live (active, this thread, this owner) and
  * checked the tool is in their ceiling; everything here is scoped to that
@@ -21,11 +26,13 @@ import { upsertCustomerContact } from './contacts'
 import { linkCustomerContact } from './customer-guests'
 import { quoteForCustomerAgent } from './customer-spec'
 import { confirmAppointment, moveAppointment } from './reminder-replies'
+import { acceptOffer } from '@/lib/time-offers/accept'
+import { recordAnswer } from '@/lib/time-offers/polls'
 import { findOpenSlots, slotLabel } from './slots'
 import { quotesForCustomer } from './store'
 
 /** The customer-only tools this route answers (message_owner and remember_about_guest are the guest route's own). */
-export const CUSTOMER_ROUTE_TOOLS: ReadonlySet<string> = new Set(['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment'])
+export const CUSTOMER_ROUTE_TOOLS: ReadonlySet<string> = new Set(['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'pick_offered_time', 'answer_offered_times'])
 
 export const findOpenSlotsInputSchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -47,6 +54,17 @@ export const confirmAppointmentInputSchema = z.object({
 export const moveAppointmentInputSchema = z.object({
   reminder_id: z.string().uuid(),
   start: z.string().min(10).max(40),
+})
+
+export const pickOfferedTimeInputSchema = z.object({
+  offer_id: z.string().uuid(),
+  start: z.string().min(10).max(40),
+})
+
+export const answerOfferedTimesInputSchema = z.object({
+  offer_id: z.string().uuid(),
+  works: z.array(z.string().min(10).max(40)).max(6),
+  none_work: z.boolean().optional(),
 })
 
 function invalid(error: z.ZodError): Response {
@@ -109,6 +127,65 @@ export async function customerToolCall(
           booking_id: result.booking.id,
           when: result.label,
           message: `Held ${result.label} and asked the owner by text. Nothing is booked until they say yes: tell the customer that, and that they'll get a confirmation text. Don't call request_booking again for this slot.`,
+        },
+      })
+    }
+
+    // One of the times the business offered them: only an offer made to the number on their live row.
+    if (toolName === 'pick_offered_time') {
+      const input = pickOfferedTimeInputSchema.safeParse(body.input ?? {})
+      if (!input.success) return invalid(input.error)
+      if (!guest.phone) return NextResponse.json({ output: { success: false, code: 'NOT_FOUND', message: 'No times were offered to this customer. Pass it on with message_owner.' } })
+      const result = await acceptOffer(supabase, { offer: { id: input.data.offer_id, workspaceId: business.workspaceId }, slotStart: input.data.start, via: 'customer', guestPhone: guest.phone })
+      if (!result.ok) {
+        return NextResponse.json({
+          output: {
+            success: false,
+            code: result.code,
+            message: `${result.message}${result.openSlots?.length ? ' Offer them the times still open from their section.' : ' Pass it on with message_owner.'}`,
+            ...(result.openSlots ? { still_open: result.openSlots.map((s) => ({ start: s.startsAt })) } : {}),
+          },
+        })
+      }
+      return NextResponse.json({
+        output: {
+          success: true,
+          status: result.booking.state,
+          booking_id: result.booking.id,
+          message: `Booked: ${result.booking.title} at the time they picked${result.booking.conferenceUrl ? `, video link ${result.booking.conferenceUrl}` : ''}. Tell them it's confirmed. Don't call pick_offered_time again for it.`,
+        },
+      })
+    }
+
+    // Which of a poll's times work for them: only its guest with the number on their live row.
+    if (toolName === 'answer_offered_times') {
+      const input = answerOfferedTimesInputSchema.safeParse(body.input ?? {})
+      if (!input.success) return invalid(input.error)
+      if (!guest.phone) return NextResponse.json({ output: { success: false, code: 'NOT_FOUND', message: 'No times were offered to this customer. Pass it on with message_owner.' } })
+      const result = await recordAnswer(supabase, {
+        ref: { offerId: input.data.offer_id, workspaceId: business.workspaceId },
+        works: input.data.works,
+        none: input.data.none_work === true,
+        via: 'text',
+        guestPhone: guest.phone,
+      })
+      if (!result.ok) {
+        return NextResponse.json({
+          output: {
+            success: false,
+            code: result.code,
+            message: `${result.message}${result.openSlots?.length ? ' Ask them again about the times still open in their section.' : ' Pass it on with message_owner.'}`,
+            ...(result.openSlots ? { still_open: result.openSlots.map((s) => ({ start: s.startsAt })) } : {}),
+          },
+        })
+      }
+      return NextResponse.json({
+        output: {
+          success: true,
+          ...(result.booking ? { status: result.booking.state, booking_id: result.booking.id } : { status: 'recorded' }),
+          message: result.booking
+            ? `Noted, and everyone has answered: it's booked for a time that works for them. Tell them it's confirmed${result.booking.conferenceUrl ? ` (video link ${result.booking.conferenceUrl})` : ''}.`
+            : "Noted. Tell them it's recorded, and that they'll hear once everyone has answered and a time is booked. Don't call answer_offered_times again unless they change their answer.",
         },
       })
     }

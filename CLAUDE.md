@@ -19,7 +19,7 @@ Read this before reporting anything as live or touching production. The code gui
   `main` is rolled out within minutes, EXCEPT when it brings a migration, a new setting
   in `deploy/app/.env.example`, or a change to files other stacks use (Supabase's
   functions and mail templates, `deploy/edge`, `deploy/supabase`, `deploy/inngest`,
-  `deploy/backup`), or to the server's own deploy tooling (everything in `deploy/app`,
+  `deploy/backup`, `deploy/livekit`), or to the server's own deploy tooling (everything in `deploy/app`,
   the `Dockerfile` included, except `cron/`, `smoke/`, `tests/`, the two `.mjs` files
   and the guide): those hold it until a person has taken care of them. A failed roll-out or a
   rollback by hand holds everything until the owner clears it. With it on, a merge to
@@ -50,8 +50,12 @@ Read this before reporting anything as live or touching production. The code gui
 - **Still at the earlier host, on purpose:** Slack's connector, the cloud browser's
   sandboxes and the coding agent's, the AI Gateway, and DNS. The coding agent's sandbox
   runs on that host's sandbox service when `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
-  `SANDBOX_PROJECT_ID` are set at the image build and in the container; its GitHub
-  credentials come from that service's firewall rules. Written and tested without live
+  `SANDBOX_PROJECT_ID` are set at the image build and in the container. It is not
+  handed the person's GitHub token: it clones, fetches and pushes through the app's
+  git gate, which adds the token server-side and refuses an LFS answer that contains
+  it, and that service's firewall rules add only the run's gate token, on the gate's
+  endpoints. (GitHub's own short-lived LFS storage links, in its LFS answers, are not
+  checked, as before.) Written and tested without live
   calls, NOT yet proven by a live coding run from the server ("The coding agent" in
   `deploy/README.md` lists the checks to do first).
 - No server address, ssh user or ids in this repository: it is public. Use the

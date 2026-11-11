@@ -13,6 +13,7 @@ import { openHomeThread } from '@/lib/chat/home-thread-client'
 import { homeMessageOfNotice, type HomeMessageRef } from '@/lib/chat/home-message'
 import { useNotifications } from '@/app/account/notification-context'
 import { useOpenWorkItem } from '@/hooks/use-open-teammate'
+import { TEAM_CALL_RING_OPEN_EVENT } from '@/components/team-calls/incoming-calls'
 
 /**
  * Routes clicks on NATIVE OS notification banners (macOS Notification Center /
@@ -116,6 +117,17 @@ function openHome(workspaceId: string | null, currentId: string | null, about: H
   else openHomeThread(about ? { reveal: { messageId: about.messageId } } : {})
 }
 
+/** An incoming call's banner (incoming-calls.tsx ringBannerPayload): its ring, or null for any other banner. */
+export function parseTeamCallRing(payload: string | null): string | null {
+  if (!payload) return null
+  try {
+    const raw = JSON.parse(payload) as Record<string, unknown> | null
+    return raw && typeof raw === 'object' ? asStringOrNull(raw.team_call_ring) : null
+  } catch {
+    return null
+  }
+}
+
 /** A bot's banner: whose page a click opens its item on (bots v3 1b; notification-context.tsx nativeNotificationArgs `payload.bot`). */
 interface BannerBot {
   teammateId: string
@@ -165,6 +177,12 @@ export function NativeNotificationClickHandler() {
 
     const stop = listenScoped((gate) => {
       const onClick = gate(async ({ payload }: { id: string; payload: string | null }) => {
+        // An incoming call's banner: the window is up, its card takes the focus (incoming-calls.tsx).
+        const ringId = parseTeamCallRing(payload)
+        if (ringId) {
+          window.dispatchEvent(new CustomEvent(TEAM_CALL_RING_OPEN_EVENT, { detail: { ringId } }))
+          return
+        }
         const notification = parsePayload(payload)
         // No recoverable payload: just show the home thread.
         if (!notification) {

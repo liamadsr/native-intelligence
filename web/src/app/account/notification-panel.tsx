@@ -141,6 +141,12 @@ export async function resolveNotificationDetailPanel(
     // A sequence engine alert targets the sequence page.
     case 'sequence':
       return { type: 'sequence', id: targetId, title: notification.title || title }
+    // A team chat message (migration 560): team chat on it, in its channel or thread.
+    case 'team_chat_message':
+      return { type: 'team_chat', id: targetId, title: notification.title || title }
+    // A conversation (572: someone waiting in a meeting's lobby): team chat on it.
+    case 'team_chat_channel':
+      return { type: 'team_chat_channel', id: targetId, title: notification.title || title }
     // A sprint that started: its team's board (the team rides in the row's
     // metadata; an older row without it opens nothing particular).
     case 'cycle': {

@@ -844,6 +844,8 @@ export async function POST(request: Request) {
       // confirming a suggestion, the shared cap on automatic drafts, no
       // HubSpot push before someone looks, its status writes an agent's).
       ...(claims.server === 'home_turn' ? HOME_TURN_TOOL_OPTIONS : {}),
+      // The person at the keyboard, reading this turn: an offer they make by link is shown to them (time_offer.recipients_shown).
+      ...(chatCallerClass(claims) === 'person' ? { personAttended: true } : {}),
       // A remember of a profile fact saves active only on a verified quote.
       ...(body.quoteVerified === true ? { rememberQuoteVerified: true } : {}),
       // The person's own text: connect_link may text them a link (src/lib/ai/tools/text-setup.ts).

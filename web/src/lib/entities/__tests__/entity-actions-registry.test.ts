@@ -96,7 +96,9 @@ describe('deep links', () => {
   it('links only kinds whose param opens their card', () => {
     for (const t of DEEP_LINK_TYPES) {
       const target = entityOpenTarget(t, '00000000-0000-4000-8000-000000000001')
-      expect(target && 'id' in target && target.type, t).toBe(t)
+      // A team chat message opens team chat on it (migration 560), not a card of its own.
+      const opens = target?.type === 'team_chat' ? (target.messageId ? 'team_chat_message' : null) : target && 'id' in target && target.type
+      expect(opens, t).toBe(t)
     }
   })
 

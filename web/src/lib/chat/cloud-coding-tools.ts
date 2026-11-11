@@ -76,10 +76,13 @@ interface CodingRequest {
   request: string
 }
 
-/** What the filed action records about where it came from. */
+/**
+ * What the filed action records about where it came from. Its source_type is
+ * never set: the person asked for the run, so the action is their own and the
+ * column keeps its default ('user'). The column's CHECK lists no value for a
+ * chat, and an insert with one is refused.
+ */
 interface FiledFrom {
-  /** actions.source_type: 'chat' from a chat; null (omitted) from a card, as a work card's action is. */
-  sourceType: 'chat' | null
   contextData?: Record<string, unknown>
 }
 
@@ -88,11 +91,13 @@ function titleOf(input: CodingRequest): string {
   return first.length <= 200 ? first : `${first.slice(0, 199)}…`
 }
 
+/** The project's columns the run needs. A project belongs to the workspace, not to a team (migration 019 dropped projects.team_id). */
+const PROJECT_FIELDS = 'id, name, github_repo'
+
 interface ProjectRow {
   id: string
   name: string | null
   github_repo: string | null
-  team_id?: string | null
 }
 
 /** A helper's value, or the refusal the model reads instead. */
@@ -111,7 +116,7 @@ interface RunEnvironmentChoice {
 /** The project (and its repo) the run works on, or the refusal the model reads. */
 async function projectFor(svc: Svc, workspaceId: string, input: Pick<StartCloudCodingRunInput, 'project_id' | 'repo'>): Promise<Found<ProjectRow & { github_repo: string }>> {
   if (input.project_id) {
-    const { data, error } = await svc.from('projects').select('id, name, github_repo, team_id').eq('id', input.project_id).eq('workspace_id', workspaceId).maybeSingle()
+    const { data, error } = await svc.from('projects').select(PROJECT_FIELDS).eq('id', input.project_id).eq('workspace_id', workspaceId).maybeSingle()
     if (error) throw new Error(`project read failed: ${error.message}`)
     const p = data as ProjectRow | null
     if (!p) return no(refused('NOT_FOUND', 'No project with that project_id in this workspace. Nothing was started; the environment section and list_projects list them.'))
@@ -125,7 +130,7 @@ async function projectFor(svc: Svc, workspaceId: string, input: Pick<StartCloudC
     return { ok: true, value: { ...p, github_repo: p.github_repo.trim() } }
   }
   const want = (input.repo ?? '').trim().toLowerCase()
-  const { data, error } = await svc.from('projects').select('id, name, github_repo, team_id').eq('workspace_id', workspaceId).not('github_repo', 'is', null).limit(200)
+  const { data, error } = await svc.from('projects').select(PROJECT_FIELDS).eq('workspace_id', workspaceId).not('github_repo', 'is', null).limit(200)
   if (error) throw new Error(`projects read failed: ${error.message}`)
   const matches = ((data ?? []) as ProjectRow[]).filter((p) => isRepoFullName(p.github_repo?.trim()) && p.github_repo!.trim().toLowerCase() === want)
   if (matches.length === 0) {
@@ -209,11 +214,11 @@ async function developerFor(svc: Svc, claims: Who): Promise<Found<string>> {
 }
 
 /**
- * The team the action is filed in: the project's, else the workspace's
- * first, each only when this person may see it (a public team, or a private
- * one they are on). The service client sees every team, so it checks.
+ * The team the action is filed in: the workspace's first that this person may
+ * see (a public team, or a private one they are on). A project has no team of
+ * its own to prefer. The service client sees every team, so it checks.
  */
-async function teamFor(svc: Svc, workspaceId: string, memberId: string | null, projectTeamId: string | null): Promise<string | null> {
+async function teamFor(svc: Svc, workspaceId: string, memberId: string | null): Promise<string | null> {
   const [teams, mine] = await Promise.all([
     svc.from('team').select('id, is_private, created_at').eq('workspace_id', workspaceId).order('created_at', { ascending: true }).limit(50),
     memberId ? svc.from('team_member').select('team_id').eq('member_id', memberId) : Promise.resolve({ data: [], error: null }),
@@ -222,7 +227,7 @@ async function teamFor(svc: Svc, workspaceId: string, memberId: string | null, p
   if (mine.error) throw new Error(`team membership read failed: ${mine.error.message}`)
   const onTeam = new Set(((mine.data ?? []) as Array<{ team_id: string }>).map((t) => t.team_id))
   const visible = ((teams.data ?? []) as Array<{ id: string; is_private: boolean | null }>).filter((t) => t.is_private === false || onTeam.has(t.id))
-  return visible.find((t) => t.id === projectTeamId)?.id ?? visible[0]?.id ?? null
+  return visible[0]?.id ?? null
 }
 
 /** The action the run works on: the person's own, confirmed, in the project, in the default team's default state. */
@@ -235,7 +240,7 @@ async function fileAction(
   from: FiledFrom,
 ): Promise<Found<{ id: string; identifier: string | null; title: string }>> {
   const memberId = await memberIdForUser(svc, claims.userId, claims.workspaceId)
-  const teamId = await teamFor(svc, claims.workspaceId, memberId, project.team_id ?? null)
+  const teamId = await teamFor(svc, claims.workspaceId, memberId)
   if (!teamId) return no(refused('NO_TEAM', 'This workspace has no team this person can file the action in. Nothing was started; tell the person.'))
   const { data: state } = await svc.from('workflow_state').select('id').eq('team_id', teamId).eq('is_default', true).maybeSingle()
   const statusId = (state as { id?: string } | null)?.id
@@ -253,7 +258,6 @@ async function fileAction(
       priority: 'none',
       status_id: statusId,
       confirmation: 'confirmed',
-      ...(from.sourceType ? { source_type: from.sourceType } : {}),
       ...(from.contextData ? { context_data: from.contextData } : {}),
       all_day: true,
       links: [],
@@ -319,14 +323,15 @@ export async function startCloudCodingRun(
   if (!found.ok) return found.output
   const chosen = await environmentFor(svc, claims, input.environment_id)
   if (!chosen.ok) return chosen.output
-  return launchCodingRun(svc, claims, found.value, chosen.value, input, { fireKey, from: { sourceType: 'chat' } }, deps)
+  return launchCodingRun(svc, claims, found.value, chosen.value, input, { fireKey, from: {} }, deps)
 }
 
 /**
  * The run itself, once the project and the environment are settled: the
  * person's GitHub, the workspace's coding agent, the action it works (filed
- * in the project), and the start. Shared by the chat's tool and a work
- * card's Start in a cloud environment (startCardCodingRun).
+ * in the project), and the start. Shared by the chat's tool, a work card's
+ * Start in a cloud environment (startCardCodingRun) and a website change
+ * (startSiteCodingRun).
  */
 async function launchCodingRun(
   svc: Svc,
@@ -474,7 +479,7 @@ export async function startSiteCodingRun(
     found.value,
     { environmentId: named.id, name: named.name, networkAccess: named.networkAccess, source: 'chosen' },
     { title: input.title, request: input.request },
-    { fireKey: `website-change:${input.changeId}`, from: { sourceType: 'chat', contextData: { website_change_id: input.changeId } } },
+    { fireKey: `website-change:${input.changeId}`, from: { contextData: { website_change_id: input.changeId } } },
     deps,
   )
 }
@@ -498,7 +503,7 @@ async function cardCodingRun(
     found.value,
     { environmentId: named.id, name: named.name, networkAccess: named.networkAccess, source: 'chosen' },
     { title: input.title, request: input.request },
-    { from: { sourceType: null, contextData: { attention_item_id: input.attentionItemId } } },
+    { from: { contextData: { attention_item_id: input.attentionItemId } } },
     deps,
   )
 }

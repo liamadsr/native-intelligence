@@ -517,7 +517,8 @@ async function dismissProposalBehindWorkCard(proposalId: string, workspaceId: st
  *      one) and resolve their member id THERE (authorship stamp).
  *   2. CAS the card pending→accepted (the run is the live object from here).
  *   3. Create the tracked action (title=card.title, description=payload.task,
- *      context_data={work_run, attention_item_id}, OMIT source_type — CHECK trap,
+ *      context_data={work_run, attention_item_id}, OMIT source_type (it keeps
+ *      its default, 'user'; its CHECK refuses a value it does not list),
  *      agent_run_status='starting', default workflow state).
  *   4. Best-effort CAS the backing proposed_change pending→applied with
  *      result_entity_id=action id (the proposal became real tracked work). Never
