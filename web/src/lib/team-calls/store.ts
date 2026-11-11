@@ -22,7 +22,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { TeamChatError, teamChatErrorOf } from '@/lib/team-chat/store'
 import { TEAM_CHAT_NOTIFICATION_TYPE } from '@/lib/team-chat/notify'
-import { TEAM_CHAT_EMAIL_EVENT, teamChatEmailKey } from '@/lib/team-chat/email'
+import { teamChatEmailEvent } from '@/lib/team-chat/email'
 import {
   TEAM_CALL_COLUMNS,
   TEAM_CALL_MAX_RING,
@@ -193,16 +193,21 @@ export async function liveCallOfRoom(svc: SupabaseClient, room: string): Promise
   return data ?? null
 }
 
-/** A missed call's notification copy: "Missed call from Ana Ruiz", "In #launch" (a DM: no line). */
-export function missedCallCopy(ring: Pick<MissedRing, 'caller_name' | 'channel_kind' | 'channel_name'>): { title: string; body: string | null } {
+/**
+ * A missed call's notification title: "Missed call from Ana Ruiz", "… in
+ * #launch". Its line is the call's message as it is now (560's trigger
+ * writes a team chat notification's body from its message, and keeps it
+ * following the message): "Started a call", then how the call went.
+ */
+export function missedCallTitle(ring: Pick<MissedRing, 'caller_name' | 'channel_kind' | 'channel_name'>): string {
   const who = ring.caller_name.trim() || 'a teammate'
   const place = teamCallPlace(ring)
-  return { title: `Missed call from ${who}`, body: place ? `In ${place}` : null }
+  return place ? `Missed call from ${who} in ${place}` : `Missed call from ${who}`
 }
 
-type SendEvents = (events: Array<{ name: string; data: Record<string, unknown> }>) => Promise<unknown>
+type SendEvents = (events: Array<ReturnType<typeof teamChatEmailEvent>>) => Promise<unknown>
 
-async function sendEvents(events: Array<{ name: string; data: Record<string, unknown> }>, send?: SendEvents): Promise<void> {
+async function sendEvents(events: Array<ReturnType<typeof teamChatEmailEvent>>, send?: SendEvents): Promise<void> {
   if (events.length === 0) return
   if (send) {
     await send(events)
@@ -221,19 +226,18 @@ async function sendEvents(events: Array<{ name: string; data: Record<string, unk
  */
 export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly MissedRing[], send?: SendEvents): Promise<number> {
   let told = 0
-  const emails: Array<{ name: string; data: Record<string, unknown> }> = []
+  const emails: Array<ReturnType<typeof teamChatEmailEvent>> = []
   let failures = 0
   for (const ring of missed) {
     if (!ring.message_id) continue
-    const copy = missedCallCopy(ring)
+    const title = missedCallTitle(ring)
     const groupKey = `team_chat:${ring.channel_id}`
     const place = teamCallPlace(ring)
     const row = {
       workspace_id: ring.workspace_id,
       recipient_id: ring.member_id,
       type: TEAM_CHAT_NOTIFICATION_TYPE,
-      title: copy.title,
-      body: copy.body,
+      title,
       actor_id: ring.caller_member_id,
       target_type: 'team_chat_message',
       target_id: ring.message_id,
@@ -256,7 +260,7 @@ export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly Mi
       // They had one for this call's message (a channel set to all): it is the missed call now.
       const { error: again } = await svc
         .from('notification')
-        .update({ title: row.title, body: row.body, metadata: row.metadata, is_read: false, read_at: null })
+        .update({ title: row.title, metadata: row.metadata, is_read: false, read_at: null })
         .eq('type', TEAM_CHAT_NOTIFICATION_TYPE)
         .eq('recipient_id', ring.member_id)
         .eq('target_id', ring.message_id)
@@ -271,10 +275,7 @@ export async function notifyMissedCalls(svc: SupabaseClient, missed: readonly Mi
       continue
     }
     told++
-    emails.push({
-      name: TEAM_CHAT_EMAIL_EVENT,
-      data: { key: teamChatEmailKey(ring.user_id, groupKey), userId: ring.user_id, memberId: ring.member_id, workspaceId: ring.workspace_id, groupKey },
-    })
+    emails.push(teamChatEmailEvent({ userId: ring.user_id, workspaceId: ring.workspace_id }))
   }
   if (failures > 0 && told === 0) throw new Error(`team calls: no missed call written (${failures} failed)`)
   try {
