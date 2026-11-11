@@ -11,12 +11,12 @@
  */
 import { NextResponse } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
-import { apiError, notFound } from '@/lib/api-errors'
+import { notFound } from '@/lib/api-errors'
 import { isUuid } from '@/lib/team-chat/types'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { getCall } from '@/lib/team-calls/store'
-import { callPlaceOf, joinAnswer, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callEnded, callPlaceOf, callsUnreachable, joinAnswer, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -30,9 +30,19 @@ export async function POST(_request: Request, { params }: Params) {
   try {
     const call = await getCall(auth.supabase, id)
     if (!call) return notFound()
-    if (call.status !== 'live') return apiError('This call has ended', { status: 409, code: 'CALL_ENDED' })
+    if (call.status !== 'live') return callEnded()
+    // An archived conversation's call is over, even before its end lands.
+    if (call.channel_archived) return callEnded('This conversation is archived')
     const me = await memberIn(auth.supabase, auth.user.id, call.workspace_id)
     if (!me) return notFound()
+    // Its room open before the token (LiveKit never makes one by itself).
+    let room: 'ready' | 'ended'
+    try {
+      room = await readyRoom(config, call)
+    } catch {
+      return callsUnreachable()
+    }
+    if (room === 'ended') return callEnded()
     const join = await joinAnswer(config, { callId: call.id, room: call.room, memberId: me.id, name: me.display_name })
     return NextResponse.json({
       join,

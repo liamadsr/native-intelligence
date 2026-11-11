@@ -114,7 +114,19 @@ export function CallPanel({
   )
 }
 
+/** What an error says: the call couldn't load (its code) or couldn't reach the call server. */
+export function callErrorLine(error: CallSnapshot['error']): string {
+  return error === 'load' ? 'Calling couldn’t load. Check your connection, then retry.' : 'Couldn’t reach the call. Check your connection, then retry.'
+}
+
 function StatusLine({ snap }: { snap: CallSnapshot }) {
+  if (snap.phase === 'error')
+    return (
+      <span className="flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400" data-team-call-error={snap.error ?? ''}>
+        <WifiOff className="h-3.5 w-3.5" aria-hidden />
+        {snap.error === 'load' ? 'Couldn’t load' : 'Couldn’t connect'}
+      </span>
+    )
   if (snap.phase === 'connecting') return <span className="text-xs text-muted-foreground">Connecting…</span>
   if (snap.phase === 'reconnecting')
     return (
@@ -199,7 +211,13 @@ function CallBar({ call, snap, onExpand, onLeave }: { call: ActiveTeamCall; snap
         {speaking ? <span className="max-w-[180px] truncate text-xs text-emerald-600 dark:text-emerald-400">{speaking.name} is speaking</span> : <StatusLine snap={snap} />}
       </button>
       <CallBadges notes={call.notes} small />
-      <MicButton session={call.session} state={snap.mic} small />
+      {snap.phase === 'error' ? (
+        <button type="button" onClick={() => void call.session.retry()} data-team-call-retry="" className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs font-medium hover:bg-accent">
+          Retry
+        </button>
+      ) : (
+        <MicButton session={call.session} state={snap.mic} small />
+      )}
       <IconButton label="Open the call" onClick={onExpand} small>
         <Maximize2 className="h-4 w-4" />
       </IconButton>
@@ -233,7 +251,20 @@ function CallWindow({ call, snap, onMinimize, onLeave }: { call: ActiveTeamCall;
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
-        {snap.micHeld && <JoinNotice call={call} onJoin={() => void call.session.releaseMic()} onLeave={onLeave} />}
+        {snap.micHeld && snap.phase !== 'error' && <JoinNotice call={call} onJoin={() => void call.session.releaseMic()} onLeave={onLeave} />}
+        {snap.phase === 'error' && (
+          <div className="mb-2 flex items-center gap-3 rounded-xl bg-red-500/10 px-3 py-2.5" data-team-call-error-panel="">
+            <p className="min-w-0 flex-1 text-xs text-red-800 dark:text-red-200">{callErrorLine(snap.error)}</p>
+            <button
+              type="button"
+              onClick={() => void call.session.retry()}
+              data-team-call-retry=""
+              className="shrink-0 rounded-full bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         {screens.length > 0 && (
           <div className="mb-2 flex flex-col gap-2">
             {screens.map((t) => (

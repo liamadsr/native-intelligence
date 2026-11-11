@@ -27,7 +27,7 @@ export const TEAM_CALL_MAX_PARTICIPANTS = 50
 export const TEAM_CALL_MAX_RING = 20
 
 export type TeamCallStatus = 'live' | 'ended'
-export type TeamCallEndReason = 'finished' | 'left' | 'swept' | 'failed'
+export type TeamCallEndReason = 'finished' | 'left' | 'swept' | 'failed' | 'archived'
 export type TeamCallRingState = 'ringing' | 'busy' | 'accepted' | 'declined' | 'missed' | 'cancelled'
 
 /** A call, as the conversation shows it (team_call's columns a page reads; its notes and recording, 566). */

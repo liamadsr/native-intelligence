@@ -139,7 +139,6 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
   const [minimized, setMinimized] = useState(false)
   const activeRef = useRef<ActiveTeamCall | null>(null)
   activeRef.current = active
-  const busyRef = useRef(false)
 
   // Who is signed in (the ring channel's filter), as the presence mount reads it.
   useEffect(() => {
@@ -259,74 +258,101 @@ export function TeamCallsProvider({ children }: { children: ReactNode }) {
     }
   }, [activeCallId])
 
-  /** Run one call action at a time; a call already in progress elsewhere is left first. */
-  const switchTo = useCallback(async (callId: string | null, open: () => Promise<void>) => {
-    if (busyRef.current) return
-    const cur = activeRef.current
-    if (cur && callId && cur.callId === callId) {
-      setMinimized(false)
-      return
-    }
-    busyRef.current = true
-    try {
-      if (cur) await cur.session.leave()
-      await open()
-    } finally {
-      busyRef.current = false
-    }
+  /**
+   * One call action at a time, in order: a second one waits for the first,
+   * never dropped (an Accept pressed while a start is on its way is
+   * answered after it, not lost). Each asks the server first and leaves the
+   * call this page is in only once the new one can be joined (a refused
+   * answer never costs the person the call they were in).
+   */
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve())
+  const run = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const next = queueRef.current.then(fn, fn)
+    queueRef.current = next.catch(() => undefined)
+    return next
   }, [])
 
-  const startCall = useCallback<TeamCallsApi['startCall']>(
-    async (channel) => {
+  /** Into a call the server said may be joined: out of the one this page is in, then in. */
+  const switchInto = useCallback(
+    async (call: CallPlace, join: TeamCallJoin, label: string) => {
       const cur = activeRef.current
-      if (cur && cur.channelId === channel.id) {
+      if (cur && cur.callId !== call.id) await cur.session.leave()
+      if (cur && cur.callId === call.id) {
         setMinimized(false)
         return
       }
-      await switchTo(null, async () => {
+      begin(call, join, label)
+    },
+    [begin],
+  )
+
+  const startCall = useCallback<TeamCallsApi['startCall']>(
+    (channel) =>
+      run(async () => {
+        const cur = activeRef.current
+        if (cur && cur.channelId === channel.id) {
+          setMinimized(false)
+          return
+        }
         const res = await requestStart(channel.id, features.notes && (await autoRecordOn()))
         if (!res.ok) {
           toast(callFailureLine(res.why))
           return
         }
-        begin(res.call, res.join, channel.label)
-      })
-    },
-    [begin, switchTo, features.notes],
+        await switchInto(res.call, res.join, channel.label)
+      }),
+    [run, switchInto, features.notes],
   )
 
   const joinCall = useCallback<TeamCallsApi['joinCall']>(
-    async (call) => {
-      await switchTo(call.callId, async () => {
+    (call) =>
+      run(async () => {
+        if (activeRef.current?.callId === call.callId) {
+          setMinimized(false)
+          return
+        }
         const res = await requestJoin(call.callId)
         if (!res.ok) {
           toast(callFailureLine(res.why))
           return
         }
-        begin(res.call, res.join, call.label)
-      })
-    },
-    [begin, switchTo],
+        await switchInto(res.call, res.join, call.label)
+      }),
+    [run, switchInto],
   )
 
+  /**
+   * Accept: answered on the server first. Answered (here, or settled
+   * elsewhere): the ring stops here, as it does everywhere. Not answered (a
+   * network failure): it keeps ringing here, and the person is told.
+   */
   const accept = useCallback(
-    async (ring: TeamCallRing) => {
-      dispatch({ type: 'settle', ringId: ring.id })
-      await switchTo(ring.call_id, async () => {
+    (ring: TeamCallRing) =>
+      run(async () => {
         const res = await requestAnswer(ring.id, true)
-        if (!res.ok || !res.join || !res.call) {
-          toast(res.ok ? (res.state === 'declined' ? 'You declined this call elsewhere.' : 'That call has ended.') : callFailureLine(res.why))
+        if (!res.ok) {
+          toast(res.why === 'failed' ? 'Couldn’t answer. It’s still ringing: try again.' : callFailureLine(res.why))
+          if (res.why !== 'failed') dispatch({ type: 'settle', ringId: ring.id })
           return
         }
-        begin(res.call, res.join, teamCallPlace(ring) ?? ring.caller_name)
-      })
-    },
-    [begin, switchTo],
+        dispatch({ type: 'settle', ringId: ring.id })
+        if (!res.join || !res.call) {
+          toast(res.state === 'declined' ? 'You declined this call elsewhere.' : 'That call has ended.')
+          return
+        }
+        await switchInto(res.call, res.join, teamCallPlace(ring) ?? ring.caller_name)
+      }),
+    [run, switchInto],
   )
 
+  /** Decline: on the server first; not reached, it keeps ringing here, and the person is told. */
   const decline = useCallback(async (ring: TeamCallRing) => {
+    const res = await requestAnswer(ring.id, false)
+    if (!res.ok && res.why === 'failed') {
+      toast('Couldn’t decline. It’s still ringing: try again.')
+      return
+    }
     dispatch({ type: 'settle', ringId: ring.id })
-    await requestAnswer(ring.id, false)
   }, [])
 
   const ring = useCallback<TeamCallsApi['ring']>(async (memberIds, names) => {

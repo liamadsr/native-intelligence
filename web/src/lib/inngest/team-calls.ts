@@ -1,7 +1,17 @@
 import { getServiceClient } from '@/lib/admin'
 import { inngest } from './client'
 import { isUuid } from '@/lib/team-chat/types'
-import { expireRings, notifyMissedCalls, TEAM_CALL_RING_EVENT, type MissedRing } from '@/lib/team-calls/store'
+import {
+  expireRings,
+  fenceTeamCalls,
+  missedRingsNobodyWasToldOf,
+  notifyMissedCalls,
+  TEAM_CALL_MISSED_EVENT,
+  TEAM_CALL_RING_EVENT,
+  untoldMissedRings,
+  type MissedRing,
+} from '@/lib/team-calls/store'
+import { drainTeamCallEjections, liveEjectDeps, TEAM_CALL_EJECT_EVENT } from '@/lib/team-calls/eject'
 import { sweepTeamCalls } from '@/lib/team-calls/sweep'
 import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
@@ -50,11 +60,58 @@ export const teamCallRingTimer = inngest.createFunction(
 )
 
 /**
+ * team-calls/missed.requested → one missed ring's notice (the event's id is
+ * the ring's), once: a ring whose person was told already is skipped
+ * (src/lib/team-calls/store.ts notifyMissedCalls). Sent when a call ends
+ * with rings open, out of the request path.
+ */
+export const teamCallMissed = inngest.createFunction(
+  {
+    id: 'team-call-missed',
+    retries: 3,
+    triggers: [{ event: TEAM_CALL_MISSED_EVENT }],
+  },
+  async ({ event, step }) => {
+    const ringId = (event.data as { ringId?: unknown } | undefined)?.ringId
+    if (!isUuid(ringId)) return { status: 'skipped', reason: 'bad_event' }
+    const told = await step.run('notify', async () => notifyMissedCalls(getServiceClient(), await untoldMissedRings(getServiceClient(), [ringId])))
+    console.info(`[team-call-missed] ring=${ringId} told=${told}`)
+    return { status: 'done', told }
+  },
+)
+
+/**
+ * Taking people out of calls whose conversation they may no longer read
+ * (src/lib/team-calls/eject.ts): on team-calls/eject.requested (the routes
+ * that remove people send it) and every minute (whatever else removed
+ * them: the database wrote the outbox either way). Nothing while calling
+ * is off.
+ */
+export const teamCallsEject = inngest.createFunction(
+  {
+    id: 'team-calls-eject',
+    retries: 1,
+    concurrency: [{ limit: 1 }],
+    triggers: [{ event: TEAM_CALL_EJECT_EVENT }, { cron: '* * * * *' }],
+  },
+  async ({ step }) => {
+    const config = teamCallsConfig()
+    if (!config) return { status: 'skipped', reason: 'calls_off' }
+    const result = await step.run('drain', () => drainTeamCallEjections(getServiceClient(), liveEjectDeps(config)))
+    if (result.done || result.failed) console.info(`[team-calls-eject] done=${result.done} failed=${result.failed}`)
+    return { status: 'done', ...result }
+  },
+)
+
+/**
  * Every five minutes, what a lost webhook or timer left (src/lib/team-calls/
  * sweep.ts): live calls whose room is gone end, rings past their time are
- * missed, old webhook ids are forgotten; then the notes and recordings
- * (src/lib/team-calls/notes-sweep.ts). With LiveKit unset it still runs
- * the rings and the ids (there are none: calling is off), and ends nothing.
+ * missed, old webhook ids are forgotten; then everyone connected who may no
+ * longer read their call's conversation is put out (565's team_call_fence,
+ * drained by team-calls-eject), and the missed rings nobody was told of are
+ * told, in steps of their own; then the notes and recordings
+ * (src/lib/team-calls/notes-sweep.ts). With LiveKit unset it still runs the
+ * rings and the ids (there are none: calling is off), and ends nothing.
  */
 export const teamCallsSweep = inngest.createFunction(
   {
@@ -68,8 +125,14 @@ export const teamCallsSweep = inngest.createFunction(
       const config = teamCallsConfig()
       return sweepTeamCalls(getServiceClient(), { openRooms: config ? (names) => openTeamCallRooms(config, names) : null })
     })
-    // Their own step: a failed notice is retried alone (the rings are already missed).
-    if (result.missedRings.length > 0) await step.run('notify', () => notifyMissedCalls(getServiceClient(), result.missedRings as MissedRing[]))
+    const fenced = teamCallsConfig() ? await step.run('fence', () => fenceTeamCalls(getServiceClient())) : 0
+    if (fenced > 0) await step.sendEvent('eject', { name: TEAM_CALL_EJECT_EVENT, data: {} })
+    // Their own step: a failed notice is retried alone (the rings are already missed), with any a lost event left untold.
+    await step.run('notify', async () => {
+      const backlog = await missedRingsNobodyWasToldOf(getServiceClient())
+      const all = [...(result.missedRings as MissedRing[]), ...backlog.filter((b) => !result.missedRings.some((r) => r.ring_id === b.ring_id))]
+      return all.length ? notifyMissedCalls(getServiceClient(), all) : 0
+    })
     // Notes and recordings (phase 6): the bounds, egresses whose end was lost, notes whose finish was lost.
     const egress = await step.run('sweep-egress', () => {
       const config = teamCallEgressConfig()

@@ -38,7 +38,7 @@ const send = async (events: Array<{ name: string; data: unknown }>) => {
 }
 
 beforeEach(() => {
-  tables = { notification: [] }
+  tables = { notification: [], team_call_ring: [{ id: 'r1', notified_at: null }] }
   db = memoryDb(tables, { notification: (a, b) => a.type === b.type && a.recipient_id === b.recipient_id && a.target_id === b.target_id })
   sent = []
 })
@@ -61,6 +61,15 @@ describe('notifyMissedCalls', () => {
       metadata: expect.objectContaining({ reason: 'missed_call', call_id: 'call', author_name: 'Ana Ruiz', place: null }),
     })
     expect(sent).toEqual([{ name: 'team-chat/email.requested', data: { key: 'u-ben', userId: 'u-ben', workspaceId: 'w' } }])
+  })
+
+  it('once per ring: told again (a retried step, a second event, the sweeper\u2019s backlog), nobody is told twice', async () => {
+    expect(await notifyMissedCalls(db, [ring()], send)).toBe(1)
+    expect(tables.team_call_ring[0].notified_at).toBeTruthy()
+    expect(await notifyMissedCalls(db, [ring()], send)).toBe(0)
+    expect(await notifyMissedCalls(db, [ring(), ring()], send)).toBe(0)
+    expect(tables.notification).toHaveLength(1)
+    expect(sent).toHaveLength(1)
   })
 
   it('a channel’s: says where', async () => {

@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentWorkspaceId } from '@/lib/workspace'
 import { forbidden, notFound, serverError } from '@/lib/api-errors'
 import { NextResponse, type NextRequest } from 'next/server'
+import { requestTeamCallEjections } from '@/lib/team-calls/eject'
 
 export async function PATCH(
   request: NextRequest,
@@ -133,5 +134,7 @@ export async function DELETE(
     return notFound('Member not found in this workspace')
   }
 
+  // Out of any call of the workspace now (the database queued it; this drains it at once).
+  await requestTeamCallEjections()
   return NextResponse.json({ ok: true })
 }

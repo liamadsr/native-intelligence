@@ -13,10 +13,12 @@
 --                      ended (ended_at, duration_seconds, ended_reason:
 --                      'finished' the room closed, 'left' a DM's person
 --                      hung up, 'swept' its room was gone, 'failed' the
---                      room could not be made). `ringing` and `declined`
---                      are the members being rung now and those who said
---                      no, for the caller's panel. Written by 565's
---                      functions only.
+--                      room could not be made, 'archived' its channel was
+--                      archived). `ringing` and `declined` are the members
+--                      being rung now and those who said no, for the
+--                      caller's panel: never capped by a check (a decline
+--                      always lands), bounded by 565's cap of 20 rings per
+--                      call. Written by 565's functions only.
 --   team_call_participant  per call and member: in it now ('joined') or
 --                      not ('left'), the LiveKit session (session_sid) the
 --                      state is for, and the time of the newest event
@@ -33,9 +35,25 @@
 --                      shows (the caller's name, the place), so a ring draws
 --                      from its own row. user_id is the member's account:
 --                      a person reads their own rings and nobody else's.
+--                      notified_at: when a missed ring's person was told
+--                      (the notice is sent once per ring, and a notice that
+--                      failed is found again by the sweeper).
 --   team_call_webhook_event  the ids of LiveKit webhook events already
 --                      applied (a repeat is answered and skipped). Service
 --                      role only; the sweeper prunes it.
+--   team_call_eject    the outbox of people to take out of a LiveKit room
+--                      (identity: their member id) or rooms to close
+--                      (identity null): written by 565's triggers the moment
+--                      someone's access to a conversation with a live call
+--                      ends (removed from the team, the DM or the workspace,
+--                      the channel archived or deleted), by the webhook when
+--                      someone without access joins, and by the sweeper's
+--                      check; drained by the app (src/lib/team-calls/
+--                      eject.ts), which calls LiveKit. A connected person is
+--                      never cut off by a token running out, so this is what
+--                      takes them out. No foreign key to team_call: a room
+--                      still has to close when its call is deleted with its
+--                      workspace. Service role only.
 --   team_chat_message.kind  'message' (as ever) or 'call': the message a
 --                      call shows as in its conversation (call_id). Its
 --                      words say what happened ('Started a call', then
@@ -47,7 +65,10 @@
 --                      a plain message (kind 'message', no call).
 --   team_chat_message_guard  555's, plus: a client never changes kind or
 --                      call_id, and never edits or deletes a call's
---                      message.
+--                      message (565's functions write its words, also when
+--                      a person's action ends the call, e.g. archiving its
+--                      channel: they say so with the transaction-local
+--                      setting team_calls.writing, which no client can set).
 --
 -- Reads are RLS: a call and who is in it, for the people who may read its
 -- channel (team_chat_can_read); a ring, for its own person (user_id =
@@ -91,7 +112,7 @@ create table if not exists public.team_call (
   status text not null default 'live' check (status in ('live', 'ended')),
   started_at timestamptz not null default now(),
   ended_at timestamptz,
-  ended_reason text check (ended_reason is null or ended_reason in ('finished', 'left', 'swept', 'failed')),
+  ended_reason text,
   duration_seconds integer check (duration_seconds is null or duration_seconds >= 0),
   participant_count integer not null default 0 check (participant_count >= 0),
   peak_participants integer not null default 0 check (peak_participants >= 0),
@@ -101,9 +122,18 @@ create table if not exists public.team_call (
   constraint team_call_shape check (
     (status = 'live' and ended_at is null and ended_reason is null)
     or (status = 'ended' and ended_at is not null and ended_reason is not null)
-  ),
-  constraint team_call_rings_bounded check (cardinality(ringing) <= 50 and cardinality(declined) <= 50)
+  )
 );
+
+-- How a call ended (named, so a reason added later is one drop and add).
+alter table public.team_call drop constraint if exists team_call_ended_reason_check;
+alter table public.team_call
+  add constraint team_call_ended_reason_check check (
+    ended_reason is null or ended_reason in ('finished', 'left', 'swept', 'failed', 'archived')
+  ) not valid;
+alter table public.team_call validate constraint team_call_ended_reason_check;
+-- An early draft capped ringing and declined at 50, which could refuse a decline: gone.
+alter table public.team_call drop constraint if exists team_call_rings_bounded;
 
 -- One live call per channel or DM: a second start finds it.
 create unique index if not exists team_call_one_live on public.team_call (channel_id) where status = 'live';
@@ -142,19 +172,39 @@ create table if not exists public.team_call_ring (
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
   answered_at timestamptz,
+  notified_at timestamptz,
   constraint team_call_ring_expiry check (expires_at > created_at)
 );
+alter table public.team_call_ring add column if not exists notified_at timestamptz;
 -- One ring at a time per call and person.
 create unique index if not exists team_call_ring_one_open on public.team_call_ring (call_id, member_id) where state in ('ringing', 'busy');
 create index if not exists team_call_ring_user_idx on public.team_call_ring (user_id, created_at desc);
 -- The sweeper's read: rings left open past their time.
 create index if not exists team_call_ring_open_idx on public.team_call_ring (expires_at) where state in ('ringing', 'busy');
+-- The sweeper's read: missed rings whose person was never told.
+create index if not exists team_call_ring_untold_idx on public.team_call_ring (created_at) where state = 'missed' and notified_at is null;
+-- 565's ring limits: a caller's recent rings of a person.
+create index if not exists team_call_ring_caller_idx on public.team_call_ring (caller_member_id, member_id, created_at desc);
 
 create table if not exists public.team_call_webhook_event (
   id text primary key check (char_length(id) between 1 and 128),
   received_at timestamptz not null default now()
 );
 create index if not exists team_call_webhook_event_received_idx on public.team_call_webhook_event (received_at);
+
+create table if not exists public.team_call_eject (
+  id uuid primary key default gen_random_uuid(),
+  call_id uuid not null,
+  room text not null check (char_length(room) between 4 and 64),
+  identity text check (identity is null or char_length(identity) <= 64),
+  reason text not null check (reason in ('access', 'archived', 'deleted')),
+  created_at timestamptz not null default now(),
+  done_at timestamptz,
+  attempts integer not null default 0 check (attempts >= 0)
+);
+-- One pending entry per room and person (or room close).
+create unique index if not exists team_call_eject_pending_key on public.team_call_eject (room, coalesce(identity, '')) where done_at is null;
+create index if not exists team_call_eject_pending_idx on public.team_call_eject (created_at) where done_at is null;
 
 -- ── A call's message ────────────────────────────────────────────────────────
 
@@ -213,7 +263,8 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 begin
-  if auth.uid() is null then
+  -- The service role, or one of 565's functions writing a call's words.
+  if auth.uid() is null or coalesce(current_setting('team_calls.writing', true), '') = 'on' then
     return new;
   end if;
   if new.id is distinct from old.id
@@ -266,6 +317,7 @@ alter table public.team_call enable row level security;
 alter table public.team_call_participant enable row level security;
 alter table public.team_call_ring enable row level security;
 alter table public.team_call_webhook_event enable row level security;
+alter table public.team_call_eject enable row level security;
 
 drop policy if exists team_call_select on public.team_call;
 create policy team_call_select on public.team_call
@@ -284,6 +336,7 @@ revoke all on table public.team_call from anon, authenticated;
 revoke all on table public.team_call_participant from anon, authenticated;
 revoke all on table public.team_call_ring from anon, authenticated;
 revoke all on table public.team_call_webhook_event from anon, authenticated;
+revoke all on table public.team_call_eject from anon, authenticated;
 grant select on table public.team_call to authenticated;
 grant select on table public.team_call_participant to authenticated;
 grant select on table public.team_call_ring to authenticated;
@@ -291,6 +344,7 @@ grant select, insert, update on table public.team_call to service_role;
 grant select, insert, update on table public.team_call_participant to service_role;
 grant select, insert, update on table public.team_call_ring to service_role;
 grant select, insert, delete on table public.team_call_webhook_event to service_role;
+grant select, insert, update, delete on table public.team_call_eject to service_role;
 
 -- ── Realtime ────────────────────────────────────────────────────────────────
 

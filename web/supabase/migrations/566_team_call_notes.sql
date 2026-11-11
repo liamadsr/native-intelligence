@@ -56,6 +56,9 @@
 --     DM's notes are its two people's), and it is shared only with its own
 --     conversation (no grant to another member, team or channel). Its owner
 --     may still remove the conversation's grant (narrower, never wider).
+--   captures_team_call_notes_fence  a restrictive read policy: a call's
+--     notes are read only by someone who may read its conversation now, the
+--     owner included (access ends with the conversation's).
 --
 -- Additive. Idempotent. Safe on a live database with the deployed app
 -- running: team_call gains columns with constant defaults or nullable ones
@@ -259,6 +262,40 @@ create trigger team_call_notes_grant_guard
   before insert or update of entity_type, entity_id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id
   on public.entity_access
   for each row execute function public.team_call_notes_grant_guard();
+
+-- Reading follows the conversation, its owner included: a call's notes are
+-- readable only by someone who may read the call's conversation now. A
+-- restrictive policy (it narrows every other select policy on captures and
+-- widens none): someone taken off the channel's team, out of the DM, or a
+-- channel deleted, loses the notes with the conversation. Flat cost: the
+-- notes the caller may not read are listed once per query (an initplan over
+-- the calls with notes in the caller's workspaces), and each row is compared
+-- against that list, as 493's grant pre-check does.
+create index if not exists team_call_capture_idx on public.team_call (workspace_id) where capture_id is not null;
+
+create or replace function public.team_call_notes_hidden()
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce(array_agg(t.capture_id), '{}'::uuid[])
+    from public.member me
+    join public.team_call t on t.workspace_id = me.workspace_id
+   where me.user_id = auth.uid()
+     and t.capture_id is not null
+     and not public.team_chat_can_read(t.channel_id);
+$$;
+
+revoke all on function public.team_call_notes_hidden() from public, anon;
+grant execute on function public.team_call_notes_hidden() to authenticated, service_role;
+
+drop policy if exists captures_team_call_notes_fence on public.captures;
+create policy captures_team_call_notes_fence on public.captures
+  as restrictive
+  for select to authenticated
+  using (id <> all ((select public.team_call_notes_hidden())));
 
 notify pgrst, 'reload schema';
 

@@ -203,6 +203,41 @@ describe('TeamCallSession', () => {
   })
 })
 
+describe('TeamCallSession, when it can\u2019t load or connect', () => {
+  it('the SDK\u2019s chunk fails to load: an error with Retry, never "Connecting…" forever; Retry loads it and joins', async () => {
+    const { sdk, rooms } = fakeSdk()
+    let fail = true
+    const refreshJoin = vi.fn(async () => ({ ...JOIN, token: 't2' }))
+    const s = session(sdk, {
+      refreshJoin,
+      loadSdk: async () => {
+        if (fail) throw new Error('Loading chunk 123 failed')
+        return sdk
+      },
+    })
+    await s.connect(JOIN)
+    expect(s.getSnapshot()).toMatchObject({ phase: 'error', error: 'load', ended: null })
+    fail = false
+    await s.retry()
+    expect(refreshJoin).toHaveBeenCalledTimes(1)
+    expect(s.getSnapshot()).toMatchObject({ phase: 'connected', error: null })
+    expect(rooms[0].connected?.token).toBe('t2')
+  })
+
+  it('the room can\u2019t be reached: an error with Retry; a call that ended meanwhile ends here on Retry', async () => {
+    const { sdk, rooms } = fakeSdk()
+    const onEnded = vi.fn()
+    const s = session(sdk, { refreshJoin: async () => null, onEnded })
+    const failing = vi.spyOn(sdk.Room.prototype, 'connect').mockRejectedValueOnce(new Error('could not establish signal connection'))
+    await s.connect(JOIN)
+    expect(s.getSnapshot()).toMatchObject({ phase: 'error', error: 'connect' })
+    expect(rooms[0].disconnected).toBe(true)
+    failing.mockRestore()
+    await s.retry()
+    expect(onEnded).toHaveBeenCalledWith('ended')
+  })
+})
+
 describe('deviceStateOfError', () => {
   it('reads LiveKit’s failure first, then the error’s name', () => {
     expect(deviceStateOfError(new Error('x'), 'PermissionDenied')).toBe('blocked')

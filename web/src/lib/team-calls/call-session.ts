@@ -56,7 +56,9 @@ export interface CallTile {
 }
 
 export interface CallSnapshot {
-  phase: 'connecting' | 'connected' | 'reconnecting' | 'ended'
+  /** 'error': the call couldn't be loaded or reached (`error` says which); the panel offers Retry. */
+  phase: 'connecting' | 'connected' | 'reconnecting' | 'error' | 'ended'
+  error: 'load' | 'connect' | null
   ended: CallEnd | null
   tiles: CallTile[]
   /** People in the call, this one included. */
@@ -105,6 +107,7 @@ const EMPTY_DEVICES: CallSnapshot['devices'] = { audioinput: [], audiooutput: []
 function initialSnapshot(): CallSnapshot {
   return {
     phase: 'connecting',
+    error: null,
     ended: null,
     tiles: [],
     people: 1,
@@ -167,7 +170,14 @@ export class TeamCallSession {
   /** Join the room: audio on (listening only if the mic is refused, or held back by `holdMic` until the person says go), camera off. */
   async connect(join: TeamCallJoin, opts: { holdMic?: boolean } = {}): Promise<void> {
     if (opts.holdMic !== undefined) this.holdMic = opts.holdMic
-    const lk = this.sdk ?? (this.sdk = await (this.deps.loadSdk ?? (() => import('livekit-client')))())
+    let lk: typeof import('livekit-client')
+    try {
+      lk = this.sdk ?? (this.sdk = await (this.deps.loadSdk ?? (() => import('livekit-client')))())
+    } catch {
+      // The SDK's chunk didn't load (offline, a deploy in between): say so, with Retry, never "Connecting…" forever.
+      if (!this.over) this.emit({ phase: 'error', error: 'load' })
+      return
+    }
     if (this.over) return
     const room = new lk.Room({
       adaptiveStream: true,
@@ -179,15 +189,19 @@ export class TeamCallSession {
     })
     this.room = room
     this.wire(room, lk)
-    this.emit({ phase: 'connecting', canPickSpeaker: lk.supportsAudioOutputSelection() })
+    this.emit({ phase: 'connecting', error: null, canPickSpeaker: lk.supportsAudioOutputSelection() })
     try {
       await room.connect(join.url, join.token, { autoSubscribe: true })
     } catch {
-      if (this.room === room) this.finish('failed')
+      if (this.room === room) {
+        this.room = null
+        void room.disconnect(true).catch(() => undefined)
+        if (!this.over) this.emit({ phase: 'error', error: 'connect' })
+      }
       return
     }
     if (this.over || this.room !== room) return
-    this.emit({ phase: 'connected', micHeld: this.holdMic })
+    this.emit({ phase: 'connected', error: null, micHeld: this.holdMic })
     if (!this.holdMic) await this.enableMic(room, lk)
     this.refresh()
     void this.refreshDevices()
@@ -434,6 +448,24 @@ export class TeamCallSession {
       // The device went away: the list refreshes below.
     }
     void this.refreshDevices()
+  }
+
+  /** After an error: a fresh token from the token route, and join again (the call ended meanwhile: ended). */
+  async retry(): Promise<void> {
+    if (this.over || this.snapshot.phase !== 'error') return
+    this.emit({ phase: 'connecting', error: null })
+    let join: TeamCallJoin | null = null
+    try {
+      join = await this.deps.refreshJoin()
+    } catch {
+      join = null
+    }
+    if (this.over) return
+    if (!join) {
+      this.finish('ended')
+      return
+    }
+    await this.connect(join)
   }
 
   /** The browser held audio back: a click lets it play. */

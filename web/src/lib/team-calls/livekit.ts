@@ -110,13 +110,34 @@ export async function openTeamCallRooms(config: TeamCallsConfig, names: readonly
   return new Set(list.map((r) => r.name))
 }
 
-/** Close a call's room (a DM's person hung up). A room already gone is fine. */
+/** LiveKit's "no such room / participant": what was to go is gone already. */
+function isNotFound(err: unknown): boolean {
+  const status = (err as { status?: unknown } | null)?.status
+  const code = (err as { code?: unknown } | null)?.code
+  if (status === 404 || code === 'not_found') return true
+  const message = err instanceof Error ? err.message : String(err)
+  return /not.?found|does not exist/i.test(message)
+}
+
+/** Close a call's room (a DM's person hung up, its channel archived or deleted). A room already gone is fine. */
 export async function closeTeamCallRoom(config: TeamCallsConfig, room: string): Promise<void> {
   try {
     await rooms(config).deleteRoom(room)
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (!/not.?found|does not exist/i.test(message)) throw err
+    if (!isNotFound(err)) throw err
+  }
+}
+
+/**
+ * Take someone out of a call's room now (their access to its conversation
+ * ended). A token running out never cuts off a connected participant, so
+ * this is what does. Someone not in the room (left already) is fine.
+ */
+export async function removeFromTeamCallRoom(config: TeamCallsConfig, room: string, identity: string): Promise<void> {
+  try {
+    await rooms(config).removeParticipant(room, identity)
+  } catch (err) {
+    if (!isNotFound(err)) throw err
   }
 }
 
