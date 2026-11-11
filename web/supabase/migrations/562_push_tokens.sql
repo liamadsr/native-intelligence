@@ -22,10 +22,26 @@
 --                     its token itself).
 --   push_token_register(token, environment, bundle_id, device_name)  the
 --                     caller's install registered (or seen again: last seen
---                     moves, a stopped token starts again, a token another
---                     person had is theirs now). Returns its id.
---   push_token_remove(token)  the caller's install taken off (sign-out).
---                     True when there was one; never another person's.
+--                     moves, a stopped token starts again). A token another
+--                     person had is the caller's now: the one row moves, so
+--                     the previous person has no install left on that
+--                     phone. A person keeps at most 10 live installs: past
+--                     that, the ones seen longest ago are disabled
+--                     ('Superseded'). The app registers on every signed-in
+--                     launch and return while notifications are allowed, so
+--                     last_seen_at is how recently the phone said it still
+--                     wants pushes (the sender pushes only to installs seen
+--                     within 30 days: src/lib/push/send.ts). Returns its id.
+--   push_token_remove(token)  the caller's install taken off (sign-out, or
+--                     notifications turned off in iOS Settings). True when
+--                     there was one; never another person's.
+--   push_token_forget(token)  an install taken off when the session has
+--                     already ended (it expired, its refresh failed): no
+--                     sign-in needed, so it is granted to anon too. The
+--                     device token is the credential: only the phone that
+--                     holds it (and the server) know it, and all it can do
+--                     is stop pushes to that one phone. Nothing is read
+--                     back. True when there was one.
 --
 -- Additive. Idempotent. Safe on a live database: one new table, no rows
 -- touched elsewhere. No backslashes anywhere in this file (one MCP transport
@@ -99,6 +115,17 @@ begin
          disabled_at = null,
          disabled_reason = null
   returning id into id_out;
+  -- At most 10 live installs a person: the ones seen longest ago stop.
+  update public.push_token
+     set disabled_at = now(), disabled_reason = 'Superseded'
+   where user_id = me
+     and disabled_at is null
+     and id not in (
+       select t.id from public.push_token t
+        where t.user_id = me and t.disabled_at is null
+        order by t.last_seen_at desc, t.created_at desc
+        limit 10
+     );
   return id_out;
 end;
 $$;
@@ -125,10 +152,33 @@ begin
 end;
 $$;
 
+-- An install taken off once its session has ended: by its token alone.
+create or replace function public.push_token_forget(device_token text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  tok text := lower(btrim(coalesce(device_token, '')));
+  n integer;
+begin
+  if tok !~ '^[0-9a-f]{64,200}$' then
+    return false;
+  end if;
+  delete from public.push_token where token = tok;
+  get diagnostics n = row_count;
+  return n > 0;
+end;
+$$;
+
 revoke all on function public.push_token_register(text, text, text, text) from public, anon;
 revoke all on function public.push_token_remove(text) from public, anon;
 grant execute on function public.push_token_register(text, text, text, text) to authenticated;
 grant execute on function public.push_token_remove(text) to authenticated;
+-- Explicitly anon too (the session is gone when it is called); its header says why.
+revoke all on function public.push_token_forget(text) from public;
+grant execute on function public.push_token_forget(text) to anon, authenticated;
 
 notify pgrst, 'reload schema';
 

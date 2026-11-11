@@ -521,7 +521,7 @@ async function pushHomeMessage(
     // The default name, then.
   }
   const notification = homeMessagePush({ workspaceId: input.workspaceId, conversationId: input.conversationId, agentName, text: input.message.text, approvals: input.message.approvals })
-  return (await pushToPerson(livePushDeps(supabase), { userId: input.userId, notification })) === 'sent'
+  return (await pushToPerson(livePushDeps(supabase), { userId: input.userId, notifications: [notification] })) === 'sent'
 }
 
 /** Into his own DM with the bot (never a channel others read): the words, then each approval as its Slack card with buttons and its code. */

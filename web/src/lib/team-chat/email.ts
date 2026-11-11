@@ -350,12 +350,8 @@ export function liveTeamChatEmailDeps(svc: SupabaseClient): TeamChatEmailDeps {
     },
     sendPush: async (input) => {
       const { livePushDeps, pushToPerson } = await import('@/lib/push/send')
-      const deps = livePushDeps(svc)
-      let any = false
-      for (const notification of teamChatPushes(input.items)) {
-        if ((await pushToPerson(deps, { userId: input.userId, notification })) === 'sent') any = true
-      }
-      return any
+      // One run, one read of their installs and one badge, however many conversations.
+      return (await pushToPerson(livePushDeps(svc), { userId: input.userId, notifications: teamChatPushes(input.items) })) === 'sent'
     },
     address: async (userId) => {
       try {

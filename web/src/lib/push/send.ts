@@ -24,6 +24,25 @@ export interface PushTokenRow {
   id: string
   token: string
   environment: ApnsEnvironment
+  /** When the app last registered it: the phone saying it still wants pushes. */
+  last_seen_at: string
+}
+
+/**
+ * How recently an install must have registered to be pushed to. The app
+ * registers on every signed-in launch and return while notifications are
+ * allowed (and takes the install off when they are turned off), so an install
+ * not seen in this long is a phone that stopped asking: pushing to it would
+ * stand in for the text, Slack or email the person would actually see.
+ */
+export const PUSH_TOKEN_FRESH_MS = 30 * 24 * 60 * 60_000
+
+/** The installs seen recently enough to push to. Pure. */
+export function freshTokens<T extends Pick<PushTokenRow, 'last_seen_at'>>(rows: readonly T[], nowMs: number): T[] {
+  return rows.filter((r) => {
+    const seen = Date.parse(r.last_seen_at)
+    return Number.isFinite(seen) && nowMs - seen <= PUSH_TOKEN_FRESH_MS
+  })
 }
 
 let shared: { key: string; sender: ApnsSender } | null = null
@@ -40,7 +59,8 @@ function senderFor(config: ApnsConfig): ApnsSender {
 
 export interface PushDeps {
   config: ApnsConfig | null
-  /** The person's live installs of this app. */
+  now?: () => number
+  /** The person's installs of this app that aren't disabled, newest seen first (freshness is checked by {@link freshTokens}). */
   tokens(userId: string, bundleId: string): Promise<PushTokenRow[]>
   /** Stop using an install Apple said is gone. */
   disable(tokenId: string, reason: string): Promise<void>
@@ -55,10 +75,11 @@ export function livePushDeps(svc: SupabaseClient, env: Record<string, string | u
     tokens: async (userId, bundleId) => {
       const { data, error } = await svc
         .from('push_token')
-        .select('id, token, environment')
+        .select('id, token, environment, last_seen_at')
         .eq('user_id', userId)
         .eq('bundle_id', bundleId)
         .is('disabled_at', null)
+        .gt('last_seen_at', new Date(Date.now() - PUSH_TOKEN_FRESH_MS).toISOString())
         .order('last_seen_at', { ascending: false })
         .limit(10)
       if (error) throw new Error(`push_token read failed: ${error.message}`)
@@ -78,11 +99,16 @@ export function livePushDeps(svc: SupabaseClient, env: Record<string, string | u
   }
 }
 
-/** Whether a person can be pushed right now: push is on and they have a live install. Never throws (false). */
+/** The person's installs that may be pushed to now: not disabled, seen recently. Throws on a failed read. */
+async function liveInstalls(deps: PushDeps, userId: string, config: ApnsConfig): Promise<PushTokenRow[]> {
+  return freshTokens(await deps.tokens(userId, config.bundleId), (deps.now ?? Date.now)())
+}
+
+/** Whether a person can be pushed right now: push is on and they have a live, recently seen install. Never throws (false). */
 export async function hasPushTarget(deps: PushDeps, userId: string): Promise<boolean> {
   if (!deps.config) return false
   try {
-    return (await deps.tokens(userId, deps.config.bundleId)).length > 0
+    return (await liveInstalls(deps, userId, deps.config)).length > 0
   } catch (err) {
     console.warn(`[push] user=${userId} targets not read:`, err instanceof Error ? err.message : 'unknown')
     return false
@@ -92,36 +118,45 @@ export async function hasPushTarget(deps: PushDeps, userId: string): Promise<boo
 export type PushOutcome = 'off' | 'no_target' | 'sent' | 'failed'
 
 /**
- * One push to every live install of the person's; the badge is added here.
- * An install Apple says is gone is disabled. 'sent' when at least one install
- * took it. Never throws.
+ * Pushes to every live install of the person's: one or several (a send run's
+ * conversations), their installs read and their badge counted ONCE for all of
+ * them. An install Apple says is gone is disabled and not tried again in the
+ * run. 'sent' when at least one install took at least one push. Never throws.
  */
-export async function pushToPerson(deps: PushDeps, input: { userId: string; notification: Omit<ApnsNotification, 'badge'> }): Promise<PushOutcome> {
+export async function pushToPerson(deps: PushDeps, input: { userId: string; notifications: ReadonlyArray<Omit<ApnsNotification, 'badge'>> }): Promise<PushOutcome> {
   const config = deps.config
   if (!config) return 'off'
   let tokens: PushTokenRow[]
   try {
-    tokens = await deps.tokens(input.userId, config.bundleId)
+    tokens = await liveInstalls(deps, input.userId, config)
   } catch (err) {
     console.warn(`[push] user=${input.userId} targets not read:`, err instanceof Error ? err.message : 'unknown')
     return 'failed'
   }
   if (tokens.length === 0) return 'no_target'
+  if (input.notifications.length === 0) return 'failed'
   const badge = await deps.badge(input.userId).catch(() => null)
-  const notification: ApnsNotification = { ...input.notification, ...(badge !== null ? { badge } : {}) }
   let sent = 0
   const reasons: string[] = []
-  for (const row of tokens) {
-    const result = await deps.send(config, { token: row.token, environment: row.environment, notification }).catch(
-      (err): ApnsResult => ({ ok: false, gone: false, status: 0, reason: err instanceof Error ? err.message : 'unknown' }),
-    )
-    if (result.ok) {
-      sent++
-      continue
+  const gone = new Set<string>()
+  for (const one of input.notifications) {
+    const notification: ApnsNotification = { ...one, ...(badge !== null ? { badge } : {}) }
+    for (const row of tokens) {
+      if (gone.has(row.id)) continue
+      const result = await deps.send(config, { token: row.token, environment: row.environment, notification }).catch(
+        (err): ApnsResult => ({ ok: false, gone: false, status: 0, reason: err instanceof Error ? err.message : 'unknown' }),
+      )
+      if (result.ok) {
+        sent++
+        continue
+      }
+      reasons.push(`${result.status}:${result.reason}`)
+      if (result.gone) {
+        gone.add(row.id)
+        await deps.disable(row.id, result.reason)
+      }
     }
-    reasons.push(`${result.status}:${result.reason}`)
-    if (result.gone) await deps.disable(row.id, result.reason)
   }
-  console.info(`[push] user=${input.userId} installs=${tokens.length} sent=${sent}${reasons.length ? ` refused=${reasons.join(',')}` : ''}`)
+  console.info(`[push] user=${input.userId} installs=${tokens.length} pushes=${input.notifications.length} sent=${sent}${reasons.length ? ` refused=${reasons.join(',')}` : ''}`)
   return sent > 0 ? 'sent' : 'failed'
 }

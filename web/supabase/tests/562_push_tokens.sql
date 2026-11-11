@@ -186,6 +186,35 @@ begin
     ]);
   perform pg_temp.t562_run('ANON cannot remove', 'refused', null,
     array[format('select public.push_token_remove(%L)', tok_a)]);
+  perform pg_temp.t562_run('the previous person has no install left on a phone someone else signed in on', 'rows=1', u_b,
+    array[
+      'set local role postgres',
+      format('insert into public.push_token (user_id, token, environment, bundle_id) values (%L, %L, %L, %L)', u_a, tok_a, 'sandbox', 'com.example.app'),
+      'set local role authenticated',
+      format('select public.push_token_register(%L, %L, %L, null)', tok_a, 'sandbox', 'com.example.app'),
+      'set local role postgres',
+      format('select 1 where (select count(*) from public.push_token where token = %L) = 1 and not exists (select 1 from public.push_token where user_id = %L and token = %L)', tok_a, u_a, tok_a)
+    ]);
+  perform pg_temp.t562_run('a person keeps at most 10 live installs: the one seen longest ago stops', 'rows=1', u_c,
+    array[
+      'set local role postgres',
+      format('insert into public.push_token (user_id, token, environment, bundle_id, last_seen_at) select %L, lpad(to_hex(g), 64, %L), %L, %L, now() - make_interval(days => g) from generate_series(1, 10) g', u_c, '0', 'sandbox', 'com.example.app'),
+      'set local role authenticated',
+      format('select public.push_token_register(%L, %L, %L, null)', tok_b, 'sandbox', 'com.example.app'),
+      'set local role postgres',
+      format('select 1 where (select count(*) from public.push_token where user_id = %L and disabled_at is null) = 10 and (select disabled_reason from public.push_token where token = lpad(to_hex(10), 64, %L)) = %L', u_c, '0', 'Superseded')
+    ]);
+  perform pg_temp.t562_run('the session gone: the install is forgotten by its token alone (anon)', 'rows=1', null,
+    array[
+      'set local role postgres',
+      format('insert into public.push_token (user_id, token, environment, bundle_id) values (%L, %L, %L, %L)', u_a, tok_a, 'sandbox', 'com.example.app'),
+      'set local role anon',
+      format('select 1 where public.push_token_forget(%L)', tok_a),
+      'set local role postgres',
+      format('select 1 where not exists (select 1 from public.push_token where token = %L)', tok_a)
+    ]);
+  perform pg_temp.t562_run('forgetting something that is not a token does nothing and reads nothing back', 'rows=1', null,
+    array[format('select 1 where not public.push_token_forget(%L)', 'nope')]);
 
   -- ── The badge ─────────────────────────────────────────────────────────────
   -- Cy: Ana's root and Ben's agent's reply in #general (thread replies are the thread's; the deleted one is gone).

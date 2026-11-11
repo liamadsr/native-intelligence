@@ -32,7 +32,8 @@ describe('migrations 562-563', () => {
       // One transaction whatever applies it (production: plain psql < file).
       expect(body, name).toMatch(/^\s*begin;\s*SET LOCAL lock_timeout = '5s';/)
       expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';\n\ncommit;"), name).toBe(true)
-      expect(body, name).not.toMatch(/to anon/)
+      // Nothing to anon, but the one function made for a phone whose session has ended (its header says why).
+      expect(body.replace('grant execute on function public.push_token_forget(text) to anon, authenticated;', ''), name).not.toMatch(/to anon/)
       expect(body, name).not.toMatch(/create (unique )?index (?!if not exists)/)
       expect(body, name).not.toMatch(/create table (?!if not exists)/)
     }
@@ -62,6 +63,22 @@ describe('migrations 562-563', () => {
       expect(flat(sql), name).toContain(`revoke all on function public.${name}(${args}) from public, anon;`)
       expect(flat(sql), name).toContain(`grant execute on function public.${name}(${args}) to ${to};`)
     }
+  })
+
+  it('forget takes an install off by its token alone (the session is gone), and reads nothing back', () => {
+    const forget = flat(fn(TOKENS, 'push_token_forget'))
+    expect(forget).toContain('security definer')
+    expect(forget).toContain('set search_path = public, pg_temp')
+    expect(forget).toContain('returns boolean')
+    expect(forget).toContain('delete from public.push_token where token = tok;')
+    expect(flat(TOKENS)).toContain('revoke all on function public.push_token_forget(text) from public;')
+    expect(flat(TOKENS)).toContain('grant execute on function public.push_token_forget(text) to anon, authenticated;')
+  })
+
+  it('register keeps at most 10 live installs a person, the ones seen longest ago disabled', () => {
+    const register = flat(fn(TOKENS, 'push_token_register'))
+    expect(register).toContain("set disabled_at = now(), disabled_reason = 'Superseded'")
+    expect(register).toContain('order by t.last_seen_at desc, t.created_at desc limit 10')
   })
 
   it('register and remove act as the caller, on the caller’s own rows', () => {
