@@ -34,8 +34,11 @@ Read this before reporting anything as live or touching production. The code gui
   and commit `deploy/app/cron/crontab` with it (the image build and CI fail when the two
   disagree).
 - **Still at the earlier host, on purpose:** Slack's connector, the cloud browser's
-  sandboxes, the AI Gateway, and DNS. The coding agent's GitHub credentials also come
-  from a broker that exists only there, so its coding runs do not work on the server
-  yet ("The coding agent" in `deploy/README.md`).
+  sandboxes and the coding agent's, the AI Gateway, and DNS. The coding agent's sandbox
+  runs on that host's sandbox service when `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and
+  `SANDBOX_PROJECT_ID` are set at the image build and in the container; its GitHub
+  credentials come from that service's firewall rules. Written and tested without live
+  calls, NOT yet proven by a live coding run from the server ("The coding agent" in
+  `deploy/README.md` lists the checks to do first).
 - No server address, ssh user or ids in this repository: it is public. Use the
   placeholders `deploy/README.md` uses (`<server>`, `<user>@<server>`).

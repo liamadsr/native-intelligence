@@ -114,6 +114,18 @@ services:
         EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
         # The commit, for the build id (Dockerfile). deploy.sh sets it.
         NI_BUILD_ID: ${NI_APP_COMMIT:-}
+        # Which sandbox the coding agent is built with: "vercel" (the hosted sandbox
+        # service) when .env has its access token, else empty. Only the word, never
+        # the token (Dockerfile: it rebuilds that step when this changes).
+        NI_CODING_AGENT_SANDBOX: ${SANDBOX_ACCESS_TOKEN:+vercel}
+      # The hosted sandbox service's credentials, for the coding agent's build only
+      # (its snapshot is prepared then). Secrets, not build arguments: BuildKit mounts
+      # them for one step and writes them into no layer. deploy.sh exports them from
+      # .env before it builds; see the `secrets` at the end of this file.
+      secrets:
+        - SANDBOX_ACCESS_TOKEN
+        - SANDBOX_TEAM_ID
+        - SANDBOX_PROJECT_ID
     deploy:
       resources:
         limits:
@@ -239,6 +251,16 @@ volumes:
   live-agent-sandbox: { name: ni-app-live-agent-sandbox }
   web-research-workflow: { name: ni-app-web-research-workflow }
   web-research-sandbox: { name: ni-app-web-research-sandbox }
+
+# Build secrets only (web's `build.secrets`): no container is given these as files.
+# Each is read from the environment Compose runs in, which deploy.sh fills from .env.
+secrets:
+  SANDBOX_ACCESS_TOKEN:
+    environment: SANDBOX_ACCESS_TOKEN
+  SANDBOX_TEAM_ID:
+    environment: SANDBOX_TEAM_ID
+  SANDBOX_PROJECT_ID:
+    environment: SANDBOX_PROJECT_ID
 
 networks:
   # The stack's own network: the app's containers and the proxy. It has a way out

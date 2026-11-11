@@ -127,6 +127,11 @@ async function loadSandboxModule() {
 
 beforeEach(() => {
   pushUrlNow = PUSH_URL
+  // No hosted-sandbox settings unless a test sets them (they choose the provider
+  // off Vercel; a developer's shell must not change what these tests see).
+  vi.stubEnv('SANDBOX_ACCESS_TOKEN', '')
+  vi.stubEnv('SANDBOX_TEAM_ID', '')
+  vi.stubEnv('SANDBOX_PROJECT_ID', '')
   vi.resetModules()
   fetchEveSpec.mockReset()
   postEvent.mockClear()
@@ -782,6 +787,178 @@ describe('coding-agent sandbox selector — off Vercel', () => {
 
     expect(beats().some((b) => b.includes('no network-policy support'))).toBe(true)
     expect(calls.some((c) => c.kind === 'run')).toBe(true)
+  })
+
+  it('that beat says what to set outside eve dev, and says "dev only" only under eve dev', async () => {
+    for (const dev of [false, true]) {
+      vi.resetModules()
+      postEvent.mockClear()
+      vi.stubEnv('EVE_DEV', dev ? '1' : '')
+      const calls: Call[] = []
+      mockDefault(calls, 'absent')
+      fetchEveSpec.mockResolvedValue({ ...SPEC, networkAccess: 'trusted' })
+      const mod = await loadSandboxModule()
+
+      await mod.default(selectorCtx as never)
+
+      const beat = beats().find((b) => b.includes('egress is unrestricted'))!
+      expect(beat).toBeDefined()
+      if (dev) {
+        expect(beat).toContain('(dev only)')
+      } else {
+        expect(beat).not.toContain('dev only')
+        for (const name of mod.SANDBOX_CREDENTIAL_ENVS) expect(beat).toContain(name)
+      }
+    }
+  })
+
+  it('a narrowed run\'s refusal names the settings that would let it run', async () => {
+    const calls: Call[] = []
+    mockDefault(calls, 'absent')
+    fetchEveSpec.mockResolvedValue(SPEC)
+    const mod = await loadSandboxModule()
+
+    const err = await Promise.resolve(mod.default(selectorCtx as never)).then(() => null, (e: unknown) => e as Error)
+    expect(err!.message).toMatch(/restricted run cannot proceed off Vercel/)
+    expect(err!.message).toContain('SANDBOX_ACCESS_TOKEN')
+  })
+})
+
+describe('coding-agent sandbox selector — off Vercel WITH the hosted sandbox\'s settings (the app\'s own server)', () => {
+  const ACCESS = 'madeup_access_token_0123456789'
+  const CREDS = { token: ACCESS, teamId: 'team_madeup0001', projectId: 'prj_madeup0001' }
+
+  beforeEach(() => {
+    vi.stubEnv('VERCEL', '')
+    vi.stubEnv('EVE_DEV', '')
+    vi.stubEnv('EVE_EVALUATION', '')
+    vi.stubEnv('SANDBOX_ACCESS_TOKEN', ` ${ACCESS}\n`) // trimmed, as the cloud browser trims
+    vi.stubEnv('SANDBOX_TEAM_ID', CREDS.teamId)
+    vi.stubEnv('SANDBOX_PROJECT_ID', CREDS.projectId)
+    // eve's local provider must never be built here: this mode is the hosted one.
+    vi.doMock('eve/sandbox', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('eve/sandbox')>()
+      return {
+        ...actual,
+        DefaultSandbox: {
+          name: 'default',
+          environment: () => {
+            throw new Error('DefaultSandbox must not be constructed when the hosted sandbox is configured')
+          },
+        },
+      }
+    })
+  })
+
+  function mockHosted(calls: Call[], fake?: FakeOpts) {
+    const envOptions: unknown[] = []
+    const env = {
+      provider: 'vercel',
+      open: vi.fn(async (o: unknown) => {
+        calls.push({ kind: 'open', arg: o })
+        return fakeSandbox(calls, fake)
+      }),
+    }
+    vi.doMock('eve/sandbox/vercel', () => ({
+      VercelSandbox: {
+        environment: (o: unknown) => {
+          envOptions.push(o)
+          return env
+        },
+      },
+    }))
+    return { env, envOptions }
+  }
+
+  const leaksAccess = (text: string) => text.includes(ACCESS)
+
+  it('exports a dedicated Vercel environment with the deny-all baseline AND the three credentials (on the environment, as eve expects)', async () => {
+    const { env, envOptions } = mockHosted([])
+    const mod = await loadSandboxModule()
+    expect(mod.environment).toBe(env)
+    expect(envOptions).toEqual([{ networkPolicy: 'deny-all', ...CREDS }])
+  })
+
+  it('every run tier OPENS with its policy and the brokered GitHub + push credentials, exactly as on Vercel; no setter, no credential in any command', async () => {
+    for (const networkAccess of ['restricted', 'isolated', 'trusted', 'something-new'] as const) {
+      vi.resetModules()
+      postEvent.mockClear()
+      const calls: Call[] = []
+      mockHosted(calls)
+      fetchEveSpec.mockResolvedValue({ ...SPEC, networkAccess })
+      const mod = await loadSandboxModule()
+
+      await mod.default(selectorCtx as never)
+
+      expect(calls[0]).toEqual({
+        kind: 'open',
+        arg: {
+          networkPolicy: mod.buildNetworkPolicy(networkAccess as never, {
+            repoFullName: 'acme/app',
+            pushUrl: PUSH_URL,
+            broker: { githubToken: TOKEN, pushToken: 'push.tokenexample' },
+          }),
+        },
+      })
+      const opened = calls[0].arg as { networkPolicy: { allow: Record<string, unknown> } }
+      expect(opened.networkPolicy.allow['github.com']).toEqual(mod.githubReadRules(TOKEN, 'acme/app'))
+      if (networkAccess !== 'trusted') expect(Object.keys(opened.networkPolicy.allow)).not.toContain('*')
+      expect(calls.some((c) => c.kind === 'setNetworkPolicy')).toBe(false)
+      // The brokered path: no GitHub or push credential, no extraheader, in any command or env.
+      const commands = runCommands(calls)
+      expect(commands[0]).toContain(`'https://github.com/acme/app.git'`)
+      expect(commands.some(leaksToken) || runEnvs(calls).some(leaksToken)).toBe(false)
+      expect(commands.some(leaksPushToken) || runEnvs(calls).some(leaksPushToken)).toBe(false)
+      expect(commands.some((c) => c.includes('extraheader'))).toBe(false)
+      expect(beats().some((b) => b.startsWith('Sandbox ready'))).toBe(true)
+      // The access token logs the app in to the service: it is in no policy,
+      // command, env, file or beat.
+      expect(calls.some((c) => leaksAccess(JSON.stringify(c)))).toBe(false)
+      expect(beats().some(leaksAccess)).toBe(false)
+    }
+  })
+
+  it('no spec: opens deny-all on the hosted sandbox and runs nothing', async () => {
+    const calls: Call[] = []
+    mockHosted(calls)
+    fetchEveSpec.mockResolvedValue(null)
+    const mod = await loadSandboxModule()
+
+    await mod.default(selectorCtx as never)
+
+    expect(calls).toEqual([{ kind: 'open', arg: { networkPolicy: 'deny-all' } }])
+  })
+
+  it('a partial set of the three refuses to load (at eve build and at agent start), naming what is missing and never a value', async () => {
+    vi.stubEnv('SANDBOX_PROJECT_ID', '  ')
+    mockHosted([])
+    const err = await loadSandboxModule().then(() => null, (e: unknown) => e as Error)
+    expect(err).toBeInstanceOf(Error)
+    expect(err!.message).toMatch(/SANDBOX_PROJECT_ID not set \(all three of SANDBOX_ACCESS_TOKEN, SANDBOX_TEAM_ID, SANDBOX_PROJECT_ID, or none\)/)
+    expect(leaksAccess(err!.message)).toBe(false)
+  })
+
+  it('on Vercel the three settings are ignored: the deployment\'s own credentials, as before', async () => {
+    vi.stubEnv('VERCEL', '1')
+    const { envOptions } = mockHosted([])
+    await loadSandboxModule()
+    expect(envOptions).toEqual([{ networkPolicy: 'deny-all' }])
+  })
+})
+
+describe('hostedSandboxCredentials', () => {
+  it('all three → the trimmed set; none (or blank) → null; some → throws', async () => {
+    vi.stubEnv('VERCEL', '1')
+    mockVercelNoop()
+    const mod = await loadSandboxModule()
+    expect(mod.hostedSandboxCredentials({ SANDBOX_ACCESS_TOKEN: ' t ', SANDBOX_TEAM_ID: 'team_x', SANDBOX_PROJECT_ID: 'prj_x' })).toEqual({
+      token: 't',
+      teamId: 'team_x',
+      projectId: 'prj_x',
+    })
+    expect(mod.hostedSandboxCredentials({})).toBeNull()
+    expect(mod.hostedSandboxCredentials({ SANDBOX_ACCESS_TOKEN: ' ', SANDBOX_TEAM_ID: '', SANDBOX_PROJECT_ID: '\n' })).toBeNull()
+    expect(() => mod.hostedSandboxCredentials({ SANDBOX_ACCESS_TOKEN: 't' })).toThrow(/SANDBOX_TEAM_ID, SANDBOX_PROJECT_ID not set/)
   })
 })
 

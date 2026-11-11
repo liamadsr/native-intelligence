@@ -169,6 +169,17 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   the team named.
 - `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
   empty is `production`.
+- `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID`, `SANDBOX_PROJECT_ID`: an access token
+  of that account scoped to the team, and the ids of the team and project the
+  sandboxes belong to. All three or none. They serve two things: the cloud
+  browser's sandboxes (`web/src/lib/cloud-browser/config.ts`), and the coding
+  agent's, which run on the same sandbox service when the three are set
+  (`web/agents/coding-agent/sandbox.ts`): there each run's network policy is set
+  when its sandbox is created, and its GitHub credentials are added by the
+  service's firewall, never put in the sandbox. Without them the coding agent's
+  sandbox is `just-bash`, where no coding run can work. The coding agent's
+  snapshot is prepared when the image is built, so the build needs them too
+  ("What is fixed when the image is built"); after changing one, build again.
 
 `check-settings.sh` makes the app's own requests for a Slack login, in order, and
 says at which step it stopped: the project token, made exactly as the app makes it
@@ -283,6 +294,24 @@ test. On the server they come from `.env`, and changing one needs a new build.
   `/eve/<name>/v1/*` to. `entrypoint.sh` refuses to start the web role under a
   different value.
 
+One more choice is made at the build, and it takes secrets: where the coding
+agent's sandbox runs. `eve build` prepares each agent's sandbox, and for the coding
+agent with `SANDBOX_ACCESS_TOKEN`, `SANDBOX_TEAM_ID` and `SANDBOX_PROJECT_ID` that
+is a snapshot on the hosted sandbox service; without them, a `just-bash` template
+like every other agent's. The three reach the build only as BuildKit secrets:
+`deploy.sh` exports them from `.env`, `compose.yaml` lists them as web's build
+`secrets`, and the `Dockerfile` mounts them, as environment variables, into the one
+step that runs `build-agents.sh`, which gives them to the coding agent's build
+alone. A secret mount is not part of any layer, and `build-agents.sh` fails the
+build if the access token turns up in what the build wrote. The build argument
+`NI_CODING_AGENT_SANDBOX` carries only the word `vercel` (or nothing): it makes a
+change of choice rebuild that step, which BuildKit's cache would otherwise skip
+(secrets are not part of its key). The container test and CI build without
+secrets, so their coding agent is `just-bash`. When the coding agent's container
+starts, `entrypoint.sh` (`build-agents.sh --check-sandbox`) refuses to run it if
+the settings in its environment call for the other sandbox than the one it was
+built with: change the three, then build again, never only restart.
+
 The agents read their environment when they start.
 
 ## The proxy
@@ -315,7 +344,8 @@ the move script and the backups find them):
 
 - `agents/<name>/.eve/.workflow-data`: its workflow runs.
 - `agents/<name>/.eve/sandbox-cache/just-bash/sessions`: its sandbox's files, per
-  session.
+  session. (A coding agent built for the hosted sandbox service keeps its sandboxes
+  there, not here; its volume stays empty.)
 
 The rest of `agents/<name>/.eve` is written by `eve build` (the sandbox template)
 and has to come from the image, so the volumes are not on `.eve` itself: a volume
