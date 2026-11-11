@@ -19,9 +19,9 @@ Read this before reporting anything as live or touching production. The code gui
   `main` is rolled out within minutes, EXCEPT when it brings a migration, a new setting
   in `deploy/app/.env.example`, or a change to files other stacks use (Supabase's
   functions and mail templates, `deploy/edge`, `deploy/supabase`, `deploy/inngest`,
-  `deploy/backup`), or to the server's own deploy tooling (everything in `deploy/app`
-  except the `Dockerfile`, `cron/`, `smoke/`, `tests/`, the two `.mjs` files and the
-  guide): those hold it until a person has taken care of them. A failed roll-out or a
+  `deploy/backup`), or to the server's own deploy tooling (everything in `deploy/app`,
+  the `Dockerfile` included, except `cron/`, `smoke/`, `tests/`, the two `.mjs` files
+  and the guide): those hold it until a person has taken care of them. A failed roll-out or a
   rollback by hand holds everything until the owner clears it. With it on, a merge to
   `main` runs its code on the production server,
   inside the app's containers, without a person in between. So "merged" still does not

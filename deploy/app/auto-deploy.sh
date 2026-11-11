@@ -34,23 +34,26 @@
 #     which take a change at their next restart or build, a reboot included); and
 #     this server's own deploy tooling, which runs as root or sets what the
 #     containers may do: EVERYTHING in deploy/app (the scripts, compose.yaml and
-#     any other file Compose would read beside it, Dockerfile.dockerignore, which
-#     decides what a build may take from the checkout, the systemd units, proxy/,
-#     and any file or folder that is new there), except what only ever runs
-#     inside the containers, with the rights compose.yaml gives them (Dockerfile,
-#     cron/, smoke/, healthcheck.mjs, eve-origin.mjs), tests/, README.md, and
-#     .env.example, which has its own check (next);
+#     any other file Compose would read beside it, the Dockerfile, whose first
+#     line names the program that drives the build, and Dockerfile.dockerignore:
+#     the two decide what a build may take from the checkout, where the other
+#     stacks' settings lie; the systemd units, proxy/, and any file or folder
+#     that is new there), except what only ever runs inside the containers, with
+#     the rights compose.yaml gives them (cron/, smoke/, healthcheck.mjs,
+#     eve-origin.mjs), tests/, README.md, and .env.example, which has its own
+#     check (next);
 #   - the new deploy/app/.env.example is gone or is not a plain file, has a line
 #     that is neither NAME=value nor a comment, or names a setting that .env has
 #     no line for (names only: no value is read out or shown);
 #   - the commit's build failed before (that commit only, until main moves on or
 #     `clear-failure`); or, holding everything until `clear-failure`: a roll-out
 #     was left half done, the checkout moved under the run, or what serves went
-#     anywhere but forward. That last one is read from the images, so it is found
-#     whether or not a run saw it happen, and for what was done while this was
-#     off: ni-app:previous (what served before the last roll-out; deploy.sh
-#     --rollback swaps the two) must be what serves or an earlier commit, and what
-#     serves must be what the last run saw or a later commit.
+#     anywhere but forward. That last one needs no run to have seen it happen,
+#     and holds for what was done while this was off: deploy.sh --rollback leaves
+#     a mark (rolled-back, below); ni-app:previous (what served before the last
+#     roll-out, which --rollback swaps with what serves) must be what serves or
+#     an earlier commit; and what serves must be what the last run saw or a later
+#     commit.
 # Any error while checking is a hold, never a pass.
 #
 # Else it moves the checkout to exactly the commit it checked (git merge
@@ -74,6 +77,8 @@
 #                   or halt (everything holds)
 #   seen            the commit that served at the last run, and the one ni-app:previous
 #                   carried then (or "none", "unreadable")
+#   rolled-back     left by deploy.sh --rollback (when it was run); the next run
+#                   takes it, and holds everything
 #   deployed        the last commit this tool rolled out, and when
 #   acknowledged    the files acknowledged, each by its mode and content (root only)
 #   held            every file the current hold names
@@ -103,9 +108,9 @@ unit=ni-auto-deploy
 # In deploy/app everything is held but the paths named here, so that a file nobody
 # thought of (compose.override.yaml, a folder Python would import from) is held too.
 watched=(web/supabase/migrations web/supabase/functions web/supabase/templates deploy/edge deploy/supabase deploy/inngest deploy/backup
-	deploy/app ':(exclude)deploy/app/Dockerfile' ':(exclude)deploy/app/cron' ':(exclude)deploy/app/smoke'
-	':(exclude)deploy/app/healthcheck.mjs' ':(exclude)deploy/app/eve-origin.mjs' ':(exclude)deploy/app/tests'
-	':(exclude)deploy/app/README.md' ':(exclude)deploy/app/.env.example')
+	deploy/app ':(exclude)deploy/app/cron' ':(exclude)deploy/app/smoke' ':(exclude)deploy/app/healthcheck.mjs'
+	':(exclude)deploy/app/eve-origin.mjs' ':(exclude)deploy/app/tests' ':(exclude)deploy/app/README.md'
+	':(exclude)deploy/app/.env.example')
 dry=false
 owner=""
 tmp=""
@@ -249,21 +254,22 @@ serving_commit() {
 
 # The commit ni-app:previous was built from: what served before the last roll-out
 # (deploy.sh keeps it for --rollback, which swaps it with what serves). Prints
-# "none" when there is no such image; or, when its commit cannot be told, why not
-# (and false).
+# "none" when there is no such image. Otherwise prints why not, and returns 2 when
+# docker did not answer (the next run may fare better) or 1 when the image is
+# there and carries no commit this checkout knows (that will not change by itself).
 previous_commit() {
 	local id label
 	if ! id="$("$docker" image ls -q ni-app:previous 2>/dev/null)"; then
 		echo "docker could not say whether there is an image ni-app:previous"
-		return 1
+		return 2
 	fi
 	if [ -z "$id" ]; then
 		echo none
 		return 0
 	fi
 	if ! label="$("$docker" image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ni-app:previous 2>/dev/null)"; then
-		echo "ni-app:previous cannot be inspected"
-		return 1
+		echo "docker could not inspect ni-app:previous"
+		return 2
 	fi
 	case "$label" in "" | *[!0-9a-f]*)
 		echo "ni-app:previous carries no commit ('$label')"
@@ -499,19 +505,30 @@ cmd_run() {
 	# Did what serves go anywhere but forward? Someone went back (deploy.sh
 	# --rollback) or did something by hand this tool does not understand: everything
 	# holds until a person clears it, and no acknowledgement made before it counts any
-	# more. Two things say so, and each is judged once, when it changes (the record
-	# of the failure, not this, is what keeps holding until clear-failure):
+	# more. Three things say so, and each is judged once (the record of the failure,
+	# not this, is what keeps holding until clear-failure):
+	#   - the mark deploy.sh --rollback leaves, whatever was rolled out after it;
 	#   - the images: ni-app:previous is what served before the last roll-out, so it
 	#     is what serves or an earlier commit, unless the last roll-out went back.
-	#     This needs no run to have seen it happen, and holds for what was done while
-	#     this was off;
+	#     Like the mark, this needs no run to have seen it happen, and holds for what
+	#     was done while this was off;
 	#   - what the last run saw serving, which what serves now must be or come after.
 	if previous="$(previous_commit)"; then :; else
+		case $? in
+		2)
+			reason="$previous"
+			hold "cannot tell what served before the last roll-out: $reason" \
+				"Usually docker being busy, and the next run tries again. If it stays: sudo docker image inspect ni-app:previous."
+			;;
+		esac
 		previous_problem="$previous"
 		previous=unreadable
 	fi
 	reason=""
-	if [ "$serving $previous" != "$seen $seen_previous" ]; then
+	if [ -e "$state/rolled-back" ]; then
+		halted="$serving"
+		reason="deploy.sh --rollback was run by hand ($(head -c 40 "$state/rolled-back" | tr -cd '0-9TZ:-'))"
+	elif [ "$serving $previous" != "$seen $seen_previous" ]; then
 		if [ -n "$seen" ] && [ "$seen" != "$serving" ] && ! git_ merge-base --is-ancestor "$seen" "$serving" 2>/dev/null; then
 			halted="$seen"
 			reason="what serves went from $(short "$seen") to $(short "$serving"), which is not a later commit: a rollback, or something done by hand"
@@ -526,7 +543,7 @@ cmd_run() {
 	if [ -n "$reason" ]; then
 		if $dry; then echo "Would hold everything: $reason."; exit 0; fi
 		write_failed "$halted" halt "$reason"
-		rm -f "$state/acknowledged"
+		rm -f "$state/acknowledged" "$state/rolled-back"
 		failed_commit="$halted" failed_kind=halt failed_reason="$reason"
 	fi
 	if ! $dry; then

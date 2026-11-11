@@ -234,6 +234,12 @@ rollback)
 	docker tag ni-app:previous ni-app:live
 	docker tag ni-app:rollback-swap ni-app:previous
 	docker rmi ni-app:rollback-swap >/dev/null
+	# A mark for the automatic deploys (auto-deploy.sh), where they are installed:
+	# their next run holds everything until a person has cleared it, whatever is
+	# rolled out by hand after this. Never a reason for the rollback itself to stop.
+	if [ -d /var/lib/ni-auto-deploy ]; then
+		date -u +%Y-%m-%dT%H:%M:%SZ >/var/lib/ni-auto-deploy/rolled-back 2>/dev/null || true
+	fi
 	rollout
 	;;
 esac

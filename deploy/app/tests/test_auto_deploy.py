@@ -58,7 +58,7 @@ previous="$(cat "$FAKE/previous" 2>/dev/null || true)"
 version="$(cat "$FAKE/version" 2>/dev/null || echo "$running")"
 case "$*" in
 *"image ls -q ni-app:previous"*) [ ! -e "$FAKE/docker-ls-fails" ] || exit 1; [ -z "$previous" ] || echo 0123456789ab ;;
-*"image inspect"*ni-app:previous*) [ -n "$previous" ] || exit 1; if [ "$previous" = no-label ]; then echo; else echo "${previous:0:12}"; fi ;;
+*"image inspect"*ni-app:previous*) [ -n "$previous" ] && [ ! -e "$FAKE/docker-inspect-fails" ] || exit 1; if [ "$previous" = no-label ]; then echo; else echo "${previous:0:12}"; fi ;;
 *"image inspect"*ni-app:running*) [ -n "$running" ] || exit 1; echo "${running:0:12}" ;;
 *"image inspect"*ni-app:live*) built="$(cat "$FAKE/built" 2>/dev/null || true)"; echo "${built:0:12}" ;;
 *"exec ni-app-proxy wget"*/api/version*) printf '{"buildId":"%s"}\\n' "${version:0:8}" ;;
@@ -444,8 +444,9 @@ class AutoDeploy(unittest.TestCase):
                      # itself, the one that says what a build may take from the checkout, a
                      # folder Python would import from, and anything else that is new there.
                      "deploy/app/compose.override.yaml", "deploy/app/docker-compose.yml",
-                     "deploy/app/Dockerfile.dockerignore", "deploy/app/json/__init__.py",
-                     "deploy/app/new-folder/run"):
+                     # The Dockerfile's first line names the program that drives the build.
+                     "deploy/app/Dockerfile", "deploy/app/Dockerfile.dockerignore",
+                     "deploy/app/json/__init__.py", "deploy/app/new-folder/run"):
             new = self.commit({name: "changed\n"})
             self.assertHeld(self.run_tool("run"), name, "deploy tooling")
             self.run_ok("acknowledge", new)
@@ -453,7 +454,7 @@ class AutoDeploy(unittest.TestCase):
             self.assertEqual(self.deploy_calls()[-1], new)
         # What only runs inside the containers is the app's, like web/: not held. Nor
         # are the tests and the guide.
-        new = self.commit({"deploy/app/Dockerfile": "FROM x\n", "deploy/app/cron/crontab": "* * * * * x\n",
+        new = self.commit({"deploy/app/cron/crontab": "* * * * * x\n", "deploy/app/cron/run.sh": "x\n",
                            "deploy/app/smoke/compose.yaml": "x\n", "deploy/app/healthcheck.mjs": "x\n",
                            "deploy/app/eve-origin.mjs": "x\n", "deploy/app/tests/test_x.py": "x\n",
                            "deploy/app/README.md": "x\n"})
@@ -831,13 +832,13 @@ class AutoDeploy(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.state, "failed")))
 
     def test_an_image_before_that_cannot_be_read_holds_until_cleared(self):
-        for name, text in (("previous", "no-label\n"), ("previous", "0123456789abcdef\n"), ("docker-ls-fails", "")):
-            write(os.path.join(self.fake, name), text)
+        for text in ("no-label\n", "0123456789abcdef\n"):  # no commit on it; one the checkout lacks
+            write(os.path.join(self.fake, "previous"), text)
             for stale in ("seen", "failed"):
                 if os.path.exists(os.path.join(self.state, stale)):
                     os.remove(os.path.join(self.state, stale))
             self.switch_on()
-            self.commit({"web/app.txt": "changed by %s %s" % (name, text)})
+            self.commit({"web/app.txt": "changed, with %s" % text})
             self.run_ok("run")
             self.assertTrue(self.current().startswith("failed: "), self.current())
             self.assertIn("a rollback cannot be ruled out", self.current())
@@ -845,6 +846,44 @@ class AutoDeploy(unittest.TestCase):
         self.run_ok("clear-failure")
         self.run_ok("run")
         self.assertEqual(len(self.deploy_calls()), 1)
+
+    def test_docker_not_answering_holds_and_the_next_run_tries_again(self):
+        self.switch_on()
+        new = self.commit({"web/app.txt": "two\n"})
+        for name in ("docker-ls-fails", "docker-inspect-fails"):
+            write(os.path.join(self.fake, "previous"), self.first + "\n")
+            self.flag(name)
+            self.assertHeld(self.run_tool("run"), "cannot tell what served before the last roll-out")
+            self.assertEqual(self.deploy_calls(), [])
+            self.assertFalse(os.path.exists(os.path.join(self.state, "failed")))  # nothing to clear by hand
+            self.flag(name, on=False)
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [new])
+
+    def test_the_mark_of_a_rollback_holds_whatever_was_rolled_out_after_it(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.rollback_by_hand()
+        mark = os.path.join(self.state, "rolled-back")
+        write(mark, "2026-01-01T00:00:00Z\n")  # what deploy.sh --rollback leaves
+        # Then d is built and rolled out again by hand: the images no longer show
+        # that anything went back.
+        write(os.path.join(self.fake, "previous"), d + "\n")
+        self.assertIn("Would hold everything: deploy.sh --rollback was run", self.run_ok("run", "--dry-run").stdout)
+        self.assertTrue(os.path.exists(mark))
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("failed: "), self.current())
+        self.assertIn("deploy.sh --rollback was run by hand (2026-01-01T00:00:00Z)", self.current())
+        self.assertFalse(os.path.exists(mark))  # taken once; the record of the failure holds from here
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [d])
+        self.run_ok("clear-failure")
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [d, n])
 
     def test_a_rollback_drops_the_acknowledgements_at_once(self):
         self.switch_on()
