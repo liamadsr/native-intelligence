@@ -52,6 +52,7 @@ import { AgentWorkProvider } from '@/components/work/agent-work-provider'
 import { AgentInfraHost } from '@/components/work/agent-infra-host'
 import { EasterEggBird } from '@/components/birds/easter-egg-bird'
 import { DashboardSuggestionsProvider } from '@/components/suggestions/dashboard-suggestions-provider'
+import { TeamCallsProvider } from '@/components/team-calls/team-calls-provider'
 import { OpenTeammateDevBridge } from '@/hooks/use-open-teammate'
 import { TeammateChatTabBridge } from '@/components/bots/teammate-chat-tab-bridge'
 import { VoiceNudgeCard } from '@/components/voice-enrollment/voice-nudge-card'
@@ -505,6 +506,9 @@ export function DashboardShell({
       {/* One suggestions store for every surface (suggestions-everywhere):
           chat answers, documents and bot pages show the same rows live. */}
       <DashboardSuggestionsProvider>
+      {/* Calls between people (team chat): a ring reaches the person on any
+          page, and a call goes on while they move around (team-calls-provider). */}
+      <TeamCallsProvider>
         {/* Development only: open a bot from the console,
             window.__niOpenTeammate([teammateId, …]) (use-open-teammate.ts). */}
         {process.env.NODE_ENV !== 'production' && <OpenTeammateDevBridge />}
@@ -648,6 +652,7 @@ export function DashboardShell({
         />,
         document.body,
       )}
+      </TeamCallsProvider>
       </DashboardSuggestionsProvider>
       </AgentWorkProvider>
       </SettingsOverlayProvider>
