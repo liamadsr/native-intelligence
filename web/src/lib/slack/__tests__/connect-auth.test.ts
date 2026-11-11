@@ -99,6 +99,51 @@ describe('connectOptions', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('returns the last project token when making a new one fails, and tries again next time', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const first = jwt(HOUR, 'first')
+    const second = jwt(2 * HOUR, 'second')
+    fetchMock
+      .mockResolvedValueOnce(answer(first))
+      .mockResolvedValueOnce(new Response('', { status: 503 }))
+      .mockResolvedValueOnce(answer(second))
+    await connectOptions()
+    vi.setSystemTime(NOW + 2 * HOUR) // past its expiry
+    await expect(connectOptions()).resolves.toEqual({ vercelToken: first })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(first)
+    await expect(connectOptions()).resolves.toEqual({ vercelToken: second })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('throws when making one fails and there is no earlier one for the same settings', async () => {
+    fetchMock.mockResolvedValueOnce(answer(jwt(HOUR))).mockResolvedValueOnce(new Response('', { status: 403 }))
+    await connectOptions()
+    vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0002')
+    await expect(connectOptions()).rejects.toThrow('answered 403')
+  })
+
+  it('does not reuse a token that was dropped', async () => {
+    fetchMock.mockResolvedValueOnce(answer(jwt(HOUR))).mockResolvedValueOnce(new Response('', { status: 503 }))
+    await connectOptions()
+    forgetConnectProjectToken()
+    await expect(connectOptions()).rejects.toThrow('answered 503')
+  })
+
+  it('shares one failing request between concurrent callers, all served the last token', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const first = jwt(HOUR, 'first')
+    fetchMock.mockResolvedValueOnce(answer(first))
+    await connectOptions()
+    vi.setSystemTime(NOW + 2 * HOUR)
+    let release!: (r: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (release = resolve)))
+    const calls = Promise.all([connectOptions(), connectOptions()])
+    await Promise.resolve()
+    release(new Response('', { status: 500 }))
+    expect(await calls).toEqual([{ vercelToken: first }, { vercelToken: first }])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('reports a request that could not be sent', async () => {
     fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'))
     await expect(connectOptions()).rejects.toThrow('could not be sent (TypeError)')

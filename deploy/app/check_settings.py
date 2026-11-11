@@ -79,7 +79,7 @@ MAY_BE_EMPTY = {
     "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
     "SLACK_SIGNING_SECRET": "empty: a button click Slack sends straight here, not through the connector, is refused",
     "CONNECT_ENVIRONMENT": "empty: production",
-    "CONNECT_TEAM_ID": "empty: the project token is asked for without a team (the check uses SANDBOX_TEAM_ID)",
+    "CONNECT_TEAM_ID": "empty: the project token is asked for without a team (measured working both ways)",
     "GATEWAY_USAGE_REPORTING": "empty: the admin's AI usage page opens on its log view",
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
@@ -241,9 +241,10 @@ def db(sql):
     return [line.split("\t") for line in r.stdout.split("\n") if line]
 
 
-def http(url, headers=None, auth=None, post=None):
-    """(status, parsed JSON or None). GETs, or with `post` (a JSON-able value) a
-    POST, used only to make a short-lived token; never logs what was sent."""
+def http(url, headers=None, auth=None, post=None, method=None):
+    """(status, parsed JSON or None). GETs, or POSTs (with `post`, a JSON-able body,
+    or method="POST" for none) used only to make a short-lived token; never logs
+    what was sent."""
     h = {"User-Agent": "ni-check-settings", "Accept": "application/json"}
     h.update(headers or {})
     if auth:
@@ -253,7 +254,7 @@ def http(url, headers=None, auth=None, post=None):
         data = json.dumps(post).encode()
         h["Content-Type"] = "application/json"
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h, method="POST" if post is not None else "GET"), timeout=20) as r:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h, method=method or ("POST" if post is not None else "GET")), timeout=20) as r:
             body = r.read()
             status = r.status
     except urllib.error.HTTPError as e:
@@ -419,7 +420,7 @@ def check_sandbox(env, _opts):
         return True, "lists the project's sandboxes"
     if status in (401, 403):
         return False, "the sandbox service refused the token for this team and project (%d)" % status
-    if status == 0 or status >= 500:
+    if trouble(status):
         return None, "the sandbox service could not be asked (%d): cannot tell" % status
     return False, "the sandbox service answered %d" % status
 
@@ -429,9 +430,9 @@ CONNECT_API = "https://api.vercel.com"
 
 
 def trouble(status):
-    """True for an answer that says nothing about the settings: the network, or the
-    other side's own failure."""
-    return status == 0 or status >= 500
+    """True for an answer that says nothing about the settings: the network, too
+    many requests, or the other side's own failure."""
+    return status == 0 or status == 429 or status >= 500
 
 
 def destinations_verdict(body, project):
@@ -448,13 +449,14 @@ def destinations_verdict(body, project):
 def project_token(env):
     """(token, None) or (None, (ok, note)): step 1, the project token the app makes
     with CONNECT_ACCESS_TOKEN (web/src/lib/slack/connect-auth.ts, the request
-    @vercel/oidc's token-util.js getVercelOidcToken makes)."""
+    @vercel/oidc's token-util.js getVercelOidcToken makes), sent as the app sends
+    it: the team named only when CONNECT_TEAM_ID is set, and no body."""
     access, project = env["CONNECT_ACCESS_TOKEN"].strip(), env.get("CONNECT_PROJECT_ID", "").strip()
-    team = env.get("CONNECT_TEAM_ID", "").strip() or env.get("SANDBOX_TEAM_ID", "").strip()
+    team = env.get("CONNECT_TEAM_ID", "").strip()
     url = "%s/v1/projects/%s/token?source=vercel-oidc-refresh" % (CONNECT_API, urllib.parse.quote(project, safe=""))
     if team:
         url += "&teamId=" + urllib.parse.quote(team, safe="")
-    status, body = http(url, {"Authorization": "Bearer " + access}, post={})
+    status, body = http(url, {"Authorization": "Bearer " + access}, method="POST")
     if trouble(status):
         return None, (None, "step 1, the project token: could not be asked (%d): cannot tell" % status)
     token = body.get("token") if status == 200 and isinstance(body, dict) else None

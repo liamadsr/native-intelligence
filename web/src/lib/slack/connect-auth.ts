@@ -13,8 +13,14 @@
  * for the project's development environment as well as production.
  *
  * The project token is cached in process until shortly before it expires; one
- * request is in flight at a time and concurrent callers share it. A failed
- * request is not cached. No token is ever logged or put in an error.
+ * request is in flight at a time and concurrent callers share it. When making
+ * a new one fails, the last one made with the same settings is returned even
+ * if it has expired: the Connect client serves its own bot-token cache before
+ * it ever reads `vercelToken` (token.js getTokenResponse), so a refresh that
+ * fails must not break those calls, and a cache miss then fails at Connect
+ * with its own auth error (connect.ts drops the token). Only with no earlier
+ * token does the failure throw. A failure is never cached: the next call tries
+ * again. No token is ever logged or put in an error.
  */
 import 'server-only'
 import { connectAccessToken, connectProjectId, connectTeamId } from './config'
@@ -63,11 +69,21 @@ async function projectToken(accessToken: string, projectId: string, teamId: stri
   if (cached?.key === key && cached.expiresAt - REFRESH_MARGIN_MS > Date.now()) return cached.token
   if (inFlight?.key === key) return inFlight.promise
   const promise = requestProjectToken(accessToken, projectId, teamId)
-    .then(({ token, expiresAt }) => {
-      // A token whose expiry can't be read is used once, not cached.
-      if (expiresAt !== null) cached = { key, token, expiresAt }
-      return token
-    })
+    .then(
+      ({ token, expiresAt }) => {
+        // A token whose expiry can't be read is used once, not cached.
+        if (expiresAt !== null) cached = { key, token, expiresAt }
+        return token
+      },
+      (error: unknown) => {
+        // Read now, not when the request started: a token dropped meanwhile is not reused.
+        if (cached?.key !== key) throw error
+        console.warn('[slack/connect-auth] project token not renewed; using the last one', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return cached.token
+      },
+    )
     .finally(() => {
       if (inFlight?.promise === promise) inFlight = null
     })
@@ -80,8 +96,8 @@ async function requestProjectToken(
   projectId: string,
   teamId: string | null,
 ): Promise<{ token: string; expiresAt: number | null }> {
-  // A team-scoped access token may not need the team id; the request was
-  // measured working with it.
+  // The team is named only when CONNECT_TEAM_ID is set: with a team-scoped
+  // access token the request was measured working both with and without it.
   const team = teamId ? `&teamId=${encodeURIComponent(teamId)}` : ''
   const url = `https://api.vercel.com/v1/projects/${encodeURIComponent(projectId)}/token?source=vercel-oidc-refresh${team}`
   let response: Response

@@ -146,8 +146,8 @@ class FakeHttp:
     def __init__(self, answers):
         self.answers, self.calls = answers, []
 
-    def __call__(self, url, headers=None, auth=None, post=None):
-        self.calls.append((url, headers, post))
+    def __call__(self, url, headers=None, auth=None, post=None, method=None):
+        self.calls.append((url, headers, post, method))
         for prefix, answer in self.answers:
             if url.startswith(prefix):
                 return answer
@@ -201,18 +201,20 @@ class Connectors(unittest.TestCase):
             "https://slack.com/api/auth.test",
         ])
         # The access token only makes the project token; the project token does the rest.
+        # As the app sends it: a POST with no body.
         self.assertEqual(calls[0][1], {"Authorization": "Bearer made-up-access-token"})
-        self.assertEqual(calls[0][2], {})
+        self.assertEqual(calls[0][2:], (None, "POST"))
         self.assertEqual(calls[1][1], {"Authorization": "Bearer " + self.PROJECT_TOKEN})
         self.assertEqual(calls[1][2], None)
         self.assertEqual(calls[2][1], {"Authorization": "Bearer " + self.PROJECT_TOKEN})
         self.assertEqual(calls[2][2], {"subject": {"type": "app"}, "installationId": "T0MADEUP1", "scopes": ["*"]})
         self.assertEqual(calls[3][1], {"Authorization": "Bearer " + self.SLACK_TOKEN})
 
-    def test_the_team_falls_back_to_the_sandboxes(self):
+    def test_no_team_is_named_without_connect_team_id(self):
+        # As the app: SANDBOX_TEAM_ID is never used in its place.
         env = dict(self.ENV, CONNECT_TEAM_ID="")
         _, _, calls = self.run_check(env)
-        self.assertTrue(calls[0][0].endswith("&teamId=team_madeup0002"))
+        self.assertEqual(calls[0][0], "https://api.vercel.com/v1/projects/prj_madeup0001/token?source=vercel-oidc-refresh")
 
     def test_each_step_says_where_it_stopped(self):
         cases = [
@@ -233,7 +235,7 @@ class Connectors(unittest.TestCase):
 
     def test_trouble_on_the_way_cannot_tell(self):
         for step in ("mint", "meta", "token", "slack"):
-            for status in (0, 502):
+            for status in (0, 429, 502):
                 ok, note, _ = self.run_check(**{step: (status, None)})
                 self.assertIsNone(ok, (step, status))
                 self.assertIn("cannot tell", note)
@@ -271,7 +273,7 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(fake.calls[0][0], "https://api.vercel.com/v2/sandboxes?limit=1&project=prj_madeup0001&teamId=team_madeup0001")
 
     def test_answers(self):
-        for status, want in ((401, False), (403, False), (0, None), (503, None)):
+        for status, want in ((401, False), (403, False), (0, None), (429, None), (503, None)):
             with FakeHttp([("https://api.vercel.com/", (status, None))]):
                 self.assertIs(cs.check_sandbox(self.ENV, {})[0], want, status)
 

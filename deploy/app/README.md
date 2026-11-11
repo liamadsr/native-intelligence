@@ -151,16 +151,18 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   forwards Slack's events for. Required with the access token: the project token
   is made for it. A forwarded event or button click must carry a token naming it.
 - `CONNECT_TEAM_ID`: that project's team, sent with the project-token request when
-  set. May stay empty; the request was measured with it.
+  set. May stay empty: the request was measured working both with and without
+  the team named.
 - `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
   empty is `production`.
 
-`check-settings.sh` walks the app's real path to a Slack login and says at which
-step it stopped: the project token (with `CONNECT_TEAM_ID`, else
-`SANDBOX_TEAM_ID`), the connector read with it (a trigger destination with
-`CONNECT_PROJECT_ID` and the path `/api/slack/events`), a Slack login for the
-connector's default installation, and Slack's own `auth.test` naming that
-workspace. It shows no token, at most a length; network or server trouble is
+`check-settings.sh` makes the app's own requests for a Slack login, in order, and
+says at which step it stopped: the project token, made exactly as the app makes it
+(the team named only when `CONNECT_TEAM_ID` is set, no body), the connector read
+with it (a trigger destination with `CONNECT_PROJECT_ID` and the path
+`/api/slack/events`), a Slack login for the connector's default installation, and
+Slack's own `auth.test` naming that workspace. It shows no token, at most a
+length; network trouble, too many requests (429) or the other side's failure is
 "cannot tell", not wrong. This path was seen working end to end from this server.
 
 A `*` in `CONNECT_PROJECT_ID` or `CONNECT_ENVIRONMENT` makes the app refuse every
