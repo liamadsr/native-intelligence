@@ -15,12 +15,18 @@
  * Connect with these instead. Unset (on Vercel): the OIDC token, as before.
  *
  *   CONNECT_ACCESS_TOKEN  a Vercel access token scoped to the team the
- *                         connector is in. Every Connect call sends it
- *                         (`{ vercelToken }`) instead of the OIDC token. A
- *                         secret: never logged.
- *   CONNECT_PROJECT_ID    the Vercel project Connect forwards Slack's events
- *                         for (prj_…): a forwarded request's OIDC token must
- *                         name it, instead of VERCEL_PROJECT_ID.
+ *                         connector is in. Connect refuses it as the bearer
+ *                         of a token request, so it is used only to make a
+ *                         short-lived project token (./connect-auth.ts),
+ *                         which every Connect call sends instead of the
+ *                         OIDC token. A secret: never logged.
+ *   CONNECT_PROJECT_ID    the Vercel project the connector is attached to
+ *                         (prj_…). Required with CONNECT_ACCESS_TOKEN: the
+ *                         project token is made for it. A forwarded request's
+ *                         OIDC token must name it too, instead of
+ *                         VERCEL_PROJECT_ID.
+ *   CONNECT_TEAM_ID       the team of that project (team_…), sent with the
+ *                         project-token request when set. Optional.
  *   CONNECT_ENVIRONMENT   the environment that token must name, instead of
  *                         VERCEL_TARGET_ENV / VERCEL_ENV. `production` when
  *                         unset; read only with CONNECT_PROJECT_ID.
@@ -36,9 +42,21 @@ export function slackConnector(): string | null {
   return value ? value : null
 }
 
-/** The access token every Connect call sends, or null to use the Vercel OIDC token. */
+/** The access token the project token is made with (./connect-auth.ts), or null to use the Vercel OIDC token. */
 export function connectAccessToken(): string | null {
   const value = process.env.CONNECT_ACCESS_TOKEN?.trim()
+  return value ? value : null
+}
+
+/** The project the connector is attached to, or null when unset. */
+export function connectProjectId(): string | null {
+  const value = process.env.CONNECT_PROJECT_ID?.trim()
+  return value ? value : null
+}
+
+/** The team of that project, or null when unset. */
+export function connectTeamId(): string | null {
+  const value = process.env.CONNECT_TEAM_ID?.trim()
   return value ? value : null
 }
 
