@@ -2,8 +2,8 @@
  * Where the team call routes hand rings to the phones (src/lib/team-calls/
  * ring-push.ts): a DM's start and a ring request push the rings they made;
  * an answer (accepted or declined) sends the ring's cancel to every phone
- * but the one that answered (the iOS app names its VoIP token); a missed
- * call's notice and LiveKit's join stop the phones too. What each of those
+ * but the one that answered (the iOS app names its VoIP token); a call's
+ * end and LiveKit's join stop the phones too. What each of those
  * sends, and when nothing goes, is ring-push.test.ts's.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -62,7 +62,7 @@ vi.mock('@/lib/team-calls/ring-push', async (orig) => ({
 import { POST as startCall } from '../route'
 import { POST as ring } from '../[id]/ring/route'
 import { POST as answer } from '../rings/[id]/route'
-import { notifyMissedCalls, type MissedRing } from '@/lib/team-calls/store'
+import { endCall, type MissedRing } from '@/lib/team-calls/store'
 import { applyTeamCallWebhook } from '@/lib/team-calls/webhook'
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
@@ -142,15 +142,18 @@ describe('a ring left ringing → the phones stop', () => {
     expect(h.cancelled).toEqual([{ ringIds: [RING], exceptToken: null }])
   })
 
-  it('missed (the caller hung up, the call ended): the notice stops the phones first', async () => {
-    const svc = memoryDb({ notification: [] }) as unknown as SupabaseClient
-    const stopped: string[][] = []
+  it('missed (the caller hung up, the call ended): its end stops the phones', async () => {
     const missed: MissedRing = {
       ring_id: RING, call_id: CALL, message_id: MSG, workspace_id: WS, channel_id: DM, channel_kind: 'dm', channel_name: null,
       member_id: BEN, user_id: madeRing.user_id, caller_member_id: ME, caller_name: 'Ana Ruiz',
     }
-    await notifyMissedCalls(svc, [missed], async () => undefined, async (ids) => void stopped.push(ids))
+    const svc = { rpc: async () => ({ data: [missed], error: null }) } as unknown as SupabaseClient
+    const stopped: string[][] = []
+    expect(await endCall(svc, CALL, 'left', new Date(), async (ids) => void stopped.push(ids))).toEqual([missed])
     expect(stopped).toEqual([[RING]])
+    const none = { rpc: async () => ({ data: [], error: null }) } as unknown as SupabaseClient
+    await endCall(none, CALL, 'finished', new Date(), async (ids) => void stopped.push(ids))
+    expect(stopped).toHaveLength(1)
   })
 
   it('a member joining (LiveKit’s webhook) stops their phones ringing for that call', async () => {

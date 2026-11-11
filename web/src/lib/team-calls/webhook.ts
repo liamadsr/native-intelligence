@@ -12,7 +12,12 @@
  *     stale (a reconnect's old leave lands in the same second as its new
  *     join);
  *   - room_finished ends the call once (team_call_end), whatever came
- *     before or comes after; the rings still open then are missed calls;
+ *     before or comes after, unless the room is open again (made again for
+ *     the live call since); the rings still open then are missed calls,
+ *     told through an Inngest event per ring (never inline, so a failed
+ *     write can't lose them; the sweeper finds any left untold);
+ *   - a join by someone who may not read the conversation is refused by the
+ *     database and they are taken out of the room at once (./eject.ts);
  *   - a member joining answers their ring there, so their phones still
  *     ringing for it are stopped (./ring-push.ts: its cancel, once).
  *
@@ -22,7 +27,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isUuid } from '@/lib/team-chat/types'
-import { endCall, liveCallOfRoom, notifyMissedCalls, participantEvent, type MissedRing, type ParticipantOutcome } from './store'
+import { endCall, liveCallOfRoom, participantEvent, requestMissedNotices, type MissedRing, type ParticipantOutcome } from './store'
 import { teamCallIdOfRoom } from './types'
 import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 
@@ -36,10 +41,15 @@ export interface TeamCallWebhookEvent {
   participant?: { identity?: string; sid?: string; joinedAt?: bigint | number; joinedAtMs?: bigint | number } | undefined
 }
 
-export type TeamCallWebhookOutcome = 'repeat' | 'ignored' | ParticipantOutcome | 'ended' | 'already_ended'
+export type TeamCallWebhookOutcome = 'repeat' | 'ignored' | ParticipantOutcome | 'ended' | 'already_ended' | 'reopened'
 
 export interface TeamCallWebhookDeps {
-  notifyMissed?: (svc: SupabaseClient, missed: readonly MissedRing[]) => Promise<unknown>
+  /** Ask for the missed rings' notices (an Inngest event per ring; the default). */
+  requestMissed?: (missed: readonly MissedRing[]) => Promise<unknown>
+  /** Take a refused joiner out at once (the eject outbox, drained). */
+  drainEjections?: () => Promise<unknown>
+  /** Is this room open on the server now? A room_finished for a room made again since is not the call's end. Null: can't tell. */
+  roomOpen?: (room: string) => Promise<boolean | null>
   /** A member joined: stop their phones still ringing for this call. */
   stopPhones?: (svc: SupabaseClient, callId: string, memberId: string) => Promise<unknown>
   now?: () => Date
@@ -97,26 +107,30 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
       // Sessions are ordered by when they joined, never by when an event arrived (a reconnect's old leave and new join share a second).
       const sessionJoined = sessionJoinedAt(event.participant)
       const when = joined ? (sessionJoined ?? at) : at
-      const memberId = identity.toLowerCase()
       const outcome = await participantEvent(svc, {
         room,
-        memberId,
+        memberId: identity.toLowerCase(),
         sid: event.participant?.sid ?? null,
         joined,
         at: when.toISOString(),
         sessionJoinedAt: sessionJoined?.toISOString() ?? null,
       })
+      // Someone without access to the conversation joined: out of the room now.
+      if (outcome === 'ejected') await deps.drainEjections?.()
       if (outcome === 'joined') {
         const stop = deps.stopPhones ?? ((s: SupabaseClient, callId: string, member: string) => cancelRingPushes(liveRingPushDeps(s), { callId, memberId: member }))
-        await stop(svc, teamCallIdOfRoom(room)!, memberId).catch(() => undefined)
+        await stop(svc, teamCallIdOfRoom(room)!, identity.toLowerCase()).catch(() => undefined)
       }
       return outcome
     }
     case 'room_finished': {
       const call = await liveCallOfRoom(svc, room)
       if (!call) return 'already_ended'
+      // The room was made again since (someone joined the live call after it closed): not the call's end.
+      if ((await deps.roomOpen?.(room).catch(() => null)) === true) return 'reopened'
       const missed = await endCall(svc, call.id, 'finished', at)
-      if (missed.length > 0) await (deps.notifyMissed ?? notifyMissedCalls)(svc, missed)
+      // Out of the request path, once per ring; a notice not asked for is the sweeper's to find.
+      if (missed.length > 0) await (deps.requestMissed ?? requestMissedNotices)(missed)
       return 'ended'
     }
     default:

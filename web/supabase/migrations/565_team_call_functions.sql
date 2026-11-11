@@ -18,8 +18,16 @@
 --                     (another workspace's calls are not the caller's to
 --                     know of; the person's own page keeps such a ring
 --                     quiet). A member with a
---                     ring open for this call is left as they are. At most
---                     20 members per call. Returns the rings made.
+--                     ring open for this call is left as they are. Limits,
+--                     each a member skipped (never an error): at most 20 per
+--                     request and 20 rings per call in all; nobody is rung
+--                     again for a call they declined or let run out; a caller
+--                     rings the same person at most once a minute, in any
+--                     call; and in a DM, someone who declined a call there in
+--                     the last two minutes is not rung by the next one (the
+--                     call is in the DM for them to join; no ring, so no
+--                     missed-call notice or email each round). Returns the
+--                     rings made.
 --   team_call_answer(target_ring, accept)  as the ring's own person: accepted or
 --                     declined, once; a ring already settled answers with
 --                     its state and changes nothing (another tab or device
@@ -41,7 +49,8 @@
 --                     it did.
 --   team_call_end(target_call, end_reason, end_at)  service role: the call ended (its room
 --                     finished, a DM's person hung up, the sweeper found its
---                     room gone, or the room could not be made). Once: an
+--                     room gone, the room could not be made, or its channel
+--                     was archived). Once: an
 --                     ended call answers nothing. Everyone still in it has
 --                     left; its duration (start to the last person out) and
 --                     peak are written onto it and, as words, onto its
@@ -50,6 +59,30 @@
 --   team_call_expire_rings(only_ring)  service role: open rings past their time
 --                     are missed (all of them, or just `only_ring`), and
 --                     returned.
+--   team_call_fence(only_member, only_channel)  service role (and 565's
+--                     triggers): everyone connected to a live call who may
+--                     no longer read its conversation (team_chat_member_can_
+--                     read) is marked left and put on 564's team_call_eject
+--                     outbox, for the app to take out of the LiveKit room.
+--                     Returns them. The sweeper runs it over every live call.
+--   Triggers that eject the moment access ends, whatever path ends it (an
+--                     app route, a definer function, a cascade), so it can't
+--                     be skipped:
+--                       team_member, after delete: their team's channels;
+--                       team_chat_member, after delete: that DM;
+--                       member, after update of workspace_id or user_id: all;
+--                       member, before delete: every call they are in (their
+--                         rows go with them);
+--                       team_chat_channel, after update of team_id or kind:
+--                         that channel's call;
+--                       team_chat_channel, after update of archived_at: an
+--                         archived channel's live call ends ('archived') and
+--                         its room closes;
+--                       team_chat_channel, before delete: its live call's
+--                         room closes.
+--                     A participant event of someone who may not read the
+--                     conversation (a removed person rejoining on a token
+--                     LiveKit refreshed) is refused and ejected too.
 --   team_call_summary(kind, seconds, peak)  a call's message once it ended:
 --                     'Call ended · 12 min · 3 people'; 'Missed call' for a
 --                     DM nobody answered; 'Call ended' when nobody joined.
@@ -57,9 +90,13 @@
 --                     teamCallSummary.
 --
 -- Lock order, everywhere: a call's row first, then its rings and people, so
--- two of these never wait on each other.
+-- two of these never wait on each other. When one of these writes a call's
+-- message for a person's action (archiving a channel ends its call), it sets
+-- the transaction-local team_calls.writing, which 564's message guard lets
+-- through; no client can set it.
 --
--- Additive. Idempotent. New functions only. No backslashes anywhere in this
+-- Additive. Idempotent. New functions, and triggers that only add work after
+-- a membership change (none refuses one). No backslashes anywhere in this
 -- file (one MCP transport decodes escapes).
 -- ------------------------------------------------------------
 
@@ -164,6 +201,7 @@ declare
   is_busy boolean;
   made_id uuid;
   made_expiry timestamptz;
+  rung integer;
 begin
   select * into c from public.team_call t where t.id = target_call for update;
   if not found or not public.team_chat_can_read(c.channel_id) then
@@ -181,8 +219,11 @@ begin
   select * into ch from public.team_chat_channel x where x.id = c.channel_id;
   me := public.current_member_id(c.workspace_id);
   select left(m.display_name, 120) into my_name from public.member m where m.id = me;
+  select count(*)::integer into rung from public.team_call_ring r where r.call_id = c.id;
 
   for mem in select distinct x from unnest(coalesce(members, '{}'::uuid[])) as x loop
+    -- 20 rings per call, in all.
+    exit when rung >= 20;
     continue when mem is null or mem = me;
     select m.user_id into mem_user from public.member m where m.id = mem and m.workspace_id = c.workspace_id;
     continue when mem_user is null;
@@ -191,6 +232,22 @@ begin
     continue when exists (
       select 1 from public.team_call_participant p
        where p.call_id = c.id and p.member_id = mem and p.state = 'joined'
+    );
+    -- Declined this call, or let it ring out: not rung for it again.
+    continue when exists (
+      select 1 from public.team_call_ring r
+       where r.call_id = c.id and r.member_id = mem and r.state in ('declined', 'missed')
+    );
+    -- This caller rang them in the last minute (any call).
+    continue when exists (
+      select 1 from public.team_call_ring r
+       where r.caller_member_id = me and r.member_id = mem and r.created_at > now() - interval '60 seconds'
+    );
+    -- A DM where they declined a call in the last two minutes: the call is there to join, unrung.
+    continue when ch.kind = 'dm' and exists (
+      select 1 from public.team_call_ring r
+       where r.channel_id = c.channel_id and r.member_id = mem and r.state = 'declined'
+         and coalesce(r.answered_at, r.created_at) > now() - interval '2 minutes'
     );
     -- In another live call of this workspace: a quiet notice instead.
     is_busy := exists (
@@ -209,6 +266,7 @@ begin
     on conflict (call_id, member_id) where state in ('ringing', 'busy') do nothing
     returning id, expires_at into made_id, made_expiry;
     continue when made_id is null;
+    rung := rung + 1;
     if not is_busy then
       update public.team_call t
          set ringing = case when mem = any (t.ringing) then t.ringing else array_append(t.ringing, mem) end,
@@ -290,6 +348,14 @@ begin
   end if;
   if c.status <> 'live' then
     return 'ended';
+  end if;
+  -- Someone who may not read the conversation, or is no member of its
+  -- workspace at all (removed, rejoining on a token LiveKit refreshed): out again.
+  if is_join and not public.team_chat_member_can_read(c.channel_id, member_ref) then
+    insert into public.team_call_eject (call_id, room, identity, reason)
+    values (c.id, c.room, member_ref::text, 'access')
+    on conflict do nothing;
+    return 'ejected';
   end if;
   if not exists (select 1 from public.member m where m.id = member_ref and m.workspace_id = c.workspace_id) then
     return 'unknown';
@@ -378,7 +444,7 @@ declare
   secs integer;
   peak integer;
 begin
-  if end_reason is null or end_reason not in ('finished', 'left', 'swept', 'failed') then
+  if end_reason is null or end_reason not in ('finished', 'left', 'swept', 'failed', 'archived') then
     raise exception 'team calls: no such end' using errcode = '22023';
   end if;
   select * into c from public.team_call t where t.id = target_call for update;
@@ -401,9 +467,12 @@ begin
          participant_count = 0, ringing = '{}', updated_at = now()
    where t.id = c.id;
   if c.message_id is not null then
+    -- The call's own words (a person's action may have ended it: 564's guard lets this through).
+    perform set_config('team_calls.writing', 'on', true);
     update public.team_chat_message m
        set body = public.team_call_summary(ch_kind, secs, peak)
      where m.id = c.message_id;
+    perform set_config('team_calls.writing', 'off', true);
   end if;
   return query
     update public.team_call_ring r
@@ -457,6 +526,203 @@ begin
       left join unrung u on u.id = g.call_id;
 end;
 $$;
+
+-- ── Access ends: out of the room ────────────────────────────────────────────
+
+create or replace function public.team_call_fence(only_member uuid default null, only_channel uuid default null)
+returns table (call_id uuid, room text, member_id uuid)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+#variable_conflict use_column
+declare
+  r record;
+begin
+  for r in
+    select p.call_id as cid, t.room as rm, p.member_id as mid
+      from public.team_call_participant p
+      join public.team_call t on t.id = p.call_id
+     where p.state = 'joined'
+       and t.status = 'live'
+       and (only_member is null or p.member_id = only_member)
+       and (only_channel is null or p.channel_id = only_channel)
+       and not public.team_chat_member_can_read(p.channel_id, p.member_id)
+     order by p.call_id
+  loop
+    perform 1 from public.team_call t where t.id = r.cid for update;
+    update public.team_call_participant x
+       set state = 'left', left_at = now(), last_event_at = greatest(x.last_event_at, now())
+     where x.call_id = r.cid and x.member_id = r.mid and x.state = 'joined';
+    insert into public.team_call_eject (call_id, room, identity, reason)
+    values (r.cid, r.rm, r.mid::text, 'access')
+    on conflict do nothing;
+    update public.team_call t
+       set participant_count = (select count(*)::integer from public.team_call_participant x where x.call_id = t.id and x.state = 'joined'),
+           updated_at = now()
+     where t.id = r.cid;
+    return query select r.cid, r.rm, r.mid;
+  end loop;
+end;
+$$;
+
+-- A member's access to some conversations ended: out of those calls.
+create or replace function public.team_call_fence_member_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.team_call_fence(old.member_id, null);
+  return null;
+end;
+$$;
+
+-- A DM's member removed: out of that DM's call.
+create or replace function public.team_call_fence_dm_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.team_call_fence(old.member_id, old.channel_id);
+  return null;
+end;
+$$;
+
+-- A member moved to another workspace or account: out of every call.
+create or replace function public.team_call_fence_moved_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.team_call_fence(new.id, null);
+  return null;
+end;
+$$;
+
+-- A member removed from the workspace: out of every call they are in (their
+-- rows go with them, so they are marked left and the count kept true first).
+create or replace function public.team_call_member_gone_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  r record;
+begin
+  for r in
+    select p.call_id as cid, t.room as rm
+      from public.team_call_participant p
+      join public.team_call t on t.id = p.call_id
+     where p.member_id = old.id and p.state = 'joined' and t.status = 'live'
+     order by p.call_id
+  loop
+    perform 1 from public.team_call t where t.id = r.cid for update;
+    update public.team_call_participant x
+       set state = 'left', left_at = now(), last_event_at = greatest(x.last_event_at, now())
+     where x.call_id = r.cid and x.member_id = old.id;
+    insert into public.team_call_eject (call_id, room, identity, reason)
+    values (r.cid, r.rm, old.id::text, 'access')
+    on conflict do nothing;
+    update public.team_call t
+       set participant_count = (select count(*)::integer from public.team_call_participant x where x.call_id = t.id and x.state = 'joined'),
+           updated_at = now()
+     where t.id = r.cid;
+  end loop;
+  return old;
+end;
+$$;
+
+-- A channel archived: its live call ends and its room closes. Its team or
+-- kind changed: whoever may no longer read it is out.
+create or replace function public.team_call_channel_changed_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  live public.team_call%rowtype;
+begin
+  if new.archived_at is not null and old.archived_at is null then
+    select * into live from public.team_call t where t.channel_id = new.id and t.status = 'live';
+    if found then
+      perform public.team_call_end(live.id, 'archived', now());
+      insert into public.team_call_eject (call_id, room, identity, reason)
+      values (live.id, live.room, null, 'archived')
+      on conflict do nothing;
+    end if;
+  end if;
+  if new.team_id is distinct from old.team_id or new.kind is distinct from old.kind then
+    perform public.team_call_fence(null, new.id);
+  end if;
+  return null;
+end;
+$$;
+
+-- A channel deleted: its live call's room closes (the call goes with the channel).
+create or replace function public.team_call_channel_gone_trigger()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.team_call_eject (call_id, room, identity, reason)
+  select t.id, t.room, null, 'deleted'
+    from public.team_call t
+   where t.channel_id = old.id and t.status = 'live'
+  on conflict do nothing;
+  return old;
+end;
+$$;
+
+drop trigger if exists team_call_fence_team_member on public.team_member;
+create trigger team_call_fence_team_member
+  after delete on public.team_member
+  for each row execute function public.team_call_fence_member_trigger();
+
+drop trigger if exists team_call_fence_dm_member on public.team_chat_member;
+create trigger team_call_fence_dm_member
+  after delete on public.team_chat_member
+  for each row execute function public.team_call_fence_dm_trigger();
+
+drop trigger if exists team_call_fence_member_moved on public.member;
+create trigger team_call_fence_member_moved
+  after update of workspace_id, user_id on public.member
+  for each row
+  when (new.workspace_id is distinct from old.workspace_id or new.user_id is distinct from old.user_id)
+  execute function public.team_call_fence_moved_trigger();
+
+drop trigger if exists team_call_member_gone on public.member;
+create trigger team_call_member_gone
+  before delete on public.member
+  for each row execute function public.team_call_member_gone_trigger();
+
+drop trigger if exists team_call_channel_changed on public.team_chat_channel;
+create trigger team_call_channel_changed
+  after update of archived_at, team_id, kind on public.team_chat_channel
+  for each row execute function public.team_call_channel_changed_trigger();
+
+drop trigger if exists team_call_channel_gone on public.team_chat_channel;
+create trigger team_call_channel_gone
+  before delete on public.team_chat_channel
+  for each row execute function public.team_call_channel_gone_trigger();
+
+revoke all on function public.team_call_fence(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.team_call_fence_member_trigger() from public, anon, authenticated;
+revoke all on function public.team_call_fence_dm_trigger() from public, anon, authenticated;
+revoke all on function public.team_call_fence_moved_trigger() from public, anon, authenticated;
+revoke all on function public.team_call_member_gone_trigger() from public, anon, authenticated;
+revoke all on function public.team_call_channel_changed_trigger() from public, anon, authenticated;
+revoke all on function public.team_call_channel_gone_trigger() from public, anon, authenticated;
+grant execute on function public.team_call_fence(uuid, uuid) to service_role;
 
 revoke all on function public.team_call_summary(text, integer, integer) from public, anon, authenticated;
 revoke all on function public.team_call_start(uuid) from public, anon;

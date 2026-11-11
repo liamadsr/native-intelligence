@@ -9,12 +9,15 @@
  *        conversation: a second start joins it). A new call gets its LiveKit
  *        room (with LiveKit's own timers: nobody comes, or the last person
  *        leaves, and it closes) and its message in the conversation; in a DM
- *        the other person is rung (on the web over Realtime, and on their
- *        phones as a call: src/lib/team-calls/ring-push.ts), in a channel
- *        nobody is (its people get
- *        one ordinary notification of the call's message, by their levels:
- *        src/lib/team-chat/notify.ts). A live call whose room is gone (its
- *        end never arrived) is ended and a new one started. `join` is the
+ *        the other person is rung, on the web over Realtime and on their
+ *        phones as a call (src/lib/team-calls/ring-push.ts; 565's limits
+ *        may say not: a decline there
+ *        a moment ago), in a channel nobody is (its people get one ordinary
+ *        notification of the call's message, by their levels:
+ *        src/lib/team-chat/notify.ts). Every token is for an open room: the
+ *        app makes rooms, LiveKit never does (src/lib/team-calls/routes.ts
+ *        readyRoom); a live call whose room went long ago (its end never
+ *        arrived) is ended and a new one started. `join` is the
  *        address and a ten-minute token for the room (src/lib/team-calls/
  *        livekit.ts); the API secret never leaves the server.
  * As the person, under RLS, for every read and the start; the room's
@@ -22,20 +25,17 @@
  */
 import { after, NextResponse, type NextRequest } from 'next/server'
 import { requireUser } from '@/lib/api-auth'
-import { apiError, badRequest, notFound } from '@/lib/api-errors'
+import { badRequest, notFound } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
-import { getChannel } from '@/lib/team-chat/store'
+import { getChannel, TeamChatError } from '@/lib/team-chat/store'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { requestTeamChatNotify } from '@/lib/team-chat/notify'
 import { dmOtherMember, isUuid } from '@/lib/team-chat/types'
-import { createTeamCallRoom, openTeamCallRooms, teamCallsConfig, type TeamCallsConfig } from '@/lib/team-calls/livekit'
-import { endCall, getCall, notifyMissedCalls, openRings, requestRingTimers, ringMembers, startCall, type MadeRing, type StartedCall } from '@/lib/team-calls/store'
-import { joinAnswer, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { createTeamCallRoom, teamCallsConfig, type TeamCallsConfig } from '@/lib/team-calls/livekit'
+import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall, type MadeRing, type StartedCall } from '@/lib/team-calls/store'
+import { callsUnreachable, joinAnswer, memberIn, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
-
-/** A live call older than this whose room is gone is ended, not joined. */
-const STALE_CALL_MS = 60_000
 
 export async function GET() {
   const config = teamCallsConfig()
@@ -50,25 +50,22 @@ export async function GET() {
   }
 }
 
-/** The live call there, ended and started again when its room has gone (its room_finished was lost). */
-async function startFresh(supabase: SupabaseClient, config: TeamCallsConfig, channelId: string): Promise<StartedCall> {
+/**
+ * The live call there with its room open (made again when it went and the
+ * call is young), or a new one: a live call whose room went long ago (its
+ * end was lost) is ended and a new one started. A new call's room is made
+ * by the caller below. Throws when LiveKit can't be asked.
+ */
+async function startReady(supabase: SupabaseClient, config: TeamCallsConfig, channelId: string): Promise<StartedCall> {
   const started = await startCall(supabase, channelId)
   if (started.created) return started
   const call = await getCall(supabase, started.callId)
-  if (!call || Date.now() - Date.parse(call.started_at) < STALE_CALL_MS) return started
-  let open: Set<string>
-  try {
-    open = await openTeamCallRooms(config, [started.room])
-  } catch {
-    // The server can't be asked: join as it is (the token will tell).
-    return started
-  }
-  if (open.has(started.room)) return started
-  const svc = getServiceClient()
-  const missed = await endCall(svc, started.callId, 'swept')
-  if (missed.length) after(() => notifyMissedCalls(svc, missed).catch(() => undefined))
+  if (!call) return started
+  if ((await readyRoom(config, call)) === 'ready') return started
   return startCall(supabase, channelId)
 }
+
+const isTeamChatError = (err: unknown): boolean => err instanceof TeamChatError
 
 export async function POST(request: NextRequest) {
   const config = teamCallsConfig()
@@ -89,15 +86,23 @@ export async function POST(request: NextRequest) {
     const me = await memberIn(auth.supabase, auth.user.id, channel.workspace_id)
     if (!me) return notFound()
 
-    const started = await startFresh(auth.supabase, config, channelId)
+    let started: StartedCall
+    try {
+      started = await startReady(auth.supabase, config, channelId)
+    } catch (err) {
+      if (isTeamChatError(err)) throw err
+      console.error(`[team-calls] channel=${channelId} room check failed:`, err instanceof Error ? err.message : 'unknown')
+      return callsUnreachable()
+    }
     let rings: MadeRing[] = []
     if (started.created) {
       try {
+        // LiveKit never makes a room by itself: the call's room, before its first token.
         await createTeamCallRoom(config, started.room)
       } catch (err) {
         console.error(`[team-calls] call=${started.callId} room not made:`, err instanceof Error ? err.message : 'unknown')
         await endCall(getServiceClient(), started.callId, 'failed').catch(() => undefined)
-        return apiError('The call server could not be reached', { status: 503, code: 'CALLS_UNREACHABLE' })
+        return callsUnreachable()
       }
       if (channel.kind === 'dm') {
         // A DM's start rings the other person (a note to self rings nobody).

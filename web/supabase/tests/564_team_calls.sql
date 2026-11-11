@@ -1,7 +1,8 @@
 -- DB-level test for migrations 564-565 (team calls): one live call per
 -- channel, who may start, see and ring a call, a person's rings are theirs
 -- alone, answering once, LiveKit's events applied in order whatever order
--- they arrive in, and a call's end. The TS tests
+-- they arrive in, a call's end, the ring limits, and taking people out of a
+-- call the moment their access to its conversation ends. The TS tests
 -- (src/lib/team-calls/__tests__/migration-564.test.ts) pin the files' text;
 -- this runs the SQL.
 --
@@ -23,10 +24,11 @@ declare
   u_b constant uuid := '00000000-0000-4000-8000-000000564002'; -- Ben, W1, not in the team, in the DM
   u_c constant uuid := '00000000-0000-4000-8000-000000564003'; -- Cy, W1, not in the DM, not in the team
   u_x constant uuid := '00000000-0000-4000-8000-000000564004'; -- outsider: their own workspace only
+  u_d constant uuid := '00000000-0000-4000-8000-000000564005'; -- Dee, W1, put in the team later
   w1 uuid; t1 uuid;
-  m_a uuid; m_b uuid; m_c uuid; m_x uuid;
-  ch_open uuid; ch_team uuid; ch_dm uuid;
-  call_open uuid; call_dm uuid; call_again uuid;
+  m_a uuid; m_b uuid; m_c uuid; m_x uuid; m_d uuid;
+  ch_open uuid; ch_team uuid; ch_dm uuid; ch_two uuid; ch_tmp uuid;
+  call_open uuid; call_dm uuid; call_again uuid; call_two uuid; call_dm2 uuid; call_team uuid; call_tmp uuid;
   room_open text; room_dm text;
   msg_open uuid;
   ring_b uuid; ring_c uuid;
@@ -85,6 +87,16 @@ begin
     return v;
   end $f$;
 
+  -- Settled rings ten minutes older (created_at only): the one-ring-a-minute
+  -- rule lifted, a DM decline's two-minute window (answered_at) kept.
+  create function pg_temp.t564_cool()
+  returns void language plpgsql as $f$
+  begin
+    update public.team_call_ring
+       set created_at = created_at - interval '10 minutes', expires_at = expires_at - interval '10 minutes'
+     where state not in ('ringing', 'busy');
+  end $f$;
+
   -- A check made as postgres (the service role's view: no RLS).
   create function pg_temp.t564_check(p_label text, p_expect text, p_got text)
   returns void language plpgsql as $f$
@@ -97,15 +109,18 @@ begin
     (u_a, 't564-ana@example.invalid', '{"full_name":"t564ana"}'),
     (u_b, 't564-ben@example.invalid', '{"full_name":"t564ben"}'),
     (u_c, 't564-cy@example.invalid',  '{"full_name":"t564cy"}'),
-    (u_x, 't564-out@example.invalid', '{"full_name":"t564outsider"}');
+    (u_x, 't564-out@example.invalid', '{"full_name":"t564outsider"}'),
+    (u_d, 't564-dee@example.invalid', '{"full_name":"t564dee"}');
 
   select workspace_id, id into w1, m_a from public.member where user_id = u_a;
   select id into m_x from public.member where user_id = u_x;
   insert into public.member (user_id, workspace_id, role, display_name) values
     (u_b, w1, 'member', 't564ben'),
-    (u_c, w1, 'member', 't564cy');
+    (u_c, w1, 'member', 't564cy'),
+    (u_d, w1, 'member', 't564dee');
   select id into m_b from public.member where user_id = u_b and workspace_id = w1;
   select id into m_c from public.member where user_id = u_c and workspace_id = w1;
+  select id into m_d from public.member where user_id = u_d and workspace_id = w1;
   update public.member set display_name = 't564ana' where id = m_a;
 
   insert into public.team (workspace_id, name, slug, issue_prefix) values (w1, 't564 team', 't564-team', 'TQY') returning id into t1;
@@ -113,6 +128,8 @@ begin
 
   insert into public.team_chat_channel (workspace_id, kind, name, created_by) values (w1, 'channel', 't564-general', m_a) returning id into ch_open;
   insert into public.team_chat_channel (workspace_id, team_id, kind, name, created_by) values (w1, t1, 'channel', 't564-team', m_a) returning id into ch_team;
+  insert into public.team_chat_channel (workspace_id, kind, name, created_by) values (w1, 'channel', 't564-two', m_a) returning id into ch_two;
+  insert into public.team_chat_channel (workspace_id, kind, name, created_by) values (w1, 'channel', 't564-tmp', m_a) returning id into ch_tmp;
   insert into public.team_chat_channel (workspace_id, kind, dm_key, created_by)
   values (w1, 'dm', case when m_a::text < m_b::text then m_a::text || ':' || m_b::text else m_b::text || ':' || m_a::text end, m_a) returning id into ch_dm;
   insert into public.team_chat_member (channel_id, member_id, workspace_id) values (ch_dm, m_a, w1), (ch_dm, m_b, w1);
@@ -225,6 +242,9 @@ begin
   perform pg_temp.t564_check('answering again (another tab) changes nothing and says how it was settled', 'declined', v_got);
   perform pg_temp.t564_check('the call says who declined, and rings nobody now', 'true/0',
     (select (m_b = any (declined))::text || '/' || cardinality(ringing)::text from public.team_call where id = call_dm));
+  perform pg_temp.t564_cool();
+  perform pg_temp.t564_run('declined: never rung again for that call', 'rows=0', u_a,
+    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm, m_b)]);
 
   -- ── LiveKit's events, in any order ────────────────────────────────────────
   perform pg_temp.t564_check('a join', 'joined', public.team_call_participant_event(room_open, m_b, 'PA_b1', true, t0 + interval '1 minute', t0 + interval '1 minute'));
@@ -247,7 +267,9 @@ begin
   perform pg_temp.t564_check('a leave that arrives before its join', 'left', public.team_call_participant_event(room_open, m_c, 'PA_c9', false, t0 + interval '8 minutes', t0 + interval '7 minutes 30 seconds'));
   perform pg_temp.t564_check('… makes that join stale when it comes', 'stale', public.team_call_participant_event(room_open, m_c, 'PA_c9', true, t0 + interval '7 minutes', t0 + interval '7 minutes 30 seconds'));
   perform pg_temp.t564_check('a room that is no call of ours', 'unknown', public.team_call_participant_event('some-other-room', m_a, 'PA_z', true, now(), now()));
-  perform pg_temp.t564_check('an identity that is no member of the call''s workspace', 'unknown', public.team_call_participant_event(room_open, m_x, 'PA_x', true, now(), now()));
+  perform pg_temp.t564_check('an identity that is no member of the call''s workspace joins: taken out', 'ejected', public.team_call_participant_event(room_open, m_x, 'PA_x', true, now(), now()));
+  perform pg_temp.t564_check('… on the eject outbox, for the app to take out of the room', '1',
+    (select count(*)::text from public.team_call_eject where room = room_open and identity = m_x::text and done_at is null));
   perform pg_temp.t564_check('two in it, peak two (Cy never counted)', '2/2',
     (select participant_count::text || '/' || peak_participants::text from public.team_call where id = call_open));
   perform pg_temp.t564_run('a person cannot report who is in a call', 'refused', u_a,
@@ -262,11 +284,15 @@ begin
     (select participant_count::text || '/' || peak_participants::text from public.team_call where id = call_open));
   perform pg_temp.t564_run('ringing someone already in the call rings nobody', 'rows=0', u_b,
     array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[])', call_open, m_c)]);
+  call_two := pg_temp.t564_as(u_a, format('select call_id::text from public.team_call_start(%L)', ch_two))::uuid;
+  perform pg_temp.t564_run('the same caller can''t ring the same person again within a minute (any call)', 'rows=0', u_a,
+    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[])', call_two, m_c)]);
+  perform pg_temp.t564_cool();
   perform pg_temp.t564_run('ringing someone in another call: a quiet notice, not a ring', 'rows=1', u_a,
-    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[]) where state = %L', call_dm, m_b, 'busy')]);
+    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[]) where state = %L', call_two, m_b, 'busy')]);
 
   -- ── Rings that run out ────────────────────────────────────────────────────
-  ring_b := pg_temp.t564_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm, m_b))::uuid;
+  ring_b := pg_temp.t564_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_two, m_b))::uuid;
   perform pg_temp.t564_check('nothing runs out early', '0', (select count(*)::text from public.team_call_expire_rings(ring_b)));
   update public.team_call_ring set created_at = now() - interval '2 minutes', expires_at = now() - interval '1 minute' where id = ring_b;
   perform pg_temp.t564_run('answering a ring past its time: missed, and it stays open for its timer', 'rows=1', u_b,
@@ -279,11 +305,17 @@ begin
   perform pg_temp.t564_check('… and its state', 'missed', (select state from public.team_call_ring where id = ring_b));
   perform pg_temp.t564_run('a person cannot run rings out', 'refused', u_a,
     array['select * from public.team_call_expire_rings(null)']);
+  perform pg_temp.t564_cool();
+  perform pg_temp.t564_run('let ring out: never rung again for that call', 'rows=0', u_a,
+    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[])', call_two, m_b)]);
 
   -- ── The end ───────────────────────────────────────────────────────────────
-  ring_c := pg_temp.t564_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm, m_b))::uuid;
-  perform pg_temp.t564_check('the DM''s caller hangs up: the open ring comes back missed', '1',
-    (select count(*)::text from public.team_call_end(call_dm, 'left', now()) where ring_id = ring_c and member_id = m_b and user_id = u_b));
+  perform pg_temp.t564_cool();
+  ring_c := pg_temp.t564_as(u_a, format('select ring_id::text from public.team_call_ring_members(%L, array[%L]::uuid[])', call_two, m_c))::uuid;
+  perform pg_temp.t564_check('a call ends with a ring open: it comes back missed', '1',
+    (select count(*)::text from public.team_call_end(call_two, 'left', now()) where ring_id = ring_c and member_id = m_c and user_id = u_c));
+  perform pg_temp.t564_check('the DM''s caller hangs up: nothing was ringing', '0',
+    (select count(*)::text from public.team_call_end(call_dm, 'left', now())));
   perform pg_temp.t564_check('… and the DM''s message says it was missed', 'Missed call',
     (select m.body from public.team_chat_message m join public.team_call c on c.message_id = m.id where c.id = call_dm));
   perform pg_temp.t564_check('the people leave at their own times', 'left', public.team_call_participant_event(room_open, m_c, 'PA_c10', false, t0 + interval '12 minutes', t0 + interval '9 minutes'));
@@ -305,6 +337,72 @@ begin
     array[format('select * from public.team_call_ring_members(%L, array[%L]::uuid[])', call_open, m_b)]);
   call_again := pg_temp.t564_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch_open))::uuid;
   perform pg_temp.t564_check('after the end, a start makes a new call', 'true', (call_again is not null and call_again <> call_open)::text);
+
+  -- ── Ring limits ───────────────────────────────────────────────────────────
+  call_dm2 := pg_temp.t564_as(u_a, format('select call_id::text from public.team_call_start(%L)', ch_dm))::uuid;
+  perform pg_temp.t564_cool();
+  perform pg_temp.t564_run('a DM call right after a decline there rings nobody (no missed-call notice each round)', 'rows=0', u_a,
+    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm2, m_b)]);
+  update public.team_call_ring set answered_at = answered_at - interval '3 minutes' where member_id = m_b and state = 'declined';
+  perform pg_temp.t564_check('… two minutes on, it rings again', 'ringing',
+    pg_temp.t564_as(u_a, format('select state from public.team_call_ring_members(%L, array[%L]::uuid[])', call_dm2, m_b)));
+  insert into public.team_call_ring (call_id, workspace_id, channel_id, member_id, user_id, caller_member_id, caller_name, channel_kind, channel_name, state, created_at, expires_at)
+  select call_again, w1, ch_open, m_c, u_c, m_a, 't564ana', 'channel', 't564-general', 'declined', now() - interval '1 hour', now() - interval '59 minutes'
+    from generate_series(1, 20);
+  perform pg_temp.t564_run('20 rings per call in all: the 21st rings nobody', 'rows=0', u_a,
+    array[format('select 1 from public.team_call_ring_members(%L, array[%L]::uuid[])', call_again, m_b)]);
+  delete from public.team_call_ring where call_id = call_again and member_id = m_c;
+  perform pg_temp.t564_check('a decline always lands, whatever the call already holds', 'declined',
+    (select pg_temp.t564_as(u_b, format('select state from public.team_call_answer(%L, false)', r.id)) from public.team_call_ring r where r.call_id = call_dm2 and r.member_id = m_b and r.state = 'ringing' limit 1));
+
+  -- ── Access ends: out of the room ──────────────────────────────────────────
+  -- Taken off the team: out of the team channel's call.
+  call_team := pg_temp.t564_as(u_a, format('select call_id::text from public.team_call_start(%L)', ch_team))::uuid;
+  insert into public.team_member (team_id, member_id) values (t1, m_c), (t1, m_d);
+  perform pg_temp.t564_check('the team''s call: Ana joins', 'joined', public.team_call_participant_event('tc-' || call_team::text, m_a, 'PA_ta', true, now(), now()));
+  perform pg_temp.t564_check('… Cy joins', 'joined', public.team_call_participant_event('tc-' || call_team::text, m_c, 'PA_tc', true, now(), now()));
+  perform pg_temp.t564_check('… Dee joins', 'joined', public.team_call_participant_event('tc-' || call_team::text, m_d, 'PA_td', true, now(), now()));
+  delete from public.team_member where team_id = t1 and member_id = m_c;
+  perform pg_temp.t564_check('Cy taken off the team: out of its call at once, and on the outbox', 'left/1',
+    (select p.state || '/' || (select count(*) from public.team_call_eject e where e.room = 'tc-' || call_team::text and e.identity = m_c::text and e.done_at is null)
+       from public.team_call_participant p where p.call_id = call_team and p.member_id = m_c));
+  perform pg_temp.t564_check('… and the count says two', '2', (select participant_count::text from public.team_call where id = call_team));
+  perform pg_temp.t564_check('Cy rejoining on a token LiveKit refreshed: taken out again', 'ejected',
+    public.team_call_participant_event('tc-' || call_team::text, m_c, 'PA_tc2', true, now(), now()));
+  -- Removed from the workspace: out of every call, before their rows go.
+  delete from public.member where id = m_d;
+  perform pg_temp.t564_check('Dee removed from the workspace: on the outbox, and the count says one', '1/1',
+    (select count(*)::text from public.team_call_eject e where e.room = 'tc-' || call_team::text and e.identity = m_d::text and e.done_at is null)
+    || '/' || (select participant_count::text from public.team_call where id = call_team));
+  -- Taken out of a DM.
+  perform pg_temp.t564_check('the new DM call: Ben joins', 'joined', public.team_call_participant_event('tc-' || call_dm2::text, m_b, 'PA_db', true, now(), now()));
+  delete from public.team_chat_member where channel_id = ch_dm and member_id = m_b;
+  perform pg_temp.t564_check('Ben out of the DM: out of its call', 'left/1',
+    (select p.state || '/' || (select count(*) from public.team_call_eject e where e.room = 'tc-' || call_dm2::text and e.identity = m_b::text and e.done_at is null)
+       from public.team_call_participant p where p.call_id = call_dm2 and p.member_id = m_b));
+  -- The sweeper's check catches anyone a trigger could not.
+  insert into public.team_call_participant (call_id, member_id, workspace_id, channel_id, state, session_sid, first_joined_at, joined_at, last_event_at)
+  values (call_again, m_x, w1, ch_open, 'joined', 'PA_sneak', now(), now(), now());
+  perform pg_temp.t564_check('the sweeper''s fence finds who may not read the conversation', 'x',
+    (select string_agg(case when f.member_id = m_x then 'x' else f.member_id::text end, ',') from public.team_call_fence(null, null) f));
+  perform pg_temp.t564_check('… and takes them out', 'left',
+    (select state from public.team_call_participant where call_id = call_again and member_id = m_x));
+  perform pg_temp.t564_check('… once', '0', (select count(*)::text from public.team_call_fence(null, null)));
+  perform pg_temp.t564_run('a person cannot run the fence', 'refused', u_a, array['select * from public.team_call_fence(null, null)']);
+  perform pg_temp.t564_run('nobody reads the eject outbox', 'refused', u_a, array['select 1 from public.team_call_eject']);
+  -- A channel archived by a person: its live call ends, its words written, its room closed.
+  perform set_config('request.jwt.claims', json_build_object('sub', u_a, 'role', 'authenticated')::text, true);
+  update public.team_chat_channel set archived_at = now() where id = ch_open;
+  perform set_config('request.jwt.claims', '{}', true);
+  perform pg_temp.t564_check('a channel archived: its live call ends as archived, with its words', 'ended/archived/Call ended',
+    (select c.status || '/' || c.ended_reason || '/' || left(m.body, 10) from public.team_call c join public.team_chat_message m on m.id = c.message_id where c.id = call_again));
+  perform pg_temp.t564_check('… and its room closes', '1',
+    (select count(*)::text from public.team_call_eject where room = 'tc-' || call_again::text and identity is null and reason = 'archived' and done_at is null));
+  -- A channel deleted: its live call's room closes.
+  call_tmp := pg_temp.t564_as(u_a, format('select call_id::text from public.team_call_start(%L)', ch_tmp))::uuid;
+  delete from public.team_chat_channel where id = ch_tmp;
+  perform pg_temp.t564_check('a channel deleted: its live call''s room closes', '1',
+    (select count(*)::text from public.team_call_eject where room = 'tc-' || call_tmp::text and identity is null and reason = 'deleted'));
 
   -- ── Report ────────────────────────────────────────────────────────────────
   select string_agg(format('%s %s: expected %s, got %s', case when pass then 'PASS' else 'FAIL' end, label, expected, got), chr(10) order by n),
