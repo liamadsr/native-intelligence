@@ -97,7 +97,7 @@ import { entityActionsDescriptor, supportedEntityActions } from '@/lib/entities/
 import { ENTITY_ACTION_ICONS, ENTITY_ACTION_LABELS } from '@/components/entities/entity-actions-menu'
 import type { RecordActionsSource } from './command-menu-model'
 import { usePaletteFeed } from './use-palette-feed'
-import { describeFeedEvent, feedActorLabel, type FeedEntry } from '@/lib/entities/feed-model'
+import { describeFeedEvent, feedActorLabel, sharedWithYouLine, type FeedEntry } from '@/lib/entities/feed-model'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { openTarget } from '@/lib/chat-cards/open-card'
 import { formatDistanceToNowStrict } from 'date-fns'
@@ -986,6 +986,9 @@ function rowText(item: MenuItem): { title: string; detail: string | null; meta: 
 
 /** A feed row: the record, what happened (and where), and how long ago. */
 function feedRowText(entry: FeedEntry): { title: string; detail: string | null; meta: ReactNode } {
+  // "Ana shared this with you": who did it is the line itself.
+  const shared = sharedWithYouLine(entry.last)
+  if (shared) return { title: entry.label, detail: shared, meta: formatDistanceToNowStrict(new Date(entry.last.at)) }
   const what = describeFeedEvent(entry.last)
   // Who did it, unless it was the person themselves (Recent is theirs by definition).
   const by = entry.last.actor.me && entry.last.actor.kind === 'member' ? null : feedActorLabel(entry.last.actor)

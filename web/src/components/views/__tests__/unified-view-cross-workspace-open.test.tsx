@@ -89,6 +89,7 @@ vi.mock('../view-board', () => ({ ViewBoard: () => null }))
 vi.mock('../view-toolbar', () => ({ ViewToolbar: () => null }))
 
 import { UnifiedViewLayout } from '../unified-view-layout'
+import { stubAppFetch } from '@/test/app-fetch-stub'
 
 const HOME_ROW = { id: 'act-1', title: 'Ship it', workspace: { id: 'ws-1', name: 'Native Intelligence' } }
 const FOREIGN_ROW = { id: 'act-9', title: 'Renew contract', workspace: { id: 'ws-2', name: 'Acme Sales' } }
@@ -102,6 +103,10 @@ beforeEach(() => {
   window.addEventListener('ni:open-card', onOpenCard)
   listOnItemSelect = null
   onItemSelect = vi.fn()
+  // The layout reads /api/account/workspace on mount. Refused at once, as the
+  // real fetch refused it only later, it cannot outlive the test
+  // (src/test/app-fetch-stub.ts says why).
+  stubAppFetch()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -113,6 +118,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
   window.removeEventListener('ni:open-card', onOpenCard)
 })
 

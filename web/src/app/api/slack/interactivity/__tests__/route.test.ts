@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const m = vi.hoisted(() => ({
   verifyConnect: vi.fn(),
+  verifierOptions: [] as unknown[],
   verifySignature: vi.fn(),
   getInstallation: vi.fn(),
   linkForSlackUser: vi.fn(),
@@ -15,7 +16,12 @@ const m = vi.hoisted(() => ({
   afterFns: [] as Array<() => Promise<void>>,
 }))
 
-vi.mock('@vercel/connect/chat', () => ({ createConnectWebhookVerifier: () => m.verifyConnect }))
+vi.mock('@vercel/connect/chat', () => ({
+  createConnectWebhookVerifier: (options: unknown) => {
+    m.verifierOptions.push(options)
+    return m.verifyConnect
+  },
+}))
 vi.mock('next/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/server')>()),
   after: (fn: () => Promise<void>) => m.afterFns.push(fn),
@@ -60,6 +66,7 @@ beforeEach(() => {
   fetchMock.mockClear()
   for (const fn of [m.verifyConnect, m.verifySignature, m.getInstallation, m.linkForSlackUser, m.memberIdOf, m.settle]) fn.mockReset()
   m.afterFns.length = 0
+  m.verifierOptions.length = 0
   m.verifyConnect.mockResolvedValue(true)
   m.verifySignature.mockReturnValue(true)
   m.getInstallation.mockResolvedValue({ slack_team_id: 'T111', workspace_id: 'ws', status: 'active' })
@@ -83,6 +90,15 @@ describe('POST /api/slack/interactivity', () => {
     expect((await POST(req(click(), { authorization: 'Bearer forged' }))).status).toBe(401)
     expect((await POST(req(click()))).status).toBe(401)
     expect(m.afterFns).toHaveLength(0)
+  })
+
+  it('checks a forwarded click against CONNECT_PROJECT_ID and CONNECT_ENVIRONMENT when they are set', async () => {
+    vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0001')
+    vi.stubEnv('CONNECT_ENVIRONMENT', 'preview')
+    await POST(req(click(), { authorization: 'Bearer oidc' }))
+    vi.stubEnv('CONNECT_PROJECT_ID', '')
+    vi.stubEnv('CONNECT_ENVIRONMENT', '')
+    expect(m.verifierOptions).toEqual([{ projectId: 'prj_madeup0001', environment: 'preview' }])
   })
 
   it('settles the card as the linked person, then updates the message through Slack’s response_url', async () => {

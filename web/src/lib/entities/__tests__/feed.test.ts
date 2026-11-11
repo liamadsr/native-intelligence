@@ -51,6 +51,7 @@ function act(at: string, entity_type: string, entity_id: string, action: string,
     subject_member_id: null,
     detail: {},
     created_at: at,
+    backfilled: false,
     ...extra,
   }
 }
@@ -286,5 +287,48 @@ describe('a custom field change (migration 497)', () => {
     expect(describeFeedEvent(many.events![0])).toBe('Changed Budget, Customer and 1 more')
     const gone = await run(updated({ fields: ['region', 'gone'] }), history)
     expect(describeFeedEvent(gone.events![0])).toBe('Changed its fields')
+  })
+})
+
+describe('rows the history backfill wrote (migration 516)', () => {
+  const backfilled = () => {
+    seq = 0
+    return memoryDb({
+      member: [
+        { id: ANA, user_id: U_ANA, workspace_id: WS, display_name: 'Ana Reyes' },
+        { id: MAYA, user_id: U_MAYA, workspace_id: WS, display_name: 'Maya Chen' },
+      ],
+      actions: [
+        { id: TASK, workspace_id: WS, title: 'Send the Fernhill quote' },
+        { id: OWN_TASK, workspace_id: WS, title: 'Water the plants' },
+      ],
+      document: [{ id: DOC, workspace_id: WS, title: 'Q4 renewals plan' }],
+      entity_activity: [
+        // Written after the fact: Maya made the doc and mentioned Ana in it, weeks ago.
+        act('2026-10-20T08:00:00.000000+00:00', 'document', DOC, 'created', { backfilled: true }),
+        act('2026-10-21T08:00:00.000000+00:00', 'document', DOC, 'mentioned', {
+          backfilled: true,
+          subject_member_id: ANA,
+          detail: { source_type: 'document', source_id: DOC },
+        }),
+        act('2026-10-22T08:00:00.000000+00:00', 'action', OWN_TASK, 'created', { backfilled: true, actor_member_id: ANA }),
+        // Live: Maya assigned Ana the task today.
+        act('2026-11-09T12:00:00.000000+00:00', 'action', TASK, 'assigned', { subject_member_id: ANA, detail: { from: null, to: ANA } }),
+      ],
+    })
+  }
+
+  it('never reach the Inbox', async () => {
+    const feed = await run(backfilled(), { assignedToMe: true, mentionedMe: true })
+    expect(feed.entries?.map((e) => [e.id, describeFeedEvent(e.last)])).toEqual([[TASK, 'Assigned to you']])
+    const mentioned = await run(backfilled(), { mentionedMe: true })
+    expect(mentioned.entries).toEqual([])
+  })
+
+  it('are the record’s History, and the viewer’s Recent', async () => {
+    const history = await run(backfilled(), { entity: { type: 'document', id: DOC }, group: 'none' })
+    expect(history.events!.map((e) => describeFeedEvent(e))).toEqual(['Mentioned you', 'Created'])
+    const recent = await run(backfilled(), { actor: 'me' })
+    expect(recent.entries?.map((e) => [e.id, describeFeedEvent(e.last)])).toEqual([[OWN_TASK, 'Created']])
   })
 })

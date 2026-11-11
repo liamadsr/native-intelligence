@@ -350,10 +350,12 @@ function makeGraphSupabase(opts: {
   edges?: Array<{ workspace_id: string; target_type: string; target_id: string; relation: string }>
 }) {
   const entityTable = opts.entityTable ?? 'projects'
-  const rpc = vi.fn(async () => ({
-    data: { center: {}, depth: 2, nodes: [], edges: [] },
-    error: null,
-  }))
+  // entity_refs_hidden (migration 500's edge fence): nothing hidden here.
+  const rpc = vi.fn(async (fn: string) =>
+    fn === 'entity_refs_hidden'
+      ? { data: [], error: null }
+      : { data: { center: {}, depth: 2, nodes: [], edges: [] }, error: null },
+  )
   const from = vi.fn((table: string) => {
     const filters: { eqs: Record<string, unknown> } = { eqs: {} }
     const resolveData = (): { data: unknown; error: null } => {

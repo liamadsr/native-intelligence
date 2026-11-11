@@ -10,6 +10,7 @@ import {
   applyPagination,
   applySearch,
   groupResults,
+  layoutCustomSelectGroups,
   resolvePersonalScope,
   CATEGORY_ORDER,
   CATEGORY_LABELS,
@@ -21,6 +22,7 @@ import {
 } from '@/lib/views/query-engine'
 import type { ViewEntityType, ViewFilter, SortConfig, GroupConfig, GroupedResults, WorkspaceScope } from '@/lib/views/types'
 import { DEFAULT_DISPLAY_PROPERTIES, NO_MATCH_FILTER_VALUE, defaultOrdering } from '@/lib/views/types'
+import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
 import { countEntriesByList, emptyEntryCounts } from '@/lib/prospecting/lists'
 import { pipelineBoardColumns } from '@/lib/crm/deal-board'
 import { fetchAllRows, inChunks } from '@/lib/supabase/paging'
@@ -523,6 +525,17 @@ export async function POST(request: NextRequest) {
       // sort_order values (the default), so the order flipped between fetches.
       // `crossTeam` is resolved above — personal scope forces it on.
       grouped = groupResults(items, grouping, validSubGrouping, crossTeam)
+
+      // A custom select field (`custom_fields.<key>`): a column per option,
+      // in the field's own order, empty ones included, so a card can be
+      // dragged to an option no record has yet. One definition read.
+      if (isCustomFieldPath(grouping.field)) {
+        try {
+          grouped = await layoutCustomSelectGroups(supabase, workspaceId, entity_type, grouping, grouped)
+        } catch (err) {
+          console.error('[views/query] custom field columns failed', err)
+        }
+      }
 
       // Inject empty groups for all workflow states when grouped by status_id
       if (grouping.field === 'status_id' && entity_type === 'action') {

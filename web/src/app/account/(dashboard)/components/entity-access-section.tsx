@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import type { EntityAccessResponse, EntityGrant, GrantableType, GranteeKind } from '@/lib/entity-access/model'
+import { GRANT_LEVEL_LABEL, type EntityAccessResponse, type EntityGrant, type GrantableType, type GranteeKind, type GrantLevel } from '@/lib/entity-access/model'
 
 /**
  * "People & channels with access": the per-item grants (migration 492) of a
@@ -21,7 +21,12 @@ import type { EntityAccessResponse, EntityGrant, GrantableType, GranteeKind } fr
  *
  * Renders nothing unless the viewer may share the record AND there is
  * something to say: it is private (a grant then opens it), or it already has
- * grants. View only: a grant lets someone read it, never edit it.
+ * grants, or it is the dialog's only section (`standalone`, a company's).
+ *
+ * Each grant is "Can view" or "Can edit" (migration 512): edit lets them
+ * change what it says (its text and fields, comments, labels), never delete
+ * it, change who owns or sees it, or share it on. The sharer picks the level
+ * when adding and can change it on the row.
  */
 
 interface Option {
@@ -41,6 +46,11 @@ export interface EntityAccessSectionProps {
    * shared to can still be seen and taken back. Renders nothing without grants.
    */
   listOnly?: boolean
+  /**
+   * The dialog's only section (a company's Share dialog has no link or email
+   * sharing): shown to whoever may share, even while nothing restricts it.
+   */
+  standalone?: boolean
   /** For tests and the screenshot harness. */
   fetchImpl?: Load
 }
@@ -53,13 +63,14 @@ const SOURCE_TITLE: Record<EntityGrant['source'], string> = {
   channel_share: 'Shared to the channel',
 }
 
-export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: EntityAccessSectionProps) {
+export function EntityAccessSection({ type, id, listOnly = false, standalone = false, fetchImpl }: EntityAccessSectionProps) {
   const load = useMemo<Load>(() => fetchImpl ?? ((input, init) => fetch(input, init)), [fetchImpl])
   const [access, setAccess] = useState<EntityAccessResponse | null>(null)
   const [members, setMembers] = useState<Option[]>([])
   const [teams, setTeams] = useState<Option[]>([])
   const [channels, setChannels] = useState<Option[]>([])
   const [kind, setKind] = useState<GranteeKind>('member')
+  const [level, setLevel] = useState<GrantLevel>('view')
   const [selectedId, setSelectedId] = useState('')
   const [search, setSearch] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
@@ -104,7 +115,7 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
   }, [load, canShare, listOnly])
 
   if (!access || !access.can_share) return null
-  if (access.grants.length === 0 && (listOnly || !access.restricted)) return null
+  if (access.grants.length === 0 && (listOnly || (!access.restricted && !standalone))) return null
 
   const granted = new Set(access.grants.map((g) => `${g.grantee_kind}:${g.grantee_id}`))
   const options = (kind === 'member' ? members : kind === 'team' ? teams : channels).filter((o) => !granted.has(`${kind}:${o.id}`))
@@ -122,7 +133,7 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
     const res = await load('/api/account/entity-access', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type, id, grantee_kind: kind, grantee_id: selectedId }),
+      body: JSON.stringify({ type, id, grantee_kind: kind, grantee_id: selectedId, level }),
     }).catch(() => null)
     setAdding(false)
     if (!res?.ok) {
@@ -133,6 +144,21 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
     setSelectedId('')
     setSearch('')
     await refresh()
+  }
+
+  const changeLevel = async (grant: EntityGrant, next: GrantLevel) => {
+    if (next === grant.level) return
+    // Optimistic, as remove: the row shows the new level now, and goes back if the change fails.
+    setAccess((prev) => (prev ? { ...prev, grants: prev.grants.map((g) => (g.id === grant.id ? { ...g, level: next } : g)) } : prev))
+    const res = await load(`/api/account/entity-access/${encodeURIComponent(grant.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: next }),
+    }).catch(() => null)
+    if (!res?.ok) {
+      toast.error("Couldn't change their access")
+      await refresh()
+    }
   }
 
   const remove = async (grant: EntityGrant) => {
@@ -147,7 +173,8 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
 
   return (
     <>
-      <Separator />
+      {/* Below the dialog's other sections; the first thing in a standalone one. */}
+      {!standalone && <Separator />}
       <div className="space-y-3" data-testid="entity-access-section">
         <div className="flex items-center gap-2">
           <Users2 className="h-4 w-4 text-muted-foreground" />
@@ -155,9 +182,7 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
         </div>
         {!listOnly && (
           <p className="text-[11px] leading-normal text-muted-foreground">
-            {access.restricted
-              ? `Only you can see this ${type}. Anyone you add here can view it too.`
-              : `Everyone in the workspace can see this ${type} now. These keep access if it goes back to Only me.`}
+            {introLine(type, access.restricted)}
           </p>
         )}
 
@@ -241,6 +266,7 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
                   </SelectContent>
                 </Select>
               )}
+              <LevelSelect value={level} onChange={setLevel} className="h-8 w-[104px] text-xs" label="Access for who you add" />
               <Button size="sm" className="h-8 shrink-0 px-3" onClick={() => void add()} disabled={!selectedId || adding}>
                 {adding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Share'}
               </Button>
@@ -262,9 +288,19 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
                   )}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm">{g.grantee_name}</span>
-                <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]" title={SOURCE_TITLE[g.source]}>
-                  Can view
-                </Badge>
+                {access.can_share ? (
+                  <LevelSelect
+                    value={g.level}
+                    onChange={(next) => void changeLevel(g, next)}
+                    className="h-6 w-[92px] border-transparent px-1.5 text-[11px] shadow-none hover:border-input"
+                    label={`Access for ${g.grantee_name}`}
+                    title={SOURCE_TITLE[g.source]}
+                  />
+                ) : (
+                  <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]" title={SOURCE_TITLE[g.source]}>
+                    {GRANT_LEVEL_LABEL[g.level]}
+                  </Badge>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -280,5 +316,44 @@ export function EntityAccessSection({ type, id, listOnly = false, fetchImpl }: E
         )}
       </div>
     </>
+  )
+}
+
+/** The line under the heading: what a grant means for this record now. */
+function introLine(type: GrantableType, restricted: boolean): string {
+  if (type === 'company') {
+    return restricted
+      ? 'Only owners and admins can see this company. Anyone you add here can see it too, and edit it if you choose Can edit.'
+      : 'Everyone who can see one of its contacts can see this company. Anyone you add here keeps access if that changes.'
+  }
+  return restricted
+    ? `Only you can see this ${type}. Anyone you add here can see it too, and edit it if you choose Can edit.`
+    : `Everyone in the workspace can see this ${type} now. These keep access if it goes back to Only me.`
+}
+
+/** "Can view" / "Can edit": the picker's and each row's. */
+function LevelSelect({
+  value,
+  onChange,
+  className,
+  label,
+  title,
+}: {
+  value: GrantLevel
+  onChange: (level: GrantLevel) => void
+  className?: string
+  label: string
+  title?: string
+}) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v === 'edit' ? 'edit' : 'view')}>
+      <SelectTrigger className={cn('shrink-0', className)} aria-label={label} title={title}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectItem value="view">{GRANT_LEVEL_LABEL.view}</SelectItem>
+        <SelectItem value="edit">{GRANT_LEVEL_LABEL.edit}</SelectItem>
+      </SelectContent>
+    </Select>
   )
 }

@@ -92,10 +92,17 @@ function actorFor(userId: string, because: { source: (typeof BECAUSE_SOURCES)[nu
   }
 }
 
-async function present(db: SupabaseClient, workspaceId: string, viewer: string, deals: Deal[], pipelines?: DealPipeline[]) {
+async function present(
+  db: SupabaseClient,
+  workspaceId: string,
+  viewer: string,
+  deals: Deal[],
+  pipelines?: DealPipeline[],
+  opts: { grants?: boolean } = {},
+) {
   const pl = pipelines ?? (await listPipelines(db, workspaceId))
   // These tools may run on a service-role client: only what the person can see is named.
-  const names = await lookupDealNames(db, workspaceId, deals, viewer)
+  const names = await lookupDealNames(db, workspaceId, deals, viewer, opts)
   return deals.map((d) => ({ ...describeDeal(d, { pipelines: pl, ...names }), value_label: formatDealValue(d.value, d.currency) || null }))
 }
 
@@ -110,8 +117,17 @@ export function createDealTools(
   strictWorkspace = false,
   // CREATE-TIME WORKSPACE ROUTING (_shared.ts), like companies and contacts.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // contact or company shared with the person names nothing and joins no deal.
+  omitGrants = false,
 ) {
-  const viewer = { viewer: userId }
+  const readOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
+  const viewer = { viewer: userId, ...readOpts }
   const createIn = (explicit: string | undefined) =>
     resolveCreateWorkspace(supabase, userId, workspaceId, explicit, { strictWorkspace, policy: createWorkspacePolicy })
   const workspaceIdField = z
@@ -136,7 +152,7 @@ export function createDealTools(
       execute: async (input) => {
         try {
           const { deals, pipelines } = await findDeals(supabase, workspaceId, input)
-          return { success: true, count: deals.length, deals: await present(supabase, workspaceId, userId, deals, pipelines), pipelines: stagesOf(pipelines) }
+          return { success: true, count: deals.length, deals: await present(supabase, workspaceId, userId, deals, pipelines, readOpts), pipelines: stagesOf(pipelines) }
         } catch (e) {
           return { success: false, error: e instanceof Error ? e.message : String(e) }
         }
@@ -152,7 +168,7 @@ export function createDealTools(
         const deal = await getDeal(supabase, ws, deal_id)
         if (!deal) return { success: false, error: 'Deal not found' }
         const pipelines = await listPipelines(supabase, ws)
-        const [described] = await present(supabase, ws, userId, [deal], pipelines)
+        const [described] = await present(supabase, ws, userId, [deal], pipelines, readOpts)
         const events = await listDealEvents(supabase, ws, deal_id, 15)
         return {
           success: true,
@@ -184,7 +200,7 @@ export function createDealTools(
         if (!ws.ok) return ws.error
         const result = await createDeal(supabase, ws.workspaceId, input as DealInput & { name: string }, actorFor(userId, because), viewer)
         if (!result.ok) return { success: false, error: result.error }
-        const [deal] = await present(supabase, ws.workspaceId, userId, [result.deal])
+        const [deal] = await present(supabase, ws.workspaceId, userId, [result.deal], undefined, readOpts)
         return {
           success: true,
           deal,
@@ -209,7 +225,7 @@ export function createDealTools(
         const result = await updateDeal(supabase, ws, deal_id, input as DealInput, actorFor(userId, because), viewer)
         if (!result.ok) return { success: false, error: result.error }
         const pipelines = await listPipelines(supabase, ws)
-        const [deal] = await present(supabase, ws, userId, [result.deal], pipelines)
+        const [deal] = await present(supabase, ws, userId, [result.deal], pipelines, readOpts)
         const changed = describeChanges(result.changes, { pipelines })
         return {
           success: true,
@@ -312,7 +328,7 @@ export function createDealTools(
         // These tools may run on a service-role client: the kind's own edit
         // rule, for this person, before the write (a record they only view
         // through a grant is not theirs to change).
-        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id)
+        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id, { grants: editGrants, readGrants: !omitGrants })
         if (refusal) return { success: false, error: refusal.error }
         const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values)
         if (!result.ok) {

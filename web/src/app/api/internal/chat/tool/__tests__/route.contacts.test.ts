@@ -107,7 +107,13 @@ function chain(table: string) {
 vi.mock('@/lib/admin', () => ({
   getServiceClient: () => ({
     from: (t: string) => chain(t),
-    rpc: async (fn: string, args: { p_contact_id: string; p_user_id: string }) => {
+    rpc: async (fn: string, args: { p_contact_id: string; p_user_id: string; p_user?: string; p_types?: string[]; p_ids?: string[] }) => {
+      if (fn === 'entity_refs_hidden') {
+        // The edge fence (migration 500), from the same hidden set.
+        db.rpcUsers.push(args.p_user)
+        const ids = args.p_ids ?? []
+        return { data: (args.p_types ?? []).map((t, i) => ({ entity_type: t, entity_id: ids[i] })).filter((r) => db.hidden.has(r.entity_id)), error: null }
+      }
       if (fn !== 'contact_visible_to' && fn !== 'contact_editable_by') {
         return { data: null, error: { message: `unexpected rpc ${fn}` } }
       }
@@ -212,15 +218,13 @@ describe('chat tool route: contact tools never leak another member’s private c
     expect(new Set(db.rpcUsers)).toEqual(new Set([USER]))
   })
 
-  it("traverse keeps its node but labels it as private, fenced against the TOKEN user", async () => {
+  it('traverse leaves the hidden contact out, id and all (migration 500), fenced against the TOKEN user', async () => {
     const res = await call('traverse', { entity_type: 'project', entity_id: 'prj-1', direction: 'outbound' })
     expect(res.status).toBe(200)
     const outbound = res.body.output?.outbound as Row[]
-    expect(outbound.map((e) => [e.target_id, e.label])).toEqual([
-      ['ct-private', 'Contact (private)'],
-      ['ct-shared', 'Ana Shared'],
-    ])
+    expect(outbound.map((e) => [e.target_id, e.label])).toEqual([['ct-shared', 'Ana Shared']])
     expect(JSON.stringify(res.body)).not.toContain('Ana Private')
+    expect(JSON.stringify(res.body)).not.toContain('ct-private')
     expect(new Set(db.rpcUsers)).toEqual(new Set([USER]))
   })
 

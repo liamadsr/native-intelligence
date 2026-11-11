@@ -18,6 +18,7 @@ import {
   addWeeks,
   addMonths,
   addYears,
+  format,
   parseISO,
 } from 'date-fns'
 import { resolveMemberIdsForUser } from '@/lib/workspace'
@@ -36,6 +37,7 @@ import type {
   WorkspaceScope,
 } from './types'
 import { DEFAULT_DISPLAY_PROPERTIES, DEFAULT_BOARD_GROUP_BY, FILTERABLE_FIELDS, NO_MATCH_FILTER_VALUE, defaultOrdering, isUnsetFilterValue } from './types'
+import { customFieldKeyOf, isCustomFieldPath, orderCustomSelectGroups, viewTakesCustomFields } from './custom-field-columns'
 
 // Re-export so callers already importing from the query engine (and the route)
 // get the sentinel from one place. The value itself lives in ./types so client
@@ -89,7 +91,7 @@ export class NoMatchSignal extends Error {
 const ACTION_VIEW_SELECT = `
   id, identifier, title, description, status_id, team_id, confirmation, priority,
   due_at, all_day, assignee_id, parent_id, estimate, project_id, milestone_id,
-  cycle_id, source_capture_id, created_at, updated_at, user_id, workspace_id,
+  cycle_id, source_capture_id, custom_fields, created_at, updated_at, user_id, workspace_id,
   workflow_state:workflow_state!status_id(id, name, category, color, sort_order),
   labels:action_label(label:label(id, name, color)),
   external_links:action_external_task(provider),
@@ -121,13 +123,13 @@ const CONTACT_VIEW_SELECT = `
   id, full_name, email, phone, job_title, department, linkedin_url,
   relationship_type, relationship_strength, member_id,
   company_id, tags, source, last_interaction_at, interaction_count, next_followup_at,
-  notes, created_at, updated_at, workspace_id,
+  notes, custom_fields, created_at, updated_at, workspace_id,
   company:company!company_id(id, name, domain, logo_url)
 `
 
 const COMPANY_VIEW_SELECT = `
   id, name, domain, industry, employee_count_range, logo_url, tags,
-  created_at, updated_at, workspace_id
+  custom_fields, created_at, updated_at, workspace_id
 `
 
 // Deals (roadmap #8, migration 473): the stage (its name, order and whether it
@@ -152,7 +154,7 @@ const EMAIL_THREAD_VIEW_SELECT = `
 
 const DOCUMENT_VIEW_SELECT = `
   id, title, content, created_by, project_id, team_id, is_pinned, status, kind, visibility,
-  created_at, updated_at, workspace_id,
+  custom_fields, created_at, updated_at, workspace_id,
   project:projects!project_id(id, name),
   creator:member!created_by(id, display_name, avatar_url),
   team:team!team_id(id, name)
@@ -160,7 +162,7 @@ const DOCUMENT_VIEW_SELECT = `
 
 const INITIATIVE_VIEW_SELECT = `
   id, name, description, status, icon, color, owner_id, target_date,
-  created_at, updated_at, workspace_id,
+  custom_fields, created_at, updated_at, workspace_id,
   owner:member!owner_id(id, display_name, avatar_url),
   labels:initiative_label(label:label(id, name, color))
 `
@@ -175,7 +177,7 @@ const INITIATIVE_VIEW_SELECT = `
  */
 const PROJECT_VIEW_SELECT = `
   id, name, description, icon, color, is_pinned, is_archived, status,
-  initiative_id, start_date, target_date, created_at, updated_at, workspace_id,
+  initiative_id, start_date, target_date, custom_fields, created_at, updated_at, workspace_id,
   lead:member!lead_id(id, display_name, avatar_url),
   initiative:initiative!initiative_id(id, name, color, icon),
   labels:project_label(label:label(id, name, color)),
@@ -870,6 +872,19 @@ export async function applyFilters(
       continue
     }
 
+    // A custom field (`custom_fields.<key>`): read out of the record's jsonb.
+    // A malformed key, or a kind that takes no fields, is ignored like a
+    // dropped column: a saved filter degrades, it never fails the view.
+    if (isCustomFieldPath(field)) {
+      const key = customFieldKeyOf(field)
+      if (!key || !viewTakesCustomFields(entityType)) {
+        console.warn(`[views/query] ignoring filter on custom field "${field}" (${entityType})`)
+        continue
+      }
+      applyCustomFieldFilter(query, key, operator, value)
+      continue
+    }
+
     // Virtual field: status_type maps to workflow_state.category → status_id
     if (field === 'status_type' && supabase && workspaceId) {
       await applyStatusTypeFilter(query, supabase, workspaceId, operator, value)
@@ -1164,6 +1179,152 @@ function applyColumnFilter(
       query.gte(field, resolved.from).lte(field, resolved.to)
       break
     }
+  }
+}
+
+// ============================================================
+// Custom fields (migrations 473, 496)
+// ============================================================
+
+/** A day ("2026-11-10"), or an ISO instant on one ("2026-11-10T08:00:00.000Z"). */
+const DAY_OR_INSTANT_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
+
+/** The day a value names, or null when it is not a day or an instant. */
+function dayOf(value: unknown): string | null {
+  return typeof value === 'string' && DAY_OR_INSTANT_RE.test(value) ? value.slice(0, 10) : null
+}
+
+function numberOf(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null
+  if (typeof value !== 'string' || value.trim() === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/** A value for a PostgREST `in` list, quoted so a comma or a bracket in a select option stays inside it. */
+function inListItem(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+type ComparisonOperator = 'gt' | 'gte' | 'lt' | 'lte'
+
+/**
+ * One comparison bound on a custom field. A number compares through `->`
+ * (jsonb, which orders numbers as numbers: 6 < 10), a day through `->>` as
+ * `YYYY-MM-DD` text (which orders as the calendar does), anything else as
+ * text. Through `->>` a number would compare as text, and "6" > "10".
+ */
+function applyCustomFieldBound(
+  query: ReturnType<typeof buildEntityQuery>,
+  key: string,
+  operator: ComparisonOperator,
+  value: unknown,
+) {
+  if (isUnsetFilterValue(value)) return
+  const n = numberOf(value)
+  const day = dayOf(value)
+  if (n !== null && (typeof value === 'number' || day === null)) {
+    query[operator](`custom_fields->${key}`, n)
+  } else if (day !== null) {
+    query[operator](`custom_fields->>${key}`, day)
+  } else {
+    query[operator](`custom_fields->>${key}`, String(value))
+  }
+}
+
+/**
+ * A filter on one of the workspace's own fields, read out of the record's
+ * `custom_fields` jsonb by its key (already checked against the definitions'
+ * key shape, so it is safe to put in a column string).
+ *
+ * The field's TYPE comes from the filter itself, not from a definitions read:
+ * the chip a type draws decides the value's shape (a number field's input
+ * sends a number, a date field's calendar a `YYYY-MM-DD` day, a text or
+ * select field a string), so no extra query is needed to pick `->` or `->>`.
+ * The values themselves are coerced on write (coerceCustomValue): a number
+ * is stored as a JSON number, a date as a `YYYY-MM-DD` string, a select as
+ * its option's own spelling, and a cleared field has no key at all, so
+ * "is empty" is one `is null`.
+ *
+ * Verified against DEV's PostgREST: `custom_fields->k=gt.5` compares jsonb
+ * numerically, `custom_fields->>k` compares text, and both order.
+ */
+export function applyCustomFieldFilter(
+  query: ReturnType<typeof buildEntityQuery>,
+  key: string,
+  operator: FilterOperator,
+  value: unknown,
+) {
+  const text = `custom_fields->>${key}`
+  const json = `custom_fields->${key}`
+  switch (operator) {
+    case 'is_empty':
+      query.is(text, null)
+      return
+    case 'is_not_empty':
+      query.not(text, 'is', null)
+      return
+    case 'contains':
+    case 'does_not_contain':
+    case 'starts_with':
+    case 'ends_with':
+      if (typeof value === 'string' || typeof value === 'number') applyColumnFilter(query, text, operator, String(value))
+      return
+    case 'is':
+    case 'is_not': {
+      const eq = operator === 'is'
+      if (typeof value === 'number') {
+        if (!Number.isFinite(value)) return
+        if (eq) query.eq(json, value)
+        else query.neq(json, value)
+        return
+      }
+      if (typeof value !== 'string') return
+      // A day picked on a timestamp-shaped chip (an older saved view) is that day.
+      const v = dayOf(value) ?? value
+      if (eq) query.eq(text, v)
+      else query.neq(text, v)
+      return
+    }
+    case 'is_any_of':
+    case 'is_none_of': {
+      const list = (Array.isArray(value) ? value : [value]).filter(
+        (v): v is string | number => (typeof v === 'string' && v !== '') || (typeof v === 'number' && Number.isFinite(v)),
+      )
+      if (!list.length) return
+      const numeric = list.every((v) => typeof v === 'number')
+      const column = numeric ? json : text
+      // Built here, not with `.in()`: postgrest-js quotes a value with a comma
+      // or a bracket but leaves a `"` inside it bare, so an option like
+      // `12" pipe, large` would break the whole query. Both operators take
+      // the same escaped list.
+      const inList = `(${list.map((v) => (numeric ? String(v) : inListItem(String(v)))).join(',')})`
+      if (operator === 'is_any_of') query.filter(column, 'in', inList)
+      else query.not(column, 'in', inList)
+      return
+    }
+    case 'gt':
+    case 'gte':
+    case 'lt':
+    case 'lte':
+      applyCustomFieldBound(query, key, operator, value)
+      return
+    case 'between': {
+      const range = (value ?? {}) as Partial<RangeValue>
+      applyCustomFieldBound(query, key, 'gte', range.from)
+      applyCustomFieldBound(query, key, 'lte', range.to)
+      return
+    }
+    case 'is_relative': {
+      // The window as calendar days: the values are days, not instants.
+      const resolved = resolveRelativeDate(value as RelativeDateValue)
+      query.gte(text, format(new Date(resolved.from), 'yyyy-MM-dd')).lte(text, format(new Date(resolved.to), 'yyyy-MM-dd'))
+      return
+    }
+    default:
+      // includes / excludes / equals are label and tag operators: no custom
+      // field type offers them.
+      return
   }
 }
 
@@ -1567,6 +1728,17 @@ export function applyOrdering(
       console.warn(`[views/query] ignoring sort on dropped field "${sort.field}" (${entityType})`)
       continue
     }
+    // A custom field sorts through `->` (jsonb): numbers as numbers, days and
+    // text as text, records without the field last.
+    if (isCustomFieldPath(sort.field)) {
+      const key = customFieldKeyOf(sort.field)
+      if (!key || !entityType || !viewTakesCustomFields(entityType)) {
+        console.warn(`[views/query] ignoring sort on custom field "${sort.field}" (${entityType})`)
+        continue
+      }
+      query.order(`custom_fields->${key}`, { ascending: sort.direction === 'asc', nullsFirst: false })
+      continue
+    }
     query.order(sort.field, { ascending: sort.direction === 'asc', nullsFirst: false })
   }
   // Personal scope breaks the uniqueness that paging quietly leans on:
@@ -1833,6 +2005,36 @@ export function groupResults(
   }
 
   return sortedGroups
+}
+
+/**
+ * Groups by a custom SELECT field (`custom_fields.<key>`) laid out by its
+ * definition: a group per option in option order, empty ones included, "No
+ * value" last (orderCustomSelectGroups). One read of the one definition,
+ * under the caller's RLS. Anything else, or a definition that is not there
+ * or not a select, leaves the groups as groupResults made them.
+ */
+export async function layoutCustomSelectGroups(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityType: ViewEntityType,
+  grouping: GroupConfig,
+  groups: GroupedResults[],
+): Promise<GroupedResults[]> {
+  const key = customFieldKeyOf(grouping.field)
+  if (!key || !viewTakesCustomFields(entityType)) return groups
+  const { data, error } = await supabase
+    .from('custom_field_definition')
+    .select('field_type, options')
+    .eq('workspace_id', workspaceId)
+    .eq('entity_type', entityType)
+    .eq('key', key)
+    .maybeSingle()
+  if (error || !data || (data as { field_type?: string }).field_type !== 'select') return groups
+  const options = Array.isArray((data as { options?: unknown }).options)
+    ? ((data as { options: unknown[] }).options.filter((o): o is string => typeof o === 'string'))
+    : []
+  return orderCustomSelectGroups(groups, options, grouping.direction)
 }
 
 /** Date fields that should be grouped by calendar day instead of raw value */
@@ -2179,6 +2381,7 @@ export async function executeView(
   if (view.grouping) {
     const validSubGrouping = view.sub_grouping && view.sub_grouping.field ? view.sub_grouping : null
     grouped = groupResults(items, view.grouping, validSubGrouping)
+    grouped = await layoutCustomSelectGroups(supabase, view.workspace_id, view.entity_type, view.grouping, grouped)
   }
 
   return {

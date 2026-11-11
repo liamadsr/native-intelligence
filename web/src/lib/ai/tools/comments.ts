@@ -1,7 +1,15 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { captureRequester, captureVisibleToRequester, documentVisibleToRequester, resolveEntityWorkspace, workspaceEcho } from './_shared'
+import {
+  captureReadAccess,
+  captureRequester,
+  captureWriteAccess,
+  documentCommentAccess,
+  documentReadAccess,
+  resolveEntityWorkspace,
+  workspaceEcho,
+} from './_shared'
 import type { CreateWorkspacePolicy } from './_shared'
 
 const COMMENT_SELECT = `
@@ -31,6 +39,14 @@ export function createCommentTools(
   omitPrivateCaptures = false,
   strictWorkspace = false,
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // Comments on a capture or a document are derived content: they are hidden
   // with it (a private capture, 223; a private document, 369).
@@ -51,8 +67,18 @@ export function createCommentTools(
    *
    * Null on EVERY failure, so callers emit one indistinguishable not-found and
    * an id in a workspace the caller can't reach never announces itself.
+   *
+   * `access`: 'read' for the tools that only read comments, where a private
+   * capture or document SHARED with the person (a grant, 492) counts, as the
+   * comment view policy's grant arm (493) has it; 'write' (add_comment, the
+   * default) asks the record's own rule or an EDIT grant (512: a view grant
+   * never comments, as 494's comment policy refuses it in the app).
    */
-  const resolveCommentableWorkspace = async (type: string, id: string): Promise<string | null> => {
+  const resolveCommentableWorkspace = async (
+    type: string,
+    id: string,
+    access: 'read' | 'write' = 'write',
+  ): Promise<string | null> => {
     const table = TABLE_MAP[type]
     // An unmapped commentable_type is only reachable through
     // get_comment_replies, which reads the type off the stored comment. There is
@@ -64,13 +90,19 @@ export function createCommentTools(
     if (!routed) return null
     // A private document is its creator's alone, and so are its comments (369).
     if (type === 'document') {
-      const visible = await documentVisibleToRequester(supabase, id, routed.workspaceId, userId, omitPrivateCaptures)
+      const visible =
+        access === 'read'
+          ? !!(await documentReadAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, !omitGrants))
+          : !!(await documentCommentAccess(supabase, id, routed.workspaceId, userId, omitPrivateCaptures, editGrants))
       return visible ? routed.workspaceId : null
     }
     if (type !== 'capture') return routed.workspaceId
     // Visibility is re-checked IN the resolved workspace — the capture's own —
     // not in the session's.
-    const visible = await captureVisibleToRequester(supabase, id, routed.workspaceId, requester)
+    const visible =
+      access === 'read'
+        ? !!(await captureReadAccess(supabase, id, routed.workspaceId, requester, undefined, !omitGrants))
+        : !!(await captureWriteAccess(supabase, id, routed.workspaceId, requester, editGrants))
     return visible ? routed.workspaceId : null
   }
 
@@ -84,7 +116,7 @@ export function createCommentTools(
       execute: async ({ commentable_type, commentable_id }) => {
         // Verify the entity is reachable — membership in whichever workspace
         // holds it, plus (for captures) visibility to the requester.
-        if (!(await resolveCommentableWorkspace(commentable_type, commentable_id))) {
+        if (!(await resolveCommentableWorkspace(commentable_type, commentable_id, 'read'))) {
           return { success: false, error: `${commentable_type} not found` }
         }
 
@@ -188,6 +220,7 @@ export function createCommentTools(
           !(await resolveCommentableWorkspace(
             parentComment.commentable_type,
             parentComment.commentable_id,
+            'read',
           ))
         ) {
           return { success: false, error: 'Comment not found' }

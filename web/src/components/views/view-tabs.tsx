@@ -16,6 +16,8 @@ import {
   isConditionalProspectStageTab,
   type ProspectStageTab, type ProspectStageCounts,
 } from '@/lib/views/prospect-stage-tabs'
+import { customFieldFilterFields, isCustomFieldPath } from '@/lib/views/custom-field-columns'
+import { useCustomFieldDefinitions } from './hooks/use-custom-field-definitions'
 
 /** What a collection of these is CALLED, in the user's words. Drives the
  *  built-in "All …" tab and the search box's placeholder. */
@@ -41,8 +43,13 @@ type EditMode = null | 'create' | 'edit'
 
 // ── Filter preview for tooltip ──
 function FilterPreview({ filter, entityType }: { filter: ViewFilter; entityType: ViewEntityType }) {
-  const fieldDef = FILTERABLE_FIELDS[entityType]?.find(f => f.field === filter.field)
-  const fieldLabel = fieldDef?.label || filter.field
+  const isCustom = isCustomFieldPath(filter.field)
+  const customDefs = useCustomFieldDefinitions(entityType, isCustom)
+  const fieldDef = isCustom
+    ? customFieldFilterFields(customDefs).find(f => f.field === filter.field)
+    : FILTERABLE_FIELDS[entityType]?.find(f => f.field === filter.field)
+  // A custom field the workspace no longer has reads as "Custom field", not its path.
+  const fieldLabel = fieldDef?.label || (isCustom ? 'Custom field' : filter.field)
   const operatorLabel = describeOperator(filter.operator, fieldDef?.type)
 
   let valueLabel: string

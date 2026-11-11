@@ -19,8 +19,8 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 import { EntityAccessSection } from '../entity-access-section'
 
 const GRANTS: EntityAccessResponse['grants'] = [
-  { id: 'g-1', grantee_kind: 'member', grantee_id: 'm-rosa', grantee_name: 'Rosa Lind', source: 'manual', created_at: '2026-11-01T00:00:00Z' },
-  { id: 'g-2', grantee_kind: 'channel', grantee_id: 'ch-launch', grantee_name: '#launch', source: 'mention', created_at: '2026-11-02T00:00:00Z' },
+  { id: 'g-1', grantee_kind: 'member', grantee_id: 'm-rosa', grantee_name: 'Rosa Lind', level: 'view', source: 'manual', created_at: '2026-11-01T00:00:00Z' },
+  { id: 'g-2', grantee_kind: 'channel', grantee_id: 'ch-launch', grantee_name: '#launch', level: 'edit', source: 'mention', created_at: '2026-11-02T00:00:00Z' },
 ]
 
 let root: Root
@@ -40,9 +40,9 @@ function stub(access: EntityAccessResponse) {
   }
 }
 
-async function render(access: EntityAccessResponse, listOnly = false) {
+async function render(access: EntityAccessResponse, listOnly = false, extra: { type?: 'document' | 'company'; standalone?: boolean } = {}) {
   await act(async () => {
-    root.render(h(EntityAccessSection, { type: 'document', id: 'doc-1', listOnly, fetchImpl: stub(access) }))
+    root.render(h(EntityAccessSection, { type: extra.type ?? 'document', id: 'doc-1', listOnly, standalone: extra.standalone, fetchImpl: stub(access) }))
   })
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0))
@@ -103,6 +103,50 @@ describe('EntityAccessSection', () => {
     expect(container.querySelector('input')).toBeNull()
     expect(calls.map((c) => c.url)).toEqual(['/api/account/entity-access?type=document&id=doc-1'])
     await render({ can_share: true, restricted: true, grants: [] }, true)
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('each row says its level, as a control the sharer can change (512)', async () => {
+    await render({ can_share: true, restricted: true, grants: GRANTS })
+    const rosa = container.querySelector('[aria-label="Access for Rosa Lind"]')
+    const launch = container.querySelector('[aria-label="Access for #launch"]')
+    expect(rosa?.textContent).toContain('Can view')
+    expect(launch?.textContent).toContain('Can edit')
+    // The picker has its own level, view until changed.
+    expect(container.querySelector('[aria-label="Access for who you add"]')?.textContent).toContain('Can view')
+    expect(container.textContent).toContain('edit it if you choose Can edit')
+  })
+
+  it('adds a grant with its level', async () => {
+    await render({ can_share: true, restricted: true, grants: [] })
+    const input = container.querySelector('input[placeholder="Search members..."]') as HTMLInputElement
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      setter?.call(input, 'Sam')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('focus', { bubbles: true }))
+    })
+    const option = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Sam Okafor')) as HTMLButtonElement
+    await act(async () => {
+      option.click()
+    })
+    const share = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Share') as HTMLButtonElement
+    await act(async () => {
+      share.click()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    const post = calls.find((c) => c.method === 'POST')
+    expect(post?.url).toBe('/api/account/entity-access')
+    expect(post?.body).toEqual({ type: 'document', id: 'doc-1', grantee_kind: 'member', grantee_id: 'm-sam', level: 'view' })
+  })
+
+  it('standalone (a company dialog): the picker shows for a sharer though nothing restricts it, with no leading rule', async () => {
+    await render({ can_share: true, restricted: false, grants: [] }, false, { type: 'company', standalone: true })
+    expect(container.querySelector('input[placeholder="Search members..."]')).not.toBeNull()
+    expect(container.textContent).toContain('Everyone who can see one of its contacts can see this company.')
+    expect(container.firstElementChild?.getAttribute('data-testid')).toBe('entity-access-section')
+    // Still nothing for someone who cannot share it.
+    await render({ can_share: false, restricted: true, grants: [] }, false, { type: 'company', standalone: true })
     expect(container.innerHTML).toBe('')
   })
 })

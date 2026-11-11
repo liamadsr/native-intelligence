@@ -141,6 +141,15 @@ for (const flag of [
   'JEV_INPUT_USD_PER_MILLION',
   'GATEWAY_USAGE_REPORTING',
   'AI_GATEWAY_API_KEY',
+  // The gateway client's other credential. With no API key it takes the
+  // host's short-lived token from VERCEL_OIDC_TOKEN, and the BUILD env always
+  // has one. Left in place, a test that reaches a model or an embedding
+  // without a mock makes a LIVE (billed) call during a production build and
+  // then tries to record the spend. A document edit's re-index did exactly
+  // that: one real embedding, a refused `billing/usage-log-failed` send, and a
+  // failed build on a test that passes everywhere else. A test that needs the
+  // token sets it itself.
+  'VERCEL_OIDC_TOKEN',
   // The gmail/outlook webhook routes fail CLOSED (401) when their secret is
   // unset in a production-like env — detected via VERCEL_ENV, which Vercel
   // injects into the BUILD env where this suite runs. Scrub it (and the

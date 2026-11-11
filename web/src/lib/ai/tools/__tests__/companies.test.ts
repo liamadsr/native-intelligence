@@ -35,6 +35,8 @@ let writeResult: { data: unknown; error: { message: string } | null } = {
 
 function makeSupabase(): SupabaseClient {
   return {
+    // update_company's write gate (512): the person may change it by its own rule.
+    rpc: async (fn: string) => ({ data: fn === 'company_visible_to_ungranted', error: null }),
     from() {
       return {
         // update_company's routing pre-check (resolveEntityWorkspace, ./_shared.ts):

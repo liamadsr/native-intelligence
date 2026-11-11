@@ -157,6 +157,13 @@ export interface ApprovalToolOptions {
   /** actionRules.fileActionsAsSuggested (an unattended run's actions arrive as suggestions). */
   fileActionsAsSuggested?: boolean
   origin?: { actor?: 'agent' | 'person'; depth?: number; run_id?: string }
+  /**
+   * CreateToolsOptions.omitGrants: a guest's or a linked agent's call, which
+   * reads no grant (492) shared with the owner. A replay of a call held from
+   * either (context.guest or context.agentLink) omits grants even with no
+   * flag stored (storedToolOptions fails closed).
+   */
+  omitGrants?: boolean
 }
 
 /** What the re-checks need at accept time, recorded when the approval is raised. */
@@ -1117,6 +1124,8 @@ export function storedToolOptions(row: Pick<ApprovalRow, 'door' | 'context' | 'c
     ...(fence.strictWorkspace ? { strictWorkspace: true } : {}),
     ...(fence.omitPrivateCaptures ? { omitPrivateCaptures: true } : {}),
     ...(fence.unattended ? { unattended: true } : {}),
+    // A guest's or a linked agent's held call never reads the owner's grants on replay, flag stored or not.
+    ...(fence.omitGrants || row.context?.guest || row.context?.agentLink ? { omitGrants: true } : {}),
     ...(fence.fileActionsAsSuggested
       ? { actionRules: { unattended: true, fileActionsAsSuggested: true, filedByRun: async (ids: readonly string[]) => new Set(ids.map((id) => id.toLowerCase())) } }
       : {}),

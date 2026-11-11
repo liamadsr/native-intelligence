@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveActionTarget } from '@/lib/proposed-changes/resolve-action-target'
 import { resolveContactIdByName } from '@/lib/people/name-match'
+import { isContactVisibleTo } from '@/lib/crm/contact-visibility'
 import type { SuggestEntityType } from './types'
 
 /**
@@ -214,6 +215,8 @@ export async function resolveSuggestionTarget(
     /** The run's / conversation's own workspace; wins ties. */
     preferredWorkspaceId: string
     userId: string
+    /** false on a guest's or a linked agent's turn: no grant resolves a contact. */
+    grants?: boolean
   },
 ): Promise<ResolvedTarget> {
   const target = args.target.trim()
@@ -227,7 +230,7 @@ export async function resolveSuggestionTarget(
     case 'contact': {
       const id = UUID_RE.test(target)
         ? target
-        : await resolveContactIdByName(supabase, args.preferredWorkspaceId, target, args.userId)
+        : await resolveContactIdByName(supabase, args.preferredWorkspaceId, target, args.userId, args.grants === false ? { grants: false } : {})
       if (!id) return { ok: false, refusal: 'target_not_found', note: `No contact "${target}".` }
       const { data } = await supabase
         .from('contact')
@@ -237,6 +240,10 @@ export async function resolveSuggestionTarget(
         .maybeSingle()
       const row = data as { id: string; workspace_id: string; full_name: string | null } | null
       if (!row) return { ok: false, refusal: 'target_not_found', note: `No contact "${target}".` }
+      // A contact given by id is fenced like one given by name (this runs service-role): one the person can't see is not found.
+      if (!(await isContactVisibleTo(supabase, row.id, args.userId, args.grants === false ? { grants: false } : {}))) {
+        return { ok: false, refusal: 'target_not_found', note: `No contact "${target}".` }
+      }
       return { ok: true, workspaceId: row.workspace_id, entityId: row.id, label: `contact '${row.full_name ?? row.id}'`, teamId: null, base: null }
     }
   }

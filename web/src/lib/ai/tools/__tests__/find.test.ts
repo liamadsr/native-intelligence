@@ -408,6 +408,31 @@ describe('find — anchor name enrichment (company + back-compat)', () => {
     expect(r.project_name).toBeUndefined()
   })
 
+  it('a company anchor hidden from the requester is no anchor: its name never rides along (migration 500)', async () => {
+    const supabase = makeSupabase({
+      fromByTable: {
+        workspace: { name: 'WS' },
+        entity_link: [
+          { source_id: 'claim-1', target_id: 'co-hidden', target_type: 'company', relation: 'about' },
+        ],
+        company: [{ id: 'co-hidden', name: 'Quietly Inc' }],
+      },
+      rpcByName: {
+        hybrid_search: [
+          { result_type: 'claim', result_id: 'claim-1', title: 'A renewal', score: 0.6, event_at: null, fts_rank: 1, vec_rank: 1, recency_rank: 1, excerpt: null, source_label: 'company', source_type: 'company', metadata: {} },
+        ],
+        entity_refs_hidden: [{ entity_type: 'company', entity_id: 'co-hidden' }],
+      },
+    })
+    const res = (await getTool(supabase).execute!({ query: 'x' } as never, EXEC_OPTS)) as {
+      results: Array<{ anchor_name?: string; source_label: string | null }>
+    }
+    expect(res.results[0].anchor_name).toBeUndefined()
+    expect(JSON.stringify(res)).not.toContain('Quietly Inc')
+    const fence = (supabase as never as { rpc: ReturnType<typeof vi.fn> }).rpc.mock.calls.find((c: unknown[]) => c[0] === 'entity_refs_hidden')!
+    expect(fence[1]).toMatchObject({ p_types: ['company'], p_ids: ['co-hidden'] })
+  })
+
   it('keeps `project_name` as the alias when the anchor IS a project', async () => {
     const supabase = makeSupabase({
       fromByTable: {

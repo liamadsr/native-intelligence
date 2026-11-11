@@ -11,6 +11,7 @@ import {
   workspaceEcho,
   type CreateWorkspacePolicy,
 } from './_shared'
+import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
 
 const INITIATIVE_TIME_FIELDS = ['created_at', 'updated_at', 'target_date'] as const
 
@@ -56,7 +57,7 @@ export function createInitiativeTools(
         let query = supabase
           .from('initiative')
           .select(`
-            id, name, description, status, target_date, color, icon, created_at,
+            id, name, description, status, target_date, color, icon, created_at, custom_fields,
             owner:member!owner_id(id, display_name, avatar_url)
           `)
           .eq('workspace_id', workspaceId)
@@ -77,7 +78,8 @@ export function createInitiativeTools(
         if (sinceISO) query = query.gte(timeField, sinceISO)
         if (untilISO) query = query.lte(timeField, untilISO)
 
-        const { data, error } = await query
+        // The workspace's own fields on initiatives (migration 496): one read for the list.
+        const [{ data, error }, fieldDefs] = await Promise.all([query, customFieldDefsOrNone(supabase, workspaceId, 'initiative')])
 
         if (error) return { success: false, error: error.message }
 
@@ -196,6 +198,7 @@ export function createInitiativeTools(
             progress: { total_actions: actStats.total, completed_actions: actStats.completed, percentage },
             labels: (labelsMap[i.id] || []).map((l) => ({ id: l.id, name: l.name })),
             health: initHealth,
+            ...withCustomFields(fieldDefs, (i as { custom_fields?: unknown }).custom_fields),
           }
         })
 
@@ -398,7 +401,7 @@ export function createInitiativeTools(
         const { data: initiative, error } = await supabase
           .from('initiative')
           .select(`
-            id, name, description, status, target_date, color, icon, created_at, updated_at,
+            id, name, description, status, target_date, color, icon, created_at, updated_at, custom_fields,
             owner:member!owner_id(id, display_name, avatar_url)
           `)
           .eq('id', id)
@@ -406,6 +409,7 @@ export function createInitiativeTools(
           .single()
 
         if (error) return { success: false, error: error.message }
+        const fieldDefs = await customFieldDefsOrNone(supabase, wsResolved.workspaceId, 'initiative')
 
         // Get child projects + labels in parallel
         const [projectsResult, labelsResult] = await Promise.all([
@@ -513,6 +517,8 @@ export function createInitiativeTools(
             },
             projects: enrichedProjects,
             labels,
+            // The workspace's own fields on initiatives (migration 496), the set ones, by name.
+            ...withCustomFields(fieldDefs, (initiative as { custom_fields?: unknown }).custom_fields),
           },
         }
       },

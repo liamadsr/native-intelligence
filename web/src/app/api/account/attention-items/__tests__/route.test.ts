@@ -1044,7 +1044,9 @@ describe('PATCH start — work proposal → tracked action + work run', () => {
     // resource type → { table it fences on, a row proving membership in ws-1 }.
     const CASES: Array<{ type: string; table: keyof typeof hoisted.db; id: string }> = [
       { type: 'claim', table: 'claim', id: 'clm-1' },
-      { type: 'email', table: 'email_thread_index', id: 'em-1' },
+      { type: 'email_thread', table: 'email_thread_index', id: 'em-1' },
+      // The retired name (migration 503) is fenced, and snapshotted, as email_thread.
+      { type: 'email', table: 'email_thread_index', id: 'em-2' },
       { type: 'attachment', table: 'attachments', id: 'att-1' },
       { type: 'member', table: 'member', id: 'mem-res-1' },
       { type: 'conversation', table: 'chat_conversations', id: 'conv-1' },
@@ -1063,6 +1065,7 @@ describe('PATCH start — work proposal → tracked action + work run', () => {
         const resources = hoisted.db.agent_run[0].resources as Array<Record<string, unknown>>
         expect(resources[0].id).toBe(id)
         expect(resources[0].label).toBe(`${type} label`)
+        expect(resources[0].type).toBe(type === 'email' ? 'email_thread' : type)
       })
 
       it(`drops a foreign ${type} id (wrong workspace) but keeps the label`, async () => {

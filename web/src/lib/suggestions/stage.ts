@@ -45,6 +45,8 @@ export interface StageContext {
   home: SuggestionHome | null
   trackedJobId?: string | null
   now?: Date
+  /** false on a guest's or a linked agent's turn (CreateToolsOptions.omitGrants): no grant resolves a contact. */
+  grants?: boolean
 }
 
 /** Combos suggest_changes may stage: each is handled by the apply engine and
@@ -96,7 +98,7 @@ async function resolvePerson(
   }
   const memberId = await resolveMemberIdByName(ctx.supabase, workspaceId, trimmed)
   if (memberId) return { memberId, contactId: null, name: trimmed }
-  const contactId = await resolveContactIdByName(ctx.supabase, workspaceId, trimmed, ctx.userId)
+  const contactId = await resolveContactIdByName(ctx.supabase, workspaceId, trimmed, ctx.userId, ctx.grants === false ? { grants: false } : {})
   if (contactId) return { memberId: null, contactId, name: trimmed }
   return null
 }
@@ -154,6 +156,7 @@ async function resolveInput(ctx: StageContext, members: MemberRow[], input: Sugg
       workspaceIds,
       preferredWorkspaceId: ctx.workspaceId,
       userId: ctx.userId,
+      ...(ctx.grants === false ? { grants: false } : {}),
     })
     if (!t.ok) return refuse(t.refusal, t.note)
     target = t

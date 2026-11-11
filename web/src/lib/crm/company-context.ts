@@ -144,6 +144,12 @@ export interface GatherCompanyContextOptions {
   companyId: string
   /** captureRequester(userId, omitPrivateCaptures) — null on unattended runs. */
   requester: CaptureRequester
+  /**
+   * false on a guest's or a linked agent's turn (CreateToolsOptions.omitGrants):
+   * no grant on the company or on one of its contacts opens it or names its
+   * people (migration 519's 3-arg twins). Absent: grants count, as before.
+   */
+  grants?: boolean
 }
 
 type PgResult<T> = { data: T[] | null; error: { message: string } | null }
@@ -180,7 +186,7 @@ const inList = (vals: string[], quote = false) =>
 
 export async function gatherCompanyContext(
   supabase: SupabaseClient,
-  { workspaceId, userId, companyId, requester }: GatherCompanyContextOptions,
+  { workspaceId, userId, companyId, requester, grants }: GatherCompanyContextOptions,
 ): Promise<CompanyContext | null> {
   // 1. Company (workspace-fenced)
   const { data: companyRow, error: companyErr } = await supabase
@@ -199,9 +205,11 @@ export async function gatherCompanyContext(
   // 2. Company visibility — explicit-user twin of the 059 SELECT policy,
   //    because auth.uid() is NULL under service role. Anything but `true` is
   //    not-found (deliberately indistinguishable from a missing row).
+  const noGrants = grants === false ? { p_grants: false } : {}
   const { data: visible, error: visErr } = await supabase.rpc('company_visible_to', {
     p_company_id: c.id,
     p_user_id: requester,
+    ...noGrants,
   })
   if (visErr) console.warn('[company-context] company_visible_to failed:', visErr.message)
   if (visible !== true) return null
@@ -257,6 +265,7 @@ export async function gatherCompanyContext(
         const { data, error } = await supabase.rpc('contact_visible_to', {
           p_contact_id: p.id,
           p_user_id: requester,
+          ...noGrants,
         })
         if (error) {
           console.warn('[company-context] contact_visible_to failed:', error.message)

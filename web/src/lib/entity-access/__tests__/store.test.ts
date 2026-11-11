@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { memoryDb } from '@/test/memory-db'
-import { addEntityGrant, loadEntityAccess, removeEntityGrant } from '../store'
+import { addEntityGrant, loadEntityAccess, removeEntityGrant, setEntityGrantLevel } from '../store'
 
 const WS = 'aaaaaaaa-0000-4000-8000-000000000001'
 const ANA_M = 'mmmmmmmm-0000-4000-8000-00000000000a'
@@ -33,7 +33,7 @@ function db(canShare = true) {
     contact: [] as Array<Record<string, unknown>>,
     company: [{ id: 'co-1', workspace_id: WS }],
     entity_access: [
-      { id: 'g-1', workspace_id: WS, entity_type: 'document', entity_id: 'doc-private', grantee_kind: 'member', grantee_member_id: BEN_M, source: 'manual', created_at: '2026-11-01T00:00:00Z' },
+      { id: 'g-1', workspace_id: WS, entity_type: 'document', entity_id: 'doc-private', grantee_kind: 'member', grantee_member_id: BEN_M, level: 'edit', source: 'manual', created_at: '2026-11-01T00:00:00Z' },
       { id: 'g-2', workspace_id: WS, entity_type: 'document', entity_id: 'doc-private', grantee_kind: 'team', grantee_team_id: TEAM, source: 'manual', created_at: '2026-11-02T00:00:00Z' },
       { id: 'g-3', workspace_id: WS, entity_type: 'document', entity_id: 'doc-private', grantee_kind: 'channel', grantee_channel_id: 'ch-launch', source: 'mention', created_at: '2026-11-03T00:00:00Z' },
       { id: 'g-4', workspace_id: WS, entity_type: 'document', entity_id: 'doc-private', grantee_kind: 'channel', grantee_channel_id: 'ch-dm', source: 'channel_share', created_at: '2026-11-04T00:00:00Z' },
@@ -96,5 +96,30 @@ describe('addEntityGrant and removeEntityGrant', () => {
     expect(await removeEntityGrant(client, WS, 'g-1')).toBe(true)
     expect(tables.entity_access.map((g) => g.id)).toEqual(['g-2', 'g-3', 'g-4'])
     expect(await removeEntityGrant(client, WS, 'g-1')).toBe(false)
+  })
+})
+
+describe('grant levels (migration 512)', () => {
+  it('each grant says its level; a row without one reads as view', async () => {
+    const { client } = db()
+    const access = await loadEntityAccess(client, { workspaceId: WS, memberId: ANA_M }, 'document', 'doc-private')
+    expect(access?.grants.map((g) => g.level)).toEqual(['edit', 'view', 'view', 'view'])
+  })
+
+  it('adds an edit grant when asked', async () => {
+    const { client, tables } = db()
+    await addEntityGrant(client, { workspaceId: WS, memberId: ANA_M }, 'company', 'co-1', { kind: 'member', id: BEN_M }, 'edit')
+    expect(tables.entity_access.at(-1)).toMatchObject({ entity_type: 'company', entity_id: 'co-1', level: 'edit', granted_by: ANA_M })
+  })
+
+  it('changes a level, and answers false when nothing changed or the database refused', async () => {
+    const { client, tables } = db()
+    expect(await setEntityGrantLevel(client, WS, 'g-2', 'edit')).toBe(true)
+    expect(tables.entity_access.find((g) => g.id === 'g-2')?.level).toBe('edit')
+    expect(await setEntityGrantLevel(client, WS, 'g-none', 'edit')).toBe(false)
+    const refusing = {
+      from: () => ({ update: () => ({ eq: () => ({ eq: () => ({ select: async () => ({ data: null, error: { message: 'permission denied', code: '42501' } }) }) }) }) }),
+    } as never
+    expect(await setEntityGrantLevel(refusing, WS, 'g-1', 'view')).toBe(false)
   })
 })

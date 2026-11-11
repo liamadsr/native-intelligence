@@ -397,6 +397,20 @@ describe('an approved loop call keeps the run\'s fence', () => {
     expect(storedToolOptions({ door: 'skill_run', context: { tools: { strictWorkspace: false } }, conversation_id: null, skill_id: 's' })).toMatchObject({ strictWorkspace: true })
     expect(storedToolOptions({ door: 'chat', context: {}, conversation_id: 'c', skill_id: null })).not.toHaveProperty('strictWorkspace')
   })
+
+  it("a guest's or a linked agent's held call replays reading no grant (omitGrants), stored or not; the person's own never", () => {
+    const guest = { guestId: 'g-1', name: 'Kai' }
+    const agentLink = { linkId: 'l-1' } as never
+    // Recorded with the call (guest-tools.ts guestApprovalContext).
+    expect(storedToolOptions({ door: 'chat', context: { guest, tools: { omitGrants: true } }, conversation_id: null, skill_id: null })).toMatchObject({ omitGrants: true })
+    // Fail closed: a guest's or a linked agent's row from before the flag, or one that says false.
+    expect(storedToolOptions({ door: 'chat', context: { guest, tools: { origin: { actor: 'agent', depth: 1 } } }, conversation_id: null, skill_id: null })).toMatchObject({ omitGrants: true })
+    expect(storedToolOptions({ door: 'chat', context: { guest, tools: { omitGrants: false } }, conversation_id: null, skill_id: null })).toMatchObject({ omitGrants: true })
+    expect(storedToolOptions({ door: 'chat', context: { agentLink }, conversation_id: null, skill_id: null })).toMatchObject({ omitGrants: true })
+    // The person's own held call reads their grants as their turn did.
+    expect(storedToolOptions({ door: 'chat', context: {}, conversation_id: 'c', skill_id: null })).not.toHaveProperty('omitGrants')
+    expect(storedToolOptions({ door: 'skill_run', context: {}, conversation_id: null, skill_id: 's' })).not.toHaveProperty('omitGrants')
+  })
 })
 
 describe('approvalCeilingPermits', () => {

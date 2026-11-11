@@ -118,7 +118,8 @@ export async function loadCampaignForLaunch(
 /** Who the campaign reaches today and what they'd get, checked as a launch checks. Sends nothing. */
 export async function prepareCampaignLaunch(
   supabase: SupabaseClient,
-  args: { workspaceId: string; campaign: CampaignForLaunch; userId: string; now?: number },
+  // `grants: false` on a guest's or a linked agent's turn (and its approved replay): no grant puts a contact in the audience.
+  args: { workspaceId: string; campaign: CampaignForLaunch; userId: string; now?: number; grants?: boolean },
 ): Promise<CampaignLaunchPrep | CampaignLaunchRefusal> {
   const { campaign, workspaceId } = args
   if (campaign.status === 'archived' || campaign.status === 'completed') {
@@ -144,7 +145,7 @@ export async function prepareCampaignLaunch(
   let matches: AudienceContact[]
   let eligible: { eligible: AudienceContact[]; skipped: AudienceSkips }
   try {
-    matches = await matchAudience(supabase, { workspaceId, userId: args.userId, audience, now: args.now })
+    matches = await matchAudience(supabase, { workspaceId, userId: args.userId, audience, now: args.now, grants: args.grants })
     eligible = await eligibleRecipients(supabase, { workspaceId, sequenceId: campaign.sequence_id, contacts: matches })
   } catch (err) {
     return { ok: false, code: 'READ_FAILED', error: `Could not read the audience, so nothing was prepared: ${err instanceof Error ? err.message : String(err)}` }
@@ -219,7 +220,7 @@ export type CampaignLaunchOutcome =
 /** The person said yes on the card: enroll and arm exactly the people it named who still qualify. */
 export async function executeCampaignLaunch(
   supabase: SupabaseClient,
-  args: { workspaceId: string; campaign: CampaignForLaunch; userId: string; approved: OutreachApprovalContext; now?: number },
+  args: { workspaceId: string; campaign: CampaignForLaunch; userId: string; approved: OutreachApprovalContext; now?: number; grants?: boolean },
 ): Promise<CampaignLaunchOutcome> {
   const prep = await prepareCampaignLaunch(supabase, args)
   if (!prep.ok) return prep

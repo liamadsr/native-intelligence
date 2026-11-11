@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { EMPLOYEE_COUNT_RANGES } from '@/lib/crm/enrichment'
+import { companyWriteAccess } from '@/lib/crm/contact-visibility'
 import { COMPANY_WEB_FIELDS, fenceWebFields } from './web-derived'
 import {
   resolveEntityWorkspace,
@@ -37,7 +38,39 @@ export function createCompanyTools(
   // exactly like every other create-bearing factory — an unused default keeps
   // today's callers (index.ts) byte-identical until the bridge passes 'explicit'.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // EDIT GRANTS (512): createTools's one flag (never a guest's, linked
+  // agent's or unattended turn). Off unless said.
+  editGrants = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // company shared with the person, or one of its contacts, lists nothing
+  // (migration 519's p_grants).
+  omitGrants = false,
 ) {
+  /**
+   * update_company's gate: the company's own edit rule (an owner or admin,
+   * or a member who can see one of its contacts: 496's company_visible_to_
+   * ungranted), the person's own creation (the activity log's 'created' row
+   * names them: a company they just made has no contacts yet), or on an
+   * attended turn an edit grant (512). Null: not found.
+   */
+  async function companyUpdateAccess(companyId: string, ws: string): Promise<'rule' | 'grant' | null> {
+    const access = await companyWriteAccess(supabase, companyId, userId, { grants: editGrants })
+    if (access) return access
+    const { data: me } = await supabase.from('member').select('id').eq('workspace_id', ws).eq('user_id', userId).maybeSingle()
+    const memberId = (me as { id?: unknown } | null)?.id
+    if (typeof memberId !== 'string') return null
+    const { data: created } = await supabase
+      .from('entity_activity')
+      .select('id')
+      .eq('workspace_id', ws)
+      .eq('entity_type', 'company')
+      .eq('entity_id', companyId)
+      .eq('action', 'created')
+      .eq('actor_member_id', memberId)
+      .limit(1)
+    return Array.isArray(created) && created.length > 0 ? 'rule' : null
+  }
+
   return {
     list_companies: tool({
       description:
@@ -66,6 +99,7 @@ export function createCompanyTools(
           p_limit: Math.min(limit ?? 50, 200),
           p_offset: offset ?? 0,
           p_user_id: userId,
+          ...(omitGrants ? { p_grants: false } : {}),
         })
         if (error) return { success: false, error: error.message }
 
@@ -185,6 +219,15 @@ export function createCompanyTools(
           strictWorkspace,
         )
         if (!resolved) return { success: false, error: 'Company not found' }
+        // A write gate (this runs service-role, where RLS hides nothing): the
+        // company must be one the person may change.
+        const access = await companyUpdateAccess(company_id, resolved.workspaceId)
+        if (!access) return { success: false, error: 'Company not found' }
+        // Shared to edit (512): never its domain, whose adoption trigger pulls
+        // other members' contacts in and opens the company to their readers.
+        if (access === 'grant' && input.domain !== undefined) {
+          return { success: false, error: "This company is shared with you to edit its details; its domain stays an owner's or admin's to change." }
+        }
 
         // Same whitelist as the PATCH route, and the same rule: a key that was
         // not passed is not written, so a partial update never blanks a field.

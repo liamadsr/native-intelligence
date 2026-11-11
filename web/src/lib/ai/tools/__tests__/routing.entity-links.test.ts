@@ -51,7 +51,9 @@ function makeClient(seed: Record<string, Row[]> = {}) {
     return proxy
   })
 
-  return { from, tables } as never
+  // The edge fence (migration 500): nothing hidden in these fixtures.
+  const rpc = vi.fn(async () => ({ data: [], error: null }))
+  return { from, rpc, tables } as never
 }
 
 describe('unlink_entities — cross-workspace source routing', () => {

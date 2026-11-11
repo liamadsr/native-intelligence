@@ -12,18 +12,47 @@ import {
   workspaceEcho,
   applyCaptureVisibility,
   applyEmbeddedCaptureVisibility,
+  captureReadAccess,
   captureRequester,
+  GRANTS_TRUNCATED_NOTE,
+  grantReader,
   captureVisibleToRequester,
+  captureWriteAccess,
   isCaptureVisible,
+  readGrants,
   type CreateWorkspacePolicy,
 } from './_shared'
 import { filterVisibleContacts, isContactVisibleTo } from '@/lib/crm/contact-visibility'
+import { hasEditGrant } from '@/lib/entity-access/grants'
 import { wrapUntrusted } from '@/lib/email/untrusted'
 import { featureGatedRecipeExclusions, resolveWorkspaceEdition } from '@/lib/editions'
 import { excludeFeatureGatedRecipes } from '@/lib/library/feature-gate'
 import { visibleRecipesFilter } from '@/lib/library/visibility'
 
 const CAPTURE_TIME_FIELDS = ['started_at', 'created_at', 'ended_at'] as const
+
+/**
+ * A row a READ returned that is someone else's private capture: only a grant
+ * (492) let it through, so the person sees it shared with them, view only.
+ */
+function sharedOnly(row: { visibility?: unknown; user_id?: unknown }, requester: string | null): boolean {
+  return row.visibility === 'private' && row.user_id !== requester
+}
+
+/** What a read of a capture shared with the person (a grant) says about it. */
+const SHARED_VIEW_ONLY = {
+  shared_with_you: true,
+  access: 'view' as const,
+  access_note: "Another member's private capture, shared with you to read. You can't change it.",
+}
+
+/** The same, for one shared with them to EDIT (an edit grant, migration 512). */
+const SHARED_TO_EDIT = {
+  shared_with_you: true,
+  access: 'edit' as const,
+  access_note:
+    "Another member's private capture, shared with you to edit: you can change its title, text, summary, tags and decisions, and comment on it, but not archive it or change who sees it.",
+}
 
 /**
  * get_capture_transcript's default page: ~80K characters, about 20K tokens. A
@@ -80,17 +109,64 @@ export function createCaptureTools(
   // ./index.ts threads them. 'session' keeps chat byte-identical; the MCP
   // bridge passes 'explicit'.
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): what
+  // was shared with the person stays theirs, never their guest's.
+  omitGrants = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
 ) {
   // Every capture read below runs on a service-role client in the MCP / unattended
   // paths, so this requester — not RLS — enforces "only me" scope.
   const requester = captureRequester(userId, omitPrivateCaptures)
+  // Whom a grant (492) may open a capture to on this turn: the requester, or no one.
+  const grantee = grantReader(requester, omitGrants)
+  // And a contact (migration 519): no grant on one opens it on such a turn.
+  const contactOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
 
-  /** Resolve a capture id to its workspace AND confirm it is visible to the requester. */
+  /**
+   * Resolve a capture id to its workspace AND confirm it is visible to the
+   * requester by its own rule. The gate for archiving a capture: no grant,
+   * view or edit, passes it (512: an edit grant changes what it says, never
+   * whether it is archived).
+   */
   const resolveVisibleCapture = async (captureId: string) => {
     const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
     if (!wsResolved) return null
     const visible = await captureVisibleToRequester(supabase, captureId, wsResolved.workspaceId, requester)
     return visible ? wsResolved : null
+  }
+
+  /**
+   * The gate for a tool that changes what a capture SAYS (update_capture,
+   * edit_capture_content): its own rule, or an EDIT grant (512) that shares
+   * another member's private capture with the person to edit
+   * (captureWriteAccess). Never for archiving it: archive_capture keeps
+   * resolveVisibleCapture.
+   */
+  const resolveEditableCapture = async (captureId: string) => {
+    const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
+    if (!wsResolved) return null
+    const access = await captureWriteAccess(supabase, captureId, wsResolved.workspaceId, requester, editGrants)
+    return access ? { ...wsResolved, viaGrant: access === 'grant' } : null
+  }
+
+  /**
+   * The gate for a tool that only READS a capture: its own rule, or a grant
+   * that shares another member's private capture with the person
+   * (captureReadAccess). `viaGrant`: readable only through the grant, so the
+   * result says it is shared, and `shared` says how (view, or edit: 512).
+   */
+  const resolveReadableCapture = async (captureId: string) => {
+    const wsResolved = await resolveEntityWorkspace(supabase, userId, 'captures', captureId, workspaceId, strictWorkspace)
+    if (!wsResolved) return null
+    const access = await captureReadAccess(supabase, captureId, wsResolved.workspaceId, requester, undefined, !omitGrants)
+    if (!access) return null
+    const viaGrant = access === 'grant'
+    const toEdit = viaGrant && (await hasEditGrant(supabase, { userId: requester, workspaceId: wsResolved.workspaceId }, 'capture', captureId))
+    return { ...wsResolved, viaGrant, shared: viaGrant ? (toEdit ? SHARED_TO_EDIT : SHARED_VIEW_ONLY) : null }
   }
 
   return {
@@ -122,7 +198,7 @@ export function createCaptureTools(
         let query = supabase
           .from('captures')
           .select(
-            'id, workspace_id, project_id, title, content, transcript, duration_seconds, tags, is_pinned, started_at, ended_at, created_at',
+            'id, workspace_id, project_id, title, content, transcript, duration_seconds, tags, is_pinned, started_at, ended_at, created_at, visibility, user_id',
           )
           .eq('workspace_id', workspaceId)
           .neq('status', 'archived')
@@ -131,7 +207,9 @@ export function createCaptureTools(
           .order('created_at', { ascending: false })
           .limit(cappedLimit)
 
-        query = applyCaptureVisibility(query, requester)
+        // Plus the private captures shared with the person (a grant, 492): a read.
+        const { capture: granted, truncated: grantsTruncated } = await readGrants(supabase, grantee, workspaceId, ['capture'])
+        query = applyCaptureVisibility(query, requester, undefined, granted)
 
         if (project_id) query = query.eq('project_id', project_id)
         if (sinceISO) query = query.gte(timeField, sinceISO)
@@ -156,10 +234,19 @@ export function createCaptureTools(
             started_at: n.started_at,
             ended_at: n.ended_at,
             created_at: n.created_at,
+            ...(sharedOnly(n, requester) ? { shared_with_you: true } : {}),
           }
         })
 
-        return { success: true, captures, count: captures.length, since: sinceISO, until: untilISO, time_field: timeField }
+        return {
+          success: true,
+          captures,
+          count: captures.length,
+          since: sinceISO,
+          until: untilISO,
+          time_field: timeField,
+          ...(grantsTruncated ? { shared_note: GRANTS_TRUNCATED_NOTE } : {}),
+        }
       },
     }),
 
@@ -203,13 +290,15 @@ export function createCaptureTools(
             let q = supabase
               .from('captures')
               .select(
-                'id, workspace_id, project_id, title, duration_seconds, started_at, ended_at, created_at',
+                'id, workspace_id, project_id, title, duration_seconds, started_at, ended_at, created_at, visibility, user_id',
               )
               .eq('workspace_id', w.id)
               .neq('status', 'archived')
               .order('started_at', { ascending: false, nullsFirst: false })
               .limit(cappedLimit)
-            q = applyCaptureVisibility(q, requester)
+            // Grants are per workspace: each one's own (a read).
+            const { capture: granted } = await readGrants(supabase, grantee, w.id, ['capture'])
+            q = applyCaptureVisibility(q, requester, undefined, granted)
             if (sinceISO) q = q.gte(timeField, sinceISO)
             if (untilISO) q = q.lte(timeField, untilISO)
             const { data, error } = await q
@@ -238,6 +327,7 @@ export function createCaptureTools(
             started_at: c.started_at,
             ended_at: c.ended_at,
             created_at: c.created_at,
+            ...(sharedOnly(c, requester) ? { shared_with_you: true } : {}),
           }
         })
 
@@ -284,7 +374,7 @@ export function createCaptureTools(
         // Another member's private/team contact: RLS hides it on a user client,
         // but this may run service-role (contact-visibility.ts). Same error as
         // a missing contact, so its existence does not leak either.
-        if (!(await isContactVisibleTo(supabase, contact_id, userId))) {
+        if (!(await isContactVisibleTo(supabase, contact_id, userId, contactOpts))) {
           return { success: false, error: 'Contact not found in this workspace' }
         }
 
@@ -301,7 +391,10 @@ export function createCaptureTools(
           .order('joined_at', { ascending: false, nullsFirst: false })
           .limit(cappedLimit)
 
-        participantQuery = applyEmbeddedCaptureVisibility(participantQuery, requester, 'capture')
+        // Plus the private meetings shared with the person (a grant): a read.
+        const { capture: grantedList } = await readGrants(supabase, grantee, resolved.workspaceId, ['capture'])
+        const granted = new Set(grantedList)
+        participantQuery = applyEmbeddedCaptureVisibility(participantQuery, requester, 'capture', undefined, grantedList)
 
         const { data, error } = await participantQuery
 
@@ -325,7 +418,7 @@ export function createCaptureTools(
               | null
             // Defense-in-depth: filter again in TS in case the eq filter failed silently
             if (!c || c.workspace_id !== resolved.workspaceId) return null
-            if (!isCaptureVisible(c, requester)) return null
+            if (!isCaptureVisible(c, requester, undefined, granted)) return null
             return {
               id: c.id,
               workspace_id: c.workspace_id,
@@ -337,6 +430,7 @@ export function createCaptureTools(
               summary_preview: c.ai_summary ? c.ai_summary.substring(0, 280) : null,
               speaker_label: cp.speaker_label,
               voice_match_confidence: cp.voice_match_confidence,
+              ...(sharedOnly(c, requester) ? { shared_with_you: true } : {}),
             }
           })
           .filter(Boolean)
@@ -443,8 +537,12 @@ export function createCaptureTools(
         ai_summary,
         project_id,
       }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveEditableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
+        // Shared to edit (512): what it says, never where it lives (512's column guard, restated).
+        if (wsResolved.viaGrant && (project_id !== undefined || is_pinned !== undefined)) {
+          return { success: false, error: 'This capture is shared with you to edit what it says; its project and pin stay its owner\'s.' }
+        }
 
         const updates: Record<string, unknown> = {}
         if (title !== undefined) updates.title = title
@@ -507,7 +605,7 @@ export function createCaptureTools(
           .describe('Also return the raw content/summary/ai_summary fields. Off by default to avoid duplicating the summary.'),
       }),
       execute: async ({ capture_id, include_transcript, include_raw_fields }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveReadableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
 
         // Always select transcript at the SQL level — it's a single row by id,
@@ -548,7 +646,7 @@ export function createCaptureTools(
           .map((p) => p.contact as unknown as { id?: unknown } | null)
           .filter((c): c is { id?: unknown } => Boolean(c))
         const visibleContactIds = new Set(
-          (await filterVisibleContacts(supabase, userId, embeddedContacts)).map((c) => c.id),
+          (await filterVisibleContacts(supabase, userId, embeddedContacts, contactOpts)).map((c) => c.id),
         )
 
         const participants = (participantRows || []).map((p) => {
@@ -591,6 +689,8 @@ export function createCaptureTools(
             ended_at: data.ended_at,
             created_at: data.created_at,
             project_id: data.project_id,
+            // Another member's private capture, shared with the person (a grant): what they may do with it.
+            ...(wsResolved.shared ?? {}),
             ...(include_transcript ? transcriptFirstPage(data.transcript) : {}),
             ...(include_raw_fields
               ? {
@@ -618,7 +718,7 @@ export function createCaptureTools(
           .describe(`Lines to return, with no size cap. Omit for a page of about ${TRANSCRIPT_PAGE_CHARS / 1000}K characters.`),
       }),
       execute: async ({ capture_id, offset, limit }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveReadableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
 
         const { data, error } = await supabase
@@ -672,7 +772,7 @@ export function createCaptureTools(
         new_text: z.string().describe('The replacement text.'),
       }),
       execute: async ({ capture_id, field, old_text, new_text }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveEditableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
 
         // 1. Read the current value of the specific field
@@ -733,7 +833,7 @@ export function createCaptureTools(
         capture_id: z.string().describe('UUID of the capture'),
       }),
       execute: async ({ capture_id }) => {
-        const wsResolved = await resolveVisibleCapture(capture_id)
+        const wsResolved = await resolveReadableCapture(capture_id)
         if (!wsResolved) return { success: false, error: 'Capture not found' }
 
         // Query confirmed/applied items from their final tables AND pending
@@ -747,7 +847,7 @@ export function createCaptureTools(
         const [
           { data: actions, error: actionsError },
           { data: decisions, error: decisionsError },
-          { data: pendingProposals, error: proposalsError },
+          { data: pendingProposalRows, error: proposalsError },
         ] = await Promise.all([
           supabase
             .from('actions')
@@ -766,6 +866,11 @@ export function createCaptureTools(
             .eq('status', 'pending')
             .order('sort_order', { ascending: true }),
         ])
+        // The review queue is the capture owner's to work through: its read
+        // policy never followed grants (493 left proposed_change as it was),
+        // so a capture shared with the person shows what was kept, not what is
+        // still waiting on its owner.
+        const pendingProposals = wsResolved.viaGrant ? [] : pendingProposalRows
 
         if (actionsError) return { success: false, error: actionsError.message }
         if (decisionsError) return { success: false, error: decisionsError.message }
@@ -832,6 +937,7 @@ export function createCaptureTools(
           // Everything below was read from — and belongs to — this workspace,
           // which is not necessarily the session's active one.
           workspace_id: wsResolved.workspaceId,
+          ...(wsResolved.shared ?? {}),
           actions: actionsSummary,
           decisions: decisionsSummary,
           summary: {
