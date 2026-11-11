@@ -14,9 +14,10 @@
  *     vendor than the coder (pickReviewerModel; the spec route refuses a
  *     token that breaks the rule).
  *   - It answers approve | request_changes | reject, each criterion pass,
- *     fail or cannot_judge with evidence. A pass must rest on what it was
- *     shown (an added line, a path in the file list, a listed commit's
- *     subject), or it counts as a fail (normalizeCodeReview). A criterion it
+ *     fail or cannot_judge, with its kind (content, files or commits) and
+ *     evidence. A pass must rest on the evidence its kind allows (an added
+ *     line, a listed path, a listed commit's subject), or it counts as a fail
+ *     (normalizeCodeReview); the PR shows each pass's kind beside it. A criterion it
  *     cannot judge from the change neither blocks nor passes: the PR opens as
  *     a draft listing it, and a review that judged nothing counts as one
  *     that could not run.
@@ -52,19 +53,34 @@ export const FALLBACK_CRITERION = 'The change does what the work item asks, and 
 const EVIDENCE_MAX_CHARS = 300
 const SUMMARY_MAX_CHARS = 400
 const MAX_CHANGES = 8
-/** Most commit subjects the reviewer is shown; the rest are counted, not listed. */
+/** Most commit subjects the reviewer is shown (the newest); the earlier ones are counted, not listed. */
 export const MAX_REVIEW_COMMITS = 20
 const COMMIT_SUBJECT_MAX_CHARS = 120
 
 export const CodeReviewSchema = z.object({
   verdict: z.enum(['approve', 'request_changes', 'reject']),
   summary: z.string(),
-  criteria: z.array(z.object({ index: z.number(), result: z.enum(['pass', 'fail', 'cannot_judge']), evidence: z.string() })),
+  criteria: z.array(
+    z.object({
+      index: z.number(),
+      result: z.enum(['pass', 'fail', 'cannot_judge']),
+      /** What the criterion is about, which says what evidence a pass may rest on. */
+      kind: z.enum(['content', 'files', 'commits']),
+      evidence: z.string(),
+    }),
+  ),
   changes: z.array(z.object({ file: z.string(), issue: z.string(), fix: z.string() })),
 })
 export type CodeReviewAnswer = z.infer<typeof CodeReviewSchema>
 
 export type ReviewVerdict = CodeReviewAnswer['verdict']
+
+/**
+ * What a criterion is about, as the reviewer states it: what the change's
+ * lines do (`content`), which files are or are not changed (`files`), or the
+ * branch's commits (`commits`). Each kind accepts one kind of evidence.
+ */
+export type CriterionKind = CodeReviewAnswer['criteria'][number]['kind']
 
 export interface CriterionResult {
   criterion: string
@@ -76,6 +92,8 @@ export interface CriterionResult {
    * entries stored before it existed, which read as before.
    */
   unjudgeable?: boolean
+  /** What the reviewer said the criterion is about. Absent on entries stored before it existed. */
+  kind?: CriterionKind
   /** The evidence of a pass or a fail; the reviewer's reason when unjudgeable. */
   evidence: string
 }
@@ -104,6 +122,9 @@ export interface ReviewEntry {
   at: string
   /** The diff was longer than the reviewer reads. */
   diff_cut: boolean
+  /** How many files the change touches and how many commits the branch has (shown beside a files or commits pass). */
+  file_count?: number
+  commit_count?: number
   error?: string
 }
 
@@ -126,7 +147,7 @@ export interface CompareFile {
 export interface CompareCommits {
   /** How many commits the branch has over the base. */
   total: number
-  /** The listed commits' subject lines (first line, clipped), oldest first, at most MAX_REVIEW_COMMITS. */
+  /** The listed commits' subject lines (first line, cleaned, clipped): the newest MAX_REVIEW_COMMITS, oldest first. */
   subjects: string[]
 }
 
@@ -178,16 +199,22 @@ export function renderDiff(files: readonly CompareFile[], max = MAX_REVIEW_DIFF_
   return { text: parts.join('\n').trimEnd(), cut, paths }
 }
 
-/** A commit message's subject: its first line, whitespace collapsed, clipped. Pure. */
+/**
+ * A commit message's subject: its first line, control characters (a tab, a
+ * carriage return, an escape) made spaces and invisible format characters
+ * (bidi overrides, zero-width marks) dropped, whitespace collapsed, clipped.
+ * Pure.
+ */
 export function commitSubject(message: unknown): string {
   if (typeof message !== 'string') return ''
-  return clip(message.split('\n')[0] ?? '', COMMIT_SUBJECT_MAX_CHARS)
+  const first = (message.split('\n')[0] ?? '').replace(/\p{Cc}/gu, ' ').replace(/\p{Cf}/gu, '')
+  return clip(first, COMMIT_SUBJECT_MAX_CHARS)
 }
 
 /**
  * The run's diff from GitHub's compare of base...head, with the head commit's
- * sha and the branch's commits (GitHub's count, and the first
- * MAX_REVIEW_COMMITS subject lines). GitHub lists at most 300 files; a compare
+ * sha and the branch's commits (GitHub's count, and the newest
+ * MAX_REVIEW_COMMITS subject lines: later fix rounds matter most). GitHub lists at most 300 files; a compare
  * that hit that is marked cut. Never throws: a failure is `{ error }`.
  */
 export async function fetchCompareDiff(args: {
@@ -216,7 +243,7 @@ export async function fetchCompareDiff(args: {
     const rendered = renderDiff(files)
     // GitHub's own count; its list can be shorter (it lists at most 250).
     const total = typeof data.total_commits === 'number' && data.total_commits >= commits.length ? data.total_commits : commits.length
-    const subjects = commits.slice(0, MAX_REVIEW_COMMITS).map((c) => commitSubject(c?.commit?.message))
+    const subjects = commits.slice(-MAX_REVIEW_COMMITS).map((c) => commitSubject(c?.commit?.message))
     return {
       headSha,
       text: rendered.text,
@@ -239,12 +266,12 @@ export interface ReviewItem {
   description: string | null
 }
 
-/** The commit list as the reviewer reads it: numbered subjects, and how many were left out. Pure. */
+/** The commit list as the reviewer reads it: how many earlier ones were left out, then the newest, numbered on the branch. Pure. */
 function renderCommitList(commits: CompareCommits): string {
   if (commits.subjects.length === 0) return '(GitHub listed no commits)'
-  const lines = commits.subjects.map((s, i) => `${i + 1}. ${s || '(no message)'}`)
-  const more = commits.total - commits.subjects.length
-  if (more > 0) lines.push(`[${more} more commit${more === 1 ? '' : 's'} not listed]`)
+  const earlier = Math.max(0, commits.total - commits.subjects.length)
+  const lines = earlier > 0 ? [`[${earlier} earlier commit${earlier === 1 ? '' : 's'} not listed]`] : []
+  lines.push(...commits.subjects.map((s, i) => `${earlier + i + 1}. ${s || '(no message)'}`))
   return lines.join('\n')
 }
 
@@ -309,16 +336,32 @@ export function quotedInDiff(quote: string, diff: string): boolean {
 }
 
 /**
- * Whether `evidence` names a path from the diff's file list as a whole path:
- * not part of a longer one (`README.md` is not named by `docs/README.md` or
- * `README.md.bak`). Any length: a path says which file changed. Pure.
+ * The shortest WHOLE added line that grounds a `content` pass on its own,
+ * after normalising, and it must hold two words. Ten characters and two words
+ * keep out `}`, `});`, `return`, `break;` and `} else {`, while a one-line fix
+ * that says something (`if (!rows) return`, `return rows ?? []`) is longer.
+ */
+export const MIN_WHOLE_LINE_CHARS = 10
+
+/**
+ * Whether `evidence` is, all of it, one of the diff's added lines (markers,
+ * backticks and whitespace aside) that clears MIN_WHOLE_LINE_CHARS. Pure.
+ */
+export function isWholeAddedLine(evidence: string, diff: string): boolean {
+  const e = comparable(evidence.split('\n'))
+  if (e.length < MIN_WHOLE_LINE_CHARS || (e.match(/[A-Za-z0-9_]+/g) ?? []).length < 2) return false
+  return addedLines(diff).some((l) => comparable([l]) === e)
+}
+
+/**
+ * Whether `evidence` names a path from the diff's file list the way only a
+ * path is written: inside backticks (`` `src/a.ts` ``) or in its header form
+ * (`--- src/a.ts (`). Bare prose never names a path, so a file called `a` is
+ * not named by "a careful change". Whole paths only: `` `README.md` `` does
+ * not name `docs/README.md`. Pure.
  */
 export function namesListedPath(evidence: string, paths: readonly string[]): boolean {
-  return paths.some((p) => {
-    if (!p) return false
-    const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    return new RegExp(`(?<![\\w./-])${escaped}(?![\\w/-]|\\.\\w)`).test(evidence)
-  })
+  return paths.some((p) => p.length > 0 && (evidence.includes(`\`${p}\``) || evidence.includes(`--- ${p} (`)))
 }
 
 /**
@@ -349,12 +392,35 @@ export interface ReviewShown {
 }
 
 /**
- * Whether a pass's evidence rests on what the reviewer was shown: a quote of
- * added lines, a path from the file list, or a listed commit's subject. Free
- * text grounds nothing. Pure.
+ * Whether a pass's evidence is the evidence its kind allows: `content` a
+ * quote of added lines (MIN_EVIDENCE_CHARS) or one whole added line
+ * (MIN_WHOLE_LINE_CHARS); `files` a listed path in backticks or header form;
+ * `commits` a listed commit's whole subject. No kind, no pass. Free text
+ * grounds nothing. Pure.
  */
-export function groundedEvidence(evidence: string, shown: ReviewShown): boolean {
-  return quotedInDiff(evidence, shown.diffText) || namesListedPath(evidence, shown.paths) || quotesCommitSubject(evidence, shown.commitSubjects)
+export function groundedEvidence(evidence: string, kind: CriterionKind | undefined, shown: ReviewShown): boolean {
+  if (kind === 'content') return quotedInDiff(evidence, shown.diffText) || isWholeAddedLine(evidence, shown.diffText)
+  if (kind === 'files') return namesListedPath(evidence, shown.paths)
+  if (kind === 'commits') return quotesCommitSubject(evidence, shown.commitSubjects)
+  return false
+}
+
+const NEEDS: Record<CriterionKind, string> = {
+  content: 'a quote of the diff\'s added lines (at least 20 characters) or one whole added line',
+  files: 'a path from the diff\'s file list, in backticks or as its header shows it',
+  commits: 'a listed commit\'s subject, copied whole',
+}
+
+/** Why a pass was not taken: what its kind needs, or that it gave none. Pure. */
+function downgradeNote(kind: CriterionKind | undefined, evidence: string): string {
+  const quoted = clip(evidence, EVIDENCE_MAX_CHARS)
+  if (!kind || !(kind in NEEDS)) return `Marked as done without saying whether it is about the change's lines, its files or its commits: ${quoted}`
+  return `Marked as done, but a ${kind} criterion needs ${NEEDS[kind]}: ${quoted}`
+}
+
+/** A stored kind, only when it is one of the three. */
+function kindOf(kind: unknown): { kind?: CriterionKind } {
+  return kind === 'content' || kind === 'files' || kind === 'commits' ? { kind } : {}
 }
 
 /** The error a review that judged no criterion at all is stored with. */
@@ -371,7 +437,17 @@ export const NOTHING_JUDGED_ERROR = 'it could not judge any acceptance criterion
  */
 export function normalizeCodeReview(
   answer: CodeReviewAnswer,
-  args: ReviewShown & { criteria: readonly string[]; model: string; round: number; headSha: string | null; diffCut: boolean; now?: Date },
+  args: ReviewShown & {
+    criteria: readonly string[]
+    /** How many files the change touches and how many commits the branch has (stored for the PR section). */
+    fileCount: number
+    commitCount: number
+    model: string
+    round: number
+    headSha: string | null
+    diffCut: boolean
+    now?: Date
+  },
 ): ReviewEntry {
   const list = args.criteria.length > 0 ? args.criteria : [FALLBACK_CRITERION]
   const criteria: CriterionResult[] = list.map((criterion, i) => {
@@ -379,18 +455,13 @@ export function normalizeCodeReview(
     if (hits.length === 0) return { criterion, pass: false, evidence: 'Not checked by the reviewer.' }
     // A fail stands: no other entry for the same criterion turns it into a pass or a cannot-judge.
     const fail = hits.find((c) => c.result !== 'pass' && c.result !== 'cannot_judge')
-    if (fail) return { criterion, pass: false, evidence: clip(fail.evidence, EVIDENCE_MAX_CHARS) }
+    if (fail) return { criterion, pass: false, ...kindOf(fail.kind), evidence: clip(fail.evidence, EVIDENCE_MAX_CHARS) }
     const cannot = hits.find((c) => c.result === 'cannot_judge')
-    if (cannot) return { criterion, pass: false, unjudgeable: true, evidence: clip(cannot.evidence, EVIDENCE_MAX_CHARS) || 'No reason given.' }
-    const grounded = hits.find((c) => groundedEvidence(c.evidence, args))
-    if (!grounded) {
-      return {
-        criterion,
-        pass: false,
-        evidence: `Marked as done, but its evidence is not an added line of the diff, a path in its file list or a listed commit's subject: ${clip(hits[0].evidence, EVIDENCE_MAX_CHARS)}`,
-      }
-    }
-    return { criterion, pass: true, evidence: clip(grounded.evidence, EVIDENCE_MAX_CHARS) }
+    if (cannot) return { criterion, pass: false, unjudgeable: true, ...kindOf(cannot.kind), evidence: clip(cannot.evidence, EVIDENCE_MAX_CHARS) || 'No reason given.' }
+    // A pass counts only on the evidence its own kind allows.
+    const grounded = hits.find((c) => groundedEvidence(c.evidence, c.kind, args))
+    if (!grounded) return { criterion, pass: false, ...kindOf(hits[0].kind), evidence: downgradeNote(hits[0].kind, hits[0].evidence) }
+    return { criterion, pass: true, kind: grounded.kind, evidence: clip(grounded.evidence, EVIDENCE_MAX_CHARS) }
   })
   const changes = answer.changes
     .map((c) => ({ file: clip(c.file, 160), issue: clip(c.issue, 400), fix: clip(c.fix, 400) }))
@@ -402,6 +473,9 @@ export function normalizeCodeReview(
   if (answer.verdict === 'reject') verdict = 'reject'
   else if (failing.length > 0) verdict = 'request_changes'
   else if (answer.verdict === 'request_changes' && changes.length > 0) verdict = 'request_changes'
+  // A request with nothing to change and no failing criterion is an approve, even with
+  // a criterion it could not judge: nothing to send the coder back for, and the PR opens
+  // as a draft that tells the person what was not checked.
   else verdict = judgedAny ? 'approve' : 'error'
   // Every failing criterion is something to change, even when the reviewer listed none.
   const withCriteria =
@@ -420,6 +494,8 @@ export function normalizeCodeReview(
     model: args.model,
     at: (args.now ?? new Date()).toISOString(),
     diff_cut: args.diffCut,
+    file_count: args.fileCount,
+    commit_count: args.commitCount,
     ...(verdict === 'error' ? { error: NOTHING_JUDGED_ERROR } : {}),
   }
 }
@@ -580,30 +656,51 @@ function uncheckedLines(criteria: readonly CriterionResult[]): string[] {
   return lines
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`
+}
+
+/**
+ * What a pass was checked against, with the fact a person needs to judge it
+ * (a "nothing else changed" pass beside five files, a "one commit" pass
+ * beside three). Old entries, with no kind, say nothing. Pure.
+ */
+function checkedAgainst(c: CriterionResult, entry: ReviewEntry): string {
+  if (!c.pass || !c.kind) return ''
+  if (c.kind === 'content') return "checked against the diff's added lines"
+  if (c.kind === 'files') return `checked against the file list${typeof entry.file_count === 'number' ? ` (${plural(entry.file_count, 'file')})` : ''}`
+  return `checked against the commit list${typeof entry.commit_count === 'number' ? ` (${plural(entry.commit_count, 'commit')})` : ''}`
+}
+
 /** The review as the PR body's last section (markdown). Pure. */
 export function renderReviewSection(entry: ReviewEntry, opts: { rounds: number; partial?: boolean }): string {
-  const someUnchecked = entry.criteria.some((c) => criterionState(c) === 'unjudgeable')
+  const unchecked = entry.criteria.filter((c) => criterionState(c) === 'unjudgeable').length
+  const total = entry.criteria.length
+  // Lead with what was not checked: an approve with unchecked criteria is not an approval.
   const verdict =
     entry.verdict === 'error'
       ? 'Not reviewed'
-      : opts.partial
-        ? 'Partially reviewed'
-        : entry.verdict === 'approve' && someUnchecked
-          ? 'Approved, except what it could not check'
+      : entry.verdict === 'approve' && unchecked > 0
+        ? `Not fully checked: ${unchecked} of ${total} criteri${total === 1 ? 'on' : 'a'}`
+        : opts.partial
+          ? 'Partially reviewed'
           : VERDICT_WORDS[entry.verdict]
   const after = opts.rounds > 0 ? ` after ${opts.rounds} round${opts.rounds === 1 ? '' : 's'} of fixes` : ''
   const sha = entry.head_sha ? ` at \`${entry.head_sha.slice(0, 12)}\`` : ''
   const lines = [
     '---',
     '### Review',
-    `**${verdict}**${sha}${after} by an independent reviewer on another model (${entry.model ?? 'unknown'}). It read the diff, not the coder's summary.`,
+    `**${verdict}**${sha}${after} by an independent reviewer on another model (${entry.model ?? 'unknown'}). It read the diff, not the coder's summary.${
+      entry.verdict === 'approve' && unchecked > 0 ? ` The other ${total - unchecked} passed.` : ''
+    }`,
   ]
   if (entry.summary) lines.push('', `> ${inertMarkdown(oneLine(entry.summary, SUMMARY_MAX_CHARS))}`)
   const judged = entry.criteria.filter((c) => criterionState(c) !== 'unjudgeable')
   if (judged.length > 0) {
     lines.push('', '**Acceptance criteria**')
     for (const c of judged) {
-      lines.push(`- ${c.pass ? '✅' : '❌'} ${inertMarkdown(oneLine(c.criterion, 240))}`, `  - Evidence: \`${oneLine(c.evidence, EVIDENCE_MAX_CHARS)}\``)
+      const against = checkedAgainst(c, entry)
+      lines.push(`- ${c.pass ? '✅' : '❌'} ${inertMarkdown(oneLine(c.criterion, 240))}`, `  - Evidence${against ? `, ${against}` : ''}: \`${oneLine(c.evidence, EVIDENCE_MAX_CHARS)}\``)
     }
   }
   lines.push(...uncheckedLines(entry.criteria))
@@ -744,6 +841,8 @@ export async function reviewBeforePr(
         diffText: diff.text,
         paths: diff.paths,
         commitSubjects: diff.commits.subjects,
+        fileCount: diff.files,
+        commitCount: diff.commits.total,
         model: reviewed.model,
         round,
         headSha: diff.headSha,

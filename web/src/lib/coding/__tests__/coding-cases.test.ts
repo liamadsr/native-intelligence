@@ -78,7 +78,7 @@ describe(`case 2: the review loop stops at ${MAX_REVIEW_LOOPS}`, () => {
     let sha = 'sha-1'
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ commits: [{ sha }], files: [{ filename: 'a.ts', patch: '+ x' }] }), { status: 200 }))
     utility.runUtilityTask.mockResolvedValue({
-      object: { verdict: 'request_changes', summary: 'Not yet.', criteria: [{ index: 1, result: 'fail', evidence: 'No guard.' }], changes: [{ file: 'a.ts', issue: 'Add a guard', fix: 'Return early.' }] },
+      object: { verdict: 'request_changes', summary: 'Not yet.', criteria: [{ index: 1, result: 'fail', kind: 'content', evidence: 'No guard.' }], changes: [{ file: 'a.ts', issue: 'Add a guard', fix: 'Return early.' }] },
       model: 'deepseek-v4-flash',
       usage: {},
     })
