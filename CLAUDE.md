@@ -13,8 +13,16 @@ Read this before reporting anything as live or touching production. The code gui
   build; web and worker are replaced without a gap, the agents one by one (a reply
   streaming from an agent at that moment is cut). Commands and `--rollback` are in
   [`deploy/app/README.md`](deploy/app/README.md).
+- **Automatic deploys exist and are OFF** unless the owner switched them on, on the
+  server (`deploy/app/auto-deploy.sh`, "Automatic deploys" in
+  [`deploy/app/README.md`](deploy/app/README.md#automatic-deploys)). When on, a merge to
+  `main` is rolled out within minutes, EXCEPT when it brings a migration or a new setting
+  in `deploy/app/.env.example`: those hold it until a person has applied or added them.
+  So "merged" still does not mean "live": `sudo ./auto-deploy.sh status` on the server
+  says what runs.
 - **Never report a merged change as live.** Say "merged, not rolled out" until the
   roll-out has happened. Who rolls out, and when, is the owner's decision: never do it
+  unasked, and never switch the automatic deploys on, or release one of their holds,
   unasked.
 - **The database is the Postgres on the server.** A migration is applied there, with
   `psql` in the database container over ssh ("Apply a database migration" under "Day to

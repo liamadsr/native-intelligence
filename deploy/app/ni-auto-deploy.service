@@ -1,0 +1,21 @@
+# One run of the automatic deploy (auto-deploy.sh in this folder), started by
+# ni-auto-deploy.timer. `sudo ./auto-deploy.sh install` copies this file to
+# /etc/systemd/system with the checkout's real path in place of
+# /opt/native-intelligence; it enables nothing. The run does nothing unless
+# `sudo ./auto-deploy.sh on` switched it on.
+[Unit]
+Description=Automatic deploy of the app (deploy/app/auto-deploy.sh run)
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/native-intelligence/deploy/app/auto-deploy.sh run
+# A build is about ten minutes, but a roll-out may wait up to 15 minutes for the
+# worker's work in flight and again for a running scheduled job. Killing deploy.sh
+# half way through a roll-out is worse than waiting, so this only ends a run that
+# hangs; the script records it as a failure.
+TimeoutStartSec=2h
+# No Restart=: a run that holds or fails exits non-zero and stays visible as failed
+# (systemctl status ni-auto-deploy); the timer starts the next run, and the script
+# does not try a failed commit again.

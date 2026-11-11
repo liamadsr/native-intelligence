@@ -16,6 +16,7 @@ deploy/app/
 ├── compose.yaml      the stack: proxy, web, worker, eight agents, cron (project ni-app)
 ├── .env              its settings (root only, never in git; .env.example lists them)
 ├── deploy.sh         build the image here and roll it out; --rollback goes back
+├── auto-deploy.sh    automatic deploys of main (off unless switched on), see below
 ├── pull-settings.sh  run on your own machine: fills .env from the earlier host
 ├── check-settings.sh run on your own machine: checks .env before the switch
 └── proxy/Caddyfile   the stack's router
@@ -40,6 +41,7 @@ own network got `401` from `sb.nativeintelligence.dev/auth/v1/health`).
 |---|---|
 | Ship what is checked out | `git pull` as the checkout's owner, then `sudo ./deploy.sh` |
 | Go back to the image before | `sudo ./deploy.sh --rollback` |
+| See what the automatic deploys did, or why they hold | `sudo ./auto-deploy.sh status` ([Automatic deploys](#automatic-deploys)) |
 | See what runs | `sudo docker compose ps` |
 | Read a part's log | `sudo docker compose logs -f --tail 100 web` (`worker`, `cron`, `agent-chat-agent`, `proxy` …) |
 | Which commit runs | `sudo docker image inspect ni-app:live -f '{{index .Config.Labels "org.opencontainers.image.revision"}}'` |
@@ -74,7 +76,79 @@ and `deploy.sh` refuses to put one into service while `.env` names another: the
 rehearsal's image, built for the test address, never serves production.
 
 Merging to `main` does not deploy here. Someone runs `git pull` and `deploy.sh` on
-the server.
+the server, or the automatic deploys below do, when the owner has switched them on.
+
+### Automatic deploys
+
+`auto-deploy.sh` rolls out what is merged to `main` by itself, within minutes. It is
+**off** until someone switches it on, on the server, and stays as it was across
+reboots. Nothing outside the server can start it or reach it: a systemd timer on the
+server runs it every two minutes, and each run asks GitHub, as the checkout's owner,
+whether `main` moved (`git fetch origin main`). If the checkout is already there, the
+run ends without a word.
+
+When `main` moved, the run checks the new commits. When all is well it moves the
+checkout to exactly the commit it checked (`git merge --ff-only`, as the owner, which
+is `git pull` without a second fetch), runs `deploy.sh` (build while the old version
+serves, then the roll-out its header describes), and then checks that the new commit
+serves: `ni-app:running`, which `deploy.sh` tags only after a finished roll-out, must
+carry it, and `/api/version`, asked through the stack's proxy from inside its
+container, must answer with its first eight characters.
+
+What it never does: touch the database, add or change a setting, roll back, or try a
+failed commit again on its own. It runs nothing while `deploy.sh` is already running
+(someone deploying by hand), and two runs never overlap.
+
+**Holds.** The run changes nothing, says why in the status and the log, and exits
+non-zero (systemd shows the service as failed) until a person resolves it:
+
+| Holds when | What a person does |
+|---|---|
+| The new commits add, change or remove a file in `web/supabase/migrations/` | Apply them ([Day to day](../README.md#day-to-day), "Apply a database migration"), then `sudo ./auto-deploy.sh migrations-applied <commit>`, with the commit the hold names. It records those files, each by its content: a later change to one of them, or a new one, is held again. |
+| The new `deploy/app/.env.example` names a setting `.env` has no line for (names only; no value is read out or shown) | Copy the line into `.env` (`sudo nano .env`) and fill it in where needed. The next run sees it. |
+| `origin/main` is not a plain step forward from the checkout (history was rewritten), the checkout is not on `main`, has changes of its own, or holds files its owner does not own | Look as the owner (`git status`, `git log --oneline HEAD...origin/main`), put the checkout right by hand, and roll out by hand if needed. The hold says which. |
+| `git fetch` failed | Usually the network: the next run tries again. |
+
+**Failures.** When the build or the roll-out fails, or the new commit is not what
+serves afterwards, the commit is recorded as failed, with its output in
+`runs/`. It is not tried again; a newer commit on `main` is. A failed build leaves
+the old version serving. A roll-out that stopped half way needs a person: `sudo
+docker compose ps`, then `sudo ./deploy.sh --no-build` or `--rollback`. When it is
+fixed, or to try the same commit again, `sudo ./auto-deploy.sh clear-failure` (if
+the commit already serves by then, it is recorded as deployed and nothing is
+built). A run that is killed half way (a reboot, the service's two-hour limit) is a
+failure too.
+
+| To | Command (from this folder) |
+|---|---|
+| Put the service and timer in place (once, and after they change) | `sudo ./auto-deploy.sh install`: enables and starts nothing |
+| Switch it on | `sudo ./auto-deploy.sh on` (enables the timer and sets the switch) |
+| Switch it off | `sudo ./auto-deploy.sh off`: a run in progress finishes what it started |
+| What it did, and why it holds | `sudo ./auto-deploy.sh status` |
+| What a run would do now, changing nothing | `sudo ./auto-deploy.sh run --dry-run` (fetches, checks, no pull, no build) |
+| Release a migration hold | `sudo ./auto-deploy.sh migrations-applied <commit>` |
+| Forget a failure, so that the commit is tried again | `sudo ./auto-deploy.sh clear-failure` |
+
+"On" is two things, both on the server: the timer is enabled, and the switch file
+`/var/lib/ni-auto-deploy/on` exists. Every run reads the switch file first, so a
+timer enabled by anything else still deploys nothing. Installing never sets either.
+
+Everything it keeps is in `/var/lib/ni-auto-deploy`: `status` (the last run's time,
+the state, `idle`, `deployed <commit> at <time>`, `holding: <reason>` or `failed:
+<commit>: <reason>`, and what a person does; readable by anyone), `log` (one line per
+change of state; a hold is logged once, not every two minutes), `runs/` (each
+deploy's own output, the newest 30), `failed`, `migrations-acknowledged`, and
+`settings`. `systemctl status ni-auto-deploy` and `journalctl -u ni-auto-deploy` have
+systemd's side.
+
+`settings` has one line, `AUTO_DEPLOY_PING_URL=`, like the backups' `*_PING_URL`:
+when set, that address is requested after every successful deploy, never on a hold
+or a failure, so that a check elsewhere can alarm when deploys stop coming.
+
+**The undo.** `sudo ./auto-deploy.sh off` stops the automatic deploys; `sudo
+./deploy.sh --rollback` goes back to the version before the last roll-out, whoever
+made it. After a rollback, switch it off first, or the next commit on `main` is
+rolled out again.
 
 ### NI_LIVE: rehearsal or production
 
@@ -370,7 +444,8 @@ still run the same schedule against the same database: switch those off first
 | `proxy/Caddyfile` | The stack's router, on the server and in the test. |
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |
 | `deploy.sh` | Build and roll out on the server, or go back. |
+| `auto-deploy.sh`, `ni-auto-deploy.service`, `ni-auto-deploy.timer` | Automatic deploys of `main`, off unless switched on; `tests/test_auto_deploy.py` is its test. |
 | `pull-settings.sh` | Fill the server's `.env` from the earlier host, unseen. |
-| `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/` is its test. |
+| `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/test_check_settings.py` is its test. |
 | `smoke/compose.yaml`, `smoke/.env.example` | The container test's stack. |
 | `smoke.sh` | The container test. |
