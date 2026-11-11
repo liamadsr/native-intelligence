@@ -86,6 +86,7 @@ MAY_BE_EMPTY = {
     "AGE_OUT_ENABLED": "a switch: empty is off",
     "RECONCILER_ENABLED": "a switch: empty is off",
     "RUN_SKILL_LOCAL_DISPATCH_ENABLED": "a switch: empty is off",
+    "NI_FORWARD_OLD_DOMAIN": "a switch: empty is off (the forward from dial8.ai; only after the address moves)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}

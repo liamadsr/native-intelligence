@@ -1119,6 +1119,8 @@ Inngest calls the app at the address in `INNGEST_SDK_URL` (`inngest/.env`), toda
 
 **6. Afterwards.** Take the test name out: from `APP_HOSTS` (check and `up -d` as in step 4), from `ADDITIONAL_REDIRECT_URLS` in `supabase/stack/.env` (then `sudo sh run.sh recreate auth` there), and its DNS record. Otherwise a second production address stays open. Leave the current host's deployment running, with its cron jobs off, for a week: it is the undo. Add `:compose.app.yaml` to `COMPOSE_FILE` in `backup/.env` and `sudo docker compose up -d --build` in `backup/` to back the agents up. Then retire it: remove the names from that project (they already point here), except the production domain Slack's connector forwards to (step 21, Gate 1), and keep the team only for the cloud browser's sandboxes, the AI Gateway and Slack's connector, which stay there.
 
+**Later, each on its own: the app's address, then the forward.** This step keeps `NEXT_PUBLIC_APP_URL=https://dial8.ai`. Moving it to `https://nativeintelligence.dev` is a build here (step 1's pull with that value, then `sudo ./deploy.sh`) and the list in the pull request that made the address one setting ("When the setting moves"). Only after that, and after a sign-in on the new domain has been tried, can `NI_FORWARD_OLD_DOMAIN=307` in `app/.env` and `sudo ./deploy.sh --no-build` send people who open a `dial8.ai` page to the new domain (`web/src/lib/old-domain-forward.ts` has what it never touches; it does nothing while the address is still on `dial8.ai`). Emptying the value and the same command turn it off.
+
 ## 22. The undo
 
 The names go back, in the reverse order of step 21.4, and the scheduled jobs with them.
