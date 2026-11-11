@@ -17,6 +17,10 @@
  *     connection lost for good is joined again once with a fresh token from
  *     the token route (`refreshJoin`); a call that ended there (409) ends
  *     here.
+ *   - Joining a call whose notes (or recording) are on holds the microphone
+ *     back (`holdMic`): the person hears the call and sees the notice
+ *     first, and nothing of theirs is sent until they say so
+ *     (releaseMic, or the mic button).
  *   - Remote audio plays from <audio> elements this session keeps in one
  *     hidden container, so React never re-mounts them; the speaker picker
  *     moves them all (where the browser can).
@@ -64,6 +68,8 @@ export interface CallSnapshot {
   canPickSpeaker: boolean
   /** The browser held audio back until a click (the panel offers one). */
   needsAudioStart: boolean
+  /** The microphone waits for the person (they joined a call whose notes are on, and haven't said go). */
+  micHeld: boolean
   devices: Record<CallDeviceKind, Array<{ deviceId: string; label: string }>>
   active: Partial<Record<CallDeviceKind, string>>
 }
@@ -108,6 +114,7 @@ function initialSnapshot(): CallSnapshot {
     canShareScreen: typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function',
     canPickSpeaker: false,
     needsAudioStart: false,
+    micHeld: false,
     devices: EMPTY_DEVICES,
     active: {},
   }
@@ -136,6 +143,7 @@ export class TeamCallSession {
   private over = false
   private mic: CallDeviceState = 'off'
   private camera: CallDeviceState = 'off'
+  private holdMic = false
 
   constructor(
     readonly info: TeamCallSessionInfo,
@@ -156,8 +164,9 @@ export class TeamCallSession {
     for (const fn of this.listeners) fn()
   }
 
-  /** Join the room: audio on (listening only if the mic is refused), camera off. */
-  async connect(join: TeamCallJoin): Promise<void> {
+  /** Join the room: audio on (listening only if the mic is refused, or held back by `holdMic` until the person says go), camera off. */
+  async connect(join: TeamCallJoin, opts: { holdMic?: boolean } = {}): Promise<void> {
+    if (opts.holdMic !== undefined) this.holdMic = opts.holdMic
     const lk = this.sdk ?? (this.sdk = await (this.deps.loadSdk ?? (() => import('livekit-client')))())
     if (this.over) return
     const room = new lk.Room({
@@ -178,13 +187,29 @@ export class TeamCallSession {
       return
     }
     if (this.over || this.room !== room) return
-    this.emit({ phase: 'connected' })
+    this.emit({ phase: 'connected', micHeld: this.holdMic })
+    if (!this.holdMic) await this.enableMic(room, lk)
+    this.refresh()
+    void this.refreshDevices()
+  }
+
+  private async enableMic(room: Room, lk: typeof import('livekit-client')): Promise<void> {
     try {
       await room.localParticipant.setMicrophoneEnabled(true)
       this.mic = 'on'
     } catch (err) {
       this.mic = deviceStateOfError(err, lk.MediaDeviceFailure.getFailure(err))
     }
+  }
+
+  /** The person read the notice and says go: their microphone is sent from now on. */
+  async releaseMic(): Promise<void> {
+    this.holdMic = false
+    this.emit({ micHeld: false })
+    const room = this.room
+    const lk = this.sdk
+    if (!room || !lk || this.snapshot.phase !== 'connected') return
+    await this.enableMic(room, lk)
     this.refresh()
     void this.refreshDevices()
   }
@@ -359,6 +384,7 @@ export class TeamCallSession {
   }
 
   async toggleMic(): Promise<void> {
+    if (this.holdMic) return this.releaseMic()
     const room = this.room
     const lk = this.sdk
     if (!room || !lk) return

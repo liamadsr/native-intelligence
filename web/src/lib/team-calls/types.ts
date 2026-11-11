@@ -12,6 +12,8 @@
  * the other person, a channel's rings only the people the caller picks.
  */
 
+import type { TeamCallNotesView } from './notes'
+
 /** How long a ring rings before it is a missed call (565's `interval '40 seconds'`). */
 export const TEAM_CALL_RING_SECONDS = 40
 /** A join token's lifetime: LiveKit refreshes it while connected; a full rejoin asks the token route again. */
@@ -28,8 +30,8 @@ export type TeamCallStatus = 'live' | 'ended'
 export type TeamCallEndReason = 'finished' | 'left' | 'swept' | 'failed'
 export type TeamCallRingState = 'ringing' | 'busy' | 'accepted' | 'declined' | 'missed' | 'cancelled'
 
-/** A call, as the conversation shows it (team_call's columns a page reads). */
-export interface TeamCall {
+/** A call, as the conversation shows it (team_call's columns a page reads; its notes and recording, 566). */
+export interface TeamCall extends TeamCallNotesView {
   id: string
   channel_id: string
   message_id: string | null
@@ -48,7 +50,7 @@ export interface TeamCall {
 }
 
 export const TEAM_CALL_COLUMNS =
-  'id, channel_id, message_id, started_by, status, started_at, ended_at, ended_reason, duration_seconds, participant_count, peak_participants, ringing, declined'
+  'id, channel_id, message_id, started_by, status, started_at, ended_at, ended_reason, duration_seconds, participant_count, peak_participants, ringing, declined, notes, notes_by, notes_state, capture_id, recording, recording_by'
 
 /** One member in (or once in) a call. */
 export interface TeamCallParticipant {

@@ -4,7 +4,9 @@
  * RLS): the Join button on a call's message, and a full rejoin after the
  * connection was lost for good (LiveKit refreshes a connected participant's
  * token itself). One room, the person's member id as the identity, ten
- * minutes (src/lib/team-calls/livekit.ts). 409 once the call has ended; 404
+ * minutes (src/lib/team-calls/livekit.ts), with the call's notes and
+ * recording (the panel says "Notes are on" before any audio is sent). 409
+ * once the call has ended; 404
  * for a call they may not read, or when calling is off.
  */
 import { NextResponse } from 'next/server'
@@ -14,7 +16,7 @@ import { isUuid } from '@/lib/team-chat/types'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
 import { teamCallsConfig } from '@/lib/team-calls/livekit'
 import { getCall } from '@/lib/team-calls/store'
-import { joinAnswer, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
+import { callPlaceOf, joinAnswer, memberIn, teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -32,7 +34,10 @@ export async function POST(_request: Request, { params }: Params) {
     const me = await memberIn(auth.supabase, auth.user.id, call.workspace_id)
     if (!me) return notFound()
     const join = await joinAnswer(config, { callId: call.id, room: call.room, memberId: me.id, name: me.display_name })
-    return NextResponse.json({ join, call: { id: call.id, channelId: call.channel_id, workspaceId: call.workspace_id, messageId: call.message_id, channelKind: call.channel_kind } })
+    return NextResponse.json({
+      join,
+      call: callPlaceOf(call, me.id),
+    })
   } catch (err) {
     return teamChatErrorResponse(err, 'call token')
   }

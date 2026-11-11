@@ -10,13 +10,17 @@
  * body's hash, checked by the SDK's WebhookReceiver against the raw body.
  * Anything else is a 401 and changes nothing. A delivery is idempotent
  * (repeats and late arrivals change nothing they shouldn't); a failed write
- * is a 500, so LiveKit sends it again. 404 when calling is off.
+ * is a 500, so LiveKit sends it again. 404 when calling is off. Egress's
+ * events (call notes and recordings) come here too, through LiveKit's own
+ * webhook settings; with LIVEKIT_EGRESS off a published microphone starts
+ * nothing.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { apiError, serverError } from '@/lib/api-errors'
 import { getServiceClient } from '@/lib/admin'
 import { receiveTeamCallWebhook, teamCallsConfig } from '@/lib/team-calls/livekit'
 import { applyTeamCallWebhook } from '@/lib/team-calls/webhook'
+import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
 import { teamCallsUnavailable } from '@/lib/team-calls/routes'
 
 /** The most a delivery's body may be (an event is a few KB). */
@@ -30,8 +34,9 @@ export async function POST(request: NextRequest) {
   const event = await receiveTeamCallWebhook(config, body, request.headers.get('authorization'))
   if (!event) return apiError('Unauthorized', { status: 401, code: 'BAD_SIGNATURE' })
   try {
-    const outcome = await applyTeamCallWebhook(getServiceClient(), event)
-    console.info(`[team-calls-webhook] event=${event.event || '-'} room=${event.room?.name ?? '-'} outcome=${outcome}`)
+    const egressConfig = teamCallEgressConfig()
+    const outcome = await applyTeamCallWebhook(getServiceClient(), event, { egress: egressConfig ? liveKitEgress(egressConfig) : null })
+    console.info(`[team-calls-webhook] event=${event.event || '-'} room=${event.room?.name ?? event.egressInfo?.roomName ?? '-'} outcome=${outcome}`)
     return NextResponse.json({ ok: true, outcome })
   } catch (err) {
     console.error(`[team-calls-webhook] event=${event.event || '-'} failed:`, err instanceof Error ? err.message : 'unknown')

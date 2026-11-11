@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { TeamChatError, teamChatErrorOf } from '@/lib/team-chat/store'
 import { TEAM_CHAT_NOTIFICATION_TYPE } from '@/lib/team-chat/notify'
 import { teamChatEmailEvent } from '@/lib/team-chat/email'
+import { requestNotesFinish } from './notes-store'
 import {
   TEAM_CALL_COLUMNS,
   TEAM_CALL_MAX_RING,
@@ -173,10 +174,15 @@ export interface MissedRing {
   caller_name: string
 }
 
-/** End a call, once (565's team_call_end). Returns its rings that were still open: missed. */
+/**
+ * End a call, once (565's team_call_end, 567's with the notes). Returns its
+ * rings that were still open: missed. A call whose notes were ever on has
+ * them written next (requestNotesFinish; never throws).
+ */
 export async function endCall(svc: SupabaseClient, callId: string, reason: TeamCallEndReason, at: Date = new Date()): Promise<MissedRing[]> {
   const { data, error } = await svc.rpc('team_call_end', { target_call: callId, end_reason: reason, end_at: at.toISOString() })
   if (error) throw new Error(`team calls: end failed: ${error.message}`)
+  await requestNotesFinish(svc, callId)
   return (data ?? []) as MissedRing[]
 }
 

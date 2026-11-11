@@ -4,6 +4,8 @@ import { isUuid } from '@/lib/team-chat/types'
 import { expireRings, notifyMissedCalls, TEAM_CALL_RING_EVENT, type MissedRing } from '@/lib/team-calls/store'
 import { sweepTeamCalls } from '@/lib/team-calls/sweep'
 import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
+import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
+import { sweepTeamCallEgress } from '@/lib/team-calls/notes-sweep'
 
 /** What the ring's timer reads of Inngest's run (a test hands its own). */
 export interface TeamCallRingTimerContext {
@@ -50,7 +52,8 @@ export const teamCallRingTimer = inngest.createFunction(
 /**
  * Every five minutes, what a lost webhook or timer left (src/lib/team-calls/
  * sweep.ts): live calls whose room is gone end, rings past their time are
- * missed, old webhook ids are forgotten. With LiveKit unset it still runs
+ * missed, old webhook ids are forgotten; then the notes and recordings
+ * (src/lib/team-calls/notes-sweep.ts). With LiveKit unset it still runs
  * the rings and the ids (there are none: calling is off), and ends nothing.
  */
 export const teamCallsSweep = inngest.createFunction(
@@ -67,9 +70,14 @@ export const teamCallsSweep = inngest.createFunction(
     })
     // Their own step: a failed notice is retried alone (the rings are already missed).
     if (result.missedRings.length > 0) await step.run('notify', () => notifyMissedCalls(getServiceClient(), result.missedRings as MissedRing[]))
+    // Notes and recordings (phase 6): the bounds, egresses whose end was lost, notes whose finish was lost.
+    const egress = await step.run('sweep-egress', () => {
+      const config = teamCallEgressConfig()
+      return sweepTeamCallEgress(getServiceClient(), { egress: config ? liveKitEgress(config) : null })
+    })
     console.info(
-      `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable}`,
+      `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost}`,
     )
-    return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable }
+    return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable, egress }
   },
 )
