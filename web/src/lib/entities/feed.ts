@@ -209,6 +209,8 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
   const stateIds = new Set<string>()
   const stageIds = new Set<string>()
   const fieldKeys = new Set<string>()
+  // A table's columns are its own (migration 520): a row's field is named through its table.
+  const dataRowIds = new Set<string>()
   for (const r of rows) {
     if (r.actor_member_id) memberIds.add(r.actor_member_id)
     if (r.subject_member_id) memberIds.add(r.subject_member_id)
@@ -219,6 +221,7 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
     if (r.action === 'status_changed' && r.entity_type === 'action') for (const v of [d.from, d.to]) if (str(v)) stateIds.add(v as string)
     if (r.action === 'status_changed' && r.entity_type === 'deal') for (const v of [d.from, d.to]) if (str(v)) stageIds.add(v as string)
     for (const k of changedFieldKeys(r)) fieldKeys.add(k)
+    if (r.entity_type === 'data_row' && changedFieldKeys(r).length) dataRowIds.add(r.entity_id)
   }
   const read = async (table: string, ids: Set<string>, column: string, scoped: boolean) => {
     if (!ids.size) return new Map<string, string>()
@@ -227,26 +230,37 @@ async function readNames(supabase: SupabaseClient, workspaceId: string, rows: re
     const { data } = await q
     return new Map(((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => [String(r.id), String(r[column] ?? '')]))
   }
-  // A field's name is per kind (`entity_type:key`): the workspace's own definitions, through the viewer's RLS.
+  // A field's name is per kind (`entity_type:key`), and a table's column per
+  // table (`data_row:table_id:key`): the workspace's own definitions, through the viewer's RLS.
   const readFields = async () => {
     if (!fieldKeys.size) return new Map<string, string>()
     const { data } = await supabase
       .from('custom_field_definition')
-      .select('entity_type, key, label')
+      .select('entity_type, key, label, table_id')
       .eq('workspace_id', workspaceId)
       .in('key', [...fieldKeys])
-    return new Map(((data ?? []) as Array<{ entity_type: string; key: string; label: string }>).map((f) => [`${f.entity_type}:${f.key}`, f.label]))
+    return new Map(
+      ((data ?? []) as Array<{ entity_type: string; key: string; label: string; table_id: string | null }>).map((f) => [
+        fieldName(f.entity_type, f.key, f.table_id),
+        f.label,
+      ]),
+    )
   }
-  const [members, states, stages, fields] = await Promise.all([
+  const [members, states, stages, fields, rowTables] = await Promise.all([
     read('member', memberIds, 'display_name', true),
     read('workflow_state', stateIds, 'name', false),
     read('deal_stage', stageIds, 'name', false),
     readFields(),
+    read('data_row', dataRowIds, 'table_id', true),
   ])
-  return { members, states, stages, fields }
+  return { members, states, stages, fields, rowTables }
 }
 
 type Names = Awaited<ReturnType<typeof readNames>>
+
+/** Where a field's name is kept in Names.fields. */
+const fieldName = (entityType: string, key: string, tableId: string | null | undefined) =>
+  tableId ? `${entityType}:${tableId}:${key}` : `${entityType}:${key}`
 
 function wordsFor(row: ActivityRow, names: Names): { from: string | null; to: string | null } {
   // A share (513) says its level: 'edit' or 'view'.
@@ -257,7 +271,7 @@ function wordsFor(row: ActivityRow, names: Names): { from: string | null; to: st
   if (row.action === 'updated') {
     // The fields still defined, by name; one since deleted is just not named.
     const labels = changedFieldKeys(row)
-      .map((k) => names.fields.get(`${row.entity_type}:${k}`))
+      .map((k) => names.fields.get(fieldName(row.entity_type, k, row.entity_type === 'data_row' ? names.rowTables.get(row.entity_id) : null)))
       .filter((l): l is string => !!l)
     if (!labels.length) return { from: null, to: null }
     const named = labels.slice(0, FIELDS_NAMED).join(', ')
