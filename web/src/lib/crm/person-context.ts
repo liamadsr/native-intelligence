@@ -137,6 +137,12 @@ export interface GatherPersonContextOptions {
   contactId: string
   /** captureRequester(userId, omitPrivateCaptures) — null on unattended runs. */
   requester: CaptureRequester
+  /**
+   * false on a guest's or a linked agent's turn (CreateToolsOptions.omitGrants):
+   * a contact shared with the person (a grant, 492) is not found (migration
+   * 519's 3-arg contact_visible_to). Absent: grants count, as before.
+   */
+  grants?: boolean
 }
 
 type PgResult<T> = { data: T[] | null; error: { message: string } | null }
@@ -194,7 +200,7 @@ async function fetchCanonicalContact(
 
 export async function gatherPersonContext(
   supabase: SupabaseClient,
-  { workspaceId, userId, contactId, requester }: GatherPersonContextOptions,
+  { workspaceId, userId, contactId, requester, grants }: GatherPersonContextOptions,
 ): Promise<PersonContext | null> {
   // 1. Contact (workspace-fenced, tombstone-followed)
   const resolved = await fetchCanonicalContact(supabase, workspaceId, contactId)
@@ -206,6 +212,7 @@ export async function gatherPersonContext(
   const { data: visible, error: visErr } = await supabase.rpc('contact_visible_to', {
     p_contact_id: row.id,
     p_user_id: requester,
+    ...(grants === false ? { p_grants: false } : {}),
   })
   if (visErr) console.warn('[person-context] contact_visible_to failed:', visErr.message)
   if (visible !== true) return null

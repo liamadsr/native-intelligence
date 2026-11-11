@@ -35,7 +35,11 @@ export function createCrmTools(
   // guest's or linked agent's turn (omitGrants), never on an unattended one
   // (a home turn, a skill or work run, open to injected text). Off unless said.
   editGrants = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // contact or company shared with the person (a grant, 492) is not found.
+  omitGrants = false,
 ) {
+  const grants = !omitGrants
   // get_contact_details / get_company_overview read captures (via the
   // person/company context helpers) on a service-role client (MCP /
   // unattended runs) — this requester, not RLS, is the real enforcement.
@@ -66,7 +70,7 @@ export function createCrmTools(
             .limit(10)
           if (error) return { success: false, error: error.message }
           for (const row of (data ?? []) as { id: string }[]) {
-            if (await isContactVisibleTo(supabase, row.id, userId)) {
+            if (await isContactVisibleTo(supabase, row.id, userId, { grants })) {
               found = row
               break
             }
@@ -85,6 +89,7 @@ export function createCrmTools(
             userId,
             contactId: found.id,
             requester,
+            grants,
           }),
           supabase
             .from('contact_interaction')
@@ -154,6 +159,7 @@ export function createCrmTools(
             userId,
             companyId,
             requester,
+            grants,
           }),
           // The workspace's own fields on companies (migration 473), the set ones, by name.
           recordCustomFieldsForModel(supabase, workspaceId, 'company', companyId),

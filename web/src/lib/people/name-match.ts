@@ -309,6 +309,8 @@ export async function resolveContactIdByName(
   workspaceId: string,
   name: string,
   requesterUserId: string,
+  // `grants: false` on a guest's or a linked agent's turn: a contact only a grant shows the requester never resolves.
+  opts: { grants?: boolean } = {},
 ): Promise<string | null> {
   // The name is model-supplied: `.or()` takes a raw PostgREST logic tree, so
   // commas / parens / wildcards in it could add conditions or match everyone.
@@ -322,7 +324,7 @@ export async function resolveContactIdByName(
       .is('merged_into_contact_id', null)
       .or(`full_name.ilike.%${term}%`)
       .limit(10)
-    const [firstVisible] = await filterVisibleContacts(supabase, requesterUserId, bySubstring ?? [])
+    const [firstVisible] = await filterVisibleContacts(supabase, requesterUserId, bySubstring ?? [], opts)
     if (firstVisible) return firstVisible.id as string
   }
 
@@ -346,7 +348,7 @@ export async function resolveContactIdByName(
   for (let i = 0; i <= MAX_HIDDEN_CONTACT_SKIPS; i++) {
     const match = findBestNameMatch(candidates, name)
     if (!match) return null
-    if (await isContactVisibleTo(supabase, match.id, requesterUserId)) return match.id
+    if (await isContactVisibleTo(supabase, match.id, requesterUserId, opts)) return match.id
     candidates = candidates.filter((c) => c.id !== match.id)
   }
   return null

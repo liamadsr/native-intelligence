@@ -28,6 +28,9 @@ export function createCalendarCaptureTools(
   workspaceId: string,
   accessToken?: string,
   omitPrivateCaptures = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // contact shared with the person (a grant) names no participant.
+  omitGrants = false,
 ) {
   const requester = captureRequester(userId, omitPrivateCaptures)
   return {
@@ -526,6 +529,7 @@ export function createCalendarCaptureTools(
             supabase,
             userId,
             (contacts || []) as { id: string; full_name: string | null }[],
+            omitGrants ? { grants: false } : {},
           )
           const contactIds = contactRows.map((c) => c.id)
 

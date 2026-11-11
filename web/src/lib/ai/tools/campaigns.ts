@@ -98,6 +98,12 @@ export interface CampaignToolsContext {
   approvalContext?: LaunchCardOrigin['approvalContext']
   /** Nobody at the keyboard (a work run's or loop's own turns): no card to raise. */
   unattended?: boolean
+  /**
+   * A guest's or a linked agent's turn (CreateToolsOptions.omitGrants), and the
+   * replay of a card one of them raised (storedToolOptions): a contact shared
+   * with the person (a grant) is never in the audience.
+   */
+  omitGrants?: boolean
 }
 
 /** The workspace's name (the business a recipe's emails sign off as), or null. */
@@ -434,7 +440,7 @@ export function createCampaignTools(
         // The person said yes on the card: enroll and launch exactly who it named.
         const approved = approvedOutreach(ctx.approvedCall, 'launch_campaign', 'campaign', campaign.id)
         if (approved) {
-          const outcome = await executeCampaignLaunch(supabase, { workspaceId: targetWs, campaign, userId: launcher, approved })
+          const outcome = await executeCampaignLaunch(supabase, { workspaceId: targetWs, campaign, userId: launcher, approved, ...(ctx.omitGrants ? { grants: false } : {}) })
           if (!outcome.ok) return { success: false, code: outcome.code, error: outcome.error, ...(outcome.failures ? { failures: outcome.failures } : {}) }
           return {
             success: true,
@@ -454,7 +460,7 @@ export function createCampaignTools(
             error: "Launching waits for the person's yes, and nobody is here to give it. Leave the launch to them.",
           }
         }
-        const prep = await prepareCampaignLaunch(supabase, { workspaceId: targetWs, campaign, userId: launcher })
+        const prep = await prepareCampaignLaunch(supabase, { workspaceId: targetWs, campaign, userId: launcher, ...(ctx.omitGrants ? { grants: false } : {}) })
         if (!prep.ok) return { success: false, code: prep.code, error: prep.error, ...(prep.failures ? { failures: prep.failures } : {}) }
         if (prep.recipients.length === 0) {
           return {

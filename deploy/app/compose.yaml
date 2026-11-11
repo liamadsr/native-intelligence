@@ -32,6 +32,14 @@ x-app: &app
     # The address the app gives Inngest for its functions when it registers: always
     # the public one, whatever Host or scheme a request arrived with.
     INNGEST_SERVE_ORIGIN: ${NEXT_PUBLIC_APP_URL:?set NEXT_PUBLIC_APP_URL in .env}
+    # The hosted sandbox service's credentials (a team-wide access token) are blanked
+    # for every container (`environment` wins over `env_file`), and given back below
+    # only to those that read them at run time: web and worker (the cloud browser,
+    # web/src/lib/cloud-browser/config.ts) and the coding agent
+    # (web/agents/coding-agent/sandbox.ts). Empty counts as unset in both.
+    SANDBOX_ACCESS_TOKEN: ""
+    SANDBOX_TEAM_ID: ""
+    SANDBOX_PROJECT_ID: ""
   # tini as PID 1: passes SIGTERM on and reaps what the servers leave behind.
   init: true
   # An agent and cron write nothing to the image: state is on the volumes below,
@@ -48,11 +56,21 @@ x-app: &app
   networks:
     - app
 
+# The containers that read the hosted sandbox service's credentials: the common
+# environment, with the three from .env.
+x-sandbox-env: &sandbox-env
+  <<: *app-env
+  SANDBOX_ACCESS_TOKEN: ${SANDBOX_ACCESS_TOKEN:-}
+  SANDBOX_TEAM_ID: ${SANDBOX_TEAM_ID:-}
+  SANDBOX_PROJECT_ID: ${SANDBOX_PROJECT_ID:-}
+
 # web and worker are the same server, and `next start` writes into its own folder
 # (its cache, the docs index, the pages it regenerates), so they are not read-only.
+# Both run the cloud browser's code, so both keep the sandbox credentials.
 x-next: &next
   <<: *app
   read_only: false
+  environment: *sandbox-env
 
 services:
   # The stack's router (proxy/Caddyfile, the same file the container test uses):
@@ -114,6 +132,20 @@ services:
         EVE_NEXT_PRODUCTION_ORIGIN: http://proxy:8081
         # The commit, for the build id (Dockerfile). deploy.sh sets it.
         NI_BUILD_ID: ${NI_APP_COMMIT:-}
+        # Which sandbox the coding agent is built with: "vercel/<team id>/<project
+        # id>" (the hosted sandbox service) when .env has its access token, else
+        # empty. The ids, never the token: they are not secret, and a change of
+        # either rebuilds that step (Dockerfile) instead of reusing a snapshot made
+        # in another project.
+        NI_CODING_AGENT_SANDBOX: ${SANDBOX_ACCESS_TOKEN:+vercel/${SANDBOX_TEAM_ID:-}/${SANDBOX_PROJECT_ID:-}}
+      # The hosted sandbox service's credentials, for the coding agent's build only
+      # (its snapshot is prepared then). Secrets, not build arguments: BuildKit mounts
+      # them for one step and writes them into no layer. deploy.sh gives them, from
+      # .env, to the `compose build` command alone; see the `secrets` at the end.
+      secrets:
+        - SANDBOX_ACCESS_TOKEN
+        - SANDBOX_TEAM_ID
+        - SANDBOX_PROJECT_ID
     deploy:
       resources:
         limits:
@@ -174,6 +206,9 @@ services:
   agent-coding-agent:
     <<: *app
     command: [agent, coding-agent]
+    # Its sandbox runs on the hosted sandbox service with these (entrypoint.sh
+    # checks that the image was built for the same choice).
+    environment: *sandbox-env
     volumes:
       - coding-agent-workflow:/app/web/agents/coding-agent/.eve/.workflow-data
       - coding-agent-sandbox:/app/web/agents/coding-agent/.eve/sandbox-cache/just-bash/sessions
@@ -239,6 +274,16 @@ volumes:
   live-agent-sandbox: { name: ni-app-live-agent-sandbox }
   web-research-workflow: { name: ni-app-web-research-workflow }
   web-research-sandbox: { name: ni-app-web-research-sandbox }
+
+# Build secrets only (web's `build.secrets`): no container is given these as files.
+# Each is read from the environment of the `compose build` that deploy.sh runs.
+secrets:
+  SANDBOX_ACCESS_TOKEN:
+    environment: SANDBOX_ACCESS_TOKEN
+  SANDBOX_TEAM_ID:
+    environment: SANDBOX_TEAM_ID
+  SANDBOX_PROJECT_ID:
+    environment: SANDBOX_PROJECT_ID
 
 networks:
   # The stack's own network: the app's containers and the proxy. It has a way out

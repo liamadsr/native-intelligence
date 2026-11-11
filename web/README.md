@@ -131,7 +131,10 @@ How they run in dev:
   and `package-lock.json`.
 - The cloud browser starts Vercel Sandbox VMs. It needs `VERCEL_OIDC_TOKEN` and the
   `CLOUD_BROWSER_*` variables. Coding runs use Vercel Sandbox only when deployed on
-  Vercel. Locally they run in the agent's local sandbox (above).
+  Vercel. Locally they run in the agent's local sandbox (above). In production the
+  agents run in containers on our own server ([`deploy/app/`](../deploy/app/README.md)),
+  where an agent's shell is eve's `just-bash` ("The coding agent" in
+  [`deploy/README.md`](../deploy/README.md) says what that means for coding runs).
 
 `agents/local-agent` isn't mounted here. It's the agent that runs on a person's Mac,
 and the desktop app bundles it.
@@ -185,11 +188,16 @@ end-to-end tests, and how the hosted project's deploy pipeline is planned.
   - `/api/slack/events` and `/api/slack/interactivity`;
   - `/api/inngest`, for the Inngest server in production.
 - **Stripe billing's webhook isn't in this app.** It's a Supabase Edge Function
-  (`supabase/functions/stripe-webhook/`). Deploy it with the Supabase CLI and set its
-  secrets there.
+  (`supabase/functions/stripe-webhook/`). On your own Supabase project, deploy it with
+  the Supabase CLI and set its secrets there. Production's copy is not deployed that
+  way: the server's Supabase stack mounts this folder and runs it from the checkout
+  (`git pull`, then a restart of its functions service:
+  [`deploy/supabase/README.md`](../deploy/supabase/README.md)).
 - **Crons.** `vercel.json` lists the cron jobs. Each one is a route under
   `src/app/api/cron/` that needs `Authorization: Bearer $CRON_SECRET`. Off Vercel,
-  nothing calls them unless you schedule them yourself.
+  nothing calls them unless you schedule them yourself. The hosted service's server
+  does that with a crontab generated from this list
+  ([`deploy/app/README.md`](../deploy/app/README.md#cron)).
 
 ## Settings you set in your environment
 

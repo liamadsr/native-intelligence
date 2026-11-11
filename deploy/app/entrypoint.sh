@@ -114,6 +114,12 @@ case "$role" in
     [ -n "$name" ] || die "agent needs a name: one of $("$DEPLOY/build-agents.sh" --list | tr '\n' ' ')"
     "$DEPLOY/build-agents.sh" --list | grep -qx -- "$name" \
       || die "no agent named '$name' in this image: $("$DEPLOY/build-agents.sh" --list | tr '\n' ' ')"
+    # The sandbox this agent's build prepared must be the one it opens now: the coding
+    # agent opens the hosted sandbox service when SANDBOX_ACCESS_TOKEN, SANDBOX_TEAM_ID
+    # and SANDBOX_PROJECT_ID are set, just-bash when none is. A build made with other
+    # settings than these would start healthy and fail at its first run, so it does
+    # not start (the message says which way, and what to do).
+    "$DEPLOY/build-agents.sh" --check-sandbox "$name" || exit 64
     # The agent's public mount, as in the build: the callback URLs it makes use it.
     export EVE_PUBLIC_ROUTE_PREFIX="/eve/$name"
     remember_role "agent $name"

@@ -88,12 +88,17 @@ vi.mock('@/components/sequences/add-to-sequence-dialog', () => ({
 }))
 
 import { UnifiedViewLayout } from '../unified-view-layout'
+import { stubAppFetch } from '@/test/app-fetch-stub'
 import { WindowFocusProvider } from '../tab-active'
 
 let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  // The layout reads /api/account/workspace on mount. Refused at once, as the
+  // real fetch refused it only later, it cannot outlive the test
+  // (src/test/app-fetch-stub.ts says why).
+  stubAppFetch()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -101,6 +106,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 describe('UnifiedViewLayout add to sequence', () => {
