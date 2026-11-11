@@ -37,9 +37,13 @@ describe('migrations 560-561', () => {
     for (const [name, sql] of Object.entries(FILES)) {
       const body = bodyOf(sql)
       expect(sql, name).not.toContain('\\')
-      expect(body, name).not.toMatch(/drop table|delete from|truncate|drop column|drop function/i)
-      expect(body, name).toContain("SET LOCAL lock_timeout = '5s';")
-      expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';"), name).toBe(true)
+      // The only delete is the trigger's (a deleted message's notifications), inside its function.
+      expect(body.replace(/as \$\$[\s\S]*?\$\$;/g, ''), name).not.toMatch(/drop table|delete from|truncate|drop column|drop function/i)
+      // One transaction whatever applies it (plain psql too): begin first, then the lock timeout, the reload, commit last.
+      expect(body, name).toMatch(/^\s*begin;\s*SET LOCAL lock_timeout = '5s';/)
+      expect(body.trimEnd().endsWith("notify pgrst, 'reload schema';\n\ncommit;"), name).toBe(true)
+      expect((body.match(/^(begin|commit);$/gm) ?? []).length, name).toBe(2)
+      expect(body, name).not.toMatch(/concurrently|vacuum/i)
       expect(body, name).not.toMatch(/to anon/)
       expect(body, name).not.toMatch(/create index (?!if not exists)/)
       expect(body, name).not.toMatch(/add column (?!if not exists)/)
@@ -58,6 +62,7 @@ describe('migrations 560-561', () => {
       [REACH, 'team_chat_mark_read', 'authenticated'],
       [REACH, 'team_chat_mark_thread_read', 'authenticated'],
       [REACH, 'team_chat_notify_candidates', 'service_role'],
+      [REACH, 'team_chat_readable_messages', 'service_role'],
       [SEARCH, 'team_chat_search', 'authenticated'],
     ]
     for (const [sql, name, role] of fns) {
@@ -140,8 +145,32 @@ describe('migrations 560-561', () => {
     expect(flat(SEARCH)).toContain("create index if not exists team_chat_message_fts_idx on public.team_chat_message using gin (to_tsvector('english', body)) where deleted_at is null;")
   })
 
+  it('560: a notification says its message as it is now: written only for a live message (locked for share), with its words; an edit rewrites it, a delete removes it', () => {
+    const live = fn(REACH, 'team_chat_notification_live')
+    expect(live).toContain('security definer')
+    expect(live).toContain('for share;')
+    expect(live).toContain('if not found or m.deleted_at is not null then')
+    expect(live).toContain('return null;')
+    expect(live).toContain('new.body := public.team_chat_notice_snippet(m.body,')
+    expect(flat(REACH)).toContain("create trigger team_chat_notification_live before insert on public.notification for each row when (new.type = 'team_chat_message') execute function public.team_chat_notification_live();")
+    const follow = fn(REACH, 'team_chat_message_notices_follow')
+    expect(follow).toContain('if new.deleted_at is not null then')
+    expect(follow).toContain('delete from public.notification n')
+    expect(follow).toContain('set body = public.team_chat_notice_snippet(new.body,')
+    expect(flat(REACH)).toContain('create trigger team_chat_message_notices_follow after update of body, attachments, deleted_at on public.team_chat_message for each row when (old.deleted_at is null) execute function public.team_chat_message_notices_follow();')
+    // The words as the app's copy cuts them (src/lib/team-chat/notify.ts): 140 characters, files alone said so.
+    const snippet = fn(REACH, 'team_chat_notice_snippet')
+    expect(snippet).toContain("when char_length(w) > 140 then rtrim(left(w, 139)) || '…'")
+    expect(snippet).toContain("'Sent a file'")
+    // What the away email may read: the member's own access now, never a deleted message or an archived channel.
+    const readable = fn(REACH, 'team_chat_readable_messages')
+    expect(readable).toContain('and x.deleted_at is null')
+    expect(readable).toContain('c.archived_at is null')
+    expect(readable).toContain('public.team_chat_member_can_read(x.channel_id, mem)')
+  })
+
   it('has DEV probes for each of these', () => {
-    for (const probe of ['team_chat_set_notify', 'team_chat_notify_candidates', 'team_chat_mark_read', 'team_chat_mark_thread_read', 'team_chat_search', 'NON-MEMBER of a private team channel finds nothing', 'a DM OUTSIDER finds nothing', 'a deleted message is never found']) {
+    for (const probe of ['pasted a secret, then edited it out', "a deleted message''s notifications go", 'mentioned, then removed from the private channel', 'no longer a member of the workspace', 'team_chat_readable_messages', 'team_chat_set_notify', 'team_chat_notify_candidates', 'team_chat_mark_read', 'team_chat_mark_thread_read', 'team_chat_search', 'NON-MEMBER of a private team channel finds nothing', 'a DM OUTSIDER finds nothing', 'a deleted message is never found']) {
       expect(PROBES, probe).toContain(probe)
     }
     expect(PROBES.trimEnd().endsWith('rollback;')).toBe(true)
