@@ -9,6 +9,7 @@ struct dial8_iOSApp: App {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-previewEveChat") { return }
         if ProcessInfo.processInfo.arguments.contains("-previewTeamChat") { return }
+        if ProcessInfo.processInfo.arguments.contains("-previewTeamCall") { return }
         #endif
         // Initialize shared services
         AnalyticsService.shared.setup()
@@ -64,6 +65,8 @@ struct dial8_iOSApp: App {
                     iOSEveChatPreview()
                 } else if ProcessInfo.processInfo.arguments.contains("-previewTeamChat") {
                     iOSTeamChatPreview()
+                } else if ProcessInfo.processInfo.arguments.contains("-previewTeamCall") {
+                    iOSTeamCallPreview()
                 } else { iOSRootView() }
                 #else
                 iOSRootView()

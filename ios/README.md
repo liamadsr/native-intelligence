@@ -72,6 +72,7 @@ To run against your own backend, change those two files.
 Scripts/test-eve-chat.sh
 Scripts/test-chat-reply-text.sh
 Scripts/test-team-chat.sh
+Scripts/test-team-calls.sh
 ```
 
 The first runs the real Swift chat transport against a local fixture server (see
@@ -99,6 +100,38 @@ ends, the install is forgotten (`push_token_forget`), and a removal that couldn'
 is done on the next launch before anything is registered.
 `Config/Dial8-Development.entitlements` (sandbox) and `Config/Dial8.entitlements`
 (production) carry `aps-environment`; the App ID needs the Push Notifications capability.
+
+## Team calls
+
+Calls in a team chat channel or DM (audio, with the camera to turn on), over the web app's
+self-hosted LiveKit server, through the same `/api/account/team-calls/*` routes as the web page.
+A conversation's phone button starts one (or opens the one the person is in); a call's message has
+Join. The call screen shows everyone's camera or face (the one speaking marked, a shared screen on
+top), mute, the camera and its flip, where the sound goes (the system's picker: speaker, earpiece,
+Bluetooth), ring someone in, and leave; minimised, it is a bar over the app.
+
+Rings reach the phone as calls: the server sends a VoIP push (PushKit, the install's VoIP token,
+`push_token_register` with kind `voip`, migration 570) while the ring rings, and a cancel when it
+was answered or declined elsewhere or the caller hung up. CallKit shows the call, locked or not;
+answering asks the server first (the web's own function), then joins; declining tells the server,
+so the web stops ringing. The phone checks every ring against its row (Realtime, else a fetch) and
+stops it by its own clock. A ring that arrives while the person is in a call is declined as busy.
+Calls stay out of the system's Recents. The VoIP token has the alert token's lifecycle (removed when
+the session ends, however it ends), but doesn't depend on notification settings: calls ring like
+phone calls.
+
+Their screens can be seen without signing in, in a Development build:
+
+```sh
+xcrun simctl launch <device> com.dial8-iOS-26 -previewTeamCall YES \
+  -previewTeamCallScreen incoming|pair|call|screen|listening|minimized|ended
+```
+
+CallKit and PushKit don't deliver in the Simulator (an incoming ring there shows in the app while it
+is open, and a call runs without the system's call screen); a ring as a call needs a device. The
+App ID needs the Push Notifications capability (already there for team chat's pushes); VoIP pushes
+use the same APNs key, to the topic `<bundle id>.voip`, and need nothing more on Apple's developer
+site.
 
 ## Third-party code
 

@@ -26,6 +26,9 @@ enum TeamChatLiveEvent {
     case message(TeamChatMessage, isInsert: Bool)
     case reaction(TeamChatReaction)
     case thread(TeamChatThreadSummary)
+    /// A team call's row, or one of its people's (migration 564): a call's message redraws.
+    case call(TeamCall)
+    case callParticipant(TeamCallParticipant)
     /// Coming back: fetch again.
     case refetch
 }
@@ -278,6 +281,14 @@ final class TeamChatStore: ObservableObject {
             },
             channel.onPostgresChange(AnyAction.self, schema: "public", table: "team_chat_channel", filter: filter) { [weak self] _ in
                 Task { @MainActor in self?.refreshSoon() }
+            },
+            channel.onPostgresChange(AnyAction.self, schema: "public", table: "team_call", filter: filter) { [weak self] action in
+                guard let record = Self.record(of: action), let c = try? record.decode(as: TeamCall.self, decoder: decoder) else { return }
+                Task { @MainActor in self?.events.send(.call(c)) }
+            },
+            channel.onPostgresChange(AnyAction.self, schema: "public", table: "team_call_participant", filter: filter) { [weak self] action in
+                guard let record = Self.record(of: action), let p = try? record.decode(as: TeamCallParticipant.self, decoder: decoder) else { return }
+                Task { @MainActor in self?.events.send(.callParticipant(p)) }
             },
         ]
         live = channel

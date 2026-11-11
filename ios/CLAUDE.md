@@ -22,6 +22,9 @@ Guidance for Claude Code in this repository. `README.md` has the layout and buil
   runs the chat bubble's comment-stripping tests (`Core/Models/ChatReplyText.swift`);
   `Scripts/test-team-chat.sh` runs team chat's rules (`Core/Models/TeamChat/`, Foundation only:
   keep the decisions there, and the Supabase and SwiftUI code in `App/`).
+  `Scripts/test-team-calls.sh` runs team calls' rules (`Core/Models/TeamCalls/`: the VoIP push, the
+  ring's state machine against CallKit, the call's session and tiles). CallKit and PushKit don't
+  deliver in the Simulator: keep their code thin (`App/Services/TeamCalls/`) and the decisions in Core.
 
 ## Code
 
@@ -34,4 +37,8 @@ Guidance for Claude Code in this repository. `README.md` has the layout and buil
 - Team chat goes through the web app's team chat routes (the same rules as the web page) and
   reads members, Realtime and files straight from Supabase as the person.
   `-previewTeamChat YES -previewTeamChatScreen <screen>` shows its screens over fixtures (DEBUG).
+- Team calls use the same routes (`/api/account/team-calls/*`) and LiveKit's Swift SDK (pinned in
+  `project.yml`); CallKit owns the audio session (LiveKit's engine runs only between `didActivate`
+  and `didDeactivate`). `-previewTeamCall YES -previewTeamCallScreen <screen>` shows the call screens
+  over fixtures (DEBUG).
 - New fixtures and examples use made-up names, never real people, customers or companies.

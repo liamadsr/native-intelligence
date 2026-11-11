@@ -357,8 +357,9 @@ import Foundation
         var update = live
         update.upsert(TeamCallParticipant(callId: call1, memberId: ben, state: "left", joinedAt: "2026-11-11T10:01:00Z", leftAt: "2026-11-11T10:05:00Z"))
         equal(update.inNow.map(\.memberId), [ana], "a participant row from Realtime replaces that member's")
-        equal(TeamCallCard.peopleLine(["Ana Ruiz", "Ben Okafor", "Mara Chen"]), "In the call: Ana Ruiz and 2 others", "the live card's line")
-        equal(TeamCallCard.peopleLine([]), "Started a call", "nobody in it yet")
+        equal(TeamCallCard.peopleLine(["Ana Ruiz", "Ben Okafor", "Mara Chen"]), "Ana Ruiz and 2 others", "the live card's line")
+        equal(TeamCallCard.peopleLine(["Ana Ruiz", "Ben Okafor"]), "Ana Ruiz and Ben Okafor", "two")
+        equal(TeamCallCard.peopleLine([]), "Nobody yet", "nobody in it yet")
     }
 
     static func routing() {

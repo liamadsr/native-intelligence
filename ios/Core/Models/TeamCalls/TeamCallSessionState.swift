@@ -240,13 +240,14 @@ enum TeamCallCard: Equatable {
         return .live(people: view.inNow.map(\.memberId), here: inCallId == view.call.id)
     }
 
-    /// The live card's line: "In the call: Ana Ruiz", "Ana Ruiz and 2 others", "Started a call".
+    /// Who is in a live call, under its "Call in progress": "Ana Ruiz", "Ana Ruiz and Ben Okafor",
+    /// "Ana Ruiz and 2 others"; "Nobody yet" before anyone is in.
     static func peopleLine(_ names: [String]) -> String {
         switch names.count {
-        case 0: return "Started a call"
-        case 1: return "In the call: \(names[0])"
-        case 2: return "In the call: \(names[0]) and \(names[1])"
-        default: return "In the call: \(names[0]) and \(names.count - 1) others"
+        case 0: return "Nobody yet"
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return "\(names[0]) and \(names.count - 1) others"
         }
     }
 }
