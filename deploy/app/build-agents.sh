@@ -221,9 +221,11 @@ for name in $names; do
   if [ -n "$keep" ]; then
     token="$(trimmed "$SANDBOX_ACCESS_TOKEN")"
     status=0
-    # The whole app (not the dependencies), the build's scratch space and $HOME,
-    # where a tool could have cached something.
-    grep -rqF -D skip --exclude-dir=node_modules -e "$token" "$WEB" /tmp "${HOME:-/root}" || status=$?
+    # The whole app, the build's scratch space and $HOME, where a tool could have
+    # cached something. The dependencies' folders are searched too: the framework
+    # keeps a build cache in one (node_modules/.cache), each agent's output has its
+    # own, and all of them go into the image. A few seconds in a ten-minute build.
+    grep -rqF -D skip -e "$token" "$WEB" /tmp "${HOME:-/root}" || status=$?
     [ "$status" = 1 ] || {
       echo "build-agents: SANDBOX_ACCESS_TOKEN turned up in a file after $name's build (or grep failed): refusing to put it in the image" >&2
       exit 1

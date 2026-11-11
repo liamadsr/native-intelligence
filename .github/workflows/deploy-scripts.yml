@@ -11,6 +11,10 @@ on:
       - 'deploy/**/*.sh'
       - 'deploy/app/.env.example'
       - 'deploy/app/ni-auto-deploy.*'
+      # deploy/app/tests reads these two: which containers get which settings, and
+      # what the build is handed.
+      - 'deploy/app/compose.yaml'
+      - 'deploy/app/Dockerfile'
       - '.github/workflows/deploy-scripts.yml'
       # What check_settings.py's proofs copy from the app:
       - 'web/src/lib/crypto/credentials.ts'
