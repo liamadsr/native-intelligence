@@ -5,6 +5,15 @@ import { expireRings, notifyMissedCalls, TEAM_CALL_RING_EVENT, type MissedRing }
 import { sweepTeamCalls } from '@/lib/team-calls/sweep'
 import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
 
+/** What the ring's timer reads of Inngest's run (a test hands its own). */
+export interface TeamCallRingTimerContext {
+  event: { data: unknown }
+  step: {
+    sleepUntil: (id: string, until: Date) => Promise<unknown>
+    run: <T>(id: string, fn: () => Promise<T>) => Promise<unknown>
+  }
+}
+
 /**
  * team-calls/ring.started → a ring's timer (src/lib/team-calls/store.ts):
  * sleep until the ring's time is up, then, if nobody answered (565's
@@ -13,27 +22,29 @@ import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
  * changes nothing. The event's id is the ring's, so a retried request runs
  * one timer. One `[team-call-ring]` line per run, ids only.
  */
+export async function runTeamCallRingTimer({ event, step }: TeamCallRingTimerContext) {
+  const data = event.data as { ringId?: unknown; expiresAt?: unknown } | undefined
+  const ringId = data?.ringId
+  const expiresAt = typeof data?.expiresAt === 'string' ? Date.parse(data.expiresAt) : NaN
+  if (!isUuid(ringId) || !Number.isFinite(expiresAt)) {
+    console.info('[team-call-ring] ring=- outcome=bad_event')
+    return { status: 'skipped', reason: 'bad_event' }
+  }
+  // A second past the ring's time, so the database's clock has passed it too.
+  await step.sleepUntil('ring', new Date(expiresAt + 1000))
+  const missed = (await step.run('expire', () => expireRings(getServiceClient(), ringId))) as MissedRing[]
+  if (missed.length > 0) await step.run('notify', () => notifyMissedCalls(getServiceClient(), missed))
+  console.info(`[team-call-ring] ring=${ringId} outcome=${missed.length > 0 ? 'missed' : 'settled'}`)
+  return { status: 'done', missed: missed.length }
+}
+
 export const teamCallRingTimer = inngest.createFunction(
   {
     id: 'team-call-ring-timer',
     retries: 2,
     triggers: [{ event: TEAM_CALL_RING_EVENT }],
   },
-  async ({ event, step }) => {
-    const data = event.data as { ringId?: unknown; expiresAt?: unknown } | undefined
-    const ringId = data?.ringId
-    const expiresAt = typeof data?.expiresAt === 'string' ? Date.parse(data.expiresAt) : NaN
-    if (!isUuid(ringId) || !Number.isFinite(expiresAt)) {
-      console.info('[team-call-ring] ring=- outcome=bad_event')
-      return { status: 'skipped', reason: 'bad_event' }
-    }
-    // A second past the ring's time, so the database's clock has passed it too.
-    await step.sleepUntil('ring', new Date(expiresAt + 1000))
-    const missed = (await step.run('expire', () => expireRings(getServiceClient(), ringId))) as MissedRing[]
-    if (missed.length > 0) await step.run('notify', () => notifyMissedCalls(getServiceClient(), missed))
-    console.info(`[team-call-ring] ring=${ringId} outcome=${missed.length > 0 ? 'missed' : 'settled'}`)
-    return { status: 'done', missed: missed.length }
-  },
+  runTeamCallRingTimer,
 )
 
 /**
