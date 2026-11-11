@@ -21,7 +21,9 @@ deploy/app/
 └── proxy/Caddyfile   the stack's router
 ```
 
-The edge Caddy (`../edge`) is the only thing with public ports. It sends every name
+The edge Caddy (`../edge`) is the only thing with public HTTP ports (the one other
+container with public ports is LiveKit, `../livekit`, for the media of calls, which
+is not HTTP). It sends every name
 in `APP_HOSTS` (its `.env`) to this stack's proxy, `ni-app-proxy`, the one
 container of the stack on the shared network `ni-edge`. The proxy sends
 `/eve/<name>/v1/*` to that agent, `/api/inngest` to the worker, and everything else
@@ -184,6 +186,20 @@ forwarded event, and the check calls it wrong.
 
 `VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here in their place: other code
 reads `VERCEL_ENV` to tell production from a preview.
+
+Three more exist only here, for calls on this server's own LiveKit (`../livekit`,
+`../README.md` step 23): `LIVEKIT_URL` (the `wss://` address browsers connect to),
+`LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` (the pair the app signs join tokens and
+its calls to LiveKit's API with, and LiveKit signs its webhooks with). Nobody types
+them: `../livekit/make-keys.sh` makes the pair on the server and writes the same one
+into both `.env` files. All three or none; empty, there are no calls, and the check
+says so without blocking anything. Set, `check-settings.sh` makes a token from them
+exactly as the app's server library would and asks LiveKit's API to list its rooms
+through the public name: `ok` means the address, Caddy, the certificate and the
+pair all work together. LiveKit's webhooks reach the app over the shared network
+(`ni-app-proxy`, the address in `LIVEKIT_WEBHOOK_URL` in `../livekit/.env`), so
+their `Host` is that internal name, not a public one: the route that takes them
+proves where they came from by their signature, never by their address.
 
 ### Sealed copy (done once, then removed)
 

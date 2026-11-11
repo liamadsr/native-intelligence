@@ -118,7 +118,7 @@ Unattended-Upgrade::Automatic-Reboot-Time "$reboot_time";
 EOF
 echo "set"
 
-say "Firewall: SSH, 80 and 443 only"
+say "Firewall: SSH, 80 and 443, and LiveKit's two media ports"
 # Whatever port sshd really listens on, so enabling the firewall cannot cut
 # the connection this is running over.
 # awk reads to the end on purpose: leaving early would close the pipe on sshd,
@@ -131,8 +131,14 @@ for ssh_port in ${ssh_ports:-22}; do
 done
 ufw allow 80/tcp comment 'HTTP (redirects, certificates)' >/dev/null
 ufw allow 443/tcp comment 'HTTPS' >/dev/null
+# The media of calls (deploy/livekit): WebRTC over one UDP port, and ICE over TCP
+# for networks that block UDP. Not HTTP, so not through Caddy. Docker opens the two
+# ports it publishes whatever ufw says (deploy/README.md, step 5); these lines make
+# ufw's own list say what is open. Nothing listens on them until LiveKit runs.
+ufw allow 7882/udp comment 'LiveKit media (WebRTC over UDP)' >/dev/null
+ufw allow 7881/tcp comment 'LiveKit media (ICE over TCP)' >/dev/null
 ufw --force enable >/dev/null
-ufw status | sed -n '1,12p'
+ufw status | sed -n '1,16p'
 
 say "Docker"
 if ! command -v docker >/dev/null 2>&1; then

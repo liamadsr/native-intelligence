@@ -1,0 +1,148 @@
+# LiveKit: the media server for audio and video calls, and its own Redis.
+#
+# Signalling (HTTP and WebSocket on 7880) is not published: Caddy (../edge) serves it
+# over TLS on its own name, reaching this container as ni-livekit:7880 over the shared
+# network ni-edge. The media is the one thing on this server besides Caddy that
+# publishes ports, because it is not HTTP and cannot go through Caddy: WebRTC sends it
+# straight to the media server, encrypted end to end between browser and server
+# (DTLS-SRTP), over
+#
+#   UDP 7882   every call's media, all of it multiplexed on this one port
+#   TCP 7881   ICE over TCP: the same media, for networks that block UDP
+#
+# ../README.md step 23 has why these two and no others (no TURN), which networks
+# they do not reach, and the firewall lines that go with them.
+#
+# LiveKit keeps nothing on disk: rooms live in memory and in Redis, and both are gone
+# after a restart (a call in progress is cut, and the people in it rejoin). There is
+# no volume and nothing to back up; ../move needs nothing for it but this folder and
+# its .env.
+#
+# Run from this folder, as root so the root-only .env can be read:
+#   sudo docker compose up -d
+name: ni-livekit
+
+services:
+  livekit:
+    # Pinned on purpose. To upgrade: read the release notes
+    # (https://github.com/livekit/livekit/releases), change the tag, then
+    # `sudo docker compose pull livekit && sudo docker compose up -d livekit`.
+    # Calls in progress are cut and rejoin by themselves.
+    image: livekit/livekit-server:v1.13.11
+    container_name: ni-livekit
+    restart: unless-stopped
+    ports:
+      # Published on purpose, the one exception to "only Caddy publishes" (top of
+      # this file). Docker opens these whatever ufw says; setup.sh lists them in ufw
+      # as well, so that the firewall's own list says what is open.
+      - "7882:7882/udp"
+      - "7881:7881/tcp"
+    environment:
+      # The whole configuration, as LiveKit reads it from LIVEKIT_CONFIG
+      # (cmd/server/main.go, --config-body). It is here rather than in a file
+      # because two of its values are secrets: Compose fills them in from .env,
+      # so nothing secret is in the repository and no second file has to be kept
+      # in step. The keys are letters and digits only (make-keys.sh), which YAML
+      # takes as they are.
+      LIVEKIT_CONFIG: |
+        port: 7880
+        logging:
+          level: info
+        rtc:
+          # Media over one UDP port (a mux) instead of a range of thousands.
+          udp_port: 7882
+          # ICE over TCP, for networks that block UDP.
+          tcp_port: 7881
+          # The address LiveKit tells browsers to send media to. Inside Docker the
+          # container only sees its own private address, so by default it asks a
+          # public STUN server which address its packets leave the server from,
+          # which is the server's public one: right on this server and on any
+          # server it moves to. LIVEKIT_NODE_IP in .env sets it by hand instead;
+          # the line below is then `node_ip: <that address>` and discovery is
+          # off, and when it is empty the line is `use_external_ip: true`.
+          ${LIVEKIT_NODE_IP:+node_ip: }${LIVEKIT_NODE_IP:-use_external_ip: true}
+        # Needed later by recording and agents, which find rooms through it. Holds
+        # only what is live; nothing in it outlives a call.
+        redis:
+          address: redis:6379
+        keys:
+          ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env (make-keys.sh)}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env (make-keys.sh)}
+        # Room and participant events, signed with the key above, sent to the app.
+        # Empty LIVEKIT_WEBHOOK_URL: none are sent.
+        webhook:
+          api_key: ${LIVEKIT_API_KEY}
+          urls: [${LIVEKIT_WEBHOOK_URL-}]
+        # LiveKit's own TURN server stays off: ../README.md step 23 says why.
+        turn:
+          enabled: false
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Writes nothing: no state on disk, scratch in /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      # Private: Redis.
+      internal: {}
+      # Shared with Caddy, which proxies the signalling here, and with the app's
+      # proxy (ni-app-proxy), which the webhooks are sent to. Also the way out, to
+      # the STUN server at startup.
+      edge: {}
+    healthcheck:
+      # "OK" once the node is up and reporting (pkg/service/server.go, healthCheck).
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7880/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Time to tell the people in a call that the server is going away.
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          # A media server forwards packets and keeps little: a few hundred MB for
+          # dozens of people in calls. The limit is there so that a fault cannot take
+          # memory from the database and the app on the same machine.
+          memory: 4g
+
+  redis:
+    image: redis:7-alpine
+    container_name: ni-livekit-redis
+    restart: unless-stopped
+    # Nothing worth keeping: no snapshots, no append-only file, no volume. Never
+    # evict: a dropped key is a room that loses track of who is in it.
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+networks:
+  # LiveKit and its Redis, and nothing else. No route out.
+  internal:
+    name: ni-livekit
+    internal: true
+  # Created once by hand (see ../README.md, step 7) so that no stack owns it.
+  edge:
+    name: ni-edge
+    external: true

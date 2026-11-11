@@ -1,9 +1,12 @@
-# The only public door on the server: ports 80 and 443.
+# The public door for everything that is HTTP: ports 80 and 443. The one other
+# thing published on this server is LiveKit's media (UDP 7882, TCP 7881,
+# ../livekit), which is not HTTP and goes straight to LiveKit.
 #
 # Hosts named from the environment (see compose.yaml and .env.example):
 #   INNGEST_HOST   an allowlist in front of the self-hosted Inngest server
 #   SUPABASE_HOST  a pass-through to SUPABASE_UPSTREAM
 #   APP_HOSTS      the app (../app), once it runs on this server
+#   LIVEKIT_HOST   LiveKit's signalling, for calls (../livekit)
 #
 # Check a change before reloading:
 #   sudo docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile
@@ -28,7 +31,8 @@
 		}
 	}
 
-	# Only TCP 80 and 443 are open, so no HTTP/3 (which is UDP 443).
+	# Caddy has TCP 80 and 443 only, so no HTTP/3 (which is UDP 443). UDP 443
+	# stays closed: LiveKit's media has a UDP port of its own (7882).
 	servers {
 		protocols h1 h2
 		timeouts {
@@ -225,5 +229,40 @@
 		# The stack's proxy names the container that answered, for its own
 		# test. Not for the public.
 		header_down -X-NI-Upstream
+	}
+}
+
+# ---------------------------------------------------------------------------
+# LiveKit
+#
+# The signalling of calls: the WebSocket a browser opens (/rtc), the server API
+# the app calls (/twirp/...), and the WebSocket agents connect to (/agent).
+# LiveKit checks a token signed with its API key on every one of them. The media
+# itself does not come through here: it goes to LiveKit's own UDP and TCP ports.
+#
+# Until LIVEKIT_HOST is set this block is plain HTTP for livekit.invalid, a name
+# no request carries, like the app's block above. A reload of this file closes
+# the open WebSockets: a call in progress keeps its media and reconnects its
+# signalling by itself.
+# ---------------------------------------------------------------------------
+{$LIVEKIT_HOST:http://livekit.invalid} {
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				# The browser's join token travels in the WebSocket's query
+				# string; the API's in the Authorization header, which Caddy
+				# leaves out of its logs anyway.
+				request>uri query {
+					replace access_token REDACTED
+					replace token REDACTED
+				}
+			}
+		}
+	}
+
+	reverse_proxy ni-livekit:7880 {
+		import proxy
 	}
 }

@@ -150,6 +150,8 @@ rank() {
 	*inngest*) echo 2 ;;
 	# The app needs its database and Inngest, and the edge needs the app's proxy.
 	*app*) echo 3 ;;
+	# LiveKit needs nothing else to start; it sends its webhooks to the app.
+	*livekit*) echo 3 ;;
 	*edge*) echo 4 ;;
 	*backup*) echo 5 ;;
 	*) echo 3 ;;

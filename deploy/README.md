@@ -1,10 +1,11 @@
 # The server
 
-Everything Native Intelligence runs on its own server lives in this folder. It has been moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (then still on its earlier host) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files. The third (steps 20 to 22) is the app itself: the web app, its eight agents and its scheduled jobs, from the container image in [`app/`](app).
+Everything Native Intelligence runs on its own server lives in this folder. It has been moved there from managed services one piece at a time. The first piece (steps 1 to 13) is the server itself and a self-hosted [Inngest](https://www.inngest.com/docs/self-hosting) that the app (then still on its earlier host) sends its background work to. The second (steps 14 to 19) is [Supabase](https://supabase.com/docs/guides/self-hosting/docker): the app's database, sign-in, live updates and files. The third (steps 20 to 22) is the app itself: the web app, its eight agents and its scheduled jobs, from the container image in [`app/`](app). The fourth (step 23) is new rather than moved: [LiveKit](https://docs.livekit.io/home/self-hosting/), the media server for audio and video calls.
 
 | Folder | What it runs | Public? |
 | --- | --- | --- |
-| [`edge/`](edge) | Caddy on ports 80 and 443, with automatic certificates. An allowlist in front of Inngest, and a pass-through host for Supabase. | Yes, the only thing that is |
+| [`edge/`](edge) | Caddy on ports 80 and 443, with automatic certificates. An allowlist in front of Inngest, a pass-through host for Supabase, the app's names, and LiveKit's signalling. | Yes: everything that is HTTP |
+| [`livekit/`](livekit) | LiveKit and its own Redis. Keeps nothing on disk. | Its two media ports, UDP 7882 and TCP 7881 (step 23); its signalling only through Caddy |
 | [`inngest/`](inngest) | The Inngest server, its own Postgres 17 and Redis 7, and a small loop that keeps the app's function list in sync. | No ports on the host |
 | [`supabase/`](supabase) | Supabase's own self-hosted stack (Postgres 17, Auth, the data API, Realtime, Storage, edge functions, Studio), and the scripts that move the hosted project onto it. | No ports on the host |
 | [`backup/`](backup) | Encrypted backups to Backblaze B2: Inngest's Postgres nightly, the Supabase database hourly, the stored files nightly. | No |
@@ -141,7 +142,7 @@ This covers Ubuntu's own packages. Docker is upgraded by hand (`sudo apt-get ins
 
 ## 5. Firewall
 
-Only SSH, 80 and 443 come in.
+Only SSH, 80 and 443 come in, and the two media ports of calls (step 23 says why those two).
 
 ```bash
 sudo ufw default deny incoming
@@ -164,6 +165,14 @@ sudo ufw allow 443/tcp comment 'HTTPS'
 ```
 
 ```bash
+sudo ufw allow 7882/udp comment 'LiveKit media (WebRTC over UDP)'
+```
+
+```bash
+sudo ufw allow 7881/tcp comment 'LiveKit media (ICE over TCP)'
+```
+
+```bash
 sudo ufw enable
 ```
 
@@ -171,7 +180,7 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-**One rule that the firewall cannot enforce for you.** A port published by a Docker container (`ports:` in a compose file) is reachable from the internet whatever ufw says, because Docker writes its own firewall rules ahead of ufw's. Only Caddy publishes ports here, and only 80 and 443. Never add `ports:` to anything else in this folder. To reach a service from your own machine, use an SSH tunnel as in step 10.
+**One rule that the firewall cannot enforce for you.** A port published by a Docker container (`ports:` in a compose file) is reachable from the internet whatever ufw says, because Docker writes its own firewall rules ahead of ufw's. Caddy publishes 80 and 443 for everything that is HTTP. The one other container that publishes ports is LiveKit, and only its two media ports (UDP 7882 and TCP 7881): the media of a call is not HTTP, so it cannot go through Caddy, and goes straight to LiveKit, encrypted between the browser and LiveKit (DTLS-SRTP). Its signalling and its API do go through Caddy. Never add `ports:` to anything else in this folder. To reach a service from your own machine, use an SSH tunnel as in step 10.
 
 ## 6. Docker
 
@@ -255,7 +264,8 @@ What ends up where:
 ├── supabase/   compose.override.yaml  postgres/  gateway/  check-env.sh  .env.example
 │   ├── stack/      Supabase's own files, never edited            .env
 │   └── migrate/    the move from the hosted project              .env
-└── app/        compose.yaml  deploy.sh  proxy/  Dockerfile  entrypoint.sh  .env
+├── app/        compose.yaml  deploy.sh  proxy/  Dockerfile  entrypoint.sh  .env
+└── livekit/    compose.yaml  make-keys.sh  .env
 
 Docker volumes   ni-inngest-postgres   ni-inngest-redis
                  ni-edge-caddy-data    ni-edge-caddy-config
@@ -267,6 +277,7 @@ Docker networks  ni-edge      shared by Caddy and whatever it proxies to (172.30
                  ni-supabase  the Supabase stack and the backup container (172.31.0.0/24,
                               split the same way)
                  ni-supabase-edge  Caddy and the Supabase gateway, and nothing else
+                 ni-livekit   LiveKit and its Redis; no route out (LiveKit itself is on ni-edge too)
 ```
 
 **The `.env` files.** Each folder has a `.env.example` that lists every setting with a comment. The real `.env` sits beside it, on the server only (for Supabase it sits in `supabase/stack/`, where Supabase's own tools look for it):
@@ -615,7 +626,7 @@ sudo sh run.sh status
 
 Every service must be `healthy` (`mail-templates` has no health check and says `Up`). If one is not: `sudo sh run.sh logs <service>`.
 
-Check that nothing of it is on the internet. This must print only Caddy's two ports:
+Check that nothing of it is on the internet. This must print only Caddy's two ports (and, once step 23 is done, LiveKit's two):
 
 ```bash
 sudo docker ps --format '{{.Names}}  {{.Ports}}' | grep -E '0\.0\.0\.0|\[::\]'
@@ -1142,6 +1153,174 @@ The names go back, in the reverse order of step 21.4, and the scheduled jobs wit
 
 Nothing is lost by going back: the database is the same for both copies. What a person did on the server's copy stays done. Agent conversations started on this server stay in its agents' volumes and do not exist on the current host: the app starts a new one there, as it does after any change of agents.
 
+## 23. Calls: LiveKit
+
+Audio and video calls run on [LiveKit](https://docs.livekit.io/home/self-hosting/), a media server, on this server: [`livekit/`](livekit). This step brings it up and proves it from outside. Nothing in the app uses it yet; the calls feature itself comes later and only needs the three settings this step writes. Doing this step changes nothing people use today, except a few seconds' interruption of the other public names when Caddy restarts (part 6).
+
+**How a call reaches the server.** Two kinds of traffic, on different doors:
+
+| What | Where | Port |
+| --- | --- | --- |
+| Signalling: joining, who is in the room, the app's calls to LiveKit's API, LiveKit's webhooks to the app | Through Caddy, over TLS, on its own name (`livekit.nativeintelligence.dev`) | TCP 443 (LiveKit's own 7880 is not published) |
+| The media itself, over UDP: the normal path | Straight to LiveKit, every call on one port | UDP 7882 |
+| The same media over TCP, when the network blocks UDP | Straight to LiveKit | TCP 7881 |
+
+The media cannot go through Caddy: it is not HTTP. It is encrypted between each browser and LiveKit (DTLS-SRTP), so these two ports carry nothing readable. They are the one exception to "only Caddy publishes ports" (step 5). LiveKit tries UDP first and falls back to TCP by itself.
+
+**What is left out, and who that leaves out.** LiveKit has a TURN server built in, and it stays off:
+
+- TURN over UDP (3478) adds almost nothing here: a network that lets UDP out to 3478 nearly always lets it out to 7882 too, and this server has a public address of its own, so there is no NAT on its side to get around.
+- TURN over TLS would have to be on port 443 to help the networks it is for, and 443 on this server's one address is Caddy's. LiveKit can share it only behind something that routes by name before TLS ends (below).
+
+So, with UDP 7882 and TCP 7881:
+
+- **Can call:** any network that lets UDP out (homes, mobile data, most offices), and any network that blocks UDP but lets TCP out to ports other than 80 and 443.
+- **Cannot call:** networks that let out only TCP 80 and 443 (strict company firewalls, some hotel, airport, school and guest Wi-Fi), and networks that send everything through a company's web proxy. People on them get as far as joining (that is HTTPS on 443) and then have no sound or picture, and the app sees the connection fail.
+
+Covering them later means TURN over TLS on port 443, by one of: a **second IP address** on the server, with LiveKit's TURN (`turn.enabled`, `tls_port: 443`) on that address and Caddy on the first, and a DNS name for it; or **layer-4 routing** in front of Caddy on the one address (a TLS router such as Caddy built with its layer-4 module, or HAProxy, sending one name, say `turn.nativeintelligence.dev`, to LiveKit's TURN with `external_tls` and the PROXY protocol, and everything else to Caddy as today); or a TURN service bought from someone else, named in LiveKit's `rtc.turn_servers`. Each is a change to this step, not to the app.
+
+**Bridge networking, not host.** LiveKit's container is on Docker networks like every other container here, with its two media ports published. With host networking Caddy would have to reach port 7880 on the host (another firewall rule, and the port open on the host for anything else on it), Redis would have to be on the host too, and the webhooks could not reach the app's proxy by name. The cost of the bridge is small at this size: each media packet goes through Docker's address translation in the kernel, and LiveKit cannot see the server's public address from inside, so it asks a public STUN server at startup which address its packets leave from (`use_external_ip`). That answer is the server's address here and after any move. `LIVEKIT_NODE_IP` in `livekit/.env` sets it by hand if it is ever wrong. If calls ever grow to hundreds of people at once, measure the CPU and revisit host networking then.
+
+**What it keeps: nothing.** Rooms exist while people are in them, in LiveKit's memory and in its own Redis (no snapshots, no volume). Restarting LiveKit ends the calls in progress; the people in them join again. There is nothing to back up, and a move ([`move/`](move)) carries only the folder and its `.env`. The `.env` holds the key pair: it goes in the password manager like the others. Memory is capped at 4 GB for LiveKit and 1 GB for its Redis, far more than either uses, so that a fault cannot take memory from the database and the app.
+
+**1. The DNS record.** One `A` record, added by the owner of the domain:
+
+| Name | Type | Value |
+| --- | --- | --- |
+| `livekit.nativeintelligence.dev` | A | `<server>` |
+
+```bash
+dig +short livekit.nativeintelligence.dev
+```
+
+It must print `<server>` before part 6, or Caddy cannot get the name's certificate.
+
+**2. The firewall.** On a server set up before this step. (Running [`server/setup.sh`](server/setup.sh) again does the same: it now has these two lines.)
+
+```bash
+sudo ufw allow 7882/udp comment 'LiveKit media (WebRTC over UDP)'
+```
+
+```bash
+sudo ufw allow 7881/tcp comment 'LiveKit media (ICE over TCP)'
+```
+
+```bash
+sudo ufw status
+```
+
+As step 5 says, Docker opens a published port whatever ufw says, so these two lines do not open anything by themselves: they make the firewall's own list match what is open. To close the media ports, stop LiveKit (the undo, below).
+
+**3. The files.** In the server's checkout, as its owner (not root):
+
+```bash
+cd /opt/native-intelligence && git pull
+```
+
+```bash
+cd /opt/native-intelligence/deploy/livekit && sudo install -m 600 -o root -g root .env.example .env
+```
+
+The app's settings file needs three new lines before the keys are made, so that they are written there in the same go. Copy the three `LIVEKIT_` lines (with their comment) from [`app/.env.example`](app/.env.example) into it, empty:
+
+```bash
+sudo nano /opt/native-intelligence/deploy/app/.env
+```
+
+**4. The keys.** Made on the server, written into `livekit/.env` and the same pair into `app/.env`, with `LIVEKIT_URL=wss://livekit.nativeintelligence.dev`. Neither is shown or typed. Running it again keeps the pair (`--new` makes another, and ends every call and token made with the old one).
+
+```bash
+sudo ./make-keys.sh
+```
+
+`livekit/.env` also has `LIVEKIT_WEBHOOK_URL`: the app's own proxy over the shared network (`http://ni-app-proxy:8080/api/calls/livekit/webhook`), so the events never leave the server. Leave it as it is. Until the app has that route, a webhook gets a `404` and is dropped; nothing else happens.
+
+**5. Start it.**
+
+```bash
+sudo docker compose up -d
+```
+
+```bash
+sudo docker compose ps
+```
+
+After about half a minute both (`ni-livekit`, `ni-livekit-redis`) must say `healthy`. Then the address LiveKit tells browsers to send media to; this must print the server's public address:
+
+```bash
+sudo docker compose logs livekit | grep -m1 -o '"nodeIP": "[^"]*"'
+```
+
+If it prints another address, put the right one in `LIVEKIT_NODE_IP` in `.env` and `sudo docker compose up -d` again. And what is published: this must print Caddy's two ports and LiveKit's two, nothing else.
+
+```bash
+sudo docker ps --format '{{.Names}}  {{.Ports}}' | grep -E '0\.0\.0\.0|\[::\]'
+```
+
+**6. The name in Caddy.** In `/opt/native-intelligence/deploy/edge/.env` (a file made from an older `.env.example` has no such line: add it):
+
+```text
+LIVEKIT_HOST=livekit.nativeintelligence.dev
+```
+
+Check, then restart Caddy. As in step 20.4, the restart interrupts the other public names for a few seconds and makes every live connection reconnect: pick a quiet moment.
+
+```bash
+cd /opt/native-intelligence/deploy/edge && sudo docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile
+```
+
+```bash
+sudo docker compose up -d
+```
+
+From your own machine, LiveKit's health over the new name must print `OK`:
+
+```bash
+curl -s https://livekit.nativeintelligence.dev/
+```
+
+**7. The app's settings.** They are in `app/.env` from part 4. Nothing in the app reads them yet, so no restart is needed now; they take effect the next time its containers start. From your own machine, the settings check proves them together with everything above:
+
+```bash
+deploy/app/check-settings.sh <user>@<server>
+```
+
+Under "May stay empty" it must say `LIVEKIT_URL  ok  LiveKit accepts a token made with the key and secret`. That is a token made as the app's server makes one, sent to LiveKit's API through the public name: the DNS record, the certificate, Caddy, LiveKit and the key pair, in one request. `WRONG ... refused` is a pair that is not LiveKit's (run `sudo ./make-keys.sh` again, then `sudo docker compose up -d` in `livekit/`); `cannot tell` is the name or Caddy not answering yet.
+
+**8. A real call, from outside.** On the server, a token for each of two test participants. Each is good for 15 minutes and for the room `check` only, and is printed so that it can be pasted; the key pair stays on the server.
+
+```bash
+cd /opt/native-intelligence/deploy/livekit && sudo ./test-token.sh laptop
+```
+
+```bash
+sudo ./test-token.sh phone
+```
+
+- **The whole path.** On your own machine, open LiveKit's connection test, <https://livekit.com/connection-test> (a page that runs in your browser; it is given the address and a token, never the secret), with `wss://livekit.nativeintelligence.dev` and the first token. It connects, publishes, and tries UDP and TCP one after the other ("Connection via UDP vs TCP"): both must pass. It asks for the camera and microphone, as a call would.
+- **Two people, sound both ways.** In <https://meet.livekit.io>, on its "Custom" tab, the same address with the first token on the laptop, and with the second on a phone (on mobile data, so that it comes in from outside). Each must hear and see the other.
+- **UDP, on its own.** In Chrome on the laptop, during that call, open `chrome://webrtc-internals`: the selected candidate pair must be `udp`, to `<server>` port `7882`.
+- **TCP, on its own.** A second Chrome that may not use UDP for WebRTC at all (the policy Chrome applies when told that UDP may not leave without a proxy, and there is none), with a profile of its own so that your usual Chrome is not touched:
+
+  ```bash
+  open -na "Google Chrome" --args --user-data-dir="$HOME/.lk-tcp-test" --force-webrtc-ip-handling-policy=disable_non_proxied_udp https://meet.livekit.io
+  ```
+
+  Join with a third token (`sudo ./test-token.sh tcp`): sound and picture must work, and `chrome://webrtc-internals` in that window must show the pair as `tcp`, to port `7881`. Close that window and delete `~/.lk-tcp-test` afterwards.
+- **Webhooks.** `sudo docker compose logs --tail 50 livekit | grep 'sent webhook'` in `livekit/` lists each one LiveKit sent during the call, with its event and the address. LiveKit does not log the answer, so check separately that the address answers from LiveKit's own container. Before the app has its route this prints `HTTP/1.1 404 Not Found`, from the app: the request got there.
+
+  ```bash
+  sudo docker compose exec livekit wget -S -O /dev/null http://ni-app-proxy:8080/api/calls/livekit/webhook 2>&1 | grep HTTP/
+  ```
+
+**The undo.** Stop it, which also closes the two media ports (Docker removes what it published):
+
+```bash
+cd /opt/native-intelligence/deploy/livekit && sudo docker compose down
+```
+
+Then take `LIVEKIT_HOST` out of `edge/.env` (check and `up -d` as in part 6), and, if they should not stay, the two ufw rules (`sudo ufw delete allow 7882/udp`, `sudo ufw delete allow 7881/tcp`) and the DNS record. The three settings in `app/.env` may stay; with LiveKit gone, the settings check says `cannot tell` for them. There is no data to lose or bring back.
+
 ## Day to day
 
 Run these from the stack's own folder. The Supabase stack has its own commands (`sudo sh run.sh …` in `supabase/stack`) and its own way of taking a new release: [`supabase/README.md`](supabase/README.md#day-to-day).
@@ -1154,6 +1333,7 @@ Run these from the stack's own folder. The Supabase stack has its own commands (
 | Pick up changes to this folder | `cd /opt/native-intelligence && git pull`, then `sudo docker compose up -d` in each stack that changed (`--build` for `backup/`) |
 | Upgrade Inngest | Read the release notes, change the image tag in `inngest/compose.yaml`, then `sudo docker compose pull inngest && sudo docker compose up -d inngest` |
 | Patch Postgres, Redis, Caddy | `sudo docker compose pull && sudo docker compose up -d` (they follow `17`, `7` and `2.11`) |
+| Upgrade LiveKit | Read the [release notes](https://github.com/livekit/livekit/releases), change the image tag in `livekit/compose.yaml`, then `sudo docker compose pull livekit && sudo docker compose up -d livekit` in `livekit/`. Calls in progress end; people join again. |
 | Ship the app | In `app/`: `git pull` in the checkout as its owner, then `sudo ./deploy.sh` ([`app/README.md`](app/README.md#deploysh)) |
 | Go back to the app's previous image | `sudo ./deploy.sh --rollback` in `app/` |
 | Apply a database migration | After `git pull` has brought the file: `sudo docker exec -i supabase-db psql -U postgres -d postgres -v ON_ERROR_STOP=1 --single-transaction < /opt/native-intelligence/web/supabase/migrations/<file>`, before the code that needs it is rolled out. This is the command production's migrations have been applied with since the move, with `--single-transaction` added so that a failing file changes nothing; a migration that cannot run inside a transaction (one that says `CONCURRENTLY`; none in `web/supabase/migrations` does today) is applied without it. Then, as the second step, make the data API read the new tables and functions: `echo "notify pgrst, 'reload schema';" \| sudo docker exec -i supabase-db psql -U postgres -d postgres`. Skip it only when the file itself contains that line; most do not. Nothing records which migrations have been applied: to tell, look in the database for what the file creates (a function, a table, a policy). |
@@ -1307,6 +1487,26 @@ Tested on the real server, 2026-11-10, with production's settings and on product
 - **Every server-side call to Supabase arrives from one address**, so Auth's per-address limits (token refresh: 150 an hour by default) count all of the app's own refreshes and sign-ins together. On the earlier host they came from a handful of addresses, so this is not new, but it is tighter. The fix is for the app to pass the person's address along on its server-side Auth calls.
 - **Deploys are by hand:** merging to `main` does not deploy here. A workflow that runs `deploy.sh` over SSH after a merge would need a deploy key on the server and in GitHub.
 - **An agent's live stream is cut when that agent is replaced** (eve's store allows one process per agent), and a phone call older than two minutes is cut when web is.
+
+### Step 23: calls
+
+Tested on a Mac, 2026-11-11, without Docker (Docker was not running there), with the same release LiveKit's image is built from (1.13.11, LiveKit's own binary), a local Redis 7 and the configuration exactly as `livekit/compose.yaml` renders it (`docker compose config`), changed only to find Redis on that machine:
+
+- **Both renderings start:** with `LIVEKIT_NODE_IP` set (`node_ip`, discovery off) and empty (discovery through STUN, up in 8 seconds with the discovered address as `nodeIP`; LiveKit's own check that the address reaches back to it failed behind that Mac's home router, and it used the address all the same, as its code says it does); with webhooks and with `LIVEKIT_WEBHOOK_URL` empty (`urls: []`). Without the keys, `docker compose config` stops and names `make-keys.sh`.
+- **Two participants in one room**, in two headless Chromium pages using the browser SDK (livekit-client 2.23), each with a token made by the server SDK (livekit-server-sdk 2.19): one published a synthetic tone and a canvas video (no microphone or camera), the other was subscribed to both and received the audio (about 50 KB in 4 seconds).
+- **UDP, then TCP, each on its own.** With UDP allowed, the selected candidate pair was UDP to port 7882. With Chromium told that WebRTC may not use UDP without a proxy (`--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, as in part 8), it was TCP to port 7881, and the audio arrived just the same.
+- **Through the edge Caddyfile.** The same two runs with the signalling going through a copy of `edge/Caddyfile` (plain HTTP on a local port, `ni-livekit` replaced by the local address): the WebSocket and the API calls passed, and the join token in the WebSocket's address was `REDACTED` in Caddy's log. The Caddyfile is formatted (`caddy fmt`) and valid (`caddy validate`, Caddy 2.11.9) with `LIVEKIT_HOST` unset and set.
+- **Webhooks**, sent to a local listener and checked with the server SDK's `WebhookReceiver`: `room_started`, `participant_joined`, `track_published`, `track_unpublished`, `participant_left`, every one's signature valid. With the listener answering `404`, LiveKit logged `sent webhook` all the same: its log does not show the answer, which is why part 8 checks the address separately.
+- **The settings check's proof** against that server: the right pair `ok`; a wrong secret, a wrong key and an expired token each `WRONG` (`401`); nothing listening `cannot tell`; a web server that is not LiveKit `WRONG`. Its unit tests run in CI with the others.
+- **`make-keys.sh`** on a copy of the folders: a pair made once and kept on a second run, the app's copy written once its three lines existed, the same pair in both files, both files still mode 600, `--new` replacing it, a pair that is not letters and digits refused, and no value in anything it printed. `test-token.sh`'s token was accepted by the server SDK's verifier, for that room and 15 minutes.
+
+**Not tested, and why:**
+
+- **The containers themselves**, on Docker: the image, the read-only file system, the health check's `wget`, the two networks and the published ports. Docker was not running on the machine this was written on. `docker compose config` was.
+- **Discovery from inside a bridge network** on the server, and the server's own address in the `nodeIP` line: part 5 checks it.
+- **From outside**: a real network, UDP and TCP through Docker's published ports, the certificate for the name, a phone on mobile data. Part 8 is that test.
+- **The webhook to `ni-app-proxy`**: the app has no route for it yet, and the internal name only exists on the server.
+- **Networks that allow only 443**: not covered by design (above).
 
 ## The record
 
