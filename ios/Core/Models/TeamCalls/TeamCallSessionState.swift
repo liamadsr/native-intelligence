@@ -81,6 +81,9 @@ struct TeamCallSessionState: Equatable {
     private(set) var held = false
     /// When the room was first joined (the call screen's clock).
     private(set) var connectedAt: Date?
+    /// The call takes notes or is recorded and the person hasn't said they saw it: listening only
+    /// until they continue (a ring answered on a locked phone).
+    private(set) var notice: String?
 
     enum Event: Equatable {
         case connected(at: Date)
@@ -90,6 +93,8 @@ struct TeamCallSessionState: Equatable {
         case mic(TeamCallDevice)
         case camera(TeamCallDevice)
         case held(Bool)
+        /// Told of notes or recording (listening until they continue), or continued (nil).
+        case notice(String?)
     }
 
     /// How a call joins: the microphone on (asked first when iOS hasn't), listening only when iOS
@@ -117,6 +122,8 @@ struct TeamCallSessionState: Equatable {
             camera = d
         case let .held(on):
             held = on
+        case let .notice(line):
+            notice = line
         }
     }
 
@@ -129,6 +136,7 @@ struct TeamCallSessionState: Equatable {
     /// The call screen's explanations: why the person is listening only, why the camera is off.
     var notices: [String] {
         var out: [String] = []
+        if let notice { out.append("\(notice). You’re listening until you unmute.") }
         if mic == .denied { out.append("Native Intelligence can’t use the microphone, so you’re listening only. Turn it on in Settings → Native Intelligence → Microphone.") }
         if mic == .missing { out.append("No microphone was found, so you’re listening only.") }
         if camera == .denied { out.append("Native Intelligence can’t use the camera. To be seen, turn it on in Settings → Native Intelligence → Camera.") }

@@ -48,6 +48,8 @@ final class TeamCallSession: ObservableObject {
     private var micWanted = true
     private var rejoined = false
     private var leaving = false
+    /// Changing tokens (after a notice): the old connection's end is not the call's.
+    private var swapping = false
 
     init(uuid: UUID, callId: String?, channelId: String, channelKind: TeamChatChannelKind, label: String) {
         self.uuid = uuid
@@ -173,6 +175,32 @@ final class TeamCallSession: ObservableObject {
         }
     }
 
+    /// The call takes notes or is recorded and the person hasn't been told: listening only (the
+    /// server lets them talk only once they have), with the reason on the screen.
+    func holdForNotice(_ line: String) async {
+        micWanted = false
+        try? await room.localParticipant.setMicrophone(enabled: false)
+        if state.mic == .on { state.apply(.mic(.off)) }
+        state.apply(.notice(line))
+        refreshPeers()
+    }
+
+    /// They saw the notice and went on: the room again with a join that says so, then the microphone.
+    func continueAfterNotice(_ join: TeamCallJoin) async {
+        swapping = true
+        await room.disconnect()
+        do {
+            try await room.connect(url: join.url, token: join.token)
+            swapping = false
+            state.apply(.notice(nil))
+            await setMicrophone(on: true)
+            refreshPeers()
+        } catch {
+            swapping = false
+            finish(.failed)
+        }
+    }
+
     /// The person hung up.
     func leave() async {
         leaving = true
@@ -194,7 +222,7 @@ final class TeamCallSession: ObservableObject {
         case .reconnected:
             state.apply(.reconnected)
         case let .disconnected(type):
-            guard !leaving else { return }
+            guard !leaving, !swapping else { return }
             switch type {
             case .duplicateIdentity?: finish(.elsewhere)
             case .participantRemoved?: finish(.removed)

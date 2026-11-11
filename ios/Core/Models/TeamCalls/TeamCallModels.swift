@@ -69,9 +69,12 @@ struct TeamCall: Codable, Identifiable, Equatable {
     var peakParticipants: Int
     var ringing: [String]
     var declined: [String]
+    /// Notes are taken in this call, or it is recorded (the call-notes work; a row without them: off).
+    var notes: Bool = false
+    var recording: Bool = false
 
     enum CodingKeys: String, CodingKey {
-        case id, status, ringing, declined
+        case id, status, ringing, declined, notes, recording
         case channelId = "channel_id"
         case messageId = "message_id"
         case startedBy = "started_by"
@@ -114,7 +117,12 @@ struct TeamCall: Codable, Identifiable, Equatable {
         peakParticipants = (try? c.decode(Int.self, forKey: .peakParticipants)) ?? 0
         ringing = (try? c.decode([String].self, forKey: .ringing)) ?? []
         declined = (try? c.decode([String].self, forKey: .declined)) ?? []
+        notes = (try? c.decode(Bool.self, forKey: .notes)) ?? false
+        recording = (try? c.decode(Bool.self, forKey: .recording)) ?? false
     }
+
+    /// What the person is told before they talk in it, or nil (TeamCallNotice).
+    var notice: String? { TeamCallNotice.line(notes: notes, recording: recording) }
 }
 
 /// One member in (or once in) a call.
@@ -247,12 +255,14 @@ enum TeamCallPush: Equatable {
                 return 0
             }()
             let video = (payload["video"] as? Bool) ?? ((payload["video"] as? NSNumber)?.boolValue ?? false)
-            return .ring(TeamCallIncoming(
+            var incoming = TeamCallIncoming(
                 ringId: ring, callId: call, channelId: channel, workspaceId: ws,
                 callerName: String((str("caller_name") ?? "A teammate").prefix(120)),
                 channelKind: kind, channelName: str("channel_name"),
                 video: video, secondsLeft: max(0, min(seconds, TeamCallIncoming.maxRingSeconds))
-            ))
+            )
+            incoming.expiresAt = TeamChatTime.date(str("expires_at"))
+            return .ring(incoming)
         case "team_call_cancel":
             guard let ring = uuid("ring_id") else { return nil }
             let state = TeamCallRingState(rawValue: str("state") ?? "") ?? .cancelled
@@ -275,6 +285,15 @@ struct TeamCallIncoming: Equatable {
     let video: Bool
     /// The ring's time left as the server sent it: the phone's own clock stops it after this long.
     let secondsLeft: Int
+    /// When the ring stops, as the server wrote it: a push delivered late never rings past it.
+    var expiresAt: Date? = nil
+
+    /// When it stops ringing here: its time left from now, never past its own end.
+    func deadline(now: Date) -> Date {
+        let byClock = now.addingTimeInterval(TimeInterval(secondsLeft))
+        guard let expiresAt else { return byClock }
+        return min(byClock, expiresAt)
+    }
 
     /// A ring rings 40 seconds (565); a push never asks for longer than this.
     static let maxRingSeconds = 60
@@ -289,6 +308,7 @@ struct TeamCallIncoming: Equatable {
         self.init(ringId: ring.id.lowercased(), callId: ring.callId.lowercased(), channelId: ring.channelId.lowercased(), workspaceId: ring.workspaceId.lowercased(),
                   callerName: ring.callerName, channelKind: ring.channelKind, channelName: ring.channelName, video: false,
                   secondsLeft: min(left, Self.maxRingSeconds))
+        expiresAt = expires
     }
 
     init(ringId: String, callId: String, channelId: String, workspaceId: String, callerName: String, channelKind: TeamChatChannelKind,
@@ -302,6 +322,21 @@ struct TeamCallIncoming: Equatable {
         self.channelName = channelName
         self.video = video
         self.secondsLeft = secondsLeft
+    }
+}
+
+// MARK: - Notes and recording
+
+/// What a person is told before they talk in a call that takes notes or is recorded (the server lets
+/// them talk only once the join request says they saw it: `noticeSeen`).
+enum TeamCallNotice {
+    static func line(notes: Bool, recording: Bool) -> String? {
+        switch (notes, recording) {
+        case (true, true): return "Notes are on and this call is being recorded"
+        case (true, false): return "Notes are on for this call"
+        case (false, true): return "This call is being recorded"
+        case (false, false): return nil
+        }
     }
 }
 

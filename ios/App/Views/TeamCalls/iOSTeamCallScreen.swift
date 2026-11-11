@@ -89,10 +89,17 @@ struct iOSTeamCallScreen: View {
                     Text(line).font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            if session.state.notice != nil {
+                Button("Unmute") {
+                    Task { await center.continueAfterNotice() }
+                }
+                .font(.system(size: 14, weight: .semibold))
+            } else {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                }
+                .font(.system(size: 14, weight: .semibold))
             }
-            .font(.system(size: 14, weight: .semibold))
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

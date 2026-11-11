@@ -46,6 +46,8 @@ final class TeamCallCenter: ObservableObject {
     @Published private(set) var inAppRing: TeamCallIncoming?
     /// A short line after a call ended without the person ending it ("The call ended.").
     @Published var endedLine: String?
+    /// A call to join that takes notes or is recorded: the person is told first, and joins on "Join".
+    @Published var confirming: TeamCallConfirm?
 
     private(set) var book = TeamCallBook()
     private let api = TeamCallAPI.shared
@@ -89,7 +91,13 @@ final class TeamCallCenter: ObservableObject {
     func voipPush(_ payload: [AnyHashable: Any], mustReport: Bool, completion: @escaping () -> Void) {
         prepareAudio()
         let effects: [TeamCallEffect]
-        switch TeamCallPush.parse(payload) {
+        // Nobody signed in here (a sign-out's removal still owed, or the session known gone): no names
+        // of anyone's calls on this phone, only the report Apple requires, ended at once.
+        let signedOut = VoIPPushService.shared.forgetPending
+            || (SupabaseManager.shared.hasCheckedInitialSession && !SupabaseManager.shared.isAuthenticated)
+        switch signedOut ? nil : TeamCallPush.parse(payload) {
+        case _ where signedOut:
+            effects = book.signedOutPushed(mustReport: mustReport, newID: UUID())
         case let .ring(r)?:
             effects = book.ringPushed(r, now: Date(), mustReport: mustReport, newID: UUID())
             print("📞 Team call: ring pushed ring=\(r.ringId) report=\(mustReport)")
@@ -189,24 +197,51 @@ final class TeamCallCenter: ObservableObject {
     // MARK: - The person's buttons
 
     /// Start a call in a conversation, or join the one live there (`callId`, a call message's Join).
-    func call(channelId: String, callId: String? = nil, kind: TeamChatChannelKind, label: String) async {
+    /// A call that takes notes or is recorded is said so first; the person joins on "Join".
+    func call(channelId: String, callId: String? = nil, kind: TeamChatChannelKind, label: String, noticeSeen: Bool = false) async {
         switch TeamCallRouting.join(callId: callId, channelId: channelId, current: book.current) {
         case .show:
             expanded = true
             return
-        case .switchCalls:
-            await hangUp()
-        case .join:
+        case .switchCalls, .join:
             break
         }
+        if let callId, !noticeSeen, let line = await api.callRow(callId)?.notice {
+            confirming = TeamCallConfirm(channelId: channelId, callId: callId, kind: kind, label: label, line: line)
+            return
+        }
+        if book.current != nil { await hangUp() }
         if let ringing = book.ringing { await end(ringing.uuid) }
         prepareAudio()
         let uuid = UUID()
         pendingKinds[uuid] = (kind, label)
+        if noticeSeen { noticesSeen.insert(uuid) }
         run(book.start(channelId: channelId, callId: callId, label: label, newID: uuid))
     }
 
+    /// The notice's "Join".
+    func confirmJoin() async {
+        guard let c = confirming else { return }
+        confirming = nil
+        await call(channelId: c.channelId, callId: c.callId, kind: c.kind, label: c.label, noticeSeen: true)
+    }
+
+    /// The notice's "Unmute" in a call joined listening (answered on a locked phone): a join that
+    /// says they saw it, then the microphone.
+    func continueAfterNotice() async {
+        guard let s = session, let callId = s.callId else { return }
+        do {
+            let joined = try await api.join(callId: callId, noticeSeen: true)
+            noticesSeen.insert(s.uuid)
+            await s.continueAfterNotice(joined.join)
+        } catch {
+            endedLine = (error as? TeamCallAPIError)?.errorDescription ?? "Couldn’t unmute. Try again."
+        }
+    }
+
     private var pendingKinds: [UUID: (TeamChatChannelKind, String)] = [:]
+    /// Calls joined with a join that says the person saw the notes or recording notice.
+    private var noticesSeen: Set<UUID> = []
 
     /// Leave the call (the system's screen agrees: its end action does the leaving).
     func hangUp() async {
@@ -266,9 +301,16 @@ final class TeamCallCenter: ObservableObject {
                         group.leave()
                     }
                 }
+            case let .reportOnExisting(uuid, update) where appOnly.contains(uuid):
+                // The system never saw this call (it refused it): a report onto its id would start a
+                // call nothing ends. A fresh one instead, ended at once.
+                reportFreshAndEnd(update, reason: .failed, group: group)
             case let .reportOnExisting(uuid, update):
                 group.enter()
                 callKit.reportIncoming(uuid, update) { _ in group.leave() }
+            case let .reportOnExistingThenEnd(uuid, update, reason) where appOnly.contains(uuid):
+                ended(uuid, reason: reason)
+                reportFreshAndEnd(update, reason: reason, group: group)
             case let .reportOnExistingThenEnd(uuid, update, reason):
                 group.enter()
                 callKit.reportIncoming(uuid, update) { [weak self] _ in
@@ -299,6 +341,17 @@ final class TeamCallCenter: ObservableObject {
         scheduleTick()
         if let completion {
             group.notify(queue: .main, execute: completion)
+        }
+    }
+
+    private func reportFreshAndEnd(_ update: TeamCallKitUpdate, reason: TeamCallEndReason, group: DispatchGroup) {
+        let fresh = UUID()
+        group.enter()
+        callKit.reportIncoming(fresh, update) { [weak self] _ in
+            Task { @MainActor in
+                self?.callKit.reportEnded(fresh, reason)
+                group.leave()
+            }
         }
     }
 
@@ -361,7 +414,10 @@ final class TeamCallCenter: ObservableObject {
                 guard book.entry(ringId: ringId) != nil else { return }
                 answer = try await api.answer(ringId: ringId, accept: true, voipToken: VoIPPushService.shared.token)
             }
-            if answer.state == .accepted, let join = answer.join, let place = answer.call {
+            if answer.elsewhere == true {
+                // Accepted (or settled) on another device before this answer: ends here as that.
+                run(book.answered(ringId: ringId, .settled(answer.state)))
+            } else if answer.state == .accepted, let join = answer.join, let place = answer.call {
                 guard let e = book.entry(ringId: ringId) else { return }
                 joins[e.uuid] = join
                 pendingKinds[e.uuid] = (place.channelKind, e.update.callerName)
@@ -397,7 +453,7 @@ final class TeamCallCenter: ObservableObject {
         do {
             let joined: TeamCallJoined
             if let callId = e.callId {
-                joined = try await api.join(callId: callId)
+                joined = try await api.join(callId: callId, noticeSeen: noticesSeen.contains(uuid))
             } else {
                 joined = try await api.start(channelId: e.channelId)
             }
@@ -439,6 +495,11 @@ final class TeamCallCenter: ObservableObject {
         if case .connected = s.state.connection {
             book.connected(uuid)
             if !appOnly.contains(uuid), e.ringId == nil { callKit.reportConnected(uuid) }
+            // Joined without saying they saw a notes or recording notice (answered on a locked phone,
+            // a call started where notes were on): listening, told why, until they unmute.
+            if !noticesSeen.contains(uuid), let callId = s.callId, let line = await api.callRow(callId)?.notice {
+                await s.holdForNotice(line)
+            }
         }
     }
 
@@ -447,6 +508,7 @@ final class TeamCallCenter: ObservableObject {
         endedLine = why.line
         if why == .left { return }
         session = nil
+        noticesSeen.remove(uuid)
         deactivateAppAudio(uuid)
         run(book.callEnded(uuid, reason: why.systemReason))
     }
@@ -459,6 +521,7 @@ final class TeamCallCenter: ObservableObject {
         if let id = callId ?? joins[uuid]?.callId { await api.leave(callId: id) }
         deactivateAppAudio(uuid)
         appOnly.remove(uuid)
+        noticesSeen.remove(uuid)
     }
 
     // MARK: - Audio
@@ -569,4 +632,14 @@ extension TeamCallCenter: CallKitBridgeDelegate {
         }
         joins = [:]
     }
+}
+
+/// A call the person is about to join that takes notes or is recorded: what they are told first.
+struct TeamCallConfirm: Identifiable, Equatable {
+    var id: String { callId }
+    let channelId: String
+    let callId: String
+    let kind: TeamChatChannelKind
+    let label: String
+    let line: String
 }

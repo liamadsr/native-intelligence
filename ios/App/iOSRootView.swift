@@ -56,6 +56,12 @@ private struct TeamCallChrome: ViewModifier {
                         }
                 }
             }
+            .alert(calls.confirming?.line ?? "", isPresented: Binding(get: { calls.confirming != nil }, set: { if !$0 { calls.confirming = nil } })) {
+                Button("Join") { Task { await calls.confirmJoin() } }
+                Button("Cancel", role: .cancel) { calls.confirming = nil }
+            } message: {
+                Text("Everyone in the call is told before they talk.")
+            }
             .animation(.easeOut(duration: 0.2), value: calls.expanded)
             .animation(.easeOut(duration: 0.2), value: calls.session?.uuid)
             .onChange(of: windowShowing, initial: true) { _, showing in

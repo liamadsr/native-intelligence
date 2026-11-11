@@ -37,6 +37,9 @@ final class VoIPPushService: NSObject {
 
     private static let tokenKey = "voip_push_token_hex"
     private static let pendingForgetKey = "voip_push_token_pending_forget"
+
+    /// A sign-out's removal hasn't reached the server yet: pushes still meant for that person may arrive.
+    var forgetPending: Bool { defaults.string(forKey: Self.pendingForgetKey) != nil }
     private var defaults: UserDefaults { .standard }
     private var registry: PKPushRegistry?
 

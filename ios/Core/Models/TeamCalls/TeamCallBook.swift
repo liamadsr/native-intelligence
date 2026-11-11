@@ -140,7 +140,7 @@ struct TeamCallBook: Equatable {
         if let state = settled[r.ringId] {
             return mustReport ? (owedOnExisting(true) ?? [.reportAndEnd(newID, update, .of(settled: state))]) : []
         }
-        if r.secondsLeft <= 0 {
+        if r.secondsLeft <= 0 || r.deadline(now: now) <= now {
             remember(r.ringId, .missed)
             return mustReport ? (owedOnExisting(true) ?? [.reportAndEnd(newID, update, .unanswered)]) : []
         }
@@ -155,7 +155,7 @@ struct TeamCallBook: Equatable {
             return (owedOnExisting(mustReport) ?? []) + [.declineOnServer(ringId: r.ringId)]
         }
         entries.append(TeamCallEntry(uuid: newID, ringId: r.ringId, callId: r.callId, channelId: r.channelId, phase: .ringing,
-                                     deadline: now.addingTimeInterval(TimeInterval(r.secondsLeft)), update: update))
+                                     deadline: r.deadline(now: now), update: update))
         return [.report(newID, update), .checkRing(ringId: r.ringId)]
     }
 
@@ -174,6 +174,13 @@ struct TeamCallBook: Equatable {
             return owedOnExisting(mustReport) ?? []
         }
         return mustReport ? (owedOnExisting(true) ?? [.reportAndEnd(newID, .placeholder, .of(settled: settledState))]) : []
+    }
+
+    /// A VoIP push for nobody here (signed out, or a sign-out's removal still owed to the server): owed,
+    /// reported as a call with no names on it and ended at once, so a previous person's caller never
+    /// shows on the lock screen.
+    mutating func signedOutPushed(mustReport: Bool, newID: UUID) -> [TeamCallEffect] {
+        mustReport ? [.reportAndEnd(newID, .placeholder, .failed)] : []
     }
 
     /// A VoIP push that is no team call's (malformed, or from a newer server): owed, reported and ended.

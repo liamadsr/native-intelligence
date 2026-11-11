@@ -62,6 +62,8 @@ import Foundation
         tiles()
         cards()
         routing()
+        notices()
+        lateAndSignedOut()
         words()
         if failures > 0 {
             print("\(failures) of \(checks) checks failed")
@@ -382,6 +384,46 @@ import Foundation
         equal(TeamCallRouting.join(callId: call2, channelId: dm, current: inCall), .switchCalls, "another call: leave this one first")
         equal(TeamCallRouting.join(callId: call2, channelId: dm, current: nil), .join, "no call: join")
         check(TeamCallRouting.opensExpanded, "an answered call opens its screen")
+    }
+
+    static func notices() {
+        equal(TeamCallNotice.line(notes: true, recording: false), "Notes are on for this call", "notes on: said before talking")
+        equal(TeamCallNotice.line(notes: false, recording: true), "This call is being recorded", "recording: said")
+        equal(TeamCallNotice.line(notes: true, recording: true), "Notes are on and this call is being recorded", "both: one line")
+        check(TeamCallNotice.line(notes: false, recording: false) == nil, "neither: nothing to say")
+        let before = try? JSONDecoder().decode(TeamCall.self, from: Data(#"{"id":"c","channel_id":"ch","status":"live","started_at":"t"}"#.utf8))
+        check(before?.notice == nil, "a call row without the notes columns (before the call-notes work lands): nothing to say")
+        let on = try? JSONDecoder().decode(TeamCall.self, from: Data(#"{"id":"c","channel_id":"ch","status":"live","started_at":"t","notes":true}"#.utf8))
+        equal(on?.notice, "Notes are on for this call", "a call row with notes on: said")
+        var s = TeamCallSessionState()
+        s.apply(.connected(at: t0))
+        s.apply(.notice("Notes are on for this call"))
+        check(s.notices.first?.contains("listening until you unmute") == true, "answered on a locked phone: listening, told why, until they continue")
+        s.apply(.notice(nil))
+        check(s.notices.isEmpty, "continued: the notice goes")
+    }
+
+    static func lateAndSignedOut() {
+        var payload = ringPayload(seconds: 38)
+        payload["expires_at"] = "2027-01-15T08:00:10.000Z"
+        guard case var .ring(r)? = TeamCallPush.parse(payload) else {
+            check(false, "a ring with its end parses")
+            return
+        }
+        let arrived = TeamChatTime.date("2027-01-15T08:00:00.000Z")!
+        equal(r.deadline(now: arrived), TeamChatTime.date("2027-01-15T08:00:10.000Z")!, "a push delivered late rings only to the ring's own end, never a fresh 38 s")
+        var book = TeamCallBook()
+        _ = book.ringPushed(r, now: arrived, mustReport: true, newID: uuid(1))
+        equal(book.nextDeadline, TeamChatTime.date("2027-01-15T08:00:10.000Z")!, "… and the book's clock agrees")
+        r.expiresAt = arrived.addingTimeInterval(-1)
+        var past = TeamCallBook()
+        equal(past.ringPushed(r, now: arrived, mustReport: true, newID: uuid(2)), [.reportAndEnd(uuid(2), TeamCallKitUpdate.incoming(r), .unanswered)],
+              "a push arriving after its ring ended: reported and ended, never rung")
+        var out = TeamCallBook()
+        equal(out.signedOutPushed(mustReport: true, newID: uuid(3)), [.reportAndEnd(uuid(3), .placeholder, .failed)],
+              "signed out (or a removal still owed): reported with no names on it and ended")
+        equal(out.signedOutPushed(mustReport: false, newID: uuid(4)), [], "… and with no report owed, nothing")
+        check(TeamCallKitUpdate.placeholder.callerName == "Team call", "the stand-in names nobody")
     }
 
     static func words() {

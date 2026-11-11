@@ -44,6 +44,8 @@ struct TeamCallAnswer: Decodable {
     let state: TeamCallRingState
     let join: TeamCallJoin?
     let call: TeamCallPlace?
+    /// Settled before this answer (accepted on another device): no join here.
+    let elsewhere: Bool?
 }
 
 final class TeamCallAPI {
@@ -77,13 +79,21 @@ final class TeamCallAPI {
     }
 
     /// A fresh join for a live call (a call's Join, a rejoin after the connection was lost for good).
-    func join(callId: String) async throws -> TeamCallJoined {
-        try await send("POST", "/api/account/team-calls/\(callId)/token", [:])
+    /// `noticeSeen`: the person was told the call takes notes or is recorded and went on (the server
+    /// lets them talk only then; without it they join listening).
+    func join(callId: String, noticeSeen: Bool = false) async throws -> TeamCallJoined {
+        try await send("POST", "/api/account/team-calls/\(callId)/token", noticeSeen ? ["noticeSeen": true] : [:])
     }
 
-    /// Answer the person's own ring. `voipToken`: this phone's (the server then sends it no cancel).
+    /// The call's row as the person may read it (RLS), for its notes and recording; nil when unread.
+    func callRow(_ callId: String) async -> TeamCall? {
+        try? await SupabaseManager.shared.client.from("team_call").select("*").eq("id", value: callId).single().execute().value
+    }
+
+    /// Answer the person's own ring, only if it still rings (a ring another device accepted answers
+    /// `elsewhere`, never a join under the same identity). `voipToken`: this phone's (no cancel for it).
     func answer(ringId: String, accept: Bool, voipToken: String?) async throws -> TeamCallAnswer {
-        var body: [String: Any] = ["accept": accept]
+        var body: [String: Any] = ["accept": accept, "onlyIfRinging": true]
         if let voipToken { body["voipToken"] = voipToken }
         return try await send("POST", "/api/account/team-calls/rings/\(ringId)", body)
     }
