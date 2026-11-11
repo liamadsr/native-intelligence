@@ -65,6 +65,7 @@ import { sequenceStepSend } from '@/lib/inngest/sequence-functions'
 import { campaignRollingPass, reviewRequestOnJob } from '@/lib/inngest/outreach-functions'
 import { dailyJobsPass, dailyJobsSend } from '@/lib/inngest/daily-jobs'
 import { customerRemindersPass, customerRemindersSend } from '@/lib/inngest/customer-reminders'
+import { timeOffersSweep } from '@/lib/inngest/time-offers'
 import { prospectingRunExecute } from '@/lib/inngest/prospecting-functions'
 import { evalRunExecute } from '@/lib/inngest/eval-functions'
 import { asanaEchoStatus } from '@/lib/inngest/asana-echo-status'
@@ -174,6 +175,8 @@ export const { GET, POST, PUT } = serve({
     dailyJobsSend,
     customerRemindersPass,
     customerRemindersSend,
+    // Time offers (availability phase 3a): lapsed offers let their held times go; a booking left half-written is finished or failed.
+    timeOffersSweep,
     prospectingRunExecute,
     evalRunExecute,
     asanaEchoStatus,

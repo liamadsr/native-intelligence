@@ -409,6 +409,15 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'find_times', sideEffect: 'read', label: 'Find Times', description: 'When the person, or the person and teammates, are free to meet: up to three times to offer and every free stretch in a range' },
       { name: 'get_working_hours', sideEffect: 'read', label: 'Get Working Hours', description: "The person's working hours, dated changes and whether teammates see when they're busy" },
       { name: 'set_working_hours', sideEffect: 'internal-write', writeTarget: 'board', label: 'Set Working Hours', description: "Change the person's working hours, a date's hours, a day off, or whether teammates see when they're busy" },
+      // Time offers (src/lib/time-offers): times offered to an outside person, held until they pick one.
+      // external-write: by email or text it reaches them (the outward gate's card); by link it sends nothing (action-review.ts preApprovedCall).
+      { name: 'offer_times', sideEffect: 'external-write', label: 'Offer Times', description: "Offer someone outside two or three times to meet, held until they pick one on a private link or by replying; by email or text only on the person's card" },
+      { name: 'list_time_offers', sideEffect: 'read', label: 'List Time Offers', description: "The person's time offers and the meetings booked from them" },
+      { name: 'withdraw_time_offer', sideEffect: 'internal-write', writeTarget: 'board', label: 'Withdraw Time Offer', description: 'Take back an open time offer: its held times are free again' },
+      // external-write: deletes the provider event, and the calendar tells the guest.
+      { name: 'cancel_offered_meeting', sideEffect: 'external-write', label: 'Cancel Offered Meeting', description: 'Cancel a meeting a guest booked from a time offer; the calendar tells them' },
+      // external-write: the provider event and its invitation; pre-approved by the offer itself (action-review.ts preApprovedCall).
+      { name: 'accept_time_offer', sideEffect: 'external-write', label: 'Accept Time Offer', description: "Book one of an offer's own times for its own recipient, who answered in words" },
       // external-write: provider write: the provider emails every attendee
       { name: 'create_calendar_event', sideEffect: 'external-write', label: 'Create Event', description: 'Create a new calendar event' },
       // external-write: provider write: attendees get update emails
@@ -1251,6 +1260,10 @@ const NON_PREFIX_MUTATING_TOOLS: string[] = [
   // Moves a customer's booking and texts them (issue #11's follow-up). `move_` is not a write verb.
   // (cancel_booking matches `cancel_`.)
   'move_booking',
+  // Time offers (availability phase 3a): an offer holds the person's time and may send; withdrawing lets it go.
+  // Neither `offer_` nor `withdraw_` is a write verb. (accept_time_offer and cancel_offered_meeting match.)
+  'offer_times',
+  'withdraw_time_offer',
 ]
 
 /**

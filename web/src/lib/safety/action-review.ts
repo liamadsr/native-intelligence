@@ -69,7 +69,12 @@ import { getToolSideEffect, type ToolSideEffect } from '@/lib/ai/tool-registry'
 import { createToolApproval, type ApprovalContext, type ApprovalDoor, type ApprovalSideEffect } from './approvals'
 import { macJobAgentName, macJobPlace, type LocalAgentApprovalContext } from './mac-job'
 import { outwardHoldOf, type ExternalToolPolicy, type OutwardHold } from './outward-gate'
+import type { TimeOfferApprovalContext } from './approved-call'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
+import { offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
+
+/** The host's agent booking one of an offer's own times (src/lib/ai/tools/time-offers.ts). */
+const ACCEPT_TIME_OFFER_TOOL = 'accept_time_offer'
 
 import { isReadShapedExternalName } from '@/lib/mcp/read-names'
 import type { AlwaysAllowOffer } from '@/lib/mcp-client/always-allow'
@@ -85,7 +90,25 @@ import { bareToolName } from '@/lib/mcp/tool-names'
  * refuses it and says why: never a generic card that could never run.
  */
 const QUOTE_REPLY_TOOLS: ReadonlySet<string> = new Set([SEND_QUOTE_TOOL, BOOK_QUOTE_TOOL])
-const isQuoteReply = (toolName: string) => QUOTE_REPLY_TOOLS.has(bareToolName(toolName))
+/** And offer_times by email or text (src/lib/time-offers/send.ts): it sends only as the replay of its own card. */
+const isQuoteReply = (toolName: string, input?: unknown) => QUOTE_REPLY_TOOLS.has(bareToolName(toolName)) || offerTimesSends(bareToolName(toolName), input)
+
+/**
+ * Calls the reviewer never sees and no door holds, whose registry class says
+ * more than they do (availability phase 3a, src/lib/time-offers/):
+ *   - offer_times by link: it makes the offer and holds the person's own
+ *     time, and hands the link back to them; nothing leaves Native
+ *     Intelligence (by email or text it is the outward gate's card);
+ *   - accept_time_offer: books one of an offer's own times for that offer's
+ *     own recipient, the person's agent reading the recipient's reply. The
+ *     person already approved offering exactly those times to exactly that
+ *     person, which is what the public link lets the recipient do too: the
+ *     tool takes only the offer and a start, and books nothing else.
+ */
+function preApprovedCall(name: string, input: unknown): boolean {
+  if (name === ACCEPT_TIME_OFFER_TOOL) return true
+  return name === OFFER_TIMES_TOOL && input !== undefined && !offerTimesSends(name, input)
+}
 
 // The mode (ACTION_REVIEW_MODE) lives in ./review-mode, which has only a type
 // import, so a caller that only needs the mode (src/lib/local-agent/
@@ -142,6 +165,7 @@ function callRiskClass(name: string, input: unknown): RiskClass | null {
  */
 export function riskClassOf(toolName: string, input?: unknown): RiskClass | null {
   if (UNREVIEWED.has(bareToolName(toolName))) return null
+  if (preApprovedCall(bareToolName(toolName), input)) return null
   const byCall = callRiskClass(bareToolName(toolName), input)
   if (byCall) return byCall
   if (REVIEWED_AS_EXTERNAL.has(bareToolName(toolName))) return 'external-write'
@@ -387,7 +411,8 @@ export function homeTurnRunsOnItsOwn(request: Pick<GateRequest, 'toolName' | 'si
 /** What the model reads when an enforced review held (or refused) its call. */
 export interface HeldCallOutput {
   success: false
-  code: 'APPROVAL_REQUIRED' | 'NEEDS_PERSON'
+  /** NOT_HELD: a hold that could not be prepared (a time offer whose times are no longer free): no card, nothing ran. */
+  code: 'APPROVAL_REQUIRED' | 'NEEDS_PERSON' | 'NOT_HELD'
   approval_id: string | null
   message: string
 }
@@ -518,7 +543,7 @@ export async function gateRiskyCall<T>(
     // own card, so by text too it is held with the outward gate's card (the
     // exact text and who gets it) and that card's check rides on the
     // approval. Every other hold keeps the text turn's own card.
-    const quoteReply = isQuoteReply(request.toolName)
+    const quoteReply = isQuoteReply(request.toolName, request.input)
     const outwardText = quoteReply
       ? await outwardHoldOf({
           userId: request.userId,
@@ -529,8 +554,10 @@ export async function gateRiskyCall<T>(
         })
       : null
     if (outwardText) {
-      const held = outwardText.context ? { ...review, approval: { ...review.approval, context: { ...review.approval.context, ...outwardText.context } } } : review
-      return { held: true, output: await holdForPerson(held, { reason: always.reason, decisionId: null, card: outwardText.card }, { heldMessage: always.message }) }
+      return {
+        held: true,
+        output: await withPreparedHold(review, outwardText, (held) => holdForPerson(held, { reason: always.reason, decisionId: null, card: outwardText.card }, { heldMessage: always.message })),
+      }
     }
     // No card for a quote reply: the tool refuses it (it runs only as a card's replay), and the model reads why.
     if (quoteReply) return { held: false, value: await run() }
@@ -552,7 +579,7 @@ export async function gateRiskyCall<T>(
       input: request.input,
       externalTool: request.externalTool,
     })
-    if (outwardHome || (!homeTurnRunsOnItsOwn(request) && !isQuoteReply(request.toolName))) {
+    if (outwardHome || (!homeTurnRunsOnItsOwn(request) && !isQuoteReply(request.toolName, request.input))) {
       ;(request.defer ?? fireAndForget)(async () => { await reviewRiskyCall(review, false).catch(() => null) })
       if (outwardHome) return { held: true, output: await holdOutward(review, outwardHome) }
       return { held: true, output: await holdForPerson(review, { reason: 'home_turn', decisionId: null, card: approvalCardCopy(review, 'home_turn', HOME_TURN_CARD_WHY) }) }
@@ -575,7 +602,7 @@ export async function gateRiskyCall<T>(
     return { held: true, output: await holdOutward(review, outward) }
   }
   // A quote reply the gate made no card for: the tool refuses it, whatever the reviewer would say.
-  if (!enforce || isQuoteReply(request.toolName)) {
+  if (!enforce || isQuoteReply(request.toolName, request.input)) {
     ;(request.defer ?? fireAndForget)(async () => { await reviewRiskyCall(review, false).catch(() => null) })
     return { held: false, value: await run() }
   }
@@ -627,9 +654,35 @@ async function holdOutward(request: GateRequest & { sideEffect: RiskClass }, hol
   const card = request.localAgent
     ? { title: hold.card.title, why: `${macJobAgentName(request.localAgent)}, for ${macJobPlace(request.localAgent)}: ${hold.card.why}` }
     : hold.card
-  // A hold's own check (an unsubscribe card's method) rides on the approval, for the replay.
-  const held = hold.context ? { ...request, approval: { ...request.approval, context: { ...request.approval.context, ...hold.context } } } : request
-  return holdForPerson(held, { reason: hold.reason, decisionId: null, card }, { alwaysAllow: alwaysAllowOffer(request, hold, caller) })
+  return withPreparedHold(request, hold, (held) => holdForPerson(held, { reason: hold.reason, decisionId: null, card }, { alwaysAllow: alwaysAllowOffer(request, hold, caller) }))
+}
+
+/**
+ * Raise an outward hold's card: the hold's own check rides on the approval,
+ * for the replay (an unsubscribe card's method, a quote card's words). A hold
+ * with work to do once a card is really raised (a time offer's held times,
+ * OutwardHold.prepare) does it first: what it made rides on the approval too,
+ * and is undone when no card came of it.
+ */
+async function withPreparedHold<R extends Omit<GateRequest, 'sideEffect'> & { sideEffect: ApprovalSideEffect }>(
+  request: R,
+  hold: OutwardHold,
+  raise: (held: R) => Promise<HeldCallOutput>,
+): Promise<HeldCallOutput> {
+  let extra: { timeOffer?: TimeOfferApprovalContext } = {}
+  if (hold.prepare) {
+    const prepared = await hold.prepare().catch((err: unknown) => ({ ok: false as const, message: `Nothing ran: ${err instanceof Error ? err.message : String(err)}` }))
+    if (!prepared.ok) return { success: false, code: 'NOT_HELD', approval_id: null, message: prepared.message }
+    extra = prepared.context
+  }
+  const context = hold.context || hold.prepare ? { ...request.approval.context, ...hold.context, ...extra } : undefined
+  const held = context ? { ...request, approval: { ...request.approval, context: context as ApprovalContext } } : request
+  const output = await raise(held)
+  if (hold.prepare) {
+    if (output.approval_id) await hold.held?.(extra, output.approval_id).catch(() => {})
+    else await hold.abandon?.(extra).catch(() => {})
+  }
+  return output
 }
 
 /**

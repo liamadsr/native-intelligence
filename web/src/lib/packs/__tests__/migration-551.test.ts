@@ -32,6 +32,8 @@ import {
 const FILE = '551_find_a_time_uses_availability.sql'
 /** The rewrite after this one: teammates in find_times (availability phase 2). */
 const LATER = '553_find_a_time_with_teammates.sql'
+/** And after that: offering an outside guest the slots (availability phase 3a), which also ships find-a-time's preferred tools. */
+const LATEST = '555_offer_times_to_outside_guests.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
 
@@ -98,24 +100,26 @@ describe('migration 551', () => {
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    // Only 553 (availability phase 2: teammates) rewrites them after this one.
-    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
+    // Only 553 (availability phase 2: teammates) and 555 (phase 3a: offer_times) rewrite them after this one.
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER, LATEST])
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS).toContain(FILE)
     // The calendar core's text was 338's (no rewrite between but 553), find-a-time's 325's.
     const between = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf('338_skill_helper_lines.sql') + 1, PROMPT_REWRITE_MIGRATIONS.indexOf(FILE))
     for (const file of between) expect(promptRewrites(file).some((r) => r.id === CALENDAR), file).toBe(false)
-    for (const file of PROMPT_REWRITE_MIGRATIONS.filter((f) => f !== FILE && f !== LATER)) {
+    for (const file of PROMPT_REWRITE_MIGRATIONS.filter((f) => f !== FILE && f !== LATER && f !== LATEST)) {
       expect(promptRewrites(file).some((r) => r.id === FIND_A_TIME), file).toBe(false)
     }
     for (const id of [CALENDAR, FIND_A_TIME]) expect(PREVIOUS[id], id).not.toBe('')
   })
 
-  it("is the text 553 rewrites, and its preferred tools ship", () => {
+  it("is the text 553 and then 555 rewrite", () => {
     for (const id of [CALENDAR, FIND_A_TIME]) {
       const slug = rows.find((r) => r.id === id)!.slug
-      expect(rewrittenAfter(FILE, id, slug), id).toBe(LATER)
+      // 553 rewrote it next, and 555 last.
+      expect(promptRewrites(LATER).some((r) => r.id === id && r.slug === slug), id).toBe(true)
+      expect(rewrittenAfter(FILE, id, slug), id).toBe(LATEST)
       const shipped = allShippedSkills().find((s) => s.id === id)!
-      expect(shipped.file, id).toBe(LATER)
+      expect(shipped.file, id).toBe(LATEST)
     }
   })
 
@@ -229,8 +233,10 @@ describe('migration 551', () => {
     for (const name of SEEDED_FIND_A_TIME.config.preferred_tools ?? []) expect(preferred, name).toContain(name)
     const registry = new Set(TOOL_CATEGORIES.flatMap((c) => c.tools.map((t) => t.name)))
     for (const name of preferred) expect(registry.has(name), name).toBe(true)
+    // 555 puts offer_times after find_times and keeps the rest of this list, in order.
     const shipped = allShippedSkills().find((s) => s.id === FIND_A_TIME)!
-    expect(shipped.config).toEqual({ ...SEEDED_FIND_A_TIME.config, preferred_tools: preferred })
+    expect(shipped.config).toEqual({ ...SEEDED_FIND_A_TIME.config, preferred_tools: preferredToolsRewrites(LATEST)[0].preferredTools })
+    expect(preferredToolsRewrites(LATEST)[0].preferredTools.filter((name) => name !== 'offer_times')).toEqual(preferred)
     expect(shipped.config.enabled_tools).toContain('calendar')
     expect(shipped.config.pack_only).toBe(true)
     expect(shipped.area).toBe('calendar')

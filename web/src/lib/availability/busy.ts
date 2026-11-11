@@ -12,11 +12,15 @@
  * Strict: an account that needs signing in again, a calendar list or an
  * events read that fails, throws. A time is never free because a calendar
  * couldn't be read.
+ *
+ * The time the person holds for an offer or booked from one (./claims.ts,
+ * migration 554) is busy too, added here once for every reader.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { getValidTokenForAccount } from '@/lib/oauth/token-manager'
 import { listCalendarEventsUnified, listGoogleCalendars, listMicrosoftCalendars, type CalendarEvent, type SubCalendar } from '@/lib/integrations/calendar'
+import { claimEvents, claimsExcept, readHostClaims, type ClaimExceptions, type HostClaim } from './claims'
 
 interface CalendarAccount {
   id: string
@@ -115,17 +119,31 @@ export interface CountedEventsOptions {
   workspaceId?: string
   /** Always read strictly; accepted so a caller of listCalendarEventsUnified can pass its options as they are. */
   strict?: boolean
+  /** The person's own claims this read leaves out (./claims.ts): an offer being picked from, a booking being moved. */
+  exceptClaims?: ClaimExceptions
 }
 
 export interface CountedEventsDeps extends CountedCalendarsDeps {
   listEvents?: typeof listCalendarEventsUnified
+  /** The person's held and booked time (default: host_time_claim on `supabase`). */
+  claims?: (userId: string, range: { timeMin: string; timeMax: string }) => Promise<HostClaim[]>
 }
 
 /**
  * The person's events on every calendar that counts as busy, read strictly
- * (see the header). The same call shape as listCalendarEventsUnified.
+ * (see the header), and the time they hold for an offer or have booked from
+ * one (./claims.ts, every workspace's: one person's time is one), as titleless
+ * busy events. The same call shape as listCalendarEventsUnified. A claims
+ * read that fails throws too.
  */
 export async function listCountedEvents(userId: string, options: CountedEventsOptions, deps: CountedEventsDeps = {}): Promise<CalendarEvent[]> {
-  const calendarIds = await countedCalendarIds(userId, options.workspaceId, deps)
-  return (deps.listEvents ?? listCalendarEventsUnified)(userId, { timeMin: options.timeMin, timeMax: options.timeMax, maxResults: options.maxResults, workspaceId: options.workspaceId, calendarIds, strict: true })
+  const range = { timeMin: options.timeMin, timeMax: options.timeMax }
+  const claimsRead = deps.claims ?? ((user: string, r: typeof range) => readHostClaims(deps.supabase ?? getServiceClient(), user, r))
+  const [events, claims] = await Promise.all([
+    countedCalendarIds(userId, options.workspaceId, deps).then((calendarIds) =>
+      (deps.listEvents ?? listCalendarEventsUnified)(userId, { timeMin: options.timeMin, timeMax: options.timeMax, maxResults: options.maxResults, workspaceId: options.workspaceId, calendarIds, strict: true }),
+    ),
+    claimsRead(userId, range),
+  ])
+  return [...events, ...claimEvents(claimsExcept(claims, options.exceptClaims))]
 }

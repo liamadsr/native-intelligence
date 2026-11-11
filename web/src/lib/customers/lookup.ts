@@ -11,8 +11,9 @@
  * Only that one customer's rows: their CRM contact (matched on the whole
  * number), their customer guest row (preset 'customer'), their quotes (sent
  * from that number: never by contact, which a form could have misled) and
- * their upcoming live bookings. Never another customer's. Server only;
- * service role.
+ * their upcoming live bookings, and the time offers made to that number that
+ * are still open (src/lib/time-offers/). Never another customer's. Server
+ * only; service role.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isE164 } from '@/lib/twilio/phone'
@@ -22,6 +23,8 @@ import { findCustomerGuest } from './customer-guests'
 import { openRemindersForPhone, type CustomerReminder } from './reminder-store'
 import { BOOKING_SELECT, quotesForCustomer, toBooking } from './store'
 import type { CustomerBooking, CustomerQuote } from './types'
+import { openOffersForPhone } from '@/lib/time-offers/store'
+import type { TimeOffer } from '@/lib/time-offers/types'
 
 export interface CustomerByPhone {
   workspaceId: string
@@ -35,6 +38,8 @@ export interface CustomerByPhone {
   bookings: CustomerBooking[]
   /** Reminders the business texted them lately whose job or meeting is still ahead (issue #11), soonest first. */
   reminders: CustomerReminder[]
+  /** Time offers made to this number that are still open (availability phase 3a), newest first, at most 3. */
+  offers: TimeOffer[]
   /** A one-line greeting hint a voice or text agent can open with, or null. */
   openingLine: string | null
 }
@@ -63,16 +68,17 @@ export async function findCustomerByPhone(
   now: number = Date.now(),
 ): Promise<CustomerByPhone> {
   const phone = args.phone.trim()
-  const empty: CustomerByPhone = { workspaceId: args.workspaceId, phone, contact: null, guest: null, quotes: [], bookings: [], reminders: [], openingLine: null }
+  const empty: CustomerByPhone = { workspaceId: args.workspaceId, phone, contact: null, guest: null, quotes: [], bookings: [], reminders: [], offers: [], openingLine: null }
   if (!isE164(phone)) return empty
   const [contactRow, guest] = await Promise.all([findContactByEmailOrPhone(supabase, args.workspaceId, { email: null, phone }), findCustomerGuest(supabase, args.workspaceId, phone)])
-  const [quotes, bookings, reminders] = await Promise.all([
+  const [quotes, bookings, reminders, offers] = await Promise.all([
     quotesForCustomer(supabase, args.workspaceId, phone),
     upcomingBookings(supabase, args.workspaceId, { guestId: guest?.id ?? null, phone }, new Date(now).toISOString()),
     openRemindersForPhone(supabase, args.workspaceId, phone, now),
+    openOffersForPhone(supabase, args.workspaceId, phone, new Date(now).toISOString()),
   ])
   const contact = contactRow ? { id: contactRow.id, fullName: contactRow.full_name, email: contactRow.email } : null
-  return { ...empty, contact, guest, quotes, bookings, reminders, openingLine: openingLine(contact, quotes, bookings) }
+  return { ...empty, contact, guest, quotes, bookings, reminders, offers, openingLine: openingLine(contact, quotes, bookings) }
 }
 
 /** What a channel can open with: their booking, else their newest quote, else nothing. Pure. */

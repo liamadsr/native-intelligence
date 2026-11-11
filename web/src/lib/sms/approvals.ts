@@ -59,6 +59,7 @@ import {
 import { plainReplyDecision, replyNamesACode } from '@/lib/safety/caller'
 import { countInboundKindSince, markInboundKind, recordOutbound, type LinkedPhone, type SmsOutboundKind } from './store'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
+import { OFFER_TIMES_TOOL } from '@/lib/time-offers/types'
 import { bareToolName } from '@/lib/mcp/tool-names'
 
 /** Wrong codes one number may text in a day before codes by text pause. */
@@ -76,7 +77,8 @@ export const CODE_NEEDED_REPLY = 'Your website change needs its code to go live:
 const URLISH = /\b(?:https?:\/\/|www\.)\S+|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|ai|co|app|dev|me|ly|gl|us)(?:\/\S*)?/gi
 
 /** The approvals whose texted prompt carries the whole card (see approvalPromptText). */
-const WHOLE_CARD_TOOLS: ReadonlySet<string> = new Set([SEND_QUOTE_TOOL, BOOK_QUOTE_TOOL])
+// offer_times by email or text (availability phase 3a): its card is the exact email or text, and its only link the offer's own.
+const WHOLE_CARD_TOOLS: ReadonlySet<string> = new Set([SEND_QUOTE_TOOL, BOOK_QUOTE_TOOL, OFFER_TIMES_TOOL])
 
 /**
  * The text that asks the person for one approval: what it is and why, cut

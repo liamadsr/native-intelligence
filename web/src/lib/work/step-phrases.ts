@@ -96,6 +96,11 @@ const STEP_PHRASES: Record<string, string> = {
   // Calendar
   get_calendar_events: 'Checking the calendar',
   get_upcoming_meetings: 'Checking upcoming meetings',
+  offer_times: 'Offering times',
+  list_time_offers: 'Checking time offers',
+  withdraw_time_offer: 'Withdrawing a time offer',
+  cancel_offered_meeting: 'Cancelling a meeting',
+  accept_time_offer: 'Booking an offered time',
   // Judgement and research
   web_search: 'Researching on the web',
   search_tools: 'Choosing tools',

@@ -18,6 +18,7 @@ import { createInitiativeTools } from './initiatives'
 import { createProjectTools } from './projects'
 import { createCycleTools } from './cycles'
 import { createAvailabilityTools } from './availability'
+import { createTimeOfferTools } from './time-offers'
 import { createCalendarTools } from './calendar'
 import { createEmailTools } from './email'
 import { createCommentTools } from './comments'
@@ -437,6 +438,9 @@ export function createTools(
     // When the person can meet, alone or with teammates, and their working hours (src/lib/availability).
     // A guest's or a linked agent's turn reads only the person's own time, never a teammate's.
     ...createAvailabilityTools(userId, workspaceId, { timeZone: options?.timeZone, omitGrants }),
+    // Times offered to an outside person, held until they pick one (src/lib/time-offers/).
+    // offer_times by email or text sends only as the person's approved call; cancel_offered_meeting is never an unattended run's.
+    ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, timeZone: options?.timeZone }),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

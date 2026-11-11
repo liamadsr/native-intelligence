@@ -217,10 +217,11 @@ describe('a skill picked in a work run’s chat', () => {
     for (const name of ['create_action', 'update_action', 'complete_action', 'list_actions', 'find', 'get_dashboard_summary']) {
       expect(tools.has(name), name).toBe(false)
     }
-    // Only the calendar's own tools, and of those only what a run may call (reads: no event writes, no working-hours change).
+    // Only the calendar's own tools, and of those only what a run may call (reads and its own offers' withdrawal:
+    // no event writes, no working-hours change, no time offered or booked).
     const calendarTools = new Set(getToolNamesForCategories(['calendar']))
     for (const name of tools) expect(calendarTools.has(name), name).toBe(true)
-    expect([...tools]).toEqual(['get_calendar_events', 'find_times', 'get_working_hours'])
+    expect([...tools]).toEqual(['get_calendar_events', 'find_times', 'get_working_hours', 'list_time_offers', 'withdraw_time_offer'])
 
     // A tool the skill disables stays out even when its category is selected.
     const actionsNoUpdate: Skill = { ...ACTIONS_SKILL, agent_config: { enabled_tools: ['actions'], disabled_tools: ['update_action'] } }

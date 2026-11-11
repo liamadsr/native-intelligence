@@ -375,41 +375,89 @@ export async function listAccountEvents(
   return provider === 'google' ? listGoogleEvents(accessToken, options) : listMicrosoftEvents(accessToken, options)
 }
 
+/** The event a create writes. */
+export interface NewCalendarEvent {
+  title: string
+  description?: string
+  start: string
+  end: string
+  location?: string
+  attendees?: string[]
+  isAllDay?: boolean
+}
+
+/**
+ * What a caller may ask of a create beyond the event itself. All optional:
+ * without them a create is what it always was.
+ */
+export interface CreateEventOptions {
+  /**
+   * The provider emails each attendee their invitation (Google:
+   * sendUpdates=all; Microsoft always does). The invitation is the
+   * calendar entry: no .ics is built here.
+   */
+  sendInvites?: boolean
+  /**
+   * A video link with the event: Google Meet (conferenceData.createRequest),
+   * Microsoft Teams (isOnlineMeeting). An account that can't make one gets
+   * the event without a link, never no event.
+   */
+  video?: boolean
+  /**
+   * The caller's stable key for this one event: the same key never makes a
+   * second event, so a retry after a crash is safe. Google: a client-chosen
+   * event id derived from it (a 409 reads the existing one back); Microsoft:
+   * transactionId.
+   */
+  idempotencyKey?: string
+}
+
+/** An update or delete's account and whether the provider tells the attendees (Google: sendUpdates=all; Microsoft always does). */
+export interface ChangeEventOptions {
+  /** The connected account the event is on; without it, Google first then Microsoft, as before. */
+  accountId?: string
+  notifyAttendees?: boolean
+}
+
+/**
+ * A Google event id for a caller's key: Google lets a client choose the id
+ * of a new event (5 to 1024 characters of base32hex: 0-9 and a-v), so the
+ * same key always names the same event. A uuid's hex digits are all
+ * base32hex already. Pure.
+ */
+export function googleEventIdFor(key: string): string {
+  const id = `ni${key.toLowerCase().replace(/[^0-9a-v]/g, '')}`
+  return id.slice(0, 1024)
+}
+
+/** A connected account's provider and a live token for it. Throws when it can't be used. */
+async function accountToken(accountId: string): Promise<{ provider: 'google' | 'microsoft'; token: string }> {
+  const tokenResult = await getValidTokenForAccount(accountId)
+  if (!tokenResult) throw new Error('No valid token for account')
+  const supabase = getServiceClient()
+  const { data: account } = await supabase.from('connected_account').select('provider').eq('id', accountId).single()
+  if (account?.provider === 'google' || account?.provider === 'microsoft') return { provider: account.provider, token: tokenResult.token }
+  throw new Error('Unknown provider for account')
+}
+
 export async function createCalendarEvent(
   userId: string,
-  event: {
-    title: string
-    description?: string
-    start: string
-    end: string
-    location?: string
-    attendees?: string[]
-    isAllDay?: boolean
-  },
+  event: NewCalendarEvent,
   accountId?: string,
+  options: CreateEventOptions = {},
 ): Promise<CalendarEvent> {
   if (accountId) {
-    const tokenResult = await getValidTokenForAccount(accountId)
-    if (!tokenResult) throw new Error('No valid token for account')
-
-    const supabase = getServiceClient()
-    const { data: account } = await supabase
-      .from('connected_account')
-      .select('provider')
-      .eq('id', accountId)
-      .single()
-
-    if (account?.provider === 'google') return createGoogleEvent(tokenResult.token, event)
-    if (account?.provider === 'microsoft') return createMicrosoftEvent(tokenResult.token, event)
-    throw new Error('Unknown provider for account')
+    const { provider, token } = await accountToken(accountId)
+    const created = provider === 'google' ? await createGoogleEvent(token, event, options) : await createMicrosoftEvent(token, event, options)
+    return { ...created, accountId }
   }
 
   // Legacy: use first available provider
   const google = await getValidToken(userId, 'google', 'calendar')
-  if (google) return createGoogleEvent(google.token, event)
+  if (google) return createGoogleEvent(google.token, event, options)
 
   const microsoft = await getValidToken(userId, 'microsoft', 'calendar')
-  if (microsoft) return createMicrosoftEvent(microsoft.token, event)
+  if (microsoft) return createMicrosoftEvent(microsoft.token, event, options)
 
   throw new Error('No calendar provider connected')
 }
@@ -424,9 +472,15 @@ export async function updateCalendarEvent(
     end?: string
     location?: string
   },
+  options: ChangeEventOptions = {},
 ): Promise<CalendarEvent> {
+  if (options.accountId) {
+    const { provider, token } = await accountToken(options.accountId)
+    return provider === 'google' ? updateGoogleEvent(token, eventId, updates, options.notifyAttendees === true) : updateMicrosoftEvent(token, eventId, updates)
+  }
+
   const google = await getValidToken(userId, 'google', 'calendar')
-  if (google) return updateGoogleEvent(google.token, eventId, updates)
+  if (google) return updateGoogleEvent(google.token, eventId, updates, options.notifyAttendees === true)
 
   const microsoft = await getValidToken(userId, 'microsoft', 'calendar')
   if (microsoft) return updateMicrosoftEvent(microsoft.token, eventId, updates)
@@ -473,12 +527,19 @@ export async function getCalendarEventAttendees(userId: string, eventId: string)
 export async function deleteCalendarEvent(
   userId: string,
   eventId: string,
+  options: ChangeEventOptions = {},
 ): Promise<void> {
+  const notify = options.notifyAttendees === true
+  if (options.accountId) {
+    const { provider, token } = await accountToken(options.accountId)
+    return provider === 'google' ? deleteGoogleEvent(token, eventId, notify) : deleteMicrosoftEvent(token, eventId, notify)
+  }
+
   const google = await getValidToken(userId, 'google', 'calendar')
-  if (google) return deleteGoogleEvent(google.token, eventId)
+  if (google) return deleteGoogleEvent(google.token, eventId, notify)
 
   const microsoft = await getValidToken(userId, 'microsoft', 'calendar')
-  if (microsoft) return deleteMicrosoftEvent(microsoft.token, eventId)
+  if (microsoft) return deleteMicrosoftEvent(microsoft.token, eventId, notify)
 
   throw new Error('No calendar provider connected')
 }
@@ -566,17 +627,29 @@ async function listGoogleEvents(
   return perCalendar.flat()
 }
 
+/** A Google event as a create (or its read back) returns it, with its video link and where it was written. */
+function parseCreatedGoogleEvent(e: any): CalendarEvent {
+  const entryPoints = e.conferenceData?.entryPoints as Array<Record<string, string>> | undefined
+  const video = entryPoints?.find((ep) => ep.entryPointType === 'video')?.uri ?? (typeof e.hangoutLink === 'string' ? e.hangoutLink : undefined)
+  return {
+    id: e.id,
+    title: e.summary || '(No title)',
+    description: e.description,
+    start: e.start?.dateTime || e.start?.date || '',
+    end: e.end?.dateTime || e.end?.date || '',
+    location: e.location,
+    isAllDay: !!e.start?.date,
+    htmlLink: e.htmlLink,
+    ...(video ? { conferenceUrl: video } : {}),
+    provider: 'google',
+    calendarId: 'primary',
+  }
+}
+
 async function createGoogleEvent(
   accessToken: string,
-  event: {
-    title: string
-    description?: string
-    start: string
-    end: string
-    location?: string
-    attendees?: string[]
-    isAllDay?: boolean
-  },
+  event: NewCalendarEvent,
+  options: CreateEventOptions = {},
 ): Promise<CalendarEvent> {
   const body: Record<string, unknown> = {
     summary: event.title,
@@ -593,32 +666,42 @@ async function createGoogleEvent(
   if (event.attendees?.length) {
     body.attendees = event.attendees.map((email) => ({ email }))
   }
+  const eventId = options.idempotencyKey ? googleEventIdFor(options.idempotencyKey) : null
+  if (eventId) body.id = eventId
 
-  const res = await fetch(
-    'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-    {
+  const post = async (withVideo: boolean) => {
+    const params = new URLSearchParams()
+    if (options.sendInvites) params.set('sendUpdates', 'all')
+    if (withVideo) params.set('conferenceDataVersion', '1')
+    const payload = withVideo
+      ? { ...body, conferenceData: { createRequest: { requestId: options.idempotencyKey ?? crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } } }
+      : body
+    const query = params.toString()
+    return fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events${query ? `?${query}` : ''}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
-    },
-  )
-
-  if (!res.ok) throw new Error(`Google Calendar create error: ${res.status}`)
-  const e = await res.json()
-
-  return {
-    id: e.id,
-    title: e.summary || '(No title)',
-    description: e.description,
-    start: e.start?.dateTime || e.start?.date || '',
-    end: e.end?.dateTime || e.end?.date || '',
-    location: e.location,
-    isAllDay: !!e.start?.date,
-    htmlLink: e.htmlLink,
+      body: JSON.stringify(payload),
+    })
   }
+
+  let res = await post(options.video === true)
+  // An account that can't make a Meet link: the event, without one.
+  if (res.status === 400 && options.video === true) res = await post(false)
+  // The same key made this event already (a retry after a crash): read it back.
+  if (res.status === 409 && eventId) {
+    const existing = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?conferenceDataVersion=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!existing.ok) throw new Error(`Google Calendar create error: 409, read back ${existing.status}`)
+    const e = await existing.json()
+    if (e.status === 'cancelled') throw new Error('Google Calendar create error: the event was deleted')
+    return parseCreatedGoogleEvent(e)
+  }
+  if (!res.ok) throw new Error(`Google Calendar create error: ${res.status}`)
+  return parseCreatedGoogleEvent(await res.json())
 }
 
 async function updateGoogleEvent(
@@ -631,6 +714,7 @@ async function updateGoogleEvent(
     end?: string
     location?: string
   },
+  notifyAttendees = false,
 ): Promise<CalendarEvent> {
   const body: Record<string, unknown> = {}
   if (updates.title) body.summary = updates.title
@@ -640,7 +724,7 @@ async function updateGoogleEvent(
   if (updates.end) body.end = { dateTime: updates.end }
 
   const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}${notifyAttendees ? '?sendUpdates=all' : ''}`,
     {
       method: 'PATCH',
       headers: {
@@ -667,9 +751,10 @@ async function updateGoogleEvent(
 async function deleteGoogleEvent(
   accessToken: string,
   eventId: string,
+  notifyAttendees = false,
 ): Promise<void> {
   const res = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}${notifyAttendees ? '?sendUpdates=all' : ''}`,
     {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -844,15 +929,8 @@ export function graphUtcDateTime(value: string): string {
 
 async function createMicrosoftEvent(
   accessToken: string,
-  event: {
-    title: string
-    description?: string
-    start: string
-    end: string
-    location?: string
-    attendees?: string[]
-    isAllDay?: boolean
-  },
+  event: NewCalendarEvent,
+  options: CreateEventOptions = {},
 ): Promise<CalendarEvent> {
   const body: Record<string, unknown> = {
     subject: event.title,
@@ -881,17 +959,26 @@ async function createMicrosoftEvent(
     }))
   }
 
-  const res = await fetch('https://graph.microsoft.com/v1.0/me/events', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
+  // Graph makes one event per transactionId: a retry with the same key gets the first one back.
+  if (options.idempotencyKey) body.transactionId = options.idempotencyKey
+
+  const post = (withVideo: boolean) =>
+    fetch('https://graph.microsoft.com/v1.0/me/events', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(withVideo ? { ...body, isOnlineMeeting: true, onlineMeetingProvider: 'teamsForBusiness' } : body),
+    })
+
+  let res = await post(options.video === true)
+  // An account that can't make a Teams meeting (a personal Outlook account): the event, without a link.
+  if (res.status === 400 && options.video === true) res = await post(false)
 
   if (!res.ok) throw new Error(`Microsoft Calendar create error: ${res.status}`)
   const e = await res.json()
+  const joinUrl = typeof e.onlineMeeting?.joinUrl === 'string' ? e.onlineMeeting.joinUrl : undefined
 
   return {
     id: e.id,
@@ -903,6 +990,9 @@ async function createMicrosoftEvent(
     location: e.location?.displayName,
     isAllDay: e.isAllDay,
     htmlLink: e.webLink,
+    ...(joinUrl ? { conferenceUrl: joinUrl } : {}),
+    provider: 'microsoft',
+    calendarId: 'default',
   }
 }
 
@@ -958,7 +1048,18 @@ async function updateMicrosoftEvent(
 async function deleteMicrosoftEvent(
   accessToken: string,
   eventId: string,
+  notifyAttendees = false,
 ): Promise<void> {
+  // The organizer's cancel: Graph sends the attendees a cancellation and removes the event.
+  // Not the organizer, or nobody to tell: a plain delete.
+  if (notifyAttendees) {
+    const cancelled = await fetch(`https://graph.microsoft.com/v1.0/me/events/${eventId}/cancel`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comment: 'This meeting was cancelled.' }),
+    })
+    if (cancelled.ok || cancelled.status === 404) return
+  }
   const res = await fetch(
     `https://graph.microsoft.com/v1.0/me/events/${eventId}`,
     {

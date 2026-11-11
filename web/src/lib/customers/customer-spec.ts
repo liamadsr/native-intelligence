@@ -24,6 +24,8 @@ import { findCustomerByPhone, type CustomerByPhone } from './lookup'
 import { reminderAt, type CustomerReminder } from './reminder-store'
 import { getBusinessProfile } from './store'
 import { formatCents, quoteSummary, type BusinessProfile, type CustomerBooking, type CustomerQuote } from './types'
+import { openSlotsOf, type TimeOffer } from '@/lib/time-offers/types'
+import { slotLabel as offerSlotLabel, zoneLabel } from '@/lib/time-offers/words'
 
 export interface CustomerContext {
   businessName: string
@@ -84,6 +86,7 @@ export function buildCustomerWhoYouAre(input: {
     `- Their own quotes: get_my_quotes. Look before you answer about their quote, and read them its items and price from there.`,
     `- Booking a ${kind}: find_open_slots, then offer two or three of the open times in one short sentence. When they pick one, make sure you have their name and the address for the ${kind}, then call request_booking once with that slot's exact start. ` +
       `It holds the slot and asks ${o} by text: tell them ${o} will confirm by text shortly. Never say it's booked before then.`,
+    `- Times someone at ${b} offered them (in their section, "times offered", with the offer's id and each time's start): when they pick one, call pick_offered_time once with that offer and that time's exact start. It is booked at once; tell them it's confirmed. Only those times: for any other time, pass it on with message_owner.`,
     `- A reminder we texted them (in their bookings section, with its id): when they say yes, confirm_appointment. When they want another time for a booked ${kind}, find_open_slots, offer two or three, then move_appointment with the one they pick. A meeting is ${o}'s to move: ask what suits them and pass it on with message_owner.`,
     `- Anything else for ${o} (a question you can't answer, a complaint, a special request): message_owner, in their words. Mark it urgent only when it is.`,
     `- When they tell you something worth knowing next time (how to reach them, their building's doorman, that the rug is silk), keep it with remember_about_guest.`,
@@ -134,9 +137,17 @@ export function customerRecordSection(
   bookings: readonly CustomerBooking[],
   timeZone: string,
   reminders: readonly CustomerReminder[] = [],
+  offers: readonly TimeOffer[] = [],
+  now: number = Date.now(),
 ): string | null {
-  if (!quotes.length && !bookings.length && !reminders.length) return null
+  const open = offers.map((o) => ({ offer: o, slots: openSlotsOf(o, now) })).filter((o) => o.slots.length > 0)
+  if (!quotes.length && !bookings.length && !reminders.length && !open.length) return null
   const lines = [`## ${customerName}'s quotes and bookings`]
+  for (const { offer, slots } of open.slice(0, 3)) {
+    const zone = zoneLabel(offer.timeZone, Date.parse(slots[0].startsAt))
+    const times = slots.map((s) => `${offerSlotLabel(s.startsAt, offer.timeZone)} ${zone} (start ${s.startsAt})`).join('; ')
+    lines.push(`- Times offered by ${offer.hostName} for ${offer.title} (${offer.durationMinutes} min): ${times}. [offer ${offer.id}]`)
+  }
   for (const b of bookings.slice(0, 3)) {
     const confirmed = b.state === 'confirmed' && b.customerConfirmedAt ? ', and they confirmed it' : ''
     lines.push(`- ${b.kind.charAt(0).toUpperCase()}${b.kind.slice(1)} ${b.state === 'confirmed' ? 'booked' : "asked for, waiting on the owner's OK"}: ${when(b.startsAt, timeZone)}${confirmed}.`)

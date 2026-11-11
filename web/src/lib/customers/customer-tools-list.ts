@@ -17,6 +17,11 @@
  *   move_appointment   a booked job they were reminded of, to another open
  *                      slot they picked: moved on the owner's calendar, the
  *                      owner told (a meeting goes to the owner instead);
+ *   pick_offered_time  one of the times someone at the business offered
+ *                      them (a time offer sent to their number,
+ *                      src/lib/time-offers/): booked at once, only that
+ *                      offer's own time, only an offer made to the number
+ *                      they text from;
  *   message_owner      pass the owner a note (the guest tool, ./reach-owner.ts);
  *   remember_about_guest  keep one thing they said about themselves.
  *
@@ -28,7 +33,7 @@
  * Pure and client-safe.
  */
 
-export const CUSTOMER_TOOLS = ['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'message_owner', 'remember_about_guest'] as const
+export const CUSTOMER_TOOLS = ['get_my_quotes', 'find_open_slots', 'request_booking', 'confirm_appointment', 'move_appointment', 'pick_offered_time', 'message_owner', 'remember_about_guest'] as const
 export type CustomerToolName = (typeof CUSTOMER_TOOLS)[number]
 
 const CUSTOMER_TOOL_SET: ReadonlySet<string> = new Set(CUSTOMER_TOOLS)
@@ -38,7 +43,7 @@ export function isCustomerTool(name: string): name is CustomerToolName {
 }
 
 /** The customer-only tools' descriptions, as the customer's agent reads them. */
-export const CUSTOMER_TOOL_DESCRIPTIONS: Record<'get_my_quotes' | 'find_open_slots' | 'request_booking' | 'confirm_appointment' | 'move_appointment', string> = {
+export const CUSTOMER_TOOL_DESCRIPTIONS: Record<'get_my_quotes' | 'find_open_slots' | 'request_booking' | 'confirm_appointment' | 'move_appointment' | 'pick_offered_time', string> = {
   get_my_quotes:
     "This customer's own quotes: what they asked for, the sizes, the price and where it stands. Only theirs (sent from this number or linked to them). Use it before you answer about their quote",
   find_open_slots:
@@ -49,6 +54,8 @@ export const CUSTOMER_TOOL_DESCRIPTIONS: Record<'get_my_quotes' | 'find_open_slo
     'The customer confirms the job or meeting a reminder we texted them is for (its reminder id from their bookings section). Call it when they say yes to it',
   move_appointment:
     'Move a booked job they were reminded of to another open time they picked (its exact start from find_open_slots). It moves at once on the owner’s calendar and the owner is told. Not for a meeting: pass their times to the owner with message_owner',
+  pick_offered_time:
+    'Book one of the times the business offered this customer (the offer id and the time’s exact start, from their "times offered" line). It is booked at once and the person who offered is told. Only those times: never another one',
 }
 
 /** Their inputs as plain JSON Schema, for the customer spec's proxies. */
@@ -89,6 +96,15 @@ export const CUSTOMER_TOOL_INPUT_JSON_SCHEMAS = {
       start: { type: 'string', description: "The new slot's exact start, as find_open_slots gave it (ISO date-time)" },
     },
     required: ['reminder_id', 'start'],
+    additionalProperties: false,
+  },
+  pick_offered_time: {
+    type: 'object',
+    properties: {
+      offer_id: { type: 'string', description: 'The offer, from their "times offered" line' },
+      start: { type: 'string', description: "The picked time's exact start, as that line gives it (ISO date-time)" },
+    },
+    required: ['offer_id', 'start'],
     additionalProperties: false,
   },
 } as const

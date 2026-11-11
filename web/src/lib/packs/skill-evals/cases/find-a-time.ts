@@ -5,7 +5,9 @@ import type { SkillEvalCase } from '../types'
  * the Calendar pack, which `get_calendar_events` (core) or a `search_tools`
  * that reveals a calendar tool loads. `find_times` finds the free time, never
  * a hand count over the events; two or three slots, then the invite only
- * after the yes: `forbidParams`/`avoid` hold the first turn to reading.
+ * after the yes: `forbidParams`/`avoid` hold the first turn to reading. An
+ * outside guest is offered the slots with `offer_times` (555), a link by
+ * default: the times are held and nothing is sent.
  */
 export const cases: SkillEvalCase[] = [
   {
@@ -76,5 +78,15 @@ export const cases: SkillEvalCase[] = [
     forbidParams: { find_times: { people: ['jordan@globex.example'] } },
     avoid: ['create_calendar_event'],
     why: "An outside guest's calendar can't be read: find times on the person's own calendar and say so.",
+  },
+  // 555: an outside guest is offered the slots with offer_times (held; a link by default, nothing sent).
+  {
+    request: 'offer morgan@hooli.example three times for a 45 minute call this week and give me the link',
+    loads: ['calendar-playbook', 'find-a-time'],
+    tools: ['load_skill', 'find_times', 'offer_times'],
+    params: { find_times: { duration_minutes: 45 }, offer_times: { duration_minutes: 45 } },
+    forbidParams: { offer_times: [{ send_by: 'email' }, { send_by: 'text' }] },
+    avoid: ['create_calendar_event', 'create_email_draft'],
+    why: 'offer_times by link holds the times and returns the link and the text to paste; nothing is sent.',
   },
 ]

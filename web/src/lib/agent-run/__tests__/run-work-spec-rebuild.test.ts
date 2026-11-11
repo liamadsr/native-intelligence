@@ -308,6 +308,10 @@ describe('computeWorkRunCeiling', () => {
         // Issue #11's follow-up: the owner's own move or cancel of a booking texts the customer, an external write.
         'move_booking',
         'cancel_booking',
+        // Availability phase 3a: offering an outside guest times, booking or cancelling one, external writes.
+        'offer_times',
+        'cancel_offered_meeting',
+        'accept_time_offer',
       ].sort(),
     )
   })

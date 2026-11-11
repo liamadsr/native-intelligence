@@ -60,6 +60,18 @@ export interface QuoteReplyApprovalContext {
 }
 
 /**
+ * What a time offer's card showed (availability phase 3a: offer_times by
+ * email or text, src/lib/time-offers/send.ts): the offer made for the card
+ * (its times held while the card waits) and the hash of the card's words
+ * (who gets what, from where). The replay builds the card again from that
+ * offer as it is then, and sends nothing when its words differ.
+ */
+export interface TimeOfferApprovalContext {
+  offer_id: string
+  card_hash: string
+}
+
+/**
  * What an agent card records (GEN-1168: delete_bot, merge_bots), so the replay
  * runs only on the agents the card showed, as they were then.
  */
@@ -136,6 +148,8 @@ export interface ApprovedCall {
   unsubscribe?: UnsubscribeApprovalContext
   /** A quote reply card's own check (send_quote, book_quote): the words it showed. */
   quoteReply?: QuoteReplyApprovalContext
+  /** A time offer card's own check (offer_times by email or text): its offer and the words it showed. */
+  timeOffer?: TimeOfferApprovalContext
 }
 
 /**

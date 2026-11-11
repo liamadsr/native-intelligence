@@ -44,6 +44,14 @@
  *     anyway (not an owner or admin, no such quote, no way to reach the
  *     customer) or rows that can't be read: nothing is held, and the tool,
  *     which runs only as the card's replay, refuses it.
+ *   - offer_times by email or text (availability phase 3a): times offered to
+ *     an outside person, always. The card says exactly who gets what email
+ *     or text, from the person's mailbox or the business's number
+ *     (src/lib/time-offers/send.ts); the hash of its words rides on the
+ *     approval with the offer made for it. The offer, its times held while
+ *     the card waits, is made only once a card will really be raised (the
+ *     hold's `prepare`); no card, no offer. By link it sends nothing and is
+ *     not held here.
  *
  * What a hold becomes is the trust authority's call, made in gateRiskyCall
  * (caller.ts decideAction(caller, 'outward', tool)): for the person, in the
@@ -58,12 +66,14 @@ import { getCalendarEventAttendees } from '@/lib/integrations/calendar'
 import type { ServerToolMeta } from '@/lib/mcp-client/adapter'
 import { typefullyCardCopy } from '@/lib/content/typefully'
 import { readThreadListHeaders, unsubscribeMethod, unsubscribeMethodKey, type ThreadListHeaders } from '@/lib/email/unsubscribe'
-import type { QuoteReplyApprovalContext, UnsubscribeApprovalContext } from './approved-call'
+import type { QuoteReplyApprovalContext, TimeOfferApprovalContext, UnsubscribeApprovalContext } from './approved-call'
 import { mailboxAddresses } from '@/lib/email/reply-policy'
 import { paymentsReady } from '@/lib/payments/ready'
 import { paymentLinkCard, parsePaymentLinkCall, SEND_PAYMENT_LINK } from '@/lib/payments/tool-input'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
 import { bareToolName } from '@/lib/mcp/tool-names'
+import { offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
+import type { TimeOfferHold } from '@/lib/time-offers/send'
 
 /** The calendar writes that invite attendees (bare names). */
 const CALENDAR_INVITE_TOOLS: ReadonlySet<string> = new Set(['create_calendar_event', 'update_calendar_event'])
@@ -81,13 +91,24 @@ export type ExternalToolPolicy = Pick<ServerToolMeta, 'serverName' | 'requiresAp
 
 export interface OutwardHold {
   /** Why, for the approval row's `reason` and the logs. */
-  reason: 'outside_attendees' | 'teammate_attendees' | 'mcp_write' | 'public_post' | 'unsubscribe' | 'payment_link' | 'customer_quote'
+  reason: 'outside_attendees' | 'teammate_attendees' | 'mcp_write' | 'public_post' | 'unsubscribe' | 'payment_link' | 'customer_quote' | 'time_offer'
   /** The approval card's words. */
   card: { title: string; why: string }
   /** What the model reads when there is no person to ask (NEEDS_PERSON). */
   refusal: string
   /** The hold's own check, kept on the approval for its replay (an unsubscribe card's method, a quote card's words). */
-  context?: { unsubscribe?: UnsubscribeApprovalContext; quoteReply?: QuoteReplyApprovalContext }
+  context?: { unsubscribe?: UnsubscribeApprovalContext; quoteReply?: QuoteReplyApprovalContext; timeOffer?: Partial<TimeOfferApprovalContext> }
+  /**
+   * Work the hold does only once its card will really be raised (a time
+   * offer's held times): more context for the approval, or why there is no
+   * card after all (the model reads it; nothing ran). Never for a caller
+   * who is refused.
+   */
+  prepare?: () => Promise<{ ok: true; context: { timeOffer: TimeOfferApprovalContext } } | { ok: false; message: string }>
+  /** The card was raised: told its approval's id. Best effort. */
+  held?: (context: { timeOffer?: TimeOfferApprovalContext }, approvalId: string) => Promise<void>
+  /** No card came of a prepared hold: undo what prepare did. Best effort. */
+  abandon?: (context: { timeOffer?: TimeOfferApprovalContext }) => Promise<void>
 }
 
 export interface OutwardCheck {
@@ -110,6 +131,8 @@ export interface OutwardCheck {
   paymentsReady?: (workspaceId: string) => Promise<boolean>
   /** Test seam: a send_quote / book_quote call's card and check (null: the tool would refuse it anyway). */
   quoteCard?: (args: { workspaceId: string; userId: string; toolName: string; input: unknown }) => Promise<QuoteCardHold | null>
+  /** Test seam: an offer_times call's card, check and offer (null: the tool would refuse it anyway). */
+  timeOfferCard?: (args: { workspaceId: string; userId: string; input: unknown }) => Promise<TimeOfferHold | null>
 }
 
 /** A quote reply's card and the check its replay makes (src/lib/customers/quote-reply.ts quoteReplyHold). */
@@ -265,6 +288,40 @@ async function quoteReplyOutwardHold(check: OutwardCheck, bare: string): Promise
   }
 }
 
+async function defaultTimeOfferCard(args: { workspaceId: string; userId: string; input: unknown }): Promise<TimeOfferHold | null> {
+  // Loaded on use: the offer and sending code stays out of every door's imports.
+  const [{ getServiceClient }, { timeOfferHold }] = await Promise.all([import('@/lib/admin'), import('@/lib/time-offers/send')])
+  return timeOfferHold(getServiceClient(), args)
+}
+
+/**
+ * offer_times's card when it sends (see the header). A call the tool would
+ * refuse anyway, or rows that can't be read: no hold, and the tool (which
+ * sends only as the card's replay) refuses it, saying why.
+ */
+async function timeOfferOutwardHold(check: OutwardCheck): Promise<OutwardHold | null> {
+  if (!check.userId || !offerTimesSends(OFFER_TIMES_TOOL, check.input)) return null
+  let found: TimeOfferHold | null = null
+  try {
+    found = await (check.timeOfferCard ?? defaultTimeOfferCard)({ workspaceId: check.workspaceId, userId: check.userId, input: check.input })
+  } catch (err) {
+    console.warn('[outward-gate] time offer card unreadable; the tool refuses unapproved:', err instanceof Error ? err.message : String(err))
+    found = null
+  }
+  if (!found) return null
+  return {
+    reason: 'time_offer',
+    card: found.card,
+    refusal:
+      `Nothing was sent. ${check.toolName} by email or text sends an outside person times to meet, which only ever happens on the person's own approval card, and nobody is here to give it. ` +
+      "Do not retry; offer the times by send_by 'link' instead, or tell the person what you would have sent.",
+    context: found.context,
+    prepare: found.prepare,
+    held: found.held,
+    abandon: found.abandon,
+  }
+}
+
 /**
  * The hold this call needs, or null when it may go on to the reviewer. Never
  * throws: a membership lookup that fails counts nobody as a member (held).
@@ -288,6 +345,7 @@ export async function outwardHoldOf(check: OutwardCheck): Promise<OutwardHold | 
   if (bare === 'unsubscribe_thread') return unsubscribeHold(check)
   if (bare === SEND_PAYMENT_LINK) return paymentLinkHold(check)
   if (bare === SEND_QUOTE_TOOL || bare === BOOK_QUOTE_TOOL) return quoteReplyOutwardHold(check, bare)
+  if (bare === OFFER_TIMES_TOOL) return timeOfferOutwardHold(check)
   if (CALENDAR_INVITE_TOOLS.has(bare) || CALENDAR_EXISTING_EVENT_TOOLS.has(bare)) {
     const added = CALENDAR_INVITE_TOOLS.has(bare) ? attendeeEmailsOf(check.input) : []
     // An existing event's attendees, from the provider: editing or cancelling

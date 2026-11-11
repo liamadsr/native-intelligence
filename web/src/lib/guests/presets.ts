@@ -80,6 +80,12 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   // The owner's answer to a quote (roadmap F3): theirs alone, on their own card.
   'send_quote',
   'book_quote',
+  // Time offers (availability phase 3a): the person's own time, offered and booked at their word.
+  'offer_times',
+  'list_time_offers',
+  'withdraw_time_offer',
+  'cancel_offered_meeting',
+  'accept_time_offer',
 ])
 const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content'])
 

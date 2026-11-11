@@ -59,6 +59,8 @@ export const PROMPT_REWRITE_MIGRATIONS = [
   '551_find_a_time_uses_availability.sql',
   // Availability phase 2: find_times takes teammates (`people`); an outside guest's calendar still can't be seen.
   '553_find_a_time_with_teammates.sql',
+  // Availability phase 3a: an outside guest is offered the slots with offer_times (held, picked on a link).
+  '555_offer_times_to_outside_guests.sql',
 ] as const
 
 /**
@@ -67,7 +69,7 @@ export const PROMPT_REWRITE_MIGRATIONS = [
  * `('id'::uuid, $slug$…$slug$, $tools$[…]$tools$::jsonb)`: the list replaces
  * that one key of the row with that id and slug, and every other key stays.
  */
-export const PREFERRED_TOOLS_REWRITE_MIGRATIONS = ['551_find_a_time_uses_availability.sql'] as const
+export const PREFERRED_TOOLS_REWRITE_MIGRATIONS = ['551_find_a_time_uses_availability.sql', '555_offer_times_to_outside_guests.sql'] as const
 
 /** The helper line every core carried until 338, and the one 338 puts in its place, word for word in all sixteen. */
 export const OLD_CORE_HELPER_LINE = 'Not yet: helpers come later, so do the work here.'

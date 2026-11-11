@@ -93,6 +93,7 @@ export const REGISTRY_READ_TOOL_NAMES: readonly string[] = [
   'list_recipes',
   'list_sequences',
   'list_skills',
+  'list_time_offers',
   'list_vocabulary',
   'list_website_repos',
   'list_workflow_states',
