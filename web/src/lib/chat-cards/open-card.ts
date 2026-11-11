@@ -103,6 +103,8 @@ export type OpenTarget =
   | { type: 'bot'; teammateId: string; name?: string | null; item?: { itemId: string; title?: string | null } | null }
   | { type: 'guest'; guestId: string; name?: string | null; messageId?: string | null }
   | { type: 'agent_link'; linkId: string; name?: string | null; exchangeId?: string | null }
+  /** Team chat, on a channel or on one message (in its channel, or its thread), scrolled to it. */
+  | { type: 'team_chat'; channelId?: string | null; messageId?: string | null }
   | { type: 'page'; slug: string }
 
 export interface TargetCard {
@@ -172,6 +174,15 @@ export function cardForTarget(target: OpenTarget, now: Date = new Date()): Targe
       spec: { kind: 'agent_link', title: name, target: { type: 'agent_link', id: target.linkId, label: name } },
       ...(target.exchangeId ? { seed: { at: { type: 'agent_link_exchange', id: target.exchangeId } } } : {}),
     }
+  }
+  if (target.type === 'team_chat') {
+    // One team chat card: the one already in the chat comes back, moved to the place (sameCardPlace: no target).
+    const at: PagePlace | null = target.messageId
+      ? { type: 'team_chat_message', id: target.messageId }
+      : target.channelId
+        ? { type: 'team_chat_channel', id: target.channelId }
+        : null
+    return { spec: { kind: 'team_chat', title: 'Team chat' }, ...(at ? { seed: { at } } : {}) }
   }
   if (target.type === 'mail') {
     const folder: MailFolder = (MAIL_FOLDERS as readonly string[]).includes(target.folder ?? '') ? (target.folder as MailFolder) : 'inbox'

@@ -22,6 +22,14 @@
  * flickers; a failed one says so on the bubble, and Retry sends it again with
  * the same id (the server answers with the row a lost answer had made).
  *
+ * Phase 2 (migrations 560, 561): each channel's header has a small menu for
+ * how loud it is (all messages, mentions only, muted; a muted channel shows
+ * no unread count, only its mentions), and the view opens on one message
+ * when it is asked to (`focus`: a notification's click, a search hit), in its
+ * channel or its thread, scrolled to it and lit for a moment. What it shows
+ * is registered (src/lib/team-chat/on-screen.ts), so a notification about a
+ * message on screen raises no toast.
+ *
  * Owns its own fetches against /api/account/team-chat/* and one Supabase
  * Realtime channel for the workspace (team_chat_message, team_chat_channel,
  * team_chat_thread, team_chat_reaction; RLS filters what arrives), resyncing
@@ -30,11 +38,12 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { ChevronLeft, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, X } from 'lucide-react'
+import { Bell, BellOff, Check, ChevronLeft, Hash, Lock, MessageSquare, MessageSquareReply, Pencil, Plus, RotateCw, Trash2, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -49,6 +58,8 @@ import { useOptionalRecordingStable } from '@/hooks/recording-context'
 import type { ComposerMentionList, ComposerMentionOption } from '@/app/account/(dashboard)/chat/command-menu-model'
 import {
   applyReaction,
+  channelBadge,
+  channelHeaderCount,
   continuesGroup,
   failPending,
   groupReactions,
@@ -79,6 +90,8 @@ import {
 import { TEAM_CHAT_FILE_ACCEPT, TEAM_CHAT_MAX_FILES, validateTeamChatFile } from '@/lib/team-chat/files'
 import { discardTeamChatFile, uploadTeamChatFile } from '@/lib/team-chat/upload-client'
 import { joinTyping, TYPING_SHOW_MS, TYPING_THROTTLE_MS } from '@/lib/team-chat/typing'
+import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
+import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
 import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
 import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
@@ -147,7 +160,18 @@ function placeOf(m: { channel_id: string; thread_root_id: string | null }): stri
   return m.thread_root_id ?? m.channel_id
 }
 
-export function TeamChatView({ onCount, compact = false }: { onCount?: (count: number | null) => void; compact?: boolean } = {}) {
+/** Where the view is asked to open: a channel, or one message (in its channel or its thread, scrolled to it). */
+export type TeamChatFocus = { type: 'channel' | 'message'; id: string }
+
+/** How long a message opened on stays lit, and how long the view waits for it to show before it gives up. */
+const FOCUS_LIT_MS = 2500
+const FOCUS_GIVE_UP_MS = 8000
+
+export function TeamChatView({
+  onCount,
+  compact = false,
+  focus = null,
+}: { onCount?: (count: number | null) => void; compact?: boolean; focus?: TeamChatFocus | null } = {}) {
   const workspaceId = useWorkspaceId()
   const { teams } = useTeams()
   const { name: assistantName } = useAssistantName()
@@ -168,6 +192,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   const [waitingOnAgent, setWaitingOnAgent] = useState<Record<string, number>>({})
   const [newChannelOpen, setNewChannelOpen] = useState(false)
   const [newDmOpen, setNewDmOpen] = useState(false)
+  // The message the view was asked to open on (`focus`): where it is, and whether its pane has scrolled to it.
+  const [focused, setFocused] = useState<{ id: string; channelId: string; rootId: string | null; shown: boolean } | null>(null)
 
   const selectedRef = useRef<string | null>(null)
   selectedRef.current = selectedId
@@ -205,12 +231,22 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   // Channels whose older messages haven't all been loaded (their last page was full).
   const [more, setMore] = useState<Record<string, boolean>>({})
 
-  // The card's header count: everything unread, threads the person is in included.
+  // The card's header count: everything unread, threads the person is in included (a muted channel: its mentions only).
   const onCountRef = useRef(onCount)
   onCountRef.current = onCount
   useEffect(() => {
-    if (channels) onCountRef.current?.(channels.reduce((n, c) => n + c.unread + c.thread_unread, 0))
+    if (channels) onCountRef.current?.(channels.reduce((n, c) => n + channelHeaderCount(c), 0))
   }, [channels])
+
+  // What is on screen, for the notification context (no toast about a message the person is looking at).
+  const viewKey = useRef(Symbol('team-chat-view'))
+  useEffect(() => {
+    setTeamChatOnScreen(viewKey.current, onScreen ? { channelId: onScreen, threadRootId: threadOnScreen } : null)
+  }, [onScreen, threadOnScreen])
+  useEffect(() => {
+    const key = viewKey.current
+    return () => setTeamChatOnScreen(key, null)
+  }, [])
 
   const membersById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members])
   const teamsById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams])
@@ -227,7 +263,9 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
       const unreadList = (Array.isArray(json.threads) ? json.threads : []).filter((t) => t.root_id !== openRoot)
       const list = (Array.isArray(json.channels) ? json.channels : []).map((c) => {
         const inThreads = unreadList.filter((t) => t.channel_id === c.id)
-        const shown = { ...c, thread_unread: inThreads.reduce((n, t) => n + t.unread, 0), thread_mentions: inThreads.reduce((n, t) => n + t.mentions, 0) }
+        // A muted channel counts its mentions only (the server's unread is 0 already).
+        const threadUnread = c.notify === 'muted' ? 0 : inThreads.reduce((n, t) => n + t.unread, 0)
+        const shown = { ...c, thread_unread: threadUnread, thread_mentions: inThreads.reduce((n, t) => n + t.mentions, 0) }
         return c.id === open ? { ...shown, unread: 0, mentions: 0 } : shown
       })
       setMeId(json.memberId ?? null)
@@ -252,13 +290,15 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
     })
   }, [])
 
+  // The newest page; or (`from`, a message's time) everything from that message on, so the page opened on it runs on to now.
   const loadMessages = useCallback(
-    async (channelId: string) => {
-      const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages`)
+    async (channelId: string, from?: string) => {
+      const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages${from ? `?from=${encodeURIComponent(from)}` : ''}`)
       if (!res.ok) return
       const json = (await res.json()) as { messages?: TeamChatMessage[]; threads?: TeamChatThreadSummary[]; reactions?: TeamChatReaction[] }
       const page = Array.isArray(json.messages) ? json.messages : []
-      setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
+      // A page from a message on says nothing of what is older (the newest page's load does).
+      if (!from) setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
       setMessages((prev) => {
         // Keep anything realtime (or an earlier page, or a send on its way) brought in while the page was loading.
         let list: Shown[] = page
@@ -346,6 +386,66 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
   useEffect(() => {
     void loadChannels()
   }, [loadChannels, workspaceId])
+
+  // Asked to open somewhere: the channel, or the message (in its channel or its thread), its page loaded from it on.
+  const focusType = focus?.type ?? null
+  const focusId = focus?.id ?? null
+  useEffect(() => {
+    if (!focusType || !focusId) return
+    if (focusType === 'channel') {
+      setSelectedId(focusId)
+      setOpened(true)
+      setOpenThread(null)
+      return
+    }
+    let alive = true
+    void (async () => {
+      const res = await fetch(`/api/account/team-chat/messages/${focusId}`).catch(() => null)
+      if (!alive || !res?.ok) return
+      const json = (await res.json().catch(() => null)) as { message?: TeamChatMessage; root?: TeamChatMessage | null } | null
+      const m = json?.message
+      if (!alive || !m) return
+      const rootId = m.thread_root_id
+      setSelectedId(m.channel_id)
+      setOpened(true)
+      setOpenThread(rootId ? { channelId: m.channel_id, rootId } : null)
+      setFocused({ id: m.id, channelId: m.channel_id, rootId, shown: false })
+      // A reply's thread hangs off its root: the channel's page runs from the root.
+      const from = rootId ? (json?.root?.created_at ?? null) : m.created_at
+      if (from) await loadMessages(m.channel_id, from)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [focusType, focusId, loadMessages])
+  // Lit for a moment once its pane has scrolled to it; given up on if it never shows (too old, or gone).
+  useEffect(() => {
+    if (!focused) return
+    const timer = setTimeout(() => setFocused(null), focused.shown ? FOCUS_LIT_MS : FOCUS_GIVE_UP_MS)
+    return () => clearTimeout(timer)
+  }, [focused])
+  const onFocusShown = useCallback(() => setFocused((f) => (f && !f.shown ? { ...f, shown: true } : f)), [])
+
+  // How loud a channel is (migration 560): at once, then the server's word; the list again for its counts.
+  const channelsRef = useRef(channels)
+  channelsRef.current = channels
+  const setNotify = useCallback(
+    async (channelId: string, level: TeamChatNotifyLevel) => {
+      const before = channelsRef.current?.find((c) => c.id === channelId)?.notify
+      setChannels((prev) => prev?.map((c) => (c.id === channelId ? { ...c, notify: level } : c)) ?? prev)
+      const res = await fetch(`/api/account/team-chat/channels/${channelId}/notify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ level }),
+      }).catch(() => null)
+      if (!res?.ok) {
+        if (before) setChannels((prev) => prev?.map((c) => (c.id === channelId ? { ...c, notify: before } : c)) ?? prev)
+        return
+      }
+      void loadChannels()
+    },
+    [loadChannels],
+  )
 
   useEffect(() => {
     if (!workspaceId) return
@@ -784,6 +884,9 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
               hasMore={!!more[selected.id]}
               onLoadEarlier={(before) => loadEarlier(selected.id, before)}
               onBack={narrow ? backToList : undefined}
+              onNotify={(level) => void setNotify(selected.id, level)}
+              focusId={focused && !focused.rootId && focused.channelId === selected.id ? focused.id : null}
+              onFocusShown={onFocusShown}
               {...common}
             />
           </div>
@@ -803,6 +906,8 @@ export function TeamChatView({ onCount, compact = false }: { onCount?: (count: n
                 typing={typingFor(threadOnScreen)}
                 onClose={closeThread}
                 over={threadOver}
+                focusId={focused && focused.rootId === threadOnScreen ? focused.id : null}
+                onFocusShown={onFocusShown}
                 {...common}
               />
             </div>
@@ -880,10 +985,10 @@ function ChannelRow({
   privateTeam?: boolean
   onSelect: () => void
 }) {
-  // The channel's own unread, and the replies unread in its threads the person is in.
-  const count = channel.unread + channel.thread_unread
-  const mentions = channel.mentions + channel.thread_mentions
+  // The channel's own unread, and the replies unread in its threads the person is in (a muted one: its mentions only).
+  const { count, mentions } = channelBadge(channel)
   const unread = count > 0 && !active
+  const muted = channel.notify === 'muted'
   return (
     <button
       type="button"
@@ -901,12 +1006,14 @@ function ChannelRow({
         <Avatar name={avatar?.name ?? title} url={avatar?.url} size="sm" />
       )}
       <span className="min-w-0 flex-1 truncate">{title}</span>
-      {unread && mentions > 0 ? (
+      {mentions > 0 && !active && (unread || muted) ? (
         <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground" title={`${mentions} mention${mentions === 1 ? '' : 's'}`}>
           @{mentions}
         </span>
       ) : unread ? (
         <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-muted-foreground/20 px-1.5 text-[11px] font-semibold text-foreground">{count}</span>
+      ) : muted ? (
+        <BellOff className="h-3.5 w-3.5 shrink-0 opacity-60" aria-label="Muted" />
       ) : null}
     </button>
   )
@@ -988,6 +1095,9 @@ function ChannelPane({
   hasMore,
   onLoadEarlier,
   onBack,
+  onNotify,
+  focusId,
+  onFocusShown,
   meId,
   members,
   membersById,
@@ -998,9 +1108,12 @@ function ChannelPane({
   onChanged,
   onSend,
   onTyping,
-}: PaneShared & {
+}: PaneShared &
+  FocusProps & {
   channel: TeamChatChannel
   title: string
+  /** How loud it is for the person: the header's menu sets it. */
+  onNotify: (level: TeamChatNotifyLevel) => void
   /** A direct message's other person, for the avatar beside their name. */
   dmPerson?: Member
   teamName: string | null
@@ -1030,12 +1143,14 @@ function ChannelPane({
   const { editingId, setEditingId, remove } = useMessageEditing(onChanged)
   const [loadingEarlier, setLoadingEarlier] = useState(false)
 
-  // Stay at the bottom as messages arrive (a new last message), never when older ones are loaded above.
+  // Stay at the bottom as messages arrive (a new last message), never when older ones are loaded above,
+  // nor while a message it was opened on is being brought into view.
   const lastKey = messages?.at(-1) ? messageKey(messages.at(-1)!) : null
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [lastKey, waitingOnAgent])
+    if (el && !focusId) el.scrollTop = el.scrollHeight
+  }, [lastKey, waitingOnAgent, focusId])
+  useScrollToFocus(scrollRef, focusId, messages, onFocusShown)
 
   const earlier = async () => {
     const oldest = messages?.find((m) => !m.pending)
@@ -1082,6 +1197,7 @@ function ChannelPane({
           </span>
         )}
         {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
+        <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} />
       </div>
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -1129,6 +1245,7 @@ function ChannelPane({
                   thread={threads[m.id]}
                   threadUnread={unreadThreads[m.id]?.unread ?? 0}
                   threadOpen={openThreadId === m.id}
+                  lit={m.id === focusId}
                 />
               ))}
             </ul>
@@ -1150,6 +1267,64 @@ function ChannelPane({
         onTyping={onTyping}
       />
     </>
+  )
+}
+
+/** The message a pane was opened on (lit, and scrolled into view once it is there). */
+interface FocusProps {
+  focusId?: string | null
+  onFocusShown?: () => void
+}
+
+/** Bring the message a pane was opened on into view once it is drawn (each one once), and say so. */
+function useScrollToFocus(scrollRef: RefObject<HTMLDivElement | null>, focusId: string | null | undefined, rows: readonly Shown[] | null, onShown?: () => void) {
+  const doneRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    if (!focusId || doneRef.current === focusId || !rows) return
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-team-chat-message="${focusId}"]`)
+    if (!el) return
+    doneRef.current = focusId
+    el.scrollIntoView({ block: 'center' })
+    onShown?.()
+  }, [scrollRef, focusId, rows, onShown])
+}
+
+const NOTIFY_OPTIONS: ReadonlyArray<{ level: TeamChatNotifyLevel; label: string; hint: string }> = [
+  { level: 'all', label: 'All messages', hint: 'Every new message notifies you' },
+  { level: 'mentions', label: 'Mentions only', hint: 'Only @-mentions and your threads' },
+  { level: 'muted', label: 'Muted', hint: 'Nothing notifies you; no unread count' },
+]
+
+/** The channel header's menu: how loud it is for the person (migration 560). */
+function NotifyMenu({ kind, level, onChange }: { kind: TeamChatChannel['kind']; level: TeamChatNotifyLevel; onChange: (level: TeamChatNotifyLevel) => void }) {
+  const Icon = level === 'muted' ? BellOff : Bell
+  const label = level === 'muted' ? 'Muted' : level === 'all' ? 'All messages' : 'Mentions only'
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-team-chat-notify={level}
+          aria-label={`Notifications: ${label}`}
+          title={`Notifications: ${label}`}
+          className="ml-auto shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+        >
+          <Icon className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <p className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">{kind === 'dm' ? 'Notify me about this conversation' : 'Notify me about this channel'}</p>
+        {NOTIFY_OPTIONS.map((o) => (
+          <DropdownMenuItem key={o.level} data-team-chat-notify-option={o.level} onSelect={() => o.level !== level && onChange(o.level)} className="items-start">
+            <Check className={cn('mt-0.5 h-4 w-4', o.level === level ? 'opacity-100' : 'opacity-0')} />
+            <span className="flex min-w-0 flex-col">
+              <span className="text-sm text-foreground">{o.label}</span>
+              <span className="text-xs text-muted-foreground">{o.hint}</span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -1177,6 +1352,8 @@ function ThreadPane({
   typing,
   onClose,
   over,
+  focusId,
+  onFocusShown,
   meId,
   members,
   membersById,
@@ -1187,7 +1364,8 @@ function ThreadPane({
   onChanged,
   onSend,
   onTyping,
-}: PaneShared & {
+}: PaneShared &
+  FocusProps & {
   channel: TeamChatChannel
   title: string
   rootId: string
@@ -1209,8 +1387,9 @@ function ThreadPane({
   const lastKey = replies?.at(-1) ? messageKey(replies.at(-1)!) : null
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [lastKey, waitingOnAgent])
+    if (el && !focusId) el.scrollTop = el.scrollHeight
+  }, [lastKey, waitingOnAgent, focusId])
+  useScrollToFocus(scrollRef, focusId, replies, onFocusShown)
 
   const row = (m: Shown, grouped: boolean) => (
     <MessageRow
@@ -1234,6 +1413,7 @@ function ThreadPane({
       canReact={!archived}
       onReact={(emoji, on) => onReact(m.id, emoji, on)}
       onRetry={m.client_id ? () => onRetry(m.client_id!) : undefined}
+      lit={m.id === focusId}
     />
   )
 
@@ -1344,6 +1524,7 @@ function MessageRow({
   thread,
   threadUnread = 0,
   threadOpen = false,
+  lit = false,
 }: {
   message: Shown
   grouped: boolean
@@ -1367,6 +1548,8 @@ function MessageRow({
   thread?: TeamChatThreadSummary
   threadUnread?: number
   threadOpen?: boolean
+  /** The message the view was opened on (a notification, a search hit): lit for a moment. */
+  lit?: boolean
 }) {
   const [pinned, setPinned] = useState(false)
   const isAgent = message.author_kind === 'agent'
@@ -1386,7 +1569,12 @@ function MessageRow({
     <li
       data-team-chat-message={message.id}
       data-pending={pending}
-      className={cn('group relative flex gap-3 rounded-xl px-2 hover:bg-accent/40', grouped ? 'py-0.5' : 'mt-3 pb-0.5 pt-1.5 first:mt-0')}
+      data-lit={lit || undefined}
+      className={cn(
+        'group relative flex gap-3 rounded-xl px-2 transition-colors duration-700 hover:bg-accent/40',
+        grouped ? 'py-0.5' : 'mt-3 pb-0.5 pt-1.5 first:mt-0',
+        lit && 'bg-primary/10 hover:bg-primary/10',
+      )}
     >
       <div className="w-9 shrink-0">{!grouped && <Avatar name={memberName(author)} url={author?.avatar_url} agent={isAgent} />}</div>
       <div className="min-w-0 flex-1">
