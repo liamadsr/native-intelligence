@@ -33,6 +33,7 @@ vi.mock('@/lib/chat/home-message-writer', () => ({ appendHomeMessage: hoisted.ho
 vi.mock('@/lib/work/agent-paused', () => ({ isAgentPaused: hoisted.paused }))
 
 await import('../daily-jobs')
+const { customerBooking } = await import('@/test/booking-db')
 
 const WS = 'ws-northside'
 const OWNER = 'user-owner'
@@ -48,9 +49,10 @@ beforeEach(() => {
     ],
     workspace: [{ id: WS, name: 'Northside', settings: {} }],
     customer_quote: [],
-    customer_booking: [
+    // A customer booking is a meeting_booking row since migration 581.
+    meeting_booking: [
       // Nov 4, 4:00 PM in Denver (UTC-7).
-      { id: 'b-1', workspace_id: WS, owner_user_id: OWNER, quote_id: null, contact_id: null, guest_id: null, source: 'owner', kind: 'session', starts_at: '2026-11-04T23:00:00Z', ends_at: '2026-11-05T00:00:00Z', customer_name: 'Lee Park', customer_phone: '+17205550177', address: '9 Elm Ct', note: null, state: 'confirmed', approval_id: null, calendar_event_id: 'evt-1', created_at: '2026-11-01T12:00:00Z' },
+      customerBooking({ id: 'b-1', workspace_id: WS, owner_user_id: OWNER, quote_id: null, contact_id: null, guest_id: null, source: 'owner', kind: 'session', starts_at: '2026-11-04T23:00:00Z', ends_at: '2026-11-05T00:00:00Z', customer_name: 'Lee Park', customer_phone: '+17205550177', address: '9 Elm Ct', note: null, state: 'confirmed', approval_id: null, calendar_event_id: 'evt-1', created_at: '2026-11-01T12:00:00Z' }),
     ],
     member: [{ workspace_id: WS, user_id: OWNER, role: 'owner' }],
     user_profiles: [],

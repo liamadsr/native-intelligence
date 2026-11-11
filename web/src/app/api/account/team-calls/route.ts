@@ -9,7 +9,9 @@
  *        conversation: a second start joins it). A new call gets its LiveKit
  *        room (with LiveKit's own timers: nobody comes, or the last person
  *        leaves, and it closes) and its message in the conversation; in a DM
- *        the other person is rung (565's limits may say not: a decline there
+ *        the other person is rung, on the web over Realtime and on their
+ *        phones as a call (src/lib/team-calls/ring-push.ts; 565's limits
+ *        may say not: a decline there
  *        a moment ago), in a channel nobody is (its people get one ordinary
  *        notification of the call's message, by their levels:
  *        src/lib/team-chat/notify.ts). Every token is for an open room: the
@@ -39,6 +41,7 @@ import { endCall, getCall, openRings, requestRingTimers, ringMembers, startCall,
 import { callsUnreachable, joinAnswer, joinsListenOnly, memberIn, notesViewOf, readyRoom, teamCallsUnavailable } from '@/lib/team-calls/routes'
 import { teamCallFeatures } from '@/lib/team-calls/egress'
 import { setNotes } from '@/lib/team-calls/notes-store'
+import { liveRingPushDeps, pushRings } from '@/lib/team-calls/ring-push'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export async function GET() {
@@ -136,7 +139,7 @@ export async function POST(request: NextRequest) {
     })
     const messageId = started.messageId
     after(async () => {
-      await requestRingTimers(rings)
+      await Promise.all([requestRingTimers(rings), rings.length ? pushRings(liveRingPushDeps(getServiceClient()), rings) : null])
       // A channel's people hear of it as of any message (a DM's ring is its notice).
       if (started.created && channel.kind === 'channel' && messageId) await requestTeamChatNotify(messageId)
     })

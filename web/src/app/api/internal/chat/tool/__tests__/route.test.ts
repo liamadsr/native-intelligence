@@ -336,10 +336,10 @@ describe('POST /api/internal/chat/tool — auth + ceiling + prototype-pollution 
     expect(createToolsCalls[0][4]).toEqual({ browserAttribution: {
       version: 1, source: 'chat_agent', parent_run_id: 'ai_chat:session-1:turn-1',
       conversation_id: 'c', workspace_id: 'ws-1', eve_session_id: 'session-1', eve_turn_id: 'turn-1', eve_call_id: 'call-1',
-    }, suggestionContext: { origin: 'chat', conversationId: 'c' }, searchDefaultWindow: 'past_4_weeks', canonContext: { attended: true, outsideReadsRunId: null }, approvalContext: {}, flowContext: { turnReadOutside: expect.any(Function) }, nowContext: { writer: 'chat', readable: true } })
+    }, suggestionContext: { origin: 'chat', conversationId: 'c' }, searchDefaultWindow: 'past_4_weeks', canonContext: { attended: true, outsideReadsRunId: null }, approvalContext: {}, flowContext: { turnReadOutside: expect.any(Function) }, nowContext: { writer: 'chat', readable: true }, personAttended: true })
     await POST(toolReq(inheritAllToken(), 'run_browser_task', { sessionId: 'forged', turnId: 'forged', callId: 'forged' }))
     // suggest_changes' home is the token's conversation, never model input.
-    expect(createToolsCalls[1][4]).toEqual({ browserAttribution: undefined, suggestionContext: { origin: 'chat', conversationId: 'c' }, searchDefaultWindow: 'past_4_weeks', canonContext: { attended: true, outsideReadsRunId: null }, approvalContext: {}, flowContext: { turnReadOutside: expect.any(Function) }, nowContext: { writer: 'chat', readable: true } })
+    expect(createToolsCalls[1][4]).toEqual({ browserAttribution: undefined, suggestionContext: { origin: 'chat', conversationId: 'c' }, searchDefaultWindow: 'past_4_weeks', canonContext: { attended: true, outsideReadsRunId: null }, approvalContext: {}, flowContext: { turnReadOutside: expect.any(Function) }, nowContext: { writer: 'chat', readable: true }, personAttended: true })
   })
 
   it('the person’s Now file is read and written only in their own main chat, never on a quick helper’s call (docs/plans/now-file.md)', async () => {

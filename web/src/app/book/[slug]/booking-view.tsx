@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { SchedulingNotice, SchedulingShell as Shell, TimeButton } from '@/components/scheduling/scheduling-shell'
 import { formatE164ForDisplay } from '@/lib/sms/phone-format'
 import type { BookingPageSlot, BookingPageState } from '@/lib/customers/booking-link'
 
@@ -120,15 +121,9 @@ export function BookingView({ slug, state }: { slug: string; state: BookingPageS
                   {d.slots.map((slot) => {
                     const on = picked?.start === slot.start
                     return (
-                      <button
-                        key={slot.start}
-                        type="button"
-                        onClick={() => setPicked(on ? null : slot)}
-                        aria-pressed={on}
-                        className={`rounded-md border px-3 py-1.5 text-sm transition-colors ${on ? 'border-foreground bg-foreground text-background' : 'hover:bg-muted'}`}
-                      >
+                      <TimeButton key={slot.start} on={on} onClick={() => setPicked(on ? null : slot)}>
                         {slot.time}
-                      </button>
+                      </TimeButton>
                     )
                   })}
                 </div>
@@ -161,9 +156,7 @@ export function BookingView({ slug, state }: { slug: string; state: BookingPageS
             {/* A field people never see: bots fill it. */}
             <input type="text" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="hidden" />
             {error && (
-              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400" data-booking-error>
-                {error}
-              </div>
+              <SchedulingNotice data-booking-error="">{error}</SchedulingNotice>
             )}
             <Button type="submit" className="w-full" disabled={busy || !name.trim() || !phone.trim()}>
               {busy ? 'Sending…' : `Request ${picked.time}`}
@@ -178,11 +171,3 @@ export function BookingView({ slug, state }: { slug: string; state: BookingPageS
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-background p-6 text-foreground lg:p-8">
-      <Card className="w-full max-w-lg">{children}</Card>
-      <p className="text-xs text-muted-foreground">Scheduling by Native Intelligence</p>
-    </div>
-  )
-}

@@ -37,6 +37,11 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     majorVersion: 2.4.1
+  # Team calls (audio and video over the self-hosted LiveKit server). Pinned: a call's media stack
+  # changes only on purpose.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    exactVersion: 2.19.0
 
 targets:
   Dial8:
@@ -54,6 +59,7 @@ targets:
         products: [Auth, Functions, PostgREST, Realtime, Storage, Supabase]
       - package: PostHog
       - package: MarkdownUI
+      - package: LiveKit
       - target: Dial8Widgets
       - target: Dial8 Watch
     settings:
@@ -61,7 +67,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.dial8-iOS-26
         INFOPLIST_FILE: Config/App-Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: NI
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Native Intelligence needs microphone access to record voice notes and transcribe audio.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Native Intelligence needs microphone access to record voice notes, transcribe audio and talk on team calls.
+        INFOPLIST_KEY_NSCameraUsageDescription: Native Intelligence uses the camera when you turn on video in a team call.
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
@@ -78,8 +85,12 @@ targets:
       configs:
         Development:
           OTHER_SWIFT_FLAGS: "$(inherited) -DDEVELOPMENT"
+          # Push from Apple's sandbox (a build run from Xcode).
+          CODE_SIGN_ENTITLEMENTS: Config/Dial8-Development.entitlements
         Release:
           OTHER_SWIFT_FLAGS: "$(inherited) -DPRODUCTION"
+          # Push from Apple's production service (TestFlight and the App Store).
+          CODE_SIGN_ENTITLEMENTS: Config/Dial8.entitlements
 
   Dial8Widgets:
     type: app-extension

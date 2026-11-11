@@ -55,7 +55,25 @@ export const PROMPT_REWRITE_MIGRATIONS = [
   '444_mail_playbooks_tidy.sql',
   // Roadmap D1/D2: the outreach playbooks teach the launch (launch_sequence, launch_campaign).
   '461_outreach_launch_playbooks.sql',
+  // Availability phase 1: the calendar playbook and find-a-time call find_times (and the working hours tools).
+  '551_find_a_time_uses_availability.sql',
+  // Availability phase 2: find_times takes teammates (`people`); an outside guest's calendar still can't be seen.
+  '553_find_a_time_with_teammates.sql',
+  // Availability phase 3a: an outside guest is offered the slots with offer_times (held, picked on a link).
+  '580_offer_times_to_outside_guests.sql',
+  // Availability phase 4a: the calendar playbook hands out a booking link when someone asks for the person's calendar.
+  '582_booking_links_in_calendar_playbook.sql',
+  // Availability phase 5: several outside guests at once are a poll (offer_times' `recipients`), and its three tools.
+  '584_polls_in_find_a_time.sql',
 ] as const
+
+/**
+ * Later migrations that change only a seeded skill's `preferred_tools`, oldest
+ * first, after every row and text rewrite. Their rows are
+ * `('id'::uuid, $slug$…$slug$, $tools$[…]$tools$::jsonb)`: the list replaces
+ * that one key of the row with that id and slug, and every other key stays.
+ */
+export const PREFERRED_TOOLS_REWRITE_MIGRATIONS = ['551_find_a_time_uses_availability.sql', '580_offer_times_to_outside_guests.sql'] as const
 
 /** The helper line every core carried until 338, and the one 338 puts in its place, word for word in all sixteen. */
 export const OLD_CORE_HELPER_LINE = 'Not yet: helpers come later, so do the work here.'
@@ -126,12 +144,39 @@ export function rewrittenAfter(file: (typeof PROMPT_REWRITE_MIGRATIONS)[number],
   return later.filter((f) => promptRewrites(f).some((r) => r.id === id && r.slug === slug)).at(-1) ?? null
 }
 
-/** A skill with the latest text-only rewrite of its row applied (by id, and only when the slug agrees). */
+export interface PreferredToolsRewrite {
+  file: string
+  id: string
+  slug: string
+  preferredTools: string[]
+}
+
+const TOOLS_ROW_RE = /\(\s*'([0-9a-f-]{36})'::uuid,\s*\$slug\$([a-z-]+)\$slug\$,\s*\$tools\$([\s\S]*?)\$tools\$::jsonb\s*\)/g
+
+/** Every preferred-tools row in one migration, in file order. */
+export function preferredToolsRewrites(file: string): PreferredToolsRewrite[] {
+  return [...readMigration(file).matchAll(TOOLS_ROW_RE)].map((m) => ({
+    file,
+    id: m[1],
+    slug: m[2],
+    preferredTools: JSON.parse(m[3]) as string[],
+  }))
+}
+
+/**
+ * A skill with the latest text-only rewrite of its row applied, then the
+ * latest preferred-tools rewrite (each by id, and only when the slug agrees).
+ * `file` stays the file whose text ships.
+ */
 function withLatestPrompt(skill: SeededSkill): SeededSkill {
   let out = skill
   for (const file of PROMPT_REWRITE_MIGRATIONS) {
     const hit = promptRewrites(file).find((r) => r.id === out.id && r.slug === out.slug)
     if (hit) out = { ...out, file: hit.file, prompt: hit.prompt }
+  }
+  for (const file of PREFERRED_TOOLS_REWRITE_MIGRATIONS) {
+    const hit = preferredToolsRewrites(file).find((r) => r.id === out.id && r.slug === out.slug)
+    if (hit) out = { ...out, config: { ...out.config, preferred_tools: [...hit.preferredTools] } }
   }
   return out
 }

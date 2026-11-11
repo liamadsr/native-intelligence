@@ -11,8 +11,10 @@
  * Only that one customer's rows: their CRM contact (matched on the whole
  * number), their customer guest row (preset 'customer'), their quotes (sent
  * from that number: never by contact, which a form could have misled) and
- * their upcoming live bookings. Never another customer's. Server only;
- * service role.
+ * their upcoming live bookings, and the time offers made to that number that
+ * are still open (src/lib/time-offers/), and the open polls they are a guest
+ * of (phase 5). Never another customer's. Server
+ * only; service role.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isE164 } from '@/lib/twilio/phone'
@@ -20,8 +22,11 @@ import type { AgentGuest } from '@/lib/guests/store'
 import { findContactByEmailOrPhone } from './contacts'
 import { findCustomerGuest } from './customer-guests'
 import { openRemindersForPhone, type CustomerReminder } from './reminder-store'
-import { BOOKING_SELECT, quotesForCustomer, toBooking } from './store'
+import { BOOKING_SELECT, CUSTOMER_FLOW_SOURCES, quotesForCustomer, toBooking, type BookingRow } from './store'
 import type { CustomerBooking, CustomerQuote } from './types'
+import { openOffersForPhone } from '@/lib/time-offers/store'
+import { openPollsForPhone } from '@/lib/time-offers/poll-store'
+import type { PollRecipient, TimeOffer, TimeOfferPoll } from '@/lib/time-offers/types'
 
 export interface CustomerByPhone {
   workspaceId: string
@@ -35,25 +40,30 @@ export interface CustomerByPhone {
   bookings: CustomerBooking[]
   /** Reminders the business texted them lately whose job or meeting is still ahead (issue #11), soonest first. */
   reminders: CustomerReminder[]
+  /** Time offers made to this number that are still open (availability phase 3a), newest first, at most 3. */
+  offers: TimeOffer[]
+  /** Open polls with this number among their guests (availability phase 5), at most 3: each with that guest's row. */
+  polls: Array<{ poll: TimeOfferPoll; recipient: PollRecipient }>
   /** A one-line greeting hint a voice or text agent can open with, or null. */
   openingLine: string | null
 }
 
 /** Their live bookings from now on (by guest row or number). Throws on a failed read. */
 async function upcomingBookings(supabase: SupabaseClient, workspaceId: string, who: { guestId: string | null; phone: string }, nowIso: string): Promise<CustomerBooking[]> {
-  const ors = [`customer_phone.eq.${who.phone}`]
+  const ors = [`guest_phone.eq.${who.phone}`]
   if (who.guestId) ors.push(`guest_id.eq.${who.guestId}`)
   const { data, error } = await supabase
-    .from('customer_booking')
+    .from('meeting_booking')
     .select(BOOKING_SELECT)
     .eq('workspace_id', workspaceId)
-    .in('state', ['requested', 'confirmed'])
+    .in('source', [...CUSTOMER_FLOW_SOURCES])
+    .in('state', ['requested', 'booking', 'confirmed'])
     .gte('ends_at', nowIso)
     .or(ors.join(','))
     .order('starts_at', { ascending: true })
     .limit(5)
-  if (error) throw new Error(`customer_booking read failed: ${error.message}`)
-  return ((data ?? []) as Parameters<typeof toBooking>[0][]).map(toBooking)
+  if (error) throw new Error(`meeting_booking read failed: ${error.message}`)
+  return ((data ?? []) as BookingRow[]).map(toBooking)
 }
 
 /** Look one customer up by number (see the header). Throws on a failed read. */
@@ -63,16 +73,18 @@ export async function findCustomerByPhone(
   now: number = Date.now(),
 ): Promise<CustomerByPhone> {
   const phone = args.phone.trim()
-  const empty: CustomerByPhone = { workspaceId: args.workspaceId, phone, contact: null, guest: null, quotes: [], bookings: [], reminders: [], openingLine: null }
+  const empty: CustomerByPhone = { workspaceId: args.workspaceId, phone, contact: null, guest: null, quotes: [], bookings: [], reminders: [], offers: [], polls: [], openingLine: null }
   if (!isE164(phone)) return empty
   const [contactRow, guest] = await Promise.all([findContactByEmailOrPhone(supabase, args.workspaceId, { email: null, phone }), findCustomerGuest(supabase, args.workspaceId, phone)])
-  const [quotes, bookings, reminders] = await Promise.all([
+  const [quotes, bookings, reminders, offers, polls] = await Promise.all([
     quotesForCustomer(supabase, args.workspaceId, phone),
     upcomingBookings(supabase, args.workspaceId, { guestId: guest?.id ?? null, phone }, new Date(now).toISOString()),
     openRemindersForPhone(supabase, args.workspaceId, phone, now),
+    openOffersForPhone(supabase, args.workspaceId, phone, new Date(now).toISOString()),
+    openPollsForPhone(supabase, args.workspaceId, phone, new Date(now).toISOString()).catch(() => []),
   ])
   const contact = contactRow ? { id: contactRow.id, fullName: contactRow.full_name, email: contactRow.email } : null
-  return { ...empty, contact, guest, quotes, bookings, reminders, openingLine: openingLine(contact, quotes, bookings) }
+  return { ...empty, contact, guest, quotes, bookings, reminders, offers, polls, openingLine: openingLine(contact, quotes, bookings) }
 }
 
 /** What a channel can open with: their booking, else their newest quote, else nothing. Pure. */

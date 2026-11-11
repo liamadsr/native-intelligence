@@ -24,7 +24,7 @@ vi.mock('@/lib/integrations/calendar', () => ({
 }))
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb, customerRows } from '@/test/booking-db'
 import { bookingConfirmedText, textBookingCustomer } from '../booking'
 import {
   bookQuoteCard,
@@ -70,12 +70,9 @@ beforeEach(() => {
     business_profile: [{ workspace_id: WS, owner_user_id: OWNER, business_name: 'Brightside Window Washing', customer_facts: null, time_zone: CHICAGO, booking_days: [1, 2, 3, 4, 5], booking_start: '08:00', booking_end: '17:00', slot_minutes: 90, lead_hours: 12, horizon_days: 21, booking_kind: 'visit', booking_slug: 'brightside' }],
     business_phone_number: [{ id: 'bn-1', workspace_id: WS, owner_user_id: OWNER, phone_e164: BUSINESS_NUMBER, twilio_sid: 'PN1', state: 'active' }],
     customer_quote: [{ id: QUOTE, workspace_id: WS, contact_id: 'c-dana', source: 'web_form', status: 'new', customer_name: 'Dana Ruiz', customer_email: 'dana@example.com', customer_phone: DANA, address: '400 Lake St, Oak Park', service: 'Exterior windows', items: [{ description: 'Two-story house', quantity: 1 }], total_cents: null, currency: 'usd', requested_dates: [], notes: null, created_at: '2026-11-01T15:00:00Z', updated_at: '2026-11-01T15:00:00Z' }],
-    customer_booking: [],
     sms_message: [],
   }
-  db = memoryDb(tables, {
-    customer_booking: (a, b) => a.workspace_id === b.workspace_id && a.starts_at === b.starts_at && ['requested', 'confirmed'].includes(a.state as string) && ['requested', 'confirmed'].includes(b.state as string),
-  })
+  db = bookingDb(tables)
 })
 
 const quote = () => tables.customer_quote[0]
@@ -159,7 +156,7 @@ describe('send_quote', () => {
     tables.sms_message.push({ direction: 'in', kind: 'stop', phone_e164: DANA, created_at: '2026-10-01T00:00:00Z' })
     expect((await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input: { quote_id: QUOTE, price: 240 } }, deps()))?.card.title).toBe('Email Dana Ruiz (dana@example.com) their quote, $240?')
     tables.sms_message = []
-    db = memoryDb(tables)
+    db = bookingDb(tables)
     quote().customer_phone = '+447700900123'
     expect((await quoteReplyHold(db, { workspaceId: WS, userId: OWNER, toolName: SEND_QUOTE_TOOL, input: { quote_id: QUOTE, price: 240 } }, deps()))?.card.title).toBe('Email Dana Ruiz (dana@example.com) their quote, $240?')
     quote().customer_email = null
@@ -228,7 +225,7 @@ describe('book_quote', () => {
 
     const out = await runBookQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START }, OWNER, d) }, { quote_id: QUOTE, start: START }, d)
     expect(out).toMatchObject({ success: true, when: 'Wed, Nov 4, 9:30 AM', calendar_event_id: 'evt-1', customer_texted: true, quote_id: QUOTE })
-    expect(tables.customer_booking).toEqual([expect.objectContaining({ source: 'owner', state: 'confirmed', starts_at: STARTS_AT, ends_at: '2026-11-04T17:00:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA, address: '400 Lake St, Oak Park', quote_id: QUOTE, contact_id: 'c-dana', guest_id: null, owner_user_id: OWNER, kind: 'visit', calendar_event_id: 'evt-1' })])
+    expect(customerRows(tables)).toEqual([expect.objectContaining({ source: 'owner', state: 'confirmed', starts_at: STARTS_AT, ends_at: '2026-11-04T17:00:00.000Z', customer_name: 'Dana Ruiz', customer_phone: DANA, address: '400 Lake St, Oak Park', quote_id: QUOTE, contact_id: 'c-dana', guest_id: null, owner_user_id: OWNER, kind: 'visit', calendar_event_id: 'evt-1' })])
     expect(confirm.createEvent).toHaveBeenCalledWith(OWNER, expect.objectContaining({ start: STARTS_AT, end: '2026-11-04T17:00:00.000Z', location: '400 Lake St, Oak Park' }))
     expect(quote().status).toBe('booked')
     expect(send).toHaveBeenCalledWith(DANA, text, { from: BUSINESS_NUMBER })
@@ -239,7 +236,7 @@ describe('book_quote', () => {
   it('unapproved, nothing is booked and nobody is texted', async () => {
     const confirm = confirmDeps()
     expect(await runBookQuote(db, { userId: OWNER, workspaceId: WS }, { quote_id: QUOTE, start: START }, deps({ confirm: confirm as never }))).toMatchObject({ success: false, code: 'APPROVAL_REQUIRED', error: expect.stringContaining('Nothing was booked') })
-    expect(tables.customer_booking).toHaveLength(0)
+    expect(customerRows(tables)).toHaveLength(0)
     expect(confirm.createEvent).not.toHaveBeenCalled()
     expect(send).not.toHaveBeenCalled()
   })
@@ -249,7 +246,7 @@ describe('book_quote', () => {
     const d = deps({ confirm: confirm as never })
     const out = await runBookQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START }, OWNER, d) }, { quote_id: QUOTE, start: START }, d)
     expect(out).toMatchObject({ success: false, code: 'NO_CALENDAR', error: expect.stringContaining('No Google or Outlook calendar') })
-    expect(tables.customer_booking).toHaveLength(0)
+    expect(customerRows(tables)).toHaveLength(0)
     expect(send).not.toHaveBeenCalled()
     expect(quote().status).toBe('new')
   })
@@ -259,7 +256,7 @@ describe('book_quote', () => {
     const d = deps({ confirm: confirm as never })
     const out = await runBookQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START }, OWNER, d) }, { quote_id: QUOTE, start: START }, d)
     expect(out).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
-    expect(tables.customer_booking).toHaveLength(0)
+    expect(customerRows(tables)).toHaveLength(0)
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -270,7 +267,7 @@ describe('book_quote', () => {
     const d = deps({ confirm: confirm as never })
     const out = await runBookQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START }, OWNER, d) }, { quote_id: QUOTE, start: START }, d)
     expect(out).toMatchObject({ success: false })
-    expect(tables.customer_booking).toEqual([expect.objectContaining({ source: 'owner', state: 'cancelled' })])
+    expect(customerRows(tables)).toEqual([expect.objectContaining({ source: 'owner', state: 'cancelled' })])
     expect(send).not.toHaveBeenCalled()
     // The start is free again: a new yes can book it.
     const again = await runBookQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START }, OWNER, deps({ confirm: confirmDeps() as never })) }, { quote_id: QUOTE, start: START }, deps({ confirm: confirmDeps() as never }))
@@ -283,7 +280,7 @@ describe('book_quote', () => {
     const d = deps({ confirm: confirm as never })
     const out = await runBookQuote(db, { userId: OWNER, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START }, OWNER, d) }, { quote_id: QUOTE, start: START }, d)
     expect(out).toMatchObject({ success: false, code: 'SLOT_TAKEN', error: expect.stringContaining('Dana Ruiz was not told') })
-    expect(tables.customer_booking).toEqual([expect.objectContaining({ source: 'owner', state: 'declined' })])
+    expect(customerRows(tables)).toEqual([expect.objectContaining({ source: 'owner', state: 'declined' })])
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -294,7 +291,7 @@ describe('book_quote', () => {
     expect(planned.ok && bookQuoteCard(planned.plan).why).toContain("Yes puts it on the owner's calendar")
     const out = await runBookQuote(db, { userId: ADMIN, workspaceId: WS, approvedCall: await approvedFor(BOOK_QUOTE_TOOL, { quote_id: QUOTE, start: START, minutes: 60 }, ADMIN, d) }, { quote_id: QUOTE, start: START, minutes: 60 }, d)
     expect(out).toMatchObject({ success: true })
-    expect(tables.customer_booking[0]).toMatchObject({ owner_user_id: OWNER, ends_at: '2026-11-04T16:30:00.000Z' })
+    expect(customerRows(tables)[0]).toMatchObject({ owner_user_id: OWNER, ends_at: '2026-11-04T16:30:00.000Z' })
     expect(await quoteReplyHold(db, { workspaceId: WS, userId: MEMBER, toolName: BOOK_QUOTE_TOOL, input: { quote_id: QUOTE, start: START } }, d)).toBeNull()
     expect(await runBookQuote(db, { userId: MEMBER, workspaceId: WS }, { quote_id: QUOTE, start: START }, d)).toMatchObject({ code: 'NOT_ALLOWED' })
   })

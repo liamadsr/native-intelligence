@@ -29,6 +29,13 @@ export default function robots(): MetadataRoute.Robots {
           '/hud',
           '/s/',
           '/invite/',
+          // A time offer's page and a guest's manage page: one person's link each.
+          '/t/',
+          '/b/',
+          // A meeting link's page (each is noindex and no-referrer too).
+          '/m/',
+          // Booking pages: a business's, a person's or a team's (each page is noindex too).
+          '/book/',
         ],
       },
     ],

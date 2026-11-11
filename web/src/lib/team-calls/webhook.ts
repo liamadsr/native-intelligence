@@ -17,7 +17,9 @@
  *     told through an Inngest event per ring (never inline, so a failed
  *     write can't lose them; the sweeper finds any left untold);
  *   - a join by someone who may not read the conversation is refused by the
- *     database and they are taken out of the room at once (./eject.ts).
+ *     database and they are taken out of the room at once (./eject.ts);
+ *   - a member joining answers their ring there, so their phones still
+ *     ringing for it are stopped (./ring-push.ts: its cancel, once).
  *
  *   - track_published of a member's microphone while the call's notes are
  *     on starts that track's notes file (./notes-store.ts; once per track
@@ -46,6 +48,7 @@ import { teamCallIdOfRoom } from './types'
 import type { TeamCallEgressPort } from './egress'
 import { egressRowOfPath, egressStatusOf } from './notes'
 import { applyEgressEvent, liveCallForEgress, requestNotesFiles, startNotesForGuestTrack, startNotesForTrack } from './notes-store'
+import { cancelRingPushes, liveRingPushDeps } from './ring-push'
 import { guestIdOfIdentity } from '@/lib/meeting-links/shape'
 import { guestEvent } from '@/lib/meeting-links/store'
 
@@ -93,6 +96,8 @@ export interface TeamCallWebhookDeps {
   drainEjections?: () => Promise<unknown>
   /** Is this room open on the server now? A room_finished for a room made again since is not the call's end. Null: can't tell. */
   roomOpen?: (room: string) => Promise<boolean | null>
+  /** A member joined: stop their phones still ringing for this call. */
+  stopPhones?: (svc: SupabaseClient, callId: string, memberId: string) => Promise<unknown>
   now?: () => Date
   /** LiveKit Egress (null when the server runs none: notes then start nothing). */
   egress?: TeamCallEgressPort | null
@@ -178,6 +183,11 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
       })
       // Someone without access to the conversation joined: out of the room now.
       if (outcome === 'ejected') await deps.drainEjections?.()
+      if (outcome === 'joined') {
+        const stop = deps.stopPhones ?? ((s: SupabaseClient, callId: string, member: string) => cancelRingPushes(liveRingPushDeps(s), { callId, memberId: member }))
+        // Never waited on: a slow Apple never holds LiveKit's delivery.
+        void stop(svc, teamCallIdOfRoom(room)!, memberId.toLowerCase()).catch(() => undefined)
+      }
       return outcome
     }
     case 'room_finished': {

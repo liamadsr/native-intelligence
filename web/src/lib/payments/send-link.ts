@@ -35,8 +35,8 @@ async function contactOf(supabase: SupabaseClient, workspaceId: string, contactI
   return data ? { id: data.id, fullName: data.full_name } : null
 }
 
-/** Track B's table for a subject, when it has one (quote, booking). */
-const SUBJECT_TABLE: Partial<Record<PaymentLinkCall['subject'], string>> = { quote: 'customer_quote', booking: 'customer_booking' }
+/** Track B's table for a subject, when it has one (quote, booking: a meeting_booking since migration 581). */
+const SUBJECT_TABLE: Partial<Record<PaymentLinkCall['subject'], string>> = { quote: 'customer_quote', booking: 'meeting_booking' }
 
 /** Postgres' and PostgREST's "no such table": track B isn't merged here yet. */
 function isMissingTable(error: { code?: string } | null): boolean {
