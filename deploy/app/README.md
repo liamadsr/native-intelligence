@@ -202,6 +202,11 @@ through the edge Caddy like any other request (`LIVEKIT_WEBHOOK_URL` in
 directly. The route that takes them proves where they came from by their
 signature, never by their address.
 
+`LIVEKIT_EGRESS` is the app's switch for call notes: `on` once LiveKit's Egress runs
+(`../README.md` step 23, "Egress"), empty for off. Egress keeps its own storage
+settings, so the app needs nothing else for it: it sends a file path, and reads the
+finished file from the private bucket through Storage.
+
 ### Sealed copy (done once, then removed)
 
 The earlier host's write-only production settings reached this server once, on

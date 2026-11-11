@@ -31,4 +31,4 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-cryptography
       - run: /usr/bin/python3 -m unittest discover -s deploy/app/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
-      - run: for f in deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh; do bash -n "$f"; done
+      - run: for f in deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh deploy/livekit/make-keys.sh deploy/livekit/test-token.sh deploy/livekit/test-egress.sh; do bash -n "$f"; done

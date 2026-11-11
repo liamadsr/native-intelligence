@@ -348,6 +348,24 @@ class LiveKit(unittest.TestCase):
         _, blockers, _ = cs.report(dict(self.ENV), {"LIVEKIT_URL": (False, "refused")})
         self.assertEqual(blockers, ["LIVEKIT_URL: refused"])
 
+    def test_the_egress_switch(self):
+        self.assertEqual(cs.group("LIVEKIT_EGRESS"), "may be empty")
+        check = cs.CHECKS["LIVEKIT_EGRESS"]
+        self.assertEqual(check(dict(self.ENV, LIVEKIT_EGRESS="on"), {}), (None, None))
+        self.assertEqual(check(dict(self.ENV, LIVEKIT_EGRESS="on\n"), {}), (None, None))
+        for wrong in ("1", "true", "ON", "yes"):
+            ok, note = check(dict(self.ENV, LIVEKIT_EGRESS=wrong), {})
+            self.assertIs(ok, False, wrong)
+            self.assertIn("only on", note)
+        ok, note = check({"LIVEKIT_URL": "", "LIVEKIT_EGRESS": "on"}, {})
+        self.assertIs(ok, False)
+        self.assertIn("LIVEKIT_URL", note)
+        # Empty is off and blocks nothing; a wrong value blocks.
+        _, blockers, _ = cs.report({"LIVEKIT_EGRESS": ""}, {})
+        self.assertEqual(blockers, [])
+        _, blockers, _ = cs.report({"LIVEKIT_EGRESS": "1"}, {"LIVEKIT_EGRESS": check({"LIVEKIT_EGRESS": "1"}, {})})
+        self.assertEqual(len(blockers), 1)
+
 
 class Report(unittest.TestCase):
     def test_what_blocks_and_what_does_not(self):

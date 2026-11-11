@@ -92,6 +92,7 @@ MAY_BE_EMPTY = {
     "LIVEKIT_URL": "empty: no audio or video calls",
     "LIVEKIT_API_KEY": "empty: no audio or video calls",
     "LIVEKIT_API_SECRET": "empty: no audio or video calls",
+    "LIVEKIT_EGRESS": "a switch: empty is off (no call notes or recordings; on once Egress runs, ../README.md step 23)",
 }
 
 SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
@@ -601,6 +602,18 @@ def check_livekit_key(env, _opts):
     return None, None  # proven by LIVEKIT_URL's check
 
 
+def check_livekit_egress(env, _opts):
+    """`on` or empty, and `on` only with calls set up: Egress takes its jobs through
+    the same LiveKit. Whether Egress itself runs is not visible from here (LiveKit's
+    API answers the same without it); step 23's test recording is the proof."""
+    value = env["LIVEKIT_EGRESS"].strip()
+    if value != "on":
+        return False, "is %r: only on, or empty for off" % (value[:12],)
+    if not env.get("LIVEKIT_URL", "").strip():
+        return False, "on without LIVEKIT_URL: Egress works through the calls' LiveKit"
+    return None, None
+
+
 CHECKS = {
     "CREDENTIAL_ENCRYPTION_KEY": check_credential_key,
     "RUN_SKILL_INTERNAL_SECRET": check_run_skill,
@@ -619,6 +632,7 @@ CHECKS = {
     "LIVEKIT_URL": check_livekit,
     "LIVEKIT_API_KEY": check_livekit_key,
     "LIVEKIT_API_SECRET": check_livekit_key,
+    "LIVEKIT_EGRESS": check_livekit_egress,
 }
 
 
