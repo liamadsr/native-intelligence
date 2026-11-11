@@ -93,10 +93,9 @@ import { discardTeamChatFile, uploadTeamChatFile } from '@/lib/team-chat/upload-
 import { joinTyping, TYPING_SHOW_MS, TYPING_THROTTLE_MS } from '@/lib/team-chat/typing'
 import { setTeamChatOnScreen } from '@/lib/team-chat/on-screen'
 import type { TeamChatNotifyLevel } from '@/lib/team-chat/notify'
-import { openTarget, type OpenTarget } from '@/lib/chat-cards/open-card'
-import { entityOpenTarget } from '@/lib/entity-links/open-entity'
+import { mentionOpens, openMention } from '@/lib/entity-links/open-mention'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
-import { menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
+import { MENTION_PICKER_KINDS, menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
 import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
 import { upsertParticipant, type TeamCall, type TeamCallParticipant, type TeamCallView } from '@/lib/team-calls/types'
@@ -1612,19 +1611,18 @@ function ThreadPane({
   )
 }
 
-/** The record kinds team chat's `@` finds, beside the people (contacts aren't: its people are teammates). */
-const TEAM_CHAT_RECORD_KINDS = ['action', 'document', 'project', 'initiative', 'capture', 'company', 'deal', 'flow'] as const
-
-/** The card a record mention opens, or null for a kind no card draws. */
-function recordMentionTarget(r: TeamChatRecordMention): OpenTarget | null {
-  return entityOpenTarget(r.type, r.id, r.label)
-}
+/**
+ * The record kinds team chat's `@` finds, beside its teammates: the one
+ * picker's list (MENTION_PICKER_KINDS). Its contacts are listed after the
+ * teammates, a teammate's own contact left out (mentionOptionsMenu).
+ */
+const TEAM_CHAT_RECORD_KINDS = MENTION_PICKER_KINDS
 
 /** The record an `@label` run of a message's words names (an openable one), if any. */
 function recordMentionFor(message: TeamChatMessage, text: string): TeamChatRecordMention | null {
   const label = text.replace(/^@/, '').toLowerCase()
   const found = (message.record_mentions ?? []).find((r) => r.label.toLowerCase() === label)
-  return found && recordMentionTarget(found) ? found : null
+  return found && mentionOpens(found.type) ? found : null
 }
 
 /** Plain words with their http(s) links drawn as links (a new tab; no other scheme is ever a link). */
@@ -1647,8 +1645,7 @@ function LinkedText({ text }: { text: string }) {
 }
 
 function openRecordMention(r: TeamChatRecordMention) {
-  const target = recordMentionTarget(r)
-  if (target) openTarget(target, { from: 'team_chat' })
+  void openMention(r, 'team_chat')
 }
 
 /** The call a call's message shows, once its page (or Realtime) brought it. */
@@ -1891,8 +1888,9 @@ type BoxFile = ChatFileAttachment & { attachment?: TeamChatAttachment }
  * The box: the main chat's composer (ChatInput, not the main one) in its
  * one-row pill (`layout="inline"`: +, the field, the mic, send), with its
  * `@` listing the person's agent and the members (mentionList), then, once
- * something is typed, records (tasks, docs, projects, captures, companies,
- * deals, flows: mentionList.records), each sent as a record mention (a graph
+ * something is typed, the one picker's records (contacts, tasks, docs,
+ * projects, captures, companies, deals, flows, files, events:
+ * mentionList.records), each sent as a record mention (a graph
  * edge). Enter sends, Shift+Enter is a new line. Files and photos (+, a drop
  * or a paste) upload at once, into the channel's own folder; a send carries
  * the ones done. Dictation but no voice mode, no skills.

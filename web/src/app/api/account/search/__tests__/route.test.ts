@@ -81,7 +81,7 @@ describe('GET /api/account/search', () => {
   it('answers every kind by default, and only the kinds asked for (junk dropped)', async () => {
     const all = await (await GET(req('q=pricing'))).json()
     expect(Object.keys(all.results).sort()).toEqual(
-      ['action', 'agent', 'capture', 'company', 'contact', 'deal', 'document', 'flow', 'initiative', 'project', 'team_chat_message'].sort(),
+      ['action', 'agent', 'attachment', 'calendar_event', 'capture', 'company', 'contact', 'deal', 'document', 'flow', 'initiative', 'project', 'team_chat_message'].sort(),
     )
     const some = await (await GET(req('q=pricing&types=action,claim,document'))).json()
     expect(Object.keys(some.results)).toEqual(['action', 'document'])

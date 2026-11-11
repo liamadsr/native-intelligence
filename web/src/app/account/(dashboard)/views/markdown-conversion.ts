@@ -1,6 +1,11 @@
 import type { JSONContent } from 'novel'
+import { mentionMarkdown, splitMentionLinks } from '@/lib/documents/mention-markdown'
+import { isMentionableType } from '@/lib/entity-links/mentionable'
 
 // --- Markdown <-> JSONContent conversion ---
+
+/** The editor's node for a record @-mentioned in the text (src/components/editor/record-mention.ts). */
+export const RECORD_MENTION_NODE = 'recordMention'
 
 /** Optional proposal change map for resolving <!-- proposal:ID --> markers */
 export interface ProposalChangeRef {
@@ -497,6 +502,19 @@ function parseInlineWithMark(inner: string, mark: NonNullable<JSONContent['marks
 
 function parseInlineMarkdown(text: string): JSONContent[] {
   if (!text) return []
+  // Record mentions first (`[@Maya Chen](mention://contact/<id>)`,
+  // src/lib/documents/mention-markdown.ts): chips, never links.
+  const parts = splitMentionLinks(text)
+  if (parts.length === 1 && parts[0].kind === 'text') return parseInlineFormatting(text)
+  return parts.flatMap((part): JSONContent[] =>
+    part.kind === 'mention'
+      ? [{ type: RECORD_MENTION_NODE, attrs: { kind: part.mention.type, id: part.mention.id, label: part.mention.label } }]
+      : parseInlineFormatting(part.text),
+  )
+}
+
+function parseInlineFormatting(text: string): JSONContent[] {
+  if (!text) return []
 
   const nodes: JSONContent[] = []
   // Simple inline parsing: links, bold, italic, code, strikethrough. Links are
@@ -723,6 +741,9 @@ function inlineToMarkdown(content?: JSONContent[]): string {
         return text
       }
       if (node.type === 'hardBreak') return '\n'
+      if (node.type === RECORD_MENTION_NODE && isMentionableType(node.attrs?.kind) && typeof node.attrs?.id === 'string') {
+        return mentionMarkdown({ type: node.attrs.kind, id: node.attrs.id, label: String(node.attrs.label ?? '') })
+      }
       return ''
     })
     .join('')

@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ENTITY_REF_PATTERN } from '@/components/entity-refs/types'
 import { MAX_MENTIONED_RECORDS, syncMentions } from '@/lib/entity-links/mentions'
+import { parseDocumentMentions } from '@/lib/documents/mention-markdown'
+import { MENTION_PICKER_KINDS } from '@/lib/search/menu-search'
 
 /**
  * Obsidian-style wikilink: `[[slug]]` or `[[slug|display text]]`.
@@ -77,19 +79,25 @@ export async function resolveActionIdentifiers(
   return map
 }
 
-/** The target kinds a document's body mentions: what syncDocumentLinks manages. */
-const DOCUMENT_MENTION_KINDS = ['document', 'action'] as const
+/**
+ * The target kinds a document's body mentions: what syncDocumentLinks
+ * manages. Its wikilinks (documents), identifiers (actions) and `@` chips
+ * (every kind the one `@` picker finds: MENTION_PICKER_KINDS).
+ */
+export const DOCUMENT_MENTION_KINDS = [...new Set(['document', 'action', ...MENTION_PICKER_KINDS] as const)]
 
 /**
  * Make the document's outbound `mentions` edges match what its body mentions
- * now: the documents its wikilinks name, and the actions its identifiers
- * (`GEN-42`, drawn as chips) name. Through the shared mention helper
+ * now: the documents its wikilinks name, the actions its identifiers
+ * (`GEN-42`, drawn as chips) name, and the people and records its `@` chips
+ * name (`[@Maya Chen](mention://contact/<id>)`,
+ * src/lib/documents/mention-markdown.ts). Through the shared mention helper
  * (src/lib/entity-links/mentions.ts): added and removed as a diff, each target
  * fenced for the editor.
  *
- * Only document and action targets of relation 'mentions' are this body's;
- * other relations, and a `mentions` edge to any other kind (an agent's
- * link_entities), are left alone.
+ * Only targets of those kinds and relation 'mentions' are this body's; other
+ * relations, and a `mentions` edge to any other kind (an agent's link_entities
+ * to a decision, a message, a channel), are left alone.
  *
  * Unresolved slugs are intentionally dropped from the graph (red links in the
  * UI). They can still be discovered by re-parsing the body.
@@ -125,6 +133,7 @@ export async function syncDocumentLinks(
     targets: [
       ...[...resolved.values()].map((id) => ({ type: 'document' as const, id })),
       ...[...actions.values()].map((id) => ({ type: 'action' as const, id })),
+      ...parseDocumentMentions(markdown),
     ],
     userId: editor,
     memberId,

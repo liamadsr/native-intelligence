@@ -248,7 +248,7 @@ describe("team chat's box is the main composer", () => {
     expect(posts[1]).toEqual({ body: '@Joseph Lee thanks', mentions: ['m-joe'], mentionsAgent: false })
   })
 
-  it('a record found by typing (a deal): its "@label" in the words, sent as a record mention; none for people', async () => {
+  it('a record found by typing (a deal): its "@label" in the words, sent as a record mention', async () => {
     const searched: string[] = []
     const base = fetchSpy.getMockImplementation()!
     fetchSpy.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -262,12 +262,13 @@ describe("team chat's box is the main composer", () => {
     await render()
     type('@fern')
     await settle(200)
-    // Searched for the host's record kinds only: never contacts (its people are teammates), never agents.
+    // Searched for the one picker's kinds (contacts and files among them; a teammate's
+    // own contact is left out of the list), never agents or messages.
     expect(searched.length).toBeGreaterThan(0)
     const types = new URL(searched[searched.length - 1], 'http://x').searchParams.get('types')!.split(',')
-    expect(types).toContain('deal')
-    expect(types).not.toContain('contact')
+    expect(types).toEqual(expect.arrayContaining(['deal', 'contact', 'attachment', 'calendar_event']))
     expect(types).not.toContain('agent')
+    expect(types).not.toContain('team_chat_message')
     press('Enter')
     await settle()
     expect(box().value).toBe('@Fernhill renewal ')
