@@ -938,6 +938,21 @@ class AutoDeploy(unittest.TestCase):
         self.run_ok("run")
         self.assertEqual(self.deploy_calls(), [d, n])
 
+    def test_clear_failure_names_a_step_back_no_run_has_judged(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        self.flag("build-fails")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.assertEqual(self.run_tool("run").returncode, 1)
+        self.flag("build-fails", on=False)
+        # An older commit is rolled out by hand with a plain deploy.sh (no --rollback,
+        # so no mark), and the failed build is cleared before a run comes.
+        self.by_hand(self.first)
+        r = self.run_ok("clear-failure")
+        self.assertIn("cleared (build of %s)" % n[:12], r.stdout)
+        self.assertIn("which is or contains %s and %s (rolled back by hand), over %s" % (n[:12], d[:12], self.first[:12]), r.stdout)
+
     def test_a_rollback_drops_the_acknowledgements_at_once(self):
         self.switch_on()
         self.commit({"web/app.txt": "two\n"})

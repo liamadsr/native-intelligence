@@ -794,10 +794,26 @@ cmd_clear_failure() {
 		mv -f "$state/seen.new" "$state/seen"
 	fi
 	what="$kind${commit:+ of $(short "$commit")}$mark"
-	# What the next run would roll out, so that the person sees it before it happens.
+	# What the next run would roll out, so that the person sees it before it happens:
+	# whether it is or contains the commit whose failure is cleared, and the commit
+	# what serves was taken back from, where the images say so (the same reading a
+	# run makes; from here on no run holds on it, so this is where it is said).
 	next="$(git_ rev-parse -q --verify refs/remotes/origin/main)" || next=""
+	local back=""
+	case "$now_previous" in "" | none | unreadable) ;; *)
+		[ -z "$now_serving" ] || [ "$now_previous" = "$now_serving" ] ||
+			git_ merge-base --is-ancestor "$now_previous" "$now_serving" 2>/dev/null || back="$now_previous"
+		;;
+	esac
 	if is_commit "$commit" && [ -n "$next" ] && git_ merge-base --is-ancestor "$commit" "$next" 2>/dev/null; then
 		contains=", which is or contains $(short "$commit")"
+	fi
+	if [ -n "$back" ] && [ "$back" != "$commit" ] && [ -n "$next" ] && git_ merge-base --is-ancestor "$back" "$next" 2>/dev/null; then
+		if [ -n "$contains" ]; then
+			contains="$contains and $(short "$back") (rolled back by hand)"
+		else
+			contains=", which is or contains $(short "$back") (rolled back by hand)"
+		fi
 	fi
 	if [ -z "$next" ] || [ -z "$now_serving" ]; then
 		set_state "idle: cleared ($what); what the next run rolls out cannot be told now: sudo ./auto-deploy.sh run --dry-run"
