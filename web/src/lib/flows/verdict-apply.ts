@@ -28,6 +28,7 @@ import { createWorkProposalAttempter, type WorkProposalAttempter } from '@/lib/w
 import { createStaysInCapture, isCaptureOnlyCard, isUnbackedCard } from '@/lib/attention/pending-cards'
 import { isChatAskCard, type AddedItem } from '@/lib/attention/chat-asks'
 import { requestHomeAsks, sourceWords } from '@/lib/attention/home-asks'
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 import {
   WORK_TASK_MAX_CHARS,
   WORK_TITLE_MAX_CHARS,
@@ -1289,7 +1290,8 @@ function clampWorkProposalPayload(
       if (!entry || typeof entry !== 'object') continue
       const e = entry as Record<string, unknown>
       const label = typeof e.label === 'string' ? e.label.trim() : ''
-      const type = typeof e.type === 'string' ? e.type.trim() : ''
+      // A retired kind name (a model's `email`) is kept under its current one.
+      const type = typeof e.type === 'string' ? canonicalEntityType(e.type.trim()) : ''
       if (!label || !type) continue // malformed → drop, don't fail the card
       const ref: WorkResourceRef = { type, label: label.slice(0, WORK_RESOURCE_LABEL_MAX_CHARS) }
       // The id survives ONLY for a known resource type (LINKABLE_ENTITY_TYPES ∪

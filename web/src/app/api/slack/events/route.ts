@@ -10,7 +10,8 @@
  * ── The security boundaries this route owns ─────────────────────────────
  * 1. AUTH: Connect attaches a Vercel OIDC token (`Authorization: Bearer`);
  *    it must verify against Vercel's JWKS for THIS project and environment
- *    (createConnectWebhookVerifier). Not the Slack signing secret: this app
+ *    (verifyConnectForward: the deployment's own on Vercel, CONNECT_PROJECT_ID
+ *    and CONNECT_ENVIRONMENT off it). Not the Slack signing secret: this app
  *    never holds it. Fails closed: no project/environment, no event.
  * 2. APP: the payload's api_app_id must be ours (SLACK_APP_ID). Any other
  *    app's event is dropped.
@@ -25,12 +26,12 @@
  * adds no trust check of its own beyond the three above.
  */
 import { after } from 'next/server'
-import { createConnectWebhookVerifier } from '@vercel/connect/chat'
 import { getServiceClient } from '@/lib/admin'
 import { apiError, badRequest, serverError, unauthorized } from '@/lib/api-errors'
 import { slackAppId, slackConnector } from '@/lib/slack/config'
 import { slackInboundDeps, slackTurnSlack } from '@/lib/slack/deps'
 import { parseSlackPayload } from '@/lib/slack/events'
+import { verifyConnectForward } from '@/lib/slack/forwarded'
 import { handleSlackInbound } from '@/lib/slack/inbound'
 import { firstDelivery, linkAttemptsBlocked, purgeOldEvents, recordFailedLinkAttempt } from '@/lib/slack/store'
 import { handlePersonDm } from '@/lib/slack/person-dm'
@@ -43,8 +44,6 @@ export const maxDuration = 60
 /** Slack's own event payloads are small; anything this big is not one. */
 const MAX_BODY_BYTES = 512 * 1024
 
-const verify = createConnectWebhookVerifier()
-
 export async function POST(request: Request) {
   const appId = slackAppId()
   if (!appId || !slackConnector()) {
@@ -55,7 +54,7 @@ export async function POST(request: Request) {
   if (body.length > MAX_BODY_BYTES) return apiError('Payload too large', { status: 413, code: 'PAYLOAD_TOO_LARGE' })
 
   try {
-    await verify(request, body)
+    await verifyConnectForward(request, body)
   } catch {
     return unauthorized()
   }

@@ -53,6 +53,12 @@ On the server, as `deploy`:
 
    [`.env.example`](.env.example) says where each value is in the hosted dashboard. Nothing about the self-hosted side goes in it: that is read from `../stack/.env`.
 
+   The secrets among them do not have to pass through an editor. From your own machine, [`../set-secret.sh`](../set-secret.sh) asks for each with the typing hidden and writes it into this file; given a pattern, it puts the database password into the connection string for you, percent-encoded:
+
+   ```bash
+   PULL_ENV_FILE=/opt/native-intelligence/deploy/supabase/migrate/.env deploy/supabase/set-secret.sh <user>@<server> SOURCE_S3_ACCESS_KEY_ID SOURCE_S3_SECRET_ACCESS_KEY 'SOURCE_DB_URL=postgresql://postgres.<project ref>:{}@<pooler host>:5432/postgres'
+   ```
+
 Every script is run with `sudo`, from this folder. psql and rclone run in containers (the same two images the backup container is built from), so nothing else is installed.
 
 ## The scripts, in order

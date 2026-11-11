@@ -13,14 +13,19 @@
  *                    "Owner and admins can update initiatives" policy).
  *   document         the document EDIT rule (src/lib/documents/access.ts,
  *                    migration 359's can_edit_document): a private document
- *                    is its creator's alone, and a grant never edits.
+ *                    is its creator's alone, unless an EDIT grant (512)
+ *                    shares it with the person; a view grant never edits.
  *   contact          contact_editable_by (498), contact_update's
  *                    can_edit_contact for this user: its creator, an owner or
  *                    admin, anyone when workspace-visible, an `edit` share. One
  *                    they can see but not edit (a teammate's team contact, a
- *                    view share, a grant) is `forbidden`; one they can't see,
- *                    not found.
- *   company          company_visible_to_ungranted (496), likewise.
+ *                    view share, a view grant) is `forbidden`; one they can't
+ *                    see, not found. An edit grant (512) edits.
+ *   company          company_visible_to_ungranted (496), or an edit grant on
+ *                    the company (512).
+ *
+ * `grants: false` (a guest's or a linked agent's turn, omitGrants): no grant
+ * of the owner's edits anything.
  *
  * Every check fails CLOSED: a read error or anything but a yes refuses.
  */
@@ -43,18 +48,25 @@ export async function customFieldWriteRefusal(
   workspaceId: string,
   entity: CustomFieldRecordEntity,
   id: string,
+  // grants: whether an EDIT grant lets the write through (createTools's editGrants: off on a guest's,
+  // a linked agent's and an unattended turn). readGrants: whether a VIEW grant counts when telling
+  // "forbidden" from "not found" (off only on a guest's or a linked agent's turn, omitGrants).
+  opts: { grants?: boolean; readGrants?: boolean } = {},
 ): Promise<CustomFieldWriteRefusal | null> {
+  const grants = opts.grants !== false
+  const readGrants = opts.readGrants !== false
   const notFound: CustomFieldWriteRefusal = { reason: 'not_found', error: customFieldNotFound(entity) }
   const forbidden: CustomFieldWriteRefusal = { reason: 'forbidden', error: customFieldForbidden(entity) }
   try {
     switch (entity) {
       case 'contact':
-        if (await isContactWritableTo(db, id, userId)) return null
-        return (await isContactVisibleTo(db, id, userId)) ? forbidden : notFound
+        if (await isContactWritableTo(db, id, userId, { grants })) return null
+        // On a guest's or a linked agent's turn a contact only a grant shows is not found, not forbidden: its existence is the owner's.
+        return (await isContactVisibleTo(db, id, userId, { grants: readGrants })) ? forbidden : notFound
       case 'company':
-        return (await isCompanyWritableTo(db, id, userId)) ? null : notFound
+        return (await isCompanyWritableTo(db, id, userId, { grants })) ? null : notFound
       case 'document': {
-        const { access, error } = await loadDocumentAccess(db, workspaceId, userId, id)
+        const { access, error } = await loadDocumentAccess(db, workspaceId, userId, id, { editGrants: grants })
         if (error || !access) return notFound
         const refusal = documentUpdateRefusal(access, { custom_fields: {} })
         return refusal ? { reason: 'forbidden', error: refusal } : null

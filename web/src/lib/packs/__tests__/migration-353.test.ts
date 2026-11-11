@@ -39,9 +39,16 @@ describe('migration 353', () => {
 
   it('is the latest definition of the functions it redefines (hybrid_search: or 365, which changes only its document branch)', () => {
     // 365 and 369 (documents phase 1, private documents) carry 353's bodies
-    // forward, adding only document terms (their own migration tests pin that).
+    // forward, adding only document terms (their own migration tests pin that);
+    // 503 (one name for mail) carries claim_neighborhood forward from 369,
+    // changing only its two mail checks (migration-503.test.ts); 506 (the
+    // agent reads shared records) carries hybrid_search forward from 369,
+    // adding only a grant arm to its capture and document predicates.
     for (const fn of ['claim_visible_to', 'claim_neighborhood', 'hybrid_search']) {
-      expect(['353_learn_by_default.sql', '365_document_search_everywhere.sql', '369_document_visibility.sql'], fn).toContain(latestDefinition(fn).file)
+      expect(
+        ['353_learn_by_default.sql', '365_document_search_everywhere.sql', '369_document_visibility.sql', '503_one_name_for_mail.sql', '506_agent_reads_shared_records.sql'],
+        fn,
+      ).toContain(latestDefinition(fn).file)
     }
   })
 
@@ -86,6 +93,7 @@ describe('migration 353', () => {
     expect(flat).toContain("OR (p_entity_type = 'conversation' AND NOT EXISTS ( SELECT 1 FROM public.chat_conversations cc WHERE cc.id = v_center_id AND v_requester IS NOT NULL AND cc.user_id = v_requester))")
     expect(flat).toContain("AND (nxt.node_type <> 'conversation' OR EXISTS ( SELECT 1 FROM public.chat_conversations cc WHERE cc.id = nxt.node_id AND v_requester IS NOT NULL AND cc.user_id = v_requester))")
     expect(flat).toContain("conv.workspace_id = v_workspace_id AND v_requester IS NOT NULL AND conv.user_id = v_requester")
-    expect(flat).toContain("AND nxt.node_type <> 'email'")
+    // Mail stays unwalked, under either name since 503.
+    expect(flat).toContain("AND nxt.node_type NOT IN ('email', 'email_thread')")
   })
 })

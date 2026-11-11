@@ -36,7 +36,26 @@ value() { # value <KEY>: from stack/.env, without surrounding quotes
 	local v
 	v="$(grep -E "^$1=" "$real" | tail -n 1 | cut -d= -f2-)" || true
 	v="${v%$'\r'}"
-	case "$v" in \"*\") v="${v#\"}" v="${v%\"}" ;; \'*\') v="${v#\'}" v="${v%\'}" ;; esac
+	case "$v" in
+	\"*\")
+		v="${v#\"}" v="${v%\"}"
+		# Inside double quotes a backslash, a double quote and a dollar sign
+		# are written with a backslash in front. Undo that, one character at
+		# a time on purpose: pattern replacement handles backslashes
+		# differently from one version of bash to the next.
+		local out="" c i=0 n=${#v}
+		while [ "$i" -lt "$n" ]; do
+			c="${v:$i:1}"
+			if [ "$c" = "\\" ] && [ $((i + 1)) -lt "$n" ]; then
+				case "${v:$((i + 1)):1}" in "\\" | '"' | '$') i=$((i + 1)) c="${v:$i:1}" ;; esac
+			fi
+			out="$out$c"
+			i=$((i + 1))
+		done
+		v="$out"
+		;;
+	\'*\') v="${v#\'}" v="${v%\'}" ;;
+	esac
 	printf '%s' "$v"
 }
 
@@ -147,6 +166,12 @@ esac
 perms="$(stat -c '%a %U' "$real")"
 [ "$perms" = "600 root" ] || problem "stack/.env is $perms; it must be 600 root (sudo chown root:root stack/.env && sudo chmod 600 stack/.env)"
 [ ! -e "$here/stack/.env.old" ] || note "stack/.env.old is left over from generate-keys.sh. Delete it: it holds the previous values."
+# A copy that a settings change left behind when it was cut off (a dropped
+# connection at the wrong instant). It holds every secret.
+for stray in "$here"/stack/.env.*; do
+	case "$stray" in *"/.env.*" | */.env.example | */.env.old) continue ;; esac
+	problem "$(basename "$stray") in stack/ is a stray copy of the settings. Delete it: sudo rm '$stray'"
+done
 
 if [ "$problems" = 0 ]; then
 	echo "no problems"

@@ -135,7 +135,12 @@ export function guestChannelOf(claims: Pick<ChatRunTokenClaims, 'surface'>): Gue
 
 /** What a guest's held call records for its accept-time re-check, and (agent links) the link it came over. */
 export function guestApprovalContext(guest: Pick<AgentGuest, 'id' | 'displayName'>, agentLink?: AgentLinkCardContext | null): ApprovalContext {
-  return { guest: { guestId: guest.id, name: guest.displayName }, tools: { origin: { actor: 'agent', depth: 1 } }, ...(agentLink ? { agentLink } : {}) }
+  // omitGrants: the approved call replays as the turn ran, reading no grant of the owner's (storedToolOptions).
+  return {
+    guest: { guestId: guest.id, name: guest.displayName },
+    tools: { origin: { actor: 'agent', depth: 1 }, omitGrants: true },
+    ...(agentLink ? { agentLink } : {}),
+  }
 }
 
 /**
@@ -301,6 +306,8 @@ export async function guestToolCall(
         origin: { actor: 'agent', depth: 1 },
         approvalContext: ctx.approvalContext,
         searchDefaultWindow: 'all_time',
+        // What was shared with the owner (a grant) is theirs, never their guest's or a linked agent's.
+        omitGrants: true,
       }),
     },
     ownersAsk ? { gate: holdEveryCallAs('internal-write', guestTextHold(guest.displayName, guestChannelOf(claims))) } : {},

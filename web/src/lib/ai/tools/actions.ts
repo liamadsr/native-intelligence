@@ -25,6 +25,7 @@ import type { StatusChangeOrigin } from '@/lib/flows/types'
 import { resolveMemberIdByName } from '@/lib/people/name-match'
 import { loadQuoteSpeakers } from '@/lib/transcript/quote-speakers'
 import { orderByUrgency } from '@/lib/actions/urgency'
+import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
 import { OPEN_STATE_CATEGORIES } from '@/lib/actions/open-work'
 import { memberIdForUser, resolveDelegate } from '@/lib/actions/delegate'
 import { moveActionToReview } from '@/lib/actions/agent-finish'
@@ -978,7 +979,10 @@ export function createActionTools(
         // busy person (329 assignments on PROD).
         // Typed as ACTION_SELECT: the embed only filters, and the rows are read
         // through flattenAction, which never looks at `assigned`.
-        const columns = (assigneeMemberId ? `${ACTION_SELECT}, assigned:action_assignee!inner(member_id)` : ACTION_SELECT) as typeof ACTION_SELECT
+        // custom_fields: the workspace's own fields on tasks (migration 496), the set ones by name.
+        const columns = (assigneeMemberId
+          ? `${ACTION_SELECT}, custom_fields, assigned:action_assignee!inner(member_id)`
+          : `${ACTION_SELECT}, custom_fields`) as typeof ACTION_SELECT
         let query = supabase
           .from('actions')
           .select(columns, { count: 'exact' })
@@ -1088,16 +1092,18 @@ export function createActionTools(
 
         query = orderByUrgency(query).range(startOffset, startOffset + cappedLimit - 1)
 
-        const { data, error, count } = await query
+        const [{ data, error, count }, fieldDefs] = await Promise.all([query, customFieldDefsOrNone(supabase, workspaceId, 'action')])
         if (error) return { success: false, error: error.message }
 
         const actions = (data || []).map((a) => {
+          const fields = withCustomFields(fieldDefs, (a as { custom_fields?: unknown }).custom_fields)
           if (verbose) {
             const flat = flattenAction(a as unknown as Record<string, unknown>)
             return {
               ...flat,
               confirmation: a.confirmation,
               is_overdue: a.due_at && new Date(a.due_at) < now && flat.status_category !== 'completed',
+              ...fields,
             }
           }
           // Compact shape — only essentials. ~10x smaller than verbose.
@@ -1118,6 +1124,7 @@ export function createActionTools(
             project_id: a.project_id,
             project_name: project?.name || null,
             is_overdue: a.due_at && new Date(a.due_at) < now && ws?.category !== 'completed',
+            ...fields,
           }
         })
 
@@ -2074,7 +2081,7 @@ export function createActionTools(
         // creator-scoped: any member may read any action in the workspace.
         let q = supabase
           .from('actions')
-          .select(`${ACTION_SELECT}, description, updated_at, source_capture_id, source_type`)
+          .select(`${ACTION_SELECT}, description, updated_at, source_capture_id, source_type, custom_fields`)
           .eq('workspace_id', scopedWorkspaceId)
 
         if (action_id) q = q.eq('id', action_id)
@@ -2112,6 +2119,8 @@ export function createActionTools(
 
         const row = data[0] as Record<string, unknown>
         const flat = flattenAction(row)
+        // The workspace's own fields on tasks (migration 496), the set ones, by name.
+        const fieldDefs = await customFieldDefsOrNone(supabase, scopedWorkspaceId, 'action')
         return {
           success: true,
           action: {
@@ -2122,6 +2131,7 @@ export function createActionTools(
             source_type: row.source_type ?? null,
             confirmation: row.confirmation ?? null,
             created_at: row.created_at ?? null,
+            ...withCustomFields(fieldDefs, row.custom_fields),
           },
           // Deliberately NOT get_document's "call ni_set_workspace" advice: an
           // agent that switches the session here would silently re-scope every

@@ -27,6 +27,7 @@ import {
   PenLine,
   Plus,
   SlidersHorizontal,
+  Share2,
   UserPlus,
   type LucideIcon,
 } from 'lucide-react'
@@ -53,6 +54,7 @@ const ICONS: Record<FeedAction, LucideIcon> = {
   commented: MessageSquare,
   linked: Link2,
   updated: SlidersHorizontal,
+  shared: Share2,
 }
 
 export const recordHistoryUrl = (type: string, id: string) => feedUrl({ entity: { type, id }, group: 'none', limit: HISTORY_LIMIT })

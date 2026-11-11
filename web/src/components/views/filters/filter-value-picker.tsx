@@ -529,8 +529,9 @@ function NumberRangePicker({
  */
 const DAY_ONLY_DATE_FIELDS = new Set(['target_date', 'start_date', 'expected_close_date'])
 
+/** A custom date field is a day too: its values are stored as `YYYY-MM-DD` (coerceCustomValue). */
 export function isDayOnlyDateField(fieldDef: FilterFieldDefinition): boolean {
-  return fieldDef.type === 'date' && DAY_ONLY_DATE_FIELDS.has(fieldDef.field)
+  return fieldDef.type === 'date' && (DAY_ONLY_DATE_FIELDS.has(fieldDef.field) || !!fieldDef.custom)
 }
 
 /**

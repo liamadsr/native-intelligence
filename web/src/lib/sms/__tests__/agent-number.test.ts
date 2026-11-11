@@ -111,6 +111,21 @@ describe('where there is a pool', () => {
     expect(agentNumbersAvailable({ ...deps(), config: { ...config, messagingServiceSid: null } })).toBe(false)
     expect(agentNumbersAvailable({ ...deps(), config: { ...config, fromNumber: null } })).toBe(false)
   })
+
+  it('production is what app-env says: the platform production, or a production build run off the platform', () => {
+    const { production: _, ...unset } = deps()
+    vi.stubEnv('NEXT_PUBLIC_VERCEL_ENV', '')
+    vi.stubEnv('VERCEL_ENV', 'production')
+    expect(agentNumbersAvailable(unset)).toBe(true)
+    vi.stubEnv('VERCEL_ENV', 'preview')
+    expect(agentNumbersAvailable(unset)).toBe(false)
+    // On the server: no platform variables, a production build.
+    vi.stubEnv('VERCEL_ENV', '')
+    vi.stubEnv('NODE_ENV', 'production')
+    expect(agentNumbersAvailable(unset)).toBe(true)
+    vi.stubEnv('NODE_ENV', 'development')
+    expect(agentNumbersAvailable(unset)).toBe(false)
+  })
 })
 
 describe('getAgentNumber', () => {

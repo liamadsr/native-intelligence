@@ -87,7 +87,7 @@ interface KnowledgeEdge {
     | 'project'
     | 'contact'
     | 'document'
-    | 'email'
+    | 'email_thread'
     | 'attachment'
     | 'action'
   target_id: string

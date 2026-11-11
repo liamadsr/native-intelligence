@@ -5,6 +5,10 @@
 !web
 !deploy/app
 
+# The settings checker's tests run in CI, not in the image.
+deploy/app/tests
+**/__pycache__
+
 # Never from a developer's checkout: secrets, and another build's output.
 **/.env
 **/.env.*

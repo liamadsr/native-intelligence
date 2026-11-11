@@ -3,9 +3,11 @@
  * get_context_bundle may run on a SERVICE-ROLE client (eve chat / live-agent
  * tool routes), where the company table's RLS (mig 059, keyed on auth.uid())
  * does not apply, and claim_neighborhood joins company.name with no check. So a
- * company node the caller cannot see keeps its id and relation but its label
- * is PRIVATE_COMPANY_LABEL — never the name — fenced through
- * company_visible_to(company, userId), failing closed.
+ * company the caller cannot see is fenced twice: its edges are left out, id and
+ * all (migration 500: an edge follows both its ends, asked of
+ * entity_refs_hidden), and a label that still reached the resolver would be
+ * PRIVATE_COMPANY_LABEL — never the name — through company_visible_to
+ * (company, userId). Both fail closed.
  */
 import { describe, it, expect, vi } from 'vitest'
 import type { ToolExecutionOptions } from 'ai'
@@ -52,6 +54,14 @@ function db(opts: {
   const answer = (v: Answer) => (v === 'error' ? { data: null, error: { message: 'rpc down' } } : { data: v, error: null })
   const rpc = vi.fn(async (fn: string, args: Record<string, unknown>) => {
     if (fn === 'claim_neighborhood') return { data: opts.bundle ?? null, error: null }
+    if (fn === 'entity_refs_hidden') {
+      // The edge fence (migration 500), answered from the same visibility maps.
+      const types = args.p_types as string[]
+      const ids = args.p_ids as string[]
+      const seen = types.map((t, i) => [t, ids[i], (t === 'company' ? opts.companies[ids[i]] : opts.contacts?.[ids[i]]) ?? true] as const)
+      if (seen.some(([, , v]) => v === 'error')) return { data: null, error: { message: 'rpc down' } }
+      return { data: seen.filter(([, , v]) => v === false).map(([t, id]) => ({ entity_type: t, entity_id: id })), error: null }
+    }
     rpcCalls.push({ fn, args })
     if (fn === 'company_visible_to') return answer(opts.companies[args.p_company_id as string] ?? true)
     if (fn === 'contact_visible_to') return answer(opts.contacts?.[args.p_contact_id as string] ?? true)
@@ -75,7 +85,7 @@ const TABLES = {
 }
 
 describe('traverse — company neighbor labels are fenced (service role: company_visible_to)', () => {
-  it('a hidden company keeps its id but never its name; visible ones and other types resolve', async () => {
+  it('a hidden company is left out, id and all; visible ones and other types resolve', async () => {
     const { client, rpcCalls } = db({ tables: TABLES, companies: { 'co-private': false } })
     const res = (await createClaimTools(USER, client, WS).traverse.execute!(
       { entity_type: 'project', entity_id: 'prj-1', direction: 'outbound' } as never,
@@ -84,16 +94,13 @@ describe('traverse — company neighbor labels are fenced (service role: company
 
     expect(res.success).toBe(true)
     expect(res.outbound.map((e) => [e.target_id, e.label])).toEqual([
-      ['co-private', PRIVATE_COMPANY_LABEL],
       ['co-shared', 'Globex'],
       ['prj-2', 'Launch'],
     ])
     expect(JSON.stringify(res)).not.toContain('Acme Secret')
-    // Fenced against the tool's (verified) user, argument order (company, user).
-    expect(rpcCalls).toEqual([
-      { fn: 'company_visible_to', args: { p_company_id: 'co-private', p_user_id: USER } },
-      { fn: 'company_visible_to', args: { p_company_id: 'co-shared', p_user_id: USER } },
-    ])
+    expect(JSON.stringify(res)).not.toContain('co-private')
+    // The label fence still asks for the company that is shown, as the tool's (verified) user.
+    expect(rpcCalls).toEqual([{ fn: 'company_visible_to', args: { p_company_id: 'co-shared', p_user_id: USER } }])
   })
 
   it('fails CLOSED: an RPC error reads as hidden', async () => {
@@ -103,7 +110,7 @@ describe('traverse — company neighbor labels are fenced (service role: company
       { entity_type: 'project', entity_id: 'prj-1', direction: 'outbound' } as never,
       EXEC,
     )) as { outbound: Array<{ label: string | null }> }
-    expect(res.outbound.map((e) => e.label)).toEqual([PRIVATE_COMPANY_LABEL, PRIVATE_COMPANY_LABEL, 'Launch'])
+    expect(res.outbound.map((e) => e.label)).toEqual(['Launch'])
   })
 
   it('issues no visibility RPC when no company is among the neighbors', async () => {
@@ -129,7 +136,7 @@ describe('get_context_bundle — claim_neighborhood company labels are fenced', 
     edges: [],
   }
 
-  it('a hidden company node keeps its id but never its name (contacts still fenced alongside)', async () => {
+  it('a hidden company node is left out (contacts likewise)', async () => {
     const { client, rpcCalls } = db({
       tables: {},
       companies: { 'co-private': false },
@@ -144,9 +151,7 @@ describe('get_context_bundle — claim_neighborhood company labels are fenced', 
     expect(res.success).toBe(true)
     expect(res.nodes.map((n) => [n.node_id, n.label])).toEqual([
       ['prj-1', 'Pricing'],
-      ['co-private', PRIVATE_COMPANY_LABEL],
       ['co-shared', 'Globex'],
-      ['ct-private', PRIVATE_CONTACT_LABEL],
     ])
     expect(JSON.stringify(res)).not.toContain('Acme Secret')
     expect(JSON.stringify(res)).not.toContain('Ana Private')
@@ -160,9 +165,6 @@ describe('get_context_bundle — claim_neighborhood company labels are fenced', 
       { entity_type: 'project', entity_id: 'prj-1' } as never,
       EXEC,
     )) as { nodes: Array<{ node_id: string; label: string }> }
-    expect(res.nodes.filter((n) => n.node_id.startsWith('co-')).map((n) => n.label)).toEqual([
-      PRIVATE_COMPANY_LABEL,
-      PRIVATE_COMPANY_LABEL,
-    ])
+    expect(res.nodes.filter((n) => n.node_id.startsWith('co-'))).toEqual([])
   })
 })

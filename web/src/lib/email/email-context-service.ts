@@ -40,6 +40,8 @@ export async function searchEmailsWithContext(
   workspaceId: string,
   query: string,
   limit = 10,
+  // `grants: false` on a guest's or a linked agent's turn: a contact shared with the person names no sender.
+  readOpts: { grants?: boolean } = {},
 ): Promise<EmailWithContext[]> {
   const supabase = getServiceClient()
 
@@ -68,7 +70,7 @@ export async function searchEmailsWithContext(
 
     // Service role: the contact table's RLS does not hide another member's
     // private/team contact, so fence each row against the caller (fails closed).
-    for (const c of await filterVisibleContacts(supabase, userId, contacts || [])) {
+    for (const c of await filterVisibleContacts(supabase, userId, contacts || [], readOpts)) {
       if (c.email) contactMap.set(c.email.toLowerCase(), c as unknown as typeof contactMap extends Map<string, infer V> ? V : never)
     }
   }

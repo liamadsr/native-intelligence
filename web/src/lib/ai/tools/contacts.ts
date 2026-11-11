@@ -9,7 +9,8 @@ import {
   type CreateWorkspacePolicy,
 } from './_shared'
 import { inngest } from '@/lib/inngest/client'
-import { filterVisibleContacts, isContactWritableTo } from '@/lib/crm/contact-visibility'
+import { contactWriteAccess, filterVisibleContacts } from '@/lib/crm/contact-visibility'
+import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
 import { CONTACT_WEB_FIELDS, fenceContactForModel, fenceWebFields } from './web-derived'
 
 /**
@@ -42,7 +43,16 @@ export function createContactTools(
   // and the sweep skip a held row until a person edits the contact (Sequence
   // step 2, plan A.1). See CreateToolsOptions.unattended in ./index.ts.
   unattended = false,
+  // EDIT GRANTS (512): whether a grant shared with the person to edit lets
+  // this turn's writes through. createTools derives it once: never on a
+  // guest's or linked agent's turn (omitGrants), never on an unattended one
+  // (a home turn, a skill or work run, open to injected text). Off unless said.
+  editGrants = false,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // contact shared with the person (a grant, 492) stays theirs, unread here.
+  omitGrants = false,
 ) {
+  const readOpts: { grants?: boolean } = omitGrants ? { grants: false } : {}
   return {
     list_contacts: tool({
       description:
@@ -85,7 +95,7 @@ export function createContactTools(
         if (error) return { success: false, error: error.message }
         // Other members' private/team contacts: RLS hides them on a user
         // client, but this may run service-role (contact-visibility.ts).
-        const visible = await filterVisibleContacts(supabase, userId, data || [])
+        const visible = await filterVisibleContacts(supabase, userId, data || [], readOpts)
         // Job title and department can come from web enrichment: fenced (web-derived.ts).
         const contacts = visible.map((c) => fenceWebFields(c as Record<string, unknown>, CONTACT_WEB_FIELDS))
         return { success: true, contacts, count: contacts.length }
@@ -130,11 +140,15 @@ export function createContactTools(
         const { data: rows, error } = await query.limit(contact_id ? 1 : 10)
 
         if (error) return { success: false, error: error.message }
-        const [data] = await filterVisibleContacts(supabase, userId, (rows ?? []) as Array<{ id?: unknown }>)
+        const [data] = await filterVisibleContacts(supabase, userId, (rows ?? []) as Array<{ id?: unknown }>, readOpts)
         // A contact the caller cannot see is indistinguishable from a missing one.
         if (!data) return { success: false, error: 'Contact not found' }
+        // The workspace's own fields on contacts (migration 473): the set ones,
+        // by name, as every kind's read tool returns them (not the stored keys).
+        const { custom_fields: storedFields, ...columns } = data as Record<string, unknown>
+        const fieldDefs = await customFieldDefsOrNone(supabase, effectiveWorkspaceId, 'contact')
         // The columns and blob enrichment fills from public pages, fenced (web-derived.ts).
-        return { success: true, contact: fenceContactForModel(data as Record<string, unknown>) }
+        return { success: true, contact: fenceContactForModel({ ...columns, ...withCustomFields(fieldDefs, storedFields) }) }
       },
     }),
 
@@ -305,8 +319,14 @@ export function createContactTools(
         if (!wsResolved) return { success: false, error: 'Contact not found' }
         // No writes to a contact the caller cannot see (same error as missing),
         // nor to one a per-item grant only lets them read (migration 495).
-        if (!(await isContactWritableTo(supabase, contact_id, userId))) {
+        const access = await contactWriteAccess(supabase, contact_id, userId, { grants: editGrants })
+        if (!access) {
           return { success: false, error: 'Contact not found' }
+        }
+        // Shared to edit (512): what it says, never its email, which the
+        // autolink trigger would file under a company (opening that company).
+        if (access === 'grant' && email !== undefined) {
+          return { success: false, error: "This contact is shared with you to edit its details; its email stays its owner's to change." }
         }
 
         const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }

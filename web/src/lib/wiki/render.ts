@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAllRows, inChunks, type PageResult } from '@/lib/supabase/paging'
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 
 /**
  * Embedded-query block syntax. Lives inside markdown bodies and is resolved
@@ -28,7 +29,7 @@ const ALLOWED_ENTITY_TYPES = new Set([
   'action',
   'initiative',
   'cycle',
-  'email',
+  'email_thread',
   'attachment',
 ])
 
@@ -57,7 +58,8 @@ function parseParams(paramStr: string): Record<string, string> {
 function parseEntityRef(value: string): { type: string; id: string } | null {
   const idx = value.indexOf(':')
   if (idx <= 0) return null
-  const type = value.slice(0, idx)
+  // A stored body may still say `email:<id>`: the retired name reads as `email_thread` (503).
+  const type = canonicalEntityType(value.slice(0, idx))
   const id = value.slice(idx + 1)
   if (!ALLOWED_ENTITY_TYPES.has(type) || !id) return null
   return { type, id }

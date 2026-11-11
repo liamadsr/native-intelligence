@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# backup-files <job>
+#
+# Packs one folder into a compressed tar, encrypts it and uploads it, deletes
+# backups past their retention, then pings the job's dead-man URL. The folder's
+# subfolders are usually Docker volumes mounted read-only into this container
+# (compose.app.yaml does that for the app's agents).
+#
+# Settings, from the environment (NAME is the job name in capitals, with dashes
+# as underscores):
+#   BACKUP_<NAME>_DIR              the folder (its presence schedules the job)
+#   BACKUP_<NAME>_RETENTION_DAYS   delete backups older than this
+#                                  (default 7, 0 = keep all)
+#   BACKUP_<NAME>_PING_URL         requested after a good run (optional)
+#
+# Files land at  <job>/<YYYY>/<MM>/<job>-<UTC timestamp>.tar.gz  inside the
+# `vault:` remote (see backup-entrypoint), which encrypts them.
+#
+# The folders are read while the programs that own them keep running, so a
+# file can change or vanish while it is read. tar says so and carries on; that
+# file may be caught half-written in this backup and whole in the next one. For
+# the agents' state that is enough: an agent that cannot resume a run starts a
+# fresh one, and the app replaces a conversation whose session is gone.
+set -euo pipefail
+
+job="${1:?usage: backup-files <job>}"
+case "$job" in *[!a-z0-9-]* | '') echo "job name must be lower-case letters, digits and dashes" >&2; exit 2 ;; esac
+
+prefix="BACKUP_$(printf '%s' "$job" | tr 'a-z-' 'A-Z_')_"
+setting() { # setting <NAME> [default]
+	local name="${prefix}$1"
+	printf '%s' "${!name:-${2-}}"
+}
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [${job}] $*"; }
+die() {
+	log "FAILED: $*"
+	exit 1
+}
+
+dir="$(setting DIR)"
+retention_days="$(setting RETENTION_DAYS 7)"
+ping_url="$(setting PING_URL)"
+[ -n "$dir" ] || die "${prefix}DIR is not set"
+[ -d "$dir" ] || die "${dir} is not a folder here"
+case "$retention_days" in *[!0-9]* | '') die "${prefix}RETENTION_DAYS must be a whole number" ;; esac
+[ -n "$(ls -A "$dir")" ] || die "${dir} is empty: nothing is mounted there"
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+object="${job}/$(date -u +%Y/%m)/${job}-${stamp}.tar.gz"
+
+log "packing ${dir} to vault:${object}"
+# GNU tar: exit 1 means some file changed or vanished while it was read (see
+# above), 2 means a real failure. The pipe's own status is checked below.
+set +e
+tar -C "$dir" --warning=no-file-changed --warning=no-file-removed --ignore-failed-read \
+	-czf - . | rclone rcat "vault:${object}"
+statuses=("${PIPESTATUS[@]}")
+set -e
+if [ "${statuses[1]}" != 0 ] || [ "${statuses[0]}" -gt 1 ]; then
+	rclone deletefile "vault:${object}" 2>/dev/null || true
+	die "tar exited ${statuses[0]}, upload exited ${statuses[1]}; the partial file was removed"
+fi
+[ "${statuses[0]}" = 0 ] || log "some files changed while they were read (normal for a running agent)"
+
+# Read the backup back through the vault and list it: proves it decrypts and is
+# a whole archive, not only that bytes arrived.
+entries="$(rclone cat "vault:${object}" | tar -tzf - | wc -l)" || die "the backup could not be read back"
+log "uploaded $(rclone lsf --format s "vault:${object}") bytes, ${entries} entries, read back"
+
+if [ "$retention_days" -gt 0 ]; then
+	log "deleting backups older than ${retention_days} days"
+	rclone delete --min-age "${retention_days}d" "vault:${job}/" || die "retention failed"
+fi
+log "backups held: $(rclone lsf --recursive --files-only "vault:${job}/" | grep -c '\.tar\.gz$')"
+
+if [ -n "$ping_url" ]; then
+	pinged=false
+	for _ in 1 2 3; do
+		if wget -q -T 15 -O /dev/null "$ping_url"; then
+			pinged=true
+			break
+		fi
+		sleep 10
+	done
+	"$pinged" || die "backup is good but the dead-man ping did not go through"
+fi
+log "done"

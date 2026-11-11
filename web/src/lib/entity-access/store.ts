@@ -17,7 +17,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { dmOtherMember } from '@/lib/team-chat/types'
-import { GRANT_SOURCES, isGranteeKind, type EntityAccessResponse, type EntityGrant, type GrantableType, type GranteeKind, type GrantSource } from './model'
+import { GRANT_SOURCES, isGrantLevel, isGranteeKind, type EntityAccessResponse, type EntityGrant, type GrantableType, type GranteeKind, type GrantLevel, type GrantSource } from './model'
 
 type Row = Record<string, unknown>
 
@@ -63,7 +63,7 @@ export async function loadEntityAccess(
     canShareEntity(supabase, workspaceId, type, id),
     supabase
       .from('entity_access')
-      .select('id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id, source, created_at')
+      .select('id, grantee_kind, grantee_member_id, grantee_team_id, grantee_channel_id, level, source, created_at')
       .eq('workspace_id', workspaceId)
       .eq('entity_type', type)
       .eq('entity_id', id)
@@ -117,6 +117,7 @@ export async function loadEntityAccess(
       grantee_kind: kind,
       grantee_id: granteeId,
       grantee_name: name ?? (kind === 'channel' ? 'A channel' : kind === 'team' ? 'A team' : 'Someone'),
+      level: isGrantLevel(r.level) ? r.level : 'view',
       source: ((GRANT_SOURCES as readonly string[]).includes(r.source as string) ? r.source : 'manual') as GrantSource,
       created_at: r.created_at as string,
     })
@@ -126,13 +127,14 @@ export async function loadEntityAccess(
 
 export type AddGrantResult = { id: string } | { error: 'forbidden' | 'exists' | 'invalid' | 'failed'; message: string }
 
-/** Add a view grant on a record for one member, team or channel, as the viewer. */
+/** Add a grant (view unless said) on a record for one member, team or channel, as the viewer. */
 export async function addEntityGrant(
   supabase: SupabaseClient,
   scope: { workspaceId: string; memberId: string },
   type: GrantableType,
   id: string,
   grantee: { kind: GranteeKind; id: string },
+  level: GrantLevel = 'view',
 ): Promise<AddGrantResult> {
   const column = grantee.kind === 'member' ? 'grantee_member_id' : grantee.kind === 'team' ? 'grantee_team_id' : 'grantee_channel_id'
   const { data, error } = await supabase
@@ -143,7 +145,7 @@ export async function addEntityGrant(
       entity_id: id,
       grantee_kind: grantee.kind,
       [column]: grantee.id,
-      level: 'view',
+      level,
       granted_by: scope.memberId,
       source: 'manual',
     })
@@ -157,6 +159,21 @@ export async function addEntityGrant(
     return { error: 'failed', message: error.message }
   }
   return { id: (data as { id: string }).id }
+}
+
+/**
+ * Change one grant's level, as someone who may share its record (migration
+ * 512's update policy; only `level` is writable). False: none changed (no
+ * such grant, or not theirs to change).
+ */
+export async function setEntityGrantLevel(supabase: SupabaseClient, workspaceId: string, grantId: string, level: GrantLevel): Promise<boolean> {
+  const { data, error } = await supabase.from('entity_access').update({ level }).eq('workspace_id', workspaceId).eq('id', grantId).select('id')
+  if (error) {
+    // The update policy refuses with no row, a column privilege with 42501: both "not yours".
+    if ((error as { code?: string }).code === '42501') return false
+    throw new Error(error.message)
+  }
+  return (data ?? []).length > 0
 }
 
 /** Remove one grant the viewer may remove (they may share its record, or made it). False: none removed. */

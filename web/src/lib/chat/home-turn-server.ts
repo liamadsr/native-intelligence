@@ -39,7 +39,11 @@
  *      with `server: 'home_turn'` (no sealed user JWT), and send
  *      `{ message, turnPolicy: 'queue' }` as the chat-agent channel's server
  *      principal (agents/chat-agent/lib/auth.ts serverCompactionAuth admits
- *      exactly that, into an is_home session). Then read.
+ *      exactly that, into an is_home session). A send eve refuses with 409
+ *      `session_not_active` (no run for that id; its tail read may still
+ *      answer 200) carried nothing: once per turn, the thread gets a fresh
+ *      session (ensureHomeSession), the message its primer, the row the new
+ *      session and start index, and the send goes there. Then read.
  *   4. continueHomeTurn: read the turn in budgeted steps, re-attaching from
  *      the cursor, through the reducer the browser runs
  *      (src/lib/chat/eve-turn-parts.ts). The turn is found by the delivery id
@@ -583,6 +587,10 @@ export interface HomeTurnIo {
   makeClient?: (args: { secret: string; token: string }) => Pick<Client, 'sessions'>
   fetch?: typeof fetch
   budgetMs?: number
+  /** The send's fresh session when eve refuses the plan's (isSendSessionGoneError): ensureHomeSession, its tail, its primer. */
+  ensureSession?: (previous: string) => Promise<EnsuredHomeSession>
+  peekTail?: (sessionId: string) => Promise<SessionTail>
+  renderPrimer?: () => Promise<string | null>
 }
 
 /**
@@ -1382,6 +1390,8 @@ export interface HomeTurnReadState {
   seenOwn: boolean
   eveTurnId: string | null
   parts: EveTurnPartsSnapshot
+  /** The session the turn went to when the send moved it off the plan's (isSendSessionGoneError); absent: the plan's. */
+  sessionId?: string
 }
 
 /** How a read ended. */
@@ -1443,8 +1453,9 @@ export function attributeHomeTurnEvent(
 }
 
 /** A fresh read state for a home turn row (with the send's delivery id, when known). */
-export function newHomeTurnReadState(rowId: string, fromIndex: number, deliveryId?: string | null): HomeTurnReadState {
+export function newHomeTurnReadState(rowId: string, fromIndex: number, deliveryId?: string | null, sessionId?: string): HomeTurnReadState {
   return {
+    ...(sessionId ? { sessionId } : {}),
     nextIndex: fromIndex,
     ownDeliveryIds: deliveryId ? [deliveryId] : null,
     seenOwn: false,
@@ -1499,7 +1510,14 @@ export async function readHomeTurnEvents(
   let eveTurnId = start.eveTurnId
   let nextIndex = start.nextIndex
   const sink = { emit: () => {} }
-  const state = (): HomeTurnReadState => ({ nextIndex, ownDeliveryIds: own, seenOwn, eveTurnId, parts: snapshotEveTurnParts(parts) })
+  const state = (): HomeTurnReadState => ({
+    ...(start.sessionId ? { sessionId: start.sessionId } : {}),
+    nextIndex,
+    ownDeliveryIds: own,
+    seenOwn,
+    eveTurnId,
+    parts: snapshotEveTurnParts(parts),
+  })
 
   try {
     for await (const event of events) {
@@ -1646,7 +1664,9 @@ export async function sendHomeTurn(
     // Already sent by an earlier attempt of this step: read from where its turn starts.
     const { data: current } = await supabase.from('home_turn').select(ROW_SELECT).eq('id', row.id).maybeSingle<HomeTurnRow>()
     if (current?.status !== 'sent' || current.stream_position == null) return { kind: 'failed', error: 'send_unconfirmed' }
-    return continueHomeTurn(supabase, data, plan, row, newHomeTurnReadState(row.id, current.stream_position), io)
+    // The row names the session the send went to (a fresh one when eve refused the plan's).
+    const sentTo = current.eve_session_id && current.eve_session_id !== plan.sessionId ? current.eve_session_id : undefined
+    return continueHomeTurn(supabase, data, plan, row, newHomeTurnReadState(row.id, current.stream_position, null, sentTo), io)
   }
 
   const update = buildHomeTurnBody(row.id, data.reason, {
@@ -1661,7 +1681,7 @@ export async function sendHomeTurn(
     channelPlace: plan.channelPlace,
   })
   const body = update ? withHomeTurnPrimer(update, plan.primer, { lead: channelOfReason(data.reason) !== null }) : null
-  if (!body) {
+  if (!update || !body) {
     await updateRow(supabase, row.id, { status: 'failed', error: 'empty_body' })
     return { kind: 'failed', error: 'empty_body' }
   }
@@ -1678,6 +1698,8 @@ export async function sendHomeTurn(
   }
 
   let response: MessageResponse
+  let sessionId = plan.sessionId
+  let fromIndex = plan.fromIndex
   try {
     // The POST is accepted when this resolves; the response stream is not read
     // (the read below follows the session stream from the known start index).
@@ -1685,13 +1707,116 @@ export async function sendHomeTurn(
   } catch (err) {
     // A ClientError is eve's own refusal (nothing accepted); anything else may
     // have landed, so it counts as carried (send_failed).
-    const error = err instanceof ClientError ? `send_refused_${err.status}${err.code ? `_${err.code}` : ''}` : 'send_failed'
-    await updateRow(supabase, row.id, { status: 'failed', error: error.slice(0, 200) })
-    return { kind: 'failed', error }
+    const error = sendErrorOf(err)
+    // eve has no run for the session (a thread whose session another eve
+    // storage made): it carried nothing, so the turn goes once to a fresh
+    // session. Never a check-in's (its session is its own, made by its plan).
+    const moved = isSendSessionGoneError(err) && data.reason !== 'check_in' ? await moveToFreshSession(supabase, data, plan, row, update, io) : null
+    // Another attempt holds the row now (two at once): it is theirs to send, read and settle.
+    if (moved && !moved.ok && moved.lost) return { kind: 'failed', error: 'send_unconfirmed' }
+    if (!moved || !moved.ok) {
+      const final = moved?.error ?? error
+      await updateRow(supabase, row.id, { status: 'failed', error: final.slice(0, 200) })
+      return { kind: 'failed', error: final }
+    }
+    ;({ session, response, sessionId, fromIndex } = moved)
   }
-  const start = newHomeTurnReadState(row.id, plan.fromIndex, acceptedDeliveryIdOf(response))
+  const start = newHomeTurnReadState(row.id, fromIndex, acceptedDeliveryIdOf(response), sessionId === plan.sessionId ? undefined : sessionId)
   const sendSession = session
   return { kind: 'read', result: await readBudgeted(session, row.id, start, budgetMs, budgetContinuer(() => sendSession)) }
+}
+
+/** The row's error for a failed send: eve's refusal (nothing accepted), else `send_failed` (it may have landed). */
+function sendErrorOf(err: unknown): string {
+  return err instanceof ClientError ? `send_refused_${err.status}${err.code ? `_${err.code}` : ''}` : 'send_failed'
+}
+
+/**
+ * True when eve refused a SEND because it has no active run for the session:
+ * a 409 `session_not_active` on the message route. eve's own local storage
+ * answers an unknown session's tail read 200 (so the plan's isSessionGoneError
+ * never sees it) and refuses only the message. Not a 423 (the session is
+ * locked: in use, never replaced) nor a 409 with another code; the bot relay
+ * draws the same line (bot-relay.ts isSessionGone).
+ */
+export function isSendSessionGoneError(err: unknown): boolean {
+  return err instanceof ClientError && err.status === 409 && err.code === 'session_not_active'
+}
+
+/**
+ * The send's one recovery from isSendSessionGoneError (the refused POST
+ * carried nothing): the thread gets a fresh session as the plan would give it
+ * (ensureHomeSession, `previous` the refused id, so it replaces only that),
+ * the body becomes that session's first message (the update with the history
+ * primer, as the plan's fresh session gets), the row moves to the new session
+ * and its start index BEFORE the send (a retried step reads there and never
+ * sends again), then one send. Any failure before that send keeps the first
+ * refusal (nothing accepted); the second send's own failure is final.
+ *
+ * The row goes back to `claimed` first (the 409 says nothing was accepted),
+ * so a crash anywhere before the move leaves it where a retried step sends
+ * again: the old session refuses again, ensureHomeSession finds the session
+ * this attempt registered (`created: false`, read as another caller's), and
+ * the move goes ahead. Both row writes are conditional (the put-back on
+ * `sent` with the old session, the move on `claimed` with it), as is the
+ * step's own claimed → sent: of two attempts at once only one moves the row
+ * each time, and one that finds it moved (`lost`) sends nothing and leaves it.
+ */
+async function moveToFreshSession(
+  supabase: SupabaseClient,
+  data: HomeTurnRequestedData,
+  plan: HomeTurnPlan,
+  row: HomeTurnRow,
+  update: string,
+  io: HomeTurnIo,
+): Promise<{ ok: true; session: ClientSession; response: MessageResponse; sessionId: string; fromIndex: number } | { ok: false; error?: string; lost?: true }> {
+  let session: ClientSession | null
+  let sessionId: string
+  let fromIndex: number
+  let body: string
+  try {
+    const { data: back, error: backError } = await supabase
+      .from('home_turn')
+      .update({ status: 'claimed', updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'sent')
+      .eq('eve_session_id', plan.sessionId)
+      .select('id')
+    if (backError) return { ok: false }
+    if (!Array.isArray(back) || back.length === 0) return { ok: false, lost: true }
+    // The kind of conversation the plan checked: a channel turn outside the home thread names its place 'thread'.
+    const channelThread = plan.channelPlace === 'thread'
+    const ensured = await (io.ensureSession ?? ((previous: string) => ensureHomeSession(supabase, data, { previous, channelThread }, io)))(plan.sessionId)
+    if (!ensured.ok) return { ok: false }
+    sessionId = ensured.sessionId
+    // One this run made holds nothing; another caller's (the person's window) is read as the plan reads one.
+    const tail = ensured.created ? { tailIndex: -1, events: [] } : await (io.peekTail ?? ((id: string) => peekSessionTail(data, id)))(sessionId)
+    if (hasOpenInputRequest(tail.events)) return { ok: false }
+    fromIndex = tail.tailIndex + 1
+    const carried = plan.channelMessages ? new Set(plan.channelMessages.map((m) => m.messageId)) : undefined
+    const primer = tail.tailIndex < 0 ? await (io.renderPrimer ?? (() => renderFreshSessionPrimer(supabase, data, carried)))().catch(() => null) : null
+    body = withHomeTurnPrimer(update, primer, { lead: channelOfReason(data.reason) !== null })
+    const { data: moved, error } = await supabase
+      .from('home_turn')
+      .update({ status: 'sent', eve_session_id: sessionId, stream_position: fromIndex, updated_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'claimed')
+      .eq('eve_session_id', plan.sessionId)
+      .select('id')
+    if (error) return { ok: false }
+    if (!Array.isArray(moved) || moved.length === 0) return { ok: false, lost: true }
+    session = attachSession(data, sessionId, fromIndex, io, 'send', plan.chatgptPlan === true)
+  } catch (err) {
+    console.warn(`[home-turn] fresh session for row ${row.id} failed: ${err instanceof Error ? err.message : String(err)}`)
+    return { ok: false }
+  }
+  if (!session) return { ok: false }
+  console.info(`[home-turn] row=${row.id} send refused (session_not_active): sending to a fresh session`)
+  try {
+    return { ok: true, session, response: await session.send(body, { turnPolicy: 'queue' }), sessionId, fromIndex }
+  } catch (err) {
+    return { ok: false, error: sendErrorOf(err) }
+  }
 }
 
 /** Steps 4…n: re-attach from the cursor and read on, touching the row (its lease). */
@@ -1704,9 +1829,11 @@ export async function continueHomeTurn(
   io: HomeTurnIo = {},
 ): Promise<HomeTurnStepResult> {
   await updateRow(supabase, row.id, {})
-  const session = attachSession(data, plan.sessionId, state.nextIndex, io)
+  // The send's session: a fresh one when eve refused the plan's (moveToFreshSession).
+  const sessionId = state.sessionId ?? plan.sessionId
+  const session = attachSession(data, sessionId, state.nextIndex, io)
   if (!session) return { kind: 'read', result: { done: true, end: 'session_ended', state } }
-  const continueBudget = budgetContinuer(() => attachSession(data, plan.sessionId, state.nextIndex, io, 'send', plan.chatgptPlan === true))
+  const continueBudget = budgetContinuer(() => attachSession(data, sessionId, state.nextIndex, io, 'send', plan.chatgptPlan === true))
   const result = await readBudgeted(session, row.id, state, io.budgetMs ?? HOME_TURN_STEP_BUDGET_MS, continueBudget)
   // The row keeps the turn's START index until it is done (a retried send step
   // re-reads the whole turn from there); the cursor rides the step output.

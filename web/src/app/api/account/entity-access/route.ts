@@ -4,8 +4,8 @@
  *        → { can_share, restricted, grants } the people, teams and channels
  *        a record is shared with, for its share dialog. 404 when the person
  *        can't read the record.
- *   POST { type, id, grantee_kind: 'member'|'team'|'channel', grantee_id }
- *        → { id } a view grant, as the person (only someone who may share
+ *   POST { type, id, grantee_kind: 'member'|'team'|'channel', grantee_id, level?: 'view'|'edit' }
+ *        → { id } a grant (view unless `level` says edit, migration 512), as the person (only someone who may share
  *        the record: a private doc's or capture's creator, a restricted
  *        contact's creator or an admin, a company's admin). 403 otherwise,
  *        409 when that grantee already has one.
@@ -15,7 +15,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { requireWorkspaceMember } from '@/lib/api-auth'
 import { badRequest, conflict, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { addEntityGrant, loadEntityAccess } from '@/lib/entity-access/store'
-import { isGrantableType, isGranteeKind } from '@/lib/entity-access/model'
+import { isGrantLevel, isGrantableType, isGranteeKind } from '@/lib/entity-access/model'
 import { isUuid } from '@/lib/team-chat/types'
 
 export async function GET(request: NextRequest) {
@@ -43,11 +43,19 @@ export async function POST(request: NextRequest) {
   } catch {
     return badRequest('Invalid JSON body')
   }
-  const { type, id, grantee_kind: kind, grantee_id: granteeId } = input
+  const { type, id, grantee_kind: kind, grantee_id: granteeId, level } = input
   if (!isGrantableType(type) || !isUuid(id) || !isGranteeKind(kind) || !isUuid(granteeId)) {
     return badRequest('type, id, grantee_kind and grantee_id are required')
   }
-  const result = await addEntityGrant(auth.supabase, { workspaceId: auth.workspaceId, memberId: auth.member.id }, type, id, { kind, id: granteeId })
+  if (level !== undefined && !isGrantLevel(level)) return badRequest('level takes view or edit')
+  const result = await addEntityGrant(
+    auth.supabase,
+    { workspaceId: auth.workspaceId, memberId: auth.member.id },
+    type,
+    id,
+    { kind, id: granteeId },
+    level ?? 'view',
+  )
   if ('id' in result) return NextResponse.json({ id: result.id }, { status: 201 })
   if (result.error === 'forbidden') return forbidden(result.message)
   if (result.error === 'exists') return conflict(result.message)

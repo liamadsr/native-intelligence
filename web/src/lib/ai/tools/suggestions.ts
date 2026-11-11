@@ -42,6 +42,9 @@ export function createSuggestionTools(
   supabase: SupabaseClient,
   workspaceId: string,
   context?: SuggestionToolContext,
+  // A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a
+  // contact shared with the person (a grant) resolves no name.
+  omitGrants = false,
 ) {
   return {
     suggest_changes: tool({
@@ -147,6 +150,7 @@ export function createSuggestionTools(
             origin: context?.origin ?? 'mcp',
             home,
             trackedJobId,
+            ...(omitGrants ? { grants: false } : {}),
           },
           changes,
         )

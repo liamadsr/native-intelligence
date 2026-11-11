@@ -45,6 +45,36 @@ refuse_development_mode() {
     || die "EVE_DEV=1 puts the agents in development mode, which lets anyone in without credentials. Unset it."
 }
 
+# NI_LIVE=1 says that this copy of the app is the live one. Anything else, and the
+# copy acts only when asked: a second copy beside the live app, on the same database
+# and the same Inngest server (a rehearsal), must not do production's work twice.
+# - web, worker: the Inngest SDK registers the app's functions with
+#   INNGEST_API_BASE_URL (before INNGEST_BASE_URL). Pointed at a closed port, a
+#   request that asks this copy to register (a PUT to /api/inngest, which anyone can
+#   send) fails, so Inngest's calls for production's functions never come here.
+#   Events still reach the server at INNGEST_BASE_URL.
+# - cron: every job is logged and nothing is called (CRON_DRY_RUN=1).
+# Only this process and its children see these. `docker compose exec` does not, so a
+# job can still be called by hand: `exec cron node /app/deploy/app/cron/call.mjs <path>`.
+not_live() {
+  [ "${NI_LIVE:-}" != 1 ]
+}
+
+# A rehearsal may run on stand-ins for secrets that production must have the real
+# values of (pull-settings.sh writes them, starting with "rehearsal-"). The live copy
+# never starts on one.
+if ! not_live && env | grep -q '^[A-Za-z_][A-Za-z0-9_]*=rehearsal-'; then
+  die "NI_LIVE=1, but $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=rehearsal-.*/\1/p' | tr '\n' ' ')still holds a rehearsal's stand-in. Put the real value in with set-secret.sh first."
+fi
+
+# The commit this image was built from (Dockerfile). The app reads it as
+# VERCEL_GIT_COMMIT_SHA: the cloud browser's relay must report the same one, and
+# /api/version gives it to open windows. Empty in an image built without it.
+if [ -z "${VERCEL_GIT_COMMIT_SHA:-}" ] && [ -s /app/BUILD_ID ]; then
+  VERCEL_GIT_COMMIT_SHA="$(cat /app/BUILD_ID)"
+  export VERCEL_GIT_COMMIT_SHA
+fi
+
 if [ "$#" -eq 0 ]; then
   [ -n "${NI_ROLE:-}" ] || die "no role: pass web, worker, agent <name> or cron (or set NI_ROLE)"
   set -- "$NI_ROLE" ${NI_AGENT:+"$NI_AGENT"}
@@ -64,6 +94,15 @@ case "$role" in
     [ "$EVE_NEXT_PRODUCTION_ORIGIN" = "$built" ] \
       || die "EVE_NEXT_PRODUCTION_ORIGIN is $EVE_NEXT_PRODUCTION_ORIGIN, but this image was built for $built; rebuild with --build-arg EVE_NEXT_PRODUCTION_ORIGIN=$EVE_NEXT_PRODUCTION_ORIGIN"
     export EVE_NEXT_PRODUCTION_ORIGIN
+    if not_live; then
+      export INNGEST_API_BASE_URL=http://127.0.0.1:9
+      echo "entrypoint: NI_LIVE is not 1: this $role cannot register the app with Inngest"
+    fi
+    # `next start` builds each request's URL from the address it listens on
+    # (https://0.0.0.0:3000/...), and a route that redirects with
+    # `new URL(path, request.url)` would send the browser there. With this, Next takes
+    # the public host the proxy passes on instead (web/patches/next+16.1.1.patch).
+    export NI_REQUEST_URL_FROM_HOST=1
     echo "entrypoint: $role on :$PORT, agents at $built"
     remember_role "$role"
     cd "$WEB"
@@ -98,6 +137,13 @@ case "$role" in
     #   requests 5 s) and exits on its own; compose.yaml's stop_grace_period is the
     #   SIGKILL. smoke.sh checks that every role stops without one.
     # Compare these steps with a new eve's before upgrading it.
+    # Where another agent, or this one's own tools, call back into a session: eve
+    # builds that address from its workflow store's (http://localhost:3000) or the
+    # request's origin, plus /eve/<name>. From another container localhost is the
+    # wrong place. On its earlier host eve uses the public production address; this
+    # gives it the app's public address the same way (web/patches/eve+0.79.1.patch),
+    # and the call comes back in through the proxy like any other.
+    export EVE_CALLBACK_BASE_URL="${EVE_CALLBACK_BASE_URL:-${NEXT_PUBLIC_APP_URL:-}}"
     unset EVE_MODEL_CONNECTION EVE_MODEL_KEY_SOURCE EVE_MODEL_TEAM EVE_MODEL_TEAM_NAME
     export HOST=0.0.0.0 NITRO_HOST=0.0.0.0 PORT="$PORT" NITRO_PORT="$PORT"
     exec node .output/server/index.mjs < /dev/null
@@ -107,7 +153,12 @@ case "$role" in
     [ -n "${CRON_TARGET_URL:-}" ] || die "cron needs CRON_TARGET_URL (the web role's origin, e.g. http://web:3000)"
     [ -n "${CRON_SECRET:-}" ] || die "cron needs CRON_SECRET (the web role's)"
     remember_role cron
-    [ "${CRON_DRY_RUN:-}" != 1 ] || echo "entrypoint: cron is a dry run (CRON_DRY_RUN=1): jobs are logged, nothing is called"
+    if not_live; then
+      export CRON_DRY_RUN=1
+      echo "entrypoint: NI_LIVE is not 1: cron is a dry run, jobs are logged, nothing is called"
+    elif [ "${CRON_DRY_RUN:-}" = 1 ]; then
+      echo "entrypoint: cron is a dry run (CRON_DRY_RUN=1): jobs are logged, nothing is called"
+    fi
     # -passthrough-logs: each job's one line as call.mjs printed it.
     exec supercronic -passthrough-logs "$DEPLOY/cron/crontab"
     ;;

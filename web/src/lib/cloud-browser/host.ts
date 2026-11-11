@@ -1,6 +1,6 @@
 import 'server-only'
 import { Sandbox, Snapshot, type NetworkPolicy } from '@vercel/sandbox'
-import { CLOUD_BROWSER, cloudBrowserBaseSnapshotId, cloudBrowserNamespace, cloudBrowserRelayOrigin } from './config'
+import { CLOUD_BROWSER, cloudBrowserBaseSnapshotId, cloudBrowserNamespace, cloudBrowserRelayOrigin, cloudBrowserSandboxCredentials } from './config'
 import { cloudBrowserNamePrefix, cloudBrowserSandboxName } from './ids'
 import { createHash } from 'node:crypto'
 import { LEGACY_RELAY_MARK_HEADER, LEGACY_RELAY_TOKEN_HEADER, mintBrowserRelayToken, RELAY_MARK_HEADER, RELAY_TOKEN_HEADER } from './relay-token'
@@ -56,7 +56,7 @@ const isSnapshotGone = (error: unknown) => {
 
 async function getExisting(name: string, resume: boolean, signal?: AbortSignal): Promise<Sandbox | null> {
   try {
-    return await Sandbox.get({ name, resume, signal })
+    return await Sandbox.get({ name, resume, signal, ...cloudBrowserSandboxCredentials() })
   } catch (error) {
     if (isMissing(error)) return null
     throw error
@@ -81,11 +81,11 @@ async function waitUntilSettled(name: string): Promise<Sandbox | null> {
 async function deleteSnapshotsOf(name: string): Promise<number> {
   let deleted = 0
   for (let round = 0; round < 5; round++) {
-    const live = (await Snapshot.list({ name }).then(page => page.toArray())).filter(s => s.status === 'created')
+    const live = (await Snapshot.list({ name, ...cloudBrowserSandboxCredentials() }).then(page => page.toArray())).filter(s => s.status === 'created')
     if (live.length === 0) return deleted
     for (const { id } of live) {
       try {
-        await (await Snapshot.get({ snapshotId: id })).delete()
+        await (await Snapshot.get({ snapshotId: id, ...cloudBrowserSandboxCredentials() })).delete()
         deleted++
       } catch (error) {
         if (!isMissing(error)) throw error
@@ -138,6 +138,7 @@ async function getOrCreate(name: string, signal: AbortSignal): Promise<{ sandbox
     resume: true,
     signal,
     onCreate: async () => { created = true },
+    ...cloudBrowserSandboxCredentials(),
   } as unknown as Parameters<typeof Sandbox.getOrCreate>[0]
   try {
     return { sandbox: await Sandbox.getOrCreate(params), created }
@@ -415,7 +416,7 @@ export async function sweepIdleCloudBrowsers(now = Date.now()): Promise<{ stoppe
 export async function reconcileCloudBrowsers(): Promise<{ orphans: number; snapshotsDeleted: number }> {
   const prefix = cloudBrowserNamePrefix(cloudBrowserNamespace())
   // The API takes namePrefix only together with sortBy 'name'.
-  const names = (await Sandbox.list({ namePrefix: prefix, sortBy: 'name' }).then(page => page.toArray())).map(s => s.name)
+  const names = (await Sandbox.list({ namePrefix: prefix, sortBy: 'name', ...cloudBrowserSandboxCredentials() }).then(page => page.toArray())).map(s => s.name)
   const owned = await store.sandboxNamesWithRows(names)
   let orphans = 0
   let snapshotsDeleted = 0

@@ -57,18 +57,22 @@ mkdir -p "$config_dir"
 # settings are not in the environment is left out, so the same image runs on a
 # server that does not have that database yet. A database job counts as
 # configured when BACKUP_<NAME>_PGHOST is set, a storage job when
-# BACKUP_<NAME>_S3_ENDPOINT is.
+# BACKUP_<NAME>_S3_ENDPOINT is, a files job when BACKUP_<NAME>_DIR is.
 : >/etc/crontabs/root
 chmod 0600 /etc/crontabs/root
 while IFS= read -r line; do
 	case "$line" in
-		*backup-postgres\ * | *backup-storage\ *)
+		*backup-postgres\ * | *backup-storage\ * | *backup-files\ *)
 			command="${line#*backup-}"
 			kind="${command%% *}"
 			name="${command#* }"
 			name="${name%% *}"
 			var="BACKUP_$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')_"
-			[ "$kind" = postgres ] && var+="PGHOST" || var+="S3_ENDPOINT"
+			case "$kind" in
+				postgres) var+="PGHOST" ;;
+				storage) var+="S3_ENDPOINT" ;;
+				*) var+="DIR" ;;
+			esac
 			case "$line" in \#*) continue ;; esac
 			if [ -z "${!var:-}" ]; then
 				echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) not scheduled: ${name} (${var} is not set)"

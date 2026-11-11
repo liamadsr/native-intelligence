@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
+import { grantedEntityIds, grantedIdsIn, hasEditGrant, withGrantedIds } from '@/lib/entity-access/grants'
 
 /**
  * Standard time-window preset vocabulary, shared across all list_* tools.
@@ -286,11 +287,17 @@ export type EvalCaptureScope = boolean | undefined
  * not RLS — is the real enforcement. Fails closed twice over: a null requester
  * sees only workspace-visible captures, and eval captures are excluded unless
  * `includeEvalCaptures` is explicitly true (see {@link EvalCaptureScope}).
+ *
+ * `granted`: for a READ, the capture ids a per-item grant opens to the
+ * requester ({@link readGrants}, migration 506): another member's private
+ * capture shared with them. Never for a write gate: a grant is view-only.
+ * Ignored without a requester (an unattended run reads no grant).
  */
 export function applyCaptureVisibility<T>(
   query: T,
   requester: CaptureRequester,
   includeEvalCaptures?: EvalCaptureScope,
+  granted?: readonly string[],
 ): T {
   type Q = {
     or: (f: string) => T
@@ -303,8 +310,16 @@ export function applyCaptureVisibility<T>(
   const q = query as unknown as Q
   const scoped = (includeEvalCaptures ? query : q.neq('is_eval', true)) as unknown as Q
   return requester
-    ? scoped.or(`visibility.eq.workspace,user_id.eq.${requester}`)
+    ? scoped.or(`visibility.eq.workspace,user_id.eq.${requester}${grantArm(granted)}`)
     : scoped.eq('visibility', 'workspace')
+}
+
+const GRANT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The `,id.in.(…)` arm a grant adds to a visibility `or`, or nothing. Only well-formed uuids reach the filter. */
+function grantArm(granted: readonly string[] | undefined): string {
+  const ids = [...new Set((granted ?? []).filter((id) => typeof id === 'string' && GRANT_ID_RE.test(id)))]
+  return ids.length ? `,id.in.(${ids.join(',')})` : ''
 }
 
 /**
@@ -317,6 +332,8 @@ export function applyEmbeddedCaptureVisibility<T>(
   requester: CaptureRequester,
   alias: string,
   includeEvalCaptures?: EvalCaptureScope,
+  /** For a READ only, as applyCaptureVisibility's. */
+  granted?: readonly string[],
 ): T {
   type Q = {
     or: (f: string, opts: { referencedTable: string }) => T
@@ -326,7 +343,7 @@ export function applyEmbeddedCaptureVisibility<T>(
   const q = query as unknown as Q
   const scoped = (includeEvalCaptures ? query : q.neq(`${alias}.is_eval`, true)) as unknown as Q
   return requester
-    ? scoped.or(`visibility.eq.workspace,user_id.eq.${requester}`, { referencedTable: alias })
+    ? scoped.or(`visibility.eq.workspace,user_id.eq.${requester}${grantArm(granted)}`, { referencedTable: alias })
     : scoped.eq(`${alias}.visibility`, 'workspace')
 }
 
@@ -342,16 +359,19 @@ export function applyEmbeddedCaptureVisibility<T>(
  */
 export function isCaptureVisible(
   capture:
-    | { visibility?: string | null; user_id?: string | null; is_eval?: boolean | null }
+    | { id?: string | null; visibility?: string | null; user_id?: string | null; is_eval?: boolean | null }
     | null
     | undefined,
   requester: CaptureRequester,
   includeEvalCaptures?: EvalCaptureScope,
+  /** For a READ only: capture ids a grant opens to the requester (select `id` too). */
+  granted?: ReadonlySet<string>,
 ): boolean {
   if (!capture) return false
   if (!includeEvalCaptures && capture.is_eval === true) return false
   if (capture.visibility !== 'private') return true
-  return requester !== null && capture.user_id === requester
+  if (requester === null) return false
+  return capture.user_id === requester || (!!capture.id && !!granted?.has(capture.id))
 }
 
 /**
@@ -377,6 +397,134 @@ export async function captureVisibleToRequester(
     requester,
     includeEvalCaptures,
   )
+}
+
+/**
+ * READ ACCESS, the agent's twin of the read policies (493): what a tool that
+ * only READS may show the requester. Everything captureVisibleToRequester /
+ * documentVisibleToRequester let through, plus another member's private
+ * record a per-item grant (492) opens to them: as the member, through a team
+ * they are in, or through a channel they can read (src/lib/entity-access/
+ * grants.ts, the TypeScript mirror of has_entity_grant).
+ *
+ * Never a WRITE gate. A grant is view-only (492, 494): every tool that
+ * changes a capture or a document keeps asking the ungranted rule, so a
+ * shared record reads like the person's own and changes like someone
+ * else's. An unattended run (no requester, `omitPrivate`) reads no grant,
+ * as it reads no private record at all.
+ *
+ * The answer says how: 'rule' (its own rule lets them, as before), 'grant'
+ * (only a grant does: a view-only read, which a tool may say so), or null
+ * (not at all, indistinguishable from a missing row).
+ *
+ * Fails CLOSED: a failed grant read is "no grant".
+ */
+export type ReadAccess = 'rule' | 'grant' | null
+
+export async function captureReadAccess(
+  supabase: SupabaseClient,
+  captureId: string,
+  workspaceId: string,
+  requester: CaptureRequester,
+  includeEvalCaptures?: EvalCaptureScope,
+  /** False on a turn that reads no grant (see grantReader): the ungranted rule only. */
+  grants = true,
+): Promise<ReadAccess> {
+  if (await captureVisibleToRequester(supabase, captureId, workspaceId, requester, includeEvalCaptures)) return 'rule'
+  if (!requester || !grants) return null
+  // withGrantedIds re-reads the row in this workspace and leaves an eval capture out.
+  const granted = await withGrantedIds(supabase, { userId: requester, workspaceId }, 'capture', [captureId], [])
+  return granted.has(captureId) ? 'grant' : null
+}
+
+/**
+ * WRITE ACCESS for a tool that changes what a capture SAYS (its title, text,
+ * summary, tags; its decisions; a comment on it): its own rule, as
+ * captureVisibleToRequester (a workspace capture is every member's to edit,
+ * a private one its owner's), or an EDIT grant (migration 512) that shares
+ * another member's private capture with the person to edit. A VIEW grant
+ * never passes, nor does any grant for a guest, an eval capture, or an
+ * unattended run (no requester).
+ *
+ * Never the gate for archiving or deleting a capture, or changing who owns
+ * or sees it: those keep captureVisibleToRequester (and 512's column guard
+ * refuses them to a grantee in the app). 'grant': writable only through the
+ * grant. Fails CLOSED.
+ */
+export async function captureWriteAccess(
+  supabase: SupabaseClient,
+  captureId: string,
+  workspaceId: string,
+  requester: CaptureRequester,
+  /** False on a turn that reads no grant (a guest's, a linked agent's: grantReader): no grant edits either. */
+  grants = true,
+): Promise<ReadAccess> {
+  if (await captureVisibleToRequester(supabase, captureId, workspaceId, requester)) return 'rule'
+  if (!requester || !grants) return null
+  const { data, error } = await supabase
+    .from('captures')
+    .select('id, is_eval')
+    .eq('id', captureId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle()
+  const row = data as { id?: unknown; is_eval?: unknown } | null
+  if (error || !row || row.is_eval === true) return null
+  return (await hasEditGrant(supabase, { userId: requester, workspaceId }, 'capture', captureId)) ? 'grant' : null
+}
+
+/**
+ * WHO A TURN'S GRANTS ARE FOR. A grant shares a record with a person, not
+ * with whoever their agent talks to: a guest's turn and a linked agent's
+ * turn run the owner's tools (src/lib/guests/guest-tools.ts) and must not
+ * pass on what was shared with the owner. Those turns build their tools with
+ * `omitGrants` (CreateToolsOptions), and every grant read then reads
+ * nothing: grantReader hands back null for readGrants and grantedReadIds,
+ * and captureReadAccess / documentReadAccess take `grants: false`.
+ */
+export function grantReader(userId: string | null, omitGrants: boolean | undefined): string | null {
+  return omitGrants ? null : userId
+}
+
+/**
+ * What a list READ adds to its visibility predicate: every capture and
+ * document id in `workspaceId` a grant opens to `userId`, one call per kind
+ * (migration 506's entity_grant_ids_for; at most LIST_GRANT_CAP each). For
+ * applyCaptureVisibility / applyDocumentVisibility's `granted`, and
+ * isCaptureVisible / isDocumentVisible's. Empty for an unattended run or a
+ * turn that reads no grant (`userId` null, grantReader) or a failed read.
+ * Never for a write gate. `truncated`: more were shared than a list names,
+ * which the tool says (GRANTS_TRUNCATED_NOTE).
+ */
+export async function readGrants(
+  supabase: SupabaseClient,
+  userId: string | null,
+  workspaceId: string,
+  kinds: ReadonlyArray<'capture' | 'document'> = ['capture', 'document'],
+): Promise<{ capture: string[]; document: string[]; truncated: boolean }> {
+  if (!userId) return { capture: [], document: [], truncated: false }
+  const none = { ids: [] as string[], truncated: false }
+  const [capture, document] = await Promise.all([
+    kinds.includes('capture') ? grantedIdsIn(supabase, { userId, workspaceId }, 'capture') : Promise.resolve(none),
+    kinds.includes('document') ? grantedIdsIn(supabase, { userId, workspaceId }, 'document') : Promise.resolve(none),
+  ])
+  return { capture: capture.ids, document: document.ids, truncated: capture.truncated || document.truncated }
+}
+
+/** What a list says when more records were shared with the person than it can name. */
+export const GRANTS_TRUNCATED_NOTE =
+  'More records are shared with you than one list includes: only the most recently shared are here. Open an older one by its id.'
+
+
+/** Ids among `ids` (records of `type` in `workspaceId`) a grant opens to `userId`; none for an unattended run. For a READ only. */
+export async function grantedReadIds(
+  supabase: SupabaseClient,
+  userId: string | null,
+  workspaceId: string,
+  type: 'capture' | 'document',
+  ids: readonly string[],
+): Promise<Set<string>> {
+  if (!userId || ids.length === 0) return new Set()
+  return grantedEntityIds(supabase, { userId, workspaceId }, type, ids)
 }
 
 /**
@@ -413,20 +561,24 @@ export async function documentRequesterMember(
  * documents, plus their own private ones. These tools run on SERVICE-ROLE
  * clients, so this predicate (not RLS) is the enforcement.
  */
-export function applyDocumentVisibility<T>(query: T, requester: DocumentRequester): T {
+export function applyDocumentVisibility<T>(query: T, requester: DocumentRequester, granted?: readonly string[]): T {
   type Q = { or: (f: string) => T; eq: (col: string, val: unknown) => T }
   const q = query as unknown as Q
-  return requester ? q.or(`visibility.eq.workspace,created_by.eq.${requester}`) : q.eq('visibility', 'workspace')
+  // `granted` (a READ only, readGrants): private documents a grant opens to the requester.
+  return requester ? q.or(`visibility.eq.workspace,created_by.eq.${requester}${grantArm(granted)}`) : q.eq('visibility', 'workspace')
 }
 
 /** Is this document row visible to the requester? Fails closed on a missing row. Select `visibility, created_by`. */
 export function isDocumentVisible(
-  doc: { visibility?: string | null; created_by?: string | null } | null | undefined,
+  doc: { id?: string | null; visibility?: string | null; created_by?: string | null } | null | undefined,
   requester: DocumentRequester,
+  /** For a READ only: document ids a grant opens to the requester (select `id` too). */
+  granted?: ReadonlySet<string>,
 ): boolean {
   if (!doc) return false
   if ((doc.visibility ?? 'workspace') !== 'private') return true
-  return requester !== null && doc.created_by != null && doc.created_by === requester
+  if (requester === null) return false
+  return (doc.created_by != null && doc.created_by === requester) || (!!doc.id && !!granted?.has(doc.id))
 }
 
 /**
@@ -452,6 +604,50 @@ export async function documentVisibleToRequester(
   if (!doc) return false
   if ((doc.visibility ?? 'workspace') !== 'private') return true
   return isDocumentVisible(doc, await documentRequesterMember(supabase, userId, workspaceId, omitPrivate))
+}
+
+/**
+ * documentVisibleToRequester for a READ (see captureReadAccess): plus a
+ * private document a grant opens to `userId` ('grant'). Under `omitPrivate`
+ * (an unattended run) no grant. Never a write gate.
+ */
+export async function documentReadAccess(
+  supabase: SupabaseClient,
+  documentId: string,
+  workspaceId: string,
+  userId: string,
+  omitPrivate?: boolean,
+  /** False on a turn that reads no grant (grantReader): the ungranted rule only. */
+  grants = true,
+): Promise<ReadAccess> {
+  if (await documentVisibleToRequester(supabase, documentId, workspaceId, userId, omitPrivate)) return 'rule'
+  if (omitPrivate || !grants) return null
+  const granted = await withGrantedIds(supabase, { userId, workspaceId }, 'document', [documentId], [])
+  return granted.has(documentId) ? 'grant' : null
+}
+
+/**
+ * documentVisibleToRequester for a write that ADDS to a document without
+ * changing its text (add_comment): its own rule, or an EDIT grant (512) on
+ * another member's private document. A view grant never passes; nor does
+ * an unattended run (`omitPrivate`) or a guest. Changing the text itself
+ * goes through the document EDIT rule (src/lib/documents/access.ts, with its
+ * `editGrants` option). 'grant': only through the grant. Fails CLOSED.
+ */
+export async function documentCommentAccess(
+  supabase: SupabaseClient,
+  documentId: string,
+  workspaceId: string,
+  userId: string,
+  omitPrivate?: boolean,
+  /** False on a turn that reads no grant (grantReader): no grant edits either. */
+  grants = true,
+): Promise<ReadAccess> {
+  if (await documentVisibleToRequester(supabase, documentId, workspaceId, userId, omitPrivate)) return 'rule'
+  if (omitPrivate || !grants) return null
+  const { data, error } = await supabase.from('document').select('id').eq('id', documentId).eq('workspace_id', workspaceId).maybeSingle()
+  if (error || !data) return null
+  return (await hasEditGrant(supabase, { userId, workspaceId }, 'document', documentId)) ? 'grant' : null
 }
 
 /**

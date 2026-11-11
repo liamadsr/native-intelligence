@@ -1,6 +1,7 @@
 import { requireWorkspace } from '@/lib/api-auth'
 import { badRequest, forbidden, notFound, serverError } from '@/lib/api-errors'
 import { entityInWorkspace, LINKABLE_ENTITY_TYPES } from '@/lib/ai/tools/claims'
+import { canonicalEntityTypeInput } from '@/lib/knowledge/entity-registry'
 
 /**
  * Pinned items on a knowledge package.
@@ -26,6 +27,8 @@ export async function POST(request: Request, { params }: RouteContext) {
   const { id } = await params
 
   const body = await request.json().catch(() => null)
+  // A retired kind name (an older client's `email`) is read as its successor.
+  if (body && typeof body === 'object') body.entity_type = canonicalEntityTypeInput(body.entity_type)
   if (!body || !LINKABLE.has(body.entity_type) || typeof body.entity_id !== 'string') {
     return badRequest('entity_type and entity_id are required')
   }
@@ -73,7 +76,8 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const { id } = await params
 
   const url = new URL(request.url)
-  const entityType = url.searchParams.get('entity_type')
+  const rawType = url.searchParams.get('entity_type')
+  const entityType = rawType === null ? null : (canonicalEntityTypeInput(rawType) as string)
   const entityId = url.searchParams.get('entity_id')
   if (!entityType || !entityId || !LINKABLE.has(entityType)) {
     return badRequest('entity_type and entity_id query params are required')

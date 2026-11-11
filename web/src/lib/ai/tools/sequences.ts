@@ -81,6 +81,8 @@ export interface SequenceToolsContext {
   approvalContext?: LaunchCardOrigin['approvalContext']
   /** Nobody at the keyboard (a work run's or loop's own turns): no card to raise. */
   unattended?: boolean
+  /** A guest's or a linked agent's turn (CreateToolsOptions.omitGrants): a contact shared with the person (a grant) is not theirs to enroll or see. */
+  omitGrants?: boolean
 }
 
 const stepInputSchema = z.object({
@@ -199,6 +201,7 @@ export function createSequenceTools(
   createWorkspacePolicy: CreateWorkspacePolicy = 'session',
   ctx: SequenceToolsContext = {},
 ) {
+  const contactOpts: { grants?: boolean } = ctx.omitGrants ? { grants: false } : {}
   /** Load a sequence, fenced to `ws` (the session workspace by default, or the
    *  sequence's own resolved workspace once a tool has routed to it). */
   async function loadSequence(sequenceId: string, ws: string = workspaceId) {
@@ -596,6 +599,7 @@ export function createSequenceTools(
               listed
                 .map((e) => e.contact as { id?: unknown } | null)
                 .filter((c): c is { id?: unknown } => Boolean(c)),
+              contactOpts,
             )
           ).map((c) => c.id),
         )
@@ -669,7 +673,7 @@ export function createSequenceTools(
         // hidden ones exactly like a contact that does not exist.
         const uniqueIds = [...new Set(contact_ids)]
         const visibleIds = new Set(
-          (await filterVisibleContacts(supabase, userId, uniqueIds.map((id) => ({ id })))).map((c) => c.id),
+          (await filterVisibleContacts(supabase, userId, uniqueIds.map((id) => ({ id })), contactOpts)).map((c) => c.id),
         )
         const hiddenSkips = uniqueIds
           .filter((id) => !visibleIds.has(id))
@@ -833,7 +837,7 @@ export function createSequenceTools(
         const stagedAll = plan.enrollments.filter(isStaged)
         const edited = stagedAll.filter((e) => e.overrides && Object.keys(e.overrides).length > 0)
         const visibleContactIds = new Set(
-          (await filterVisibleContacts(supabase, userId, stagedAll.filter((e) => e.contact_id).map((e) => ({ id: e.contact_id as string })))).map((c) => c.id),
+          (await filterVisibleContacts(supabase, userId, stagedAll.filter((e) => e.contact_id).map((e) => ({ id: e.contact_id as string })), contactOpts)).map((c) => c.id),
         )
         const staged = stagedAll.filter(
           (e) => !edited.includes(e) && (e.contact_id === null || visibleContactIds.has(e.contact_id)),
