@@ -13,9 +13,23 @@ Read this before reporting anything as live or touching production. The code gui
   build; web and worker are replaced without a gap, the agents one by one (a reply
   streaming from an agent at that moment is cut). Commands and `--rollback` are in
   [`deploy/app/README.md`](deploy/app/README.md).
+- **Automatic deploys exist and are OFF** unless the owner switched them on, on the
+  server (`deploy/app/auto-deploy.sh`, "Automatic deploys" in
+  [`deploy/app/README.md`](deploy/app/README.md#automatic-deploys)). When on, a merge to
+  `main` is rolled out within minutes, EXCEPT when it brings a migration, a new setting
+  in `deploy/app/.env.example`, or a change to files other stacks use (Supabase's
+  functions and mail templates, `deploy/edge`, `deploy/supabase`, `deploy/inngest`,
+  `deploy/backup`), or to the server's own deploy tooling (everything in `deploy/app`,
+  the `Dockerfile` included, except `cron/`, `smoke/`, `tests/`, the two `.mjs` files
+  and the guide): those hold it until a person has taken care of them. A failed roll-out or a
+  rollback by hand holds everything until the owner clears it. With it on, a merge to
+  `main` runs its code on the production server,
+  inside the app's containers, without a person in between. So "merged" still does not
+  mean "live": `sudo ./auto-deploy.sh status` on the server says what serves.
 - **Never report a merged change as live.** Say "merged, not rolled out" until the
   roll-out has happened. Who rolls out, and when, is the owner's decision: never do it
-  unasked.
+  unasked, and never switch the automatic deploys on, or release one of their holds
+  (`acknowledge`, `clear-failure`), unasked.
 - **The database is the Postgres on the server.** A migration is applied there, with
   `psql` in the database container over ssh ("Apply a database migration" under "Day to
   day" in `deploy/README.md`), before the code that needs it is rolled out, and only on
