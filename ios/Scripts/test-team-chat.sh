@@ -4,5 +4,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 TASK_TMP=$(mktemp -d /tmp/ni-team-chat.XXXXXX)
 trap 'rm -rf "$TASK_TMP"' EXIT
-swiftc -module-cache-path "$TASK_TMP/modules" Core/Models/TeamChat/*.swift Tests/TeamChat/TeamChatTests.swift -o "$TASK_TMP/tests"
+swiftc -module-cache-path "$TASK_TMP/modules" Core/Models/TeamChat/*.swift Core/Models/TeamCalls/*.swift Tests/TeamChat/TeamChatTests.swift -o "$TASK_TMP/tests"
 "$TASK_TMP/tests"
