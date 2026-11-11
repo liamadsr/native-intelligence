@@ -4,7 +4,7 @@
  * poll open with no token of its own (its guests have theirs) while a pick
  * still needs one; the answer and the booking each under the offer's lock,
  * the booking re-checking every answer and writing through the one booking
- * path; RLS (members read, only the service role writes); FKs and lookups
+ * path; RLS (only the service role reads or writes); FKs and lookups
  * indexed; re-runnable; no backslash; the number outside 555–579. (The SQL
  * itself was run on a throwaway in-memory database: see the phase report.)
  */
@@ -89,14 +89,20 @@ describe('migration 583', () => {
     }
   })
 
-  it('RLS on both tables: members of the workspace read, only the service role writes', () => {
+  it('RLS on both tables, and only the service role reads or writes', () => {
     for (const t of ['time_offer_recipient', 'time_offer_response']) {
       expect(BODY).toContain(`alter table public.${t} enable row level security;`)
-      expect(BODY).toContain(`create policy ${t}_select_member on public.${t} for select to authenticated using (`)
       expect(BODY).toContain(`revoke all on table public.${t} from anon, authenticated;`)
-      expect(BODY).toContain(`grant select on table public.${t} to authenticated;`)
+      expect(BODY).not.toContain(`on table public.${t} to authenticated;`)
       expect(BODY).toContain(`grant all on table public.${t} to service_role;`)
     }
+    expect(BODY).not.toMatch(/create policy /)
+  })
+
+  it("the booking clears only lapsed claims that hold nothing up, and never expires a request (the sweep's)", () => {
+    const book = fn('book_time_offer_poll')
+    expect(book).toContain("delete from public.host_time_claim c where c.host_user_id = any(v_hosts) and c.expires_at is not null and c.expires_at <= now() and (c.kind = 'hold' or not exists (")
+    expect(book).not.toContain("set state = 'expired'")
   })
 
   it('every lookup and FK is indexed; the links are unique', () => {

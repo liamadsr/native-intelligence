@@ -116,8 +116,21 @@ export const LINK_LIMITS = {
   dailyCap: [1, 100],
 } as const
 
-/** Bookings one link's public page tries per hour before it answers 429 (every try reads the hosts' calendars). */
+/**
+ * Bookings one link's public page tries per hour before it answers 429 (every
+ * try reads the hosts' calendars). Only a try with a guest's name and a way to
+ * reach them counts, and one client's tries count against that client first
+ * (LINK_CLIENT_HOURLY_CAP): one stranger can't close the page for everyone.
+ */
 export const LINK_ATTEMPTS_HOURLY_CAP = 30
+/**
+ * Bookings one client (its address, hashed) tries per hour across every
+ * booking page: each may have a host's calendar email the address typed, so
+ * the pages are no mail cannon.
+ */
+export const LINK_CLIENT_HOURLY_CAP = 5
+/** Reads of booking pages' times one client makes per minute on one instance. */
+export const LINK_TIMES_CLIENT_PER_MINUTE = 60
 /** Bookings one guest (by email or number) makes on one link per day. */
 export const LINK_GUEST_DAILY_CAP = 2
 /** The most days one public read of a link's times covers. */

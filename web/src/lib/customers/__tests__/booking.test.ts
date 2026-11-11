@@ -189,6 +189,28 @@ describe("the owner's yes", () => {
     expect(texts).toEqual([bookingDeclinedText('Bright Loom', { kind: 'pickup' }, 'Mon, Nov 2, 10:00 AM')])
   })
 
+  it('a time that could not be kept for good (a database error, not a conflict) is not booked: released, the customer told, nothing on the calendar', async () => {
+    const bookingId = await held()
+    // The claim's keep fails: every update of host_time_claim answers an error.
+    const failing = { eq: () => ({ select: async () => ({ data: null, error: { message: 'connection reset' } }) }) }
+    const broken = new Proxy(db, {
+      get(target, key) {
+        if (key !== 'from') return Reflect.get(target, key)
+        return (name: string) => {
+          const builder = target.from(name)
+          return name === 'host_time_claim' ? new Proxy(builder, { get: (b, k) => (k === 'update' ? () => failing : Reflect.get(b, k)) }) : builder
+        }
+      },
+    }) as SupabaseClient
+    const createEvent = vi.fn()
+    const texts: string[] = []
+    const out = await confirmBooking(broken, { userId: OWNER, workspaceId: WS, bookingId }, { createEvent, hasCalendar: async () => true, isSlotFree: async () => true, timeZone: async () => NY, textCustomer: async (_b, body) => (texts.push(body), true) })
+    expect(out).toMatchObject({ success: false, code: 'FAILED' })
+    expect(createEvent).not.toHaveBeenCalled()
+    expect(customerRows(tables)[0].state).toBe('cancelled')
+    expect(texts).toHaveLength(1)
+  })
+
   it('no calendar connected by then: nothing booked, the slot released, the customer told', async () => {
     const bookingId = await held()
     const texts: string[] = []

@@ -416,12 +416,12 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'withdraw_time_offer', sideEffect: 'internal-write', writeTarget: 'board', label: 'Withdraw Time Offer', description: 'Take back an open time offer: its held times are free again' },
       // external-write: deletes the provider event, and the calendar tells the guest.
       { name: 'cancel_offered_meeting', sideEffect: 'external-write', label: 'Cancel Offered Meeting', description: 'Cancel a meeting a guest booked from a time offer; the calendar tells them' },
-      // external-write: the provider event and its invitation; pre-approved by the offer itself (action-review.ts preApprovedCall).
+      // external-write: the provider event and its invitation; pre-approved when the person saw who the offer went to, else their card (src/lib/time-offers/agent-booking.ts).
       { name: 'accept_time_offer', sideEffect: 'external-write', label: 'Accept Time Offer', description: "Book one of an offer's own times for its own recipient, who answered in words" },
       // Polls (availability phase 5): an offer to several guests, booked when all have answered.
-      // external-write: the last answer books (the provider event and its invitations); pre-approved as accept_time_offer.
+      // external-write: the last answer books (the provider event and its invitations); gated as accept_time_offer.
       { name: 'record_time_offer_answer', sideEffect: 'external-write', label: 'Record Poll Answer', description: "Record which of a poll's own times work for one of its own guests, who answered in words; the last answer books" },
-      // external-write: the provider event and its invitations, at the person's word; pre-approved as accept_time_offer.
+      // external-write: the provider event and its invitations, at the person's word; gated as accept_time_offer.
       { name: 'book_poll_time', sideEffect: 'external-write', label: 'Book Poll Time', description: "Book one of a poll's times now with whoever can make it" },
       // external-write: by email or text it reaches the guests (the outward gate's card); by link it sends nothing.
       { name: 'nudge_time_offer', sideEffect: 'external-write', label: 'Nudge Poll Guests', description: "Remind a poll's guests who haven't answered; by email or text only on the person's card" },

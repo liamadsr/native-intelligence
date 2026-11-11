@@ -19,7 +19,9 @@
  *      again: the same idempotency key never makes a second event, and after
  *      BOOKING_ATTEMPTS_MAX tries one is failed, its time let go, and the
  *      host told (./accept.ts finishBooking);
- *   4. claims of meetings that ended over a day ago are deleted.
+ *   4. claims of meetings that ended over a day ago are deleted;
+ *   5. the public pages' rate-limit rows (failed picks, booking-link tries)
+ *      older than two days go: no cap counts back further than a day.
  *
  * Server only; service role. Throws only on a failed read of what to do, so
  * the step retries.
@@ -29,7 +31,7 @@ import { finishBooking, type AcceptDeps } from './accept'
 import { closeOffer } from './offers'
 import { answeredOpenPolls } from './poll-store'
 import { bookWhenAnswered, reportPollExpired } from './polls'
-import { deleteBookingClaims, deleteEndedBookingClaims, deleteExpiredHolds, getBooking, keepBookingClaims, lapsedOffers, lapsedRequestClaims, stuckBookings } from './store'
+import { deleteBookingClaims, deleteEndedBookingClaims, deleteExpiredHolds, deleteOldFailedPicks, getBooking, keepBookingClaims, lapsedOffers, lapsedRequestClaims, stuckBookings } from './store'
 import { BOOKING_STUCK_MS } from './types'
 
 export interface SweepResult {
@@ -87,5 +89,9 @@ export async function sweepTimeOffers(supabase: SupabaseClient, deps: AcceptDeps
   }
 
   await deleteEndedBookingClaims(supabase, new Date(now - 24 * 60 * 60_000).toISOString()).catch(() => {})
+  const twoDaysAgo = new Date(now - 2 * 24 * 60 * 60_000).toISOString()
+  await deleteOldFailedPicks(supabase, twoDaysAgo).catch(() => {})
+  const { deleteOldLinkAttempts } = await import('@/lib/booking-links/store')
+  await deleteOldLinkAttempts(supabase, twoDaysAgo).catch(() => {})
   return result
 }

@@ -230,7 +230,7 @@ export async function pollHold(
 /** Run offer_times for a poll (see the header). Never throws. */
 export async function runPollTimes(
   supabase: SupabaseClient,
-  args: { userId: string; workspaceId: string; approvedCall?: ApprovedCall; browserTimeZone?: string | null; omitGrants?: boolean },
+  args: { userId: string; workspaceId: string; approvedCall?: ApprovedCall; browserTimeZone?: string | null; omitGrants?: boolean; personAttended?: boolean },
   input: OfferTimesInput,
   deps: SendDeps = {},
 ): Promise<Record<string, unknown>> {
@@ -241,7 +241,7 @@ export async function runPollTimes(
     if (sendBy === 'link') {
       const planned = await planPoll(supabase, request, deps)
       if (!planned.ok) return refusal(planned.code, planned.message)
-      const made = await createPoll(supabase, planned.plan, { state: 'open', createdBy: args.userId, omitGrants: request.omitGrants }, deps)
+      const made = await createPoll(supabase, planned.plan, { state: 'open', createdBy: args.userId, omitGrants: request.omitGrants, recipientsShown: args.personAttended === true }, deps)
       if (!made.ok) return refusal(made.code, made.message)
       const auto = await autoAnswerLinked(supabase, made.poll.id, { ...deps, omitGrants: request.omitGrants })
       const poll = (await getPoll(supabase, made.poll.id)) ?? made.poll
@@ -304,7 +304,7 @@ async function sendApprovedPoll(
       )
     }
   }
-  const opened = await moveOffer(supabase, poll.id, ['pending_send'], 'open', { sent_via: way.delivery.via })
+  const opened = await moveOffer(supabase, poll.id, ['pending_send'], 'open', { sent_via: way.delivery.via, recipients_shown: true })
   if (!opened) return refusal('CLOSED', 'Nothing was sent: the poll changed just now.')
   await openRecipientLinks(supabase, poll, deps.secret)
   const sent = await sendEach(supabase, args, poll.recipients, way.delivery, 'poll', made.words, origin, deps)

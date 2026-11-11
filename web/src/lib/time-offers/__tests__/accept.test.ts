@@ -6,8 +6,11 @@
  * same pick again answers its booking; two picks at once make one booking;
  * a time no longer free fails with the times still open; the agents book
  * only the offer's own recipient; a provider that fails leaves the booking
- * for the sweep, and its last try fails it, lets its time go and tells the
- * host.
+ * for the sweep, and its last try fails it, lets its time go, takes off any
+ * event the provider made anyway and tells the host; a provider write that
+ * hangs counts as failed well before the sweep could start a second; an
+ * event written for a booking another attempt confirmed is never deleted;
+ * a forwarded link books the offer's own address.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { acceptOffer, finishBooking, type AcceptDeps } from '../accept'
@@ -156,9 +159,55 @@ describe('finishBooking: the provider event, retried', () => {
     const keys = seams.createEvent.mock.calls.map((c) => (c as unknown as [unknown, unknown, unknown, { idempotencyKey: string }])[3].idempotencyKey)
     expect(new Set(keys)).toEqual(new Set([result.booking.id]))
     expect(seams.tellHost).toHaveBeenCalledWith(expect.objectContaining({ messageId: `meeting-booking:${result.booking.id}:failed`, routes: true, text: expect.stringContaining("couldn't be put on your calendar") }))
+    // Any event its key made is looked for and taken off before the host is told: none here.
+    expect(seams.deleteEventByKey).toHaveBeenCalledWith(HOST, result.booking.id, { accountId: 'acct-google' })
+    expect(seams.tellHost).toHaveBeenLastCalledWith(expect.objectContaining({ text: expect.stringContaining('so they got no invitation') }))
     // A finished booking is left alone.
     expect(await finishBooking(db, result.booking.id, deps)).toMatchObject({ state: 'failed', attempts: 3 })
     expect(seams.createEvent).toHaveBeenCalledTimes(3)
+  })
+
+  it('a last try whose event the provider made anyway takes it off, and the host hears so; one that can’t be told says to check', async () => {
+    for (const [found, words] of [['deleted', 'taken off again'], ['unknown', 'If the event shows on your calendar anyway, delete it there']] as const) {
+      const { db, token, seams, deps } = await open()
+      seams.createEvent.mockRejectedValue(new Error('Google Calendar create error: 502'))
+      if (found === 'deleted') seams.deleteEventByKey.mockResolvedValue('deleted')
+      else seams.deleteEventByKey.mockRejectedValue(new Error('token expired'))
+      const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, deps)
+      if (!result.ok) throw new Error('not booked')
+      await finishBooking(db, result.booking.id, deps)
+      expect(await finishBooking(db, result.booking.id, deps)).toMatchObject({ state: 'failed' })
+      expect(seams.tellHost).toHaveBeenLastCalledWith(expect.objectContaining({ text: expect.stringContaining(words) }))
+    }
+  })
+
+  it('a provider write that hangs counts as a failed try, well inside the time the sweep waits', async () => {
+    const { db, token, seams, deps } = await open()
+    seams.createEvent.mockImplementationOnce(() => new Promise(() => {}))
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, { ...deps, providerTimeoutMs: 20 })
+    expect(result).toMatchObject({ ok: true, booking: { state: 'booking', attempts: 1, lastError: expect.stringContaining('the calendar took over') } })
+    const { BOOKING_PROVIDER_TIMEOUT_MS, BOOKING_STUCK_MS } = await import('../types')
+    expect(BOOKING_PROVIDER_TIMEOUT_MS).toBeLessThan(BOOKING_STUCK_MS)
+  })
+
+  it('an attempt that finds the booking confirmed by another (the same key: the same event) leaves the event alone', async () => {
+    const { db, tables, token, seams, deps } = await open()
+    seams.createEvent.mockImplementationOnce(async (_u, event, accountId) => {
+      Object.assign(tables.meeting_booking[0], { state: 'confirmed', calendar_event_id: 'evt-1' })
+      return { id: 'evt-1', title: event.title, start: event.start, end: event.end, calendarId: 'primary', accountId } as never
+    })
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Dana', email: 'dana@initech.example' }, via: 'link' }, deps)
+    expect(result).toMatchObject({ ok: true, booking: { state: 'confirmed', calendarEventId: 'evt-1' } })
+    expect(seams.deleteEvent).not.toHaveBeenCalled()
+  })
+
+  it('a forwarded link books the offer’s own address, whatever its holder types, and never hands back the booking', async () => {
+    const { db, token, seams, deps } = await open()
+    const result = await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Mallory', email: 'mallory@evil.example' }, via: 'link' }, deps)
+    expect(result).toMatchObject({ ok: true, booking: { guestEmail: 'dana@initech.example' } })
+    const [, event] = seams.createEvent.mock.calls[0] as unknown as [string, { attendees: string[] }]
+    expect(event.attendees).toEqual(['dana@initech.example'])
+    expect(await acceptOffer(db, { offer: { token }, slotStart: SLOTS[0], guest: { name: 'Mallory', email: 'mallory@evil.example' }, via: 'link' }, deps)).toMatchObject({ ok: false, code: 'BOOKED' })
   })
 
   it('a booking cancelled while its event was being written: the event goes too', async () => {

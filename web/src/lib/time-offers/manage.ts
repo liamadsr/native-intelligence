@@ -197,14 +197,9 @@ export async function rescheduleMeeting(
     if (!claim.ok) return claim.conflict ? fail('SLOT_TAKEN', 'That time was just taken. Pick another.') : fail('FAILED', `The new time couldn't be held (${claim.error}).`)
     const releaseNew = () => deleteClaims(supabase, claim.ids).catch(() => {})
     const words = bookingEventWords(booking, manageUrl(deps.origin ?? appOrigin(), manageTokenFor(booking.id, deps.secret)))
-    if (booking.calendarEventId) {
-      try {
-        await (deps.updateEvent ?? updateCalendarEvent)(booking.hostUserId, booking.calendarEventId, { start: span.startsAt, end: span.endsAt, description: words.description }, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true })
-      } catch (err) {
-        await releaseNew()
-        return fail('FAILED', `The calendar couldn't move the meeting (${err instanceof Error ? err.message : String(err)}). It is still at its old time.`)
-      }
-    }
+    // The move is fenced before the calendar is touched: of two moves at once
+    // (a double submit, two tabs) only the one that wins here writes the
+    // provider; the other leaves it alone.
     const moved = await updateBooking(
       supabase,
       booking.id,
@@ -213,12 +208,18 @@ export async function rescheduleMeeting(
       { rescheduleCount: booking.rescheduleCount },
     )
     if (!moved) {
-      // Changed under us (cancelled, or moved twice at once): the event goes back, the new claim goes.
-      if (booking.calendarEventId) {
-        await (deps.updateEvent ?? updateCalendarEvent)(booking.hostUserId, booking.calendarEventId, { start: booking.startsAt, end: booking.endsAt }, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => null)
-      }
       await releaseNew()
       return fail('CLOSED', 'This meeting changed just now. Reload to see it.')
+    }
+    if (booking.calendarEventId) {
+      try {
+        await (deps.updateEvent ?? updateCalendarEvent)(booking.hostUserId, booking.calendarEventId, { start: span.startsAt, end: span.endsAt, description: words.description }, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true })
+      } catch (err) {
+        // The calendar kept the old time: so does the booking (unless it changed again since), and the new claim goes.
+        await updateBooking(supabase, booking.id, ['confirmed'], { starts_at: booking.startsAt, ends_at: booking.endsAt, reschedule_count: booking.rescheduleCount }, { rescheduleCount: booking.rescheduleCount + 1 }).catch(() => null)
+        await releaseNew()
+        return fail('FAILED', `The calendar couldn't move the meeting (${err instanceof Error ? err.message : String(err)}). It is still at its old time.`)
+      }
     }
     await deleteBookingClaims(supabase, booking.id, claim.ids).catch(() => {})
     if (args.by === 'guest') {

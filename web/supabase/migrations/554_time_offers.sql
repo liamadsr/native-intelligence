@@ -11,7 +11,11 @@
 --                         token_hash is the sha256 of the link's token (the
 --                         token itself is never stored); null until the
 --                         offer is sent (an offer waiting on the person's
---                         approval card has none).
+--                         approval card has none). recipients_shown: the
+--                         person saw who it went to (its approval card, or
+--                         their own turn made it), which is what lets their
+--                         agent book a time of it for its guests without a
+--                         second card.
 --   2. time_offer_slot    the two or three times offered.
 --   3. meeting_booking    a meeting booked with an outside guest. General:
 --                         source 'offer' today; 'link', 'customer' and
@@ -42,9 +46,10 @@
 --                         row written. Two picks at once make exactly one
 --                         booking.
 --
--- RLS on; members of a workspace read its offers, slots, bookings and
--- claims; only the service role writes (the agent's tools and the public
--- routes run on the server). Re-runnable.
+-- RLS on, and only the service role reads or writes: every reader is on the
+-- server (the agent's tools, the account API, the public routes), and a
+-- member's own client has no business reading another member's guests or
+-- held times (a workspace guest is a member row too, 512). Re-runnable.
 --
 -- Must run on PROD before the app code that reads it deploys: every
 -- availability read (find_times, booking slots, copy availability) reads
@@ -78,6 +83,7 @@ create table if not exists public.time_offer (
   state text not null default 'open',
   sent_via text null,
   card_hash text null,
+  recipients_shown boolean not null default false,
   approval_id uuid null,
   booking_id uuid null,
   expires_at timestamptz not null,
@@ -91,6 +97,8 @@ comment on column public.time_offer.state is
   'pending_send (waiting on the person''s approval card), open, booked, expired, withdrawn, declined (the card was declined or lapsed).';
 comment on column public.time_offer.card_hash is
   'An email or text offer: the hash of its approval card''s words; the send happens only when the card it replays hashes the same.';
+comment on column public.time_offer.recipients_shown is
+  'The person saw who the offer went to: it went out on their approved card (email or text), or their own attended turn made it. Only then may their agent book one of its times for its guests without a card (accept_time_offer, record_time_offer_answer, book_poll_time).';
 
 alter table public.time_offer drop constraint if exists time_offer_state_check;
 alter table public.time_offer
@@ -394,30 +402,12 @@ alter table public.meeting_booking enable row level security;
 alter table public.host_time_claim enable row level security;
 alter table public.time_offer_failure enable row level security;
 
-drop policy if exists time_offer_select_member on public.time_offer;
-create policy time_offer_select_member on public.time_offer
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-drop policy if exists time_offer_slot_select_member on public.time_offer_slot;
-create policy time_offer_slot_select_member on public.time_offer_slot
-  for select to authenticated using (
-    exists (select 1 from public.time_offer o where o.id = offer_id and public.is_workspace_member(o.workspace_id))
-  );
-drop policy if exists meeting_booking_select_member on public.meeting_booking;
-create policy meeting_booking_select_member on public.meeting_booking
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-drop policy if exists host_time_claim_select_member on public.host_time_claim;
-create policy host_time_claim_select_member on public.host_time_claim
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-
+-- No policy: nothing but the service role reads these (see the header).
 revoke all on table public.time_offer from anon, authenticated;
 revoke all on table public.time_offer_slot from anon, authenticated;
 revoke all on table public.meeting_booking from anon, authenticated;
 revoke all on table public.host_time_claim from anon, authenticated;
 revoke all on table public.time_offer_failure from anon, authenticated;
-grant select on table public.time_offer to authenticated;
-grant select on table public.time_offer_slot to authenticated;
-grant select on table public.meeting_booking to authenticated;
-grant select on table public.host_time_claim to authenticated;
 grant all on table public.time_offer to service_role;
 grant all on table public.time_offer_slot to service_role;
 grant all on table public.meeting_booking to service_role;

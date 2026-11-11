@@ -1,8 +1,10 @@
 /**
  * The public API of booking links (../public.ts): a link's page data (what a
- * guest may see, never a host's email or calendar), its open times (kept a
- * minute per link and range; unknown is a 503, never empty), a booking
- * (honeypot, caps by counted rows, the shared error shape), a business's job
+ * guest may see, never a host's email or calendar), its open times (only the
+ * link's own window, read in fixed blocks kept a minute per link whatever
+ * range is asked, a client's reads capped; unknown is a 503, never empty), a
+ * booking (honeypot, caps by counted rows, per client and per page, a try
+ * counting only once it names a guest; the shared error shape), a business's job
  * link through the same routes (the customer's request on the owner's yes),
  * and an old /book/<slug> address resolved to the link it is now. Over the
  * real store on the one booking model in memory; made-up people.
@@ -12,7 +14,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/safety/approvals', () => ({ createToolApproval: vi.fn() }))
 
 import { __clearLinkTimesCacheForTests, handleBookLink, handleGetLink, handleLegacySlug, handleLinkTimes, loadLinkPage, resolveLegacySlug, timesRange, type LinkPublicDeps } from '../public'
-import { LINK_ATTEMPTS_HOURLY_CAP } from '../types'
+import { clientKeyOf } from '../client'
+import { LINK_ATTEMPTS_HOURLY_CAP, LINK_CLIENT_HOURLY_CAP, LINK_TIMES_CLIENT_PER_MINUTE } from '../types'
 import { AVA, BEN, hoursAhead, NY, openAt, seams, studioDb, WS } from './fixtures'
 import type { BookingLinkDeps } from '@/lib/customers/booking-link'
 
@@ -57,6 +60,8 @@ function setup(over: { links?: Row[]; hosts?: Row[] } = {}) {
 
 const post = (body: unknown) => new Request('https://app.example/api/public/booking-links/ava-lin/intro/book', { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } })
 const get = (query = '') => new Request(`https://app.example/api/public/booking-links/ava-lin/intro/times${query}`)
+/** A day as the page names it: YYYY-MM-DD in `zone`, `plus` days from now. */
+const dayIn = (zone: string, plus = 0) => new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(NOW + plus * 86_400_000))
 
 beforeEach(() => {
   __clearLinkTimesCacheForTests()
@@ -111,25 +116,51 @@ describe('the link', () => {
 })
 
 describe('its times', () => {
-  it('the open times as instants, in the hosts’ zone, read at most once a minute per link and range', async () => {
+  it('the open times as instants, in the hosts’ zone, read at most once a minute per link and block, whatever range is asked', async () => {
     const { deps, readTimes } = setup()
-    const res = await handleLinkTimes(get('?from=2031-01-07&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
+    const query = `?from=${dayIn('America/Chicago')}&days=3&tz=America/Chicago`
+    const res = await handleLinkTimes(get(query), 'ava-lin', 'intro', deps)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toEqual({ time_zone: NY, from: '2031-01-07T06:00:00.000Z', to: '2031-01-10T06:00:00.000Z', slots: [{ start: T1, end: new Date(Date.parse(T1) + 30 * 60_000).toISOString() }] })
-    await handleLinkTimes(get('?from=2031-01-07&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
+    const asked = timesRange(new URLSearchParams(query.slice(1)), NY, NOW)!
+    expect(body).toEqual({ time_zone: NY, from: new Date(asked.from).toISOString(), to: new Date(asked.to).toISOString(), slots: [{ start: T1, end: new Date(Date.parse(T1) + 30 * 60_000).toISOString() }] })
+    await handleLinkTimes(get(query), 'ava-lin', 'intro', deps)
     expect(readTimes).toHaveBeenCalledTimes(1)
-    await handleLinkTimes(get('?from=2031-01-08&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
-    expect(readTimes).toHaveBeenCalledTimes(2)
+    // Another `from` or `days` inside the same block reads nothing new (the cache can't be stepped around).
+    await handleLinkTimes(get(`?from=${dayIn('America/Chicago', 1)}&days=2&tz=America/Chicago`), 'ava-lin', 'intro', deps)
+    await handleLinkTimes(get(`?from=${dayIn(NY, 2)}&days=7`), 'ava-lin', 'intro', deps)
+    expect(readTimes).toHaveBeenCalledTimes(1)
+    // The block read is a fixed one, from today.
+    const [, range] = readTimes.mock.calls[0] as unknown as [unknown, { from: number; to: number }]
+    expect(range.to - range.from).toBeGreaterThanOrEqual(31 * 86_400_000 - 3_600_000)
+  })
+
+  it('only the link’s own window is ever read: a range before or past it is answered empty, reading no calendar', async () => {
+    const { deps, readTimes } = setup()
+    for (const query of ['?from=2031-01-07&days=3', `?from=${dayIn(NY, 31)}&days=7`, '?from=2020-01-01&days=7']) {
+      const res = await handleLinkTimes(get(query), 'ava-lin', 'intro', deps)
+      expect(res.status, query).toBe(200)
+      expect((await res.json()).slots, query).toEqual([])
+    }
+    expect(readTimes).not.toHaveBeenCalled()
+  })
+
+  it('one client reads a page’s times at most so often a minute', async () => {
+    const { deps } = setup()
+    const one = { ...deps, clientKey: () => 'client-a' }
+    for (let i = 0; i < LINK_TIMES_CLIENT_PER_MINUTE; i++) expect((await handleLinkTimes(get(), 'ava-lin', 'intro', one)).status).toBe(200)
+    expect((await handleLinkTimes(get(), 'ava-lin', 'intro', one)).status).toBe(429)
+    // Someone else still reads it.
+    expect((await handleLinkTimes(get(), 'ava-lin', 'intro', { ...deps, clientKey: () => 'client-b' })).status).toBe(200)
   })
 
   it('a time found taken at booking drops the kept times, so the page’s next read is fresh', async () => {
     const { deps, readTimes } = setup()
-    await handleLinkTimes(get('?from=2031-01-07&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
+    await handleLinkTimes(get(), 'ava-lin', 'intro', deps)
     const taken = await handleBookLink(post({ start: hoursAhead(80, NOW), name: 'Dana', email: 'dana@initech.example' }), 'ava-lin', 'intro', deps)
     expect(taken.status).toBe(409)
     const calls = readTimes.mock.calls.length
-    await handleLinkTimes(get('?from=2031-01-07&days=3&tz=America/Chicago'), 'ava-lin', 'intro', deps)
+    await handleLinkTimes(get(), 'ava-lin', 'intro', deps)
     expect(readTimes).toHaveBeenCalledTimes(calls + 1)
   })
 
@@ -150,9 +181,12 @@ describe('its times', () => {
   it('a job link’s times are the business’s open slots', async () => {
     const { deps } = setup()
     const jobTimes = vi.fn(async () => ({ timeZone: NY, slots: [{ start: T1, end: hoursAhead(31, NOW) }] }))
-    const res = await handleLinkTimes(new Request('https://app.example/x?from=2031-01-07&days=7'), 'fernhill', 'book', { ...deps, jobTimes })
+    const res = await handleLinkTimes(new Request(`https://app.example/x?from=${dayIn(NY)}&days=7`), 'fernhill', 'book', { ...deps, jobTimes })
     expect((await res.json()).slots).toEqual([{ start: T1, end: hoursAhead(31, NOW) }])
-    expect(jobTimes).toHaveBeenCalledWith({ workspaceId: WS, ownerUserId: AVA }, { fromDate: '2031-01-07', days: 7 })
+    // Read as the business's fixed two-week block from today, whatever was asked.
+    expect(jobTimes).toHaveBeenCalledWith({ workspaceId: WS, ownerUserId: AVA }, { fromDate: dayIn(NY), days: 14 })
+    await handleLinkTimes(new Request(`https://app.example/x?from=${dayIn(NY, 3)}&days=5`), 'fernhill', 'book', { ...deps, jobTimes })
+    expect(jobTimes).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -178,13 +212,30 @@ describe('booking', () => {
 
   it('capped: tries per link per hour, and bookings per guest per day', async () => {
     const { deps, tables } = setup()
-    tables.booking_link_attempt.push(...Array.from({ length: LINK_ATTEMPTS_HOURLY_CAP }, (_, i) => ({ id: `a-${i}`, link_id: INTRO, created_at: new Date(NOW - 60_000).toISOString() })))
+    tables.booking_link_attempt.push(...Array.from({ length: LINK_ATTEMPTS_HOURLY_CAP }, (_, i) => ({ id: `a-${i}`, link_id: INTRO, client_hash: null, created_at: new Date(NOW - 60_000).toISOString() })))
     expect((await handleBookLink(post({ start: T1, name: 'Dana', email: 'dana@initech.example' }), 'ava-lin', 'intro', deps)).status).toBe(429)
     const other = setup()
     other.tables.meeting_booking.push(
       ...[1, 2].map((i) => ({ id: `mb-${i}`, link_id: INTRO, workspace_id: WS, host_user_id: AVA, guest_email: 'dana@initech.example', guest_phone: null, state: 'confirmed', starts_at: hoursAhead(40 + i, NOW), ends_at: hoursAhead(41 + i, NOW), created_at: new Date(NOW - 3_600_000).toISOString() })),
     )
     expect((await handleBookLink(post({ start: T1, name: 'Dana', email: 'Dana@initech.example' }), 'ava-lin', 'intro', other.deps)).status).toBe(429)
+  })
+
+  it('one stranger can’t close the page for everyone: junk counts for nothing, and a client’s tries count against that client', async () => {
+    const { deps, tables } = setup()
+    const stranger = { ...deps, clientKey: () => 'client-x' }
+    // Junk (no name, no way to reach anyone) is refused and counts for nothing.
+    for (let i = 0; i < LINK_ATTEMPTS_HOURLY_CAP + 5; i++) expect((await handleBookLink(post({ start: T1, name: '' }), 'ava-lin', 'intro', stranger)).status).toBe(400)
+    expect(tables.booking_link_attempt).toHaveLength(0)
+    // Real-looking tries count, against the client first.
+    for (let i = 0; i < LINK_CLIENT_HOURLY_CAP; i++) await handleBookLink(post({ start: hoursAhead(80, NOW), name: `Guest ${i}`, email: `guest${i}@globex.example` }), 'ava-lin', 'intro', stranger)
+    expect(tables.booking_link_attempt.filter((a) => a.client_hash === 'client-x')).toHaveLength(LINK_CLIENT_HOURLY_CAP)
+    expect((await handleBookLink(post({ start: T1, name: 'Mallory', email: 'mallory@evil.example' }), 'ava-lin', 'intro', stranger)).status).toBe(429)
+    // ...and on every page alike (each could have a host's calendar email the address typed).
+    expect((await handleBookLink(post({ start: T1, name: 'Mallory', phone: '(212) 555-0142' }), 'fernhill', 'book', stranger)).status).toBe(429)
+    // A real guest from elsewhere books.
+    const res = await handleBookLink(post({ start: T1, name: 'Dana Reyes', email: 'dana@initech.example' }), 'ava-lin', 'intro', { ...deps, clientKey: () => 'client-d' })
+    expect(res.status).toBe(201)
   })
 
   it('its failures in the shared error shape: a time taken is 409, a missing contact 400 naming the field', async () => {
@@ -211,6 +262,20 @@ describe('booking', () => {
     expect(request).toHaveBeenCalledWith({ workspaceId: WS, ownerUserId: AVA }, { start: T1, name: 'Sarah Lee', phone: '+12125550199', address: '12 Elm St', note: null })
     // A mobile is required there.
     expect((await handleBookLink(post({ start: T1, name: 'Sarah Lee', email: 'sarah@example.com' }), 'fernhill', 'book', { ...deps, job })).status).toBe(400)
+  })
+})
+
+describe('who a request is from', () => {
+  it("the edge's own address header only, never one the client picks, and only ever hashed", () => {
+    const from = (headers: Record<string, string>) => clientKeyOf(new Request('https://app.example/x', { headers }), 'test-secret')
+    const key = from({ 'x-real-ip': '203.0.113.7' })
+    expect(key).toMatch(/^[A-Za-z0-9_-]{32}$/)
+    expect(key).not.toContain('203')
+    expect(from({ 'x-real-ip': '203.0.113.7', 'x-forwarded-for': '198.51.100.1' })).toBe(key)
+    expect(from({ 'x-real-ip': '203.0.113.8' })).not.toBe(key)
+    // No edge header: no client (the page's own caps still hold).
+    expect(from({ 'x-forwarded-for': '198.51.100.1' })).toBeNull()
+    expect(from({ 'x-real-ip': 'not an address' })).toBeNull()
   })
 })
 

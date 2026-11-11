@@ -208,7 +208,7 @@ export function recipientLink(origin: string, recipientId: string, secret?: stri
 export async function createPoll(
   supabase: SupabaseClient,
   plan: PlannedPoll,
-  opts: { state: 'open' | 'pending_send'; createdBy: string | null; cardHash?: string | null; omitGrants?: boolean },
+  opts: { state: 'open' | 'pending_send'; createdBy: string | null; cardHash?: string | null; omitGrants?: boolean; recipientsShown?: boolean },
   deps: PollDeps = {},
 ): Promise<CreatePollResult> {
   const now = (deps.now ?? Date.now)()
@@ -270,6 +270,7 @@ export async function createPoll(
       tokenHash: null,
       sentVia: opts.state === 'open' ? 'link' : null,
       cardHash: opts.cardHash ?? null,
+      recipientsShown: opts.recipientsShown === true,
       expiresAt: plan.expiresAt,
       slots: plan.slots,
       mode: 'poll',

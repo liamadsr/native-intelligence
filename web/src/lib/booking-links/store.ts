@@ -302,13 +302,26 @@ export async function countLinkAttempts(supabase: SupabaseClient, linkId: string
   return count ?? 0
 }
 
-/** Record a try. Best effort. */
-export async function recordLinkAttempt(supabase: SupabaseClient, linkId: string): Promise<void> {
+/** One client's tries on every link since `sinceIso`. */
+export async function countClientAttempts(supabase: SupabaseClient, clientHash: string, sinceIso: string): Promise<number> {
+  const { count, error } = await supabase.from('booking_link_attempt').select('id', { count: 'exact', head: true }).eq('client_hash', clientHash).gte('created_at', sinceIso)
+  if (error) throw new Error(`booking_link_attempt count failed: ${error.message}`)
+  return count ?? 0
+}
+
+/** Record a try, and whose (a client hash, ./client.ts). Best effort. */
+export async function recordLinkAttempt(supabase: SupabaseClient, linkId: string, clientHash: string | null = null): Promise<void> {
   try {
-    await supabase.from('booking_link_attempt').insert({ link_id: linkId })
+    await supabase.from('booking_link_attempt').insert({ link_id: linkId, client_hash: clientHash })
   } catch {
     // The count is a cap, not a record.
   }
+}
+
+/** Tries older than `beforeIso`: no cap counts them any more (the sweep's). */
+export async function deleteOldLinkAttempts(supabase: SupabaseClient, beforeIso: string): Promise<void> {
+  const { error } = await supabase.from('booking_link_attempt').delete().lt('created_at', beforeIso)
+  if (error) throw new Error(`booking_link_attempt delete failed: ${error.message}`)
 }
 
 /** Bookings one guest (their email or number) made on a link since `sinceIso`. */

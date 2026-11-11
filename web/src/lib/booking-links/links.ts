@@ -10,13 +10,16 @@
  *                bookings it made stay.
  *   setHandle    the person's handle, or the workspace's (owners and admins).
  *
- * Who may edit a link: its owner, or an owner or admin of the workspace.
- * Hosts are members of the workspace; one who doesn't share their
- * availability (member.availability_sharing 'none') can't be made a host by
- * someone else (the link would read their calendar for strangers). A
- * business's job link keeps its shape (its owner the one host, every
- * request on their yes, the address question): only its times, length,
- * notice, window, description and on/off change here.
+ * Who may edit a link: its owner, or an owner or admin of the workspace; a
+ * workspace guest never makes, edits or hosts one. A host is someone whose
+ * calendar the public page reads and books into (the invitations go out
+ * from their own account), so each host consents in a concrete way: the
+ * editor themself, or a member who shares their availability AND whom an
+ * owner or admin adds (a plain member adds only themself). A host already
+ * on the link stays on through other changes. A business's job link keeps
+ * its shape (its owner the one host, every request on their yes, the address
+ * question): only its times, length, notice, window, description and on/off
+ * change here.
  *
  * Server only; service role, every read fenced to the workspace. Never
  * throws: every outcome is a result.
@@ -41,17 +44,19 @@ export interface Editor {
 }
 
 /** The editor's role in the workspace, or null when they aren't a member. Throws on a failed read. */
-async function roleOf(supabase: SupabaseClient, editor: Editor): Promise<string | null> {
+async function roleOf(supabase: SupabaseClient, editor: Pick<Editor, 'workspaceId' | 'userId'>): Promise<string | null> {
   const { data, error } = await supabase.from('member').select('role').eq('workspace_id', editor.workspaceId).eq('user_id', editor.userId).maybeSingle<{ role: string | null }>()
   if (error) throw new Error(`member read failed: ${error.message}`)
   return data ? (data.role ?? 'member') : null
 }
 
 const isManager = (role: string | null) => role === 'owner' || role === 'admin'
+/** A workspace guest (512) is a member row too, and never makes, edits or hosts a link. */
+const isGuest = (role: string | null) => role === 'guest'
 
-/** Whether the editor may change this link: its owner, or a workspace owner or admin. Pure. */
+/** Whether the editor may change this link: its owner, or a workspace owner or admin; never a workspace guest. Pure. */
 export function mayEdit(link: Pick<BookingLink, 'ownerUserId' | 'purpose'>, editor: Pick<Editor, 'userId'>, role: string | null): boolean {
-  if (!role) return false
+  if (!role || isGuest(role)) return false
   if (link.purpose === 'job') return isManager(role)
   return link.ownerUserId === editor.userId || isManager(role)
 }
@@ -105,14 +110,26 @@ export function columnsOf(input: LinkFieldsInput): { columns: LinkColumns } | Li
 const hostsOf = (ids: readonly string[]): LinkHost[] => [...new Set(ids)].map((userId, position) => ({ userId, position }))
 
 /**
- * Whether these may host a link the editor sets up: members of the
- * workspace, and each who isn't the editor shares their availability. The
- * refusal, or null. Throws on a failed read.
+ * Whether these may host a link the editor (of `editorRole`) sets up (see the
+ * header): the editor themself, or, added by an owner or admin, a member who
+ * isn't a workspace guest and shares their availability. `kept` are already
+ * on the link: they stay. The refusal, or null. Throws on a failed read.
  */
-async function hostRefusal(supabase: SupabaseClient, editor: Editor, hosts: readonly LinkHost[], mode: string): Promise<LinkFailure | null> {
+async function hostRefusal(
+  supabase: SupabaseClient,
+  editor: Editor,
+  editorRole: string | null,
+  hosts: readonly LinkHost[],
+  mode: string,
+  kept: ReadonlySet<string> = new Set(),
+): Promise<LinkFailure | null> {
   if (mode === 'one' && hosts.length !== 1) return fail('BAD_INPUT', "host_mode 'one' takes exactly one host.")
   for (const host of hosts) {
-    if (host.userId === editor.userId) continue
+    if (host.userId === editor.userId || kept.has(host.userId)) continue
+    if (!isManager(editorRole)) return fail('NOT_ALLOWED', "Only the workspace's owner or an admin adds someone else as a host: their calendar would take the bookings. Add yourself, or ask them to make their own link.")
+    const hostRole = await roleOf(supabase, { workspaceId: editor.workspaceId, userId: host.userId })
+    if (!hostRole) return fail('BAD_INPUT', 'Every host must be a member of this workspace.')
+    if (isGuest(hostRole)) return fail('NOT_ALLOWED', "A guest of the workspace can't host a booking link.")
     let sharing
     try {
       sharing = await readSharing(supabase, { userId: host.userId, workspaceId: editor.workspaceId })
@@ -177,6 +194,7 @@ export async function createLink(supabase: SupabaseClient, editor: Editor, input
   try {
     const role = await roleOf(supabase, editor)
     if (!role) return fail('NOT_ALLOWED', 'Not a member of this workspace.')
+    if (isGuest(role)) return fail('NOT_ALLOWED', "A guest of the workspace can't make booking links.")
     if (input.team && !isManager(role)) return fail('NOT_ALLOWED', "Only the workspace's owner or an admin makes a team link.")
     if ((await countLinks(supabase, editor.workspaceId)) >= LINKS_PER_WORKSPACE_MAX) return fail('LIMIT', `A workspace keeps at most ${LINKS_PER_WORKSPACE_MAX} booking links: turn one off and delete it first.`)
     const made = columnsOf(input)
@@ -184,7 +202,7 @@ export async function createLink(supabase: SupabaseClient, editor: Editor, input
     const { columns } = made
     const hosts = hostsOf(input.hosts ?? [editor.userId])
     const mode = columns.host_mode ?? LINK_DEFAULTS.hostMode
-    const refused = await hostRefusal(supabase, editor, hosts, mode)
+    const refused = await hostRefusal(supabase, editor, role, hosts, mode)
     if (refused) return refused
 
     const name = input.team
@@ -249,7 +267,7 @@ export async function changeLink(supabase: SupabaseClient, editor: Editor, linkI
     if (link.purpose === 'job' && columns.duration_minutes !== undefined) columns.step_minutes = columns.duration_minutes
     const hosts = input.hosts ? hostsOf(input.hosts) : undefined
     if (hosts || columns.host_mode) {
-      const refused = await hostRefusal(supabase, editor, hosts ?? link.hosts, columns.host_mode ?? link.hostMode)
+      const refused = await hostRefusal(supabase, editor, role, hosts ?? link.hosts, columns.host_mode ?? link.hostMode, new Set(link.hosts.map((h) => h.userId)))
       if (refused) return refused
     }
     return fromWrite(await updateLink(supabase, link, columns, hosts))
@@ -288,6 +306,7 @@ export async function setHandle(supabase: SupabaseClient, editor: Editor, input:
   try {
     const role = await roleOf(supabase, editor)
     if (!role) return fail('NOT_ALLOWED', 'Not a member of this workspace.')
+    if (isGuest(role)) return fail('NOT_ALLOWED', "A guest of the workspace can't have a booking handle.")
     if (input.scope === 'workspace' && !isManager(role)) return fail('NOT_ALLOWED', "Only the workspace's owner or an admin changes its handle.")
     const made = await setProfileHandle(supabase, { workspaceId: editor.workspaceId, userId: input.scope === 'workspace' ? null : editor.userId }, input.handle)
     if (made.ok) return made

@@ -68,16 +68,10 @@ import { reviewArguments, reviewPersonMessages } from '@/lib/ai/decisions/tasks/
 import { getToolSideEffect, type ToolSideEffect } from '@/lib/ai/tool-registry'
 import { createToolApproval, type ApprovalContext, type ApprovalDoor, type ApprovalSideEffect } from './approvals'
 import { macJobAgentName, macJobPlace, type LocalAgentApprovalContext } from './mac-job'
-import { outwardHoldOf, type ExternalToolPolicy, type OutwardHold } from './outward-gate'
+import { offerBookingOutwardHold, outwardHoldOf, type ExternalToolPolicy, type OutwardHold } from './outward-gate'
 import type { TimeOfferApprovalContext } from './approved-call'
 import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-input'
-import { NUDGE_TIME_OFFER_TOOL, offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
-
-/**
- * The host's agent booking from an offer's own times (src/lib/ai/tools/time-offers.ts): one an
- * offer's guest picked, a poll guest's answer that may book it, a poll's time booked at the person's word.
- */
-const OFFER_BOOKING_TOOLS: ReadonlySet<string> = new Set(['accept_time_offer', 'record_time_offer_answer', 'book_poll_time'])
+import { NUDGE_TIME_OFFER_TOOL, OFFER_BOOKING_TOOLS, offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
 
 import { isReadShapedExternalName } from '@/lib/mcp/read-names'
 import type { AlwaysAllowOffer } from '@/lib/mcp-client/always-allow'
@@ -99,23 +93,18 @@ const isQuoteReply = (toolName: string, input?: unknown) => QUOTE_REPLY_TOOLS.ha
 /**
  * Calls the reviewer never sees and no door holds, whose registry class says
  * more than they do (availability phase 3a, src/lib/time-offers/):
- *   - offer_times by link: it makes the offer and holds the person's own
- *     time, and hands the link back to them; nothing leaves Native
- *     Intelligence (by email or text it is the outward gate's card);
- *   - accept_time_offer: books one of an offer's own times for that offer's
- *     own recipient, the person's agent reading the recipient's reply. The
- *     person already approved offering exactly those times to exactly that
- *     person, which is what the public link lets the recipient do too: the
- *     tool takes only the offer and a start, and books nothing else;
- *   - a poll's own (phase 5): record_time_offer_answer records one of its
- *     own guests' answer, in its own times (the last answer books the
- *     earliest time all can make, as the guests' links do); book_poll_time
- *     books one of its own times with its own guests at the person's word;
- *     nudge_time_offer by link hands the person each guest's reminder and
- *     sends nothing (by email or text it is the outward gate's card).
+ * offer_times by link makes the offer and holds the person's own time, and
+ * hands the link back to them; nudge_time_offer by link hands the person
+ * each guest's reminder. Nothing leaves Native Intelligence (by email or
+ * text each is the outward gate's card).
+ *
+ * The agent's bookings from an offer's own times (OFFER_BOOKING_TOOLS:
+ * accept_time_offer, record_time_offer_answer, book_poll_time) are not
+ * here: the calendar emails the offer's guests, so each runs on its own only
+ * when the person saw who the offer went to, which takes a read
+ * (gateRiskyCall, src/lib/time-offers/agent-booking.ts).
  */
 function preApprovedCall(name: string, input: unknown): boolean {
-  if (OFFER_BOOKING_TOOLS.has(name)) return true
   return (name === OFFER_TIMES_TOOL || name === NUDGE_TIME_OFFER_TOOL) && input !== undefined && !offerTimesSends(name, input)
 }
 
@@ -537,6 +526,15 @@ export async function gateRiskyCall<T>(
   // The test seam may turn the reviewer on, never off for a Mac call: only the kill switch does (N1).
   const enforce = enforceParam === undefined ? byMode : enforceParam || (macCall && mode !== 'shadow')
   const review = { ...request, sideEffect: request.sideEffect, ...(localAgent ? { localAgent } : {}) }
+  // An agent booking from an offer's own times: pre-approved when the person
+  // saw who the offer went to (its card, or their own turn made it), never
+  // reviewed; else the card naming its guests (or NEEDS_PERSON), before
+  // anything else and whatever the mode, a text turn and a home turn alike.
+  if (OFFER_BOOKING_TOOLS.has(bareToolName(request.toolName))) {
+    const hold = await offerBookingOutwardHold({ userId: request.userId, workspaceId: request.workspaceId, toolName: request.toolName, input: request.input })
+    if (!hold) return { held: false, value: await run() }
+    return { held: true, output: await holdOutward(review, hold) }
+  }
   // A text turn: nothing risky runs on a text alone, whatever the mode. The
   // hold is the person's card only when the person is the caller (a text from
   // their verified phone is person_remote, caller.ts), or a guest the person

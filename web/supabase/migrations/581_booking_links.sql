@@ -51,12 +51,15 @@
 --                           link. customer_booking and those columns stay,
 --                           no longer written: the undo.
 --
--- RLS on; members of a workspace read its profiles, links and hosts; only
--- the service role writes. Re-runnable: run it again right after the deploy
--- to carry over any customer_booking row the old code wrote in between.
+-- RLS on, and only the service role reads or writes (as 554's tables: every
+-- reader is on the server). Re-runnable: run it again right after the deploy
+-- to carry over what the old code wrote in between, new rows and changes to
+-- rows already copied (section 8 says the rule).
 --
 -- Must run on PROD before the app code that reads it deploys: every booking
 -- read and write (customers' included) reads the new columns and tables.
+-- Run it in one transaction (psql --single-transaction -v ON_ERROR_STOP=1):
+-- SET LOCAL needs one, and a failure part way leaves nothing behind.
 
 SET LOCAL lock_timeout = '5s';
 
@@ -207,13 +210,17 @@ create index if not exists booking_link_host_workspace_idx on public.booking_lin
 create table if not exists public.booking_link_attempt (
   id uuid primary key default gen_random_uuid(),
   link_id uuid not null references public.booking_link(id) on delete cascade,
+  client_hash text null,
   created_at timestamptz not null default now()
 );
 
 comment on table public.booking_link_attempt is
-  'A booking a link''s public page tried (581), counted to rate-limit the page. Service role only.';
+  'A booking a link''s public page tried (581), counted to rate-limit the page: per link, and per client. Service role only.';
+comment on column public.booking_link_attempt.client_hash is
+  'Who tried: a keyed hash of the client''s address (never the address), so one stranger''s tries count against them, not the page.';
 
 create index if not exists booking_link_attempt_link_idx on public.booking_link_attempt (link_id, created_at);
+create index if not exists booking_link_attempt_client_idx on public.booking_link_attempt (client_hash, created_at) where client_hash is not null;
 
 -- ------------------------------------------------------------
 -- 5. meeting_booking: links, and customers' jobs
@@ -268,6 +275,10 @@ alter table public.meeting_booking
 alter table public.meeting_booking drop constraint if exists meeting_booking_answers_shape;
 alter table public.meeting_booking
   add constraint meeting_booking_answers_shape check (case when jsonb_typeof(answers) = 'array' then jsonb_array_length(answers) <= 10 else false end);
+-- A customer's job may run a whole day, as customer_booking's could (458).
+alter table public.meeting_booking drop constraint if exists meeting_booking_times;
+alter table public.meeting_booking
+  add constraint meeting_booking_times check (ends_at > starts_at and (ends_at - starts_at <= interval '8 hours' or (source = 'customer' and ends_at - starts_at <= interval '1 day')));
 alter table public.meeting_booking drop constraint if exists meeting_booking_zone_shape;
 alter table public.meeting_booking
   add constraint meeting_booking_zone_shape check (host_time_zone is null or host_time_zone ~ '^[A-Za-z0-9_+/-]{1,64}$');
@@ -356,16 +367,16 @@ begin
     return jsonb_build_object('status', 'invalid');
   end if;
 
-  -- A lapsed claim never blocks: an expired hold goes, and a request whose
-  -- hold ran out (the host never answered) expires with it.
-  with gone as (
-    delete from public.host_time_claim
-    where host_user_id = any(p_hosts) and expires_at is not null and expires_at <= now()
-    returning booking_id
-  )
-  update public.meeting_booking
-    set state = 'expired', decided_at = now(), updated_at = now()
-    where id in (select booking_id from gone where booking_id is not null) and state = 'requested';
+  -- A lapsed claim that holds nothing up goes: an expired hold, or the claim
+  -- of a booking that is over (declined, expired, cancelled, failed, gone).
+  -- A request whose hold ran out still blocks until the sweep expires it and
+  -- tells whoever it must (src/lib/time-offers/sweep.ts, within 5 minutes),
+  -- and a booking said yes to keeps its time whatever its claim says.
+  delete from public.host_time_claim c
+  where c.host_user_id = any(p_hosts) and c.expires_at is not null and c.expires_at <= now()
+    and (c.kind = 'hold' or not exists (
+      select 1 from public.meeting_booking b where b.id = c.booking_id and b.state in ('requested', 'booking', 'confirmed')
+    ));
 
   begin
     perform public.write_meeting_booking(p_booking, p_hosts, p_claim_expires_at);
@@ -511,14 +522,12 @@ begin
   end if;
   v_hosts := array_prepend(v_booking.host_user_id, v_booking.other_host_ids);
 
-  with gone as (
-    delete from public.host_time_claim
-    where host_user_id = any(v_hosts) and expires_at is not null and expires_at <= now()
-    returning booking_id
-  )
-  update public.meeting_booking
-    set state = 'expired', decided_at = now(), updated_at = now()
-    where id in (select booking_id from gone where booking_id is not null) and state = 'requested';
+  -- A lapsed claim that holds nothing up goes (as book_meeting clears them).
+  delete from public.host_time_claim c
+  where c.host_user_id = any(v_hosts) and c.expires_at is not null and c.expires_at <= now()
+    and (c.kind = 'hold' or not exists (
+      select 1 from public.meeting_booking b where b.id = c.booking_id and b.state in ('requested', 'booking', 'confirmed')
+    ));
 
   begin
     update public.host_time_claim set starts_at = p_starts_at, ends_at = p_ends_at where booking_id = p_booking_id;
@@ -549,17 +558,85 @@ grant execute on function public.move_meeting_booking(uuid, timestamptz, timesta
 -- 8. The fold: business profiles' booking rules and customer bookings
 -- ------------------------------------------------------------
 
+-- It runs twice: before the deploy, and again right after it, for what the
+-- old code wrote in between (new rows, and changes to rows already copied).
+-- The rule on the second run, row by row: the newer write wins.
+--   - A customer booking: by updated_at. Every writer of customer_booking
+--     (458, 472) stamps it, and so does every writer of meeting_booking; a
+--     copy keeps customer_booking's own stamp, so an untouched copy is equal,
+--     a row the old code changed since is newer on the left (copied again,
+--     its claims made to match), and a copy the new code changed since is
+--     newer on the right (left alone).
+--   - A business's handle and job link: the fold marks its own rows
+--     updated_at = 'epoch', which no app write ever stamps. One still so
+--     marked is untouched by the new code, and business_profile's booking
+--     columns (no longer written by the new code) are still its truth: it
+--     is made from them again. One the new code changed is left alone.
+-- After the second run this lists every customer booking whose copy differs
+-- (expected: none, or only rows the new code changed since, newer on the
+-- right):
+--   select cb.id, cb.state, mb.state, cb.starts_at, mb.starts_at, cb.updated_at, mb.updated_at
+--   from public.customer_booking cb left join public.meeting_booking mb on mb.id = cb.id
+--   where mb.id is null or (mb.state, mb.starts_at, mb.ends_at) is distinct from (cb.state, cb.starts_at, cb.ends_at);
+
 -- A business's booking slug is its workspace handle (a handle someone else has keeps theirs).
-insert into public.booking_profile (workspace_id, user_id, handle)
-select bp.workspace_id, null, bp.booking_slug
+update public.booking_profile p
+  set handle = bp.booking_slug
+  from public.business_profile bp
+  where p.workspace_id = bp.workspace_id and p.user_id is null and p.updated_at = 'epoch'
+    and bp.booking_slug is not null and p.handle <> bp.booking_slug
+    and not exists (select 1 from public.booking_profile o where o.handle = bp.booking_slug);
+
+insert into public.booking_profile (workspace_id, user_id, handle, updated_at)
+select bp.workspace_id, null, bp.booking_slug, 'epoch'
 from public.business_profile bp
 where bp.booking_slug is not null
 on conflict do nothing;
 
--- Each business's booking rules, as its job link: the owner its one host, every request on their yes.
+do $$
+declare
+  v_lost integer;
+begin
+  select count(*) into v_lost
+  from public.business_profile bp
+  where bp.booking_slug is not null
+    and not exists (select 1 from public.booking_profile p where p.workspace_id = bp.workspace_id and p.user_id is null and p.handle = bp.booking_slug);
+  if v_lost > 0 then
+    raise warning '581: % business booking slug(s) not carried over (the handle is someone else''s now): their old /book/<slug> address finds nothing', v_lost;
+  end if;
+end;
+$$;
+
+-- Each business's booking rules, as its job link: the owner its one host,
+-- every request on their yes. Made from the profile again on the second run
+-- while the new code hasn't changed it (see above).
+update public.booking_link l
+  set
+    profile_id = prof.id,
+    title = left(upper(left(btrim(coalesce(bp.booking_kind, 'pickup')), 1)) || substr(btrim(coalesce(bp.booking_kind, 'pickup')), 2), 120),
+    duration_minutes = bp.slot_minutes,
+    notice_minutes = least(bp.lead_hours * 60, 20160),
+    window_days = least(greatest(bp.horizon_days, 1), 180),
+    step_minutes = bp.slot_minutes,
+    weekly_hours = (
+      select jsonb_agg(
+        case when d = any(coalesce(bp.booking_days, '{}'::smallint[]))
+          then jsonb_build_array(jsonb_build_object('start', bp.booking_start, 'end', bp.booking_end))
+          else '[]'::jsonb
+        end
+        order by d
+      )
+      from generate_series(0, 6) as d
+    ),
+    job_kind = btrim(coalesce(bp.booking_kind, 'pickup')),
+    active = bp.booking_slug is not null
+  from public.business_profile bp
+  left join public.booking_profile prof on prof.workspace_id = bp.workspace_id and prof.user_id is null
+  where l.purpose = 'job' and l.workspace_id = bp.workspace_id and l.updated_at = 'epoch';
+
 insert into public.booking_link (
   workspace_id, owner_user_id, profile_id, slug, purpose, title, duration_minutes, notice_minutes,
-  window_days, step_minutes, questions, video, ask_first, host_mode, weekly_hours, time_zone, job_kind, active
+  window_days, step_minutes, questions, video, ask_first, host_mode, weekly_hours, time_zone, job_kind, active, updated_at
 )
 select
   bp.workspace_id,
@@ -588,7 +665,8 @@ select
   ),
   null,
   btrim(coalesce(bp.booking_kind, 'pickup')),
-  bp.booking_slug is not null
+  bp.booking_slug is not null,
+  'epoch'
 from public.business_profile bp
 left join public.booking_profile prof on prof.workspace_id = bp.workspace_id and prof.user_id is null
 where not exists (select 1 from public.booking_link l where l.workspace_id = bp.workspace_id and l.purpose = 'job');
@@ -599,8 +677,60 @@ from public.booking_link l
 where l.purpose = 'job'
 on conflict do nothing;
 
--- Every customer booking, as a meeting_booking of the same id. Its manage
--- hash is 'none:<id>': never the sha256 of any token, so it has no manage page.
+-- A customer booking the old code changed since it was copied (see above):
+-- copied again, and its claims made to match. One no longer live lets its
+-- time go; a live one's claims move with it (a request's hold ending with
+-- its day, a yes holding for good); one whose new time another claim has
+-- loses its claims, and the step after says so.
+do $$
+declare
+  v_refreshed uuid[];
+  r record;
+begin
+  with refreshed as (
+    update public.meeting_booking mb
+      set
+        state = cb.state,
+        starts_at = cb.starts_at,
+        ends_at = cb.ends_at,
+        approval_id = cb.approval_id,
+        calendar_event_id = cb.calendar_event_id,
+        customer_confirmed_at = cb.customer_confirmed_at,
+        decided_at = cb.decided_at,
+        confirmed_at = case when cb.state = 'confirmed' then coalesce(mb.confirmed_at, cb.decided_at, cb.updated_at) end,
+        cancelled_at = case when cb.state = 'cancelled' then coalesce(cb.decided_at, cb.updated_at) end,
+        updated_at = cb.updated_at
+      from public.customer_booking cb
+      where mb.id = cb.id and mb.source = 'customer' and cb.updated_at > mb.updated_at
+      returning mb.id
+  )
+  select coalesce(array_agg(id), '{}') into v_refreshed from refreshed;
+
+  delete from public.host_time_claim c
+  using public.meeting_booking mb
+  where c.booking_id = mb.id and mb.id = any(v_refreshed)
+    and not (mb.ends_at > now() and (mb.state = 'confirmed' or (mb.state = 'requested' and mb.created_at > now() - interval '24 hours')));
+
+  for r in
+    select mb.id, mb.state, mb.starts_at, mb.ends_at, mb.created_at
+    from public.meeting_booking mb
+    where mb.id = any(v_refreshed) and exists (select 1 from public.host_time_claim c where c.booking_id = mb.id)
+  loop
+    begin
+      update public.host_time_claim
+        set starts_at = r.starts_at, ends_at = r.ends_at,
+          expires_at = case when r.state = 'requested' then r.created_at + interval '24 hours 15 minutes' end
+        where booking_id = r.id;
+    exception when exclusion_violation then
+      delete from public.host_time_claim where booking_id = r.id;
+    end;
+  end loop;
+end;
+$$;
+
+-- Every customer booking not copied yet, as a meeting_booking of the same id.
+-- Its manage hash is 'none:<id>': never the sha256 of any token, so it has
+-- no manage page.
 insert into public.meeting_booking (
   id, workspace_id, host_user_id, host_name, source, channel, link_id,
   guest_name, guest_phone, guest_note, contact_id, quote_id, guest_id, kind, address,
@@ -642,15 +772,16 @@ from public.customer_booking cb
 left join public.business_profile bp on bp.workspace_id = cb.workspace_id
 left join public.workspace w on w.id = cb.workspace_id
 left join public.booking_link jl on jl.workspace_id = cb.workspace_id and jl.purpose = 'job'
-where cb.ends_at - cb.starts_at <= interval '8 hours'
 on conflict (id) do nothing;
 
 -- The live ones claim the owner's time: a confirmed job, and a request still
 -- within its day (its hold ending with it). One that overlaps a claim
--- already there is carried over without one, and said so.
+-- already there is carried over without one: each is named, and a warning
+-- counts them (the owner sorts them out: they can be double booked).
 do $$
 declare
   r record;
+  v_unclaimed uuid[] := '{}';
 begin
   for r in
     select mb.id, mb.workspace_id, mb.host_user_id, mb.starts_at, mb.ends_at, mb.state, mb.created_at
@@ -667,9 +798,12 @@ begin
         case when r.state = 'requested' then r.created_at + interval '24 hours 15 minutes' end
       );
     exception when exclusion_violation then
-      raise notice 'customer booking % overlaps another claim: carried over without one', r.id;
+      v_unclaimed := v_unclaimed || r.id;
     end;
   end loop;
+  if coalesce(array_length(v_unclaimed, 1), 0) > 0 then
+    raise warning '581: % live customer booking(s) overlap another claim and were carried over without one: %', array_length(v_unclaimed, 1), v_unclaimed;
+  end if;
 end;
 $$;
 
@@ -689,23 +823,11 @@ alter table public.booking_link enable row level security;
 alter table public.booking_link_host enable row level security;
 alter table public.booking_link_attempt enable row level security;
 
-drop policy if exists booking_profile_select_member on public.booking_profile;
-create policy booking_profile_select_member on public.booking_profile
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-drop policy if exists booking_link_select_member on public.booking_link;
-create policy booking_link_select_member on public.booking_link
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-drop policy if exists booking_link_host_select_member on public.booking_link_host;
-create policy booking_link_host_select_member on public.booking_link_host
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-
+-- No policy: nothing but the service role reads these (see the header).
 revoke all on table public.booking_profile from anon, authenticated;
 revoke all on table public.booking_link from anon, authenticated;
 revoke all on table public.booking_link_host from anon, authenticated;
 revoke all on table public.booking_link_attempt from anon, authenticated;
-grant select on table public.booking_profile to authenticated;
-grant select on table public.booking_link to authenticated;
-grant select on table public.booking_link_host to authenticated;
 grant all on table public.booking_profile to service_role;
 grant all on table public.booking_link to service_role;
 grant all on table public.booking_link_host to service_role;

@@ -12,8 +12,11 @@
  *                                   NEEDS_PERSON unattended), its texted
  *                                   prompt the whole card; by link no hold.
  *   record_time_offer_answer,
- *   book_poll_time                  as accept_time_offer: pre-approved by the
- *                                   poll, never held (book_poll_time refuses
+ *   book_poll_time                  as accept_time_offer: pre-approved when
+ *                                   the person saw who the poll went to,
+ *                                   never reviewed; else the card naming its
+ *                                   guests (outward-gate-time-offers.test.ts
+ *                                   covers that rule; book_poll_time refuses
  *                                   an unattended run itself).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -24,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   decide: vi.fn(async (): Promise<unknown> => ({ status: 'accepted', inferenceId: 'inf-a', value: { allow: true, probability: 0.97 } })),
   approve: vi.fn(async (): Promise<unknown> => ({ ok: true, approvalId: 'appr-1', cardId: 'card-1' })),
   hold: vi.fn(),
+  bookingHold: vi.fn(async (): Promise<unknown> => null),
 }))
 vi.mock('@/lib/ai/decisions/run-decision', () => ({ runDecision: mocks.decide }))
 vi.mock('../approvals', () => ({ createToolApproval: mocks.approve }))
@@ -32,6 +36,7 @@ vi.mock('@/lib/email/thread-mailbox', () => ({ mailboxesForThread: async functio
 vi.mock('@/lib/workspace-member-emails', () => ({ findMembersByEmail: async () => new Map() }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ service: true }) }))
 vi.mock('@/lib/time-offers/send', () => ({ timeOfferHold: mocks.hold }))
+vi.mock('@/lib/time-offers/agent-booking', () => ({ offerBookingHold: mocks.bookingHold }))
 
 import { gateRiskyCall, riskClassOf, type GateRequest } from '../action-review'
 import { outwardHoldOf } from '../outward-gate'
@@ -58,13 +63,13 @@ beforeEach(() => {
 })
 
 describe('risk classes and pinned lists', () => {
-  it('nudge_time_offer by email or text is an external write; by link, record_time_offer_answer and book_poll_time are never reviewed', () => {
+  it('nudge_time_offer by email or text is an external write, by link never reviewed; record_time_offer_answer and book_poll_time are external writes (the gate asks whether the poll was shown)', () => {
     expect(riskClassOf('nudge_time_offer', NUDGE)).toBe('external-write')
     expect(riskClassOf('nudge_time_offer', { ...NUDGE, send_by: 'text' })).toBe('external-write')
     expect(riskClassOf('nudge_time_offer', { offer_id: NUDGE.offer_id })).toBeNull()
     expect(riskClassOf('nudge_time_offer')).toBe('external-write')
-    expect(riskClassOf('record_time_offer_answer', { offer_id: 'o', guest_id: 'g', works: [] })).toBeNull()
-    expect(riskClassOf('book_poll_time', { offer_id: 'o', start: 's' })).toBeNull()
+    expect(riskClassOf('record_time_offer_answer', { offer_id: 'o', guest_id: 'g', works: [] })).toBe('external-write')
+    expect(riskClassOf('book_poll_time', { offer_id: 'o', start: 's' })).toBe('external-write')
     expect(riskClassOf('offer_times', { recipients: [{ name: 'A' }, { name: 'B' }], send_by: 'email' })).toBe('external-write')
     expect(riskClassOf('offer_times', { recipients: [{ name: 'A' }, { name: 'B' }] })).toBeNull()
   })
@@ -110,12 +115,13 @@ describe('nudge_time_offer by email or text', () => {
 })
 
 describe('the calls that run as they are', () => {
-  it('a nudge by link, record_time_offer_answer and book_poll_time run in the app, by text and unattended, with no card', async () => {
+  it('a nudge by link, and record_time_offer_answer and book_poll_time on a poll the person saw, run in the app, by text and unattended, with no card', async () => {
     const requests = [
       { ...base, input: { offer_id: NUDGE.offer_id }, sideEffect: riskClassOf('nudge_time_offer', { offer_id: NUDGE.offer_id }) },
       { ...base, toolName: 'record_time_offer_answer', input: { offer_id: 'o', guest_id: 'g', works: [] }, sideEffect: riskClassOf('record_time_offer_answer', {}) },
       { ...base, toolName: 'book_poll_time', input: { offer_id: 'o', start: 's' }, sideEffect: riskClassOf('book_poll_time', {}) },
     ]
+    for (const request of requests.slice(1)) expect(request.sideEffect).toBe('external-write')
     for (const request of requests) {
       for (const extra of [{}, { caller: 'person_remote' as const, alwaysHold: { reason: 'text_turn', message: 'held' } }, { caller: 'agent_unattended' as const, door: 'skill_run' as const }]) {
         expect(await gateRiskyCall({ ...request, ...extra, defer: () => {} }, run, true)).toEqual({ held: false, value: { success: true } })

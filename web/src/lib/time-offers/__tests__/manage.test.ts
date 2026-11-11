@@ -111,6 +111,23 @@ describe('rescheduleMeeting', () => {
     expect(tables.host_time_claim.map((c) => c.starts_at)).toEqual([SLOTS[0]])
   })
 
+  it('two moves at once: the one that loses never touches the calendar, so the calendar and the booking agree', async () => {
+    const { db, tables, booking, manage, window } = await booked()
+    const first = new Date(window.start).toISOString()
+    const second = new Date(window.start + H).toISOString()
+    // Both read the same booking; the first wins the fence while the second waits on its read.
+    const [a, b] = await Promise.all([rescheduleMeeting(db, { booking, start: first, by: 'guest' }, manage), rescheduleMeeting(db, { booking, start: second, by: 'guest' }, manage)])
+    const won = [a, b].filter((r) => r.ok)
+    expect(won).toHaveLength(1)
+    expect([a, b].find((r) => !r.ok)).toMatchObject({ code: 'CLOSED' })
+    const at = (won[0] as { booking: MeetingBooking }).booking.startsAt
+    // One provider move, to where the booking now is; the loser's claim gone.
+    expect(manage.updateEvent).toHaveBeenCalledTimes(1)
+    expect(manage.updateEvent).toHaveBeenCalledWith(HOST, 'evt-1', expect.objectContaining({ start: at }), expect.anything())
+    expect(tables.meeting_booking[0]).toMatchObject({ starts_at: at, reschedule_count: 1 })
+    expect(tables.host_time_claim.map((c) => c.starts_at)).toEqual([at])
+  })
+
   it('a time not on the list, one another claim took, and a fourth move are refused', async () => {
     const { db, tables, booking, manage, window } = await booked()
     expect(await rescheduleMeeting(db, { booking, start: new Date(window.start + 10 * 60_000).toISOString(), by: 'guest' }, manage)).toMatchObject({ ok: false, code: 'SLOT_TAKEN' })
@@ -148,5 +165,16 @@ describe('sweepTimeOffers', () => {
     expect(seams.createEvent).toHaveBeenCalledWith(HOST, expect.objectContaining({ attendees: ['sam@globex.example'] }), 'acct-google', { sendInvites: true, video: true, idempotencyKey: '6f0a8c1e-1b2c-4d5e-8f90-123456789abc' })
     // A second sweep finds nothing to do.
     expect(await sweepTimeOffers(db.db, { ...seams, now: () => NOW })).toEqual({ expired: 0, pollsBooked: 0, lapsedRequests: 0, finished: 0, failed: 0, stillBooking: 0 })
+  })
+
+  it("prunes the public pages' rate-limit rows older than two days (no cap counts back further than a day)", async () => {
+    const at = (hours: number) => new Date(NOW - hours * 3_600_000).toISOString()
+    const db = offerDb({
+      time_offer_failure: [{ id: 'f-old', offer_id: 'o-1', reason: 'slot_taken', created_at: at(49) }, { id: 'f-new', offer_id: 'o-1', reason: 'slot_taken', created_at: at(20) }],
+      booking_link_attempt: [{ id: 'a-old', link_id: 'l-1', client_hash: 'c', created_at: at(72) }, { id: 'a-new', link_id: 'l-1', client_hash: 'c', created_at: at(1) }],
+    })
+    await sweepTimeOffers(db.db, { ...bookingSeams(), now: () => NOW })
+    expect(db.tables.time_offer_failure.map((r) => r.id)).toEqual(['f-new'])
+    expect(db.tables.booking_link_attempt.map((r) => r.id)).toEqual(['a-new'])
   })
 })

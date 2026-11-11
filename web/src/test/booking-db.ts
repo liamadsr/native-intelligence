@@ -144,14 +144,12 @@ export function bookingDb(tables: Record<string, Row[]>, unique: Record<string, 
     ...unique,
   })
 
+  // A lapsed claim that holds nothing up: an expired hold, or a booking's that is over. A lapsed request is the sweep's.
   const clearLapsed = (hosts: readonly unknown[]) => {
     const now = Date.now()
-    const gone = tables.host_time_claim.filter((c) => hosts.includes(c.host_user_id) && c.expires_at != null && t(c.expires_at) <= now)
+    const live = (c: Row) => tables.meeting_booking.some((b) => b.id === c.booking_id && ['requested', 'booking', 'confirmed'].includes(b.state as string))
+    const gone = tables.host_time_claim.filter((c) => hosts.includes(c.host_user_id) && c.expires_at != null && t(c.expires_at) <= now && (c.kind === 'hold' || !live(c)))
     tables.host_time_claim = tables.host_time_claim.filter((c) => !gone.includes(c))
-    for (const c of gone) {
-      const b = tables.meeting_booking.find((r) => r.id === c.booking_id)
-      if (b && b.state === 'requested') Object.assign(b, { state: 'expired', decided_at: new Date().toISOString() })
-    }
   }
 
   const rpc = async (fn: string, args: Record<string, unknown>) => {

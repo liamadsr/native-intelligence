@@ -360,6 +360,12 @@ export async function confirmBooking(
       await release('declined')
       return { success: false, code: 'SLOT_TAKEN', error: `That time was booked by something else meanwhile, so it wasn't booked. ${told('was asked to pick another time.')}` }
     }
+    // A time that couldn't be kept for good isn't booked: a job whose claim
+    // still lapses could be double booked.
+    if (!kept.ok) {
+      await release('cancelled')
+      return { success: false, code: 'FAILED', error: `The time couldn't be kept on your calendar just now, so it wasn't booked. ${told("was told it isn't booked.")} Ask them again in a moment.` }
+    }
 
     const quote = booking.quoteId ? await getQuote(supabase, booking.workspaceId, booking.quoteId).catch(() => null) : null
     const description = [

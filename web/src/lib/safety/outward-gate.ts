@@ -54,6 +54,13 @@
  *     not held here. A poll (several guests, phase 5) is the same card naming
  *     every guest and their address; so is nudge_time_offer, a reminder to
  *     its guests still to answer (nothing to make first: its card pins who).
+ *   - accept_time_offer, record_time_offer_answer and book_poll_time from an
+ *     offer whose guests the person never saw (made by link outside their
+ *     own attended turn: src/lib/time-offers/agent-booking.ts): the booking
+ *     has the host's calendar email them, so it is the card naming them, as
+ *     outside attendees are. From an offer they saw (its card, or their own
+ *     turn), it runs: the gate asks offerBookingOutwardHold first and never
+ *     reviews it (action-review.ts gateRiskyCall).
  *
  * What a hold becomes is the trust authority's call, made in gateRiskyCall
  * (caller.ts decideAction(caller, 'outward', tool)): for the person, in the
@@ -76,6 +83,7 @@ import { BOOK_QUOTE_TOOL, SEND_QUOTE_TOOL } from '@/lib/customers/quote-reply-in
 import { bareToolName } from '@/lib/mcp/tool-names'
 import { NUDGE_TIME_OFFER_TOOL, offerTimesSends, OFFER_TIMES_TOOL } from '@/lib/time-offers/input'
 import type { TimeOfferHold } from '@/lib/time-offers/send'
+import type { OfferBookingHold } from '@/lib/time-offers/agent-booking'
 
 /** The calendar writes that invite attendees (bare names). */
 const CALENDAR_INVITE_TOOLS: ReadonlySet<string> = new Set(['create_calendar_event', 'update_calendar_event'])
@@ -135,6 +143,8 @@ export interface OutwardCheck {
   quoteCard?: (args: { workspaceId: string; userId: string; toolName: string; input: unknown }) => Promise<QuoteCardHold | null>
   /** Test seam: an offer_times call's card, check and offer (null: the tool would refuse it anyway). */
   timeOfferCard?: (args: { workspaceId: string; userId: string; input: unknown; toolName: string }) => Promise<TimeOfferHold | null>
+  /** Test seam: an agent booking's card from an offer whose guests the person never saw (null: it may run). */
+  offerBookingCard?: (args: { workspaceId: string; userId: string; input: unknown; toolName: string }) => Promise<OfferBookingHold | null>
 }
 
 /** A quote reply's card and the check its replay makes (src/lib/customers/quote-reply.ts quoteReplyHold). */
@@ -321,6 +331,33 @@ async function timeOfferOutwardHold(check: OutwardCheck, bare: string): Promise<
     prepare: found.prepare,
     held: found.held,
     abandon: found.abandon,
+  }
+}
+
+async function defaultOfferBookingCard(args: { workspaceId: string; userId: string; input: unknown; toolName: string }): Promise<OfferBookingHold | null> {
+  const [{ getServiceClient }, { offerBookingHold }] = await Promise.all([import('@/lib/admin'), import('@/lib/time-offers/agent-booking')])
+  return offerBookingHold(getServiceClient(), args)
+}
+
+/**
+ * An agent booking from an offer's own times (see the header): the card
+ * naming its guests when the person never saw who the offer went to, or null
+ * when it may run as it is. No person (no userId) is held. Never throws.
+ */
+export async function offerBookingOutwardHold(check: Pick<OutwardCheck, 'userId' | 'workspaceId' | 'toolName' | 'input' | 'offerBookingCard'>): Promise<OutwardHold | null> {
+  const bare = bareToolName(check.toolName)
+  const fallback: OutwardHold = {
+    reason: 'outside_attendees',
+    card: { title: `Approve ${check.toolName}?`, why: "This books a meeting from one of your time offers, and your calendar emails its guests the invitation. Nothing reaches another person without your yes. It runs once, with exactly the inputs below, when you accept." },
+    refusal: `Nothing ran. ${check.toolName} books a meeting whose guests the person hasn't approved, and nobody is here to approve it. Do not retry; report what you would have booked.`,
+  }
+  if (!check.userId) return fallback
+  try {
+    const found = await (check.offerBookingCard ?? defaultOfferBookingCard)({ workspaceId: check.workspaceId, userId: check.userId, input: check.input, toolName: bare })
+    return found ? { reason: 'outside_attendees', card: found.card, refusal: found.refusal } : null
+  } catch (err) {
+    console.warn('[outward-gate] an agent booking could not be checked; held:', err instanceof Error ? err.message : String(err))
+    return fallback
   }
 }
 

@@ -13,7 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { BookingAnswer, MeetingBooking, MeetingBookingSource, MeetingBookingState, OfferMode, OfferSlot, OfferState, SendBy, TimeOffer } from './types'
 
 const OFFER_COLUMNS =
-  'id, workspace_id, host_user_id, created_by, host_name, recipient_name, recipient_email, recipient_phone, contact_id, title, duration_minutes, video, location, message, time_zone, state, sent_via, card_hash, approval_id, booking_id, expires_at, created_at, mode, co_host_ids'
+  'id, workspace_id, host_user_id, created_by, host_name, recipient_name, recipient_email, recipient_phone, contact_id, title, duration_minutes, video, location, message, time_zone, state, sent_via, card_hash, recipients_shown, approval_id, booking_id, expires_at, created_at, mode, co_host_ids'
 const SLOT_COLUMNS = 'id, offer_id, starts_at, ends_at, state'
 export const BOOKING_COLUMNS =
   'id, workspace_id, host_user_id, host_name, source, offer_id, link_id, guest_name, guest_email, guest_phone, guest_time_zone, guest_note, contact_id, title, starts_at, ends_at, state, video, location, calendar_account_id, calendar_id, calendar_event_id, conference_url, attempts, reschedule_count, last_error, cancelled_by, answers, other_host_ids, host_time_zone, created_at, updated_at'
@@ -37,6 +37,7 @@ interface OfferRow {
   state: OfferState
   sent_via: SendBy | null
   card_hash: string | null
+  recipients_shown?: boolean | null
   approval_id: string | null
   booking_id: string | null
   expires_at: string
@@ -115,6 +116,7 @@ function toOffer(row: OfferRow, slots: readonly SlotRow[]): TimeOffer {
     state: row.state,
     sentVia: row.sent_via,
     cardHash: row.card_hash,
+    recipientsShown: row.recipients_shown === true,
     approvalId: row.approval_id,
     bookingId: row.booking_id,
     expiresAt: iso(row.expires_at),
@@ -218,6 +220,8 @@ export interface NewOfferRow {
   tokenHash: string | null
   sentVia: SendBy | null
   cardHash: string | null
+  /** The person saw who it goes to (their own attended turn made it): see TimeOffer.recipientsShown. */
+  recipientsShown?: boolean
   expiresAt: string
   slots: ReadonlyArray<{ startsAt: string; endsAt: string }>
   /** A poll (migration 583): its guests are written apart (./poll-store.ts). */
@@ -248,6 +252,7 @@ export async function insertOffer(supabase: SupabaseClient, offer: NewOfferRow):
       token_hash: offer.tokenHash,
       sent_via: offer.sentVia,
       card_hash: offer.cardHash,
+      recipients_shown: offer.recipientsShown === true,
       expires_at: offer.expiresAt,
       ...(offer.mode === 'poll' ? { mode: 'poll', co_host_ids: [...(offer.coHostIds ?? [])] } : {}),
     })
@@ -357,7 +362,7 @@ export async function moveOffer(
   offerId: string,
   from: readonly OfferState[],
   to: OfferState,
-  patch: { token_hash?: string | null; sent_via?: SendBy | null; approval_id?: string | null } = {},
+  patch: { token_hash?: string | null; sent_via?: SendBy | null; approval_id?: string | null; recipients_shown?: boolean } = {},
 ): Promise<TimeOffer | null> {
   const { data, error } = await supabase
     .from('time_offer')
@@ -703,4 +708,10 @@ export async function recordFailedPick(supabase: SupabaseClient, offerId: string
   } catch {
     // The count is a cap, not a record.
   }
+}
+
+/** Failed picks older than `beforeIso`: no cap counts them any more (the sweep's). */
+export async function deleteOldFailedPicks(supabase: SupabaseClient, beforeIso: string): Promise<void> {
+  const { error } = await supabase.from('time_offer_failure').delete().lt('created_at', beforeIso)
+  if (error) throw new Error(`time_offer_failure delete failed: ${error.message}`)
 }

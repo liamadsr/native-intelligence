@@ -2,14 +2,16 @@
  * Migration 581: booking links, and customer bookings on the one booking
  * model. Pins the file to the app and its intent: the tables and the
  * columns the stores read; the one atomic path (a booking and a claim per
- * host in one block, lapsed claims cleared first, a collision leaving
- * nothing; the offer's pick written through it too); the move of a booking
- * with its claims; the fold (customer bookings carried over by id,
- * idempotently, the live ones with their claims; each business's booking
+ * host in one block, lapsed claims that hold nothing up cleared first, a
+ * collision leaving nothing; the offer's pick written through it too); the
+ * move of a booking with its claims; the fold (customer bookings carried
+ * over by id, the live ones with their claims; each business's booking
  * rules as its job link, its slug as the workspace's handle) with the old
- * table and columns kept as the undo; the states and checks the app writes;
- * RLS (members read, only the service role writes); FKs and lookups
- * indexed; re-runnable; no backslash; the number outside 555–579.
+ * table and columns kept as the undo, and its second run (the newer write
+ * wins); the states and checks the app writes; RLS (only the service role
+ * reads or writes); FKs and lookups indexed; re-runnable; no backslash; the
+ * number outside 555–579. The fold's runs themselves were exercised on a
+ * throwaway PGlite (both directions of the second run, and a third).
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -73,7 +75,7 @@ describe('migration 581', () => {
     expect(BODY).toContain("create unique index if not exists booking_link_job_key on public.booking_link (workspace_id) where purpose = 'job';")
   })
 
-  it('one atomic path: the booking and a claim for each host in one block, lapsed claims cleared first, a collision leaving nothing', () => {
+  it('one atomic path: the booking and a claim for each host in one block, lapsed claims that hold nothing up cleared first, a collision leaving nothing', () => {
     const write = fn('write_meeting_booking')
     expect(write).toContain('security definer')
     expect(write).toContain("set search_path = ''")
@@ -82,12 +84,15 @@ describe('migration 581', () => {
     expect(write).not.toContain('exception')
     const book = fn('book_meeting')
     expect(book).toContain("if coalesce(array_length(p_hosts, 1), 0) = 0 or not ((p_booking->>'host_user_id')::uuid = any(p_hosts)) then return jsonb_build_object('status', 'invalid');")
-    const lapsed = book.indexOf('delete from public.host_time_claim where host_user_id = any(p_hosts) and expires_at is not null and expires_at <= now() returning booking_id')
-    const expire = book.indexOf("set state = 'expired', decided_at = now(), updated_at = now() where id in (select booking_id from gone where booking_id is not null) and state = 'requested';")
+    // An expired hold, or the claim of a booking that is over; a lapsed request is the sweep's (it tells the customer), a yes keeps its time.
+    const lapsed = book.indexOf("delete from public.host_time_claim c where c.host_user_id = any(p_hosts) and c.expires_at is not null and c.expires_at <= now() and (c.kind = 'hold' or not exists ( select 1 from public.meeting_booking b where b.id = c.booking_id and b.state in ('requested', 'booking', 'confirmed') ));")
     const block = book.indexOf('begin perform public.write_meeting_booking(p_booking, p_hosts, p_claim_expires_at);')
     const taken = book.indexOf("exception when exclusion_violation then return jsonb_build_object('status', 'taken');")
-    expect([lapsed, expire, block, taken].every((at) => at > -1)).toBe(true)
-    expect([lapsed, expire, block, taken]).toEqual([lapsed, expire, block, taken].sort((a, b) => a - b))
+    expect([lapsed, block, taken].every((at) => at > -1)).toBe(true)
+    expect([lapsed, block, taken]).toEqual([lapsed, block, taken].sort((a, b) => a - b))
+    // Nothing here expires a request: only the sweep does.
+    for (const name of ['book_meeting', 'move_meeting_booking']) expect(fn(name), name).not.toContain("set state = 'expired'")
+    expect(fn('move_meeting_booking')).toContain("delete from public.host_time_claim c where c.host_user_id = any(v_hosts) and c.expires_at is not null and c.expires_at <= now() and (c.kind = 'hold' or not exists (")
     expect(book).toContain("when unique_violation then return jsonb_build_object('status', 'exists', 'booking_id', p_booking->>'id');")
     // The store calls it with exactly these arguments, the organizer first among the hosts.
     for (const arg of ['p_booking', 'p_hosts', 'p_claim_expires_at']) expect(OFFER_STORE, arg).toContain(`${arg}:`)
@@ -120,37 +125,64 @@ describe('migration 581', () => {
     for (const arg of ['p_booking_id', 'p_from_start', 'p_starts_at', 'p_ends_at', 'p_customer_confirmed_at']) expect(OFFER_STORE, arg).toContain(`${arg}:`)
   })
 
-  it('folds customer bookings in by id, idempotently, the live ones with their claims; the old table stays as the undo', () => {
+  it('folds customer bookings in by id, the live ones with their claims, a whole-day job too; the old table stays as the undo', () => {
     expect(BODY).toContain("'customer', cb.source, case when cb.source = 'link' then jl.id end, cb.customer_name, cb.customer_phone, cb.note,")
     expect(BODY).toContain("'none:' || cb.id::text")
     expect(BODY).toContain('from public.customer_booking cb')
     expect(BODY).toContain('on conflict (id) do nothing;')
+    expect(BODY).not.toContain("interval '8 hours' on conflict")
+    expect(BODY).toContain("add constraint meeting_booking_times check (ends_at > starts_at and (ends_at - starts_at <= interval '8 hours' or (source = 'customer' and ends_at - starts_at <= interval '1 day')));")
     expect(BODY).toContain("and (mb.state = 'confirmed' or (mb.state = 'requested' and mb.created_at > now() - interval '24 hours'))")
     expect(BODY).toContain('and not exists (select 1 from public.host_time_claim c where c.booking_id = mb.id)')
-    expect(BODY).toContain("exception when exclusion_violation then raise notice 'customer booking % overlaps another claim: carried over without one', r.id;")
+    // A live job that overlaps another claim is named in a warning, not a notice nobody reads.
+    expect(BODY).toContain('exception when exclusion_violation then v_unclaimed := v_unclaimed || r.id;')
+    expect(BODY).toContain("raise warning '581: % live customer booking(s) overlap another claim and were carried over without one: %'")
     expect(BODY).not.toMatch(/drop table|drop column|delete from public\.customer_booking|truncate/i)
     expect(BODY).toContain("comment on table public.customer_booking is 'A job slot a customer asked for (458). Moved onto meeting_booking (source customer, the same ids) by 581, and no longer written: kept as the undo.';")
   })
 
+  it('the second run: a row the old code changed since it was copied is copied again with its claims, unless the new code changed it since', () => {
+    const refresh = BODY.slice(BODY.indexOf('with refreshed as ('), BODY.indexOf("'none:' || cb.id::text"))
+    // The newer write wins, by updated_at (every writer on both sides stamps it).
+    expect(refresh).toContain("where mb.id = cb.id and mb.source = 'customer' and cb.updated_at > mb.updated_at returning mb.id")
+    for (const set of ['state = cb.state,', 'starts_at = cb.starts_at,', 'ends_at = cb.ends_at,', 'calendar_event_id = cb.calendar_event_id,', 'customer_confirmed_at = cb.customer_confirmed_at,', 'updated_at = cb.updated_at']) expect(refresh, set).toContain(set)
+    // Its claims follow: gone when it is no longer live, moved (a yes for good, a request's hold with its day) when it is.
+    expect(refresh).toContain("and not (mb.ends_at > now() and (mb.state = 'confirmed' or (mb.state = 'requested' and mb.created_at > now() - interval '24 hours')));")
+    expect(refresh).toContain("update public.host_time_claim set starts_at = r.starts_at, ends_at = r.ends_at, expires_at = case when r.state = 'requested' then r.created_at + interval '24 hours 15 minutes' end where booking_id = r.id;")
+    expect(refresh).toContain('exception when exclusion_violation then delete from public.host_time_claim where booking_id = r.id;')
+    // The handle and the job link: made again from the profile only while the fold's mark ('epoch') says the new code never touched them.
+    expect(BODY).toContain("where p.workspace_id = bp.workspace_id and p.user_id is null and p.updated_at = 'epoch'")
+    expect(BODY).toContain("where l.purpose = 'job' and l.workspace_id = bp.workspace_id and l.updated_at = 'epoch';")
+    expect(BODY).toContain("raise warning '581: % business booking slug(s) not carried over")
+    // And no app write ever stamps that mark.
+    for (const src of [LINK_STORE, OFFER_STORE, CUSTOMER_STORE]) expect(src).not.toContain("'epoch'")
+  })
+
   it("each business's booking rules become its job link, its slug the workspace handle", () => {
-    expect(BODY).toContain('insert into public.booking_profile (workspace_id, user_id, handle) select bp.workspace_id, null, bp.booking_slug from public.business_profile bp where bp.booking_slug is not null on conflict do nothing;')
+    expect(BODY).toContain("insert into public.booking_profile (workspace_id, user_id, handle, updated_at) select bp.workspace_id, null, bp.booking_slug, 'epoch' from public.business_profile bp where bp.booking_slug is not null on conflict do nothing;")
     expect(BODY).toContain("where not exists (select 1 from public.booking_link l where l.workspace_id = bp.workspace_id and l.purpose = 'job');")
     expect(BODY).toContain("then jsonb_build_array(jsonb_build_object('start', bp.booking_start, 'end', bp.booking_end))")
     expect(BODY).toContain('least(bp.lead_hours * 60, 20160)')
     expect(BODY).toContain("insert into public.booking_link_host (link_id, user_id, workspace_id, position) select l.id, l.owner_user_id, l.workspace_id, 0 from public.booking_link l where l.purpose = 'job' on conflict do nothing;")
   })
 
-  it('RLS on every new table: members read (not the attempts), only the service role writes', () => {
+  it('RLS on every new table, and only the service role reads or writes (no member, workspace guests included, reads them from their own client)', () => {
     for (const t of ['booking_profile', 'booking_link', 'booking_link_host', 'booking_link_attempt']) {
       expect(BODY, t).toContain(`alter table public.${t} enable row level security;`)
       expect(BODY, t).toContain(`revoke all on table public.${t} from anon, authenticated;`)
       expect(BODY, t).toContain(`grant all on table public.${t} to service_role;`)
-      expect(BODY).not.toMatch(new RegExp(`grant (insert|update|delete|all) on table public\\.${t} to (anon|authenticated)`))
+      expect(BODY).not.toMatch(new RegExp(`grant \\w+ on table public\\.${t} to (anon|authenticated)`))
     }
-    for (const t of ['booking_profile', 'booking_link', 'booking_link_host']) {
-      expect(BODY).toContain(`create policy ${t}_select_member on public.${t} for select to authenticated using (public.is_workspace_member(workspace_id));`)
-    }
-    expect(BODY).not.toMatch(/create policy \w+ on public\.booking_link_attempt/)
+    expect(BODY).not.toMatch(/create policy /)
+  })
+
+  it("counts a page's tries per client too, by a hash of the address", () => {
+    expect(table('booking_link_attempt')).toContain('client_hash text null,')
+    expect(BODY).toContain('create index if not exists booking_link_attempt_client_idx on public.booking_link_attempt (client_hash, created_at) where client_hash is not null;')
+  })
+
+  it('says to run it in one transaction', () => {
+    expect(SQL).toContain('psql --single-transaction -v ON_ERROR_STOP=1')
   })
 
   it("indexes every new foreign key and the lookups the app makes", () => {

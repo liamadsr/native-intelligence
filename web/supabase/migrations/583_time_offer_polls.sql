@@ -39,8 +39,9 @@
 --                             host are written in one block. Two last answers
 --                             at once make one booking: the second reads it.
 --
--- RLS on; members of a workspace read its recipients and responses; only
--- the service role writes. Re-runnable.
+-- RLS on, and only the service role reads or writes (as 554's tables: every
+-- reader is on the server, and a guest's answers are nobody's in the
+-- workspace to read from their own client). Re-runnable.
 --
 -- Must run on PROD before the app code that reads it deploys: every offer
 -- read selects mode and co_host_ids.
@@ -291,15 +292,12 @@ begin
 
   v_hosts := array_prepend(v_offer.host_user_id, array(select h from unnest(v_offer.co_host_ids) as h where h <> v_offer.host_user_id));
 
-  -- A lapsed claim never blocks (as book_meeting clears them).
-  with gone as (
-    delete from public.host_time_claim
-    where host_user_id = any(v_hosts) and expires_at is not null and expires_at <= now()
-    returning booking_id
-  )
-  update public.meeting_booking
-    set state = 'expired', decided_at = now(), updated_at = now()
-    where id in (select booking_id from gone where booking_id is not null) and state = 'requested';
+  -- A lapsed claim that holds nothing up goes (as book_meeting clears them).
+  delete from public.host_time_claim c
+  where c.host_user_id = any(v_hosts) and c.expires_at is not null and c.expires_at <= now()
+    and (c.kind = 'hold' or not exists (
+      select 1 from public.meeting_booking b where b.id = c.booking_id and b.state in ('requested', 'booking', 'confirmed')
+    ));
 
   begin
     -- The poll's holds go, and the time becomes the booking's claim on every host.
@@ -368,18 +366,8 @@ comment on column public.meeting_booking.source is
 alter table public.time_offer_recipient enable row level security;
 alter table public.time_offer_response enable row level security;
 
-drop policy if exists time_offer_recipient_select_member on public.time_offer_recipient;
-create policy time_offer_recipient_select_member on public.time_offer_recipient
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-drop policy if exists time_offer_response_select_member on public.time_offer_response;
-create policy time_offer_response_select_member on public.time_offer_response
-  for select to authenticated using (
-    exists (select 1 from public.time_offer o where o.id = offer_id and public.is_workspace_member(o.workspace_id))
-  );
-
+-- No policy: nothing but the service role reads these (see the header).
 revoke all on table public.time_offer_recipient from anon, authenticated;
 revoke all on table public.time_offer_response from anon, authenticated;
-grant select on table public.time_offer_recipient to authenticated;
-grant select on table public.time_offer_response to authenticated;
 grant all on table public.time_offer_recipient to service_role;
 grant all on table public.time_offer_response to service_role;

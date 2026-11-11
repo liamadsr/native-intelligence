@@ -58,6 +58,14 @@ describe('offer_times by link', () => {
     expect(tables.host_time_claim).toHaveLength(2)
     expect(deps.sendEmail).not.toHaveBeenCalled()
     expect(deps.sendText).not.toHaveBeenCalled()
+    // Made outside the person's own attended turn: not shown to them (their agent's booking from it waits on their card).
+    expect(tables.time_offer[0].recipients_shown).toBe(false)
+  })
+
+  it("made in the person's own attended turn, it is marked shown to them", async () => {
+    const { db, tables } = offerDb()
+    expect(await runOfferTimes(db, { ...args, personAttended: true }, { ...INPUT }, seams())).toMatchObject({ success: true })
+    expect(tables.time_offer[0].recipients_shown).toBe(true)
   })
 })
 
@@ -119,7 +127,8 @@ describe('offer_times by email or text', () => {
     // Every word the card showed went out, the link's token in place of its "…".
     const shownWords = hold.card.why.split('”: “')[1].split('” The times stay held')[0]
     expect(sent[2].body_text.replace(/\s+/g, ' ').trim()).toBe(shownWords.replace('https://app.example/t/…', link))
-    expect(tables.time_offer[0]).toMatchObject({ state: 'open', sent_via: 'email', token_hash: offerTokenHash(link.split('/t/')[1]) })
+    // Its card named who it went to: shown, whoever made the call.
+    expect(tables.time_offer[0]).toMatchObject({ state: 'open', sent_via: 'email', token_hash: offerTokenHash(link.split('/t/')[1]), recipients_shown: true })
     // The same replay twice sends nothing more.
     expect(await runOfferTimes(db, { ...args, approvedCall: { approvalId: 'appr-1', tool: 'offer_times', timeOffer: prepared.context.timeOffer } }, { ...INPUT, send_by: 'email' }, deps)).toMatchObject({ success: false, code: 'CLOSED' })
     expect(deps.sendEmail).toHaveBeenCalledTimes(1)

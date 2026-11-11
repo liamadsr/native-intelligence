@@ -238,7 +238,7 @@ export type CreateOfferResult = { ok: true; offer: TimeOffer; token: string | nu
 export async function createOffer(
   supabase: SupabaseClient,
   plan: PlannedOffer,
-  opts: { state: 'open' | 'pending_send'; createdBy: string | null; cardHash?: string | null },
+  opts: { state: 'open' | 'pending_send'; createdBy: string | null; cardHash?: string | null; recipientsShown?: boolean },
   deps: OfferDeps = {},
 ): Promise<CreateOfferResult> {
   const now = (deps.now ?? Date.now)()
@@ -281,6 +281,7 @@ export async function createOffer(
       tokenHash: token ? offerTokenHash(token) : null,
       sentVia: opts.state === 'open' ? 'link' : null,
       cardHash: opts.cardHash ?? null,
+      recipientsShown: opts.recipientsShown === true,
       expiresAt: plan.expiresAt,
       slots: plan.slots,
     })

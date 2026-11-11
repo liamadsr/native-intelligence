@@ -6,7 +6,8 @@
  * hashed; the pick's one transaction (the offer row locked, expired holds
  * deleted first, the hold turned into the booking's claim, a collision
  * undoing it all); the states and sources the app writes; the columns the
- * store reads; RLS (members read, only the service role writes); re-runnable;
+ * store reads; whether the person saw who an offer went to (recipients_shown);
+ * RLS (only the service role reads or writes); re-runnable;
  * no backslash.
  */
 import { readFileSync } from 'node:fs'
@@ -114,19 +115,19 @@ describe('migration 554', () => {
     }
   })
 
-  it('RLS on every table: members of the workspace read, only the service role writes', () => {
+  it('RLS on every table, and only the service role reads or writes (a member, a workspace guest included, reads nobody\'s guests or held times from their own client)', () => {
     for (const table of TABLES) {
       expect(BODY, table).toContain(`alter table public.${table} enable row level security;`)
       expect(BODY, table).toContain(`revoke all on table public.${table} from anon, authenticated;`)
       expect(BODY, table).toContain(`grant all on table public.${table} to service_role;`)
-      expect(BODY).not.toMatch(new RegExp(`grant (insert|update|delete|all) on table public\\.${table} to (anon|authenticated)`))
+      expect(BODY).not.toMatch(new RegExp(`grant \\w+ on table public\\.${table} to (anon|authenticated)`))
     }
-    for (const table of ['time_offer', 'meeting_booking', 'host_time_claim']) {
-      expect(BODY).toContain(`create policy ${table}_select_member on public.${table} for select to authenticated using (public.is_workspace_member(workspace_id));`)
-    }
-    expect(BODY).toContain('exists (select 1 from public.time_offer o where o.id = offer_id and public.is_workspace_member(o.workspace_id))')
-    expect(BODY).not.toMatch(/create policy \w+ on public\.time_offer_failure/)
-    expect(BODY).not.toMatch(/for (insert|update|delete|all) to (anon|authenticated)/)
+    expect(BODY).not.toMatch(/create policy /)
+  })
+
+  it('records whether the person saw who an offer went to, off unless the app says so', () => {
+    expect(BODY).toContain('recipients_shown boolean not null default false,')
+    expect(STORE).toContain('recipients_shown: offer.recipientsShown === true')
   })
 
   it('re-runnable: every create and add guarded, every constraint and policy dropped first', () => {

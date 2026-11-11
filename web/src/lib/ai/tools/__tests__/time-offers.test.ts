@@ -1,8 +1,11 @@
 /**
  * The time offer tools (../time-offers.ts): what each hands the offer code,
  * and what the model reads back. offer_times passes the approved call (its
- * card's replay) and this turn's zone; accept_time_offer passes only the
- * offer and the start, the person as the host, never a guest; an unattended
+ * card's replay) and this turn's zone, and whether the person is at the
+ * keyboard (an offer by link is then shown to them); accept_time_offer passes
+ * only the offer and the start, the person as the host, never a guest, and
+ * books from an offer whose guests the person never saw only as their card's
+ * replay (as record_time_offer_answer and book_poll_time do); an unattended
  * run cancels no meeting; list_time_offers shows the person's own, a poll
  * with each guest's link and answer. A poll's own (phase 5):
  * record_time_offer_answer passes only the poll, its guest and the times,
@@ -24,13 +27,14 @@ const mocks = vi.hoisted(() => ({
   bookPollAnyway: vi.fn(),
   runNudge: vi.fn(async () => ({ success: true, sent_via: 'link' })),
   withRecipients: vi.fn(async (_s: unknown, offers: unknown[]) => offers.map((o) => ({ recipients: [], ...(o as object) }))),
+  getOffer: vi.fn(async (): Promise<unknown> => ({ id: 'offer-1', recipientsShown: true })),
 }))
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ service: true }) }))
 vi.mock('@/lib/time-offers/send', () => ({ runOfferTimes: mocks.runOfferTimes }))
 vi.mock('@/lib/time-offers/accept', () => ({ acceptOffer: mocks.acceptOffer }))
 vi.mock('@/lib/time-offers/offers', () => ({ withdrawOffer: mocks.withdrawOffer }))
 vi.mock('@/lib/time-offers/manage', () => ({ hostBooking: mocks.hostBooking, cancelMeeting: mocks.cancelMeeting }))
-vi.mock('@/lib/time-offers/store', () => ({ listOffers: mocks.listOffers, listBookings: mocks.listBookings }))
+vi.mock('@/lib/time-offers/store', () => ({ listOffers: mocks.listOffers, listBookings: mocks.listBookings, getOffer: mocks.getOffer }))
 vi.mock('@/lib/time-offers/polls', () => ({ recordAnswer: mocks.recordAnswer, bookPollAnyway: mocks.bookPollAnyway, recipientLink: (origin: string, id: string) => `${origin}/t/link-${id}` }))
 vi.mock('@/lib/time-offers/poll-send', () => ({ runNudge: mocks.runNudge }))
 vi.mock('@/lib/time-offers/poll-store', () => ({ withRecipients: mocks.withRecipients }))
@@ -68,8 +72,14 @@ describe('offer_times', () => {
     const tools = createTimeOfferTools(HOST, WS, { approvedCall, timeZone: 'Europe/Lisbon' })
     const input = { recipient: { name: 'Dana' }, title: 'Intro call', slots: ['2026-11-17T10:00:00-05:00', '2026-11-18T10:00:00-05:00'], duration_minutes: 30 }
     expect(await call(tools, 'offer_times', input)).toMatchObject({ success: true })
-    expect(mocks.runOfferTimes).toHaveBeenCalledWith({ service: true }, { userId: HOST, workspaceId: WS, approvedCall, browserTimeZone: 'Europe/Lisbon', omitGrants: false }, input)
+    expect(mocks.runOfferTimes).toHaveBeenCalledWith({ service: true }, { userId: HOST, workspaceId: WS, approvedCall, browserTimeZone: 'Europe/Lisbon', omitGrants: false, personAttended: false }, input)
     expect(await call(createTimeOfferTools(HOST, undefined), 'offer_times', input)).toMatchObject({ success: false })
+  })
+
+  it('says when the person is at the keyboard, so an offer by link is marked shown to them', async () => {
+    const input = { recipient: { name: 'Dana' }, title: 'Intro call', slots: ['2026-11-17T10:00:00-05:00', '2026-11-18T10:00:00-05:00'], duration_minutes: 30 }
+    await call(createTimeOfferTools(HOST, WS, { personAttended: true }), 'offer_times', input)
+    expect(mocks.runOfferTimes).toHaveBeenLastCalledWith({ service: true }, expect.objectContaining({ personAttended: true }), input)
   })
 
   it("on a guest's or a linked agent's turn it reads no grant (no linked guest is answered from their calendar)", async () => {
@@ -142,6 +152,32 @@ describe('accept_time_offer', () => {
     // Its schema takes nothing else.
     const schema = (tools.accept_time_offer as unknown as { inputSchema: { safeParse: (v: unknown) => { success: boolean; data?: unknown } } }).inputSchema
     expect(schema.safeParse({ offer_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601', start: '2026-11-17T15:00:00.000Z', guest_email: 'mallory@evil.example' }).data).toEqual({ offer_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601', start: '2026-11-17T15:00:00.000Z' })
+  })
+
+  it("from an offer whose guests the person never saw, it books only as the replay of the person's card", async () => {
+    const offerId = '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601'
+    for (const [name, input] of [
+      ['accept_time_offer', { offer_id: offerId, start: '2026-11-17T15:00:00.000Z' }],
+      ['record_time_offer_answer', { offer_id: offerId, guest_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f602', works: ['2026-11-17T15:00:00.000Z'] }],
+      ['book_poll_time', { offer_id: offerId, start: '2026-11-17T15:00:00.000Z' }],
+    ] as const) {
+      mocks.getOffer.mockResolvedValueOnce({ id: offerId, recipientsShown: false })
+      expect(await call(createTimeOfferTools(HOST, WS), name, input), name).toMatchObject({ success: false, code: 'NEEDS_PERSON' })
+      mocks.getOffer.mockResolvedValueOnce({ id: offerId, recipientsShown: false })
+      expect(await call(createTimeOfferTools(HOST, WS, { unattended: true }), name, input), name).toMatchObject({ success: false, code: 'NEEDS_PERSON' })
+    }
+    expect(mocks.acceptOffer).not.toHaveBeenCalled()
+    expect(mocks.recordAnswer).not.toHaveBeenCalled()
+    expect(mocks.bookPollAnyway).not.toHaveBeenCalled()
+    // The replay of the person's own card for it runs (a home turn's card, book_poll_time too).
+    mocks.getOffer.mockResolvedValue({ id: offerId, recipientsShown: false })
+    mocks.acceptOffer.mockResolvedValueOnce({ ok: true, already: false, offer: OFFER, booking: BOOKING, manageUrl: 'https://app.example/b/x' })
+    expect(await call(createTimeOfferTools(HOST, WS, { approvedCall: { approvalId: 'appr-9', tool: 'accept_time_offer' } }), 'accept_time_offer', { offer_id: offerId, start: '2026-11-17T15:00:00.000Z' })).toMatchObject({ success: true })
+    mocks.bookPollAnyway.mockResolvedValueOnce({ ok: true, poll: { timeZone: 'America/New_York', recipients: [{ name: 'Dana Reyes', attending: true }] }, booking: BOOKING, left: [] })
+    expect(await call(createTimeOfferTools(HOST, WS, { unattended: true, approvedCall: { approvalId: 'appr-9', tool: 'book_poll_time' } }), 'book_poll_time', { offer_id: offerId, start: '2026-11-17T15:00:00.000Z' })).toMatchObject({ success: true })
+    // Another tool's approval is not this one's.
+    expect(await call(createTimeOfferTools(HOST, WS, { approvedCall: { approvalId: 'appr-9', tool: 'offer_times' } }), 'accept_time_offer', { offer_id: offerId, start: '2026-11-17T15:00:00.000Z' })).toMatchObject({ code: 'NEEDS_PERSON' })
+    mocks.getOffer.mockReset().mockResolvedValue({ id: 'offer-1', recipientsShown: true })
   })
 
   it("a time no longer open comes back with the times still open", async () => {

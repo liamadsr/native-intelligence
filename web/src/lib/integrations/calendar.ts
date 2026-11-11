@@ -526,6 +526,41 @@ export async function getCalendarEventAttendees(userId: string, eventId: string)
   }
 }
 
+/**
+ * Delete the event a caller's key made (CreateEventOptions.idempotencyKey),
+ * if it made one, telling its attendees: Google's event by the id the key
+ * names, Microsoft's by its transactionId. 'none' when there is no such
+ * event. Throws when that can't be told.
+ */
+export async function deleteCalendarEventByKey(userId: string, key: string, options: { accountId?: string } = {}): Promise<'deleted' | 'none'> {
+  let provider: 'google' | 'microsoft'
+  let token: string
+  if (options.accountId) ({ provider, token } = await accountToken(options.accountId))
+  else {
+    const google = await getValidToken(userId, 'google', 'calendar')
+    const microsoft = google ? null : await getValidToken(userId, 'microsoft', 'calendar')
+    if (google) ({ provider, token } = { provider: 'google', token: google.token })
+    else if (microsoft) ({ provider, token } = { provider: 'microsoft', token: microsoft.token })
+    else throw new Error('No calendar provider connected')
+  }
+  if (provider === 'google') {
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(googleEventIdFor(key))}?sendUpdates=all`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) return 'deleted'
+    if (res.status === 404 || res.status === 410) return 'none'
+    throw new Error(`Google Calendar delete error: ${res.status}`)
+  }
+  const filter = encodeURIComponent(`transactionId eq '${key.replace(/'/g, "''")}'`)
+  const found = await fetch(`https://graph.microsoft.com/v1.0/me/events?$filter=${filter}&$select=id&$top=1`, { headers: { Authorization: `Bearer ${token}` } })
+  if (!found.ok) throw new Error(`Microsoft Calendar lookup error: ${found.status}`)
+  const id = ((await found.json()) as { value?: Array<{ id?: string }> }).value?.[0]?.id
+  if (!id) return 'none'
+  await deleteMicrosoftEvent(token, id, true)
+  return 'deleted'
+}
+
 export async function deleteCalendarEvent(
   userId: string,
   eventId: string,

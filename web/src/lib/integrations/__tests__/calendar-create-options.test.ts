@@ -29,7 +29,7 @@ vi.mock('@/lib/admin', () => ({
   }),
 }))
 
-const { createCalendarEvent, deleteCalendarEvent, googleEventIdFor, updateCalendarEvent } = await import('@/lib/integrations/calendar')
+const { createCalendarEvent, deleteCalendarEvent, deleteCalendarEventByKey, googleEventIdFor, updateCalendarEvent } = await import('@/lib/integrations/calendar')
 
 const originalFetch = globalThis.fetch
 afterEach(() => {
@@ -153,5 +153,30 @@ describe('updateCalendarEvent and deleteCalendarEvent on a named account', () =>
     const fallback = stubFetch([{ status: 400 }, { status: 204 }])
     await deleteCalendarEvent('user-ava', 'AAMk-1', { accountId: 'acct-m', notifyAttendees: true })
     expect(fallback.map((c) => c.method)).toEqual(['POST', 'DELETE'])
+  })
+})
+
+describe('the event a key made, taken off again (a booking failed after the provider may have made it)', () => {
+  it('Google: by the id the key names, its attendees told; none there is none', async () => {
+    hoisted.provider = 'google'
+    const calls = stubFetch([{ status: 204 }])
+    expect(await deleteCalendarEventByKey('user-ava', BOOKING_ID, { accountId: 'acct-g' })).toBe('deleted')
+    expect(calls).toEqual([{ url: `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventIdFor(BOOKING_ID)}?sendUpdates=all`, method: 'DELETE', body: null }])
+    stubFetch([{ status: 404 }])
+    expect(await deleteCalendarEventByKey('user-ava', BOOKING_ID, { accountId: 'acct-g' })).toBe('none')
+    stubFetch([{ status: 500 }])
+    await expect(deleteCalendarEventByKey('user-ava', BOOKING_ID, { accountId: 'acct-g' })).rejects.toThrow('500')
+  })
+
+  it('Microsoft: found by its transactionId, then cancelled with its attendees told; none found is none', async () => {
+    hoisted.provider = 'microsoft'
+    const calls = stubFetch([{ status: 200, body: { value: [{ id: 'AAMk-9' }] } }, { status: 202 }])
+    expect(await deleteCalendarEventByKey('user-ava', BOOKING_ID, { accountId: 'acct-m' })).toBe('deleted')
+    expect(calls[0].url).toBe(`https://graph.microsoft.com/v1.0/me/events?$filter=${encodeURIComponent(`transactionId eq '${BOOKING_ID}'`)}&$select=id&$top=1`)
+    expect(calls[1]).toMatchObject({ url: 'https://graph.microsoft.com/v1.0/me/events/AAMk-9/cancel', method: 'POST' })
+    stubFetch([{ status: 200, body: { value: [] } }])
+    expect(await deleteCalendarEventByKey('user-ava', BOOKING_ID, { accountId: 'acct-m' })).toBe('none')
+    stubFetch([{ status: 400 }])
+    await expect(deleteCalendarEventByKey('user-ava', BOOKING_ID, { accountId: 'acct-m' })).rejects.toThrow('400')
   })
 })

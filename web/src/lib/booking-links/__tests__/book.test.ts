@@ -223,6 +223,20 @@ describe("the host's yes first", () => {
     expect(s.textGuest).not.toHaveBeenCalled()
   })
 
+  it('a late yes to a request that lapsed meanwhile makes no claim again (nothing left blocking the host’s time)', async () => {
+    const { db, tables, s, booking } = await requested()
+    // The calendar is re-read; meanwhile the sweep expired the request and let its time go.
+    const lapsing = vi.fn(async (input: { spans: readonly unknown[] }) => {
+      tables.meeting_booking[0].state = 'expired'
+      tables.host_time_claim.length = 0
+      return { known: true as const, busy: input.spans.map(() => false) }
+    })
+    expect(await confirmLinkRequest(db, { userId: AVA, workspaceId: WS, bookingId: booking.id }, { checkFree: lapsing, accept: s.deps.accept })).toMatchObject({ success: false })
+    expect(tables.host_time_claim).toHaveLength(0)
+    expect(tables.meeting_booking[0].state).toBe('expired')
+    expect(s.createEvent).not.toHaveBeenCalled()
+  })
+
   it("someone else's yes, or another workspace's, never books it", async () => {
     const { db, booking, s } = await requested()
     expect(await confirmLinkRequest(db, { userId: BEN, workspaceId: WS, bookingId: booking.id }, { checkFree: free, accept: s.deps.accept })).toMatchObject({ success: false, error: 'That booking is gone.' })

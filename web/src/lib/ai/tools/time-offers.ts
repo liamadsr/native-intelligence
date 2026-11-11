@@ -26,11 +26,14 @@ import type { MeetingBooking, TimeOffer, TimeOfferPoll } from '@/lib/time-offers
  *                           the calendar. Never an unattended run's.
  *   accept_time_offer       the guest answered in words ("Tuesday works"):
  *                           book one of that offer's own times for that
- *                           offer's own recipient. The person approved
- *                           offering exactly these times to exactly this
- *                           person, so no second card: it takes only the
- *                           offer and a start, never another time or guest
- *                           (src/lib/safety/action-review.ts preApprovedCall).
+ *                           offer's own recipient. It takes only the offer
+ *                           and a start, never another time or guest. No
+ *                           second card when the person saw who the offer
+ *                           went to (its card, or their own turn made it);
+ *                           otherwise the calendar would email someone they
+ *                           never approved, so it is their card first
+ *                           (src/lib/time-offers/agent-booking.ts), and it
+ *                           runs only as that card's replay.
  *
  * And polls (availability phase 5, src/lib/time-offers/polls.ts): offer_times
  * with several `recipients` (and teammates as `co_hosts`); each guest marks
@@ -39,7 +42,7 @@ import type { MeetingBooking, TimeOffer, TimeOfferPoll } from '@/lib/time-offers
  *
  *   record_time_offer_answer  a poll guest answered in words ("Tuesday or
  *                           Thursday work"): only that poll's own guest and
- *                           its own times, as accept_time_offer is gated.
+ *                           its own times, gated as accept_time_offer.
  *   book_poll_time          book one of a poll's times with whoever can
  *                           make it, at the person's word ("Tuesday at 10
  *                           without Dana"). Gated as accept_time_offer, and
@@ -60,6 +63,22 @@ export interface TimeOfferToolContext {
   timeZone?: string | null
   /** A guest's or a linked agent's own turn: no grant of the person's is read (a linked guest's free/busy, #74). */
   omitGrants?: boolean
+  /** The person at the keyboard, reading this turn: an offer made by link is shown to them (time_offer.recipients_shown). */
+  personAttended?: boolean
+}
+
+/**
+ * An agent booking from an offer whose guests the person never saw runs only
+ * as the replay of their card (the gate raises it: src/lib/time-offers/
+ * agent-booking.ts); a door that never asked gets this refusal. Null: it may
+ * run.
+ */
+async function unseenGuestsRefusal(ctx: TimeOfferToolContext, toolName: string, workspaceId: string, offerId: string): Promise<{ success: false; code: string; error: string } | null> {
+  if (ctx.approvedCall?.tool === toolName) return null
+  const { getOffer } = await import('@/lib/time-offers/store')
+  const offer = await getOffer(getServiceClient(), offerId, workspaceId).catch(() => null)
+  if (!offer || offer.recipientsShown) return null
+  return { success: false, code: 'NEEDS_PERSON', error: `Nothing was booked. The person never saw who this offer went to, so ${toolName} needs their approval card first. Don't retry; tell them what you would have booked.` }
 }
 
 function label(iso: string, timeZone: string): string {
@@ -137,7 +156,7 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
         if (!workspaceId) return noWorkspace
         // Loaded on use: the offer, calendar and sending code stays out of every tool set's imports.
         const { runOfferTimes } = await import('@/lib/time-offers/send')
-        return runOfferTimes(getServiceClient(), { userId, workspaceId, approvedCall: ctx.approvedCall, browserTimeZone: ctx.timeZone ?? null, omitGrants: ctx.omitGrants === true }, input)
+        return runOfferTimes(getServiceClient(), { userId, workspaceId, approvedCall: ctx.approvedCall, browserTimeZone: ctx.timeZone ?? null, omitGrants: ctx.omitGrants === true, personAttended: ctx.personAttended === true }, input)
       },
     }),
 
@@ -224,10 +243,12 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
     record_time_offer_answer: tool({
       description:
         "Record which of a poll's times work for one of its own guests, when they answered in words (\"Tuesday or Thursday work\", \"none of those\", in an email or a message the person shows you): every time that works, or none_work. It replaces their earlier answer. " +
-        "Only that poll's own guest (guest_id from list_time_offers) and its own times: never another time or person. When it is the last answer, the earliest time that works for everyone is booked (the calendar sends the invitations). No approval card: the person already offered them these times.",
+        "Only that poll's own guest (guest_id from list_time_offers) and its own times: never another time or person. When it is the last answer, the earliest time that works for everyone is booked (the calendar sends the invitations). No approval card when the person saw who the poll went to; otherwise it waits on their card.",
       inputSchema: recordTimeOfferAnswerInput,
       execute: async (input) => {
         if (!workspaceId) return noWorkspace
+        const unseen = await unseenGuestsRefusal(ctx, 'record_time_offer_answer', workspaceId, input.offer_id)
+        if (unseen) return unseen
         const { recordAnswer } = await import('@/lib/time-offers/polls')
         const result = await recordAnswer(getServiceClient(), {
           ref: { offerId: input.offer_id, workspaceId, recipientId: input.guest_id },
@@ -264,8 +285,11 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
         "It is booked on the person's calendar (co-hosts too) and the calendar sends the invitations. Only the poll's own times and guests.",
       inputSchema: bookPollTimeInput,
       execute: async (input) => {
-        if (ctx.unattended) return { success: false, code: 'NEEDS_PERSON', error: "Only the person books a poll's time over its guests' answers. Leave it to them." }
+        // The person's own approved card for it is their word too.
+        if (ctx.unattended && ctx.approvedCall?.tool !== 'book_poll_time') return { success: false, code: 'NEEDS_PERSON', error: "Only the person books a poll's time over its guests' answers. Leave it to them." }
         if (!workspaceId) return noWorkspace
+        const unseen = await unseenGuestsRefusal(ctx, 'book_poll_time', workspaceId, input.offer_id)
+        if (unseen) return unseen
         const { bookPollAnyway } = await import('@/lib/time-offers/polls')
         const result = await bookPollAnyway(getServiceClient(), { workspaceId, userId, offerId: input.offer_id, start: input.start, without: input.without })
         if (!result.ok) return { success: false, code: result.code, error: result.message }
@@ -297,13 +321,15 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
     accept_time_offer: tool({
       description:
         "Book one of an offer's own times for that offer's own recipient, when they answered in words (\"Tuesday at 10 works\", in an email or a message the person shows you). Only a time that offer holds, only for its recipient: never another time or person (offer new times for that). " +
-        'It is booked on the person\'s calendar and the calendar sends them the invitation. No approval card: the person already offered them these times.',
+        'It is booked on the person\'s calendar and the calendar sends them the invitation. No approval card when the person saw who the offer went to; otherwise it waits on their card.',
       inputSchema: z.object({
         offer_id: z.string().uuid().describe('The offer (list_time_offers)'),
         start: z.string().min(10).max(40).describe("The picked time's start, exactly as list_time_offers gives it"),
       }),
       execute: async ({ offer_id, start }) => {
         if (!workspaceId) return noWorkspace
+        const unseen = await unseenGuestsRefusal(ctx, 'accept_time_offer', workspaceId, offer_id)
+        if (unseen) return unseen
         const { acceptOffer } = await import('@/lib/time-offers/accept')
         const result = await acceptOffer(getServiceClient(), { offer: { id: offer_id, workspaceId }, slotStart: start, via: 'host', actingUserId: userId })
         if (!result.ok) {

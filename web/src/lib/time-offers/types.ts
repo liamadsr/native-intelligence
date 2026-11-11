@@ -75,6 +75,8 @@ export const OPEN_OFFERS_MAX = 20
 export const OFFER_FAILED_PICKS_DAILY_CAP = 5
 /** A booking left in 'booking' this long is the sweep's to finish. */
 export const BOOKING_STUCK_MS = 2 * 60_000
+/** How long one provider write may take before its attempt counts as failed: well inside BOOKING_STUCK_MS, so the sweep never starts a second while one is in flight. */
+export const BOOKING_PROVIDER_TIMEOUT_MS = 60_000
 /** Provider writes one booking gets before it is failed and its time let go. */
 export const BOOKING_ATTEMPTS_MAX = 3
 /** How many times a guest may move their booking. */
@@ -117,6 +119,13 @@ export interface TimeOffer {
   state: OfferState
   sentVia: SendBy | null
   cardHash: string | null
+  /**
+   * The person saw who it went to: it went out on their approved card (email
+   * or text), or their own attended turn made it (migration 554). Only then
+   * may their agent book one of its times for its guests without a card of
+   * its own (src/lib/time-offers/agent-booking.ts).
+   */
+  recipientsShown: boolean
   approvalId: string | null
   bookingId: string | null
   expiresAt: string

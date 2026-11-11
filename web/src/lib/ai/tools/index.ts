@@ -199,6 +199,17 @@ export interface CreateToolsOptions {
    */
   unattended?: boolean
   /**
+   * The person is the caller, at the keyboard, and reads this turn as it runs
+   * (the chat tool route's caller class `person`, from the verified token;
+   * never anything model-visible). An offer made by link in such a turn is
+   * marked as shown to them (time_offer.recipients_shown), so their agent
+   * may later book its times for its guests without a second card. Absent
+   * everywhere else: such a booking waits on the person's card
+   * (src/lib/time-offers/agent-booking.ts). Threaded only to the time
+   * offers family.
+   */
+  personAttended?: boolean
+  /**
    * The person's own text to the Native Intelligence number (a channel turn, surface sms,
    * no guest, relay or teammate: isPersonTextTurn in
    * src/lib/onboarding/text-setup.ts). Only then does connect_link make a
@@ -442,7 +453,8 @@ export function createTools(
     // Times offered to an outside person, held until they pick one (src/lib/time-offers/).
     // offer_times by email or text sends only as the person's approved call; cancel_offered_meeting is never an unattended run's.
     // A guest's or a linked agent's turn reads no grant of the person's: no linked guest is answered from their calendar.
-    ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, timeZone: options?.timeZone, omitGrants }),
+    // An offer by link is marked shown only in the person's own attended turn (personAttended): only then may their agent book its times without a card.
+    ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, personAttended: options?.personAttended === true && options?.unattended !== true, timeZone: options?.timeZone, omitGrants }),
     // Booking links: standing public pages to book time with the person or their team (src/lib/booking-links/).
     // Making and changing one is attended only (ATTENDED_ONLY_TOOL_NAMES): the ceiling keeps them out of unattended runs.
     ...createBookingLinkTools(userId, workspaceId),

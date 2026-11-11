@@ -189,8 +189,17 @@ export function bookedText(b: { hostName: string; title: string; startsAt: strin
 }
 
 /** The host's line when a booking could not be put on their calendar. */
-export function failedReport(b: { guestName: string; title: string; startsAt: string }, timeZone: string, reason: string): string {
-  return `${b.guestName} picked ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))} for ${b.title}, but it couldn't be put on your calendar (${reason.slice(0, 120)}), so they got no invitation. The time is free again: reach them yourself.`
+export function failedReport(
+  b: { guestName: string; title: string; startsAt: string },
+  timeZone: string,
+  reason: string,
+  /** What became of an event the provider may have made anyway (finishBooking's clean-up): none, taken off again, or not known. */
+  event: 'none' | 'deleted' | 'unknown' = 'none',
+): string {
+  const head = `${b.guestName} picked ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))} for ${b.title}, but it couldn't be put on your calendar (${reason.slice(0, 120)})`
+  if (event === 'deleted') return `${head}. The calendar had made the event after all, so it was taken off again: they may get its invitation and then a cancellation. The time is free again: reach them yourself.`
+  if (event === 'unknown') return `${head}. The time is free again: reach them yourself. If the event shows on your calendar anyway, delete it there: they may have been invited.`
+  return `${head}, so they got no invitation. The time is free again: reach them yourself.`
 }
 
 /** The host's line when a guest cancelled or moved. */

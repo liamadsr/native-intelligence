@@ -38,7 +38,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createCalendarEvent, deleteCalendarEvent } from '@/lib/integrations/calendar'
+import { createCalendarEvent, deleteCalendarEvent, deleteCalendarEventByKey } from '@/lib/integrations/calendar'
 import { checkSpansFree } from '@/lib/availability/slot-check'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
 import { textBookingCustomer } from '@/lib/customers/booking'
@@ -52,7 +52,7 @@ import { cleanEmail, oneLine } from './offers'
 import { hostZone } from './manage'
 import { bookSlot, deleteBookingClaims, deleteHolds, getBooking, getOffer, getOfferByTokenHash, recordFailedPick, releaseSlots, updateBooking } from './store'
 import { manageTokenFor, manageTokenHash, manageUrl, offerTokenHash } from './tokens'
-import { BOOKING_ATTEMPTS_MAX, GUEST_NOTE_MAX, RECIPIENT_NAME_MAX, openSlotsOf, type MeetingBooking, type OfferSlot, type TimeOffer } from './types'
+import { BOOKING_ATTEMPTS_MAX, BOOKING_PROVIDER_TIMEOUT_MS, GUEST_NOTE_MAX, RECIPIENT_NAME_MAX, openSlotsOf, type MeetingBooking, type OfferSlot, type TimeOffer } from './types'
 import { bookedReport, bookedText, bookingEventWords, failedReport } from './words'
 
 export type PickVia = 'link' | 'host' | 'customer'
@@ -92,6 +92,10 @@ export interface AcceptDeps {
   calendarAccount?: typeof bookingCalendarAccount
   createEvent?: typeof createCalendarEvent
   deleteEvent?: typeof deleteCalendarEvent
+  /** Take off the event a booking's key may have made (the last attempt's clean-up). */
+  deleteEventByKey?: typeof deleteCalendarEventByKey
+  /** How long one provider write may take (default BOOKING_PROVIDER_TIMEOUT_MS). */
+  providerTimeoutMs?: number
   findContact?: (workspaceId: string, who: { email: string | null; phone: string | null }) => Promise<{ id: string } | null>
   /** The host's home-thread line (default: reportToOwner, routed when `routes`). */
   tellHost?: (args: { workspaceId: string; userId: string; messageId: string; text: string; routes: boolean }) => Promise<boolean>
@@ -110,6 +114,15 @@ async function hostEmailsDefault(workspaceId: string, userIds: readonly string[]
 
 const fail = (code: AcceptFailure['code'], message: string, openSlots?: OfferSlot[]): AcceptFailure => ({ ok: false, code, message, ...(openSlots ? { openSlots } : {}) })
 
+/** The provider write, or a throw once it has taken `ms`: the attempt counts as failed, and the same key makes no second event next time. */
+function withinTime<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the calendar took over ${Math.round(ms / 1000)} s`)), ms)
+  })
+  return Promise.race([work, late]).finally(() => clearTimeout(timer))
+}
+
 function tellHostDefault(supabase: SupabaseClient): NonNullable<AcceptDeps['tellHost']> {
   return (args) => reportToOwner(supabase, args)
 }
@@ -118,7 +131,11 @@ async function loadOffer(supabase: SupabaseClient, ref: AcceptInput['offer']): P
   return 'token' in ref ? getOfferByTokenHash(supabase, offerTokenHash(ref.token)) : getOffer(supabase, ref.id, ref.workspaceId)
 }
 
-/** The guest a pick books: typed on the page, else the offer's own recipient. Pure. */
+/**
+ * The guest a pick books: typed on the page, else the offer's own recipient.
+ * An offer made to an email keeps it: a forwarded link never books (and has
+ * the calendar invite) whatever address the holder types. Pure.
+ */
 export function pickGuest(offer: TimeOffer, input: AcceptInput): { ok: true; guest: { name: string; email: string | null; phone: string | null; timeZone: string | null; note: string | null } } | AcceptFailure {
   if (input.via !== 'link') {
     // The agents book the offer's own recipient: never anyone a message named.
@@ -127,8 +144,8 @@ export function pickGuest(offer: TimeOffer, input: AcceptInput): { ok: true; gue
   const typed = input.guest ?? {}
   const name = oneLine(typed.name, RECIPIENT_NAME_MAX) ?? offer.recipientName
   const rawEmail = typeof typed.email === 'string' && typed.email.trim() ? typed.email : null
-  const email = rawEmail ? cleanEmail(rawEmail) : offer.recipientEmail
-  if (rawEmail && !email) return fail('BAD_INPUT', 'That email address doesn\'t look right.')
+  const email = offer.recipientEmail ?? (rawEmail ? cleanEmail(rawEmail) : null)
+  if (rawEmail && !offer.recipientEmail && !email) return fail('BAD_INPUT', 'That email address doesn\'t look right.')
   if (!email) return fail('NEEDS_EMAIL', 'Add your email so the invitation can reach you.')
   const timeZone = isTimeZone(typed.timeZone) ? typed.timeZone : null
   return { ok: true, guest: { name, email, phone: offer.recipientPhone, timeZone, note: oneLine(typed.note, GUEST_NOTE_MAX) } }
@@ -159,9 +176,11 @@ export async function acceptOffer(supabase: SupabaseClient, input: AcceptInput, 
 
     const picked = pickGuest(offer, input)
     if (!picked.ok) return picked
+    // Who asks again, by the address they typed: a forwarded link never gets the booking's manage link back.
+    const asking = (input.via === 'link' && typeof input.guest?.email === 'string' ? cleanEmail(input.guest.email) : null) ?? picked.guest.email
 
     // Already booked: the same pick again gets its booking back; any other pick is told.
-    if (offer.state === 'booked') return answerBooked(supabase, offer, slot, picked.guest.email, deps)
+    if (offer.state === 'booked') return answerBooked(supabase, offer, slot, asking, deps)
     if (offer.state === 'pending_send') return fail('NOT_FOUND', "That offer hasn't been sent yet.")
     if (offer.state === 'withdrawn' || offer.state === 'declined') return fail('WITHDRAWN', `${offer.hostName} withdrew these times.`)
     if (offer.state === 'expired' || Date.parse(offer.expiresAt) <= now) return fail('EXPIRED', 'These times have expired.')
@@ -208,7 +227,7 @@ export async function acceptOffer(supabase: SupabaseClient, input: AcceptInput, 
     })
     if (outcome.status === 'already') {
       const fresh = await loadOffer(supabase, input.offer)
-      return fresh ? answerBooked(supabase, fresh, slot, picked.guest.email, deps) : fail('BOOKED', 'These times were just booked.')
+      return fresh ? answerBooked(supabase, fresh, slot, asking, deps) : fail('BOOKED', 'These times were just booked.')
     }
     if (outcome.status === 'closed') return outcome.state === 'expired' || outcome.state === 'open' ? fail('EXPIRED', 'These times have expired.') : fail('WITHDRAWN', `${offer.hostName} withdrew these times.`)
     if (outcome.status === 'missing') return fail('NOT_FOUND', 'This offer does not exist.')
@@ -269,18 +288,21 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
     const words = party?.words ?? bookingEventWords(attempt, link)
     const otherHosts = !party && attempt.otherHostIds.length ? await (deps.hostEmails ?? hostEmailsDefault)(attempt.workspaceId, attempt.otherHostIds) : []
     const attendees = party?.attendees ?? [...(attempt.guestEmail ? [attempt.guestEmail] : []), ...otherHosts]
-    const event = await (deps.createEvent ?? createCalendarEvent)(
-      attempt.hostUserId,
-      {
-        title: words.title,
-        description: words.description,
-        start: attempt.startsAt,
-        end: attempt.endsAt,
-        ...(attempt.location ? { location: attempt.location } : {}),
-        ...(attendees.length ? { attendees } : {}),
-      },
-      attempt.calendarAccountId ?? undefined,
-      { sendInvites: true, video: attempt.video, idempotencyKey: attempt.id },
+    const event = await withinTime(
+      (deps.createEvent ?? createCalendarEvent)(
+        attempt.hostUserId,
+        {
+          title: words.title,
+          description: words.description,
+          start: attempt.startsAt,
+          end: attempt.endsAt,
+          ...(attempt.location ? { location: attempt.location } : {}),
+          ...(attendees.length ? { attendees } : {}),
+        },
+        attempt.calendarAccountId ?? undefined,
+        { sendInvites: true, video: attempt.video, idempotencyKey: attempt.id },
+      ),
+      deps.providerTimeoutMs ?? BOOKING_PROVIDER_TIMEOUT_MS,
     )
     const confirmed = await updateBooking(supabase, attempt.id, ['booking'], {
       state: 'confirmed',
@@ -292,9 +314,14 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
       confirmed_at: new Date().toISOString(),
     })
     if (!confirmed) {
-      // Cancelled while the event was being written: the event goes too.
-      await (deps.deleteEvent ?? deleteCalendarEvent)(attempt.hostUserId, event.id, { accountId: attempt.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => {})
-      return getBooking(supabase, bookingId).catch(() => null)
+      // Changed while the event was being written. Cancelled (or failed) with
+      // no event of its own: this event goes too. Confirmed by another attempt
+      // (the same key: the same event), or already holding this event: it stays.
+      const now = await getBooking(supabase, bookingId).catch(() => null)
+      if (now && (now.state === 'cancelled' || now.state === 'failed') && now.calendarEventId !== event.id) {
+        await (deps.deleteEvent ?? deleteCalendarEvent)(attempt.hostUserId, event.id, { accountId: attempt.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => {})
+      }
+      return now
     }
     if (party) {
       await party.after(confirmed, zone)
@@ -316,7 +343,11 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
     const failed = await updateBooking(supabase, attempt.id, ['booking'], { state: 'failed', last_error: reason }).catch(() => null)
     if (failed) {
       await deleteBookingClaims(supabase, failed.id).catch(() => {})
-      await tell({ workspaceId: failed.workspaceId, userId: failed.hostUserId, messageId: `meeting-booking:${failed.id}:failed`, text: failedReport(failed, zone, reason), routes: true }).catch(() => false)
+      // The provider may have made the event before it failed (a timeout, an
+      // error on its answer): one the key made comes off again, so no guest
+      // holds an invitation to a booking that failed.
+      const event = await (deps.deleteEventByKey ?? deleteCalendarEventByKey)(failed.hostUserId, failed.id, { accountId: failed.calendarAccountId ?? undefined }).catch(() => 'unknown' as const)
+      await tell({ workspaceId: failed.workspaceId, userId: failed.hostUserId, messageId: `meeting-booking:${failed.id}:failed`, text: failedReport(failed, zone, reason, event), routes: true }).catch(() => false)
     }
     return failed ?? attempt
   }

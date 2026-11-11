@@ -19,12 +19,18 @@
  * Never a host's email, calendar or events, nor anyone else's booking.
  *
  * Cheap: a link's GET is a few indexed reads and never calls a calendar
- * provider; its times are read from the hosts' calendars at most once a
- * minute per link and range on this instance (a booking re-reads its time
- * live either way). A booking is capped by counting rows:
- * LINK_ATTEMPTS_HOURLY_CAP tries a link per hour, LINK_GUEST_DAILY_CAP
- * bookings a guest per link per day, and a honeypot field. Errors use the
- * shared shape of @/lib/api-errors.
+ * provider. Its times are only ever the link's own window (its notice to
+ * its window_days out: nothing past it is read or answered), read from the
+ * hosts' calendars in fixed blocks of days from today, each at most once a
+ * minute per link on this instance, whatever `from` and `days` a request
+ * names (it gets its slice); a client reads at most
+ * LINK_TIMES_CLIENT_PER_MINUTE times a minute. A booking re-reads its time
+ * live either way. A booking is capped by counting rows, a try counting
+ * only once it names a guest and a way to reach them:
+ * LINK_CLIENT_HOURLY_CAP tries a client per hour across every page (the
+ * client's address, hashed: ./client.ts), LINK_ATTEMPTS_HOURLY_CAP tries a
+ * link per hour, LINK_GUEST_DAILY_CAP bookings a guest per link per day, and
+ * a honeypot field. Errors use the shared shape of @/lib/api-errors.
  *
  * Server only.
  */
@@ -40,16 +46,30 @@ import { businessName, getBusinessProfile } from '@/lib/customers/store'
 import { hostDisplayName } from '@/lib/time-offers/offers'
 import { normalizeE164 } from '@/lib/twilio/phone'
 import type { PageLoad } from '@/lib/time-offers/display'
-import { bookFromLink, type LinkBookingDeps, type LinkBookingFailure } from './book'
-import { countGuestBookings, countLinkAttempts, getJobLink, getLinkByAddress, getProfileByHandle, recordLinkAttempt } from './store'
+import { bookFromLink, readGuest, readGuestAnswers, type LinkBookingDeps, type LinkBookingFailure } from './book'
+import { clientKeyOf } from './client'
+import { countClientAttempts, countGuestBookings, countLinkAttempts, getJobLink, getLinkByAddress, getProfileByHandle, recordLinkAttempt } from './store'
 import { readLinkTimes, type LinkTimesResult } from './times'
-import { LINK_ATTEMPTS_HOURLY_CAP, LINK_GUEST_DAILY_CAP, LINK_TIMES_DAYS_MAX, type BookingLink, type PublicLinkBooked, type PublicLinkData, type PublicLinkTimes } from './types'
+import {
+  LINK_ATTEMPTS_HOURLY_CAP,
+  LINK_CLIENT_HOURLY_CAP,
+  LINK_GUEST_DAILY_CAP,
+  LINK_TIMES_CLIENT_PER_MINUTE,
+  LINK_TIMES_DAYS_MAX,
+  LINK_TIMES_MAX,
+  type BookingLink,
+  type PublicLinkBooked,
+  type PublicLinkData,
+  type PublicLinkTimes,
+} from './types'
 
 export interface LinkPublicDeps {
   supabase: SupabaseClient
   now?: () => number
   book?: LinkBookingDeps
   readTimes?: (link: BookingLink, range: { from: number; to: number }) => Promise<LinkTimesResult>
+  /** Who the request is from, hashed (default: ./client.ts clientKeyOf); null: the per-client caps don't apply. */
+  clientKey?: (request: Request) => string | null
   /** A job link's business seams (default: the real store). */
   job?: BookingLinkDeps
   /** The hosts' display names (default: their member rows). */
@@ -152,24 +172,73 @@ export function timesRange(params: URLSearchParams, zone: string, now: number): 
 }
 
 /**
- * The times read, kept a minute per link and range on this instance: a page
- * reloaded (or scraped) must not read the hosts' calendar providers each time.
+ * The times read, kept a minute per link and block on this instance (see the
+ * header): a page reloaded, scraped or asked for every `from` there is reads
+ * the hosts' calendar providers at most once a minute per block, and a link
+ * has at most a few blocks (its window).
  */
 const TIMES_TTL_MS = 60_000
-const timesCache = new Map<string, { at: number; value: PublicLinkTimes }>()
+type TimesBlock = { timeZone: string; slots: Array<{ start: string; end: string }> }
+const timesCache = new Map<string, { at: number; value: TimesBlock }>()
+/** A block's days: a meeting link's one read covers LINK_TIMES_DAYS_MAX at most, a job link's 14 (findOpenSlots' read). */
+const MEETING_BLOCK_DAYS = LINK_TIMES_DAYS_MAX
+const JOB_BLOCK_DAYS = 14
+/** Times one block keeps before a request's answer is cut to LINK_TIMES_MAX. */
+const BLOCK_TIMES_MAX = 2000
 
-/** Test seam: forget the cached times. */
+/** Each client's reads of times this minute, on this instance. */
+const timesReads = new Map<string, { since: number; count: number }>()
+
+/** Test seam: forget the cached times and the reads counted. */
 export function __clearLinkTimesCacheForTests(): void {
   timesCache.clear()
+  timesReads.clear()
 }
 
 function forgetLink(linkId: string): void {
   for (const key of timesCache.keys()) if (key.startsWith(`${linkId}:`)) timesCache.delete(key)
 }
 
+/** Whether this client has read its fill of times this minute (counting this read). */
+function timesReadLimited(client: string | null, now: number): boolean {
+  if (!client) return false
+  const seen = timesReads.get(client)
+  if (!seen || now - seen.since >= 60_000) {
+    if (timesReads.size > 5000) timesReads.clear()
+    timesReads.set(client, { since: now, count: 1 })
+    return false
+  }
+  seen.count++
+  return seen.count > LINK_TIMES_CLIENT_PER_MINUTE
+}
+
+/** The starts a link may offer: from its notice to its window's end (and a meeting's length past it). Pure. */
+export function linkWindow(link: Pick<BookingLink, 'noticeMinutes' | 'windowDays' | 'durationMinutes'>, now: number): { from: number; to: number } {
+  return { from: now + link.noticeMinutes * 60_000, to: now + link.windowDays * DAY_MS + link.durationMinutes * 60_000 }
+}
+
+/**
+ * The fixed blocks of days, from today in `zone`, that cover [from, to):
+ * each its start and end and its day. The same blocks whatever range a
+ * request names. Pure.
+ */
+export function timesBlocks(from: number, to: number, zone: string, now: number, blockDays: number): Array<{ from: number; to: number; day: string }> {
+  const today = localDate(now, zone)
+  const out: Array<{ from: number; to: number; day: string }> = []
+  for (let k = 0; k < 400; k++) {
+    const first = addDays(today, k * blockDays)
+    const start = zonedTime(first, '00:00', zone)
+    if (start >= to) break
+    const end = zonedTime(addDays(first, blockDays), '00:00', zone)
+    if (end > from) out.push({ from: start, to: end, day: dayKey(first) })
+  }
+  return out
+}
+
 /** GET /api/public/booking-links/<profile>/<slug>/times. */
 export async function handleLinkTimes(request: Request, profile: string, slug: string, deps: LinkPublicDeps): Promise<Response> {
   const now = nowOf(deps)
+  if (timesReadLimited((deps.clientKey ?? clientKeyOf)(request), now)) return rateLimited('Too many reads of this page just now. Try again in a minute.')
   let link: BookingLink | null
   let zone: string
   try {
@@ -181,33 +250,48 @@ export async function handleLinkTimes(request: Request, profile: string, slug: s
   }
   const range = timesRange(new URL(request.url).searchParams, zone, now)
   if (!range) return badRequest('Ask for days from a date: ?from=YYYY-MM-DD&days=7.')
-  const key = `${link.id}:${range.from}:${range.to}`
-  const cached = timesCache.get(key)
-  if (cached && now - cached.at < TIMES_TTL_MS) return Response.json(cached.value)
+  const answer = (timeZone: string, slots: Array<{ start: string; end: string }>): Response =>
+    Response.json({ time_zone: timeZone, from: new Date(range.from).toISOString(), to: new Date(range.to).toISOString(), slots } satisfies PublicLinkTimes)
 
-  let value: PublicLinkTimes
-  if (link.purpose === 'job') {
-    try {
-      const business = { workspaceId: link.workspaceId, ownerUserId: link.ownerUserId }
-      const days = Math.min(14, Math.max(1, Math.round((range.to - range.from) / DAY_MS)))
-      const found = await (deps.jobTimes ?? ((b, r) => findOpenSlots(deps.supabase, b, { ...r, max: 40 }, { now: () => now })))(business, { fromDate: range.fromDay, days })
-      value = { time_zone: found.timeZone, from: new Date(range.from).toISOString(), to: new Date(range.to).toISOString(), slots: found.slots }
-    } catch {
-      return apiError("The calendar couldn't be checked just now. Try again in a minute.", { status: 503, code: 'UNAVAILABLE' })
+  // Only the link's own window is ever read: a range past it is answered empty.
+  const window = linkWindow(link, now)
+  const from = Math.max(range.from, window.from)
+  const to = Math.min(range.to, window.to)
+  if (to <= from) return answer(zone, [])
+
+  const job = link.purpose === 'job'
+  const blockDays = job ? JOB_BLOCK_DAYS : MEETING_BLOCK_DAYS
+  const found: Array<{ start: string; end: string }> = []
+  let timeZone = zone
+  for (const block of timesBlocks(from, to, zone, now, blockDays)) {
+    const key = `${link.id}:${blockDays}:${block.from}`
+    const cached = timesCache.get(key)
+    let value = cached && now - cached.at < TIMES_TTL_MS ? cached.value : null
+    if (!value) {
+      if (job) {
+        try {
+          const business = { workspaceId: link.workspaceId, ownerUserId: link.ownerUserId }
+          const read = await (deps.jobTimes ?? ((b, r) => findOpenSlots(deps.supabase, b, { ...r, max: BLOCK_TIMES_MAX }, { now: () => now })))(business, { fromDate: block.day, days: blockDays })
+          value = { timeZone: read.timeZone, slots: read.slots }
+        } catch {
+          return apiError("The calendar couldn't be checked just now. Try again in a minute.", { status: 503, code: 'UNAVAILABLE' })
+        }
+      } else {
+        const read = await (deps.readTimes ?? ((l, r) => readLinkTimes(l, r, { supabase: deps.supabase, now: () => now, max: BLOCK_TIMES_MAX })))(link, { from: block.from, to: block.to })
+        if (!read.known) return apiError("The calendar couldn't be checked just now. Try again in a minute.", { status: 503, code: 'UNAVAILABLE' })
+        value = { timeZone: read.timeZone, slots: read.slots.map((s) => ({ start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() })) }
+      }
+      if (timesCache.size > 500) timesCache.clear()
+      timesCache.set(key, { at: now, value })
     }
-  } else {
-    const read = await (deps.readTimes ?? ((l, r) => readLinkTimes(l, r, { supabase: deps.supabase, now: () => now })))(link, range)
-    if (!read.known) return apiError("The calendar couldn't be checked just now. Try again in a minute.", { status: 503, code: 'UNAVAILABLE' })
-    value = {
-      time_zone: read.timeZone,
-      from: new Date(range.from).toISOString(),
-      to: new Date(range.to).toISOString(),
-      slots: read.slots.map((s) => ({ start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() })),
+    timeZone = value.timeZone
+    for (const s of value.slots) {
+      const at = Date.parse(s.start)
+      if (at >= from && at < to) found.push(s)
     }
   }
-  if (timesCache.size > 500) timesCache.clear()
-  timesCache.set(key, { at: now, value })
-  return Response.json(value)
+  const slots = [...new Map(found.map((s) => [s.start, s])).values()].sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, LINK_TIMES_MAX)
+  return answer(timeZone, slots)
 }
 
 function bookFailure(result: LinkBookingFailure): Response {
@@ -239,19 +323,41 @@ export async function handleBookLink(request: Request, profile: string, slug: st
   const start = typeof body.start === 'string' ? body.start : ''
   if (!start || !Number.isFinite(Date.parse(start))) return badRequest('Pick a time.')
   const now = nowOf(deps)
+  const client = (deps.clientKey ?? clientKeyOf)(request)
 
   let link: BookingLink | null
   try {
     link = await liveLink(deps, profile, slug)
     if (!link) return notFound('This booking page does not exist.')
-    if ((await countLinkAttempts(deps.supabase, link.id, new Date(now - HOUR_MS).toISOString())) >= LINK_ATTEMPTS_HOURLY_CAP) {
+  } catch {
+    return serverError('This booking page is not available right now.')
+  }
+
+  // Only a try that names a guest and a way to reach them counts (see the
+  // header): one client's against itself first, then the page's.
+  const job = link.purpose === 'job'
+  if (job) {
+    if (typeof body.name !== 'string' || !body.name.trim()) return apiError('Add your name.', { status: 400, code: 'BAD_INPUT', details: { field: 'name' } })
+    if (!normalizeE164(typeof body.phone === 'string' ? body.phone : null)) return apiError('Add your mobile number.', { status: 400, code: 'BAD_INPUT', details: { field: 'phone' } })
+  } else {
+    const guest = readGuest({ start, name: typeof body.name === 'string' ? body.name : '', email: typeof body.email === 'string' ? body.email : null, phone: typeof body.phone === 'string' ? body.phone : null })
+    if (!guest.ok) return bookFailure(guest)
+    const answers = readGuestAnswers(link, body.answers && typeof body.answers === 'object' && !Array.isArray(body.answers) ? (body.answers as Record<string, unknown>) : null)
+    if (!answers.ok) return bookFailure(answers)
+  }
+  try {
+    const since = new Date(now - HOUR_MS).toISOString()
+    if (client && (await countClientAttempts(deps.supabase, client, since)) >= LINK_CLIENT_HOURLY_CAP) {
+      return rateLimited("You've tried to book a lot just now. Try again in a little while.")
+    }
+    if ((await countLinkAttempts(deps.supabase, link.id, since)) >= LINK_ATTEMPTS_HOURLY_CAP) {
       return rateLimited('Too many bookings on this page right now. Try again in a little while.')
     }
   } catch {
     return serverError('This booking page is not available right now.')
   }
 
-  if (link.purpose === 'job') {
+  if (job) {
     const answers = (body.answers && typeof body.answers === 'object' ? body.answers : {}) as Record<string, unknown>
     let business
     try {
@@ -260,7 +366,7 @@ export async function handleBookLink(request: Request, profile: string, slug: st
       return serverError('This booking page is not available right now.')
     }
     if (!business) return notFound('This booking page does not exist.')
-    await recordLinkAttempt(deps.supabase, link.id)
+    await recordLinkAttempt(deps.supabase, link.id, client)
     const made = await postBookingRequest(business, { start, name: body.name, phone: body.phone, address: answers.address ?? body.address, note: body.note }, deps.job ?? supabaseBookingLinkDeps(deps.supabase))
     if (made instanceof Response) return made
     forgetLink(link.id)
@@ -283,7 +389,7 @@ export async function handleBookLink(request: Request, profile: string, slug: st
   } catch {
     return serverError('This booking page is not available right now.')
   }
-  await recordLinkAttempt(deps.supabase, link.id)
+  await recordLinkAttempt(deps.supabase, link.id, client)
 
   const result = await bookFromLink(
     deps.supabase,

@@ -74,6 +74,13 @@ export function sendByOf(input: unknown): SendBy {
   return value === 'email' || value === 'text' ? value : 'link'
 }
 
+/**
+ * The agent's bookings from an offer's own times: each runs on its own only
+ * when the person saw who the offer went to, else it is their card
+ * (./agent-booking.ts, src/lib/safety/action-review.ts gateRiskyCall).
+ */
+export const OFFER_BOOKING_TOOLS: ReadonlySet<string> = new Set(['accept_time_offer', 'record_time_offer_answer', 'book_poll_time'])
+
 /** An offer_times or nudge_time_offer call that sends (email or text): only ever the replay of the person's card. Pure. */
 export function offerTimesSends(toolName: string, input: unknown): boolean {
   return (toolName === OFFER_TIMES_TOOL || toolName === NUDGE_TIME_OFFER_TOOL) && sendByOf(input) !== 'link'

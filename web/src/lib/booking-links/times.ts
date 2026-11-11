@@ -186,6 +186,8 @@ export interface ReadLinkTimesDeps {
   bookedStarts?: (linkId: string, fromIso: string, toIso: string) => Promise<number[]>
   /** Claims the read leaves out: a booking's own while the host's yes re-checks it. */
   exceptClaims?: ClaimExceptions
+  /** At most this many times (default LINK_TIMES_MAX): the public page's whole-block reads take more, and cut each request's answer to it. */
+  max?: number
 }
 
 /** A reason a guest may read: what kind of thing went wrong, never a provider's words or whose calendar. */
@@ -237,5 +239,5 @@ export async function readLinkTimes(link: BookingLink, range: { from: number; to
       return { known: false, reason: UNKNOWN }
     }
   }
-  return { known: true, timeZone, slots: linkSlots({ link, hosts: hostTimes, timeZone, now, from, to, booked }) }
+  return { known: true, timeZone, slots: linkSlots({ link, hosts: hostTimes, timeZone, now, from, to, booked, max: deps.max }) }
 }

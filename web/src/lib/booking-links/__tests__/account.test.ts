@@ -3,8 +3,9 @@
  * handlers in ../account.ts): a person's link under their own handle (made
  * from their name the first time), a team link under the workspace's
  * (owners and admins); who may edit (the link's owner, or an owner or
- * admin); who may host (members; someone who doesn't share their
- * availability only by adding themselves); a business's job link keeps its
+ * admin; never a workspace guest); who may host (the editor themself, or a
+ * member who shares their availability whom an owner or admin adds; never a
+ * workspace guest); a business's job link keeps its
  * shape; delete turns a link off; handles are unique. Over the real store in
  * memory; the studio is made up.
  */
@@ -95,6 +96,32 @@ describe('making a link', () => {
     expect((await handleCreateLink(req({ title: 'Office hours' }), as(BEN), deps)).status).toBe(201)
     expect((await handleCreateLink(req({ title: 'Pairing', host_mode: 'all', hosts: [AVA, OUTSIDER] }), as(AVA), deps)).status).toBe(400)
     expect((await handleCreateLink(req({ title: 'Pairing', host_mode: 'one', hosts: [AVA, CARA] }), as(AVA), deps)).status).toBe(400)
+  })
+
+  it('someone else hosts only when an owner or admin adds them and they share their availability; a workspace guest never makes, edits or hosts a link', async () => {
+    const DEE = 'e0000000-0000-4000-8000-00000000000e'
+    const GUS = 'f0000000-0000-4000-8000-00000000000f'
+    tables.member.push(
+      { id: 'm-dee', workspace_id: WS, user_id: DEE, display_name: 'Dee Park', role: 'member', availability_sharing: 'busy_only' },
+      { id: 'm-gus', workspace_id: WS, user_id: GUS, display_name: 'Gus Hale', role: 'guest', availability_sharing: 'busy_only' },
+    )
+    // A plain member adds only themself: Dee's calendar would take the bookings of Ben's page.
+    const byMember = await json(await handleCreateLink(req({ title: 'Pairing', host_mode: 'all', hosts: [BEN, DEE] }), as(BEN), deps))
+    expect(byMember.status).toBe(403)
+    expect(byMember.body.error).toContain("Only the workspace's owner or an admin adds someone else as a host")
+    // A guest of the workspace is never a host, whoever adds them.
+    expect((await handleCreateLink(req({ title: 'Pairing', host_mode: 'all', hosts: [AVA, GUS] }), as(AVA), deps)).status).toBe(403)
+    // Nor makes a link, or a handle.
+    expect((await handleCreateLink(req({ title: 'Guest call' }), as(GUS), deps)).status).toBe(403)
+    expect((await handlePutHandle(new Request('https://app.example/x', { method: 'PUT', body: JSON.stringify({ handle: 'gus-hale' }) }), as(GUS), deps)).status).toBe(403)
+    expect(mayEdit({ ownerUserId: GUS, purpose: 'meeting' }, { userId: GUS }, 'guest')).toBe(false)
+    // An admin adds a member who shares their availability; that host stays on through later changes.
+    const made = await json(await handleCreateLink(req({ title: 'Pairing', host_mode: 'all', hosts: [CARA, DEE] }), as(CARA), deps))
+    expect(made.status).toBe(201)
+    tables.member.find((m) => m.user_id === CARA)!.role = 'member'
+    const setHosts = (body: unknown) => handleSetHosts(new Request('https://app.example/x', { method: 'PUT', body: JSON.stringify(body) }), made.body.link.id, as(CARA), deps)
+    expect((await setHosts({ hosts: [CARA, DEE], host_mode: 'any' })).status).toBe(200)
+    expect((await setHosts({ hosts: [CARA, DEE, AVA], host_mode: 'any' })).status).toBe(403)
   })
 
   it('a value outside the table’s ranges is refused before anything is written', async () => {

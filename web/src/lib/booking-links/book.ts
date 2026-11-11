@@ -321,11 +321,16 @@ export async function confirmLinkRequest(
       if (!free.known) return letGo(`The calendar couldn't be checked, so ${label} wasn't booked and is free again.`, 'CALENDAR_UNKNOWN')
       if (free.busy[0]) return letGo(`Something else is on the calendar at ${label} now, so it wasn't booked.`, 'SLOT_TAKEN')
     }
-    const kept = await keepBookingClaims(supabase, booking)
-    if (!kept.ok) return letGo(kept.conflict ? `${label} was booked by someone else meanwhile.` : `${label} couldn't be held (${kept.error}).`, kept.conflict ? 'SLOT_TAKEN' : 'FAILED')
-
+    // The yes is fenced first: a request that lapsed or changed meanwhile is
+    // left as it is, and no claim of its is made or kept again.
     const writing = await updateBooking(supabase, booking.id, ['requested'], { state: 'booking', decided_at: new Date().toISOString() })
     if (!writing) return { success: false, error: 'That booking changed while it was being confirmed.' }
+    const kept = await keepBookingClaims(supabase, booking)
+    if (!kept.ok) {
+      await updateBooking(supabase, booking.id, ['booking'], { state: 'declined' }).catch(() => null)
+      await deleteBookingClaims(supabase, booking.id).catch(() => {})
+      return { success: false, code: kept.conflict ? 'SLOT_TAKEN' : 'FAILED', error: `${kept.conflict ? `${label} was booked by someone else meanwhile.` : `${label} couldn't be held (${kept.error}).`} ${booking.guestName} was not told: reach them yourself if they should know.` }
+    }
     const done = await finishBooking(supabase, booking.id, deps.accept)
     const confirmed = done?.state === 'confirmed'
     return {

@@ -4,7 +4,12 @@
  *
  *   send_by 'link'   the offer is made (its times held) and its link comes
  *                    back with ready-to-paste text. Nothing is sent, so no
- *                    card.
+ *                    card. Made in the person's own attended turn, it is
+ *                    marked as shown to them (recipients_shown): their agent
+ *                    may book its times for its guest later without a card.
+ *                    Made anywhere else (a home turn, a run, a text), it is
+ *                    not, and such a booking waits on their card
+ *                    (./agent-booking.ts).
  *   send_by 'email'  from the person's own mailbox, or
  *   send_by 'text'   from the workspace's business number (refused, saying
  *                    so, when it has none): ONLY as the replay of the
@@ -19,8 +24,9 @@
  *                    builds the card again from that offer as it is then and
  *                    sends nothing when its words differ, or when a time is
  *                    no longer free; else it mints the link's token, opens
- *                    the offer and sends. A card declined or lapsed lets the
- *                    times go (settleTimeOfferApproval).
+ *                    the offer (shown: the card named who) and sends. A
+ *                    card declined or lapsed lets the times go
+ *                    (settleTimeOfferApproval).
  *
  * The card shows every word that goes out but the link's token (minted only
  * when sent, never stored), shown as the link's address with "…".
@@ -255,7 +261,7 @@ function offerResult(offer: TimeOffer, link: string, sentVia: 'link' | 'email' |
 /** Run one offer_times call (see the header). Never throws. */
 export async function runOfferTimes(
   supabase: SupabaseClient,
-  args: { userId: string; workspaceId: string; approvedCall?: ApprovedCall; browserTimeZone?: string | null; omitGrants?: boolean },
+  args: { userId: string; workspaceId: string; approvedCall?: ApprovedCall; browserTimeZone?: string | null; omitGrants?: boolean; personAttended?: boolean },
   input: unknown,
   deps: SendDeps = {},
 ): Promise<Record<string, unknown>> {
@@ -274,7 +280,7 @@ export async function runOfferTimes(
     if (sendBy === 'link') {
       const planned = await planOffer(supabase, requestOf(args, parsed.data), deps)
       if (!planned.ok) return refusal(planned)
-      const made = await createOffer(supabase, planned.plan, { state: 'open', createdBy: args.userId }, deps)
+      const made = await createOffer(supabase, planned.plan, { state: 'open', createdBy: args.userId, recipientsShown: args.personAttended === true }, deps)
       if (!made.ok) return refusal(made)
       return offerResult(made.offer, offerUrl(origin, made.token as string), 'link', null)
     }
@@ -322,7 +328,7 @@ export async function runOfferTimes(
     }
 
     const token = mintOfferToken()
-    const opened = await moveOffer(supabase, offer.id, ['pending_send'], 'open', { token_hash: offerTokenHash(token), sent_via: way.delivery.via })
+    const opened = await moveOffer(supabase, offer.id, ['pending_send'], 'open', { token_hash: offerTokenHash(token), sent_via: way.delivery.via, recipients_shown: true })
     if (!opened) return { success: false, code: 'CLOSED', error: 'Nothing was sent: the offer changed just now.' }
     const link = offerUrl(origin, token)
     let problem: string | null = null

@@ -55,6 +55,11 @@ describe('offer_times with several recipients, by link', () => {
     const deps = seams()
     const out = await runOfferTimes(db, args, INPUT, deps)
     expect(out).toMatchObject({ success: true, mode: 'poll', state: 'open', sent_via: 'link' })
+    // Shown to the person only when their own attended turn made it.
+    expect(tables.time_offer[0].recipients_shown).toBe(false)
+    const attended = offerDb()
+    await runOfferTimes(attended.db, { ...args, personAttended: true }, INPUT, seams())
+    expect(attended.tables.time_offer[0].recipients_shown).toBe(true)
     const guests = out.guests as Array<{ guest_id: string; name: string; link: string; paste_text: string; answered: boolean }>
     expect(guests.map((g) => g.name)).toEqual(['Dana Reyes', 'Sam Ortiz'])
     for (const g of guests) {
@@ -111,7 +116,7 @@ describe('offer_times with several recipients, by email or text', () => {
     const approvedCall = { tool: 'offer_times', timeOffer: prepared.context.timeOffer } as ApprovedCall
     const out = await runOfferTimes(db, { ...args, approvedCall }, { ...INPUT, send_by: 'email' }, deps)
     expect(out).toMatchObject({ success: true, mode: 'poll', sent_via: 'email' })
-    expect(tables.time_offer[0]).toMatchObject({ state: 'open', sent_via: 'email' })
+    expect(tables.time_offer[0]).toMatchObject({ state: 'open', sent_via: 'email', recipients_shown: true })
     expect(deps.sendEmail).toHaveBeenCalledTimes(2)
     const ids = tables.time_offer_recipient.map((r) => String(r.id))
     const bodies = deps.sendEmail.mock.calls.map((c) => (c as unknown as [string, string, { to: string[]; body_text: string }])[2])
