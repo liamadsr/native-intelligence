@@ -97,13 +97,16 @@ describe('migration 520: tables, rows and one write path', () => {
     }
   })
 
-  it('reads a table: a member of its workspace, workspace-wide or theirs or granted; writes it: never by grant, never a guest', () => {
+  it('reads a table: a member of its workspace, workspace-wide or theirs or granted; writes it: by an edit grant only, never a guest', () => {
     const visible = fn('data_table_visible_to')
     expect(visible).toContain("t.visibility = 'workspace'")
     expect(visible).toContain('t.owner_member_id = m.id')
     expect(visible).toContain("public.entity_grant_reaches('data_table', t.id, t.workspace_id, p_user_id)")
     const editable = fn('data_table_editable_by')
-    expect(editable).not.toMatch(/grant/)
+    // An edit grant writes (512); a view grant never does.
+    expect(editable).toContain("public.entity_edit_grant_reaches('data_table', t.id, t.workspace_id, p_user_id)")
+    expect(editable).not.toMatch(/entity_grant_reaches|has_entity_grant/)
+    expect(fn('_data_apply')).toContain("raise exception 'only the table''s owner can archive it'")
     expect(editable).toContain("m.role <> 'guest'")
     // Each answers only for the caller themself, or for the service role.
     for (const f of [visible, editable]) expect(f).toContain('and (auth.uid() is null or auth.uid() = p_user_id)')

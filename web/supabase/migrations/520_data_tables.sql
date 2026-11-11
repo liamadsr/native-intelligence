@@ -32,8 +32,10 @@
 --      that one undone, in the same transaction.
 --   5. Access. data_table_visible_to(table, user): a member of its workspace,
 --      and the table is workspace-wide, or theirs, or a grant reaches them
---      (492). data_table_editable_by: the same without the grant arm (a grant
---      is view-only) and never a guest. Rows and changes follow their table.
+--      (492). data_table_editable_by: workspace-wide or theirs, or an EDIT
+--      grant reaches them (512), and never a guest; a view grant only reads.
+--      Who sees a private table and whether it is archived stay its owner's.
+--      Rows and changes follow their table.
 --      The read policies compare against my_data_table_ids(), one array per
 --      query (an InitPlan), so a page of rows costs one lookup, not one call
 --      per row. visible_data_table_ids(ids, user) is the batched form for the
@@ -56,9 +58,11 @@
 --      restrictive policy keeps a member's direct writes to the workspace's
 --      own fields (table_id null), and another hides the columns of a table
 --      they can't read.
---   7. Grants (492, 494, 495): entity_access takes 'data_table'. Its owner
---      may share it; the guard knows where a table lives; entity_grant_only
---      says when a table is seen only through a grant.
+--   7. Grants (492, 494, 495, 512): entity_access takes 'data_table'. Its
+--      owner may share it; the guard knows where a table lives;
+--      entity_grant_only, entity_edit_grant_on and entity_edit_grant_only
+--      know a table. An edit grant writes rows and columns (520's
+--      data_table_editable_by), never who sees it or its archive.
 --   8. Realtime: data_table is published (REPLICA IDENTITY FULL). Every
 --      batch bumps its version, so one event per batch tells a table's
 --      viewers to read again; rows are not published (an import would be a
@@ -260,7 +264,8 @@ as $$
         where t.id = p_table_id
           and m.role <> 'guest'
           and (t.visibility = 'workspace'
-               or (t.owner_member_id is not null and t.owner_member_id = m.id))
+               or (t.owner_member_id is not null and t.owner_member_id = m.id)
+               or public.entity_edit_grant_reaches('data_table', t.id, t.workspace_id, p_user_id))
      );
 $$;
 
@@ -515,6 +520,11 @@ begin
       end if;
 
     elsif kind in ('archive_table', 'restore_table') then
+      -- Where a private table lives is its owner's call, as who sees it is
+      -- (an edit grant opens what it says, 512).
+      if t.visibility = 'private' and t.owner_member_id is distinct from p_member then
+        raise exception 'only the table''s owner can archive it' using errcode = '42501';
+      end if;
       if (kind = 'archive_table') = (t.archived_at is null) then
         update public.data_table
            set archived_at = case when kind = 'archive_table' then now() end, updated_at = now()
@@ -983,6 +993,66 @@ $$;
 revoke all on function public.entity_grant_only(text, uuid) from public, anon;
 grant execute on function public.entity_grant_only(text, uuid) to authenticated, service_role;
 
+-- 512's record-side helpers, each with the table arm: an edit grant on a
+-- table, and a table writable only through one.
+create or replace function public.entity_edit_grant_on(p_type text, p_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select auth.uid() is not null and p_id is not null and coalesce(case p_type
+    when 'document' then (select public.has_entity_edit_grant('document', d.id, d.workspace_id) from public.document d where d.id = p_id)
+    when 'capture' then (select public.has_entity_edit_grant('capture', c.id, c.workspace_id) from public.captures c where c.id = p_id and not c.is_eval)
+    when 'contact' then (select public.has_entity_edit_grant('contact', ct.id, ct.workspace_id) from public.contact ct where ct.id = p_id)
+    when 'company' then (select public.has_entity_edit_grant('company', co.id, co.workspace_id) from public.company co where co.id = p_id)
+    when 'data_table' then (select public.has_entity_edit_grant('data_table', t.id, t.workspace_id) from public.data_table t where t.id = p_id)
+    else false
+  end, false);
+$$;
+
+create or replace function public.entity_edit_grant_only(p_type text, p_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select auth.uid() is not null and p_id is not null and coalesce(case p_type
+    when 'document' then exists (
+      select 1 from public.document d
+       where d.id = p_id
+         and not coalesce(public.can_edit_document(d.id, d.workspace_id, d.created_by, d.type, d.slug, d.published_status, d.frontmatter, d.project_id)
+               and (d.visibility = 'workspace' or d.created_by = public.current_member_id(d.workspace_id)), false)
+         and public.has_entity_edit_grant('document', d.id, d.workspace_id))
+    when 'capture' then exists (
+      select 1 from public.captures c
+       where c.id = p_id
+         and not coalesce(public.is_workspace_member(c.workspace_id)
+               and (c.visibility = 'workspace' or c.user_id = auth.uid()), false)
+         and public.has_entity_edit_grant('capture', c.id, c.workspace_id))
+    when 'contact' then exists (
+      select 1 from public.contact ct
+       where ct.id = p_id
+         and not coalesce(public.can_edit_contact(ct.id, ct.workspace_id, ct.visibility, ct.created_by_member_id), false)
+         and public.has_entity_edit_grant('contact', ct.id, ct.workspace_id))
+    when 'company' then public.entity_grant_only('company', p_id) and public.entity_edit_grant_on('company', p_id)
+    when 'data_table' then exists (
+      select 1 from public.data_table t
+       where t.id = p_id
+         and not coalesce(public.is_workspace_member(t.workspace_id)
+               and (t.visibility = 'workspace' or t.owner_member_id = public.current_member_id(t.workspace_id)), false)
+         and public.has_entity_edit_grant('data_table', t.id, t.workspace_id))
+    else false
+  end, false);
+$$;
+
+revoke all on function public.entity_edit_grant_on(text, uuid) from public, anon;
+revoke all on function public.entity_edit_grant_only(text, uuid) from public, anon;
+grant execute on function public.entity_edit_grant_on(text, uuid) to authenticated, service_role;
+grant execute on function public.entity_edit_grant_only(text, uuid) to authenticated, service_role;
+
 -- 492's rule, with the table arm: a table's owner shares it.
 create or replace function public.entity_access_can_share(p_type text, p_id uuid, p_workspace uuid)
 returns boolean
@@ -1230,3 +1300,5 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public._wsmerge_members(uuid, uuid) FROM PUBLIC, anon, authenticated;
+
+notify pgrst, 'reload schema';

@@ -358,6 +358,9 @@ export const LINK_FENCED_KINDS = [
   'team_chat_channel',
   'team_chat_message',
   'decision',
+  // Tables (522): a private table's edges, and its rows'.
+  'data_table',
+  'data_row',
 ] as const satisfies readonly LinkableEntityType[]
 export type LinkFencedKind = (typeof LINK_FENCED_KINDS)[number]
 
