@@ -300,9 +300,13 @@ export const ENTITY_REGISTRY = [
     sourceable: false,
   },
   {
-    id: 'email',
-    // No stored mail (2026-10-15): an email is its thread's index row, and its
-    // label names the sender, never the subject (email_message is dropped by 344).
+    // One name for mail (migration 503): an email is its thread's index row,
+    // so the kind is `email_thread` everywhere, the UI's lists, labels and
+    // activity tab as much as the graph. The graph used to call it `email`;
+    // that retired name is still read and normalised (RETIRED_ENTITY_TYPE_NAMES).
+    id: 'email_thread',
+    // No stored mail (2026-10-15): the label names the sender, never the
+    // subject (email_message is dropped by 344).
     table: 'email_thread_index',
     workspaceScoped: { kind: 'column', table: 'email_thread_index' },
     label: { table: 'email_thread_index', columns: 'from_email', render: (r) => str(r.from_email) },
@@ -764,7 +768,29 @@ export const ENTITY_REGISTRY_BY_ID: Readonly<Record<EntityType, EntityTypeDescri
   >
 
 export function entityDescriptor(type: string): EntityTypeDescriptor | undefined {
-  return ENTITY_REGISTRY_BY_ID[type as EntityType]
+  return ENTITY_REGISTRY_BY_ID[canonicalEntityType(type) as EntityType]
+}
+
+/**
+ * Retired wire names, each mapped to the kind it names now. A kind is never
+ * renamed in place silently: its old name lands here, migration-side rows are
+ * rewritten (migration 503 for `email`), and every edge that takes a kind from
+ * outside (a tool argument, a route parameter, another tab's event) reads it
+ * through `canonicalEntityType`, so an old client, an older browser tab or a
+ * model quoting an earlier turn keeps working.
+ */
+export const RETIRED_ENTITY_TYPE_NAMES: Readonly<Record<string, EntityType>> = {
+  email: 'email_thread',
+}
+
+/** The kind's current name: a retired name maps to its successor; anything else is returned as is. */
+export function canonicalEntityType<T extends string>(type: T): T | EntityType {
+  return Object.prototype.hasOwnProperty.call(RETIRED_ENTITY_TYPE_NAMES, type) ? RETIRED_ENTITY_TYPE_NAMES[type] : type
+}
+
+/** `canonicalEntityType` over an unknown value (a parsed body, a zod preprocess): non-strings pass through. */
+export function canonicalEntityTypeInput(value: unknown): unknown {
+  return typeof value === 'string' ? canonicalEntityType(value) : value
 }
 
 /**

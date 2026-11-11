@@ -17,6 +17,7 @@ deploy/app/
 ├── .env              its settings (root only, never in git; .env.example lists them)
 ├── deploy.sh         build the image here and roll it out; --rollback goes back
 ├── pull-settings.sh  run on your own machine: fills .env from the earlier host
+├── check-settings.sh run on your own machine: checks .env before the switch
 └── proxy/Caddyfile   the stack's router
 ```
 
@@ -90,36 +91,105 @@ containers also refuse to start while a value in `.env` still starts with
 `pull-settings.sh` fills `.env` without showing a value. The earlier host gives out
 its production settings, except those stored as write-only ("sensitive"): nobody can
 read those back, so they are entered by hand with
-`deploy/supabase/set-secret.sh` (hidden typing), from the password manager or from
-the provider that issued them. Some values must be exactly what the earlier host
-has, because what they sign or encrypt is already stored or held elsewhere:
+`deploy/supabase/set-secret.sh` (hidden typing, several names at once; an empty
+answer leaves that one as it is), from the password manager or from the provider
+that issued them. `check-settings.sh` then says, without showing a value, which are
+set and, where the server can tell, which are right (`../README.md` step 21, Gate 1).
 
-| Setting | Why it must not change |
-|---|---|
-| `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. |
-| `RUN_SKILL_INTERNAL_SECRET` | Keys stored link-token hashes and the reply codes already texted to people. |
-| `CLOUD_BROWSER_SIGNING_KEY` | Its public half is built into released desktop apps. |
-| `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. |
-| `OUTLOOK_WEBHOOK_SECRET` | Part of every live Outlook subscription. |
-| `BROWSER_INTERNAL_SECRET` | Running cloud browsers hold tokens made with it (6 hours). |
-| Webhook and provider secrets (Stripe, Twilio, GPT-Live, GitHub, Linear, Slack, Gmail) | The provider holds the same value. |
-| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | The Inngest server's; `pull-settings.sh` copies them from `../inngest/.env`. |
+Some values must be exactly what the earlier host has, because what they sign or
+encrypt is already stored or held elsewhere:
+
+| Setting | Why it must not change | Checked against |
+|---|---|---|
+| `CREDENTIAL_ENCRYPTION_KEY` | Encrypts every connected account's tokens in the database. | Every stored token ciphertext must open. |
+| `RUN_SKILL_INTERNAL_SECRET` | Keys the stored link, invite and phone-code hashes, and the reply codes already texted. | A stored phone code's hash must come out of it. |
+| `CLOUD_BROWSER_SIGNING_KEY` | Its public half is built into released desktop apps. | That pinned public key. |
+| `UNSUBSCRIBE_SECRET` | Signs the unsubscribe links in mail already sent. | Readable; `pull-settings.sh` brings it. |
+| `OUTLOOK_WEBHOOK_SECRET`, `GMAIL_WEBHOOK_TOKEN` | Part of every live mail subscription. | Readable; brought. |
+| `GPT_LIVE_TRUNK_SECRET` | The phone trunk sends it with every call. | The Twilio trunk's origination address (`--fill` brings it from there). |
+| `GPT_LIVE_WEBHOOK_SECRET`, `LINEAR_WEBHOOK_SECRET`, `GITHUB_WEBHOOK_SECRET` | The provider signs its webhooks with it (GitHub: a repository's webhook to `/api/webhooks/github`). | Nothing here: the provider's dashboard. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | The number, the messaging service and the trunk belong to that account; Twilio signs its webhooks with the account's current token. | Twilio accepts them; the number and the service are the account's. |
+| `STRIPE_SECRET_KEY` | Any secret key of the account and mode the stored customers and prices are in. | Stored customers read with it. |
+| The OAuth apps' client ids (`*_CLIENT_ID`) | Stored connections were made with that app: keep the app, and its client secret may be a new one. | Nothing here: a connection's next refresh. |
+| `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` | The Inngest server's; `pull-settings.sh` copies them from `../inngest/.env`. | |
 
 **Exactly** means byte for byte. Two of the readable values on the earlier host
 (`OAUTH_STATE_SECRET`, `OUTLOOK_WEBHOOK_SECRET`) end in a line break, almost
 certainly pasted with one, and the app uses them with it; `pull-settings.sh`
 carries it. A write-only value may have one too, and `set-secret.sh` trims what is
-typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For the
-secrets in the table that sign stored data, check that the stored data still
-verifies on the server before the switch where that can be done (an agent link
-sent by production, opened on the test address: `../README.md` step 21, Gate 1),
-and after it (an unsubscribe
-link from an old mail, a connected account that still syncs) before the earlier
-host is retired.
+typed: give such a name to `set-secret.sh` as `NAME+nl` to keep it. For
+`RUN_SKILL_INTERNAL_SECRET`, `check-settings.sh` says which form is production's.
+After the switch, before the earlier host is retired, check what only real use
+shows: an unsubscribe link from an old mail, a connected account that still syncs.
 
-`AGENT_RUN_INTERNAL_SECRET`, `CHAT_INTERNAL_SECRET` and `LOCAL_AGENT_TOKEN_SECRET`
-may be new on the server (`PULL_GENERATE=1` makes them): they sign tokens that live
-for minutes or hours, between web and the agents, which all start together here.
+These may be new on the server (`PULL_GENERATE=1` makes the first three):
+
+- `AGENT_RUN_INTERNAL_SECRET`: run tokens of an hour, and the coding sandbox's push
+  token of six; only runs in flight across the switch fail.
+- `CHAT_INTERNAL_SECRET`: chat-run tokens of an hour or so. Usage rows the chat
+  agent left in `chat_usage_outbox` within the last half hour are then billed to the
+  session's owner rather than the token's payer.
+- `LOCAL_AGENT_TOKEN_SECRET`: the Mac's model token, valid two hours. A job running
+  on a Mac across the switch is refused until its token is renewed, which happens at
+  three quarters of its life or when the page reloads.
+- `BROWSER_INTERNAL_SECRET`: cloud browsers running at the switch hold relay tokens
+  made with it for up to six hours; they have to be opened again.
+
+Each of them falls back to `RUN_SKILL_INTERNAL_SECRET` when empty
+(`web/src/lib/eve/internal-secret.ts`), so give each its own value.
+
+These exist only here: the earlier host has no such settings, because there the
+app's own deployment token did their work (`web/src/lib/slack/config.ts`).
+
+- `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
+  Slack connector is in. The connector refuses it as the credential for a Slack
+  login (measured from this server), so the app only makes a short-lived project
+  token with it (`web/src/lib/slack/connect-auth.ts`) and sends that to the
+  connector. The project token is for the project's development environment, so
+  the connector must stay enabled for development as well as production.
+- `CONNECT_PROJECT_ID`: the id of the project the connector is attached to and
+  forwards Slack's events for. Required with the access token: the project token
+  is made for it. A forwarded event or button click must carry a token naming it.
+- `CONNECT_TEAM_ID`: that project's team, sent with the project-token request when
+  set. May stay empty: the request was measured working both with and without
+  the team named.
+- `CONNECT_ENVIRONMENT`: that project's environment the forwarded token must name;
+  empty is `production`.
+
+`check-settings.sh` makes the app's own requests for a Slack login, in order, and
+says at which step it stopped: the project token, made exactly as the app makes it
+(the team named only when `CONNECT_TEAM_ID` is set, no body), the connector read
+with it (a trigger destination with `CONNECT_PROJECT_ID` and the path
+`/api/slack/events`), a Slack login for the connector's default installation, and
+Slack's own `auth.test` naming that workspace. It shows no token, at most a
+length; network trouble, too many requests (429) or the other side's failure is
+"cannot tell", not wrong. This path was seen working end to end from this server.
+
+A `*` in `CONNECT_PROJECT_ID` or `CONNECT_ENVIRONMENT` makes the app refuse every
+forwarded event, and the check calls it wrong.
+
+`VERCEL_PROJECT_ID` and `VERCEL_ENV` are never set here in their place: other code
+reads `VERCEL_ENV` to tell production from a preview.
+
+### Sealed copy (done once, then removed)
+
+The earlier host's write-only production settings reached this server once, on
+2026-11-10, by a sealed copy: the last step of one production build encrypted them
+to a key only this server held and printed that block in the build's log; the
+server opened it, wrote the values into `.env` and deleted its key;
+`check-settings.sh` then proved what can be proven. The build step, its public key
+and both ends of the tooling were taken out afterwards, so no later build can seal
+anything. They are in the history (PR #67, merge `ca24594d`) for a move that needs
+them again: restore them,
+
+```bash
+git checkout ca24594d -- web/scripts/seal-settings.mjs deploy/app/sealed_settings.py deploy/app/sealed-copy.sh deploy/app/tests/test_sealed_settings.py
+```
+
+put the step back at the end of `npm run build` and the files back into
+`.github/workflows/deploy-scripts.yml` (its paths and its `bash -n` line), make a new
+key with `sealed-copy.sh new-key`, and follow the steps as they were
+(`git show ca24594d:deploy/app/README.md`, "Sealed copy").
 
 ## The container test
 
@@ -289,5 +359,6 @@ still run the same schedule against the same database: switch those off first
 | `compose.yaml`, `.env.example` | The stack on the server, and its settings. |
 | `deploy.sh` | Build and roll out on the server, or go back. |
 | `pull-settings.sh` | Fill the server's `.env` from the earlier host, unseen. |
+| `check-settings.sh`, `check_settings.py` | Check the server's `.env` before the switch, unseen; `tests/` is its test. |
 | `smoke/compose.yaml`, `smoke/.env.example` | The container test's stack. |
 | `smoke.sh` | The container test. |

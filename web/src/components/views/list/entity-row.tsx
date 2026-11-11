@@ -47,6 +47,8 @@ import { DelegateWorkBadge } from '@/components/work/delegate-work-badge'
 import type { ReminderEntityType } from '@/lib/reminders/types'
 import { cn } from '@/lib/utils'
 import { DISPLAY_PROPERTIES } from '@/lib/views/types'
+import { isCustomFieldPath } from '@/lib/views/custom-field-columns'
+import { CustomFieldCell } from './custom-field-cell'
 import type { ViewEntityType, EditableDescriptor } from '@/lib/views/types'
 import {
   RELATIONSHIP_TYPE_OPTIONS, RELATIONSHIP_STRENGTH_OPTIONS,
@@ -2734,6 +2736,10 @@ function PropertyCell({ item, property, entityType, onPatch, pickerContext, canE
   if (entityType === 'deal') {
     const dealCell = DealCell({ item, property })
     if (dealCell !== undefined) return dealCell
+  }
+  // The workspace's own fields (`custom_fields.<key>`), on any kind that takes them.
+  if (isCustomFieldPath(property)) {
+    return <CustomFieldCell item={item} property={property} entityType={entityType} />
   }
 
   switch (property) {

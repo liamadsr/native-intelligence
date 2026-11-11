@@ -6,10 +6,13 @@ import { DEFAULT_RELATIVE_DATE, FilterValuePicker, isFreeTypedValue } from './fi
 import { cn } from '@/lib/utils'
 import { X } from 'lucide-react'
 import {
-  FILTERABLE_FIELDS, OPERATORS_BY_TYPE, operatorLabel,
+  FILTERABLE_FIELDS, operatorLabel,
   type FilterOperator, type FilterValue,
   type ViewEntityType, type ViewFilter,
 } from '@/lib/views/types'
+import { customFieldFilterFields, customFieldKeyOf, filterValueLabel, isCustomFieldPath } from '@/lib/views/custom-field-columns'
+import { useCustomFieldDefinitions } from '../hooks/use-custom-field-definitions'
+import { operatorsFor } from './field-traits'
 
 /**
  * How long a half-typed filter value is held before it becomes a query.
@@ -72,7 +75,14 @@ function sameValue(a: FilterValue | undefined, b: FilterValue | undefined): bool
 }
 
 export function FilterChip({ filter, entityType, onUpdate, onRemove }: FilterChipProps) {
-  const fieldDef = FILTERABLE_FIELDS[entityType].find(f => f.field === filter.field)
+  // A custom field's definition is the workspace's, read only for a chip
+  // that names one. A field since removed draws no chip, like any other
+  // field the kind no longer has.
+  const isCustom = isCustomFieldPath(filter.field)
+  const customDefs = useCustomFieldDefinitions(entityType, isCustom)
+  const fieldDef = isCustom
+    ? customFieldFilterFields(customDefs).find(f => f.field === filter.field)
+    : FILTERABLE_FIELDS[entityType].find(f => f.field === filter.field)
 
   // ─── Buffered commits ───────────────────────────────────────────────────
   //
@@ -187,9 +197,17 @@ export function FilterChip({ filter, entityType, onUpdate, onRemove }: FilterChi
   // in both cases committing would resurrect something the user just discarded.
   React.useEffect(() => cancel, [cancel])
 
+  // A custom field filter with no definition to draw it (still loading, the
+  // read failed, a key the workspace has no field for) is STILL applied by
+  // the engine, so it must still be seen and removable: a plain chip with
+  // the key, the operator, the value and the remove button.
+  if (!fieldDef && isCustom) {
+    return <UnresolvedCustomFieldChip filter={filter} onRemove={onRemove} />
+  }
   if (!fieldDef) return null
 
-  const operators = OPERATORS_BY_TYPE[fieldDef.type] || ['is']
+  const typeOperators = operatorsFor(fieldDef)
+  const operators: FilterOperator[] = typeOperators.length ? typeOperators : ['is']
   const noValue = ['is_empty', 'is_not_empty'].includes(filter.operator)
   const debounce = isFreeTypedValue(fieldDef, filter.operator)
   const value = draft ? draft.value : filter.value
@@ -254,6 +272,32 @@ export function FilterChip({ filter, entityType, onUpdate, onRemove }: FilterChi
       {/* Remove */}
       <button
         onClick={onRemove}
+        className="flex items-center px-1.5 border-l text-muted-foreground hover:text-destructive hover:bg-muted/50 transition-colors rounded-r-md"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  )
+}
+
+/** A custom field filter the chip cannot edit (no definition): read-only, removable. */
+function UnresolvedCustomFieldChip({ filter, onRemove }: { filter: ViewFilter; onRemove: () => void }) {
+  const key = customFieldKeyOf(filter.field) ?? filter.field.slice('custom_fields.'.length)
+  const noValue = ['is_empty', 'is_not_empty'].includes(filter.operator)
+  return (
+    <div
+      className="inline-flex items-stretch h-7 rounded-md border bg-background text-xs"
+      data-unresolved-custom-field={key}
+      title={`Custom field "${key}"`}
+    >
+      <span className="flex items-center px-2 text-muted-foreground font-medium shrink-0">{key.replace(/_/g, ' ')}</span>
+      <span className="flex items-center px-2 border-l text-muted-foreground shrink-0">{operatorLabel(filter.operator)}</span>
+      {!noValue && (
+        <span className="flex items-center px-2 border-l font-medium truncate max-w-[150px]">{filterValueLabel(filter.value)}</span>
+      )}
+      <button
+        onClick={onRemove}
+        aria-label="Remove filter"
         className="flex items-center px-1.5 border-l text-muted-foreground hover:text-destructive hover:bg-muted/50 transition-colors rounded-r-md"
       >
         <X className="h-3 w-3" />

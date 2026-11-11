@@ -27,7 +27,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!Number.isInteger(revisionNumber) || revisionNumber < 1) return badRequest('Invalid revision number')
   const body = await request.json().catch(() => ({}))
 
-  const { access, error: accessError } = await loadDocumentAccess(supabase, workspaceId, user.id, id)
+  // Restoring a version is an edit: an edit grant (512) may, as the creator could.
+  const { access, error: accessError } = await loadDocumentAccess(supabase, workspaceId, user.id, id, { editGrants: true })
   if (accessError) return serverError(accessError)
   if (!access) return notFound('Document not found')
 

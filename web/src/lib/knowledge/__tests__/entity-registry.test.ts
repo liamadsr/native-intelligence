@@ -518,8 +518,9 @@ describe('the latest claim_neighborhood definition keeps every label branch', ()
    */
   it('never labels, joins or walks onto mail (341)', () => {
     expect(CITABLE_SOURCE_TYPES.has('email')).toBe(false)
+    expect(CITABLE_SOURCE_TYPES.has('email_thread')).toBe(false)
     expect(blocks[0]).not.toContain("WHEN 'email'        THEN")
     expect(blocks[0]).not.toContain('email_message')
-    expect(blocks[0]).toContain("AND nxt.node_type <> 'email'")
+    expect(blocks[0]).toContain("AND nxt.node_type NOT IN ('email', 'email_thread')")
   })
 })

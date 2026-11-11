@@ -47,6 +47,7 @@ import type { WorkResourceRef } from '@/lib/agent-run/types'
 import type { WorkProvenance } from './types'
 import { WORK_RESOURCES_MAX, WORK_RESOURCE_LABEL_MAX_CHARS } from '@/lib/agent-run/types'
 import { LINKABLE_ENTITY_TYPES, entityInWorkspace } from '@/lib/ai/tools/claims'
+import { canonicalEntityType } from '@/lib/knowledge/entity-registry'
 import type { WorkExpectation } from './roles'
 
 /** The Inngest event id for a work run's dispatch — one dispatch per run. */
@@ -498,7 +499,8 @@ export async function snapshotResources(
   for (const r of raw) {
     if (out.length >= WORK_RESOURCES_MAX) break
     if (!r || typeof r !== 'object') continue
-    const type = typeof r.type === 'string' ? r.type : ''
+    // A retired kind name (a proposal's `email`) is snapshotted under its current one.
+    const type = typeof r.type === 'string' ? canonicalEntityType(r.type) : ''
     const label = typeof r.label === 'string' ? r.label.trim().slice(0, WORK_RESOURCE_LABEL_MAX_CHARS) : ''
     if (!type || !label) continue
     const ref: WorkResourceRef = { type, label }

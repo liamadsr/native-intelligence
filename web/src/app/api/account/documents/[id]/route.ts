@@ -58,7 +58,8 @@ export async function GET(
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .single(),
-    loadDocumentAccess(supabase, workspaceId, user.id, id),
+    // An edit grant (512) makes it editable here as everywhere it is written.
+    loadDocumentAccess(supabase, workspaceId, user.id, id, { editGrants: true }),
   ])
 
   if (error) {
@@ -155,7 +156,7 @@ export async function PATCH(
 
   // Who may change it (migration 359), checked before writing: a refusal is a
   // 403 here, not a 0-row update that `.single()` would turn into a 500.
-  const { access, error: accessError } = await loadDocumentAccess(supabase, workspaceId, user.id, id)
+  const { access, error: accessError } = await loadDocumentAccess(supabase, workspaceId, user.id, id, { editGrants: true })
   if (accessError) return serverError(accessError)
   if (!access) return notFound('Document not found')
 

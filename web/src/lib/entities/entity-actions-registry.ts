@@ -257,7 +257,7 @@ export const ENTITY_ACTIONS: Readonly<Record<EntityType, EntityActionsDescriptor
   // ── Parts of something else, or nothing a person opens on its own.
   claim: inert('A fact is confirmed, disputed or superseded in Knowledge.'),
   cycle: inert("A cycle is its team's, run from the board."),
-  email: inert('Mail is shown to no one but its owner.'),
+  email_thread: inert('Mail is shown to no one but its owner.'),
   attachment: inert('An attachment lives on its record.'),
   member: inert('A member is a person in the workspace.'),
   conversation: inert("A chat with the agent is its person's own."),

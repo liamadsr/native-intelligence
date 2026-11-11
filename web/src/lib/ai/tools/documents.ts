@@ -18,6 +18,9 @@ import {
 import { ARCHIVE_MAX_DOCUMENTS, findReports, reportTitleFilter, setDocumentsArchived, type ArchiveOutcome } from '@/lib/documents/archive'
 import { approvedDocumentDelete, raiseDocumentDeleteCard } from '@/lib/documents/delete-card'
 import { getServiceClient } from '@/lib/supabase/service'
+import { hiddenGraphRefs, isLinkFencedKind } from '@/lib/knowledge/entity-fences'
+import { customFieldDefsOrNone, withCustomFields } from '@/lib/crm/custom-fields'
+import { hasEditGrant } from '@/lib/entity-access/grants'
 import type { ApprovedCall } from '@/lib/safety/approved-call'
 import type { ApprovalContext } from '@/lib/safety/approvals'
 import { publishDraft, staleDraftMessage } from '@/lib/documents/publish'
@@ -76,10 +79,29 @@ import {
   workspaceEcho,
   applyDocumentVisibility,
   documentRequesterMember,
+  grantedReadIds,
+  grantReader,
+  GRANTS_TRUNCATED_NOTE,
   isDocumentVisible,
+  readGrants,
   type CreateWorkspacePolicy,
   type DocumentRequester,
 } from './_shared'
+
+/** What a read of a document shared with the person (a grant, 492) says about it. */
+const SHARED_VIEW_ONLY = {
+  shared_with_you: true,
+  access: 'view' as const,
+  access_note: "Another member's private document, shared with you to read. You can't change it; propose_document_edit can't either.",
+}
+
+/** The same, for one shared with them to EDIT (an edit grant, migration 512). */
+const SHARED_TO_EDIT = {
+  shared_with_you: true,
+  access: 'edit' as const,
+  access_note:
+    "Another member's private document, shared with you to edit: you can change its text, title, tags and fields as its creator can, but not delete or archive it, publish it, or change who sees it.",
+}
 
 /** Who can see a document (migration 369): every member, or only its creator. */
 export type DocumentVisibility = 'workspace' | 'private'
@@ -162,9 +184,18 @@ export function createDocumentTools(
     approvedCall?: ApprovedCall
     approvalContext?: Omit<ApprovalContext, 'flow' | 'connection' | 'bots' | 'document'>
     nowReadable?: boolean
+    /** A guest's or a linked agent's turn: no grant (492) opens a document (CreateToolsOptions.omitGrants). */
+    omitGrants?: boolean
+    /**
+     * An edit grant (512) lets this turn's writes through: createTools's one
+     * flag (never a guest's, linked agent's or unattended turn). Off unless said.
+     */
+    editGrants?: boolean
   } = {},
 ) {
   const nowReadable = extra.nowReadable === true
+  // Whom a grant may open a document to on this turn: the person, or no one.
+  const grantee = grantReader(userId, extra.omitGrants)
   /**
    * The caller's member row per workspace, for the private-document rule: a
    * private document is visible only to the member who created it. Null when
@@ -180,16 +211,33 @@ export function createDocumentTools(
     return r
   }
 
-  /** Whether the caller may see this document (its own private one, or a workspace one), and whether it is a Now file. */
-  async function documentSight(documentId: string, targetWs: string): Promise<{ visible: boolean; nowFile: boolean }> {
+  /**
+   * Whether the caller may see this document (its own private one, or a
+   * workspace one), and whether it is a Now file. With `read: true`, for a
+   * tool that only READS: also another member's private document a grant
+   * (492) shares with them (`viaGrant`). Never `read` for a write: a grant is
+   * view-only. An unattended run (omitPrivate) reads no grant.
+   */
+  async function documentSight(
+    documentId: string,
+    targetWs: string,
+    opts: { read?: boolean } = {},
+  ): Promise<{ visible: boolean; nowFile: boolean; viaGrant: boolean }> {
     const { data } = await supabase
       .from('document')
-      .select('visibility, created_by, frontmatter')
+      .select('id, visibility, created_by, frontmatter')
       .eq('id', documentId)
       .eq('workspace_id', targetWs)
       .maybeSingle()
-    const row = data as { visibility?: string | null; created_by?: string | null; frontmatter?: unknown } | null
-    return { visible: isDocumentVisible(row, await requesterIn(targetWs)), nowFile: isNowDocument(row?.frontmatter) }
+    const row = data as { id?: string; visibility?: string | null; created_by?: string | null; frontmatter?: unknown } | null
+    const nowFile = isNowDocument(row?.frontmatter)
+    const requester = await requesterIn(targetWs)
+    if (isDocumentVisible(row, requester)) return { visible: true, nowFile, viaGrant: false }
+    // A grant reaches a member: no member row here (or an unattended run), no
+    // grant. Someone's Now file is theirs alone, shared or not.
+    if (!opts.read || !row || !requester || nowFile) return { visible: false, nowFile, viaGrant: false }
+    const granted = await grantedReadIds(supabase, grantee, targetWs, 'document', [documentId])
+    return granted.has(documentId) ? { visible: true, nowFile, viaGrant: true } : { visible: false, nowFile, viaGrant: false }
   }
 
   /** Whether the caller may see this document: its own private one, or a workspace one. */
@@ -228,8 +276,10 @@ export function createDocumentTools(
    * Edit access for a write (migration 359, src/lib/documents/access.ts).
    * These tools run on a SERVICE-ROLE client, so RLS can't cover them: this is
    * the gate. Owner or admin; the creator (not of the product doc); a plain
-   * member only on a shared wiki page. A refusal points at
-   * propose_document_edit, which writes the caller's own draft instead.
+   * member only on a shared wiki page; and a member another member's
+   * document is shared with to EDIT (an edit grant, 512), for its text and
+   * fields only. A refusal points at propose_document_edit, which writes the
+   * caller's own draft instead.
    */
   async function editGate(
     documentId: string,
@@ -238,9 +288,10 @@ export function createDocumentTools(
     refusalTail = 'Use propose_document_edit to save the change as your own draft for the creator or an admin to review.',
     opts: { canonText?: 'allow' } = {},
   ): Promise<{ access: DocumentAccess } | { refused: { success: false; error: string; use_instead?: 'propose_document_edit' | 'propose_section_edit' | 'update_now' } }> {
-    const { access, error } = await loadDocumentAccess(supabase, targetWs, userId, documentId)
+    const { access, error } = await loadDocumentAccess(supabase, targetWs, userId, documentId, { editGrants: !omitPrivate && extra.editGrants === true })
     if (error) return { refused: { success: false, error } }
-    // loadDocumentAccess already hides someone else's private document; a run
+    // loadDocumentAccess already hides someone else's private document (one
+    // shared to edit aside: the rules below then keep it to its text); a run
     // that omits private documents doesn't see its person's own either.
     if (!access || (omitPrivate && isPrivateDocument(access.row))) return { refused: { success: false, error: 'Document not found' } }
     // The person's Now file (migration 440) changes only through update_now,
@@ -320,8 +371,15 @@ export function createDocumentTools(
         .eq('workspace_id', opts.targetWs)
         .maybeSingle()
       if (error) return { success: false as const, error: error.message }
-      // A private document is its creator's alone: to anyone else it doesn't exist.
-      if (!data || !isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, await requesterIn(opts.targetWs))) {
+      // A private document is its creator's alone: to anyone else it doesn't
+      // exist, unless it is shared with them to EDIT (an edit grant, 512; then
+      // editGate below applies the document EDIT rule, which keeps them to
+      // its text). An unattended run never edits through a grant.
+      if (!data) return { success: false as const, error: 'Document not found' }
+      if (
+        !isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, await requesterIn(opts.targetWs)) &&
+        (omitPrivate || extra.editGrants !== true || !(await hasEditGrant(supabase, { userId, workspaceId: opts.targetWs }, 'document', opts.documentId)))
+      ) {
         return { success: false as const, error: 'Document not found' }
       }
       // The Now file: refused before its text is read into any result (editGate refuses it too).
@@ -515,16 +573,23 @@ export function createDocumentTools(
         // document.kind (migration 367): docs, plus reports and preps when asked.
         const kinds = ['doc', ...(include_reports ? ['report'] : []), ...(include_preps ? ['prep'] : [])]
 
-        // Workspace documents, plus the caller's own private ones (migration 369).
+        // Workspace documents, plus the caller's own private ones (migration
+        // 369), plus the private ones shared with them (a grant, 492: a read).
+        const requester = await requesterIn(workspaceId)
+        const [{ document: granted, truncated: grantsTruncated }, fieldDefs] = await Promise.all([
+          readGrants(supabase, requester ? grantee : null, workspaceId, ['document']),
+          customFieldDefsOrNone(supabase, workspaceId, 'document'),
+        ])
         let query = applyDocumentVisibility(
           supabase
             .from('document')
             .select(
-              'id, workspace_id, title, project_id, status, kind, visibility, is_pinned, created_at, updated_at, project:projects!project_id(id, name), author:member!created_by(id, display_name)',
+              'id, workspace_id, title, project_id, status, kind, visibility, created_by, custom_fields, is_pinned, created_at, updated_at, project:projects!project_id(id, name), author:member!created_by(id, display_name)',
             )
             .eq('workspace_id', workspaceId)
             .in('kind', kinds),
-          await requesterIn(workspaceId),
+          requester,
+          granted,
         )
         query = archived ? query.eq('status', 'archived') : query.neq('status', 'archived')
         query = query
@@ -548,7 +613,9 @@ export function createDocumentTools(
 
         if (error) return { success: false, error: error.message }
 
-        const documents = (data || []).map((d) => {
+        // Someone's Now file is theirs alone (440), shared or not; `kinds`
+        // leaves Now files out already, and this holds whatever it lists.
+        const documents = (data || []).filter((d) => !((d as { kind?: string }).kind === 'now' && (d as { created_by?: string | null }).created_by !== requester)).map((d) => {
           const projectData = d.project as unknown as { id: string; name: string } | null
           const authorData = d.author as unknown as { id: string; display_name: string } | null
           return {
@@ -563,7 +630,12 @@ export function createDocumentTools(
             status: d.status,
             kind: (d as { kind?: string }).kind ?? 'doc',
             ...((d as { visibility?: string }).visibility === 'private' ? { visibility: 'private' } : {}),
+            // Someone else's private document: only a grant let it through.
+            ...((d as { visibility?: string }).visibility === 'private' && (d as { created_by?: string | null }).created_by !== requester
+              ? { shared_with_you: true }
+              : {}),
             is_pinned: d.is_pinned,
+            ...withCustomFields(fieldDefs, (d as { custom_fields?: unknown }).custom_fields),
             created_at: d.created_at,
             updated_at: d.updated_at,
           }
@@ -574,6 +646,7 @@ export function createDocumentTools(
           documents,
           count: documents.length,
           ...(kinds.length < 3 ? { left_out: [...(include_reports ? [] : ['reports']), ...(include_preps ? [] : ['meeting preps'])].join(' and ') } : {}),
+          ...(grantsTruncated ? { shared_note: GRANTS_TRUNCATED_NOTE } : {}),
           ...(sinceISO || untilISO
             ? { time_field: timeField, since: sinceISO, until: untilISO }
             : {}),
@@ -829,17 +902,26 @@ export function createDocumentTools(
         const { data, error } = await supabase
           .from('document')
           .select(
-            'id, title, content, content_json, slug, type, tags, frontmatter, outside_derived, project_id, team_id, status, published_status, published_at, is_pinned, revision, canon_key, visibility, created_by, created_at, updated_at, project:projects!project_id(id, name), author:member!created_by(id, display_name)',
+            'id, title, content, content_json, slug, type, tags, frontmatter, outside_derived, project_id, team_id, status, published_status, published_at, is_pinned, revision, canon_key, visibility, created_by, custom_fields, created_at, updated_at, project:projects!project_id(id, name), author:member!created_by(id, display_name)',
           )
           .eq('id', document_id)
           .eq('workspace_id', resolved.workspaceId)
           .single()
 
         if (error) return { success: false, error: error.message }
-        // A private document is its creator's alone: to anyone else it doesn't exist.
-        if (!isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, await requesterIn(resolved.workspaceId))) {
-          return { success: false, error: 'Document not found' }
+        // A private document is its creator's alone, unless a grant shares it
+        // with this person (492, view only): to anyone else it doesn't exist.
+        const requester = await requesterIn(resolved.workspaceId)
+        let viaGrant = false
+        let sharedToEdit = false
+        if (!isDocumentVisible(data as { visibility?: string | null; created_by?: string | null }, requester)) {
+          const granted = requester ? await grantedReadIds(supabase, grantee, resolved.workspaceId, 'document', [document_id]) : new Set<string>()
+          // Someone's Now file is theirs alone, shared or not.
+          if (!granted.has(document_id) || isNowDocument(data.frontmatter)) return { success: false, error: 'Document not found' }
+          viaGrant = true
+          sharedToEdit = await hasEditGrant(supabase, { userId, workspaceId: resolved.workspaceId }, 'document', document_id)
         }
+        const fieldDefs = await customFieldDefsOrNone(supabase, resolved.workspaceId, 'document')
         // The person's Now file reaches their own main chat as its now section;
         // a background turn or a quick helper reads none of it (migration 440).
         if (isNowDocument(data.frontmatter) && !nowReadable) return nowReadRefusal()
@@ -866,8 +948,12 @@ export function createDocumentTools(
           line_count: allLines.length,
           // A system document (migration 366): edited as usual, never deleted.
           ...((data as { canon_key?: string | null }).canon_key ? { canon_key: (data as { canon_key: string }).canon_key, system_document: true } : {}),
-          // Only its creator sees a private document (migration 369).
+          // Only its creator sees a private document (migration 369)...
           ...((data as { visibility?: string }).visibility === 'private' ? { visibility: 'private' } : {}),
+          // ...and whoever it is shared with, to read or to edit (a grant, 512).
+          ...(viaGrant ? (sharedToEdit ? SHARED_TO_EDIT : SHARED_VIEW_ONLY) : {}),
+          // The workspace's own fields on documents (migration 496), the set ones.
+          ...withCustomFields(fieldDefs, (data as { custom_fields?: unknown }).custom_fields),
         }
         // Deliberately NOT "call ni_set_workspace to switch": switching is a
         // sticky, session-wide side effect that silently re-points every LATER
@@ -948,6 +1034,19 @@ export function createDocumentTools(
           .eq('source_id', document_id)
           .limit(50)
 
+        // An edge is readable only when both ends are (migration 500); this
+        // runs service-role, so the far end is fenced here: someone else's
+        // private capture, a DM the person isn't in, is left out, id and all.
+        const linkRefs = [
+          ...((backlinks ?? []) as Array<{ source_type: string; source_id: string }>).map((l) => ({ type: l.source_type, id: l.source_id })),
+          ...((outbound ?? []) as Array<{ target_type: string; target_id: string }>).map((l) => ({ type: l.target_type, id: l.target_id })),
+        ]
+        const hiddenEnds = linkRefs.some((r) => isLinkFencedKind(r.type))
+          ? await hiddenGraphRefs(supabase, linkRefs, omitPrivate ? null : userId, resolved.workspaceId)
+          : new Set<string>()
+        const shownBacklinks = (backlinks ?? []).filter((l) => !hiddenEnds.has(`${l.source_type}:${l.source_id}`))
+        const shownOutbound = (outbound ?? []).filter((l) => !hiddenEnds.has(`${l.target_type}:${l.target_id}`))
+
         // A long document comes back as its outline and how to read part of
         // it, so its middle never falls outside what the model can see.
         const long = body.length > LONG_DOCUMENT_CHARS && !full
@@ -980,8 +1079,8 @@ export function createDocumentTools(
                 how_to_read: `This document is long (${body.length} characters, ${allLines.length} lines), so only its outline is here. Read the part you need with get_document and section: "<heading>", lines: {from, to}, or match: "<phrase>"; or full: true for the whole body.`,
               }
             : {}),
-          backlinks: backlinks || [],
-          outbound_links: outbound || [],
+          backlinks: shownBacklinks,
+          outbound_links: shownOutbound,
           ...crossHint,
         }
       },
@@ -1117,7 +1216,7 @@ export function createDocumentTools(
         const { data, error } = await supabase
           .from('action_document')
           .select(
-            'id, document:document!document_id(id, workspace_id, title, updated_at, visibility, owner:created_by, created_by:member!created_by(id, display_name))',
+            'id, document:document!document_id(id, workspace_id, title, updated_at, visibility, kind, owner:created_by, created_by:member!created_by(id, display_name))',
           )
           .eq('action_id', action_id)
           .order('created_at', { ascending: false })
@@ -1125,6 +1224,14 @@ export function createDocumentTools(
         if (error) return { success: false, error: error.message }
 
         const requester = await requesterIn(resolved.workspaceId)
+        // Private documents shared with the person (a grant) are listed too: a read.
+        const privateIds = (data || [])
+          .map((row) => row.document as unknown as { id?: string; visibility?: string | null; owner?: string | null } | null)
+          .filter((d) => d?.id && d.visibility === 'private' && d.owner !== requester)
+          .map((d) => d!.id as string)
+        const granted = requester && privateIds.length
+          ? await grantedReadIds(supabase, grantee, resolved.workspaceId, 'document', privateIds)
+          : new Set<string>()
         const documents = (data || [])
           .map((row) => {
             const doc = row.document as unknown as {
@@ -1133,6 +1240,7 @@ export function createDocumentTools(
               title: string
               updated_at: string
               visibility?: string | null
+              kind?: string | null
               owner?: string | null
               created_by: { id: string; display_name: string } | null
             } | null
@@ -1141,8 +1249,10 @@ export function createDocumentTools(
             // fence (or a doc moved afterwards) could still point out of the
             // action's workspace — and the join is unfiltered by design.
             if (!doc || doc.workspace_id !== resolved.workspaceId) return null
-            // Someone else's private document (migration 369) isn't listed.
-            if (!isDocumentVisible({ visibility: doc.visibility, created_by: doc.owner }, requester)) return null
+            // Someone's Now file is theirs alone (440), shared or not.
+            if (doc.kind === 'now' && doc.owner !== requester) return null
+            // Someone else's private document (migration 369) isn't listed, unless shared with them.
+            if (!isDocumentVisible({ id: doc.id, visibility: doc.visibility, created_by: doc.owner }, requester, granted)) return null
             return {
               link_id: row.id,
               id: doc.id,
@@ -1150,6 +1260,7 @@ export function createDocumentTools(
               title: doc.title,
               updated_at: doc.updated_at,
               created_by_name: doc.created_by?.display_name || null,
+              ...(granted.has(doc.id) ? { shared_with_you: true } : {}),
             }
           })
           .filter((d): d is NonNullable<typeof d> => d !== null)
@@ -1397,7 +1508,7 @@ export function createDocumentTools(
       }),
       execute: async ({ document_id, limit, before }) => {
         const resolved = await resolveEntityWorkspace(supabase, userId, 'document', document_id, workspaceId, strictWorkspace)
-        const sight = resolved ? await documentSight(document_id, resolved.workspaceId) : null
+        const sight = resolved ? await documentSight(document_id, resolved.workspaceId, { read: true }) : null
         if (!resolved || !sight?.visible) return { success: false, error: 'Document not found' }
         if (sight.nowFile && !nowReadable) return nowReadRefusal()
         const [{ revisions, error }, current] = await Promise.all([
@@ -1441,7 +1552,7 @@ export function createDocumentTools(
       }),
       execute: async ({ document_id, revision, compare_to, include_content }) => {
         const resolved = await resolveEntityWorkspace(supabase, userId, 'document', document_id, workspaceId, strictWorkspace)
-        const sight = resolved ? await documentSight(document_id, resolved.workspaceId) : null
+        const sight = resolved ? await documentSight(document_id, resolved.workspaceId, { read: true }) : null
         if (!resolved || !sight?.visible) return { success: false, error: 'Document not found' }
         if (sight.nowFile && !nowReadable) return nowReadRefusal()
         const { revision: row, previous, error } = await getDocumentRevision(supabase, document_id, resolved.workspaceId, revision)
