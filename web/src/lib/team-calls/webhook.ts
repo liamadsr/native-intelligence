@@ -19,6 +19,16 @@
  *   - a join by someone who may not read the conversation is refused by the
  *     database and they are taken out of the room at once (./eject.ts).
  *
+ *   - track_published of a member's microphone while the call's notes are
+ *     on starts that track's notes file (./notes-store.ts; once per track
+ *     and round of notes, however often the webhook comes);
+ *   - egress_started / egress_updated / egress_ended are an egress's state
+ *     (566's team_call_egress), applied in the order LiveKit made them (its
+ *     updatedAt): the row is found by the file's name (the app names each
+ *     file after its row, so an event that comes before the start's answer
+ *     still finds it) or by the egress id. A notes file that ended with
+ *     audio is transcribed next (its own Inngest run).
+ *
  * A room that is none of ours (another app's on the same server, a test
  * room), an identity that is not a member id, and any other event are
  * answered and ignored: LiveKit would only send them again.
@@ -27,6 +37,9 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { isUuid } from '@/lib/team-chat/types'
 import { endCall, liveCallOfRoom, participantEvent, requestMissedNotices, type MissedRing, type ParticipantOutcome } from './store'
 import { teamCallIdOfRoom } from './types'
+import type { TeamCallEgressPort } from './egress'
+import { egressRowOfPath, egressStatusOf } from './notes'
+import { applyEgressEvent, liveCallForEgress, requestNotesFiles, startNotesForTrack } from './notes-store'
 
 /** What the route hands over: the parts of LiveKit's WebhookEvent read here. */
 export interface TeamCallWebhookEvent {
@@ -36,9 +49,34 @@ export interface TeamCallWebhookEvent {
   createdAt?: bigint | number
   room?: { name?: string } | undefined
   participant?: { identity?: string; sid?: string; joinedAt?: bigint | number; joinedAtMs?: bigint | number } | undefined
+  /** track_published: TrackType AUDIO is 0, TrackSource MICROPHONE is 2. */
+  track?: { sid?: string; type?: number; source?: number } | undefined
+  egressInfo?: WebhookEgressInfo | undefined
 }
 
-export type TeamCallWebhookOutcome = 'repeat' | 'ignored' | ParticipantOutcome | 'ended' | 'already_ended' | 'reopened'
+/** The parts of LiveKit's EgressInfo read here (nanosecond int64s). */
+export interface WebhookEgressInfo {
+  egressId?: string
+  roomName?: string
+  status?: number
+  updatedAt?: bigint | number
+  error?: string
+  request?: { case?: string; value?: unknown }
+  fileResults?: Array<{ filename?: string; startedAt?: bigint | number; endedAt?: bigint | number; duration?: bigint | number; size?: bigint | number }>
+}
+
+export type TeamCallWebhookOutcome =
+  | 'repeat'
+  | 'ignored'
+  | ParticipantOutcome
+  | 'ended'
+  | 'already_ended'
+  | 'reopened'
+  | 'notes_started'
+  | 'notes_not_started'
+  | 'egress_applied'
+  | 'egress_stale'
+  | 'egress_unknown'
 
 export interface TeamCallWebhookDeps {
   /** Ask for the missed rings' notices (an Inngest event per ring; the default). */
@@ -48,6 +86,10 @@ export interface TeamCallWebhookDeps {
   /** Is this room open on the server now? A room_finished for a room made again since is not the call's end. Null: can't tell. */
   roomOpen?: (room: string) => Promise<boolean | null>
   now?: () => Date
+  /** LiveKit Egress (null when the server runs none: notes then start nothing). */
+  egress?: TeamCallEgressPort | null
+  /** Ask for notes files' words (default: Inngest). */
+  requestFiles?: (rowIds: readonly string[]) => Promise<void>
 }
 
 /** An int64 of seconds as a time, or null. */
@@ -80,8 +122,9 @@ export async function applyTeamCallWebhook(svc: SupabaseClient, event: TeamCallW
     if (error) throw new Error(`team calls: webhook read failed: ${error.message}`)
     if (seen) return 'repeat'
   }
-  const room = event.room?.name ?? null
-  const outcome = teamCallIdOfRoom(room) ? await apply(svc, event, room!, now, deps) : 'ignored'
+  const isEgress = event.event === 'egress_started' || event.event === 'egress_updated' || event.event === 'egress_ended'
+  const room = (isEgress ? event.egressInfo?.roomName : event.room?.name) ?? event.room?.name ?? null
+  const outcome = !teamCallIdOfRoom(room) ? 'ignored' : isEgress ? (event.egressInfo ? await applyEgressWebhook(svc, event.egressInfo, deps) : 'ignored') : await apply(svc, event, room!, now, deps)
   if (id) {
     // Applied: a repeat of it is skipped from now on (two at once both apply, harmlessly: each step is idempotent).
     const { error } = await svc.from('team_call_webhook_event').insert({ id })
@@ -124,7 +167,63 @@ async function apply(svc: SupabaseClient, event: TeamCallWebhookEvent, room: str
       if (missed.length > 0) await (deps.requestMissed ?? requestMissedNotices)(missed)
       return 'ended'
     }
+    case 'track_published': {
+      const track = event.track
+      const identity = event.participant?.identity
+      // A member's microphone, audio (TrackType AUDIO 0, TrackSource MICROPHONE 2).
+      if (!deps.egress || !track?.sid || track.type !== 0 || track.source !== 2 || !isUuid(identity)) return 'ignored'
+      const call = await liveCallForEgress(svc, room)
+      if (!call?.notes) return 'ignored'
+      const started = await startNotesForTrack(svc, deps.egress, call, identity.toLowerCase(), track.sid)
+      return started === 'started' ? 'notes_started' : 'notes_not_started'
+    }
     default:
       return 'ignored'
   }
+}
+
+/** An int64 of nanoseconds as an ISO time, or null. */
+export function webhookTimeNs(ns: bigint | number | undefined | null): string | null {
+  if (ns === undefined || ns === null) return null
+  const n = typeof ns === 'bigint' ? Number(ns / BigInt(1_000_000)) : ns / 1_000_000
+  if (!Number.isFinite(n) || n <= 0) return null
+  return new Date(n).toISOString()
+}
+
+const big = (v: bigint | number | undefined | null): number | null => {
+  if (v === undefined || v === null) return null
+  const n = typeof v === 'bigint' ? Number(v) : v
+  return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+/** The file name an egress was asked to write (a track's direct file, or a composite's), as the app named it. */
+export function requestedFilepath(info: WebhookEgressInfo): string | null {
+  const value = info.request?.value as
+    | { output?: { case?: string; value?: { filepath?: string } }; fileOutputs?: Array<{ filepath?: string }> }
+    | undefined
+  const direct = value?.output?.case === 'file' ? value.output.value?.filepath : undefined
+  return direct ?? value?.fileOutputs?.[0]?.filepath ?? info.fileResults?.[0]?.filename ?? null
+}
+
+/** An egress webhook, applied (566's team_call_egress, in LiveKit's order). */
+export async function applyEgressWebhook(svc: SupabaseClient, info: WebhookEgressInfo, deps: TeamCallWebhookDeps): Promise<TeamCallWebhookOutcome> {
+  const row = egressRowOfPath(requestedFilepath(info))
+  if (!row && !info.egressId) return 'ignored'
+  const file = info.fileResults?.[0]
+  const durationNs = big(file?.duration)
+  const result = await applyEgressEvent(svc, {
+    rowId: row?.rowId ?? null,
+    egressId: info.egressId || null,
+    status: egressStatusOf(info.status),
+    atNs: typeof info.updatedAt === 'bigint' ? info.updatedAt : String(Math.max(0, Math.floor(Number(info.updatedAt ?? 0)))),
+    fileStartedAt: webhookTimeNs(file?.startedAt),
+    fileEndedAt: webhookTimeNs(file?.endedAt),
+    durationMs: durationNs === null ? null : Math.round(durationNs / 1_000_000),
+    sizeBytes: big(file?.size),
+    error: info.error || null,
+  })
+  if (result.outcome === 'applied' && result.kind === 'notes' && result.rowId && (result.status === 'complete' || result.status === 'limit')) {
+    await (deps.requestFiles ?? ((ids) => requestNotesFiles(ids)))([result.rowId])
+  }
+  return result.outcome === 'applied' ? 'egress_applied' : result.outcome === 'stale' ? 'egress_stale' : 'egress_unknown'
 }

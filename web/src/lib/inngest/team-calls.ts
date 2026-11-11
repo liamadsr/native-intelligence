@@ -14,6 +14,8 @@ import {
 import { drainTeamCallEjections, liveEjectDeps, TEAM_CALL_EJECT_EVENT } from '@/lib/team-calls/eject'
 import { sweepTeamCalls } from '@/lib/team-calls/sweep'
 import { openTeamCallRooms, teamCallsConfig } from '@/lib/team-calls/livekit'
+import { liveKitEgress, teamCallEgressConfig } from '@/lib/team-calls/egress'
+import { sweepTeamCallEgress } from '@/lib/team-calls/notes-sweep'
 
 /** What the ring's timer reads of Inngest's run (a test hands its own). */
 export interface TeamCallRingTimerContext {
@@ -107,8 +109,9 @@ export const teamCallsEject = inngest.createFunction(
  * missed, old webhook ids are forgotten; then everyone connected who may no
  * longer read their call's conversation is put out (565's team_call_fence,
  * drained by team-calls-eject), and the missed rings nobody was told of are
- * told, in steps of their own. With LiveKit unset it still runs the rings
- * and the ids (there are none: calling is off), and ends nothing.
+ * told, in steps of their own; then the notes and recordings
+ * (src/lib/team-calls/notes-sweep.ts). With LiveKit unset it still runs the
+ * rings and the ids (there are none: calling is off), and ends nothing.
  */
 export const teamCallsSweep = inngest.createFunction(
   {
@@ -130,9 +133,14 @@ export const teamCallsSweep = inngest.createFunction(
       const all = [...(result.missedRings as MissedRing[]), ...backlog.filter((b) => !result.missedRings.some((r) => r.ring_id === b.ring_id))]
       return all.length ? notifyMissedCalls(getServiceClient(), all) : 0
     })
+    // Notes and recordings (phase 6): the bounds, egresses whose end was lost, notes whose finish was lost.
+    const egress = await step.run('sweep-egress', () => {
+      const config = teamCallEgressConfig()
+      return sweepTeamCallEgress(getServiceClient(), { egress: config ? liveKitEgress(config) : null })
+    })
     console.info(
-      `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable}`,
+      `[team-calls-sweep] checked=${result.checked} ended=${result.ended} missed=${result.missed} unreachable=${result.unreachable} notes_stopped=${egress.notesStopped} egress_lost=${egress.egressesLost}`,
     )
-    return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable }
+    return { checked: result.checked, ended: result.ended, missed: result.missed, unreachable: result.unreachable, egress }
   },
 )

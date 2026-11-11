@@ -87,7 +87,11 @@ function captureTableChain(rows: CaptureRow[]) {
   chain.or = vi.fn((filter: string) => {
     const clauses = filter.split(',').map((c) => c.split('.'))
     filtered = filtered.filter((r) =>
-      clauses.some(([col, , val]) => (r as unknown as Record<string, unknown>)[col] === val),
+      clauses.some(([col, op, val]) => {
+        const v = (r as unknown as Record<string, unknown>)[col]
+        // The owner-out condition (migration 568) is "neq": a column the fixture lacks is not that value.
+        return op === 'neq' ? String(v) !== val : v === val
+      }),
     )
     return chain
   })
