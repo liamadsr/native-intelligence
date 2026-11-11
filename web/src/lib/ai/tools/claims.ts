@@ -91,10 +91,12 @@ export async function entityInWorkspace(
   type: LinkableEntityType,
   id: string,
   requesterUserId?: string | null,
+  // `grants: false` on a guest's or a linked agent's turn: a row only a grant shows them (a decision of a granted capture) is not theirs to link.
+  grantOpts: GrantOpts = {},
 ): Promise<boolean> {
   if (isPrivateGraphKind(type)) {
     if (!requesterUserId) return false
-    const visible = await visiblePrivateKindIds(supabase, type, requesterUserId, [id], workspaceId)
+    const visible = await visiblePrivateKindIds(supabase, type, requesterUserId, [id], workspaceId, grantOpts)
     return visible.has(id)
   }
   const table = WORKSPACE_SCOPED_TABLE[type]
@@ -1443,6 +1445,7 @@ export function createClaimTools(
             s.source_type as (typeof LINKABLE_ENTITY_TYPES)[number],
             s.source_id,
             requestingUserId,
+            grantOpts,
           )
           if (!ok) {
             return {
@@ -1458,6 +1461,7 @@ export function createClaimTools(
             l.entity_type,
             l.entity_id,
             requestingUserId,
+            grantOpts,
           )
           if (!ok) {
             return {
@@ -1798,6 +1802,7 @@ export function createClaimTools(
           source_type,
           source_id,
           requestingUserId,
+          grantOpts,
         )
         if (!srcOk) {
           return {
@@ -1811,6 +1816,7 @@ export function createClaimTools(
           target_type,
           target_id,
           requestingUserId,
+          grantOpts,
         )
         if (!tgtOk) {
           return {

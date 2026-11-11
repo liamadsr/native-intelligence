@@ -147,6 +147,10 @@ describe('guestToolCall', () => {
       reviewOverride: { alwaysHold: { reason: 'guest_text' } },
     })
     expect(h.createTools).toHaveBeenCalledWith('owner-1', supabase, 'ws-1', undefined, expect.objectContaining({ origin: { actor: 'agent', depth: 1 } }))
+    // A grant shares with the owner, never with their guest or a linked agent: the tools read none (migration 519).
+    expect(h.createTools.mock.calls[0][4]).toMatchObject({ omitGrants: true })
+    // And the held call records it, so the owner's yes replays it the same way (storedToolOptions).
+    expect(ctx.approvalContext.tools).toMatchObject({ omitGrants: true })
   })
 
   it('a delete waits for the owner while the person’s deletes ask first, and runs without the hold once the owner turned that off and allowed the tool', async () => {

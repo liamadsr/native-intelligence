@@ -426,6 +426,7 @@ export function createTools(
       approvedCall: options?.approvedCall,
       approvalContext: options?.approvalContext,
       unattended: options?.unattended === true,
+      omitGrants,
     }),
     ...createInitiativeTools(userId, supabase, workspaceId, strict, createPolicy),
     ...createProjectTools(userId, supabase, workspaceId, strict, omitPrivate, createPolicy, omitGrants),
@@ -539,7 +540,7 @@ export function createTools(
     ...createFollowThroughTools(userId, supabase, workspaceId),
     // Stage suggestions the person settles with one click, where the agent
     // wrote about them. See ./suggestions.ts.
-    ...createSuggestionTools(userId, supabase, workspaceId, options?.suggestionContext),
+    ...createSuggestionTools(userId, supabase, workspaceId, options?.suggestionContext, omitGrants),
     // The main agent reads the bots' work (bots-v4 Phase A1): list_bot_work,
     // get_bot_item; and acts on it (Phase A2): settle_work_item,
     // send_work_answer. Attended only, like the follow-through above: only the

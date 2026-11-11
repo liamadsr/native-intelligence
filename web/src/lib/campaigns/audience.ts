@@ -54,7 +54,8 @@ export function audienceCutoff(days: number, now: number = Date.now()): string {
 /** The contacts an audience matches, longest-quiet first, visible to `userId`. Throws on a failed read. */
 export async function matchAudience(
   supabase: SupabaseClient,
-  args: { workspaceId: string; userId: string; audience: CampaignAudience; now?: number },
+  // `grants: false` on a guest's or a linked agent's turn: a contact shared with the launcher (a grant) is never on the card.
+  args: { workspaceId: string; userId: string; audience: CampaignAudience; now?: number; grants?: boolean },
 ): Promise<AudienceContact[]> {
   const { audience } = args
   let query = supabase
@@ -94,7 +95,7 @@ export async function matchAudience(
   const visible: AudienceContact[] = []
   for (let i = 0; i < rows.length; i += VISIBILITY_BATCH) {
     const batch = rows.slice(i, i + VISIBILITY_BATCH)
-    const keep = await Promise.all(batch.map((r) => isContactVisibleTo(supabase, r.id, args.userId)))
+    const keep = await Promise.all(batch.map((r) => isContactVisibleTo(supabase, r.id, args.userId, args.grants === false ? { grants: false } : {})))
     batch.forEach((r, j) => {
       if (keep[j]) visible.push(r)
     })

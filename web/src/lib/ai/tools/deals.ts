@@ -328,7 +328,7 @@ export function createDealTools(
         // These tools may run on a service-role client: the kind's own edit
         // rule, for this person, before the write (a record they only view
         // through a grant is not theirs to change).
-        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id, { grants: editGrants })
+        const refusal = await customFieldWriteRefusal(supabase, userId, resolved.workspaceId, entity_type, id, { grants: editGrants, readGrants: !omitGrants })
         if (refusal) return { success: false, error: refusal.error }
         const result = await setRecordCustomFields(supabase, resolved.workspaceId, entity_type, id, values)
         if (!result.ok) {
