@@ -85,6 +85,7 @@ vi.mock('../view-board', () => ({
 }))
 
 import { UnifiedViewLayout } from '../unified-view-layout'
+import { stubAppFetch } from '@/test/app-fetch-stub'
 
 describe('prospect_list board drag guard', () => {
   let container: HTMLDivElement
@@ -94,6 +95,10 @@ describe('prospect_list board drag guard', () => {
     toastError.mockClear()
     moveItemBetweenGroups.mockClear()
     updateItem.mockClear()
+    // The layout reads /api/account/workspace on mount. Refused at once, as the
+    // real fetch refused it only later, it cannot outlive the test
+    // (src/test/app-fetch-stub.ts says why).
+    stubAppFetch()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -105,6 +110,7 @@ describe('prospect_list board drag guard', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    vi.unstubAllGlobals()
   })
 
   it('refuses a drag between purpose columns and says where the change belongs', () => {

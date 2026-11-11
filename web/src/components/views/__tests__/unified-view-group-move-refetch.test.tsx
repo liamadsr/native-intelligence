@@ -80,6 +80,7 @@ vi.mock('../view-list', () => ({ ViewList: () => null }))
 vi.mock('../view-board', () => ({ ViewBoard: () => null }))
 
 import { UnifiedViewLayout } from '../unified-view-layout'
+import { stubAppFetch } from '@/test/app-fetch-stub'
 
 function dispatch(name: string, detail: unknown) {
   act(() => { window.dispatchEvent(new CustomEvent(name, { detail })) })
@@ -96,6 +97,10 @@ beforeEach(() => {
   vi.useFakeTimers()
   updateItem.mockClear(); refetch.mockClear(); removeItem.mockClear()
   moveItemBetweenGroups.mockClear()
+  // The layout reads /api/account/workspace on mount. Refused at once, as the
+  // real fetch refused it only later, it cannot outlive the test
+  // (src/test/app-fetch-stub.ts says why).
+  stubAppFetch()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -104,6 +109,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 

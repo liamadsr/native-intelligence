@@ -124,6 +124,30 @@ expect(await res.json()).toEqual({
 })
 ```
 
+### Components that fetch: answer at once
+
+A jsdom suite that renders an app component usually also loads
+`src/lib/workspace-fetch.ts`, which replaces `window.fetch`. For an `/api/` URL
+the replacement reads a token through the Supabase client before it sends, so
+an unmocked request fails late: possibly after its test, or after the file's
+jsdom is gone. If a state update runs then, it throws "window is not defined" and
+fails the run although every test passed (the Image workflow's Tests job did
+exactly this on 2026-11-10).
+
+Give such a suite `stubAppFetch` from `src/test/app-fetch-stub.ts`: it answers
+the paths you list with a JSON body at once and refuses everything else at once.
+
+```ts
+beforeEach(() => {
+  stubAppFetch({ '/api/account/prospecting/entries/*': {} }) // or stubAppFetch() to refuse all
+  // ...create the root and render
+})
+afterEach(() => {
+  act(() => root.unmount())
+  vi.unstubAllGlobals()
+})
+```
+
 ### Source-scan guards (tripwires)
 
 Some invariants are textual, and a behavioral test would have to boot the whole server

@@ -133,9 +133,11 @@ import {
   type ProspectEntryActionDetail,
 } from '../list/entity-row'
 import { UnifiedViewLayout } from '../unified-view-layout'
+import { stubAppFetch } from '@/test/app-fetch-stub'
 
 let container: HTMLDivElement
 let root: Root
+let fetchMock: ReturnType<typeof stubAppFetch>
 let seen: ProspectEntryActionDetail[]
 let stopListening: () => void
 
@@ -159,6 +161,12 @@ beforeEach(() => {
   window.addEventListener(PROSPECT_ENTRY_ACTION_EVENT, listener)
   stopListening = () => window.removeEventListener(PROSPECT_ENTRY_ACTION_EVENT, listener)
 
+  // The stage PATCH an ordinary drop sends is answered at once. Left to the
+  // real fetch it failed late, and its rollback toast could land in the NEXT
+  // test's `toastError`, or after the file's jsdom was gone. Anything else (the
+  // layout's workspace read on mount) is refused at once, as the real fetch
+  // refused it only later. src/test/app-fetch-stub.ts says why.
+  fetchMock = stubAppFetch({ '/api/account/prospecting/entries/*': {} })
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -171,6 +179,7 @@ afterEach(() => {
   stopListening()
   act(() => root.unmount())
   container.remove()
+  vi.unstubAllGlobals()
 })
 
 describe('prospect_list_entry board drag guards', () => {
@@ -280,5 +289,9 @@ describe('prospect_list_entry board drag guards', () => {
     expect(seen).toEqual([])
     expect(toastError).not.toHaveBeenCalled()
     expect(moveItemBetweenGroups).toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/account/prospecting/entries/e1',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ stage: 'shortlisted' }) }),
+    )
   })
 })
