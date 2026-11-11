@@ -69,6 +69,9 @@
  *   link, from their own client. Only an unattended run is kept from them.
  *   set_working_hours stays out for now: the person sets their hours in the
  *   app's chat; find_times and get_working_hours are there for every caller.
+ *   And create_booking_link, update_booking_link and delete_booking_link
+ *   (availability phase 4a): the person making or changing their own booking
+ *   page from their own client, as from the app's chat; each is undoable.
  */
 import { ATTENDED_ONLY_TOOL_NAMES } from '@/lib/ai/tool-registry'
 
@@ -100,6 +103,9 @@ export const MCP_ATTENDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   'update_email_thread',
   'update_business_profile',
   'create_quote_form_link',
+  'create_booking_link',
+  'update_booking_link',
+  'delete_booking_link',
 ])
 
 /** The attended-only tool names a person's MCP connection must NOT offer. Pure. */

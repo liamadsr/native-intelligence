@@ -102,13 +102,16 @@ const OFFER_STATE_LABEL: Record<OfferState, string> = {
 }
 
 const BOOKING_STATE_LABEL: Record<MeetingBookingState, string> = {
+  requested: 'waiting on your yes',
   booking: 'being booked',
   confirmed: 'booked',
+  declined: 'declined',
+  expired: 'expired',
   cancelled: 'cancelled',
   failed: "couldn't be booked",
 }
 
-const live = (state: OfferState | MeetingBookingState) => state === 'open' || state === 'pending_send' || state === 'confirmed' || state === 'booking'
+const live = (state: OfferState | MeetingBookingState) => state === 'open' || state === 'pending_send' || state === 'confirmed' || state === 'booking' || state === 'requested'
 
 function ListCard({ data }: { data: OfferListCardData }) {
   return (

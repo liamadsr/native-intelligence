@@ -1,9 +1,11 @@
 /**
  * Open slots for a job (roadmap B4): the business's booking days and hours
- * (business_profile), cut into slots of its length, minus what is too soon
- * (its lead time), what the owner's calendar has busy, and every live
- * booking (requested or confirmed). Times are worked in the business's zone,
- * so a slot is 10:00 there across a daylight-saving change.
+ * (its job link since migration 581, business_profile's before), cut into
+ * slots of its length, minus what is too soon (its lead time), what the
+ * owner's calendar has busy, every claim on the owner's time (a live booking
+ * of theirs among them: requested or confirmed), and every live booking.
+ * Times are worked in the business's zone, so a slot is 10:00 there across a
+ * daylight-saving change.
  *
  * An all-day event counts as a busy day (a day off, travel): never offered.
  * It blocks each local day it covers for at least half the day: a provider's
@@ -23,7 +25,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { listCalendarEventsUnified } from '@/lib/integrations/calendar'
 import { listCountedEvents } from '@/lib/availability/busy'
-import { openTimes } from '@/lib/availability/engine'
+import { openTimes, type DayRange } from '@/lib/availability/engine'
 import { addDays, allDayTakes, localDate, parseDayKey, zonedTime } from '@/lib/availability/zone'
 import { readMemberTimeZone } from '@/lib/agent-events/member-time-zone'
 import { busyBlocks, type BusyBlock } from '@/lib/guests/free-busy'
@@ -47,7 +49,10 @@ export const DEFAULT_BOOKING_RULES: Pick<BusinessProfile, 'bookingDays' | 'booki
   bookingKind: 'pickup',
 }
 
-export type BookingRules = typeof DEFAULT_BOOKING_RULES
+export type BookingRules = typeof DEFAULT_BOOKING_RULES & {
+  /** The job link's hours when they are more than one range a day (Sunday first); else bookingDays from bookingStart to bookingEnd. */
+  weekly?: DayRange[][] | null
+}
 
 // The zone arithmetic lives with the availability engine; its callers here keep their import.
 export { allDayTakes, localDate, zonedTime }
@@ -72,7 +77,7 @@ export function openSlots(input: OpenSlotsInput): OpenSlot[] {
   const max = Math.max(1, Math.min(OPEN_SLOTS_MAX, input.max ?? OPEN_SLOTS_MAX))
   const hours = [{ start: rules.bookingStart, end: rules.bookingEnd }]
   return openTimes({
-    schedule: { timeZone, weekly: [0, 1, 2, 3, 4, 5, 6].map((weekday) => (rules.bookingDays.includes(weekday) ? hours : [])) },
+    schedule: { timeZone, weekly: rules.weekly ?? [0, 1, 2, 3, 4, 5, 6].map((weekday) => (rules.bookingDays.includes(weekday) ? hours : [])) },
     // A live booking holds its time like a busy block.
     busy: [...input.busy, ...input.bookings.map((b) => ({ start: b.startsAt, end: b.endsAt }))],
     firstDay: parseDayKey(input.fromDate) ?? localDate(now, timeZone),
@@ -120,7 +125,16 @@ export async function bookingSetup(supabase: SupabaseClient, business: { workspa
   const profile = await getBusinessProfile(supabase, business.workspaceId)
   const timeZone = profile?.timeZone ?? (await readMemberTimeZone(supabase, { workspaceId: business.workspaceId, userId: business.ownerUserId })).timeZone
   const rules: BookingRules = profile
-    ? { bookingDays: profile.bookingDays, bookingStart: profile.bookingStart, bookingEnd: profile.bookingEnd, slotMinutes: profile.slotMinutes, leadHours: profile.leadHours, horizonDays: profile.horizonDays, bookingKind: profile.bookingKind }
+    ? {
+        bookingDays: profile.bookingDays,
+        bookingStart: profile.bookingStart,
+        bookingEnd: profile.bookingEnd,
+        slotMinutes: profile.slotMinutes,
+        leadHours: profile.leadHours,
+        horizonDays: profile.horizonDays,
+        bookingKind: profile.bookingKind,
+        ...(profile.bookingWeekly ? { weekly: profile.bookingWeekly } : {}),
+      }
     : DEFAULT_BOOKING_RULES
   return { rules, timeZone, profile }
 }
@@ -143,7 +157,7 @@ export function slotWindow(range: { fromDate?: string | null; days?: number }, s
 export interface FindOpenSlotsDeps {
   listEvents?: typeof listCalendarEventsUnified
   now?: () => number
-  /** What a move leaves behind: the booking being moved and its own calendar event never block its new time. */
+  /** What a move leaves behind: the booking being moved (its claim too) and its own calendar event never block its new time. */
   except?: { bookingId?: string | null; eventId?: string | null }
 }
 
@@ -167,8 +181,9 @@ export async function findOpenSlots(
   if (!window) return { slots: [], timeZone: setup.timeZone, rules: setup.rules }
   const timeMin = new Date(window.from).toISOString()
   const timeMax = new Date(window.to).toISOString()
+  const exceptClaims = deps.except?.bookingId ? { bookingId: deps.except.bookingId } : undefined
   const [events, bookings] = await Promise.all([
-    (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true }),
+    (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true, exceptClaims }),
     liveBookingsBetween(supabase, business.workspaceId, timeMin, timeMax),
   ])
   // A request the owner never answered lapses with its approval: its slot is open again.
@@ -216,12 +231,14 @@ export async function isSlotFree(
   // The whole local day around it, so an all-day event that day is seen.
   const timeMin = new Date(from - DAY_MS).toISOString()
   const timeMax = new Date(to + DAY_MS).toISOString()
+  const exceptBookingId = slot.exceptBookingId ?? deps.except?.bookingId
+  // The booking's own claim on the owner's time isn't in its way.
+  const exceptClaims = exceptBookingId ? { bookingId: exceptBookingId } : undefined
   const [events, bookings] = await Promise.all([
-    (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true }),
+    (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true, exceptClaims }),
     liveBookingsBetween(supabase, business.workspaceId, slot.start, slot.end),
   ])
   const staleBefore = now - BOOKING_REQUEST_TTL_MS
-  const exceptBookingId = slot.exceptBookingId ?? deps.except?.bookingId
   if (bookings.some((b) => b.id !== exceptBookingId && (b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore))) return false
   const setup = await bookingSetup(supabase, business)
   const day = localDate(from, setup.timeZone)

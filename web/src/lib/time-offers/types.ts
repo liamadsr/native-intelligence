@@ -12,8 +12,17 @@ export type OfferState = (typeof OFFER_STATES)[number]
 export const SLOT_STATES = ['open', 'booked', 'released'] as const
 export type SlotState = (typeof SLOT_STATES)[number]
 
-export const MEETING_BOOKING_STATES = ['booking', 'confirmed', 'cancelled', 'failed'] as const
+/**
+ * requested: waiting on the host's yes (a booking link that asks first, a
+ * customer's job), its time held. declined and expired: the host said no, or
+ * never answered. (migration 581)
+ */
+export const MEETING_BOOKING_STATES = ['requested', 'booking', 'confirmed', 'declined', 'expired', 'cancelled', 'failed'] as const
 export type MeetingBookingState = (typeof MEETING_BOOKING_STATES)[number]
+
+/** Where a booking came from: an offer's pick, a booking link, a customer's job (migration 581's fold), a poll (later). */
+export const MEETING_BOOKING_SOURCES = ['offer', 'link', 'customer', 'poll'] as const
+export type MeetingBookingSource = (typeof MEETING_BOOKING_SOURCES)[number]
 
 /** How an offer reaches its recipient: a link the person pastes themselves, or sent from their mailbox or the business's number. */
 export const SEND_BY = ['link', 'email', 'text'] as const
@@ -95,8 +104,10 @@ export interface MeetingBooking {
   workspaceId: string
   hostUserId: string
   hostName: string
-  source: 'offer' | 'link' | 'customer' | 'poll'
+  source: MeetingBookingSource
   offerId: string | null
+  /** The booking link it was booked from (migration 581). */
+  linkId: string | null
   guestName: string
   guestEmail: string | null
   guestPhone: string | null
@@ -117,8 +128,21 @@ export interface MeetingBooking {
   rescheduleCount: number
   lastError: string | null
   cancelledBy: 'guest' | 'host' | null
+  /** The guest's answers to the link's questions: their words, never instructions. */
+  answers: BookingAnswer[]
+  /** The other hosts who attend (a link's host_mode all); hostUserId organizes. */
+  otherHostIds: string[]
+  /** The zone the host's words about it use. */
+  hostTimeZone: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** One answer to a booking link's question. */
+export interface BookingAnswer {
+  id: string
+  label: string
+  answer: string
 }
 
 /** What the public page shows of an offer's state. */

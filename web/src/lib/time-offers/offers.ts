@@ -188,7 +188,7 @@ export interface OfferDeps {
 }
 
 /** The host's name as a guest reads it: their display name in the workspace, else the workspace's name. Throws on a failed read. */
-async function hostDisplayName(supabase: SupabaseClient, workspaceId: string, userId: string): Promise<string | null> {
+export async function hostDisplayName(supabase: SupabaseClient, workspaceId: string, userId: string): Promise<string | null> {
   const { data, error } = await supabase.from('member').select('display_name').eq('workspace_id', workspaceId).eq('user_id', userId).maybeSingle<{ display_name: string | null }>()
   if (error) throw new Error(`member read failed: ${error.message}`)
   if (!data) return null

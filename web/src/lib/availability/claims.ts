@@ -1,12 +1,14 @@
 /**
  * A host's claims on their own time (migration 554, host_time_claim): the
- * times held for an offer they made (src/lib/time-offers/) and the meetings
- * booked from one. The busy read (./busy.ts listCountedEvents) adds them to
+ * times held for an offer they made (src/lib/time-offers/), the meetings
+ * booked from one or from a booking link (src/lib/booking-links/), and a
+ * business's customer jobs (migration 581). The busy read (./busy.ts listCountedEvents) adds them to
  * the person's calendar events, so find_times, a group's time, Copy
  * availability and a business's booking slots never offer a held or booked
  * time.
  *
- * A hold counts until it expires; a booking's claim until it is released.
+ * A hold counts until it expires; a booking's claim until it is released,
+ * or, for a request still waiting on the host's yes, until its hold expires.
  * Only time leaves here: the claim's own id, never who it is for.
  *
  * Strict: a failed read throws (a time is never free because the claims
@@ -41,8 +43,9 @@ interface ClaimRow {
 }
 
 /**
- * The host's live claims overlapping [timeMin, timeMax): every booking's,
- * and every hold that hasn't expired. Throws on a failed read.
+ * The host's live claims overlapping [timeMin, timeMax): every booking's
+ * (a request's until its hold runs out), and every hold that hasn't
+ * expired. Throws on a failed read.
  */
 export async function readHostClaims(
   supabase: SupabaseClient,
@@ -61,7 +64,8 @@ export async function readHostClaims(
   const out: HostClaim[] = []
   for (const row of (data as ClaimRow[] | null) ?? []) {
     if (row.kind !== 'hold' && row.kind !== 'booking') continue
-    if (row.kind === 'hold' && (!row.expires_at || Date.parse(row.expires_at) <= now)) continue
+    if (row.kind === 'hold' && !row.expires_at) continue
+    if (row.expires_at && Date.parse(row.expires_at) <= now) continue
     out.push({ id: row.id, start: row.starts_at, end: row.ends_at, kind: row.kind, offerId: row.offer_id, bookingId: row.booking_id })
   }
   return out

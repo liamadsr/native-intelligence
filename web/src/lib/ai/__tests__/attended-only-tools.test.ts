@@ -107,13 +107,26 @@ const DRAFT_DISCARD = ['discard_email_draft']
 const BUSINESS_SETUP = ['update_business_profile', 'create_quote_form_link']
 /** Availability: the person's working hours decide every time offered for them, so they change only at their word. */
 const WORKING_HOURS = ['set_working_hours']
+/** Availability phase 4a: a booking link opens the person's calendar to anyone, so it is made and changed only at their word. */
+const BOOKING_LINKS = ['create_booking_link', 'update_booking_link', 'delete_booking_link']
 const root = join(__dirname, '..', '..', '..', '..')
 
 describe('the attended-only set', () => {
   it('is exactly the three Phase 5 writes, the two A1 reads, the two A2 writes, remember, update_now, the card reader, the loop builders, the skill writers and the document restore, each a registry tool in an EXISTING category (no persona-grant migration)', () => {
     expect([...ATTENDED].sort()).toEqual(
-      [...WRITES, ...BOT_WORK_READS, ...BOT_WORK_WRITES, ...BOT_MANAGERS, ...MEMORY, ...NOW, ...GETTING_STARTED, ...CARD_READS, ...LOOP_BUILDERS, ...SKILL_WRITERS, ...DOCUMENT_RESTORE, ...DOCUMENT_DELETE, ...CONNECTIONS, ...POST_REVIEW, ...POST_SEND, ...MAIL_TRIAGE, ...DRAFT_DISCARD, ...BUSINESS_SETUP, ...WORKING_HOURS].sort(),
+      [...WRITES, ...BOT_WORK_READS, ...BOT_WORK_WRITES, ...BOT_MANAGERS, ...MEMORY, ...NOW, ...GETTING_STARTED, ...CARD_READS, ...LOOP_BUILDERS, ...SKILL_WRITERS, ...DOCUMENT_RESTORE, ...DOCUMENT_DELETE, ...CONNECTIONS, ...POST_REVIEW, ...POST_SEND, ...MAIL_TRIAGE, ...DRAFT_DISCARD, ...BUSINESS_SETUP, ...WORKING_HOURS, ...BOOKING_LINKS].sort(),
     )
+    for (const name of BOOKING_LINKS) {
+      expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('calendar')
+      expect(getMutatingToolNames().has(name), name).toBe(true)
+    }
+    // Making and changing one is internal (undoable, no card); turning one off is a delete by name, undone by turning it on.
+    expect(getToolSideEffect('create_booking_link')).toBe('internal-write')
+    expect(getToolSideEffect('update_booking_link')).toBe('internal-write')
+    expect(getToolSideEffect('delete_booking_link')).toBe('delete')
+    // Their read stays a read, unattended-reachable.
+    expect(getToolSideEffect('list_booking_links')).toBe('read')
+    expect(ATTENDED_ONLY_TOOL_NAMES.has('list_booking_links')).toBe(false)
     for (const name of WORKING_HOURS) {
       expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('calendar')
       expect(getToolSideEffect(name), name).toBe('internal-write')

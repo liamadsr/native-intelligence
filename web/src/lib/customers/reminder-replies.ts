@@ -125,12 +125,12 @@ export async function confirmAppointment(
     const booking = await remindedBooking(supabase, reminder)
     if (!booking) return BOOKING_GONE
     const { error } = await supabase
-      .from('customer_booking')
+      .from('meeting_booking')
       .update({ customer_confirmed_at: nowIso, updated_at: nowIso })
       .eq('workspace_id', booking.workspaceId)
       .eq('id', booking.id)
       .eq('state', 'confirmed')
-    if (error) throw new Error(`customer_booking update failed: ${error.message}`)
+    if (error) throw new Error(`meeting_booking update failed: ${error.message}`)
   }
   const answered = await answerReminder(supabase, { workspaceId: args.workspaceId, id: reminder.id, answer: 'confirmed', from: [null, 'opted_out'], nowIso })
   if (answered) {

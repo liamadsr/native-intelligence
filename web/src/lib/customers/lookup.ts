@@ -21,7 +21,7 @@ import type { AgentGuest } from '@/lib/guests/store'
 import { findContactByEmailOrPhone } from './contacts'
 import { findCustomerGuest } from './customer-guests'
 import { openRemindersForPhone, type CustomerReminder } from './reminder-store'
-import { BOOKING_SELECT, quotesForCustomer, toBooking } from './store'
+import { BOOKING_SELECT, CUSTOMER_FLOW_SOURCES, quotesForCustomer, toBooking, type BookingRow } from './store'
 import type { CustomerBooking, CustomerQuote } from './types'
 import { openOffersForPhone } from '@/lib/time-offers/store'
 import type { TimeOffer } from '@/lib/time-offers/types'
@@ -46,19 +46,20 @@ export interface CustomerByPhone {
 
 /** Their live bookings from now on (by guest row or number). Throws on a failed read. */
 async function upcomingBookings(supabase: SupabaseClient, workspaceId: string, who: { guestId: string | null; phone: string }, nowIso: string): Promise<CustomerBooking[]> {
-  const ors = [`customer_phone.eq.${who.phone}`]
+  const ors = [`guest_phone.eq.${who.phone}`]
   if (who.guestId) ors.push(`guest_id.eq.${who.guestId}`)
   const { data, error } = await supabase
-    .from('customer_booking')
+    .from('meeting_booking')
     .select(BOOKING_SELECT)
     .eq('workspace_id', workspaceId)
-    .in('state', ['requested', 'confirmed'])
+    .in('source', [...CUSTOMER_FLOW_SOURCES])
+    .in('state', ['requested', 'booking', 'confirmed'])
     .gte('ends_at', nowIso)
     .or(ors.join(','))
     .order('starts_at', { ascending: true })
     .limit(5)
-  if (error) throw new Error(`customer_booking read failed: ${error.message}`)
-  return ((data ?? []) as Parameters<typeof toBooking>[0][]).map(toBooking)
+  if (error) throw new Error(`meeting_booking read failed: ${error.message}`)
+  return ((data ?? []) as BookingRow[]).map(toBooking)
 }
 
 /** Look one customer up by number (see the header). Throws on a failed read. */

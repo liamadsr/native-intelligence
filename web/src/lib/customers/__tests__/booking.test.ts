@@ -12,7 +12,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/safety/approvals', () => ({ createToolApproval: vi.fn() }))
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { memoryDb } from '@/test/memory-db'
+import { bookingDb, customerRows, seedBookings } from '@/test/booking-db'
 import { CONFIRM_BOOKING_TOOL, bookingApprovalPermits, bookingCard, bookingConfirmedText, bookingDeclinedText, confirmBooking, requestBooking, settleBookingApproval, textBookingCustomer, type BookingDeps } from '../booking'
 import { countLiveRequests, insertBooking } from '../store'
 import type { NewApproval } from '@/lib/safety/approvals'
@@ -33,14 +33,11 @@ beforeEach(() => {
   tables = {
     business_profile: [{ workspace_id: WS, owner_user_id: OWNER, business_name: 'Bright Loom', customer_facts: null, time_zone: NY, booking_days: [1, 2, 3, 4, 5], booking_start: '09:00', booking_end: '17:00', slot_minutes: 60, lead_hours: 24, horizon_days: 14, booking_kind: 'pickup', booking_slug: 'bright-loom' }],
     business_phone_number: [{ id: 'bn-1', workspace_id: WS, owner_user_id: OWNER, phone_e164: RUG, twilio_sid: 'PN1', state: 'active' }],
-    customer_booking: [],
     customer_quote: [{ id: '11111111-1111-4111-8111-111111111111', workspace_id: WS, contact_id: 'c-1', source: 'web_form', status: 'new', customer_name: 'Sarah Lee', customer_phone: SARAH, items: [{ description: 'Rug', width: 8, length: 10, unit: 'ft' }], total_cents: 40_000, currency: 'usd', requested_dates: [], created_at: '2026-10-30T12:00:00Z', updated_at: '2026-10-30T12:00:00Z' }],
     agent_guest: [{ id: 'g-sarah', owner_user_id: OWNER, workspace_id: WS, state: 'active', preset: 'customer' }],
     sms_message: [],
   }
-  db = memoryDb(tables, {
-    customer_booking: (a, b) => a.workspace_id === b.workspace_id && a.starts_at === b.starts_at && ['requested', 'confirmed'].includes(a.state as string) && ['requested', 'confirmed'].includes(b.state as string),
-  })
+  db = bookingDb(tables)
 })
 
 const QUOTE_ID = '11111111-1111-4111-8111-111111111111'
@@ -70,10 +67,10 @@ describe('a request', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.label).toBe('Mon, Nov 2, 10:00 AM')
-    expect(tables.customer_booking).toHaveLength(1)
-    expect(tables.customer_booking[0]).toMatchObject({ state: 'requested', starts_at: SLOT.start, ends_at: SLOT.end, customer_name: 'Sarah Lee', customer_phone: SARAH, guest_id: 'g-sarah', quote_id: QUOTE_ID, contact_id: 'c-1', source: 'sms', kind: 'pickup', approval_id: 'appr-1' })
+    expect(customerRows(tables)).toHaveLength(1)
+    expect(customerRows(tables)[0]).toMatchObject({ state: 'requested', starts_at: SLOT.start, ends_at: SLOT.end, customer_name: 'Sarah Lee', customer_phone: SARAH, guest_id: 'g-sarah', quote_id: QUOTE_ID, contact_id: 'c-1', source: 'sms', kind: 'pickup', approval_id: 'appr-1' })
     // Created after the clock the test runs at: a fresh request, not a lapsed one.
-    expect(Date.parse(tables.customer_booking[0].created_at as string)).toBeGreaterThan(NOW - BOOKING_REQUEST_TTL_MS)
+    expect(Date.parse(customerRows(tables)[0].created_at as string)).toBeGreaterThan(NOW - BOOKING_REQUEST_TTL_MS)
 
     expect(approvals).toHaveLength(1)
     const [approval] = approvals
@@ -103,28 +100,28 @@ describe('a request', () => {
   })
 
   it('a stale request (its approval lapsed) leaves the slot first', async () => {
-    tables.customer_booking.push({ id: 'b-old', workspace_id: WS, owner_user_id: OWNER, state: 'requested', starts_at: SLOT.start, ends_at: SLOT.end, customer_name: 'Old', created_at: new Date(NOW - BOOKING_REQUEST_TTL_MS - 1000).toISOString() })
+    seedBookings(tables, [{ id: 'b-old', workspace_id: WS, owner_user_id: OWNER, state: 'requested', starts_at: SLOT.start, ends_at: SLOT.end, customer_name: 'Old', created_at: new Date(NOW - BOOKING_REQUEST_TTL_MS - 1000).toISOString() }])
     const { d } = bookingDeps()
     expect((await requestBooking(db, { business: { workspaceId: WS, ownerUserId: OWNER }, source: 'sms', guest: GUEST, input: ask() }, d)).ok).toBe(true)
-    expect(tables.customer_booking.find((b) => b.id === 'b-old')?.state).toBe('expired')
+    expect(customerRows(tables).find((b) => b.id === 'b-old')?.state).toBe('expired')
   })
 
   it('no approval, no hold: the booking is cancelled and the customer told to try later', async () => {
     const { d } = bookingDeps({ createApproval: async () => ({ ok: false, code: 'TOO_MANY_PENDING', error: 'x' }) })
     expect(await requestBooking(db, { business: { workspaceId: WS, ownerUserId: OWNER }, source: 'sms', guest: GUEST, input: ask() }, d)).toMatchObject({ ok: false, code: 'TOO_MANY_PENDING' })
-    expect(tables.customer_booking[0].state).toBe('cancelled')
+    expect(customerRows(tables)[0].state).toBe('cancelled')
   })
 
   it('a calendar that can’t be read holds nothing', async () => {
     const { d } = bookingDeps({ openSlotAt: async () => { throw new Error('token expired') } })
     expect(await requestBooking(db, { business: { workspaceId: WS, ownerUserId: OWNER }, source: 'sms', guest: GUEST, input: ask() }, d)).toMatchObject({ ok: false, code: 'CALENDAR_UNAVAILABLE' })
-    expect(tables.customer_booking).toHaveLength(0)
+    expect(customerRows(tables)).toHaveLength(0)
   })
 
   it("nothing is held when the owner has no calendar a yes could write to", async () => {
     const { d, approvals } = bookingDeps({ canBook: async () => false })
     expect(await requestBooking(db, { business: { workspaceId: WS, ownerUserId: OWNER }, source: 'sms', guest: GUEST, input: ask() }, d)).toMatchObject({ ok: false, code: 'CALENDAR_UNAVAILABLE' })
-    expect(tables.customer_booking).toHaveLength(0)
+    expect(customerRows(tables)).toHaveLength(0)
     expect(approvals).toHaveLength(0)
   })
 
@@ -141,7 +138,7 @@ describe('a request', () => {
   })
 
   it('the business as a whole can have only so many requests waiting on the owner', async () => {
-    for (let i = 0; i < 10; i++) tables.customer_booking.push({ id: `b-${i}`, workspace_id: WS, state: 'requested', starts_at: `2026-11-1${i % 9}T15:00:00.000Z`, created_at: new Date(NOW).toISOString(), customer_phone: `+1212555020${i}` })
+    for (let i = 0; i < 10; i++) seedBookings(tables, [{ id: `b-${i}`, workspace_id: WS, state: 'requested', starts_at: `2026-11-1${i % 9}T15:00:00.000Z`, created_at: new Date(NOW).toISOString(), customer_phone: `+1212555020${i}` }])
     const { d } = bookingDeps()
     expect(await requestBooking(db, { business: { workspaceId: WS, ownerUserId: OWNER }, source: 'sms', guest: GUEST, input: ask() }, d)).toMatchObject({ ok: false, code: 'TOO_MANY_PENDING' })
   })
@@ -173,7 +170,7 @@ describe("the owner's yes", () => {
     })
     expect(out).toMatchObject({ success: true, booking_id: bookingId, when: 'Mon, Nov 2, 10:00 AM', calendar_event_id: 'evt-1', customer_texted: true })
     expect(createEvent).toHaveBeenCalledWith(OWNER, expect.objectContaining({ title: 'Pickup: Sarah Lee', start: SLOT.start, end: SLOT.end, location: '12 Elm St, Brooklyn' }))
-    expect(tables.customer_booking[0]).toMatchObject({ state: 'confirmed', calendar_event_id: 'evt-1' })
+    expect(customerRows(tables)[0]).toMatchObject({ state: 'confirmed', calendar_event_id: 'evt-1' })
     expect(tables.customer_quote[0].status).toBe('booked')
     expect(sent).toEqual([{ to: SARAH, body: bookingConfirmedText('Bright Loom', { kind: 'pickup', address: '12 Elm St, Brooklyn' }, 'Mon, Nov 2, 10:00 AM'), from: RUG }])
     // Runs once: a second yes changes nothing.
@@ -188,7 +185,7 @@ describe("the owner's yes", () => {
     const out = await confirmBooking(db, { userId: OWNER, workspaceId: WS, bookingId }, { createEvent, hasCalendar: async () => true, isSlotFree: async () => false, textCustomer: async (_b, body) => (texts.push(body), true) })
     expect(out).toMatchObject({ success: false, code: 'SLOT_TAKEN' })
     expect(createEvent).not.toHaveBeenCalled()
-    expect(tables.customer_booking[0].state).toBe('declined')
+    expect(customerRows(tables)[0].state).toBe('declined')
     expect(texts).toEqual([bookingDeclinedText('Bright Loom', { kind: 'pickup' }, 'Mon, Nov 2, 10:00 AM')])
   })
 
@@ -196,7 +193,7 @@ describe("the owner's yes", () => {
     const bookingId = await held()
     const texts: string[] = []
     expect(await confirmBooking(db, { userId: OWNER, workspaceId: WS, bookingId }, { hasCalendar: async () => false, timeZone: async () => NY, textCustomer: async (_b, body) => (texts.push(body), true) })).toMatchObject({ success: false, code: 'NO_CALENDAR' })
-    expect(tables.customer_booking[0].state).toBe('cancelled')
+    expect(customerRows(tables)[0].state).toBe('cancelled')
     expect(texts).toHaveLength(1)
   })
 
@@ -213,7 +210,7 @@ describe("the owner's yes", () => {
       textCustomer: async (_b, body) => (texts.push(body), true),
     })
     expect(out).toMatchObject({ success: false, code: 'CALENDAR_FAILED' })
-    expect(tables.customer_booking[0].state).toBe('cancelled')
+    expect(customerRows(tables)[0].state).toBe('cancelled')
     expect(texts[0]).toContain("we can't do the pickup")
   })
 
@@ -224,11 +221,11 @@ describe("the owner's yes", () => {
     const textCustomer = async (_b: unknown, body: string) => (texts.push(body), true)
     const noCalendar = await confirmBooking(db, { userId: OWNER, workspaceId: WS, bookingId: owned.booking.id }, { hasCalendar: async () => false, timeZone: async () => NY, textCustomer })
     expect(noCalendar).toMatchObject({ success: false, code: 'NO_CALENDAR', error: expect.stringContaining('Sarah Lee was not told.') })
-    expect(tables.customer_booking[0].state).toBe('cancelled')
+    expect(customerRows(tables)[0].state).toBe('cancelled')
     const again = await insertBooking(db, { workspaceId: WS, ownerUserId: OWNER, source: 'owner', kind: 'pickup', startsAt: SLOT.start, endsAt: SLOT.end, customerName: 'Sarah Lee', customerPhone: SARAH })
     if (!again.ok) throw new Error('not held')
     expect(await confirmBooking(db, { userId: OWNER, workspaceId: WS, bookingId: again.booking.id }, { hasCalendar: async () => true, isSlotFree: async () => false, timeZone: async () => NY, textCustomer })).toMatchObject({ code: 'SLOT_TAKEN' })
-    expect(tables.customer_booking[1].state).toBe('declined')
+    expect(customerRows(tables)[1].state).toBe('declined')
     expect(texts).toEqual([])
   })
 
@@ -246,7 +243,7 @@ describe("the owner's no, or no answer", () => {
     const textCustomer = async (_b: unknown, body: string) => (texts.push(body), true)
     await settleBookingApproval(db, { workspace_id: WS, context: { booking: { bookingId } } }, 'denied', { textCustomer })
     await settleBookingApproval(db, { workspace_id: WS, context: { booking: { bookingId } } }, 'denied', { textCustomer })
-    expect(tables.customer_booking[0].state).toBe('declined')
+    expect(customerRows(tables)[0].state).toBe('declined')
     expect(texts).toHaveLength(1)
     expect(texts[0]).toContain("we can't do the pickup at Mon, Nov 2, 10:00 AM")
   })
@@ -257,14 +254,14 @@ describe("the owner's no, or no answer", () => {
     if (!made.ok) throw new Error('not held')
     const textCustomer = vi.fn(async () => true)
     await settleBookingApproval(db, { workspace_id: WS, context: { booking: { bookingId: made.booking.id } } }, 'denied', { textCustomer })
-    expect(tables.customer_booking[0].state).toBe('declined')
+    expect(customerRows(tables)[0].state).toBe('declined')
     expect(textCustomer).not.toHaveBeenCalled()
   })
 
   it('a lapsed approval expires the booking', async () => {
     const bookingId = await held()
     await settleBookingApproval(db, { workspace_id: WS, context: { booking: { bookingId } } }, 'expired', { textCustomer: async () => true })
-    expect(tables.customer_booking[0].state).toBe('expired')
+    expect(customerRows(tables)[0].state).toBe('expired')
   })
 
   it('an approval with no booking in it is left alone', async () => {
@@ -282,7 +279,7 @@ describe('the re-check at accept', () => {
     tables.agent_guest[0].state = 'removed'
     expect(await bookingApprovalPermits(db, row)).toBe(false)
     tables.agent_guest[0].state = 'active'
-    tables.customer_booking[0].state = 'declined'
+    tables.meeting_booking[0].state = 'declined'
     expect(await bookingApprovalPermits(db, row)).toBe(false)
   })
 })

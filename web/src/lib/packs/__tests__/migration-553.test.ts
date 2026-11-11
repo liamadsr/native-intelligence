@@ -22,6 +22,8 @@ const FILE = '553_find_a_time_with_teammates.sql'
 const BEFORE = '551_find_a_time_uses_availability.sql'
 /** The rewrite after this one: offering an outside guest the slots (availability phase 3a). */
 const LATER = '580_offer_times_to_outside_guests.sql'
+/** And the calendar playbook's after that: its booking links line (availability phase 4a). */
+const NEWEST = '582_booking_links_in_calendar_playbook.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
 
@@ -56,12 +58,12 @@ const BODY = sql
   .replace(/\s+/g, ' ')
 
 describe('migration 553', () => {
-  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 551, with only 580 after it', () => {
+  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 551, with only 580 and 582 after it', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER, NEWEST])
     for (const id of [CALENDAR, FIND_A_TIME]) {
       // The next rewrite after 551 is this one (580 comes after it).
       const next = PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(BEFORE) + 1).find((f) => promptRewrites(f).some((r) => r.id === id))
@@ -73,10 +75,11 @@ describe('migration 553', () => {
     expect(preferredToolsRewrites(FILE)).toEqual([])
   })
 
-  it('is the text 580 rewrites, and leaves the preferred tools to 551 and 580', () => {
+  it('is the text 580 rewrites (and 582 the calendar playbook\'s), and leaves the preferred tools to 551 and 580', () => {
     for (const id of [CALENDAR, FIND_A_TIME]) {
-      expect(rewrittenAfter(FILE, id, rows.find((r) => r.id === id)!.slug), id).toBe(LATER)
-      expect(allShippedSkills().find((s) => s.id === id)!.file, id).toBe(LATER)
+      const last = id === CALENDAR ? NEWEST : LATER
+      expect(rewrittenAfter(FILE, id, rows.find((r) => r.id === id)!.slug), id).toBe(last)
+      expect(allShippedSkills().find((s) => s.id === id)!.file, id).toBe(last)
     }
     expect(allShippedSkills().find((s) => s.id === FIND_A_TIME)!.config.preferred_tools).toEqual(preferredToolsRewrites(LATER)[0].preferredTools)
   })

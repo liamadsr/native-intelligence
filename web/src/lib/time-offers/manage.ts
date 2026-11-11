@@ -1,9 +1,10 @@
 /**
- * A booked meeting changed after the pick (availability phase 3a): by the
- * guest on their manage page (/b/<token>), or by the host
- * (cancel_offered_meeting).
+ * A booked meeting changed after the pick (availability phase 3a), or after
+ * a booking link booked it (phase 4a): by the guest on their manage page
+ * (/b/<token>), or by the host (cancel_offered_meeting).
  *
- *   cancelMeeting      the booking leaves 'confirmed' (or 'booking') first,
+ *   cancelMeeting      the booking leaves 'confirmed' (or 'booking', or a
+ *                      request still waiting on the host's yes) first,
  *                      so two cancels never both run; then the provider event
  *                      is deleted with the attendees told (the provider's
  *                      cancellation); a provider that refuses puts it back.
@@ -11,9 +12,10 @@
  *   rescheduleTimes    the host's open times for the same length over the
  *                      next RESCHEDULE_DAYS days, from the engine (working
  *                      hours minus everything busy, the booking's own event
- *                      and claim left out).
+ *                      and claim left out); for a meeting every host attends
+ *                      (a link's host_mode all), the times all of them have.
  *   rescheduleMeeting  the new time must be one of those, read again now. A
- *                      new claim is taken BESIDE the old one (the exclusion
+ *                      new claim per host is taken BESIDE the old (the exclusion
  *                      constraint lets one booking's claims overlap), the
  *                      provider event moves with the attendees told, then the
  *                      booking takes the new time and the old claim goes. A
@@ -27,12 +29,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { deleteCalendarEvent, updateCalendarEvent } from '@/lib/integrations/calendar'
 import { listCountedEvents } from '@/lib/availability/busy'
-import type { Span } from '@/lib/availability/engine'
+import { intersectAll, type Span } from '@/lib/availability/engine'
 import { readFreeTime } from '@/lib/availability/find-times'
 import { readWorkingHours } from '@/lib/availability/schedule'
 import { reportToOwner } from '@/lib/customers/reminders'
 import { appOrigin } from '@/lib/twilio/config'
-import { deleteBookingClaims, deleteClaim, getBooking, getBookingByManageHash, getOffer, insertBookingClaim, updateBooking } from './store'
+import { bookingHosts, deleteBookingClaims, deleteClaims, getBooking, getBookingByManageHash, getOffer, insertBookingClaim, updateBooking } from './store'
 import { manageTokenFor, manageTokenHash, manageUrl } from './tokens'
 import { RESCHEDULE_DAYS, RESCHEDULES_MAX, type MeetingBooking } from './types'
 import { bookingEventWords, guestChangeReport } from './words'
@@ -60,11 +62,14 @@ export async function bookingForManageToken(supabase: SupabaseClient, token: str
 export function changeable(booking: Pick<MeetingBooking, 'state' | 'startsAt'>, now: number): ManageFailure | null {
   if (booking.state === 'cancelled') return fail('CLOSED', 'This meeting was cancelled.')
   if (booking.state === 'failed') return fail('CLOSED', "This meeting couldn't be booked, so there is nothing to change.")
+  if (booking.state === 'declined' || booking.state === 'expired') return fail('CLOSED', "This time wasn't confirmed, so there is nothing to change.")
   if (Date.parse(booking.startsAt) <= now) return fail('STARTED', 'This meeting has already started.')
   return null
 }
 
-async function hostZone(supabase: SupabaseClient, booking: MeetingBooking): Promise<string> {
+/** The zone the host's words use: the booking's own, else its offer's. */
+export async function hostZone(supabase: SupabaseClient, booking: MeetingBooking): Promise<string> {
+  if (booking.hostTimeZone) return booking.hostTimeZone
   const offer = booking.offerId ? await getOffer(supabase, booking.offerId).catch(() => null) : null
   return offer?.timeZone ?? 'UTC'
 }
@@ -80,7 +85,7 @@ export async function cancelMeeting(
   const blocked = changeable(booking, now)
   if (blocked) return blocked
   try {
-    const cancelled = await updateBooking(supabase, booking.id, ['confirmed', 'booking'], { state: 'cancelled', cancelled_by: args.by, cancelled_at: new Date(now).toISOString() })
+    const cancelled = await updateBooking(supabase, booking.id, ['confirmed', 'booking', 'requested'], { state: 'cancelled', cancelled_by: args.by, cancelled_at: new Date(now).toISOString() })
     if (!cancelled) return fail('CLOSED', 'This meeting changed just now. Reload to see it.')
     if (booking.calendarEventId) {
       try {
@@ -126,19 +131,28 @@ export function startsInWindows(windows: readonly Span[], durationMs: number, ma
 }
 
 async function defaultFreeTime(supabase: SupabaseClient, booking: MeetingBooking, range: { from: number; to: number }, now: number) {
-  const hours = await readWorkingHours(supabase, { userId: booking.hostUserId, workspaceId: booking.workspaceId })
   const durationMinutes = Math.round((Date.parse(booking.endsAt) - Date.parse(booking.startsAt)) / 60_000)
-  // The booking's own event and claim are where it is now, not busy against its move.
-  const read = await readFreeTime(
-    { userId: booking.hostUserId, workspaceId: booking.workspaceId, schedule: hours, from: range.from, to: range.to, durationMinutes, bufferMinutes: 10, now },
-    {
-      listEvents: async (userId, options) => {
-        const events = await listCountedEvents(userId, { ...options, exceptClaims: { bookingId: booking.id } })
-        return booking.calendarEventId ? events.filter((e) => e.id !== booking.calendarEventId) : events
-      },
-    },
+  // Every attending host's time: the organizer's zone words the times.
+  const reads = await Promise.all(
+    bookingHosts(booking).map(async (userId) => {
+      const hours = await readWorkingHours(supabase, { userId, workspaceId: booking.workspaceId })
+      // The booking's own event and claim are where it is now, not busy against its move.
+      const read = await readFreeTime(
+        { userId, workspaceId: booking.workspaceId, schedule: hours, from: range.from, to: range.to, durationMinutes, bufferMinutes: 10, now },
+        {
+          listEvents: async (user, options) => {
+            const events = await listCountedEvents(user, { ...options, exceptClaims: { bookingId: booking.id } })
+            return booking.calendarEventId ? events.filter((e) => e.id !== booking.calendarEventId) : events
+          },
+        },
+      )
+      return { read, timeZone: hours.timeZone }
+    }),
   )
-  return read.known ? { known: true as const, free: read.free, timeZone: hours.timeZone } : read
+  const unknown = reads.find((r) => !r.read.known)
+  if (unknown && !unknown.read.known) return unknown.read
+  const free = intersectAll(reads.map((r) => (r.read.known ? r.read.free : []))).filter((s) => s.end - s.start >= durationMinutes * 60_000)
+  return { known: true as const, free, timeZone: booking.hostTimeZone ?? reads[0].timeZone }
 }
 
 /** The host's open times a booking can move to (see the header). */
@@ -181,12 +195,13 @@ export async function rescheduleMeeting(
   try {
     const claim = await insertBookingClaim(supabase, booking, span)
     if (!claim.ok) return claim.conflict ? fail('SLOT_TAKEN', 'That time was just taken. Pick another.') : fail('FAILED', `The new time couldn't be held (${claim.error}).`)
+    const releaseNew = () => deleteClaims(supabase, claim.ids).catch(() => {})
     const words = bookingEventWords(booking, manageUrl(deps.origin ?? appOrigin(), manageTokenFor(booking.id, deps.secret)))
     if (booking.calendarEventId) {
       try {
         await (deps.updateEvent ?? updateCalendarEvent)(booking.hostUserId, booking.calendarEventId, { start: span.startsAt, end: span.endsAt, description: words.description }, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true })
       } catch (err) {
-        await deleteClaim(supabase, claim.id).catch(() => {})
+        await releaseNew()
         return fail('FAILED', `The calendar couldn't move the meeting (${err instanceof Error ? err.message : String(err)}). It is still at its old time.`)
       }
     }
@@ -202,10 +217,10 @@ export async function rescheduleMeeting(
       if (booking.calendarEventId) {
         await (deps.updateEvent ?? updateCalendarEvent)(booking.hostUserId, booking.calendarEventId, { start: booking.startsAt, end: booking.endsAt }, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => null)
       }
-      await deleteClaim(supabase, claim.id).catch(() => {})
+      await releaseNew()
       return fail('CLOSED', 'This meeting changed just now. Reload to see it.')
     }
-    await deleteBookingClaims(supabase, booking.id, claim.id).catch(() => {})
+    await deleteBookingClaims(supabase, booking.id, claim.ids).catch(() => {})
     if (args.by === 'guest') {
       const zone = await hostZone(supabase, moved)
       await (deps.tellHost ?? ((a) => reportToOwner(supabase, a)))({

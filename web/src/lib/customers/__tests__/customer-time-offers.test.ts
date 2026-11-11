@@ -51,7 +51,6 @@ beforeEach(() => {
     contact: [],
     agent_guest: [],
     customer_quote: [],
-    customer_booking: [],
     time_offer: [
       offerRow(),
       // Expired, another number's, and another workspace's: never shown.

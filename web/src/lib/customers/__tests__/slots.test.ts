@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
+import { customerBooking, type CustomerBookingSeed } from '@/test/booking-db'
 import { DEFAULT_BOOKING_RULES, findOpenSlots, isSlotFree, localDate, openSlots, slotLabel, slotWindow, zonedTime, type BookingRules } from '../slots'
 
 const NY = 'America/New_York'
@@ -73,7 +74,7 @@ describe('isSlotFree (the check at the owner’s yes)', () => {
   const business = { workspaceId: 'ws-rug', ownerUserId: 'user-owner' }
   const slot = { start: '2026-11-02T15:00:00.000Z', end: '2026-11-02T16:00:00.000Z' }
   const db = (bookings: Record<string, unknown>[] = []) =>
-    memoryDb({ business_profile: [{ workspace_id: 'ws-rug', owner_user_id: 'user-owner', business_name: 'Bright Loom', time_zone: NY, booking_days: [1, 2, 3, 4, 5], booking_start: '09:00', booking_end: '17:00', slot_minutes: 60, lead_hours: 24, horizon_days: 14, booking_kind: 'pickup', booking_slug: null }], customer_booking: bookings })
+    memoryDb({ business_profile: [{ workspace_id: 'ws-rug', owner_user_id: 'user-owner', business_name: 'Bright Loom', time_zone: NY, booking_days: [1, 2, 3, 4, 5], booking_start: '09:00', booking_end: '17:00', slot_minutes: 60, lead_hours: 24, horizon_days: 14, booking_kind: 'pickup', booking_slug: null }], meeting_booking: bookings.map((b) => customerBooking(b as unknown as CustomerBookingSeed)) })
 
   it("a booking's own hold doesn't count against it; another live one does", async () => {
     const own = { id: 'b-own', workspace_id: 'ws-rug', state: 'requested', starts_at: slot.start, ends_at: slot.end, created_at: new Date(FRI_9AM).toISOString() }
@@ -104,7 +105,7 @@ describe('the read window and a failed read', () => {
   })
 
   it('a calendar that can’t be read offers nothing: the error goes up', async () => {
-    const db = memoryDb({ business_profile: [], customer_booking: [], member: [] })
+    const db = memoryDb({ business_profile: [], meeting_booking: [], member: [] })
     const listEvents = vi.fn(async () => {
       throw new Error('A calendar account needs signing in again')
     })

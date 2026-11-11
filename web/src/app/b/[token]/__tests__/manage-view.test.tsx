@@ -15,6 +15,7 @@ import type { PageLoad, PublicBookingData } from '@/lib/time-offers/display'
 const TOKEN = 'ZyXwVuTsRqPoNmLkJiHgFeDc'
 const BOOKING: PublicBookingData = {
   state: 'confirmed',
+  awaiting_host: false,
   title: 'Intro call',
   start: '2030-11-19T15:00:00.000Z',
   end: '2030-11-19T15:30:00.000Z',

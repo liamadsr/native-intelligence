@@ -69,6 +69,7 @@ export function publicBooking(booking: MeetingBooking, now: number): PublicBooki
   const blocked = changeable(booking, now)
   return {
     state: booking.state,
+    awaiting_host: booking.state === 'requested',
     title: booking.title,
     start: booking.startsAt,
     end: booking.endsAt,

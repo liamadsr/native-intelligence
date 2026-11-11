@@ -16,9 +16,12 @@ import type { MeetingBooking, TimeOffer } from '@/lib/time-offers/types'
  *                           business's number): only as the replay of the
  *                           person's approval card showing exactly what goes
  *                           to whom (the outward gate; send_quote's model).
- *   list_time_offers        the person's open and recent offers and bookings.
+ *   list_time_offers        the person's open and recent offers, and the
+ *                           meetings booked from them or from the person's
+ *                           booking links (src/lib/booking-links/).
  *   withdraw_time_offer     take an open offer back: its held times go.
- *   cancel_offered_meeting  cancel a meeting booked from an offer: the
+ *   cancel_offered_meeting  cancel a meeting booked from an offer or a
+ *                           booking link (or a request still waiting): the
  *                           calendar event is deleted and the guest told by
  *                           the calendar. Never an unattended run's.
  *   accept_time_offer       the guest answered in words ("Tuesday works"):
@@ -72,6 +75,8 @@ function bookingForModel(booking: MeetingBooking, timeZone: string) {
     when: label(booking.startsAt, timeZone),
     ...(booking.conferenceUrl ? { video_link: booking.conferenceUrl } : {}),
     ...(booking.offerId ? { offer_id: booking.offerId } : {}),
+    ...(booking.linkId ? { from_booking_link: true } : {}),
+    ...(booking.state === 'requested' ? { waiting_on_you: true } : {}),
     ...(booking.state === 'failed' && booking.lastError ? { why_failed: booking.lastError.slice(0, 160) } : {}),
   }
 }
@@ -97,7 +102,7 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
 
     list_time_offers: tool({
       description:
-        "The person's time offers (open, waiting on their card, booked, expired, withdrawn) and the meetings booked from them, newest first: who, what, the times and their state. Use it to find an offer's id before withdraw_time_offer or accept_time_offer, or a booking's before cancel_offered_meeting.",
+        "The person's time offers (open, waiting on their card, booked, expired, withdrawn) and the meetings booked from them or from their booking links (a request still waiting on their yes is requested), newest first: who, what, the times and their state. Use it to find an offer's id before withdraw_time_offer or accept_time_offer, or a booking's before cancel_offered_meeting.",
       inputSchema: z.object({
         open_only: z.boolean().optional().describe('Only offers still waiting for a pick (default false: also the last 30 days)'),
         limit: z.number().int().min(1).max(30).optional().describe('At most this many of each (default 10)'),
@@ -117,7 +122,7 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
           return {
             success: true,
             offers: offers.map(offerForModel),
-            bookings: bookings.map((b) => bookingForModel(b, (b.offerId && zoneOf.get(b.offerId)) || fallbackZone)),
+            bookings: bookings.map((b) => bookingForModel(b, b.hostTimeZone || (b.offerId && zoneOf.get(b.offerId)) || fallbackZone)),
           }
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -139,7 +144,7 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
 
     cancel_offered_meeting: tool({
       description:
-        "Cancel a meeting an outside guest booked from one of the person's time offers, when the person says so: the calendar event is deleted and the calendar sends the guest its cancellation; the time is free again.",
+        "Cancel a meeting an outside guest booked from one of the person's time offers or booking links, when the person says so: the calendar event is deleted and the calendar sends the guest its cancellation; the time is free again.",
       inputSchema: z.object({ booking_id: z.string().uuid().describe('The booking (list_time_offers)') }),
       execute: async ({ booking_id }) => {
         if (ctx.unattended) return { success: false, code: 'NEEDS_PERSON', error: 'Only the person cancels a meeting with a guest (the guest is told). Leave it to them.' }

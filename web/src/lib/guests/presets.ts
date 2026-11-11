@@ -86,6 +86,11 @@ export const GUEST_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'withdraw_time_offer',
   'cancel_offered_meeting',
   'accept_time_offer',
+  // Booking links (availability phase 4a): the person's own public pages.
+  'list_booking_links',
+  'create_booking_link',
+  'update_booking_link',
+  'delete_booking_link',
 ])
 const NEVER_CATEGORIES: ReadonlySet<string> = new Set(['evals', 'content'])
 

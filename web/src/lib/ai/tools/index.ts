@@ -19,6 +19,7 @@ import { createProjectTools } from './projects'
 import { createCycleTools } from './cycles'
 import { createAvailabilityTools } from './availability'
 import { createTimeOfferTools } from './time-offers'
+import { createBookingLinkTools } from './booking-links'
 import { createCalendarTools } from './calendar'
 import { createEmailTools } from './email'
 import { createCommentTools } from './comments'
@@ -441,6 +442,9 @@ export function createTools(
     // Times offered to an outside person, held until they pick one (src/lib/time-offers/).
     // offer_times by email or text sends only as the person's approved call; cancel_offered_meeting is never an unattended run's.
     ...createTimeOfferTools(userId, workspaceId, { approvedCall: options?.approvedCall, unattended: options?.unattended === true, timeZone: options?.timeZone }),
+    // Booking links: standing public pages to book time with the person or their team (src/lib/booking-links/).
+    // Making and changing one is attended only (ATTENDED_ONLY_TOOL_NAMES): the ceiling keeps them out of unattended runs.
+    ...createBookingLinkTools(userId, workspaceId),
     ...createEmailTools(userId, workspaceId, strict, createPolicy, options?.automaticDrafts ?? false, {
       approvedCall: options?.approvedCall,
       ...(options?.flowContext?.turnReadOutside ? { turnReadOutside: options.flowContext.turnReadOutside } : {}),

@@ -178,8 +178,14 @@ export function bookingEventWords(b: { title: string; guestName: string; guestNo
 }
 
 /** The host's line when a guest picked a time. */
-export function bookedReport(b: { guestName: string; title: string; startsAt: string }, timeZone: string, invited: boolean): string {
-  return `${b.guestName} picked ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))} for ${b.title}. It's on your calendar${invited ? ' and they got the invitation' : ', but they have no email on file, so no invitation went: tell them yourself'}.`
+export function bookedReport(b: { guestName: string; title: string; startsAt: string }, timeZone: string, invited: boolean, texted = false): string {
+  const told = invited ? ' and they got the invitation' : texted ? ' and they got a confirmation text' : ', but they have no email on file, so no invitation went: tell them yourself'
+  return `${b.guestName} picked ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))} for ${b.title}. It's on your calendar${told}.`
+}
+
+/** The confirmation texted to a guest who gave only a mobile number: who, what, when, and their manage link. */
+export function bookedText(b: { hostName: string; title: string; startsAt: string }, timeZone: string, manageLink: string): string {
+  return `You're booked with ${b.hostName}: ${b.title}, ${slotLabel(b.startsAt, timeZone)} ${zoneLabel(timeZone, Date.parse(b.startsAt))}. To move or cancel it: ${manageLink}`
 }
 
 /** The host's line when a booking could not be put on their calendar. */

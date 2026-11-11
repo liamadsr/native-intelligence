@@ -378,7 +378,7 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       // holds every call as the owner's card showing exactly who gets what text; the tool runs only as that card's
       // replay. Neither moves money (send_payment_link stays the one money tool).
       { name: 'send_quote', sideEffect: 'external-write', label: 'Send Quote', description: "Send a customer their quote's price and the booking link to pick a time; always the owner's approval card first" },
-      // external-write: books the time the customer chose (a customer_booking, the owner's calendar, the customer's confirmation text).
+      // external-write: books the time the customer chose (a customer's booking, the owner's calendar, the customer's confirmation text).
       { name: 'book_quote', sideEffect: 'external-write', label: 'Book Quote', description: "Book the time a customer chose for their quote: the owner's calendar and a confirmation text; always the owner's approval card first" },
       // external-write: a payment link to a customer (roadmap C2): a Stripe Payment Link on the owner's own
       // connected account, texted from the business number / emailed from their mailbox. The agent's ONE money
@@ -418,6 +418,13 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
       { name: 'cancel_offered_meeting', sideEffect: 'external-write', label: 'Cancel Offered Meeting', description: 'Cancel a meeting a guest booked from a time offer; the calendar tells them' },
       // external-write: the provider event and its invitation; pre-approved by the offer itself (action-review.ts preApprovedCall).
       { name: 'accept_time_offer', sideEffect: 'external-write', label: 'Accept Time Offer', description: "Book one of an offer's own times for its own recipient, who answered in words" },
+      // Booking links (src/lib/booking-links): standing public pages to book time with the person or their team.
+      // internal-write: a link is the workspace's own and undoable (turned off, changed back); no card. Attended only (ATTENDED_ONLY_TOOL_NAMES).
+      { name: 'list_booking_links', sideEffect: 'read', label: 'List Booking Links', description: "The workspace's booking links, each with its address to share" },
+      { name: 'create_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Create Booking Link', description: 'Make a standing page anyone can book time with the person (or their team) from' },
+      { name: 'update_booking_link', sideEffect: 'internal-write', writeTarget: 'board', label: 'Update Booking Link', description: 'Change a booking link, or turn it off or on' },
+      // delete (every delete_ tool is): its page stops taking bookings; the row stays, and update_booking_link turns it back on.
+      { name: 'delete_booking_link', sideEffect: 'delete', label: 'Turn Off Booking Link', description: 'Turn a booking link off: its page stops taking bookings' },
       // external-write: provider write: the provider emails every attendee
       { name: 'create_calendar_event', sideEffect: 'external-write', label: 'Create Event', description: 'Create a new calendar event' },
       // external-write: provider write: attendees get update emails
@@ -1013,6 +1020,10 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'create_quote_form_link',
   // Availability: the person's working hours decide every time offered for them, so they change only at the person's word.
   'set_working_hours',
+  // Availability phase 4a: a booking link opens the person's (or a teammate's) calendar to anyone, so it changes only at the person's word.
+  'create_booking_link',
+  'update_booking_link',
+  'delete_booking_link',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */

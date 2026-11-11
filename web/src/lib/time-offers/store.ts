@@ -1,20 +1,22 @@
 /**
  * Rows of migration 554: time_offer, time_offer_slot, meeting_booking,
  * host_time_claim, time_offer_failure, and the pick's one transaction
- * (book_time_offer_slot). Every write is the service role's; every read here
+ * (book_time_offer_slot); and 581's general booking write (book_meeting:
+ * a booking and its hosts' claims at once), which booking links and
+ * customers' jobs book through. Every write is the service role's; every read here
  * is fenced by id, token hash, workspace or host. Throws on a failed read or
  * write, except where a function says what it answers.
  *
  * Server only.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { MeetingBooking, MeetingBookingState, OfferSlot, OfferState, SendBy, TimeOffer } from './types'
+import type { BookingAnswer, MeetingBooking, MeetingBookingSource, MeetingBookingState, OfferSlot, OfferState, SendBy, TimeOffer } from './types'
 
 const OFFER_COLUMNS =
   'id, workspace_id, host_user_id, created_by, host_name, recipient_name, recipient_email, recipient_phone, contact_id, title, duration_minutes, video, location, message, time_zone, state, sent_via, card_hash, approval_id, booking_id, expires_at, created_at'
 const SLOT_COLUMNS = 'id, offer_id, starts_at, ends_at, state'
 export const BOOKING_COLUMNS =
-  'id, workspace_id, host_user_id, host_name, source, offer_id, guest_name, guest_email, guest_phone, guest_time_zone, guest_note, contact_id, title, starts_at, ends_at, state, video, location, calendar_account_id, calendar_id, calendar_event_id, conference_url, attempts, reschedule_count, last_error, cancelled_by, created_at, updated_at'
+  'id, workspace_id, host_user_id, host_name, source, offer_id, link_id, guest_name, guest_email, guest_phone, guest_time_zone, guest_note, contact_id, title, starts_at, ends_at, state, video, location, calendar_account_id, calendar_id, calendar_event_id, conference_url, attempts, reschedule_count, last_error, cancelled_by, answers, other_host_ids, host_time_zone, created_at, updated_at'
 
 interface OfferRow {
   id: string
@@ -56,6 +58,7 @@ export interface BookingRow {
   host_name: string
   source: MeetingBooking['source']
   offer_id: string | null
+  link_id?: string | null
   guest_name: string
   guest_email: string | null
   guest_phone: string | null
@@ -76,6 +79,9 @@ export interface BookingRow {
   reschedule_count: number
   last_error: string | null
   cancelled_by: 'guest' | 'host' | null
+  answers?: unknown
+  other_host_ids?: string[] | null
+  host_time_zone?: string | null
   created_at: string
   updated_at: string
 }
@@ -122,6 +128,7 @@ export function toBooking(row: BookingRow): MeetingBooking {
     hostName: row.host_name,
     source: row.source,
     offerId: row.offer_id,
+    linkId: row.link_id ?? null,
     guestName: row.guest_name,
     guestEmail: row.guest_email,
     guestPhone: row.guest_phone,
@@ -142,9 +149,25 @@ export function toBooking(row: BookingRow): MeetingBooking {
     rescheduleCount: row.reschedule_count ?? 0,
     lastError: row.last_error,
     cancelledBy: row.cancelled_by ?? null,
+    answers: readAnswers(row.answers),
+    otherHostIds: Array.isArray(row.other_host_ids) ? row.other_host_ids.filter((id) => typeof id === 'string') : [],
+    hostTimeZone: row.host_time_zone ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+/** Stored answers, the unreadable ones dropped. Pure. */
+export function readAnswers(value: unknown): BookingAnswer[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((a): a is BookingAnswer => !!a && typeof a === 'object' && typeof (a as BookingAnswer).id === 'string' && typeof (a as BookingAnswer).label === 'string' && typeof (a as BookingAnswer).answer === 'string')
+    .map((a) => ({ id: a.id, label: a.label, answer: a.answer }))
+}
+
+/** Everyone a booking claims time of: its organizer first, then the other attending hosts. Pure. */
+export function bookingHosts(booking: Pick<MeetingBooking, 'hostUserId' | 'otherHostIds'>): string[] {
+  return [booking.hostUserId, ...booking.otherHostIds.filter((id) => id !== booking.hostUserId)]
 }
 
 /** A unique key or the exclusion constraint said no (23505 / 23P01). */
@@ -394,34 +417,64 @@ export async function deleteHolds(supabase: SupabaseClient, offerId: string, slo
   if (error) throw new Error(`host_time_claim delete failed: ${error.message}`)
 }
 
-/** A booking's claim on a time (a move's new one beside the old). */
+/**
+ * A booking's claims on a time, one per attending host, in one insert (a
+ * move's new ones beside the old). Their ids, or `conflict` when another
+ * claim of one host's overlaps: none was written.
+ */
 export async function insertBookingClaim(
   supabase: SupabaseClient,
-  booking: Pick<MeetingBooking, 'id' | 'workspaceId' | 'hostUserId'>,
+  booking: Pick<MeetingBooking, 'id' | 'workspaceId' | 'hostUserId'> & Partial<Pick<MeetingBooking, 'otherHostIds'>>,
   span: { startsAt: string; endsAt: string },
-): Promise<{ ok: true; id: string } | { ok: false; conflict: boolean; error: string }> {
-  await deleteExpiredHolds(supabase, booking.hostUserId, new Date().toISOString())
+): Promise<{ ok: true; ids: string[] } | { ok: false; conflict: boolean; error: string }> {
+  const hosts = bookingHosts({ hostUserId: booking.hostUserId, otherHostIds: booking.otherHostIds ?? [] })
+  for (const host of hosts) await deleteExpiredHolds(supabase, host, new Date().toISOString())
   const { data, error } = await supabase
     .from('host_time_claim')
-    .insert({ workspace_id: booking.workspaceId, host_user_id: booking.hostUserId, starts_at: span.startsAt, ends_at: span.endsAt, kind: 'booking', claim_key: booking.id, booking_id: booking.id })
+    .insert(hosts.map((host) => ({ workspace_id: booking.workspaceId, host_user_id: host, starts_at: span.startsAt, ends_at: span.endsAt, kind: 'booking', claim_key: booking.id, booking_id: booking.id })))
     .select('id')
-    .single<{ id: string }>()
-  if (error || !data) return { ok: false, conflict: isConflict(error), error: error?.message ?? 'no row' }
-  return { ok: true, id: data.id }
+  const ids = ((data as Array<{ id: string }> | null) ?? []).map((r) => r.id)
+  if (error || ids.length !== hosts.length) return { ok: false, conflict: isConflict(error), error: error?.message ?? 'no row' }
+  return { ok: true, ids }
 }
 
-/** Let go of a booking's claims, all of them, or all but one (a move's old one). */
-export async function deleteBookingClaims(supabase: SupabaseClient, bookingId: string, keepClaimId?: string): Promise<void> {
+/** Let go of a booking's claims, all of them, or all but some (a move's new ones). */
+export async function deleteBookingClaims(supabase: SupabaseClient, bookingId: string, keepClaimIds?: readonly string[]): Promise<void> {
   let query = supabase.from('host_time_claim').delete().eq('booking_id', bookingId)
-  if (keepClaimId) query = query.neq('id', keepClaimId)
+  for (const id of keepClaimIds ?? []) query = query.neq('id', id)
   const { error } = await query
   if (error) throw new Error(`host_time_claim delete failed: ${error.message}`)
 }
 
-/** Delete one claim by id. */
-export async function deleteClaim(supabase: SupabaseClient, claimId: string): Promise<void> {
-  const { error } = await supabase.from('host_time_claim').delete().eq('id', claimId)
+/** Delete claims by id. */
+export async function deleteClaims(supabase: SupabaseClient, claimIds: readonly string[]): Promise<void> {
+  if (!claimIds.length) return
+  const { error } = await supabase.from('host_time_claim').delete().in('id', [...claimIds])
   if (error) throw new Error(`host_time_claim delete failed: ${error.message}`)
+}
+
+/**
+ * A requested booking the host said yes to keeps its time for good: its
+ * claims lose their expiry. Claims that already lapsed (and were cleared)
+ * are taken again: `conflict` when someone's claim has the time now.
+ */
+export async function keepBookingClaims(
+  supabase: SupabaseClient,
+  booking: Pick<MeetingBooking, 'id' | 'workspaceId' | 'hostUserId' | 'otherHostIds' | 'startsAt' | 'endsAt'>,
+): Promise<{ ok: true } | { ok: false; conflict: boolean; error: string }> {
+  const { data, error } = await supabase.from('host_time_claim').update({ expires_at: null }).eq('booking_id', booking.id).select('id')
+  if (error) return { ok: false, conflict: false, error: error.message }
+  if (((data as unknown[] | null) ?? []).length >= bookingHosts(booking).length) return { ok: true }
+  await deleteBookingClaims(supabase, booking.id)
+  const claimed = await insertBookingClaim(supabase, booking, { startsAt: booking.startsAt, endsAt: booking.endsAt })
+  return claimed.ok ? { ok: true } : claimed
+}
+
+/** Bookings whose claim's hold ran out (a request the host never answered): the sweep's to expire. */
+export async function lapsedRequestClaims(supabase: SupabaseClient, nowIso: string, limit = 100): Promise<string[]> {
+  const { data, error } = await supabase.from('host_time_claim').select('booking_id').eq('kind', 'booking').lte('expires_at', nowIso).limit(limit)
+  if (error) throw new Error(`host_time_claim read failed: ${error.message}`)
+  return [...new Set(((data as Array<{ booking_id: string | null }> | null) ?? []).map((r) => r.booking_id).filter((id): id is string => !!id))]
 }
 
 /** Claims of bookings that ended over a day ago: nothing reads them any more. */
@@ -477,6 +530,81 @@ export async function bookSlot(
   }
 }
 
+export type BookMeetingOutcome = { status: 'booked'; bookingId: string } | { status: 'taken' } | { status: 'exists'; bookingId: string } | { status: 'invalid' }
+
+/** A new booking as book_meeting writes it (migration 581): the row's own columns. */
+export interface NewMeetingBooking {
+  id: string
+  workspace_id: string
+  host_user_id: string
+  host_name: string
+  source: MeetingBookingSource
+  link_id?: string | null
+  channel?: string | null
+  guest_name: string
+  guest_email?: string | null
+  guest_phone?: string | null
+  guest_time_zone?: string | null
+  guest_note?: string | null
+  contact_id?: string | null
+  quote_id?: string | null
+  guest_id?: string | null
+  kind?: string | null
+  address?: string | null
+  answers?: BookingAnswer[]
+  title: string
+  starts_at: string
+  ends_at: string
+  state: Extract<MeetingBookingState, 'requested' | 'booking'>
+  video?: boolean
+  location?: string | null
+  calendar_account_id?: string | null
+  manage_token_hash: string
+  other_host_ids?: string[]
+  host_time_zone?: string | null
+}
+
+/**
+ * The general booking write (migration 581 book_meeting): the hosts' lapsed
+ * claims cleared, then the booking and a claim for each host (organizer
+ * first) in one transaction. `taken` when one host's time is claimed:
+ * nothing was written. A request's claims hold until `claimExpiresAt`.
+ * Throws on a failed call.
+ */
+export async function bookMeeting(supabase: SupabaseClient, booking: NewMeetingBooking, claimExpiresAt: string | null = null): Promise<BookMeetingOutcome> {
+  const hosts = bookingHosts({ hostUserId: booking.host_user_id, otherHostIds: booking.other_host_ids ?? [] })
+  const { data, error } = await supabase.rpc('book_meeting', { p_booking: booking, p_hosts: hosts, p_claim_expires_at: claimExpiresAt })
+  if (error) throw new Error(`book_meeting failed: ${error.message}`)
+  const out = (data ?? {}) as { status?: string }
+  if (out.status === 'booked') return { status: 'booked', bookingId: booking.id }
+  if (out.status === 'taken') return { status: 'taken' }
+  if (out.status === 'exists') return { status: 'exists', bookingId: booking.id }
+  return { status: 'invalid' }
+}
+
+export type MoveMeetingOutcome = 'moved' | 'changed' | 'taken'
+
+/**
+ * Move a confirmed booking and every claim of its together (migration 581
+ * move_meeting_booking), fenced on its start still being `fromStart`.
+ * Throws on a failed call.
+ */
+export async function moveMeetingBooking(
+  supabase: SupabaseClient,
+  args: { bookingId: string; fromStart: string; startsAt: string; endsAt: string; customerConfirmedAt: string | null },
+): Promise<MoveMeetingOutcome> {
+  const { data, error } = await supabase.rpc('move_meeting_booking', {
+    p_booking_id: args.bookingId,
+    p_from_start: args.fromStart,
+    p_starts_at: args.startsAt,
+    p_ends_at: args.endsAt,
+    p_customer_confirmed_at: args.customerConfirmedAt,
+  })
+  if (error) throw new Error(`move_meeting_booking failed: ${error.message}`)
+  const status = (data as { status?: string } | null)?.status
+  return status === 'moved' || status === 'taken' ? status : 'changed'
+}
+
 // ── Bookings ────────────────────────────────────────────────────────────────
 
 export async function getBooking(supabase: SupabaseClient, bookingId: string, workspaceId?: string): Promise<MeetingBooking | null> {
@@ -494,9 +622,12 @@ export async function getBookingByManageHash(supabase: SupabaseClient, hash: str
   return data ? toBooking(data) : null
 }
 
-/** A workspace's offer bookings, newest first; a host's own when one is named. */
-export async function listBookings(supabase: SupabaseClient, args: { workspaceId: string; hostUserId?: string; sinceIso?: string; limit?: number }): Promise<MeetingBooking[]> {
-  let query = supabase.from('meeting_booking').select(BOOKING_COLUMNS).eq('workspace_id', args.workspaceId)
+/** A workspace's bookings from offers and booking links (customers' jobs have their own list), newest first; a host's own when one is named. */
+export async function listBookings(
+  supabase: SupabaseClient,
+  args: { workspaceId: string; hostUserId?: string; sinceIso?: string; limit?: number; sources?: readonly MeetingBookingSource[] },
+): Promise<MeetingBooking[]> {
+  let query = supabase.from('meeting_booking').select(BOOKING_COLUMNS).eq('workspace_id', args.workspaceId).in('source', [...(args.sources ?? ['offer', 'link'])])
   if (args.hostUserId) query = query.eq('host_user_id', args.hostUserId)
   if (args.sinceIso) query = query.gte('created_at', args.sinceIso)
   const { data, error } = await query.order('created_at', { ascending: false }).limit(args.limit ?? 20)
@@ -506,7 +637,7 @@ export async function listBookings(supabase: SupabaseClient, args: { workspaceId
 
 export type BookingPatch = Partial<
   Pick<BookingRow, 'calendar_id' | 'calendar_event_id' | 'conference_url' | 'attempts' | 'reschedule_count' | 'last_error' | 'cancelled_by' | 'starts_at' | 'ends_at' | 'calendar_account_id' | 'contact_id'>
-> & { confirmed_at?: string; cancelled_at?: string }
+> & { confirmed_at?: string; cancelled_at?: string; decided_at?: string; approval_id?: string | null }
 
 /**
  * Change a booking only while it is in one of `from` (and, with `rescheduleCount`,

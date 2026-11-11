@@ -245,7 +245,8 @@ const CHAT_ONLY_NAMED: Record<string, readonly string[]> = {
   'linkedin-post': ['review_post'],
   'marketing-playbook': ['create_flow'],
   // 551: changing the working hours is the person's step, on what they said in the chat.
-  'calendar-playbook': ['set_working_hours'],
+  // The working hours (551), and making a booking link (582): the person's own steps, in their chat.
+  'calendar-playbook': ['create_booking_link', 'set_working_hours'],
   'find-a-time': ['set_working_hours'],
 }
 

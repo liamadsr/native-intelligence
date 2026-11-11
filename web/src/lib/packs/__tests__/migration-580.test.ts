@@ -17,6 +17,8 @@ import { estimateTokens } from '../memory'
 import { allShippedSkills, PREFERRED_TOOLS_REWRITE_MIGRATIONS, PROMPT_REWRITE_MIGRATIONS, promptRewrites, preferredToolsRewrites, readMigration, rewrittenAfter } from './playbook-seeds'
 
 const FILE = '580_offer_times_to_outside_guests.sql'
+/** The calendar playbook's rewrite after this one: its booking links line (availability phase 4a). */
+const LATER = '582_booking_links_in_calendar_playbook.sql'
 const BEFORE = '553_find_a_time_with_teammates.sql'
 const sql = readMigration(FILE)
 const rows = promptRewrites(FILE)
@@ -52,25 +54,27 @@ const BODY = sql
   .replace(/\s+/g, ' ')
 
 describe('migration 580', () => {
-  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 553 and registered last', () => {
+  it('rewrites only the calendar playbook and find-a-time, by id and slug, after 553, with only 582 after it', () => {
     expect(rows.map((r) => [r.id, r.slug])).toEqual([
       [CALENDAR, 'calendar-playbook'],
       [FIND_A_TIME, 'find-a-time'],
     ])
-    expect(PROMPT_REWRITE_MIGRATIONS.at(-1)).toBe(FILE)
+    expect(PROMPT_REWRITE_MIGRATIONS.slice(PROMPT_REWRITE_MIGRATIONS.indexOf(FILE) + 1)).toEqual([LATER])
     expect(PREFERRED_TOOLS_REWRITE_MIGRATIONS.at(-1)).toBe(FILE)
     for (const id of [CALENDAR, FIND_A_TIME]) {
-      expect(rewrittenAfter(BEFORE, id, rows.find((r) => r.id === id)!.slug), id).toBe(FILE)
+      // The last rewrite after 553: this one, or 582 for the calendar playbook.
+      expect(rewrittenAfter(BEFORE, id, rows.find((r) => r.id === id)!.slug), id).toBe(id === CALENDAR ? LATER : FILE)
       expect(PREVIOUS[id], id).toBeTruthy()
     }
   })
 
-  it('is the text and the preferred tools that ship', () => {
-    for (const id of [CALENDAR, FIND_A_TIME]) {
-      const shipped = allShippedSkills().find((s) => s.id === id)!
-      expect(shipped.file, id).toBe(FILE)
-      expect(shipped.prompt, id).toBe(text(id))
-    }
+  it("is the text and the preferred tools that ship (the calendar playbook's with 582's line added)", () => {
+    const fat = allShippedSkills().find((s) => s.id === FIND_A_TIME)!
+    expect(fat.file).toBe(FILE)
+    expect(fat.prompt).toBe(text(FIND_A_TIME))
+    const cal = allShippedSkills().find((s) => s.id === CALENDAR)!
+    expect(cal.file).toBe(LATER)
+    expect(rewrittenAfter(FILE, CALENDAR, 'calendar-playbook')).toBe(LATER)
     const tools = preferredToolsRewrites(FILE)
     expect(tools.map((t) => [t.id, t.slug])).toEqual([[FIND_A_TIME, 'find-a-time']])
     expect(allShippedSkills().find((s) => s.id === FIND_A_TIME)!.config.preferred_tools).toEqual(tools[0].preferredTools)

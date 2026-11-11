@@ -141,6 +141,7 @@ describe('the manage link', () => {
     expect(res.status).toBe(200)
     expect((await res.json()).booking).toEqual({
       state: 'confirmed',
+      awaiting_host: false,
       title: 'Intro call',
       start: SLOTS[0],
       end: new Date(Date.parse(SLOTS[0]) + 30 * 60_000).toISOString(),

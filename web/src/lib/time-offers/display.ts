@@ -34,7 +34,10 @@ export interface PublicOfferData {
 
 /** GET /api/public/bookings/<token>'s `booking`. */
 export interface PublicBookingData {
-  state: 'booking' | 'confirmed' | 'cancelled' | 'failed'
+  /** requested: a booking link's request still waiting on the host's yes; declined and expired: the host said no, or never answered. */
+  state: 'requested' | 'booking' | 'confirmed' | 'declined' | 'expired' | 'cancelled' | 'failed'
+  /** The host still has to say yes (state requested). */
+  awaiting_host: boolean
   title: string
   start: string
   end: string
@@ -181,11 +184,11 @@ export function manageFailureView(status: number, body: ApiError | null): Manage
 export type BookingPhase = 'upcoming' | 'pending' | 'live' | 'past' | 'cancelled' | 'failed'
 
 export function bookingPhase(b: Pick<PublicBookingData, 'state' | 'start' | 'end'>, now: number): BookingPhase {
-  if (b.state === 'cancelled') return 'cancelled'
+  if (b.state === 'cancelled' || b.state === 'declined' || b.state === 'expired') return 'cancelled'
   if (b.state === 'failed') return 'failed'
   if (Date.parse(b.end) <= now) return 'past'
   if (Date.parse(b.start) <= now) return 'live'
-  return b.state === 'booking' ? 'pending' : 'upcoming'
+  return b.state === 'booking' || b.state === 'requested' ? 'pending' : 'upcoming'
 }
 
 /** "You can move it 2 more times": said once a move has been used, and never at 0 (no button then). */

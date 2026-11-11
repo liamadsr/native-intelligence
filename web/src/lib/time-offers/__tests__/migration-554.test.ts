@@ -12,9 +12,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MEETING_BOOKING_STATES, OFFER_STATES, SEND_BY, SLOT_STATES } from '../types'
+import { OFFER_STATES, SEND_BY, SLOT_STATES } from '../types'
 
 const SQL = readFileSync(join(process.cwd(), 'supabase/migrations/554_time_offers.sql'), 'utf8')
+// 581 widens meeting_booking for booking links and customers' jobs (its own test pins it).
+const SQL_581 = readFileSync(join(process.cwd(), 'supabase/migrations/581_booking_links.sql'), 'utf8')
 const BODY = SQL.split('\n')
   .filter((l) => !l.trim().startsWith('--'))
   .join('\n')
@@ -55,7 +57,8 @@ describe('migration 554', () => {
   it("checks exactly the states, sources and ways of sending the app writes", () => {
     expect(BODY).toContain(`check (state in (${OFFER_STATES.map((s) => `'${s}'`).join(', ')}))`)
     expect(BODY).toContain(`check (state in (${SLOT_STATES.map((s) => `'${s}'`).join(', ')}))`)
-    expect(BODY).toContain(`check (state in (${MEETING_BOOKING_STATES.map((s) => `'${s}'`).join(', ')}))`)
+    // 554's own four; 581 adds requested, declined and expired (migration-581.test.ts).
+    expect(BODY).toContain("meeting_booking_state_check check (state in ('booking', 'confirmed', 'cancelled', 'failed'))")
     expect(BODY).toContain(`check (sent_via is null or sent_via in (${SEND_BY.map((s) => `'${s}'`).join(', ')}))`)
     expect(BODY).toContain("check (source in ('offer', 'link', 'customer', 'poll'))")
     expect(BODY).toContain('check (attempts >= 0 and reschedule_count between 0 and 3)')
@@ -98,7 +101,11 @@ describe('migration 554', () => {
     const offerTable = BODY.slice(BODY.indexOf('create table if not exists public.time_offer ('), BODY.indexOf('comment on table public.time_offer is'))
     const bookingTable = BODY.slice(BODY.indexOf('create table if not exists public.meeting_booking ('), BODY.indexOf('comment on table public.meeting_booking is'))
     for (const c of columns(offer)) expect(offerTable, c).toMatch(new RegExp(`[( ,]${c} `))
-    for (const c of columns(booking)) expect(bookingTable, c).toMatch(new RegExp(`[( ,]${c} `))
+    const added = [...SQL_581.matchAll(/alter table public\.meeting_booking add column if not exists (\w+) /g)].map((m) => m[1])
+    for (const c of columns(booking)) {
+      if (added.includes(c)) continue
+      expect(bookingTable, c).toMatch(new RegExp(`[( ,]${c} `))
+    }
   })
 
   it('RLS on every table: members of the workspace read, only the service role writes', () => {

@@ -101,6 +101,10 @@ const STEP_PHRASES: Record<string, string> = {
   withdraw_time_offer: 'Withdrawing a time offer',
   cancel_offered_meeting: 'Cancelling a meeting',
   accept_time_offer: 'Booking an offered time',
+  list_booking_links: 'Checking booking links',
+  create_booking_link: 'Making a booking link',
+  update_booking_link: 'Changing a booking link',
+  delete_booking_link: 'Turning off a booking link',
   // Judgement and research
   web_search: 'Researching on the web',
   search_tools: 'Choosing tools',

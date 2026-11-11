@@ -15,7 +15,8 @@
  *                 is booked. A time no longer free fails the pick, with the
  *                 times still open.
  *   finishBooking the provider event IS the confirmation: written on the
- *                 host's calendar with the guest as an attendee, the
+ *                 host's calendar with the guest as an attendee (and, for
+ *                 a booking link every host attends, the other hosts), the
  *                 provider sending them the invitation, a video link when
  *                 asked, and an idempotency key from the booking's id (a
  *                 retry never makes a second event). The description holds
@@ -23,7 +24,10 @@
  *                 Intelligence". Success: 'confirmed', with the event. A
  *                 failure leaves it in 'booking' for the sweep (./sweep.ts),
  *                 which fails it after BOOKING_ATTEMPTS_MAX tries: its time
- *                 let go, and the host told.
+ *                 let go, and the host told. A booking link's guest who
+ *                 gave only a mobile number (booked on the host's yes:
+ *                 src/lib/booking-links/book.ts) is texted the confirmation
+ *                 from the business's number instead.
  *
  * The host hears of each pick in their home thread (a line, kept there), and
  * of a failure where they are (routed).
@@ -35,16 +39,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createCalendarEvent, deleteCalendarEvent } from '@/lib/integrations/calendar'
 import { checkSpansFree } from '@/lib/availability/slot-check'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
+import { textBookingCustomer } from '@/lib/customers/booking'
 import { findContactByEmailOrPhone } from '@/lib/customers/contacts'
 import { reportToOwner } from '@/lib/customers/reminders'
+import { listMemberEmails } from '@/lib/workspace-member-emails'
 import { appOrigin } from '@/lib/twilio/config'
 import { normalizeE164 } from '@/lib/twilio/phone'
 import { bookingCalendarAccount } from './host-calendar'
 import { cleanEmail, oneLine } from './offers'
+import { hostZone } from './manage'
 import { bookSlot, deleteBookingClaims, deleteHolds, getBooking, getOffer, getOfferByTokenHash, recordFailedPick, releaseSlots, updateBooking } from './store'
 import { manageTokenFor, manageTokenHash, manageUrl, offerTokenHash } from './tokens'
 import { BOOKING_ATTEMPTS_MAX, GUEST_NOTE_MAX, RECIPIENT_NAME_MAX, openSlotsOf, type MeetingBooking, type OfferSlot, type TimeOffer } from './types'
-import { bookedReport, bookingEventWords, failedReport } from './words'
+import { bookedReport, bookedText, bookingEventWords, failedReport } from './words'
 
 export type PickVia = 'link' | 'host' | 'customer'
 
@@ -87,6 +94,16 @@ export interface AcceptDeps {
   /** The host's home-thread line (default: reportToOwner, routed when `routes`). */
   tellHost?: (args: { workspaceId: string; userId: string; messageId: string; text: string; routes: boolean }) => Promise<boolean>
   newId?: () => string
+  /** The other attending hosts' sign-in emails, for the event's attendees (default: the workspace's member emails). */
+  hostEmails?: (workspaceId: string, userIds: readonly string[]) => Promise<string[]>
+  /** Text a mobile-only guest their confirmation (default: from the business's number, ../customers/booking.ts). */
+  textGuest?: (booking: MeetingBooking, body: string) => Promise<boolean>
+}
+
+async function hostEmailsDefault(workspaceId: string, userIds: readonly string[]): Promise<string[]> {
+  if (!userIds.length) return []
+  const members = await listMemberEmails(workspaceId)
+  return userIds.map((id) => members.find((m) => m.userId === id)?.email).filter((e): e is string => !!e)
 }
 
 const fail = (code: AcceptFailure['code'], message: string, openSlots?: OfferSlot[]): AcceptFailure => ({ ok: false, code, message, ...(openSlots ? { openSlots } : {}) })
@@ -232,11 +249,13 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
   if (!attempt) return getBooking(supabase, bookingId).catch(() => null)
 
   const origin = deps.origin ?? appOrigin()
-  const words = bookingEventWords(attempt, manageUrl(origin, manageTokenFor(attempt.id, deps.secret)))
+  const link = manageUrl(origin, manageTokenFor(attempt.id, deps.secret))
+  const words = bookingEventWords(attempt, link)
   const tell = deps.tellHost ?? tellHostDefault(supabase)
-  const offer = attempt.offerId ? await getOffer(supabase, attempt.offerId).catch(() => null) : null
-  const zone = offer?.timeZone ?? 'UTC'
+  const zone = await hostZone(supabase, attempt)
   try {
+    const otherHosts = attempt.otherHostIds.length ? await (deps.hostEmails ?? hostEmailsDefault)(attempt.workspaceId, attempt.otherHostIds) : []
+    const attendees = [...(attempt.guestEmail ? [attempt.guestEmail] : []), ...otherHosts]
     const event = await (deps.createEvent ?? createCalendarEvent)(
       attempt.hostUserId,
       {
@@ -245,7 +264,7 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
         start: attempt.startsAt,
         end: attempt.endsAt,
         ...(attempt.location ? { location: attempt.location } : {}),
-        ...(attempt.guestEmail ? { attendees: [attempt.guestEmail] } : {}),
+        ...(attendees.length ? { attendees } : {}),
       },
       attempt.calendarAccountId ?? undefined,
       { sendInvites: true, video: attempt.video, idempotencyKey: attempt.id },
@@ -264,7 +283,12 @@ export async function finishBooking(supabase: SupabaseClient, bookingId: string,
       await (deps.deleteEvent ?? deleteCalendarEvent)(attempt.hostUserId, event.id, { accountId: attempt.calendarAccountId ?? undefined, notifyAttendees: true }).catch(() => {})
       return getBooking(supabase, bookingId).catch(() => null)
     }
-    await tell({ workspaceId: confirmed.workspaceId, userId: confirmed.hostUserId, messageId: `meeting-booking:${confirmed.id}:booked`, text: bookedReport(confirmed, zone, !!confirmed.guestEmail), routes: false }).catch(() => false)
+    // A mobile-only guest (a link's, booked on the host's yes) hears by text.
+    const texted =
+      !confirmed.guestEmail && confirmed.guestPhone && confirmed.source === 'link'
+        ? await (deps.textGuest ?? ((b, body) => textBookingCustomer(supabase, { workspaceId: b.workspaceId, customerPhone: b.guestPhone, guestId: null }, body)))(confirmed, bookedText(confirmed, zone, link)).catch(() => false)
+        : false
+    await tell({ workspaceId: confirmed.workspaceId, userId: confirmed.hostUserId, messageId: `meeting-booking:${confirmed.id}:booked`, text: bookedReport(confirmed, zone, !!confirmed.guestEmail, texted), routes: false }).catch(() => false)
     return confirmed
   } catch (err) {
     const reason = (err instanceof Error ? err.message : String(err)).slice(0, 300)
