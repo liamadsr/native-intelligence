@@ -186,10 +186,13 @@ end-to-end tests, and how the hosted project's deploy pipeline is planned.
   - `/api/inngest`, for the Inngest server in production.
 - **Stripe billing's webhook isn't in this app.** It's a Supabase Edge Function
   (`supabase/functions/stripe-webhook/`). Deploy it with the Supabase CLI and set its
-  secrets there.
+  secrets there. (The hosted service's runs from this folder on its own server:
+  [`deploy/README.md`](../deploy/README.md) step 14.)
 - **Crons.** `vercel.json` lists the cron jobs. Each one is a route under
   `src/app/api/cron/` that needs `Authorization: Bearer $CRON_SECRET`. Off Vercel,
-  nothing calls them unless you schedule them yourself.
+  nothing calls them unless you schedule them yourself. The hosted service's server
+  does that with a crontab generated from this list
+  ([`deploy/app/README.md`](../deploy/app/README.md#cron)).
 
 ## Settings you set in your environment
 

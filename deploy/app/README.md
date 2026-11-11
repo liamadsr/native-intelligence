@@ -46,6 +46,13 @@ own network got `401` from `sb.nativeintelligence.dev/auth/v1/health`).
 | Restart one part | `sudo docker compose restart agent-chat-agent` |
 | Call one scheduled job now | `sudo docker compose exec cron node /app/deploy/app/cron/call.mjs /api/cron/<name>` |
 
+Run git as the checkout's owner, never as root. When `git pull` says "Permission
+denied", files in the checkout are owned by root (something was copied in or run as
+root): find them with `sudo find . ! -user <owner>` from `/opt/native-intelligence` and
+give them back. A script that opens several ssh connections in a row can fail with
+exit code 255: the firewall allows about six new ones in 30 seconds, so wait a minute.
+More of these under "Day to day" in [`../README.md`](../README.md#day-to-day).
+
 Logs are Docker's own, capped at 5 files of 20 MB per container (step 6 of
 `../README.md`); nothing ships them anywhere else. Errors also go to Sentry when
 `NEXT_PUBLIC_SENTRY_DSN` was set when the image was built.
@@ -96,6 +103,10 @@ answer leaves that one as it is), from the password manager or from the provider
 that issued them. `check-settings.sh` then says, without showing a value, which are
 set and, where the server can tell, which are right (`../README.md` step 21, Gate 1).
 
+These tools only change values of lines that already exist in `.env`; none adds a
+line. A new setting's line is copied from `.env.example` by hand (`sudo nano .env`),
+then filled in.
+
 Some values must be exactly what the earlier host has, because what they sign or
 encrypt is already stored or held elsewhere:
 
@@ -142,7 +153,8 @@ These exist only here: the earlier host has no such settings, because there the
 app's own deployment token did their work (`web/src/lib/slack/config.ts`).
 
 - `CONNECT_ACCESS_TOKEN`: an access token of that account, scoped to the team the
-  Slack connector is in. The connector refuses it as the credential for a Slack
+  Slack connector is in. One narrowed to the project is refused, here and by the
+  sandbox service (`SANDBOX_ACCESS_TOKEN` is scoped to the team too). The connector refuses it as the credential for a Slack
   login (measured from this server), so the app only makes a short-lived project
   token with it (`web/src/lib/slack/connect-auth.ts`) and sends that to the
   connector. The project token is for the project's development environment, so
