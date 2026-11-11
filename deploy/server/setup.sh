@@ -59,6 +59,12 @@ say() { printf '\n== %s\n' "$*"; }
 
 [ "$(id -u)" = 0 ] || die "run it with sudo."
 case "$role" in app | sandbox) ;; *) die "--role is app or sandbox, not '$role'." ;; esac
+# Every sandbox is a small virtual machine, so a sandbox server must be able to
+# run them: a physical machine, or one that passes virtualization through.
+# Refused here, before anything on the machine is changed.
+if [ "$role" = sandbox ] && [ ! -c /dev/kvm ]; then
+	die "this server has no /dev/kvm: it cannot run virtual machines, so it cannot be the sandbox server."
+fi
 [ -n "$login_user" ] || die "--login-user is required: the user you log in as."
 id "$login_user" >/dev/null 2>&1 || die "there is no user called $login_user."
 # Step 1 turns root logins off. Doing that while logged in as root locks the
@@ -195,10 +201,9 @@ EOF
 	sysctl vm.overcommit_memory
 else
 	say "Virtual machines"
-	# Every sandbox is a small virtual machine, so the server must be able to run
-	# them: a physical machine, or one that passes virtualization through.
-	[ -c /dev/kvm ] || die "this server has no /dev/kvm: it cannot run virtual machines, so it cannot be the sandbox server."
-	echo "/dev/kvm is there ($(grep -c -E '^flags[[:space:]]*:.*[[:space:]](vmx|svm)([[:space:]]|$)' /proc/cpuinfo) processor threads with hardware virtualization)"
+	# grep leaves with an error when it counts none (a processor that lists no
+	# such flag): that is an answer here, not a failure.
+	echo "/dev/kvm is there ($(grep -c -E '^flags[[:space:]]*:.*[[:space:]](vmx|svm)([[:space:]]|$)' /proc/cpuinfo || true) processor threads with hardware virtualization)"
 fi
 
 say "The files"

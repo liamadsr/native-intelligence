@@ -10,7 +10,8 @@
 #
 # --pool-gib  how much memory sandboxes may use between them, in GiB. The
 #             runtime reserves it when it starts and nothing else on the
-#             machine can use it then. Default: half the machine's memory.
+#             machine can use it then. Default: what was set before, and half
+#             the machine's memory the first time.
 # --upgrade   replace an installed runtime by the one pinned below. This ends
 #             every running sandbox.
 #
@@ -19,7 +20,8 @@
 #   2. the firewall rule that lets sandboxes reach the runtime's way out;
 #   3. the runtime's two files, at the commit pinned here, checksums verified;
 #   4. a unit that starts the runtime after every boot;
-#   5. the client and the key the checks use (check.sh).
+#   5. the client (requirements.txt, every file pinned by its hash) and the
+#      key the checks use (check.sh).
 #
 # It handles one secret, the runtime's own API key, which the runtime makes on
 # its first start: it is copied to a file only root can read and never shown.
@@ -53,7 +55,7 @@ say() { printf '\n== %s\n' "$*"; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [ "$(id -u)" = 0 ] || die "run it with sudo."
-[ -f "$here/guard.sh" ] || die "run it from the repository's checkout (guard.sh must be beside it)."
+[ -f "$here/guard.sh" ] && [ -f "$here/requirements.txt" ] || die "run it from the repository's checkout (guard.sh and requirements.txt must be beside it)."
 [ -c /dev/kvm ] || die "no /dev/kvm here. Prepare the server first: deploy/server/setup.sh --role sandbox."
 command -v docker >/dev/null 2>&1 || die "Docker is missing. Prepare the server first: deploy/server/setup.sh --role sandbox."
 # Read whole before it is looked at: a reader that leaves early closes the
@@ -66,6 +68,12 @@ if docker network inspect ni-edge >/dev/null 2>&1; then
 fi
 
 mem_gib=$(awk '/^MemTotal:/ { printf "%d", $2 / 1048576 }' /proc/meminfo)
+# No size asked for: keep the one set before. Working it out afresh would
+# quietly undo a size someone chose, on a run that was about something else.
+if [ -z "$pool_gib" ] && [ -f "$settings" ]; then
+	pages="$(sed -n 's/^HUGEPAGES=\([0-9][0-9]*\)$/\1/p' "$settings")"
+	[ -z "$pages" ] || pool_gib=$((pages / 512))
+fi
 [ -n "$pool_gib" ] || pool_gib=$((mem_gib / 2))
 case "$pool_gib" in '' | *[!0-9]*) die "--pool-gib takes a whole number of GiB." ;; esac
 [ "$pool_gib" -ge 1 ] || die "--pool-gib must be at least 1."
@@ -88,15 +96,15 @@ write_if_changed() {
 
 say "Packages the runtime expects"
 apt-get -o DPkg::Lock::Timeout=600 update -qq
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq iptables rsync e2fsprogs iproute2 python3-venv >/dev/null
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq iptables nftables rsync e2fsprogs iproute2 python3-venv >/dev/null
 echo "installed"
 
 say "The guard"
 install -m 755 -o root -g root "$here/guard.sh" /usr/local/sbin/ni-sandbox-guard
-# Docker requires it: with no guard, no container starts, so no sandbox runs.
-write_if_changed /etc/systemd/system/ni-sandbox-guard.service <<'EOF' || true
+# Loaded early at boot, before Docker.
+if write_if_changed /etc/systemd/system/ni-sandbox-guard.service <<'EOF'
 [Unit]
-Description=Sandbox server guard: nothing here connects to this machine's own outward addresses
+Description=Sandbox server guard: load its firewall table
 After=ufw.service
 Before=docker.service ni-sandbox-runtime.service
 
@@ -107,16 +115,32 @@ ExecStart=/usr/local/sbin/ni-sandbox-guard apply
 
 [Install]
 WantedBy=multi-user.target
-RequiredBy=docker.service
 EOF
-# Put back within a minute if anything ever takes the rule out (a firewall reset, for one).
+then
+	# Drop whatever an older copy of this unit was linked to.
+	systemctl daemon-reload
+	systemctl reenable ni-sandbox-guard.service >/dev/null 2>&1
+fi
+# And loaded again by Docker itself every time it starts: when that fails,
+# Docker does not start, so no container and no sandbox runs without the
+# guard. A step of Docker's own start, not a unit Docker depends on:
+# restarting a unit Docker depended on would restart Docker with it.
+install -d -m 755 -o root -g root /etc/systemd/system/docker.service.d
+write_if_changed /etc/systemd/system/docker.service.d/10-ni-sandbox-guard.conf <<'EOF' || true
+[Unit]
+After=ni-sandbox-guard.service
+
+[Service]
+ExecStartPre=/usr/local/sbin/ni-sandbox-guard apply
+EOF
+# Looked at every minute, and loaded again if something took it out.
 write_if_changed /etc/systemd/system/ni-sandbox-guard-keep.service <<'EOF' || true
 [Unit]
-Description=Sandbox server guard: put the rule back if it is gone
+Description=Sandbox server guard: load it again if it is gone
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/ni-sandbox-guard apply
+ExecStart=/usr/local/sbin/ni-sandbox-guard ensure
 EOF
 write_if_changed /etc/systemd/system/ni-sandbox-guard-keep.timer <<'EOF' || true
 [Unit]
@@ -145,6 +169,7 @@ ufw status | grep -E '5010|Status' || true
 
 say "The runtime's files, at ${RUNTIME_REF:0:12}"
 tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
 base="https://raw.githubusercontent.com/e2b-dev/runtime/$RUNTIME_REF/embed/compose"
 curl -fsSL --retry 3 -o "$tmp/compose.yaml" "$base/compose.yaml"
 curl -fsSL --retry 3 -o "$tmp/.env" "$base/.env"
@@ -176,7 +201,7 @@ say "Start, and start after every boot"
 write_if_changed /etc/systemd/system/ni-sandbox-runtime.service <<EOF || true
 [Unit]
 Description=Sandbox runtime
-Requires=docker.service ni-sandbox-guard.service
+Requires=docker.service
 After=docker.service ni-sandbox-guard.service network-online.target
 Wants=network-online.target
 
@@ -185,6 +210,8 @@ Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=$runtime_dir
 EnvironmentFile=$settings
+ExecStartPre=/usr/local/sbin/ni-sandbox-guard check
+ExecStartPre=/bin/sh -c 'ufw status | grep -q "^Status: active"'
 ExecStart=/usr/bin/docker compose up -d --wait
 TimeoutStartSec=1800
 
@@ -203,7 +230,9 @@ systemctl restart ni-sandbox-runtime.service
 
 say "The client and the key the checks use"
 [ -x "$runtime_dir/.venv/bin/python" ] || python3 -m venv "$runtime_dir/.venv"
-"$runtime_dir/.venv/bin/pip" install --quiet --disable-pip-version-check "e2b==$SDK_VERSION"
+"$runtime_dir/.venv/bin/pip" install --quiet --disable-pip-version-check --require-hashes -r "$here/requirements.txt"
+have="$("$runtime_dir/.venv/bin/python" -c 'import importlib.metadata as m; print(m.version("e2b"))')"
+[ "$have" = "$SDK_VERSION" ] || die "requirements.txt holds client $have, not the $SDK_VERSION pinned here."
 # The runtime's key, as it hands it out itself. Never on the screen.
 (
 	umask 077
