@@ -14,6 +14,10 @@
  *                      hours minus everything busy, the booking's own event
  *                      and claim left out); for a meeting every host attends
  *                      (a link's host_mode all), the times all of them have.
+ *                      A booking link's meeting moves by the link's own rules
+ *                      (src/lib/booking-links/times.ts: its hours, notice,
+ *                      buffers, grid, window and daily cap), for the hosts it
+ *                      was booked with.
  *   rescheduleMeeting  the new time must be one of those, read again now. A
  *                      new claim per host is taken BESIDE the old (the exclusion
  *                      constraint lets one booking's claims overlap), the
@@ -32,7 +36,11 @@ import { listCountedEvents } from '@/lib/availability/busy'
 import { intersectAll, type Span } from '@/lib/availability/engine'
 import { readFreeTime } from '@/lib/availability/find-times'
 import { readWorkingHours } from '@/lib/availability/schedule'
+import { dayKey, localDate } from '@/lib/availability/zone'
 import { reportToOwner } from '@/lib/customers/reminders'
+import { getLink, linkBookingStarts } from '@/lib/booking-links/store'
+import { readLinkTimes, type ReadLinkTimesDeps } from '@/lib/booking-links/times'
+import type { BookingLink } from '@/lib/booking-links/types'
 import { appOrigin } from '@/lib/twilio/config'
 import { bookingHosts, deleteBookingClaims, deleteClaims, getBooking, getBookingByManageHash, getOffer, insertBookingClaim, updateBooking } from './store'
 import { manageTokenFor, manageTokenHash, manageUrl } from './tokens'
@@ -51,6 +59,10 @@ export interface ManageDeps {
   /** The host's free time (default: readFreeTime over their working hours and counted calendars). */
   freeTime?: (booking: MeetingBooking, range: { from: number; to: number }) => Promise<{ known: true; free: Span[]; timeZone: string } | { known: false; reason: string }>
   tellHost?: (args: { workspaceId: string; userId: string; messageId: string; text: string; routes: boolean }) => Promise<boolean>
+  /** A booking link by id (default: booking_link). */
+  getLink?: (linkId: string, workspaceId: string) => Promise<BookingLink | null>
+  /** The link's times (default: readLinkTimes). */
+  linkTimes?: typeof readLinkTimes
 }
 
 /** A booking by its manage link's token. Throws on a failed read. */
@@ -87,12 +99,14 @@ export async function cancelMeeting(
   try {
     const cancelled = await updateBooking(supabase, booking.id, ['confirmed', 'booking', 'requested'], { state: 'cancelled', cancelled_by: args.by, cancelled_at: new Date(now).toISOString() })
     if (!cancelled) return fail('CLOSED', 'This meeting changed just now. Reload to see it.')
-    if (booking.calendarEventId) {
+    // The row as cancelled, not as the caller read it: a booking that was
+    // still being written may have got its event since.
+    if (cancelled.calendarEventId) {
       try {
-        await (deps.deleteEvent ?? deleteCalendarEvent)(booking.hostUserId, booking.calendarEventId, { accountId: booking.calendarAccountId ?? undefined, notifyAttendees: true })
+        await (deps.deleteEvent ?? deleteCalendarEvent)(cancelled.hostUserId, cancelled.calendarEventId, { accountId: cancelled.calendarAccountId ?? undefined, notifyAttendees: true })
       } catch (err) {
-        // The calendar still has it: so does the booking.
-        await updateBooking(supabase, booking.id, ['cancelled'], { state: booking.state, cancelled_by: null }).catch(() => null)
+        // The calendar still has it: so does the booking (confirmed, since its event was written).
+        await updateBooking(supabase, booking.id, ['cancelled'], { state: booking.calendarEventId ? booking.state : 'confirmed', cancelled_by: null }).catch(() => null)
         return fail('FAILED', `The calendar couldn't take the cancellation (${err instanceof Error ? err.message : String(err)}). Nothing changed: try again in a moment.`)
       }
     }
@@ -116,6 +130,22 @@ export async function cancelMeeting(
 const QUARTER_MS = 15 * 60_000
 /** The most times a move offers. */
 export const RESCHEDULE_TIMES_MAX = 40
+/** The most times a booking link's move offers on one local day: every day of its window keeps some. */
+export const RESCHEDULE_TIMES_PER_DAY = 16
+
+/** The first `perDay` of each local day's times, soonest first: a cap per day, so no later day looks empty. Pure. */
+export function firstPerDay(times: readonly Span[], timeZone: string, perDay: number = RESCHEDULE_TIMES_PER_DAY): Span[] {
+  const counts = new Map<string, number>()
+  const out: Span[] = []
+  for (const t of [...times].sort((a, b) => a.start - b.start)) {
+    const key = dayKey(localDate(t.start, timeZone))
+    const n = counts.get(key) ?? 0
+    if (n >= perDay) continue
+    counts.set(key, n + 1)
+    out.push(t)
+  }
+  return out
+}
 
 /** Starts on the half hour inside free windows, each with room for the meeting, soonest first. Pure. */
 export function startsInWindows(windows: readonly Span[], durationMs: number, max: number = RESCHEDULE_TIMES_MAX): Span[] {
@@ -155,6 +185,39 @@ async function defaultFreeTime(supabase: SupabaseClient, booking: MeetingBooking
   return { known: true as const, free, timeZone: booking.hostTimeZone ?? reads[0].timeZone }
 }
 
+/**
+ * A booking link's meeting's times to move to, by the link's rules: the hosts
+ * it was booked with (an `any` link's booking stays with its host), the
+ * booking's own claim and event left out, and the booking itself not counted
+ * against its own day's cap. Over the link's window, at most RESCHEDULE_DAYS.
+ */
+async function linkMoveTimes(supabase: SupabaseClient, booking: MeetingBooking, link: BookingLink, now: number, deps: ManageDeps) {
+  const hosts = bookingHosts(booking)
+  const current = Date.parse(booking.startsAt)
+  const own: BookingLink = {
+    ...link,
+    // A link edited since keeps the meeting's own length.
+    durationMinutes: Math.round((Date.parse(booking.endsAt) - current) / 60_000),
+    hostMode: hosts.length > 1 ? 'all' : 'one',
+    hosts: hosts.map((userId, position) => ({ userId, position })),
+  }
+  const readDeps: ReadLinkTimesDeps = {
+    supabase,
+    now: () => now,
+    exceptClaims: { bookingId: booking.id },
+    exceptEventId: booking.calendarEventId,
+  }
+  if (link.dailyCap) {
+    readDeps.bookedStarts = async (linkId, fromIso, toIso) => {
+      const starts = await linkBookingStarts(supabase, linkId, fromIso, toIso)
+      const at = starts.indexOf(current)
+      return at === -1 ? starts : [...starts.slice(0, at), ...starts.slice(at + 1)]
+    }
+  }
+  const days = Math.min(link.windowDays, RESCHEDULE_DAYS)
+  return (deps.linkTimes ?? readLinkTimes)(own, { from: now, to: now + days * 24 * 60 * 60_000 }, readDeps)
+}
+
 /** The host's open times a booking can move to (see the header). */
 export async function rescheduleTimes(
   supabase: SupabaseClient,
@@ -167,11 +230,18 @@ export async function rescheduleTimes(
   if (booking.state !== 'confirmed') return fail('CLOSED', "This meeting isn't on the calendar yet: try again in a minute.")
   if (booking.rescheduleCount >= RESCHEDULES_MAX) return fail('LIMIT', `This meeting was already moved ${RESCHEDULES_MAX} times. Ask ${booking.hostName} directly.`)
   try {
+    const duration = Date.parse(booking.endsAt) - Date.parse(booking.startsAt)
+    const current = Date.parse(booking.startsAt)
+    const link = booking.source === 'link' && booking.linkId ? await (deps.getLink ?? ((id, ws) => getLink(supabase, id, ws)))(booking.linkId, booking.workspaceId) : null
+    if (link && link.purpose === 'meeting') {
+      const read = await linkMoveTimes(supabase, booking, link, now, deps)
+      if (!read.known) return fail('CALENDAR_UNKNOWN', "The calendar couldn't be checked just now. Try again in a minute.")
+      const times = read.slots.filter((s) => s.start !== current).map((s) => ({ start: s.start, end: s.end }))
+      return { ok: true, timeZone: read.timeZone, times: firstPerDay(times, read.timeZone) }
+    }
     const range = { from: now, to: now + RESCHEDULE_DAYS * 24 * 60 * 60_000 }
     const read = await (deps.freeTime ?? ((b, r) => defaultFreeTime(supabase, b, r, now)))(booking, range)
     if (!read.known) return fail('CALENDAR_UNKNOWN', "The calendar couldn't be checked just now. Try again in a minute.")
-    const duration = Date.parse(booking.endsAt) - Date.parse(booking.startsAt)
-    const current = Date.parse(booking.startsAt)
     return { ok: true, timeZone: read.timeZone, times: startsInWindows(read.free, duration).filter((s) => s.start !== current) }
   } catch (err) {
     return fail('FAILED', err instanceof Error ? err.message : String(err))

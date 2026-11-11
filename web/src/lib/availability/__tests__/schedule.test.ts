@@ -75,20 +75,22 @@ describe('the stored shapes', () => {
 describe('readWorkingHours', () => {
   it('with no row: weekdays 9 to 6, in the zone the person is in, marked as defaults', async () => {
     const hours = await readWorkingHours(db().supabase, PERSON)
-    expect(hours).toEqual({ timeZone: 'America/Chicago', zoneSource: 'member', weekly: DEFAULT_WEEKLY, overrides: {}, saved: false })
+    expect(hours).toEqual({ timeZone: 'America/Chicago', zoneSource: 'member', zoneKnown: true, weekly: DEFAULT_WEEKLY, overrides: {}, saved: false })
     // A copy: changing it changes nobody else's defaults.
     hours.weekly[1].push({ start: '20:00', end: '21:00' })
     expect(DEFAULT_WEEKLY[1]).toEqual([{ start: '09:00', end: '18:00' }])
   })
 
-  it('no zone known anywhere: UTC; a profile zone before that', async () => {
-    expect((await readWorkingHours(db({ memberZone: null }).supabase, PERSON)).timeZone).toBe('UTC')
-    expect((await readWorkingHours(db({ memberZone: null, profileZone: 'Europe/Lisbon' }).supabase, PERSON)).timeZone).toBe('Europe/Lisbon')
+  it('no zone known anywhere: UTC as a placeholder, said so (zoneKnown false); a profile zone before that', async () => {
+    expect(await readWorkingHours(db({ memberZone: null }).supabase, PERSON)).toMatchObject({ timeZone: 'UTC', zoneKnown: false })
+    expect(await readWorkingHours(db({ memberZone: null, profileZone: 'Europe/Lisbon' }).supabase, PERSON)).toMatchObject({ timeZone: 'Europe/Lisbon', zoneKnown: true })
+    // A zone named for the hours is known, wherever else none is.
+    expect(await readWorkingHours(db({ memberZone: null, schedule: [{ user_id: PERSON.userId, time_zone: 'Asia/Tokyo', weekly: WEEK, overrides: {} }] }).supabase, PERSON)).toMatchObject({ zoneKnown: true })
   })
 
   it('a row with a zone: that zone, from the schedule; a row with none follows the person', async () => {
     const own = await readWorkingHours(db({ schedule: [{ user_id: PERSON.userId, time_zone: 'Asia/Tokyo', weekly: WEEK, overrides: { '2026-11-27': [] } }] }).supabase, PERSON)
-    expect(own).toEqual({ timeZone: 'Asia/Tokyo', zoneSource: 'schedule', weekly: WEEK, overrides: { '2026-11-27': [] }, saved: true })
+    expect(own).toEqual({ timeZone: 'Asia/Tokyo', zoneSource: 'schedule', zoneKnown: true, weekly: WEEK, overrides: { '2026-11-27': [] }, saved: true })
     const follows = await readWorkingHours(db({ schedule: [{ user_id: PERSON.userId, time_zone: null, weekly: WEEK, overrides: {} }] }).supabase, PERSON)
     expect(follows).toMatchObject({ timeZone: 'America/Chicago', zoneSource: 'member', saved: true })
   })
@@ -108,7 +110,7 @@ describe('saveWorkingHours', () => {
   it('saves a new week, keeps the zone following the person, and returns the hours as they now stand', async () => {
     const { tables, supabase } = db()
     const saved = await saveWorkingHours(supabase, PERSON, { weekly: WEEK }, NOW)
-    expect(saved).toEqual({ timeZone: 'America/Chicago', zoneSource: 'member', weekly: WEEK, overrides: {}, saved: true })
+    expect(saved).toEqual({ timeZone: 'America/Chicago', zoneSource: 'member', zoneKnown: true, weekly: WEEK, overrides: {}, saved: true })
     expect(tables.availability_schedule).toHaveLength(1)
     expect(tables.availability_schedule[0]).toMatchObject({ user_id: PERSON.userId, time_zone: null, weekly: WEEK, overrides: {}, updated_at: '2026-11-10T12:00:00.000Z' })
   })

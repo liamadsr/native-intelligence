@@ -95,11 +95,11 @@ async function theirReminder(supabase: SupabaseClient, workspaceId: string, phon
 
 const NOT_FOUND: ToolOutput = { success: false, code: 'NOT_FOUND', message: "There's no reminder like that for this customer, or its time has passed. Answer from what you know, or pass it to the owner with message_owner." }
 
-/** The booking a reminder is for, still confirmed and still this customer's. Throws on a failed read. */
+/** The booking a reminder is for, still confirmed, still this customer's, and a customer's (never a booking link's: its number was only typed). Throws on a failed read. */
 async function remindedBooking(supabase: SupabaseClient, reminder: CustomerReminder): Promise<CustomerBooking | null> {
   if (reminder.subjectType !== 'booking') return null
   const booking = await getBooking(supabase, reminder.workspaceId, reminder.subjectId)
-  return booking && booking.state === 'confirmed' && booking.customerPhone === reminder.phone ? booking : null
+  return booking && booking.origin !== 'link' && booking.state === 'confirmed' && booking.customerPhone === reminder.phone ? booking : null
 }
 
 const BOOKING_GONE: ToolOutput = {

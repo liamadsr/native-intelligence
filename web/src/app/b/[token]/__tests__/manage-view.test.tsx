@@ -149,6 +149,30 @@ describe('ManageView', () => {
     expect(container.textContent).not.toContain('more time')
   })
 
+  it('a booking link’s request still waiting on the host: waiting, never "booked", and the guest can withdraw it', async () => {
+    draw(found({ state: 'requested', awaiting_host: true, can_reschedule: false, conference_url: null }))
+    expect(state()).toBe('awaiting')
+    expect(container.textContent).toContain('Requested by Dana Reyes.')
+    expect(q('[data-manage-awaiting]')?.textContent).toContain('Waiting for Ava Lin to confirm')
+    expect(container.textContent).not.toContain('Booked for')
+    expect(container.textContent).not.toContain('The invitation follows')
+    expect(q('[data-manage-move]')).toBeNull()
+    expect(q('[data-manage-cancel]')?.textContent).toBe('Cancel request')
+    await click(q('[data-manage-cancel]'))
+    expect(q('[data-manage-confirm-cancel]')?.textContent).toContain('Withdraw this request?')
+  })
+
+  it('a request the host declined, or never answered, is not a cancelled meeting', () => {
+    draw(found({ state: 'declined' }))
+    expect(state()).toBe('declined')
+    expect(container.textContent).toContain("This time wasn't confirmed")
+    fresh(found({ state: 'expired' }))
+    expect(state()).toBe('expired')
+    expect(container.textContent).toContain("didn't confirm it in time")
+    fresh(found({ state: 'requested', awaiting_host: true, start: '2020-01-01T15:00:00.000Z', end: '2020-01-01T15:30:00.000Z' }))
+    expect(state()).toBe('expired')
+  })
+
   it('one move left says so', () => {
     draw(found({ reschedules_left: 1 }))
     expect(container.textContent).toContain('You can move it one more time.')

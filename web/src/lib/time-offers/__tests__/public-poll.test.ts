@@ -75,6 +75,17 @@ describe('a poll guest\'s page', () => {
     expect(tables.time_offer_recipient[1].answered_at ?? null).toBeNull()
   })
 
+  it("a guest's own marks come back only for the times still open (a passed or taken one has no button to unmark)", async () => {
+    const { deps, tokens, tables } = await setup()
+    await handleAnswerPoll(post({ works: SLOTS }), tokens[0], deps)
+    // The first time is taken meanwhile.
+    const first = tables.time_offer_slot.find((s) => s.starts_at === SLOTS[0])!
+    first.state = 'released'
+    const { poll } = (await (await handleGetOffer(tokens[0], deps)).json()) as { poll: PublicPollData }
+    expect(poll.slots.map((s) => s.start)).toEqual([SLOTS[1]])
+    expect(poll.answer).toMatchObject({ works: [SLOTS[1]], none: false })
+  })
+
   it('answers in the shared shape: nothing marked, not one of the times, a token of nobody, too many saves', async () => {
     const { deps, tokens, tables } = await setup()
     expect((await handleAnswerPoll(post({ works: [] }), tokens[0], deps)).status).toBe(400)

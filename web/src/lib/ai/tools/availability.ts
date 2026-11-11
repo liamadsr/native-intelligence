@@ -4,7 +4,7 @@ import { getServiceClient } from '@/lib/admin'
 import { getCalendarProvider } from '@/lib/integrations/calendar'
 import { isoInZone, readRangeEdge } from '@/lib/integrations/calendar-zone'
 import { isTimeZone } from '@/lib/chat-cards/calendar'
-import { findTimes, FIND_TIMES_MAX_DAYS } from '@/lib/availability/find-times'
+import { findTimes, FIND_TIMES_MAX_DAYS, FREE_WINDOWS_MAX } from '@/lib/availability/find-times'
 import { readWorkingHours, saveWorkingHours, type WorkingHours } from '@/lib/availability/schedule'
 import type { DayRange, Span } from '@/lib/availability/engine'
 import { findWorkspacePeople, TEAM_MAX_PEOPLE } from '@/lib/availability/people'
@@ -39,6 +39,13 @@ function spanForModel(span: { start: number; end: number }, timeZone: string) {
 
 const spansForModel = (spans: readonly Span[], timeZone: string) => spans.map((span) => spanForModel(span, timeZone))
 
+/** A `free` list that was cut, said so: where it stops, and that more follows. */
+function truncatedForModel(freeUntil: number | undefined, timeZone: string) {
+  if (freeUntil === undefined) return {}
+  const until = isoInZone(freeUntil, timeZone)
+  return { truncated: true, free_until: until, more: `The free list stops at ${until}; more free time follows. Ask again from there for later times, and never say nothing is free after it.` }
+}
+
 /** One person of a group as a model reads them: whether their time is known, and their zone. Never their events. */
 function personForModel(person: PersonCoverage) {
   return {
@@ -66,7 +73,8 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
       description:
         "When the person is free to meet: their working hours minus everything busy on every calendar of theirs that counts (events marked free and invites they declined don't count), with a short gap kept around existing meetings. " +
         "With `people` (teammates in this workspace, by name or email), when everyone is free: each person's own working hours in their own zone and their busy time, never what their events are. " +
-        'Returns `suggested` (up to three times on different days, ready to offer) and `free` (every free stretch in the range, to pick another time from); with `people`, those are the times that work for everyone, and `people` says for each person whether their time is known. ' +
+        'Returns `suggested` (up to three times on different days, ready to offer) and `free` (the free stretches in the range, soonest first, to pick another time from); with `people`, those are the times that work for everyone, and `people` says for each person whether their time is known. ' +
+        `\`free\` lists at most ${FREE_WINDOWS_MAX} stretches: when it was cut, \`truncated\` is true and \`free_until\` says where the list stops. There is more free time after it: never say nothing is free then; ask again from \`free_until\` for later times. ` +
         "Every time is in the person's time zone (`time_zone`), written with its offset. " +
         'When a calendar cannot be read, or a teammate does not share their availability, the answer is `unknown`, never a guess: say who and why and do not offer times. ' +
         "Only workspace members can be included: an outside guest's calendar cannot be seen.",
@@ -100,6 +108,10 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
         }
         // With no zone named for their hours, this turn's browser zone is the freshest one known.
         const timeZone = hours.zoneSource === 'member' && isTimeZone(zone?.timeZone) ? zone.timeZone : hours.timeZone
+        // No zone anywhere: their hours would be read in UTC (9 AM UTC is 4 AM in New York).
+        if (!hours.zoneKnown && !isTimeZone(zone?.timeZone)) {
+          return { success: false, unknown: true, error: "Free time is unknown: the person's time zone isn't known. Ask which time zone they are in, save it with set_working_hours (time_zone), then try again." }
+        }
         const now = Date.now()
         const start = from ? readRangeEdge(from, timeZone, 'start') : now
         if (start === null) return { success: false, error: `Could not read from (${from}). Use an ISO date like 2026-11-02.` }
@@ -147,6 +159,7 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
               people: group,
               suggested: spansForModel(together.suggested, timeZone),
               free: spansForModel(together.free, timeZone),
+              ...truncatedForModel(together.freeUntil, timeZone),
               ...(together.free.length ? {} : { note: 'No time in this range works for everyone inside their working hours. Say so, and offer a wider range, a shorter meeting or fewer people.' }),
             }
           }
@@ -165,6 +178,7 @@ export function createAvailabilityTools(userId: string, workspaceId?: string, zo
           working_hours_are_default: !hours.saved,
           suggested: spansForModel(found.suggested, timeZone),
           free: spansForModel(found.free, timeZone),
+          ...truncatedForModel(found.freeUntil, timeZone),
           ...(found.free.length ? {} : { note: 'Nothing is free in this range inside their working hours. Say so, and offer a wider range or a shorter meeting.' }),
         }
       },

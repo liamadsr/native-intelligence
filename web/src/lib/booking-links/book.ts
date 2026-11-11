@@ -290,6 +290,7 @@ export async function bookFromLink(supabase: SupabaseClient, args: { link: Booki
 // ── The host's yes or no ────────────────────────────────────────────────────
 
 export interface ConfirmLinkDeps {
+  now?: () => number
   checkFree?: typeof checkSpansFree
   accept?: AcceptDeps
 }
@@ -313,6 +314,8 @@ export async function confirmLinkRequest(
       await settleLinkRequest(supabase, booking.id, 'declined')
       return { success: false, code, error: `${why} ${booking.guestName} was not told: reach them yourself if they should know.` }
     }
+    // A yes that came after the time itself books nothing.
+    if (Date.parse(booking.startsAt) <= (deps.now ?? Date.now)()) return letGo(`${label} has already passed, so it wasn't booked.`, 'STARTED')
 
     // Every attending host's calendar, now: the booking's own claim isn't in its way.
     const span = [{ start: Date.parse(booking.startsAt), end: Date.parse(booking.endsAt) }]

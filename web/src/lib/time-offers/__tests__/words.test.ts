@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { isOfferToken, manageTokenFor, manageTokenHash, mintOfferToken, offerTokenHash, offerUrl, offerUrlShown } from '../tokens'
-import { bookingEventWords, emailWords, fitOfferWords, offerCard, offerCardHash, pasteText, slotLabel, smsText, timesInline, type OfferWords } from '../words'
+import { bookingEventWords, emailWords, hostCancelledWords, fitOfferWords, offerCard, offerCardHash, pasteText, slotLabel, smsText, timesInline, type OfferWords } from '../words'
 
 const WORDS: OfferWords = {
   hostName: 'Ava Lin',
@@ -66,6 +66,34 @@ describe('the words', () => {
     const words = bookingEventWords({ title: 'Intro call', guestName: 'Dana Reyes', guestNote: 'Bring the deck', location: null }, 'https://app.example/b/xyz')
     expect(words.title).toBe('Intro call (Dana Reyes)')
     expect(words.description).toBe('Note from Dana Reyes: Bring the deck\n\nNeed to change it? Reschedule or cancel: https://app.example/b/xyz\n\nBooked through Native Intelligence')
+  })
+})
+
+describe('times across a daylight-saving change', () => {
+  const across = { ...WORDS, starts: ['2026-10-30T14:00:00.000Z', '2026-11-03T15:00:00.000Z'] }
+  it('names each time’s own zone, never one for both', () => {
+    expect(pasteText(across, 'L').split('\n').slice(0, 3)).toEqual([
+      'Could we meet for Intro call (30 min, on a video call)? These times work for me (New York time):',
+      '- Fri, Oct 30, 10:00 AM EDT',
+      '- Tue, Nov 3, 10:00 AM EST',
+    ])
+    expect(smsText(across, 'L')).toContain('Fri, Oct 30, 10:00 AM EDT; or Tue, Nov 3, 10:00 AM EST. Pick one')
+  })
+})
+
+describe("the host's cancel line", () => {
+  const event = { title: 'Intro call', calendarEventId: 'evt-1' }
+  it('names who the calendar told and who it could not', () => {
+    expect(hostCancelledWords(event, [{ name: 'Dana Reyes', email: 'dana@initech.example' }])).toBe('Cancelled Intro call with Dana Reyes. The calendar sent Dana Reyes the cancellation.')
+    expect(hostCancelledWords(event, [{ name: 'Dana Reyes', email: 'dana@initech.example' }, { name: 'Sam Ortiz', email: null }])).toBe(
+      "Cancelled Intro call with Dana Reyes and Sam Ortiz. The calendar sent Dana Reyes the cancellation. Sam Ortiz has no email on file, so the calendar couldn't tell them: tell them yourself.",
+    )
+  })
+
+  it('with no event written yet, says nobody was told', () => {
+    expect(hostCancelledWords({ ...event, calendarEventId: null }, [{ name: 'Dana Reyes', email: 'dana@initech.example' }])).toBe(
+      "Cancelled Intro call with Dana Reyes. It wasn't on the calendar yet, so nobody was told: reach Dana Reyes yourself if they should know.",
+    )
   })
 })
 

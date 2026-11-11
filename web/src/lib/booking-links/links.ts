@@ -26,7 +26,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { readSharing } from '@/lib/availability/sharing'
-import { readWeekly } from '@/lib/availability/schedule'
+import { readWeekly, readWorkingHours } from '@/lib/availability/schedule'
 import { isStorableTimeZone } from '@/lib/agent-events/member-time-zone'
 import { hostDisplayName } from '@/lib/time-offers/offers'
 import { questionId, slugFromTitle, type CreateLinkInput, type LinkFieldsInput } from './input'
@@ -104,6 +104,18 @@ export function columnsOf(input: LinkFieldsInput): { columns: LinkColumns } | Li
     columns.time_zone = input.time_zone
   }
   return { columns }
+}
+
+/**
+ * A link's own week is in one zone for every host: with none named, the
+ * editor's (input.ts says "the person's"), stored with it, never each host
+ * reading it in their own. Left null when the editor's zone isn't known.
+ * Throws on a failed read.
+ */
+async function zoneForOwnWeek(supabase: SupabaseClient, editor: Editor, columns: LinkColumns, current: Pick<BookingLink, 'timeZone'> | null): Promise<void> {
+  if (!Array.isArray(columns.weekly_hours) || columns.time_zone || (columns.time_zone === undefined && current?.timeZone)) return
+  const hours = await readWorkingHours(supabase, editor)
+  if (hours.zoneKnown) columns.time_zone = hours.timeZone
 }
 
 /** Hosts as stored, in the order given. Pure. */
@@ -200,6 +212,7 @@ export async function createLink(supabase: SupabaseClient, editor: Editor, input
     const made = columnsOf(input)
     if ('code' in made) return made
     const { columns } = made
+    await zoneForOwnWeek(supabase, editor, columns, null)
     const hosts = hostsOf(input.hosts ?? [editor.userId])
     const mode = columns.host_mode ?? LINK_DEFAULTS.hostMode
     const refused = await hostRefusal(supabase, editor, role, hosts, mode)
@@ -247,8 +260,8 @@ export async function createLink(supabase: SupabaseClient, editor: Editor, input
   }
 }
 
-/** What a job link lets change (see the header). */
-const JOB_FIELDS = new Set<keyof LinkFieldsInput>(['duration_minutes', 'notice_minutes', 'window_days', 'weekly_hours', 'time_zone', 'description', 'active'])
+/** What a job link lets change (see the header). Not its zone: the business profile's is the one its times are in. */
+const JOB_FIELDS = new Set<keyof LinkFieldsInput>(['duration_minutes', 'notice_minutes', 'window_days', 'weekly_hours', 'description', 'active'])
 
 /** Change a link (see the header). */
 export async function changeLink(supabase: SupabaseClient, editor: Editor, linkId: string, input: LinkFieldsInput): Promise<LinkResult> {
@@ -265,6 +278,7 @@ export async function changeLink(supabase: SupabaseClient, editor: Editor, linkI
     if ('code' in made) return made
     const { columns } = made
     if (link.purpose === 'job' && columns.duration_minutes !== undefined) columns.step_minutes = columns.duration_minutes
+    if (link.purpose === 'meeting') await zoneForOwnWeek(supabase, editor, columns, link)
     const hosts = input.hosts ? hostsOf(input.hosts) : undefined
     if (hosts || columns.host_mode) {
       const refused = await hostRefusal(supabase, editor, role, hosts ?? link.hosts, columns.host_mode ?? link.hostMode, new Set(link.hosts.map((h) => h.userId)))

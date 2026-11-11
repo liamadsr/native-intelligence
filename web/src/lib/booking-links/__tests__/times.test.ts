@@ -9,7 +9,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_WEEKLY, type AvailabilitySchedule, type DayRange } from '@/lib/availability/engine'
-import { chooseHost, gridStarts, linkSlots, readLinkTimes, widenBusy, type HostTime, type LinkRules } from '../times'
+import { capPerDay, chooseHost, gridStarts, linkSlots, readLinkTimes, widenBusy, type HostTime, type LinkRules } from '../times'
 import type { BookingLink } from '../types'
 
 const NY = 'America/New_York'
@@ -60,6 +60,38 @@ describe('one host', () => {
     const slots = linkSlots({ link: { ...RULES, durationMinutes: 45, stepMinutes: 15 }, hosts: [host(AVA, hours(NY, [{ start: '09:10', end: '10:30' }]))], timeZone: NY, now: NOW, ...TUE })
     expect(slots.map((s) => clock(s.start))).toEqual(['09:15', '09:30', '09:45'])
     expect(gridStarts([{ start: at('2031-01-07T14:07:00Z'), end: at('2031-01-07T15:00:00Z') }], 20, 20, NY).map((s) => clock(s))).toEqual(['09:20', '09:40'])
+  })
+
+  it('the grid is each day’s own wall clock: a 45-minute step keeps 9:00 and 10:30 across a daylight-saving change', () => {
+    // Sun Nov 2 2031: New York falls back at 2:00, so the day has 25 hours.
+    const day = { start: at('2031-11-02T04:00:00Z'), end: at('2031-11-03T05:00:00Z') }
+    const starts = gridStarts([day], 45, 45, NY).map((s) => clock(s))
+    expect(starts).toContain('09:00')
+    expect(starts).toContain('10:30')
+    expect(starts).not.toContain('09:30')
+  })
+
+  it('a step that doesn’t divide the day starts again at each midnight, as a booking’s own re-read of that day does', () => {
+    // 22:00 Tuesday to 02:00 Wednesday, a 25-minute grid.
+    const window = { start: at('2031-01-08T03:00:00Z'), end: at('2031-01-08T07:00:00Z') }
+    const starts = gridStarts([window], 25, 25, NY)
+    const afterMidnight = starts.filter((s) => s >= at('2031-01-08T05:00:00Z')).map((s) => clock(s))
+    expect(afterMidnight.slice(0, 3)).toEqual(['00:00', '00:25', '00:50'])
+    // The same day read on its own (a booking's re-read from 00:25) agrees.
+    expect(gridStarts([{ start: at('2031-01-08T05:25:00Z'), end: window.end }], 25, 25, NY).map((s) => clock(s))[0]).toBe('00:25')
+  })
+
+  it('caps each day, never the range: a dense grid still offers the later days', () => {
+    const allDay = [0, 1, 2, 3, 4, 5, 6].map(() => [{ start: '00:00', end: '24:00' }])
+    const slots = linkSlots({ link: { ...RULES, durationMinutes: 15, stepMinutes: 5, windowDays: 7 }, hosts: [host(AVA, { timeZone: NY, weekly: allDay })], timeZone: NY, now: NOW, from: TUE.from, to: TUE.from + 7 * 86_400_000 })
+    const perDay = new Map<string, number>()
+    for (const s of slots) {
+      const key = new Intl.DateTimeFormat('en-CA', { timeZone: NY }).format(new Date(s.start))
+      perDay.set(key, (perDay.get(key) ?? 0) + 1)
+    }
+    expect(perDay.size).toBe(7)
+    expect(Math.max(...perDay.values())).toBe(96)
+    expect(capPerDay([{ start: at('2031-01-07T15:00:00Z') }, { start: at('2031-01-07T16:00:00Z') }, { start: at('2031-01-08T15:00:00Z') }], NY, 1)).toHaveLength(2)
   })
 
   it('a day at its cap offers nothing; the next day does', () => {
@@ -186,6 +218,21 @@ describe('readLinkTimes: unknown is never free', () => {
     const read = await readLinkTimes(own, TUE, deps())
     expect(read.known && read.slots.map((s) => clock(s.start, CHICAGO))).toEqual(['13:00', '13:30'])
     expect(read.known && read.timeZone).toBe(CHICAGO)
+  })
+
+  it('a link with its own hours still keeps the host’s dated day off', async () => {
+    const own = link({ hosts: [{ userId: AVA, position: 0 }], hostMode: 'one', weeklyHours: weekdays([{ start: '13:00', end: '14:00' }]), timeZone: NY })
+    const d = deps({ readHours: vi.fn(async () => ({ ...hours(NY), overrides: { '2031-01-07': [], '2031-01-08': [{ start: '07:00', end: '08:00' }] } })) })
+    const read = await readLinkTimes(own, { from: TUE.from, to: TUE.from + 2 * 86_400_000 }, d)
+    // Tuesday is off; Wednesday keeps the link's own 13:00 (only days off carry over).
+    expect(read.known && read.slots.map((s) => iso(s.start))).toEqual(['2031-01-08T18:00:00.000Z', '2031-01-08T18:30:00.000Z'])
+  })
+
+  it('a host whose time zone is nowhere known has no times (never their hours in UTC), unless the link names its own week and zone', async () => {
+    const d = deps({ readHours: vi.fn(async (userId: string) => (userId === BEN ? { ...hours('UTC'), zoneKnown: false } : hours(NY))) })
+    expect((await readLinkTimes(link(), TUE, d)).known).toBe(false)
+    const own = link({ hosts: [{ userId: BEN, position: 0 }], ownerUserId: BEN, hostMode: 'one', weeklyHours: weekdays([{ start: '13:00', end: '14:00' }]), timeZone: CHICAGO })
+    expect((await readLinkTimes(own, TUE, d)).known).toBe(true)
   })
 
   it('a daily cap reads the link’s own bookings once; a read that fails is unknown', async () => {

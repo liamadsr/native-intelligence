@@ -120,6 +120,13 @@ describe("the day's list", () => {
     })
   })
 
+  it("leaves out a teammate's booking (their booking-link meeting and its guest are theirs)", async () => {
+    seedBookings(tables, [booking({ owner_user_id: 'user-teammate', starts_at: '2026-11-04T16:00:00Z', ends_at: '2026-11-04T16:30:00Z', customer_name: 'Their Guest' }) as CustomerBookingSeed])
+    const plan = await buildDailyJobs(db, { workspaceId: WS, localDate: '2026-11-04' }, { paused: async () => false })
+    expect(plan).toMatchObject({ outcome: 'ready', jobs: 3 })
+    expect((plan as { body: string }).body).not.toContain('Their Guest')
+  })
+
   it('an empty day sends nothing at all; a paused agent or a workspace with no profile is skipped', async () => {
     expect(await buildDailyJobs(db, { workspaceId: WS, localDate: '2026-11-06' }, { paused: async () => false })).toEqual({ outcome: 'empty' })
     expect(await buildDailyJobs(db, { workspaceId: WS, localDate: '2026-11-04' }, { paused: async () => true })).toEqual({ outcome: 'paused' })

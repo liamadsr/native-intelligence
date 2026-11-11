@@ -72,6 +72,12 @@ export interface WorkingHours extends AvailabilitySchedule {
   saved: boolean
   /** Where the zone came from: the person named it for their hours, or it follows the zone they are in. */
   zoneSource: 'schedule' | 'member'
+  /**
+   * False when no zone of theirs is known anywhere (or it couldn't be read):
+   * the zone is UTC as a placeholder, and their hours in it are a guess. A
+   * reader that answers for someone else treats them as unknown.
+   */
+  zoneKnown: boolean
 }
 
 interface ScheduleRow {
@@ -92,6 +98,7 @@ export async function readWorkingHours(supabase: SupabaseClient, person: { userI
   return {
     timeZone: ownZone ?? memberZone.timeZone,
     zoneSource: ownZone ? 'schedule' : 'member',
+    zoneKnown: !!ownZone || memberZone.source !== 'utc',
     weekly: readWeekly(row?.weekly) ?? DEFAULT_WEEKLY.map((day) => day.map((range) => ({ ...range }))),
     overrides: readOverrides(row?.overrides),
     saved: !!row,

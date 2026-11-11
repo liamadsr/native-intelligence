@@ -223,6 +223,18 @@ describe("the host's yes first", () => {
     expect(s.textGuest).not.toHaveBeenCalled()
   })
 
+  it('a yes after the time itself has passed books nothing: the time let go, no event, the guest not contacted', async () => {
+    const { db, tables, s, booking } = await requested()
+    const checkFree = vi.fn(free)
+    const later = Date.parse(booking.startsAt) + 60_000
+    expect(await confirmLinkRequest(db, { userId: AVA, workspaceId: WS, bookingId: booking.id }, { now: () => later, checkFree, accept: s.deps.accept })).toMatchObject({ success: false, code: 'STARTED' })
+    expect(tables.meeting_booking[0].state).toBe('declined')
+    expect(tables.host_time_claim).toHaveLength(0)
+    expect(checkFree).not.toHaveBeenCalled()
+    expect(s.createEvent).not.toHaveBeenCalled()
+    expect(s.textGuest).not.toHaveBeenCalled()
+  })
+
   it('a late yes to a request that lapsed meanwhile makes no claim again (nothing left blocking the host’s time)', async () => {
     const { db, tables, s, booking } = await requested()
     // The calendar is re-read; meanwhile the sweep expired the request and let its time go.

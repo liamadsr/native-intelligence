@@ -65,6 +65,16 @@ describe('a change to the booking rules', () => {
     expect(await upsertBusinessProfile(db, { workspaceId: WS, ownerUserId: OWNER }, { bookingStart: '18:00' })).toMatchObject({ ok: false, reason: 'invalid' })
   })
 
+  it('keeps a notice set to the minute on the link (90 minutes) through a change that doesn’t name it', async () => {
+    const { tables, db } = setup()
+    await upsertBusinessProfile(db, { workspaceId: WS, ownerUserId: OWNER }, { bookingSlug: 'bright-loom' })
+    tables.booking_link[0].notice_minutes = 90
+    await upsertBusinessProfile(db, { workspaceId: WS, ownerUserId: OWNER }, { slotMinutes: 45 })
+    expect(tables.booking_link[0].notice_minutes).toBe(90)
+    await upsertBusinessProfile(db, { workspaceId: WS, ownerUserId: OWNER }, { leadHours: 3 })
+    expect(tables.booking_link[0].notice_minutes).toBe(180)
+  })
+
   it('a slug someone has is taken; null turns the page off and keeps the handle', async () => {
     const { tables, db } = setup({ booking_profile: [{ id: 'p-other', workspace_id: 'ws-other', user_id: null, handle: 'bright-loom' }] })
     expect(await upsertBusinessProfile(db, { workspaceId: WS, ownerUserId: OWNER }, { bookingSlug: 'bright-loom' })).toEqual({ ok: false, reason: 'slug_taken' })

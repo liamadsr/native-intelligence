@@ -114,7 +114,8 @@ export interface AcceptedBooking {
 }
 
 /** What a server-rendered page starts from: found, not there, or the read failed. */
-export type PageLoad<T> = { kind: 'found'; data: T } | { kind: 'missing' } | { kind: 'error' }
+/** `at`: when the server read it, so the page's first render and the browser's agree on "now". */
+export type PageLoad<T> = { kind: 'found'; data: T; at?: number } | { kind: 'missing' } | { kind: 'error' }
 
 const tidy = (s: string) => s.replace(/[  ]/g, ' ')
 
@@ -220,7 +221,12 @@ export function pickFailure(status: number, body: ApiError | null, hostName: str
 }
 
 /** What a failed save of a poll answer means on the guest's page. */
-export type AnswerFailureView = { kind: 'closed'; state: Exclude<PublicOfferState, 'open'> } | { kind: 'missing' } | { kind: 'message'; message: string }
+export type AnswerFailureView =
+  | { kind: 'closed'; state: Exclude<PublicOfferState, 'open'> }
+  | { kind: 'missing' }
+  /** A marked time passed or was taken meanwhile: the times still open, so the page can drop the gone marks. */
+  | { kind: 'slots'; slots: PublicSlot[]; message: string }
+  | { kind: 'message'; message: string }
 
 /** A failed POST /answer, read for the guest (null `body` for a network error). Pure. */
 export function answerFailure(status: number, body: ApiError | null): AnswerFailureView {
@@ -228,6 +234,9 @@ export function answerFailure(status: number, body: ApiError | null): AnswerFail
   if (status === 410) return { kind: 'closed', state: code === 'BOOKED' ? 'booked' : code === 'WITHDRAWN' ? 'withdrawn' : 'expired' }
   if (status === 404) return { kind: 'missing' }
   if (status === 429) return { kind: 'message', message: messageOf(body, 'Too many changes today. Reply to the host instead.') }
+  if (status === 400 && Array.isArray((body?.details as { slots?: unknown } | undefined)?.slots)) {
+    return { kind: 'slots', slots: slotsOf(body?.details), message: `${messageOf(body, 'A time you marked is no longer available.')} It's unmarked: check your answer and save again.` }
+  }
   if (status === 400) return { kind: 'message', message: messageOf(body, SOMETHING_WRONG) }
   return { kind: 'message', message: SOMETHING_WRONG }
 }
@@ -252,15 +261,23 @@ export function manageFailureView(status: number, body: ApiError | null): Manage
   return { kind: 'message', message: SOMETHING_WRONG }
 }
 
-/** Where a booking stands for its guest now. */
-export type BookingPhase = 'upcoming' | 'pending' | 'live' | 'past' | 'cancelled' | 'failed'
+/**
+ * Where a booking stands for its guest now. `awaiting`: a booking link's
+ * request the host hasn't said yes to; `declined` and `expired`: one they
+ * said no to, or never answered (never a meeting that was cancelled).
+ */
+export type BookingPhase = 'upcoming' | 'pending' | 'awaiting' | 'live' | 'past' | 'cancelled' | 'declined' | 'expired' | 'failed'
 
-export function bookingPhase(b: Pick<PublicBookingData, 'state' | 'start' | 'end'>, now: number): BookingPhase {
-  if (b.state === 'cancelled' || b.state === 'declined' || b.state === 'expired') return 'cancelled'
+export function bookingPhase(b: Pick<PublicBookingData, 'state' | 'start' | 'end'> & Partial<Pick<PublicBookingData, 'awaiting_host'>>, now: number): BookingPhase {
+  if (b.state === 'cancelled') return 'cancelled'
+  if (b.state === 'declined') return 'declined'
+  if (b.state === 'expired') return 'expired'
   if (b.state === 'failed') return 'failed'
+  // A request whose time came before the host's yes was never booked.
+  if (b.awaiting_host || b.state === 'requested') return Date.parse(b.start) <= now ? 'expired' : 'awaiting'
   if (Date.parse(b.end) <= now) return 'past'
   if (Date.parse(b.start) <= now) return 'live'
-  return b.state === 'booking' || b.state === 'requested' ? 'pending' : 'upcoming'
+  return b.state === 'booking' ? 'pending' : 'upcoming'
 }
 
 /** "You can move it 2 more times": said once a move has been used, and never at 0 (no button then). */

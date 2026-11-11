@@ -204,6 +204,8 @@ async function writeJobLink(supabase: SupabaseClient, profile: BusinessProfile, 
   try {
     const link = await getJobLink(supabase, profile.workspaceId)
     if (link) {
+      // The notice is kept to the minute unless the change names it: lead hours are its rounding (90 minutes reads 2 hours).
+      if (patch.leadHours === undefined) delete columns.notice_minutes
       const written = await updateLink(supabase, link, columns)
       return written.ok ? null : { ok: false, reason: written.reason === 'slug_taken' ? 'failed' : written.reason, error: written.error }
     }
@@ -566,12 +568,17 @@ export async function getBooking(supabase: SupabaseClient, workspaceId: string, 
   return data ? toBooking(data) : null
 }
 
-/** The workspace's live bookings (requested or confirmed) in [fromIso, toIso). Throws on a failed read. */
-export async function liveBookingsBetween(supabase: SupabaseClient, workspaceId: string, fromIso: string, toIso: string): Promise<CustomerBooking[]> {
+/**
+ * The host's live bookings (requested or confirmed) in [fromIso, toIso), in
+ * the workspace. A teammate's booking-link meeting is their time, not the
+ * host's: it never takes one of the host's job slots. Throws on a failed read.
+ */
+export async function liveBookingsBetween(supabase: SupabaseClient, workspaceId: string, hostUserId: string, fromIso: string, toIso: string): Promise<CustomerBooking[]> {
   const { data, error } = await supabase
     .from('meeting_booking')
     .select(BOOKING_SELECT)
     .eq('workspace_id', workspaceId)
+    .eq('host_user_id', hostUserId)
     .in('source', [...CUSTOMER_FLOW_SOURCES])
     .in('state', ['requested', 'booking', 'confirmed'])
     .lt('starts_at', toIso)
@@ -582,13 +589,14 @@ export async function liveBookingsBetween(supabase: SupabaseClient, workspaceId:
   return ((data ?? []) as BookingRow[]).map(toBooking)
 }
 
-/** The workspace's bookings from `fromIso` on, soonest first, optionally by state. Throws on a failed read. */
+/** The workspace's bookings from `fromIso` on, soonest first, optionally by state or host. Throws on a failed read. */
 export async function listBookings(
   supabase: SupabaseClient,
   workspaceId: string,
-  filter: { fromIso?: string; state?: BookingState; guestId?: string; limit?: number } = {},
+  filter: { fromIso?: string; state?: BookingState; guestId?: string; hostUserId?: string; limit?: number } = {},
 ): Promise<CustomerBooking[]> {
   let query = supabase.from('meeting_booking').select(BOOKING_SELECT).eq('workspace_id', workspaceId).in('source', [...CUSTOMER_FLOW_SOURCES])
+  if (filter.hostUserId) query = query.eq('host_user_id', filter.hostUserId)
   if (filter.fromIso) query = query.gte('starts_at', filter.fromIso)
   if (filter.state) query = filter.state === 'requested' ? query.in('state', ['requested', 'booking']) : query.eq('state', filter.state)
   if (filter.guestId) query = query.eq('guest_id', filter.guestId)

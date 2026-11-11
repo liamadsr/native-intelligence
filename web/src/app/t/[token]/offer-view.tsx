@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Globe, MapPin, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -47,6 +47,7 @@ export function OfferView({ token, load }: { token: string; load: PageLoad<Publi
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [taken, setTaken] = useState(false)
+  const slotsRef = useRef<HTMLDivElement>(null)
   const [done, setDone] = useState<AcceptedBooking | null>(null)
   const zone = useGuestTimeZone(offer?.time_zone ?? 'UTC')
   const days = useMemo(() => (offer ? groupByDay(offer.slots, zone) : []), [offer, zone])
@@ -192,6 +193,8 @@ export function OfferView({ token, load }: { token: string; load: PageLoad<Publi
           setOffer({ ...offer, slots: failure.slots })
           setPicked(null)
           setTaken(true)
+          // The form goes with the pick: keep the place on the times still open.
+          slotsRef.current?.focus()
         } else if (failure.kind === 'closed') {
           setOffer({ ...offer, state: failure.state, slots: [] })
           await refresh()
@@ -230,7 +233,7 @@ export function OfferView({ token, load }: { token: string; load: PageLoad<Publi
           </p>
         </div>
         {taken && <SchedulingNotice data-offer-taken="">That time was just taken. These are still open.</SchedulingNotice>}
-        <div className="space-y-4" data-offer-slots>
+        <div ref={slotsRef} tabIndex={-1} className="space-y-4 outline-none" data-offer-slots>
           {days.map((d) => (
             <div key={d.key}>
               <p className="mb-2 text-sm font-medium">{d.label}</p>

@@ -85,6 +85,7 @@ export function publicOffer(offer: TimeOffer, now: number): PublicOfferData {
 export function publicPoll(poll: TimeOfferPoll, recipient: PollRecipient, now: number, booked: MeetingBooking | null, link: { origin: string; secret?: string }): PublicPollData {
   const state = publicOfferState(poll, now)
   const attending = recipient.attending === true
+  const open = openSlotsOf(poll, now)
   return {
     state,
     host_name: poll.hostName,
@@ -96,10 +97,11 @@ export function publicPoll(poll: TimeOfferPoll, recipient: PollRecipient, now: n
     time_zone: poll.timeZone,
     expires_at: poll.expiresAt,
     recipient_name: recipient.name,
-    slots: openSlotsOf(poll, now).map((s) => ({ start: s.startsAt, end: s.endsAt })),
+    slots: open.map((s) => ({ start: s.startsAt, end: s.endsAt })),
     answer: recipient.answeredAt
       ? {
-          works: poll.slots.filter((s) => recipient.works.includes(s.id)).map((s) => s.startsAt),
+          // Only times still open: a passed or taken time has no button to unmark, so it is never sent back.
+          works: open.filter((s) => recipient.works.includes(s.id)).map((s) => s.startsAt),
           none: recipient.works.length === 0,
           note: recipient.note,
           answered_at: recipient.answeredAt,
@@ -201,7 +203,7 @@ export async function loadBookingPage(supabase: SupabaseClient, token: string, n
   if (!isOfferToken(token)) return { kind: 'missing' }
   try {
     const managed = await managedBooking(supabase, token)
-    return managed ? { kind: 'found', data: publicBooking(managed.booking, now, managed.guest) } : { kind: 'missing' }
+    return managed ? { kind: 'found', data: publicBooking(managed.booking, now, managed.guest), at: now } : { kind: 'missing' }
   } catch {
     return { kind: 'error' }
   }

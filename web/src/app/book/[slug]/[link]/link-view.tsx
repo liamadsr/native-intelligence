@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Globe, MapPin, Users, Video } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -70,7 +70,9 @@ function DayStrip({ days, times, selected, onSelect }: { days: ReturnType<typeof
 export function LinkView({ profile, slug, load }: { profile: string; slug: string; load: PageLoad<PublicLinkData> }) {
   const link = load.kind === 'found' ? load.data : null
   const zone = useGuestTimeZone(link?.time_zone ?? 'UTC')
-  const [now] = useState(() => Date.now())
+  // The server's read time: its render and the browser's agree.
+  const [now] = useState(() => (load.kind === 'found' && load.at) || Date.now())
+  const timesRef = useRef<HTMLDivElement>(null)
   const today = todayKey(now, zone)
   const [page, setPage] = useState(0)
   const [cache, setCache] = useState<Record<string, StripTimes>>({})
@@ -265,6 +267,8 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
           setPicked(null)
           setTaken(true)
           setReload((n) => n + 1)
+          // The form goes with the pick: keep the place on the day's times.
+          timesRef.current?.focus()
         } else if (failure.kind === 'closed') {
           setClosed('closed')
         } else if (failure.kind === 'missing') {
@@ -327,7 +331,7 @@ export function LinkView({ profile, slug, load }: { profile: string; slug: strin
 
         {taken && <SchedulingNotice data-link-taken="">That time was just taken. Here&apos;s what&apos;s still open.</SchedulingNotice>}
 
-        <div data-link-times="">
+        <div ref={timesRef} tabIndex={-1} className="outline-none" data-link-times="">
           <p className="mb-2 text-sm font-medium">{dayLabel(`${day}T12:00:00Z`, 'UTC')}</p>
           {times.kind === 'loading' ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" aria-label="Loading times">

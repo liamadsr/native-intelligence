@@ -31,7 +31,18 @@ export interface FindTimesInput {
   now: number
 }
 
-export type FindTimesResult = { known: true; free: Span[]; suggested: Span[] } | { known: false; reason: string }
+/**
+ * `freeUntil`: set when `free` was cut to FREE_WINDOWS_MAX, the instant the
+ * listed windows reach; there is more free time after it (never "nothing free").
+ */
+export type FindTimesResult = { known: true; free: Span[]; suggested: Span[]; freeUntil?: number } | { known: false; reason: string }
+
+/** At most FREE_WINDOWS_MAX windows, and where the list stops when it was cut. Pure. */
+export function capWindows(free: readonly Span[]): { free: Span[]; freeUntil?: number } {
+  if (free.length <= FREE_WINDOWS_MAX) return { free: [...free] }
+  const kept = free.slice(0, FREE_WINDOWS_MAX)
+  return { free: kept, freeUntil: kept[kept.length - 1].end }
+}
 
 export interface FindTimesDeps {
   listEvents?: typeof listCountedEvents
@@ -84,7 +95,7 @@ export async function findTimes(input: FindTimesInput, deps: FindTimesDeps = {})
   if (!read.known) return read
   return {
     known: true,
-    free: read.free.slice(0, FREE_WINDOWS_MAX),
+    ...capWindows(read.free),
     suggested: suggestTimes(read.free, { durationMinutes: input.durationMinutes, timeZone: input.schedule.timeZone }),
   }
 }

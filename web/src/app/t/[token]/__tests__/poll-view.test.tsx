@@ -184,6 +184,51 @@ describe('PollView', () => {
     expect(state()).toBe('expired')
   })
 
+  it('a marked time that passed or was taken meanwhile is never sent again, and a 400 naming the open times drops the gone marks', async () => {
+    // Tuesday 9:00 was marked, and has since passed: only the times still open count.
+    draw(poll({ slots: SLOTS.slice(1), answer: { works: [SLOTS[0].start, SLOTS[2].start], none: false, note: null, answered_at: '2030-11-15T12:00:00.000Z', from_calendar: false }, waiting: 1 }))
+    click(q('[data-poll-change]'))
+    click(timeButtons()[0])
+    fetchMock.mockResolvedValueOnce(reply(400, { error: 'Wed, Nov 20, 11:00 AM is no longer available.', code: 'BAD_INPUT', details: { slots: [SLOTS[1]] } }))
+    await save()
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)).works).toEqual([SLOTS[2].start, SLOTS[1].start])
+    // The taken time is gone from the page and from the marks; saving again sends only what is open.
+    expect(timeButtons()).toHaveLength(1)
+    expect(q('[data-poll-error]')?.textContent).toContain("It's unmarked")
+    fetchMock.mockResolvedValueOnce(saved([SLOTS[1].start], { slots: [SLOTS[1]] }))
+    await save()
+    expect(JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body)).works).toEqual([SLOTS[1].start])
+    expect(state()).toBe('answered')
+  })
+
+  it('an answer whose every time has gone says so, instead of an empty list', () => {
+    draw(poll({ slots: SLOTS.slice(1), answer: { works: [], none: false, note: null, answered_at: '2030-11-15T12:00:00.000Z', from_calendar: false }, waiting: 1 }))
+    expect(q('[data-poll-answer]')?.textContent).toContain('The times you marked have passed or been taken.')
+  })
+
+  it('"Keep my answer" drops the edits made since', () => {
+    draw(poll({ answer: { works: [SLOTS[1].start], none: false, note: 'Afternoons', answered_at: '2030-11-15T12:00:00.000Z', from_calendar: false }, waiting: 1 }))
+    click(q('[data-poll-change]'))
+    click(timeButtons()[0])
+    type(q('#poll-note'), 'Mornings now')
+    click([...container.querySelectorAll('button')].find((b) => b.textContent === 'Keep my answer') ?? null)
+    click(q('[data-poll-change]'))
+    expect(timeButtons().map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false'])
+    expect((q('#poll-note') as HTMLTextAreaElement).value).toBe('Afternoons')
+  })
+
+  it('booked meanwhile: the page reads the poll again for the time and the guest’s own link', async () => {
+    draw(poll())
+    click(timeButtons()[0])
+    fetchMock.mockResolvedValueOnce(reply(410, { error: 'It was booked.', code: 'BOOKED' }))
+    fetchMock.mockResolvedValueOnce(reply(200, { poll: poll({ state: 'booked', slots: [], booked: { start: SLOTS[1].start, end: SLOTS[1].end, attending: true, video: true, conference_url: null, location: null, manage_url: 'https://app.example/b/ZyXwVuTsRqPoNmLkJiHgFeDc' } }) }))
+    await save()
+    expect(fetchMock.mock.calls[1][0]).toBe(`/api/public/time-offers/${TOKEN}`)
+    expect(state()).toBe('booked')
+    expect(q('[data-poll-when]')).not.toBeNull()
+    expect(q('[data-poll-manage]')).not.toBeNull()
+  })
+
   it('a 404 or a withdrawal on save; and the final states', async () => {
     draw(poll())
     click(timeButtons()[0])

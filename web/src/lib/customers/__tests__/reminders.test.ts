@@ -209,6 +209,15 @@ describe("one business's day", () => {
     expect(route).toHaveBeenCalledWith({ userId: OWNER, workspaceId: WS, conversationId: '11111111-1111-4111-8111-111111111111' }, 'customer-reminders:ws-brightside:2026-11-04')
   })
 
+  it("never texts a booking link's guest (a number only typed on a public page), nor a teammate's booking", async () => {
+    const [link] = seedBookings(tables, [booking({ id: 'b-link', starts_at: '2026-11-05T16:00:00.000Z', ends_at: '2026-11-05T16:30:00.000Z', customer_name: 'Typed Number', customer_phone: '+13125550160' }) as CustomerBookingSeed])
+    link.source = 'link'
+    seedBookings(tables, [booking({ id: 'b-teammate', owner_user_id: 'user-teammate', starts_at: '2026-11-05T17:30:00.000Z', ends_at: '2026-11-05T18:00:00.000Z', customer_name: 'Their Customer', customer_phone: '+13125550161' }) as CustomerBookingSeed])
+    const { d, texts } = deps()
+    await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, d)
+    expect(texts.map((t) => t.to)).toEqual([DANA, KIM, LEE])
+  })
+
   it('never twice for one booking: a second run (a retry, a second request) texts no one, and its report is the same message', async () => {
     const first = deps()
     await sendDayReminders(db, { workspaceId: WS, localDate: '2026-11-04' }, first.d)

@@ -25,11 +25,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getServiceClient } from '@/lib/admin'
 import { hasCountedCalendar } from './busy'
 import { intersectAll, suggestTimes, type AvailabilitySchedule, type Span } from './engine'
-import { FREE_WINDOWS_MAX, readFreeTime, type FindTimesDeps } from './find-times'
+import { capWindows, readFreeTime, type FindTimesDeps } from './find-times'
 import type { WorkspacePerson } from './people'
 import { readWorkingHours } from './schedule'
 
 export const NOT_SHARING_REASON = "they don't share their availability"
+/** A teammate whose zone is nowhere to be found: their hours in UTC would be a guess. */
+export const ZONE_UNKNOWN_REASON = "their time zone isn't known (they can set it in Settings > Availability); ask them which hours suit them"
 
 export type Coverage = 'complete' | 'unknown'
 
@@ -44,7 +46,8 @@ export interface PersonCoverage {
   timeZone: string | null
 }
 
-export type FindTimesTogetherResult = { known: true; people: PersonCoverage[]; free: Span[]; suggested: Span[] } | { known: false; people: PersonCoverage[] }
+/** `freeUntil`: as in ./find-times.ts FindTimesResult, set when `free` was cut. */
+export type FindTimesTogetherResult = { known: true; people: PersonCoverage[]; free: Span[]; suggested: Span[]; freeUntil?: number } | { known: false; people: PersonCoverage[] }
 
 export interface FindTimesTogetherInput {
   workspaceId: string
@@ -60,7 +63,8 @@ export interface FindTimesTogetherInput {
 
 export interface FindTimesTogetherDeps extends FindTimesDeps {
   supabase?: SupabaseClient
-  readHours?: (userId: string) => Promise<AvailabilitySchedule>
+  /** `zoneKnown: false` (./schedule.ts WorkingHours): no zone of theirs is known. */
+  readHours?: (userId: string) => Promise<AvailabilitySchedule & { zoneKnown?: boolean }>
   hasCalendar?: (userId: string) => Promise<boolean>
 }
 
@@ -83,11 +87,15 @@ async function readPerson(
 
   let hours = schedule
   if (!hours) {
+    let read: AvailabilitySchedule & { zoneKnown?: boolean }
     try {
-      hours = await deps.readHours(person.userId)
+      read = await deps.readHours(person.userId)
     } catch {
       return unknown('their working hours could not be read', null)
     }
+    // Never their hours read in UTC: someone in New York would be offered at 4 AM.
+    if (read.zoneKnown === false) return unknown(ZONE_UNKNOWN_REASON, null)
+    hours = read
   }
   let connected: boolean
   try {
@@ -123,7 +131,7 @@ export async function findTimesTogether(input: FindTimesTogetherInput, deps: Fin
   return {
     known: true,
     people,
-    free: free.slice(0, FREE_WINDOWS_MAX),
+    ...capWindows(free),
     suggested: suggestTimes(free, { durationMinutes: input.durationMinutes, timeZone: input.requester.schedule.timeZone }),
   }
 }

@@ -41,7 +41,8 @@ describe('fetchMyBookingLinks', () => {
       links: [link('intro', {}), link('team', { owner_user_id: 'boss' }), link('off', { active: false }), link('theirs', { owner_user_id: 'boss', hosts: ['boss'] }), link('pickup', { purpose: 'job' })],
     })
     expect((await fetchMyBookingLinks(load as never)).map((l) => l.id)).toEqual(['intro', 'team'])
-    expect(await fetchMyBookingLinks(answer({}, false) as never)).toEqual([])
+    // A failed read is not "no links".
+    await expect(fetchMyBookingLinks(answer({}, false) as never)).rejects.toThrow()
   })
 })
 

@@ -135,8 +135,8 @@ export const LINK_TIMES_CLIENT_PER_MINUTE = 60
 export const LINK_GUEST_DAILY_CAP = 2
 /** The most days one public read of a link's times covers. */
 export const LINK_TIMES_DAYS_MAX = 31
-/** The most times one read returns. */
-export const LINK_TIMES_MAX = 300
+/** The most times one local day of a link offers (every quarter hour of a whole day): a cap per day, never across the range. */
+export const LINK_TIMES_PER_DAY_MAX = 96
 /** How long a request waiting on the host's yes holds its time: its approval's day, and a little over, so the approval settles it first. */
 export const LINK_REQUEST_HOLD_MS = 24 * 60 * 60_000 + 15 * 60_000
 

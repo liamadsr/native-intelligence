@@ -187,10 +187,12 @@ export async function listCalendarEventsUnified(
     // If workspace scoping is requested, get account IDs from junction table first
     let workspaceScopedIds: string[] | null = null
     if (options.workspaceId) {
-      const { data: junctionRows } = await supabase
+      const { data: junctionRows, error: junctionError } = await supabase
         .from('connected_account_workspace')
         .select('account_id')
         .eq('workspace_id', options.workspaceId)
+      // Strict: an unread junction would fall through to the legacy read, a partial one.
+      if (junctionError && options.strict) throw new Error(`Calendar accounts could not be read: ${junctionError.message}`)
       workspaceScopedIds = (junctionRows || []).map((r) => r.account_id)
       // Don't early-return when empty — local exchange events may still exist
     }
@@ -212,7 +214,8 @@ export async function listCalendarEventsUnified(
       accountQuery = accountQuery.in('id', options.accountIds)
     }
 
-    const { data: accounts } = await accountQuery
+    const { data: accounts, error: accountsError } = await accountQuery
+    if (accountsError && options.strict) throw new Error(`Calendar accounts could not be read: ${accountsError.message}`)
 
     // Fetch OAuth events from all accounts in parallel
     if (accounts?.length) {
@@ -276,7 +279,16 @@ export async function listCalendarEventsUnified(
     try {
       return await listCalendarEvents(userId, options)
     } catch (err) {
-      if (options.strict) throw err
+      if (options.strict) {
+        // The desktop's Exchange rows are a calendar too: a person with only
+        // those has no other calendar to read here, which is not a failure.
+        if (err instanceof Error && err.message === NO_CALENDAR_PROVIDER) {
+          const local = await supabase.from('local_calendar_event').select('id', { count: 'exact', head: true }).eq('user_id', userId).limit(1)
+          if (local.error) throw new Error(`Exchange calendar could not be read: ${local.error.message}`)
+          if ((local.count ?? 0) > 0) return []
+        }
+        throw err
+      }
       // No OAuth accounts — oauthEvents stays empty
       return []
     }
@@ -345,6 +357,8 @@ export async function listMicrosoftCalendars(
   }))
 }
 
+const NO_CALENDAR_PROVIDER = 'No calendar provider connected'
+
 /**
  * Legacy single-account list events (backward compatibility).
  */
@@ -358,7 +372,7 @@ export async function listCalendarEvents(
   const microsoft = await getValidToken(userId, 'microsoft', 'calendar')
   if (microsoft) return listMicrosoftEvents(microsoft.token, options)
 
-  throw new Error('No calendar provider connected')
+  throw new Error(NO_CALENDAR_PROVIDER)
 }
 
 /**
@@ -585,6 +599,9 @@ export async function deleteCalendarEvent(
 // Google Calendar API v3
 // ---------------------------------------------------------------------------
 
+/** The most pages a strict events read follows per calendar before it gives up (and throws). */
+export const STRICT_READ_MAX_PAGES = 10
+
 async function listGoogleEvents(
   accessToken: string,
   options: ListEventsOptions,
@@ -614,21 +631,33 @@ async function listGoogleEvents(
         orderBy: 'startTime',
       })
 
-      const res = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?${params}&conferenceDataVersion=1`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
-      ).catch(() => null)
+      // A non-strict read takes the first page, as it always has. A strict
+      // one follows the pages to the end: an event past the first page is
+      // busy time all the same.
+      const items: any[] = []
+      let summary: string | undefined
+      for (let page = 0; ; page++) {
+        const res = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events?${params}&conferenceDataVersion=1`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        ).catch(() => null)
 
-      if (!res?.ok) {
-        console.error(`Google Calendar API error for ${calId}: ${res?.status ?? 'network error'}`)
-        if (options.strict) throw new Error(`Google Calendar API error: ${res?.status ?? 'network error'}`)
-        options.onSkipped?.({ provider: 'google', reason: `Google Calendar API error: ${res?.status ?? 'network error'}` })
-        return []
+        if (!res?.ok) {
+          console.error(`Google Calendar API error for ${calId}: ${res?.status ?? 'network error'}`)
+          if (options.strict) throw new Error(`Google Calendar API error: ${res?.status ?? 'network error'}`)
+          options.onSkipped?.({ provider: 'google', reason: `Google Calendar API error: ${res?.status ?? 'network error'}` })
+          return []
+        }
+
+        const data = await res.json()
+        summary ??= data.summary
+        items.push(...(data.items || []))
+        if (!options.strict || typeof data.nextPageToken !== 'string' || !data.nextPageToken) break
+        if (page + 1 >= STRICT_READ_MAX_PAGES) throw new Error('Google Calendar has more events in this range than can be read at once')
+        params.set('pageToken', data.nextPageToken)
       }
 
-      const data = await res.json()
-
-      return (data.items || []).map(
+      return items.map(
         (e: any): CalendarEvent => {
           const entryPoints = e.conferenceData?.entryPoints as Array<Record<string, string>> | undefined
           const videoEntry = entryPoints?.find((ep) => ep.entryPointType === 'video')
@@ -649,7 +678,7 @@ async function listGoogleEvents(
             htmlLink: e.htmlLink as string,
             organizer: e.organizer?.email as string | undefined,
             conferenceUrl: videoEntry?.uri,
-            calendarName: data.summary || 'Google Calendar',
+            calendarName: summary || 'Google Calendar',
             hasRecurrence: !!e.recurringEventId,
             seriesMasterId: (e.recurringEventId as string) || undefined,
             icalUid: (e.iCalUID as string) || undefined,
@@ -841,7 +870,7 @@ async function listMicrosoftEvents(
           return []
         }
         const data = await res.json()
-        return parseMicrosoftEvents(data.value || [], calId)
+        return parseMicrosoftEvents(await microsoftRestPages(accessToken, data, options), calId)
       }),
     )
     return perCalendar.flat()
@@ -853,7 +882,28 @@ async function listMicrosoftEvents(
   )
   if (!res.ok) throw new Error(`Microsoft Calendar API error: ${res.status}`)
   const data = await res.json()
-  return parseMicrosoftEvents(data.value || [])
+  return parseMicrosoftEvents(await microsoftRestPages(accessToken, data, options))
+}
+
+/**
+ * A calendar view's items: the first page's alone for a non-strict read (as
+ * it always was), every page for a strict one (an event past the first page
+ * is busy time all the same). A strict read that fails on a later page, or
+ * runs past STRICT_READ_MAX_PAGES, throws: it never returns part of the range.
+ */
+async function microsoftRestPages(accessToken: string, first: { value?: any[]; '@odata.nextLink'?: string }, options: ListEventsOptions): Promise<any[]> {
+  const items = [...(first.value || [])]
+  if (!options.strict) return items
+  let next = first['@odata.nextLink']
+  for (let page = 1; typeof next === 'string' && next; page++) {
+    if (page >= STRICT_READ_MAX_PAGES) throw new Error('Microsoft Calendar has more events in this range than can be read at once')
+    const res = await fetch(next, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => null)
+    if (!res?.ok) throw new Error(`Microsoft Calendar API error: ${res?.status ?? 'network error'}`)
+    const data = await res.json()
+    items.push(...(data.value || []))
+    next = data['@odata.nextLink']
+  }
+  return items
 }
 
 /** The account owner's own answer on a Google event (their attendee entry, marked `self`), when they are a guest on it. */

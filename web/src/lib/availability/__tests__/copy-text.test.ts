@@ -51,6 +51,18 @@ describe('formatAvailabilityText', () => {
     expect(text).not.toMatch(/[  ]/)
   })
 
+  it('across a daylight-saving change: the place in the heading, each day its own zone', () => {
+    const text = formatAvailabilityText(
+      [
+        { start: at('2026-10-30T13:00:00.000Z'), end: at('2026-10-30T15:00:00.000Z') },
+        { start: at('2026-11-03T14:00:00.000Z'), end: at('2026-11-03T16:00:00.000Z') },
+      ],
+      NY,
+      TUE_8AM,
+    )
+    expect(text).toBe(['My availability (New York time):', 'Fri, Oct 30 (EDT): 9:00 AM – 11:00 AM', 'Tue, Nov 3 (EST): 9:00 AM – 11:00 AM'].join('\n'))
+  })
+
   it('nothing free: says so', () => {
     expect(formatAvailabilityText([], NY, TUE_8AM)).toBe('My availability (EST):\nNo open time in this range.')
   })

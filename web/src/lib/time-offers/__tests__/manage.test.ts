@@ -15,6 +15,7 @@ import { sweepTimeOffers } from '../sweep'
 import { manageTokenFor } from '../tokens'
 import type { MeetingBooking } from '../types'
 import { bookingSeams, freeCalendar, hoursFromNow, HOST, offerDb, WS } from './fake-db'
+import { linkOf } from '@/lib/booking-links/__tests__/fixtures'
 
 const NOW = Date.now()
 const SLOTS = [hoursFromNow(26, NOW), hoursFromNow(50, NOW)]
@@ -77,6 +78,22 @@ describe('cancelMeeting', () => {
     expect(manage.tellHost).not.toHaveBeenCalled()
   })
 
+  it("deletes the event the booking holds now, not the one the caller read (a booking still being written when it was cancelled)", async () => {
+    const { db, booking, manage } = await booked()
+    // The caller read it mid-write, before its event existed.
+    const stale: MeetingBooking = { ...booking, state: 'booking', calendarEventId: null, calendarAccountId: null }
+    expect(await cancelMeeting(db, { booking: stale, by: 'host' }, manage)).toMatchObject({ ok: true })
+    expect(manage.deleteEvent).toHaveBeenCalledWith(HOST, 'evt-1', { accountId: 'acct-google', notifyAttendees: true })
+  })
+
+  it('a refused cancellation of an event written meanwhile puts the booking back as confirmed', async () => {
+    const { db, tables, booking, manage } = await booked()
+    manage.deleteEvent.mockRejectedValueOnce(new Error('Google Calendar delete error: 500'))
+    const stale: MeetingBooking = { ...booking, state: 'booking', calendarEventId: null, calendarAccountId: null }
+    expect(await cancelMeeting(db, { booking: stale, by: 'host' }, manage)).toMatchObject({ ok: false, code: 'FAILED' })
+    expect(tables.meeting_booking[0].state).toBe('confirmed')
+  })
+
   it('a meeting that started can no longer be changed', async () => {
     const { db, booking, manage } = await booked()
     const started: MeetingBooking = { ...booking, startsAt: new Date(NOW - 60_000).toISOString() }
@@ -91,6 +108,35 @@ describe('rescheduleMeeting', () => {
     expect(times).toMatchObject({ ok: true, timeZone: 'America/New_York' })
     expect(times.ok && times.times.map((t) => t.start)).toEqual([window.start, window.start + H / 2, window.start + H, window.start + 1.5 * H])
     expect(startsInWindows([{ start: 0, end: H }], H / 2)).toEqual([{ start: 0, end: H / 2 }, { start: H / 2, end: H }])
+  })
+
+  it("a booking link's meeting moves by the link's own rules: its times read for the hosts it was booked with, the meeting's length, its own event and claim left out", async () => {
+    const { db, booking, manage, window } = await booked()
+    const fromLink = { ...booking, source: 'link' as const, linkId: 'link-1' }
+    const link = linkOf({ id: 'link-1', hostMode: 'any', windowDays: 5, noticeMinutes: 24 * 60, durationMinutes: 60, hosts: [{ userId: 'user-other', position: 0 }, { userId: HOST, position: 1 }] })
+    const slot = { start: window.start + 2 * H, end: window.start + 2.5 * H, hostIds: [HOST] }
+    const linkTimes = vi.fn(async () => ({ known: true as const, timeZone: 'America/Chicago', slots: [slot, { start: Date.parse(booking.startsAt), end: Date.parse(booking.endsAt), hostIds: [HOST] }] }))
+    const deps = { ...manage, getLink: vi.fn(async () => link), linkTimes }
+    const times = await rescheduleTimes(db, fromLink, deps)
+    // The link's times only (the host's free window is not offered), never the current time.
+    expect(times).toEqual({ ok: true, timeZone: 'America/Chicago', times: [{ start: slot.start, end: slot.end }] })
+    expect(manage.freeTime).not.toHaveBeenCalled()
+    const [own, range, readDeps] = linkTimes.mock.calls[0] as unknown as [typeof link, { from: number; to: number }, { exceptClaims: unknown; exceptEventId: unknown }]
+    expect(own).toMatchObject({ hostMode: 'one', hosts: [{ userId: HOST, position: 0 }], durationMinutes: 30, noticeMinutes: 24 * 60, windowDays: 5 })
+    expect(range.to - range.from).toBe(5 * 24 * H)
+    expect(readDeps).toMatchObject({ exceptClaims: { bookingId: booking.id }, exceptEventId: 'evt-1' })
+    // A time the link doesn't offer can't be picked, though the host is free then.
+    expect(await rescheduleMeeting(db, { booking: fromLink, start: new Date(window.start).toISOString(), by: 'guest' }, deps)).toMatchObject({ ok: false, code: 'SLOT_TAKEN' })
+    // An unread calendar is unknown, never free.
+    expect(await rescheduleTimes(db, fromLink, { ...deps, linkTimes: vi.fn(async () => ({ known: false as const, reason: 'x' })) })).toMatchObject({ ok: false, code: 'CALENDAR_UNKNOWN' })
+  })
+
+  it('an offer still moves within the host’s working hours (no link to read)', async () => {
+    const { db, booking, manage } = await booked()
+    const getLink = vi.fn(async () => null)
+    await rescheduleTimes(db, booking, { ...manage, getLink })
+    expect(getLink).not.toHaveBeenCalled()
+    expect(manage.freeTime).toHaveBeenCalled()
   })
 
   it('moves it: a new claim beside the old, the event moved with the attendees told, then the old claim gone; the host told', async () => {

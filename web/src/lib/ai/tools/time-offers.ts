@@ -227,13 +227,20 @@ export function createTimeOfferTools(userId: string, workspaceId?: string, ctx: 
         if (ctx.unattended) return { success: false, code: 'NEEDS_PERSON', error: 'Only the person cancels a meeting with a guest (the guest is told). Leave it to them.' }
         if (!workspaceId) return noWorkspace
         try {
-          const { hostBooking, cancelMeeting } = await import('@/lib/time-offers/manage')
+          const [{ hostBooking, cancelMeeting }, { getPoll }, { hostCancelledWords }] = await Promise.all([
+            import('@/lib/time-offers/manage'),
+            import('@/lib/time-offers/poll-store'),
+            import('@/lib/time-offers/words'),
+          ])
           const supabase = getServiceClient()
           const booking = await hostBooking(supabase, { workspaceId, userId, bookingId: booking_id })
           if (!booking) return { success: false, code: 'NOT_FOUND', error: 'No booking of yours with that id in this workspace (list_time_offers).' }
           const result = await cancelMeeting(supabase, { booking, by: 'host' })
           if (!result.ok) return { success: false, code: result.code, error: result.message }
-          return { success: true, booking_id: result.booking.id, state: result.booking.state, message: `Cancelled ${booking.title} with ${booking.guestName}. ${booking.guestEmail ? 'The calendar sent them the cancellation.' : 'They have no email on file: tell them yourself.'}` }
+          // A poll's meeting has its attending guests, each with or without an email; any other has its one guest.
+          const poll = booking.source === 'poll' && booking.offerId ? await getPoll(supabase, booking.offerId, workspaceId).catch(() => null) : null
+          const guests = poll ? poll.recipients.filter((r) => r.attending === true).map((r) => ({ name: r.name, email: r.email })) : [{ name: booking.guestName, email: booking.guestEmail }]
+          return { success: true, booking_id: result.booking.id, state: result.booking.state, message: hostCancelledWords(result.booking, guests.length ? guests : [{ name: booking.guestName, email: booking.guestEmail }]) }
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : String(err) }
         }

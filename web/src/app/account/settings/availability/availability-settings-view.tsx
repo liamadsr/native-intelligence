@@ -211,7 +211,8 @@ export function AvailabilitySettingsView() {
                   const ranges = week[day]
                   const on = ranges.length > 0
                   return (
-                    <div key={day} data-testid="availability-day" className="flex items-start gap-3 px-4 py-2.5">
+                    // On a narrow screen a working day's ranges go under its name instead of running off the edge.
+                    <div key={day} data-testid="availability-day" className="flex flex-wrap items-start gap-x-3 gap-y-1.5 px-4 py-2.5">
                       <Switch
                         aria-label={`Work on ${DAY_NAMES[day]}`}
                         className="mt-1"
@@ -219,10 +220,10 @@ export function AvailabilitySettingsView() {
                         onCheckedChange={(next) => editDay(day, () => (next ? [{ ...(hours.weekly[day][0] ?? NEW_RANGE) }] : []))}
                       />
                       <span className={cn('mt-1.5 w-24 shrink-0 text-sm', !on && 'text-muted-foreground')}>{DAY_NAMES[day]}</span>
-                      <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className={cn('min-w-0 flex-1 space-y-1.5', on && 'max-sm:basis-full')}>
                         {!on && <p className="mt-1.5 text-sm text-muted-foreground">Off</p>}
                         {ranges.map((range, i) => (
-                          <div key={i} className="flex items-center gap-1.5">
+                          <div key={i} className="flex flex-wrap items-center gap-1.5">
                             <Input
                               type="time"
                               step={900}
@@ -292,7 +293,7 @@ export function AvailabilitySettingsView() {
                           size="icon"
                           variant="ghost"
                           aria-label={`Remove the change on ${date}`}
-                          className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                          className="h-7 w-7 shrink-0 text-muted-foreground transition-opacity hover:text-foreground pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100"
                           onClick={() => void removeDate(date)}
                         >
                           <X className="h-3.5 w-3.5" />

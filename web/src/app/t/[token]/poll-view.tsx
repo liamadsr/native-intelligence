@@ -23,6 +23,12 @@ function Final({ title, children, ...rest }: { title: string; children?: React.R
   )
 }
 
+/** The marks that are still one of the open times. */
+function openMarks(works: readonly string[], slots: PublicPollData['slots']): string[] {
+  const open = new Set(slots.map((s) => s.start))
+  return works.filter((start) => open.has(start))
+}
+
 /**
  * One guest's page of a poll (availability phase 5): the times the host is
  * asking several people about; they mark every one that works (or none),
@@ -32,7 +38,8 @@ export function PollView({ token, initial }: { token: string; initial: PublicPol
   const [poll, setPoll] = useState<PublicPollData>(initial)
   const [missing, setMissing] = useState(false)
   const [editing, setEditing] = useState(!initial.answer)
-  const [marked, setMarked] = useState<string[]>(initial.answer?.works ?? [])
+  // Only times still open are marked: one that passed or was taken has no button to unmark.
+  const [marked, setMarked] = useState<string[]>(() => openMarks(initial.answer?.works ?? [], initial.slots))
   const [none, setNone] = useState(initial.answer?.none ?? false)
   const [note, setNote] = useState(initial.answer?.note ?? '')
   const [website, setWebsite] = useState('')
@@ -174,8 +181,10 @@ export function PollView({ token, initial }: { token: string; initial: PublicPol
             </SchedulingNotice>
           )}
           <div className="space-y-2" data-poll-answer>
-            <p className="text-sm font-medium">{answer.none ? 'None of these times work for you.' : 'These times work for you:'}</p>
-            {!answer.none && (
+            <p className="text-sm font-medium">
+              {answer.none ? 'None of these times work for you.' : works.length ? 'These times work for you:' : 'The times you marked have passed or been taken. Change your answer to mark others.'}
+            </p>
+            {!answer.none && works.length > 0 && (
               <ul className="space-y-1 text-sm">
                 {works.map((s) => (
                   <li key={s.start} className="tabular-nums">
@@ -185,7 +194,7 @@ export function PollView({ token, initial }: { token: string; initial: PublicPol
               </ul>
             )}
             {answer.note && <p className="text-sm text-muted-foreground">&ldquo;{answer.note}&rdquo;</p>}
-            {!answer.none && zoneLine}
+            {!answer.none && works.length > 0 && zoneLine}
           </div>
           {waiting && (
             <p className="text-sm text-muted-foreground" data-poll-waiting>
@@ -205,6 +214,28 @@ export function PollView({ token, initial }: { token: string; initial: PublicPol
     setMarked((m) => (m.includes(start) ? m.filter((s) => s !== start) : [...m, start]))
   }
 
+  /** Back to the saved answer: the edits made since are dropped. */
+  function keepAnswer() {
+    setMarked(openMarks(poll.answer?.works ?? [], poll.slots))
+    setNone(poll.answer?.none ?? false)
+    setNote(poll.answer?.note ?? '')
+    setError('')
+    setEditing(false)
+  }
+
+  /** The poll as it is now: after it was booked meanwhile, its time and the guest's own manage link. */
+  async function reload(): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/public/time-offers/${encodeURIComponent(token)}`, { cache: 'no-store' })
+      const data = (await res.json().catch(() => null)) as { poll?: PublicPollData } | null
+      if (!res.ok || !data?.poll) return false
+      setPoll(data.poll)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     setBusy(true)
@@ -222,9 +253,15 @@ export function PollView({ token, initial }: { token: string; initial: PublicPol
         setEditing(false)
       } else {
         const failure = answerFailure(res.status, data)
-        if (failure.kind === 'closed') setPoll({ ...poll, state: failure.state, slots: [] })
-        else if (failure.kind === 'missing') setMissing(true)
-        else setError(failure.message)
+        if (failure.kind === 'closed') {
+          // Booked meanwhile: read it again for the time and the guest's link; else the bare state.
+          if (!(failure.state === 'booked' && (await reload()))) setPoll({ ...poll, state: failure.state, slots: [] })
+        } else if (failure.kind === 'missing') setMissing(true)
+        else if (failure.kind === 'slots') {
+          setPoll({ ...poll, slots: failure.slots })
+          setMarked((m) => openMarks(m, failure.slots))
+          setError(failure.message)
+        } else setError(failure.message)
       }
     } catch {
       setError("That didn't go through. Try again in a moment.")
@@ -279,7 +316,7 @@ export function PollView({ token, initial }: { token: string; initial: PublicPol
           {error && <SchedulingNotice data-poll-error="">{error}</SchedulingNotice>}
           <div className="flex gap-2">
             {poll.answer && (
-              <Button type="button" variant="outline" className="border" onClick={() => setEditing(false)} disabled={busy}>
+              <Button type="button" variant="outline" className="border" onClick={keepAnswer} disabled={busy}>
                 Keep my answer
               </Button>
             )}

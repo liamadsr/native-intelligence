@@ -21,10 +21,15 @@ function offsetAt(at: number, timeZone: string): number {
 export function zonedTime(date: LocalDay, clock: string, timeZone: string): number {
   const [h, min] = clock.split(':').map(Number)
   const wall = Date.UTC(date.y, date.m - 1, date.d, h, min)
-  let at = wall - offsetAt(wall, timeZone)
+  const first = offsetAt(wall, timeZone)
   // A second pass settles a guess that landed across a daylight-saving change.
-  at = wall - offsetAt(at, timeZone)
-  return at
+  const second = offsetAt(wall - first, timeZone)
+  if (second === first) return wall - first
+  // The two passes disagree only near a change. A time that exists under the
+  // second offset is that instant; one that doesn't (02:30 on a spring-forward
+  // day) is the later reading, the instant the clock skipped to.
+  const at = wall - second
+  return offsetAt(at, timeZone) === second ? at : Math.max(wall - first, wall - second)
 }
 
 /** The local calendar date of `at` in `timeZone`, and its weekday (0 Sunday). Pure. */
@@ -52,10 +57,27 @@ export function parseDayKey(value: string | null | undefined): LocalDay | null {
 }
 
 const HALF_DAY_MS = 12 * 60 * 60_000
+const DAY_MS = 24 * 60 * 60_000
 
 /** Whether an all-day block takes the local day [dayStart, dayEnd): it covers half of it or more. Pure. */
 export function allDayTakes(block: { start: number; end: number }, dayStart: number, dayEnd: number): boolean {
   return Math.min(block.end, dayEnd) - Math.max(block.start, dayStart) >= Math.min(HALF_DAY_MS, dayEnd - dayStart)
+}
+
+/**
+ * Whether an all-day block takes the local `day` in `timeZone`. Google and
+ * Outlook hand an all-day event as calendar dates, which reach here as UTC
+ * midnights: such a block takes the dates it names, in any zone (a day off
+ * on the 12th is the 12th in Auckland and in Pago Pago alike). Anything else
+ * (the desktop's Exchange rows, stored at the Mac's local midnight) takes
+ * the local days it covers for half the day or more ({@link allDayTakes}). Pure.
+ */
+export function allDayTakesDay(block: { start: number; end: number }, day: LocalDay, timeZone: string): boolean {
+  if (block.start % DAY_MS === 0 && block.end % DAY_MS === 0) {
+    const at = Date.UTC(day.y, day.m - 1, day.d)
+    return at >= block.start && at < block.end
+  }
+  return allDayTakes(block, zonedTime(day, '00:00', timeZone), zonedTime(addDays(day, 1), '00:00', timeZone))
 }
 
 /** A zone's short name at `at` ("EST", "GMT+1"), or null for one Intl doesn't know. Pure. */

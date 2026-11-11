@@ -10,7 +10,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { memoryDb } from '@/test/memory-db'
 import { listCountedEvents } from '../busy'
-import { claimsExcept, readHostClaims } from '../claims'
+import { CLAIMS_READ_MAX, claimsExcept, readHostClaims } from '../claims'
 import { DEFAULT_WEEKLY } from '../engine'
 import { findTimes } from '../find-times'
 import { checkSpansFree } from '../slot-check'
@@ -61,6 +61,12 @@ describe('readHostClaims', () => {
   it('a failed read throws (never free because unread)', async () => {
     const failing = { from: () => ({ select: () => ({ eq: () => ({ lt: () => ({ gt: () => ({ limit: async () => ({ data: null, error: { message: 'statement timeout' } }) }) }) }) }) }) } as never
     await expect(readHostClaims(failing, USER, { timeMin: 'a', timeMax: 'b' })).rejects.toThrow('Held times could not be read: statement timeout')
+  })
+
+  it('a read that fills its page throws, never a partial list', async () => {
+    const rows = Array.from({ length: CLAIMS_READ_MAX }, (_, i) => ({ id: `c${i}`, starts_at: 'a', ends_at: 'b', kind: 'booking', offer_id: null, booking_id: `b${i}`, expires_at: null }))
+    const full = { from: () => ({ select: () => ({ eq: () => ({ lt: () => ({ gt: () => ({ limit: async () => ({ data: rows, error: null }) }) }) }) }) }) } as never
+    await expect(readHostClaims(full, USER, { timeMin: 'a', timeMax: 'b' })).rejects.toThrow('Held times could not all be read')
   })
 })
 

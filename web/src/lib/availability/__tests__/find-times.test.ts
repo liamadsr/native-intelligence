@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { CalendarEvent } from '@/lib/integrations/calendar'
 import { DEFAULT_WEEKLY, type AvailabilitySchedule } from '../engine'
-import { FIND_TIMES_MAX_DAYS, FREE_WINDOWS_MAX, findTimes, type FindTimesInput } from '../find-times'
+import { capWindows, FIND_TIMES_MAX_DAYS, FREE_WINDOWS_MAX, findTimes, type FindTimesInput } from '../find-times'
 
 const NY = 'America/New_York'
 const SCHEDULE: AvailabilitySchedule = { timeZone: NY, weekly: DEFAULT_WEEKLY }
@@ -113,5 +113,13 @@ describe('findTimes', () => {
     if (!out.known) throw new Error('expected a known answer')
     expect(out.free).toHaveLength(FREE_WINDOWS_MAX)
     expect(iso(out.free[0].start)).toBe('2026-11-02T13:00:00.000Z')
+    // Cut, and said so: where the list stops (more free time follows).
+    expect(out.freeUntil).toBe(out.free[FREE_WINDOWS_MAX - 1].end)
+  })
+
+  it('says nothing about a cut when every window fits', async () => {
+    const out = await findTimes({ userId: 'u1', schedule: SCHEDULE, from: MON_7AM, to: MON_7AM + 86_400_000, durationMinutes: 30, now: MON_7AM }, { listEvents: async () => [] })
+    expect(out.known && out.freeUntil).toBeUndefined()
+    expect(capWindows([{ start: 1, end: 2 }])).toEqual({ free: [{ start: 1, end: 2 }] })
   })
 })

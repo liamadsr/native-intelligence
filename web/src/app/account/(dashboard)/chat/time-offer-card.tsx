@@ -14,6 +14,7 @@
  */
 import { memo, useState } from 'react'
 import { CalendarCheck, Check, Copy, X } from 'lucide-react'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
 import type { BookedCardData, OfferCardData, OfferListCardData, PollCardData, TimeOfferCardData } from '@/lib/time-offers/offer-card'
 import type { MeetingBookingState, OfferState } from '@/lib/time-offers/types'
@@ -23,15 +24,11 @@ const HEADING = 'mb-1.5 text-[11px] font-medium text-muted-foreground'
 
 /** `iconOnly`: the label is the button's name, not its text (a grid's row). */
 export function CopyButton({ value, label, iconOnly, ...rest }: { value: string; label: string; iconOnly?: boolean } & Record<`data-${string}`, string>) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'yes' | 'no' | null>(null)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      /* no clipboard: it's on screen to select */
-    }
+    // A webview without the clipboard falls back to the old copy; one that refuses both says so (the text is on screen to select).
+    setCopied((await copyTextToClipboard(value)) ? 'yes' : 'no')
+    setTimeout(() => setCopied(null), 1500)
   }
   return (
     <button
@@ -39,10 +36,10 @@ export function CopyButton({ value, label, iconOnly, ...rest }: { value: string;
       onClick={copy}
       {...rest}
       className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      aria-label={copied ? 'Copied' : label}
+      aria-label={copied === 'yes' ? 'Copied' : copied === 'no' ? "Couldn't copy" : label}
     >
-      {copied ? <Check aria-hidden className="size-3 text-emerald-600 dark:text-emerald-400" /> : <Copy aria-hidden className="size-3" />}
-      {iconOnly ? null : copied ? 'Copied' : label}
+      {copied === 'yes' ? <Check aria-hidden className="size-3 text-emerald-600 dark:text-emerald-400" /> : <Copy aria-hidden className="size-3" />}
+      {iconOnly ? null : copied === 'yes' ? 'Copied' : copied === 'no' ? "Couldn't copy" : label}
     </button>
   )
 }
@@ -79,6 +76,12 @@ function OfferCard({ data }: { data: OfferCardData }) {
       </p>
     </div>
   )
+}
+
+/** The zone a time's label ends in ("EST" of "Tue, Nov 17, 10:00 AM EST"), or null. Pure. */
+function zoneOfLabel(label: string | undefined): string | null {
+  const m = label ? /\d\s?(?:AM|PM)\s+([A-Z][A-Za-z0-9+:-]*)$/.exec(label) : null
+  return m ? m[1] : null
 }
 
 /** "Tue, Nov 17, 10:00 AM EST" as a column head: the day over the clock, no zone. Pure. */
@@ -175,12 +178,15 @@ function PollGrid({ data }: { data: PollCardData }) {
 function PollCard({ data }: { data: PollCardData }) {
   const length = data.durationMinutes ? ` · ${data.durationMinutes} min` : ''
   const hosts = data.coHosts ? ` · with ${data.coHosts === 1 ? 'a teammate' : `${data.coHosts} teammates`}` : ''
+  // The grid's heads drop the zone, so the heading says it once.
+  const zone = zoneOfLabel(data.times[0]?.label)
   return (
     <div data-time-offer-card="poll" className={FRAME}>
       <p className={HEADING}>
         Times asked of {data.guests.length} {data.guests.length === 1 ? 'person' : 'people'}
         {length}
         {hosts}
+        {zone && <span data-time-offer-zone="">{` · ${zone}`}</span>}
       </p>
       {data.title && <p className="mb-1.5 text-xs font-medium text-foreground">{data.title}</p>}
       <PollGrid data={data} />

@@ -5,8 +5,9 @@
  *
  *   - A timed busy block takes its own time, widened by the buffer on both
  *     sides.
- *   - An all-day block (a day off, travel) takes each local day it covers
- *     for at least half the day (./zone.ts allDayTakes): never offered.
+ *   - An all-day block (a day off, travel) takes the dates it names, or a
+ *     local day it covers for at least half the day (./zone.ts
+ *     allDayTakesDay): never offered.
  *   - Nothing is offered before `notBefore`, and nothing starts after
  *     `startNotAfter`.
  *
@@ -22,7 +23,7 @@
  * Pure.
  */
 import type { BusyBlock } from '@/lib/guests/free-busy'
-import { addDays, allDayTakes, clockMinutes, dayKey, localDate, minutesClock, zonedTime, type LocalDay } from './zone'
+import { addDays, allDayTakesDay, clockMinutes, dayKey, localDate, minutesClock, zonedTime, type LocalDay } from './zone'
 
 /** A stretch of a local day, HH:MM to HH:MM (the end may be 24:00). */
 export interface DayRange {
@@ -92,9 +93,7 @@ function workingDays(input: AvailabilityDays, busy: Busy): WorkingDay[] {
     const day = addDays(input.firstDay, i)
     const ranges = schedule.overrides?.[dayKey(day)] ?? schedule.weekly[day.weekday] ?? []
     if (!ranges.length) continue
-    const dayStart = zonedTime(day, '00:00', schedule.timeZone)
-    const dayEnd = zonedTime(addDays(day, 1), '00:00', schedule.timeZone)
-    if (busy.allDay.some((block) => allDayTakes(block, dayStart, dayEnd))) continue
+    if (busy.allDay.some((block) => allDayTakesDay(block, day, schedule.timeZone))) continue
     out.push({ day, ranges })
   }
   return out
@@ -133,6 +132,8 @@ export function openTimes(input: OpenTimesInput): Span[] {
         if (out.length >= max) return out
         const start = zonedTime(day, minutesClock(m), timeZone)
         const end = start + duration * MINUTE_MS
+        // A clock time the spring-forward change skipped is the next one's instant: offered once.
+        if (out.length && out[out.length - 1].start === start) continue
         if (input.notBefore !== undefined && start < input.notBefore) continue
         if (input.startNotAfter !== undefined && start > input.startNotAfter) continue
         if (overlaps(busy.timed, start, end)) continue
@@ -226,7 +227,8 @@ export function freeWindows(input: FreeWindowsInput): Span[] {
     }
   }
   const min = Math.max(1, input.minMinutes) * MINUTE_MS
-  return subtractSpans(working, busy.timed)
+  // Touching ranges (09:00-12:00 and 12:00-18:00) are one stretch.
+  return subtractSpans(mergeSpans(working), busy.timed)
     .filter((span) => span.end - span.start >= min)
     .sort((a, b) => a.start - b.start)
 }

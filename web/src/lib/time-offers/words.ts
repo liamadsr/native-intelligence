@@ -52,19 +52,35 @@ function what(w: OfferWords): string {
   return `${w.title} (${w.durationMinutes} min${where})`
 }
 
-/** The times as lines: "- Tue, Nov 17, 10:00 AM". */
-function timeLines(w: OfferWords): string[] {
-  return w.starts.map((s) => `- ${slotLabel(s, w.timeZone)}`)
+/** Whether the times fall under more than one of the zone's short names: a range across a daylight-saving change (EDT, then EST). Pure. */
+function zoneShifts(starts: readonly string[], timeZone: string): boolean {
+  return new Set(starts.map((s) => zoneLabel(timeZone, Date.parse(s)))).size > 1
 }
 
-/** The times in one run: "Tue, Nov 17, 10:00 AM; Wed, Nov 18, 2:00 PM; or Thu, Nov 19, 9:30 AM". */
+/** A start as its line says it: with its own zone's short name when the times cross a change. */
+function startLabel(start: string, timeZone: string, shifts: boolean): string {
+  return shifts ? `${slotLabel(start, timeZone)} ${zoneLabel(timeZone, Date.parse(start))}` : slotLabel(start, timeZone)
+}
+
+/** The times as lines: "- Tue, Nov 17, 10:00 AM". */
+function timeLines(w: OfferWords): string[] {
+  const shifts = zoneShifts(w.starts, w.timeZone)
+  return w.starts.map((s) => `- ${startLabel(s, w.timeZone, shifts)}`)
+}
+
+/** The times in one run: "Tue, Nov 17, 10:00 AM; Wed, Nov 18, 2:00 PM; or Thu, Nov 19, 9:30 AM" (each with its zone across a change). */
 export function timesInline(starts: readonly string[], timeZone: string): string {
-  const labels = starts.map((s) => slotLabel(s, timeZone))
+  const shifts = zoneShifts(starts, timeZone)
+  const labels = starts.map((s) => startLabel(s, timeZone, shifts))
   if (labels.length <= 1) return labels.join('')
   return `${labels.slice(0, -1).join('; ')}; or ${labels[labels.length - 1]}`
 }
 
-const zoneOf = (w: OfferWords) => zoneLabel(w.timeZone, Date.parse(w.starts[0] ?? new Date(0).toISOString()))
+/** The zone the words name once: its short name, or across a change the place ("New York time"), each time then carrying its own. */
+const zoneOf = (w: OfferWords) =>
+  zoneShifts(w.starts, w.timeZone) ? `${(w.timeZone.split('/').pop() ?? w.timeZone).replace(/_/g, ' ')} time` : zoneLabel(w.timeZone, Date.parse(w.starts[0] ?? new Date(0).toISOString()))
+/** The zone after a run of times: none across a change, where each time has its own. */
+const trailingZone = (w: OfferWords) => (zoneShifts(w.starts, w.timeZone) ? '' : ` ${zoneOf(w)}`)
 
 /** The text the person pastes themselves (send_by 'link'). */
 export function pasteText(w: OfferWords, link: string): string {
@@ -80,7 +96,7 @@ export function pasteText(w: OfferWords, link: string): string {
 /** The text message (send_by 'text'): from the business's number, so it names the host. Replies come back to the business's assistant. */
 export function smsText(w: OfferWords, link: string): string {
   const hi = w.recipientFirstName ? `Hi ${w.recipientFirstName}, ` : ''
-  return `${hi}${w.hostName} here.${w.message ? ` ${w.message}` : ''} Could we meet for ${what(w)}? ${timesInline(w.starts, w.timeZone)} ${zoneOf(w)}. Pick one at ${link} or reply here with the one that works.`
+  return `${hi}${w.hostName} here.${w.message ? ` ${w.message}` : ''} Could we meet for ${what(w)}? ${timesInline(w.starts, w.timeZone)}${trailingZone(w)}. Pick one at ${link} or reply here with the one that works.`
 }
 
 /** The email (send_by 'email'), from the person's own mailbox. */
@@ -210,6 +226,23 @@ export function guestChangeReport(b: { guestName: string; title: string; startsA
     : `${b.guestName} moved ${b.title} from ${at(change.fromIso)} to ${at(b.startsAt)}. Your calendar has the new time.`
 }
 
+/**
+ * The host's line after they cancelled: who the calendar told, and who it
+ * didn't. With no event written yet (a request still waiting, a booking still
+ * being made) nobody was told; with one, each guest with an email got the
+ * calendar's cancellation and each without one wasn't. Pure.
+ */
+export function hostCancelledWords(b: { title: string; calendarEventId: string | null }, guests: ReadonlyArray<{ name: string; email: string | null }>): string {
+  const names = (list: ReadonlyArray<{ name: string }>) => namesList(list.map((g) => g.name), 4)
+  const head = `Cancelled ${b.title} with ${names(guests) || 'the guest'}.`
+  if (!b.calendarEventId) return `${head} It wasn't on the calendar yet, so nobody was told: reach ${guests.length > 1 ? 'them' : (guests[0]?.name ?? 'them')} yourself if they should know.`
+  const told = guests.filter((g) => g.email)
+  const untold = guests.filter((g) => !g.email)
+  const sent = told.length ? ` The calendar sent ${names(told)} the cancellation.` : ''
+  const rest = untold.length ? ` ${names(untold)} ${untold.length > 1 ? 'have' : 'has'} no email on file, so the calendar couldn't tell them: tell them yourself.` : ''
+  return `${head}${sent}${rest}`
+}
+
 // ── Polls (availability phase 5) ────────────────────────────────────────────
 //
 // A poll's words are the same for every guest but their own link, so one
@@ -218,10 +251,11 @@ export function guestChangeReport(b: { guestName: string; title: string; startsA
 /** A poll's times by day, a line each: "- Wed, Nov 18: 6:00 AM, 10:00 AM" (a poll has more times than a pick). */
 function byDay(w: OfferWords): Array<{ day: string; clocks: string[] }> {
   const days: Array<{ day: string; clocks: string[] }> = []
+  const shifts = zoneShifts(w.starts, w.timeZone)
   for (const start of w.starts) {
     const [day, ...rest] = slotLabel(start, w.timeZone).split(', ')
     const date = rest.length > 1 ? `${day}, ${rest[0]}` : day
-    const clock = rest[rest.length - 1] ?? ''
+    const clock = `${rest[rest.length - 1] ?? ''}${shifts ? ` ${zoneLabel(w.timeZone, Date.parse(start))}` : ''}`
     const last = days[days.length - 1]
     if (last && last.day === date) last.clocks.push(clock)
     else days.push({ day: date, clocks: [clock] })
@@ -258,7 +292,7 @@ export function pollPasteText(w: OfferWords, link: string): string {
 
 /** A poll's text message (send_by 'text'), from the business's number. */
 export function pollSmsText(w: OfferWords, link: string): string {
-  return `Hi, ${w.hostName} here.${w.message ? ` ${w.message}` : ''} Could we meet for ${what(w)}? Which work for you: ${daysInline(w)} ${zoneOf(w)}? Mark them at ${link} or reply here.`
+  return `Hi, ${w.hostName} here.${w.message ? ` ${w.message}` : ''} Could we meet for ${what(w)}? Which work for you: ${daysInline(w)}${trailingZone(w)}? Mark them at ${link} or reply here.`
 }
 
 /** A poll's email (send_by 'email'), from the person's own mailbox. */
@@ -272,7 +306,7 @@ export function pollEmailWords(w: OfferWords, link: string): { subject: string; 
 
 /** A reminder to a guest who hasn't answered, by text. */
 export function nudgeSmsText(w: OfferWords, link: string): string {
-  return `Hi, ${w.hostName} here again. Which work for you for ${w.title}: ${daysInline(w)} ${zoneOf(w)}? Mark them at ${link} or reply here.`
+  return `Hi, ${w.hostName} here again. Which work for you for ${w.title}: ${daysInline(w)}${trailingZone(w)}? Mark them at ${link} or reply here.`
 }
 
 /** A reminder to a guest who hasn't answered, by email. */

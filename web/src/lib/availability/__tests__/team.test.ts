@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { CalendarEvent } from '@/lib/integrations/calendar'
 import { DEFAULT_WEEKLY, type AvailabilitySchedule } from '../engine'
 import type { WorkspacePerson } from '../people'
-import { findTimesTogether, NOT_SHARING_REASON, teammateReason, type FindTimesTogetherDeps, type FindTimesTogetherInput } from '../team'
+import { findTimesTogether, NOT_SHARING_REASON, teammateReason, ZONE_UNKNOWN_REASON, type FindTimesTogetherDeps, type FindTimesTogetherInput } from '../team'
 
 const at = (value: string) => Date.parse(value)
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -150,5 +150,14 @@ describe('teammateReason', () => {
     expect(teammateReason('A calendar account needs signing in again')).toBe('a calendar of theirs needs signing in again')
     expect(teammateReason('Please reconnect')).toBe('a calendar of theirs needs signing in again')
     expect(teammateReason('anything at all')).toBe('a calendar of theirs could not be read')
+  })
+
+  it('a teammate whose time zone is nowhere known is unknown, never their hours read in UTC', async () => {
+    const d = deps({}, { readHours: vi.fn(async (userId: string) => (userId === 'user-dana' ? { timeZone: 'UTC', weekly: DEFAULT_WEEKLY, zoneKnown: false } : HOURS[userId])) })
+    const out = await findTimesTogether(input([DANA, LEE]), d)
+    expect(out.known).toBe(false)
+    expect(out.people.find((p) => p.userId === 'user-dana')).toMatchObject({ coverage: 'unknown', reason: ZONE_UNKNOWN_REASON, timeZone: null })
+    // Their calendar is never read for nothing.
+    expect(d.listEvents.mock.calls.map((c) => c[0])).not.toContain('user-dana')
   })
 })

@@ -49,14 +49,14 @@ import type { PageLoad } from '@/lib/time-offers/display'
 import { bookFromLink, readGuest, readGuestAnswers, type LinkBookingDeps, type LinkBookingFailure } from './book'
 import { clientKeyOf } from './client'
 import { countClientAttempts, countGuestBookings, countLinkAttempts, getJobLink, getLinkByAddress, getProfileByHandle, recordLinkAttempt } from './store'
-import { readLinkTimes, type LinkTimesResult } from './times'
+import { capPerDay, readLinkTimes, type LinkTimesResult } from './times'
 import {
   LINK_ATTEMPTS_HOURLY_CAP,
   LINK_CLIENT_HOURLY_CAP,
   LINK_GUEST_DAILY_CAP,
   LINK_TIMES_CLIENT_PER_MINUTE,
   LINK_TIMES_DAYS_MAX,
-  LINK_TIMES_MAX,
+  LINK_TIMES_PER_DAY_MAX,
   type BookingLink,
   type PublicLinkBooked,
   type PublicLinkData,
@@ -138,7 +138,7 @@ export async function publicLink(link: BookingLink, deps: LinkPublicDeps): Promi
 export async function loadLinkPage(deps: LinkPublicDeps, profile: string, slug: string): Promise<PageLoad<PublicLinkData>> {
   try {
     const link = await liveLink(deps, profile, slug)
-    return link ? { kind: 'found', data: await publicLink(link, deps) } : { kind: 'missing' }
+    return link ? { kind: 'found', data: await publicLink(link, deps), at: nowOf(deps) } : { kind: 'missing' }
   } catch {
     return { kind: 'error' }
   }
@@ -183,7 +183,7 @@ const timesCache = new Map<string, { at: number; value: TimesBlock }>()
 /** A block's days: a meeting link's one read covers LINK_TIMES_DAYS_MAX at most, a job link's 14 (findOpenSlots' read). */
 const MEETING_BLOCK_DAYS = LINK_TIMES_DAYS_MAX
 const JOB_BLOCK_DAYS = 14
-/** Times one block keeps before a request's answer is cut to LINK_TIMES_MAX. */
+/** A job link's block keeps every slot (15 minutes at the shortest: under 100 a day). */
 const BLOCK_TIMES_MAX = 2000
 
 /** Each client's reads of times this minute, on this instance. */
@@ -277,7 +277,7 @@ export async function handleLinkTimes(request: Request, profile: string, slug: s
           return apiError("The calendar couldn't be checked just now. Try again in a minute.", { status: 503, code: 'UNAVAILABLE' })
         }
       } else {
-        const read = await (deps.readTimes ?? ((l, r) => readLinkTimes(l, r, { supabase: deps.supabase, now: () => now, max: BLOCK_TIMES_MAX })))(link, { from: block.from, to: block.to })
+        const read = await (deps.readTimes ?? ((l, r) => readLinkTimes(l, r, { supabase: deps.supabase, now: () => now })))(link, { from: block.from, to: block.to })
         if (!read.known) return apiError("The calendar couldn't be checked just now. Try again in a minute.", { status: 503, code: 'UNAVAILABLE' })
         value = { timeZone: read.timeZone, slots: read.slots.map((s) => ({ start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString() })) }
       }
@@ -290,7 +290,9 @@ export async function handleLinkTimes(request: Request, profile: string, slug: s
       if (at >= from && at < to) found.push(s)
     }
   }
-  const slots = [...new Map(found.map((s) => [s.start, s])).values()].sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, LINK_TIMES_MAX)
+  // At most LINK_TIMES_PER_DAY_MAX a day, never a cap across the range: no later day of the strip looks empty.
+  const sorted = [...new Map(found.map((s) => [s.start, { ...s, at: Date.parse(s.start) }])).values()].sort((a, b) => a.at - b.at)
+  const slots = capPerDay(sorted.map((s) => ({ ...s, start: s.at })), timeZone, LINK_TIMES_PER_DAY_MAX).map((s) => ({ start: new Date(s.start).toISOString(), end: s.end }))
   return answer(timeZone, slots)
 }
 

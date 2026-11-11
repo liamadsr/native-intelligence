@@ -93,6 +93,11 @@ describe('bookingPhase', () => {
     expect(bookingPhase(b, Date.parse(SLOTS[1].end))).toBe('past')
     expect(bookingPhase({ ...b, state: 'cancelled' }, start - 1)).toBe('cancelled')
     expect(bookingPhase({ ...b, state: 'failed' }, start - 1)).toBe('failed')
+    // A link's request still waiting on the host is not a booked meeting; a no, or no answer, is not a cancellation.
+    expect(bookingPhase({ ...b, state: 'requested', awaiting_host: true }, start - 1)).toBe('awaiting')
+    expect(bookingPhase({ ...b, state: 'requested', awaiting_host: true }, start + 1)).toBe('expired')
+    expect(bookingPhase({ ...b, state: 'declined' }, start - 1)).toBe('declined')
+    expect(bookingPhase({ ...b, state: 'expired' }, start - 1)).toBe('expired')
   })
 })
 

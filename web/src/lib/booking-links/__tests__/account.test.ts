@@ -82,6 +82,18 @@ describe('making a link', () => {
     expect(tables.booking_profile).toHaveLength(1)
   })
 
+  it('a link’s own week is stored in the editor’s zone when none is named, so every host reads it the same', async () => {
+    tables.member[0].time_zone = 'America/Chicago'
+    const week = [[], [{ start: '09:00', end: '12:00' }], [], [], [], [], []]
+    const made = await json(await handleCreateLink(req({ title: 'Office hours', weekly_hours: week }), as(AVA), deps))
+    expect(made.body.link).toMatchObject({ weekly_hours: week, time_zone: 'America/Chicago' })
+    // A zone named is kept.
+    const named = await json(await handleCreateLink(req({ title: 'Late hours', weekly_hours: week, time_zone: 'Europe/London' }), as(AVA), deps))
+    expect(named.body.link.time_zone).toBe('Europe/London')
+    // No own week: no zone (each host's working hours, in their own).
+    expect((await json(await handleCreateLink(req({ title: 'Plain' }), as(AVA), deps))).body.link.time_zone).toBeNull()
+  })
+
   it('a team link goes under the workspace’s handle, by an owner or admin only', async () => {
     expect((await handleCreateLink(req({ title: 'Studio tour', team: true }), as(BEN), deps)).status).toBe(403)
     const made = await json(await handleCreateLink(req({ title: 'Studio tour', team: true, host_mode: 'any', hosts: [AVA, CARA] }), as(CARA), deps))

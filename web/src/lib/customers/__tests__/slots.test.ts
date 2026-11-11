@@ -83,6 +83,12 @@ describe('isSlotFree (the check at the owner’s yes)', () => {
     expect(await isSlotFree(db([own, { ...own, id: 'b-other', state: 'confirmed' }]), business, { ...slot, exceptBookingId: 'b-own' }, { listEvents, now: () => FRI_9AM })).toBe(false)
   })
 
+  it("a teammate's booking at that time is their time, not the owner's: it never takes the slot", async () => {
+    const theirs = { id: 'b-teammate', workspace_id: 'ws-rug', owner_user_id: 'user-teammate', state: 'confirmed', starts_at: slot.start, ends_at: slot.end, created_at: new Date(FRI_9AM).toISOString() }
+    expect(await isSlotFree(db([theirs]), business, slot, { listEvents: async () => [], now: () => FRI_9AM })).toBe(true)
+    expect(await isSlotFree(db([{ ...theirs, owner_user_id: 'user-owner' }]), business, slot, { listEvents: async () => [], now: () => FRI_9AM })).toBe(false)
+  })
+
   it('anything on the calendar then, or an all-day event that day, is busy', async () => {
     const timed = async () => [{ start: '2026-11-02T15:30:00Z', end: '2026-11-02T15:45:00Z' }] as never
     expect(await isSlotFree(db(), business, slot, { listEvents: timed, now: () => FRI_9AM })).toBe(false)

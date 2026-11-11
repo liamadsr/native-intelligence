@@ -42,10 +42,13 @@ interface ClaimRow {
   expires_at: string | null
 }
 
+/** The most claims one read takes; a read that fills it throws rather than leave some out. */
+export const CLAIMS_READ_MAX = 1000
+
 /**
  * The host's live claims overlapping [timeMin, timeMax): every booking's
  * (a request's until its hold runs out), and every hold that hasn't
- * expired. Throws on a failed read.
+ * expired. Throws on a failed read, and on one that may have left some out.
  */
 export async function readHostClaims(
   supabase: SupabaseClient,
@@ -59,8 +62,10 @@ export async function readHostClaims(
     .eq('host_user_id', hostUserId)
     .lt('starts_at', range.timeMax)
     .gt('ends_at', range.timeMin)
-    .limit(1000)
+    .limit(CLAIMS_READ_MAX)
   if (error) throw new Error(`Held times could not be read: ${error.message}`)
+  // A full page may have left some out: unread is never free.
+  if (((data as unknown[] | null) ?? []).length >= CLAIMS_READ_MAX) throw new Error('Held times could not all be read')
   const out: HostClaim[] = []
   for (const row of (data as ClaimRow[] | null) ?? []) {
     if (row.kind !== 'hold' && row.kind !== 'booking') continue

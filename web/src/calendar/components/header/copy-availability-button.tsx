@@ -7,9 +7,10 @@
  * every calendar that counts, all-day events). Read only on the click.
  * When the time can't be known (a calendar needs signing in again), the
  * person is told so and nothing is copied: never a guess on the clipboard.
- * Under them, the person's booking links (availability phase 4b), read when
- * the menu opens: each copies its address. Renders nothing when no calendar
- * is connected.
+ * Under them, the person's booking links (availability phase 4b), read each
+ * time the menu opens (one made since shows up): each copies its address. A
+ * read that fails never reads as "no links". Renders nothing when no
+ * calendar is connected.
  */
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -39,10 +40,10 @@ export interface MenuLink {
   url: string;
 }
 
-/** The person's booking links that are on, to copy (theirs to host or theirs to own), at most five. */
+/** The person's booking links that are on, to copy (theirs to host or theirs to own), at most five. Throws on a failed read. */
 export async function fetchMyBookingLinks(load: typeof fetch = fetch): Promise<MenuLink[]> {
   const res = await load("/api/account/booking-links");
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error("Booking links could not be read");
   const body = (await res.json().catch(() => ({}))) as { user_id?: string; links?: Array<{ id: string; title: string; url: string | null; active: boolean; hosts: string[]; owner_user_id: string; purpose: string }> };
   const me = body.user_id;
   return (body.links ?? [])
@@ -55,15 +56,12 @@ export function CopyAvailabilityButton({ compact = false, className }: { compact
   const connected = useHasConnectedAccount("calendar");
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  // Read the first time the menu opens; null until then.
+  // Read each time the menu opens (the last list stays while it loads); null until then, or after a failed read.
   const [links, setLinks] = useState<MenuLink[] | null>(null);
 
-  const opened = useCallback(
-    (open: boolean) => {
-      if (open && links === null) void fetchMyBookingLinks().then(setLinks, () => setLinks([]));
-    },
-    [links],
-  );
+  const opened = useCallback((open: boolean) => {
+    if (open) void fetchMyBookingLinks().then(setLinks, () => setLinks(null));
+  }, []);
 
   const copyLink = useCallback(async (link: MenuLink) => {
     if (await copyTextToClipboard(link.url)) toast.success(`Booking link copied · ${link.title}`);

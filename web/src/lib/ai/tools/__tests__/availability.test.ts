@@ -23,7 +23,7 @@ const hoisted = vi.hoisted(() => ({
 
 vi.mock('@/lib/admin', () => ({ getServiceClient: () => ({ marker: 'service' }) }))
 vi.mock('@/lib/integrations/calendar', () => ({ getCalendarProvider: hoisted.getCalendarProvider }))
-vi.mock('@/lib/availability/find-times', () => ({ findTimes: hoisted.findTimes, FIND_TIMES_MAX_DAYS: 31 }))
+vi.mock('@/lib/availability/find-times', () => ({ findTimes: hoisted.findTimes, FIND_TIMES_MAX_DAYS: 31, FREE_WINDOWS_MAX: 60 }))
 vi.mock('@/lib/availability/schedule', () => ({ readWorkingHours: hoisted.readWorkingHours, saveWorkingHours: hoisted.saveWorkingHours }))
 vi.mock('@/lib/availability/people', () => ({ findWorkspacePeople: hoisted.findWorkspacePeople, TEAM_MAX_PEOPLE: 12 }))
 vi.mock('@/lib/availability/team', () => ({ findTimesTogether: hoisted.findTimesTogether }))
@@ -39,7 +39,7 @@ const NOW = at('2026-11-02T13:00:00.000Z')
 
 const NINE_TO_SIX = [{ start: '09:00', end: '18:00' }]
 const WEEK = [[], NINE_TO_SIX, NINE_TO_SIX, NINE_TO_SIX, NINE_TO_SIX, NINE_TO_SIX, []]
-const hours = (extra: Partial<WorkingHours> = {}): WorkingHours => ({ timeZone: NY, zoneSource: 'member', weekly: WEEK.map((d) => [...d]), overrides: {}, saved: false, ...extra })
+const hours = (extra: Partial<WorkingHours> = {}): WorkingHours => ({ timeZone: NY, zoneSource: 'member', zoneKnown: true, weekly: WEEK.map((d) => [...d]), overrides: {}, saved: false, ...extra })
 
 type Answer = Record<string, unknown> & { success: boolean; error?: string }
 type Zone = { timeZone?: string; omitGrants?: boolean }
@@ -121,6 +121,29 @@ describe('find_times', () => {
     expect(suggested.end).toBe('2026-11-03T10:30:00-05:00')
     expect(plain(suggested.label)).toBe('Tue, Nov 3, 10:00 AM to 10:30 AM')
     expect(plain((out.free as Array<{ label: string }>)[0].label)).toBe('Tue, Nov 3, 9:00 AM to 12:00 PM')
+  })
+
+  it('a cut free list says where it stops, and that more follows', async () => {
+    hoisted.findTimes.mockResolvedValue({
+      known: true,
+      suggested: [],
+      free: [{ start: at('2026-11-03T14:00:00.000Z'), end: at('2026-11-03T17:00:00.000Z') }],
+      freeUntil: at('2026-11-03T17:00:00.000Z'),
+    })
+    const out = await run('find_times', {})
+    expect(out).toMatchObject({ truncated: true, free_until: '2026-11-03T12:00:00-05:00' })
+    expect(out.more).toMatch(/more free time follows/)
+  })
+
+  it('a person whose time zone is nowhere known, on a turn with no browser zone: unknown, with what to do', async () => {
+    hoisted.readWorkingHours.mockResolvedValue(hours({ timeZone: 'UTC', zoneKnown: false }))
+    const out = await run('find_times', {})
+    expect(out).toMatchObject({ success: false, unknown: true })
+    expect(out.error).toMatch(/time zone isn't known.+set_working_hours/)
+    expect(hoisted.findTimes).not.toHaveBeenCalled()
+    // This turn's browser zone is known: it is used.
+    await run('find_times', {}, { timeZone: 'Europe/Berlin' })
+    expect(hoisted.findTimes).toHaveBeenCalled()
   })
 
   it('a calendar that could not be read: unknown, never offered times', async () => {

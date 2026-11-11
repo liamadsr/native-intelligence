@@ -18,7 +18,9 @@
  * sooner), the window (nothing starts later than that many days out), the
  * grid (starts on multiples of the step from local midnight in the link's
  * zone; the step defaults to the length) and the daily cap (a day that has
- * as many of the link's bookings as the cap offers nothing).
+ * as many of the link's bookings as the cap offers nothing). At most
+ * LINK_TIMES_PER_DAY_MAX times a day are offered: a cap per day, so a busy
+ * grid never leaves the later days looking empty.
  *
  * Unknown is never free: a host whose calendar can't be read (or who has no
  * calendar connected, or no longer shares their availability) makes the
@@ -35,10 +37,10 @@ import type { ClaimExceptions } from '@/lib/availability/claims'
 import { freeWindows, intersectAll, type AvailabilitySchedule, type Span } from '@/lib/availability/engine'
 import { readWorkingHours } from '@/lib/availability/schedule'
 import { readSharing } from '@/lib/availability/sharing'
-import { addDays, dayKey, localDate, zonedTime } from '@/lib/availability/zone'
+import { addDays, dayKey, localDate, minutesClock, zonedTime } from '@/lib/availability/zone'
 import { busyBlocks, type BusyBlock } from '@/lib/guests/free-busy'
 import { linkBookingStarts } from './store'
-import { LINK_TIMES_DAYS_MAX, LINK_TIMES_MAX, type BookingLink } from './types'
+import { LINK_TIMES_DAYS_MAX, LINK_TIMES_PER_DAY_MAX, type BookingLink } from './types'
 
 const MINUTE_MS = 60_000
 const DAY_MS = 24 * 60 * MINUTE_MS
@@ -68,7 +70,8 @@ export interface LinkSlotsInput {
   to: number
   /** The starts of the link's live bookings (for the daily cap). */
   booked?: readonly number[]
-  max?: number
+  /** At most this many times on one local day (default LINK_TIMES_PER_DAY_MAX). */
+  maxPerDay?: number
 }
 
 /** Busy time widened by the link's buffers: a timed block [s, e) keeps [s - after, e + before) clear. Pure. */
@@ -78,16 +81,43 @@ export function widenBusy(busy: readonly BusyBlock[], beforeMinutes: number, aft
   return busy.map((b) => (b.allDay ? b : { start: new Date(Date.parse(b.start) - after).toISOString(), end: new Date(Date.parse(b.end) + before).toISOString() }))
 }
 
-/** Starts on the grid (multiples of `step` minutes from local midnight in `timeZone`) with room for the length inside each window. Pure. */
+/**
+ * Starts on the grid with room for the length inside each window: each local
+ * day's own wall-clock multiples of `step` minutes from its midnight in
+ * `timeZone` (10:30 stays 10:30 across a daylight-saving change, and a step
+ * that doesn't divide the day starts again at each midnight, as a booking's
+ * own re-read of that day does). Pure.
+ */
 export function gridStarts(windows: readonly Span[], stepMinutes: number, durationMinutes: number, timeZone: string): number[] {
-  const step = Math.max(1, stepMinutes) * MINUTE_MS
+  const step = Math.max(1, Math.round(stepMinutes))
   const duration = Math.max(1, durationMinutes) * MINUTE_MS
   const out: number[] = []
   for (const w of [...windows].sort((a, b) => a.start - b.start)) {
-    const midnight = zonedTime(localDate(w.start, timeZone), '00:00', timeZone)
-    for (let start = midnight + Math.ceil((w.start - midnight) / step) * step; start + duration <= w.end; start += step) out.push(start)
+    for (let day = localDate(w.start, timeZone); ; day = addDays(day, 1)) {
+      const midnight = zonedTime(day, '00:00', timeZone)
+      if (midnight >= w.end) break
+      // From a step at or before the window's start: wall minutes are elapsed minutes, give or take a change day's hour.
+      const near = Math.max(0, Math.floor(((w.start - midnight) / MINUTE_MS - 60) / step)) * step
+      for (let m = near; m < 24 * 60; m += step) {
+        const start = zonedTime(day, minutesClock(m), timeZone)
+        if (start < w.start || out[out.length - 1] === start) continue
+        if (start + duration > w.end) break
+        out.push(start)
+      }
+    }
   }
   return out
+}
+
+/** The first `perDay` starts of each local day in `timeZone`, the rest left out: every day keeps some, never the first days all of them. Pure. */
+export function capPerDay<T extends { start: number }>(slots: readonly T[], timeZone: string, perDay: number): T[] {
+  const counts = new Map<string, number>()
+  return slots.filter((s) => {
+    const key = dayKey(localDate(s.start, timeZone))
+    const n = counts.get(key) ?? 0
+    counts.set(key, n + 1)
+    return n < perDay
+  })
 }
 
 /** The local days [from, to) touches in `timeZone`, the first one and how many. Pure. */
@@ -154,7 +184,7 @@ export function linkSlots(input: LinkSlotsInput): LinkSlot[] {
     const cap = link.dailyCap
     slots = slots.filter((s) => (perDay.get(dayKey(localDate(s.start, timeZone))) ?? 0) < cap)
   }
-  return slots.slice(0, input.max ?? LINK_TIMES_MAX)
+  return capPerDay(slots, timeZone, input.maxPerDay ?? LINK_TIMES_PER_DAY_MAX)
 }
 
 /**
@@ -180,14 +210,24 @@ export interface ReadLinkTimesDeps {
   now?: () => number
   listEvents?: typeof listCountedEvents
   hasCalendar?: (userId: string, workspaceId: string) => Promise<boolean>
-  readHours?: (userId: string, workspaceId: string) => Promise<AvailabilitySchedule>
+  /** `zoneKnown: false` (src/lib/availability/schedule.ts WorkingHours): no zone of theirs is known. */
+  readHours?: (userId: string, workspaceId: string) => Promise<AvailabilitySchedule & { zoneKnown?: boolean }>
   /** Whether a host other than the link's owner still shares their availability (default: their member row). */
   shares?: (userId: string, workspaceId: string) => Promise<boolean>
   bookedStarts?: (linkId: string, fromIso: string, toIso: string) => Promise<number[]>
   /** Claims the read leaves out: a booking's own while the host's yes re-checks it. */
   exceptClaims?: ClaimExceptions
-  /** At most this many times (default LINK_TIMES_MAX): the public page's whole-block reads take more, and cut each request's answer to it. */
-  max?: number
+  /** A provider event the read leaves out: a booking's own while it moves. */
+  exceptEventId?: string | null
+  /** At most this many times on one local day (default LINK_TIMES_PER_DAY_MAX). */
+  maxPerDay?: number
+}
+
+/** The dated days off among a schedule's overrides (an empty day). Pure. */
+function daysOff(overrides: AvailabilitySchedule['overrides']): Record<string, readonly []> | undefined {
+  const out: Record<string, readonly []> = {}
+  for (const [date, ranges] of Object.entries(overrides ?? {})) if (!ranges.length) out[date] = []
+  return Object.keys(out).length ? out : undefined
 }
 
 /** A reason a guest may read: what kind of thing went wrong, never a provider's words or whose calendar. */
@@ -213,14 +253,17 @@ export async function readLinkTimes(link: BookingLink, range: { from: number; to
     hosts.map(async (userId): Promise<HostTime | null> => {
       try {
         if (userId !== link.ownerUserId && !(await shares(userId, ws))) return null
-        const schedule: AvailabilitySchedule = link.weeklyHours
-          ? { timeZone: link.timeZone ?? (await readHours(userId, ws)).timeZone, weekly: link.weeklyHours }
-          : await readHours(userId, ws)
+        const hours = await readHours(userId, ws)
+        // A host whose zone is unknown has no hours to offer, unless the link names its own week and zone.
+        if (hours.zoneKnown === false && !(link.weeklyHours && link.timeZone)) return null
+        // The link's own week still keeps the host's dated days off.
+        const schedule: AvailabilitySchedule = link.weeklyHours ? { timeZone: link.timeZone ?? hours.timeZone, weekly: link.weeklyHours, overrides: daysOff(hours.overrides) } : hours
         if (!(await hasCalendar(userId, ws))) return null
         // The day before and after, so an all-day event's UTC midnights are seen.
         const timeMin = new Date(from - DAY_MS).toISOString()
         const timeMax = new Date(to + DAY_MS + link.durationMinutes * MINUTE_MS).toISOString()
-        const events = await (deps.listEvents ?? listCountedEvents)(userId, { timeMin, timeMax, maxResults: 1000, workspaceId: ws, strict: true, exceptClaims: deps.exceptClaims })
+        const read = await (deps.listEvents ?? listCountedEvents)(userId, { timeMin, timeMax, maxResults: 1000, workspaceId: ws, strict: true, exceptClaims: deps.exceptClaims })
+        const events = deps.exceptEventId ? read.filter((e) => e.id !== deps.exceptEventId) : read
         return { userId, schedule, busy: busyBlocks(events, timeMin, timeMax) }
       } catch (err) {
         console.warn(`[booking-links] link=${link.id} a host's time could not be read:`, err instanceof Error ? err.message : String(err))
@@ -239,5 +282,5 @@ export async function readLinkTimes(link: BookingLink, range: { from: number; to
       return { known: false, reason: UNKNOWN }
     }
   }
-  return { known: true, timeZone, slots: linkSlots({ link, hosts: hostTimes, timeZone, now, from, to, booked, max: deps.max }) }
+  return { known: true, timeZone, slots: linkSlots({ link, hosts: hostTimes, timeZone, now, from, to, booked, maxPerDay: deps.maxPerDay }) }
 }

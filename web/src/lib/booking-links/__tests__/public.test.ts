@@ -15,7 +15,7 @@ vi.mock('@/lib/safety/approvals', () => ({ createToolApproval: vi.fn() }))
 
 import { __clearLinkTimesCacheForTests, handleBookLink, handleGetLink, handleLegacySlug, handleLinkTimes, loadLinkPage, resolveLegacySlug, timesRange, type LinkPublicDeps } from '../public'
 import { clientKeyOf } from '../client'
-import { LINK_ATTEMPTS_HOURLY_CAP, LINK_CLIENT_HOURLY_CAP, LINK_TIMES_CLIENT_PER_MINUTE } from '../types'
+import { LINK_ATTEMPTS_HOURLY_CAP, LINK_CLIENT_HOURLY_CAP, LINK_TIMES_CLIENT_PER_MINUTE, LINK_TIMES_PER_DAY_MAX } from '../types'
 import { AVA, BEN, hoursAhead, NY, openAt, seams, studioDb, WS } from './fixtures'
 import type { BookingLinkDeps } from '@/lib/customers/booking-link'
 
@@ -133,6 +133,17 @@ describe('its times', () => {
     // The block read is a fixed one, from today.
     const [, range] = readTimes.mock.calls[0] as unknown as [unknown, { from: number; to: number }]
     expect(range.to - range.from).toBeGreaterThanOrEqual(31 * 86_400_000 - 3_600_000)
+  })
+
+  it('caps the times per day, never across the range: a dense first day never empties the later ones', async () => {
+    const { deps } = setup()
+    // Two days ahead: 150 five-minute starts, then one more on the third day.
+    const dense = Array.from({ length: 150 }, (_, i) => new Date(Date.parse(`${dayIn(NY, 2)}T13:00:00Z`) + i * 5 * 60_000).toISOString())
+    const later = `${dayIn(NY, 3)}T15:00:00.000Z`
+    const read = await handleLinkTimes(get(`?from=${dayIn(NY, 2)}&days=2`), 'ava-lin', 'intro', { ...deps, readTimes: openAt([...dense, later]) })
+    const { slots } = (await read.json()) as { slots: Array<{ start: string }> }
+    expect(slots).toHaveLength(LINK_TIMES_PER_DAY_MAX + 1)
+    expect(slots.at(-1)?.start).toBe(later)
   })
 
   it('only the link’s own window is ever read: a range before or past it is answered empty, reading no calendar', async () => {

@@ -37,7 +37,7 @@ vi.mock('@/lib/time-offers/manage', () => ({ hostBooking: mocks.hostBooking, can
 vi.mock('@/lib/time-offers/store', () => ({ listOffers: mocks.listOffers, listBookings: mocks.listBookings, getOffer: mocks.getOffer }))
 vi.mock('@/lib/time-offers/polls', () => ({ recordAnswer: mocks.recordAnswer, bookPollAnyway: mocks.bookPollAnyway, recipientLink: (origin: string, id: string) => `${origin}/t/link-${id}` }))
 vi.mock('@/lib/time-offers/poll-send', () => ({ runNudge: mocks.runNudge }))
-vi.mock('@/lib/time-offers/poll-store', () => ({ withRecipients: mocks.withRecipients }))
+vi.mock('@/lib/time-offers/poll-store', () => ({ withRecipients: mocks.withRecipients, getPoll: vi.fn(async () => null) }))
 
 import { createTimeOfferTools } from '../time-offers'
 
@@ -196,11 +196,15 @@ describe('cancel_offered_meeting', () => {
     expect(await call(createTimeOfferTools(HOST, WS, { unattended: true }), 'cancel_offered_meeting', { booking_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601' })).toMatchObject({ success: false, code: 'NEEDS_PERSON' })
     expect(mocks.hostBooking).not.toHaveBeenCalled()
     mocks.hostBooking.mockResolvedValueOnce(BOOKING)
-    mocks.cancelMeeting.mockResolvedValueOnce({ ok: true, booking: { ...BOOKING, state: 'cancelled' } })
+    mocks.cancelMeeting.mockResolvedValueOnce({ ok: true, booking: { ...BOOKING, state: 'cancelled', calendarEventId: 'evt-1' } })
     const out = await call(createTimeOfferTools(HOST, WS), 'cancel_offered_meeting', { booking_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601' })
     expect(mocks.hostBooking).toHaveBeenCalledWith({ service: true }, { workspaceId: WS, userId: HOST, bookingId: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601' })
     expect(mocks.cancelMeeting).toHaveBeenCalledWith({ service: true }, { booking: BOOKING, by: 'host' })
-    expect(out).toMatchObject({ success: true, state: 'cancelled', message: expect.stringContaining('sent them the cancellation') })
+    expect(out).toMatchObject({ success: true, state: 'cancelled', message: 'Cancelled Intro call with Dana Reyes. The calendar sent Dana Reyes the cancellation.' })
+    // No event written yet (a request, a booking mid-write): nobody was told, and it says so.
+    mocks.hostBooking.mockResolvedValueOnce(BOOKING)
+    mocks.cancelMeeting.mockResolvedValueOnce({ ok: true, booking: { ...BOOKING, state: 'cancelled', calendarEventId: null } })
+    expect((await call(createTimeOfferTools(HOST, WS), 'cancel_offered_meeting', { booking_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601' })).message).toMatch(/nobody was told/)
     mocks.hostBooking.mockResolvedValueOnce(null)
     expect(await call(createTimeOfferTools(HOST, WS), 'cancel_offered_meeting', { booking_id: '7d1b2c3e-4f50-4a61-8b72-9c83d4e5f601' })).toMatchObject({ success: false, code: 'NOT_FOUND' })
   })

@@ -39,14 +39,21 @@ export function copyRangeSpan(range: CopyRange, now: number, timeZone: string): 
 
 const tidy = (s: string) => s.replace(/[  ]/g, ' ')
 
-/** The free time as the text to paste (see the header). Pure. */
+/**
+ * The free time as the text to paste (see the header). Across a
+ * daylight-saving change the heading names the place ("New York time") and
+ * each day its own short name ("Fri, Oct 30 (EDT): ..."). Pure.
+ */
 export function formatAvailabilityText(free: readonly Span[], timeZone: string, now: number): string {
-  const zone = zoneAbbreviation(timeZone, free[0]?.start ?? now) ?? timeZone
+  const sorted = [...free].sort((a, b) => a.start - b.start)
+  const zoneAt = (at: number) => zoneAbbreviation(timeZone, at) ?? timeZone
+  const shifts = new Set(sorted.map((s) => zoneAt(s.start))).size > 1
+  const zone = shifts ? `${(timeZone.split('/').pop() ?? timeZone).replace(/_/g, ' ')} time` : zoneAt(sorted[0]?.start ?? now)
   const dayOf = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short', month: 'short', day: 'numeric' })
   const clock = new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' })
   const days = new Map<string, string[]>()
-  for (const span of [...free].sort((a, b) => a.start - b.start)) {
-    const day = tidy(dayOf.format(new Date(span.start)))
+  for (const span of sorted) {
+    const day = `${tidy(dayOf.format(new Date(span.start)))}${shifts ? ` (${zoneAt(span.start)})` : ''}`
     const list = days.get(day) ?? []
     list.push(`${tidy(clock.format(new Date(span.start)))} – ${tidy(clock.format(new Date(span.end)))}`)
     days.set(day, list)

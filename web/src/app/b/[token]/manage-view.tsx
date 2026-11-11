@@ -71,7 +71,8 @@ type ApiBody = { booking?: PublicBookingData; error?: string; code?: string; tim
 export function ManageView({ token, load }: { token: string; load: PageLoad<PublicBookingData> }) {
   const [booking, setBooking] = useState<PublicBookingData | null>(load.kind === 'found' ? load.data : null)
   const [missing, setMissing] = useState(load.kind === 'missing')
-  const [now] = useState(() => Date.now())
+  // The server's read time: its render and the browser's agree.
+  const [now] = useState(() => (load.kind === 'found' && load.at) || Date.now())
   const [mode, setMode] = useState<Mode>('view')
   const [times, setTimes] = useState<PublicSlot[] | null>(null)
   const [picked, setPicked] = useState<PublicSlot | null>(null)
@@ -106,6 +107,22 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
       <Final title="This meeting is cancelled" data-manage-state="cancelled">
         <span className="block text-foreground/70 line-through decoration-muted-foreground/60">{booking.title}, {when}</span>
         <span className="block">{news || `To meet another time, reach out to ${host}.`}</span>
+      </Final>
+    )
+  }
+  if (phase === 'declined') {
+    return (
+      <Final title="This time wasn't confirmed" data-manage-state="declined">
+        <span className="block text-foreground/70 line-through decoration-muted-foreground/60">{booking.title}, {when}</span>
+        <span className="block">{host} couldn&apos;t take this time, so it isn&apos;t booked. To find another, reach out to {host}.</span>
+      </Final>
+    )
+  }
+  if (phase === 'expired') {
+    return (
+      <Final title="This request has lapsed" data-manage-state="expired">
+        <span className="block text-foreground/70 line-through decoration-muted-foreground/60">{booking.title}, {when}</span>
+        <span className="block">{host} didn&apos;t confirm it in time, so it isn&apos;t booked. To find another time, reach out to {host}.</span>
       </Final>
     )
   }
@@ -193,8 +210,10 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
     return ok
   }
 
+  const awaiting = phase === 'awaiting'
+
   async function cancel() {
-    if (await post('cancel')) setNews(group ? `${host} has been told, and the calendar takes you off the invitation. To find another time, reply to ${host}.` : `${host} has been told.`)
+    if (await post('cancel')) setNews(group ? `${host} has been told, and the calendar takes you off the invitation. To find another time, reply to ${host}.` : awaiting ? `Your request is withdrawn, and ${host} has been told.` : `${host} has been told.`)
     setMode('view')
   }
 
@@ -217,7 +236,9 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
       <CardHeader data-manage-state={live ? 'live' : phase}>
         <p className="text-sm font-medium text-muted-foreground">{host}</p>
         <CardTitle className="text-2xl">{booking.title}</CardTitle>
-        <CardDescription>{live ? 'Happening now.' : group ? `A meeting with several people, ${booking.guest_name} among them.` : `Booked for ${booking.guest_name}.`}</CardDescription>
+        <CardDescription>
+          {live ? 'Happening now.' : awaiting ? `Requested by ${booking.guest_name}.` : group ? `A meeting with several people, ${booking.guest_name} among them.` : `Booked for ${booking.guest_name}.`}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-2">
@@ -228,6 +249,11 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
           <Place booking={booking} />
         </div>
         {phase === 'pending' && <SchedulingNotice tone="info">It&apos;s being put on {host}&apos;s calendar. The invitation follows in a minute.</SchedulingNotice>}
+        {awaiting && (
+          <SchedulingNotice tone="info" data-manage-awaiting="">
+            Waiting for {host} to confirm. The time is held for you until then, and you&apos;ll hear once {host} says yes.
+          </SchedulingNotice>
+        )}
         {news && <SchedulingNotice tone="info" data-manage-news="">{news}</SchedulingNotice>}
         {error && <SchedulingNotice data-manage-error="">{error}</SchedulingNotice>}
 
@@ -260,7 +286,7 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
                   }}
                   data-manage-cancel=""
                 >
-                  {group ? "I can't make it" : 'Cancel meeting'}
+                  {group ? "I can't make it" : awaiting ? 'Cancel request' : 'Cancel meeting'}
                 </Button>
               )}
             </div>
@@ -278,11 +304,13 @@ export function ManageView({ token, load }: { token: string; load: PageLoad<Publ
             <p className="text-sm">
               {group
                 ? `Tell ${host} you can't make it? You'll come off the invitation; the meeting stays on for the others.`
-                : `Cancel this meeting? ${host} will be told, and you can't undo it from here.`}
+                : awaiting
+                  ? `Withdraw this request? ${host} will be told, and the time goes back to being open.`
+                  : `Cancel this meeting? ${host} will be told, and you can't undo it from here.`}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button variant="destructive" onClick={cancel} disabled={busy}>
-                {busy ? (group ? 'Sending…' : 'Cancelling…') : group ? "Yes, I can't make it" : 'Yes, cancel it'}
+                {busy ? (group ? 'Sending…' : 'Cancelling…') : group ? "Yes, I can't make it" : awaiting ? 'Yes, withdraw it' : 'Yes, cancel it'}
               </Button>
               <Button variant="outline" className="border" onClick={() => setMode('view')} disabled={busy}>
                 Keep it

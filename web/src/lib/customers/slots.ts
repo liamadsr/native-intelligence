@@ -26,7 +26,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { listCalendarEventsUnified } from '@/lib/integrations/calendar'
 import { listCountedEvents } from '@/lib/availability/busy'
 import { openTimes, type DayRange } from '@/lib/availability/engine'
-import { addDays, allDayTakes, localDate, parseDayKey, zonedTime } from '@/lib/availability/zone'
+import { addDays, allDayTakes, allDayTakesDay, localDate, parseDayKey, zonedTime } from '@/lib/availability/zone'
 import { readMemberTimeZone } from '@/lib/agent-events/member-time-zone'
 import { busyBlocks, type BusyBlock } from '@/lib/guests/free-busy'
 import { getBusinessProfile, liveBookingsBetween } from './store'
@@ -184,7 +184,7 @@ export async function findOpenSlots(
   const exceptClaims = deps.except?.bookingId ? { bookingId: deps.except.bookingId } : undefined
   const [events, bookings] = await Promise.all([
     (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true, exceptClaims }),
-    liveBookingsBetween(supabase, business.workspaceId, timeMin, timeMax),
+    liveBookingsBetween(supabase, business.workspaceId, business.ownerUserId, timeMin, timeMax),
   ])
   // A request the owner never answered lapses with its approval: its slot is open again.
   const staleBefore = now - BOOKING_REQUEST_TTL_MS
@@ -236,20 +236,18 @@ export async function isSlotFree(
   const exceptClaims = exceptBookingId ? { bookingId: exceptBookingId } : undefined
   const [events, bookings] = await Promise.all([
     (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true, exceptClaims }),
-    liveBookingsBetween(supabase, business.workspaceId, slot.start, slot.end),
+    liveBookingsBetween(supabase, business.workspaceId, business.ownerUserId, slot.start, slot.end),
   ])
   const staleBefore = now - BOOKING_REQUEST_TTL_MS
   if (bookings.some((b) => b.id !== exceptBookingId && (b.state === 'confirmed' || Date.parse(b.createdAt) > staleBefore))) return false
   const setup = await bookingSetup(supabase, business)
   const day = localDate(from, setup.timeZone)
-  const dayStart = zonedTime(day, '00:00', setup.timeZone)
-  const dayEnd = zonedTime(addDays(day, 1), '00:00', setup.timeZone)
   // A moved booking's own calendar event never blocks its new time.
   const theirs = deps.except?.eventId
   for (const block of busyBlocks(theirs ? events.filter((e) => e.id !== theirs) : events, timeMin, timeMax)) {
     const s = Date.parse(block.start)
     const e = Date.parse(block.end)
-    if (block.allDay ? allDayTakes({ start: s, end: e }, dayStart, dayEnd) : s < to && e > from) return false
+    if (block.allDay ? allDayTakesDay({ start: s, end: e }, day, setup.timeZone) : s < to && e > from) return false
   }
   return true
 }

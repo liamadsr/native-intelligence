@@ -7,13 +7,13 @@
  * the person chose these times.
  *
  * A time is busy when a timed busy block overlaps it, or an all-day block
- * takes its local day (./zone.ts allDayTakes, as the engine reads a day off).
+ * takes its local day (./zone.ts allDayTakesDay, as the engine reads a day off).
  */
 import { busyBlocks } from '@/lib/guests/free-busy'
 import { hasCountedCalendar, listCountedEvents } from './busy'
 import type { ClaimExceptions } from './claims'
 import type { Span } from './engine'
-import { addDays, allDayTakes, localDate, zonedTime } from './zone'
+import { allDayTakesDay, localDate } from './zone'
 
 const DAY_MS = 24 * 60 * 60_000
 
@@ -60,9 +60,7 @@ export async function checkSpansFree(input: SpansFreeInput, deps: SpansFreeDeps 
   const blocks = busyBlocks(input.exceptEventId ? events.filter((e) => e.id !== input.exceptEventId) : events, timeMin, timeMax).map((b) => ({ start: Date.parse(b.start), end: Date.parse(b.end), allDay: b.allDay === true }))
   const busy = input.spans.map((span) => {
     const day = localDate(span.start, input.timeZone)
-    const dayStart = zonedTime(day, '00:00', input.timeZone)
-    const dayEnd = zonedTime(addDays(day, 1), '00:00', input.timeZone)
-    return blocks.some((b) => (b.allDay ? allDayTakes(b, dayStart, dayEnd) : b.start < span.end && b.end > span.start))
+    return blocks.some((b) => (b.allDay ? allDayTakesDay(b, day, input.timeZone) : b.start < span.end && b.end > span.start))
   })
   return { known: true, busy }
 }
