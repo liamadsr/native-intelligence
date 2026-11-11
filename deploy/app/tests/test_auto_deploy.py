@@ -32,21 +32,33 @@ case "$mode" in
 	echo "$commit" >>"$FAKE/deploy-calls"
 	[ ! -e "$FAKE/build-fails" ] || { echo "the build failed" >&2; exit 1; }
 	echo "$commit" >"$FAKE/built"
+	# The image turns out to be built from something else.
+	[ ! -e "$FAKE/built-label" ] || cp "$FAKE/built-label" "$FAKE/built"
 	# Someone moves the checkout while the image builds.
 	[ ! -e "$FAKE/moved-during-build" ] || git -C "$AUTO_DEPLOY_REPO" commit -q --allow-empty -m moved
 	;;
 --no-build)
 	[ ! -e "$FAKE/rollout-fails" ] || { echo "the roll-out failed" >&2; exit 1; }
-	[ -e "$FAKE/serves-old" ] || echo "$commit" >"$FAKE/running"
+	if [ ! -e "$FAKE/serves-old" ]; then
+		# Like deploy.sh: what ran is kept as ni-app:previous, then the new one serves.
+		old="$(cat "$FAKE/running" 2>/dev/null || true)"
+		[ -z "$old" ] || [ "$old" = "$commit" ] || echo "$old" >"$FAKE/previous"
+		echo "$commit" >"$FAKE/running"
+	fi
 	;;
 *) exit 2 ;;
 esac
 """
 
+# $FAKE/previous: the commit ni-app:previous carries ("no-label": an image without
+# one); no such file, no such image.
 FAKE_DOCKER = """#!/usr/bin/env bash
 running="$(cat "$FAKE/running" 2>/dev/null || true)"
+previous="$(cat "$FAKE/previous" 2>/dev/null || true)"
 version="$(cat "$FAKE/version" 2>/dev/null || echo "$running")"
 case "$*" in
+*"image ls -q ni-app:previous"*) [ ! -e "$FAKE/docker-ls-fails" ] || exit 1; [ -z "$previous" ] || echo 0123456789ab ;;
+*"image inspect"*ni-app:previous*) [ -n "$previous" ] || exit 1; if [ "$previous" = no-label ]; then echo; else echo "${previous:0:12}"; fi ;;
 *"image inspect"*ni-app:running*) [ -n "$running" ] || exit 1; echo "${running:0:12}" ;;
 *"image inspect"*ni-app:live*) built="$(cat "$FAKE/built" 2>/dev/null || true)"; echo "${built:0:12}" ;;
 *"exec ni-app-proxy wget"*/api/version*) printf '{"buildId":"%s"}\\n' "${version:0:8}" ;;
@@ -162,8 +174,8 @@ class AutoDeploy(unittest.TestCase):
         self.git(self.dev, "push", "-q", "origin", "main")
         return self.git(self.dev, "rev-parse", "HEAD")
 
-    def run_tool(self, *args):
-        r = subprocess.run(["bash", SCRIPT, *args], env=self.env, capture_output=True, text=True, timeout=120)
+    def run_tool(self, *args, script=SCRIPT):
+        r = subprocess.run(["bash", script, *args], env=self.env, capture_output=True, text=True, timeout=120)
         self.assertNotIn("never-shown-value", r.stdout + r.stderr)
         self.assertNotIn("no lock marker", r.stdout + r.stderr)
         self.assertNotIn("the lock is not held", r.stdout + r.stderr)
@@ -190,6 +202,28 @@ class AutoDeploy(unittest.TestCase):
 
     def serving(self):
         return read(os.path.join(self.fake, "running")).strip()
+
+    def by_hand(self, commit):
+        """sudo ./deploy.sh by hand: what ran is kept as ni-app:previous, then the new one serves."""
+        old = self.serving()
+        if old != commit:
+            write(os.path.join(self.fake, "previous"), old + "\n")
+        write(os.path.join(self.fake, "running"), commit + "\n")
+
+    def rollback_by_hand(self):
+        """sudo ./deploy.sh --rollback: the two images change places."""
+        old = self.serving()
+        write(os.path.join(self.fake, "running"), read(os.path.join(self.fake, "previous")))
+        write(os.path.join(self.fake, "previous"), old + "\n")
+
+    def failing_git(self, *words, instead=None):
+        """From now on git fails (or runs `instead`) whenever all these words are among its arguments."""
+        wrap = os.path.join(self.tmp, "gitwrap")
+        when = " && ".join('[[ " $* " == *" %s "* ]]' % w for w in words)
+        write(os.path.join(wrap, "git"), '#!/usr/bin/env bash\nif %s; then %s; fi\nexec %s "$@"\n' % (
+            when, instead or "echo boom >&2; exit 128", shutil.which("git")), 0o755)
+        if not self.env["PATH"].startswith(wrap + os.pathsep):
+            self.env["PATH"] = wrap + os.pathsep + self.env["PATH"]
 
     def current(self):
         return dict(line.split("=", 1) for line in read(os.path.join(self.state, "status")).splitlines())["state"]
@@ -405,15 +439,24 @@ class AutoDeploy(unittest.TestCase):
     def test_the_servers_own_deploy_tooling_holds(self):
         self.switch_on()
         for name in ("deploy/app/deploy.sh", "deploy/app/auto-deploy.sh", "deploy/app/check_settings.py",
-                     "deploy/app/compose.yaml", "deploy/app/ni-auto-deploy.timer", "deploy/app/proxy/Caddyfile"):
+                     "deploy/app/compose.yaml", "deploy/app/ni-auto-deploy.timer", "deploy/app/proxy/Caddyfile",
+                     # Files nobody listed are held too: one Compose reads beside compose.yaml by
+                     # itself, the one that says what a build may take from the checkout, a
+                     # folder Python would import from, and anything else that is new there.
+                     "deploy/app/compose.override.yaml", "deploy/app/docker-compose.yml",
+                     "deploy/app/Dockerfile.dockerignore", "deploy/app/json/__init__.py",
+                     "deploy/app/new-folder/run"):
             new = self.commit({name: "changed\n"})
             self.assertHeld(self.run_tool("run"), name, "deploy tooling")
             self.run_ok("acknowledge", new)
             self.run_ok("run")
             self.assertEqual(self.deploy_calls()[-1], new)
-        # What runs inside the containers is the app's, like web/: not held.
+        # What only runs inside the containers is the app's, like web/: not held. Nor
+        # are the tests and the guide.
         new = self.commit({"deploy/app/Dockerfile": "FROM x\n", "deploy/app/cron/crontab": "* * * * * x\n",
-                           "deploy/app/smoke/compose.yaml": "x\n", "deploy/app/healthcheck.mjs": "x\n"})
+                           "deploy/app/smoke/compose.yaml": "x\n", "deploy/app/healthcheck.mjs": "x\n",
+                           "deploy/app/eve-origin.mjs": "x\n", "deploy/app/tests/test_x.py": "x\n",
+                           "deploy/app/README.md": "x\n"})
         self.run_ok("run")
         self.assertEqual(self.deploy_calls()[-1], new)
 
@@ -454,6 +497,87 @@ class AutoDeploy(unittest.TestCase):
             f.write("NEW_ONE=\n")
         self.run_ok("run")
         self.assertEqual(len(self.deploy_calls()), 1)
+
+    def test_an_env_example_that_cannot_be_read_as_settings_holds(self):
+        self.switch_on()
+        example = os.path.join(self.dev, "deploy/app/.env.example")
+        self.commit(remove=["deploy/app/.env.example"])
+        self.assertHeld(self.run_tool("run"), "remove deploy/app/.env.example")
+        os.symlink("../edge/Caddyfile", example)
+        self.commit()
+        self.assertHeld(self.run_tool("run"), "not a plain file")
+        os.remove(example)
+        self.commit({"deploy/app/.env.example/inner": "NEW_ONE=\n"})
+        self.assertHeld(self.run_tool("run"), "not a plain file")
+        shutil.rmtree(example)
+        # Lines the reader of settings skips, but Compose would take.
+        for line in ("export NEW_ONE=", "  NEW_ONE=", "NEW ONE"):
+            self.commit({"deploy/app/.env.example": "APP_URL=\nSIGNING_KEY=\n%s\n" % line})
+            self.assertHeld(self.run_tool("run"), "neither NAME=value nor a comment", "line 3")
+        self.assertEqual(self.deploy_calls(), [])
+        self.commit({"deploy/app/.env.example": "APP_URL=\n\n# a comment\nSIGNING_KEY=\n"})
+        self.run_ok("run")
+        self.assertEqual(len(self.deploy_calls()), 1)
+
+    def test_the_repositorys_own_env_example_reads_as_settings(self):
+        self.switch_on()
+        self.commit({"deploy/app/.env.example": read(os.path.join(os.path.dirname(SCRIPT), ".env.example"))})
+        # Held for the names the made-up .env lacks, not for a line it cannot read.
+        self.assertHeld(self.run_tool("run"), "settings that .env has no line for")
+
+    def test_settings_that_cannot_be_compared_hold(self):
+        self.switch_on()
+        self.commit({"web/app.txt": "two\n"})
+        os.remove(os.path.join(self.checkout, "deploy/app/.env"))
+        self.assertHeld(self.run_tool("run"), "could not compare deploy/app/.env.example with .env")
+        self.assertEqual(self.deploy_calls(), [])
+
+    def test_a_folder_named_like_a_standard_module_beside_the_tool_never_runs(self):
+        # A copy of the tool with, beside it, what a merge could add: files Python
+        # would import instead of its own modules if it looked in that folder.
+        tool = os.path.join(self.tmp, "tool")
+        os.makedirs(tool)
+        for name in ("auto-deploy.sh", "check_settings.py", "ni-auto-deploy.service", "ni-auto-deploy.timer"):
+            shutil.copy(os.path.join(os.path.dirname(SCRIPT), name), tool)
+        marker = os.path.join(self.tmp, "ran")
+        for shadow in ("json/__init__.py", "re.py", "importlib/__init__.py", "os.py"):
+            write(os.path.join(tool, shadow), "open(%r, 'w').close()\n" % marker)
+        script = os.path.join(tool, "auto-deploy.sh")
+        self.assertEqual(self.run_tool("install", script=script).returncode, 0)
+        self.assertEqual(self.run_tool("on", script=script).returncode, 0)
+        new = self.commit({"web/app.txt": "two\n"})
+        r = self.run_tool("run", script=script)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.serving(), new)  # the settings were compared, and it deployed
+        self.assertFalse(os.path.exists(marker))
+
+    def test_any_failing_read_of_the_checkout_holds(self):
+        self.switch_on()
+        self.commit({"web/app.txt": "two\n"})
+        for words, said in ((("status",), "git status failed in the checkout"),
+                            (("ls-files",), "could not check who owns the checkout's files"),
+                            (("--diff-filter=A",), "could not list what the new commits add"),
+                            (("ls-tree",), "could not read the new deploy/app/.env.example"),
+                            (("show",), "could not read the new deploy/app/.env.example")):
+            self.failing_git(*words)
+            self.assertHeld(self.run_tool("run"), said)
+            self.assertEqual(self.deploy_calls(), [])
+            self.assertEqual(self.head(), self.first)
+
+    def test_a_list_of_changed_files_that_cannot_be_read_holds(self):
+        self.switch_on()
+        self.commit({"web/app.txt": "two\n"})
+        # A well-formed entry, then something that is not one.
+        self.failing_git("--raw", instead=r"printf ':100644 100644 %040d %040d M\0web/supabase/migrations/x.sql\0\0stray\0' 0 1; exit 0")
+        self.assertHeld(self.run_tool("run"), "could not compare the changed files with the acknowledged ones")
+        self.assertEqual(self.deploy_calls(), [])
+
+    def test_acknowledgements_that_cannot_be_read_hold(self):
+        self.switch_on()
+        self.commit({"web/supabase/migrations/002_more.sql": "select 1;\n"})
+        os.makedirs(os.path.join(self.state, "acknowledged"))
+        self.assertHeld(self.run_tool("run"), "could not compare the changed files with the acknowledged ones")
+        self.assertEqual(self.deploy_calls(), [])
 
     def test_rewritten_history_is_refused(self):
         self.switch_on()
@@ -640,6 +764,142 @@ class AutoDeploy(unittest.TestCase):
         self.run_ok("clear-failure")
         self.assertHeld(self.run_tool("run"), "002.sql")  # acknowledged again, or nothing
         self.assertEqual(self.deploy_calls(), [d])
+
+    # A rollback is read from the images, so no run needs to have seen it happen.
+
+    def test_a_rollback_no_run_saw_is_not_undone(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)  # deployed by hand ...
+        self.rollback_by_hand()  # ... and rolled back before the next run came
+        self.assertIn("Would hold everything", self.run_ok("run", "--dry-run").stdout)
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("failed: %s" % n[:12]), self.current())
+        self.assertIn("is not a later commit than what served before it", self.current())
+        self.commit({"README.txt": "docs only\n"})  # a newer merge does not lift it
+        self.run_ok("run")
+        self.assertEqual(self.deploy_calls(), [d])
+        self.assertEqual(self.serving(), d)
+        r = self.run_ok("clear-failure")
+        self.assertIn("which is or contains %s" % n[:12], r.stdout)
+        self.run_ok("run")  # cleared: the same images do not hold it a second time
+        self.assertEqual(len(self.deploy_calls()), 2)
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("deployed "), self.current())
+
+    def test_a_rollback_made_while_it_was_off_is_not_undone(self):
+        self.switch_on()
+        d = self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        self.run_ok("off")
+        n = self.commit({"web/app.txt": "three\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.rollback_by_hand()
+        self.run_ok("on")
+        self.run_ok("run")
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("failed: %s" % n[:12]), self.current())
+        self.assertEqual(self.deploy_calls(), [d])
+
+    def test_a_rollback_made_before_the_first_run_is_not_undone(self):
+        n = self.commit({"web/app.txt": "two\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.rollback_by_hand()
+        self.switch_on()
+        self.assertFalse(os.path.exists(os.path.join(self.state, "seen")))
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("failed: %s" % n[:12]), self.current())
+        self.assertIn("Would do nothing", self.run_ok("run", "--dry-run").stdout)
+        self.assertEqual(self.deploy_calls(), [])
+
+    def test_going_forward_by_hand_holds_nothing(self):
+        self.switch_on()
+        n = self.commit({"web/app.txt": "two\n"})
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("idle"), self.current())
+        self.rollback_by_hand()  # back ...
+        self.rollback_by_hand()  # ... and forward again, between two runs: what serves is the latest
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("idle"), self.current())
+        self.assertFalse(os.path.exists(os.path.join(self.state, "failed")))
+
+    def test_an_image_before_that_cannot_be_read_holds_until_cleared(self):
+        for name, text in (("previous", "no-label\n"), ("previous", "0123456789abcdef\n"), ("docker-ls-fails", "")):
+            write(os.path.join(self.fake, name), text)
+            for stale in ("seen", "failed"):
+                if os.path.exists(os.path.join(self.state, stale)):
+                    os.remove(os.path.join(self.state, stale))
+            self.switch_on()
+            self.commit({"web/app.txt": "changed by %s %s" % (name, text)})
+            self.run_ok("run")
+            self.assertTrue(self.current().startswith("failed: "), self.current())
+            self.assertIn("a rollback cannot be ruled out", self.current())
+            self.assertEqual(self.deploy_calls(), [])
+        self.run_ok("clear-failure")
+        self.run_ok("run")
+        self.assertEqual(len(self.deploy_calls()), 1)
+
+    def test_a_rollback_drops_the_acknowledgements_at_once(self):
+        self.switch_on()
+        self.commit({"web/app.txt": "two\n"})
+        self.run_ok("run")
+        n = self.commit({"web/supabase/migrations/002.sql": "alter table t add column n int;\n"})
+        self.run_tool("run")
+        self.run_ok("acknowledge", n)
+        self.assertTrue(os.path.exists(os.path.join(self.state, "acknowledged")))
+        self.git(self.checkout, "pull", "-q")
+        self.by_hand(n)
+        self.rollback_by_hand()
+        self.run_ok("run")
+        self.assertTrue(self.current().startswith("failed: "), self.current())
+        self.assertEqual(len(self.deploy_calls()), 1)  # not because it went out again
+        self.assertFalse(os.path.exists(os.path.join(self.state, "acknowledged")))
+
+    def test_clearing_a_half_done_roll_out_drops_the_acknowledgements_and_a_failed_build_keeps_them(self):
+        self.switch_on()
+        n = self.commit({"web/supabase/migrations/002.sql": "select 1;\n"})
+        self.run_tool("run")
+        self.run_ok("acknowledge", n)
+        acknowledged = os.path.join(self.state, "acknowledged")
+        self.flag("build-fails")
+        self.assertEqual(self.run_tool("run").returncode, 1)
+        self.flag("build-fails", on=False)
+        self.run_ok("clear-failure")
+        self.assertTrue(os.path.exists(acknowledged))  # nothing was replaced: they stand
+        self.flag("rollout-fails")
+        self.assertEqual(self.run_tool("run").returncode, 1)
+        self.flag("rollout-fails", on=False)
+        self.assertTrue(os.path.exists(acknowledged))
+        self.run_ok("clear-failure")
+        self.assertFalse(os.path.exists(acknowledged))
+        self.assertHeld(self.run_tool("run"), "002.sql")
+
+    def test_records_of_what_served_that_cannot_be_read_hold(self):
+        self.switch_on()
+        self.commit({"web/app.txt": "two\n"})
+        for name, text in (("seen", "not a commit\n"), ("seen", self.first + " nor-this\n"), ("deployed", "not a commit\n")):
+            write(os.path.join(self.state, name), text)
+            self.assertHeld(self.run_tool("run"), "%s cannot be read" % name)
+            os.remove(os.path.join(self.state, name))
+        self.assertEqual(self.deploy_calls(), [])
+
+    def test_an_image_built_from_another_commit_is_not_rolled_out(self):
+        self.switch_on()
+        write(os.path.join(self.fake, "built-label"), self.first + "\n")
+        new = self.commit({"web/app.txt": "two\n"})
+        r = self.run_tool("run")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.deploy_calls(), [new])
+        self.assertEqual(self.serving(), self.first)  # --no-build never ran
+        self.assertIn("ni-app:live says %s" % self.first[:12], self.current())
+        self.assertIn(" halt ", read(os.path.join(self.state, "failed")))
 
     def test_after_a_halt_clearing_says_the_same_commit_goes_out_again(self):
         self.switch_on()

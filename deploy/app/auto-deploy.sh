@@ -33,17 +33,24 @@
 #     deploy/edge, deploy/supabase, deploy/inngest, deploy/backup (other stacks,
 #     which take a change at their next restart or build, a reboot included); and
 #     this server's own deploy tooling, which runs as root or sets what the
-#     containers may do: deploy/app/*.sh, *.py, compose.yaml, ni-auto-deploy.*
-#     and proxy/ (the router on the edge network). The image's own content
-#     (Dockerfile, cron/, the app) is not held: it runs inside the containers,
-#     with the rights compose.yaml gives them;
-#   - the new deploy/app/.env.example names a setting that .env has no line for
-#     (names only: no value is read out or shown);
+#     containers may do: EVERYTHING in deploy/app (the scripts, compose.yaml and
+#     any other file Compose would read beside it, Dockerfile.dockerignore, which
+#     decides what a build may take from the checkout, the systemd units, proxy/,
+#     and any file or folder that is new there), except what only ever runs
+#     inside the containers, with the rights compose.yaml gives them (Dockerfile,
+#     cron/, smoke/, healthcheck.mjs, eve-origin.mjs), tests/, README.md, and
+#     .env.example, which has its own check (next);
+#   - the new deploy/app/.env.example is gone or is not a plain file, has a line
+#     that is neither NAME=value nor a comment, or names a setting that .env has
+#     no line for (names only: no value is read out or shown);
 #   - the commit's build failed before (that commit only, until main moves on or
 #     `clear-failure`); or, holding everything until `clear-failure`: a roll-out
 #     was left half done, the checkout moved under the run, or what serves went
-#     anywhere but forward since the last run (deploy.sh --rollback, or anything
-#     else done by hand).
+#     anywhere but forward. That last one is read from the images, so it is found
+#     whether or not a run saw it happen, and for what was done while this was
+#     off: ni-app:previous (what served before the last roll-out; deploy.sh
+#     --rollback swaps the two) must be what serves or an earlier commit, and what
+#     serves must be what the last run saw or a later commit.
 # Any error while checking is a hold, never a pass.
 #
 # Else it moves the checkout to exactly the commit it checked (git merge
@@ -65,7 +72,8 @@
 #   runs/           each deploy's own output (root only; the newest 30 kept)
 #   failed          "<commit> <kind> <reason>": kind build (that commit is skipped)
 #                   or halt (everything holds)
-#   seen            the commit that served at the last run
+#   seen            the commit that served at the last run, and the one ni-app:previous
+#                   carried then (or "none", "unreadable")
 #   deployed        the last commit this tool rolled out, and when
 #   acknowledged    the files acknowledged, each by its mode and content (root only)
 #   held            every file the current hold names
@@ -92,8 +100,12 @@ systemctl="${AUTO_DEPLOY_SYSTEMCTL:-systemctl}"
 envfile="$repo/deploy/app/.env"
 unit=ni-auto-deploy
 # Files a person takes care of before the checkout may move past them (see above).
+# In deploy/app everything is held but the paths named here, so that a file nobody
+# thought of (compose.override.yaml, a folder Python would import from) is held too.
 watched=(web/supabase/migrations web/supabase/functions web/supabase/templates deploy/edge deploy/supabase deploy/inngest deploy/backup
-	':(glob)deploy/app/*.sh' ':(glob)deploy/app/*.py' deploy/app/compose.yaml ':(glob)deploy/app/ni-auto-deploy.*' deploy/app/proxy)
+	deploy/app ':(exclude)deploy/app/Dockerfile' ':(exclude)deploy/app/cron' ':(exclude)deploy/app/smoke'
+	':(exclude)deploy/app/healthcheck.mjs' ':(exclude)deploy/app/eve-origin.mjs' ':(exclude)deploy/app/tests'
+	':(exclude)deploy/app/README.md' ':(exclude)deploy/app/.env.example')
 dry=false
 owner=""
 tmp=""
@@ -235,6 +247,35 @@ serving_commit() {
 	fi
 }
 
+# The commit ni-app:previous was built from: what served before the last roll-out
+# (deploy.sh keeps it for --rollback, which swaps it with what serves). Prints
+# "none" when there is no such image; or, when its commit cannot be told, why not
+# (and false).
+previous_commit() {
+	local id label
+	if ! id="$("$docker" image ls -q ni-app:previous 2>/dev/null)"; then
+		echo "docker could not say whether there is an image ni-app:previous"
+		return 1
+	fi
+	if [ -z "$id" ]; then
+		echo none
+		return 0
+	fi
+	if ! label="$("$docker" image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ni-app:previous 2>/dev/null)"; then
+		echo "ni-app:previous cannot be inspected"
+		return 1
+	fi
+	case "$label" in "" | *[!0-9a-f]*)
+		echo "ni-app:previous carries no commit ('$label')"
+		return 1
+		;;
+	esac
+	if [ "${#label}" -lt 7 ] || ! git_ rev-parse -q --verify "$label^{commit}" 2>/dev/null; then
+		echo "ni-app:previous was built from $label, which the checkout does not have"
+		return 1
+	fi
+}
+
 # web answers /api/version with the first 8 characters of its commit.
 version_serves() { # version_serves <commit>
 	local build i
@@ -326,10 +367,8 @@ if mode == "ack":
     print("%d file%s: %s" % (len(todo), "" if len(todo) == 1 else "s", ", ".join(show(p) for _, p in todo)))
     sys.exit(0)
 commit, listfile = sys.argv[3], sys.argv[4]
-def tooling(p):
-    d, name = os.path.split(p)
-    return p.startswith("deploy/app/proxy/") or (d == "deploy/app" and (
-        name.endswith((".sh", ".py")) or name == "compose.yaml" or name.startswith("ni-auto-deploy.")))
+# git has already left out what is not watched (the pathspecs in `watched`), so
+# whatever is listed is held: the last kind takes what the others do not name.
 kinds = [
     ("migration", lambda p: p.startswith("web/supabase/migrations/"),
      "migrations not yet applied to the database"),
@@ -337,12 +376,15 @@ kinds = [
      "files the Supabase stack uses from the checkout, which change the moment it moves"),
     ("stack", lambda p: p.startswith(("deploy/edge/", "deploy/supabase/", "deploy/inngest/", "deploy/backup/")),
      "files of other stacks, which take effect at their next restart (a reboot included) or build"),
-    ("tooling", tooling,
+    ("tooling", lambda p: p.startswith("deploy/app/"),
      "the server's own deploy tooling, which runs as root on the server or sets what the containers may do"),
+    ("other", lambda p: True, "other files this tool holds"),
 ]
 parts, found, lines = [], [], []
+rest = [p for _, p in todo]
 for kind, match, what in kinds:
-    ps = [p for _, p in todo if match(p)]
+    ps = [p for p in rest if match(p)]
+    rest = [p for p in rest if not match(p)]
     if ps:
         shown = ", ".join(show(p) for p in ps[:8]) + (" and %d more" % (len(ps) - 8) if len(ps) > 8 else "")
         parts.append("%s (%d): %s" % (what, len(ps), shown))
@@ -362,16 +404,26 @@ PY
 
 # The setting names in <example file> that the server's .env has no line for,
 # comma-separated. Both are read the way check_settings.py reads them; only names
-# leave this function.
+# leave this function. Exit 3, printing which line, when the example has a line
+# that is neither NAME=value, a comment nor blank: a form the reader skips (export
+# NAME=, an indented line, a value over several lines) could name a setting unseen.
+# check_settings.py is loaded by its path, never through Python's search path: a
+# file or folder beside it named like a standard module must not run as root here.
 missing_settings() { # missing_settings <example file>
-	python3 -I - "$here" "$1" "$envfile" <<'PY'
-import sys
-sys.path.insert(0, sys.argv[1])
-from check_settings import parse_env
+	python3 -I - "$here/check_settings.py" "$1" "$envfile" <<'PY'
+import importlib.util, re, sys
+spec = importlib.util.spec_from_file_location("check_settings", sys.argv[1])
+check_settings = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(check_settings)
 with open(sys.argv[2]) as f:
-    wanted = parse_env(f.read())
+    example = f.read()
+for n, line in enumerate(example.split("\n"), 1):
+    if line.strip() and not line.startswith("#") and not re.match(r"[A-Za-z_][A-Za-z0-9_]*=", line):
+        print("line %d" % n)
+        sys.exit(3)
+wanted = check_settings.parse_env(example)
 with open(sys.argv[3]) as f:
-    have = parse_env(f.read())
+    have = check_settings.parse_env(f.read())
 print(", ".join(name for name in wanted if name not in have))
 PY
 }
@@ -418,8 +470,8 @@ cmd_run() {
 	export NI_DEPLOY_LOCK_HELD=1
 	resolve_owner
 
-	local out head target failed_commit="" failed_kind="" failed_reason="" deployed_commit="" deployed_at="" seen=""
-	local branch missing reason action
+	local out head target failed_commit="" failed_kind="" failed_reason="" deployed_commit="" deployed_at="" seen="" seen_previous=""
+	local branch missing reason action previous previous_problem="" halted=""
 	if ! out="$(git_ fetch --quiet origin main 2>&1)"; then
 		hold "git fetch origin main failed: $(printf '%s\n' "$out" | sed -n '$p')" "Usually the network, and the next run tries again. If it stays: git fetch origin main as the checkout's owner, in $repo."
 	fi
@@ -432,7 +484,7 @@ cmd_run() {
 	fi
 	[ ! -f "$state/failed" ] || read -r failed_commit failed_kind failed_reason <"$state/failed" || true
 	[ ! -f "$state/deployed" ] || read -r deployed_commit deployed_at <"$state/deployed" || true
-	[ ! -f "$state/seen" ] || read -r seen <"$state/seen" || true
+	[ ! -f "$state/seen" ] || read -r seen seen_previous <"$state/seen" || true
 	# A record that cannot be read is not "no record".
 	if [ -f "$state/failed" ] && ! { is_commit "$failed_commit" && case "$failed_kind" in build | halt) true ;; *) false ;; esac; }; then
 		hold "$state/failed cannot be read" "Look at it; sudo ./auto-deploy.sh clear-failure removes it."
@@ -440,23 +492,45 @@ cmd_run() {
 	if [ -f "$state/deployed" ] && ! is_commit "$deployed_commit"; then
 		hold "$state/deployed cannot be read" "Look at it; deleting it is safe once you know what serves."
 	fi
-	if [ -f "$state/seen" ] && ! is_commit "$seen"; then
+	if [ -f "$state/seen" ] && ! { is_commit "$seen" && case "$seen_previous" in "" | none | unreadable) true ;; *) is_commit "$seen_previous" ;; esac; }; then
 		hold "$state/seen cannot be read" "Look at it; deleting it is safe once you know what serves."
 	fi
 
-	# Every run notes what serves. When it is neither what the last run saw nor a
-	# later commit, someone went back (deploy.sh --rollback) or did something by hand
-	# this tool does not understand: everything holds until a person clears it, and
-	# no acknowledgement made before it counts any more.
-	if [ -n "$seen" ] && [ "$seen" != "$serving" ] && ! git_ merge-base --is-ancestor "$seen" "$serving" 2>/dev/null; then
-		reason="what serves went from $(short "$seen") to $(short "$serving"), which is not a later commit: a rollback, or something done by hand"
+	# Did what serves go anywhere but forward? Someone went back (deploy.sh
+	# --rollback) or did something by hand this tool does not understand: everything
+	# holds until a person clears it, and no acknowledgement made before it counts any
+	# more. Two things say so, and each is judged once, when it changes (the record
+	# of the failure, not this, is what keeps holding until clear-failure):
+	#   - the images: ni-app:previous is what served before the last roll-out, so it
+	#     is what serves or an earlier commit, unless the last roll-out went back.
+	#     This needs no run to have seen it happen, and holds for what was done while
+	#     this was off;
+	#   - what the last run saw serving, which what serves now must be or come after.
+	if previous="$(previous_commit)"; then :; else
+		previous_problem="$previous"
+		previous=unreadable
+	fi
+	reason=""
+	if [ "$serving $previous" != "$seen $seen_previous" ]; then
+		if [ -n "$seen" ] && [ "$seen" != "$serving" ] && ! git_ merge-base --is-ancestor "$seen" "$serving" 2>/dev/null; then
+			halted="$seen"
+			reason="what serves went from $(short "$seen") to $(short "$serving"), which is not a later commit: a rollback, or something done by hand"
+		elif [ "$previous" = unreadable ]; then
+			halted="$serving"
+			reason="what served before $(short "$serving") cannot be told ($previous_problem), so a rollback cannot be ruled out"
+		elif [ "$previous" != none ] && [ "$previous" != "$serving" ] && ! git_ merge-base --is-ancestor "$previous" "$serving" 2>/dev/null; then
+			halted="$previous"
+			reason="what serves, $(short "$serving"), is not a later commit than what served before it, $(short "$previous"): a rollback (deploy.sh --rollback), or an older commit rolled out by hand"
+		fi
+	fi
+	if [ -n "$reason" ]; then
 		if $dry; then echo "Would hold everything: $reason."; exit 0; fi
-		write_failed "$seen" halt "$reason"
+		write_failed "$halted" halt "$reason"
 		rm -f "$state/acknowledged"
-		failed_commit="$seen" failed_kind=halt failed_reason="$reason"
+		failed_commit="$halted" failed_kind=halt failed_reason="$reason"
 	fi
 	if ! $dry; then
-		printf '%s\n' "$serving" >"$state/seen.new"
+		printf '%s %s\n' "$serving" "$previous" >"$state/seen.new"
 		mv -f "$state/seen.new" "$state/seen"
 		rm -f "$state/held"
 	fi
@@ -521,12 +595,31 @@ cmd_run() {
 		! $dry || { echo "Every held file:"; cat "$held"; }
 		hold "$reason" "$action"
 	fi
+	# The settings the new commits need are read from their .env.example, so it must
+	# be there and be a plain file: gone, a link or a folder says nothing, and
+	# nothing is not "no new setting".
 	git_ ls-tree -z "$target" -- deploy/app/.env.example >"$tmp/example-entry" || hold "could not read the new deploy/app/.env.example" "Look at the checkout ($repo) as its owner."
-	: >"$tmp/example"
-	if [ -s "$tmp/example-entry" ]; then
-		git_ show "$target:deploy/app/.env.example" >"$tmp/example" || hold "could not read the new deploy/app/.env.example" "Look at the checkout ($repo) as its owner."
+	case "$(head -c 7 "$tmp/example-entry")" in
+	"100644 " | "100755 ") ;;
+	"")
+		hold "the new commits remove deploy/app/.env.example, so the settings they need cannot be checked" \
+			"Put the file back on main, or roll out by hand once sure (git pull as the checkout's owner, then sudo ./deploy.sh)."
+		;;
+	*)
+		hold "the new deploy/app/.env.example is not a plain file (a link or a folder), so the settings the new commits need cannot be checked" \
+			"Make it a plain file again on main, or roll out by hand once sure (git pull as the checkout's owner, then sudo ./deploy.sh)."
+		;;
+	esac
+	git_ show "$target:deploy/app/.env.example" >"$tmp/example" || hold "could not read the new deploy/app/.env.example" "Look at the checkout ($repo) as its owner."
+	if missing="$(missing_settings "$tmp/example")"; then :; else
+		case $? in
+		3)
+			hold "the new deploy/app/.env.example has a line that is neither NAME=value nor a comment ($missing), so the settings the new commits need cannot be checked" \
+				"Put the line right on main (one NAME=value a line, comments starting with #), or roll out by hand once sure."
+			;;
+		*) hold "could not compare deploy/app/.env.example with .env" "Check that $envfile exists and can be read; the next run tries again." ;;
+		esac
 	fi
-	missing="$(missing_settings "$tmp/example")" || hold "could not compare deploy/app/.env.example with .env" "Check that $envfile exists and can be read; the next run tries again."
 	[ -z "$missing" ] ||
 		hold "the new deploy/app/.env.example has settings that .env has no line for: $missing" \
 			"Copy their lines from deploy/app/.env.example into deploy/app/.env (sudo nano .env) and fill them in where needed; the next run sees them."
