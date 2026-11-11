@@ -355,8 +355,9 @@ app's own deployment token did their work (`web/src/lib/slack/config.ts`).
   browser's sandboxes (`web/src/lib/cloud-browser/config.ts`), and the coding
   agent's, which run on the same sandbox service when the three are set
   (`web/agents/coding-agent/sandbox.ts`): there each run's network policy is set
-  when its sandbox is created, and its GitHub credentials are added by the
-  service's firewall, never put in the sandbox. Without them the coding agent's
+  when its sandbox is created; it holds no GitHub credential (its git goes
+  through the app's git gate), and the service's firewall adds only the run's
+  gate token, on the gate's endpoints. Without them the coding agent's
   sandbox is `just-bash`, where no coding run can work. The coding agent's
   snapshot is prepared when the image is built, so the build needs them too
   ("What is fixed when the image is built"); after changing one, build again.

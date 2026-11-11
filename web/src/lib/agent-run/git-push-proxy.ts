@@ -1,22 +1,25 @@
 /**
  * The git push gate: the ONLY way a cloud coding run's commits reach GitHub.
+ * It is one half of the app's git gate (mounted at GIT_PUSH_PATH); the other
+ * half, the read gate (git-read-proxy.ts, which also dispatches between the
+ * two: handleGitGate), serves the run's clones, fetches and LFS requests.
  *
  * ── Why ─────────────────────────────────────────────────────────────────────
- * A coding run works in a Vercel Sandbox with a shell. Its GitHub credential is
- * the triggering person's OAuth token (repo scope), which can write every
- * branch of the repo, the live (default) branch included. A pre-push hook in
- * the sandbox can't hold a model that sets out to skip it, and a firewall rule
- * can't read which branch a push updates (that is in the request body). So
- * the sandbox no longer holds a credential that can push at all
- * (agents/coding-agent/sandbox.ts brokers the GitHub token for READS only),
- * and its pushes come here instead. This works for any repo on any GitHub
- * plan: no branch protection needed.
+ * A coding run works in a sandbox with a shell. The GitHub credential behind
+ * it is the triggering person's OAuth token (repo scope), which can write
+ * every branch of the repo, the live (default) branch included. A pre-push
+ * hook in the sandbox can't hold a model that sets out to skip it, and a
+ * firewall rule can't read which branch a push updates (that is in the
+ * request body). So the GitHub token never enters the sandbox, for reads or
+ * pushes (agents/coding-agent/sandbox.ts): the sandbox side only ever holds
+ * the run's git gate token (git-push-token.ts), and its pushes come here.
+ * This works for any repo on any GitHub plan: no branch protection needed.
  *
  * ── What it does ────────────────────────────────────────────────────────────
  * It speaks git's smart-HTTP push protocol (git-receive-pack.ts):
  *   GET  …/git/info/refs?service=git-receive-pack → GitHub's advertisement
  *   POST …/git/git-receive-pack                    → judged, then forwarded
- * The run is the push token's (git-push-token.ts, HMAC-signed, minted with the
+ * The run is the gate token's (git-push-token.ts, HMAC-signed, minted with the
  * run's spec); everything else is read from the database on every request
  * with the same build the sandbox was seeded from (buildAgentRunSpec): the
  * repo, the run's branch, its base, the GitHub token. Nothing in the request
@@ -28,6 +31,7 @@
  *     canceled run pushes nothing);
  *   - the run's live repo and branch are still the ones the token was minted
  *     for (a member re-pointing the project's repo mid-run pushes nothing);
+ *     (these two are authorizeRun, which the read gate shares)
  *   - the run's branch is a run branch (`dial8/…`) and isn't its base;
  *   - EVERY ref update in it is `refs/heads/<the run's branch>` and none
  *     deletes it, and it carries no push options (a section the gate would
@@ -41,9 +45,11 @@
  * The person's yes merges on our server with their token (website approval,
  * the outcome route's reviewed fast-forward), never through here.
  *
- * LIMIT: the pack passes through a Vercel Function, so a push is bounded by its
- * request body limit (4.5 MB on Vercel). A code change's pack is far below
- * that; a run that commits large binaries gets a refused push.
+ * LIMIT: the gate judges a push's commands before any of it reaches GitHub,
+ * so the whole push is read into memory first, up to MAX_PUSH_BYTES (on
+ * Vercel a function's request body limit, 4.5 MB, was lower still). A code
+ * change's pack is far below that; a run that commits large binaries gets a
+ * refused push.
  */
 import { getServiceClient } from '@/lib/admin'
 import { apiError, badRequest, forbidden, notFound } from '@/lib/api-errors'
@@ -51,16 +57,25 @@ import { buildAgentRunSpec, NOT_LIVE_STATUSES } from './spec-rebuild'
 import { extractGitPushToken, verifyGitPushToken, type GitPushTokenClaims } from './git-push-token'
 import { judgeReceivePack, parseReceivePackRequest, rejectionReport, wantsReportStatus } from './git-receive-pack'
 
-/** Where the gate is mounted. Twin of GIT_PUSH_PATH in agents/coding-agent/lib/spec-client.ts. */
+/**
+ * Where the git gate (reads and pushes) is mounted. Twin of GIT_PUSH_PATH in
+ * agents/coding-agent/lib/spec-client.ts. (The name predates the read gate.)
+ */
 export const GIT_PUSH_PATH = '/api/internal/agent-run/git'
 
 /** A run's branches all start here (branchNameFor, ciFixBranch); anything else is never pushed. */
 export const RUN_BRANCH_PREFIX = 'dial8/'
 
-/** Cap on a push body read into memory (Vercel's own request limit is lower). */
+/**
+ * Cap on a push body read into memory. A code change's pack is far below it;
+ * a run that commits large binaries gets a refused push (413).
+ */
 export const MAX_PUSH_BYTES = 64 * 1024 * 1024
 
-/** What a push needs, read server-side from the run. */
+/**
+ * What the git gate needs, read server-side from the run: the repo and the
+ * GitHub token (reads and pushes), the run's branch and its base (pushes).
+ */
 export interface PushTarget {
   repoFullName: string
   branchName: string
@@ -68,13 +83,14 @@ export interface PushTarget {
   githubToken: string
 }
 
+/** The git gate's seams (reads and pushes share them). */
 export interface GitPushProxyDeps {
   verifyToken: (token: string | null) => GitPushTokenClaims | null
   loadTarget: (claims: GitPushTokenClaims) => Promise<PushTarget | { refused: string }>
   fetchImpl: typeof fetch
 }
 
-/** The run's push target, or why it can't push. Same build as the sandbox's spec. */
+/** The run's git gate target, or why it gets none. Same build as the sandbox's spec. */
 export async function loadPushTarget(claims: GitPushTokenClaims): Promise<PushTarget | { refused: string }> {
   const built = await buildAgentRunSpec(getServiceClient(), { agentRunId: claims.agentRunId, workspaceId: claims.workspaceId })
   if (!built.ok) return { refused: 'this run is not runnable' }
@@ -83,23 +99,25 @@ export async function loadPushTarget(claims: GitPushTokenClaims): Promise<PushTa
   return { repoFullName, branchName, baseBranch, githubToken }
 }
 
-const defaultDeps: GitPushProxyDeps = {
+export const defaultGitGateDeps: GitPushProxyDeps = {
   verifyToken: (t) => verifyGitPushToken(t),
   loadTarget: loadPushTarget,
   fetchImpl: (...args) => fetch(...args),
 }
 
-function githubAuth(token: string): string {
+/** The GitHub token as git's HTTP Basic credential (server-side only: it never leaves the app). */
+export function githubAuth(token: string): string {
   return `Basic ${Buffer.from(`x-access-token:${token}`, 'utf8').toString('base64')}`
 }
 
 /** git expects a git/… user agent on smart HTTP; keep the client's when it is one. */
-function userAgent(request: Request): string {
+export function userAgent(request: Request): string {
   const ua = request.headers.get('user-agent') ?? ''
-  return /^git\/[\w.\-]+/.test(ua) ? ua.slice(0, 200) : 'git/2.45.0 ni-push-gate'
+  return /^git\/[\w.\-]+/.test(ua) ? ua.slice(0, 200) : 'git/2.45.0 ni-git-gate'
 }
 
-async function readCapped(request: Request): Promise<Uint8Array<ArrayBuffer> | null> {
+/** A request body read into memory, or null once it passes `maxBytes` (the read stops there). */
+export async function readCapped(request: Request, maxBytes: number): Promise<Uint8Array<ArrayBuffer> | null> {
   if (!request.body) return new Uint8Array(0)
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
@@ -108,7 +126,7 @@ async function readCapped(request: Request): Promise<Uint8Array<ArrayBuffer> | n
     const { done, value } = await reader.read()
     if (done) break
     total += value.length
-    if (total > MAX_PUSH_BYTES) {
+    if (total > maxBytes) {
       await reader.cancel().catch(() => {})
       return null
     }
@@ -123,15 +141,19 @@ async function readCapped(request: Request): Promise<Uint8Array<ArrayBuffer> | n
   return out
 }
 
-/** Pass GitHub's answer back as git expects it (status, type, streamed body). */
-function relay(upstream: Response): Response {
+/**
+ * Pass GitHub's answer back as git expects it: its status, its content type,
+ * `cache-control: no-cache`, and its body STREAMED through (never read into
+ * memory: a clone's pack can be large). No other upstream header is relayed.
+ */
+export function relay(upstream: Response): Response {
   const headers = new Headers({ 'cache-control': 'no-cache' })
   const type = upstream.headers.get('content-type')
   if (type) headers.set('content-type', type)
   return new Response(upstream.body, { status: upstream.status, headers })
 }
 
-/** Which gate endpoint a path (after GIT_PUSH_PATH) names. */
+/** Which push endpoint a path (after GIT_PUSH_PATH) names. */
 function endpointOf(segments: string[]): 'info-refs' | 'receive-pack' | null {
   const p = segments.join('/')
   if (p === 'info/refs') return 'info-refs'
@@ -140,44 +162,73 @@ function endpointOf(segments: string[]): 'info-refs' | 'receive-pack' | null {
 }
 
 /**
- * Who is pushing, and to what. A Response when the push can't go at all
- * (403: never git's 401, which would make git prompt for a password).
+ * Which run a git gate request is for, and its target, checked the same way
+ * for a read and a push: the gate token verifies; the run is a live coding
+ * run; the run's live repo and branch are still the ones the token was minted
+ * for. A Response when the request can't go at all (403: never git's 401,
+ * which would make git prompt for a password; 503 when the run can't be read).
+ * Refusals are logged with the run id only, never a token.
  */
-async function authorize(request: Request, deps: GitPushProxyDeps): Promise<PushTarget | Response> {
+export async function authorizeRun(
+  request: Request,
+  deps: GitPushProxyDeps,
+  kind: 'push' | 'read',
+): Promise<{ runId: string; target: PushTarget } | Response> {
+  const label = kind === 'push' ? 'Push' : 'Fetch'
+  const tag = `[git-${kind}]`
   const claims = deps.verifyToken(extractGitPushToken(request))
-  if (!claims) return forbidden('Push refused: invalid or expired push credential')
+  if (!claims) return forbidden(`${label} refused: invalid or expired git gate credential`)
   let target: PushTarget | { refused: string }
   try {
     target = await deps.loadTarget(claims)
   } catch (err) {
-    console.error('[git-push] could not read the run', claims.agentRunId, err instanceof Error ? err.message : err)
-    return apiError('Push refused: the run could not be read', { status: 503, code: 'RUN_UNREADABLE' })
+    console.error(`${tag} could not read the run`, claims.agentRunId, err instanceof Error ? err.message : err)
+    return apiError(`${label} refused: the run could not be read`, { status: 503, code: 'RUN_UNREADABLE' })
   }
-  if ('refused' in target) return forbidden(`Push refused: ${target.refused}`)
+  if ('refused' in target) {
+    console.warn(`${tag} refused`, claims.agentRunId, target.refused)
+    return forbidden(`${label} refused: ${target.refused}`)
+  }
   if (target.repoFullName.toLowerCase() !== claims.repoFullName.toLowerCase() || target.branchName !== claims.branchName) {
-    console.error('[git-push] the run no longer matches its push token', claims.agentRunId)
-    return forbidden("Push refused: the run's repository or branch changed since it started")
+    console.error(`${tag} the run no longer matches its git gate token`, claims.agentRunId)
+    return forbidden(`${label} refused: the run's repository or branch changed since it started`)
   }
+  return { runId: claims.agentRunId, target }
+}
+
+/**
+ * Who is pushing, and to what: authorizeRun, then the push-only checks on the
+ * shape of the run's branch.
+ */
+async function authorize(request: Request, deps: GitPushProxyDeps): Promise<PushTarget | Response> {
+  const authorized = await authorizeRun(request, deps, 'push')
+  if (authorized instanceof Response) return authorized
+  const { runId, target } = authorized
   if (!target.branchName.startsWith(RUN_BRANCH_PREFIX) || target.branchName === target.baseBranch) {
-    console.error('[git-push] refusing a run whose branch is not a run branch', claims.agentRunId, target.branchName)
+    console.error('[git-push] refusing a run whose branch is not a run branch', runId, target.branchName)
     return forbidden('Push refused: this run has no branch of its own')
   }
   return target
 }
 
+/**
+ * The push half of the gate. It serves only the two push endpoints; the
+ * route reaches it through handleGitGate (git-read-proxy.ts), which sends the
+ * read endpoints to the read gate and everything else here.
+ */
 export async function handleGitPush(
   request: Request,
   segments: string[],
-  deps: GitPushProxyDeps = defaultDeps,
+  deps: GitPushProxyDeps = defaultGitGateDeps,
 ): Promise<Response> {
   const endpoint = endpointOf(segments)
-  if (!endpoint) return notFound('Only git push is served here')
+  if (!endpoint) return notFound('Not a git gate endpoint')
   const method = request.method.toUpperCase()
 
   if (endpoint === 'info-refs') {
     if (method !== 'GET') return apiError('Method not allowed', { status: 405, code: 'METHOD_NOT_ALLOWED' })
     if (new URL(request.url).searchParams.get('service') !== 'git-receive-pack') {
-      return forbidden('Only git push is served here; fetch from GitHub directly')
+      return forbidden('Only git-upload-pack and git-receive-pack are served here')
     }
     const target = await authorize(request, deps)
     if (target instanceof Response) return target
@@ -198,7 +249,7 @@ export async function handleGitPush(
   const target = await authorize(request, deps)
   if (target instanceof Response) return target
 
-  const body = await readCapped(request)
+  const body = await readCapped(request, MAX_PUSH_BYTES)
   if (!body) return apiError('Push refused: the push is too large', { status: 413, code: 'TOO_LARGE' })
   const parsed = parseReceivePackRequest(body)
   if (!parsed.ok) return badRequest(`Push refused: ${parsed.reason}`)

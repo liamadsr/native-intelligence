@@ -1,7 +1,7 @@
 /**
- * The run's push token: it opens only the git push gate, so it must never
- * verify as a run token (which opens the spec route and its GitHub token), nor
- * a run token as it.
+ * The run's git gate token ("push token" in code): it opens only the git gate
+ * (reads and pushes), so it must never verify as a run token (which opens the
+ * spec route, the event route and the outcome route), nor a run token as it.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { extractGitPushToken, GIT_PUSH_TOKEN_TTL_MS, mintGitPushToken, verifyGitPushToken } from '../git-push-token'

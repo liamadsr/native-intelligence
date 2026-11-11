@@ -56,31 +56,35 @@ The selector opens the session sandbox with the network policy mapped from the
 run's `networkAccess` applied AT CREATION (`restricted` → exactly
 `RESTRICTED_ALLOW_HOSTS` — GitHub + the npm registry — the single source of truth
 for that tier; `trusted` → allow-all; `isolated` or unknown → `github.com` only;
-every tier also allows the app's git push gate; no spec → `deny-all`). On Vercel
-the firewall injects the run's GitHub token on git's READ requests for its repo
-only (four exact paths with their methods, LFS's read-only lock check included: never `git-receive-pack`) and the
-run's push token on the push gate's two exact endpoints (no protection-bypass
-secret). Then it clones `repoFullName` @ `baseBranch` into `/workspace`,
-points `remote.origin.pushurl` at the push gate on the app's public origin
-(`/api/internal/agent-run/git`, `src/lib/agent-run/git-push-proxy.ts`, which
-pushes only the run's own branch, server-side), creates `branchName`, provisions the linked cloud
+every tier also allows the app's git gate; no spec → `deny-all`). The run's
+GitHub token never reaches the sandbox (the spec doesn't carry it): every
+clone, fetch, LFS request and push goes to the app's git gate on its public
+origin (`/api/internal/agent-run/git`: `src/lib/agent-run/git-read-proxy.ts`
+serves the run's repo for reads, `git-push-proxy.ts` pushes only the run's own
+branch), which adds the GitHub token server-side. The gate takes one
+credential, the run's git gate token: on the hosted sandbox the firewall
+injects it on the gate's six exact endpoints (no protection-bypass secret), and
+github.com carries no credential. Then it clones `repoFullName` @ `baseBranch`
+into `/workspace` from the gate URL (also the push URL and the `lfs.url`
+base), creates `branchName`, provisions the linked cloud
 environment's `envVars` (reserved proxy/TLS/token names stripped; written to
 `~/.dial8_env` and sourced from `~/.profile`, any existing `~/.bash_profile` /
 `~/.bash_login`, and `~/.bashrc`, because eve runs commands with `bash -lc`, a
 non-interactive login shell that never reads `~/.bashrc`; the setup run sources
 it directly), and runs `setupScript` (non-fatal on failure). A lost Vercel sandbox is
 never silently replaced: resume fails instead of recreating it without the
-policy. Provider: a dedicated `VercelSandbox` environment on Vercel (the only
-place the allow-list and brokering are enforced); eve's `DefaultSandbox`
-(Docker → microsandbox → just-bash) locally, where the policy carries no
-credential: the clone gets the GitHub token as a one-shot env (never persisted)
-and the push token sits in git config for the push URL; a local sandbox must be
-able to reach the app to push — a dev-only degradation.
+policy. Provider: a dedicated `VercelSandbox` environment on the hosted sandbox
+service (the only place the allow-list and the firewall-injected gate token
+are enforced); eve's `DefaultSandbox` (Docker → microsandbox → just-bash)
+otherwise, where the policy carries no credential: the clone gets the git gate
+token as a one-shot env, then it sits in the repo's git config for the gate URL
+only; a local sandbox must be able to reach the app even to clone (there is no
+fallback that clones from GitHub directly).
 
 ### What the push gate guarantees, and what it doesn't
 
 No push from the sandbox can move any ref but the run's own `dial8/…` branch:
-the sandbox holds no GitHub credential that can push, and the gate refuses
+the sandbox holds no GitHub credential at all, and the gate refuses
 every other ref, deletes and push options. What the gate does NOT stop (residual risk, the owner's call; nothing is built for it): a pushed `dial8/…` branch can change what the repo's existing CI runs on that branch (package.json scripts, tests, build config). The owner's token has no `workflow` scope, so the run can't edit `.github/workflows` itself. But on a repo whose Actions `GITHUB_TOKEN` can write (`default_workflow_permissions: write`, or a workflow with `contents: write`) and whose workflows run on `push` or `pull_request`, such a workflow could run the branch's code with that write token and push the default branch itself. A ruleset or branch protection on the default branch, or read-only workflow permissions, closes it.
 
 ## Configuration

@@ -8,7 +8,8 @@
  *      repo/token/persona/task) — the run can't proceed.
  *   3. SHAPE: a rebuildable action-origin run returns the pinned EveSpec, with
  *      the persona system prompt, the `<issue>` task text (untrusted-fenced), the
- *      repo/branch, the GitHub token, and the cloud-environment defaults
+ *      repo/branch, the run's git gate token and NEVER the GitHub token (the
+ *      git gate adds that server-side), and the cloud-environment defaults
  *      (trusted/allow-all, no setup, no env) when the run, its project and its
  *      workspace have no environment (migration 420, resolveRunEnvironment).
  *   4. FLOW-ORIGIN (action_id NULL): a runnable flow-origin row is served too —
@@ -207,7 +208,7 @@ describe('GET /api/internal/agent-run/spec — 404 unrunnable', () => {
 })
 
 describe('GET /api/internal/agent-run/spec — shape + fail-open env', () => {
-  it('returns the pinned EveSpec with persona, task text, repo, token, and fail-open env defaults', async () => {
+  it('returns the pinned EveSpec with persona, task text, repo, and fail-open env defaults, and no GitHub token', async () => {
     seedRunnable()
     const res = await GET(specReq({ secret: SECRET, token: mintAgentRunToken(CLAIMS) }))
     expect(res.status).toBe(200)
@@ -230,7 +231,9 @@ describe('GET /api/internal/agent-run/spec — shape + fail-open env', () => {
     expect(spec.repoFullName).toBe('acme/web')
     expect(spec.baseBranch).toBe('main')
     expect(spec.branchName).toBe('dial8/eng-42-run-1') // agentRunId 'run-1'.slice(0,8) === 'run-1'
-    expect(spec.githubToken).toBe('ghp_spec_token')
+    // The GitHub token never leaves the app: not as a field, not anywhere in the body.
+    expect(spec).not.toHaveProperty('githubToken')
+    expect(JSON.stringify(spec)).not.toContain('ghp_spec_token')
     // The Strong tier (STRONG_MODEL): coding runs on the newest Sonnet.
     expect(spec.model).toBe('anthropic/claude-sonnet-5.5')
 
@@ -240,7 +243,7 @@ describe('GET /api/internal/agent-run/spec — shape + fail-open env', () => {
     expect(spec.envVars).toEqual({})
   })
 
-  it("carries the run's push token for the git push gate: bound to this run, and never a run token", async () => {
+  it("carries the run's git gate token: bound to this run, and never a run token", async () => {
     seedRunnable()
     const res = await GET(specReq({ secret: SECRET, token: mintAgentRunToken(CLAIMS) }))
     const spec = await res.json()
@@ -298,7 +301,8 @@ describe('GET /api/internal/agent-run/spec — flow-origin (action_id NULL)', ()
     expect(spec.taskPrompt).toBe('Bump the lodash dependency and fix any breakage.')
     expect(spec.repoFullName).toBe('acme/api')
     expect(spec.branchName).toBe('dial8/flow-run-1-run-1')
-    expect(spec.githubToken).toBe('ghp_spec_token')
+    expect(spec).not.toHaveProperty('githubToken')
+    expect(JSON.stringify(spec)).not.toContain('ghp_spec_token')
     expect(spec.networkAccess).toBe('trusted')
     expect(spec.setupScript).toBeNull()
     expect(spec.envVars).toEqual({})

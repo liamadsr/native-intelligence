@@ -1,21 +1,25 @@
 /**
- * The push credential a coding run's sandbox holds: a signed token that the
- * git push gate (/api/internal/agent-run/git, git-push-proxy.ts) accepts, and
- * nothing else does.
+ * The git gate token: the ONE credential a coding run's sandbox side holds for
+ * git. The app's git gate (/api/internal/agent-run/git) accepts it on its read
+ * endpoints (clone, fetch, LFS: git-read-proxy.ts) and its push endpoints
+ * (git-push-proxy.ts), and nothing else does. (Named "push token" in code: it
+ * predates the read gate.)
  *
- * Why a token of its own: the sandbox never holds a credential that can write
- * the repo on GitHub. Its GitHub token is brokered for reads only
- * (agents/coding-agent/sandbox.ts), and every push goes to our gate, which
- * pushes with the run's GitHub token only to the run's own branch. The gate
- * needs to know which run is pushing, so the firewall (or, off Vercel, git's
- * config) presents this token.
+ * Why a token of its own: the GitHub token behind a run (the triggering
+ * person's, repo scope) never leaves the app, so nothing in the sandbox can
+ * write the repo on GitHub, or read it, except through the gate. The gate
+ * needs to know which run is asking, so the hosted sandbox's firewall (or, on
+ * any other provider, git's config for the gate URL only) presents this token,
+ * and the gate adds the GitHub token server-side.
  *
- * It is NOT a run token: a run token opens the spec route (which hands out the
- * GitHub token), the event route and the outcome route. This one opens only
- * the push gate, and the gate re-reads the run from the database on every
- * request (live status, repo, branch). So even a push token that leaked into
- * the sandbox could do no more than the run itself may: push its own branch
- * while the run is live.
+ * It is NOT a run token: a run token opens the spec route, the event route and
+ * the outcome route. This one opens only the git gate, and the gate re-reads
+ * the run from the database on every request (live status, repo, branch). So
+ * even a gate token that leaked into the sandbox could do no more than the run
+ * itself may: read its own repo and push its own branch, while the run is
+ * live. (Reading the repo includes the LFS batch API, which also answers
+ * `upload` batches: see git-read-proxy.ts. No ref moves except through the
+ * push gate.)
  *
  * Format: base64url(payload).base64url(hmac). The key is the agent-run
  * internal secret (no new env var), with domain separation: the MAC is over
@@ -24,18 +28,20 @@
  * also carries `purpose: 'git-push'`.
  *
  * It also carries the repo and branch the run's spec named when it was minted
- * (the moment the sandbox was seeded). The gate refuses a push when the run's
- * live spec now names another repo or branch: a project's `github_repo` is
- * member-written, and a run must never push into a repo it wasn't cloned from.
+ * (the moment the sandbox was seeded). The gate refuses a read or a push when
+ * the run's live spec now names another repo or branch: a project's
+ * `github_repo` is member-written, and a run must never read or push a repo it
+ * wasn't cloned from.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { internalSecret } from './agent-run-token'
 
 /**
- * Lifetime. The firewall carries the token from the sandbox's creation and
- * can't be refreshed, so it has to outlast a long run (or one that waits on a
- * question). The real bound is the run's status, re-read on every push: a
- * settled or canceled run pushes nothing, whatever its token says.
+ * Lifetime. The firewall (or git's config) carries the token from the
+ * sandbox's creation and can't be refreshed, so it has to outlast a long run
+ * (or one that waits on a question). The real bound is the run's status,
+ * re-read on every gate request: a settled or canceled run reads and pushes
+ * nothing, whatever its token says.
  */
 export const GIT_PUSH_TOKEN_TTL_MS = 6 * 60 * 60 * 1000
 
@@ -65,7 +71,7 @@ function constantTimeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb)
 }
 
-/** Mint a run's push token. Throws when the agent-run secret is unset (no run can start then anyway). */
+/** Mint a run's git gate token. Throws when the agent-run secret is unset (no run can start then anyway). */
 export function mintGitPushToken(claims: MintClaims, now = Date.now()): string {
   const secret = internalSecret()
   if (!secret) throw new Error('[git-push] AGENT_RUN_INTERNAL_SECRET is not set: cannot mint a push token')
@@ -81,7 +87,7 @@ export function mintGitPushToken(claims: MintClaims, now = Date.now()): string {
   return `${payloadB64}.${mac(payloadB64, secret)}`
 }
 
-/** Verify a push token: its MAC, purpose, shape and expiry. Null on anything else (fail closed). */
+/** Verify a git gate token: its MAC, purpose, shape and expiry. Null on anything else (fail closed). */
 export function verifyGitPushToken(token: string | null | undefined, now = Date.now()): GitPushTokenClaims | null {
   const secret = internalSecret()
   if (!secret) return null
@@ -113,7 +119,7 @@ export function verifyGitPushToken(token: string | null | undefined, now = Date.
 }
 
 /**
- * The push token a request presents: HTTP Basic (git's own form: the password
+ * The git gate token a request presents: HTTP Basic (git's own form: the password
  * is the token, the user name is ignored) or a Bearer header. Null otherwise.
  */
 export function extractGitPushToken(request: Request): string | null {
