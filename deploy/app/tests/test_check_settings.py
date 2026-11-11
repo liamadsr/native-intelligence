@@ -52,6 +52,10 @@ class Groups(unittest.TestCase):
         # A new value is fine for it: only cloud browsers running at the switch hold tokens made with it.
         self.assertEqual(cs.group("BROWSER_INTERNAL_SECRET"), "needed")
         self.assertEqual(cs.group("GITHUB_WEBHOOK_SECRET"), "must match")
+        # Slack stays on: an empty token or project id blocks the gate, the environment defaults.
+        self.assertEqual(cs.group("CONNECT_ACCESS_TOKEN"), "needed")
+        self.assertEqual(cs.group("CONNECT_PROJECT_ID"), "needed")
+        self.assertEqual(cs.group("CONNECT_ENVIRONMENT"), "may be empty")
 
     def test_no_name_is_in_two_groups(self):
         self.assertFalse(set(cs.MUST_MATCH) & set(cs.MAY_BE_EMPTY))
@@ -133,6 +137,41 @@ class Small(unittest.TestCase):
         self.assertEqual(cs.sender_domain("Made Up <hello@Example.dev>"), "example.dev")
         self.assertEqual(cs.sender_domain("hello@example.dev"), "example.dev")
         self.assertIsNone(cs.sender_domain("not an address"))
+
+
+class Connectors(unittest.TestCase):
+    PROJECT = "prj_madeup0001"
+
+    def listing(self, destinations):
+        return {"clients": [
+            {"id": "scl_madeup0001", "uid": "github/made-up", "triggerDestinations": [{"projectId": "prj_madeup0002"}]},
+            {"id": "scl_madeup0002", "uid": "slack/made-up", "triggerDestinations": destinations},
+        ]}
+
+    def test_the_connector_forwards_to_the_project(self):
+        ok, _ = cs.connector_verdict(self.listing([{"projectId": self.PROJECT, "path": "/api/slack/events"}]), "slack/made-up", self.PROJECT)
+        self.assertIs(ok, True)
+        # SLACK_CONNECTOR may hold the id instead of the uid; the destinations may be plain ids.
+        ok, _ = cs.connector_verdict(self.listing([self.PROJECT]), "scl_madeup0002", self.PROJECT)
+        self.assertIs(ok, True)
+
+    def test_another_project(self):
+        ok, note = cs.connector_verdict(self.listing([{"projectId": "prj_madeup0003"}]), "slack/made-up", self.PROJECT)
+        self.assertIs(ok, False)
+        self.assertIn("does not forward", note)
+        ok, _ = cs.connector_verdict(self.listing(None), "slack/made-up", self.PROJECT)
+        self.assertIs(ok, False)
+
+    def test_no_such_connector(self):
+        ok, note = cs.connector_verdict(self.listing([self.PROJECT]), "slack/other", self.PROJECT)
+        self.assertIs(ok, False)
+        self.assertIn("among its 2", note)
+        self.assertIs(cs.connector_verdict(None, "slack/made-up", self.PROJECT)[0], False)
+
+    def test_needs_the_team_connector_and_project(self):
+        ok, note = cs.check_connect({"CONNECT_ACCESS_TOKEN": "made-up", "SLACK_CONNECTOR": "slack/made-up"}, {})
+        self.assertIs(ok, False)
+        self.assertIn("SANDBOX_TEAM_ID", note)
 
 
 class Report(unittest.TestCase):

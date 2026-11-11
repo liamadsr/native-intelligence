@@ -9,7 +9,7 @@
  * ── The security boundaries this route owns ─────────────────────────────
  * 1. AUTH, either of two (the other is not consulted):
  *    - Vercel Connect forwarded it: a Vercel OIDC bearer for this project and
- *      environment (createConnectWebhookVerifier), as on the events route;
+ *      environment (verifyConnectForward), as on the events route;
  *    - Slack sent it here directly (Interactivity pointed at this URL): its
  *      X-Slack-Signature, with SLACK_SIGNING_SECRET (src/lib/slack/signature.ts).
  *    Neither verifies: 401, nothing read.
@@ -25,18 +25,17 @@
  *    (only a hooks.slack.com URL is ever posted to).
  */
 import { after } from 'next/server'
-import { createConnectWebhookVerifier } from '@vercel/connect/chat'
 import { getServiceClient } from '@/lib/admin'
 import { apiError, badRequest, unauthorized } from '@/lib/api-errors'
 import { APPROVE_ACTION, parseButtonClick, settleApprovalFromSlack, settleLine, settledBlocks, type SlackButtonClick } from '@/lib/slack/approvals'
 import { slackAppId, slackConnector } from '@/lib/slack/config'
+import { verifyConnectForward } from '@/lib/slack/forwarded'
 import { verifySlackSignature } from '@/lib/slack/signature'
 import { getInstallation, linkForSlackUser, memberIdOf } from '@/lib/slack/store'
 
 export const maxDuration = 60
 
 const MAX_BODY_BYTES = 256 * 1024
-const verifyConnect = createConnectWebhookVerifier()
 
 export async function POST(request: Request) {
   const appId = slackAppId()
@@ -48,7 +47,7 @@ export async function POST(request: Request) {
   let verified = false
   if (request.headers.get('authorization')) {
     try {
-      await verifyConnect(request, body)
+      await verifyConnectForward(request, body)
       verified = true
     } catch {
       verified = false

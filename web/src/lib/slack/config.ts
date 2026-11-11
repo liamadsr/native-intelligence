@@ -1,6 +1,6 @@
 /**
  * Slack as a customer connection (docs/plans/slack-connect.md): the
- * deployment's settings. None of these is a secret. The Slack app's secrets
+ * deployment's settings. Neither SLACK_* one is a secret. The Slack app's secrets
  * (client secret, signing secret, verification token) live ONLY in the
  * Vercel Connect connector, and bot tokens come from Connect at runtime
  * (./connect.ts). Nothing in this app ever holds them.
@@ -10,6 +10,20 @@
  *                    card doesn't show.
  *   SLACK_APP_ID     our Slack app's id (A…). The events route drops any
  *                    payload whose api_app_id isn't this (fails closed).
+ *
+ * Off Vercel (our own server) the app has no Vercel OIDC token, so it reaches
+ * Connect with these instead. Unset (on Vercel): the OIDC token, as before.
+ *
+ *   CONNECT_ACCESS_TOKEN  a Vercel access token scoped to the team the
+ *                         connector is in. Every Connect call sends it
+ *                         (`{ vercelToken }`) instead of the OIDC token. A
+ *                         secret: never logged.
+ *   CONNECT_PROJECT_ID    the Vercel project Connect forwards Slack's events
+ *                         for (prj_…): a forwarded request's OIDC token must
+ *                         name it, instead of VERCEL_PROJECT_ID.
+ *   CONNECT_ENVIRONMENT   the environment that token must name, instead of
+ *                         VERCEL_TARGET_ENV / VERCEL_ENV. `production` when
+ *                         unset; read only with CONNECT_PROJECT_ID.
  */
 
 import { appUrl } from '@/lib/app-url'
@@ -18,6 +32,22 @@ import { appUrl } from '@/lib/app-url'
 export function slackConnector(): string | null {
   const value = process.env.SLACK_CONNECTOR?.trim()
   return value ? value : null
+}
+
+/** The access token every Connect call sends, or null to use the Vercel OIDC token. */
+export function connectAccessToken(): string | null {
+  const value = process.env.CONNECT_ACCESS_TOKEN?.trim()
+  return value ? value : null
+}
+
+/**
+ * The project and environment a forwarded request's OIDC token must name, or
+ * undefined for the verifier's own defaults (VERCEL_PROJECT_ID, VERCEL_ENV).
+ */
+export function connectForwardTarget(): { projectId: string; environment: string } | undefined {
+  const projectId = process.env.CONNECT_PROJECT_ID?.trim()
+  if (!projectId) return undefined
+  return { projectId, environment: process.env.CONNECT_ENVIRONMENT?.trim() || 'production' }
 }
 
 /** Our Slack app's id, or null when unset. */

@@ -76,7 +76,8 @@ MAY_BE_EMPTY = {
     "APP_DOWNLOAD_URL_WINDOWS": "empty: no Windows download is offered",
     "SENTRY_ORG": "read only by the build's source-map upload, which this image does not do",
     "SENTRY_PROJECT": "read only by the build's source-map upload, which this image does not do",
-    "SLACK_SIGNING_SECRET": "Slack cannot run off the earlier host yet (../README.md step 21, Gate 1)",
+    "SLACK_SIGNING_SECRET": "empty: a button click Slack sends straight here, not through the connector, is refused",
+    "CONNECT_ENVIRONMENT": "empty: production",
     "GATEWAY_USAGE_REPORTING": "empty: the admin's AI usage page opens on its log view",
     "GATEWAY_USER_TAGGING": "empty: no per-person tags in the AI Gateway's report",
     "AGENT_AUTO_ATTEMPT_ENABLED": "a switch: empty is off",
@@ -90,6 +91,8 @@ SWITCH = {"NI_LIVE": "set by step 21 of ../README.md, never before"}
 # What is off while a needed one is empty, where it is not obvious from the name.
 EMPTY_MEANS = {
     "SANDBOX_ACCESS_TOKEN": "the cloud browser does not start",
+    "CONNECT_ACCESS_TOKEN": "Slack is off: the app cannot reach the connector",
+    "CONNECT_PROJECT_ID": "Slack's events and button clicks are refused",
     "CLOUD_BROWSER_RELAY_ORIGIN": "the cloud browser does not start",
     "CLOUD_BROWSER_BASE_SNAPSHOT_ID": "the cloud browser does not start",
     "BROWSER_INTERNAL_SECRET": "it falls back to RUN_SKILL_INTERNAL_SECRET's key: give it a value of its own (any)",
@@ -407,6 +410,42 @@ def check_sandbox(env, _opts):
     return False, "the sandbox service answered %d (403: the token's scope does not include the team)" % status
 
 
+def names_value(value, wanted):
+    """True when `wanted` is a string anywhere in value (lists and objects walked)."""
+    if isinstance(value, str):
+        return value == wanted
+    if isinstance(value, dict):
+        value = list(value.values())
+    return isinstance(value, list) and any(names_value(v, wanted) for v in value)
+
+
+def connector_verdict(body, connector, project):
+    """(ok, note) for a listing of the team's connectors (`clients`): one must be
+    `connector` (its uid, or its id) and forward its triggers to `project`."""
+    clients = (body or {}).get("clients") or []
+    found = [c for c in clients if isinstance(c, dict) and connector in (c.get("uid"), c.get("id"))]
+    if not found:
+        return False, "the team has no connector %s among its %d (another team, or SLACK_CONNECTOR is wrong)" % (connector, len(clients))
+    if not names_value(found[0].get("triggerDestinations"), project):
+        return False, "the Slack connector is the team's, but does not forward its events to CONNECT_PROJECT_ID"
+    return True, "lists the team's connectors; the Slack connector forwards its events to CONNECT_PROJECT_ID"
+
+
+def check_connect(env, _opts):
+    # The app's token calls name no team (the token's scope does); a listing does,
+    # and the connector is in the team of the app's project, as the sandboxes are.
+    team = env.get("SANDBOX_TEAM_ID", "").strip()
+    connector, project = env.get("SLACK_CONNECTOR", "").strip(), env.get("CONNECT_PROJECT_ID", "").strip()
+    if not team or not connector or not project:
+        return False, "needs SANDBOX_TEAM_ID, SLACK_CONNECTOR and CONNECT_PROJECT_ID too"
+    # Read-only: a listing. A connector token is never requested here.
+    status, body = http("https://api.vercel.com/v1/connect/connectors?teamId=%s" % urllib.parse.quote(team),
+                        {"Authorization": "Bearer " + env["CONNECT_ACCESS_TOKEN"].strip()})
+    if status != 200:
+        return False, "the connector service answered %d (403: the token's scope does not include the team)" % status
+    return connector_verdict(body, connector, project)
+
+
 def check_deepgram(env, _opts):
     status, body = http("https://api.deepgram.com/v1/projects", {"Authorization": "Token " + env["DEEPGRAM_API_KEY"].strip()})
     if status == 200 and (body or {}).get("projects"):
@@ -431,6 +470,7 @@ CHECKS = {
     "GOOGLE_GENERATIVE_AI_API_KEY": check_google,
     "EMAIL_FROM": check_email_from,
     "SANDBOX_ACCESS_TOKEN": check_sandbox,
+    "CONNECT_ACCESS_TOKEN": check_connect,
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
 }

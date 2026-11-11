@@ -6,12 +6,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const m = vi.hoisted(() => ({
   verify: vi.fn(),
+  verifierOptions: [] as unknown[],
   firstDelivery: vi.fn(),
   handle: vi.fn(),
   afterFns: [] as Array<() => Promise<void>>,
 }))
 
-vi.mock('@vercel/connect/chat', () => ({ createConnectWebhookVerifier: () => m.verify }))
+vi.mock('@vercel/connect/chat', () => ({
+  createConnectWebhookVerifier: (options: unknown) => {
+    m.verifierOptions.push(options)
+    return m.verify
+  },
+}))
 vi.mock('next/server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('next/server')>()),
   after: (fn: () => Promise<void>) => m.afterFns.push(fn),
@@ -44,6 +50,7 @@ beforeEach(() => {
   m.firstDelivery.mockReset().mockResolvedValue(true)
   m.handle.mockReset().mockResolvedValue('person_dm')
   m.afterFns.length = 0
+  m.verifierOptions.length = 0
 })
 
 describe('POST /api/slack/events', () => {
@@ -53,6 +60,15 @@ describe('POST /api/slack/events', () => {
     expect(res.status).toBe(401)
     expect(m.firstDelivery).not.toHaveBeenCalled()
     expect(m.afterFns).toHaveLength(0)
+  })
+
+  it("checks the token against the deployment's own project on Vercel, and CONNECT_PROJECT_ID off it", async () => {
+    vi.stubEnv('CONNECT_PROJECT_ID', '')
+    await POST(req(dmEvent))
+    vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0001')
+    await POST(req(dmEvent))
+    vi.stubEnv('CONNECT_PROJECT_ID', '')
+    expect(m.verifierOptions).toEqual([undefined, { projectId: 'prj_madeup0001', environment: 'production' }])
   })
 
   it('is off (503) when the deployment has no Slack app configured', async () => {
