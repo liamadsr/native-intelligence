@@ -1,6 +1,7 @@
 # The server's settings tools (deploy/app/check_settings.py, deploy/supabase/envfile.py)
 # never show a value, so their tests are the only place their output is read whole.
-# Ubuntu's own python3-cryptography, the package the server uses.
+# Ubuntu's own python3-cryptography, the package the server uses. deploy/app/tests
+# also runs auto-deploy.sh against made-up repositories (git and flock, as on the server).
 name: Deploy scripts
 
 on:
@@ -9,6 +10,11 @@ on:
       - 'deploy/**/*.py'
       - 'deploy/**/*.sh'
       - 'deploy/app/.env.example'
+      - 'deploy/app/ni-auto-deploy.*'
+      # deploy/app/tests reads these two: which containers get which settings, and
+      # what the build is handed.
+      - 'deploy/app/compose.yaml'
+      - 'deploy/app/Dockerfile'
       - '.github/workflows/deploy-scripts.yml'
       # What check_settings.py's proofs copy from the app:
       - 'web/src/lib/crypto/credentials.ts'
@@ -31,4 +37,4 @@ jobs:
       - run: sudo apt-get update -q && sudo apt-get install -y --no-install-recommends python3-cryptography
       - run: /usr/bin/python3 -m unittest discover -s deploy/app/tests -v
       - run: /usr/bin/python3 -m unittest discover -s deploy/supabase/tests -v
-      - run: for f in deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh; do bash -n "$f"; done
+      - run: for f in deploy/app/auto-deploy.sh deploy/app/check-settings.sh deploy/app/pull-settings.sh deploy/supabase/set-secret.sh; do bash -n "$f"; done

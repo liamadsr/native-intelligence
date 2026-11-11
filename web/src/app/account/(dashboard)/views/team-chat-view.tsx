@@ -98,6 +98,9 @@ import { entityOpenTarget } from '@/lib/entity-links/open-entity'
 import { EntityContextMenu } from '@/components/entities/entity-actions-menu'
 import { menuRowMention, type MenuSearchRow } from '@/lib/search/menu-search'
 import { parseSharedRecords, toastSharedRecords } from '@/lib/entity-access/share-toast'
+import { useTeamCalls } from '@/components/team-calls/team-calls-provider'
+import { upsertParticipant, type TeamCall, type TeamCallParticipant, type TeamCallView } from '@/lib/team-calls/types'
+import { CallMessage, CallButton } from './team-call-parts'
 import { Avatar, LinkPreviewCard, MessageAttachments, memberName, ReactButton, ReactionChips, ThreadBar, type Member } from './team-chat-message-parts'
 
 /**
@@ -189,6 +192,9 @@ export function TeamChatView({
   const [unreadThreads, setUnreadThreads] = useState<Record<string, TeamChatThreadUnread>>({})
   // Per message: the reactions that are on.
   const [reactions, setReactions] = useState<Record<string, TeamChatReaction[]>>({})
+  // Per call (migration 564): its state and who is in it, for its message in the conversation.
+  const [calls, setCalls] = useState<Record<string, TeamCallView>>({})
+  const teamCalls = useTeamCalls()
   const [openThread, setOpenThread] = useState<{ channelId: string; rootId: string } | null>(null)
   const [waitingOnAgent, setWaitingOnAgent] = useState<Record<string, number>>({})
   const [newChannelOpen, setNewChannelOpen] = useState(false)
@@ -281,8 +287,9 @@ export function TeamChatView({
   }, [])
 
   /** A page's summaries and reactions into the page's own (the reactions of these messages replaced). */
-  const takeExtras = useCallback((ids: readonly string[], summaries: TeamChatThreadSummary[] | undefined, found: TeamChatReaction[] | undefined) => {
+  const takeExtras = useCallback((ids: readonly string[], summaries: TeamChatThreadSummary[] | undefined, found: TeamChatReaction[] | undefined, foundCalls?: TeamCallView[]) => {
     if (summaries?.length) setThreads((prev) => ({ ...prev, ...Object.fromEntries(summaries.map((t) => [t.root_id, t])) }))
+    if (foundCalls?.length) setCalls((prev) => ({ ...prev, ...Object.fromEntries(foundCalls.map((c) => [c.call.id, c])) }))
     setReactions((prev) => {
       const next = { ...prev }
       for (const id of ids) delete next[id]
@@ -308,7 +315,14 @@ export function TeamChatView({
       const query = opts.around ? `?around=${encodeURIComponent(opts.around)}` : ''
       const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages${query}`)
       if (!res.ok) return
-      const json = (await res.json()) as { messages?: TeamChatMessage[]; threads?: TeamChatThreadSummary[]; reactions?: TeamChatReaction[]; hasOlder?: boolean; hasNewer?: boolean }
+      const json = (await res.json()) as {
+        messages?: TeamChatMessage[]
+        threads?: TeamChatThreadSummary[]
+        reactions?: TeamChatReaction[]
+        calls?: TeamCallView[]
+        hasOlder?: boolean
+        hasNewer?: boolean
+      }
       const page = Array.isArray(json.messages) ? json.messages : []
       if (opts.around) {
         const alone = json.hasNewer === true
@@ -327,6 +341,7 @@ export function TeamChatView({
         page.map((m) => m.id),
         json.threads,
         json.reactions,
+        json.calls,
       )
     },
     [takeExtras, setWindow],
@@ -337,7 +352,7 @@ export function TeamChatView({
     async (channelId: string, before: string) => {
       const res = await fetch(`/api/account/team-chat/channels/${channelId}/messages?before=${encodeURIComponent(before)}`)
       if (!res.ok) return
-      const json = (await res.json()) as { messages?: TeamChatMessage[]; threads?: TeamChatThreadSummary[]; reactions?: TeamChatReaction[] }
+      const json = (await res.json()) as { messages?: TeamChatMessage[]; threads?: TeamChatThreadSummary[]; reactions?: TeamChatReaction[]; calls?: TeamCallView[] }
       const page = Array.isArray(json.messages) ? json.messages : []
       setMore((prev) => ({ ...prev, [channelId]: page.length >= TEAM_CHAT_PAGE_SIZE }))
       setMessages((prev) => {
@@ -349,6 +364,7 @@ export function TeamChatView({
         page.map((m) => m.id),
         json.threads,
         json.reactions,
+        json.calls,
       )
     },
     [takeExtras],
@@ -601,6 +617,30 @@ export function TeamChatView({
       void supabase.removeChannel(channel)
     }
   }, [workspaceId, loadChannels, loadMessages, markRead, markThreadRead])
+
+  // Calls (migration 564), live, only where calling is on: their state and who is in them, for their messages.
+  useEffect(() => {
+    if (!workspaceId || !teamCalls.available) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`team-calls:${workspaceId}:${Math.random().toString(36).slice(2, 10)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_call', filter: `workspace_id=eq.${workspaceId}` }, (payload) => {
+        const row = payload.new as TeamCall | undefined
+        if (!row?.id) return
+        setCalls((prev) => ({ ...prev, [row.id]: { call: { ...row, ringing: row.ringing ?? [], declined: row.declined ?? [] }, participants: prev[row.id]?.participants ?? [] } }))
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_call_participant', filter: `workspace_id=eq.${workspaceId}` }, (payload) => {
+        const row = payload.new as TeamCallParticipant | undefined
+        if (!row?.call_id || !row.member_id) return
+        setCalls((prev) => (prev[row.call_id] ? { ...prev, [row.call_id]: { ...prev[row.call_id], participants: upsertParticipant(prev[row.call_id].participants, row) } } : prev))
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && selectedRef.current) void loadMessages(selectedRef.current)
+      })
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [workspaceId, teamCalls.available, loadMessages])
 
   // The "thinking" line gives up after a while (the reply may have gone to their own chat).
   useEffect(() => {
@@ -876,6 +916,7 @@ export function TeamChatView({
     onChanged: handleChanged,
     onSend: sendDraft,
     onTyping: notifyTyping,
+    calls,
   }
 
   const pane = (
@@ -1069,6 +1110,8 @@ interface PaneShared {
   onChanged: (message: Shown) => void
   onSend: (draft: TeamChatSendDraft) => void
   onTyping: (thread: string | null, typing: boolean) => void
+  /** The calls the conversation's call messages show (migration 564). */
+  calls: Record<string, TeamCallView>
 }
 
 /** Edit and delete, the same in a channel and a thread. */
@@ -1132,6 +1175,7 @@ function ChannelPane({
   onChanged,
   onSend,
   onTyping,
+  calls,
 }: PaneShared &
   FocusProps & {
   channel: TeamChatChannel
@@ -1224,6 +1268,8 @@ function ChannelPane({
           </span>
         )}
         {channel.topic && <span className="min-w-0 truncate text-sm text-muted-foreground">{channel.topic}</span>}
+        <span className="ml-auto" aria-hidden />
+        <CallButton channel={channel} label={channel.kind === 'channel' ? `#${title}` : title} />
         <NotifyMenu kind={channel.kind} level={channel.notify} onChange={onNotify} />
       </div>
 
@@ -1249,6 +1295,8 @@ function ChannelPane({
                 <MessageRow
                   key={messageKey(m)}
                   message={m}
+                  call={callOf(calls, m)}
+                  callPlace={{ label: channel.kind === 'channel' ? `#${title}` : title, kind: channel.kind }}
                   // A root with a thread under it starts its own group: the bar is its.
                   grouped={continuesGroup(messages[i - 1], m) && !threads[messages[i - 1].id]?.reply_count}
                   meId={meId}
@@ -1341,7 +1389,7 @@ function NotifyMenu({ kind, level, onChange }: { kind: TeamChatChannel['kind']; 
           data-team-chat-notify={level}
           aria-label={`Notifications: ${label}`}
           title={`Notifications: ${label}`}
-          className="ml-auto shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
+          className="shrink-0 rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground data-[state=open]:bg-accent"
         >
           <Icon className="h-4 w-4" />
         </button>
@@ -1398,6 +1446,7 @@ function ThreadPane({
   onChanged,
   onSend,
   onTyping,
+  calls,
 }: PaneShared &
   FocusProps & {
   channel: TeamChatChannel
@@ -1429,6 +1478,8 @@ function ThreadPane({
     <MessageRow
       key={messageKey(m)}
       message={m}
+      call={callOf(calls, m)}
+      callPlace={{ label: place, kind: channel.kind }}
       grouped={grouped}
       meId={meId}
       membersById={membersById}
@@ -1537,6 +1588,11 @@ function openRecordMention(r: TeamChatRecordMention) {
   if (target) openTarget(target, { from: 'team_chat' })
 }
 
+/** The call a call's message shows, once its page (or Realtime) brought it. */
+function callOf(calls: Record<string, TeamCallView>, m: TeamChatMessage): TeamCallView | undefined {
+  return m.kind === 'call' && m.call_id ? calls[m.call_id] : undefined
+}
+
 function MessageRow({
   message,
   grouped,
@@ -1559,8 +1615,14 @@ function MessageRow({
   threadUnread = 0,
   threadOpen = false,
   lit = false,
+  call,
+  callPlace,
 }: {
   message: Shown
+  /** A call's message (migration 564): the call it shows, once loaded. */
+  call?: TeamCallView
+  /** Where a call's message is: what the call panel calls it ("#launch", or the other person), and its kind. */
+  callPlace?: { label: string; kind: TeamChatChannel['kind'] }
   grouped: boolean
   meId: string | null
   membersById: Map<string, Member>
@@ -1598,6 +1660,8 @@ function MessageRow({
   const author = isAgent ? undefined : membersById.get(message.author_member_id ?? '')
   const groups = useMemo(() => groupReactions(reactions, meId), [reactions, meId])
   const toolbar = !deleted && !editing && !pending
+  // A call's message is the call's: no edit, no delete (the database refuses both too).
+  const isCall = message.kind === 'call'
 
   return (
     <li
@@ -1618,7 +1682,13 @@ function MessageRow({
             <span className="shrink-0 text-xs text-muted-foreground">{messageTime(message.created_at)}</span>
           </div>
         )}
-        {editing ? (
+        {isCall ? (
+          <>
+            <CallMessage message={message} call={call} meId={meId} membersById={membersById} place={callPlace} />
+            <ReactionChips groups={groups} names={reactorNames} onToggle={onReact} canReact={canReact} />
+            {onReplyInThread && <ThreadBar summary={thread} unread={threadUnread} membersById={membersById} open={threadOpen} onOpen={onReplyInThread} />}
+          </>
+        ) : editing ? (
           <EditBox message={message} members={members} onCancel={onCancelEdit} onSaved={onSaved} />
         ) : deleted ? (
           <p className="text-[15px] italic leading-relaxed text-muted-foreground">This message was deleted.</p>
@@ -1683,12 +1753,12 @@ function MessageRow({
               <MessageSquareReply className="h-3.5 w-3.5" />
             </button>
           )}
-          {mine && message.body && (
+          {mine && message.body && !isCall && (
             <button type="button" onClick={onEdit} aria-label="Edit message" title="Edit" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground">
               <Pencil className="h-3.5 w-3.5" />
             </button>
           )}
-          {(mine || myAgent) && (
+          {(mine || myAgent) && !isCall && (
             <button type="button" onClick={onDelete} aria-label="Delete message" title="Delete" className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive">
               <Trash2 className="h-3.5 w-3.5" />
             </button>

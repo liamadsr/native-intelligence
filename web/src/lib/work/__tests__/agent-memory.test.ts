@@ -63,10 +63,10 @@ describe('loadTeammateMemory', () => {
   it('leaves out an entry learned from a capture the user cannot see', async () => {
     const db = makeFakeSupabase()
     db.seed('captures', [
-      { id: 'cap-ws', workspace_id: WS, visibility: 'workspace', user_id: 'someone', is_eval: false },
-      { id: 'cap-mine', workspace_id: WS, visibility: 'private', user_id: USER, is_eval: false },
-      { id: 'cap-theirs', workspace_id: WS, visibility: 'private', user_id: 'someone', is_eval: false },
-      { id: 'cap-eval', workspace_id: WS, visibility: 'workspace', user_id: USER, is_eval: true },
+      { id: 'cap-ws', workspace_id: WS, visibility: 'workspace', user_id: 'someone', is_eval: false, notes_owner_out: false },
+      { id: 'cap-mine', workspace_id: WS, visibility: 'private', user_id: USER, is_eval: false, notes_owner_out: false },
+      { id: 'cap-theirs', workspace_id: WS, visibility: 'private', user_id: 'someone', is_eval: false, notes_owner_out: false },
+      { id: 'cap-eval', workspace_id: WS, visibility: 'workspace', user_id: USER, is_eval: true, notes_owner_out: false },
     ])
     db.seed('agent_memory', [
       memory({ text: 'from a workspace capture', source: { capture_ids: ['cap-ws'] } }),
@@ -159,8 +159,8 @@ describe('teammate memory for owners and admins: always live, remove and undo, a
   it('S1: an entry learned from a capture the viewer can’t see is never listed or changed for them', async () => {
     const db = makeFakeSupabase()
     db.seed('captures', [
-      { id: 'cap-ws', workspace_id: WS, visibility: 'workspace', user_id: 'someone', is_eval: false },
-      { id: 'cap-theirs', workspace_id: WS, visibility: 'private', user_id: 'someone', is_eval: false },
+      { id: 'cap-ws', workspace_id: WS, visibility: 'workspace', user_id: 'someone', is_eval: false, notes_owner_out: false },
+      { id: 'cap-theirs', workspace_id: WS, visibility: 'private', user_id: 'someone', is_eval: false, notes_owner_out: false },
     ])
     db.seed('agent_memory', [
       memory({ id: 'm-shared', text: 'From a shared call.', source: { capture_ids: ['cap-ws'] } }),

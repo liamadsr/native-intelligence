@@ -1,16 +1,18 @@
 /**
  * /api/account/team-chat/channels/[id]/messages (roadmap #7, migration 474)
- *   GET  ?before=<created_at> → { messages, threads, reactions } a page of
- *        the channel's own messages (never a thread's replies), oldest first
- *        (the newest page without `before`), with the summaries of the
- *        threads under them and their reactions (migrations 556, 557).
- *   GET  ?around=<message id> → { messages, threads, reactions, hasOlder,
- *        hasNewer } the page around one of the channel's own messages (a
- *        search hit, a notification, a link opened on an older message): a
- *        few before it, and on from it to the newest when that fits
- *        (hasNewer false: the page runs on unbroken to now), else as many
- *        after it as a page holds (hasNewer true: the view shows that page
- *        alone, with a way to the newest).
+ *   GET  ?before=<created_at> → { messages, threads, reactions, calls } a
+ *        page of the channel's own messages (never a thread's replies),
+ *        oldest first (the newest page without `before`), with the
+ *        summaries of the threads under them, their reactions (migrations
+ *        556, 557), and the calls a call's message shows, with who is in
+ *        them (564).
+ *   GET  ?around=<message id> → { messages, threads, reactions, calls,
+ *        hasOlder, hasNewer } the page around one of the channel's own
+ *        messages (a search hit, a notification, a link opened on an older
+ *        message): a few before it, and on from it to the newest when that
+ *        fits (hasNewer false: the page runs on unbroken to now), else as
+ *        many after it as a page holds (hasNewer true: the view shows that
+ *        page alone, with a way to the newest).
  *   GET  ?thread=<root id> → { messages, reactions } that thread's replies,
  *        oldest first, and their reactions.
  *   POST { body, mentions?, mentionsAgent?, records?, thread?, attachments?,
@@ -71,12 +73,18 @@ import { deliverTeamChatMention } from '@/lib/team-chat/agent-turn'
 import { firstLink, requestLinkPreview } from '@/lib/team-chat/link-preview'
 import { requestTeamChatNotify } from '@/lib/team-chat/notify'
 import { teamChatErrorResponse } from '@/lib/team-chat/route-errors'
+import { callViews } from '@/lib/team-calls/store'
 import { fenceRecordMentions, syncMessageMentions } from '@/lib/team-chat/record-mentions'
 import { tidyAttachments } from '@/lib/team-chat/files'
 import { shareMentionedRecords } from '@/lib/entity-access/share'
 import { dmOtherMember, isUuid, mentionsAssistantName, tidyBody, tidyMentionIds, TEAM_CHAT_MESSAGE_MAX } from '@/lib/team-chat/types'
 
 type Params = { params: Promise<{ id: string }> }
+
+/** The calls a page's call messages show (migration 564). */
+function callIdsOf(messages: ReadonlyArray<{ kind?: string; call_id?: string | null }>): string[] {
+  return messages.flatMap((m) => (m.kind === 'call' && m.call_id ? [m.call_id] : []))
+}
 
 export async function GET(request: NextRequest, { params }: Params) {
   const auth = await requireWorkspaceMember()
@@ -103,13 +111,21 @@ export async function GET(request: NextRequest, { params }: Params) {
       const page = await listMessagesAround(auth.supabase, id, around)
       if (!page) return notFound()
       const ids = page.messages.map((m) => m.id)
-      const [threads, reactions] = await Promise.all([threadSummaries(auth.supabase, ids), messageReactions(auth.supabase, ids)])
-      return NextResponse.json({ ...page, threads, reactions })
+      const [threads, reactions, calls] = await Promise.all([
+        threadSummaries(auth.supabase, ids),
+        messageReactions(auth.supabase, ids),
+        callViews(auth.supabase, callIdsOf(page.messages)),
+      ])
+      return NextResponse.json({ ...page, threads, reactions, calls })
     }
     const messages = await listMessages(auth.supabase, id, { before })
     const ids = messages.map((m) => m.id)
-    const [threads, reactions] = await Promise.all([threadSummaries(auth.supabase, ids), messageReactions(auth.supabase, ids)])
-    return NextResponse.json({ messages, threads, reactions })
+    const [threads, reactions, calls] = await Promise.all([
+      threadSummaries(auth.supabase, ids),
+      messageReactions(auth.supabase, ids),
+      callViews(auth.supabase, callIdsOf(messages)),
+    ])
+    return NextResponse.json({ messages, threads, reactions, calls })
   } catch (err) {
     return teamChatErrorResponse(err, 'messages list')
   }

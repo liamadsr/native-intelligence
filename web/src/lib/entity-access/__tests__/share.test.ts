@@ -80,6 +80,15 @@ describe('shareRecordsWithChannel', () => {
     expect(asBen.tables.entity_access.every((g) => g.source === 'channel_share')).toBe(true)
   })
 
+  it("a call's notes named beside another record: the notes are skipped (their conversation's alone), the other is shared", async () => {
+    const { client, tables } = db({
+      captures: [{ id: 'cap-notes', workspace_id: WS, visibility: 'private', user_id: ANA, is_eval: false, notes_channel_id: 'ch-call' }],
+    })
+    const shared = await shareRecordsWithChannel(client, { ...ana, records: [rec('capture', 'cap-notes', 'Call in #launch'), rec('document', 'doc-ana')] })
+    expect(shared.map((s) => s.id)).toEqual(['doc-ana'])
+    expect(tables.entity_access.map((g) => g.entity_id)).toEqual(['doc-ana'])
+  })
+
   it('leaves a record already granted to the channel alone', async () => {
     const { client, tables } = db({
       entity_access: [{ id: 'g-old', workspace_id: WS, entity_type: 'document', entity_id: 'doc-ana', grantee_kind: 'channel', grantee_channel_id: 'ch-1' }],

@@ -340,7 +340,7 @@ describe('prepBrief', () => {
 })
 
 describe('previousOccurrence', () => {
-  const cap = (over: Record<string, unknown>) => ({ workspace_id: 'w1', user_id: 'u1', visibility: 'private', status: 'active', is_eval: false, series_key: null, ical_uid: null, ...over })
+  const cap = (over: Record<string, unknown>) => ({ workspace_id: 'w1', user_id: 'u1', visibility: 'private', status: 'active', is_eval: false, notes_owner_out: false, series_key: null, ical_uid: null, ...over })
 
   it('the newest capture of the series before this one that the person may see: series key, else iCalendar UID', async () => {
     db.seed('captures', [
@@ -366,7 +366,7 @@ describe('previousOccurrence', () => {
 describe('startMeetingPrep', () => {
   it('writes the brief in the person\'s stored zone, naming the series\' previous meeting', async () => {
     db.seed('member', [{ id: 'm1', user_id: 'u1', workspace_id: 'w1', time_zone: 'America/New_York' }])
-    db.seed('captures', [{ id: 'cap-prev', workspace_id: 'w1', user_id: 'u1', visibility: 'private', status: 'active', series_key: 's-1', started_at: '2026-10-10T16:00:00.000Z' }])
+    db.seed('captures', [{ id: 'cap-prev', workspace_id: 'w1', user_id: 'u1', visibility: 'private', status: 'active', notes_owner_out: false, series_key: 's-1', started_at: '2026-10-10T16:00:00.000Z' }])
     await startMeetingPrep(db as never, meeting({ startIso: '2026-10-17T16:00:00.000Z', seriesKey: 's-1' }), deps())
     const prompt = String(db.rpcCalls[0].args.p_task_prompt)
     expect(prompt.split('\n')[0]).toBe('Prepare the person for their meeting at 12:00 PM EDT on Saturday, October 17 (2026-10-17T16:00:00.000Z).')
