@@ -10,14 +10,16 @@
  * are unset (and must stay unset: other code branches on VERCEL_ENV), so
  * CONNECT_PROJECT_ID and CONNECT_ENVIRONMENT name them explicitly
  * (./config.ts). Either way it fails closed: no project or environment, no
- * request.
+ * request, and a `*` in either setting refuses every request.
  */
 import { createConnectWebhookVerifier } from '@vercel/connect/chat'
 import { connectForwardTarget } from './config'
 
 /** Throws when the request is not one Connect forwarded for our project and environment. */
 export async function verifyConnectForward(request: Request, body: string): Promise<void> {
+  const target = connectForwardTarget()
+  if (target === 'refuse') throw new Error('CONNECT_PROJECT_ID or CONNECT_ENVIRONMENT holds a *: every forwarded request is refused')
   // Built per request so the settings are read at call time; the JWKS is
   // cached by the OIDC package, not by the verifier.
-  await createConnectWebhookVerifier(connectForwardTarget())(request, body)
+  await createConnectWebhookVerifier(target)(request, body)
 }

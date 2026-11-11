@@ -410,40 +410,51 @@ def check_sandbox(env, _opts):
     return False, "the sandbox service answered %d (403: the token's scope does not include the team)" % status
 
 
-def names_value(value, wanted):
-    """True when `wanted` is a string anywhere in value (lists and objects walked)."""
-    if isinstance(value, str):
-        return value == wanted
-    if isinstance(value, dict):
-        value = list(value.values())
-    return isinstance(value, list) and any(names_value(v, wanted) for v in value)
+SLACK_EVENTS_PATH = "/api/slack/events"
 
 
-def connector_verdict(body, connector, project):
-    """(ok, note) for a listing of the team's connectors (`clients`): one must be
-    `connector` (its uid, or its id) and forward its triggers to `project`."""
-    clients = (body or {}).get("clients") or []
-    found = [c for c in clients if isinstance(c, dict) and connector in (c.get("uid"), c.get("id"))]
-    if not found:
-        return False, "the team has no connector %s among its %d (another team, or SLACK_CONNECTOR is wrong)" % (connector, len(clients))
-    if not names_value(found[0].get("triggerDestinations"), project):
-        return False, "the Slack connector is the team's, but does not forward its events to CONNECT_PROJECT_ID"
-    return True, "lists the team's connectors; the Slack connector forwards its events to CONNECT_PROJECT_ID"
+def connector_verdict(status, body, project):
+    """(ok, note) for the connector service's answer about the Slack connector
+    itself: one of its trigger destinations must be `project` at the events path.
+    ok is None when the answer cannot tell (trouble on the way, or a shape not
+    known here)."""
+    if status == 0 or status >= 500:
+        return None, "the connector service could not be asked (%d): cannot tell" % status
+    if status in (401, 403, 404):
+        return False, ("the connector service answered %d: the token is not accepted for this connector on the "
+                       "path the app uses (another account or team, a revoked token, or SLACK_CONNECTOR is wrong)" % status)
+    if status != 200:
+        return None, "the connector service answered %d: cannot tell" % status
+    destinations = (body or {}).get("triggerDestinations") if isinstance(body, dict) else None
+    if not isinstance(destinations, list) or not all(isinstance(d, dict) for d in destinations):
+        return None, "the connector's trigger destinations are not in a form known here: cannot tell"
+    if any(d.get("projectId") == project and d.get("path") == SLACK_EVENTS_PATH for d in destinations):
+        return True, "the connector accepts the token and forwards its events to CONNECT_PROJECT_ID at %s" % SLACK_EVENTS_PATH
+    return False, "the connector accepts the token, but forwards no events to CONNECT_PROJECT_ID at %s" % SLACK_EVENTS_PATH
 
 
 def check_connect(env, _opts):
-    # The app's token calls name no team (the token's scope does); a listing does,
-    # and the connector is in the team of the app's project, as the sandboxes are.
-    team = env.get("SANDBOX_TEAM_ID", "").strip()
+    token = env["CONNECT_ACCESS_TOKEN"].strip()
+    if not token:
+        return False, "holds only whitespace: the app reads it as empty"
     connector, project = env.get("SLACK_CONNECTOR", "").strip(), env.get("CONNECT_PROJECT_ID", "").strip()
-    if not team or not connector or not project:
-        return False, "needs SANDBOX_TEAM_ID, SLACK_CONNECTOR and CONNECT_PROJECT_ID too"
-    # Read-only: a listing. A connector token is never requested here.
-    status, body = http("https://api.vercel.com/v1/connect/connectors?teamId=%s" % urllib.parse.quote(team),
-                        {"Authorization": "Bearer " + env["CONNECT_ACCESS_TOKEN"].strip()})
-    if status != 200:
-        return False, "the connector service answered %d (403: the token's scope does not include the team)" % status
-    return connector_verdict(body, connector, project)
+    if not connector or not project:
+        return False, "needs SLACK_CONNECTOR and CONNECT_PROJECT_ID too"
+    # The request the app's own client makes for a connector's metadata
+    # (@vercel/connect, connector.js getConnectorMetadata): the connector as one
+    # path segment, no team named, the same token. Read-only, and it answers no
+    # secret; a connector token is never requested here.
+    status, body = http("https://api.vercel.com/v1/connect/connectors/" + urllib.parse.quote(connector, safe="!*'()"),
+                        {"Authorization": "Bearer " + token})
+    return connector_verdict(status, body, project)
+
+
+def check_no_wildcard(name):
+    def check(env, _opts):
+        if "*" in env[name]:
+            return False, "contains *: the app then refuses every event the connector forwards"
+        return None, None
+    return check
 
 
 def check_deepgram(env, _opts):
@@ -471,6 +482,8 @@ CHECKS = {
     "EMAIL_FROM": check_email_from,
     "SANDBOX_ACCESS_TOKEN": check_sandbox,
     "CONNECT_ACCESS_TOKEN": check_connect,
+    "CONNECT_PROJECT_ID": check_no_wildcard("CONNECT_PROJECT_ID"),
+    "CONNECT_ENVIRONMENT": check_no_wildcard("CONNECT_ENVIRONMENT"),
     "DEEPGRAM_API_KEY": check_deepgram,
     "GPT_LIVE_API_KEY": check_openai,
 }

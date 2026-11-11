@@ -71,6 +71,17 @@ describe('POST /api/slack/events', () => {
     expect(m.verifierOptions).toEqual([undefined, { projectId: 'prj_madeup0001', environment: 'production' }])
   })
 
+  it('refuses every event (401) when CONNECT_ENVIRONMENT holds a *', async () => {
+    vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0001')
+    vi.stubEnv('CONNECT_ENVIRONMENT', '*')
+    const res = await POST(req(dmEvent))
+    vi.stubEnv('CONNECT_PROJECT_ID', '')
+    vi.stubEnv('CONNECT_ENVIRONMENT', '')
+    expect(res.status).toBe(401)
+    expect(m.verify).not.toHaveBeenCalled()
+    expect(m.firstDelivery).not.toHaveBeenCalled()
+  })
+
   it('is off (503) when the deployment has no Slack app configured', async () => {
     vi.stubEnv('SLACK_APP_ID', '')
     const res = await POST(req(dmEvent))

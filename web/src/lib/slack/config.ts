@@ -24,6 +24,8 @@
  *   CONNECT_ENVIRONMENT   the environment that token must name, instead of
  *                         VERCEL_TARGET_ENV / VERCEL_ENV. `production` when
  *                         unset; read only with CONNECT_PROJECT_ID.
+ *
+ * A `*` in either of the last two refuses every forwarded request.
  */
 
 import { appUrl } from '@/lib/app-url'
@@ -43,11 +45,15 @@ export function connectAccessToken(): string | null {
 /**
  * The project and environment a forwarded request's OIDC token must name, or
  * undefined for the verifier's own defaults (VERCEL_PROJECT_ID, VERCEL_ENV).
+ * 'refuse' when either setting holds a `*`: the verifier reads `*` as "any",
+ * so such a value must close the check, never widen it.
  */
-export function connectForwardTarget(): { projectId: string; environment: string } | undefined {
+export function connectForwardTarget(): { projectId: string; environment: string } | 'refuse' | undefined {
   const projectId = process.env.CONNECT_PROJECT_ID?.trim()
+  const environment = process.env.CONNECT_ENVIRONMENT?.trim()
+  if (projectId?.includes('*') || environment?.includes('*')) return 'refuse'
   if (!projectId) return undefined
-  return { projectId, environment: process.env.CONNECT_ENVIRONMENT?.trim() || 'production' }
+  return { projectId, environment: environment || 'production' }
 }
 
 /** Our Slack app's id, or null when unset. */

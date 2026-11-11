@@ -44,6 +44,18 @@ describe('verifyConnectForward', () => {
     expect(m.create).toHaveBeenCalledWith({ projectId: 'prj_madeup0001', environment: 'preview' })
   })
 
+  it.each([
+    ['the project id', { CONNECT_PROJECT_ID: '*', CONNECT_ENVIRONMENT: undefined }],
+    ['the environment', { CONNECT_PROJECT_ID: 'prj_madeup0001', CONNECT_ENVIRONMENT: '*' }],
+    ['a part of one', { CONNECT_PROJECT_ID: 'prj_madeup*', CONNECT_ENVIRONMENT: undefined }],
+    ['the environment without a project id', { CONNECT_PROJECT_ID: undefined, CONNECT_ENVIRONMENT: ' * ' }],
+  ])('refuses every request when %s holds a *, never widening the check', async (_label, env) => {
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
+    await expect(verifyConnectForward(req(), '{}')).rejects.toThrow('refused')
+    expect(m.create).not.toHaveBeenCalled()
+    expect(m.verify).not.toHaveBeenCalled()
+  })
+
   it('throws when the token does not verify', async () => {
     vi.stubEnv('CONNECT_PROJECT_ID', 'prj_madeup0001')
     m.verify.mockRejectedValue(new Error('Expected Vercel OIDC token project_id claim'))
