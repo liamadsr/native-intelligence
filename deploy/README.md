@@ -1378,11 +1378,15 @@ Then take `LIVEKIT_HOST` and `:compose.livekit.yaml` out of `edge/.env` (check a
 
 Recordings are files in Storage like any other, so the nightly file backup (step 17) takes them too.
 
-**E1. The bucket.** Private, made once in the database, before Egress is turned on (on the owner's word, like a migration):
+**E1. The bucket, and Storage's upload limit.** The bucket `team-call-recordings` comes with the call notes feature, as the database migration `web/supabase/migrations/566_team_call_notes.sql`: private, a 2 GB limit per file, the types `audio/ogg`, `audio/opus`, `video/mp4`, `audio/mp4` and `application/octet-stream`, and who may read what. Apply it as every migration is applied ("Day to day", on the owner's word), before Egress is turned on. Do not make the bucket by hand: the migration sets all of that, and running it after a hand-made bucket only overwrites it.
 
-```bash
-echo "insert into storage.buckets (id, name, public) values ('team-call-recordings', 'team-call-recordings', false) on conflict (id) do nothing;" | sudo docker exec -i supabase-db psql -U postgres -d postgres
+That 2 GB does not apply as it stands. Storage takes the smaller of a bucket's own limit and its global one, and the global one is `FILE_SIZE_LIMIT`, fixed at 50 MB in Supabase's own compose file (`supabase/stack/docker-compose.yml`, never edited here; Storage's `limits.ts`, `getFileSizeLimit`, and its S3 upload path refuse anything larger with `EntityTooLarge`). Estimated from usual bit rates (speech in Opus about 32 kbit/s, a 720p composite about 2 Mbit/s), not measured: one microphone's notes stay under 50 MB for about three hours, but a room composite passes 50 MB after three or four minutes. So before room composites (E5), the global limit has to go up, in `supabase/compose.override.yaml`, under `storage:` → `environment:`:
+
+```yaml
+      FILE_SIZE_LIMIT: 2147483648
 ```
+
+then `cd /opt/native-intelligence/deploy/supabase/stack && sudo sh run.sh recreate storage` (Storage restarts in a few seconds). That is a decision of its own: every bucket without a limit of its own then takes files of up to 2 GB, so give the app's other buckets their own limits first if they should keep 50 MB. It is not in this change.
 
 **E2. The storage settings.** `make-keys.sh` copies them, unseen, from `supabase/stack/.env` into the four empty `LIVEKIT_EGRESS_S3_` lines of `livekit/.env` (a `.env` made before Egress existed has no such lines: copy them, empty, from `livekit/.env.example` first, with `sudo nano .env`). Then check that all four are filled in, by length only:
 

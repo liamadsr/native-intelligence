@@ -209,7 +209,10 @@ services:
         session_limits:
           file_output_max_duration: 4h
         # Where files go unless a request names other storage: the private
-        # bucket in this server's Supabase Storage, through its S3 protocol.
+        # bucket in this server's Supabase Storage, through its S3 protocol. No
+        # prefix: the path in each request is the object's whole name.
+        # Storage refuses files over its global FILE_SIZE_LIMIT (50 MB as
+        # Supabase ships it) whatever the bucket allows: ../README.md step 23, E1.
         storage:
           s3:
             # In single quotes, so that any character but ' stays as it is
