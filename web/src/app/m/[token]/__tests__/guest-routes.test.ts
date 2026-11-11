@@ -208,6 +208,14 @@ describe('asking to join', () => {
     expect(h.rpcs.filter((r) => r[0] === 'meeting_guest_request')).toHaveLength(0)
   })
 
+  it('a token the server did not make (a hash a member wrote themself) never opens a meeting; an unknown link is never counted per link', async () => {
+    const chosen = 'A'.repeat(32)
+    tables.meeting[0] = meetingRow({ token_hash: tokenDigest(chosen) })
+    TOKEN = chosen
+    expect((await join(req('POST', 'join', { body: { name: 'Dana' } }), params())).status).toBe(404)
+    expect(h.rpcs.filter((r) => r[0] === 'meeting_rate_hit').map((r) => r[1].bucket_name)).toEqual(['lookup:addr'])
+  })
+
   it('only from the meeting’s own page (another site’s form is refused)', async () => {
     expect((await join(req('POST', 'join', { body: { name: 'Dana' }, origin: 'cross-site' }), params())).status).toBe(403)
   })

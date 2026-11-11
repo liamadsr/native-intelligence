@@ -18,7 +18,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { apiError } from '@/lib/api-errors'
 import { readCookie } from '@/lib/oauth/state'
 import { hitLimits, MEETING_LIMITS } from './limits'
-import { MEETING_GUEST_COOKIE, rateKeyOf, tokenDigest, verifyGuestCookie } from './link'
+import { MEETING_GUEST_COOKIE, rateKeyOf, tokenDigest, tokenIsMeetings, verifyGuestCookie } from './link'
 import { isMeetingToken } from './shape'
 import { meetingByDigest, type PublicMeeting } from './store'
 
@@ -28,18 +28,24 @@ export type PublicLookup =
   | { kind: 'inactive' }
   | { kind: 'limited' }
 
-/** A meeting as a public caller may reach it: limited first, then looked up by the token's hash. */
-export async function lookUpMeeting(svc: SupabaseClient, token: string, headers: Headers, now: number = Date.now()): Promise<PublicLookup> {
+/**
+ * A meeting as a public caller may reach it: limited per address first, then
+ * looked up by the token's hash (and the token checked to be the one the
+ * server made for that meeting, never one a caller chose), then limited per
+ * link: only a link that exists is counted, and a signed-in person
+ * (`perLink: false`, the page's member path) is never shut out by others'
+ * tries.
+ */
+export async function lookUpMeeting(svc: SupabaseClient, token: string, headers: Headers, opts: { perLink?: boolean; now?: number } = {}): Promise<PublicLookup> {
+  const now = opts.now ?? Date.now()
   if (!isMeetingToken(token)) return { kind: 'inactive' }
   const rateKey = rateKeyOf(headers)
   const digest = tokenDigest(token)
-  const under = await hitLimits(svc, [
-    [MEETING_LIMITS.lookupPerAddress, rateKey],
-    [MEETING_LIMITS.lookupPerLink, digest.slice(0, 32)],
-  ])
-  if (!under) return { kind: 'limited' }
+  if (!(await hitLimits(svc, [[MEETING_LIMITS.lookupPerAddress, rateKey]]))) return { kind: 'limited' }
   const meeting = await meetingByDigest(svc, digest)
-  if (!meeting || meeting.revoked_at || now >= Date.parse(meeting.closes_at)) return { kind: 'inactive' }
+  if (!meeting || !tokenIsMeetings(token, meeting.id)) return { kind: 'inactive' }
+  if (opts.perLink !== false && !(await hitLimits(svc, [[MEETING_LIMITS.lookupPerLink, digest.slice(0, 32)]]))) return { kind: 'limited' }
+  if (meeting.revoked_at || now >= Date.parse(meeting.closes_at)) return { kind: 'inactive' }
   const { data: channel } = await svc.from('team_chat_channel').select('archived_at').eq('id', meeting.channel_id).maybeSingle<{ archived_at: string | null }>()
   if (!channel || channel.archived_at) return { kind: 'inactive' }
   if (now < Date.parse(meeting.opens_at)) return { kind: 'early', meeting, digest, rateKey }

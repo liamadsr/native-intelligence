@@ -96,7 +96,7 @@ create table if not exists public.meeting_guest (
   channel_id uuid not null references public.team_chat_channel(id) on delete cascade,
   name text not null check (char_length(name) between 1 and 60),
   state text not null check (state in ('waiting', 'admitted', 'declined', 'removed', 'left')),
-  call_id uuid references public.team_call(id) on delete set null,
+  call_id uuid references public.team_call(id) on delete cascade,
   in_call boolean not null default false,
   session_sid text check (session_sid is null or char_length(session_sid) <= 64),
   first_joined_at timestamptz,
@@ -113,6 +113,12 @@ create table if not exists public.meeting_guest (
   )
 );
 -- The lobby: a meeting's guests waiting (the cap counts them), and who is in a call now.
+-- A call's guests go with it (an admitted guest always names its call: never set null under the shape check).
+alter table public.meeting_guest drop constraint if exists meeting_guest_call_id_fkey;
+alter table public.meeting_guest
+  add constraint meeting_guest_call_id_fkey foreign key (call_id) references public.team_call(id) on delete cascade not valid;
+alter table public.meeting_guest validate constraint meeting_guest_call_id_fkey;
+
 create index if not exists meeting_guest_meeting_idx on public.meeting_guest (meeting_id, state, requested_at);
 create index if not exists meeting_guest_channel_idx on public.meeting_guest (channel_id, requested_at desc);
 create index if not exists meeting_guest_in_call_idx on public.meeting_guest (call_id) where in_call;

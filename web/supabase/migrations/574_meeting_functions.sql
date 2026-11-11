@@ -40,7 +40,8 @@
 --                     service role: a guest asks to join. Refused while the
 --                     link does not work ('early', 'inactive'), when a guest
 --                     with this key was removed from it ('refused'), or when
---                     max_waiting guests already wait ('full'); otherwise
+--                     max_waiting guests already wait, or two from this key
+--                     ('full'); otherwise
 --                     they wait. Says how many members are in its live call
 --                     (none: the app tells the host).
 --   meeting_guest_poll(target_guest, token_digest)  service role: the
@@ -49,7 +50,10 @@
 --                     waiting guest of a link that stopped working has left.
 --   meeting_guest_leave(target_guest, token_digest)  service role: the
 --                     guest went (the lobby's Cancel, the call's Leave, the
---                     tab closed): left, out of the count.
+--                     tab closed): left, out of the count, and out of the
+--                     room (a guest who says they left and stays connected
+--                     is taken out). Removal and revoke eject every guest
+--                     let into the live call the same way, connected or not.
 --   meeting_guest_event(room_name, guest_ref, session_ref, is_join, event_at,
 --                     session_joined_at)  service role: LiveKit's
 --                     participant_joined or _left for a guest identity
@@ -259,12 +263,13 @@ begin
     return;
   end if;
   update public.meeting x set revoked_at = now(), revoked_by = me where x.id = m.id;
-  -- Guests in the call: out of the room.
+  -- Every guest let into a live call: out of the room, whatever the count says (a join on its way, or
+  -- a guest who said they left and stayed connected). A guest's identity is never let in again.
   insert into public.team_call_eject (call_id, room, identity, reason)
   select t.id, t.room, 'guest-' || g.id::text, 'access'
     from public.meeting_guest g
-    join public.team_call t on t.id = g.call_id
-   where g.meeting_id = m.id and g.in_call
+    join public.team_call t on t.id = g.call_id and t.status = 'live'
+   where g.meeting_id = m.id and (g.in_call or g.state = 'admitted')
   on conflict do nothing;
   update public.meeting_guest g
      set state = 'left', in_call = false, left_at = case when g.in_call then now() else g.left_at end
@@ -347,9 +352,8 @@ begin
   if me is null then
     raise exception 'meetings: no such guest' using errcode = '42501';
   end if;
-  if g.call_id is not null then
-    select * into c from public.team_call t where t.id = g.call_id for update;
-  end if;
+  -- The lock order: the meeting's live call first (the one a guest can be let into), then the guest.
+  select * into c from public.team_call t where t.channel_id = g.channel_id and t.status = 'live' for update;
   select * into g from public.meeting_guest x where x.id = target_guest for update;
   if g.state = 'removed' then
     return query select 'removed'::text, false;
@@ -359,7 +363,9 @@ begin
      set state = 'removed', in_call = false, left_at = case when x.in_call then now() else x.left_at end,
          decided_at = now(), decided_by = me
    where x.id = g.id;
-  if g.in_call and c.id is not null then
+  -- Out of the room whenever they were let into the live call, connected or not (a join on its way,
+  -- or a guest who said they left and stayed): a guest's identity is never let in again.
+  if c.id is not null and g.call_id = c.id and (g.in_call or g.state = 'admitted') then
     insert into public.team_call_eject (call_id, room, identity, reason)
     values (c.id, c.room, 'guest-' || g.id::text, 'access')
     on conflict do nothing;
@@ -367,7 +373,7 @@ begin
        set participant_count = public.team_call_people_now(t.id), updated_at = now()
      where t.id = c.id;
   end if;
-  return query select 'removed'::text, coalesce(g.in_call, false);
+  return query select 'removed'::text, coalesce(c.id is not null and g.call_id = c.id and (g.in_call or g.state = 'admitted'), false);
 end;
 $$;
 
@@ -417,7 +423,12 @@ begin
   select count(*)::integer into waiting
     from public.meeting_guest g
    where g.meeting_id = m.id and g.state = 'waiting' and g.last_seen_at > now() - interval '2 minutes';
-  if waiting >= greatest(coalesce(max_waiting, 10), 1) then
+  -- At most two waiting from one address, so one address can't fill the lobby for everyone.
+  if waiting >= greatest(coalesce(max_waiting, 10), 1) or (
+    select count(*) from public.meeting_guest g
+      join public.meeting_guest_key k on k.guest_id = g.id
+     where g.meeting_id = m.id and k.rate_key = key and g.state = 'waiting' and g.last_seen_at > now() - interval '2 minutes'
+  ) >= 2 then
     return query select 'full'::text, null::uuid, null::uuid, 0, null::uuid;
     return;
   end if;
@@ -476,14 +487,13 @@ set search_path = public, pg_temp
 as $$
 declare
   g public.meeting_guest%rowtype;
+  c public.team_call%rowtype;
 begin
   select x.* into g from public.meeting_guest x join public.meeting y on y.id = x.meeting_id where x.id = target_guest and y.token_hash = token_digest;
   if not found then
     return 'unknown';
   end if;
-  if g.call_id is not null then
-    perform 1 from public.team_call t where t.id = g.call_id for update;
-  end if;
+  select * into c from public.team_call t where t.channel_id = g.channel_id and t.status = 'live' for update;
   select * into g from public.meeting_guest x where x.id = target_guest for update;
   if g.state not in ('waiting', 'admitted') then
     return g.state;
@@ -491,10 +501,16 @@ begin
   update public.meeting_guest x
      set state = 'left', in_call = false, left_at = case when x.in_call then now() else x.left_at end
    where x.id = g.id;
-  if g.in_call then
+  -- Left means out: a guest who says so and stays connected is taken out of the room.
+  if c.id is not null and g.call_id = c.id then
+    insert into public.team_call_eject (call_id, room, identity, reason)
+    values (c.id, c.room, 'guest-' || g.id::text, 'access')
+    on conflict do nothing;
+  end if;
+  if g.in_call and c.id is not null then
     update public.team_call t
        set participant_count = public.team_call_people_now(t.id), updated_at = now()
-     where t.id = g.call_id;
+     where t.id = c.id;
   end if;
   return 'left';
 end;

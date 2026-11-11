@@ -33,9 +33,12 @@ export default async function MeetingLinkPage({ params }: { params: Promise<{ to
   const { token } = await params
   if (!teamCallsConfig()) return <Inactive />
   const svc = getServiceClient()
+  // Who is signed in first: a member is never shut out of their own meeting by others' tries on its link.
+  const supabase = await createClient()
+  const { data: auth } = await supabase.auth.getUser()
   let found: Awaited<ReturnType<typeof lookUpMeeting>>
   try {
-    found = await lookUpMeeting(svc, token, await headers())
+    found = await lookUpMeeting(svc, token, await headers(), { perLink: !auth.user })
   } catch {
     return <MeetingCard title="Something went wrong" description="We couldn’t open this link just now. Try it again in a moment." />
   }
@@ -44,8 +47,6 @@ export default async function MeetingLinkPage({ params }: { params: Promise<{ to
   const { meeting, digest } = found
 
   // A member of the meeting's workspace: straight into its conversation and call.
-  const supabase = await createClient()
-  const { data: auth } = await supabase.auth.getUser()
   if (auth.user) {
     const { data: member } = await svc.from('member').select('id').eq('user_id', auth.user.id).eq('workspace_id', meeting.workspace_id).maybeSingle<{ id: string }>()
     if (member) {

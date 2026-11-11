@@ -30,7 +30,7 @@ export const MEETING_LIMITS = {
   /** Asking to join, per address. */
   joinPerAddress: { bucket: 'join:addr', max: 10, windowSeconds: 600 },
   /** Asking to join one link, from anywhere. */
-  joinPerLink: { bucket: 'join:link', max: 40, windowSeconds: 600 },
+  joinPerLink: { bucket: 'join:link', max: 100, windowSeconds: 600 },
   /** A lobby's polls, per guest (every 3 s is 20 a minute) and per address. */
   pollPerGuest: { bucket: 'poll:guest', max: 40, windowSeconds: 60 },
   pollPerAddress: { bucket: 'poll:addr', max: 240, windowSeconds: 60 },

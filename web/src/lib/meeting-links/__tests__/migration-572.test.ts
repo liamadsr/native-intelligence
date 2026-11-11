@@ -67,6 +67,13 @@ describe('migrations 572-575', () => {
     const body = bodyOf(FILES.conversations)
     expect(body).not.toMatch(/(c|v_)\.?kind = 'dm'/)
     expect((body.match(/kind in \('dm', 'meeting'\)/g) ?? []).length).toBe(9)
+    // Built from the base branch's bodies only: entity_visible_to(4) is 503's text with the one change (nothing of an unmerged plan).
+    expect(body).not.toMatch(/data_table|data_row/)
+    const v4 = (sql: string) => {
+      const i = sql.search(/create or replace function public\.entity_visible_to\(p_type text, p_id uuid, p_workspace uuid, p_user uuid\)/i)
+      return sql.slice(i, sql.indexOf('\n$$;\n', i))
+    }
+    expect(v4(FILES.conversations)).toBe(v4(read('503_one_name_for_mail.sql')).replace("v_kind = 'dm'", "v_kind in ('dm', 'meeting')"))
     // 568's owner-arm functions are never redefined here.
     for (const fn of ['capture_visible_to', 'claim_visible_to', 'unified_search', 'hybrid_search']) {
       for (const sql of Object.values(FILES)) expect(bodyOf(sql)).not.toContain(`function public.${fn}(`)

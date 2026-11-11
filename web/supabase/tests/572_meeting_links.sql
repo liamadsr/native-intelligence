@@ -234,6 +234,22 @@ begin
   perform pg_temp.t572_check('another address may ask', 'waiting', (select outcome from public.meeting_guest_request(mt1, 'Noor', key2 || 'z', 10)));
   select id into g4 from public.meeting_guest where meeting_id = mt1 and name = 'Noor';
   perform pg_temp.t572_as(u_a, format('select state from public.meeting_guest_decide(%L, true)', g4));
+  -- Let in, their join not landed yet: leaving through the route still takes them out of the room.
+  perform pg_temp.t572_check('two more from one address wait', 'waiting/waiting',
+    (select outcome from public.meeting_guest_request(mt1, 'Pat', 't572-key-three-xxxxx', 10)) || '/' || (select outcome from public.meeting_guest_request(mt1, 'Sam', 't572-key-three-xxxxx', 10)));
+  perform pg_temp.t572_check('… a third from the same address: full (one address can''t fill the lobby)', 'full',
+    (select outcome from public.meeting_guest_request(mt1, 'Lou', 't572-key-three-xxxxx', 10)));
+  select id into g5 from public.meeting_guest where meeting_id = mt1 and name = 'Pat';
+  perform pg_temp.t572_as(u_a, format('select state from public.meeting_guest_decide(%L, true)', g5));
+  perform pg_temp.t572_check('a guest let in who leaves through the route (their join not seen): left', 'left', public.meeting_guest_leave(g5, d1));
+  perform pg_temp.t572_check('… and out of the room (on the eject outbox)', '1',
+    (select count(*)::text from public.team_call_eject where identity = 'guest-' || g5::text and done_at is null));
+  select id into g5 from public.meeting_guest where meeting_id = mt1 and name = 'Sam';
+  perform pg_temp.t572_as(u_a, format('select state from public.meeting_guest_decide(%L, true)', g5));
+  perform pg_temp.t572_check('a guest let in and removed before their join landed: removed, ejected', 'removed/true',
+    pg_temp.t572_as(u_b, format('select state || ''/'' || ejected::text from public.meeting_guest_remove(%L)', g5)));
+  perform pg_temp.t572_check('… on the eject outbox too', '1',
+    (select count(*)::text from public.team_call_eject where identity = 'guest-' || g5::text and done_at is null));
   perform public.meeting_guest_event(room1, g4, 'PG_4', true, now(), now());
   perform public.team_call_participant_event(room1, m_a, 'PA_a', false, now(), now());
   perform public.team_call_participant_event(room1, m_b, 'PA_b', false, now(), now());
@@ -287,6 +303,18 @@ begin
     (select count(*)::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and (p.proname like 'meeting%' or p.proname = 'team_call_people_now')
         and not (p.prosecdef and coalesce(array_to_string(p.proconfig, ','), '') like '%search_path=public, pg_temp%')));
+
+  -- ── A meeting's conversation deleted mid-call, a guest let in: everything goes ──
+  select channel_id into ch2 from public.meeting where id = mt3;
+  call2 := pg_temp.t572_as(u_b, format('select call_id::text from public.team_call_start(%L)', ch2))::uuid;
+  select room into room2 from public.team_call where id = call2;
+  perform public.team_call_participant_event(room2, m_b, 'PB_3', true, now(), now());
+  perform public.meeting_guest_request(mt3, 'Rae', 't572-key-four-xxxxxx', 10);
+  select id into g5 from public.meeting_guest where meeting_id = mt3 and name = 'Rae';
+  perform pg_temp.t572_as(u_b, format('select state from public.meeting_guest_decide(%L, true)', g5));
+  delete from public.team_chat_channel where id = ch2;
+  perform pg_temp.t572_check('the conversation deleted with an admitted guest: the call, the meeting and the guest go with it', '0/0/0',
+    (select count(*)::text from public.team_call where id = call2) || '/' || (select count(*)::text from public.meeting where id = mt3) || '/' || (select count(*)::text from public.meeting_guest where id = g5));
 
   -- ── Report ────────────────────────────────────────────────────────────────
   select string_agg(format('%s %s: expected %s, got %s', case when pass then 'PASS' else 'FAIL' end, label, expected, got), chr(10) order by n),

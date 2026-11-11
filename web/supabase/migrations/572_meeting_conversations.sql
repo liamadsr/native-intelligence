@@ -22,8 +22,9 @@
 --                      'team_chat_channel'). 560's lists, plus these.
 --
 -- Who may read a conversation is decided in nine functions, each redefined
--- here from its CURRENT body (pg_get_functiondef on DEV, the same text as
--- the file named) with one change: where a DM's members are read
+-- here from its CURRENT body on the base branch (the newest file named; for
+-- eight of them pg_get_functiondef on DEV gives the same text, and
+-- entity_visible_to(4) is 503's own text) with one change: where a DM's members are read
 -- (kind = 'dm'), a meeting's are too (kind in ('dm', 'meeting')).
 --   team_chat_can_read(uuid)                          474
 --   team_chat_member_can_read(uuid, uuid)             556
@@ -350,12 +351,13 @@ AS $function$
     );
 $function$;
 
-CREATE OR REPLACE FUNCTION public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)
- RETURNS boolean
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
+create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
 declare
   v_ws uuid;
   v_member uuid;
@@ -367,7 +369,6 @@ declare
   v_team uuid;
   v_channel uuid;
   v_confirmation text;
-  v_table uuid;
   v_type text := public.entity_kind_current(p_type);
 begin
   if p_id is null then return false; end if;
@@ -406,10 +407,6 @@ begin
   elsif v_type = 'decision' then
     select c.workspace_id, c.visibility, c.user_id, dc.confirmation, c.id into v_ws, v_vis, v_owner, v_confirmation, v_note
       from public.decision dc join public.captures c on c.id = dc.capture_id where dc.id = p_id;
-  elsif v_type = 'data_table' then
-    select t.workspace_id, t.id into v_ws, v_table from public.data_table t where t.id = p_id;
-  elsif v_type = 'data_row' then
-    select r.workspace_id, r.table_id into v_ws, v_table from public.data_row r where r.id = p_id;
   else
     -- Every other kind is every member's: a member of the workspace reads it.
     v_ws := p_workspace;
@@ -424,7 +421,7 @@ begin
   -- private graph kinds (src/lib/knowledge/entity-fences.ts) are no one's to
   -- see on such a run, as that file's fences say.
   if p_user is null then
-    if v_type in ('email_thread', 'conversation', 'calendar_event', 'team_chat_channel', 'team_chat_message', 'decision', 'data_table', 'data_row') then return false;
+    if v_type in ('email_thread', 'conversation', 'calendar_event', 'team_chat_channel', 'team_chat_message', 'decision') then return false;
     elsif v_type in ('document', 'capture') then return v_vis = 'workspace';
     elsif v_type = 'contact' then return public.contact_visible_to(p_id, null);
     elsif v_type = 'company' then return public.company_visible_to(p_id, null);
@@ -434,9 +431,6 @@ begin
     end if;
     return true;
   end if;
-
-  -- A table, and a row through its table: 520's rule for p_user.
-  if v_type in ('data_table', 'data_row') then return public.data_table_visible_to(v_table, p_user); end if;
 
   -- The kinds that are their owner's alone need no membership read.
   if v_type in ('email_thread', 'conversation', 'calendar_event') then return v_owner = p_user; end if;
@@ -477,7 +471,7 @@ begin
   end if;
   return true;
 end;
-$function$;
+$$;
 
 CREATE OR REPLACE FUNCTION public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid, p_grants boolean)
  RETURNS boolean
