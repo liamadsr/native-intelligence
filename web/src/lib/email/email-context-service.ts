@@ -1,5 +1,6 @@
 import { getServiceClient } from '@/lib/admin'
 import { filterVisibleContacts } from '@/lib/crm/contact-visibility'
+import { ownMailAddresses } from './own-addresses'
 import { searchEmails } from './email-search-service'
 import { applyCaptureVisibility, isCaptureVisible, type CaptureRequester } from '@/lib/ai/tools/_shared'
 
@@ -79,6 +80,9 @@ export async function searchEmailsWithContext(
     }
   }
 
+  // The requester's own addresses: their own mail names no related meetings.
+  const own = contactMap.size ? await ownMailAddresses(supabase, userId) : new Set<string>()
+
   const results: EmailWithContext[] = []
   let count = 0
 
@@ -105,30 +109,36 @@ export async function searchEmailsWithContext(
         relationshipType: contact.relationship_type,
       }
 
-      // Find recent captures with this contact (scoped to workspace). From the
-      // captures side, newest first, once each: capture_participant has no
-      // created_at (it has joined_at), and ordering by it failed every read.
-      // Service role bypasses RLS, so the requester's capture visibility is
-      // the fence (another member's private meeting and eval captures stay out).
-      const { data: captures, error: capturesError } = await applyCaptureVisibility(
-        supabase
-          .from('captures')
-          .select('id, title, started_at, user_id, visibility, is_eval, notes_owner_out, cp:capture_participant!inner(external_email)')
-          .eq('workspace_id', workspaceId)
-          .eq('cp.external_email', match.from_email.toLowerCase()),
-        requester,
-      )
-        .order('started_at', { ascending: false, nullsFirst: false })
-        .limit(3)
-      if (capturesError) console.warn('[email-context] related captures read failed:', capturesError.message)
+      // Mail the requester sent: the contact is themselves, and "meetings with
+      // the sender" would be their latest meetings with anyone.
+      if (!own.has(match.from_email.toLowerCase())) {
+        // Find recent captures with this contact (scoped to workspace). From the
+        // captures side, newest first, once each: capture_participant has no
+        // created_at (it has joined_at), and ordering by it failed every read.
+        // Service role bypasses RLS, so the requester's capture visibility is
+        // the fence (another member's private meeting and eval captures stay out).
+        const { data: captures, error: capturesError } = await applyCaptureVisibility(
+          supabase
+            .from('captures')
+            .select('id, title, started_at, user_id, visibility, is_eval, notes_owner_out, cp:capture_participant!inner(external_email)')
+            .eq('workspace_id', workspaceId)
+            .eq('cp.external_email', match.from_email.toLowerCase())
+            .neq('status', 'archived')
+            .not('started_at', 'is', null),
+          requester,
+        )
+          .order('started_at', { ascending: false, nullsFirst: false })
+          .limit(3)
+        if (capturesError) console.warn('[email-context] related captures read failed:', capturesError.message)
 
-      const visible = (captures || []).filter((c) => isCaptureVisible(c, requester))
-      if (visible.length) {
-        result.relatedCaptures = visible.map((c) => ({
-          id: c.id,
-          title: c.title,
-          date: c.started_at,
-        }))
+        const visible = (captures || []).filter((c) => isCaptureVisible(c, requester))
+        if (visible.length) {
+          result.relatedCaptures = visible.map((c) => ({
+            id: c.id,
+            title: c.title,
+            date: c.started_at,
+          }))
+        }
       }
 
       // Find open actions related to this contact

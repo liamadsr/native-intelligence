@@ -50,6 +50,14 @@ describe('withTableSchema', () => {
     })
   })
 
+  it('refuses an embed-side order or `or` on a column the embedded table lacks', async () => {
+    const embed = () => db().from('captures').select('id, cp:capture_participant!inner(contact_id)')
+    expect((await embed().order('created_at', { referencedTable: 'cp' })).error).toMatchObject({
+      message: 'column capture_participant.created_at does not exist',
+    })
+    expect((await embed().or('created_at.gt.2026-01-01,joined_at.is.null', { referencedTable: 'cp' })).error).toMatchObject({ code: '42703' })
+  })
+
   it('lets real names through to the double', async () => {
     const { data, error } = await db()
       .from('captures')

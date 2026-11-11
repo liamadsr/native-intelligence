@@ -18,6 +18,11 @@ vi.mock('@/lib/eve/utility/run-utility', () => ({ runUtilityTask: vi.fn() }))
 vi.mock('@/lib/ai/auth', () => ({ logUsage: vi.fn(), checkUsageLimits: vi.fn() }))
 vi.mock('@/lib/integrations/email', () => ({ createEmailDraft: vi.fn() }))
 vi.mock('@/lib/email/email-read-service', () => ({ readEmailThread: vi.fn() }))
+// A teammate on the thread (their sign-in address resolves to a member).
+vi.mock('@/lib/workspace-member-emails', () => ({
+  findMembersByEmail: async (_ws: string, emails: string[]) =>
+    new Map(emails.filter((e) => e === 'teammate@fernhill.example').map((e) => [e, { id: 'member-2', email: e }])),
+}))
 
 const { gatherDraftContext } = await import('../email-drafts')
 
@@ -38,6 +43,8 @@ let db: ReturnType<typeof recordingDb>
 
 beforeEach(() => {
   db = recordingDb({
+    // The mailbox owner sends from this connected account.
+    connected_account: [{ account_email: 'owner@fernhill.example' }],
     captures: [
       capture('cap-3'),
       capture('cap-2', { user_id: 'user-1', visibility: 'private' }),
@@ -67,8 +74,23 @@ describe('gatherDraftContext — recent captures with the participants', () => {
     expect(calls).toContainEqual(['in', 'cp.external_email', ['avery@example.com']])
     expect(calls).toContainEqual(['neq', 'is_eval', true])
     expect(calls).toContainEqual(['or', 'visibility.eq.workspace,user_id.eq.user-1'])
+    expect(calls).toContainEqual(['or', 'notes_owner_out.neq.true,user_id.neq.user-1'])
+    expect(calls).toContainEqual(['neq', 'status', 'archived'])
     expect(calls).toContainEqual(['order', 'started_at', { ascending: false, nullsFirst: false }])
     expect(calls).toContainEqual(['limit', 5])
     expect(db.calls.capture_participant).toBeUndefined()
+  })
+
+  it("matches meetings on the thread's outside people only: not the owner's address, not a teammate's", async () => {
+    await gatherDraftContext('ws-1', 'user-1', {
+      participant_emails: ['owner@fernhill.example', 'teammate@fernhill.example', 'avery@example.com'],
+    })
+    expect(db.calls.captures).toContainEqual(['in', 'cp.external_email', ['avery@example.com']])
+  })
+
+  it('with nobody outside on the thread, reads no meetings at all', async () => {
+    const context = await gatherDraftContext('ws-1', 'user-1', { participant_emails: ['owner@fernhill.example', 'teammate@fernhill.example'] })
+    expect(context.captures).toEqual([])
+    expect(db.calls.captures).toBeUndefined()
   })
 })

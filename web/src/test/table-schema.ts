@@ -14,8 +14,11 @@
  *     to Postgres' "relation does not exist";
  *   - for each table in `tables`, a column that table doesn't have, selected,
  *     filtered on, ordered by or written, at the top level or inside an embed
- *     that names the table (`cp:capture_participant!inner(created_at)`),
- *     resolves to "column does not exist".
+ *     that names the table (`cp:capture_participant!inner(created_at)`, and
+ *     an order or `or` with `{ referencedTable: 'cp' }`), resolves to "column
+ *     does not exist". An embed named by its foreign-key column
+ *     (`capture:capture_id(...)`) is not checked: the double can't tell
+ *     which table that reaches.
  *
  * Both answers come from the schema a database is built from: the baseline
  * dump (supabase/baseline/schema.sql, the database as of the cut) and every
@@ -26,7 +29,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { migrationsInOrder } from './migration-sql'
-import { namedColumns, parseSelect, refused, tableColumns, type PostgrestError } from './member-schema'
+import { namedColumns, orColumns, parseSelect, refused, tableColumns, type PostgrestError } from './member-schema'
 
 const BASELINE_DIR = path.join(process.cwd(), 'supabase/baseline')
 
@@ -128,6 +131,16 @@ function queryError(
 ): PostgrestError | null {
   const own = checked.has(table) ? table : null
   if (method === 'select') return selectError(own, typeof args[0] === 'string' ? args[0] : '*', checked, embeds)
+  // An order or `or` on an embed (`{ referencedTable: alias }`) names that embed's columns.
+  const options = args[1] as { referencedTable?: string; foreignTable?: string } | undefined
+  const referenced = (method === 'order' || method === 'or') && (options?.referencedTable ?? options?.foreignTable)
+  if (referenced) {
+    const embedded = embeds.get(referenced)
+    if (!embedded) return null
+    const columns = method === 'order' ? [String(args[0])] : orColumns(String(args[0] ?? ''))
+    const unknown = columns.find((c) => !columnsOf(embedded).has(c.split('->')[0].trim().toLowerCase()))
+    return unknown ? missingColumn(embedded, unknown) : null
+  }
   for (const named of namedColumns(method, args)) {
     const column = named.split('->')[0].trim()
     const dot = column.indexOf('.')

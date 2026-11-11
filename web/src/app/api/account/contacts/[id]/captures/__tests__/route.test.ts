@@ -43,6 +43,8 @@ describe('GET /api/account/contacts/:id/captures', () => {
     expect(calls).toContainEqual(['eq', 'workspace_id', 'ws-1'])
     expect(calls).toContainEqual(['eq', 'cp.contact_id', 'ct-1'])
     expect(calls).toContainEqual(['neq', 'is_eval', true])
+    expect(calls).toContainEqual(['neq', 'status', 'archived'])
+    expect(calls).toContainEqual(['not', 'started_at', 'is', null])
     expect(calls).toContainEqual(['order', 'started_at', { ascending: false, nullsFirst: false }])
     expect(calls).toContainEqual(['limit', 50])
   })

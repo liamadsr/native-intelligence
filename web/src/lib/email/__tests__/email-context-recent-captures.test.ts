@@ -62,6 +62,7 @@ describe('searchEmailsWithContext — related captures', () => {
     expect(calls).toContainEqual(['eq', 'workspace_id', 'ws-1'])
     expect(calls).toContainEqual(['eq', 'cp.external_email', 'avery@example.com'])
     expect(calls).toContainEqual(['or', 'visibility.eq.workspace,user_id.eq.user-1'])
+    expect(calls).toContainEqual(['neq', 'status', 'archived'])
     expect(calls).toContainEqual(['order', 'started_at', { ascending: false, nullsFirst: false }])
     expect(db.calls.capture_participant).toBeUndefined()
     expect(console.warn).not.toHaveBeenCalled()
@@ -71,5 +72,18 @@ describe('searchEmailsWithContext — related captures', () => {
     const [result] = await searchEmailsWithContext('user-1', 'ws-1', 'renewal', 10)
     expect(result.relatedCaptures).toEqual([{ id: 'cap-2', title: 'Meeting cap-2', date: '2026-10-02T15:00:00Z' }])
     expect(db.calls.captures).toContainEqual(['eq', 'visibility', 'workspace'])
+  })
+
+  it("mail the requester sent names no related meetings (the contact is themselves)", async () => {
+    const own = recordingDb({
+      connected_account: [{ account_email: 'avery@example.com' }],
+      contact: [{ id: 'ct-1', full_name: 'Avery Example', email: 'avery@example.com', relationship_type: 'customer', company: null }],
+      captures: [capture('cap-2')],
+    })
+    h.client = withTableSchema(own.client, ['capture_participant', 'captures'])
+    const [result] = await searchEmailsWithContext('user-1', 'ws-1', 'renewal', 10, { requester: 'user-1' })
+    expect(result.contact).toMatchObject({ id: 'ct-1' })
+    expect(result.relatedCaptures).toBeUndefined()
+    expect(own.calls.captures).toBeUndefined()
   })
 })

@@ -186,7 +186,7 @@ export function embedsError(select: string): PostgrestError | null {
 }
 
 /** The columns an `.or()` expression filters on. */
-function orColumns(expression: string): string[] {
+export function orColumns(expression: string): string[] {
   return splitTopLevel(expression).flatMap((part) => {
     const nested = part.match(/^(?:not\.)?(?:and|or)\(([\s\S]*)\)$/)
     return nested ? orColumns(nested[1]) : [part.split('.')[0]]

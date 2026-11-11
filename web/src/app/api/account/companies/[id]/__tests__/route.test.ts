@@ -57,6 +57,8 @@ describe('GET /api/account/companies/:id — recent captures', () => {
     expect(calls).toContainEqual(['eq', 'workspace_id', 'ws-1'])
     expect(calls).toContainEqual(['in', 'cp.contact_id', ['ct-1', 'ct-2']])
     expect(calls).toContainEqual(['neq', 'is_eval', true])
+    expect(calls).toContainEqual(['neq', 'status', 'archived'])
+    expect(calls).toContainEqual(['not', 'started_at', 'is', null])
     expect(calls).toContainEqual(['order', 'started_at', { ascending: false, nullsFirst: false }])
     expect(db.calls.capture_participant).toBeUndefined()
   })

@@ -46,7 +46,6 @@ export async function GET(
   // exactly the people whose captures are most likely recent.
   const contactIds = companyContacts.slice(0, 100).map((c) => c.id)
 
-  //
   // Read from the captures side so the newest meetings come first, once each:
   // capture_participant has no created_at (it has joined_at), and ordering by
   // it failed every read, so this section always showed "No captures yet."
@@ -58,6 +57,9 @@ export async function GET(
         .in('cp.contact_id', contactIds)
         // Eval captures (migration 252) are synthetic meetings that RLS doesn't hide.
         .neq('is_eval', true)
+        // Archived meetings and auto-capture placeholders that never started stay out.
+        .neq('status', 'archived')
+        .not('started_at', 'is', null)
         .order('started_at', { ascending: false, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(20)

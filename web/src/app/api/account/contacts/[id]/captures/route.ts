@@ -34,6 +34,9 @@ export async function GET(
     .eq('cp.contact_id', id)
     // Eval captures (migration 252) are synthetic meetings that RLS doesn't hide.
     .neq('is_eval', true)
+    // Archived meetings and auto-capture placeholders that never started stay out.
+    .neq('status', 'archived')
+    .not('started_at', 'is', null)
     .order('started_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(50)

@@ -31,6 +31,11 @@ vi.mock('@/lib/proposed-changes/apply-engine', () => ({
 interface Row {
   [k: string]: unknown
 }
+/** Tables that cascade from actions(id), beyond agent_run and action_github_pr. */
+const ACTION_CHILD_TABLES = [
+  'action_document', 'action_external_task', 'action_mail_done', 'action_relation', 'attachments',
+  'action_contexts', 'insights_dependencies', 'action_assignee', 'action_label',
+]
 function makeFake(seed: {
   proposals?: Row[]
   actions?: Row[]
@@ -40,8 +45,11 @@ function makeFake(seed: {
   contacts?: Row[]
   participants?: Row[]
   attention_items?: Row[]
+  /** Other child tables of actions (the revoke probe's), by name. */
+  children?: Record<string, Row[]>
 }) {
   const tables: Record<string, Row[]> = {
+    ...Object.fromEntries(ACTION_CHILD_TABLES.map((t) => [t, seed.children?.[t] ?? []])),
     proposed_change: seed.proposals ?? [],
     actions: seed.actions ?? [],
     agent_run: seed.agent_run ?? [],
@@ -885,6 +893,44 @@ describe('revoke — hard guardrails, fail-closed', () => {
     )
     expect(deleteAppliedEntityMock).not.toHaveBeenCalled()
     expect(ledger.entries[0].outcome).toBe('skipped')
+  })
+
+  const revoke = async (children: Record<string, Row[]>, over: Row = {}) => {
+    deleteAppliedEntityMock.mockResolvedValue({ success: true })
+    const fake = makeFake({
+      proposals: [appliedAuto(over)],
+      actions: [{ id: 'act1', workspace_id: 'ws1', updated_at: hoursAgo(1), agent_run_status: 'idle' }],
+      children,
+    })
+    return applyVerdict(
+      { decisions: [{ proposal_id: 'p1', verdict: 'revoke', reason: 'dup', confidence: 0.95 }], needs_user: [], summary: 's' },
+      ctxFor(fake),
+    )
+  }
+
+  it.each([
+    ['attachments', { id: 'f1', action_id: 'act1' }],
+    ['action_document', { id: 'd1', action_id: 'act1' }],
+    ['action_external_task', { id: 'x1', action_id: 'act1' }],
+    ['action_relation', { id: 'r1', action_id: 'act2', related_action_id: 'act1' }],
+    ['action_contexts', { id: 'c1', action_id: 'act1' }],
+  ])('REFUSES to revoke an action with a %s row (cascade-delete guard)', async (table, row) => {
+    const ledger = await revoke({ [table]: [row] })
+    expect(deleteAppliedEntityMock).not.toHaveBeenCalled()
+    expect(ledger.entries[0].outcome).toBe('skipped')
+  })
+
+  it('a label the person added refuses the revoke; the labels the proposal applied do not', async () => {
+    expect((await revoke({ action_label: [{ action_id: 'act1', label_id: 'lbl-bug' }] }, { labels: ['lbl-bug'] })).entries[0].outcome).toBe('revoked')
+    deleteAppliedEntityMock.mockClear()
+    expect((await revoke({ action_label: [{ action_id: 'act1', label_id: 'lbl-mine' }] }, { labels: ['lbl-bug'] })).entries[0].outcome).toBe('skipped')
+    expect(deleteAppliedEntityMock).not.toHaveBeenCalled()
+  })
+
+  it('the assignee written with the action does not refuse the revoke; one added later does', async () => {
+    const atApply = hoursAgo(1)
+    expect((await revoke({ action_assignee: [{ action_id: 'act1', member_id: 'm1', created_at: atApply }] }, { applied_at: atApply })).entries[0].outcome).toBe('revoked')
+    expect((await revoke({ action_assignee: [{ action_id: 'act1', member_id: 'm2', created_at: nowIso() }] })).entries[0].outcome).toBe('skipped')
   })
 
   it('the fake serves only tables the schema has, so a misnamed table fails here as it does in Postgres', () => {
