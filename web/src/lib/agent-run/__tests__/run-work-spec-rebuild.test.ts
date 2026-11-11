@@ -293,6 +293,8 @@ describe('computeWorkRunCeiling', () => {
         // form's secret link, internal writes out as attended-only.
         'update_business_profile',
         'create_quote_form_link',
+        // Availability: the person's working hours, an internal write out as attended-only.
+        'set_working_hours',
         // GEN-1169: deleting a document is a delete, only on the person's own card.
         // (Archiving and restoring are internal writes and stay in.)
         'delete_document',

@@ -55,6 +55,12 @@ export interface CalendarEvent {
    * the owner's attendee entry instead.
    */
   myResponse?: string
+  /**
+   * The event is marked as free time on its calendar (Google's transparency
+   * 'transparent', Outlook's showAs 'free': a birthday, a reminder, an FYI
+   * hold). It never counts as busy (src/lib/guests/free-busy.ts).
+   */
+  transparent?: boolean
   // Which provider minted the event id — determines its recurrence semantics
   provider?: 'google' | 'microsoft' | 'local_exchange'
 }
@@ -65,6 +71,8 @@ export interface SubCalendar {
   backgroundColor?: string
   primary?: boolean
   accessRole?: string
+  /** Outlook: the address of the mailbox the calendar belongs to (a calendar shared with the person carries someone else's). */
+  ownerEmail?: string
 }
 
 interface ListEventsOptions {
@@ -153,6 +161,8 @@ export async function listCalendarEventsUnified(
     .lte('start_at', timeMax)
     .order('start_at', { ascending: true })
     .then(({ data: localRows, error }): CalendarEvent[] => {
+      // Strict: the desktop's Exchange rows failing to load are unread, never "no events".
+      if (error && options.strict) throw new Error(`Exchange calendar could not be read: ${error.message}`)
       if (error) options.onSkipped?.({ provider: 'local_exchange', reason: error.message })
       return (localRows || []).map((row) => ({
         id: row.external_id,
@@ -219,6 +229,8 @@ export async function listCalendarEventsUnified(
           }
 
           const accountCalendarIds = options.calendarIds?.[account.id]
+          // An account named with no calendars is left out (none of its calendars is wanted), not read as its primary.
+          if (accountCalendarIds && accountCalendarIds.length === 0) return []
           const accountOptions: ListEventsOptions = options.onSkipped ? { ...options, onSkipped: (s) => skip(account, s.reason) } : options
 
           let events: CalendarEvent[]
@@ -329,6 +341,7 @@ export async function listMicrosoftCalendars(
     backgroundColor: cal.hexColor ? `#${cal.hexColor}` : undefined,
     primary: cal.isDefaultCalendar ?? false,
     accessRole: cal.canEdit ? 'owner' : 'reader',
+    ownerEmail: typeof cal.owner?.address === 'string' ? cal.owner.address : undefined,
   }))
 }
 
@@ -533,6 +546,8 @@ async function listGoogleEvents(
             attendeeDetails: mapGoogleAttendees(e.attendees),
             isAllDay: !!e.start?.date,
             status: e.status as string,
+            ...(e.transparency === 'transparent' ? { transparent: true } : {}),
+            ...(typeof googleSelfResponse(e.attendees) === 'string' ? { myResponse: googleSelfResponse(e.attendees) } : {}),
             htmlLink: e.htmlLink as string,
             organizer: e.organizer?.email as string | undefined,
             conferenceUrl: videoEntry?.uri,
@@ -717,6 +732,13 @@ async function listMicrosoftEvents(
   return parseMicrosoftEvents(data.value || [])
 }
 
+/** The account owner's own answer on a Google event (their attendee entry, marked `self`), when they are a guest on it. */
+function googleSelfResponse(raw: unknown): string | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const self = (raw as Array<Record<string, unknown>>).find((a) => a?.self === true)
+  return typeof self?.responseStatus === 'string' ? self.responseStatus : undefined
+}
+
 /**
  * Google attendee → CalendarEventAttendee, keeping `displayName`.
  * Entries with no real address (Google can return resource rows without one)
@@ -789,6 +811,7 @@ function parseMicrosoftEvents(items: any[], calendarId?: string): CalendarEvent[
       ),
       isAllDay: e.isAllDay as boolean,
       ...(typeof e.responseStatus?.response === 'string' ? { myResponse: e.responseStatus.response as string } : {}),
+      ...(e.showAs === 'free' ? { transparent: true } : {}),
       // An organizer's cancellation stays on an attendee's Outlook calendar
       // (isCancelled) until they remove it: Google's word for it, so readers
       // that skip cancelled meetings skip it too.

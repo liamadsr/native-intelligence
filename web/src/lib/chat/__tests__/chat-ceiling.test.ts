@@ -236,6 +236,8 @@ describe('surface exclusions (structural, keyed on the verified token surface)',
       // What the business's customers are told, and its website form's link (roadmap B): only in the owner's own chat.
       'update_business_profile',
       'create_quote_form_link',
+      // The person's working hours (availability): changed only in their own chat.
+      'set_working_hours',
       // ... nor puts one up: show and read_card both stay off the device.
       'show',
       // A contact's web enrichment waits up to 45 s: more than a 60 s device ask can hold.

@@ -67,6 +67,8 @@
  *   And update_business_profile and create_quote_form_link (roadmap B): the
  *   owner changing what their customers are told, or their website form's
  *   link, from their own client. Only an unattended run is kept from them.
+ *   set_working_hours stays out for now: the person sets their hours in the
+ *   app's chat; find_times and get_working_hours are there for every caller.
  */
 import { ATTENDED_ONLY_TOOL_NAMES } from '@/lib/ai/tool-registry'
 

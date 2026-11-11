@@ -73,11 +73,11 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
     'last_message_id', 'mail', 'max_drafts', 'max_results', 'needs_reply', 'previous_draft_id', 'query', 'read', 'thread_id',
     'thread_ids', 'types', 'undo', 'unread',
   ],
-  // A1c meetings-mail: rewritten in 325.
+  // A1c meetings-mail: rewritten in 325; find_times' answer (suggested, free, unknown) in 551.
   'calendar-playbook': [
-    'account_email', 'attendees', 'calendar', 'capture_status', 'description', 'email', 'end', 'end_date', 'event_id', 'from',
-    'hours_ahead', 'local_exchange', 'location', 'max_results', 'participant_email', 'since', 'start', 'start_date', 'title', 'truncated',
-    'view',
+    'account_email', 'attendees', 'calendar', 'capture_status', 'description', 'email', 'end', 'end_date', 'event_id', 'free', 'from',
+    'hours_ahead', 'local_exchange', 'location', 'max_results', 'participant_email', 'since', 'start', 'start_date', 'suggested', 'title',
+    'truncated', 'unknown', 'view',
   ],
   'actions-playbook': [
     'assignee', 'assignee_id', 'assignee_name', 'confirmation', 'due_at', 'filter', 'has_more', 'id', 'identifier', 'is_relative',
@@ -188,7 +188,11 @@ const NOT_TOOLS: Record<string, readonly string[]> = {
   ],
   // A1c meetings-mail: 325's recipes (write-in-your-tone and clear-inbox, rewritten in 325, are above; meeting-prep is the 159 row).
   'meeting-prep': ['all_time', 'attendees', 'domain', 'email', 'event_id', 'max_results', 'participant_email'],
-  'find-a-time': ['attendees', 'end', 'end_date', 'location', 'max_results', 'start', 'start_date', 'title', 'truncated'],
+  // 551: find_times' inputs and answer in place of reading the events.
+  'find-a-time': [
+    'attendees', 'buffer_minutes', 'duration_minutes', 'end', 'free', 'from', 'location', 'start', 'suggested', 'time_zone', 'title', 'to',
+    'unknown', 'working_hours_are_default',
+  ],
   'meeting-recap': ['capture_id', 'has_more', 'next_offset', 'project_id', 'since'],
   // P8: content (384) and marketing (385).
   // P9 (391): the recipes by name, built with create_flow's `recipe`.
@@ -239,6 +243,9 @@ const CHAT_ONLY_NAMED: Record<string, readonly string[]> = {
   'x-post': ['review_post'],
   'linkedin-post': ['review_post'],
   'marketing-playbook': ['create_flow'],
+  // 551: changing the working hours is the person's step, on what they said in the chat.
+  'calendar-playbook': ['set_working_hours'],
+  'find-a-time': ['set_working_hours'],
 }
 
 /** The operators a `show` filter takes (show.ts filterSchema). */

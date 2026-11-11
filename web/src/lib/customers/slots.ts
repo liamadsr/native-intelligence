@@ -9,6 +9,9 @@
  * It blocks each local day it covers for at least half the day: a provider's
  * all-day event comes as UTC midnights (Google's dates), which in New York
  * start the evening before, and that evening must not block the day before.
+ * The slots are the availability engine's (src/lib/availability/engine.ts),
+ * over every calendar of the owner's that counts as busy
+ * (src/lib/availability/busy.ts), not their primary one alone.
  * The calendar is read as busy blocks only (src/lib/guests/free-busy.ts):
  * nothing about an event ever reaches a customer. It is read strictly (a
  * calendar account that can't be read throws: a time is never "free" on a
@@ -18,7 +21,10 @@
  * bookings.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { listCalendarEventsUnified } from '@/lib/integrations/calendar'
+import type { listCalendarEventsUnified } from '@/lib/integrations/calendar'
+import { listCountedEvents } from '@/lib/availability/busy'
+import { openTimes } from '@/lib/availability/engine'
+import { addDays, allDayTakes, localDate, parseDayKey, zonedTime } from '@/lib/availability/zone'
 import { readMemberTimeZone } from '@/lib/agent-events/member-time-zone'
 import { busyBlocks, type BusyBlock } from '@/lib/guests/free-busy'
 import { getBusinessProfile, liveBookingsBetween } from './store'
@@ -43,51 +49,8 @@ export const DEFAULT_BOOKING_RULES: Pick<BusinessProfile, 'bookingDays' | 'booki
 
 export type BookingRules = typeof DEFAULT_BOOKING_RULES
 
-/** The zone's offset from UTC at `at`, in ms (positive east of UTC). */
-function offsetAt(at: number, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(at))
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
-  return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')) - at
-}
-
-/** A wall-clock time in `timeZone` as an instant (DST-correct: the offset is read at the instant itself). Pure. */
-export function zonedTime(date: { y: number; m: number; d: number }, clock: string, timeZone: string): number {
-  const [h, min] = clock.split(':').map(Number)
-  const wall = Date.UTC(date.y, date.m - 1, date.d, h, min)
-  let at = wall - offsetAt(wall, timeZone)
-  // A second pass settles a guess that landed across a daylight-saving change.
-  at = wall - offsetAt(at, timeZone)
-  return at
-}
-
-/** The local calendar date of `at` in `timeZone`, and its weekday (0 Sunday). Pure. */
-export function localDate(at: number, timeZone: string): { y: number; m: number; d: number; weekday: number } {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).formatToParts(new Date(at))
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
-  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'))
-  return { y: Number(get('year')), m: Number(get('month')), d: Number(get('day')), weekday }
-}
-
-function addDays(date: { y: number; m: number; d: number }, n: number): { y: number; m: number; d: number; weekday: number } {
-  const utc = new Date(Date.UTC(date.y, date.m - 1, date.d + n))
-  return { y: utc.getUTCFullYear(), m: utc.getUTCMonth() + 1, d: utc.getUTCDate(), weekday: utc.getUTCDay() }
-}
-
-const HALF_DAY_MS = 12 * 60 * 60_000
-
-/** Whether an all-day block takes the local day [dayStart, dayEnd): it covers half of it or more. Pure. */
-export function allDayTakes(block: { start: number; end: number }, dayStart: number, dayEnd: number): boolean {
-  return Math.min(block.end, dayEnd) - Math.max(block.start, dayStart) >= Math.min(HALF_DAY_MS, dayEnd - dayStart)
-}
-
-function clockMinutes(clock: string): number {
-  const [h, m] = clock.split(':').map(Number)
-  return h * 60 + m
-}
-
-function minutesClock(total: number): string {
-  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
-}
+// The zone arithmetic lives with the availability engine; its callers here keep their import.
+export { allDayTakes, localDate, zonedTime }
 
 export interface OpenSlotsInput {
   rules: BookingRules
@@ -102,42 +65,23 @@ export interface OpenSlotsInput {
   max?: number
 }
 
-/** The open slots (see the header), soonest first. Pure. */
+/** The open slots (see the header), soonest first: the availability engine's grid over the business's hours. Pure. */
 export function openSlots(input: OpenSlotsInput): OpenSlot[] {
   const { rules, timeZone, now } = input
-  const slotMs = rules.slotMinutes * 60_000
-  const earliest = now + rules.leadHours * 60 * 60_000
-  const latest = now + rules.horizonDays * DAY_MS
   const days = Math.max(1, Math.min(OPEN_SLOT_DAYS_MAX, Math.round(input.days ?? 7)))
   const max = Math.max(1, Math.min(OPEN_SLOTS_MAX, input.max ?? OPEN_SLOTS_MAX))
-  const fromMatch = input.fromDate ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.fromDate) : null
-  const today = localDate(now, timeZone)
-  const start = fromMatch ? { y: Number(fromMatch[1]), m: Number(fromMatch[2]), d: Number(fromMatch[3]) } : today
-
-  const timed = input.busy.filter((b) => !b.allDay).map((b) => [Date.parse(b.start), Date.parse(b.end)] as const)
-  const allDay = input.busy.filter((b) => b.allDay).map((b) => [Date.parse(b.start), Date.parse(b.end)] as const)
-  const held = input.bookings.map((b) => [Date.parse(b.startsAt), Date.parse(b.endsAt)] as const)
-  const overlaps = (blocks: ReadonlyArray<readonly [number, number]>, from: number, to: number) => blocks.some(([s, e]) => s < to && e > from)
-
-  const days0 = clockMinutes(rules.bookingStart)
-  const days1 = clockMinutes(rules.bookingEnd)
-  const out: OpenSlot[] = []
-  for (let i = 0; i < days && out.length < max; i++) {
-    const day = addDays(start, i)
-    if (!rules.bookingDays.includes(day.weekday)) continue
-    const dayStart = zonedTime(day, '00:00', timeZone)
-    const dayEnd = zonedTime(addDays(day, 1), '00:00', timeZone)
-    // An all-day event (a day off, travel) takes the whole day.
-    if (allDay.some(([s, e]) => allDayTakes({ start: s, end: e }, dayStart, dayEnd))) continue
-    for (let m = days0; m + rules.slotMinutes <= days1 && out.length < max; m += rules.slotMinutes) {
-      const from = zonedTime(day, minutesClock(m), timeZone)
-      const to = from + slotMs
-      if (from < earliest || from > latest) continue
-      if (overlaps(timed, from, to) || overlaps(held, from, to)) continue
-      out.push({ start: new Date(from).toISOString(), end: new Date(to).toISOString() })
-    }
-  }
-  return out
+  const hours = [{ start: rules.bookingStart, end: rules.bookingEnd }]
+  return openTimes({
+    schedule: { timeZone, weekly: [0, 1, 2, 3, 4, 5, 6].map((weekday) => (rules.bookingDays.includes(weekday) ? hours : [])) },
+    // A live booking holds its time like a busy block.
+    busy: [...input.busy, ...input.bookings.map((b) => ({ start: b.startsAt, end: b.endsAt }))],
+    firstDay: parseDayKey(input.fromDate) ?? localDate(now, timeZone),
+    days,
+    durationMinutes: rules.slotMinutes,
+    notBefore: now + rules.leadHours * 60 * 60_000,
+    startNotAfter: now + rules.horizonDays * DAY_MS,
+    max,
+  }).map((slot) => ({ start: new Date(slot.start).toISOString(), end: new Date(slot.end).toISOString() }))
 }
 
 const LOCAL_START = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::00)?$/
@@ -224,7 +168,7 @@ export async function findOpenSlots(
   const timeMin = new Date(window.from).toISOString()
   const timeMax = new Date(window.to).toISOString()
   const [events, bookings] = await Promise.all([
-    (deps.listEvents ?? listCalendarEventsUnified)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true }),
+    (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true }),
     liveBookingsBetween(supabase, business.workspaceId, timeMin, timeMax),
   ])
   // A request the owner never answered lapses with its approval: its slot is open again.
@@ -273,7 +217,7 @@ export async function isSlotFree(
   const timeMin = new Date(from - DAY_MS).toISOString()
   const timeMax = new Date(to + DAY_MS).toISOString()
   const [events, bookings] = await Promise.all([
-    (deps.listEvents ?? listCalendarEventsUnified)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true }),
+    (deps.listEvents ?? listCountedEvents)(business.ownerUserId, { timeMin, timeMax, maxResults: 500, workspaceId: business.workspaceId, strict: true }),
     liveBookingsBetween(supabase, business.workspaceId, slot.start, slot.end),
   ])
   const staleBefore = now - BOOKING_REQUEST_TTL_MS

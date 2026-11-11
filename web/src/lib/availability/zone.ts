@@ -1,0 +1,68 @@
+/**
+ * Wall-clock times in a zone, for the availability engine (./engine.ts) and
+ * everything that offers a time (src/lib/customers/slots.ts). A slot is 10:00
+ * in the person's zone across a daylight-saving change. Pure.
+ */
+
+export interface LocalDay {
+  y: number
+  m: number
+  d: number
+}
+
+/** The zone's offset from UTC at `at`, in ms (positive east of UTC). */
+function offsetAt(at: number, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(at))
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')) - at
+}
+
+/** A wall-clock time in `timeZone` as an instant (DST-correct: the offset is read at the instant itself). Pure. */
+export function zonedTime(date: LocalDay, clock: string, timeZone: string): number {
+  const [h, min] = clock.split(':').map(Number)
+  const wall = Date.UTC(date.y, date.m - 1, date.d, h, min)
+  let at = wall - offsetAt(wall, timeZone)
+  // A second pass settles a guess that landed across a daylight-saving change.
+  at = wall - offsetAt(at, timeZone)
+  return at
+}
+
+/** The local calendar date of `at` in `timeZone`, and its weekday (0 Sunday). Pure. */
+export function localDate(at: number, timeZone: string): LocalDay & { weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).formatToParts(new Date(at))
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'))
+  return { y: Number(get('year')), m: Number(get('month')), d: Number(get('day')), weekday }
+}
+
+export function addDays(date: LocalDay, n: number): LocalDay & { weekday: number } {
+  const utc = new Date(Date.UTC(date.y, date.m - 1, date.d + n))
+  return { y: utc.getUTCFullYear(), m: utc.getUTCMonth() + 1, d: utc.getUTCDate(), weekday: utc.getUTCDay() }
+}
+
+/** A local day as YYYY-MM-DD. */
+export function dayKey(date: LocalDay): string {
+  return `${date.y}-${String(date.m).padStart(2, '0')}-${String(date.d).padStart(2, '0')}`
+}
+
+/** YYYY-MM-DD as a local day, or null when it isn't one. */
+export function parseDayKey(value: string | null | undefined): LocalDay | null {
+  const m = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null
+  return m ? { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) } : null
+}
+
+const HALF_DAY_MS = 12 * 60 * 60_000
+
+/** Whether an all-day block takes the local day [dayStart, dayEnd): it covers half of it or more. Pure. */
+export function allDayTakes(block: { start: number; end: number }, dayStart: number, dayEnd: number): boolean {
+  return Math.min(block.end, dayEnd) - Math.max(block.start, dayStart) >= Math.min(HALF_DAY_MS, dayEnd - dayStart)
+}
+
+export function clockMinutes(clock: string): number {
+  const [h, m] = clock.split(':').map(Number)
+  return h * 60 + m
+}
+
+export function minutesClock(total: number): string {
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}

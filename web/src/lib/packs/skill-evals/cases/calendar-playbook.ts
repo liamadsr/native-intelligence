@@ -3,7 +3,8 @@ import type { SkillEvalCase } from '../types'
 /**
  * The Calendar core (325): it rides `get_calendar_events`, a core tool, or a
  * `search_tools` reveal of a calendar tool. Invites to other people ask
- * first; Native Intelligence's own calendar never needs the browser.
+ * first; Native Intelligence's own calendar never needs the browser. Free
+ * time comes from `find_times` (551), never a hand count over the events.
  */
 export const cases: SkillEvalCase[] = [
   {
@@ -29,9 +30,10 @@ export const cases: SkillEvalCase[] = [
   {
     request: 'send Sam and Priya an invite for a 30 minute sync on Thursday',
     loads: ['calendar-playbook'],
-    tools: ['get_calendar_events'],
+    tools: ['find_times'],
+    params: { find_times: { duration_minutes: 30 } },
     avoid: ['create_calendar_event'],
-    why: 'No time given: check the calendar and propose slots; an invite to others waits for the yes.',
+    why: 'No time given: find_times for Thursday and propose slots; an invite to others waits for the yes.',
   },
   {
     request: 'block 2 to 4 tomorrow afternoon for focus time',

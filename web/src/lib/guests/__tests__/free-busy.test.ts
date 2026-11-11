@@ -61,6 +61,25 @@ describe('busyBlocks', () => {
     ])
   })
 
+  it('an event marked as free time, or an invite the person declined, is never busy; any other answer is', () => {
+    const blocks = busyBlocks(
+      [
+        { start: '2026-10-26T09:00:00.000Z', end: '2026-10-26T10:00:00.000Z', transparent: true },
+        { start: '2026-10-26T00:00:00.000Z', end: '2026-10-27T00:00:00.000Z', isAllDay: true, transparent: true },
+        { start: '2026-10-26T11:00:00.000Z', end: '2026-10-26T12:00:00.000Z', myResponse: 'declined' },
+        { start: '2026-10-26T13:00:00.000Z', end: '2026-10-26T14:00:00.000Z', myResponse: 'tentative' },
+        { start: '2026-10-26T15:00:00.000Z', end: '2026-10-26T16:00:00.000Z', myResponse: 'needsAction' },
+        { start: '2026-10-26T17:00:00.000Z', end: '2026-10-26T18:00:00.000Z', myResponse: 'accepted', transparent: false },
+      ],
+      ...WINDOW,
+    )
+    expect(blocks).toEqual([
+      { start: '2026-10-26T13:00:00.000Z', end: '2026-10-26T14:00:00.000Z' },
+      { start: '2026-10-26T15:00:00.000Z', end: '2026-10-26T16:00:00.000Z' },
+      { start: '2026-10-26T17:00:00.000Z', end: '2026-10-26T18:00:00.000Z' },
+    ])
+  })
+
   it('a bad window is nothing', () => {
     expect(busyBlocks([{ start: '2026-10-26T09:00:00.000Z', end: '2026-10-26T10:00:00.000Z' }], WINDOW[1], WINDOW[0])).toEqual([])
     expect(busyBlocks([], 'x', 'y')).toEqual([])

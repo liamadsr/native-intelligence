@@ -105,13 +105,25 @@ const MAIL_TRIAGE = ['update_email_thread', 'unsubscribe_thread']
 const DRAFT_DISCARD = ['discard_email_draft']
 /** Roadmap B: what the business's customers are told, and its website form's secret link, change only at the person's word. */
 const BUSINESS_SETUP = ['update_business_profile', 'create_quote_form_link']
+/** Availability: the person's working hours decide every time offered for them, so they change only at their word. */
+const WORKING_HOURS = ['set_working_hours']
 const root = join(__dirname, '..', '..', '..', '..')
 
 describe('the attended-only set', () => {
   it('is exactly the three Phase 5 writes, the two A1 reads, the two A2 writes, remember, update_now, the card reader, the loop builders, the skill writers and the document restore, each a registry tool in an EXISTING category (no persona-grant migration)', () => {
     expect([...ATTENDED].sort()).toEqual(
-      [...WRITES, ...BOT_WORK_READS, ...BOT_WORK_WRITES, ...BOT_MANAGERS, ...MEMORY, ...NOW, ...GETTING_STARTED, ...CARD_READS, ...LOOP_BUILDERS, ...SKILL_WRITERS, ...DOCUMENT_RESTORE, ...DOCUMENT_DELETE, ...CONNECTIONS, ...POST_REVIEW, ...POST_SEND, ...MAIL_TRIAGE, ...DRAFT_DISCARD, ...BUSINESS_SETUP].sort(),
+      [...WRITES, ...BOT_WORK_READS, ...BOT_WORK_WRITES, ...BOT_MANAGERS, ...MEMORY, ...NOW, ...GETTING_STARTED, ...CARD_READS, ...LOOP_BUILDERS, ...SKILL_WRITERS, ...DOCUMENT_RESTORE, ...DOCUMENT_DELETE, ...CONNECTIONS, ...POST_REVIEW, ...POST_SEND, ...MAIL_TRIAGE, ...DRAFT_DISCARD, ...BUSINESS_SETUP, ...WORKING_HOURS].sort(),
     )
+    for (const name of WORKING_HOURS) {
+      expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('calendar')
+      expect(getToolSideEffect(name), name).toBe('internal-write')
+      expect(getMutatingToolNames().has(name), name).toBe(true)
+    }
+    // Its reads stay reads, and stay unattended-reachable.
+    for (const name of ['find_times', 'get_working_hours']) {
+      expect(getToolSideEffect(name), name).toBe('read')
+      expect(ATTENDED_ONLY_TOOL_NAMES.has(name), name).toBe(false)
+    }
     for (const name of BUSINESS_SETUP) {
       expect(TOOL_REGISTRY_MAP.get(name)?.category.id, name).toBe('contacts')
       expect(getToolSideEffect(name), name).toBe('internal-write')
@@ -355,7 +367,8 @@ describe('never in an unattended run', () => {
     // update_now (docs/plans/now-file.md): the person's Now file is written only from their chat in the app.
     // finish_getting_started (docs/plans/getting-started-skill.md): getting started is the app's chat's.
     // unsubscribe_thread (GEN-1166): likewise only on their card; update_email_thread is theirs to call.
-    expect(mcpWithheldAttendedTools()).toEqual(['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread'])
+    // set_working_hours (availability): for now the person sets their hours in the app's chat.
+    expect(mcpWithheldAttendedTools()).toEqual(['undo_extraction_pass', 'update_now', 'finish_getting_started', 'read_card', 'connect', 'disconnect', 'set_tool_access', 'review_post', 'publish_post', 'schedule_post', 'unsubscribe_thread', 'set_working_hours'])
   })
 })
 

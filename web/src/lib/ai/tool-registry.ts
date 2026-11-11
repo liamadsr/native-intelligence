@@ -404,6 +404,10 @@ export const TOOL_CATEGORIES: ToolCategory[] = [
     icon: '📅',
     tools: [
       { name: 'get_calendar_events', sideEffect: 'read', label: 'Get Events', description: 'List calendar events for a date range' },
+      // Availability (src/lib/availability): working hours minus busy time on every calendar that counts.
+      { name: 'find_times', sideEffect: 'read', label: 'Find Times', description: 'When the person is free to meet: up to three times to offer and every free stretch in a range' },
+      { name: 'get_working_hours', sideEffect: 'read', label: 'Get Working Hours', description: "The person's working hours and dated changes" },
+      { name: 'set_working_hours', sideEffect: 'internal-write', writeTarget: 'board', label: 'Set Working Hours', description: "Change the person's working hours, a date's hours or a day off" },
       // external-write: provider write: the provider emails every attendee
       { name: 'create_calendar_event', sideEffect: 'external-write', label: 'Create Event', description: 'Create a new calendar event' },
       // external-write: provider write: attendees get update emails
@@ -943,6 +947,11 @@ export function isChatNativeTool(name: string): boolean {
  *   update_email_thread   archive, read, star, label, mute (reversible);
  *   unsubscribe_thread    a list's one-click link or unsubscribe email.
  *
+ * And set_working_hours (availability): the person's hours decide every time
+ * offered for them. An injected email must never get a run to clear their
+ * week or open their weekend. Their own MCP connector doesn't offer it
+ * either (src/lib/mcp/attended-tools.ts).
+ *
  * NEVER in an unattended run: skill runs (computeSkillCeiling, and
  * NON_CHAT_TOOL_NAMES for inherit-all), work runs (WORK_RUN_EXCLUDED_TOOLS),
  * the live agent's ceiling, the device ask (SURFACE_EXCLUDED_TOOLS) and a
@@ -991,6 +1000,8 @@ export const ATTENDED_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   // Roadmap B: what customers are told, and the website form's secret URL, change only at the person's word.
   'update_business_profile',
   'create_quote_form_link',
+  // Availability: the person's working hours decide every time offered for them, so they change only at the person's word.
+  'set_working_hours',
 ])
 
 /** True for a tool only an attended chat may hold (ATTENDED_ONLY_TOOL_NAMES). */

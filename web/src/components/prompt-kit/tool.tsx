@@ -199,6 +199,9 @@ const TOOL_LABELS: Record<string, string> = {
   get_project_context: 'Get project context',
   // Calendar
   get_calendar_events: 'Get calendar events',
+  find_times: 'Find times',
+  get_working_hours: 'Read working hours',
+  set_working_hours: 'Set working hours',
   create_calendar_event: 'Create calendar event',
   update_calendar_event: 'Update calendar event',
   delete_calendar_event: 'Delete calendar event',
