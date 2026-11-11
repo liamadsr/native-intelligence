@@ -1,8 +1,10 @@
 /**
- * Migration 522: an edge to a table or a row is read as the table is. Its
- * functions are 572's (the newest before it) and its policies 503's, with
- * only the table arms added; this re-derives each and compares, and holds
- * the lists to LINK_FENCED_KINDS. Run on
+ * Migrations 522 and 600: an edge to a table or a row is read as the table
+ * is. 522's policies are 503's and 600's functions 572's (the newest before
+ * it), with only the table arms added; this re-derives each and compares,
+ * and holds the lists to LINK_FENCED_KINDS. The newest entity_visible_to by
+ * file name must carry the table arms, so a later migration that restates
+ * it without them fails here. Run on
  * DEV inside a rolled-back transaction with 520 (a member reading a mention
  * of a private table's row only once a grant opened the table).
  */
@@ -12,6 +14,7 @@ import { LINK_FENCED_KINDS, PRIVATE_GRAPH_KINDS } from '../entity-fences'
 
 const all = migrationsInOrder()
 const sql = all.find((m) => m.file.startsWith('522_'))!.sql
+const sql600 = all.find((m) => m.file.startsWith('600_'))!.sql
 const sql503 = all.find((m) => m.file.startsWith('503_'))!.sql
 const sql572 = all.find((m) => m.file.startsWith('572_'))!.sql
 const FIVE = 'create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid, p_grants boolean)'
@@ -32,7 +35,7 @@ function policy(text: string, name: string): string {
 }
 const TABLES = ['data_table', 'data_row']
 
-describe('migration 522: table edges follow the table', () => {
+describe('migrations 522 and 600: table edges follow the table', () => {
   it('fences both kinds, which are private graph kinds', () => {
     for (const k of TABLES) {
       expect(LINK_FENCED_KINDS as readonly string[], k).toContain(k)
@@ -41,7 +44,7 @@ describe('migration 522: table edges follow the table', () => {
   })
 
   it('entity_visible_to is 572’s with the table arms, answered by 520’s rule, and nothing with no user', () => {
-    const fn = fnBlock(sql)
+    const fn = fnBlock(sql600)
     expect(fn).toContain("if v_type in ('data_table', 'data_row') then return public.data_table_visible_to(v_table, p_user); end if;")
     expect(fn).toContain("'decision', 'data_table', 'data_row') then return false;")
     // Take the table arms out and it is 503's, character for character.
@@ -59,7 +62,7 @@ describe('migration 522: table edges follow the table', () => {
   })
 
   it('the 5-arg form (519’s, as 572 restated it) gains the same arms, its grant arm only when grants count', () => {
-    const fn = fnBlock(sql, FIVE)
+    const fn = fnBlock(sql600, FIVE)
     expect(fn).toContain('return case when p_grants is true then public.data_table_visible_to(v_table, p_user)')
     expect(fn).toContain('else public.data_table_visible_ungranted(v_table, p_user) end;')
     const back = fn
@@ -87,21 +90,25 @@ describe('migration 522: table edges follow the table', () => {
     expect(insert.slice(insert.indexOf('with check ('))).toBe(select.slice(select.indexOf('using (')).replace('using (', 'with check ('))
   })
 
-  it('is the newest word on both but for 572, which it restates; restates no grant, and carries no backslash', () => {
-    // 572 (meeting chats, numbered after Tables' 520–549) redefined both
-    // functions without the table arms. 522 restates 572's bodies (above), so
-    // 522 must be applied after 572 on any database: on PROD it is, at the
-    // merge. Any later redefinition must carry the table arms itself.
-    const i522 = all.findIndex((m) => m.file.startsWith('522_'))
-    for (const needle of ['create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)\n', FIVE]) {
-      const later = all.slice(i522 + 1).filter((m) => m.sql.toLowerCase().includes(needle)).map((m) => m.file.slice(0, 4))
-      expect(later, needle).toEqual(['572_'])
+  it('the newest entity_visible_to by file name carries the table arms, both forms', () => {
+    const FOUR = 'create or replace function public.entity_visible_to(p_type text, p_id uuid, p_workspace uuid, p_user uuid)\n'
+    for (const head of [FOUR, FIVE]) {
+      const newest = [...all].reverse().find((m) => m.sql.toLowerCase().includes(head))!
+      const fn = body(newest.sql, head)
+      for (const k of TABLES) expect(fn, `${newest.file}: ${k}`).toContain(`v_type = '${k}'`)
+      expect(fn, newest.file).toContain("if v_type in ('data_table', 'data_row') then")
     }
+  })
+
+  it('522 holds the newest link policies and no function; neither file restates a grant or carries a backslash', () => {
     for (const needle of ['create policy entity_link_select', 'create policy entity_link_insert']) {
       expect([...all].reverse().find((m) => m.sql.includes(needle))!.file.startsWith('522_'), needle).toBe(true)
     }
-    const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
-    expect(code).not.toMatch(/(grant|revoke) [^;]*function public\.entity_visible_to\(/i)
-    expect(sql).not.toContain('\\')
+    expect(sql).not.toMatch(/create or replace function/i)
+    for (const text of [sql, sql600]) {
+      const code = text.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+      expect(code).not.toMatch(/(grant|revoke) [^;]*function public\.entity_visible_to\(/i)
+      expect(text).not.toContain('\\')
+    }
   })
 })

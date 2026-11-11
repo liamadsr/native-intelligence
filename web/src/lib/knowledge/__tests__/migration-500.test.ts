@@ -32,7 +32,7 @@ const selectPolicy = (() => {
 const NAME_IN_500: Record<string, string> = { email_thread: 'email' }
 const in500 = (kind: string) => NAME_IN_500[kind] ?? kind
 
-/** Kinds a later migration fences: tables and their rows (522, ./migration-522.test.ts). */
+/** Kinds later migrations fence: tables and their rows (522 and 600, ./migration-522.test.ts). */
 const LATER = new Set<string>(['data_table', 'data_row'])
 
 /** Linkable kinds every member of the workspace reads (their tables' RLS is membership only). */
