@@ -35,6 +35,12 @@
 --      (492). data_table_editable_by: workspace-wide or theirs, or an EDIT
 --      grant reaches them (512), and never a guest; a view grant only reads.
 --      Who sees a private table and whether it is archived stay its owner's.
+--      A private table whose owner left (owner_member_id set null) is kept
+--      and stays private: its grantees still read and edit it as granted,
+--      and nobody else sees it, as 379 keeps a departed member's private
+--      documents (and captures) nobody's. Never shown to the workspace's
+--      admins, never flipped to workspace-wide.
+--      An archived table takes no op but its restore (or archive).
 --      Rows and changes follow their table.
 --      The read policies compare against my_data_table_ids(), one array per
 --      query (an InitPlan), so a page of rows costs one lookup, not one call
