@@ -380,7 +380,7 @@ export function createTableTools(
    * record is named only when the person may read it; members always are.
    */
   async function labelsFor(ws: string, columns: readonly DataColumn[], rows: readonly DataRow[]): Promise<Record<string, string>> {
-    const named = columns.filter((c) => c.field_type === 'person' || (c.field_type === 'relation' && c.config?.target))
+    const named = columns.filter((c): c is DataColumn & { field_type: 'person' | 'relation' } => c.field_type === 'person' || (c.field_type === 'relation' && !!c.config?.target))
     if (!named.length || !rows.length) return {}
     const records = rows.map((r) => ({ ...(r.custom_fields ?? {}) }) as Record<string, unknown>)
     for (const c of named) {
