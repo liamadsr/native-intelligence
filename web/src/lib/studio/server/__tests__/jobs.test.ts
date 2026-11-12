@@ -91,7 +91,7 @@ describe('jobs', () => {
     // The worker does the job while the request waits.
     await new Promise((r) => setTimeout(r, 20))
     const job = await claimJob(deps(), 'w', ['import'])
-    expect(job?.input).toMatchObject({ name: 'cam — presenter.mp4', conform: { fps: 30 } })
+    expect(job?.input).toMatchObject({ name: 'cam · presenter.mp4', conform: { fps: 30 } })
     const asset = clipAsset('d'.repeat(64))
     putAll(await createBlobWrite(env.ctx, { key: asset.file, bytes: 1000, contentType: 'video/mp4', sha256: asset.sha256 }))
     await commitBlob(env.ctx, asset.file)

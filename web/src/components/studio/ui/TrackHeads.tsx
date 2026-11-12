@@ -111,7 +111,7 @@ export function TrackHeads({ area, project, schedule, frame, automationView, par
     if (key.startsWith('video:')) { const lane = key.slice(6);
       return <>
         <div className="th-row"><span className={`th-chip shot-${lane.startsWith('src-') ? (project.sources?.find(item => item.id === lane)?.kind ?? 'window') : lane}`} /><span className="th-name th-layer-name" title={shotNames[lane] ?? sourceLabel(project, lane)}>{shotNames[lane] ?? sourceLabel(project, lane)}</span></div>
-        {automationView && key === firstShot ? <div className="th-row"><select aria-label="Picture automation" title="Automates the whole picture — screen, slides and camera (● = has automation)" value={params.video ?? 'zoom'} onChange={e => setParams({ ...params, video: e.target.value })}>
+        {automationView && key === firstShot ? <div className="th-row"><select aria-label="Picture automation" title="Automates the whole picture: screen, slides and camera (● = has automation)" value={params.video ?? 'zoom'} onChange={e => setParams({ ...params, video: e.target.value })}>
           <option value="off">Off</option>{automationParams.filter(item => item.target === 'video').map(item => <option key={item.id} value={item.id}>{lanePoints(project, item.id).length ? '● ' : ''}{item.label}</option>)}</select>
           {(params.video ?? 'zoom') !== 'off' ? <output>{value((params.video ?? 'zoom') as AutomationParam)}</output> : null}</div> : null}
       </>; }

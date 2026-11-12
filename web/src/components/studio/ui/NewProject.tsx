@@ -35,11 +35,11 @@ export function NewProjectPanel({ close, created }: { close: () => void; created
     </div>
     <div className="field-label">Canvas<div className="np-colors">
       {canvases.map(c => <button key={c.color} className={color === c.color ? 'active' : ''} onClick={() => setColor(c.color)} title={c.label}><span style={{ background: c.color }} />{c.label}</button>)}
-      <label className="np-custom" title="Any colour"><input type="color" value={color} onChange={e => setColor(e.target.value)} />Custom</label></div></div>
-    <label className="field-label">What should it be? <small>(optional — your agent starts building it right away)</small>
-      <textarea rows={3} value={brief} maxLength={4000} placeholder="A 15-second launch film for our new feature, light and playful, in the style of the reference in my Downloads…" onChange={e => setBrief(e.target.value)} /></label>
+      <label className="np-custom" title="Any color"><input type="color" value={color} onChange={e => setColor(e.target.value)} />Custom</label></div></div>
+    <label className="field-label">What should it be? <small>(optional: the agent starts building it right away)</small>
+      <textarea rows={3} value={brief} maxLength={4000} placeholder="A 15-second launch video for our new feature, light and playful…" onChange={e => setBrief(e.target.value)} /></label>
     <p className="np-note">You can change the length later, drop in recordings or images, and add titles from the timeline.</p>
     {error ? <p className="rec-error" role="alert">{error}</p> : null}
-    <div className="modal-actions"><button onClick={close} disabled={busy}>Cancel</button><button className="primary" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : brief.trim() ? 'Create and start the assistant' : 'Create project'}</button></div>
+    <div className="modal-actions"><button onClick={close} disabled={busy}>Cancel</button><button className="primary" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : brief.trim() ? 'Create and start the agent' : 'Create video'}</button></div>
   </div>;
 }

@@ -71,37 +71,37 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
   const cardMenu = (event: { clientX: number; clientY: number; currentTarget?: EventTarget | null; preventDefault?: () => void }, p: ProjectSummary) => {
     setSelected(p.id); const home = groupOf(p.id);
     openMenu(event, [
-      { label: p.id === currentProjectId ? 'Back to this project' : 'Open', run: () => open(p.id), disabled, hint: '↵' },
+      { label: p.id === currentProjectId ? 'Back to this video' : 'Open', run: () => open(p.id), disabled, hint: '↵' },
       { label: 'Rename', run: () => setRenaming({ id: p.id, title: p.title }) },
       { label: 'Duplicate', run: () => duplicate(p.id), disabled: disabled || busy },
       ...(home ? [{ separator: true } as const, ...(['draft', 'review', 'approved'] as const).map(status => ({ label: `Mark as ${statusLabel[status].toLowerCase()}`, run: () => void act(async () => { await request(`/api/account/studio/projects/${encodeURIComponent(p.id)}/status`, { status }); await refresh(); }), disabled: home.ads.find(a => a.id === p.id)?.status === status }))] : []),
       { separator: true },
       ...campaigns.filter(c => !c.single && c.id !== home?.id).slice(0, 8).map(c => ({ label: `Move to ${c.title}`, run: () => moveTo(c.id, p.id, event) })),
-      { label: home ? 'Move to a new project' : 'Make it a project', run: () => void act(async () => { const { campaign } = await request<{ campaign: CampaignSummary }>('/api/account/studio/campaigns', { title: home ? p.title : p.title, projectIds: [p.id] }); await refresh(); setRenamingGroup({ id: campaign.id, title: campaign.title }); }) },
+      { label: home ? 'Move to a new Studio project' : 'Make it a Studio project', run: () => void act(async () => { const { campaign } = await request<{ campaign: CampaignSummary }>('/api/account/studio/campaigns', { title: home ? p.title : p.title, projectIds: [p.id] }); await refresh(); setRenamingGroup({ id: campaign.id, title: campaign.title }); }) },
       ...(home ? [{ label: `Take out of ${home.title}`, run: () => void act(async () => { await request(`/api/account/studio/projects/${encodeURIComponent(p.id)}/unfile`, {}); await refresh(); }) }] : []),
       { separator: true },
-      { label: 'Delete…', danger: true, run: () => destroy(p.id), disabled: busy, confirm: { text: `Delete “${p.title}”? It moves to the trash folder.`, action: 'Delete' } },
+      { label: 'Delete…', danger: true, run: () => destroy(p.id), disabled: busy, confirm: { text: `Delete “${p.title}”? It moves to the trash.`, action: 'Delete' } },
     ]);
   };
   const moveTo = (campaignId: string, adId: string, at?: { clientX: number; clientY: number }) => {
     const go = () => void act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(campaignId)}/ads`, { projectId: adId }); await refresh(); });
     const ad = (projects ?? []).find(p => p.id === adId), target = campaigns.find(c => c.id === campaignId);
-    const name = target ? (target.single ? `a new project with “${target.ads[0]?.title}”` : `“${target.title}”`) : 'that project';
+    const name = target ? (target.single ? `a new Studio project with “${target.ads[0]?.title}”` : `“${target.title}”`) : 'that Studio project';
     if (!ad?.castCount) { go(); return; }
     // The project's ads share one cast, so the video's people join every ad there: say so before it happens.
-    openMenu({ clientX: at?.clientX ?? innerWidth / 2, clientY: at?.clientY ?? innerHeight / 3 }, [{ label: `Move to ${target?.single ? 'a new project' : target?.title ?? 'project'}`, run: go,
-      confirm: { text: `“${ad.title}” has a cast of ${ad.castCount}. Moving it into ${name} shares them with every ad there.`, action: 'Move', immediate: true } }]);
+    openMenu({ clientX: at?.clientX ?? innerWidth / 2, clientY: at?.clientY ?? innerHeight / 3 }, [{ label: `Move to ${target?.single ? 'a new Studio project' : target?.title ?? 'Studio project'}`, run: go,
+      confirm: { text: `“${ad.title}” has a cast of ${ad.castCount}. Moving it into ${name} shares them with every video there.`, action: 'Move', immediate: true } }]);
   };
   const commitGroupRename = () => { const r = renamingGroup; setRenamingGroup(null); if (r?.title.trim()) void act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(r.id)}`, { title: r.title.trim() }); await refresh(); }); };
   const newAd = (event: { clientX: number; clientY: number; currentTarget?: EventTarget | null }, c: CampaignSummary) => openMenu(event, [
-    ...adShapes.map(shape => ({ label: `Blank ${shape.label}`, run: () => void act(async () => { const { project } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/new-ad`, { width: shape.width, height: shape.height, title: `${c.title} · new ad` }); await refresh(); onProject(project.id); }), disabled })),
+    ...adShapes.map(shape => ({ label: `Blank ${shape.label}`, run: () => void act(async () => { const { project } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/new-ad`, { width: shape.width, height: shape.height, title: `${c.title} · new video` }); await refresh(); onProject(project.id); }), disabled })),
     ...(c.ads[0] ? [{ separator: true } as const, { label: `Copy of ${c.ads[0].title}`, run: () => void act(async () => { const { project } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/new-ad`, { from: c.ads[0]!.id }); await refresh(); onProject(project.id); }), disabled }] : []),
   ]);
   const groupMenu = (event: React.MouseEvent, c: CampaignSummary) => openMenu(event, [
-    { label: 'Rename project', run: () => setRenamingGroup({ id: c.id, title: c.title }) },
-    { label: 'New ad…', run: () => newAd(event, c) },
+    { label: 'Rename Studio project', run: () => setRenamingGroup({ id: c.id, title: c.title }) },
+    { label: 'New video…', run: () => newAd(event, c) },
     { separator: true },
-    { label: 'Ungroup', danger: true, run: () => void act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/dissolve`, {}); await refresh(); }), confirm: { text: `Ungroup “${c.title}”? Its ads stay, each as its own video. Its notes and brand are removed.`, action: 'Ungroup' } },
+    { label: 'Ungroup', danger: true, run: () => void act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(c.id)}/dissolve`, {}); await refresh(); }), confirm: { text: `Ungroup “${c.title}”? Its videos stay, each on its own. Its notes and brand are removed.`, action: 'Ungroup' } },
   ]);
   // Drag a video onto a project, or onto another single video to make a project of the two.
   const AD_DRAG = 'application/x-ni-studio-ad';
@@ -160,45 +160,45 @@ export function ProjectChooser({ currentProjectId, currentTitle, refreshKey, dis
   };
 
   return <div className="chooser-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && canClose) close(); }}>
-    <div className="chooser" ref={sheet} role="dialog" aria-modal="true" aria-label="Projects">
+    <div className="chooser" ref={sheet} role="dialog" aria-modal="true" aria-label="Projects and videos">
       <aside className="chooser-side">
         <div className="chooser-brand"><span className="chooser-brand-mark"><span /></span><strong>Studio</strong></div>
         <span className="chooser-side-label">New</span>
         <button className="chooser-start record" disabled={disabled} onClick={onRecord}><span className="chooser-start-icon"><span className="rec-dot" /></span><span><b>New recording</b><small>Your app, slides and camera in one take</small></span></button>
-        <button className="chooser-start" disabled={disabled} onClick={onNew}><span className="chooser-start-icon"><Icon name="plus" size={16} /></span><span><b>New blank project</b><small>A canvas of any shape; describe it and your agent builds it</small></span></button>
-        <p className="chooser-side-note">Projects and their media are kept in this workspace.</p>
+        <button className="chooser-start" disabled={disabled} onClick={onNew}><span className="chooser-start-icon"><Icon name="plus" size={16} /></span><span><b>New blank video</b><small>A canvas of any shape. Describe it and the agent builds it</small></span></button>
+        <p className="chooser-side-note">Studio projects, videos and their media are kept in this workspace.</p>
       </aside>
       <section className="chooser-main">
         <header className="chooser-head">
-          <div><h2>Projects</h2>{projects ? <span>{groups.length ? `${groups.length} project${groups.length === 1 ? '' : 's'} · ` : ''}{projects.length} video{projects.length === 1 ? '' : 's'} in this workspace · newest first</span> : <span>Loading…</span>}</div>
-          <input ref={search} className="chooser-search" type="search" placeholder="Search projects" aria-label="Search projects" value={query} onChange={e => setQuery(e.target.value)} />
-          {canClose ? <button className="chooser-close" aria-label="Close projects" title="Close (Esc)" onClick={close}><Icon name="close" size={16} /></button> : null}
+          <div><h2>Projects and videos</h2>{projects ? <span>{groups.length ? `${groups.length} Studio project${groups.length === 1 ? '' : 's'} · ` : ''}{projects.length} video{projects.length === 1 ? '' : 's'} in this workspace · newest first</span> : <span>Loading…</span>}</div>
+          <input ref={search} className="chooser-search" type="search" placeholder="Search videos" aria-label="Search videos" value={query} onChange={e => setQuery(e.target.value)} />
+          {canClose ? <button className="chooser-close" aria-label="Close" title="Close (Esc)" onClick={close}><Icon name="close" size={16} /></button> : null}
         </header>
         {error ? <p className="rec-error chooser-error" role="alert">{error}</p> : null}
         <div className="chooser-groups" role="listbox" aria-label="Projects and videos" onKeyDown={gridKey}>
           {groups.map(c => <section key={c.id} className={`chooser-group${dropOn === c.id ? ' drop' : ''}`} aria-label={c.title} {...dropProps(c.id)}>
             <header className="chooser-group-head" onContextMenu={e => groupMenu(e, c)}>
-              {renamingGroup?.id === c.id ? <input className="chooser-rename group" autoFocus aria-label="Project name" value={renamingGroup.title} maxLength={160}
+              {renamingGroup?.id === c.id ? <input className="chooser-rename group" autoFocus aria-label="Studio project name" value={renamingGroup.title} maxLength={160}
                 onFocus={e => e.currentTarget.select()} onChange={e => setRenamingGroup({ id: c.id, title: e.target.value })} onBlur={commitGroupRename}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitGroupRename(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setRenamingGroup(null); } }} />
                 : <h3 title="Right-click to rename or ungroup" onDoubleClick={() => setRenamingGroup({ id: c.id, title: c.title })}>{c.title}</h3>}
-              <span>{c.ads.length} ad{c.ads.length === 1 ? '' : 's'}{c.outputs.length ? ` · ${c.outputs.length} more format${c.outputs.length === 1 ? '' : 's'}` : ''}{c.castCount ? ` · cast of ${c.castCount}` : ''}</span>
-              <button className="chooser-group-new" disabled={disabled || busy} onClick={e => newAd(e, c)}><Icon name="plus" size={14} />New ad</button>
+              <span>{c.ads.length} video{c.ads.length === 1 ? '' : 's'}{c.outputs.length ? ` · ${c.outputs.length} more format${c.outputs.length === 1 ? '' : 's'}` : ''}{c.castCount ? ` · cast of ${c.castCount}` : ''}</span>
+              <button className="chooser-group-new" disabled={disabled || busy} onClick={e => newAd(e, c)}><Icon name="plus" size={14} />New video</button>
             </header>
             <div className="chooser-grid">{c.ads.map(p => card(p, c.outputs.filter(o => o.variantOf === p.id), c.ads.find(a => a.id === p.id)?.status))}
-              {!c.ads.length ? <div className="chooser-group-empty">No ads yet. Drag a video here, or make a new ad.</div> : null}</div>
+              {!c.ads.length ? <div className="chooser-group-empty">No videos yet. Drag a video here, or make a new one.</div> : null}</div>
           </section>)}
           {singles.length ? <section className="chooser-group singles">
-            {groups.length ? <header className="chooser-group-head"><h3>Single videos</h3><span>Drag one onto another, or onto a project, to group them</span></header> : null}
+            {groups.length ? <header className="chooser-group-head"><h3>Single videos</h3><span>Drag one onto another, or onto a Studio project, to group them</span></header> : null}
             <div className="chooser-grid">{singles.map(p => card(p, [], undefined))}</div>
           </section> : null}
           {projects && !rows.length ? <div className="chooser-empty">{query ? <><strong>No projects match “{query}”</strong><span>Try another word from the title.</span></>
-            : <><strong>No projects yet</strong><span>Record your app, slides and camera in one take, or start from a blank canvas. No recording needed for a new project: add titles, images and motion, or describe the video and let your agent build it.</span></>}</div> : null}
+            : <><strong>No videos yet</strong><span>Record your app, slides and camera in one take, or start from a blank canvas. No recording needed for a new video: add titles, images and motion, or describe the video and let your agent build it.</span></>}</div> : null}
         </div>
         <footer className="chooser-foot">
-          <span>{chosen ? <>Selected: <b title={chosen.title}>{chosen.title}</b></> : 'Double-click a project to open it'}</span>
+          <span>{chosen ? <>Selected: <b title={chosen.title}>{chosen.title}</b></> : 'Double-click a video to open it'}</span>
           {canClose ? <button onClick={close}>Cancel</button> : null}
-          <button className="primary" disabled={!chosen || disabled} onClick={() => chosen && open(chosen.id)}>{chosen?.id === currentProjectId ? 'Back to project' : 'Open'}</button>
+          <button className="primary" disabled={!chosen || disabled} onClick={() => chosen && open(chosen.id)}>{chosen?.id === currentProjectId ? 'Back to the video' : 'Open'}</button>
         </footer>
       </section>
     </div>

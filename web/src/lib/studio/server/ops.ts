@@ -29,13 +29,13 @@ export async function runOps(ctx: StudioContext, videoId: string, calls: unknown
   const list = checkCalls(calls)
   const opened = await openVideo(ctx, videoId)
   if (typeof expectedDigest === 'string' && expectedDigest !== opened.projectDigest)
-    throw conflictError('The project changed since you last read it — read it again and retry', 'DIGEST_CONFLICT')
+    throw conflictError('The video changed since you last read it. Read it again and try again.', 'DIGEST_CONFLICT')
   let start = opened.project
   const brought = await namedLibraryAssets(ctx, start, JSON.stringify(list))
   if (brought.length) start = { ...start, assets: [...start.assets, ...brought] }
   const { project: next, results } = applyOps(start, list)
   const names = [...new Set(list.map((call) => call.op))].join(', ')
-  if (!sameJson(next, opened.project)) await saveVersion(ctx, videoId, 'project', `Before the assistant: ${names}`, opened.project).catch(() => null)
+  if (!sameJson(next, opened.project)) await saveVersion(ctx, videoId, 'project', `Before the agent: ${names}`, opened.project).catch(() => null)
   const saved = await saveVideo(ctx, next, opened.projectDigest)
   // The storyboard as it was before this pass, so the person can go back to it.
   if (!sameJson(opened.project.storyboard ?? null, next.storyboard ?? null))

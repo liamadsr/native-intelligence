@@ -49,8 +49,8 @@ export function StoryboardLane({ project, duration, disabled, selected, select, 
     try { const next = reorderBeats(board(project), order); change(p => setBoard(p, next)); } catch (error) { notify?.(error instanceof Error ? error.message : String(error), true); } };
   const fromScript = async () => { if (!change) return; setBusy(true); try { await startFromScript(project, change, frame, duration); } finally { setBusy(false); } };
   const addBeat = () => { if (change) addBeatAt(change, frame, duration, fps); };
-  return <div data-head="storyboard" className="storyboard-lane" role="group" aria-label="Storyboard track: the film's beats">
-    {!beats.length ? <span className="storyboard-empty">{change ? <><button disabled={disabled || busy} onClick={() => void fromScript()}>Start from the script</button><button disabled={disabled} onClick={addBeat}><Icon name="plus" size={14}/>Beat at playhead</button><small>Beats are the film's plan: words, which camera, what's on screen. Record into them.</small></> : 'No storyboard'}</span> : null}
+  return <div data-head="storyboard" className="storyboard-lane" role="group" aria-label="Storyboard track: the video's beats">
+    {!beats.length ? <span className="storyboard-empty">{change ? <><button disabled={disabled || busy} onClick={() => void fromScript()}>Start from the script</button><button disabled={disabled} onClick={addBeat}><Icon name="plus" size={14}/>Beat at playhead</button><small>Beats are the video's plan: words, which camera, what's on screen. Record into them.</small></> : 'No storyboard'}</span> : null}
     {beats.map((beat, index) => { const on = selected.includes(beat.id), placeholder = isPlaceholder(beat), budget = wordBudget(beat, fps);
       return <button key={beat.id} className={`beat-block status-${beat.status} ${placeholder ? 'placeholder' : ''} ${on ? 'selected' : ''}`} disabled={disabled}
         style={{ left: `${beat.startFrame / duration * 100}%`, width: `${beat.durationFrames / duration * 100}%`, ['--beat-tone' as string]: sourceTone(beat.source) }}
@@ -97,7 +97,7 @@ export function StoryboardHead({ project, selected, record, change, recording, b
       <button className="th-btn rec" disabled={!record || recording || !recordable} title={label} aria-label={label} onClick={() => missing ? setOpen(true) : record?.(chosen.map(b => b.id))}><Icon name="record" size={14}/></button>
       <button ref={anchor} className={`th-btn ${open ? 'on' : ''}`} title="Inputs: which camera, window and microphone feed the tracks" aria-label="Recording inputs" aria-expanded={open} disabled={!change} onClick={() => setOpen(v => !v)}><Icon name="settings" size={14}/></button>
       <button ref={castAnchor} className={`th-btn ${cast ? 'on' : ''}`} title="Cast: people, props and places for generated shots" aria-label="Cast" aria-expanded={cast} disabled={!change} onClick={() => setCast(v => !v)}><Icon name="people" size={14}/></button>
-      <button ref={historyAnchor} className={`th-btn ${history ? 'on' : ''}`} title="Earlier versions of the storyboard (one before each assistant pass)" aria-label="Storyboard versions" aria-expanded={history} disabled={!beforeServerEdit} onClick={() => setHistory(v => !v)}><Icon name="history" size={14}/></button></div>
+      <button ref={historyAnchor} className={`th-btn ${history ? 'on' : ''}`} title="Earlier versions of the storyboard (one before each change the agent makes)" aria-label="Storyboard versions" aria-expanded={history} disabled={!beforeServerEdit} onClick={() => setHistory(v => !v)}><Icon name="history" size={14}/></button></div>
     <span className="th-sub">{beats.length ? `${beats.filter(isPlaceholder).length} to record · ${chosen.length ? `${chosen.length} selected` : 'shift-click for several'}${spent ? ` · ${spent} credits spent` : ''}` : 'No beats yet'}</span>
     {open && change ? createPortal(<InputsPanel project={project} change={change} close={() => setOpen(false)} anchor={anchor.current} />, studioPortal()) : null}
     {cast && change ? createPortal(<CastPanel project={project} change={change} close={() => setCast(false)} anchor={castAnchor.current} />, studioPortal()) : null}
@@ -139,7 +139,7 @@ export function InputsPanel({ project, change, close, anchor, below }: { project
     if (patch.cameras !== undefined) rememberCameras(patch.cameras.A?.deviceId ?? null, (['B', 'C', 'D'] as const).flatMap(k => patch.cameras![k] ? [patch.cameras![k]!.deviceId] : [])); };
   const cams = (lists?.cameras ?? []).filter(c => !/Desk View/i.test(c.name)), apps = lists?.apps ? [...new Map(lists.apps.filter(a => a.windows.length).map(a => [a.bundleId, a])).values()] : null;
   return <div className="inputs-panel" role="dialog" aria-label="Recording inputs" style={panelAt(anchor, below)}>
-    <header><strong>Inputs</strong><small>Which device feeds each track. Kept with this project.</small><button onClick={() => load(!apps)} aria-label={apps ? 'Look for cameras and windows again' : 'Look for cameras and microphones again'} title={apps ? 'Look for cameras and windows again' : 'Look for cameras and microphones again (the browser may ask to use them, so their names show)'}><Icon name="refresh"/></button><button onClick={close} aria-label="Close" title="Close"><Icon name="close"/></button></header>
+    <header><strong>Inputs</strong><small>Which device feeds each track. Kept with this video.</small><button onClick={() => load(!apps)} aria-label={apps ? 'Look for cameras and windows again' : 'Look for cameras and microphones again'} title={apps ? 'Look for cameras and windows again' : 'Look for cameras and microphones again (the browser may ask to use them, so their names show)'}><Icon name="refresh"/></button><button onClick={close} aria-label="Close" title="Close"><Icon name="close"/></button></header>
     {error ? <p className="inputs-error">{error}</p> : null}
     {cameraSlots.map(slot => { const value = inputs.cameras?.[slot]?.deviceId ?? '';
       return <label key={slot} className="field-label">Camera {slot}{slot === 'A' ? ' · main' : ''}<select value={value} onChange={e => { const device = cams.find(c => c.id === e.target.value);
@@ -195,7 +195,7 @@ function GenerationSection({ project, beat, patch, beforeServerEdit, afterServer
       <button disabled={!!pending?.busy} onClick={() => void call('still', false)}>{g.stillAssetId ? 'New draft still' : 'Draft still'}</button>
       {stage === 'still' ? <button className="primary" onClick={() => set({ stage: 'still-approved' })}>Approve still</button> : null}
       <button disabled={!!pending?.busy || !canClip} title={canClip ? 'Cheapest video model that starts from your still, lowest quality' : 'Approve a still first'} onClick={() => void call('clip', false)}>Draft clip</button>
-      <button disabled={!!pending?.busy || !canFinal} title={canFinal ? `The good model (${g.model ?? 'seedance_2_5'}) at full quality, once` : 'Get a draft clip right first'} onClick={() => void call('clip', true)}>Final clip</button></div>
+      <button disabled={!!pending?.busy || !canFinal} title={canFinal ? `The best model (${g.model ?? 'seedance_2_5'}) at full quality, once` : 'Get a draft clip right first'} onClick={() => void call('clip', true)}>Final clip</button></div>
     {pending ? <div className={`beat-quote ${pending.error ? 'error' : ''}`}>{pending.error ? <span>{pending.error}</span>
       : pending.busy ? <span>{pending.credits !== undefined ? `Generating ${label(pending).toLowerCase()} with ${pending.model}…${pending.progress ? ` ${Math.round(pending.progress * 100)}%` : ''}` : 'Getting prices…'}{pending.note ? <small> {pending.note}</small> : null}</span>
       : <><span><b>{label(pending)}</b> · {pending.model} · <b>{pending.credits} credits</b>{pending.tried?.length ? <small> cheapest of {pending.tried.filter(t => t.credits).length} quoted ({pending.tried.filter(t => t.credits).map(t => `${t.model} ${t.credits}`).join(', ')})</small> : null}</span>
@@ -230,7 +230,7 @@ export function CastAddForm({ project, change }: { project: EditorProject; chang
       <select value={draft.kind} aria-label="Kind" onChange={e => setDraft({ ...draft, kind: e.target.value as typeof draft.kind })}><option value="person">Person</option><option value="prop">Prop</option><option value="location">Location</option></select></div>
     {images.length ? <div className="cast-pick">{images.slice(-24).map(a => { const on = draft.assetIds.includes(a.id);
       return <button key={a.id} className={on ? 'on' : ''} aria-pressed={on} title={a.name} onClick={() => setDraft({ ...draft, assetIds: on ? draft.assetIds.filter(x => x !== a.id) : [...draft.assetIds, a.id] })}><img src={assetHref(a.file)} alt={a.name} /></button>; })}</div>
-      : <small>Add photos to this project first (Add media), then pick them here.</small>}
+      : <small>Add photos to this video first (Add media), then pick them here.</small>}
     {draft.kind === 'person' ? <label className="check-row"><input type="checkbox" checked={draft.consent} onChange={e => setDraft({ ...draft, consent: e.target.checked })} /> These are photos of me, or of someone who agreed to be generated</label> : null}
     <button className="primary" disabled={!draft.name.trim() || !draft.assetIds.length || (draft.kind === 'person' && !draft.consent)} onClick={save}>Add to cast</button>
   </>;
@@ -256,7 +256,7 @@ export function BeatInspector({ project, beatId, change, close, record, recordin
       <button onClick={() => seek(beat.startFrame)} aria-label="Play from this beat" title="Play from this beat"><Icon name="play"/></button><button onClick={remove} disabled={beat.locked} title={beat.locked ? 'Unlock it first' : 'Remove this beat (its footage and layers stay)'}>Delete</button><button onClick={close} aria-label="Close beat settings" title="Close"><Icon name="close"/></button></div>
     <section><h3>Words</h3>
       <textarea value={beat.words} rows={4} aria-label="What you say in this beat" placeholder="(no words: picture only)" onChange={e => patch({ words: e.target.value })} />
-      <small className={budget.over ? 'beat-over' : 'hint'}>{budget.words} words · {(beat.durationFrames / fps).toFixed(1)} s holds about {budget.budget}{budget.over ? ` — ${budget.over} too many, or make the beat longer` : ''}</small></section>
+      <small className={budget.over ? 'beat-over' : 'hint'}>{budget.words} words · {(beat.durationFrames / fps).toFixed(1)} s holds about {budget.budget}{budget.over ? `: ${budget.over} too many, or make the beat longer` : ''}</small></section>
     <section><h3>Beat</h3>
       <div className="layer-row"><label className="field-label">Label<input value={beat.label ?? ''} maxLength={80} onChange={e => patch({ label: e.target.value || undefined })} /></label>
         <label className="field-label">Length<input type="number" min={0.2} step={0.1} value={+(beat.durationFrames / fps).toFixed(2)} disabled={beat.status !== 'planned'} title={beat.status !== 'planned' ? 'Recorded beats take their length from the take' : undefined} onChange={e => lengthen(Number(e.target.value) || 0.2)} /></label></div>
@@ -264,7 +264,7 @@ export function BeatInspector({ project, beatId, change, close, record, recordin
         {cameraSlots.map(slot => <option key={slot} value={`camera:${slot}`}>Camera {slot}{board(project).inputs?.cameras?.[slot] ? ` · ${board(project).inputs!.cameras![slot]!.name}` : ''}</option>)}
         {pictureSources.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}</select></label>
       <label className="field-label">Shot<textarea rows={2} value={beat.shot ?? ''} placeholder="What's on screen (cards fly in, product UI docks right…)" onChange={e => patch({ shot: e.target.value || undefined })} /></label>
-      <label className="check-row"><input type="checkbox" checked={!!beat.locked} onChange={e => patch({ locked: e.target.checked || undefined })} /> Locked: the assistant won't change it</label>
+      <label className="check-row"><input type="checkbox" checked={!!beat.locked} onChange={e => patch({ locked: e.target.checked || undefined })} /> Locked: the agent won't change it</label>
       </section>
     {beat.takes?.length ? <section><h3>Takes</h3><ol className="beat-takes">{beat.takes.map((take, i) => { const active = (beat.activeTake ?? beat.takes!.at(-1)!.sessionId) === take.sessionId;
       return <li key={take.sessionId} className={active ? 'active' : ''}><span>Take {i + 1} · {new Date(take.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
@@ -282,9 +282,9 @@ export function VersionsPanel({ project, anchor, close, beforeServerEdit, afterS
   useEffect(() => { void request<{ versions: { id: string; at: string; by: string; beats: number }[] }>(`/api/account/studio/projects/${encodeURIComponent(project.id)}/storyboard/versions`).then(r => setVersions(r.versions)).catch(e => setError(String(e instanceof Error ? e.message : e))); }, [project.id]);
   const restore = async (id: string) => { if (!await beforeServerEdit()) return; try { await request(`/api/account/studio/projects/${encodeURIComponent(project.id)}/storyboard/versions/${id}/restore`, {}); afterServerEdit?.(); close(); } catch (e) { setError(String(e instanceof Error ? e.message : e)); } };
   return <div className="inputs-panel" role="dialog" aria-label="Storyboard versions" style={panelAt(anchor, below)}>
-    <header><strong>Versions</strong><small>The storyboard before each assistant pass. Restoring keeps your recorded beats.</small><button onClick={close} aria-label="Close" title="Close"><Icon name="close"/></button></header>
+    <header><strong>Versions</strong><small>The storyboard before each change the agent made. Restoring keeps your recorded beats.</small><button onClick={close} aria-label="Close" title="Close"><Icon name="close"/></button></header>
     {error ? <p className="inputs-error">{error}</p> : null}
-    {!versions ? <small>Loading…</small> : !versions.length ? <small>No earlier versions yet. One is kept each time the assistant changes the storyboard.</small>
+    {!versions ? <small>Loading…</small> : !versions.length ? <small>No earlier versions yet. One is kept each time the agent changes the storyboard.</small>
       : <ol className="beat-takes">{versions.map(v => <li key={v.id}><span>{new Date(v.at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · {v.beats} beats<br /><small>{v.by}</small></span><button onClick={() => void restore(v.id)}>Restore</button></li>)}</ol>}
   </div>;
 }
@@ -298,6 +298,6 @@ export function FormatButtons({ projectId, beforeServerEdit, open, say }: { proj
       say(notes.length ? `Made the version. Before posting: ${notes.join(' · ')}` : 'Made the version; it opens now', notes.length > 0); open(out.projectId); }
     catch (error) { say(error instanceof Error ? error.message : String(error), true); } finally { setBusy(null); } };
   if (!presets.length) return null;
-  return <div className="format-buttons"><span className="field-label">Other formats (each becomes its own project, reframed)</span>
+  return <div className="format-buttons"><span className="field-label">Other formats (each becomes its own video, reframed)</span>
     <div>{presets.map(p => <button key={p.id} disabled={!!busy} onClick={() => void make(p.id)}>{busy === p.id ? 'Making…' : p.label}</button>)}</div></div>;
 }

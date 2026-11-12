@@ -26,19 +26,19 @@ export function CampaignPage({ project, openAd, editCast, notify, refreshKey }: 
   useEffect(() => { const again = () => void load(); window.addEventListener('focus', again); return () => window.removeEventListener('focus', again); }, [load]);
   const act = async (fn: () => Promise<void>) => { if (busy) return; setBusy(true); try { await fn(); await load(); } catch (e) { notify((e as Error).message, true); } finally { setBusy(false); } };
   const update = (patch: Record<string, unknown>) => campaign && act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}`, patch); });
-  if (!campaign) return <div className="film-page project-page"><div className="film-main"><p className="project-loading">Loading the project…</p></div></div>;
+  if (!campaign) return <div className="film-page project-page"><div className="film-main"><p className="project-loading">Loading the Studio project…</p></div></div>;
 
   const roots = campaign.ads.filter(a => !a.variantOf), outputs = (ad: Ad) => campaign.ads.filter(a => a.variantOf === ad.id);
   const cast = project.storyboard?.cast ?? [], photo = (assetId?: string) => project.assets.find(a => a.id === assetId);
   const newAd = (event: React.MouseEvent) => openMenu(event, [
-    ...adShapes.map(shape => ({ label: `Blank ${shape.label}`, run: () => void act(async () => { const { project: made } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}/new-ad`, { width: shape.width, height: shape.height, title: `${campaign.title} · new ad` }); openAd(made.id); }) })),
+    ...adShapes.map(shape => ({ label: `Blank ${shape.label}`, run: () => void act(async () => { const { project: made } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}/new-ad`, { width: shape.width, height: shape.height, title: `${campaign.title} · new video` }); openAd(made.id); }) })),
     { separator: true },
     { label: `Copy of ${project.title}`, run: () => void act(async () => { const { project: made } = await request<{ project: { id: string } }>(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}/new-ad`, { from: project.id }); openAd(made.id); }) },
   ]);
   const adMenu = (event: { clientX: number; clientY: number; currentTarget?: EventTarget | null; preventDefault?: () => void }, ad: Ad) => {
     const items: MenuItem[] = [
       { label: ad.id === project.id ? 'Edit' : 'Open', run: () => openAd(ad.id), hint: '↵' },
-      { label: 'Duplicate as a new ad', run: () => void act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}/new-ad`, { from: ad.id }); }) },
+      { label: 'Duplicate as a new video', run: () => void act(async () => { await request(`/api/account/studio/campaigns/${encodeURIComponent(campaign.id)}/new-ad`, { from: ad.id }); }) },
       { separator: true },
       ...(campaign.single ? [] : (['draft', 'review', 'approved'] as AdStatus[]).map(status => ({ label: `Mark as ${statusLabel[status].toLowerCase()}`, disabled: ad.status === status,
         run: () => void act(async () => { await request(`/api/account/studio/projects/${encodeURIComponent(ad.id)}/status`, { status }); }) }))),
@@ -47,7 +47,7 @@ export function CampaignPage({ project, openAd, editCast, notify, refreshKey }: 
         run: () => void act(async () => { const r = await request<{ warnings: string[] }>(`/api/account/studio/projects/${encodeURIComponent(ad.variantOf ?? ad.id)}/formats`, { preset: p.id }); notify(r.warnings.length ? `${p.label} made: ${r.warnings[0]}` : `${p.label} version made`); }) })),
       { separator: true },
       ...(!campaign.single && ad.id !== project.id ? [{ label: 'Take out of this project', run: () => void act(async () => { await request(`/api/account/studio/projects/${encodeURIComponent(ad.id)}/unfile`, {}); }) }] : []),
-      ...(ad.id !== project.id ? [{ label: 'Delete…', danger: true, run: () => void act(async () => { await remove(`/api/account/studio/projects/${encodeURIComponent(ad.id)}`); }), confirm: { text: `Delete “${ad.title}”? It moves to the trash folder.`, action: 'Delete' } }] : []),
+      ...(ad.id !== project.id ? [{ label: 'Delete…', danger: true, run: () => void act(async () => { await remove(`/api/account/studio/projects/${encodeURIComponent(ad.id)}`); }), confirm: { text: `Delete “${ad.title}”? It moves to the trash.`, action: 'Delete' } }] : []),
     ];
     openMenu(event, items);
   };
@@ -67,16 +67,16 @@ export function CampaignPage({ project, openAd, editCast, notify, refreshKey }: 
 
   return <div className="film-page project-page"><div className="film-main project-main">
     <header className="project-head">
-      <span className="project-kicker">{campaign.single ? 'Video' : 'Project'}</span>
-      {title !== null ? <input className="project-title-input" autoFocus value={title} maxLength={160} aria-label="Project name" onChange={e => setTitle(e.target.value)}
+      <span className="project-kicker">{campaign.single ? 'Video' : 'Studio project'}</span>
+      {title !== null ? <input className="project-title-input" autoFocus value={title} maxLength={160} aria-label={campaign.single ? 'Video name' : 'Studio project name'} onChange={e => setTitle(e.target.value)}
           onBlur={() => { const t = title.trim(); setTitle(null); if (t && t !== campaign.title) void update({ title: t }); }} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setTitle(null); }} />
         : <h1 title="Click to rename" onClick={() => setTitle(campaign.title)}>{campaign.title}</h1>}
       <p>{roots.length} ad{roots.length === 1 ? '' : 's'}{campaign.ads.length > roots.length ? ` · ${campaign.ads.length - roots.length} more format${campaign.ads.length - roots.length === 1 ? '' : 's'}` : ''}
-        {campaign.single ? ' · add another ad to make this a project of several' : ''}</p>
+        {campaign.single ? ' · add another video to make this a Studio project' : ''}</p>
     </header>
 
     <section className="project-section">
-      <div className="project-section-head"><h2>Ads</h2><button className="project-new" disabled={busy} onClick={newAd}><Icon name="plus" size={14} />New ad</button></div>
+      <div className="project-section-head"><h2>Videos</h2><button className="project-new" disabled={busy} onClick={newAd}><Icon name="plus" size={14} />New video</button></div>
       <div className="project-ads">{roots.map(card)}</div>
     </section>
 
@@ -86,7 +86,7 @@ export function CampaignPage({ project, openAd, editCast, notify, refreshKey }: 
       <section className="project-panel">
         <div className="project-section-head"><h2>Cast</h2><button className="project-link" onClick={editCast}>Edit cast</button></div>
         {cast.length ? <div className="project-cast">{cast.map(c => { const a = photo(c.assetIds[0]); return <figure key={c.id}>{a ? <img src={assetHref(a.file)} alt="" /> : <span />}<figcaption>{c.name}<small>{c.kind === 'person' ? 'Person' : c.kind === 'prop' ? 'Prop' : 'Location'}</small></figcaption></figure>; })}</div>
-          : <p className="project-empty">No cast yet. People, props and places added in Cast are shared by every ad in this project.</p>}
+          : <p className="project-empty">No cast yet. People, props and places added in Cast are shared by every video in this Studio project.</p>}
       </section>
       <BrandKitPanel campaign={campaign} notify={notify} onChanged={() => void load()} />
       <section className="project-panel notes">

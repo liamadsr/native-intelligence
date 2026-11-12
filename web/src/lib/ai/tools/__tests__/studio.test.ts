@@ -76,7 +76,7 @@ describe('the Studio tools', () => {
     expect(edited.digest).not.toBe(digest)
     expect(studioVideoCardOf('edit_studio_video', edited)).toMatchObject({ verb: 'edited', edits: 1 })
     const versions = await call(ava(), 'list_studio_versions', { video_id: video.id })
-    expect(versions).toMatchObject({ success: true, versions: [{ label: 'Before the assistant: add_text' }] })
+    expect(versions).toMatchObject({ success: true, versions: [{ label: 'Before the agent: add_text' }] })
     // The digest it read is no longer current.
     const stale = await call(ava(), 'edit_studio_video', { video_id: video.id, expected_digest: digest, edits: [{ op: 'list_layers' }] })
     expect(stale).toMatchObject({ success: false, code: 'DIGEST_CONFLICT' })

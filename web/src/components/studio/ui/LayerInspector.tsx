@@ -55,7 +55,7 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
         <label className="field-label">Features<input placeholder="ss01, tnum…" value={(s.features ?? []).join(', ')} onChange={e => { const f = e.target.value.split(',').map(x => x.trim()).filter(x => /^[a-z0-9]{4}( [01])?$/.test(x)); style({ features: f.length ? f : undefined }); }} /></label></div>
       <div className="layer-row"><label className="layer-toggle"><input type="checkbox" checked={!!s.stack} onChange={e => style({ stack: e.target.checked || undefined })} /> One word per line</label>
         <label className="layer-toggle"><input type="checkbox" checked={!!s.fit} onChange={e => style({ fit: e.target.checked || undefined })} /> Fit width</label>
-        <label className="layer-toggle" title="A slim blinking cursor after the text (in the accent colour). Wrap words in *stars* to colour them."><input type="checkbox" checked={s.caret === 'line'} onChange={e => style({ caret: e.target.checked ? 'line' : undefined })} /> Cursor</label></div>
+        <label className="layer-toggle" title="A slim blinking cursor after the text (in the accent color). Wrap words in *stars* to color them."><input type="checkbox" checked={s.caret === 'line'} onChange={e => style({ caret: e.target.checked ? 'line' : undefined })} /> Cursor</label></div>
       <div className="layer-row"><label className="field-label">Then swap to<input placeholder="word, word…" value={(s.swapWords ?? []).join(', ')} onChange={e => { const words = e.target.value.split(',').map(w => w.trim()).filter(Boolean).slice(0, 12); style({ swapWords: words.length ? words : undefined }); }} /></label>
         <label className="field-label">Count up from<input type="number" value={s.countFrom ?? ''} onChange={e => style({ countFrom: e.target.value === '' ? undefined : Number(e.target.value) })} /></label></div>
       <Slider label="Drift" value={Math.round((s.drift ?? 0) * 100)} min={-20} max={20} unit="%/s" resetValue={0} onChange={n => style({ drift: n ? n / 100 : undefined })} />
@@ -91,7 +91,7 @@ export function LayerInspector({ project, layerId, change, close }: { project: E
         {s.variant === 'line' ? <Slider label="Line" value={s.strokeWidth ?? 3} min={1} max={14} step={0.5} onChange={n => style({ strokeWidth: n })} /> : null}
         <label className="layer-toggle"><input type="checkbox" checked={!!s.spike} onChange={e => style({ spike: e.target.checked || undefined })} /> Travelling peak</label></> : null}
       {layer.kind === 'ring' ? <Slider label="Line" value={s.strokeWidth ?? 4} min={1} max={16} onChange={n => style({ strokeWidth: n })} /> : null}
-      <div className="layer-colors">{color(layer.kind === 'icons' ? 'Icons' : 'Colour', s.color, v => style({ color: v }))}{layer.kind === 'icons' ? color('Accent', s.accent, v => style({ accent: v }), true) : null}{layer.kind === 'waveform' ? color('Gradient to', s.color2, v => style({ color2: v }), true) : null}</div>
+      <div className="layer-colors">{color(layer.kind === 'icons' ? 'Icons' : 'Color', s.color, v => style({ color: v }))}{layer.kind === 'icons' ? color('Accent', s.accent, v => style({ accent: v }), true) : null}{layer.kind === 'waveform' ? color('Gradient to', s.color2, v => style({ color2: v }), true) : null}</div>
     </section> : layer.kind === 'background' ? <section><h3>Fill</h3>
       <div className="layer-row"><label className="field-label">Kind<select value={s.fill ?? 'mesh'} onChange={e => style({ fill: e.target.value as LayerStyle['fill'] })}>
         {(['mesh', 'glow', 'gradient', 'solid', 'image'] as const).map(fill => <option key={fill} value={fill} disabled={fill === 'image' && !project.assets.some(a => a.kind === 'image')}>{fill[0]!.toUpperCase() + fill.slice(1)}</option>)}</select></label>
@@ -145,13 +145,13 @@ function SubjectCutout({ projectId }: { projectId: string }) {
       const { job } = await request<{ job: { id: string } }>(`/api/account/studio/projects/${encodeURIComponent(projectId)}/cutouts`, { mode });
       for (;;) { await new Promise(done => setTimeout(done, 1000)); if (!alive.current) return;
         const { job: now } = await request<{ job: { status: string; progress: number; logs: string[]; error?: string } }>(`/api/account/studio/jobs/${job.id}`);
-        if (now.status === 'completed') { setState({ progress: 1, note: 'Done — the editor reloads the project with the cut-out' }); return; }
+        if (now.status === 'completed') { setState({ progress: 1, note: 'Done. The editor reloads the video with the cut-out' }); return; }
         if (now.status !== 'running') throw new Error(now.error ?? now.status);
         setState({ progress: now.progress, note: now.logs.at(-1) ?? '' }); }
     } catch (error) { if (alive.current) setState({ progress: 0, note: '', error: error instanceof Error ? error.message : String(error) }); }
   };
   return <div className="subject-cutout">
-    <p className="hint">Needs the subject isolated from the footage (macOS Vision, on the Studio worker’s Mac). Takes about as long as the camera recording.</p>
+    <p className="hint">Cuts the subject out of the camera footage on the Studio’s render worker. Takes about as long as the camera recording.</p>
     {state && !state.error ? <div className="cutout-progress"><span style={{ width: `${Math.round(state.progress * 100)}%` }} /><small>{Math.round(state.progress * 100)}% · {state.note}</small></div>
       : <div className="layer-row"><button onClick={() => void start('person')}>Isolate the person</button><button onClick={() => void start('subject')} title="Any main object, not just people">Isolate any subject</button></div>}
     {state?.error ? <p className="hint error">{state.error}</p> : null}

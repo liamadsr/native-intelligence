@@ -18,9 +18,9 @@ export function AppRail({ page, hasProject, chooserOpen, settingsOpen, locked, o
   openProjects: () => void; openPage: (page: FilmPage) => void; openSettings?: () => void;
 }) {
   const onFilm = hasProject && !settingsOpen && !chooserOpen;
-  return <nav className="app-rail" aria-label="App">
+  return <nav className="app-rail" aria-label="Studio">
     <div className="rail-group">
-      <RailButton icon="home" label="Projects" hint="⌘O" active={chooserOpen} disabled={locked} onClick={openProjects} />
+      <RailButton icon="home" label="Projects and videos" hint="⌘O" active={chooserOpen} disabled={locked} onClick={openProjects} />
       <span className="rail-sep" aria-hidden="true" />
       <RailButton icon="stack" label="Project overview" active={onFilm && page === 'project'} disabled={!hasProject || locked} onClick={() => openPage('project')} />
       <span className="rail-sep" aria-hidden="true" />

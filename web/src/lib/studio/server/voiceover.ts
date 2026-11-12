@@ -240,7 +240,7 @@ export function startNarration(ctx: StudioContext, text: unknown, options: { all
     const work = (async () => {
       const cached = await cachedNarration(ctx, hash)
       if (cached) return { result: cached }
-      if (!options.allowPaid) throw new StudioError('This narration is not cached. Generating it uses ElevenLabs credits, so it needs your explicit Generate.', 402, 'NEEDS_APPROVAL')
+      if (!options.allowPaid) throw new StudioError('This narration is not ready yet. Generating it uses the voice provider’s credits, so press Generate to make it.', 402, 'NEEDS_APPROVAL')
       const running = await runningNarration(ctx, hash)
       if (running) return { job: running }
       // Paid for but not delivered, and its sentence not read yet: that answer, never a second request unseen.
@@ -360,7 +360,7 @@ export async function fileNarration(ctx: StudioContext, row: Pick<JobRow, 'id' |
     const characters = Number(raw.characters) > 0 ? Number(raw.characters) : input.request.text.length
     return {
       outcome: 'undelivered',
-      error: String(raw.error || 'ElevenLabs made this narration but it could not be kept. Check the costs and the ElevenLabs history before generating it again.').slice(0, 1000),
+      error: String(raw.error || 'The voice provider made this narration but it could not be kept. Check the video’s costs and the voice provider’s history before generating it again.').slice(0, 1000),
       characters,
       charactersFrom: raw.charactersFrom === 'provider' ? 'provider' : 'request',
       ...(raw.providerRequestId ? { providerRequestId: String(raw.providerRequestId).slice(0, 120) } : {}),

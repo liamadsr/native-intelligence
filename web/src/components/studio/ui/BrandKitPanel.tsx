@@ -29,7 +29,7 @@ async function base64(file: File): Promise<string> {
 
 /** The brand summary the page has always shown (colours, logo, fonts). */
 function Summary({ campaign }: { campaign: CampaignSummary }) {
-  if (!campaign.brand?.colors?.length && !campaign.brand?.fonts?.length) return <p className="project-empty">No brand yet. Edit to add the brand kit ads are made from: its colours, fonts and logo.</p>
+  if (!campaign.brand?.colors?.length && !campaign.brand?.fonts?.length) return <p className="project-empty">No brand yet. Edit to add the brand kit that ads are made from: its colors, fonts and logo.</p>
   return (
     <>
       {campaign.brand.colors?.length ? <div className="project-swatches">{campaign.brand.colors.map((c) => <span key={c.name} title={`${c.name} ${c.hex}`} style={{ background: c.hex }} />)}</div> : null}
@@ -86,7 +86,7 @@ export function BrandKitPanel({ campaign, onChanged, notify }: { campaign: Campa
     try {
       value = JSON.parse(rules || '{}')
     } catch {
-      setErrors({ rules: 'That is not JSON.' })
+      setErrors({ rules: 'That is not valid JSON.' })
       return
     }
     const obj = (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, unknown>
@@ -154,18 +154,18 @@ export function BrandKitPanel({ campaign, onChanged, notify }: { campaign: Campa
             <span className="brand-kit-label">Palette</span>
             {tokens.map((t) => (
               <div key={t} className="brand-kit-colour">
-                <input type="color" aria-label={`${t} colour`} value={k.palette[t]} onChange={(e) => edit({ palette: { ...k.palette, [t]: e.target.value.toUpperCase() } })} />
+                <input type="color" aria-label={`${t} color`} value={k.palette[t]} onChange={(e) => edit({ palette: { ...k.palette, [t]: e.target.value.toUpperCase() } })} />
                 <code>{t}</code><span>{k.palette[t]}</span>
                 <button aria-label={`Remove ${t}`} title={`Remove ${t}`} onClick={() => { const { [t]: _gone, ...rest } = k.palette; edit({ palette: rest }) }}><Icon name="close" size={14}/></button>
               </div>
             ))}
-            <button className="project-link" onClick={() => { const t = window.prompt('Colour token (a name like warmGround)')?.trim(); if (t && /^[A-Za-z][A-Za-z0-9_-]{0,40}$/.test(t)) edit({ palette: { ...k.palette, [t]: '#888888' } }) }}>Add colour</button>
+            <button className="project-link" onClick={() => { const t = window.prompt('Color name (a name like warmGround)')?.trim(); if (t && /^[A-Za-z][A-Za-z0-9_-]{0,40}$/.test(t)) edit({ palette: { ...k.palette, [t]: '#888888' } }) }}>Add color</button>
           </div>
           <div className="brand-kit-fonts">{fontRole('serif')}{fontRole('sans')}</div>
           <div className="brand-kit-logos">
             {logoSlot('primary')}{logoSlot('mark')}
             <div className="brand-kit-logo-on">
-              <span className="brand-kit-label">Logo colour on each ground</span>
+              <span className="brand-kit-label">Logo color on each ground</span>
               {tokens.map((g) => (
                 <label key={g}><code>{g}</code>
                   <select value={k.logoOn[g] ?? ''} onChange={(e) => { const { [g]: _old, ...rest } = k.logoOn; edit({ logoOn: e.target.value ? { ...rest, [g]: e.target.value } : rest }) }}>

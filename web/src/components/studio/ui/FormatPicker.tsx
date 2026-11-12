@@ -37,7 +37,7 @@ export function FormatPicker({ project, change, disabled }: { project: EditorPro
   return <div className="format-picker" ref={box}>
     <button className="format-button" disabled={disabled} aria-haspopup="menu" aria-expanded={open} title="Format: the shape the preview and export use" onClick={() => setOpen(!open)}>
       <Shape w={w} h={h} /><span>{current ? current.label.replace(/ \(.*\)$/, '') : 'Original'}</span><span className="format-meta">{ratio(w, h)}</span>{measuring ? <span className="format-busy">Finding faces…</span> : null}<Icon name="chevron" size={14}/></button>
-    {error ? <span className="format-error" title={error}>Faces not found: crops stay centred</span> : null}
+    {error ? <span className="format-error" title={error}>No faces found: crops stay centered</span> : null}
     {open ? <div className="format-menu" role="menu" aria-label="Format">
       {item('original', `Original`, project.output.width, project.output.height)}
       {groups.map(g => <React.Fragment key={g.label}><div className="format-group">{g.label}</div>

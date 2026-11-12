@@ -16,9 +16,9 @@ export type RecorderEnvironment = {
 export type RecorderChoice = { kind: RecorderKind } | { kind: 'unavailable'; reason: string }
 
 export const NEWER_APP_NEEDED =
-  'Screen recording needs the newer Native Intelligence app. Update the app (Native Intelligence › Check for Updates), then open the Studio again.'
+  'Screen recording needs a newer version of the desktop app. Update it (Native Intelligence › Check for Updates), then open the Studio again.'
 export const BROWSER_CANNOT_RECORD =
-  'This browser cannot record the screen. Use a current Chrome, Edge, Firefox or Safari on a computer, or the Native Intelligence app for Mac.'
+  'This browser cannot record the screen. Use a current Chrome, Edge, Firefox or Safari on a computer, or the desktop app.'
 
 /**
  * The desktop recorder when the app has it; otherwise the browser's screen share when the page can use it. Inside an

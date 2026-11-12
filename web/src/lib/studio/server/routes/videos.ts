@@ -32,7 +32,7 @@ export const videoRoutes: StudioRoute[] = [
     const b = await body()
     const value = b.project as { id?: unknown } | undefined
     if (!value || typeof value !== 'object') throw new StudioError('Send the edit as project.')
-    if (value.id !== params.id) throw new StudioError('Project id differs from route')
+    if (value.id !== params.id) throw new StudioError('The video’s id does not match the address')
     return saveVideo(ctx, value, b.expectedDigest as string | null | undefined)
   }),
   route('DELETE', 'projects/:id', async ({ ctx, params }) => ({ projects: await archiveVideo(ctx, params.id!) })),

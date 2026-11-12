@@ -216,7 +216,7 @@ export function ManualRecordPanel(props: Props) {
         {props.punch?.prompter?.length ? <small className="rec-hint">The beats' own lines, one at a time. Next line marks where each beat starts in the take.</small>
           : scripts.length ? <select aria-label="Teleprompter script" value={script?.id ?? ''} disabled={locked} onChange={event => setPrefs({ scriptId: event.target.value })}>
             <option value="">No teleprompter</option>{scripts.map(item => <option key={item.id} value={item.id}>{item.title} · {item.beats.length} lines</option>)}
-          </select> : <small className="rec-hint">Ask the assistant to write a script for this video; it shows up here.</small>}
+          </select> : <small className="rec-hint">Ask the agent to write a script for this video. It shows up here.</small>}
         {lines.length ? <small className="rec-hint">Shown in this window while you record, out of the picture. First line: "{lines[0]!.text.slice(0, 70)}{lines[0]!.text.length > 70 ? '…' : ''}"</small> : null}
       </Card> : null}
     </div>

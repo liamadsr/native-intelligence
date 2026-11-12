@@ -62,7 +62,7 @@ export function mediaErrorSentence(error: unknown, ask: MediaAsk): string | null
       return `This browser cannot use ${noun} here.`
     case 'NotSupportedError':
       return ask === 'recording'
-        ? 'This browser cannot record video. Use a current Chrome, Edge, Firefox or Safari, or the Native Intelligence app.'
+        ? 'This browser cannot record video. Use a current Chrome, Edge, Firefox or Safari, or the desktop app.'
         : `This browser cannot use ${noun}.`
     case 'InvalidStateError':
       return `${capitalize(noun)} could not start right now. Try again.`

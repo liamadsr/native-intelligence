@@ -87,7 +87,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
     try { steps = script.trim() ? JSON.parse(script) : undefined; if (steps && !Array.isArray(steps)) throw new Error(); } catch { setError('The script must be a JSON list of steps'); return; }
     const done = await runJob('Rendering from the code', `/api/account/studio/projects/${encodeURIComponent(projectId)}/components`, { kit, component: pick.id, props: parsed, ...(steps?.length ? { script: steps } : {}), seconds, theme, at,
       enter: { preset: 'zoom-blur', seconds: 0.5, ease: 'spring' }, exit: { preset: 'blur', seconds: 0.3 }, float: 0.004 });
-    if (done) { afterEdit?.(); notify?.(`${pick.name} added at ${at.toFixed(2)} s — it re-renders from the code whenever the product changes`); setOpen(false); } };
+    if (done) { afterEdit?.(); notify?.(`${pick.name} added at ${at.toFixed(2)} s. It renders again from the code whenever the product changes`); setOpen(false); } };
   const refresh = async () => { const done = await runJob('Re-rendering from the current code', `/api/account/studio/projects/${encodeURIComponent(projectId)}/components/refresh`, {});
     if (done) { afterEdit?.(); setStale(0); notify?.(String((done.result as { refreshed: number }).refreshed ? `Re-rendered ${(done.result as { refreshed: number }).refreshed} component layer(s) from the current code` : 'Every component layer is current')); } };
   const doAttach = async () => { if (!attach?.trim()) return; setBusy('Attaching…'); setError(null);
@@ -107,7 +107,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
     job = encodeURIComponent(JSON.stringify({ component: pick?.id, props: JSON.parse(props || '{}'), width: pick?.width, height: pick?.height, theme, pad: 24, preview: true, ...(steps ? { script: steps } : {}) })); } catch { /* invalid props: keep last */ }
 
   return <div className="tl-menu components-gallery">
-    <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real UI, live from its code — add components to the video"><Icon name="components" size={14}/>Components{stale ? ` · ${stale} to update` : ''}</button>
+    <button disabled={disabled} onClick={() => setOpen(true)} title="Your product's real interface, live from its code: add components to the video"><Icon name="components" size={14}/>Components{stale ? ` · ${stale} to update` : ''}</button>
     {open ? <div className="cg-overlay" role="dialog" aria-label="Components" onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false); }}>
       <div className="cg-panel">
         <header className="cg-head"><b>Components</b>
@@ -126,7 +126,7 @@ export function ComponentsGallery({ projectId, at, disabled, notify, beforeEdit,
           : <>{onboarded.components.renders} of {onboarded.components.total - onboarded.components.featured} components render on their own; {onboarded.components.needsApp} need the app around them, {onboarded.components.needsProps} need data.</>}
           {onboarded.brand.derived ? ` Style guide read${onboarded.brand.site ? ` from ${onboarded.brand.site}` : ' from the code'}.` : ''}
           {onboarded.questions.map(q => <p key={q} className="warn">{q}</p>)}
-          <p>Ask the assistant to “onboard {onboarded.title}”: it checks the style guide against the site and sets up the components that need the app around them.</p>
+          <p>Ask the agent to “onboard {onboarded.title}”: it checks the style guide against the site and sets up the components that need the app around them.</p>
           <button onClick={() => setOnboarded(null)}>OK</button></div> : null}
         {error ? <p className="rec-error" role="alert">{error}</p> : null}{busy ? <p className="cg-busy">{busy}</p> : null}
         {kit && view === 'components' ? <div className="cg-body">

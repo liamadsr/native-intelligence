@@ -66,7 +66,7 @@ describe('a Studio error as the agent reads it', () => {
     expect(studioRefusal(notFoundError('Project not found'))).toEqual({ success: false, code: 'NOT_FOUND', error: expect.stringContaining('No such video') })
     expect(studioRefusal(notFoundError('Project not found'), 'studio_project').error).toContain('No such Studio project')
     expect(studioRefusal(digestConflict())).toMatchObject({ code: 'DIGEST_CONFLICT', error: expect.stringContaining('get_studio_video') })
-    expect(studioRefusal(new StudioError('File this video in a project to give it a status'))).toEqual({ success: false, code: 'INVALID', error: 'File this video in a project to give it a status' })
+    expect(studioRefusal(new StudioError('Put this video in a Studio project to give it a status'))).toEqual({ success: false, code: 'INVALID', error: 'Put this video in a Studio project to give it a status' })
     // The engine's own refusal (a locked beat) reaches the agent as it is.
     expect(studioRefusal(new Error('Step 1 (update_beat): Beat Hook is locked by the person; ask them before changing it'))).toEqual({
       success: false,

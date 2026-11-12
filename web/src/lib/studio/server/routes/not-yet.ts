@@ -63,7 +63,7 @@ const agentStatus: StudioHandler = async () => ({ available: false, claudePath: 
 const agentSessions: StudioHandler = async () => ({ sessions: [] })
 /** GET /agent/approvals: spend approvals waiting. */
 const agentApprovals: StudioHandler = async () => ({ approvals: [] })
-const AGENT = "The editor's own assistant isn't available here. Ask the app's assistant instead."
+const AGENT = "The editor has no agent of its own here. Ask the agent in the chat instead."
 
 // ---- playback measurements -----------------------------------------------------------------------------------------
 
