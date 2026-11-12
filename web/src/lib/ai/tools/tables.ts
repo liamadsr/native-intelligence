@@ -5,7 +5,9 @@ import { CUSTOM_FIELD_TYPES, coerceCustomValue, hasOptions, type CustomFieldConf
 import { RELATION_TARGET_KINDS, formatCurrency, relationIds, type CurrencyValue } from '@/lib/crm/custom-field-types'
 import { fieldValueLabels, visibleRelationTargets } from '@/lib/crm/custom-field-references'
 import { visiblePrivateKindIds } from '@/lib/knowledge/entity-fences'
-import { describeChange } from '@/lib/tables/describe'
+import { readMemberTimeZone } from '@/lib/agent-events/member-time-zone'
+import { isTimeZone } from '@/lib/chat-cards/calendar'
+import { canOfferUndo, describeChange } from '@/lib/tables/describe'
 import { isUuid, newColumnKey } from '@/lib/tables/ops'
 import { applyOps, createTable, getTable, listChanges, listColumns, listTables, queryRows, undoChange, MAX_ROWS_PAGE, type TableActor } from '@/lib/tables/store'
 import { TABLE_LIMITS, type DataColumn, type DataOp, type DataRow, type DataTable, type DataTableWithColumns, type NewRow } from '@/lib/tables/types'
@@ -69,19 +71,30 @@ const fail = (error: string): { ok: false; error: string } => ({ ok: false, erro
 /** An id or a name? (isUuid narrows, and a name is a string too.) */
 const isId = (s: string): boolean => isUuid(s)
 
-/** "today", "tomorrow", "yesterday" as the person's day; anything else as it is. */
-function dayWord(value: unknown, timeZone: string | undefined): unknown {
-  if (typeof value !== 'string') return value
-  const word = value.trim().toLowerCase()
-  const shift = word === 'today' ? 0 : word === 'tomorrow' ? 1 : word === 'yesterday' ? -1 : null
-  if (shift === null) return value
-  const at = new Date(Date.now() + shift * 86_400_000)
+/** Today's date in a zone, as YYYY-MM-DD (UTC when the zone is not one). */
+function localDay(timeZone: string): string {
   try {
-    return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at)
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
   } catch {
-    return at.toISOString().slice(0, 10)
+    return new Date().toISOString().slice(0, 10)
   }
 }
+
+/**
+ * "today", "tomorrow", "yesterday" as the person's day in their zone; null
+ * for anything else. A day is added to the local date as a calendar day, not
+ * as 24 hours, so a DST change can't skip or repeat one.
+ */
+export function dayWordDate(value: unknown, timeZone: string): string | null {
+  if (typeof value !== 'string') return null
+  const word = value.trim().toLowerCase()
+  const shift = word === 'today' ? 0 : word === 'tomorrow' ? 1 : word === 'yesterday' ? -1 : null
+  if (shift === null) return null
+  const [y, m, d] = localDay(timeZone).split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + shift)).toISOString().slice(0, 10)
+}
+
+const isDayWord = (value: unknown) => dayWordDate(value, 'UTC') !== null
 
 const isTitleName = (name: string) => ['name', 'title'].includes(name.trim().toLowerCase())
 
@@ -169,11 +182,41 @@ export function createTableTools(
     .optional()
     .describe('Workspace to create in. Defaults to the active workspace. Copy it from the workspace_id on rows you read, or from active_workspace.')
 
+  const lookupWorkspaceField = z
+    .string()
+    .optional()
+    .describe("A table named in another of the person's workspaces: that workspace's id. Defaults to the active workspace; a table's id finds it anywhere.")
+
+  /**
+   * The person's zone, read once and only when a day is needed: the browser's
+   * this turn, else their saved one (readMemberTimeZone's chain), else UTC.
+   * Most turns (texts, Slack, MCP, runs) carry no browser zone.
+   */
+  let zone: Promise<string> | null = null
+  const personZone = () =>
+    (zone ??= (async () => {
+      if (isTimeZone(timeZone)) return timeZone
+      try {
+        return (await readMemberTimeZone(supabase, { workspaceId, userId })).timeZone
+      } catch {
+        return 'UTC'
+      }
+    })())
+  /** A day word as the person's date; any other value as it is. */
+  const dayIn = async (value: unknown) => (isDayWord(value) ? dayWordDate(value, await personZone()) : value)
+
   /** The ids among `ids` the person may read in `ws`. */
   const readableIds = (ws: string, ids: string[]) => visiblePrivateKindIds(supabase, 'data_table', userId, ids, ws, grantOpts)
 
+  /** The workspace a table's name is looked up in: the one named (a member's), else the active one. */
+  async function lookupWorkspace(explicit: string | undefined): Promise<Checked<string>> {
+    if (!explicit) return { ok: true, value: workspaceId }
+    const ws = await resolveCreateWorkspace(supabase, userId, workspaceId, explicit, { strictWorkspace, policy: 'session' })
+    return ws.ok ? { ok: true, value: ws.workspaceId } : fail('Workspace not found.')
+  }
+
   /** One table by id or name, among those the person can read, with its live columns. */
-  async function openTable(ref: string): Promise<Checked<{ ws: string; table: DataTableWithColumns }>> {
+  async function openTable(ref: string, explicitWorkspace?: string): Promise<Checked<{ ws: string; table: DataTableWithColumns }>> {
     const text = ref.trim()
     if (isId(text)) {
       const ws = (await resolveEntityWorkspace(supabase, userId, 'data_table', text, workspaceId, strictWorkspace))?.workspaceId
@@ -181,8 +224,11 @@ export function createTableTools(
       const table = await getTable(supabase, ws, text)
       return table ? { ok: true, value: { ws, table } } : fail(`No table ${text} that you can open. find_tables lists them.`)
     }
-    const all = await listTables(supabase, workspaceId)
-    const seen = await readableIds(workspaceId, all.map((t) => t.id))
+    const lookup = await lookupWorkspace(explicitWorkspace)
+    if (!lookup.ok) return lookup
+    const ws = lookup.value
+    const all = await listTables(supabase, ws)
+    const seen = await readableIds(ws, all.map((t) => t.id))
     const tables = all.filter((t) => seen.has(t.id))
     const want = text.toLowerCase()
     const exact = tables.filter((t) => t.name.toLowerCase() === want)
@@ -192,8 +238,8 @@ export function createTableTools(
       const some = tables.slice(0, 12).map((t) => t.name)
       return fail(`No table named "${text}".${some.length ? ` Tables: ${some.join(', ')}.` : ' There are no tables yet: create_table makes one.'}`)
     }
-    const table = await getTable(supabase, workspaceId, hits[0].id)
-    return table ? { ok: true, value: { ws: workspaceId, table } } : fail(`No table named "${text}".`)
+    const table = await getTable(supabase, ws, hits[0].id)
+    return table ? { ok: true, value: { ws, table } } : fail(`No table named "${text}".`)
   }
 
   /**
@@ -214,8 +260,8 @@ export function createTableTools(
   }
 
   /** A table to write: found, readable and the person's to change. */
-  async function writableTable(ref: string): Promise<Checked<{ ws: string; table: DataTableWithColumns }>> {
-    const found = await openTable(ref)
+  async function writableTable(ref: string, explicitWorkspace?: string): Promise<Checked<{ ws: string; table: DataTableWithColumns }>> {
+    const found = await openTable(ref, explicitWorkspace)
     if (!found.ok) return found
     const refused = await editRefusal(found.value.ws, found.value.table)
     return refused ? fail(refused) : found
@@ -253,7 +299,7 @@ export function createTableTools(
         if (!hit) return fail(`${col.label} takes a member of this workspace: no one named "${v}" (or several are).`)
         v = hit.id
       }
-      if (col.field_type === 'date') v = dayWord(v, timeZone ?? undefined)
+      if (col.field_type === 'date') v = await dayIn(v)
       const coerced = coerceCustomValue(col, v)
       if (!coerced.ok) return fail(coerced.error)
       out[col.key] = coerced.value
@@ -344,14 +390,18 @@ export function createTableTools(
         'Find the workspace\'s tables (its own databases: rows under typed columns), each with its columns. Use it before create_table, so a list the person already keeps is added to, not made twice, and to find a table to read or write.',
       inputSchema: z.object({
         search: z.string().optional().describe('Part of the table\'s name.'),
+        workspace_id: lookupWorkspaceField,
       }),
-      execute: async ({ search }) => {
+      execute: async ({ search, workspace_id }) => {
         try {
-          const all = await listTables(supabase, workspaceId)
-          const seen = await readableIds(workspaceId, all.map((t) => t.id))
+          const lookup = await lookupWorkspace(workspace_id)
+          if (!lookup.ok) return { success: false, error: lookup.error }
+          const ws = lookup.value
+          const all = await listTables(supabase, ws)
+          const seen = await readableIds(ws, all.map((t) => t.id))
           const want = search?.trim().toLowerCase()
           const tables = all.filter((t) => seen.has(t.id) && (!want || t.name.toLowerCase().includes(want))).slice(0, 50)
-          const columns = await Promise.all(tables.map((t) => getTable(supabase, workspaceId, t.id).then((x) => x?.columns ?? [])))
+          const columns = await Promise.all(tables.map((t) => getTable(supabase, ws, t.id).then((x) => x?.columns ?? [])))
           return {
             success: true,
             count: tables.length,
@@ -375,10 +425,10 @@ export function createTableTools(
     get_table: tool({
       description:
         "One table in full: every column with its type, options and what it links to, how many rows it has, its saved views, whether the person can change it, and its latest changes (the change ids are what undo_table_change takes).",
-      inputSchema: z.object({ table: tableField }),
-      execute: async ({ table: ref }) => {
+      inputSchema: z.object({ table: tableField, workspace_id: lookupWorkspaceField }),
+      execute: async ({ table: ref, workspace_id }) => {
         try {
-          const found = await openTable(ref)
+          const found = await openTable(ref, workspace_id)
           if (!found.ok) return { success: false, error: found.error }
           const { ws, table } = found.value
           const [count, views, changes, refused] = await Promise.all([
@@ -495,6 +545,7 @@ export function createTableTools(
         "Change a table's columns: add one, rename one, change its type (every value converts, or it refuses with how many don't fit), set a select's options, make one required while a select holds an option, or delete one. All in one batch; the person can undo it.",
       inputSchema: z.object({
         table: tableField,
+        workspace_id: lookupWorkspaceField,
         changes: z
           .array(
             z.object({
@@ -518,9 +569,9 @@ export function createTableTools(
           .max(50),
         because: becauseField,
       }),
-      execute: async ({ table: ref, changes, because }) => {
+      execute: async ({ table: ref, workspace_id, changes, because }) => {
         try {
-          const found = await writableTable(ref)
+          const found = await writableTable(ref, workspace_id)
           if (!found.ok) return { success: false, error: found.error }
           const { ws, table } = found.value
           // A deleted column keeps its key (its undo brings it back).
@@ -601,6 +652,7 @@ export function createTableTools(
         "Add rows to a table, or change rows already there, in one batch. A row with `id` (or `match`, its exact name) is changed; one with neither is added. Values go by column name and must fit the column's type (get_table has them). When the person asks, or an email, meeting or text clearly changes a row (a rental came back, an order's date moved), write it with `because`, then say what you changed; they can undo it. Don't ask first.",
       inputSchema: z.object({
         table: tableField,
+        workspace_id: lookupWorkspaceField,
         rows: z
           .array(
             z.object({
@@ -614,9 +666,9 @@ export function createTableTools(
           .max(200),
         because: becauseField,
       }),
-      execute: async ({ table: ref, rows, because }) => {
+      execute: async ({ table: ref, workspace_id, rows, because }) => {
         try {
-          const found = await writableTable(ref)
+          const found = await writableTable(ref, workspace_id)
           if (!found.ok) return { success: false, error: found.error }
           const { ws, table } = found.value
           const refs = rows.flatMap((r) => (r.id ? [r.id] : r.match ? [r.match] : []))
@@ -640,6 +692,8 @@ export function createTableTools(
             if (key) {
               const hit = byRef.get(key)
               if (!hit) return { success: false, error: `${table.name} has no row "${key}".` }
+              // A row keeps its name: a blank one is never written over it.
+              if (name === '') return { success: false, error: `"${hit.title || 'Untitled'}" keeps its name: give a new one, or leave name out.` }
               const values = v.value.values
               if (name === undefined && !Object.keys(values).length) return { success: false, error: `Nothing to change on "${hit.title}".` }
               ops.push({ op: 'update_row', row_id: hit.id, ...(name !== undefined ? { title: name } : {}), ...(Object.keys(values).length ? { values } : {}) })
@@ -677,6 +731,7 @@ export function createTableTools(
         'Read a table\'s rows, filtered and sorted on the server: "which rentals are overdue" is a filter on the due date column (lt "today") and on the status. Filters all must match. Returns a page of rows, each with its id, name and values by column name, and whether there are more. To show the rows to the person, use show with kind tables instead.',
       inputSchema: z.object({
         table: tableField,
+        workspace_id: lookupWorkspaceField,
         filters: z
           .array(
             z.object({
@@ -699,9 +754,9 @@ export function createTableTools(
         limit: z.number().int().min(1).max(100).optional().describe(`Default ${DEFAULT_ROWS}.`),
         offset: z.number().int().min(0).optional(),
       }),
-      execute: async ({ table: ref, filters, sort, limit, offset }) => {
+      execute: async ({ table: ref, workspace_id, filters, sort, limit, offset }) => {
         try {
-          const found = await openTable(ref)
+          const found = await openTable(ref, workspace_id)
           if (!found.ok) return { success: false, error: found.error }
           const { ws, table } = found.value
           const viewFilters: ViewFilter[] = []
@@ -709,14 +764,14 @@ export function createTableTools(
             const field = fieldFor(table, f.column)
             if (!field.ok) return { success: false, error: field.error }
             const isDay = field.value.column?.field_type === 'date' || field.value.field === 'created_at' || field.value.field === 'updated_at'
-            const fix = (v: unknown) => (isDay ? dayWord(v, timeZone ?? undefined) : v)
+            const fix = (v: unknown) => (isDay ? dayIn(v) : Promise.resolve(v))
             const raw = f.value as unknown
             const value =
               f.operator === 'between' && raw && typeof raw === 'object' && !Array.isArray(raw)
-                ? { from: fix((raw as { from?: unknown }).from), to: fix((raw as { to?: unknown }).to) }
+                ? { from: await fix((raw as { from?: unknown }).from), to: await fix((raw as { to?: unknown }).to) }
                 : Array.isArray(raw)
-                  ? raw.map(fix)
-                  : fix(raw)
+                  ? await Promise.all(raw.map(fix))
+                  : await fix(raw)
             viewFilters.push({ id: `agent-${i}`, field: field.value.field, operator: f.operator as FilterOperator, value: value as ViewFilter['value'] })
           }
           const ordering: SortConfig[] = []
@@ -734,7 +789,7 @@ export function createTableTools(
             offset: from,
             userId,
             // A relative window ("this week") is the person's days, as the grid reads it.
-            ...(timeZone ? { timeZone } : {}),
+            ...(viewFilters.length ? { timeZone: await personZone() } : {}),
           })
           const labels = await labelsFor(ws, table.columns, page.rows)
           return {
@@ -754,12 +809,13 @@ export function createTableTools(
       description: "Archive rows of a table (by id, or by exact name): they leave the table's views and come back with Undo. Only when the person asks, or a row is clearly finished with and they keep it that way.",
       inputSchema: z.object({
         table: tableField,
+        workspace_id: lookupWorkspaceField,
         rows: z.array(z.string()).min(1).max(TABLE_LIMITS.rowsPerOp).describe('Row ids, or exact row names.'),
         because: becauseField,
       }),
-      execute: async ({ table: ref, rows, because }) => {
+      execute: async ({ table: ref, workspace_id, rows, because }) => {
         try {
-          const found = await writableTable(ref)
+          const found = await writableTable(ref, workspace_id)
           if (!found.ok) return { success: false, error: found.error }
           const { ws, table } = found.value
           const named = await rowsNamed(table, rows)
@@ -781,17 +837,41 @@ export function createTableTools(
 
     undo_table_change: tool({
       description:
-        "Take back a change to a table: every row and column it touched goes back, unless it has changed again since (then the newer value stays). Without change_id, the table's latest change. Use it when the person says a table change was wrong (\"undo that\").",
+        "Take back a change to a table: every row and column it touched goes back, unless it has changed again since (then the newer value stays). Without change_id, the person's own latest change (yours on their behalf included); when a teammate changed the table after it, it asks which change, listing the latest with their ids: ask the person, then pass change_id. Use it when the person says a table change was wrong (\"undo that\").",
       inputSchema: z.object({
         table: tableField,
+        workspace_id: lookupWorkspaceField,
         change_id: z.string().optional().describe('From get_table, or the change_id a write returned.'),
       }),
-      execute: async ({ table: ref, change_id }) => {
+      execute: async ({ table: ref, workspace_id, change_id }) => {
         try {
-          const found = await writableTable(ref)
+          const found = await writableTable(ref, workspace_id)
           if (!found.ok) return { success: false, error: found.error }
           const { ws, table } = found.value
-          const result = await undoChange(supabase, ws, table.id, change_id ?? null, actor(undefined))
+          let target = change_id ?? null
+          if (!target) {
+            // The person's own latest change, never a teammate's newer one by default.
+            const recent = await listChanges(supabase, ws, table.id, 20, { summary: true })
+            const at = recent.findIndex((c) => c.actor_user_id === userId && canOfferUndo(c))
+            if (at < 0) return { success: false, error: `Nothing of the person's to undo in ${table.name}.` }
+            const newer = recent.slice(0, at).filter((c) => c.actor_user_id !== userId && !c.undone_at)
+            if (newer.length) {
+              return {
+                success: false,
+                needs_change_id: true,
+                error: `Someone else changed ${table.name} after the person's latest change. Ask which one to undo, then pass its change_id.`,
+                changes: recent.slice(0, 5).map((c) => ({
+                  change_id: c.id,
+                  what: describeChange(c, table.columns),
+                  by: c.actor_user_id === userId ? 'the person' : 'a teammate',
+                  at: c.created_at,
+                  ...(c.undone_at ? { undone: true } : {}),
+                })),
+              }
+            }
+            target = recent[at].id
+          }
+          const result = await undoChange(supabase, ws, table.id, target, actor(undefined))
           if (!result.ok) return refusal(result)
           const { restored, kept } = result.value
           return {

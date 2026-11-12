@@ -146,9 +146,11 @@ const SHOW_TOOL_NAME = 'show'
 /**
  * The proxies besides `show` that forward the browser's zone: read_card (a
  * calendar card's local days) and the loop builders (a schedule that names
- * no timezone takes the person's; src/lib/ai/tools/flows.ts).
+ * no timezone takes the person's; src/lib/ai/tools/flows.ts), and the table
+ * tools that read a day word ("today", "tomorrow") as the person's date
+ * (src/lib/ai/tools/tables.ts; without a zone they read the saved one).
  */
-const ZONE_TOOL_NAMES: ReadonlySet<string> = new Set([READ_CARD_TOOL_NAME, 'create_flow', 'update_flow'])
+const ZONE_TOOL_NAMES: ReadonlySet<string> = new Set([READ_CARD_TOOL_NAME, 'create_flow', 'update_flow', 'create_table', 'write_rows', 'query_rows'])
 /**
  * Native FRAMEWORK tools — eve's own provider-executed `web_search` (Exa) and
  * our SSRF-guarded `web_fetch` override. Never proxied.

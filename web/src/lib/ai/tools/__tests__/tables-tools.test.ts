@@ -4,7 +4,7 @@
  * and every write one batch with the person named, source 'agent', the
  * reason, and (a guest's turn) no grants for the database either (530).
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const hoisted = vi.hoisted(() => ({ queryRows: vi.fn() }))
 vi.mock('@/lib/tables/store', async (importOriginal) => {
@@ -12,7 +12,7 @@ vi.mock('@/lib/tables/store', async (importOriginal) => {
   return { ...real, queryRows: hoisted.queryRows }
 })
 
-import { createTableTools, TABLE_TOOL_NAMES } from '../tables'
+import { createTableTools, dayWordDate, TABLE_TOOL_NAMES } from '../tables'
 import { getToolDefinition, getMutatingToolNames, isReadShapedToolName } from '../../tool-registry'
 import { withToolGuide, MAX_ADVERTISED_DESCRIPTION } from '../../tool-guides'
 import { isToolExcludedForSurface } from '@/lib/chat/chat-ceiling'
@@ -26,6 +26,8 @@ const SHARED = '66666666-6666-4666-8666-666666666666'
 const ROW = '11111111-1111-4111-8111-111111111111'
 const CHANGE = '44444444-4444-4444-8444-444444444444'
 const M1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+/** A workspace table in the person's second workspace. */
+const VANS = '99999999-9999-4999-8999-999999999999'
 const M2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 
 const tableRow = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
@@ -89,7 +91,7 @@ function db(rpc?: Rpc) {
     },
     (name, args) => {
       if (name === 'visible_data_table_ids') {
-        const ids = (args.p_ids as string[]).filter((id) => id === RENTALS || (id === SHARED && args.p_grants === true))
+        const ids = (args.p_ids as string[]).filter((id) => id === RENTALS || id === VANS || (id === SHARED && args.p_grants === true))
         return { data: ids, error: null }
       }
       if (name === 'data_table_editable_by') return { data: false, error: null }
@@ -320,5 +322,127 @@ describe('undo_table_change', () => {
     const apply = f.rpcCalls.find((c) => c.name === 'apply_data_ops')!
     expect(apply.args).toMatchObject({ p_undo_of: CHANGE, p_source: 'agent', p_as_user: ME })
     expect(apply.args.p_ops).toEqual([{ op: 'update_row', row_id: ROW, values: { status: 'Returned' } }])
+  })
+})
+
+/** A change to the rentals table, by `actor`, `minutesAgo` minutes ago. */
+function change(id: string, actor: string, minutesAgo: number) {
+  return {
+    id,
+    workspace_id: WS,
+    table_id: RENTALS,
+    version: 100 - minutesAgo,
+    actor_user_id: actor,
+    source: actor === ME ? 'agent' : 'person',
+    reason: null,
+    changes: [{ op: 'update_row', row_id: ROW, fields: { 'values.status': { from: 'Returned', to: 'Out' } } }],
+    undo_of: null,
+    undone_at: null,
+    created_at: new Date(Date.UTC(2026, 10, 10, 10, 60 - minutesAgo)).toISOString(),
+  }
+}
+
+describe('"undo that" with no change_id: the person\'s own latest change, never a teammate\'s', () => {
+  it("undoes the person's latest change when nothing newer is a teammate's", async () => {
+    const f = db()
+    f.rows.data_change.push(change(CHANGE, ME, 5), change('77777777-7777-4777-8777-777777777777', ME, 30))
+    const out = await call(createTableTools(ME, f.client, WS), 'undo_table_change', { table: RENTALS })
+    expect(out.success).toBe(true)
+    expect(f.rpcCalls.find((c) => c.name === 'apply_data_ops')!.args.p_undo_of).toBe(CHANGE)
+  })
+
+  it('asks which one, listing the latest with ids, when a teammate changed the table after it', async () => {
+    const f = db()
+    const theirs = '88888888-8888-4888-8888-888888888888'
+    f.rows.data_change.push(change(theirs, 'u-2', 2), change(CHANGE, ME, 5))
+    const out = await call(createTableTools(ME, f.client, WS), 'undo_table_change', { table: RENTALS })
+    expect(out).toMatchObject({ success: false, needs_change_id: true })
+    expect((out.changes as Array<{ change_id: string; by: string }>).map((c) => [c.change_id, c.by])).toEqual([
+      [theirs, 'a teammate'],
+      [CHANGE, 'the person'],
+    ])
+    expect(f.rpcCalls.some((c) => c.name === 'apply_data_ops')).toBe(false)
+  })
+
+  it("says so when the person has nothing to undo, a teammate's change alone there", async () => {
+    const f = db()
+    f.rows.data_change.push(change('88888888-8888-4888-8888-888888888888', 'u-2', 2))
+    const out = await call(createTableTools(ME, f.client, WS), 'undo_table_change', { table: RENTALS })
+    expect(out).toMatchObject({ success: false })
+    expect(f.rpcCalls.some((c) => c.name === 'apply_data_ops')).toBe(false)
+  })
+})
+
+describe("day words are the person's dates, in their zone", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('adds a calendar day, not 24 hours, across a DST change', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    // 11:30 pm Saturday March 7 in Los Angeles; the clocks go forward that night.
+    vi.setSystemTime(new Date('2026-03-08T07:30:00Z'))
+    expect(dayWordDate('tomorrow', 'America/Los_Angeles')).toBe('2026-03-08')
+    expect(dayWordDate('today', 'America/Los_Angeles')).toBe('2026-03-07')
+    // 11:30 pm Sunday November 1, the night the clocks went back.
+    vi.setSystemTime(new Date('2026-11-02T07:30:00Z'))
+    expect(dayWordDate('yesterday', 'America/Los_Angeles')).toBe('2026-10-31')
+    expect(dayWordDate('next week', 'America/Los_Angeles')).toBeNull()
+  })
+
+  it('a Los Angeles evening\'s "tomorrow" is the next LA day, read from the saved zone when the turn has none', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    // 8:30 pm November 10 in Los Angeles: already November 11 in UTC.
+    vi.setSystemTime(new Date('2026-11-11T04:30:00Z'))
+    const f = db()
+    f.rows.member[0].time_zone = 'America/Los_Angeles'
+    await call(createTableTools(ME, f.client, WS), 'write_rows', { table: RENTALS, rows: [{ name: 'Robin', values: { 'Due back': 'tomorrow' } }] })
+    const ops = f.rpcCalls.find((c) => c.name === 'apply_data_ops')!.args.p_ops as Array<{ rows: Array<{ values: Record<string, unknown> }> }>
+    expect(ops[0].rows[0].values.due_back).toBe('2026-11-11')
+  })
+
+  it('an overdue query compares with the LA day and passes the zone to the views engine', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-11T04:30:00Z'))
+    hoisted.queryRows.mockResolvedValueOnce({ rows: [], hasMore: false })
+    const f = db()
+    f.rows.member[0].time_zone = 'America/Los_Angeles'
+    await call(createTableTools(ME, f.client, WS), 'query_rows', { table: RENTALS, filters: [{ column: 'Due back', operator: 'lt', value: 'today' }] })
+    const opts = hoisted.queryRows.mock.calls.at(-1)![4]
+    expect(opts.filters[0].value).toBe('2026-11-10')
+    expect(opts.timeZone).toBe('America/Los_Angeles')
+  })
+
+  it("the browser's zone this turn wins over the saved one", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-11T04:30:00Z'))
+    const f = db()
+    f.rows.member[0].time_zone = 'America/Los_Angeles'
+    await call(createTableTools(ME, f.client, WS, false, 'session', false, false, 'Europe/Berlin'), 'write_rows', { table: RENTALS, rows: [{ name: 'Robin', values: { 'Due back': 'today' } }] })
+    const ops = f.rpcCalls.find((c) => c.name === 'apply_data_ops')!.args.p_ops as Array<{ rows: Array<{ values: Record<string, unknown> }> }>
+    expect(ops[0].rows[0].values.due_back).toBe('2026-11-11')
+  })
+})
+
+describe('names and workspaces', () => {
+  it("never blanks an existing row's name", async () => {
+    const f = db()
+    const out = await call(createTableTools(ME, f.client, WS), 'write_rows', { table: RENTALS, rows: [{ match: 'Robin', name: '' }] })
+    expect(out).toMatchObject({ success: false })
+    expect(String(out.error)).toContain('keeps its name')
+    expect(f.rpcCalls.some((c) => c.name === 'apply_data_ops')).toBe(false)
+  })
+
+  it('finds tables in another workspace the person belongs to, by its id, and in no other', async () => {
+    const f = db()
+    f.rows.member.push({ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', workspace_id: 'ws-2', user_id: ME, role: 'member', display_name: 'Avery Stone' })
+    f.rows.data_table.push(tableRow(VANS, 'Van bookings', { workspace_id: 'ws-2' }))
+    const tools = createTableTools(ME, f.client, WS)
+    const there = await call(tools, 'find_tables', { workspace_id: 'ws-2' })
+    expect((there.tables as Array<{ name: string }>).map((t) => t.name)).toEqual(['Van bookings'])
+    const byName = await call(tools, 'get_table', { table: 'Van bookings', workspace_id: 'ws-2' })
+    expect(byName.success).toBe(true)
+    expect((await call(tools, 'get_table', { table: 'Van bookings' })).success).toBe(false)
+    expect(await call(tools, 'find_tables', { workspace_id: 'ws-nope' })).toMatchObject({ success: false, error: 'Workspace not found.' })
   })
 })
