@@ -21,7 +21,9 @@
 #   3. the runtime's two files, at the commit pinned here, checksums verified;
 #   4. a unit that starts the runtime after every boot;
 #   5. the client (requirements.txt, every file pinned by its hash) and the
-#      key the checks use (check.sh).
+#      key the checks use (check.sh);
+#   6. the runtime's limits: how much disk a sandbox gets and how long it may live;
+#   7. the coding agent's image (image.py).
 #
 # It handles one secret, the runtime's own API key, which the runtime makes on
 # its first start: it is copied to a file only root can read and never shown.
@@ -34,9 +36,15 @@ COMPOSE_SHA256=51b01f6ecc03035ea2d1f592a9a7c6f9090f61142c0fe64b993876440c19fac7
 ENV_SHA256=4ecbbdcf42d0ae2abac6f8a530c990834fdea252e6efeed87af137282060ecf1
 # The client the checks use.
 SDK_VERSION=2.46.0
+# The runtime's own limits, which it ships at 512 MiB and one hour. A coding
+# run needs room for a repository and what it installs, and may outlast an
+# hour: the app's own token for a run lives six.
+LIMIT_DISK_MIB=16384
+LIMIT_HOURS=6
 
 runtime_dir=/opt/e2b
 settings=/etc/ni-sandbox/runtime.env
+limits=/etc/ni-sandbox/limits.env
 
 main() {
 trap 'echo "setup: stopped by a failing command at line $LINENO." >&2' ERR
@@ -55,7 +63,7 @@ say() { printf '\n== %s\n' "$*"; }
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 [ "$(id -u)" = 0 ] || die "run it with sudo."
-[ -f "$here/guard.sh" ] && [ -f "$here/requirements.txt" ] || die "run it from the repository's checkout (guard.sh and requirements.txt must be beside it)."
+[ -f "$here/guard.sh" ] && [ -f "$here/requirements.txt" ] && [ -f "$here/image.py" ] || die "run it from the repository's checkout (guard.sh, requirements.txt and image.py must be beside it)."
 [ -c /dev/kvm ] || die "no /dev/kvm here. Prepare the server first: deploy/server/setup.sh --role sandbox."
 command -v docker >/dev/null 2>&1 || die "Docker is missing. Prepare the server first: deploy/server/setup.sh --role sandbox."
 # Read whole before it is looked at: a reader that leaves early closes the
@@ -244,6 +252,43 @@ mv -f "$runtime_dir/sdk.env.new" "$runtime_dir/sdk.env"
 chown root:root "$runtime_dir/sdk.env"
 chmod 600 "$runtime_dir/sdk.env"
 echo "client $SDK_VERSION; the key is in $runtime_dir/sdk.env (root only)"
+
+say "The runtime's limits: $((LIMIT_DISK_MIB / 1024)) GiB of disk for a sandbox, $LIMIT_HOURS hours at most"
+# The runtime keeps them in one row of its own database, not in a settings
+# file, and its API reads them when it starts. So: change the row, restart
+# the API. That restart ends no sandbox; the part that runs them is another.
+sql() { (cd "$runtime_dir" && docker compose exec -T postgres sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" -At -v ON_ERROR_STOP=1 -c "$1"' sh "$1"); }
+# The disk is two values there: how much free disk an image is built with,
+# and the most it may have. Raising one without the other changes nothing.
+had="$(sql "select disk_mb || '|' || default_free_disk_size_mb || '|' || max_length_hours from public.default_limits")" ||
+	die "the runtime's limits are not where this script knows them (public.default_limits). Did the pinned runtime change how it keeps them?"
+if [ "$had" != "$LIMIT_DISK_MIB|$LIMIT_DISK_MIB|$LIMIT_HOURS" ]; then
+	[ "$(printf '%s\n' "$had" | wc -l)" = 1 ] || die "the runtime's limits table has more than one row: not changed."
+	sql "update public.default_limits set disk_mb = $LIMIT_DISK_MIB, default_free_disk_size_mb = $LIMIT_DISK_MIB, max_length_hours = $LIMIT_HOURS" >/dev/null
+	(cd "$runtime_dir" && docker compose restart api >/dev/null 2>&1)
+	tries=0
+	until [ "$(cd "$runtime_dir" && docker compose ps api --format '{{.Health}}')" = healthy ]; do
+		tries=$((tries + 1))
+		[ "$tries" -le 60 ] || die "the runtime's API did not come back healthy after its restart."
+		sleep 2
+	done
+	echo "set (they were $had: disk, free disk, hours), and the API restarted"
+	# An image keeps the disk it was built with: one built under the old limit is built again.
+	rm -f /etc/ni-sandbox/image.*
+else
+	echo "already set"
+fi
+write_if_changed "$limits" <<EOF || true
+LIMIT_DISK_MIB=$LIMIT_DISK_MIB
+LIMIT_HOURS=$LIMIT_HOURS
+EOF
+
+say "The coding agent's image"
+# Built on this server, by the runtime itself, from the agent framework's own
+# base image. The first build fetches that image (about 600 MB) and takes a
+# few minutes; afterwards it is only built again when its definition changes.
+(set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" build "$LIMIT_DISK_MIB") ||
+	die "the coding agent's image was not built."
 
 say "Done"
 echo "Now run: sudo ./check.sh"

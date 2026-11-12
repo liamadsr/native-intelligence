@@ -14,6 +14,7 @@ runtime_dir=/opt/e2b
 settings=/etc/ni-sandbox/runtime.env
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tunnel_settings=/etc/ni-sandbox/tunnel.env
+limits=/etc/ni-sandbox/limits.env
 failed=0
 notes=0
 ok() { echo "ok    $*"; }
@@ -163,6 +164,16 @@ else
 	bad "memory for sandboxes: $settings asks for ${want:-nothing} pages, the machine has $have"
 fi
 
+# The runtime's own limits, as setup.sh set them, read back from where the runtime keeps them.
+want_disk="$(sed -n 's/^LIMIT_DISK_MIB=//p' "$limits" 2>/dev/null)"
+want_hours="$(sed -n 's/^LIMIT_HOURS=//p' "$limits" 2>/dev/null)"
+have_limits="$(cd "$runtime_dir" 2>/dev/null && docker compose exec -T postgres sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" -At -c "select disk_mb || chr(124) || default_free_disk_size_mb || chr(124) || max_length_hours from public.default_limits"' 2>/dev/null)"
+if [ -n "$want_disk" ] && [ "$have_limits" = "$want_disk|$want_disk|$want_hours" ]; then
+	ok "a sandbox gets $((want_disk / 1024)) GiB of disk and may live $want_hours hours"
+else
+	bad "the runtime's limits are ${have_limits:-unreadable}, not ${want_disk:-?}|${want_disk:-?}|${want_hours:-?} (run setup.sh)"
+fi
+
 # 5. From inside a sandbox.
 if [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
 	# With the first two of the runtime's link addresses, of which there are many.
@@ -175,6 +186,13 @@ if [ -r "$runtime_dir/sdk.env" ] && [ -x "$runtime_dir/.venv/bin/python" ]; then
 		ok "a sandbox cannot reach this machine, and can reach the internet"
 	else
 		bad "the check from inside a sandbox did not pass"
+	fi
+	# The coding agent's image: one sandbox from it, looked at from inside. The
+	# limit is asked for less two GiB, for what the image itself takes.
+	if [ -n "$want_disk" ] && (set -a && . "$runtime_dir/sdk.env" && set +a && "$runtime_dir/.venv/bin/python" "$here/image.py" check "$((want_disk / 1024 - 2))"); then
+		ok "the coding agent's image holds what the agent needs"
+	else
+		bad "the coding agent's image is missing or not as it should be (run setup.sh)"
 	fi
 else
 	bad "no client or key for the check from inside a sandbox (run setup.sh)"

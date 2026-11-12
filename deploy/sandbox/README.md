@@ -22,7 +22,7 @@ Two things to know about that package before relying on it:
    ssh <user>@<sandbox-server> "sudo bash -s -- --login-user <user> --repo <https address of this repository> --role sandbox" < deploy/server/setup.sh
    ```
 
-3. The runtime and its rules, on the server. The first run takes a few minutes: the runtime prepares the machine, fetches what it needs and builds its base image.
+3. The runtime and its rules, on the server. The first run takes several minutes: the runtime prepares the machine, fetches what it needs and builds its base image, and then the coding agent's image is built.
 
    ```bash
    cd /opt/native-intelligence/deploy/sandbox
@@ -124,9 +124,29 @@ The runtime sets memory aside for sandboxes when it starts, and nothing else on 
 sudo ./setup.sh --pool-gib 16
 ```
 
-A sandbox reserves its whole memory size from that pool when it starts (512 MiB for the base image; an image of ours can ask for more), and gives it back when it is paused or removed. A sandbox that does not fit is refused with a clear error. The runtime also has a limit of its own of 20 sandboxes running at once.
+A sandbox reserves its whole memory size from that pool when it starts (512 MiB for the base image; an image of ours can ask for more), and gives it back when it is paused or removed. A sandbox that does not fit is refused with a clear error. The runtime also has a limit of its own of 20 sandboxes running at once. A coding sandbox is 4 GiB, so the 16 GiB this server sets aside carries three of them at once, with a little left over.
 
 **Never run `docker compose up` by hand in `/opt/e2b`.** Without this server's settings the runtime falls back to its own default of 4 GiB and writes that down as the machine's setting. Use `sudo systemctl restart ni-sandbox-runtime`, which runs the same `up` with the settings.
+
+## The runtime's limits
+
+The runtime ships with limits meant for trying it out: 512 MiB of free disk in a sandbox, and one hour of life. `setup.sh` raises them to 16 GiB and six hours (the two numbers at its top), which is what a coding run needs: room for a repository and what it installs, and the six hours the app's own token for a run lives.
+
+They are not in a settings file. The runtime keeps them in one row of its own database, and its API reads that row when it starts. So `setup.sh` changes the row and restarts the API, alone: the part that runs sandboxes is another, and no sandbox ends. Three things about that row, each found by trying:
+
+- The disk is two values, how much free disk an image is built with and the most it may have. Raising one without the other changes nothing.
+- A change is not seen until the API restarts. Clearing what the runtime remembers elsewhere is not enough.
+- An image keeps the disk it was built with. After a change of the limit, images are built again.
+
+`check.sh` reads the row back and fails when it is not what `setup.sh` set. A newer runtime may keep its limits elsewhere: `setup.sh` then stops and says so.
+
+## The coding agent's image
+
+[`image.py`](image.py) builds it, on this server, by the runtime itself: the agent framework's own base image (the one its hosted sandboxes start from, so the agent finds what it expects), with the workspace handed to the user the runtime runs commands as. Two processors and 4 GiB of memory.
+
+- The framework's version in the image's name must be the one the app uses. They are written in two places, here and in `web/package.json`, and [`tests/test_image.py`](tests/test_image.py) fails when only one of them moves.
+- It is built when it is missing, when its definition changed, or when the disk limit did. A build only counts when a sandbox started from it passes the check below.
+- `check.sh` starts one sandbox from it and looks from inside: every tool the agent calls is there, in a login shell, from the workspace; the workspace is the sandbox user's own; the disk and the memory are what they should be.
 
 ## Day to day
 
@@ -163,12 +183,12 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 - **A reboot.** Three times. The last, with the guard as it is now: the machine was back two minutes after the command; the guard was loaded 28 s into the boot, before Docker started; the runtime was ready by itself 3 min 45 s after the command, and `check.sh` passed with nothing done by hand. The first time, a sandbox paused before the reboot resumed after it in 1.4 s with its files and its running program. The one that was running was gone, and the runtime still listed it as running: whatever calls the runtime must expect that.
 - **How many.** With 16 GiB set aside, twenty base sandboxes ran at once (the runtime's own limit).
 - **The tunnel.** First this end alone, with a stand-in for the app server's key: the check passes, and a reboot brings the guard, the tunnel and the runtime back in that order. The app end's table was rehearsed here with a pretend link and a container publishing a port on it: without the table the far end reached the published port, which is what would have happened on the app's server with a `ufw` rule alone; with it nothing came in, and calls going out were still answered. Then both ends for real, on 2026-11-12: the app's step ended with the runtime's health answer through the tunnel, `tunnel.sh check` passed on the app's server, a request from inside the coding agent's own container was answered by the runtime, and this server's check says the app's server is connected. On the app's server nothing restarted and no port changed. Not seen: the app end's table dropping a real packet. Nothing can send it one while this server's guard stands, so that table is proven by the rehearsal alone. On the way, the app's server waited five minutes on a package server that was down and then gave up; the package came from Ubuntu's main archive instead, checked against the signed list (see "When a package server is down").
+- **The coding agent's image.** Built in about two minutes. A sandbox from it starts in 0.08 s as the runtime's user, in the workspace. In it, a clone of this repository took 4 s and an install of the web app's dependencies 39 s, with 13 of 17 GiB of disk still free afterwards. The first build came out with 40 MB free, because only one of the two disk values had been raised: the image's own check caught it, which is why a build now has to pass that check to count.
 - **A browser.** An image from a registry with a browser in it was built in 42 s. A 2 GiB sandbox from it started in 0.07 s; the browser answered from outside, through the traffic port, 3.8 s later; it was driven over a WebSocket (it opened a page); and it still showed that page after a pause (1.2 s) and a resume (0.5 s).
 
 ## Known gaps
 
 - **Rules that add a header on the way out are stored and not applied** by this package. The coding agent's sandbox relies on such a rule today: the hosted service adds the run's gate token to requests for the app's git gate, so the token never sits inside the sandbox. Here that needs another arrangement, to be decided when the coding agent is moved.
-- **The runtime's own limits live in its database**, not in a settings file: 20 sandboxes at once, one hour of life for a sandbox at most, 8 processors and 8 GiB each at most, and 512 MiB of free disk on top of what an image holds. Installing a browser into an image failed on that last one, and a change of the value in the database did not take effect at once. An image of ours with a repository's dependencies in it needs more disk, and a long run may need more time: how to set these, from `setup.sh`, is to be worked out when the coding agent is moved.
 - **Name lookups still leave with a list of allowed names**, through the resolver the sandbox is given. A program could pass a little data out that way, slowly. The closed setting has no such gap.
 - **No names and no certificates** for a sandbox's ports: the runtime offers one plain port. A browser that a person's own computer must reach needs an address and a certificate from an edge of ours.
 - **A program inside a sandbox can read** its own sandbox's id and a hash of its access token from the machine's metadata address. Neither opens anything by itself.
@@ -176,6 +196,6 @@ On the first server (4 cores, 8 threads, 32 GB, two spinning disks mirrored), by
 
 ## Not done yet
 
-- The piece that lets the coding agent use this runtime in place of the hosted service, with its own image.
+- The piece in the app that lets the coding agent use this runtime in place of the hosted service. Its image and the limits it needs are here; the app's side is not.
 - The cloud browser on it.
 - A second setup from nothing on a wiped machine, timed.
